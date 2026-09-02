@@ -57,11 +57,35 @@
 //   SalvageResult                        the discriminated success | reject union
 //   salvageEquipment                     the action
 //   (re-exported from reservation.ts)    the DERIVED salvage-reservation helpers, 0.13.3
+//   selectAutoSalvageTargets             the PURE auto-salvage rule evaluator, 0.13.3 Unit 5.1
+//                                        (reads state, draws NO rng, returns targets only)
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import type { GameState, EquipmentRarity, SalvagedMaterialItemId, SalvageLootTier } from "./model";
-import { BLUEPRINTS, ITEMS, SALVAGE_LOOT_POOLS, HOMEWORLD_TALENTS, SHIP_TYPES, isStandardIssueBaseline } from "./model";
+import type {
+  GameState,
+  EquipmentRarity,
+  EquipmentInstance,
+  SalvagedMaterialItemId,
+  SalvageLootTier,
+  SalvageTargetRef,
+} from "./model";
+import {
+  BLUEPRINTS,
+  ITEMS,
+  SALVAGE_LOOT_POOLS,
+  HOMEWORLD_TALENTS,
+  SHIP_TYPES,
+  isStandardIssueBaseline,
+  rarityIndex,
+} from "./model";
+// The DERIVED reservation pass (every queued OR in-flight salvage target). Imported as a
+// real binding here, because the re-export block below only FORWARDS the name to consumers
+// and does not bind it locally. The auto-salvage selector at the bottom of this file has to
+// ask "is this piece already spoken for", and it must NOT re-derive that set itself: one
+// source of truth (Omega 4), and a second derivation would be a second thing to keep in
+// sync with the queue.
+import { salvageReservations } from "./reservation";
 import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // onMissionLock is the equipment install system's shared "is this ship's captain out on a
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
@@ -616,4 +640,256 @@ export function salvageShip(
     recovered,
     creditsRecovered,
   };
+}
+
+// ============================================================================
+// AUTO-SALVAGE RULE EVALUATION (Crafting 0.13.3, Phase 5 Unit 5.1)
+// Design: docs/plans/2026-09-01-crafting-0.13.3-design.md section 7.6
+// Plan:   docs/plans/2026-09-01-crafting-0.13.3-plan.md (Phase 5, Unit 5.1)
+//
+// ⚠️ PARITY-CRITICAL, AND THE REASON THIS FUNCTION IS PURE.
+// The rules are evaluated INSIDE THE TICK (tick.ts, autoSalvageOrders -> the head of
+// promoteQueuedOrders), which means they also run inside the OFFLINE CATCH-UP seam. The
+// only way a long offline span can enqueue exactly what the same span stepped live would
+// have enqueued is for the decision to be a pure function of the saved state:
+//
+//   * NO rng. Not one draw, not even for a tie-break. A draw here would move the seeded
+//     stream's position and change every salvage reward that completes after it.
+//   * NO clock, NO Date.now, NO wall time, NO localStorage. The offline resolver can read
+//     the SAVE and nothing else, which is exactly why the per-quality confirm preference
+//     was migrated INTO GameState for this release (plan, "RESOLVED ASSUMPTION").
+//   * NO iteration over an unordered container. Candidates are sorted by instance id
+//     before anything is selected (see CANDIDATE ORDER below).
+//
+// WHAT IT DOES NOT DO: it does not enqueue, it does not mutate, it does not consult the
+// queue depth, and it does not know what a facility is. It answers ONE question,
+// "which spare systems do the player's rules say to salvage, best `limit` first", and
+// hands the list back. The caller (tick.ts) owns the depth budget and the enqueue, so
+// every gate enqueueOrder applies (depth cap, duplicate refusal, facility shape) applies
+// to an auto-added order exactly as it applies to a hand-clicked one.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// autoSalvageProtectedQualities
+// ----------------------------------------------------------------------------
+// The set of quality tiers the player has asked to be CONFIRMED before salvage, read
+// straight off the save (state.salvageConfirmQualities, migrated into GameState by Unit
+// 1.1). A tier in this set can NEVER be auto-salvaged: the player explicitly asked to be
+// asked about it, and an automation rule must not answer that question for them. This is
+// the guard that prevents the "it silently ate my Q4 drop" outcome.
+//
+// ⚠️ FAIL SAFE ON A MISSING FIELD. A save that somehow arrives without the array (a
+// hand-edited save, a partial fixture, a future migration bug) is treated as
+// "EVERY tier is protected", not as "nothing is protected". The two readings differ by
+// which way the mistake destroys items: reading a missing preference as unprotected would
+// let the rules silently destroy gear the player never consented to lose, and salvage is
+// irreversible. So the undefined case returns null, which the caller reads as "protect
+// everything, select nothing".
+function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
+  const configured = state.salvageConfirmQualities;
+  if (!Array.isArray(configured)) return null; // missing field -> protect everything
+  return new Set(configured);
+}
+
+// ----------------------------------------------------------------------------
+// autoSalvageDuplicateKey
+// ----------------------------------------------------------------------------
+// THE DUPLICATE IDENTITY, per the locked user decision: "same blueprint + same slot".
+//
+// Design section 7.6 phrased this as "same slotType + varietyKey". The two are the same
+// grouping expressed two ways, because a blueprint's equipmentOutput pins exactly one
+// (slotType, varietyKey) pair: two pieces from the same blueprint are always the same
+// variety in the same slot. The blueprint key is used here because it is stored ON the
+// instance (piece.blueprintKey) and needs no BLUEPRINTS lookup that could miss, and
+// because it is the wording the user locked. slotType is folded into the key anyway, so a
+// hypothetical future blueprint that minted into two slots would still group correctly.
+//
+// A Standard-Issue baseline has blueprintKey null and is excluded from the candidate pool
+// long before this is called, so the key is never built from a null.
+function autoSalvageDuplicateKey(piece: EquipmentInstance): string {
+  return `${piece.blueprintKey ?? "baseline"}::${piece.slotType}`;
+}
+
+// ----------------------------------------------------------------------------
+// autoSalvageIsBetter
+// ----------------------------------------------------------------------------
+// "KEEP THE BEST" (locked user decision), as a total order so a group always has exactly
+// one keeper and the choice never depends on array order.
+//
+// Ranked: iLevel DESC, then quality DESC, then rarity DESC (rarityIndex, the same ordinal
+// the budget pipeline uses), then instance id ASC as the final tie-break. The id tie-break
+// is what makes the order TOTAL: without it two pieces identical on all three stats would
+// be ordered by whichever the comparator happened to see first, which is array order,
+// which is exactly the kind of "discovered rather than declared" ordering that turns into
+// an offline/live divergence the first time an array is rebuilt in a different sequence.
+//
+// Returns true when `a` should be kept over `b`.
+function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolean {
+  if (a.iLevel !== b.iLevel) return a.iLevel > b.iLevel;
+  if (a.quality !== b.quality) return a.quality > b.quality;
+  const rarityA = rarityIndex(a.rarity);
+  const rarityB = rarityIndex(b.rarity);
+  if (rarityA !== rarityB) return rarityA > rarityB;
+  return a.id < b.id; // total-order tie-break: never array order
+}
+
+// ----------------------------------------------------------------------------
+// selectAutoSalvageTargets
+// ----------------------------------------------------------------------------
+// THE PURE RULE EVALUATOR. Given the saved state and how many orders the caller has room
+// for, return up to `limit` salvage targets the player's rules say should be queued, in a
+// deterministic order.
+//
+// PURE: reads state, allocates its own arrays, mutates nothing, draws no randomness, and
+// returns the same answer for the same state every time. Node-testable with no tick.
+//
+// ⚠️ EQUIPMENT ONLY. The ship arm and the salvaged-material arm of SalvageTargetRef are
+// NEVER auto-selected, on purpose and per design 7.6, which scopes the rules to "spare
+// systems". Auto-tearing-down a HULL is a fleet-shape decision with a captain on it and a
+// docks slot behind it; auto-spending SALVAGED MATERIALS is a gambling action (the loot
+// roll) whose value depends on the player's Fleet Admiral level. Neither is a "tidy my
+// spare pool" chore, which is the entire job this feature exists to do.
+//
+// THE PIPELINE, in order (each stage is small on purpose):
+//
+//   0. TWO O(1) EARLY EXITS, before the pool is ever touched. Rules off (the default for
+//      every existing save) and no budget both return an empty array without scanning
+//      anything, which is what keeps this affordable at the head of EVERY tick.
+//   1. THE CANDIDATE POOL. Spare, non-baseline, not reserved. See the pool comment for
+//      why reserved pieces are removed HERE and not only in the final safety pass.
+//   2. THE RULES select from the pool (max-quality, duplicates). Union, not either/or.
+//   3. THE HARD SAFETY FILTERS run over the selection, in full, as the last word. Nothing
+//      leaves this function without passing them, whatever a rule concluded.
+//   4. Truncate to `limit`, in the deterministic candidate order.
+//
+// ⚠️ WHY THE FILTERS APPEAR TWICE (stage 1 and stage 3), which looks redundant and is not:
+//   * Stage 3 is the LOAD-BEARING one. It is the "after the rules select" pass the build
+//     plan requires, it stands on its own, and it is what the safety tests exercise. If a
+//     future rule is added and forgets to start from the pool, stage 3 still blocks every
+//     protected piece.
+//   * Stage 1 exists because the DUPLICATES rule RANKS a group, and what is in the group
+//     changes the answer. A piece already queued or in flight for salvage is on its way
+//     OUT of the pool, so letting it hold the "keeper" slot would auto-queue the last
+//     remaining free copy of a variety and destroy both. Removing reserved pieces before
+//     ranking is strictly the safer reading and can only ever select FEWER items.
+//   * The CONFIRM-protected tier is deliberately NOT removed at stage 1. A confirm-ON
+//     piece still counts as the keeper of its group (the preference means "ask me before
+//     destroying this tier", not "this piece does not exist"), and stage 3 is what makes
+//     sure it is never itself selected.
+export function selectAutoSalvageTargets(state: GameState, limit: number): SalvageTargetRef[] {
+  const rules = state.autoSalvage;
+
+  // --- 0. EARLY EXITS -------------------------------------------------------
+  // Opt-in, default off: this is the branch every save that has not touched the feature
+  // takes, on every tick, forever. It must cost nothing.
+  if (!rules?.enabled) return [];
+  // No budget -> nothing to say. The caller has already decided the queue has no room, so
+  // scanning the pool would be work whose result is discarded.
+  if (limit <= 0) return [];
+  // Fail-safe: an unreadable confirm preference protects EVERY tier (see the helper).
+  const protectedQualities = autoSalvageProtectedQualities(state);
+  if (protectedQualities === null) return [];
+
+  // --- 1. THE CANDIDATE POOL ------------------------------------------------
+  // The reservation set is derived ONCE here, not per piece: salvageReservations walks the
+  // queue and the in-flight processes a single time and bins every target (its header says
+  // "call this once, not per tile", and that applies just as much inside the tick).
+  const reserved = salvageReservations(state).instanceIds;
+  const pool = state.equipment.filter(
+    (piece) =>
+      // SPARE only. fittedToShipId is the single source of truth for where a piece lives;
+      // an installed piece is in use and is never a candidate.
+      piece.fittedToShipId === null &&
+      // NEVER a Standard-Issue baseline. A baseline DESTROYS for zero reward, and
+      // automatically destroying an item is a data-loss shape, so baselines are excluded
+      // from the auto rules entirely and Destroy stays a manual, deliberate act.
+      !isStandardIssueBaseline(piece) &&
+      // Already queued or in flight -> already spoken for (see the stage 1 note above).
+      !reserved.has(piece.id)
+  );
+  if (pool.length === 0) return [];
+
+  // --- CANDIDATE ORDER: DECLARED, NEVER DISCOVERED --------------------------
+  // Sorted by instance id, ascending, before any rule looks at the pool. state.equipment
+  // is a plain array whose order is already deterministic today, so this sort changes
+  // nothing about the CURRENT answer; it is here so the answer cannot start depending on
+  // storage order later (the moment anything rebuilds, migrates or re-keys that array,
+  // an unsorted scan would silently pick different pieces offline than live). String
+  // comparison is used rather than a numeric parse of the "equip-N" suffix because the
+  // requirement is a TOTAL, STATE-ONLY order, not a human-friendly one.
+  const candidates = [...pool].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  // --- 2. THE RULES ---------------------------------------------------------
+  // Selected as a Set of instance ids, so the two rules UNION cleanly: a piece both rules
+  // point at is selected once, not twice.
+  const selected = new Set<string>();
+
+  // RULE A, MAX QUALITY. "Auto-queue spares at or below this quality tier." null = the
+  // rule is off (which is NOT the same as 0: maxQuality 0 means "Q0 and below", a real
+  // and useful setting). This rule is deliberately allowed to select the ONLY copy of a
+  // variety: the player said the tier is worthless to them, and that is the whole point.
+  if (rules.maxQuality !== null) {
+    for (const piece of candidates) {
+      if (piece.quality <= rules.maxQuality) selected.add(piece.id);
+    }
+  }
+
+  // RULE B, DUPLICATES. Same blueprint + same slot, KEEP THE BEST, auto-queue the rest
+  // (locked user decision). keepPerVariety is fixed at 1 this release and not yet
+  // player-editable, but it is read from the rules rather than hardcoded so 5.2 (or a
+  // later release) can expose it with no engine change.
+  //
+  // ⚠️ GROUPED OVER THE SPARE POOL ONLY. An INSTALLED piece does not count toward its
+  // variety's keep quota, because the rules never touch installed gear. Counting it would
+  // silently make the rule far more aggressive than the plain-language summary promises
+  // ("keeping the best 1 of each type"): a player with one installed Capacitor Bank would
+  // find EVERY spare Capacitor Bank queued, including their upgrade-in-waiting.
+  if (rules.duplicates) {
+    const keep = Math.max(0, rules.keepPerVariety);
+    // Group in candidate order, so each group's member list is itself deterministic.
+    const groups = new Map<string, EquipmentInstance[]>();
+    for (const piece of candidates) {
+      const key = autoSalvageDuplicateKey(piece);
+      const group = groups.get(key);
+      if (group === undefined) groups.set(key, [piece]);
+      else group.push(piece);
+    }
+    // ⚠️ Iterating a Map is safe here ONLY because insertion order is itself derived from
+    // `candidates` (which is sorted), and because the per-group result does not depend on
+    // the order the groups are visited: each group is ranked independently. The final
+    // output is re-ordered by `candidates` below regardless, so group visit order cannot
+    // leak into the answer.
+    for (const group of groups.values()) {
+      if (group.length <= keep) continue; // nothing beyond the keep quota
+      // Rank a COPY (sort mutates) by the total order, best first, and select everything
+      // past the keep quota.
+      const ranked = [...group].sort((a, b) => (autoSalvageIsBetter(a, b) ? -1 : 1));
+      for (const piece of ranked.slice(keep)) selected.add(piece.id);
+    }
+  }
+
+  if (selected.size === 0) return [];
+
+  // --- 3. THE HARD SAFETY FILTERS, THE LAST WORD ----------------------------
+  // Re-stated in full and applied AFTER the rules, so no rule (present or future) can
+  // route around them. Walked in `candidates` order, which is the sorted order, so the
+  // returned list is deterministic and the `limit` truncation below always cuts the same
+  // pieces on the same state.
+  //
+  // ⚠️ THE ESCAPE VALVE IS INTACT: equipmentStorageCap / equipmentAtCap is NOT consulted
+  // anywhere in this function, deliberately. Salvage is the always-available relief for a
+  // full spare pool (salvage.ts header, 0.11.1's softlock fix), and auto-salvage is most
+  // useful precisely when the pool is full. A cap check here would disable the feature at
+  // the exact moment it is needed.
+  const out: SalvageTargetRef[] = [];
+  for (const piece of candidates) {
+    if (out.length >= limit) break; // --- 4. bounded output, in deterministic order
+    if (!selected.has(piece.id)) continue;
+    if (isStandardIssueBaseline(piece)) continue;       // never auto-destroy a baseline
+    if (piece.fittedToShipId !== null) continue;        // never touch installed gear
+    if (reserved.has(piece.id)) continue;               // never double-queue a reserved target
+    if (protectedQualities.has(piece.quality)) continue; // the player asked to be ASKED about this tier
+    out.push({ kind: "equipment", instanceId: piece.id });
+  }
+  return out;
 }

@@ -185,7 +185,16 @@ import { isDuplicateSalvageTarget } from "./reservation";
 // canStartSalvage answers in salvage.ts's OWN reason vocabulary rather than inventing a
 // parallel one, exactly as the refine/fabricate adapters answer in canStartLine's: one
 // wording of "that hull's captain is flying" in the game, and the queue borrows it.
-import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./salvage";
+// selectAutoSalvageTargets (Crafting 0.13.3 Unit 5.1) is the PURE auto-salvage rule
+// evaluator. It reads state, draws NO rng and returns targets only; the enqueue and the
+// depth budget stay here, in autoSalvageOrders below.
+import {
+  salvageEquipment,
+  salvageSalvagedMaterial,
+  salvageShip,
+  selectAutoSalvageTargets,
+  type SalvageRejectReason,
+} from "./salvage";
 import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
@@ -7354,6 +7363,89 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
   return { ...state, processQueue: next };
 }
 
+// --- THE AUTO-SALVAGE PASS (Crafting 0.13.3, Phase 5 Unit 5.1) --------------
+// autoSalvageOrders(state): let the player's opt-in auto-salvage rules add Salvage Bay
+// orders to the queue, bounded, deterministically, through the normal enqueue path.
+// (docs/plans/2026-09-01-crafting-0.13.3-design.md §7.6.)
+//
+// THE SPLIT, and why it is where it is:
+//   salvage.ts::selectAutoSalvageTargets  DECIDES (pure, state-only, no rng, no queue
+//                                         knowledge, node-testable with no tick).
+//   this function                         BUDGETS and ENQUEUES (knows the depth cap, the
+//                                         facility and the manual-queue headroom).
+// Keeping the decision out of tick.ts is what lets the rules be tested exhaustively
+// without constructing a tick, and keeps the dependency direction one-way: tick.ts ->
+// salvage.ts, never the reverse (salvage.test.ts has a source guard on that edge).
+//
+// ⚠️ PARITY: OFFLINE == LIVE BY CONSTRUCTION, exactly as promoteQueuedOrders is.
+// This has ONE call site, the head of promoteQueuedOrders, which itself has ONE call site
+// inside economyTick. The live poll calls economyTick(state, 1) once per whole tick and
+// the offline catch-up steps economyTick(next, 1, rng) once per whole tick, so this pass
+// runs exactly ONCE PER TICK on both paths. Every input it reads is in the SAVE
+// (state.autoSalvage, state.salvageConfirmQualities, state.equipment, the derived
+// reservations, the talent-derived depth) and it draws NO rng, so it cannot move the
+// seeded stream's position and cannot see anything an offline resolver cannot see. The
+// per-quality confirm preference was migrated into GameState for precisely this reason
+// (plan, "RESOLVED ASSUMPTION"): while it lived in localStorage the offline path could
+// not read it, and a rule that behaves differently offline is a parity break even when a
+// deep-equal test happens to pass.
+//
+// ⚠️ BOUNDED PER TICK, AND THE BOUND IS THE DEPTH HEADROOM (Omega 14: no unbounded work
+// in the tick). At most `budget - queued` orders are added per tick, which today is at
+// most three (base depth 1 plus three talent nodes, minus the manual headroom). A pool of
+// two hundred spares therefore cannot spike a tick and a two-day offline catch-up cannot
+// enqueue thousands at once: it enqueues a handful per tick and drains them at one
+// salvage slot per completion, exactly as a player watching every tick would.
+//
+// ⚠️ AUTO-SALVAGE MUST NOT STARVE MANUAL QUEUEING, so it leaves the player one depth slot
+// (AUTO_SALVAGE_MANUAL_HEADROOM). Without it the rules would sit on every slot forever:
+// a player who removed an auto order to make room for their own would find the next tick
+// had taken the slot back, and there is no click sequence that wins that race. The
+// headroom is skipped ONLY at depth 1, because reserving the single slot there would make
+// the feature dead for every player who has not learned a queue-depth talent. At depth 1
+// the player is not starved either, they simply remove the auto order and enqueue their
+// own in the same handler; the queue is then full, so the next tick's budget is zero and
+// the rules leave it alone.
+//
+// It NEVER removes, reorders or evicts anything. Its only mutation is an append through
+// enqueueOrder, so every gate that function applies (the depth cap, the duplicate-target
+// refusal, the facility shape check) applies to an auto-added order exactly as it applies
+// to a hand-clicked one, with no second copy of any of them here.
+//
+// PURE and a same-REFERENCE no-op whenever the rules add nothing (which includes every
+// save with the feature off, the default).
+export const AUTO_SALVAGE_MANUAL_HEADROOM = 1;
+
+export function autoSalvageOrders(state: GameState): GameState {
+  // Cheapest possible exit, taken by every save that has not opted in. Checked here as
+  // well as inside the selector so the common path does not even compute a depth.
+  if (!state.autoSalvage?.enabled) return state;
+
+  // THE BUDGET. Depth is per facility (queueDepth applies to EACH facility independently),
+  // so this counts the Salvage Bay's own waiting orders, never processQueue.length.
+  const depth = queueDepth(state);
+  const budget = depth <= 1 ? depth : depth - AUTO_SALVAGE_MANUAL_HEADROOM;
+  const queued = queuedForFacility(state, "salvageBay").length;
+  const limit = budget - queued;
+  if (limit <= 0) return state; // full (or the player's own orders hold the room) -> no-op
+
+  // THE DECISION. Pure, sorted, and already truncated to `limit` by the selector.
+  const targets = selectAutoSalvageTargets(state, limit);
+  if (targets.length === 0) return state; // same-ref no-op: the rules found nothing
+
+  // THE ENQUEUE. Threaded immutably, one target at a time, through the SAME enqueueOrder
+  // the Salvage Bay's own buttons use. A refusal is a skip, never a throw: enqueueOrder
+  // returns the same state reference plus a reason, and the loop simply moves on (a
+  // refused target is retried next tick if the rules still point at it). `queued` is
+  // deliberately not re-derived per iteration, because enqueueOrder re-checks the depth
+  // cap itself and is the only place that cap is enforced.
+  let working = state;
+  for (const target of targets) {
+    working = enqueueOrder(working, "salvageBay", { type: "salvage", target }).next;
+  }
+  return working;
+}
+
 // --- THE PROMOTION PASS (Crafting 0.13.3, Phase 1 Unit 1.4) -----------------
 // promoteQueuedOrders(state): for every facility with a free slot, launch the oldest
 // ELIGIBLE waiting order into real running work and drop it from the queue.
@@ -7410,16 +7502,30 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
 // PURE, and a same-REFERENCE no-op when nothing promotes (an empty queue exits on the
 // first line), so a save with no queued work cannot be perturbed by this pass at all.
 export function promoteQueuedOrders(state: GameState): GameState {
+  // --- AUTO-SALVAGE RUNS FIRST (Crafting 0.13.3, Phase 5 Unit 5.1, design §7.6) -----
+  // BEFORE the promotion scan, and deliberately BEFORE the empty-queue early return
+  // below, for two reasons:
+  //   1. An order the rules add THIS tick can promote THIS tick, so enabling the feature
+  //      does not cost the player a tick of latency per item (design §7.6: "inside the
+  //      same processQueue pass").
+  //   2. The empty queue is EXACTLY the state auto-salvage exists to fill. Sitting the
+  //      call after the early return would have made the feature a no-op for every player
+  //      whose queue was empty, which is almost all of them, almost all of the time.
+  // autoSalvageOrders is a same-REFERENCE no-op whenever the rules are off (the default),
+  // so the early return below still sees the untouched state and a save with no queued
+  // work and no rules still lands byte-identical to before this unit.
+  const withAuto = autoSalvageOrders(state);
+
   // Empty queue -> same-reference no-op. True for every save that predates the feature
   // and every player who never queues anything, so it is checked first and costs one
   // length read. (`?? []` tolerates a pre-0.13.3 save that predates the field.)
-  if ((state.processQueue ?? []).length === 0) return state;
+  if ((withAuto.processQueue ?? []).length === 0) return withAuto;
 
   // Threaded immutably: each promotion produces a new state that the NEXT promotion's
   // gate sees, so two orders competing for the same material on the same tick cannot
   // both be told they are affordable (the second asks canStartLine against stock the
   // first has already reserved). The input state is never mutated.
-  let working = state;
+  let working = withAuto;
 
   for (const facility of QUEUE_FACILITY_ORDER) {
     const adapter = QUEUE_ADAPTERS[facility];
@@ -7464,7 +7570,9 @@ export function promoteQueuedOrders(state: GameState): GameState {
     }
   }
 
-  return working; // === state (same reference) when nothing was promoted
+  // === the input state (same reference) when auto-salvage added nothing AND nothing was
+  // promoted, which is the overwhelmingly common case.
+  return working;
 }
 
 // ============================================================================

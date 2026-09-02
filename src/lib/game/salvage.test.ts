@@ -25,12 +25,26 @@ import salvageSource from "./salvage.ts?raw";
 // Crafting 0.13.3 (Unit 2.3): the economy seam salvage now runs inside. resolveProcesses
 // resolves a completed salvageJob; economyTick + tick are the two chunkings the
 // offline==live parity suite at the bottom of this file compares.
-import { resolveProcesses, economyTick, tick } from "./tick";
+// Crafting 0.13.3 (Phase 5 Unit 5.1): the auto-salvage TICK pass, plus the queue plumbing
+// its budget is built on (queueDepth, enqueueOrder) and promoteQueuedOrders for the "an
+// auto-added order promotes the SAME tick" case.
+import {
+  resolveProcesses,
+  economyTick,
+  tick,
+  autoSalvageOrders,
+  promoteQueuedOrders,
+  enqueueOrder,
+  queueDepth,
+  AUTO_SALVAGE_MANUAL_HEADROOM,
+} from "./tick";
 import {
   salvageEquipment,
   salvageSalvagedMaterial,
   salvageShip,
   salvageTalentBonus,
+  // Crafting 0.13.3 (Phase 5 Unit 5.1): the PURE auto-salvage rule evaluator.
+  selectAutoSalvageTargets,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
@@ -65,6 +79,9 @@ import {
   type QueuedJob,
   type QueuedOrder,
   type SalvageTargetRef,
+  // Crafting 0.13.3 (Phase 5 Unit 5.1): the auto-salvage depth fixtures learn real
+  // queue-depth talent nodes, so the key union is needed to type them.
+  type HomeworldTalentKey,
   // Crafting 0.13.3 (Phase 2 Unit 2.2): the in-flight process shape + the pure duration
   // math the Salvage Bay will size its jobs with.
   type TimedProcess,
@@ -1737,5 +1754,546 @@ describe("⚠️ offline==live parity for timed salvage (tick(span) == looping e
 
     const jumped = tick(SPAN, spanState(), mulberry32(SEED));
     expect(salvageFingerprint(split)).toEqual(salvageFingerprint(jumped));
+  });
+});
+
+// ============================================================================
+// AUTO-SALVAGE RULES (Crafting 0.13.3, Phase 5 Unit 5.1)
+// Design: docs/plans/2026-09-01-crafting-0.13.3-design.md section 7.6
+//
+// Two layers, tested separately because they fail differently:
+//   selectAutoSalvageTargets  the PURE rule evaluator (salvage.ts). Every rule and every
+//                             safety filter is proven here, with no tick in sight.
+//   autoSalvageOrders         the TICK pass (tick.ts). The depth budget, the manual
+//                             headroom, the per-tick bound and the enqueue path.
+// Closed by the offline==live parity case at the very bottom, which is the one that
+// matters most: the rules run inside the offline catch-up seam, so a long span away must
+// queue and resolve exactly what the same span at the keyboard would have.
+//
+// âš ï¸ THE DEFAULT SAVE CANNOT AUTO-SALVAGE ANYTHING, and that is correct, not a bug in
+// these fixtures. freshState seeds salvageConfirmQualities with EVERY quality tier (the
+// player is asked about all of them until they opt a tier out), and a confirm-ON tier can
+// never be auto-salvaged. So every fixture below that expects a selection must clear that
+// array explicitly, which is itself the shape of the most important safety test here.
+// ============================================================================
+
+// One spare crafted piece with the fields the rules actually rank on. Built on makePiece
+// (a real Standard-Issue baseline underneath, so every unrelated field is valid) with
+// iLevel and rarity overridable, which makePiece does not expose.
+function autoPiece(opts: {
+  id: string;
+  quality?: number;
+  iLevel?: number;
+  slotType?: EquipmentSlotType;
+  blueprintKey?: string | null;
+  rarity?: EquipmentInstance["rarity"];
+  fittedToShipId?: string | null;
+}): EquipmentInstance {
+  const base = makePiece({
+    slotType: opts.slotType ?? "cargoBay",
+    fitted: false,
+    crafted: true,
+    quality: opts.quality ?? 0,
+    id: opts.id,
+  });
+  return {
+    ...base,
+    iLevel: opts.iLevel ?? 10,
+    rarity: opts.rarity ?? base.rarity,
+    // `undefined` means "leave it crafted"; an explicit null makes it a baseline.
+    blueprintKey: opts.blueprintKey === undefined ? base.blueprintKey : opts.blueprintKey,
+    fittedToShipId: opts.fittedToShipId ?? null,
+  };
+}
+
+// A state with the given spare pool, the rules ON as specified, and NOTHING confirm-
+// protected (see the section header). freshState's own four FITTED ship-1 baselines are
+// kept as deliberate bystanders: they are installed AND baselines, so any test that ends
+// up selecting one has broken two safety filters at once.
+function autoState(
+  pieces: EquipmentInstance[],
+  rules: Partial<GameState["autoSalvage"]> = {}
+): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    equipment: [...base.equipment, ...pieces],
+    salvageConfirmQualities: [], // nothing protected, so the RULES are what is under test
+    autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1, ...rules },
+  };
+}
+
+// The instance ids a selection names, in the order it returned them.
+function selectedIds(targets: SalvageTargetRef[]): string[] {
+  return targets.map((t) => (t.kind === "equipment" ? t.instanceId : `NOT-EQUIPMENT:${t.kind}`));
+}
+
+// A generous limit for the tests that are about the RULES rather than the bound.
+const NO_BOUND = 999;
+
+describe("selectAutoSalvageTargets: the MAX-QUALITY rule (0.13.3 Unit 5.1)", () => {
+  it("selects every spare at or BELOW the chosen tier and nothing above it", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", quality: 0 }),
+        autoPiece({ id: "eq-b", quality: 1 }),
+        autoPiece({ id: "eq-c", quality: 2 }),
+        autoPiece({ id: "eq-d", quality: 5 }),
+      ],
+      { maxQuality: 1 }
+    );
+    // "at or below" is inclusive on purpose: maxQuality 1 takes Q0 AND Q1.
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a", "eq-b"]);
+  });
+
+  it("maxQuality 0 is a REAL setting and is not confused with the rule being off", () => {
+    // null means "rule off"; 0 means "Q0 and below". A truthiness check on maxQuality
+    // would collapse the two and silently disable the most useful setting there is.
+    const pieces = [autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 1 })];
+    expect(selectedIds(selectAutoSalvageTargets(autoState(pieces, { maxQuality: 0 }), NO_BOUND))).toEqual(["eq-a"]);
+    expect(selectAutoSalvageTargets(autoState(pieces, { maxQuality: null }), NO_BOUND)).toEqual([]);
+  });
+
+  it("takes the ONLY copy of a variety when its tier qualifies (the rule is about worth, not about duplicates)", () => {
+    const state = autoState([autoPiece({ id: "eq-only", quality: 0 })], { maxQuality: 0 });
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-only"]);
+  });
+});
+
+describe("selectAutoSalvageTargets: the DUPLICATES rule keeps the BEST (0.13.3 Unit 5.1)", () => {
+  it("keeps the highest iLevel of a blueprint+slot group and queues the rest", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", iLevel: 10 }),
+        autoPiece({ id: "eq-b", iLevel: 40 }), // the keeper
+        autoPiece({ id: "eq-c", iLevel: 25 }),
+      ],
+      { duplicates: true }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a", "eq-c"]);
+  });
+
+  it("breaks an iLevel tie on QUALITY, then on RARITY, in that order", () => {
+    const byQuality = autoState(
+      [
+        autoPiece({ id: "eq-a", iLevel: 20, quality: 1 }),
+        autoPiece({ id: "eq-b", iLevel: 20, quality: 4 }), // same iLevel, better quality -> keeper
+      ],
+      { duplicates: true }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(byQuality, NO_BOUND))).toEqual(["eq-a"]);
+
+    const byRarity = autoState(
+      [
+        autoPiece({ id: "eq-a", iLevel: 20, quality: 2, rarity: "standard" }),
+        autoPiece({ id: "eq-b", iLevel: 20, quality: 2, rarity: "radiant" }), // rarity breaks it
+      ],
+      { duplicates: true }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(byRarity, NO_BOUND))).toEqual(["eq-a"]);
+  });
+
+  it("groups by blueprint AND slot: different blueprints and different slots are not duplicates", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", slotType: "cargoBay", blueprintKey: "bp-one" }),
+        autoPiece({ id: "eq-b", slotType: "cargoBay", blueprintKey: "bp-two" }),
+        autoPiece({ id: "eq-c", slotType: "ftlDrive", blueprintKey: "bp-one" }),
+      ],
+      { duplicates: true }
+    );
+    // Three groups of one. Nothing is a duplicate of anything, so nothing is selected.
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+  });
+
+  it("an INSTALLED piece does not count toward its variety's keep quota", () => {
+    // A player with one installed Capacitor Bank and one spare must NOT lose the spare.
+    // Counting installed gear toward the quota would make the rule far more aggressive
+    // than the panel's plain-language summary promises.
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-installed", fittedToShipId: "ship-1", iLevel: 50 }),
+        autoPiece({ id: "eq-spare", iLevel: 10 }),
+      ],
+      { duplicates: true }
+    );
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+  });
+
+  it("keepPerVariety is read from the rules, not hardcoded (a future panel can raise it)", () => {
+    const pieces = [
+      autoPiece({ id: "eq-a", iLevel: 10 }),
+      autoPiece({ id: "eq-b", iLevel: 20 }),
+      autoPiece({ id: "eq-c", iLevel: 30 }),
+    ];
+    expect(
+      selectedIds(selectAutoSalvageTargets(autoState(pieces, { duplicates: true, keepPerVariety: 2 }), NO_BOUND))
+    ).toEqual(["eq-a"]); // keeps eq-c and eq-b, the two best
+  });
+
+  it("UNIONS with the max-quality rule rather than double-counting a piece both rules point at", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", iLevel: 10, quality: 0 }), // both rules want this one
+        autoPiece({ id: "eq-b", iLevel: 40, quality: 3 }), // the duplicates keeper
+      ],
+      { duplicates: true, maxQuality: 0 }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a"]);
+  });
+});
+
+describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3 Unit 5.1)", () => {
+  it("âš ï¸ NEVER selects a quality tier whose CONFIRM flag is ON, even when both rules point at it", () => {
+    // THE MOST IMPORTANT CASE IN THIS FILE. The player asked to be ASKED about that tier;
+    // an automation rule must not answer the question for them. This is the guard that
+    // prevents the "it silently ate my Q4 drop" outcome, and it is the whole reason the
+    // preference was migrated out of localStorage and into the save (the offline resolver
+    // can read the save and nothing else).
+    const base = autoState(
+      [
+        autoPiece({ id: "eq-protected", quality: 4, iLevel: 10 }),
+        autoPiece({ id: "eq-open", quality: 2, iLevel: 10 }),
+        autoPiece({ id: "eq-keeper", quality: 2, iLevel: 90 }),
+      ],
+      { duplicates: true, maxQuality: 5 } // both rules select as widely as possible
+    );
+
+    // Control: with nothing protected, all three are taken (maxQuality 5 covers them all).
+    expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual([
+      "eq-keeper",
+      "eq-open",
+      "eq-protected",
+    ]);
+
+    // Protect Q4 only. eq-protected survives; the unprotected tiers are unaffected.
+    const guarded: GameState = { ...base, salvageConfirmQualities: [4] };
+    const picked = selectedIds(selectAutoSalvageTargets(guarded, NO_BOUND));
+    expect(picked).not.toContain("eq-protected");
+    expect([...picked].sort()).toEqual(["eq-keeper", "eq-open"]);
+  });
+
+  it("âš ï¸ the DEFAULT save protects every tier, so enabling the rules alone destroys nothing", () => {
+    // freshState seeds salvageConfirmQualities with every tier. A player who flips the
+    // master switch without opting a tier out must lose exactly nothing.
+    const state: GameState = {
+      ...autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
+        duplicates: true,
+        maxQuality: 5,
+      }),
+      salvageConfirmQualities: freshState().salvageConfirmQualities,
+    };
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+  });
+
+  it("âš ï¸ a MISSING confirm preference fails SAFE (protect everything), never open", () => {
+    // A hand-edited save or a partial fixture must not be read as "nothing is protected".
+    // Salvage is irreversible, so the undefined case has to err toward keeping items.
+    const broken = {
+      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 }),
+      salvageConfirmQualities: undefined,
+    } as unknown as GameState;
+    expect(selectAutoSalvageTargets(broken, NO_BOUND)).toEqual([]);
+  });
+
+  it("NEVER selects a Standard-Issue baseline (a baseline DESTROYS for zero reward)", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-baseline", blueprintKey: null, quality: 0 }), // standard rarity + no blueprint
+        autoPiece({ id: "eq-crafted", quality: 0 }),
+      ],
+      { duplicates: true, maxQuality: 5 }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-crafted"]);
+  });
+
+  it("NEVER selects INSTALLED gear, whatever the rules say", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-fitted", fittedToShipId: "ship-1", quality: 0 }),
+        autoPiece({ id: "eq-spare", quality: 0 }),
+      ],
+      { maxQuality: 5 }
+    );
+    // Exactly one selection: the spare. freshState's own four fitted ship-1 baselines are
+    // bystanders and must be untouched too, which the length assertion covers.
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-spare"]);
+  });
+
+  it("NEVER selects a target a QUEUED salvage order already owns", () => {
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
+      maxQuality: 5,
+    });
+    const queuedJob: QueuedJob = {
+      id: "q-1",
+      facility: "salvageBay",
+      order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-a" } },
+    };
+    const state: GameState = { ...base, processQueue: [queuedJob] };
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-b"]);
+  });
+
+  it("NEVER selects a target an IN-FLIGHT salvage job already owns", () => {
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
+      maxQuality: 5,
+    });
+    const state: GameState = {
+      ...base,
+      activeProcesses: [salvageJobAt({ kind: "equipment", instanceId: "eq-a" }, 3)],
+    };
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-b"]);
+  });
+
+  it("a RESERVED piece does not hold the duplicates keeper slot (so the last free copy survives)", () => {
+    // eq-best is already queued for salvage, so it is on its way OUT of the pool. If it
+    // were allowed to be the group's keeper, the rule would queue the last remaining free
+    // copy and the player would end up with NEITHER.
+    const base = autoState(
+      [autoPiece({ id: "eq-best", iLevel: 90 }), autoPiece({ id: "eq-rest", iLevel: 10 })],
+      { duplicates: true }
+    );
+    const state: GameState = {
+      ...base,
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-best" } },
+        },
+      ],
+    };
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+  });
+
+  it("never selects a SHIP or a SALVAGED MATERIAL: the rules are scoped to spare systems", () => {
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { duplicates: true, maxQuality: 5 });
+    const state: GameState = {
+      ...base,
+      fleetAdminLevel: MAX_CEILING_LEVEL,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+      inventory: { ...base.inventory, [HOUSING]: [new Decimal(5)] },
+    };
+    expect(selectAutoSalvageTargets(state, NO_BOUND).every((t) => t.kind === "equipment")).toBe(true);
+  });
+});
+
+describe("selectAutoSalvageTargets: DISABLED rules do nothing (0.13.3 Unit 5.1)", () => {
+  const pieces = [autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })];
+
+  it("the master switch off selects nothing, however the individual rules are set", () => {
+    const state = autoState(pieces, { enabled: false, duplicates: true, maxQuality: 5 });
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+  });
+
+  it("enabled but with BOTH rules off selects nothing", () => {
+    expect(selectAutoSalvageTargets(autoState(pieces, { maxQuality: null, duplicates: false }), NO_BOUND)).toEqual([]);
+  });
+
+  it("a zero or negative limit selects nothing (the caller has no room)", () => {
+    const state = autoState(pieces, { maxQuality: 5 });
+    expect(selectAutoSalvageTargets(state, 0)).toEqual([]);
+    expect(selectAutoSalvageTargets(state, -3)).toEqual([]);
+  });
+});
+
+describe("selectAutoSalvageTargets: DETERMINISTIC order and the per-call BOUND (0.13.3 Unit 5.1)", () => {
+  it("returns candidates in a stable id order that does NOT depend on the equipment array's order", () => {
+    // The parity argument in one test: the same pool stored in a different sequence must
+    // produce the same answer, because the selector sorts before it selects.
+    const pieces = [
+      autoPiece({ id: "eq-1", quality: 0 }),
+      autoPiece({ id: "eq-2", quality: 0 }),
+      autoPiece({ id: "eq-3", quality: 0 }),
+      autoPiece({ id: "eq-4", quality: 0 }),
+    ];
+    const forward = autoState(pieces, { maxQuality: 5 });
+    const reversed = autoState([...pieces].reverse(), { maxQuality: 5 });
+    expect(selectedIds(selectAutoSalvageTargets(forward, NO_BOUND))).toEqual(["eq-1", "eq-2", "eq-3", "eq-4"]);
+    expect(selectedIds(selectAutoSalvageTargets(reversed, NO_BOUND))).toEqual(
+      selectedIds(selectAutoSalvageTargets(forward, NO_BOUND))
+    );
+  });
+
+  it("truncates to `limit` from the SAME end every time, so a bound cannot make it nondeterministic", () => {
+    const pieces = Array.from({ length: 50 }, (_, i) =>
+      autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: 0 })
+    );
+    const state = autoState(pieces, { maxQuality: 5 });
+    expect(selectedIds(selectAutoSalvageTargets(state, 3))).toEqual(["eq-000", "eq-001", "eq-002"]);
+    // Same call, same answer. Idempotent because nothing here is stateful.
+    expect(selectedIds(selectAutoSalvageTargets(state, 3))).toEqual(["eq-000", "eq-001", "eq-002"]);
+  });
+
+  it("is PURE: it does not mutate the state it is handed", () => {
+    const state = autoState([autoPiece({ id: "eq-b" }), autoPiece({ id: "eq-a" })], { maxQuality: 5 });
+    const before = state.equipment.map((e) => e.id);
+    selectAutoSalvageTargets(state, NO_BOUND);
+    expect(state.equipment.map((e) => e.id)).toEqual(before); // the sort took a copy
+  });
+});
+
+describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction (0.13.3 Unit 5.1)", () => {
+  // A pool big enough that an unbounded pass would enqueue dozens.
+  function bigPoolState(
+    rules: Partial<GameState["autoSalvage"]> = {},
+    talents: HomeworldTalentKey[] = []
+  ): GameState {
+    const pieces = Array.from({ length: 40 }, (_, i) =>
+      autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: 0 })
+    );
+    const base = autoState(pieces, { maxQuality: 5, ...rules });
+    return { ...base, unlockedHomeworldTalents: [...base.unlockedHomeworldTalents, ...talents] };
+  }
+
+  it("is a same-REFERENCE no-op when the rules are off, so an untouched save is unperturbed", () => {
+    const state = bigPoolState({ enabled: false });
+    expect(autoSalvageOrders(state)).toBe(state);
+  });
+
+  it("âš ï¸ BOUNDED PER TICK: a 40-piece pool does not enqueue everything at once", () => {
+    // At base depth 1 the pass may add exactly one order per tick. The pool size is
+    // irrelevant to how much work one tick does, which is the Omega 14 property.
+    const state = bigPoolState();
+    expect(queueDepth(state)).toBe(1);
+    const after = autoSalvageOrders(state);
+    expect(after.processQueue.length).toBe(1);
+    // And a second pass on the RESULT adds nothing, because the queue is now full.
+    expect(autoSalvageOrders(after).processQueue.length).toBe(1);
+  });
+
+  it("âš ï¸ leaves the player ONE depth slot so auto-salvage cannot starve manual queueing", () => {
+    // Depth 3 (base 1 + two talent rungs): the rules take 2 and leave 1 for the player.
+    const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
+    expect(queueDepth(state)).toBe(3);
+    const after = autoSalvageOrders(state);
+    expect(after.processQueue.length).toBe(3 - AUTO_SALVAGE_MANUAL_HEADROOM);
+    // The player's own order still fits, which is the point of the headroom.
+    const manual = enqueueOrder(after, "salvageBay", {
+      type: "salvage",
+      target: { kind: "equipment", instanceId: "eq-039" },
+    });
+    expect(manual.queued).toBe(true);
+    expect(manual.next.processQueue.length).toBe(3);
+  });
+
+  it("stops at the depth cap and NEVER evicts or reorders a manual order", () => {
+    const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
+    // The player has queued two of their own, which already fill the auto budget.
+    const manual: QueuedJob[] = [
+      {
+        id: "q-90",
+        facility: "salvageBay",
+        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-030" } },
+      },
+      {
+        id: "q-91",
+        facility: "salvageBay",
+        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-031" } },
+      },
+    ];
+    const withManual: GameState = { ...state, processQueue: manual };
+    const after = autoSalvageOrders(withManual);
+    // budget = 3 - 1 headroom = 2, already held by the player -> nothing added, same ref.
+    expect(after).toBe(withManual);
+    expect(after.processQueue.map((j) => j.id)).toEqual(["q-90", "q-91"]);
+  });
+
+  it("enqueues through enqueueOrder, so a target already queued is refused rather than duplicated", () => {
+    const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
+    const after = autoSalvageOrders(state);
+    const ids = after.processQueue.map((j) =>
+      j.order.type === "salvage" && j.order.target.kind === "equipment" ? j.order.target.instanceId : "?"
+    );
+    expect(new Set(ids).size).toBe(ids.length); // no target queued twice
+    // The minted ids come from nextQueueId through the normal path.
+    expect(after.nextQueueId).toBe(state.nextQueueId + after.processQueue.length);
+  });
+
+  it("âš ï¸ THE ESCAPE VALVE SURVIVES: a spare pool OVER the equipment cap still auto-salvages", () => {
+    // Salvage is the always-available relief for a full pool (0.11.1's softlock fix). If
+    // auto-salvage consulted equipmentStorageCap it would switch itself off at exactly the
+    // moment it is most needed. Anyone adding a cap check re-opens a shipped softlock.
+    const state = bigPoolState();
+    expect(spareEquipmentCount(state)).toBeGreaterThan(equipmentStorageCap(state));
+    expect(equipmentAtCap(state)).toBe(true);
+    expect(autoSalvageOrders(state).processQueue.length).toBe(1);
+  });
+
+  it("an order the rules add is PROMOTED the same tick, not one tick later", () => {
+    // The rules run at the head of promoteQueuedOrders, before the promotion scan, so a
+    // piece the player never touched starts salvaging on the very tick the rule fires.
+    const state = bigPoolState();
+    const after = promoteQueuedOrders(state);
+    expect(after.activeProcesses.filter((p) => p.kind === "salvageJob").length).toBe(1);
+    expect(after.processQueue.length).toBe(0); // the added order was consumed by the promotion
+  });
+});
+
+// ---------------------------------------------------------------------------
+// âš ï¸ OFFLINE == LIVE PARITY FOR THE AUTO-SALVAGE RULES
+// ---------------------------------------------------------------------------
+// The rules are evaluated INSIDE the tick, which means inside the offline catch-up seam.
+// A player who closes the tab for a long span and a player who watches every tick of it
+// must end up with the IDENTICAL queue, the identical spare pool and the identical
+// recovered materials. That holds only because the evaluation is a pure function of the
+// SAVE (no clock, no localStorage, no rng, no unordered iteration), which is exactly what
+// this compares: two independent runs over the same seed, one jumped, one stepped.
+describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 5.1)", () => {
+  const SPAN = 60; // long enough for several rule firings AND several job completions
+  const SEED = 4242;
+
+  // Rules ON, nothing confirm-protected, a deep queue (all three talent rungs) and a pool
+  // of twelve spares of ONE variety, so both rules have plenty to chew on across the span.
+  function autoParityState(): GameState {
+    const pieces = Array.from({ length: 12 }, (_, i) =>
+      autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: i % 3, iLevel: 10 + i })
+    );
+    const base = autoState(pieces, { maxQuality: 1, duplicates: true });
+    return {
+      ...base,
+      unlockedHomeworldTalents: [
+        ...base.unlockedHomeworldTalents,
+        "fleetLogisticsQueue1",
+        "fleetLogisticsQueue2",
+        "fleetLogisticsQueue3",
+      ],
+    };
+  }
+
+  it("parity: a long offline span with auto-salvage ON lands byte-identically to the span stepped one tick at a time", () => {
+    const jumped = tick(SPAN, autoParityState(), mulberry32(SEED));
+    let stepped = autoParityState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // Everything the rules plus their resolutions can touch: the pool, the queue, the
+    // in-flight jobs and the per-quality-bucket inventory the recoveries landed in.
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+    // The queue-id counter too, so no order was minted on one path and not the other.
+    expect(jumped.nextQueueId).toBe(stepped.nextQueueId);
+
+    // NON-VACUITY: the rules really fired and really resolved during the span. Without
+    // this the deep-equal above could pass by comparing two untouched states.
+    expect(jumped.nextQueueId).toBeGreaterThan(autoParityState().nextQueueId);
+    expect(jumped.equipment.length).toBeLessThan(autoParityState().equipment.length);
+    expect(Object.keys(SALVAGE_BP_INPUTS).some((id) => itemTotal(jumped.inventory, id).gt(0))).toBe(true);
+  });
+
+  it("parity holds when the span is chunked UNEVENLY across rule firings", () => {
+    const rng = mulberry32(SEED);
+    let split = autoParityState();
+    for (let i = 0; i < 17; i++) split = economyTick(split, 1, rng);
+    for (let i = 0; i < SPAN - 17; i++) split = economyTick(split, 1, rng);
+    expect(salvageFingerprint(split)).toEqual(salvageFingerprint(tick(SPAN, autoParityState(), mulberry32(SEED))));
+  });
+
+  it("parity is not vacuous: the SAME span with the rules OFF leaves the pool untouched", () => {
+    // The control. If the fixture were not actually driving auto-salvage, the run above
+    // would be comparing two idle states and would prove nothing.
+    const base = autoParityState();
+    const off: GameState = { ...base, autoSalvage: { ...base.autoSalvage, enabled: false } };
+    const after = tick(SPAN, off, mulberry32(SEED));
+    expect(after.equipment.length).toBe(off.equipment.length);
+    expect(after.processQueue).toEqual([]);
   });
 });
