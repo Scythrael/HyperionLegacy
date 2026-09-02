@@ -232,6 +232,10 @@
     // The confirm-every-tier default for state.salvageConfirmQualities, used ONLY as the
     // absent-field fallback below (a saved empty array is a real choice, not an absence).
     freshSalvageConfirmQualities,
+    // Crafting 0.13.3 (Phase 5 Unit 5.2): the shape of the opt-in auto-salvage rules the
+    // Salvage Bay panel edits. Type-only; the values live in the SAVE (state.autoSalvage),
+    // never in localStorage, because the tick reads them offline.
+    type AutoSalvageRules,
     // 0.13.3 Unit 4.4b: the completed-events record and its per-item reward line. Read by
     // the Salvage Bay so its "Last salvage" readout can print the real material manifest
     // again (Unit 4.4 had to drop it: the manifest is produced inside the tick and there
@@ -363,9 +367,18 @@
   // re-exported by salvage.ts). One call per render answers all three arms at once, which
   // is what lets the tiles below mark a queued or in-flight target instead of letting it
   // silently vanish for the length of its countdown.
+  //
+  // selectAutoSalvageTargets is the PURE auto-salvage rule evaluator (Unit 5.1). The
+  // Salvage Bay's rules panel (Unit 5.2) calls it for ONE reason only: to COUNT how many
+  // spare systems the player's current rules would actually take right now, so switching
+  // the feature on has a visible consequence BEFORE anything is destroyed. It reads state,
+  // draws no rng and returns a list of targets; it does not enqueue, mutate or start
+  // anything, so a preview call is free of side effects by construction (see the preview
+  // derivation below, which is where the "what does it cost to call this" note lives).
   import {
     salvageShip,
     salvageReservations,
+    selectAutoSalvageTargets,
     type SalvageRejectReason,
   } from "./lib/game/salvage";
   import {
@@ -4243,6 +4256,164 @@
     state = { ...state, salvageConfirmQualities: next };
     doSave();
   }
+
+  // ── AUTO-SALVAGE RULES (Crafting 0.13.3, Phase 5 Unit 5.2, design §7.6) ───
+  // The console half of the rule engine Unit 5.1 built. THREE do* handlers and five
+  // derivations, and nothing else: the engine is finished, so this unit adds no gate, no
+  // selection logic and no second copy of any rule.
+  //
+  // ⚠️ THESE RULES LIVE IN THE SAVE, NOT IN localStorage, and that is not an
+  // implementation detail: they change what the TICK does, and the offline catch-up path
+  // can only read the save. A localStorage rule would be invisible offline, so a player's
+  // offline run would behave differently from their live run and could destroy items the
+  // live path would have spared. So every handler here writes state and persists through
+  // doSave, exactly like doToggleSalvageConfirmTier above.
+  //
+  // ⚠️ THE ABSENT-FIELD FALLBACK IS ALL-OFF. A state assembled before the field existed
+  // reads as the opt-in default (disabled, no quality rule, no duplicates), never as an
+  // enabled rule set, because the failure direction that costs a player their gear is the
+  // one where a missing field turns a destructive automation ON.
+  const AUTO_SALVAGE_RULES_OFF: AutoSalvageRules = {
+    enabled: false,
+    maxQuality: null,
+    duplicates: false,
+    keepPerVariety: 1,
+  };
+  $: autoSalvageRules = state.autoSalvage ?? AUTO_SALVAGE_RULES_OFF;
+
+  // Every quality tier, ascending: the same 0..QUALITY_TIERS-1 ladder the confirm
+  // checkboxes render, derived from the same constant so the two controls can never
+  // disagree about how many tiers exist.
+  $: autoSalvageAllTiers = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
+
+  // Is ANY rule actually selected? The master switch alone does nothing: with no quality
+  // rule and no duplicates rule, an enabled feature is a no-op, and the panel has to be
+  // able to say so rather than leaving the player waiting for something that will never
+  // happen.
+  //
+  // ⚠️ `maxQuality !== null`, NEVER a truthiness test. maxQuality 0 is a REAL setting
+  // ("Q0 and below", the most useful one for clearing loot clutter) and null is the only
+  // value that means "rule off". `if (rules.maxQuality)` would silently treat the most
+  // common setting as no rule at all.
+  $: autoSalvageHasRule = autoSalvageRules.maxQuality !== null || autoSalvageRules.duplicates;
+
+  // WHICH quality tiers the selected rules can REACH, before the confirm interlock is
+  // applied. The duplicates rule is quality-blind (it ranks a variety and queues the
+  // losers whatever their tier), so it reaches every tier; the max-quality rule reaches
+  // 0..maxQuality. Selected together they union to every tier, which the duplicates arm
+  // already covers.
+  $: autoSalvageReachedTiers = autoSalvageRules.duplicates
+    ? autoSalvageAllTiers
+    : autoSalvageRules.maxQuality !== null
+      ? autoSalvageAllTiers.filter((tier) => tier <= (autoSalvageRules.maxQuality ?? -1))
+      : [];
+
+  // ⚠️ THE CONFIRM INTERLOCK, AS TWO LISTS. This is the single most important thing this
+  // panel says. A tier the player has asked to be CONFIRMED about can never be
+  // auto-salvaged (Unit 5.1's hard safety filter), and the shipped default protects EVERY
+  // tier, so a player who enables the rules and picks a quality sees NOTHING HAPPEN until
+  // they opt a tier out of confirmation. That interlock is deliberate and safe, but if it
+  // is not legible the feature reads as broken. Splitting the reached tiers into what the
+  // rules may ACTUALLY take and what confirmation is holding back lets the panel show both
+  // halves and name the fix.
+  $: autoSalvageEligibleTiers = autoSalvageReachedTiers.filter((tier) => !salvageConfirmQualities.includes(tier));
+  $: autoSalvageHeldTiers = autoSalvageReachedTiers.filter((tier) => salvageConfirmQualities.includes(tier));
+
+  // THE LIVE QUALIFYING COUNT: how many spare systems the rules would take RIGHT NOW.
+  //
+  // WHY PREVIEW AT ALL: this is a destructive automation, so "on" must have a visible
+  // consequence before anything is destroyed. A number the player can read against their
+  // own spare pool is the difference between trusting the toggle and fearing it.
+  //
+  // HOW: selectAutoSalvageTargets is pure (Unit 5.1's header is explicit: reads state,
+  // draws no rng, mutates nothing, enqueues nothing) and it already applies every safety
+  // filter, INCLUDING the confirm interlock, so the count it returns is the honest
+  // "eligible right now" number and not an optimistic one. It is called on a THROWAWAY
+  // SHALLOW COPY with enabled forced true, so the count is also meaningful while the
+  // master switch is still off: that is the whole point of previewing. The copy is read
+  // only and is discarded on the next line; nothing here can enqueue.
+  //
+  // BOUNDS AND COST: the limit is the spare pool's own size, so the count can never be
+  // truncated below the true answer and can never exceed the number of pieces that exist.
+  // The derivation is GATED ON THE CONSOLE BEING ON SCREEN, because it is an O(n log n)
+  // pass over the equipment array and it would otherwise re-run on every tick of every
+  // other tab for a number nobody is looking at (Omega 5).
+  $: autoSalvageMatchCount =
+    activeTab === "facilities" && activeFoundryFacility === "salvageBay" && autoSalvageHasRule
+      ? selectAutoSalvageTargets(
+          { ...state, autoSalvage: { ...autoSalvageRules, enabled: true } },
+          state.equipment.length
+        ).length
+      : 0;
+
+  // The plain-language summary of what the selected rules will DO, in the player's own
+  // vocabulary. keepPerVariety is READ, not hardcoded, even though it is fixed at 1 this
+  // release and not yet player-editable: the day it becomes editable this sentence is
+  // already correct.
+  function autoSalvageSummary(rules: AutoSalvageRules): string {
+    const keep = Math.max(0, rules.keepPerVariety);
+    if (rules.maxQuality !== null && rules.duplicates) {
+      return `Queues spare systems at Q${rules.maxQuality} or below, and duplicates beyond the best ${keep} of each type.`;
+    }
+    if (rules.maxQuality !== null) {
+      return `Queues spare systems at Q${rules.maxQuality} or below.`;
+    }
+    if (rules.duplicates) {
+      return `Queues duplicate spare systems, keeping the best ${keep} of each type and queueing the rest.`;
+    }
+    return "No rule chosen yet, so nothing would be queued.";
+  }
+
+  // "Q0, Q1, Q2" from a tier list, for the two interlock lines. Always reads as the same
+  // Q{n} convention the confirm checkboxes and the spare tiles already use.
+  function autoSalvageTierList(tiers: number[]): string {
+    return tiers.map((tier) => `Q${tier}`).join(", ");
+  }
+
+  // The eligibility readout opens by saying whether the rules are actually running, because
+  // every sentence after it means something different depending on that one fact: the same
+  // "nothing qualifies" is a report when the feature is on and a preview when it is off.
+  $: autoSalvageStatusLead = autoSalvageRules.enabled ? "Running." : "Switched off, so nothing is being queued.";
+
+  // The live qualifying count in words. Written as a function rather than four nested
+  // template branches so the singular/plural and the on/off readings sit side by side and
+  // can be read as one set. The OFF wording is deliberately future tense ("would start
+  // queueing"), because that is the promise the preview is making: this is what turning it
+  // on would do, shown before anything is destroyed.
+  function autoSalvageCountText(count: number, enabled: boolean): string {
+    if (count === 0) {
+      return enabled
+        ? "No spare system qualifies right now; new ones are picked up as they appear."
+        : "No spare system would qualify right now.";
+    }
+    const subject = count === 1 ? "1 spare system qualifies" : `${count} spare systems qualify`;
+    return enabled
+      ? `${subject} right now, queued a few at a time as the bay frees up.`
+      : `${subject} right now and would start queueing as soon as you switch this on.`;
+  }
+
+  // The three writers. Each rebuilds the rules object rather than mutating it, both
+  // because state is treated as immutable everywhere else in this file and because a
+  // mutation would not re-run the reactive reads the controls bind to.
+  function doToggleAutoSalvage(enabled: boolean) {
+    state = { ...state, autoSalvage: { ...autoSalvageRules, enabled } };
+    doSave();
+  }
+  // maxQuality: null = the rule is OFF, a number = "this tier and below". The <select>
+  // carries string values ("off" or a tier index) because a DOM value is always a string;
+  // the parse happens here, in one place, so the null-vs-0 distinction cannot be lost to a
+  // stray Number("") or a truthiness check at a call site.
+  function doSetAutoSalvageMaxQuality(raw: string) {
+    const maxQuality = raw === "off" ? null : Number(raw);
+    if (maxQuality !== null && !Number.isFinite(maxQuality)) return; // unparseable: leave the rule alone
+    state = { ...state, autoSalvage: { ...autoSalvageRules, maxQuality } };
+    doSave();
+  }
+  function doToggleAutoSalvageDuplicates(duplicates: boolean) {
+    state = { ...state, autoSalvage: { ...autoSalvageRules, duplicates } };
+    doSave();
+  }
+
   function cancelSalvageConfirm() {
     salvageConfirm = null;
   }
@@ -8410,6 +8581,12 @@
                    is that the Phase 5 auto-salvage rules, which run inside the tick and in
                    the offline catch-up, can now SEE this preference and refuse to
                    auto-salvage a tier the player asked to be asked about. -->
+              <!-- 0.13.3 Unit 5.2 ADDS this heading and nothing else here. The checkbox row
+                   below is unchanged, but the auto-salvage panel that follows has to be able
+                   to POINT at it by name ("Confirm before salvaging, above") when a confirmed
+                   tier is the reason the rules can take nothing. An unnamed row cannot be
+                   referred to, and "the checkboxes above" is not a fix a player can act on. -->
+              <div class="research-cost" style="margin-top: 8px;">Confirm before salvaging</div>
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
                 {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
                   <label style="display: inline-flex; align-items: center; gap: 6px;">
@@ -8427,8 +8604,128 @@
               </p>
             </Panel>
 
-            <!-- THE SALVAGE QUEUE (0.13.3 Unit 4.4). Sits directly under the explainer and
-                 ABOVE the tiles, the reverse of the craft consoles' running-then-queued
+            <!-- ============ AUTO-SALVAGE RULES (0.13.3, Phase 5 Unit 5.2, design §7.6) ======
+                 The console half of the Unit 5.1 rule engine, and a panel whose main job is to
+                 make ONE thing legible: a quality tier the player asked to CONFIRM can never be
+                 auto-salvaged, and the shipped default confirms EVERY tier. So a player who
+                 turns the rules on and picks a quality would see NOTHING HAPPEN until they opt
+                 a tier out of confirmation. That interlock is deliberate and safe (it is the
+                 never-silently-destroy promise, enforced in the engine), but an invisible
+                 interlock is indistinguishable from a broken feature.
+
+                 WHAT THE PANEL DOES ABOUT IT, in order of importance:
+                   1. It sits DIRECTLY UNDER the Confirm-before-salvaging checkboxes, so the fix
+                      is on the same screen as the message about it. That adjacency is the
+                      reason this panel goes here rather than at the bottom of the console, and
+                      it is why the queue panel below now starts one panel lower.
+                   2. It names the exact tiers the rules may take right now AND the exact tiers
+                      confirmation is holding back, instead of saying "some are protected".
+                   3. It shows a LIVE COUNT of the spare systems that qualify, so switching the
+                      feature on has a visible consequence BEFORE anything is destroyed. The
+                      count comes from the engine's own pure selector, so it cannot promise
+                      something the tick would not do.
+
+                 NO ENGINE CHANGE LIVES HERE. Every rule, safety filter and per-tick bound is
+                 Unit 5.1's; the three handlers only write state.autoSalvage and save. -->
+            <Panel>
+              <div class="panel-title">AUTO-SALVAGE</div>
+              <p class="research-status">
+                Opt-in rules that queue spare ship systems for you. They add orders to the queue below and run the same timed jobs a hand-picked salvage runs, including while the game is closed. Salvaged materials and hull teardowns stay manual.
+              </p>
+
+              <!-- THE CONTROLS. Same .dev-row + inline-flex label idiom as the confirm
+                   checkboxes above and the crafting configurator's dropdowns, so this reads as
+                   the same console rather than a third dialect. Every control carries a visible
+                   text label, so none of them is icon-only. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <input
+                    type="checkbox"
+                    checked={autoSalvageRules.enabled}
+                    on:change={(e) => doToggleAutoSalvage((e.target as HTMLInputElement).checked)}
+                  />
+                  Run these rules
+                </label>
+                <!-- ⚠️ A SELECT, NOT A CHECKBOX, and deliberately. maxQuality has THREE kinds
+                     of value, not two: null means the rule is off, and 0 is a real and useful
+                     setting ("Q0 and below"). A truthy control would collapse those two into
+                     one and quietly turn the most common setting into no rule at all. The DOM
+                     hands back strings, so "off" is the explicit sentinel and the parse happens
+                     in one place (doSetAutoSalvageMaxQuality). -->
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  Quality
+                  <select
+                    class="modal-input"
+                    value={autoSalvageRules.maxQuality === null ? "off" : String(autoSalvageRules.maxQuality)}
+                    on:change={(e) => doSetAutoSalvageMaxQuality((e.target as HTMLSelectElement).value)}
+                    aria-label="Auto-salvage quality rule"
+                  >
+                    <option value="off">Off</option>
+                    {#each autoSalvageAllTiers as tier (tier)}
+                      <option value={String(tier)}>Q{tier} and below</option>
+                    {/each}
+                  </select>
+                </label>
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <input
+                    type="checkbox"
+                    checked={autoSalvageRules.duplicates}
+                    on:change={(e) => doToggleAutoSalvageDuplicates((e.target as HTMLInputElement).checked)}
+                  />
+                  Duplicates
+                </label>
+              </div>
+
+              <!-- The duplicates rule's semantics said out loud, because "duplicates" alone does
+                   not say WHICH copy survives, and that is the only question a player actually
+                   has about it. keepPerVariety is read from the rules (fixed at 1 this release,
+                   not yet editable), so this line stays true the day it becomes adjustable. -->
+              <p class="research-status">
+                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now.
+              </p>
+
+              <!-- The plain-language summary of the CURRENT rule selection (design §7.6:
+                   "a plain language summary of what it will do"). -->
+              <p class="research-status">{autoSalvageSummary(autoSalvageRules)}</p>
+
+              <!-- ⚠️ THE ELIGIBILITY READOUT: the interlock, made legible. Four states, and each
+                   one names its own fix rather than leaving the player to infer it. The two
+                   dead-end states (no rule chosen, every reached tier confirmed) use the WARN
+                   note treatment, because in both of them the feature will do nothing at all and
+                   the player deserves to be told that in the loudest voice this console has. -->
+              {#if !autoSalvageHasRule}
+                <p class="cq-note" class:cq-note-warn={autoSalvageRules.enabled}>
+                  {#if autoSalvageRules.enabled}
+                    Auto-salvage is on but no rule is chosen, so nothing will be queued. Pick a quality tier, switch on Duplicates, or both.
+                  {:else}
+                    Switched off, and no rule is chosen yet. Pick a quality tier or switch on Duplicates, then turn these rules on.
+                  {/if}
+                </p>
+              {:else if autoSalvageEligibleTiers.length === 0}
+                <p class="cq-note cq-note-warn">
+                  {autoSalvageStatusLead} Nothing can be auto-salvaged right now: every quality tier these rules reach ({autoSalvageTierList(autoSalvageHeldTiers)}) is set to ask you first under
+                  <strong>Confirm before salvaging</strong> just above, and auto-salvage never answers a confirmation for you. Uncheck a tier there to let the rules take it.
+                </p>
+              {:else}
+                <p class="cq-note">
+                  {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}
+                    Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: uncheck a tier under <strong>Confirm before salvaging</strong> just above to include it.
+                  {/if}
+                  {autoSalvageCountText(autoSalvageMatchCount, autoSalvageRules.enabled)}
+                </p>
+              {/if}
+
+              <!-- THE SAFETY GUARANTEES, stated because this is a destructive automation and a
+                   player has to be able to trust it before they switch it on. Each clause is a
+                   filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
+              <p class="research-status">
+                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue below, where you can remove one before it starts, and once your queue holds more than one order it always leaves a slot free for your own work.
+              </p>
+            </Panel>
+
+            <!-- THE SALVAGE QUEUE (0.13.3 Unit 4.4). Sits under the explainer (and, since Unit
+                 5.2, under the auto-salvage rules that feed it) but still ABOVE the tiles, the
+                 reverse of the craft consoles' running-then-queued
                  order, and deliberately so: on this console the tiles are the ACTION and the
                  queue is the STATUS of actions already taken, so the status belongs where
                  the player looks first, before they scroll a grid of dozens of spares. -->
