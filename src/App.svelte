@@ -8352,7 +8352,23 @@
                      ran out (mine more via Local Asteroid). Reuses the refinery job-card
                      progress idiom (progress bar + ticks remaining). -->
                 {#if activeFuelRefineJobs.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">Refining now:</div>
+                  <!-- 0.13.3 Unit 6.3 (presentation only): the bare label line takes the
+                       Home/Ships SECTION-HEADER idiom (icon + label + count pill + rule), the
+                       identical treatment Unit 6.1 gave "Active jobs:" on the Refinery and
+                       "In progress:" on the Fabricator, and Unit 6.2 gave "In progress:" on
+                       Research, so all four Foundry Overviews read as one surface. The label
+                       string "Refining now:" is unchanged, trailing colon and all (trimming it
+                       would be a string change, not a presentation change). The pill states
+                       running / pipelines rather than a bare count, because a lone number in
+                       that slot does not say what it is counting; BOTH numbers are already
+                       rendered by this same panel (activeFuelRefineJobs drives the bars just
+                       below, fuelPipelineCount is the "Pipelines:" line at the top), so nothing
+                       new is derived here. -->
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="fuel" size={12} /> Refining now:</span>
+                    <span class="home-sec-count">{activeFuelRefineJobs.length} / {fuelPipelineCount(state)}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   {#each activeFuelRefineJobs as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="research-bar-track" style="margin-top: 4px;">
@@ -8440,22 +8456,43 @@
                        "doubles capacity". The effect is a presence-tagged union, narrowed
                        with `"key" in nextEff` (the SAME idiom fuelCap/fuelPipelineCount
                        use). Build stays wired to the shared canBuildFacilityUpgrade /
-                       doStartFacilityUpgrade, only the DESCRIPTION branches. -->
+                       doStartFacilityUpgrade, only the DESCRIPTION branches.
+
+                       0.13.3 Unit 6.3, READ BEFORE EDITING: ALL FOUR BRANCHES BELOW ARE
+                       LOAD-BEARING AND MUST STAY EXPLICIT. They look redundant and are not.
+                       Each rung type has its OWN title, its OWN current→next readout, and its
+                       OWN Build button label further down:
+                         "storageCapMult"    -> Expand Tank        -> Build label "Expand Tank"
+                         "addFuelPipelines"  -> Add Pipeline       -> Build label "Add Pipeline"
+                         "fuelYieldMult"     -> Boost Yield        -> Build label "Boost Yield"
+                         "fuelInputMult"     -> Efficient Intake   -> Build label "Improve Intake"
+                       Collapsing them into one generic "next upgrade" row is a REGRESSION, not
+                       a simplification: it is exactly the mislabel bug this branching fixed
+                       (every rung used to read "doubles capacity"). Unit 6.3 changed nothing
+                       here but the decorative glyph on each title; the four conditions, the
+                       four readouts and the four labels are byte-identical.
+
+                       The glyph is the SAME facility icon on all four, deliberately. Unit 6.1's
+                       precedent is a uniform facility glyph on card titles (every refine job
+                       card got <Icon refinery> regardless of what it was refining); handing
+                       each rung type a DIFFERENT semantic icon would be new design meaning
+                       invented by a presentation pass, and the four titles already carry the
+                       distinction in words. -->
                   {@const nextEff = nextFuelStorageUpgrade.effect}
                   {#if "storageCapMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Expand Tank, storage ×{nextEff.storageCapMult}</div>
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Expand Tank, storage ×{nextEff.storageCapMult}</div>
                     <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
                   {:else if "addFuelPipelines" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
                     <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
                   {:else if "fuelYieldMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
                   {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;">Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
                   {/if}
@@ -8469,8 +8506,18 @@
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
+                    <!-- 0.13.3 Unit 6.3: the ✅/❌ pair becomes <Icon check> / <Icon warning>,
+                         the same swap Units 6.1 and 6.2 made on every readiness row of the
+                         Refinery, Fabricator and Research consoles. This is the Fuel Depot's
+                         ENTIRE share of the emoji migration (6.2 reconciled the remaining 7 as
+                         1 here + 4 on the Shipyard + 2 on Mission Control). The glyph is stroke
+                         SVG on currentColor, so it INHERITS this row's existing success/danger
+                         token instead of shipping a per-OS emoji palette. The condition is
+                         untouched; it moved from a JS ternary to a template block only because
+                         a component cannot be a ternary branch. Color, text and the
+                         reservation-aware "(N reserved)" annotation are unchanged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -8494,7 +8541,11 @@
                   {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
                     ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
                     : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <!-- 0.13.3 Unit 6.3: decorative clock beside the unchanged in-flight label,
+                       matching the Refinery and Fabricator rows from Unit 6.1 and Research from
+                       Unit 6.2. The remainingReadout below (and its showTickCounts /
+                       state.tickDurationSeconds arguments) is untouched. -->
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
