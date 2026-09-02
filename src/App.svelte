@@ -211,6 +211,12 @@
     // Combat 0.13.0 (offline recap): the wall-stop reason union, mapped to a friendly note in
     // the "While you were away" Captains rows (offlineStopReasonNote below).
     type CaptainStopReason,
+    // Crafting 0.13.3 (Phase 4 Unit 4.2): the shape of ONE waiting order, built by the
+    // configurator's "Add to queue" action and handed straight to enqueueOrder, plus the
+    // key naming WHICH facility's queue it joins. Both live in model.ts (tick.ts imports
+    // them from here too), so they are taken from the same place tick.ts takes them.
+    type QueuedOrder,
+    type QueueFacilityKey,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -522,7 +528,38 @@
     LOOT_MATERIAL_KEYS,
     describeCaptainTalentEffect,
     describeHomeworldTalentEffect,
+    // Crafting 0.13.3 (Phase 4 Unit 4.2): the QUEUE MUTATION API. These three are the only
+    // writers of state.processQueue a console is allowed to call, and the do* handlers below
+    // wrap them with the same reassign + log + save idiom every other action here uses.
+    // ⚠️ NOTE WHAT IS DELIBERATELY ABSENT: promoteQueuedOrders. Promotion runs exactly once
+    // per tick inside economyTick and nowhere else, and that single call site is what makes
+    // offline == live true by construction, so no UI handler may ever call it however much
+    // snappier an instant promotion would feel.
+    enqueueOrder,
+    moveQueuedOrder,
+    removeQueuedOrder,
+    // The two raw reason unions the queue surfaces. QueueBlockReason spans BOTH gate
+    // vocabularies (canStartLine's and salvage.ts's) plus the queue-only "wrongFacility",
+    // which is exactly why queueBlockText below routes by the ROW'S ORDER TYPE and not by
+    // the token alone: "notFound" is a member of both unions with two different readings.
+    type QueueBlockReason,
+    type EnqueueBlockReason,
   } from "./lib/game/tick";
+  // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
+  // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
+  // which is what keeps a queued row's "would this start?" answer identical to the one the
+  // tick's promotion pass will give. queuedOrderLabel is the ONE naming path for a queued
+  // order, borrowed here so an enqueue log line names the order exactly as its row does.
+  import {
+    buildCraftQueue,
+    queuedOrderLabel,
+    type CraftQueueRow,
+    type CraftQueueView,
+  } from "./lib/game/craftQueue";
+  // Crafting 0.13.3 (Unit 4.1): the shared inline-SVG icon component, used here for the
+  // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
+  // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
+  import Icon from "./lib/ui/Icon.svelte";
   // Mission Rework (Task 8 UI): the PURE fuel-cost math. fuelNeeded(mission, shipDef)
   // returns the round-trip fuel a hull burns for a mission, shown per mission on the
   // Operations dispatch surface (list card = representative captain's hull; popup =
@@ -4063,6 +4100,174 @@
     }
   }
 
+  // ── The ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.2) ───────────────────
+  // Three do* handlers + two reason-to-sentence mappers. Everything below is UI only:
+  // the engine (enqueueOrder / moveQueuedOrder / removeQueuedOrder in tick.ts) owns every
+  // gate, and these wrappers add nothing but the reassign + log + save the rest of this
+  // file already does. No handler here ever promotes an order (see the import note).
+
+  // Queue a craft line to run LATER, from the same configurator that starts one now.
+  //
+  // Mirrors commitStartLine's shape exactly (call the pure fn, bail on a same-ref refusal,
+  // reassign, log, collapse the configurator, save) with ONE deliberate difference: it does
+  // NOT route through the refineConfirm modal. That confirmation exists to warn that a
+  // STARTED line reserves materials; a queued order reserves nothing at all (design 5.3,
+  // which is also why the configurator's Free / Allocated / Total preview stays honest), and
+  // it can be removed with one click, so there is nothing to confirm. Adding a modal here
+  // would be friction with no risk behind it.
+  //
+  // The label comes from craftQueue.ts's queuedOrderLabel, the same function the queue ROW
+  // uses, so the log line and the row can never disagree about what was queued.
+  function doEnqueueLine(
+    facility: QueueFacilityKey,
+    kind: CraftLineKind,
+    recipeKey: string,
+    mode: CraftLineMode
+  ) {
+    const order: QueuedOrder = { type: "craftLine", kind, recipeKey, mode };
+    const { next, queued } = enqueueOrder(state, facility, order);
+    // A refusal returns the SAME state ref (depth full / wrong facility), so this is a clean
+    // no-op. The button's own disabled state already mirrors canEnqueueOrder, so reaching
+    // here means state moved between render and click.
+    if (!queued) return;
+    state = next;
+    const desc = mode.kind === "batch" ? `×${mode.remaining}` : "continuous";
+    pushLog(`Queued (${desc}) → [${queuedOrderLabel(state, order)}].`);
+    closeConfigurator();
+    doSave();
+  }
+
+  // Move ONE waiting order earlier ("up") or later ("down") in its OWN facility's queue.
+  // The array order IS the queue order, so the swap the engine performs is the whole truth,
+  // with no second sort key to keep in step. A boundary move is a same-ref no-op in the
+  // engine and the row's control is already disabled there, so no guard is needed here.
+  function doMoveQueuedOrder(id: string, direction: "up" | "down") {
+    state = moveQueuedOrder(state, id, direction);
+    doSave();
+  }
+
+  // Drop ONE waiting order. A queued order reserves nothing, so there is no ledger to unwind
+  // and nothing is destroyed: this is the reason the control needs no confirmation modal.
+  // `label` is passed in from the row that was clicked (rather than re-derived) because the
+  // order is gone from state by the time the log line is written.
+  function doRemoveQueuedOrder(id: string, label: string) {
+    state = removeQueuedOrder(state, id);
+    pushLog(`Removed from queue → [${label}].`);
+    doSave();
+  }
+
+  // The human sentence a QUEUED row shows when it cannot start yet.
+  //
+  // ⚠️ WHY THIS EXISTS INSTEAD OF CALLING startLineBlockText DIRECTLY (build plan note,
+  // Phase 4 block-reason wording). A queued row asks the SAME gate the configurator's Start
+  // button asks, and that gate includes the slot check, so a perfectly healthy queued order
+  // reports "noSlot" for as long as every line is busy, which is the NORMAL waiting state and
+  // not an error at all. The configurator's wording for it ("Every slot on this facility is
+  // busy.") reads as a failure on a queue row, so the queue words that one case itself.
+  //
+  // ⚠️ AND WHY IT ROUTES BY row.order.type (Unit 2.4 note). QueueBlockReason is the union of
+  // canStartLine's reasons, salvage.ts's reject reasons, and the queue-only "wrongFacility".
+  // "notFound" belongs to BOTH gate vocabularies and means two different things in them ("no
+  // such recipe" versus "no such equipment instance"), so the token alone cannot pick its own
+  // wording. The row carries its order, so the order's type picks the mapper. The two shared
+  // tokens are worded BEFORE that split, because neither facility mapper knows them.
+  function queueBlockText(row: CraftQueueRow): string {
+    // Annotated explicitly so the union this function has to span is visible at the top of it.
+    const reason: QueueBlockReason | null = row.blockReason;
+    if (reason === null) return "";
+
+    // Shared / queue-only tokens first.
+    if (reason === "noSlot") {
+      // The normal, healthy waiting state. Worded as waiting, not as a failure.
+      return row.order.type === "salvage" ? "Waiting for a free bay." : "Waiting for a free line.";
+    }
+    if (reason === "wrongFacility") {
+      // Only reachable from a save whose order landed under a facility that cannot run it
+      // (a retired facility key, say). It will never promote, so the row says how to clear it.
+      return "This order cannot run at this facility. Remove it and queue it again.";
+    }
+
+    if (row.order.type === "salvage") {
+      // salvageRejectText returns lowercase FRAGMENTS ("that system no longer exists"), which
+      // is why the sentence is assembled here rather than borrowed whole.
+      switch (reason) {
+        case "notFound":
+        case "fitted":
+        case "noRecipe":
+        case "notSalvagedMaterial":
+        case "noneHeld":
+        case "shipNotFound":
+        case "shipOnMission":
+        case "lastShip":
+          return `Waiting: ${salvageRejectText(reason)}.`;
+        default:
+          // A craft-line-only token on a salvage row is unreachable (the Salvage Bay adapter
+          // delegates to canStartSalvage, which mints only the reasons above). Worded rather
+          // than thrown so a future adapter change degrades to an honest row, not a crash.
+          return "Waiting: this order cannot start right now.";
+      }
+    }
+
+    // A craft line. The wording is BORROWED VERBATIM from startLineBlockText so there is
+    // exactly one phrasing of "not enough free materials" in the game and the queue row, the
+    // Start button and the tick all tell the player the same story.
+    const bp = row.order.kind === "fabricate" ? BLUEPRINTS[row.order.recipeKey] : undefined;
+    switch (reason) {
+      case "notFound":
+      case "unlockOnly":
+      case "notResearched":
+      case "tierLocked":
+      case "invalidCount":
+      case "materials":
+      case "storageFull":
+      case "equipmentStorageFull":
+        return `Waiting: ${startLineBlockText(reason, bp)}`;
+      default:
+        // Salvage-only token on a craft-line row: unreachable for the same reason as above.
+        return "Waiting: this order cannot start right now.";
+    }
+  }
+
+  // The human sentence shown when the queue itself will not accept another order. Exhaustive
+  // over EnqueueBlockReason (a switch with no default), so a new member is a compile error.
+  function enqueueBlockText(reason: EnqueueBlockReason): string {
+    switch (reason) {
+      case "queueFull":
+        // The common case, and the one that should teach rather than scold: the cap is a
+        // talent, so the sentence names where the depth comes from.
+        return "Queue full. Remove a queued order, or deepen the queue via Homeworld Talents → Fleet Logistics (Standing Orders).";
+      case "wrongFacility":
+        return "That order cannot be queued at this facility.";
+      case "alreadyQueued":
+        return "That exact target is already queued here.";
+    }
+  }
+
+  // Why the configurator's "Add to queue" button is unavailable, or "" when it is available.
+  //
+  // ONE helper rather than a template ternary because the SAME string drives two things (the
+  // button's disabled state and the persistent note under it), and because the three reasons
+  // are ORDERED: the recipe and the quantity are what the player just touched, so they are
+  // reported before the facility-level depth cap.
+  //
+  // The form values are PASSED IN rather than read off cfgRecipeKey / cfgQty inside, matching
+  // how the sibling canStartLine call in the same configurator is written: the template
+  // expression then names every input it depends on, so what re-runs the readout is visible
+  // at the call site instead of hidden in a closure over component state.
+  //
+  // ⚠️ THE QUANTITY CHECK IS LOAD-BEARING, not decoration. enqueueOrder validates the queue
+  // (facility, depth, duplicates) but NOT the order's own contents, while canStartLine rejects
+  // a count below 1 with "invalidCount". A blank or fractional qty would therefore queue an
+  // order that can never be promoted and would sit at the head of the queue forever. Gating
+  // here is what keeps that from being reachable. It deliberately does NOT gate on
+  // affordability: queueing something you cannot afford yet is the entire point of a queue.
+  function craftQueueButtonBlockText(view: CraftQueueView, recipeKey: string, qty: number): string {
+    if (recipeKey === "") return "Choose an item to queue.";
+    if (!Number.isFinite(qty) || Math.floor(qty) < 1) return startLineBlockText("invalidCount");
+    if (view.enqueueBlockReason !== null) return enqueueBlockText(view.enqueueBlockReason);
+    return "";
+  }
+
   // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
   // canBuildFacilityUpgrade (materials + FA level + talents + no in-flight
   // upgrade for this facility); on any miss it is a no-op.
@@ -4642,6 +4847,24 @@
   // the free/allocated numbers update LIVE as lines start, drain, and cancel. `?? []`
   // guards a pre-C2 save shape defensively (C6's migration seeds the arrays).
   $: allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+
+  // ── The Refinery's ORDER QUEUE view (Crafting 0.13.3, Phase 4 Unit 4.2) ────
+  // ONE pure builder call per render, and the console template reads nothing but its
+  // fields. Every hard question the queue section asks (is this row eligible? which row
+  // would a freed line take? how deep is the queue? may another order be added, and if
+  // not why not?) is answered inside craftQueue.ts by the SAME adapters the tick's
+  // promotion pass runs, so the panel and the engine cannot tell the player two different
+  // stories about what starts next. Deriving it here (rather than inline in the template)
+  // also means the builder runs once per state change instead of once per row.
+  $: refineryQueue = buildCraftQueue(state, "refinery");
+  // Does any RUNNING refinery line never release its slot? A continuous line runs until it
+  // is canceled (design 5.4), so anything queued behind one waits on a DIFFERENT line, and
+  // if every line is continuous the queue waits forever. That is not a bug, but it is a
+  // trap when unlabeled, so the queue section says so. Both halves are read straight off
+  // the running rows the view model already built.
+  $: refineryContinuousRunning = refineryQueue.running.filter((r) => r.continuous).length;
+  $: refineryAllRunningContinuous =
+    refineryQueue.runningCount > 0 && refineryContinuousRunning === refineryQueue.runningCount;
 
   // Next Refinery UPGRADE rung. upgrades[level] is the rung that takes the
   // facility from `level` to `level+1` (so a level-0 refinery's next rung is
@@ -5725,16 +5948,31 @@
                     </div>
                   {/each}
 
-                  <!-- Idle slots: a compact prompt that expands into the configurator. -->
-                  {#each Array(idleSlots) as _, idx}
+                  <!-- Idle slots: a compact prompt that expands into the configurator.
+                       0.13.3 Unit 4.2 adds ONE EXTRA opener past the real slots when there are
+                       no idle slots left and the queue can still accept an order. WHY: design
+                       8.2 puts "Add to queue" beside Start inside this configurator, but the
+                       configurator only renders on an IDLE slot, so with every line busy (the
+                       exact moment queueing is worth anything) there would be no way to reach
+                       it. The extra opener runs the SAME markup with the same one-open-at-a-time
+                       rule, so the player configures a queued order exactly the way they already
+                       configure a running one. It is deliberately NOT shown while a line is idle:
+                       an order queued against a free line is promoted on the very next tick, so
+                       offering both there would be two buttons for one outcome. -->
+                  {@const queueOpeners = idleSlots === 0 && refineryQueue.canEnqueue ? 1 : 0}
+                  {#each Array(idleSlots + queueOpeners) as _, idx}
+                    {@const isQueueOpener = idx >= idleSlots}
                     {@const slotIndex = refineLines.length + idx}
                     {@const isOpen = openConfig?.kind === "refine" && openConfig.slotIndex === slotIndex}
                     {#if isOpen}
                       {@const maxQty = maxAffordableIterations(state, "refine", cfgRecipeKey)}
                       {@const gate = canStartLine(state, "refine", cfgRecipeKey, Math.floor(cfgQty))}
                       {@const perIteration = lineInputsPerIteration({ id: "", kind: "refine", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
+                      <!-- The queue button's own gate + its persistent reason, from ONE helper so
+                           the disabled state and the note below can never disagree. -->
+                      {@const queueBlock = craftQueueButtonBlockText(refineryQueue, cfgRecipeKey, cfgQty)}
                       <div class="mission-card" style="margin-top: 10px;">
-                        <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
+                        <div class="research-name">{#if isQueueOpener}Queue · configure an order{:else}Line {slotIndex + 1} · configure a craft{/if}</div>
 
                         <!-- Tier dropdown (refine recipes carry no tier -> a single Tier 1). -->
                         <div class="dev-row" style="margin-top: 8px; align-items: center;">
@@ -5785,17 +6023,172 @@
                           >
                             Refine · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
+                          <!-- ADD TO QUEUE (0.13.3 Unit 4.2): the same configured order, parked
+                               to run later instead of now. Kept as a SEPARATE button rather than
+                               letting Start silently become Queue when no line is free, because
+                               the two do genuinely different things (one reserves materials now,
+                               one reserves nothing at all) and a button that changes meaning under
+                               the player is how a mis-click happens. When every line is busy the
+                               Start button beside it is disabled with its own reason, which is
+                               what teaches why this one exists. -->
+                          <button
+                            class="buy-btn"
+                            disabled={queueBlock !== ""}
+                            on:click={() => doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                          >
+                            Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
+                          </button>
                           <button class="dev-btn" on:click={closeConfigurator}>Close</button>
                         </div>
+                        <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
+                             the reason sits under the button instead of in a hover title, because
+                             a disabled <button> swallows pointer events and a title on it is
+                             unreadable on touch entirely. -->
+                        {#if queueBlock !== ""}
+                          <p class="cq-note">{queueBlock}</p>
+                        {/if}
                       </div>
                     {:else}
                       <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("refine", slotIndex)}>
-                        Line {slotIndex + 1} · idle, configure a craft
+                        {#if isQueueOpener}Queue · configure an order to run later{:else}Line {slotIndex + 1} · idle, configure a craft{/if}
                       </button>
                     {/if}
                   {/each}
                 {/if}
               </Panel>
+
+              <!-- ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.2, design 8.2).
+                   Sits UNDER the production lines because that is the order the work happens
+                   in: what is running, then what is waiting behind it. Every number, label,
+                   eligibility answer and control-enabled state below is read straight off
+                   refineryQueue (buildCraftQueue's pure view model); NOTHING is re-derived
+                   here, which is what guarantees a row's "waiting for a free line" and the
+                   tick's own promotion decision are the same answer from the same adapter.
+                   Queued rows deliberately get NO progress bar (inventory 0.5): they have not
+                   started, so a bar would be a fabricated countdown. They get a position, a
+                   state and stable controls instead. -->
+              {#if refineryBuilt}
+                <Panel>
+                  <div class="panel-title">ORDER QUEUE</div>
+
+                  <!-- Depth readout, the Home section-header idiom (used / total in the pill).
+                       depthUsed/depthTotal are fields on the view model, not a template sum. -->
+                  <div class="home-sec-hd">
+                    <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
+                    <span class="home-sec-count" class:cq-count-over={refineryQueue.overDepth}>
+                      {refineryQueue.depthUsed} / {refineryQueue.depthTotal}
+                    </span>
+                    <span class="home-sec-rule"></span>
+                  </div>
+
+                  <!-- THE RESPEC DRAIN STATE. A refund of the queue-depth talents can leave a
+                       facility holding more waiting orders than the new depth allows. Nothing is
+                       destroyed (the over-cap inventory precedent), the extras simply drain and
+                       nothing new can be added, so the note says exactly that rather than
+                       reading as an error the player has to fix. -->
+                  {#if refineryQueue.overDepth}
+                    <p class="cq-note cq-note-warn">
+                      Over capacity: {refineryQueue.depthUsed} orders are held but the current depth is {refineryQueue.depthTotal}.
+                      Nothing is lost. These drain as lines free up, and no new order can be added until the queue is back under {refineryQueue.depthTotal}.
+                      Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
+                    </p>
+                  {:else if !refineryQueue.canEnqueue && refineryQueue.enqueueBlockReason !== null}
+                    <p class="cq-note cq-note-warn">{enqueueBlockText(refineryQueue.enqueueBlockReason)}</p>
+                  {/if}
+
+                  <!-- THE CONTINUOUS-LINE TRAP (design 5.4). A continuous line runs until it is
+                       canceled, so it never hands its slot back. Shown ONCE per section rather
+                       than repeated on every row: the warning is a property of the RUNNING lines,
+                       identical for every row behind them, and a dense list that repeats the same
+                       sentence N times reads as noise instead of information. -->
+                  {#if refineryQueue.depthUsed > 0 && refineryContinuousRunning > 0}
+                    <p class="cq-note cq-note-warn">
+                      {#if refineryAllRunningContinuous}
+                        Every running line is continuous, so no line will free up on its own. Cancel a line to let the queue start.
+                      {:else}
+                        A continuous line never finishes on its own, so these wait for one of the other lines to free up.
+                      {/if}
+                    </p>
+                  {/if}
+
+                  {#if refineryQueue.queued.length === 0}
+                    <!-- State-dependent empty state (inventory 0.8): the two readings are
+                         genuinely different problems. No depth at all means "go get depth"; depth
+                         with nothing in it means "here is how you fill it".
+                         The zero-depth branch is DEFENSIVE and unreachable today: QUEUE_DEPTH_BASE
+                         is 1, so every player has one queue slot before any talent. It is written
+                         anyway because depth is derived from talents on read, and a future rebalance
+                         that moves the base to 0 must not land a blank panel with no explanation. -->
+                    <p class="research-status" style="margin-top: 10px;">
+                      {#if refineryQueue.depthTotal <= 0}
+                        This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
+                      {:else}
+                        Nothing queued. Configure a line above and choose <strong>Add to queue</strong> to line up work that starts as soon as a line frees up.
+                        Depth: {refineryQueue.depthTotal} order{refineryQueue.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
+                      {/if}
+                    </p>
+                  {:else}
+                    <div class="cq-list">
+                      {#each refineryQueue.queued as row (row.id)}
+                        <div class="cq-row" class:cq-row-next={row.nextToPromote}>
+                          <!-- Position is the row's 1-based place in THIS facility's queue, and
+                               the array order IS the queue order, so reordering below is honest
+                               with no second sort key behind it. -->
+                          <span class="cq-pos" aria-hidden="true">{row.position}</span>
+                          <span class="cq-body">
+                            <span class="home-l1">{row.label}</span>
+                            <span class="home-l2">
+                              <span class="home-meta">{row.modeLabel}</span>
+                              {#if row.nextToPromote}<span class="cq-tag">Starts next</span>{/if}
+                            </span>
+                            <!-- The row's live state, as a PERSISTENT note rather than a hover
+                                 title (inventory 0.4): this is a dense list, which is exactly
+                                 where the tooltip-flicker bug that motivated persistent notes
+                                 lives. queueBlockText words "noSlot" as waiting, not as an
+                                 error, because for a queued order it IS the normal state. -->
+                            <span class="cq-state" class:cq-state-ok={row.canStart}>
+                              <!-- "Ready to start", NOT "starts next tick": with one free line
+                                   and two eligible rows only the first is promoted, so a
+                                   per-row promise about timing would be a lie for row two. The
+                                   timing claim lives on the "Starts next" chip, which the view
+                                   model awards to exactly one row. -->
+                              {#if row.canStart}Ready to start.{:else}{queueBlockText(row)}{/if}
+                            </span>
+                          </span>
+                          <!-- STABLE BUTTONS, never tooltip actions (the 0.13.2 rule). Icon-only,
+                               so each carries its own accessible name; the name STATES THE REASON
+                               when the control is disabled, which is the "button's own label is
+                               the reason" variant of disabled-reason discipline. The <Icon> stays
+                               decorative on purpose: a labelled icon inside a labelled button
+                               would be a second, competing accessible name. -->
+                          <span class="cq-ctl">
+                            <button
+                              class="cq-btn"
+                              disabled={!row.canMoveUp}
+                              title={row.canMoveUp ? "Move up" : "Already first in the queue"}
+                              aria-label={row.canMoveUp ? `Move ${row.label} up` : "Already first in the queue"}
+                              on:click={() => doMoveQueuedOrder(row.id, "up")}
+                            ><Icon name="chevronUp" size={14} /></button>
+                            <button
+                              class="cq-btn"
+                              disabled={!row.canMoveDown}
+                              title={row.canMoveDown ? "Move down" : "Already last in the queue"}
+                              aria-label={row.canMoveDown ? `Move ${row.label} down` : "Already last in the queue"}
+                              on:click={() => doMoveQueuedOrder(row.id, "down")}
+                            ><Icon name="chevronDown" size={14} /></button>
+                            <button
+                              class="cq-btn cq-btn-danger"
+                              title="Remove from queue"
+                              aria-label={`Remove ${row.label} from the queue`}
+                              on:click={() => doRemoveQueuedOrder(row.id, row.label)}
+                            ><Icon name="close" size={14} /></button>
+                          </span>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                </Panel>
+              {/if}
             {/if}
 
             {#if activeRefinerySubTab === "upgrades"}
@@ -12550,6 +12943,140 @@
     border: 1px solid var(--color-border);
     border-radius: 12px;
     padding: 0 6px;
+  }
+
+  /* ================= ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.2) ==================
+     The queue list on a crafting console. Built on the SAME row grammar as the Home
+     dashboard's in-progress rows and the Ships list (a leading marker, an ellipsizing body
+     of stacked lines, trailing controls), so the crafting consoles read as part of the same
+     app as the two already-redesigned tabs rather than as a third dialect. It reuses
+     .home-l1 / .home-l2 / .home-meta / .home-sec-hd / .home-sec-count outright and only adds
+     what the queue genuinely needs: a position marker, a state note, and the controls.
+
+     TINTS ARE color-mix, never rgba(--color-X-rgb, N) over an opaque background (the locked
+     0.13.3 design-system decision): color-mix composites against whatever is actually behind
+     the row in either theme, so a tint cannot go muddy when the panel beneath it changes. */
+  .cq-list { display: flex; flex-direction: column; gap: 7px; margin-top: 10px; }
+
+  .cq-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    width: 100%;
+    min-width: 0;
+    padding: 8px 9px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+  /* The row a freed line would take next. A quiet accent wash, NOT the amber "needs you"
+     treatment: this is a preview of something about to happen on its own, not a prompt. */
+  .cq-row-next {
+    border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  }
+
+  /* Position marker. Tabular so 1 / 2 / 3 sit in the same column down the list. */
+  .cq-pos {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: 1px solid var(--color-border-strong);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+  }
+
+  /* min-width: 0 is what lets .home-l1's ellipsis actually engage instead of the row
+     growing wider than the panel. Without it a long recipe name forces a horizontal
+     scrollbar at 320px, which the responsive rule forbids. */
+  .cq-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+
+  /* "Starts next" preview chip. */
+  .cq-tag {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+    border-radius: 12px;
+    padding: 0 6px;
+    white-space: nowrap;
+  }
+
+  /* The persistent state note. WRAPS on purpose (no ellipsis): a block reason the player
+     cannot read in full is the same as no reason at all. */
+  .cq-state {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--color-text-secondary);
+  }
+  .cq-state-ok { color: var(--color-success); }
+
+  /* Controls. flex: none so they keep their tap size while the body absorbs the squeeze. */
+  .cq-ctl { flex: none; display: flex; align-items: center; gap: 4px; }
+  .cq-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: var(--color-panel-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .cq-btn:hover:not(:disabled) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  }
+  .cq-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  /* Disabled is dimmed but still READABLE and still hoverable-looking-inert. The reason it
+     is disabled lives in its accessible name + title, never in a bare disabled state. */
+  .cq-btn:disabled { opacity: 0.4; cursor: default; }
+  .cq-btn-danger:hover:not(:disabled) {
+    border-color: var(--color-danger);
+    color: var(--color-danger);
+    background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+
+  /* Persistent inline notes (the depth/respec/continuous explanations and the disabled
+     "Add to queue" reason). Same voice as the row state note, one step louder. */
+  .cq-note {
+    margin: 8px 0 0;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+  }
+  .cq-note-warn {
+    color: var(--color-warning);
+    background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-warning) 28%, transparent);
+    border-radius: 7px;
+    padding: 7px 9px;
+  }
+  /* The depth pill turns amber when a respec left the facility over capacity. */
+  .cq-count-over {
+    color: var(--color-warning);
+    border-color: color-mix(in srgb, var(--color-warning) 45%, transparent);
+  }
+
+  /* Narrow phones: the controls drop under the body so a long recipe name and a three-button
+     control cluster never fight for the same 320px line. */
+  @media (max-width: 400px) {
+    .cq-row { flex-wrap: wrap; }
+    .cq-ctl { width: 100%; justify-content: flex-end; }
   }
 
   /* Reduced-motion: kill the amber prompt pulse AND the ticker crossfade (design / a11y
