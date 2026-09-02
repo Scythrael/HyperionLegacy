@@ -2294,7 +2294,12 @@ export interface FacilityState {
 // TimedProcessKind): a future effect kind slots in without touching call sites.
 export type FacilityUpgradeEffect =
   | { addRefineSlots: number }   // +N parallel refine jobs this facility can run (Task 11 derives slot totals)
-  | { refineSpeedMult: number }  // multiplies this facility's refine-job speed (Task 11 consumes it)
+  // 0.13.3 Unit 3.1b (FIX A): this was declared in Task 11 but read by NOTHING for the
+  // whole of 0.11.x/0.12.x, so the refinery's advertised "1.5x refine speed" rung was
+  // inert and a player could buy an upgrade that did nothing. refineSpeedMult (tick.ts)
+  // now PRODUCTS it across reached rungs and refineJobDurationTicks DIVIDES a refine
+  // job's duration by it at job start.
+  | { refineSpeedMult: number }  // multiplies this facility's refine-job speed (faster = fewer ticks)
   // Phase 2, Task B2 (design §3.3): a Warehouse-tier cap MULTIPLIER. Each reached
   // warehouse rung multiplies its tier's per-item storage cap by this factor;
   // tierCap (tick.ts) DERIVES the live cap by multiplying BASE_CAP[tier] across
@@ -2848,11 +2853,24 @@ export const FACILITIES: Record<string, FacilityDef> = {
   //     TIER unlock is level-derived (not summed), the same way the Research Lab derives
   //     researchable tiers from its level.
   //
-  // FINITE track that CAPS at real content: only blueprint tiers 1 and 2 exist today
-  // (BLUEPRINTS), so the track has exactly TWO rungs (level 1 and level 2). NO rung
-  // beyond tier 2, adding one would be a placeholder that unlocks nothing, against
-  // this file's no-placeholder discipline. A future blueprint tier re-extends the track
-  // additively (one more rung), mirroring the Research Lab / Refinery / Warehouse tracks.
+  // TRACK LENGTH: THREE rungs (levels 1, 2 and 3), matching the Refinery's three
+  // parallel production lines.
+  //
+  // ⚠️ REVISED IN CRAFTING 0.13.3 (Unit 3.1b, FIX B), OWNER BALANCE CALL. This block
+  // used to read "NO rung beyond tier 2, adding one would be a placeholder that unlocks
+  // nothing". That reasoning tied the track's LENGTH to the blueprint TIER ladder, which
+  // was the wrong axis: the rungs carry a slot grant as well as a tier unlock, and a
+  // SLOT is real content whether or not a new tier exists. The consequence of the old
+  // reading was a lopsided economy, the Refinery ran three refine lines while the
+  // Fabricator ran two, and Unit 3.1's worked proof (craftingProgress.test.ts, design
+  // 6.4) tripped over exactly that: the design had priced the fabricate route at three
+  // slots. The owner's call was to make the Fabricator consistent with the Refinery, so
+  // rung [2] below grants a THIRD craft slot and unlocks no tier at all (harmless: the
+  // tier gate is `tier <= level`, so a level-3 Fabricator simply clears both existing
+  // tiers with room to spare, exactly as a level-4 Refinery clears its recipes).
+  //
+  // Still FINITE and still additive: a future blueprint tier extends the track by one
+  // more rung, mirroring the Research Lab / Refinery / Warehouse tracks.
   //
   // COST MODEL, upgrade rungs cost CREDITS (the OPTIONAL `credits` FacilityUpgradeDef
   // field, the SAME gate the Research rungs use), NOT materials (materials are the CRAFT
@@ -2876,14 +2894,55 @@ export const FACILITIES: Record<string, FacilityDef> = {
       // blueprints (fabricable: tier 2 <= level 2) AND grants a 2nd craft slot
       // (fabricateSlotCount sums to 2). Gated on CREDITS (the SAME optional gate the
       // Research rungs use) + a modest FA-level prereq. NO materials (materials are the
-      // per-craft cost, not the upgrade cost). Track ENDS here (finite; only tiers 1-2
-      // exist). ⚠️ FIRST-PASS TUNABLE credits/duration/FA-level.
+      // per-craft cost, not the upgrade cost). ⚠️ FIRST-PASS TUNABLE credits/duration/
+      // FA-level.
       {
         materials: {},
         credits: new Decimal(5000), // the tier-2 unlock's credit sink (tunable)
         durationTicks: 120, // tunable
         effect: { addFabricateSlots: 1 },
         requiresFleetAdminLevel: 3, // modest gate, mirrors the Research Lab's idiom (tunable)
+      },
+      // [2] Level 2 -> 3: the THIRD craft line (Crafting 0.13.3 Unit 3.1b, FIX B, owner
+      // balance call). Grants a 3rd { addFabricateSlots } so fabricateSlotCount tops out
+      // at 3, the SAME ceiling the Refinery's three addRefineSlots rungs reach. Unlocks
+      // no blueprint tier (none beyond 2 exists), which is fine: the tier gate is
+      // `tier <= level`, so this is headroom, not a broken promise. Track ENDS here.
+      //
+      // SCALING, taken from the SHAPE of how the REFINERY's third slot rung steps over
+      // its second, so the two production facilities read as one system rather than two:
+      //   Refinery [1] -> [2] : materials 750 -> 3000 (4x), duration 45 -> 90 (2x),
+      //                         FA level 2 -> 5 (+3).
+      //   Fabricator [1] -> [2]: credits  5000 -> 20000 (4x), duration 120 -> 240 (2x),
+      //                         FA level 3 -> 6 (+3).
+      // The COST CURRENCY stays CREDITS, not materials, because that is this facility's
+      // own cost model (materials are the per-craft cost, spent by the fabricate engine);
+      // only the shape of the step is borrowed.
+      //
+      // ⚠️ NO requiresHomeworldTalents, DELIBERATELY, even though the Refinery's third
+      // slot rung carries `industryHub`. Two reasons, the second decisive:
+      //   1. This track's gates are credits + FA level and nothing else, matching its two
+      //      existing rungs and the Research Lab's. The FA-6 wall plus 4x credits already
+      //      carries the "this is the late investment" weight on its own.
+      //   2. The Fabricator's Upgrades panel (App.svelte) renders material rows and the
+      //      Fleet-Admiral-level row, but has NO requiresHomeworldTalents row (only the
+      //      Refinery's panel has one). canBuildFacilityUpgrade WOULD enforce the talent,
+      //      so the rung would be gated by something the panel never states: the reason
+      //      appears only in the MOUSE-HOVER popover on the disabled button, which is
+      //      invisible on touch. That is a "why can't I build this" trap, and shipping a
+      //      data gate whose UI does not exist yet is worse than shipping no gate.
+      // If the owner wants the talent gate, it is one field here PLUS the six-line talent
+      // row copied from the Refinery's panel, and those belong together in one change.
+      //
+      // ⚠️ FIRST-PASS TUNABLE, like every number on this track. The owner has said a
+      // dedicated balance pass (post-exploration, around 0.16.0) will retune everything,
+      // time inflation included, so these are a coherent starting point and not a verdict.
+      {
+        materials: {},
+        credits: new Decimal(20000), // 4x rung [1], mirroring the Refinery's third-rung cost step
+        durationTicks: 240, // 2x rung [1], mirroring the Refinery's third-rung duration step
+        effect: { addFabricateSlots: 1 },
+        requiresFleetAdminLevel: 6, // +3 over rung [1], mirroring the Refinery's third-rung FA step
       },
     ],
   },

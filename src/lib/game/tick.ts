@@ -4621,6 +4621,94 @@ export function refineSlotCount(state: GameState): number {
   return slots;
 }
 
+// ----------------------------------------------------------------------------
+// Refine SPEED multiplier (Crafting 0.13.3, Phase 3 Unit 3.1b, FIX A)
+// ----------------------------------------------------------------------------
+// The refinery's effective refine-SPEED multiplier = the PRODUCT of every
+// { refineSpeedMult } grant on the upgrade rungs the refinery has ALREADY reached.
+//
+// ⚠️ WHY THIS FUNCTION EXISTS AT ALL: it is a BUG FIX, not a new feature. The
+// refinery's level 3 -> 4 rung has carried `effect: { refineSpeedMult: 1.5 }` since
+// Phase 1 Task 10, and App.svelte's Upgrades tab has ADVERTISED it as "1.5x refine
+// speed" ever since, but no engine code ever read it. A player could pay 8,000
+// Titanium Ore + 75 Titanium Ingots behind an FA-8 gate for an upgrade that did
+// literally nothing. Unit 3.1's craftingProgress.test.ts found it while checking
+// design 6.1's claim that the multiplier was already live; this closes it.
+//
+// SHAPE: the MULTIPLIED reached-rungs loop, a LINE-FOR-LINE clone of
+// shipBuildSpeedMult (a speed track multiplies; a slot track adds), reading the
+// `refinery` facility + the `refineSpeedMult` property. Deliberately NOT a new idiom:
+// the refinery's track is MIXED (three { addRefineSlots } rungs then one
+// { refineSpeedMult } rung), so refineSlotCount above scans the same rungs for the
+// other property and ignores this one, exactly as this ignores its three.
+//
+// FacilityUpgradeEffect is a NON-discriminated union, so we narrow by property
+// presence (`"refineSpeedMult" in effect`), the same way every sibling helper does.
+//
+// VALUES BY LEVEL with today's track:
+//   level 0..3 -> the EMPTY PRODUCT, 1.0 (baseline speed, byte-identical to the
+//                 pre-fix behaviour at every level below 4)
+//   level 4    -> 1.5 (the one speed rung)
+// The `i < upgrades.length` guard is the sibling helpers' belt-and-suspenders bound.
+export function refineSpeedMult(state: GameState): number {
+  const level = facilityLevel(state, "refinery");
+  const upgrades = FACILITIES.refinery.upgrades;
+  let mult = 1;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("refineSpeedMult" in effect) {
+      mult *= effect.refineSpeedMult;
+    }
+  }
+  return mult;
+}
+
+// A refine recipe's effective duration RIGHT NOW = its base durationTicks DIVIDED by the
+// refinery's speed multiplier. FASTER MEANS FEWER TICKS, so this DIVIDES: at 1.5x the
+// 12-tick Titanium Ore recipe runs in 8 ticks and the 20-tick Wafer recipe in 14.
+//
+// ⚠️ WHY IT ROUNDS AT ALL, AND WHY UP (Math.ceil):
+//   - INTEGER, because a refine job's durationTicks is the multiplicand of the crafting
+//     XP award, floor(durationTicks * CRAFTING_XP_PER_DURATION_TICK * weightNum / DENOM)
+//     (craftingProgress.ts's "WHY THE MATH IS INTEGER" block). That award has to be
+//     exactly reproducible on every platform and in every accumulation order, which is
+//     what keeps the offline == live parity suite deterministic rather than a coin flip.
+//     20 / 1.5 is 13.333333333333334 in binary floating point; feeding that into the
+//     award would let the last bits of a persisted XP total depend on float grouping. An
+//     integer duration keeps all three factors integral, exactly as the module demands.
+//     (shipBuildDurationTicks deliberately does NOT round, because a hull pays a FLAT
+//     weight off a duration nothing else reads back. The divergence is intentional.)
+//   - CEIL, not floor, for two reasons. It rounds in the CONSERVATIVE direction, so the
+//     player never gets marginally more speed than the rung advertises and the upgrade
+//     can never over-deliver. And ceil of any positive number is already >= 1, which
+//     structurally rules out the 0-tick job: a 0-tick refine job would either complete
+//     instantly (minting free output every tick) or never count down at all, depending on
+//     the countdown's boundary, and neither is a real behaviour. The Math.max(1, ...)
+//     below is belt-and-suspenders on top of that, not the actual guard.
+//   - The non-finite / `base <= 0` arms return the base UNCHANGED rather than clamping to
+//     1, so a hypothetical zero-duration recipe stays zero-duration (this function scales
+//     a duration, it does not invent one) and a corrupt multiplier can never produce NaN,
+//     Infinity or a negative countdown.
+//
+// ⚠️ PARITY IS UNAFFECTED. Duration is decided ONCE, here, at job START (stepCraftLine ->
+// startProcess), and is then FIXED on the TimedProcess. resolveProcesses decrements the
+// countdown by whole ticks and its closed form works off remainingTicks, so this changes
+// WHAT gets stored on a process, never HOW a stored process resolves. One offline resolve
+// of N ticks and N live resolves of one tick still cross zero at the identical point.
+//
+// ⚠️ XP PER TICK IS UNCHANGED, WHICH IS THE POINT. The award is proportional to duration,
+// so a shorter job pays proportionally less and the player simply runs more of them. The
+// speed rung buys throughput, never an XP boost. Pinned as a test in refine.test.ts so a
+// future retune cannot silently turn it into one.
+export function refineJobDurationTicks(state: GameState, baseDurationTicks: number): number {
+  const mult = refineSpeedMult(state);
+  // Defensive: only reachable from hand-edited content data, but a slot's countdown must
+  // never become NaN / Infinity / negative, so fall back to the unmodified base.
+  if (!Number.isFinite(mult) || mult <= 0) return baseDurationTicks;
+  if (!Number.isFinite(baseDurationTicks) || baseDurationTicks <= 0) return baseDurationTicks;
+  return Math.max(1, Math.ceil(baseDurationTicks / mult));
+}
+
 // Research SLOT count (Research Task R2), how many concurrent research projects the
 // Research Lab can run RIGHT NOW. Derived (not stored) by SUMMING every { addResearchSlots }
 // grant on the rungs the lab has ALREADY reached, the EXACT same reached-rungs loop
@@ -5719,7 +5807,14 @@ interface CraftLineJobSpec {
   effect: ProcessEffect;
   isEquipment: boolean;
 }
-function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
+// ⚠️ TAKES `state` AS OF 0.13.3 Unit 3.1b (FIX A). It used to be a pure function of the
+// line alone, because every job parameter came straight off the recipe. It no longer is:
+// a refine job's DURATION is now scaled by the refinery's refineSpeedMult upgrade rung
+// (refineJobDurationTicks above), which is a function of facility level and therefore of
+// state. The state is read for that one field and nothing else, so the function stays
+// pure (no mutation, no side effects), and the fabricate arm is untouched (the Fabricator
+// has no speed track). stepCraftLine is the ONLY caller.
+function lineJobSpec(state: GameState, line: CraftLine): CraftLineJobSpec | null {
   const inputs = lineInputsPerIteration(line); // C1 helper: {} for an unknown recipe
   if (line.kind === "refine") {
     const recipe = REFINE_RECIPES[line.recipeKey];
@@ -5728,7 +5823,10 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
       inputs,
       outputItemId: recipe.output.itemId,
       outputAmount: recipe.output.amount,
-      durationTicks: recipe.durationTicks,
+      // FIX A: the ONE place a refine job's duration is decided. At a refinery below level
+      // 4 the multiplier is the empty product 1.0, so this returns recipe.durationTicks
+      // unchanged and every existing job/parity snapshot is byte-identical.
+      durationTicks: refineJobDurationTicks(state, recipe.durationTicks),
       jobKind: "refineJob",
       // Refine always deposits an inventory item, byte-identical to the pre-Task-19 inline effect.
       effect: { type: "addItem", itemId: recipe.output.itemId, amount: recipe.output.amount },
@@ -5776,7 +5874,7 @@ function lineJobSpec(line: CraftLine): CraftLineJobSpec | null {
 // unchanged and retries next tick). PURE: no mutation; the returned `next` is a fresh
 // state when a job started, else the same reference.
 function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; line: CraftLine | null } {
-  const spec = lineJobSpec(line);
+  const spec = lineJobSpec(state, line);
   if (spec === null) {
     // Unknown/corrupt recipe on a persisted line: keep it inert (survives), start
     // nothing, never throw on `undefined.output`. Mirrors the orders' corrupt guard.

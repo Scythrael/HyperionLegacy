@@ -18,8 +18,10 @@
 //   5. The mechanical guards: the xpWeightNum default, per-process resolution,
 //      and the readouts.
 //
-// ⚠️ ONE DISCREPANCY FOUND AGAINST THE DESIGN, reported and NOT silently patched.
-// See the "design's Route B assumes three Fabricator slots" block in section 3.
+// ⚠️ ONE DISCREPANCY WAS FOUND AGAINST THE DESIGN in Unit 3.1 (Route B assumed three
+// Fabricator slots; live data had two) and RESOLVED in Unit 3.1b by adding the third
+// rung. The history, and why the design's conclusion never depended on it, is kept in
+// the block in section 3 rather than scrubbed.
 //
 // Project punctuation rule: no em dashes, and no doubled hyphens standing in for
 // one. (The // --- rules --- are section dividers, the one sanctioned use.)
@@ -422,64 +424,80 @@ describe("design 6.4: bulk refining cannot outpace meaningful crafting", () => {
   });
 
   // ==========================================================================
-  // ⚠️ DISCREPANCY AGAINST THE DESIGN, REPORTED NOT PATCHED.
+  // ⚠️ DISCREPANCY AGAINST THE DESIGN: FOUND IN UNIT 3.1, RESOLVED IN UNIT 3.1b.
+  //     HISTORY KEPT DELIBERATELY. What follows is the whole story, not a scrub.
   //
-  // Design 6.4 Route B reads: "Three fabricate slots at 6 XP per tick = 18 XP per tick",
-  // giving 339,733 ticks (about 94 hours) and a 12x advantage over refining.
+  // WHAT UNIT 3.1 FOUND. Design 6.4 Route B reads: "Three fabricate slots at 6 XP per
+  // tick = 18 XP per tick", giving 339,733 ticks (about 94 hours) and a 12x advantage
+  // over refining. Live data said TWO slots, not three: FACILITIES.fabricator had
+  // exactly two rungs (upgrades[0], the pre-granted founding rung, and upgrades[1], the
+  // level 1->2 rung), each granting { addFabricateSlots: 1 }, so fabricateSlotCount
+  // topped out at 2. No talent and no other track grants a fabricate slot
+  // (HomeworldTalentEffect has no such member). The design had assumed the Fabricator
+  // matched the Refinery's three lines; the Refinery's three IS correct.
   //
-  // LIVE DATA SAYS TWO SLOTS, NOT THREE. FACILITIES.fabricator has exactly two rungs
-  // (upgrades[0], the pre-granted founding rung, and upgrades[1], the level 1->2 rung),
-  // each granting { addFabricateSlots: 1 }, so fabricateSlotCount tops out at 2. There
-  // is no talent, and no other track, that grants a fabricate slot (HomeworldTalentEffect
-  // has no such member). The design appears to have assumed the Fabricator matched the
-  // Refinery's three slots; the Refinery's three IS correct.
+  // Unit 3.1 therefore asserted the LIVE figures (12 XP per tick, 509,600 ticks, about
+  // 142 hours, an 8x advantage), pinned the design's own arithmetic separately to prove
+  // the error was the slot count and not the formula, and REPORTED rather than patched,
+  // on the grounds that a third rung is a balance call for the owner.
   //
-  // CONSEQUENCE: Route B runs at 12 XP per tick, not 18, so it takes 509,600 ticks
-  // (about 142 hours) and the advantage over refining is 8x, not 12x.
+  // WHAT THE OWNER DECIDED (Unit 3.1b, FIX B). Add the rung. The Fabricator now carries a
+  // third { addFabricateSlots } rung (model.ts, level 2 -> 3), so it reaches three craft
+  // lines exactly as the Refinery reaches three refine lines. The design's assumption is
+  // no longer an assumption, and the figures below are once again the design's own.
   //
-  // THE DESIGN'S CONCLUSION SURVIVES INTACT. Eight times faster, against a road that
-  // also needs twenty warehouses of ore it cannot hold, still means bulk refining
-  // contributes without being able to lead. Only the two quoted figures are wrong.
+  // THE CONCLUSION NEVER DEPENDED ON THIS. It held at 8x and it holds at 12x: bulk
+  // refining contributes without being able to lead, on the time axis and on the
+  // materials axis both. That is why the REQUIREMENT test below is stated
+  // slot-count-agnostically, and it is what kept this a balance question rather than a
+  // correctness one.
   //
-  // NOT SILENTLY ADJUSTED: the tests below assert the LIVE numbers, and the test after
-  // them pins the design's own arithmetic so the error is provably the slot count and
-  // not the formula. Whether to retune (a third Fabricator rung, or a higher weight) is
-  // a balance call for the owner, not a thing to paper over here.
+  // ⚠️ FIRST-PASS NUMBERS. Every figure here rests on first-pass tunables (the weight
+  // table, the curve, the rung costs, the tick length). The owner has said a dedicated
+  // balance pass, post-exploration and around 0.16.0, will retune all of it, time
+  // inflation included. These tests are characterization, so that pass shows up as a
+  // deliberate, visible test edit rather than as silent drift.
   // ==========================================================================
 
-  it("Route B, tier-2 equipment fabrication: 2 LIVE slots, 12 XP per tick, about 142 hours", () => {
+  it("Route B, tier-2 equipment fabrication: 3 slots, 18 XP per tick, about 94 hours", () => {
     const fabSlots = fabricateSlotCount(maxedFacilities());
-    expect(fabSlots).toBe(2); // ⚠️ design 6.4 says three; see the block above
+    expect(fabSlots).toBe(3); // FIX B: the third rung; design 6.4's assumption, now live
 
     const perSlotPerTick = craftingXpPerTick(fabricateSubject(T2_EQUIPMENT_BP));
-    expect(perSlotPerTick).toBe(6); // this half of the design IS right
+    expect(perSlotPerTick).toBe(6); // design: "6 XP per tick" per slot
 
     const routeBRate = fabSlots * perSlotPerTick;
-    expect(routeBRate).toBe(12); // ⚠️ design says 18
+    expect(routeBRate).toBe(18); // design: "= 18 XP per tick"
 
+    // 6,115,200 / 18 is 339,733.33..., which the design quotes floored.
     const routeBTicks = XP_TO_TARGET / routeBRate;
-    expect(routeBTicks).toBe(509600); // ⚠️ design says 339,733
+    expect(Math.floor(routeBTicks)).toBe(339733); // design: "339,733 ticks"
 
     const routeBHours = (routeBTicks * SECONDS_PER_TICK) / 3600;
-    expect(Math.round(routeBHours)).toBe(142); // ⚠️ design says about 94
+    expect(Math.round(routeBHours)).toBe(94); // design: "about 94 hours"
   });
 
-  it("the LIVE advantage of fabricating over refining is 8x", () => {
+  it("the advantage of fabricating over refining is 12x", () => {
     const routeARate = refineSlotCount(maxedFacilities()) * craftingXpPerTick(refineSubject(REFINE_COMMON_ORE));
     const routeBRate = fabricateSlotCount(maxedFacilities()) * craftingXpPerTick(fabricateSubject(T2_EQUIPMENT_BP));
-    expect(routeBRate / routeARate).toBe(8); // ⚠️ design claims 12x
+    expect(routeBRate / routeARate).toBe(12); // design: "a 12x advantage"
   });
 
-  it("the design's own arithmetic is self-consistent, so the error is the slot count and nothing else", () => {
-    // Given the design's assumed three fabricate slots, every figure it quotes follows.
-    // Pinning that here isolates the discrepancy to one input.
-    const assumedSlots = 3;
-    const assumedRate = assumedSlots * craftingXpPerTick(fabricateSubject(T2_EQUIPMENT_BP));
-    expect(assumedRate).toBe(18);
-    expect(Math.floor(XP_TO_TARGET / assumedRate)).toBe(339733);
-    expect(Math.round((XP_TO_TARGET / assumedRate) / 3600)).toBe(94);
-    const routeARate = 3 * craftingXpPerTick(refineSubject(REFINE_COMMON_ORE));
-    expect(assumedRate / routeARate).toBe(12);
+  it("the live slot counts now ARE the design's, so its arithmetic and the engine's agree exactly", () => {
+    // This test was Unit 3.1's isolation of the discrepancy (it pinned the design's
+    // arithmetic under an ASSUMED three slots, to prove the formula was sound and only
+    // the input was wrong). Post FIX B the assumption is live data, so it now reads as
+    // the resolution: both facilities top out at three lines, and every figure follows.
+    const state = maxedFacilities();
+    expect(refineSlotCount(state)).toBe(3);
+    expect(fabricateSlotCount(state)).toBe(3);
+
+    const rate = fabricateSlotCount(state) * craftingXpPerTick(fabricateSubject(T2_EQUIPMENT_BP));
+    expect(rate).toBe(18);
+    expect(Math.floor(XP_TO_TARGET / rate)).toBe(339733);
+    expect(Math.round((XP_TO_TARGET / rate) / 3600)).toBe(94);
+    const routeARate = refineSlotCount(state) * craftingXpPerTick(refineSubject(REFINE_COMMON_ORE));
+    expect(rate / routeARate).toBe(12);
   });
 
   it("THE REQUIREMENT: refining cannot lead, on either the time axis or the materials axis", () => {
@@ -505,12 +523,13 @@ describe("design 6.4: bulk refining cannot outpace meaningful crafting", () => {
 
   it("intermediate case: tier-1 component fabrication matches the top route's rate per slot pair", () => {
     // The design's own cross check, that a player crafting the components they actually
-    // need is not punished relative to chasing tier-2 equipment.
-    // Two slots of tier-1 material at 2.0 per tick is 4 per tick; two slots of tier-2
-    // material is 8; the design's "6 XP per tick" figure for this case again assumed
-    // three slots. Assert the per-slot rates, which are slot-count independent.
+    // need is not punished relative to chasing tier-2 equipment. Asserted as PER-SLOT
+    // rates, which are slot-count independent and so survive any Fabricator retune.
+    // Post FIX B the three live slots reproduce the design's headline figures directly:
+    // tier-1 material at 2.0 per slot is the "6 XP per tick" it quotes, tier-2 is 12.
     expect(craftingXpPerTick(fabricateSubject(T1_MATERIAL_BP))).toBe(2);
     expect(craftingXpPerTick(fabricateSubject(T2_MATERIAL_BP))).toBe(4);
+    expect(fabricateSlotCount(maxedFacilities()) * craftingXpPerTick(fabricateSubject(T1_MATERIAL_BP))).toBe(6);
     // Either beats refining per slot by a wide margin, which is the point being checked.
     expect(craftingXpPerTick(fabricateSubject(T1_MATERIAL_BP)))
       .toBeGreaterThan(craftingXpPerTick(refineSubject(REFINE_COMMON_ORE)) * 3);
@@ -629,18 +648,27 @@ describe("a facility SPEED multiplier changes XP per job, not XP per unit time",
   // The award is proportional to durationTicks, so halving a job's length halves its
   // award and the player simply runs twice as many jobs.
   //
-  // ⚠️ BUILD-TIME FINDING. Design 6.1 says to "verify at build time that the speed
-  // multiplier is applied to durationTicks at start (it is, in the line engine's duration
-  // derivation)". It is NOT. FACILITIES.refinery's rung-3 { refineSpeedMult: 1.5 } is
-  // declared and RENDERED (App.svelte's upgrade description) but read by no engine code:
-  // grepping refineSpeedMult across src finds the type member, the data row, three
-  // comments and one template string, and no duration derivation. It is a
-  // populated-but-inert effect. Reported, not fixed: making it live is a balance and
-  // engine change well outside a pure XP module.
+  // ⚠️ BUILD-TIME FINDING, RESOLVED IN UNIT 3.1b (FIX A). HISTORY KEPT ON PURPOSE.
   //
-  // The property below therefore tests the INVARIANT directly (award scales with
-  // duration), which is what makes the design's conclusion hold whenever the multiplier
-  // does become live.
+  // WHAT UNIT 3.1 FOUND. Design 6.1 says to "verify at build time that the speed
+  // multiplier is applied to durationTicks at start (it is, in the line engine's duration
+  // derivation)". It was NOT. FACILITIES.refinery's rung-3 { refineSpeedMult: 1.5 } was
+  // declared and RENDERED (App.svelte's upgrade description advertises "1.5x refine
+  // speed") but read by no engine code: grepping refineSpeedMult across src found the
+  // type member, the data row, three comments and one template string, and no duration
+  // derivation. It was a populated-but-inert effect, so a player could pay for an upgrade
+  // that did nothing. Unit 3.1 reported it rather than fixing it, because making it live
+  // is an engine change well outside a pure XP module.
+  //
+  // WHAT UNIT 3.1b DID. Fixed it. tick.ts now carries refineSpeedMult(state) (the
+  // reached-rungs PRODUCT, cloned from shipBuildSpeedMult) and refineJobDurationTicks,
+  // which DIVIDES a refine recipe's duration by it, ceil-rounded to a whole tick, at job
+  // start inside lineJobSpec. The design's sentence is now true.
+  //
+  // The properties below still test the INVARIANT directly (award scales with duration),
+  // which is what makes the design's conclusion hold. The LIVE end-to-end version of the
+  // same guarantee, run against the real recipes at the real 1.5x rung, lives in
+  // refine.test.ts beside the engine change it guards.
   it("a 1.5x speed multiplier yields the same XP per tick of wall time", () => {
     const subject = fabricateSubject(T2_EQUIPMENT_BP);
     const baseTicks = 300;

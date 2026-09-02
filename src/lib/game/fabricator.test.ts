@@ -25,6 +25,7 @@ import { freshState, BLUEPRINTS, FACILITIES, FABRICATOR_FACILITY_KEY, type GameS
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import {
   fabricateSlotCount,
+  refineSlotCount, // 0.13.3 FIX B: to assert the two facilities now share one slot ceiling
   canFabricate,
   startFabricateJob,
   // The single standing-order model (startFabricateOrder/stopFabricateOrder + its
@@ -84,16 +85,69 @@ describe("Combat 0.13.0, Fabricator refuses unlock-only warship blueprints", () 
 });
 
 describe("Fabricator F1, FACILITIES.fabricator (tier + slot upgrade track)", () => {
-  it("exists, is labelled 'Fabricator', with a FINITE track (one rung per blueprint tier)", () => {
+  it("exists, is labelled 'Fabricator', with a FINITE track of three slot rungs", () => {
     const fab = FACILITIES.fabricator;
     expect(fab).toBeDefined();
     expect(fab.label).toBe("Fabricator");
 
-    // Level-derived tier gate (like the Research Lab): the track has exactly one
-    // rung per blueprint tier, so reaching level L unlocks fabrication of tier L.
+    // ⚠️ REVISED BY CRAFTING 0.13.3 (Unit 3.1b, FIX B). This test used to assert
+    // `upgrades.length === maxBlueprintTier`, i.e. exactly one rung per blueprint tier.
+    // That tied the track's LENGTH to the wrong axis: every rung carries a SLOT grant as
+    // well as a tier unlock, and a slot is real content whether or not a new tier exists.
+    // The owner's balance call was to give the Fabricator three craft lines, matching the
+    // Refinery's three refine lines, so the track is now three rungs long.
+    expect(fab.upgrades.length).toBe(3);
+
+    // The property that actually has to hold: the track must be long enough to reach
+    // every shipped blueprint tier (the gate is `tier <= level`). Extra headroom above
+    // the top tier is fine, it is what the third slot rung buys.
     const maxTier = Math.max(...Object.values(BLUEPRINTS).map((bp) => bp.tier));
-    expect(fab.upgrades.length).toBe(maxTier);
-    expect(maxTier).toBe(2); // real content today: tiers 1-2 only (finite, no placeholder rungs)
+    expect(maxTier).toBe(2); // real content today: tiers 1-2 only
+    expect(fab.upgrades.length).toBeGreaterThanOrEqual(maxTier);
+
+    // No placeholder rungs: every rung on this track grants a real craft slot.
+    for (const [i, rung] of fab.upgrades.entries()) {
+      expect(rung.effect, `rung ${i}`).toEqual({ addFabricateSlots: 1 });
+    }
+  });
+
+  it("the level 2->3 rung is FIX B's third craft line, matching the Refinery's three", () => {
+    // Crafting 0.13.3 Unit 3.1b, FIX B. Scaling was taken from the SHAPE of how the
+    // REFINERY's third slot rung steps over its second (cost 4x, duration 2x, FA level
+    // +3), translated into this facility's own credits-not-materials cost model.
+    // ⚠️ FIRST-PASS numbers: the owner's dedicated balance pass (around 0.16.0) will
+    // retune them, so this is characterization, not a verdict.
+    const second = FACILITIES.fabricator.upgrades[1];
+    const third = FACILITIES.fabricator.upgrades[2];
+
+    expect(third.effect).toEqual({ addFabricateSlots: 1 });
+    expect(third.materials).toEqual({}); // credits, not materials, like the rest of this track
+    expect(third.credits?.toNumber()).toBe(20000);
+    expect(third.durationTicks).toBe(240);
+    expect(third.requiresFleetAdminLevel).toBe(6);
+
+    // ⚠️ NO talent prereq, deliberately: the Fabricator's Upgrades panel renders no
+    // requiresHomeworldTalents row (only the Refinery's does), so a talent gate here
+    // would block the build for a reason the panel never states, visible only in a
+    // mouse-hover popover. Adding the gate means adding that row in the same change.
+    expect(third.requiresHomeworldTalents).toBeUndefined();
+
+    // The step itself, asserted as ratios so a retune of rung [1] carries through.
+    expect(third.credits!.div(second.credits!).toNumber()).toBe(4);
+    expect(third.durationTicks / second.durationTicks).toBe(2);
+    expect(third.requiresFleetAdminLevel! - second.requiresFleetAdminLevel!).toBe(3);
+
+    // And it lands on the Refinery's ceiling, which is the whole point of the change.
+    const refineSlots = FACILITIES.refinery.upgrades.reduce(
+      (sum, u) => sum + ("addRefineSlots" in u.effect ? u.effect.addRefineSlots : 0),
+      0
+    );
+    const fabricateSlots = FACILITIES.fabricator.upgrades.reduce(
+      (sum, u) => sum + ("addFabricateSlots" in u.effect ? u.effect.addFabricateSlots : 0),
+      0
+    );
+    expect(fabricateSlots).toBe(refineSlots);
+    expect(fabricateSlots).toBe(3);
   });
 
   it("the founding rung (0->1) grants the first fabricate slot, ungated + zero-cost", () => {
@@ -137,6 +191,18 @@ describe("Fabricator F1, fabricateSlotCount + fresh-state seed", () => {
       .reduce((sum, u) => sum + ("addFabricateSlots" in u.effect ? u.effect.addFabricateSlots : 0), 0);
 
     expect(fabricateSlotCount(state)).toBe(expected);
+  });
+
+  it("fabricateSlotCount reaches 3 at level 3, the Refinery's ceiling (0.13.3 FIX B)", () => {
+    // The engine half of FIX B: the new rung is not just data, the derivation sums it.
+    // Nothing else had to change, which is the point of the derive-on-read idiom.
+    const state = freshState();
+    state.facilities[FABRICATOR_FACILITY_KEY] = { level: 3 };
+    expect(fabricateSlotCount(state)).toBe(3);
+    expect(fabricateSlotCount(state)).toBe(refineSlotCount({
+      ...freshState(),
+      facilities: { refinery: { level: FACILITIES.refinery.upgrades.length } },
+    }));
   });
 
   it("fabricateSlotCount is 0 when the facility is absent (defensive level-0 read)", () => {
