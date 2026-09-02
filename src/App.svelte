@@ -8054,12 +8054,29 @@
                      TimedProcess, the SAME derivation the refine/upgrade bars use. The
                      project names the blueprint it is unlocking (effect.key -> label). -->
                 {#if activeResearchProjects.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
+                  <!-- 0.13.3 Unit 6.2 (presentation only): the bare label line takes the
+                       Home/Ships SECTION-HEADER idiom (icon + label + count pill + rule), the
+                       same treatment Unit 6.1 gave the identical "In progress:" line on the
+                       Fabricator and "Active jobs:" on the Refinery, so all three Foundry
+                       Overviews read as one surface. The label string is unchanged. The pill
+                       states used / total rather than a bare count, because a lone number in
+                       that slot does not say what it is counting; both numbers are the ones
+                       the "Research slots" line two rows above already renders, so nothing
+                       new is derived here. -->
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="research" size={12} /> In progress:</span>
+                    <span class="home-sec-count">{activeResearchProjects.length} / {researchSlots}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   {#each activeResearchProjects as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
+                      <!-- 0.13.3 Unit 6.2: decorative facility glyph on the job card title, the
+                           same swap the refine and fabricate job cards took in Unit 6.1. The
+                           visible words still carry the meaning, so the icon is aria-hidden by
+                           default (no `title` prop). -->
                       <div class="research-name">
-                        {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
+                        <Icon name="research" size={12} /> {#if job.effect.type === "unlockBlueprint"}Researching → [{BLUEPRINTS[job.effect.key]?.label ?? job.effect.key}]{:else}Research project{/if}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -8096,7 +8113,20 @@
                 <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
 
                 {#each blueprintTierGroups as group (group.tier)}
-                  <div class="research-name" style="margin-top: 12px;">Tier {group.tier}</div>
+                  <!-- 0.13.3 Unit 6.2 (presentation only): THE TIER GROUPING IS THE STRUCTURE OF
+                       THIS LIST and it is preserved exactly, {#each blueprintTierGroups} over
+                       ascending tiers with one header per group. The header itself moves from a
+                       bare bold line to the Home/Ships section-header idiom (icon + label +
+                       rule), which is the same conversion Unit 6.1 applied to the REQUIRES /
+                       REWARDS headers: a line that heads a group is a section header. NO COUNT
+                       PILL here, deliberately: the pills elsewhere state a used / total the
+                       panel already renders, and a per-tier researched / available count is a
+                       NEW derivation, which is out of scope for a presentation pass. The label
+                       string "Tier {n}" is unchanged. -->
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="research" size={12} /> Tier {group.tier}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   {#each group.blueprints as bp (bp.key)}
                     {@const unlocked = blueprintUnlocked(state, bp.key)}
                     {@const gate = canResearch(state, bp.key)}
@@ -8182,13 +8212,20 @@
                   <!-- Credits cost readiness (research rungs cost credits, not materials). -->
                   {#if nextResearchUpgrade.credits !== undefined}
                     {@const met = state.credits.gte(nextResearchUpgrade.credits)}
+                    <!-- 0.13.3 Unit 6.2: the ✅/❌ pair becomes <Icon check> / <Icon warning>,
+                         the same swap Unit 6.1 made on every readiness row of the Refinery and
+                         Fabricator. The glyph is stroke SVG on currentColor, so it INHERITS
+                         this row's existing success/danger token instead of shipping its own
+                         per-OS emoji palette. The condition is untouched; it moved from a JS
+                         ternary to a template block only because a component cannot be a
+                         ternary branch. The color and the text are unchanged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextResearchUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
-                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
-                       research track today, kept for parity with the sibling tabs. -->
+                  <!-- Material readiness ([Item]: have / need, check / warning icon), empty
+                       for the research track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextResearchUpgrade.materials) as itemId}
                     {@const need = nextResearchUpgrade.materials[itemId]}
                     <!-- FREE (reservation-aware) have, consistent with the Build gate; see
@@ -8197,16 +8234,23 @@
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
+                    <!-- 0.13.3 Unit 6.2: ✅/❌ becomes <Icon check> / <Icon warning>, inheriting
+                         this row's existing success/danger color through currentColor. This row
+                         stays a SEPARATE readiness row from the credits row above it: the
+                         research track is gated on credits AND (today: empty) materials, and
+                         the two can be short for different reasons, so they are never merged.
+                         The reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
                   <!-- Fleet Admiral level prereq (absent field => no wall). -->
                   {#if nextResearchUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextResearchUpgrade.requiresFleetAdminLevel}
+                    <!-- 0.13.3 Unit 6.2: ✅/❌ to <Icon>, condition and text untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextResearchUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -8222,7 +8266,9 @@
                   {@const progress = researchUpgradeInFlight.durationTicks > 0
                     ? (researchUpgradeInFlight.durationTicks - researchUpgradeInFlight.remainingTicks) / researchUpgradeInFlight.durationTicks
                     : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <!-- 0.13.3 Unit 6.2: decorative clock beside the unchanged in-flight label,
+                       matching the Refinery and Fabricator in-flight rows from Unit 6.1. -->
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
@@ -8478,7 +8524,26 @@
               <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
                    cap, how many items are AT cap (the ⚠ auto-stop signal),
                    discovered/total catalog progress, and an Attention card listing
-                   each FULL material when any producer is idled. -->
+                   each FULL material when any producer is idled.
+
+                   0.13.3 Unit 6.2, DELIBERATE NON-CONVERSION of the ⚠ glyph, reported
+                   rather than done. ⚠ is a GLOBAL warning marker, not a Warehouse one:
+                   the same bare glyph marks the Ships roster attention row, the patrol
+                   and mission dispatch block lines, the no-weapon warning and the
+                   warehouse hover tooltip's FULL note. Converting only the two here
+                   would desynchronise it from the already-redesigned Ships tab, exactly
+                   the reasoning that kept Unit 6.1 off the credits sigil. It belongs to
+                   the 6.5 cross-cutting sweep, as one decision across all of its
+                   surfaces. The at-cap counter therefore KEEPS both its danger color and
+                   its warning glyph unchanged, which is what the preservation inventory
+                   asks for.
+
+                   NOTHING ELSE ON THIS VIEW IS TOUCHED BY THIS UNIT. The at-cap
+                   ATTENTION card below is the only place in the game that explains why
+                   production silently idled, so it is not softened into a generic
+                   banner: it still lists EACH full material by name with "producers
+                   auto-stopped" and still names both fixes (expand storage, or consume
+                   it). -->
               <Panel>
                 <div class="panel-title">WAREHOUSE, TIER 1</div>
                 <div class="research-cost">Storage level: {warehouseT1Level}</div>
@@ -8513,8 +8578,10 @@
                    duration, and a Build/Expand button gated on the SAME
                    canBuildFacilityUpgrade the backend enforces (so button and
                    action agree). T2 at level 0 reads as an UNLOCK; its later
-                   denseOre-gated rungs naturally show ❌ (unobtainable input =
-                   honest "future content" wall). In-flight progress mirrors the
+                   denseOre-gated rungs naturally show the unmet readiness icon
+                   (unobtainable input = honest "future content" wall; Unit 6.2
+                   swapped that glyph from ❌ to the shared <Icon>, the row is
+                   otherwise unchanged). In-flight progress mirrors the
                    Refinery's. -->
               {#each WAREHOUSE_TIERS as wt (wt.key)}
                 {@const level = state.facilities[wt.key]?.level ?? 0}
@@ -8545,7 +8612,7 @@
                     {/if}
                     <div class="research-cost">Duration: {durationReadout(nextRung.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
-                    <!-- Material readiness: [Item]: have / need, ✅/❌. -->
+                    <!-- Material readiness: [Item]: have / need, check / warning icon. -->
                     {#each Object.keys(nextRung.materials) as itemId}
                       {@const need = nextRung.materials[itemId]}
                       <!-- FREE (reservation-aware) have, consistent with the Build gate; see
@@ -8554,8 +8621,18 @@
                       {@const have = freeItemForState(state, itemId)}
                       {@const reserved = stock.minus(have)}
                       {@const met = have.gte(need)}
+                      <!-- 0.13.3 Unit 6.2: ✅/❌ becomes <Icon check> / <Icon warning>, the same
+                           swap Unit 6.1 made on the Refinery and Fabricator readiness rows. The
+                           glyph is stroke SVG on currentColor, so it INHERITS this row's existing
+                           success/danger token. The condition moved from a JS ternary to a
+                           template block only because a component cannot be a ternary branch;
+                           the condition, the color, the text and the reservation-aware
+                           "(N reserved)" annotation are all untouched. This is also the row that
+                           renders the HONEST FUTURE-CONTENT WALL: a denseOre-gated T2 rung is
+                           unreachable today and now shows the warning icon rather than a red
+                           cross, which is the same signal in the theme's own vocabulary. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                       </div>
                     {/each}
 
@@ -8581,7 +8658,9 @@
                     {@const progress = inFlight.durationTicks > 0
                       ? (inFlight.durationTicks - inFlight.remainingTicks) / inFlight.durationTicks
                       : 1}
-                    <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                    <!-- 0.13.3 Unit 6.2: decorative clock beside the unchanged in-flight label,
+                         matching every other facility console's in-flight row. -->
+                    <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                     </div>
