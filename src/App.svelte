@@ -5184,6 +5184,15 @@
   $: availableFabricateTiers = [...new Set(availableFabricateBlueprints.map((bp) => bp.tier))].sort(
     (a, b) => a - b
   );
+  // Does the NEXT Fabricator rung actually unlock a blueprint tier? The Upgrades panel used to
+  // say "unlocks Tier {level+1} blueprints" unconditionally, which was true only while the track
+  // had exactly one rung per blueprint tier. Unit 3.1b added a THIRD slot rung (so the Fabricator
+  // matches the Refinery's three), and BLUEPRINTS still top out at tier 2, so that line began
+  // claiming "unlocks Tier 3 blueprints" when no such blueprint exists. Derived from the DATA
+  // (the real ceiling across every blueprint) rather than from the rung index, so authoring a
+  // tier-3 blueprint later makes the clause reappear on its own with no code change.
+  $: maxBlueprintTier = Object.values(BLUEPRINTS).reduce((max, bp) => Math.max(max, bp.tier), 0);
+  $: fabricatorUnlocksNextTier = fabricatorLevel + 1 <= maxBlueprintTier;
 
   // ============================================================================
   // Shipyard (Phase 5, Task S5 UI), the reactive reads the Build/Upgrades panel below
@@ -6764,7 +6773,7 @@
                        WITHIN each branch (no whitespace-only text at a block boundary,
                        which Svelte would trim) so the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"} · unlocks Tier {fabricatorLevel + 1} blueprints{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
+                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"}{#if fabricatorUnlocksNextTier} · unlocks Tier {fabricatorLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
