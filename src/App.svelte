@@ -9260,8 +9260,18 @@
                     </div>
                     {#if nextShipyardUpgrade.requiresFleetAdminLevel !== undefined}
                       {@const met = state.fleetAdminLevel >= nextShipyardUpgrade.requiresFleetAdminLevel}
+                      <!-- 0.13.3 Unit 6.4: the ✅/❌ pair becomes <Icon check> / <Icon warning>,
+                           the same swap Units 6.1, 6.2 and 6.3 made on every readiness row of the
+                           Refinery, Fabricator, Research and Fuel Depot consoles. The glyph is
+                           stroke SVG on currentColor, so it INHERITS this row's existing
+                           success/danger token instead of shipping a per-OS emoji palette. The
+                           condition is untouched; it moved from a JS ternary to a template block
+                           only because a component cannot be a ternary branch. This is the FA
+                           WALL on the FOUNDING rung, and it stays a separate row from the
+                           founding-cost line above it: credits and admiral level can be short for
+                           different reasons, so they are never merged. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                       </div>
                     {/if}
                     <div class="research-cost">Founding time: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
@@ -9280,7 +9290,13 @@
                     {@const progress = shipyardUpgradeInFlight.durationTicks > 0
                       ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
                       : 1}
-                    <div class="research-name" style="margin-top: 10px;">Establishing the Shipyard…</div>
+                    <!-- 0.13.3 Unit 6.4: decorative clock beside the unchanged in-flight label,
+                         matching the "Currently upgrading…" rows Units 6.1, 6.2 and 6.3 gave the
+                         Refinery, Fabricator, Research and Fuel Depot. The clock (not the
+                         shipyard glyph) because this row is about ELAPSING, which is what the bar
+                         and the remainingReadout below it report. The remainingReadout and its
+                         showTickCounts / state.tickDurationSeconds arguments are untouched. -->
+                    <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Establishing the Shipyard…</div>
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                     </div>
@@ -9300,8 +9316,23 @@
                       ? (activeShipBuild.durationTicks - activeShipBuild.remainingTicks) / activeShipBuild.durationTicks
                       : 1}
                     {@const buildingKey = activeShipBuild.effect.type === "addShip" ? activeShipBuild.effect.typeKey : undefined}
+                    <!-- 0.13.3 Unit 6.4, READ BEFORE EDITING: THIS CARD HAS NO CANCEL CONTROL AND
+                         THAT IS DELIBERATE, NOT AN OVERSIGHT. startShipBuild commits the whole BOM
+                         AND the credits at the moment the build starts, so there is nothing a
+                         cancel could hand back without inventing a refund rule the engine does not
+                         have. Adding a cancel button here is a BEHAVIOUR change and a data-loss
+                         hazard, never a polish item. Unit 6.4 added none, and only put the
+                         decorative facility glyph on the title.
+
+                         The glyph is the SHIPYARD facility icon, following Unit 6.1's precedent
+                         that an in-flight JOB CARD takes the glyph of the facility running it
+                         (every refine job card took <Icon refinery> regardless of what it was
+                         refining, and Unit 6.2's research project cards took <Icon research>). It
+                         is deliberately NOT a per-hull icon: handing each hull type its own glyph
+                         would be new design meaning invented by a presentation pass, and the title
+                         already names the hull in words. -->
                     <div class="mission-card" style="margin-top: 10px;">
-                      <div class="research-name">BUILDING · {buildingKey ? (SHIP_TYPES[buildingKey]?.label ?? buildingKey) : "hull"}</div>
+                      <div class="research-name"><Icon name="shipyard" size={12} /> BUILDING · {buildingKey ? (SHIP_TYPES[buildingKey]?.label ?? buildingKey) : "hull"}</div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                       </div>
@@ -9321,8 +9352,30 @@
 
                       <!-- REQUIRES box: each BOM component + its reservation-aware FREE stock
                            (freeItemForState, inventory minus what craft lines reserve, the
-                           SAME pool canBuildShip's materials gate reads). Red when free < need. -->
-                      <div class="research-cost" style="margin-top: 6px;">REQUIRES</div>
+                           SAME pool canBuildShip's materials gate reads). Red when free < need.
+
+                           0.13.3 Unit 6.4 (presentation only): the header takes the Home/Ships
+                           SECTION-HEADER idiom (icon + label + rule), the identical treatment Unit
+                           6.1 gave the REQUIRES headers in the Refinery and Fabricator
+                           configurators, and Unit 6.2 gave Research's Tier headers: a line that
+                           heads a group is a section header. Same warehouse glyph as those two, so
+                           "here is what this costs in materials" reads the same everywhere. The
+                           label string "REQUIRES" is unchanged (.home-sec-h uppercases, and it was
+                           already uppercase, so no visible character changes). NO COUNT PILL,
+                           deliberately: the pills elsewhere restate a used / total the panel
+                           already renders, and a BOM-component count is a NEW derivation, which a
+                           presentation pass does not add.
+
+                           THE ROWS BELOW ARE NOT TOUCHED. Unit 6.1 also moved its REQUIRES rows
+                           into the .cfg-box / .cfg-line grammar, and that is NOT copied here,
+                           because these rows carry a load-bearing per-row success/danger color
+                           (red exactly when free < need) that .cfg-line does not model. Restyling
+                           them would mean re-deciding that color, which is a design change, not a
+                           presentation one. -->
+                      <div class="home-sec-hd" style="margin-top: 8px;">
+                        <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES</span>
+                        <span class="home-sec-rule"></span>
+                      </div>
                       {#each Object.keys(recipe.components) as itemId}
                         {@const need = recipe.components[itemId]}
                         {@const free = freeItemForState(state, itemId)}
@@ -9387,13 +9440,21 @@
                   <!-- Credits cost readiness (shipyard rungs cost credits, not materials). -->
                   {#if nextShipyardUpgrade.credits !== undefined}
                     {@const met = state.credits.gte(nextShipyardUpgrade.credits)}
+                    <!-- 0.13.3 Unit 6.4: ✅/❌ becomes <Icon check> / <Icon warning>, the identical
+                         swap Unit 6.1 made on the Fabricator's credits row and Unit 6.2 on
+                         Research's. Condition, color and text untouched. The ◈ credits sigil on
+                         this line is LEFT ALONE, extending the deliberate non-conversion Unit 6.1
+                         opened: it is a GLOBAL currency glyph on many surfaces, so converting only
+                         the Shipyard's copies would desynchronise it from Research, the Fuel Depot
+                         and the offline summary. It belongs to a currency decision, not this
+                         unit. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextShipyardUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextShipyardUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
-                  <!-- Material readiness, empty for the shipyard track today, kept for
-                       parity with the sibling upgrade tabs. -->
+                  <!-- Material readiness (check / warning icon), empty for the shipyard track
+                       today, kept for parity with the sibling upgrade tabs. -->
                   {#each Object.keys(nextShipyardUpgrade.materials) as itemId}
                     {@const need = nextShipyardUpgrade.materials[itemId]}
                     <!-- FREE (reservation-aware) have, consistent with the Build gate; see
@@ -9402,16 +9463,23 @@
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
+                    <!-- 0.13.3 Unit 6.4: ✅/❌ becomes <Icon check> / <Icon warning>, inheriting
+                         this row's existing success/danger color through currentColor. This row
+                         stays a SEPARATE readiness row from the credits row above it: the shipyard
+                         track is gated on credits AND (today: empty) materials, and the two can be
+                         short for different reasons, so they are never merged. The
+                         reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
                   <!-- Fleet Admiral level prereq (absent field => no wall). -->
                   {#if nextShipyardUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextShipyardUpgrade.requiresFleetAdminLevel}
+                    <!-- 0.13.3 Unit 6.4: ✅/❌ to <Icon>, condition and text untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextShipyardUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -9427,7 +9495,10 @@
                   {@const progress = shipyardUpgradeInFlight.durationTicks > 0
                     ? (shipyardUpgradeInFlight.durationTicks - shipyardUpgradeInFlight.remainingTicks) / shipyardUpgradeInFlight.durationTicks
                     : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <!-- 0.13.3 Unit 6.4: decorative clock beside the unchanged in-flight label,
+                       matching the Refinery and Fabricator rows from Unit 6.1, Research from Unit
+                       6.2 and the Fuel Depot from Unit 6.3. -->
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
@@ -9449,7 +9520,32 @@
                    two places. The degenerate single-tab Docks SubTabs was dropped
                    with them (nothing left to switch between). All remaining reads/
                    gates are UNCHANGED (canUpgradeDocks / doExpandDocks /
-                   state.shipStorageCapacity). -->
+                   state.shipStorageCapacity).
+
+                   0.13.3 Unit 6.4, READ BEFORE EDITING, TWO THINGS THIS CONSOLE MUST
+                   NOT GROW BACK:
+                     1. NO SUB-TAB RAIL. The single-tab SubTabs strip was dropped on
+                        purpose when the list/assign/salvage flows left, and a rail with
+                        one tab is chrome that switches to nowhere. This panel renders
+                        DIRECTLY under the Facilities card, and Unit 6.4 added no rail.
+                     2. EXPAND DOCKS MUST STAY REACHABLE. It is the ONLY UI in the game
+                        that raises shipStorageCapacity, which makes it the softlock
+                        escape valve shipped in 0.11.1 (full docks used to make acquiring
+                        a ship unwinnable). Never hide it behind a state, a tab or a
+                        collapsed section.
+                   The disabled reason stays a PERSISTENT note below the button rather
+                   than a hover title, which is the deliberate 2026-07-24 flicker fix
+                   explained at the button itself; do not "tidy" it into a title.
+
+                   ZERO ICONS HERE, AND THAT IS THE DENSITY, NOT AN OMISSION. Units 6.1,
+                   6.2 and 6.3 put decorative glyphs on exactly three kinds of line:
+                   section headers, card / rung titles, and in-flight labels. They put
+                   none on plain readouts (the Fuel Depot's "Pipelines:" line and gauge,
+                   the Warehouse's "Storage level:") and none on panel titles. This panel
+                   is one panel title, one readout, one button, one note and one caption,
+                   so it has no qualifying site. Adding an icon to the Berths readout
+                   would invent a fourth placement rule on the quietest console in the
+                   tab, which is a new opinion rather than a continuation. -->
               <Panel>
                 <div class="panel-title">DOCKS</div>
                 <!-- Berth capacity + the "Expand Docks" action (Fleet Management,
