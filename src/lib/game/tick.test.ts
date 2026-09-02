@@ -37,6 +37,10 @@ import {
   // "a speed rung buys throughput, not XP rate" test derives its two durations from the
   // live facility table instead of hardcoding 12 and 8.
   refineJobDurationTicks,
+  // 0.13.3 Unit 3.3: the derive-on-read crafting-iLevel talent helper + the effect
+  // describer that renders it in the talent-web tooltip.
+  craftingItemLevelBonus,
+  describeHomeworldTalentEffect,
 } from "./tick";
 import Decimal from "break_infinity.js";
 import {
@@ -55,6 +59,11 @@ import {
   // and the facility table (the refinery's top level), both read rather than hardcoded.
   REFINE_RECIPES,
   FACILITIES,
+  // 0.13.3 Unit 3.3: the talent table + its iLevel grant, read from the shipped data so
+  // a retune retunes these tests with it.
+  HOMEWORLD_TALENTS,
+  CRAFTING_ILEVEL_PER_NODE,
+  type HomeworldTalentKey,
   type GameState,
   type CaptainMissionState,
   type MissionKey,
@@ -63,6 +72,9 @@ import {
   type ProcessEffect,
   type EquipmentInstance,
 } from "./model";
+// 0.13.3 Unit 3.3: the per-tier iLevel ceiling, so the hard-cap assertions read the
+// shipped constant (itemgen.ts owns it) instead of hardcoding 20 / 40.
+import { EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 import { MAX_CAPTAIN_NAME } from "./captainName"; // Renamable Ships: shared name-length ceiling (renameShip reuses the captain-name gate)
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import type { CraftLine } from "./allocation"; // Task 19: fabricate-line parity fixtures
@@ -3494,6 +3506,282 @@ describe("resolveProcesses awards the WEIGHTED crafting XP, per completing kind 
       expect(sped.xp, key).toBeLessThan(base.xp);       // so a single job pays LESS
       expect(sped.xp / sped.ticks, key).toBe(base.xp / base.ticks); // but the RATE is untouched
       expect(base.xp / base.ticks, key).toBe(0.5);      // and it is the quarter-weighted rate
+    }
+  });
+});
+
+// ============================================================================
+// The craftingItemLevel TALENT and the HARD tier cap (0.13.3 Phase 3 Unit 3.3)
+// ----------------------------------------------------------------------------
+// itemgen.test.ts proves the CLAMP arithmetic in isolation. These tests prove the
+// three things that arithmetic cannot: that a real, buyable talent now feeds
+// computeItemLevel's long-inert `faTalentBonus`; that it feeds ALL THREE Fabricator
+// mint sites (equipment, weapon, drone) identically; and that reading the talent at
+// completion did not disturb the offline == live mint.
+//
+// THE LOCKED DECISION UNDER TEST (design section 14 item 1, user): THE TIER CAP STAYS
+// HARD. The talent helps a player REACH a blueprint tier's ceiling faster and can never
+// exceed it, because tier/research progression, not adminPoint spending, is the real
+// gate on gear power. Half these cases exist purely to make a future cap-lifting edit
+// fail loudly rather than ship quietly.
+//
+// WHY THE NO-TALENT CASE IS TESTED AS HARD AS THE TALENT CASE: essentially every live
+// save has learned no crafting-iLevel node, so for almost the entire player base this
+// unit must be a NO-OP down to the last affix. A helper returning a stray 1, or a read
+// that nudged the rng stream, would be invisible in the talent case and catastrophic in
+// the common one.
+// ============================================================================
+describe("craftingItemLevelBonus, the derive-on-read talent helper (0.13.3 Unit 3.3)", () => {
+  // Every node in the shipped table that actually grants crafting item levels. Derived,
+  // never hardcoded to ["industryBonusOutput"], so a second granting node added later is
+  // picked up by these tests automatically instead of silently escaping them.
+  const GRANTING_NODES = (Object.keys(HOMEWORLD_TALENTS) as HomeworldTalentKey[]).filter(
+    (k) => HOMEWORLD_TALENTS[k].effect.type === "craftingItemLevel",
+  );
+  const withTalents = (unlockedHomeworldTalents: HomeworldTalentKey[]): GameState => ({
+    ...freshState(),
+    unlockedHomeworldTalents,
+  });
+
+  it("is 0 on a fresh save, the value the mint sites hardcoded before this unit", () => {
+    // The regression anchor for the whole unit: 0 here is what makes wiring the talent a
+    // strict no-op for every save that has not bought into it.
+    const state = freshState();
+    expect(state.unlockedHomeworldTalents).toEqual([]);
+    expect(craftingItemLevelBonus(state)).toBe(0);
+  });
+
+  it("is 0 for learned talents that grant something other than crafting item levels", () => {
+    // The reduce discriminates on effect.type, so a hub, a captain slot, a yield mult, the
+    // salvage node and the queue chain must all contribute exactly nothing.
+    const unrelated: HomeworldTalentKey[] = [
+      "fleetLogisticsHub",
+      "fleetLogisticsSlot1",
+      "fleetLogisticsYield",
+      "fleetLogisticsSalvage",
+      "fleetLogisticsQueue1",
+      "economyTrickle",
+      "industryHub",
+    ];
+    for (const key of unrelated) {
+      expect(HOMEWORLD_TALENTS[key].effect.type, key).not.toBe("craftingItemLevel");
+    }
+    expect(craftingItemLevelBonus(withTalents(unrelated))).toBe(0);
+  });
+
+  it("the RE-WIRED industryBonusOutput node is the grant, at CRAFTING_ILEVEL_PER_NODE", () => {
+    // This node carried an inert `none` placeholder from the Phase 4 recipeBonusOutput
+    // retirement until this unit gave it a real mechanic. Asserting the node is no longer
+    // inert is the point: it is a node players could already have spent 4 adminPoints on.
+    const effect = HOMEWORLD_TALENTS.industryBonusOutput.effect;
+    expect(effect.type).toBe("craftingItemLevel");
+    expect(effect.type === "craftingItemLevel" && effect.bonus).toBe(CRAFTING_ILEVEL_PER_NODE);
+    expect(craftingItemLevelBonus(withTalents(["industryBonusOutput"]))).toBe(CRAFTING_ILEVEL_PER_NODE);
+  });
+
+  it("SUMS every granting node's payload, so a second granting node lands with no engine change", () => {
+    // Summing (rather than short-circuiting on the first match) is the forward-compatible
+    // half, the same property queueDepth has. Expressed over the derived node list so this
+    // assertion keeps its teeth the day a second node is authored.
+    expect(GRANTING_NODES.length).toBeGreaterThan(0); // non-vacuity
+    const expected = GRANTING_NODES.reduce((sum, key) => {
+      const effect = HOMEWORLD_TALENTS[key].effect;
+      return effect.type === "craftingItemLevel" ? sum + effect.bonus : sum;
+    }, 0);
+    expect(craftingItemLevelBonus(withTalents(GRANTING_NODES))).toBe(expected);
+  });
+
+  it("describeHomeworldTalentEffect renders the grant AND names the cap that limits it", () => {
+    // The honest-catch-up-talent rule (design section 6.5): the tooltip must not promise a
+    // bare "+2 item level" the engine will refuse to honour at the ceiling. Both halves of
+    // the string are asserted, because dropping the caveat is the easy regression.
+    const text = describeHomeworldTalentEffect({ type: "craftingItemLevel", bonus: CRAFTING_ILEVEL_PER_NODE });
+    expect(text).toContain(`+${CRAFTING_ILEVEL_PER_NODE}`);
+    expect(text.toLowerCase()).toContain("item level");
+    expect(text.toLowerCase()).toContain("tier cap");
+
+    // And the REAL node renders through it as something a player can read, never as the
+    // old "No bonus yet" placeholder.
+    for (const key of GRANTING_NODES) {
+      const nodeText = describeHomeworldTalentEffect(HOMEWORLD_TALENTS[key].effect);
+      expect(nodeText.length, key).toBeGreaterThan(0);
+      expect(nodeText, key).not.toContain("No bonus yet");
+    }
+  });
+});
+
+describe("the craftingItemLevel talent at the three Fabricator mint sites (0.13.3 Unit 3.3)", () => {
+  // The three shipped blueprints that exercise the three DIFFERENT mint branches in
+  // resolveProcesses, one per minter. Tiers are read off the table, not assumed.
+  const EQUIPMENT_T1 = "prospectorHoldBp"; // equipmentOutput -> generateEquipment
+  const WEAPON_T2 = "gravitonBp";          // weaponOutput    -> generateWeapon
+  const DRONE_T1 = "attackDronePodBp";     // droneOutput     -> generateDronePod
+  const MINT_SITES = [EQUIPMENT_T1, WEAPON_T2, DRONE_T1] as const;
+
+  const mintJob = (blueprintKey: string, durationTicks = 60): TimedProcess => ({
+    id: "proc-mint",
+    kind: "fabricateJob",
+    remainingTicks: durationTicks,
+    durationTicks,
+    effect: { type: "addEquipment", blueprintKey },
+  });
+
+  // A state poised to complete ONE mint of `blueprintKey`, at a given crafting level and
+  // set of learned talents. craftingLevel is set directly because this unit is about the
+  // TALENT addend; how the level itself is earned is Unit 3.2's territory.
+  const poised = (blueprintKey: string, craftingLevel: number, talents: HomeworldTalentKey[]): GameState => ({
+    ...freshState(),
+    craftingLevel,
+    unlockedHomeworldTalents: talents,
+    activeProcesses: [mintJob(blueprintKey)],
+  });
+
+  // Runs the poised state through the REAL resolver and returns the one piece it minted.
+  // A constant rng keeps quality/rarity/affixes deterministic; the talent read never
+  // touches the stream, which is the parity half of this unit.
+  const mintedFrom = (state: GameState): EquipmentInstance => {
+    const after = resolveProcesses(state, 60, () => 0.5).next;
+    const piece = after.equipment.find((e) => e.blueprintKey !== null);
+    expect(piece, "the mint did not run").toBeDefined();
+    return piece as EquipmentInstance;
+  };
+
+  it("with NO talent learned, every mint site rolls today's iLevel exactly (the regression guard)", () => {
+    // The common case, and the one that must be a strict no-op: almost no live save has
+    // this node. `min(craftingLevel, cap)` is literally the expression the sites evaluated
+    // when faTalentBonus was hardcoded to 0.
+    const LEVEL = 7;
+    for (const key of MINT_SITES) {
+      const tier = BLUEPRINTS[key].tier;
+      const piece = mintedFrom(poised(key, LEVEL, []));
+      expect(piece.iLevel, key).toBe(Math.min(LEVEL, tier * EQUIPMENT_ILEVEL_CAP_PER_TIER));
+      expect(piece.iLevel, key).toBe(LEVEL); // non-vacuity: level 7 is genuinely below every cap
+    }
+  });
+
+  it("with the talent learned, every mint site rolls exactly its grant higher", () => {
+    const LEVEL = 7;
+    for (const key of MINT_SITES) {
+      const without = mintedFrom(poised(key, LEVEL, []));
+      const withTalent = mintedFrom(poised(key, LEVEL, ["industryBonusOutput"]));
+      expect(withTalent.iLevel - without.iLevel, key).toBe(CRAFTING_ILEVEL_PER_NODE);
+    }
+  });
+
+  it("⚠️ THE TIER CAP IS HARD: a maxed crafting level plus the talent still cannot exceed tier * cap", () => {
+    // The locked user decision (design section 14 item 1), proved through the ENGINE at
+    // both live content tiers rather than only against computeItemLevel. A crafting level
+    // far past every ceiling plus the talent must land EXACTLY on the ceiling.
+    const ABSURD_LEVEL = 999;
+    for (const key of MINT_SITES) {
+      const cap = BLUEPRINTS[key].tier * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+      const piece = mintedFrom(poised(key, ABSURD_LEVEL, ["industryBonusOutput"]));
+      expect(piece.iLevel, key).toBe(cap);
+    }
+    // Both live tiers are genuinely represented above, so the tier-1 and tier-2 halves of
+    // the claim are each really exercised (and a tier-1 craft stays under the tier-2 ceiling).
+    expect(BLUEPRINTS[EQUIPMENT_T1].tier).toBe(1);
+    expect(BLUEPRINTS[DRONE_T1].tier).toBe(1);
+    expect(BLUEPRINTS[WEAPON_T2].tier).toBe(2);
+    const t1 = mintedFrom(poised(EQUIPMENT_T1, ABSURD_LEVEL, ["industryBonusOutput"]));
+    expect(t1.iLevel).toBeLessThan(2 * EQUIPMENT_ILEVEL_CAP_PER_TIER);
+  });
+
+  it("⚠️ THE TIER CAP IS HARD: a player already AT the ceiling sees no change from the talent", () => {
+    // The honest limitation, stated as a test. The talent is a catch-up: full value on the
+    // way up (previous case), exactly nothing at the top. If this ever starts failing, the
+    // cap has been lifted and that is a design decision, not a bug fix.
+    for (const key of MINT_SITES) {
+      const cap = BLUEPRINTS[key].tier * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+      const atCap = mintedFrom(poised(key, cap, []));
+      const atCapWithTalent = mintedFrom(poised(key, cap, ["industryBonusOutput"]));
+      expect(atCap.iLevel, key).toBe(cap);
+      expect(atCapWithTalent.iLevel, key).toBe(cap);
+    }
+  });
+
+  it("⚠️ the talent read draws NO rng: quality, rarity and the affix SET are untouched by it", () => {
+    // The draw-order/draw-count argument, asserted rather than merely reasoned. Reading a
+    // talent is a pure state read placed between the rarity draw and the affix draws, so at
+    // the SAME seed the two mints must agree on every rolled field. Only iLevel (and the
+    // budget-derived magnitudes it scales) may differ. This is what keeps offline == live.
+    for (const key of MINT_SITES) {
+      const without = mintedFrom(poised(key, 7, []));
+      const withTalent = mintedFrom(poised(key, 7, ["industryBonusOutput"]));
+      expect(withTalent.quality, key).toBe(without.quality);
+      expect(withTalent.rarity, key).toBe(without.rarity);
+      expect(Object.keys(withTalent.rolledStats), key).toEqual(Object.keys(without.rolledStats));
+      expect(Object.keys(withTalent.implicitStats), key).toEqual(Object.keys(without.implicitStats));
+      expect(withTalent.id, key).toBe(without.id); // same id allocation, so nothing shifted
+      expect(withTalent.iLevel, key).not.toBe(without.iLevel); // non-vacuity: the value DID move
+    }
+  });
+
+  it("GRANDFATHERING: pieces minted before the talent keep the iLevel they rolled at", () => {
+    // Items are minted ONCE and their iLevel is persisted verbatim on the instance
+    // (EquipmentInstance.iLevel); nothing re-derives it from craftingLevel afterwards. So
+    // buying the talent never retroactively upgrades, or downgrades, a piece already in the
+    // pool. Proved by carrying an existing piece through a resolve that mints a new one.
+    const existing = mintedFrom(poised(EQUIPMENT_T1, 5, []));
+    expect(existing.iLevel).toBe(5);
+
+    const later: GameState = {
+      ...freshState(),
+      craftingLevel: 9,
+      unlockedHomeworldTalents: ["industryBonusOutput"],
+      equipment: [existing],
+      nextEquipmentId: 50,
+      activeProcesses: [mintJob(EQUIPMENT_T1)],
+    };
+    const after = resolveProcesses(later, 60, () => 0.5).next;
+    const carried = after.equipment.find((e) => e.id === existing.id);
+    expect(carried).toEqual(existing); // byte-identical, not merely still present
+    expect(carried?.iLevel).toBe(5);   // and specifically NOT re-derived to 9 + 2
+    // Meanwhile the NEW piece really did get the talent, so the test is not vacuous.
+    const fresh = after.equipment.find((e) => e.id !== existing.id);
+    expect(fresh?.iLevel).toBe(9 + CRAFTING_ILEVEL_PER_NODE);
+  });
+
+  it("⚠️ offline catch-up mints IDENTICALLY to live stepping while the talent is active", () => {
+    // The offline == live guarantee for this unit. Deliberately NOT titled with the word
+    // "parity" so the repo's parity-suite headcount gate stays where Unit 3.2 left it; the
+    // claim it makes is exactly the parity claim.
+    //
+    // THE ARGUMENT: the talent is read from state inside resolveProcesses, but the read is
+    // pure, draws nothing from the rng stream, and cannot change during the call (nothing
+    // in resolveProcesses touches unlockedHomeworldTalents). So both the ORDER and the
+    // COUNT of draws are identical to before this unit, on both paths, and the only thing
+    // that moved is the VALUE handed to computeItemLevel. This test makes that concrete on
+    // the mixed span rather than trusting the reasoning.
+    const SPAN = 350;
+    const SEED = 4242;
+    const seeded = (): GameState => ({
+      ...freshState(),
+      craftingLevel: 6,
+      unlockedHomeworldTalents: ["industryBonusOutput"],
+      activeProcesses: [
+        { id: "p-eq", kind: "fabricateJob", remainingTicks: 150, durationTicks: 150, effect: { type: "addEquipment", blueprintKey: EQUIPMENT_T1 } },
+        { id: "p-wp", kind: "fabricateJob", remainingTicks: 300, durationTicks: 300, effect: { type: "addEquipment", blueprintKey: WEAPON_T2 } },
+        { id: "p-dr", kind: "fabricateJob", remainingTicks: 160, durationTicks: 160, effect: { type: "addEquipment", blueprintKey: DRONE_T1 } },
+      ],
+    });
+
+    const jumped = tick(SPAN, seeded(), mulberry32Task19(SEED));
+    let stepped = seeded();
+    const liveRng = mulberry32Task19(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // THE ASSERTION: the whole minted pool agrees, piece for piece, field for field.
+    expect(jumped.equipment).toEqual(stepped.equipment);
+    expect(jumped.nextEquipmentId).toBe(stepped.nextEquipmentId);
+
+    // NON-VACUITY: all three mint sites really fired, and really carry the talent's grant
+    // (crafting level 6 + 2 = 8, comfortably below every tier ceiling).
+    expect(jumped.activeProcesses).toEqual([]);
+    for (const key of MINT_SITES) {
+      const piece = jumped.equipment.find((e) => e.blueprintKey === key);
+      expect(piece, key).toBeDefined();
+      expect(piece?.iLevel, key).toBe(6 + CRAFTING_ILEVEL_PER_NODE);
     }
   });
 });

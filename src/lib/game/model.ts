@@ -6021,10 +6021,12 @@ export type HomeworldTalentEffect =
   | { type: "unlockCaptainSlot" }
   | { type: "rareYieldMult"; mult: number }
   // (The `recipeBonusOutput` member was RETIRED in Phase 4, Task F5 with the
-  //  legacy RECIPES/craftRecipe instant-craft it exclusively modified. The two
-  //  industry-branch nodes that granted it now carry the honest `none`
-  //  placeholder, below, their real mechanic is the Fabricator facility, a
-  //  future re-wire.)
+  //  legacy RECIPES/craftRecipe instant-craft it exclusively modified. Both
+  //  industry-branch nodes that granted it then carried the honest `none`
+  //  placeholder while their real mechanic, the Fabricator facility, was built.
+  //  That promised re-wire has now HAPPENED for one of them: Crafting 0.13.3
+  //  Unit 3.3 gave `industryBonusOutput` the `craftingItemLevel` effect below,
+  //  so `industryHub` is the only industry node still carrying `none`.)
   | { type: "passiveTrickle"; material: HomePlanetMaterialKey; perTick: number }
   // 0.11.0 Storage/Salvage (Task C4): the combined Fleet-Admiral salvage talent.
   // ONE learned node improves BOTH salvage models at once (salvage.ts):
@@ -6049,6 +6051,28 @@ export type HomeworldTalentEffect =
   // tunable lives in exactly one place, the same single-source discipline the
   // SALVAGE_TALENT_* consts give salvageBoost.
   | { type: "queueDepth"; depth: number }
+  // Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): the CRAFTING ITEM LEVEL grant.
+  // This is the effect that finally feeds `faTalentBonus`, the third addend of
+  // computeItemLevel (itemgen.ts), which shipped with a real parameter and a
+  // hardcoded 0 at every call site. Each learned node adds `bonus` item levels to
+  // every piece the Fabricator mints (equipment, weapon and drone alike).
+  //
+  // ⚠️ THE TIER CAP STAYS HARD, AND THIS EFFECT DOES NOT LIFT IT. Locked user
+  // decision, design §14 item 1. computeItemLevel clamps to
+  // `blueprint.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER` AFTER adding this bonus, so the
+  // talent gets a player to a blueprint tier's ceiling SOONER and can never carry
+  // them one level past it. Rationale: tier/research progression stays the real gate
+  // on gear power, so crafted gear cannot outrun the content it was crafted for by
+  // spending adminPoints. It is therefore an honest CATCH-UP talent that goes quiet
+  // at the ceiling, and the node's flavor text says exactly that in plain language
+  // rather than implying permanent power.
+  //
+  // Payload-carrying (a number, not a bare marker like unlockCaptainSlot) for the
+  // SAME reason queueDepth is: craftingItemLevelBonus (tick.ts) SUMS this payload
+  // across the learned nodes rather than counting matching nodes, so a second node,
+  // or a node granting more at once, lands with zero engine change. The value is
+  // seeded from CRAFTING_ILEVEL_PER_NODE (below), the single source of truth.
+  | { type: "craftingItemLevel"; bonus: number }
   // Radial Skill Web (Task 3): a genuinely-null gateway effect, added to mirror
   // CaptainTalentEffect's own `none` member (Task 2) exactly. Used by the
   // Homeland Defense and Citizenry hubs, which are "learn me first" seeds for
@@ -6348,6 +6372,20 @@ export const SALVAGE_TALENT_CEILING_BONUS = 1;
 // proposal: depth is a scarce, deliberately-bought resource, not a free-flowing one.
 export const QUEUE_DEPTH_PER_NODE = 1;
 
+// Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): how many ITEM LEVELS one node of
+// the `craftingItemLevel` effect grants a crafted piece. SINGLE SOURCE OF TRUTH, the
+// same discipline as QUEUE_DEPTH_PER_NODE and the SALVAGE_TALENT_* consts above: the
+// node embeds this in its effect payload and tick.ts's craftingItemLevelBonus() helper
+// sums those payloads back, so retuning the grant is a one-line edit here.
+//
+// +2 is the design's proposal. WHY SO SMALL: the grant is measured against a per-tier
+// ceiling of EQUIPMENT_ILEVEL_CAP_PER_TIER (20, itemgen.ts), so +2 is a tenth of one
+// content tier's whole iLevel range, enough to feel like a head start on a fresh tier
+// and far too little to matter once the player is at the ceiling. That asymmetry IS
+// the intended shape (see the ⚠️ hard-cap note on the effect member above), not a
+// tuning accident.
+export const CRAFTING_ILEVEL_PER_NODE = 2;
+
 export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & { effect: HomeworldTalentEffect }> = {
   // --- fleetLogistics, the rich category ------------------------------
   // hub -> Slot1 -> Slot2 -> Slot3 (the slot-unlock chain), plus Yield off hub.
@@ -6582,11 +6620,31 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     x: -180,
     y: -120,
     neighbors: ["industryHub"],
-    // `none` placeholder (Phase 4, Task F5), see industryHub above: retired with
-    // the legacy recipeBonusOutput/RECIPES instant-craft; a future task re-wires
-    // this to a Fabricator bonus.
-    effect: { type: "none" },
-    flavor: "New jigs and fixtures on the fabrication line mean every batch stretches a little further.",
+    // Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): the promised RE-WIRE, delivered.
+    // This node carried the inert `none` placeholder from Phase 4 Task F5 (when the
+    // legacy recipeBonusOutput/RECIPES instant-craft it modified was retired) until the
+    // Fabricator's real mechanic existed to hang a bonus on. It now grants crafting
+    // ITEM LEVELS, feeding computeItemLevel's `faTalentBonus` through
+    // craftingItemLevelBonus() (tick.ts).
+    //
+    // WHY RE-WIRE THIS NODE RATHER THAN AUTHOR A NEW ONE (design §6.5):
+    //   - it resolves a known dead node instead of leaving a talent players can waste
+    //     points on, and it is thematically exact for an industry branch,
+    //   - unlike the other logged re-wire candidate (a bonus-output CHANCE on fabricate)
+    //     this effect needs NO rng anywhere in the tick path, so it carries zero
+    //     offline-parity risk,
+    //   - it needs NO SAVE MIGRATION: talents persist BY KEY, and the key is unchanged.
+    //     A player who already bought this node keeps their spent points and silently
+    //     gains a real bonus, which is the generous direction of that trade.
+    //
+    // ⚠️ The tier cap is HARD (locked user decision, design §14 item 1): this bonus is
+    // added BEFORE computeItemLevel's clamp, never after, so it can never lift a piece
+    // above `blueprint.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER`. The flavor text below is
+    // written to say so, because a catch-up talent that quietly stops mattering at the
+    // ceiling without admitting it is the dishonest version of this design.
+    effect: { type: "craftingItemLevel", bonus: CRAFTING_ILEVEL_PER_NODE },
+    flavor:
+      "New jigs and fixtures on the fabrication line. Your crews reach the top of a blueprint's tolerances sooner, though never past them.",
   },
 };
 

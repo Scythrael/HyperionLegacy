@@ -35,6 +35,9 @@ import {
   RARITY_MULT,
   IMPLICIT_BUDGET_SHARE,
   QUALITY_DURABILITY_BONUS,
+  // Crafting 0.13.3 (Unit 3.3): the per-tier iLevel ceiling, imported so the hard-cap
+  // cases assert against the REAL shipped constant and retune with it, never a literal 20.
+  EQUIPMENT_ILEVEL_CAP_PER_TIER,
   SLOT_BASE_PHYSICALS,
   computeItemLevel,
   computeBudget,
@@ -109,6 +112,72 @@ describe("computeItemLevel", () => {
     const withBoth = computeItemLevel({ craftingLevel: 10, achievementBoost: 4, faTalentBonus: 3, itemTierCap: 100 });
     expect(withAch - base).toBe(4);
     expect(withBoth - withAch).toBe(3);
+  });
+
+  // ==========================================================================
+  // Crafting 0.13.3 (Phase 3 Unit 3.3): THE HARD TIER CAP, at the arithmetic level.
+  // --------------------------------------------------------------------------
+  // Unit 3.3 wired faTalentBonus to a real, buyable Homeworld Talent, which turns the
+  // clamp above from a theoretical guard into a live player-facing limit. The LOCKED
+  // user decision (design section 14 item 1) is that the cap stays HARD: the talent
+  // helps a player REACH a blueprint tier's ceiling faster and can NEVER exceed it,
+  // so tier/research progression stays the real gate on gear power.
+  //
+  // These cases pin that decision against the REAL shipped constant
+  // (EQUIPMENT_ILEVEL_CAP_PER_TIER) at both live content tiers, rather than against a
+  // hand-picked itemTierCap literal like the generic cases above. They are the
+  // regression guard for anyone who later "helpfully" moves an addend outside the min().
+  // ==========================================================================
+  it("HARD CAP, tier 1: a maxed crafting level plus a maxed talent still cannot exceed 1 * EQUIPMENT_ILEVEL_CAP_PER_TIER", () => {
+    const cap = 1 * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+    // Absurd inputs on purpose: if any addend could escape the clamp, these numbers make
+    // the escape enormous and impossible to miss.
+    const lvl = computeItemLevel({
+      craftingLevel: 999,
+      achievementBoost: 0, // reserved, still 0 in production (design 6.5)
+      faTalentBonus: 500, // far more than every craftingItemLevel node in the game combined
+      itemTierCap: cap,
+    });
+    expect(lvl).toBe(cap);
+    expect(lvl).toBe(20);
+  });
+
+  it("HARD CAP, tier 2: the same holds at the second content tier's ceiling", () => {
+    const cap = 2 * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+    const lvl = computeItemLevel({ craftingLevel: 999, achievementBoost: 0, faTalentBonus: 500, itemTierCap: cap });
+    expect(lvl).toBe(cap);
+    expect(lvl).toBe(40);
+  });
+
+  it("HARD CAP: the talent buys SPEED to the ceiling, never height above it", () => {
+    // The talent's honest scope, stated as an assertion. Below the ceiling the bonus is
+    // worth its full face value (a player arrives sooner); AT the ceiling it is worth
+    // exactly nothing (the player cannot go higher). Both halves matter: the first is
+    // why the node is worth buying at all, the second is the locked cap.
+    const cap = EQUIPMENT_ILEVEL_CAP_PER_TIER; // tier 1
+    const GRANT = 2;
+
+    const climbingWithout = computeItemLevel({ craftingLevel: 10, achievementBoost: 0, faTalentBonus: 0, itemTierCap: cap });
+    const climbingWith = computeItemLevel({ craftingLevel: 10, achievementBoost: 0, faTalentBonus: GRANT, itemTierCap: cap });
+    expect(climbingWith - climbingWithout).toBe(GRANT); // full value on the way up
+
+    const cappedWithout = computeItemLevel({ craftingLevel: cap, achievementBoost: 0, faTalentBonus: 0, itemTierCap: cap });
+    const cappedWith = computeItemLevel({ craftingLevel: cap, achievementBoost: 0, faTalentBonus: GRANT, itemTierCap: cap });
+    expect(cappedWithout).toBe(cap);
+    expect(cappedWith - cappedWithout).toBe(0); // and exactly nothing at the top
+  });
+
+  it("HARD CAP: a tier-1 blueprint can never out-level tier-1 content, whatever the talent", () => {
+    // The stated content-integrity invariant from itemgen.ts's own header, re-proved with
+    // the talent in play: a tier-1 craft must stay strictly below the tier-2 ceiling no
+    // matter how much the player has invested.
+    const t1Cap = 1 * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+    const t2Cap = 2 * EQUIPMENT_ILEVEL_CAP_PER_TIER;
+    for (const bonus of [0, 2, 10, 100]) {
+      const t1 = computeItemLevel({ craftingLevel: 999, achievementBoost: 0, faTalentBonus: bonus, itemTierCap: t1Cap });
+      expect(t1, `faTalentBonus ${bonus}`).toBeLessThan(t2Cap);
+      expect(t1, `faTalentBonus ${bonus}`).toBe(t1Cap);
+    }
   });
 });
 

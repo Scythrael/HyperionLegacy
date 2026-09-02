@@ -553,6 +553,40 @@ export function queueDepth(state: GameState): number {
   }, QUEUE_DEPTH_BASE);
 }
 
+// Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): how many extra ITEM LEVELS the
+// player's learned Homeworld Talents grant a freshly crafted piece RIGHT NOW. Fed
+// straight into computeItemLevel's `faTalentBonus` at the three Fabricator mint sites
+// in resolveProcesses, replacing the hardcoded 0 those sites shipped with.
+//
+// ⚠️ THIS DOES NOT LIFT THE TIER CAP, AND MUST NEVER BE MADE TO. Locked user decision
+// (design §14 item 1). computeItemLevel is `min(craftingLevel + achievementBoost +
+// faTalentBonus, itemTierCap)`, so this value is added on the INSIDE of the clamp: a
+// player with every crafting-iLevel node learned and crafting level 99 still mints a
+// tier-1 blueprint at exactly `1 * EQUIPMENT_ILEVEL_CAP_PER_TIER`. The talent buys
+// SPEED to a tier's ceiling, never height above it, because tier/research progression
+// is the real gate on gear power and crafted gear must not outrun its content tier for
+// adminPoints. If a future change ever needs a cap-breaking bonus, it must be a new,
+// separately-named input to computeItemLevel applied OUTSIDE the clamp, and it must be
+// a deliberate design decision, not a quiet edit here.
+//
+// DERIVE ON READ, never stored: identical in shape to queueDepth above and
+// salvageTalentBonus (salvage.ts). No save field can go stale, and a respec drops the
+// bonus the same tick it refunds the points. SUMMING (rather than short-circuiting on
+// the first match) is the forward-compatible half: a second granting node, or a node
+// granting +4 at once, lands with zero change here.
+//
+// BASE 0, NOT 1: this is an additive item-level bonus, not a multiplier. A player who
+// has learned nothing gets exactly 0, which is what makes the no-talent case
+// bit-identical to the pre-0.13.3 hardcoded zero (the regression guard in tick.test.ts).
+//
+// PURE: reads state, allocates nothing, mutates nothing, draws no rng.
+export function craftingItemLevelBonus(state: GameState): number {
+  return state.unlockedHomeworldTalents.reduce((bonus, key) => {
+    const effect = HOMEWORLD_TALENTS[key].effect;
+    return effect.type === "craftingItemLevel" ? bonus + effect.bonus : bonus;
+  }, 0);
+}
+
 // Progression Pacing Rework (Task 3, docs/plans/2026-07-11-progression-pacing-
 // rework-*): the SHARED per-tick XP RATE helper. Returns how much XP one whole
 // extraction tick of `missionKey` is worth RIGHT NOW, for THIS captain (and,
@@ -678,6 +712,14 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // which is the exact misunderstanding the per-facility model exists to avoid.
     case "queueDepth":
       return `+${effect.depth} queued order per facility`;
+    // Crafting 0.13.3 (Phase 3 Unit 3.3): the crafting item-level grant. "up to the
+    // blueprint's tier cap" is LOAD-BEARING in this string, not hedging. The cap is
+    // hard (design §14 item 1), so a player at the ceiling gets nothing from this node,
+    // and a tooltip promising a bare "+2 crafted item level" would be a promise the
+    // engine does not keep. Saying the limit out loud is the honest-catch-up-talent
+    // rule from the design, enforced at the one place a player actually reads it.
+    case "craftingItemLevel":
+      return `+${effect.bonus} crafted item level, up to the blueprint's tier cap`;
     // Radial Skill Web (Task 3): the gateway-hub effect, mirroring the captain
     // side's `none` case above. Homeland Defense / Citizenry hubs carry
     // `{ type: "none" }` because their categories' real mechanics (a defense /
@@ -7924,8 +7966,25 @@ export function resolveProcesses(
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel, // read directly: MIGRATIONS[26] guarantees the field (Task 20 retired the interim ?? 1 guard)
-          achievementBoost: 0, // TUNABLE: achievement/FA-talent iLevel boosts are a later refinement
-          faTalentBonus: 0,
+          // RESERVED, deliberately still 0 (design §6.5): there is no achievement system
+          // yet, so there is nothing to boost by. The parameter is KEPT rather than removed
+          // because the logged Player Score / achievements feature will fill it, and churning
+          // computeItemLevel's signature out and back is pointless churn.
+          achievementBoost: 0,
+          // Crafting 0.13.3 (Phase 3 Unit 3.3): the FA-talent iLevel grant, live at last.
+          // Derived on read from the learned Homeworld Talents (craftingItemLevelBonus above),
+          // 0 for the overwhelming majority of saves that have learned no granting node, which
+          // is why wiring this changed nothing for existing players.
+          //
+          // ⚠️ PARITY: this is a pure read of state that draws NO rng. It sits BETWEEN draw #2
+          // (rarity) and draws #3.. (generateEquipment's affixes) in source order but consumes
+          // nothing from the stream, so the documented draw ORDER and COUNT above are
+          // untouched and offline still mints bit-identically to live. Keep it that way: any
+          // future bonus that ROLLS would have to be placed in the documented draw order.
+          //
+          // ⚠️ THE CAP IS HARD: this addend is inside computeItemLevel's min(), so no amount of
+          // talent investment mints above itemTierCap (locked decision, design §14 item 1).
+          faTalentBonus: craftingItemLevelBonus(state),
           itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
         });
         // Capture the id NOW so the allocateId closure mints the SAME "equip-N" the counter names,
@@ -7958,8 +8017,11 @@ export function resolveProcesses(
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel,
-          achievementBoost: 0, // TUNABLE: same first-pass zeros as the equipment branch
-          faTalentBonus: 0,
+          achievementBoost: 0, // RESERVED at 0, same as the equipment branch (design §6.5)
+          // Unit 3.3: the SAME derived talent bonus as the equipment branch, inside the SAME
+          // hard cap. All three mint sites read one helper so a crafted weapon and a crafted
+          // hold can never disagree about what a learned talent is worth. Draws no rng.
+          faTalentBonus: craftingItemLevelBonus(state),
           itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
         });
         const mintedId = nextEquipmentId;
@@ -7990,8 +8052,11 @@ export function resolveProcesses(
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel,
-          achievementBoost: 0, // TUNABLE: same first-pass zeros as the equipment/weapon branches
-          faTalentBonus: 0,
+          achievementBoost: 0, // RESERVED at 0, same as the equipment/weapon branches (design §6.5)
+          // Unit 3.3: the SAME derived talent bonus as the equipment/weapon branches, inside
+          // the SAME hard cap. Draws no rng, so the drone branch's parity argument above is
+          // unchanged.
+          faTalentBonus: craftingItemLevelBonus(state),
           itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER, // first-pass per-tier cap (itemgen.ts)
         });
         const mintedId = nextEquipmentId;

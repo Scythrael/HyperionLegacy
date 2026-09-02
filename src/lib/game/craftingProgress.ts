@@ -401,8 +401,10 @@ export function craftingLevelProgress(
 // READ-ONLY. computeItemLevel is unchanged and is not called from any new site by
 // this unit; these helpers exist so the Phase 4 consoles can answer "what iLevel do
 // my crafts roll at right now, and what is the ceiling" without re-deriving the cap
-// formula in a template. Unit 3.3 owns wiring the craftingItemLevel talent into the
-// real mint sites.
+// formula in a template. Unit 3.3 has since wired the craftingItemLevel talent into the
+// real mint sites (tick.ts), and this module deliberately does NOT import that helper:
+// tick.ts already imports craftingProgress, so a value import back would cycle. The
+// talent bonus therefore stays an optional CALLER-SUPPLIED input below.
 
 // The hard per-tier iLevel ceiling: a tier-N blueprint can never mint above
 // N * EQUIPMENT_ILEVEL_CAP_PER_TIER, no matter how high crafting level climbs. The cap
@@ -419,10 +421,12 @@ export interface CraftedItemLevelReadout {
 }
 
 // Delegates the actual arithmetic to computeItemLevel so there is exactly one iLevel
-// formula in the codebase. The bonuses default to 0, which is the live value: the
-// achievement boost is reserved for a Player Score feature that does not exist yet, and
-// the FA talent bonus is Unit 3.3's job. Passing them explicitly keeps this function
-// honest when those land, instead of hiding a stale zero.
+// formula in the codebase. The achievement boost defaults to 0 and stays there: it is
+// reserved for a Player Score feature that does not exist yet. The FA talent bonus is
+// NOW REAL (Unit 3.3), so a Phase 4 console rendering this readout must pass
+// craftingItemLevelBonus(state) from tick.ts, or it will under-report by the talent's
+// grant against what the Fabricator actually mints. Both stay explicit params rather
+// than being read from state here, which keeps this module pure and cycle-free.
 export function craftedItemLevelReadout(a: {
   craftingLevel: number;
   blueprintTier: number;
