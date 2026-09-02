@@ -7097,12 +7097,25 @@
                      research-bar-track/fill/readout the mission + captain-XP bars
                      use (NOT a new bar style). -->
                 {#if activeRefineJobs.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">Active jobs:</div>
+                  <!-- 0.13.3 Unit 6.1 (presentation only): the bare label line becomes the
+                       Home/Ships SECTION-HEADER idiom (icon + label + count pill + rule),
+                       the same one the ORDER QUEUE panel and the CRAFTING LEVEL panel on
+                       these consoles already use, so the Facilities consoles read as one
+                       surface with the two redesigned tabs. The label string is unchanged.
+                       The pill states used / total (not a bare count) for the reason the
+                       CRAFTING LEVEL panel gives: a lone number in that slot does not say
+                       what it is counting. Both numbers are the ones the line above already
+                       renders, so nothing new is derived here. -->
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="refinery" size={12} /> Active jobs:</span>
+                    <span class="home-sec-count">{activeRefineJobs.length} / {refinerySlots}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   {#each activeRefineJobs as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
                       <div class="research-name">
-                        {#if job.effect.type === "addItem"}Refining → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Refine job{/if}
+                        <Icon name="refinery" size={12} /> {#if job.effect.type === "addItem"}Refining → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else}Refine job{/if}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -7160,7 +7173,9 @@
                     {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
                     <div class="mission-card" style="margin-top: 10px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <div class="research-name">LINE {li + 1} · REFINING</div>
+                        <!-- 0.13.3 Unit 6.1: decorative facility glyph, the visible words
+                             still carry the meaning (so the icon is aria-hidden by default). -->
+                        <div class="research-name"><Icon name="refinery" size={12} /> LINE {li + 1} · REFINING</div>
                         <!-- Cancel is only offered while iterations remain to STOP. When
                              remaining is 0 the line is finishing its last/in-flight iteration
                              (either naturally, or drained by a prior Cancel), nothing left to
@@ -7209,7 +7224,7 @@
                            the disabled state and the note below can never disagree. -->
                       {@const queueBlock = craftQueueButtonBlockText(refineryQueue, cfgRecipeKey, cfgQty)}
                       <div class="mission-card" style="margin-top: 10px;">
-                        <div class="research-name">{#if isQueueOpener}Queue · configure an order{:else}Line {slotIndex + 1} · configure a craft{/if}</div>
+                        <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
                         <!-- Tier dropdown (refine recipes carry no tier -> a single Tier 1). -->
                         <div class="dev-row" style="margin-top: 8px; align-items: center;">
@@ -7236,18 +7251,28 @@
                           </label>
                         </div>
 
-                        <!-- REQUIRES (×qty) preview: per input, its per/ea → total, plus free / allocated / total. -->
-                        <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
+                        <!-- REQUIRES (×qty) preview: per input, its per/ea → total, plus free / allocated / total.
+                             0.13.3 Unit 6.1 (presentation only): the header takes the section-header
+                             idiom and each input takes the .cq-row / .cl-tier row grammar (.cfg-box),
+                             instead of a nested 12px .mission-card inside a .mission-card. EVERY
+                             STRING AND EVERY NUMBER IS UNCHANGED, including the FREE / ALLOCATED /
+                             TOTAL what-if allocation preview and the green on Free: the green simply
+                             moved from an inline style to .cfg-line-ok, and the three lines still
+                             render in the same order from the same four {@const} reads. -->
+                        <div class="home-sec-hd" style="margin-top: 8px;">
+                          <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</span>
+                          <span class="home-sec-rule"></span>
+                        </div>
                         {#each Object.keys(perIteration) as itemId}
                           {@const per = perIteration[itemId]}
                           {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                           {@const free = freeItem(state.inventory, allLines, itemId)}
                           {@const allocated = allocatedItem(allLines, itemId)}
                           {@const stock = itemTotal(state.inventory, itemId)}
-                          <div class="mission-card" style="margin-top: 4px;">
-                            <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
-                            <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
-                            <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                          <div class="cfg-box">
+                            <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
+                            <div class="cfg-line cfg-line-ok">Free {formatNumber(free)}</div>
+                            <div class="cfg-line cfg-line-dim">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
                           </div>
                         {/each}
 
@@ -7287,7 +7312,7 @@
                       </div>
                     {:else}
                       <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("refine", slotIndex)}>
-                        {#if isQueueOpener}Queue · configure an order to run later{:else}Line {slotIndex + 1} · idle, configure a craft{/if}
+                        {#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order to run later{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · idle, configure a craft{/if}
                       </button>
                     {/if}
                   {/each}
@@ -7307,9 +7332,11 @@
             {#if activeRefinerySubTab === "upgrades"}
               <!-- UPGRADES, the NEXT rung of the Refinery's finite upgrade track
                    (FACILITIES.refinery.upgrades[level]; undefined = maxed). Shows
-                   each required material as [Item]: have / need with a ✅/❌
-                   readiness mark, the FA-level + Homeworld-talent prereqs (❌ when
-                   unmet), and a Build button gated on canBuildFacilityUpgrade. If
+                   each required material as [Item]: have / need with a check /
+                   warning readiness mark (Unit 6.1 swapped the ✅/❌ emoji for the
+                   shared <Icon>; the rows themselves are unchanged), the FA-level +
+                   Homeworld-talent prereqs (warning icon when unmet), and a Build
+                   button gated on canBuildFacilityUpgrade. If
                    an upgrade is already in flight, a "Currently upgrading" progress
                    row shows (and the backend's own gate makes Build unavailable,
                    surfaced via the button title). Readiness colors use the
@@ -7330,7 +7357,7 @@
                     · Duration: {durationReadout(nextRefineryUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}
                   </div>
 
-                  <!-- Material readiness: [Item]: have / need, ✅ (have≥need) or ❌. -->
+                  <!-- Material readiness: [Item]: have / need, check icon (have≥need) or warning icon. -->
                   {#each Object.keys(nextRefineryUpgrade.materials) as itemId}
                     {@const need = nextRefineryUpgrade.materials[itemId]}
                     <!-- have = the reservation-aware FREE amount (inventory MINUS what active
@@ -7343,8 +7370,13 @@
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
+                    <!-- 0.13.3 Unit 6.1: the ✅/❌ pair becomes <Icon check> / <Icon warning>,
+                         the same swap made on every readiness row of these two consoles. The
+                         glyph is stroke SVG on currentColor, so it INHERITS the row's existing
+                         success/danger color instead of shipping its own per-OS emoji palette;
+                         the color, the condition and the text are all untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -7352,7 +7384,7 @@
                   {#if nextRefineryUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextRefineryUpgrade.requiresFleetAdminLevel}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextRefineryUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextRefineryUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -7363,7 +7395,7 @@
                     {#each nextRefineryUpgrade.requiresHomeworldTalents as talentKey}
                       {@const met = state.unlockedHomeworldTalents.includes(talentKey)}
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {met ? "✅" : "❌"} Requires Homeworld Talent: {HOMEWORLD_TALENTS[talentKey].label}
+                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Homeworld Talent: {HOMEWORLD_TALENTS[talentKey].label}
                       </div>
                     {/each}
                   {/if}
@@ -7388,7 +7420,8 @@
                   {@const progress = refineryUpgradeInFlight.durationTicks > 0
                     ? (refineryUpgradeInFlight.durationTicks - refineryUpgradeInFlight.remainingTicks) / refineryUpgradeInFlight.durationTicks
                     : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <!-- 0.13.3 Unit 6.1: decorative clock beside the unchanged in-flight label. -->
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
@@ -7438,12 +7471,20 @@
                      SAME derivation the refine/research bars use. The job names the
                      component it is crafting (effect.itemId -> label). -->
                 {#if activeFabricateJobs.length > 0}
-                  <div class="research-cost" style="margin-top: 10px;">In progress:</div>
+                  <!-- 0.13.3 Unit 6.1 (presentation only): the Home/Ships section-header idiom,
+                       matching the Refinery Overview's Active jobs header. The label string is
+                       unchanged and the pill states the used / total this panel already renders
+                       two lines above, so nothing new is derived. -->
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="fabricator" size={12} /> In progress:</span>
+                    <span class="home-sec-count">{activeFabricateJobs.length} / {fabricateSlots}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   {#each activeFabricateJobs as job (job.id)}
                     {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                     <div class="mission-card">
                       <div class="research-name">
-                        {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && (BLUEPRINTS[job.effect.blueprintKey]?.weaponOutput || BLUEPRINTS[job.effect.blueprintKey]?.droneOutput)}Fabricating → [{craftedInstanceBlueprintLabel(BLUEPRINTS[job.effect.blueprintKey])}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
+                        <Icon name="fabricator" size={12} /> {#if job.effect.type === "addItem"}Fabricating → [{ITEMS[job.effect.itemId]?.label ?? job.effect.itemId}]{:else if job.effect.type === "addEquipment" && (BLUEPRINTS[job.effect.blueprintKey]?.weaponOutput || BLUEPRINTS[job.effect.blueprintKey]?.droneOutput)}Fabricating → [{craftedInstanceBlueprintLabel(BLUEPRINTS[job.effect.blueprintKey])}]{:else if job.effect.type === "addEquipment" && BLUEPRINTS[job.effect.blueprintKey]?.equipmentOutput}Fabricating → [{equipmentOutputLabel(BLUEPRINTS[job.effect.blueprintKey].equipmentOutput!)}]{:else}Fabricate job{/if}
                       </div>
                       <div class="research-bar-track">
                         <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
@@ -7634,7 +7675,9 @@
                     {@const progress = job && job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0}
                     <div class="mission-card" style="margin-top: 10px;">
                       <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
-                        <div class="research-name">LINE {li + 1} · FABRICATING</div>
+                        <!-- 0.13.3 Unit 6.1: decorative facility glyph, the visible words
+                             still carry the meaning (so the icon is aria-hidden by default). -->
+                        <div class="research-name"><Icon name="fabricator" size={12} /> LINE {li + 1} · FABRICATING</div>
                         <!-- Cancel only while iterations remain to stop (see the refine card above). -->
                         {#if line.remaining > 0}
                           <button class="dev-btn danger" on:click={() => doCancelLine(line.id)}>Cancel</button>
@@ -7711,7 +7754,7 @@
                              {#if xpBp} guard down there is for. -->
                         {@const xpBp = BLUEPRINTS[cfgRecipeKey]}
                         <div class="mission-card" style="margin-top: 10px;">
-                          <div class="research-name">{#if isQueueOpener}Queue · configure an order{:else}Line {slotIndex + 1} · configure a craft{/if}</div>
+                          <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="fabricator" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
                           <div class="dev-row" style="margin-top: 8px; align-items: center;">
                             <!-- Tier dropdown: the researched + tier-available tiers. -->
@@ -7740,18 +7783,26 @@
                             </label>
                           </div>
 
-                          <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total. -->
-                          <div class="research-cost" style="margin-top: 8px;">REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</div>
+                          <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total.
+                               0.13.3 Unit 6.1 (presentation only): identical treatment to the Refinery's
+                               copy of this block, section header plus .cfg-box rows. EVERY STRING AND
+                               EVERY NUMBER IS UNCHANGED, including the FREE / ALLOCATED / TOTAL what-if
+                               allocation preview and the green on Free (moved from an inline style to
+                               .cfg-line-ok). -->
+                          <div class="home-sec-hd" style="margin-top: 8px;">
+                            <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</span>
+                            <span class="home-sec-rule"></span>
+                          </div>
                           {#each Object.keys(perIteration) as itemId}
                             {@const per = perIteration[itemId]}
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                             {@const free = freeItem(state.inventory, allLines, itemId)}
                             {@const allocated = allocatedItem(allLines, itemId)}
                             {@const stock = itemTotal(state.inventory, itemId)}
-                            <div class="mission-card" style="margin-top: 4px;">
-                              <div class="research-cost">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
-                              <div class="research-cost" style="color: var(--color-success);">Free {formatNumber(free)}</div>
-                              <div class="research-cost">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                            <div class="cfg-box">
+                              <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
+                              <div class="cfg-line cfg-line-ok">Free {formatNumber(free)}</div>
+                              <div class="cfg-line cfg-line-dim">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
                             </div>
                           {/each}
 
@@ -7774,20 +7825,28 @@
                             {@const qty = Math.max(1, Math.floor(cfgQty))}
                             {@const xpPerCraft = fabricateXpPerCraft(cfgRecipeKey)}
                             {@const xpRate = craftingXpPerTick({ kind: "fabricate", blueprint: xpBp })}
-                            <div class="research-cost" style="margin-top: 8px;">REWARDS (×{qty})</div>
-                            <div class="mission-card" style="margin-top: 4px;">
+                            <!-- 0.13.3 Unit 6.1 (presentation only): section header + .cfg-box, the
+                                 same treatment REQUIRES just above received, so cost and reward keep
+                                 reading as one pair. The gear glyph matches the one the CRAFTING LEVEL
+                                 panel's "What this buys" header uses, because this is the same claim
+                                 made at the moment of the craft. Strings and numbers unchanged. -->
+                            <div class="home-sec-hd" style="margin-top: 8px;">
+                              <span class="home-sec-h"><Icon name="equipment" size={12} /> REWARDS (×{qty})</span>
+                              <span class="home-sec-rule"></span>
+                            </div>
+                            <div class="cfg-box">
                               <!-- The batch total is per-craft × qty, NOT a rate × total ticks:
                                    each craft is its own job and floors its own award, so summing
                                    the floored per-craft award is the only arithmetic that matches
                                    what N completed jobs will actually pay. -->
-                              <div class="research-cost">
+                              <div class="cfg-line">
                                 Crafting XP: {formatNumber(xpPerCraft)} per craft · ×{qty} → {formatNumber(xpPerCraft * qty)}
                               </div>
                               <!-- THE ANCHOR, and the whole point of the readout (design 8.3): a
                                    weight system nobody can see is indistinguishable from a random
                                    number. The refine rate is derived from REFINE_RECIPES, not
                                    written as a literal, so the comparison cannot go stale. -->
-                              <div class="research-cost" style="color: var(--color-success);">
+                              <div class="cfg-line cfg-line-ok">
                                 {xpRate.toFixed(1)} XP per tick, against {refineXpPerTickAnchor.toFixed(1)} for a refine job.
                               </div>
                               <!-- iLevel preview, INSTANCE-MINTING BLUEPRINTS ONLY. A material
@@ -7806,7 +7865,7 @@
                                   blueprintTier: xpBp.tier,
                                   faTalentBonus: craftingItemLevelBonus(state),
                                 })}
-                                <div class="research-cost">
+                                <div class="cfg-line cfg-line-dim">
                                   Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling} · at the ceiling, more crafting levels do not raise this tier{/if}
                                 </div>
                               {/if}
@@ -7849,7 +7908,7 @@
                         </div>
                       {:else}
                         <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
-                          {#if isQueueOpener}Queue · configure an order to run later{:else}Line {slotIndex + 1} · idle, configure a craft{/if}
+                          {#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order to run later{:else}<Icon name="fabricator" size={12} /> Line {slotIndex + 1} · idle, configure a craft{/if}
                         </button>
                       {/if}
                     {/each}
@@ -7901,12 +7960,12 @@
                   {#if nextFabricatorUpgrade.credits !== undefined}
                     {@const met = state.credits.gte(nextFabricatorUpgrade.credits)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextFabricatorUpgrade.credits)} (have {formatNumber(state.credits)})
                     </div>
                   {/if}
 
-                  <!-- Material readiness ([Item]: have / need, ✅/❌), empty for the
-                       fabricator track today, kept for parity with the sibling tabs. -->
+                  <!-- Material readiness ([Item]: have / need, check / warning icon), empty
+                       for the fabricator track today, kept for parity with the sibling tabs. -->
                   {#each Object.keys(nextFabricatorUpgrade.materials) as itemId}
                     {@const need = nextFabricatorUpgrade.materials[itemId]}
                     <!-- FREE (reservation-aware) have, consistent with the Build gate; see
@@ -7915,8 +7974,13 @@
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
+                    <!-- 0.13.3 Unit 6.1: ✅/❌ becomes <Icon check> / <Icon warning>, inheriting
+                         this row's existing success/danger color through currentColor. This row
+                         stays a SEPARATE readiness row from the credits row above it: the
+                         Fabricator track is gated on credits AND (today: empty) materials, and
+                         the two can be short for different reasons, so they are never merged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -7924,7 +7988,7 @@
                   {#if nextFabricatorUpgrade.requiresFleetAdminLevel !== undefined}
                     {@const met = state.fleetAdminLevel >= nextFabricatorUpgrade.requiresFleetAdminLevel}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextFabricatorUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
                     </div>
                   {/if}
 
@@ -7940,7 +8004,8 @@
                   {@const progress = fabricatorUpgradeInFlight.durationTicks > 0
                     ? (fabricatorUpgradeInFlight.durationTicks - fabricatorUpgradeInFlight.remainingTicks) / fabricatorUpgradeInFlight.durationTicks
                     : 1}
-                  <div class="research-name" style="margin-top: 10px;">Currently upgrading…</div>
+                  <!-- 0.13.3 Unit 6.1: decorative clock beside the unchanged in-flight label. -->
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
                   </div>
@@ -15034,6 +15099,52 @@
     border-radius: 7px;
     padding: 7px 9px;
   }
+
+  /* ============ CONFIGURATOR READOUT BOXES (Crafting 0.13.3, Phase 6 Unit 6.1) ============
+     The REQUIRES and REWARDS readouts inside the Refinery / Fabricator craft configurators.
+
+     WHAT CHANGED AND WHY. These readouts were nested .mission-card divs INSIDE the
+     configurator's own .mission-card: a 12px-padded, 10px-radius card sitting inside another
+     one, at a heavier type size than anything on Home or Ships. Presentationally that is a
+     third dialect on a console the release has already moved into the Home/Ships row grammar
+     one panel below (the ORDER QUEUE) and one panel above (CRAFTING LEVEL). These classes are
+     that same grammar: a bordered box with a headline line over quieter detail lines.
+
+     NOTHING HERE IS NEW SCALE. Every value is lifted verbatim from the .cq-* / .cl-* blocks
+     above (8px 9px padding, 8px radius, 4px and 3px gaps, 10.5px / 1.4 body type), so the
+     three panels on a crafting console share one set of steps rather than inventing a fourth.
+
+     OWN CLASS NAMES rather than borrowing .cq-*: .cq-* is documented as the ORDER QUEUE's
+     vocabulary and a requirements preview is not a queue row, the same reasoning that gave
+     the crafting-level rows their own .cl-* names.
+
+     COLOR IS THE PART THAT CARRIES MEANING, so it is preserved exactly. .cfg-line-ok is the
+     green the FREE allocation line and the XP-anchor line already had as an inline style; it
+     moved into a class, it did not change value. No tint is painted here at all, and any that
+     is ever added must be color-mix on a theme token, never an -rgb triplet (the locked
+     0.13.3 design-system decision). */
+  .cfg-box {
+    width: 100%;
+    min-width: 0;
+    margin-top: 4px;
+    padding: 8px 9px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+  /* Detail lines WRAP (no ellipsis, no fixed width), so a long item label reflows at 320px
+     instead of forcing the horizontal scroll the responsive rule forbids. */
+  .cfg-line {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--color-text-primary);
+  }
+  .cfg-line + .cfg-line { margin-top: 3px; }
+  /* The FREE stock line and the XP-per-tick anchor line: the same success green they carried
+     as an inline style before this unit. */
+  .cfg-line-ok { color: var(--color-success); }
+  /* Supporting detail (allocated / total, the iLevel note): one step quieter. */
+  .cfg-line-dim { color: var(--color-text-secondary); }
 
   /* Reduced-motion: kill the amber prompt pulse AND the ticker crossfade (design / a11y
      requirement). The ticker interval also holds the index in this case (prefersReducedMotion
