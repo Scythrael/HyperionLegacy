@@ -1880,6 +1880,49 @@
   type ShipyardSubTab = "build" | "upgrades";
   let activeShipyardSubTab: ShipyardSubTab = "build";
 
+  // Salvage Bay (0.13.3 Unit 7.0): the bay's TWO-tab axis. It is the LAST Facilities
+  // console that was still one long scroll, and this release is what made it long: the
+  // explainer grew a timed-job paragraph (Unit 4.4), the queue panel arrived (4.4), the
+  // last-salvage readout regained its manifest (4.4b) and the whole AUTO-SALVAGE panel
+  // landed (5.2). Measured at 375px it ran 1672px with both grids empty and 2273px with
+  // a dozen spares, against a 641px content viewport, while the Refinery next door fits
+  // one screen behind a three-tab rail. Same SubTabs component + typed-union + let-state
+  // discipline as every sibling above; NO new pattern was invented.
+  //
+  // WHY THESE TWO GROUPS, AND WHY NOT THREE. The split is the ACT of salvaging against
+  // the RULES that govern it, which is also the split between the visit a player makes
+  // constantly and the one they make once:
+  //   "salvage" = the whole loop, in the order it is used. Queue (what the bay is doing)
+  //               -> Last salvage (what it just did) -> the two tile grids and their
+  //               selected-target actions (what to do next). These are ONE visit: you
+  //               come to get rid of something, you press Salvage, and the queue two
+  //               panels up is the confirmation that it landed.
+  //   "rules"   = Confirm-before-salvaging + AUTO-SALVAGE. Set-and-forget configuration,
+  //               and the reason the console got tall.
+  // A third "Overview" tab holding the queue was considered and REJECTED: three separate
+  // sentences on this console are positional and would become false. The queue's own two
+  // empty states name the tiles as "below"; the selected-system note tells the player to
+  // remove an order "from the queue above". Splitting the queue away from the tiles would
+  // break all three to save 244px, so the queue stays where those sentences say it is.
+  // The confirm checkboxes stay on the SAME tab as, and directly above, AUTO-SALVAGE for
+  // exactly the same reason: that panel points at them as "just above" twice, and it is
+  // the panel's single most important sentence (the confirm interlock is why the rules
+  // can appear to do nothing). Both readings stay literally true.
+  //
+  // DEFAULTS TO "salvage": the action, and the destination every deep link into this
+  // console means (an in-flight or just-completed salvage row, see jumpTo's salvageBay
+  // case, which now pre-selects this tab the way the Shipyard case pre-selects Build).
+  type SalvageBaySubTab = "salvage" | "rules";
+  let activeSalvageBaySubTab: SalvageBaySubTab = "salvage";
+
+  // The 2 Salvage Bay sub-tabs in display order. A named const (rather than an inline
+  // array literal) matching WAREHOUSE_CAT_TABS, so the tab set is data a future tab is
+  // added to deliberately.
+  const SALVAGE_BAY_SUBTABS: { key: SalvageBaySubTab; label: string }[] = [
+    { key: "salvage", label: "Salvage" },
+    { key: "rules", label: "Rules" },
+  ];
+
   // Crafting Allocation Redesign (Task C4): the per-line CONFIGURATOR's local form state.
   // A configured craft becomes a real line ONLY on Start (via startLine), until then the
   // selections live here, in COMPONENT-LOCAL state, never on GameState. Only ONE configurator
@@ -2631,12 +2674,17 @@
         activeFoundryFacility = "fuelStorage";
         break;
       case "salvageBay":
-        // The Salvage Bay console (0.13.3 Unit 4.6). It has no sub-tab rail of its own (one
-        // scrolling surface: explainer, queue, spare systems, salvaged materials), so there
-        // is nothing to pre-select, exactly like the Fuel Depot above. This is where an
-        // in-flight or just-completed salvage row sends the player.
+        // The Salvage Bay console (0.13.3 Unit 4.6). This is where an in-flight or
+        // just-completed salvage row sends the player.
+        // 0.13.3 Unit 7.0: the bay GAINED a sub-tab rail, so this case now pre-selects one,
+        // the same way the Shipyard case above pre-selects "build". It has to: the sub-tab
+        // is sticky `let` state, so a player who last left the console on Rules would
+        // otherwise be dropped on the settings screen by a link that means "come look at
+        // your salvage". "salvage" is the tab holding the queue, the last-salvage readout
+        // and both tile grids, which is exactly what every jump here is about.
         facilitiesView = "console";
         activeFoundryFacility = "salvageBay";
+        activeSalvageBaySubTab = "salvage";
         break;
       case "facilities":
         // The Facilities OVERVIEW (the dashboard of all facility cards), NOT a single foundry
@@ -7610,10 +7658,18 @@
                   <p class="research-status" style="margin-top: 10px;">No active fabricate jobs.</p>
                 {/if}
 
-                <!-- Forward signpost (design F4): fabricated components aren't usable until
-                     the Shipyard, the next feature. -->
+                <!-- Forward signpost (design F4): fabricated components aren't usable on
+                     this console, they are spent at the Shipyard.
+                     0.13.3 Unit 7.0, COPY ONLY: this used to read "when the Shipyard comes
+                     online (next feature)", written when the Shipyard was unbuilt. The
+                     Shipyard has been a live console since 0.12.0 and now sits in THIS tab's
+                     own Facilities rail, so the old line told the player to wait for
+                     something they can already tap. It now points at the live console, in the
+                     same "<verb> at the <Facility>" shape the working signposts nearby use
+                     (see the Craft tab's "Research blueprints at the Research Lab" empty
+                     state). Markup and placement are untouched. -->
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  Fabricated components become usable when the <strong>Shipyard</strong> comes online (next feature).
+                  Fabricated components are spent on hull builds at the <strong>Shipyard</strong>.
                 </p>
               </Panel>
 
@@ -8202,10 +8258,18 @@
                   <p class="research-status" style="margin-top: 10px;">No active research projects.</p>
                 {/if}
 
-                <!-- Forward signpost (design R5): researched blueprints aren't craftable
-                     until the Fabricator, the next feature. -->
+                <!-- Forward signpost (design R5): researching a blueprint does not craft it,
+                     the Fabricator does.
+                     0.13.3 Unit 7.0, COPY ONLY: this used to read "when the Fabricator comes
+                     online (next feature)", written when the Fabricator was unbuilt. The
+                     Fabricator is a live console one card away in THIS tab's own Facilities
+                     rail, so the old line told the player to wait for something they can
+                     already tap. It now points at the live console, in the same
+                     "<verb> at the <Facility>" shape the working signposts use (the Craft
+                     tab's "Research blueprints at the Research Lab" empty state points the
+                     other way down the same chain). Markup and placement are untouched. -->
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
-                  Researched blueprints become craftable when the <strong>Fabricator</strong> comes online (next feature).
+                  Researched blueprints become craftable at the <strong>Fabricator</strong>.
                 </p>
               </Panel>
             {/if}
@@ -8214,8 +8278,8 @@
               <!-- RESEARCH LIST, blueprints grouped by TIER (ascending). Each card
                    shows the blueprint's future-Fabricator RECIPE (inputs → outputQty×
                    output, ITEM labels) + its cost/time, then ONE of three states:
-                     - Researched (blueprintUnlocked): ✓ + "craftable once the Fabricator
-                       is online".
+                     - Researched (blueprintUnlocked): a check Icon (Unit 7.0, was a literal
+                       ✓) + "craftable once the Fabricator is online".
                      - Researchable (canResearch ok): an enabled Research button →
                        doStartResearch(key).
                      - Blocked (canResearch !ok): a DISABLED button whose text/title is
@@ -8272,7 +8336,20 @@
                       <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
-                        <div class="research-cost" style="color: var(--color-success)">{blueprintKind(bp) === "unlockOnly" ? "✓ Researched, build it at the Shipyard" : "✓ Researched, craftable once the Fabricator is online"}</div>
+                        <!-- 0.13.3 Unit 7.0, GLYPH ONLY: the literal ✓ dingbat becomes the same
+                             <Icon name="check"> the Upgrades sub-tab's readiness rows already
+                             render, so this ONE console stops showing two different marks for
+                             the same meaning (Unit 6.2 converted the readiness rows and left
+                             this card, which is the drift 6.5's holistic pass found). The icon
+                             is stroke SVG on currentColor, so it inherits this row's existing
+                             success token exactly as the readiness rows do.
+                             BOTH TEXTS ARE OTHERWISE UNTOUCHED, including the distinct
+                             unlock-only vs crafts-recipe wording, which is load-bearing: an
+                             unlock-only blueprint crafts nothing, so it must NOT claim to be
+                             craftable. The ternary is unchanged; only the two glyphs left the
+                             strings, and the icon now sits outside the ternary because both
+                             branches carried the same mark. -->
+                        <div class="research-cost" style="color: var(--color-success)"><Icon name="check" size={12} /> {blueprintKind(bp) === "unlockOnly" ? "Researched, build it at the Shipyard" : "Researched, craftable once the Fabricator is online"}</div>
                       {:else if job}
                         {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
                         <div class="research-bar-track">
@@ -8576,15 +8653,27 @@
                        LOAD-BEARING AND MUST STAY EXPLICIT. They look redundant and are not.
                        Each rung type has its OWN title, its OWN current→next readout, and its
                        OWN Build button label further down:
-                         "storageCapMult"    -> Expand Tank        -> Build label "Expand Tank"
-                         "addFuelPipelines"  -> Add Pipeline       -> Build label "Add Pipeline"
-                         "fuelYieldMult"     -> Boost Yield        -> Build label "Boost Yield"
-                         "fuelInputMult"     -> Efficient Intake   -> Build label "Improve Intake"
+                         "storageCapMult"    -> Expand Tank      -> Build label "Expand Tank"
+                         "addFuelPipelines"  -> Add Pipeline     -> Build label "Add Pipeline"
+                         "fuelYieldMult"     -> Boost Yield      -> Build label "Boost Yield"
+                         "fuelInputMult"     -> Improve Intake   -> Build label "Improve Intake"
                        Collapsing them into one generic "next upgrade" row is a REGRESSION, not
                        a simplification: it is exactly the mislabel bug this branching fixed
                        (every rung used to read "doubles capacity"). Unit 6.3 changed nothing
                        here but the decorative glyph on each title; the four conditions, the
-                       four readouts and the four labels are byte-identical.
+                       four readouts and the four labels were byte-identical.
+
+                       0.13.3 Unit 7.0 CHANGED EXACTLY ONE STRING IN THIS BLOCK, with the
+                       user's approval, and this comment is updated to match. Branch 4's TITLE
+                       read "Efficient Intake" while its Build label read "Improve Intake", so
+                       the card disagreed with the button the player was about to press. Unit
+                       6.3 deliberately preserved that asymmetry rather than tidy it on a
+                       presentation pass, and flagged it; 6.5's holistic pass raised it, and
+                       the fix is to align the TITLE to the LABEL ("Improve Intake"), NOT the
+                       other way round, because the other three branches all use one identical
+                       verb-noun phrase for both, and "Improve Intake" is the verb-noun member
+                       of the pair. The four CONDITIONS, the four readouts, the four Build
+                       labels and the terminal "Build" fallback are untouched.
 
                        The glyph is the SAME facility icon on all four, deliberately. Unit 6.1's
                        precedent is a uniform facility glyph on card titles (every refine job
@@ -8606,7 +8695,7 @@
                     <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
                   {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Efficient Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Improve Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
                     <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
                     <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
                   {/if}
@@ -8860,7 +8949,29 @@
                       Salvage action panel (requestSalvage("material", ...)) over
                       the whole salvaged catalog (salvageBaySalvagedItems, no tier
                       selector). Ship teardown (requestSalvage("ship", ...)) is a
-                      Logistics Ships action and deliberately NOT relocated here. -->
+                      Logistics Ships action and deliberately NOT relocated here.
+
+                 0.13.3 Unit 7.0 ADDED THE SUB-TAB RAIL BELOW AND MOVED NOTHING ELSE.
+                 Every panel, every affordance and every string listed above still exists;
+                 they are now distributed across two tabs (see SalvageBaySubTab in the
+                 script block for the grouping and the reasoning). The rail is the SAME
+                 <SubTabs> component + {#if} content-pane shape the Refinery, Fabricator,
+                 Research, Fuel Depot, Warehouse and Shipyard consoles use, driven by the
+                 SALVAGE_BAY_SUBTABS const the way the Warehouse is driven by
+                 WAREHOUSE_CAT_TABS. No new pattern, no new component, no engine change. -->
+            <SubTabs
+              tabs={SALVAGE_BAY_SUBTABS}
+              active={activeSalvageBaySubTab}
+              onSelect={(key) => (activeSalvageBaySubTab = key as SalvageBaySubTab)}
+            />
+
+            {#if activeSalvageBaySubTab === "salvage"}
+            <!-- ============ TAB 1 OF 2: SALVAGE, the act ============================
+                 Queue -> Last salvage -> Ship Systems (+ selected) -> Salvaged Materials
+                 (+ selected). The vertical order INSIDE the tab is unchanged from the
+                 single-scroll console, which is what keeps the queue's own "choose a spare
+                 system or a salvaged material below" empty states and the selected-system
+                 note's "remove it from the queue above" literally true. -->
             <Panel>
               <div class="panel-title">SALVAGE BAY</div>
               <p class="research-status">
@@ -8876,6 +8987,37 @@
               <p class="research-status">
                 Salvaging is a job the bay runs over time, one at a time. Queued orders keep their target reserved and continue while you are away.
               </p>
+            </Panel>
+            {/if}
+
+            {#if activeSalvageBaySubTab === "rules"}
+            <!-- ============ TAB 2 OF 2: RULES, the settings that govern salvaging =======
+                 Confirm-before-salvaging, then AUTO-SALVAGE, in that order and adjacent,
+                 which is the whole reason they are the pair that moved: the auto-salvage
+                 eligibility readout points at the checkboxes as "just above" TWICE, and
+                 that sentence is the one that explains why the rules can look broken (a
+                 tier you asked to confirm can never be auto-salvaged, and the shipped
+                 default confirms every tier). Keeping them together keeps it literally
+                 true, so NEITHER string needed rewording.
+
+                 ⚠️ WHY THIS BLOCK IS NOT PHYSICALLY MOVED IN THE FILE. The confirm rows and
+                 the AUTO-SALVAGE panel already sat between the explainer and the queue, so
+                 guarding them where they stand produces the intended per-tab order (Salvage:
+                 explainer, queue, last salvage, both grids. Rules: confirm, auto-salvage)
+                 without relocating ~150 lines of working markup. That is why the "salvage"
+                 guard appears TWICE, once above and once below this block: two three-line
+                 guards instead of a large block move, so the diff stays reviewable and
+                 nothing can be dropped in transit. The contents below are byte-identical
+                 apart from the two "queue below" pointers noted on the AUTO-SALVAGE panel.
+                 Child indentation is deliberately left as it was for the same reason. -->
+            <Panel>
+              <!-- The confirm rows used to live inside the SALVAGE BAY explainer panel above.
+                   Split onto this tab, they need their own Panel and therefore their own
+                   title; "CONFIRM BY QUALITY" is the name the code below has always used for
+                   this block. The visible "Confirm before salvaging" row underneath is
+                   UNCHANGED and must stay word-for-word: it is the anchor the AUTO-SALVAGE
+                   panel names in <strong> tags. -->
+              <div class="panel-title">CONFIRM BY QUALITY</div>
               <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
                    quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
                    confirm before salvaging an item of that quality; unchecking a
@@ -8926,7 +9068,11 @@
                    1. It sits DIRECTLY UNDER the Confirm-before-salvaging checkboxes, so the fix
                       is on the same screen as the message about it. That adjacency is the
                       reason this panel goes here rather than at the bottom of the console, and
-                      it is why the queue panel below now starts one panel lower.
+                      it is why the queue panel below now starts one panel lower. (0.13.3 Unit
+                      7.0: that adjacency is now what DEFINED the Rules tab. The checkboxes and
+                      this panel moved together onto one sub-tab precisely so this point holds;
+                      the queue is no longer below them, which is the one thing on this panel
+                      the split had to reword.)
                    2. It names the exact tiers the rules may take right now AND the exact tiers
                       confirmation is holding back, instead of saying "some are protected".
                    3. It shows a LIVE COUNT of the spare systems that qualify, so switching the
@@ -8938,8 +9084,17 @@
                  Unit 5.1's; the three handlers only write state.autoSalvage and save. -->
             <Panel>
               <div class="panel-title">AUTO-SALVAGE</div>
+              <!-- 0.13.3 Unit 7.0, THE ONLY TWO STRINGS THE TAB SPLIT CHANGED (this one and
+                   the safety paragraph at the foot of this panel). Both said "the queue
+                   below", written when this panel and the queue shared one scrolling surface.
+                   The queue is on the Salvage tab now, so "below" pointed at nothing and the
+                   sentence was false the moment the rail landed. Naming the tab is the fix a
+                   player can act on. Nothing else in this panel changed: the eligibility
+                   readout's two "Confirm before salvaging just above" pointers are still
+                   literally true, because the checkboxes are the panel directly above this
+                   one on this same tab. -->
               <p class="research-status">
-                Opt-in rules that queue spare ship systems for you. They add orders to the queue below and run the same timed jobs a hand-picked salvage runs, including while the game is closed. Salvaged materials and hull teardowns stay manual.
+                Opt-in rules that queue spare ship systems for you. They add orders to the queue on the Salvage tab and run the same timed jobs a hand-picked salvage runs, including while the game is closed. Salvaged materials and hull teardowns stay manual.
               </p>
 
               <!-- THE CONTROLS. Same .dev-row + inline-flex label idiom as the confirm
@@ -9028,16 +9183,25 @@
                    player has to be able to trust it before they switch it on. Each clause is a
                    filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
               <p class="research-status">
-                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue below, where you can remove one before it starts, and once your queue holds more than one order it always leaves a slot free for your own work.
+                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts, and once your queue holds more than one order it always leaves a slot free for your own work.
               </p>
             </Panel>
+            {/if}
+
+            {#if activeSalvageBaySubTab === "salvage"}
+            <!-- Back on TAB 1 (see the guard above the SALVAGE BAY explainer). Everything from
+                 here to the end of the console is the act of salvaging, in its original order. -->
 
             <!-- THE SALVAGE QUEUE (0.13.3 Unit 4.4). Sits under the explainer (and, since Unit
                  5.2, under the auto-salvage rules that feed it) but still ABOVE the tiles, the
                  reverse of the craft consoles' running-then-queued
                  order, and deliberately so: on this console the tiles are the ACTION and the
                  queue is the STATUS of actions already taken, so the status belongs where
-                 the player looks first, before they scroll a grid of dozens of spares. -->
+                 the player looks first, before they scroll a grid of dozens of spares.
+                 0.13.3 Unit 7.0: the auto-salvage rules moved to the Rules tab, so on THIS
+                 tab the queue now sits directly under the explainer again. It stays ABOVE the
+                 tiles, which is the load-bearing half of that reasoning and the reason this
+                 panel's own empty states can go on saying the tiles are "below". -->
             {@render salvageBayQueuePanel(salvageBayQueue)}
 
             <!-- LAST SALVAGE readout (0.11.2 Task 12, re-sourced in 0.13.3 Unit 4.4): a
@@ -9328,6 +9492,7 @@
                   </button>
                 </div>
               </Panel>
+            {/if}
             {/if}
           {:else if activeFoundryFacility === "shipyard"}
             <!-- SHIPYARD folded into Facilities (0.12.0 Console, CN4b), moved
