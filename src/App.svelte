@@ -1,5 +1,13 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  // Svelte's `tick` (0.13.3 Unit 6.5): awaited by the two queue-control handlers so each can
+  // inspect the DOM AFTER Svelte has flushed the reorder or removal. See doMoveQueuedOrder for
+  // why a queue mutation needs a post-flush focus decision at all.
+  // ⚠️ ALIASED, and it must stay aliased: this file already imports a `tick` from
+  // ./lib/game/tick, the ENGINE's per-span advance, and the two are unrelated in every way
+  // (one flushes a render, the other advances the economy). Importing both unaliased is a
+  // hard parse error, and, far worse, whichever won would silently be the wrong one at a call
+  // site. The alias makes "flush the DOM" impossible to confuse with "advance the game".
+  import { onMount, onDestroy, tick as svelteTick } from "svelte";
   import Decimal from "break_infinity.js";
   import Starfield from "./lib/Starfield.svelte";
   import Panel from "./lib/Panel.svelte";
@@ -4811,19 +4819,94 @@
   // The array order IS the queue order, so the swap the engine performs is the whole truth,
   // with no second sort key to keep in step. A boundary move is a same-ref no-op in the
   // engine and the row's control is already disabled there, so no guard is needed here.
-  function doMoveQueuedOrder(id: string, direction: "up" | "down") {
+  //
+  // ⚠️ 0.13.3 UNIT 6.5, FOCUS MANAGEMENT (a11y). The reorder itself was already correct; what
+  // was broken was where the KEYBOARD went afterwards.
+  //
+  // THE BUG, stated as MEASURED rather than as first assumed. The first version of this fix
+  // was written on the theory that a keyed {#each} moves its row nodes, so focus would ride
+  // along with the pressed button and only the BOUNDARY case (the button that disables itself
+  // by completing its own move) could lose it. Driving the real queue in a browser disproved
+  // that: focus landed on <body> after EVERY reorder, boundary or not. The pressed button does
+  // not survive the update holding focus, so a fix that only handled the boundary would have
+  // left the common case broken while looking correct in review. Whatever the renderer does
+  // with the nodes, the honest fix cannot depend on node identity at all.
+  //
+  // Either way the SYMPTOM was the same and it was not cosmetic: a keyboard user reordering a
+  // queue was dropped onto <body> after each press and had to Tab in from the top of the
+  // document to make the next one.
+  //
+  // THE FIX. Re-find the row by its ORDER ID after the flush, and put focus back explicitly:
+  //   1. `await svelteTick()`, so the reorder and the disabled attributes are settled.
+  //   2. Find the row again via [data-order-id], the stable hook the row markup carries for
+  //      exactly this purpose. The ID is the handle, not a DOM reference and not an index,
+  //      because the ORDER is the thing that moved and it is still the same order afterwards.
+  //   3. Focus the SAME-direction control, so a repeated press keeps working and the player
+  //      stays on the action they were already using.
+  //   4. Unless that control disabled itself by completing the move (the boundary case: an
+  //      order that reached position 1 has no "up" left), in which case focus the OPPOSITE
+  //      control, the nearest still-meaningful action, keeping the player in the row they just
+  //      moved. It is guaranteed enabled: a row can only reach a boundary if the queue holds
+  //      two or more orders, and a row at one boundary is by definition not at the other.
+  // Every step is guarded rather than assumed, so a future change to the row markup degrades
+  // to "leave focus where the browser put it" instead of throwing.
+  //
+  // `trigger` no longer LOCATES anything; it is what tells us the call came from a real
+  // control rather than a programmatic move, which is the condition for touching focus at all.
+  //
+  // POINTER USERS SEE NOTHING. Focus moves, but :focus-visible (which is what .cq-btn paints a
+  // ring for) stays off for a mouse or touch interaction, so this is invisible unless you are
+  // actually driving the queue from the keyboard.
+  async function doMoveQueuedOrder(id: string, direction: "up" | "down", trigger?: HTMLButtonElement) {
     state = moveQueuedOrder(state, id, direction);
     doSave();
+    if (!trigger) return;
+    await svelteTick();
+    const row = document.querySelector(`.cq-row[data-order-id="${CSS.escape(id)}"]`);
+    if (!row) return;
+    // The control cluster is [move up, move down, remove], in markup order.
+    const controls = row.querySelectorAll<HTMLButtonElement>(".cq-btn");
+    const same = controls[direction === "up" ? 0 : 1];
+    const opposite = controls[direction === "up" ? 1 : 0];
+    if (same && !same.disabled) same.focus();
+    else if (opposite && !opposite.disabled) opposite.focus();
   }
 
   // Drop ONE waiting order. A queued order reserves nothing, so there is no ledger to unwind
   // and nothing is destroyed: this is the reason the control needs no confirmation modal.
   // `label` is passed in from the row that was clicked (rather than re-derived) because the
   // order is gone from state by the time the log line is written.
-  function doRemoveQueuedOrder(id: string, label: string) {
+  //
+  // ⚠️ 0.13.3 UNIT 6.5, FOCUS MANAGEMENT (a11y), the companion to doMoveQueuedOrder's. A
+  // removal is the harsher case of the same problem: the reorder buttons only ever get
+  // DISABLED under the player's finger, but Remove destroys the entire row, so the focused
+  // element does not merely go inert, it leaves the document. Focus lands on <body> and a
+  // keyboard user clearing several orders has to Tab in from the top of the page between every
+  // single one, which is exactly the kind of friction the release is meant to be removing.
+  //
+  // The list element is captured BEFORE the removal, because afterwards the trigger is
+  // detached and `closest` can no longer reach its ancestors. After the flush, focus goes to
+  // the Remove button now occupying the same position (the next order down has shifted up into
+  // it, which is the row a repeat press would target), or to the last row's when the removed
+  // order was itself last. Reading the buttons back out of the live DOM rather than tracking an
+  // index keeps this honest if the row markup ever changes shape.
+  //
+  // WHEN THE QUEUE EMPTIES there is deliberately nothing to focus: the panel swaps to a plain
+  // explanatory paragraph with no controls in it, and inventing a tabindex on that paragraph
+  // purely to catch focus would add a phantom tab stop for every player forever, to serve one
+  // moment. Focus falling back to the document is the correct behavior for a surface whose
+  // controls are genuinely gone.
+  async function doRemoveQueuedOrder(id: string, label: string, trigger?: HTMLButtonElement) {
+    const list = trigger?.closest(".cq-list") ?? null;
+    const position = list ? Array.from(list.querySelectorAll(".cq-btn-danger")).indexOf(trigger!) : -1;
     state = removeQueuedOrder(state, id);
     pushLog(`Removed from queue → [${label}].`);
     doSave();
+    if (!list || position < 0) return;
+    await svelteTick();
+    const remaining = Array.from(list.querySelectorAll<HTMLButtonElement>(".cq-btn-danger"));
+    if (remaining.length === 0) return;
+    (remaining[position] ?? remaining[remaining.length - 1]).focus();
   }
 
   // The human sentence a QUEUED row shows when it cannot start yet.
@@ -6065,9 +6148,29 @@
 
   // durationReadout: static duration (a fixed cost/length, not a countdown).
   // off -> "01:39";  on -> "120 ticks (01:39)".
+  //
+  // ⚠️ THE TICK FIGURE IS CEILED (0.13.3 Unit 6.5), for the SAME reason and by the SAME rule
+  // remainingReadout above already ceils its own: a duration in ticks is a count of whole
+  // ticks the job will occupy, and a fraction of a tick is still a tick the player waits
+  // through. Ceiling is therefore the honest whole-tick reading, not a rounding convenience.
+  //
+  // WHY IT WAS NOT NEEDED UNTIL NOW, and what surfaced it. Every caller until this unit passed
+  // an INTEGER durationTicks straight off a recipe or an upgrade rung, so `${ticks}` was always
+  // already whole. Unit 6.5 routed the Shipyard hull card's build time through here, and that
+  // one is DIVIDED by the shipyard's build-speed multiplier, so it is routinely fractional: the
+  // readout rendered "233.33333333333334 ticks (03:53)", which is not a number any interface
+  // should show a player. Fixed here rather than at that one call site because the defect is
+  // this function's (it rendered a raw number as a whole-tick count), not that caller's, and a
+  // Math.ceil at the call site would leave the next fractional caller to rediscover it.
+  //
+  // PROVABLY A NO-OP FOR EVERY PRE-EXISTING CALLER: Math.ceil of an integer is that integer, so
+  // no readout that was correct before this change renders even one character differently.
+  //
+  // The CLOCK is deliberately left on the EXACT value: formatClock does its own rounding into
+  // MM:SS, and pre-rounding the input would drift the displayed time away from the real one.
   function durationReadout(ticks: number, showTicks: boolean, secPerTick: number): string {
     const clock = formatClock(ticks, secPerTick);
-    return showTicks ? `${ticks} ticks (${clock})` : clock;
+    return showTicks ? `${Math.ceil(ticks)} ticks (${clock})` : clock;
   }
 
   // lineRemainingReadout: the WHOLE-BATCH countdown for a production line (refine or
@@ -6378,7 +6481,11 @@
 {#snippet craftQueueRowList(view: CraftQueueView)}
       <div class="cq-list">
         {#each view.queued as row (row.id)}
-          <div class="cq-row" class:cq-row-next={row.nextToPromote}>
+          <!-- data-order-id (0.13.3 Unit 6.5, a11y): a stable handle on the ROW, so the
+               reorder handler can find this exact order again after Svelte has flushed the
+               move and put focus back on it. It is a focus hook and nothing else: no styling
+               keys off it and no logic reads it, the queue's truth stays the array order. -->
+          <div class="cq-row" data-order-id={row.id} class:cq-row-next={row.nextToPromote}>
             <!-- Position is the row's 1-based place in THIS facility's queue, and
                  the array order IS the queue order, so reordering below is honest
                  with no second sort key behind it. -->
@@ -6408,27 +6515,34 @@
                  when the control is disabled, which is the "button's own label is
                  the reason" variant of disabled-reason discipline. The <Icon> stays
                  decorative on purpose: a labelled icon inside a labelled button
-                 would be a second, competing accessible name. -->
+                 would be a second, competing accessible name.
+                 0.13.3 Unit 6.5 (a11y): the two reorder buttons now pass THEMSELVES to the
+                 handler, so a move that lands on a boundary and disables the pressed control
+                 can hand focus to its sibling instead of dropping the keyboard on <body>.
+                 See doMoveQueuedOrder for the full reasoning. currentTarget (not target) is
+                 read because a click on the inner <svg> would report the icon as target. The
+                 Remove button needs no such argument: its whole row leaves the DOM, so there
+                 is no trigger left to inspect (see doRemoveQueuedOrder). -->
             <span class="cq-ctl">
               <button
                 class="cq-btn"
                 disabled={!row.canMoveUp}
                 title={row.canMoveUp ? "Move up" : "Already first in the queue"}
                 aria-label={row.canMoveUp ? `Move ${row.label} up` : "Already first in the queue"}
-                on:click={() => doMoveQueuedOrder(row.id, "up")}
+                on:click={(e) => doMoveQueuedOrder(row.id, "up", e.currentTarget)}
               ><Icon name="chevronUp" size={14} /></button>
               <button
                 class="cq-btn"
                 disabled={!row.canMoveDown}
                 title={row.canMoveDown ? "Move down" : "Already last in the queue"}
                 aria-label={row.canMoveDown ? `Move ${row.label} down` : "Already last in the queue"}
-                on:click={() => doMoveQueuedOrder(row.id, "down")}
+                on:click={(e) => doMoveQueuedOrder(row.id, "down", e.currentTarget)}
               ><Icon name="chevronDown" size={14} /></button>
               <button
                 class="cq-btn cq-btn-danger"
                 title="Remove from queue"
                 aria-label={`Remove ${row.label} from the queue`}
-                on:click={() => doRemoveQueuedOrder(row.id, row.label)}
+                on:click={(e) => doRemoveQueuedOrder(row.id, row.label, e.currentTarget)}
               ><Icon name="close" size={14} /></button>
             </span>
           </div>
@@ -9385,9 +9499,29 @@
                         </div>
                       {/each}
 
-                      <!-- Credits + effective (build-speed-adjusted) build time. -->
+                      <!-- Credits + effective (build-speed-adjusted) build time.
+
+                           0.13.3 UNIT 6.5, THE ONE FLAGGED FIX HANDED OVER BY UNIT 6.4. This
+                           readout called formatClock DIRECTLY, so it was the single duration on
+                           this console (and one of the very few in the app) that IGNORED the
+                           player's "Show tick counts" setting: turning the option on relabelled
+                           the founding time, the upgrade duration and the in-flight countdown
+                           beside it, and left this one showing a bare clock. 6.4 was a
+                           presentation pass with a no-behavior-change rule so it flagged rather
+                           than fixed it; 6.5 owns the tab's fixes.
+
+                           MATCHES THE SIBLINGS EXACTLY rather than inventing a third form. This
+                           is a STATIC duration (what the build will cost), not a live countdown,
+                           so it takes durationReadout with the same three arguments the Founding
+                           time and Duration readouts on this same console already pass:
+                           (ticks, showTickCounts, state.tickDurationSeconds). Off, durationReadout
+                           returns formatClock's exact output, so the DEFAULT view is character-for-
+                           character what it was before; on, it gains the "N ticks (MM:SS)" form the
+                           rest of the console has always had. The ticks argument is the unchanged
+                           shipBuildDurationTicks call, so the build-speed adjustment this line
+                           exists to show is untouched. -->
                       <div class="research-cost" style="margin-top: 6px;">
-                        ◈ {formatNumber(recipe.credits)} · ⏱ {formatClock(shipBuildDurationTicks(state, typeKey as ShipTypeKey), state.tickDurationSeconds)}
+                        ◈ {formatNumber(recipe.credits)} · ⏱ {durationReadout(shipBuildDurationTicks(state, typeKey as ShipTypeKey), showTickCounts, state.tickDurationSeconds)}
                       </div>
 
                       <button
@@ -12743,14 +12877,38 @@
 
   {#if refineConfirmModalOpen}
     <!-- Start-a-craft confirmation modal (Crafting Allocation Redesign, Task C4, reuses the
-         Phase-2 refine-confirm pref + modal). Same .modal-backdrop/Panel.modal-dialog/
-         .modal-warning/.modal-row structure as the DELETE SAVE modal, so all modals share one
-         visual language. The "Don't show this again" checkbox disables the refineConfirm pref on
-         Confirm (persisted like tickBarEnabled); the System -> Options toggle re-enables it.
-         Confirm commits the held pendingLineStart (via startLine); Cancel starts nothing. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm craft" use:focusTrap={cancelLineStart}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">CONFIRM CRAFT</div>
+         Phase-2 refine-confirm pref + modal). The "Don't show this again" checkbox disables the
+         refineConfirm pref on Confirm (persisted like tickBarEnabled); the System -> Options
+         toggle re-enables it. Confirm commits the held pendingLineStart (via startLine); Cancel
+         starts nothing. NONE of that behavior is touched by Unit 6.5.
+
+         0.13.3 UNIT 6.5 RESKIN to the 0.13.2 Ships install-modal pattern: a BOTTOM SHEET on a
+         phone and a CENTERED popup on a desktop, dismissible by backdrop click, by Escape and by
+         a sticky header ✕, with focus trapped inside while it is open. Full rationale in the
+         .fsheet-* CSS block.
+
+         MIRRORED LOCALLY, NOT EXTRACTED (plan assumption 11). The Salvage Bay confirm below
+         carries its own copy of this shell rather than both rendering one snippet. The two share
+         a LOOK, not a shape: this one owns a preference checkbox and a neutral confirm, that one
+         owns a branching permanence warning, a conditional captain warning, a queue note and a
+         danger confirm. A snippet general enough to host both would need a title, a body slot, a
+         footer slot and a variant flag, which is a component in all but name.
+
+         WHY NO PORTAL, unlike ShipSystemsPanel's install modal. That action exists to escape a
+         DEEPLY NESTED ancestor that establishes a containing block (transform / filter /
+         backdrop-filter / will-change / contain / perspective), which traps position:fixed. This
+         modal is a direct child of .root, itself a direct child of Root.svelte's .app-shell;
+         neither of those, nor anything in app.css, sets any of those properties (verified by
+         grep, not assumed), so position:fixed already resolves against the viewport here. Every
+         other root-level modal in this file demonstrates it. Re-parenting to <body> would buy
+         nothing and add a DOM move on every open. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss. Keyboard users dismiss with Escape (the focusTrap on the dialog below) or the header ✕, and every real control lives inside the dialog, so nothing is reachable only by clicking the dimmer. -->
+    <div class="fsheet-backdrop" on:click|self={cancelLineStart}>
+      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm craft" use:focusTrap={cancelLineStart}>
+        <div class="fsheet-head">
+          <span>CONFIRM CRAFT</span>
+          <button class="fsheet-close" on:click={cancelLineStart} aria-label="Close without starting the line">&times;</button>
+        </div>
         <p class="modal-warning">Start this production line? Its materials will be reserved, you can cancel the line to refund the remainder.</p>
         <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
           <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
@@ -12760,27 +12918,47 @@
           <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
           <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
         </div>
-      </Panel>
+      </div>
     </div>
   {/if}
 
   {#if salvageConfirm !== null}
     <!-- Salvage confirmation modal (device-test feedback): a salvage PERMANENTLY breaks
          down the item, so both the Ship Systems tab and the Salvaged Materials tab route
-         their Salvage button through this guard first. Reuses the SAME .modal-backdrop /
-         Panel.modal-dialog / .modal-warning / .modal-row structure as the DELETE SAVE and
-         homeworld-respec modals, so every confirm shares one visual language. Plain
-         Cancel/Confirm (no typed word, no "don't ask again"): the tiered variant + the
-         post-salvage result readout are DEFERRED to 0.11.1. Confirm dispatches to the
-         matching handler by kind; Cancel destroys nothing. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Confirm salvage" use:focusTrap={cancelSalvageConfirm}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">CONFIRM SALVAGE</div>
-        <!-- A Standard-Issue baseline has no recipe, so it is a zero-reward DISCARD, not a
-             "break down for parts". Detect it (a system whose piece has no blueprintKey) so
-             the warning tells the truth rather than promising parts it will not yield. -->
-        {@const scId = salvageConfirm.id}
-        {@const scIsBaseline = salvageConfirm.kind === "system" && state.equipment.find((e) => e.id === scId)?.blueprintKey === null}
+         their Salvage button through this guard first. Plain Cancel/Confirm (no typed word, no
+         "don't ask again"): the tiered variant + the post-salvage result readout landed in
+         0.11.1 and 0.13.3 respectively. Confirm dispatches to the matching handler by kind;
+         Cancel destroys nothing. None of that is touched by Unit 6.5.
+
+         0.13.3 UNIT 6.5 RESKIN to the same 0.13.2 pattern as the craft confirm above: bottom
+         sheet on a phone, centered popup on a desktop, backdrop click + Escape + a sticky header
+         ✕, focus trapped inside. The shell is mirrored here rather than shared, for the reasons
+         recorded on that modal.
+
+         ONE DELIBERATE DIFFERENCE FROM THE CRAFT CONFIRM, and it is the important one: this
+         modal guards a PERMANENT, IRREVERSIBLE destruction, so its every dismissal path must be
+         the SAFE one. Backdrop click, Escape and the ✕ all route to cancelSalvageConfirm, which
+         destroys nothing, exactly like Cancel. Nothing here can reach confirmSalvage except the
+         explicit Confirm button, and the ✕'s accessible name says so rather than saying "close",
+         so a screen-reader user is never left guessing which way an ambiguous X went. -->
+    <!-- A Standard-Issue baseline has no recipe, so it is a zero-reward DISCARD, not a
+         "break down for parts". Detect it (a system whose piece has no blueprintKey) so
+         the warning tells the truth rather than promising parts it will not yield.
+         ⚠️ THESE TWO MOVED UP ONE LEVEL in Unit 6.5, and the values are unchanged. They used
+         to sit inside the dialog because {@const} is legal as the immediate child of a
+         COMPONENT and the dialog was a <Panel>; the reskin makes it a plain <div>, where
+         {@const} is not legal. The enclosing {#if} is a legal parent, and hoisting is the
+         minimal move: both expressions read only salvageConfirm and state, both of which are
+         in scope here, and the {#if} has already established salvageConfirm is non-null. -->
+    {@const scId = salvageConfirm.id}
+    {@const scIsBaseline = salvageConfirm.kind === "system" && state.equipment.find((e) => e.id === scId)?.blueprintKey === null}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the craft confirm's backdrop, a presentation dimmer whose click-to-dismiss is a convenience. Escape and the header ✕ both close from the keyboard and both cancel safely. -->
+    <div class="fsheet-backdrop" on:click|self={cancelSalvageConfirm}>
+      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm salvage" use:focusTrap={cancelSalvageConfirm}>
+        <div class="fsheet-head">
+          <span>CONFIRM SALVAGE</span>
+          <button class="fsheet-close" on:click={cancelSalvageConfirm} aria-label="Close without salvaging">&times;</button>
+        </div>
         <p class="modal-warning">
           {#if scIsBaseline}
             Permanently discard <strong>{salvageConfirm.name}</strong>? This removes the Standard-Issue system for nothing (it has no materials to recover) and can't be undone.
@@ -12809,7 +12987,7 @@
             {#if salvageConfirm.kind === "ship"}Salvage{:else}Add to queue{/if}
           </button>
         </div>
-      </Panel>
+      </div>
     </div>
   {/if}
 
@@ -14172,6 +14350,111 @@
     background: var(--color-bg-mid);
     color: var(--color-text-primary);
   }
+
+  /* ========= FACILITIES CONFIRM SHEET (Crafting 0.13.3, Phase 6 Unit 6.5) =========
+     The 0.13.2 Ships install-modal pattern, brought to the two confirmation modals the
+     Facilities consoles own: CONFIRM CRAFT (Refinery / Fabricator) and CONFIRM SALVAGE
+     (Salvage Bay). A BOTTOM SHEET on a phone, a CENTERED popup from 700px up, exactly the
+     breakpoint and geometry .ss-modal-backdrop / .ss-picker already use on Ships.
+
+     WHY A NEW VOCABULARY INSTEAD OF EDITING .modal-backdrop. .modal-backdrop is the shell
+     for THIRTEEN other modals, eleven of which live on tabs this release does not own
+     (System, Delete Save, Import Save, corrupt-save recovery, the offline summary, the
+     talent trees, captain rename, the mission and patrol captain pickers, the two hull
+     pickers, Combat View). Restyling it would push a phone-sheet layout onto every one of
+     them, which is precisely the app-wide restyle Unit 6.5's scope ruling puts out of this
+     release. New classes reskin exactly the two surfaces the release owns and leave the
+     other thirteen byte-identical. The app-wide convergence is logged in SUGGESTIONS.md.
+
+     WHY THE SHEET IS THE RIGHT SHAPE HERE, not just consistency for its own sake: both of
+     these modals are reached from a thumb (the configurator's Start button, a salvage tile),
+     and a centered dialog on a tall phone puts its Cancel / Confirm pair in the middle of the
+     screen, away from the thumb that opened it, on top of a page the player can no longer see.
+     Anchoring to the bottom edge puts the decision back under the hand that asked for it.
+
+     TOKENS ONLY, and no -rgb triplet tints (the locked 0.13.3 design-system decision): every
+     tint here is color-mix on a theme token, so it composites against whatever is behind it
+     in either theme. The dimmer itself is a flat rgba black, matching .ss-modal-backdrop
+     rather than inventing a second dimmer value; it is a neutral scrim, not a themed tint. */
+  .fsheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100; /* the same layer .modal-backdrop occupies, so stacking is unchanged */
+    display: flex;
+    align-items: flex-end; /* phone: the sheet is anchored to the bottom edge */
+    justify-content: center;
+    background: rgba(4, 6, 10, 0.66);
+  }
+  .fsheet {
+    width: 100%;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 14px; /* the confirm dialogs' Panel inset, so the moved content keeps its breathing room */
+    /* Clear the mobile browser's bottom chrome / gesture bar so the Confirm row is not tucked
+       behind it (the 0.13.2 QA fix); resolves to the plain padding on a desktop. */
+    padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
+    background: var(--color-bg-mid);
+    border: 1px solid var(--color-border-strong);
+    border-radius: 16px 16px 0 0; /* rounded top edge reads as a sheet lifting from the edge */
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
+    color: var(--color-text-primary);
+  }
+  /* From 700px the sheet becomes a centered popup, the 0.13.2 breakpoint. */
+  @media (min-width: 700px) {
+    .fsheet-backdrop {
+      align-items: center;
+      padding: 24px;
+    }
+    .fsheet {
+      max-width: 460px;
+      max-height: 85vh;
+      border-radius: 14px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+    }
+  }
+  /* Sticky header so the title and the ✕ stay reachable while a long body scrolls (the
+     salvage confirm can carry three stacked paragraphs on a hull teardown). The negative
+     offsets cancel the panel's own 14px top padding so it pins flush to the panel top,
+     the same trick .ss-picker-head uses. */
+  .fsheet-head {
+    position: sticky;
+    top: -14px;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 0 9px;
+    margin: -14px 0 9px;
+    background: var(--color-bg-mid);
+    border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+    font-family: var(--font-display);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+  .fsheet-close {
+    margin-left: auto;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+    border-radius: 7px;
+    color: var(--color-text-secondary);
+  }
+  .fsheet-close:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent);
+  }
+  .fsheet-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   /* Readonly backup textarea for the corrupt-save recovery modal (P4). Mirrors
      .modal-input's themed surface, but as a multi-row, monospace, wrapping box
      the player can select/copy from. overflow-wrap:anywhere keeps the long
@@ -15385,5 +15668,26 @@
        Its base box-shadow still paints a static amber dot + glow, so the signal stays
        visible on the card, just still. */
     .roster-card-attention-dot { animation: none; }
+
+    /* 0.13.3 Unit 6.5: PROGRESS BARS. Every in-flight bar this release added (the salvage
+       job's countdown in the Salvage Bay, the crafting-level XP bar, and the per-line bars
+       on the queue-capable consoles) renders through these two shared fills, which animate
+       their WIDTH on every tick. For a player who has asked their OS for reduced motion,
+       that is a small element sliding on a timer several times a minute on whichever console
+       they happen to be reading, which is exactly the class of motion the setting is for.
+       Dropping the transition makes the fill JUMP to its new width instead: the bar still
+       fills, still reports the same progress, and loses only the slide.
+
+       WHY THIS IS ALLOWED TO REACH BARS OUTSIDE FACILITIES, when Unit 6.5's scope ruling puts
+       app-wide restyles out of this release. The two rules are about different things. A tint
+       or glyph conversion changes what EVERY player sees, which is why those are deferred to
+       one deliberate app-wide pass. This rule is inert for every player who has not asked for
+       reduced motion, and for those who have, the shipped Home and Ships bars are currently
+       animating against a stated preference: a bug, not a style. Fixing it on the two shared
+       fills is also the only honest way to fix it at all, since the release's own new bars
+       ARE these classes; scoping it to Facilities would mean forking the fill into a second
+       class whose only difference is respecting an accessibility setting. */
+    .research-bar-fill,
+    .tick-bar-fill { transition: none; }
   }
 </style>
