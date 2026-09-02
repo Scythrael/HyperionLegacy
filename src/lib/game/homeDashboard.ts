@@ -163,6 +163,18 @@ export interface Prompt {
   // other prompt (they route by jumpTarget alone). See buildNeedsOrders + App's
   // jumpToFacilityUpgrade. Only meaningful alongside jumpTarget "facilities".
   facilityKey?: string;
+  // EVERY FACILITIES key this prompt is about (0.13.3 Unit 4.6b). WHY this exists alongside
+  // facilityKey: the two answer DIFFERENT questions. facilityKey answers "where does the Go
+  // button land", which is only meaningful when there is exactly ONE destination, so the
+  // aggregate "N facility upgrades ready" prompt leaves it unset. facilityKeys answers
+  // "which facilities is this prompt speaking about", which the AGGREGATE case can still
+  // answer honestly: it knows the full list, it simply has no single place to jump to. The
+  // per-card attention dots on the Facilities dashboard need that list (a dot is per-card,
+  // not per-destination), and deriving it here rather than re-scanning canBuildFacilityUpgrade
+  // in the view is what guarantees a card dot can never disagree with the nav dot or the Home
+  // prompt: all three read this one model. In the single case facilityKeys is [facilityKey],
+  // so the two never contradict each other. Absent/undefined for every non-facility prompt.
+  facilityKeys?: string[];
 }
 
 // One NOT-YET-UNLOCKED slot (dimmed chip, bottom). STUB in Unit 1 (Unit 3 fills it).
@@ -748,14 +760,19 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // player's scale (each facility routes to the same Facilities overview anyway). Up to
   // FACILITIES.length gate calls per tick, each cheap (structural checks + a tiny materials
   // loop), well within the once-per-tick budget (design Section 10).
-  let upgradesReady = 0;
-  let soleUpgradeKey: string | null = null; // the ONLY startable facility (meaningful iff upgradesReady === 1)
+  // 0.13.3 Unit 4.6b: this collects the startable facility KEYS rather than a count plus a
+  // "last one seen" key. Same gate, same iteration order, same numbers (upgradesReady is now
+  // upgradeKeys.length and soleUpgradeKey is upgradeKeys[0]); the list is what the new
+  // facilityKeys field needs, and keeping ONE accumulator instead of three removes the
+  // chance of a count and a key drifting apart.
+  const upgradeKeys: string[] = [];
   for (const facilityKey of Object.keys(FACILITIES)) {
     if (canBuildFacilityUpgrade(state, facilityKey).ok) {
-      upgradesReady += 1;
-      soleUpgradeKey = facilityKey;
+      upgradeKeys.push(facilityKey);
     }
   }
+  const upgradesReady = upgradeKeys.length;
+  const soleUpgradeKey: string | null = upgradesReady === 1 ? upgradeKeys[0] : null;
   if (upgradesReady > 0) {
     // With EXACTLY ONE upgrade available we already know WHICH facility it is, so naming it
     // and deep-linking straight to that facility (App's jumpToFacilityUpgrade maps the key to
@@ -774,6 +791,10 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
       // Carry the facility key ONLY in the single case, so the UI deep-links to it; the
       // aggregate case leaves it unset and falls back to the overview via jumpTarget.
       ...(single ? { facilityKey: soleUpgradeKey! } : {}),
+      // 0.13.3 Unit 4.6b: the FULL list, in BOTH cases. Unlike facilityKey this is not about
+      // where to jump, it is about which facilities the prompt names, so the Facilities
+      // dashboard can dot exactly those cards (see the Prompt.facilityKeys comment).
+      facilityKeys: upgradeKeys,
     });
   }
 

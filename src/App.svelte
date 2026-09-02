@@ -2655,6 +2655,110 @@
     return tabs;
   }
 
+  // --- CASCADING ATTENTION, step 2: the Facilities dashboard CARDS (0.13.3 Unit 4.6b) -----
+  //
+  // The standing rule (SUGGESTIONS.md, "CASCADING ATTENTION DOTS") is that attention runs
+  // from the bottom-nav TAB down to the SPECIFIC sub-item carrying the actionable thing, one
+  // tab at a time as that tab gets its patch. 0.13.3 owns Facilities, so the facility cards
+  // get their dots here. The nav dot said "something in Facilities needs you"; these say
+  // WHICH building.
+  //
+  // THE LOAD-BEARING RULE: this reads the SAME dashboardModel.needsOrders the nav dot and the
+  // Home prompts read, never a second "is this facility idle" derivation off GameState. That
+  // is what makes a card dot structurally incapable of disagreeing with the nav dot above it.
+  // It also inherits Unit 4.6's queue suppression for free: a bay whose free slots are already
+  // covered by queued orders produces no prompt, so it produces no card dot.
+  //
+  // TWO ways a prompt names a facility, and we honor both:
+  //   1. Its jumpTarget already IS one facility's console (idle refinery / fabricator /
+  //      research / shipyard). facilityCardForJumpTarget maps that to the card.
+  //   2. The facility-UPGRADE prompt routes to the Facilities OVERVIEW ("facilities"), which
+  //      names no single card. It carries facilityKeys (Unit 4.6b's model addition): every
+  //      facility whose next upgrade is startable. facilityCardForFacilityKey maps each of
+  //      those registry keys to the card that owns it.
+
+  // A prompt destination -> the Facilities dashboard card that destination IS, or null when
+  // the destination is not a single card (the Facilities overview itself, or another tab
+  // entirely). Same exhaustiveness guard as tabForJumpTarget, so a new JumpTarget is a
+  // COMPILE error here until someone decides which card (if any) it dots.
+  function facilityCardForJumpTarget(target: JumpTarget): FoundryFacilityKey | null {
+    switch (target) {
+      case "refinery":
+        return "refinery";
+      case "fabricator":
+        return "fabricator";
+      case "research":
+        return "research";
+      case "shipyard":
+        return "shipyard";
+      // The Fuel Depot's card key is "fuelStorage" (the engine's facility id); the jump
+      // literal is "fuelDepot" (the player-facing name). This is the ONE place they meet.
+      case "fuelDepot":
+        return "fuelStorage";
+      case "salvageBay":
+        return "salvageBay";
+      // Not a single card: the Facilities OVERVIEW spans several facilities (its prompt is
+      // handled through facilityKeys instead), and the two mission arms are a different tab.
+      case "facilities":
+      case "gathering":
+      case "combat":
+        return null;
+      default: {
+        const _exhaustive: never = target;
+        void _exhaustive;
+        return null;
+      }
+    }
+  }
+
+  // A FACILITIES registry key (what facilityKeys carries) -> the dashboard card that manages
+  // it, or null when no Facilities card does. Mirrors the mapping jumpToFacilityUpgrade
+  // already encodes, minus the navigation side effects: the mapping is NOT 1:1 (both Warehouse
+  // tiers share the one Warehouse card, and Mission Control's upgrade lives under Operations,
+  // so it dots no facility card, its nav dot is the Facilities tab's business, not a card's).
+  // An UNMAPPED key returns null, the same fail-safe jumpToFacilityUpgrade uses: a future
+  // facility simply misses its dot until it is added here, it never dots the wrong card.
+  function facilityCardForFacilityKey(facilityKey: string): FoundryFacilityKey | null {
+    switch (facilityKey) {
+      case "refinery":
+        return "refinery";
+      case "fabricator":
+        return "fabricator";
+      case "research":
+        return "research";
+      case "fuelStorage":
+        return "fuelStorage";
+      case "shipyard":
+        return "shipyard";
+      case "warehouseT1":
+      case "warehouseT2":
+        return "warehouse";
+      // missionControl is a FACILITIES entry with no Facilities card (its upgrade lives in
+      // Operations), so it contributes no card dot.
+      default:
+        return null;
+    }
+  }
+
+  // Fold the prompts into the set of facility cards to dot. PURE (reads its one arg, allocates
+  // a fresh Set, mutates nothing) and CHEAP: it only re-reads an already-built model, it does
+  // not re-scan GameState, so the per-card dots cost one pass over a handful of prompts.
+  function deriveFacilityAttention(model: HomeDashboardModel): Set<FoundryFacilityKey> {
+    const cards = new Set<FoundryFacilityKey>();
+    for (const prompt of model.needsOrders) {
+      // (1) the prompt's own destination, when that destination is a single card.
+      const destinationCard = facilityCardForJumpTarget(prompt.jumpTarget);
+      if (destinationCard !== null) cards.add(destinationCard);
+      // (2) every facility the prompt NAMES (the upgrade prompt's facilityKeys). Absent on
+      //     every other prompt, so the ?? [] loop is a no-op for them.
+      for (const facilityKey of prompt.facilityKeys ?? []) {
+        const upgradeCard = facilityCardForFacilityKey(facilityKey);
+        if (upgradeCard !== null) cards.add(upgradeCard);
+      }
+    }
+    return cards;
+  }
+
   // Home dashboard (0.13.1, Unit 5): map the pure model's flat icon HINT strings to a
   // display glyph. buildHomeDashboard emits an icon as a semantic hint ("refine",
   // "patrol", "research", ...) rather than a UI asset, so the glyph choice stays a pure
@@ -5345,6 +5449,12 @@
   // is a plain function so the logic reads top-to-bottom; the $: line lists dashboardModel +
   // state as its reactive dependencies so the set refreshes as either changes.
   $: navAttention = deriveNavAttention(dashboardModel, state);
+  // Facility-card attention dots (0.13.3 Unit 4.6b): the cascade's next step down, the set of
+  // Facilities dashboard cards to dot. Deliberately derived from the SAME dashboardModel the
+  // line above uses (and nothing else), so a card dot and the Facilities nav dot can never
+  // disagree: every card in this set contributes "facilities" to navAttention by construction.
+  // See deriveFacilityAttention for the two prompt-to-card paths and why it re-derives nothing.
+  $: facilityAttention = deriveFacilityAttention(dashboardModel);
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -6488,8 +6598,21 @@
             >
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">⚗️</div>
+                <!-- Attention dot (0.13.3 Unit 4.6b), the same markup on all eight cards:
+                     a shrink-to-fit wrap around the NAME so the dot anchors to the name's
+                     top-right, the aria-hidden dot itself, and a visually-hidden
+                     "(needs attention)" that EXTENDS the card's accessible name (an
+                     aria-label would have replaced the level + live status line instead).
+                     facilityAttention comes from the one dashboardModel, so this dot agrees
+                     with the Facilities nav dot and the Home prompt by construction. -->
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.refinery}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.refinery}</div>
+                    {#if facilityAttention.has("refinery")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {refineryLevel}</div>
                 </div>
               </div>
@@ -6522,7 +6645,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">🔧</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.fabricator}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.fabricator}</div>
+                    {#if facilityAttention.has("fabricator")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {fabricatorLevel}</div>
                 </div>
               </div>
@@ -6553,7 +6682,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">🔬</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.research}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.research}</div>
+                    {#if facilityAttention.has("research")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {researchLevel}</div>
                 </div>
               </div>
@@ -6583,7 +6718,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">⛽</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.fuelStorage}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.fuelStorage}</div>
+                    {#if facilityAttention.has("fuelStorage")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {fuelStorageLevel}</div>
                 </div>
               </div>
@@ -6614,7 +6755,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">📦</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.warehouse}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.warehouse}</div>
+                    {#if facilityAttention.has("warehouse")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {warehouseT1Level}</div>
                 </div>
               </div>
@@ -6643,7 +6790,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">♻️</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.salvageBay}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.salvageBay}</div>
+                    {#if facilityAttention.has("salvageBay")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Recycling bay</div>
                 </div>
               </div>
@@ -6674,7 +6827,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">🛠️</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.shipyard}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.shipyard}</div>
+                    {#if facilityAttention.has("shipyard")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Level {shipyardLevel}</div>
                 </div>
               </div>
@@ -6705,7 +6864,13 @@
               <div class="roster-card-head">
                 <div class="roster-card-glyph" aria-hidden="true">🚉</div>
                 <div class="roster-card-heading">
-                  <div class="research-name">{FACILITY_LABELS.docks}</div>
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.docks}</div>
+                    {#if facilityAttention.has("docks")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
                   <div class="roster-card-sub">Ship storage</div>
                 </div>
               </div>
@@ -13505,6 +13670,58 @@
   .roster-card-lines { display: flex; flex-direction: column; gap: 4px; }
   .roster-card-line { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
 
+  /* Facility-card attention dot (0.13.3 Unit 4.6b), the cascade's step DOWN from the
+     bottom-nav dot: the nav dot says "something in Facilities needs you", this says which
+     building. The treatment is deliberately IDENTICAL to .nav-attention-dot (amber
+     --color-warning fill, the 2px ring in the surface color that lifts it off whatever it
+     sits beside, the same color-mix glow, and the SAME nav-attention-pulse keyframes reused
+     by name, killed under prefers-reduced-motion at the end of this block) so the two read
+     as one "needs you" language instead of two similar-looking signals.
+
+     PLACEMENT: anchored to the top-right of the facility NAME, not the card's corner, so the
+     dot points at the building it is about. .roster-card-name-wrap is a shrink-to-fit box
+     around the name: align-self:flex-start is what makes it hug the text rather than stretch
+     to the column-flex heading's full width, which is what lets `right` measure from the
+     NAME's right edge. TO MOVE THE DOT, change ONLY the two offsets below: `top` is the y
+     offset (more negative = higher) and `right` the x offset (more negative = further right
+     of the name). Both stay inside the card's 12px padding, so nothing can overflow the card
+     or force horizontal scroll at 320px. */
+  .roster-card-name-wrap {
+    position: relative;
+    align-self: flex-start;
+    max-width: 100%;
+  }
+  .roster-card-attention-dot {
+    position: absolute;
+    top: -1px;    /* y offset from the name's top edge */
+    right: -10px; /* x offset from the name's right edge */
+    width: 7px;
+    height: 7px;
+    border-radius: 99px;
+    background: var(--color-warning);
+    box-shadow:
+      0 0 0 2px var(--color-panel-bg-strong),
+      0 0 5px 1px color-mix(in srgb, var(--color-warning) 55%, transparent);
+    animation: nav-attention-pulse 2.4s ease-out infinite;
+  }
+
+  /* Visually-hidden text: out of the visual layout, still read by assistive tech (standard
+     clip-rect idiom). Used to EXTEND a control's accessible name rather than replace it: the
+     facility cards append "(needs attention)" after the building name this way, because an
+     aria-label on the card button would have clobbered the level + live status line that
+     currently make up the rest of its accessible name. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
   /* ── Ships-tab roster (0.13.2 Unit 3) ──────────────────────────────────────
      A compact sortable/favoritable LIST (not the old card grid). All rows + controls
      use the game's full-surface accent tint (a flat accent-over-panel wash), never a
@@ -14530,5 +14747,9 @@
     /* Unit 6: no pulsing nav dot for reduced-motion users. The base box-shadow above
        still paints a static amber dot + glow, so the signal stays visible, just still. */
     .nav-attention-dot { animation: none; }
+    /* Unit 4.6b: same rule for the facility-card dot, which shares the nav dot's keyframes.
+       Its base box-shadow still paints a static amber dot + glow, so the signal stays
+       visible on the card, just still. */
+    .roster-card-attention-dot { animation: none; }
   }
 </style>

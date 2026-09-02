@@ -20,6 +20,9 @@ import {
   freshState,
   freshCaptainStack,
   BLUEPRINTS,
+  // 0.13.3 Unit 4.6b: the facility registry, so the facilityKeys cases can assert every key
+  // the upgrade prompt emits is a REAL facility (not a name the view's card map could not resolve).
+  FACILITIES,
   SHIP_TYPES,
   type GameState,
   type CaptainState,
@@ -899,5 +902,65 @@ describe("buildHomeDashboard: an in-flight salvage row (Unit 4.6)", () => {
     // the job ran); completion treats it as a fail-safe no-op, so the row must stay legible.
     const stale = { ...salvagingState(), equipment: [] };
     expect(rowById(buildHomeDashboard(stale).inProgress, "p-salvage").primaryLabel).toBe("Salvaging, eq-1");
+  });
+});
+
+// ============================================================================
+// FACILITY KEYS ON THE UPGRADE PROMPT (Crafting 0.13.3, Unit 4.6b)
+//
+// Unit 4.6b adds per-CARD attention dots to the Facilities dashboard, and the hard
+// requirement is that a card dot reads the SAME post-suppression signal the bottom-nav
+// dot and the Home prompts read, never a second "is this facility actionable" scan of
+// GameState. Every prompt except the facility-upgrade one already names its facility
+// through its jumpTarget; the upgrade prompt routes to the Facilities OVERVIEW, which
+// names no single card, so Prompt gained facilityKeys: every facility whose next upgrade
+// is startable right now.
+//
+// These cases lock that field's CONTRACT (the App-side map from a key to a card is the
+// view's business): present on the upgrade prompt in BOTH the single and aggregate cases,
+// consistent with the existing facilityKey and with the label's count, holding only real
+// FACILITIES keys, and absent from every other prompt.
+// ============================================================================
+describe("buildHomeDashboard: facilityKeys on the upgrade prompt (Unit 4.6b)", () => {
+  it("carries the one startable facility in the SINGLE case, agreeing with facilityKey", () => {
+    // Same fixture as the single-upgrade case above (credits 2000 + FA level 3 clears ONLY
+    // the Shipyard founding rung). facilityKeys must be that one key, and must not contradict
+    // facilityKey, which is the deep-link destination for the very same facility.
+    const oneReady = { ...freshState(), credits: new Decimal(2000), fleetAdminLevel: 3 };
+    const upgrade = promptById(buildHomeDashboard(oneReady), "idle-facility-upgrade");
+    expect(upgrade).toBeDefined();
+    expect(upgrade!.facilityKeys).toEqual(["shipyard"]);
+    expect(upgrade!.facilityKey).toBe("shipyard");
+  });
+
+  it("carries EVERY startable facility in the aggregate case, where facilityKey is unset", () => {
+    // Ample credits + FA level 3 makes several facilities startable at once. This is the case
+    // the card dots could not express before: the prompt has no single jump destination, but
+    // it still KNOWS which facilities it is talking about, so several cards must be able to
+    // light off one prompt. The count must match the label's leading number (same source), and
+    // every entry must be a real FACILITIES key so the view's key-to-card map can never be
+    // handed a name the registry does not have.
+    const manyReady = { ...freshState(), credits: new Decimal(1e12), fleetAdminLevel: 3 };
+    const upgrade = promptById(buildHomeDashboard(manyReady), "idle-facility-upgrade");
+    expect(upgrade).toBeDefined();
+    expect(upgrade!.facilityKey).toBeUndefined(); // no single destination, unchanged from Unit 2
+    const keys = upgrade!.facilityKeys ?? [];
+    expect(keys.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(keys).size).toBe(keys.length); // no duplicates: one entry per facility
+    for (const key of keys) expect(Object.keys(FACILITIES)).toContain(key);
+    // The list and the aggregate label count are the SAME number, by construction.
+    const match = upgrade!.label.match(/^(\d+) facility upgrades ready$/);
+    expect(match).not.toBeNull();
+    expect(Number(match![1])).toBe(keys.length);
+  });
+
+  it("leaves facilityKeys unset on every NON-facility prompt", () => {
+    // The field is only meaningful for the upgrade prompt. A fresh admiral's board carries the
+    // captain-dispatch prompt (and no upgrade prompt at all), so nothing on it may carry keys:
+    // this is what stops the view from dotting a facility card off an unrelated prompt.
+    const model = buildHomeDashboard(freshState());
+    expect(promptById(model, "idle-facility-upgrade")).toBeUndefined();
+    expect(model.needsOrders.length).toBeGreaterThan(0);
+    for (const prompt of model.needsOrders) expect(prompt.facilityKeys).toBeUndefined();
   });
 });
