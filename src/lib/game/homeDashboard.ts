@@ -28,6 +28,9 @@
 import {
   type GameState,
   type TimedProcess,
+  type TimedProcessKind,
+  type CompletionLogEntry,
+  type ItemRarity,
   type CaptainState,
   type PatrolMissionState,
   type PatrolPhase,
@@ -151,11 +154,49 @@ export interface LockedSlot {
   note: string | null; // optional "Coming soon" / unlock-hint sub-line
 }
 
+// ---------------------------------------------------------------------------
+// RECENTLY COMPLETED (Crafting 0.13.3, Unit 4.4b)
+//
+// The companion to IN PROGRESS: "what is running" above, "what just finished" below.
+// Reads GameState.completionLog, the ring buffer resolveProcesses writes (see
+// CompletionLogEntry in model.ts). It re-renders the STORED record; it never re-derives
+// what happened, because the only place that knows is the tick.
+// ---------------------------------------------------------------------------
+
+// One reward line, resolved from a stored item ID to everything the UI needs EXCEPT the
+// color itself: the row carries the `rarity`, and the UI applies warehouseRarityColor to
+// it, exactly as the Warehouse and the drop tables do. `amount` stays the raw Decimal
+// STRING off the record so the UI runs it through the app's own formatNumber rather than
+// this module inventing a second number format.
+export interface CompletionRewardChip {
+  itemId: string;
+  label: string;
+  rarity: ItemRarity;
+  amount: string;
+}
+
+// One "Recently completed" row. Timestamps stay RAW (millisecond stamps, not formatted
+// clock strings) for the same reason ActivityRow keeps raw ticks: formatting is a view
+// concern and this module is pure. `atMs === 0` means the record was written with no
+// injected clock (see UNKNOWN_COMPLETION_TIME_MS), which the UI renders as an unknown time
+// rather than as a 1970 date.
+export interface CompletionRow {
+  id: string;
+  icon: string;
+  primaryLabel: string;          // "Refined, Titanium Ingot"
+  secondaryLabel: string | null; // the run detail, e.g. "40 runs" or "Level 3"
+  atMs: number;                  // when the order completed; 0 = unknown clock
+  elapsedMs: number | null;      // how long the run took; null when either stamp is unknown
+  rewards: CompletionRewardChip[]; // item rewards, ids resolved to label + rarity + amount
+  jumpTarget: JumpTarget | null; // where a tap routes; null = a plain, non-navigable row
+}
+
 // The ONE view model the Home screen renders from (design Section 5). `allCaughtUp`
 // true => the UI shows the "All caught up, Admiral" banner instead of prompts.
 export interface HomeDashboardModel {
   needsOrders: Prompt[];   // actionable idle only (Unit 2)
   inProgress: ActivityRow[]; // every running job + mission (Unit 1, this file)
+  recentlyCompleted: CompletionRow[]; // finished orders, newest first (0.13.3 Unit 4.4b)
   locked: LockedSlot[];    // not-yet-unlocked features (Unit 3)
   allCaughtUp: boolean;    // true => show the caught-up banner (Unit 2)
 }
@@ -667,6 +708,129 @@ function buildLocked(state: GameState): LockedSlot[] {
 }
 
 // ---------------------------------------------------------------------------
+// RECENTLY COMPLETED: turning stored records back into rows (0.13.3 Unit 4.4b)
+// ---------------------------------------------------------------------------
+
+// How many finished orders the Home board shows. The SAVE keeps up to
+// COMPLETION_LOG_CAP (50) of them; this is just the first cut's display window, kept short
+// so "what just finished" stays scannable next to IN PROGRESS. The richer, filterable
+// completions interface the user asked for later reads the SAME records, deeper.
+export const HOME_RECENT_COMPLETIONS_LIMIT = 8;
+
+// How one completed KIND reads on the board.
+//
+// ⚠️ EXHAUSTIVE Record over TimedProcessKind, the same guard PROCESS_XP_AWARDS and
+// PROCESS_COMPLETION_LOG use: a new kind cannot ship without someone writing the sentence
+// the player will read. Deliberately NOT a switch with a default, unlike labelForProcess
+// above (whose defensive default predates this discipline): a silent generic row is
+// exactly the "silent completion" this feature exists to end.
+const COMPLETION_KIND_VIEW: Record<TimedProcessKind, { verb: string; icon: string; jumpTarget: JumpTarget | null }> = {
+  refineJob:               { verb: "Refined",     icon: "refine",     jumpTarget: "refinery" },
+  fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  jumpTarget: "fabricator" },
+  researchProject:         { verb: "Researched",  icon: "research",   jumpTarget: "research" },
+  shipBuild:               { verb: "Built",       icon: "shipBuild",  jumpTarget: "shipyard" },
+  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       jumpTarget: "fuelDepot" },
+  facilityUpgrade:         { verb: "Upgraded",    icon: "facility",   jumpTarget: "facilities" },
+  // No Section-8 destination for either storage track (Stores is not a jump target), so
+  // these render as plain, non-navigable rows rather than routing somewhere invented.
+  equipmentStorageUpgrade: { verb: "Expanded",    icon: "storage",    jumpTarget: null },
+  docksExpansion:          { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
+  shipRepair:              { verb: "Repaired",    icon: "repair",     jumpTarget: "shipyard" },
+  salvageJob:              { verb: "Salvaged",    icon: "salvage",    jumpTarget: null },
+};
+
+// Resolve a record's `subjectKey` (a raw id, never a rendered string) to a display name.
+// The lookup depends on the reward SHAPE, because the same field holds a blueprint key, a
+// hull type key, a facility key, an item id or a ship id depending on what completed. An
+// unknown key falls back to the key itself rather than rendering "undefined".
+function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): string | null {
+  const key = entry.subjectKey;
+  if (key === null) return null;
+  switch (entry.reward) {
+    case "blueprint":
+    case "systems":
+      return BLUEPRINTS[key]?.label ?? key;
+    case "hull":
+      // SHIP_TYPES is keyed by the narrow ShipTypeKey union while the record stores a plain
+      // string (the shape rule: ids only, forward-loose). The cast is the same widening
+      // labelForProcess makes above, and the `?? key` fallback keeps an unknown hull honest.
+      return SHIP_TYPES[key as keyof typeof SHIP_TYPES]?.label ?? key;
+    case "level":
+      // The two standalone storage tracks are not FACILITIES entries, so they are named
+      // here; every other key is a real facility.
+      if (key === "equipmentStorage") return "Ship Systems storage";
+      if (key === "docks") return "Docks";
+      return FACILITIES[key]?.label ?? key;
+    case "repair": {
+      const ship = state.ships.find((s) => s.id === key) ?? null;
+      return ship !== null ? shipDisplayName(ship) : key;
+    }
+    case "materials":
+    case "nothing": {
+      // A refine / material-fabricate subject is an item id. A salvage subject is the
+      // TARGET's id, which for the material arm is also an item id and for the equipment /
+      // ship arms is an instance id with no stable label left to look up (the thing was
+      // consumed), so the honest answer there is no subject name at all.
+      const item = ITEMS[key];
+      if (item !== undefined) return item.label;
+      return entry.kind === "salvageJob" ? null : key;
+    }
+    case "fuel":
+      return null; // fuel has one name and the verb already carries it
+  }
+}
+
+// The dim second line: the run detail that makes the summary honest at a glance. A batch
+// says how many runs folded in; an upgrade says the level reached; a stale salvage says
+// nothing was consumed. Null when there is nothing worth adding.
+function completionDetail(entry: CompletionLogEntry): string | null {
+  if (entry.stale) return "Nothing was consumed";
+  if (entry.reward === "level" && entry.level !== null) {
+    // The docks store a capacity rather than a level, so it reports berths.
+    return entry.subjectKey === "docks" ? `${entry.level} berths` : `Level ${entry.level}`;
+  }
+  if (entry.iterations > 1) return `${entry.iterations} runs`;
+  return null;
+}
+
+// Build one row from one stored record. PURE: static registry lookups plus the ship roster,
+// no state mutation, no formatting of clocks or numbers (both stay the UI's job).
+function rowForCompletion(entry: CompletionLogEntry, state: GameState): CompletionRow {
+  const view = COMPLETION_KIND_VIEW[entry.kind];
+  const subject = completionSubjectLabel(entry, state);
+  // "Refined, Titanium Ingot" mirrors IN PROGRESS's own "Refining, Titanium Ingot" comma
+  // phrasing, so the two sections read as one board rather than two conventions.
+  const primaryLabel = subject !== null ? `${view.verb}, ${subject}` : view.verb;
+  return {
+    id: entry.id,
+    icon: view.icon,
+    primaryLabel,
+    secondaryLabel: completionDetail(entry),
+    atMs: entry.atMs,
+    // Only honest when BOTH stamps are real; a record written without an injected clock
+    // reports no duration rather than a fabricated zero.
+    elapsedMs: entry.atMs > 0 && entry.startedAtMs > 0 ? Math.max(0, entry.atMs - entry.startedAtMs) : null,
+    rewards: entry.items.map((r) => ({
+      itemId: r.itemId,
+      label: ITEMS[r.itemId]?.label ?? r.itemId,
+      // Carried, not resolved to a color: the UI owns warehouseRarityColor.
+      rarity: ITEMS[r.itemId]?.rarity ?? "common",
+      amount: r.amount,
+    })),
+    jumpTarget: view.jumpTarget,
+  };
+}
+
+// The NEWEST-FIRST display window over the stored ring buffer. The record array is
+// chronological (oldest at index 0, the eviction end), so "newest first" is the tail
+// reversed. Never mutates the stored array.
+function buildRecentlyCompleted(state: GameState): CompletionRow[] {
+  const log = state.completionLog ?? [];
+  const window = log.slice(Math.max(0, log.length - HOME_RECENT_COMPLETIONS_LIMIT));
+  return window.reverse().map((entry) => rowForCompletion(entry, state));
+}
+
+// ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
 
@@ -719,9 +883,15 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   // coming" affordance, not an action, so it never affects allCaughtUp.
   const locked = buildLocked(state);
 
+  // Unit 4.4b: the finished-orders companion to inProgress, newest first. Independent of
+  // every other section: a completed order is a RECORD, not an action, so it never affects
+  // allCaughtUp (a caught-up fleet with a full history is still caught up).
+  const recentlyCompleted = buildRecentlyCompleted(state);
+
   return {
     needsOrders,
     inProgress,
+    recentlyCompleted,
     locked,
     allCaughtUp: needsOrders.length === 0,
   };

@@ -27,8 +27,13 @@ import {
   type CaptainMissionState,
   type PatrolMissionState,
   type LootMaterialKey,
+  // 0.13.3 Unit 4.4b: the stored completed-events record the RECENTLY COMPLETED cases at
+  // the bottom of this file build fixtures from, plus the item registry those records are
+  // resolved against (ids in, labels + rarities out).
+  ITEMS,
+  type CompletionLogEntry,
 } from "./model";
-import { buildHomeDashboard, type ActivityRow } from "./homeDashboard";
+import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } from "./homeDashboard";
 
 // One TimedProcess of every kind, each with a valid effect whose noun resolves against
 // the real launch tables (so the label assertions below track any content rename). The
@@ -542,5 +547,135 @@ describe("buildHomeDashboard, locked slots (Unit 3)", () => {
     );
     // Every reserved feature sits ahead of the first facility chip.
     expect(lastReservedIndex).toBeLessThan(firstFacilityIndex);
+  });
+});
+
+// ============================================================================
+// RECENTLY COMPLETED (Crafting 0.13.3, Unit 4.4b)
+//
+// The companion section to IN PROGRESS. These cases lock the VIEW half: the stored
+// records carry ids and amounts only, so the model must resolve them to labels,
+// rarities and run details without inventing anything, and must present them newest
+// first inside the board's display window.
+// ============================================================================
+
+// One stored record, with sane defaults so a case only states the fields it is about.
+function completionRecord(over: Partial<CompletionLogEntry> = {}): CompletionLogEntry {
+  return {
+    id: "done-1",
+    kind: "refineJob",
+    reward: "materials",
+    atMs: 1_700_000_000_000,
+    startedAtMs: 1_700_000_000_000 - 12_000,
+    iterations: 1,
+    items: [],
+    pieces: 0,
+    subjectKey: null,
+    level: null,
+    fuelAmount: null,
+    creditsAmount: null,
+    stale: false,
+    ...over,
+  };
+}
+
+function withLog(entries: CompletionLogEntry[]): GameState {
+  return { ...freshState(), completionLog: entries };
+}
+
+describe("buildHomeDashboard: RECENTLY COMPLETED", () => {
+  it("is empty on a save that has completed nothing", () => {
+    expect(buildHomeDashboard(freshState()).recentlyCompleted).toEqual([]);
+  });
+
+  it("orders NEWEST FIRST, because the stored array is chronological", () => {
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({ id: "done-1" }),
+        completionRecord({ id: "done-2" }),
+        completionRecord({ id: "done-3" }),
+      ])
+    );
+    expect(model.recentlyCompleted.map((r) => r.id)).toEqual(["done-3", "done-2", "done-1"]);
+  });
+
+  it("caps the board at its display window while the save keeps the full ring buffer", () => {
+    const many = Array.from({ length: HOME_RECENT_COMPLETIONS_LIMIT + 5 }, (_, i) =>
+      completionRecord({ id: `done-${i + 1}` })
+    );
+    const model = buildHomeDashboard(withLog(many));
+    expect(model.recentlyCompleted).toHaveLength(HOME_RECENT_COMPLETIONS_LIMIT);
+    // The window is the NEWEST end, so the very last stored record leads the list.
+    expect(model.recentlyCompleted[0].id).toBe(`done-${many.length}`);
+  });
+
+  it("resolves reward item IDS to a label and a RARITY, leaving the color to the UI", () => {
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ items: [{ itemId: "titaniumIngot", amount: "40" }], subjectKey: "titaniumIngot" })])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.rewards).toEqual([
+      {
+        itemId: "titaniumIngot",
+        label: ITEMS.titaniumIngot.label,
+        rarity: ITEMS.titaniumIngot.rarity,
+        // The RAW amount rides through: the UI runs it through the app's formatNumber, so
+        // this module never invents a second number format.
+        amount: "40",
+      },
+    ]);
+    expect(row.primaryLabel).toBe(`Refined, ${ITEMS.titaniumIngot.label}`);
+  });
+
+  it("reads a folded batch as ONE row that says how many runs it was", () => {
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ iterations: 40, items: [{ itemId: "titaniumIngot", amount: "40" }] })])
+    );
+    expect(model.recentlyCompleted).toHaveLength(1);
+    expect(model.recentlyCompleted[0].secondaryLabel).toBe("40 runs");
+  });
+
+  it("gives each reward SHAPE its own honest reading", () => {
+    const hullKey = Object.keys(SHIP_TYPES)[0];
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({ id: "d-research", kind: "researchProject", reward: "blueprint", subjectKey: "frameSegmentBp" }),
+        completionRecord({ id: "d-build", kind: "shipBuild", reward: "hull", subjectKey: hullKey }),
+        completionRecord({ id: "d-upgrade", kind: "facilityUpgrade", reward: "level", subjectKey: "refinery", level: 3 }),
+        completionRecord({ id: "d-docks", kind: "docksExpansion", reward: "level", subjectKey: "docks", level: 9 }),
+        completionRecord({ id: "d-fuel", kind: "fuelRefineJob", reward: "fuel", fuelAmount: "25" }),
+        completionRecord({ id: "d-stale", kind: "salvageJob", reward: "nothing", subjectKey: "equip-9", stale: true }),
+      ])
+    );
+    const byId = new Map(model.recentlyCompleted.map((r) => [r.id, r]));
+    expect(byId.get("d-research")!.primaryLabel).toBe(`Researched, ${BLUEPRINTS.frameSegmentBp.label}`);
+    expect(byId.get("d-build")!.primaryLabel).toBe(`Built, ${SHIP_TYPES[hullKey as keyof typeof SHIP_TYPES].label}`);
+    // An upgrade grants a LEVEL, not items, and says so.
+    expect(byId.get("d-upgrade")!.secondaryLabel).toBe("Level 3");
+    // The docks store a capacity rather than a level, so they report berths.
+    expect(byId.get("d-docks")!.secondaryLabel).toBe("9 berths");
+    // Fuel has one name, so the verb carries it and no subject is invented.
+    expect(byId.get("d-fuel")!.primaryLabel).toBe("Refined");
+    // The fail-safe no-op reassures rather than going silent.
+    expect(byId.get("d-stale")!.secondaryLabel).toBe("Nothing was consumed");
+  });
+
+  it("reports an elapsed span only when BOTH stamps are real", () => {
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({ id: "d-timed", atMs: 5_000, startedAtMs: 2_000 }),
+        completionRecord({ id: "d-unknown", atMs: 0, startedAtMs: 0 }),
+      ])
+    );
+    const byId = new Map(model.recentlyCompleted.map((r) => [r.id, r]));
+    expect(byId.get("d-timed")!.elapsedMs).toBe(3_000);
+    // No injected clock means no fabricated duration.
+    expect(byId.get("d-unknown")!.elapsedMs).toBeNull();
+  });
+
+  it("never affects allCaughtUp: a finished order is a record, not an action", () => {
+    const busy = withLog([completionRecord()]);
+    expect(buildHomeDashboard(busy).recentlyCompleted).toHaveLength(1);
+    expect(buildHomeDashboard(busy).allCaughtUp).toBe(buildHomeDashboard(freshState()).allCaughtUp);
   });
 });

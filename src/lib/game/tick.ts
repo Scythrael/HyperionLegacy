@@ -146,6 +146,17 @@ import {
   // here) so it can be unit-tested with no GameState at all: it speaks in NUMBERS, and
   // this file does the one lookup that turns a target id into those numbers.
   salvageDurationTicks,
+  // Crafting 0.13.3 (Unit 4.4b): the COMPLETED-EVENTS LOG shapes. The entry the ring
+  // buffer holds, the per-item reward line, the cross-tick accumulator that makes one
+  // entry per ORDER possible, the reward-shape union, and the 50-entry cap. See the
+  // ⚠️ block on CompletionLogEntry in model.ts for the ids-not-strings and no-Decimal
+  // rules these shapes are bound by.
+  type CompletionLogEntry,
+  type CompletionRewardItem,
+  type CompletionRewardKind,
+  type OpenJobBatch,
+  type FacilityState,
+  COMPLETION_LOG_CAP,
 } from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
@@ -894,6 +905,380 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   // half here without first closing the loop above would reopen the faucet.
   salvageJob:              { fleetAdmin: false, crafting: false },
 };
+
+// ============================================================================
+// Crafting 0.13.3 (Unit 4.4b): THE COMPLETED-EVENTS LOG, engine half
+// SUGGESTIONS.md, "COMPLETED-EVENTS LOG" (user, 2026-09-02).
+//
+// Everything below is written FROM INSIDE resolveProcesses (design catch 3), the one
+// completion seam both the live loop and the offline catch-up call, so the two paths
+// cannot produce different logs. Two properties make that true rather than hopeful:
+//
+//   1. NO AMBIENT CLOCK. The timestamp arrives as an ARGUMENT (nowMs), threaded exactly
+//      the way the seeded rng is threaded. A Date.now() read inside the resolver would be
+//      non-deterministic, so an offline catch-up would stamp different times than live
+//      stepping and the deep-equal parity test would fail. Determinism holds because the
+//      clock is an INPUT, not an ambient read. See tick() for how the offline path
+//      reconstructs a per-tick schedule and what its accuracy limits are.
+//   2. NO RNG, NO NEW COMPLETION ORDER. The log observes what the resolver already did,
+//      in activeProcesses array order, and draws nothing. It cannot move the rng stream
+//      position, so it cannot perturb a single existing parity case.
+// ============================================================================
+
+// The sentinel stamp for "no clock was supplied". Deliberately 0 rather than a Date.now()
+// default: a default that reads the ambient clock would put non-determinism back inside
+// the tick, which is the exact thing design catch 2 forbids. 0 is also LOUD (the UI
+// renders it as an unknown time rather than as a plausible-looking 1970 date), so a
+// production call site that forgets to inject a clock is visible instead of silent.
+export const UNKNOWN_COMPLETION_TIME_MS = 0;
+
+// How ONE TimedProcessKind is recorded when it completes.
+//
+// ⚠️ EXHAUSTIVE ON PURPOSE, the same trick PROCESS_XP_AWARDS uses: a Record over the
+// whole TimedProcessKind union means adding a kind WITHOUT deciding how it is logged is a
+// COMPILE ERROR here, not a job that silently completes with no record. That guard is the
+// entire point, given the feature exists because ten kinds were completing silently.
+interface CompletionLogPolicy {
+  // Does a completion of this kind leave a record at all? Every kind is true today. The
+  // field exists so a future kind that genuinely should be silent has to say so out loud,
+  // with a reason, rather than being omitted by accident.
+  logged: boolean;
+  // Can this kind arrive as part of a multi-iteration ORDER (a CraftLine)? true means its
+  // iterations are FOLDED into one entry keyed by the owning line (design catch 1: the
+  // user's "your run of 10,000 completed", never 10,000 rows). false means every
+  // completion is its own entry, which is the honest reading of a one-shot: a batch of
+  // one. NOTE a refine/fabricate job with NO lineId (the retired manual startRefineJob /
+  // startFabricateJob path) also falls through to the batch-of-one treatment, because the
+  // fold is keyed on the line and there is no line.
+  batched: boolean;
+  // The honest SUMMARY SHAPE this kind grants (an upgrade grants a level, research grants
+  // an unlock, a refine batch grants items). "byEffect" is the explicit marker for the two
+  // kinds whose shape genuinely varies per completion; each names its decider below.
+  reward: CompletionRewardKind | "byEffect";
+}
+
+const PROCESS_COMPLETION_LOG: Record<TimedProcessKind, CompletionLogPolicy> = {
+  // Production LINES: the two kinds the player configures as an order with a count, so
+  // they are the two that must fold. A refine line grants stackable materials.
+  refineJob:               { logged: true, batched: true,  reward: "materials" },
+  // byEffect: a fabricate line mints EITHER a stackable component (addItem -> "materials")
+  // OR a first-class EquipmentInstance (addEquipment -> "systems"). The blueprint's own
+  // output shape decides, which is the same discrimination lineJobSpec already makes.
+  fabricateJob:            { logged: true, batched: true,  reward: "byEffect" },
+  // One-shots: no line, no count, so each completion is a batch of one.
+  shipBuild:               { logged: true, batched: false, reward: "hull" },
+  researchProject:         { logged: true, batched: false, reward: "blueprint" },
+  facilityUpgrade:         { logged: true, batched: false, reward: "level" },
+  fuelRefineJob:           { logged: true, batched: false, reward: "fuel" },
+  equipmentStorageUpgrade: { logged: true, batched: false, reward: "level" },
+  docksExpansion:          { logged: true, batched: false, reward: "level" },
+  shipRepair:              { logged: true, batched: false, reward: "repair" },
+  // byEffect: a salvage grants "materials" when it actually recovered something, and
+  // "nothing" for the two honest empty outcomes (a Standard-Issue baseline destroyed for
+  // zero reward, and the fail-safe no-op on a stale target). Recording the empty cases is
+  // the point: "nothing happened" reads as a bug until the player is told nothing was lost.
+  salvageJob:              { logged: true, batched: false, reward: "byEffect" },
+};
+
+// What ONE completed iteration contributed, before it is either emitted on its own or
+// folded into a running order. A plain value object (no ids, no clock), so the two callers
+// below can each decide what to do with it.
+interface CompletionYield {
+  reward: CompletionRewardKind;
+  items: CompletionRewardItem[];
+  pieces: number;
+  subjectKey: string | null;
+  level: number | null;
+  fuelAmount: string | null;
+  creditsAmount: string | null;
+  stale: boolean;
+}
+
+// The post-completion level readings a "level" reward reports. Passed in from
+// resolveProcesses' own ACCUMULATORS rather than read off the incoming state, because the
+// effect branch has ALREADY applied the bump by the time this runs: reading the incoming
+// state would report the level the player just left, which is the one number this readout
+// exists to get right.
+interface CompletionLevelView {
+  facilities: Record<string, FacilityState>;
+  equipmentStorageLevel: number;
+  shipStorageCapacity: number;
+}
+
+// Fold one reward line into a running list, immutably. Same-item amounts ADD (as Decimals,
+// so a 10,000-iteration batch of a large-output recipe stays exact); a new item appends in
+// first-seen order, which keeps a batch's manifest stable and readable.
+function foldRewardItem(into: CompletionRewardItem[], itemId: string, amount: string): CompletionRewardItem[] {
+  const idx = into.findIndex((r) => r.itemId === itemId);
+  if (idx === -1) return [...into, { itemId, amount }];
+  const merged = new Decimal(into[idx].amount).plus(new Decimal(amount)).toString();
+  return into.map((r, i) => (i === idx ? { itemId, amount: merged } : r));
+}
+
+// Fold a whole manifest in, one line at a time. Iterates the keys in their own insertion
+// order, which is stable for the plain object literals salvage.ts builds.
+function foldRewardItems(into: CompletionRewardItem[], manifest: Record<string, number>): CompletionRewardItem[] {
+  let out = into;
+  for (const itemId of Object.keys(manifest)) {
+    out = foldRewardItem(out, itemId, String(manifest[itemId]));
+  }
+  return out;
+}
+
+// When the job behind a completion STARTED, reconstructed as its completion stamp minus
+// its own fixed duration. Exact by construction (durationTicks is fixed at creation and
+// the cadence is fleet-wide), and it is what lets a readout answer the user's "Time
+// elapsed: X" without a second persisted field. An unknown clock stays unknown rather than
+// becoming a negative date.
+function completionStartedAtMs(nowMs: number, process: TimedProcess, tickDurationSeconds: number): number {
+  if (nowMs <= UNKNOWN_COMPLETION_TIME_MS) return UNKNOWN_COMPLETION_TIME_MS;
+  return Math.round(nowMs - process.durationTicks * tickDurationSeconds * 1000);
+}
+
+// Push an entry onto the ring buffer, evicting the OLDEST first once the cap is reached.
+// The array is chronological (oldest at index 0), so eviction is a slice off the front and
+// the newest entry is always last. PURE: a fresh array every time.
+function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntry): CompletionLogEntry[] {
+  const next = [...log, entry];
+  return next.length > COMPLETION_LOG_CAP ? next.slice(next.length - COMPLETION_LOG_CAP) : next;
+}
+
+// Read one completed process's contribution off its EFFECT (the payload) and its kind's
+// policy (the declared shape). The effect is the only place the payload lives, which is
+// why the switch is on the effect and the policy supplies the shape.
+//
+// The two extras are the facts the effect alone cannot carry:
+//   mintedPieces  how many EquipmentInstances the addEquipment branch actually minted
+//                 (0 for a corrupt blueprint that minted and drew nothing).
+//   salvage       the manifest resolveSalvageEffect produced, or null for the fail-safe
+//                 no-op on a stale target.
+function completionYieldFor(
+  process: TimedProcess,
+  policy: CompletionLogPolicy,
+  levels: CompletionLevelView,
+  mintedPieces: number,
+  salvage: SalvageEffectOutcome | null
+): CompletionYield {
+  const empty: CompletionYield = {
+    reward: policy.reward === "byEffect" ? "nothing" : policy.reward,
+    items: [],
+    pieces: 0,
+    subjectKey: null,
+    level: null,
+    fuelAmount: null,
+    creditsAmount: null,
+    stale: false,
+  };
+  const effect = process.effect;
+
+  switch (effect.type) {
+    case "addItem":
+      // A refine output or a material fabricate output: one item, one amount, stored as a
+      // Decimal STRING so the record carries full precision with no live Decimal in the save.
+      return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: effect.amount.toString() }], subjectKey: effect.itemId };
+    case "addFuel":
+      return { ...empty, reward: "fuel", fuelAmount: effect.amount.toString() };
+    case "unlockBlueprint":
+      return { ...empty, reward: "blueprint", subjectKey: effect.key };
+    case "addShip":
+      return { ...empty, reward: "hull", subjectKey: effect.typeKey };
+    case "addEquipment":
+      // "systems" only when a piece genuinely minted. A blueprint whose output shape is
+      // missing mints nothing (the resolver's documented corrupt-save guard), and claiming
+      // a system was produced there would be a lie in the one readout that must be trusted.
+      return { ...empty, reward: mintedPieces > 0 ? "systems" : "nothing", pieces: mintedPieces, subjectKey: effect.blueprintKey };
+    case "facilityLevelUp":
+      // Read off the ALREADY-BUMPED accumulator, so this is the level the player now has.
+      return { ...empty, reward: "level", subjectKey: effect.facility, level: levels.facilities[effect.facility]?.level ?? 0 };
+    case "equipmentStorageLevelUp":
+      // No payload on the effect (the target field is fixed), so the subject is named here.
+      return { ...empty, reward: "level", subjectKey: "equipmentStorage", level: levels.equipmentStorageLevel };
+    case "docksCapacityUp":
+      // The docks store the CAPACITY itself rather than a level, so the capacity is what is
+      // reported. Naming it "docks" keeps the subject readable without a second field.
+      return { ...empty, reward: "level", subjectKey: "docks", level: levels.shipStorageCapacity };
+    case "clearShipDamage":
+      return { ...empty, reward: "repair", subjectKey: effect.shipId };
+    case "salvageResolve": {
+      // The subject is the TARGET's own id, so the Salvage Bay can find the newest record
+      // for a specific piece / material / hull without parsing a sentence.
+      const subjectKey =
+        effect.target.kind === "equipment"
+          ? effect.target.instanceId
+          : effect.target.kind === "material"
+            ? effect.target.itemId
+            : effect.target.shipId;
+      if (salvage === null) {
+        // The documented fail-safe no-op: the target was gone when its turn came, so the
+        // process dropped and applied nothing. Recorded as a stale entry rather than
+        // swallowed, because that silence is exactly what this feature exists to end.
+        return { ...empty, reward: "nothing", subjectKey, stale: true };
+      }
+      const items = foldRewardItems([], salvage.recovered);
+      const credits = salvage.creditsRecovered;
+      return {
+        ...empty,
+        // "nothing" is the honest shape for a Standard-Issue baseline: it is DESTROYED for
+        // zero reward (the storage escape valve), so its manifest is legitimately empty.
+        reward: items.length > 0 || credits > 0 ? "materials" : "nothing",
+        items,
+        subjectKey,
+        creditsAmount: credits > 0 ? String(credits) : null,
+      };
+    }
+  }
+}
+
+// Is the ORDER behind this line-backed completion finished, so its accumulated entry may
+// be emitted now?
+//
+// ⚠️ THE READING IS EXACT, NOT A HEURISTIC. stepCraftLine decrements `remaining` when it
+// STARTS an iteration, so a batch of N reaches remaining 0 at the moment it starts its
+// LAST iteration. Therefore, at the completion of an iteration, remaining <= 0 means the
+// iteration that just landed was the final one. A CONTINUOUS line never reaches that stop
+// (its remaining is pinned at 1), which is correct: a continuous order has no completion,
+// only a cancel, and cancelLine owns that flush.
+//
+// A line that is GONE from both arrays is also finished: the player cancelled it while it
+// had no iteration in flight, or the engine already removed it. Either way nothing further
+// will ever be added to that accumulation, so holding it open would strand it forever.
+function craftOrderFinished(state: GameState, lineId: string): boolean {
+  const line =
+    (state.refineLines ?? []).find((l) => l.id === lineId) ??
+    (state.fabricateLines ?? []).find((l) => l.id === lineId);
+  if (line === undefined) return true;
+  return line.mode.kind === "batch" && line.remaining <= 0;
+}
+
+// The completed-log accumulators resolveProcesses threads, gathered into one shape so the
+// fold below can take and return them together.
+interface CompletionLogState {
+  log: CompletionLogEntry[];
+  nextId: number;
+  open: OpenJobBatch[];
+}
+
+// Record ONE completed process. This is the single write seam: it either emits an entry
+// outright (a one-shot, or a line-backed iteration that finished its order) or folds the
+// iteration into the order's running accumulation and waits.
+//
+// PURE, and it draws nothing from the rng. Returns the SAME references when the kind is
+// deliberately unlogged, so an unlogged completion is a true no-op.
+function recordCompletion(args: {
+  process: TimedProcess;
+  state: GameState;          // the INCOMING state: read for tickDurationSeconds and the owning line
+  nowMs: number;
+  levels: CompletionLevelView;
+  mintedPieces: number;
+  salvage: SalvageEffectOutcome | null;
+  acc: CompletionLogState;
+}): CompletionLogState {
+  const { process, state, nowMs, levels, mintedPieces, salvage, acc } = args;
+  const policy = PROCESS_COMPLETION_LOG[process.kind];
+  if (!policy.logged) return acc;
+
+  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage);
+  const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
+
+  // A line-backed iteration folds; everything else is a batch of one and emits now.
+  const lineId = policy.batched ? process.lineId ?? null : null;
+
+  if (lineId === null) {
+    const entry: CompletionLogEntry = {
+      id: `done-${acc.nextId}`,
+      kind: process.kind,
+      reward: contribution.reward,
+      atMs: nowMs,
+      startedAtMs,
+      iterations: 1,
+      items: contribution.items,
+      pieces: contribution.pieces,
+      subjectKey: contribution.subjectKey,
+      level: contribution.level,
+      fuelAmount: contribution.fuelAmount,
+      creditsAmount: contribution.creditsAmount,
+      stale: contribution.stale,
+    };
+    return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
+  }
+
+  // Find (or open) this order's accumulation. `startedAtMs` is captured from the FIRST
+  // folded iteration and never moved, so it keeps meaning "when this order began".
+  const existing = acc.open.find((b) => b.lineId === lineId) ?? null;
+  const folded: OpenJobBatch = existing === null
+    ? {
+        lineId,
+        kind: process.kind,
+        reward: contribution.reward,
+        startedAtMs,
+        lastAtMs: nowMs,
+        iterations: 1,
+        items: contribution.items,
+        pieces: contribution.pieces,
+        subjectKey: contribution.subjectKey,
+      }
+    : {
+        ...existing,
+        // The order's shape is whatever its iterations produce. They are homogeneous in
+        // practice (one line, one recipe), so the later reading simply confirms the first;
+        // taking the newest keeps a first iteration that minted nothing from pinning the
+        // whole order to "nothing".
+        reward: contribution.reward === "nothing" ? existing.reward : contribution.reward,
+        lastAtMs: nowMs,
+        iterations: existing.iterations + 1,
+        items: contribution.items.reduce((acc2, r) => foldRewardItem(acc2, r.itemId, r.amount), existing.items),
+        pieces: existing.pieces + contribution.pieces,
+        subjectKey: existing.subjectKey ?? contribution.subjectKey,
+      };
+
+  if (!craftOrderFinished(state, lineId)) {
+    // Still running: keep the accumulation open and emit nothing. This is what stops a
+    // 10,000-iteration batch from evicting every other entry in the ring buffer.
+    return {
+      log: acc.log,
+      nextId: acc.nextId,
+      open: existing === null ? [...acc.open, folded] : acc.open.map((b) => (b.lineId === lineId ? folded : b)),
+    };
+  }
+
+  // The order is done (its last iteration just landed, or the line was cancelled and this
+  // was the committed iteration draining out). Emit ONE entry for the whole run.
+  return {
+    log: pushCompletionEntry(acc.log, completionEntryFromBatch(folded, acc.nextId)),
+    nextId: acc.nextId + 1,
+    open: acc.open.filter((b) => b.lineId !== lineId),
+  };
+}
+
+// Turn a finished accumulation into the entry the ring buffer stores. Shared by the
+// resolver (an order that ran to its end) and by cancelLine (an order the player stopped
+// partway), so both paths produce the identical record shape.
+function completionEntryFromBatch(batch: OpenJobBatch, id: number): CompletionLogEntry {
+  return {
+    id: `done-${id}`,
+    kind: batch.kind,
+    reward: batch.reward,
+    atMs: batch.lastAtMs,
+    startedAtMs: batch.startedAtMs,
+    iterations: batch.iterations,
+    items: batch.items,
+    pieces: batch.pieces,
+    subjectKey: batch.subjectKey,
+    // A line-backed order never produces these three: they belong to the one-shot kinds
+    // (an upgrade's level, a fuel batch's deposit, a hull teardown's credit refund).
+    level: null,
+    fuelAmount: null,
+    creditsAmount: null,
+    stale: false,
+  };
+}
+
+// Exported so App.svelte can render the newest entries first without re-sorting a stored
+// array whose order IS the chronology. Returns a fresh reversed copy, never a mutation.
+export function recentCompletions(state: GameState, limit = COMPLETION_LOG_CAP): CompletionLogEntry[] {
+  const log = state.completionLog ?? [];
+  return log.slice(Math.max(0, log.length - limit)).reverse();
+}
 
 // Exported so App.svelte can display/gate on this exact value (Reset button
 // affordability, modal copy) without a hand-duplicated second copy of the
@@ -2511,7 +2896,17 @@ export function addToInventory(
 // this is the sole reason to even call .map() below rather than filtering.
 // gameTimeSeconds and the keyed inventory are fleet-wide bookkeeping, each updated
 // exactly once per call (not once per captain).
-export function economyTick(state: GameState, ticksElapsed: number, rng: () => number = Math.random): GameState {
+export function economyTick(
+  state: GameState,
+  ticksElapsed: number,
+  rng: () => number = Math.random,
+  // ⚠️ Crafting 0.13.3 (Unit 4.4b): the injected wall clock, passed straight through to
+  // resolveProcesses and read by NOTHING else in this function. Threaded as an argument
+  // (never read ambiently) so offline catch-up and live stepping can be handed the SAME
+  // schedule and therefore produce the SAME completed-events log. See resolveProcesses'
+  // parameter comment for the full parity argument, and tick() for the offline schedule.
+  nowMs: number = UNKNOWN_COMPLETION_TIME_MS
+): GameState {
   // gameTimeSeconds is tracked in SECONDS, but economyTick is handed ticksElapsed
   // (not deltaSeconds), so recover the elapsed seconds via the fleet's shared
   // tickDurationSeconds, the EXACT inverse of tick()'s
@@ -3021,7 +3416,7 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
     next: postProcessState,
     fleetAdminXpDelta: processFleetAdminXpDelta,
     craftingXpDelta: processCraftingXpDelta,
-  } = resolveProcesses(postMissionState, ticksElapsed, rng);
+  } = resolveProcesses(postMissionState, ticksElapsed, rng, nowMs);
   fleetAdminXpDelta += processFleetAdminXpDelta;
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
@@ -3164,12 +3559,56 @@ export function economyTick(state: GameState, ticksElapsed: number, rng: () => n
 // rng defaults to Math.random (the only production caller, App.svelte's offline
 // catch-up, passes no rng, byte-identical to the old inline Math.random). Tests
 // inject a constant rng to make the stepped loot exactly assertable.
-export function tick(deltaSeconds: number, state: GameState, rng: () => number = Math.random): GameState {
+// ⚠️ Crafting 0.13.3 (Unit 4.4b), THE RECONSTRUCTED OFFLINE CLOCK (`endedAtMs`).
+//
+// The completed-events log needs a timestamp per completed order, and a job that finished
+// three hours into a six-hour absence must be dated three hours ago, not "now". Reading
+// Date.now() inside the loop would be both wrong (every entry would say "now") and
+// non-deterministic (breaking offline==live), so the caller passes the wall-clock moment
+// the catch-up ENDS and this function derives the rest: the span is known (clampedTicks),
+// the cadence is known (tickDurationSeconds), so the Nth whole tick completed at
+//   endedAtMs - (clampedTicks - (N + 1)) * tickDurationSeconds * 1000.
+// That is the SAME schedule live play produces (one tick per cadence period, stamped at
+// real time), which is exactly what the offline==live log parity test asserts.
+//
+// ACCURACY LIMITS, stated rather than implied:
+//   1. THE OFFLINE CAP DOMINATES A LONG ABSENCE. A span longer than offlineCapTicks
+//      advances only the capped ticks and the rest is discarded (the deliberate 2-day
+//      limit above), and the reconstruction anchors at the END. So after a week away, the
+//      2 days of simulated work are dated inside the 2 days BEFORE the player returned,
+//      not spread across the week. That is the honest reading: the discarded span was
+//      never simulated, so there are no events in it to date.
+//   2. THE CADENCE IS SAMPLED ONCE, from the incoming state. Nothing can change
+//      tickDurationSeconds mid-catch-up (it is a settings field the player edits while the
+//      game is live), so this is exact today; a future mid-span cadence change would make
+//      the schedule approximate.
+//   3. STAMPS ARE ROUNDED TO WHOLE MILLISECONDS, so a fractional cadence can drift a
+//      sub-millisecond per tick. Irrelevant at any display resolution, but it is why the
+//      parity test's reference schedule must round the same way.
+//   4. THE TRAILING FRACTIONAL TICK is stamped at endedAtMs, matching the documented
+//      known-legacy behavior that the trailing frac call fires the once-per-call passes one
+//      extra time on a sub-tick span.
+//   5. NO CLOCK SUPPLIED (the default) leaves every stamp at UNKNOWN_COMPLETION_TIME_MS
+//      rather than inventing negative dates from a 0 anchor. Unit tests that call tick()
+//      without a clock therefore stay fully deterministic.
+export function tick(
+  deltaSeconds: number,
+  state: GameState,
+  rng: () => number = Math.random,
+  endedAtMs: number = UNKNOWN_COMPLETION_TIME_MS
+): GameState {
   if (deltaSeconds <= 0) return state;
   // Same deltaSeconds -> ticksElapsed conversion as before, then clamp to the cap.
   // Math.min discards any excess span beyond the cap (the intentional 2-day limit).
   const rawTicksElapsed = deltaSeconds / state.tickDurationSeconds;
   const clampedTicks = Math.min(rawTicksElapsed, offlineCapTicks(state));
+
+  // The per-tick stamp schedule (see the header). `clockKnown` is what keeps an omitted
+  // clock at the honest "unknown" sentinel instead of walking backwards from zero.
+  const clockKnown = endedAtMs > UNKNOWN_COMPLETION_TIME_MS;
+  const tickMs = state.tickDurationSeconds * 1000;
+  const spanEndsAtMs = endedAtMs;
+  const spanStartsAtMs = endedAtMs - clampedTicks * tickMs;
 
   // Step the WHOLE ticks first: one economyTick(state, 1) per tick, so the auto-stop
   // cap-check inside economyTick runs every tick. Each call returns a fresh state that
@@ -3178,7 +3617,12 @@ export function tick(deltaSeconds: number, state: GameState, rng: () => number =
   const wholeSteps = Math.floor(clampedTicks);
   let next = state;
   for (let i = 0; i < wholeSteps; i++) {
-    next = economyTick(next, 1, rng);
+    // Step i covers the tick that ENDS at spanStartsAtMs + (i + 1) cadence periods, which
+    // is the moment live play would have stamped that same tick's completions.
+    const stepEndsAtMs = clockKnown
+      ? Math.round(spanStartsAtMs + (i + 1) * tickMs)
+      : UNKNOWN_COMPLETION_TIME_MS;
+    next = economyTick(next, 1, rng, stepEndsAtMs);
   }
 
   // Apply any fractional remainder tick LAST, matching the precision the old single
@@ -3207,7 +3651,8 @@ export function tick(deltaSeconds: number, state: GameState, rng: () => number =
   // this per-tick stepping exists to prevent (see this function's header, design §2.2).
   const frac = clampedTicks - wholeSteps;
   if (frac > 0) {
-    next = economyTick(next, frac, rng);
+    // The trailing residue lands at the span's own end (limit 4 in this function's header).
+    next = economyTick(next, frac, rng, clockKnown ? Math.round(spanEndsAtMs) : UNKNOWN_COMPLETION_TIME_MS);
   }
 
   return next;
@@ -6300,7 +6745,26 @@ export function startLine(
 // started is a COMMITTED TimedProcess and is deliberately left UNTOUCHED: it completes
 // normally and grants its output (design §2 / Task C2: do NOT refund an in-flight
 // iteration). PURE. Same-reference no-op when no line matches the id.
-export function cancelLine(state: GameState, lineId: string): GameState {
+//
+// ⚠️ Crafting 0.13.3 (Unit 4.4b): CANCEL IS THE OTHER WAY AN ORDER ENDS, so it is the
+// other place a completed-events entry can be emitted. The user's explicit "stop partway
+// through" case. Which branch below runs decides whether this function emits at all:
+//
+//   - IN-FLIGHT job (the drain branch): the line SURVIVES with remaining 0, its committed
+//     iteration finishes normally, and resolveProcesses sees remaining <= 0 at that
+//     completion and emits the entry itself. This function must NOT emit here, or the run
+//     would be logged twice.
+//   - NO in-flight job (the remove branch): the line disappears, so no completion will
+//     ever arrive to flush its accumulation. THIS function emits it, otherwise a cancelled
+//     run would silently lose everything it had already produced. A line with nothing
+//     accumulated (cancelled before its first iteration landed) emits nothing, because
+//     "you produced nothing" is not an event worth a ring slot.
+//
+// `nowMs` is a plain argument here too, but for a different reason than in the tick: this
+// function is UI-only (no tick path calls it), so a Date.now() at the call site would be
+// harmless for parity. It is still injected, so the function stays pure and its test can
+// assert an exact stamp.
+export function cancelLine(state: GameState, lineId: string, nowMs: number = UNKNOWN_COMPLETION_TIME_MS): GameState {
   const refineLines = state.refineLines ?? [];
   const fabricateLines = state.fabricateLines ?? [];
   const inRefine = refineLines.some((l) => l.id === lineId);
@@ -6323,6 +6787,24 @@ export function cancelLine(state: GameState, lineId: string): GameState {
       ? lines.map((l) => (l.id === lineId ? { ...l, remaining: 0, mode: { kind: "batch", remaining: 0 } } : l))
       : lines.filter((l) => l.id !== lineId);
 
+  // 0.13.3 Unit 4.4b: flush this order's accumulation ONLY on the remove branch (see the
+  // header). `open` / `log` / `nextId` are value-identical to the incoming fields whenever
+  // there is nothing to flush, so a cancel with no accrued yield is byte-identical to
+  // before this unit.
+  const open = state.openJobBatches ?? [];
+  const priorLog = state.completionLog ?? [];
+  const priorId = state.nextCompletionLogId ?? 1;
+  const orphaned = hasInFlightJob ? undefined : open.find((b) => b.lineId === lineId);
+  // An unknown cancel clock falls back to the last iteration's own stamp rather than
+  // downgrading an otherwise well-dated run to "unknown".
+  const flushedEntry =
+    orphaned !== undefined && orphaned.iterations > 0
+      ? completionEntryFromBatch(
+          { ...orphaned, lastAtMs: nowMs > UNKNOWN_COMPLETION_TIME_MS ? nowMs : orphaned.lastAtMs },
+          priorId
+        )
+      : null;
+
   return {
     ...state,
     // Only the array that actually held the line is rebuilt; the other rides through
@@ -6330,6 +6812,11 @@ export function cancelLine(state: GameState, lineId: string): GameState {
     // most one branch matches, but both are checked independently for robustness.)
     refineLines: inRefine ? rebuild(refineLines) : refineLines,
     fabricateLines: inFabricate ? rebuild(fabricateLines) : fabricateLines,
+    completionLog: flushedEntry !== null ? pushCompletionEntry(priorLog, flushedEntry) : priorLog,
+    nextCompletionLogId: flushedEntry !== null ? priorId + 1 : priorId,
+    // The accumulation is dropped either way once the line is gone: on the drain branch the
+    // line still exists and its entry is still open, so only the remove branch clears it.
+    openJobBatches: hasInFlightJob ? open : open.filter((b) => b.lineId !== lineId),
   };
 }
 
@@ -7595,22 +8082,41 @@ export function fuelRunwayProjection(input: {
 // a declared return type, so adding a fourth arm is a COMPILE ERROR here (the same trick
 // reservation.ts's bin() and QUEUE_ADAPTERS' Record use) rather than a target that
 // silently resolves to nothing. PURE apart from the rng draws it delegates.
+// What a successful salvage produced. Crafting 0.13.3 (Unit 4.4b) WIDENED this from a bare
+// GameState to carry the MANIFEST alongside it.
+//
+// WHY: the manifest is computed here, inside the tick, and Unit 4.4 had nowhere to put it,
+// so the Salvage Bay's "Recovered: 3 Titanium Ingot" readout was lost when salvage became a
+// timed job. Returning it lets the completed-events log record it as item IDS and amounts,
+// which is what restores the readout (and does so for offline completions too, which the
+// old handler-held result never covered).
+//
+// ⚠️ NO MATH CHANGED. The three salvage functions are called with the identical arguments
+// on the identical threaded rng, in the identical order, and their `next` state is applied
+// exactly as before. This return type only stops discarding two fields the callees were
+// already producing.
+interface SalvageEffectOutcome {
+  next: GameState;
+  recovered: Record<string, number>;
+  creditsRecovered: number; // only a hull teardown pays credits; the other two arms report 0
+}
+
 function resolveSalvageEffect(
   scratch: GameState,
   target: SalvageTargetRef,
   rng: () => number
-): GameState | null {
+): SalvageEffectOutcome | null {
   switch (target.kind) {
     case "equipment": {
       // Recycle one spare crafted system back into a fraction of its recipe inputs (or
       // destroy a spare Standard-Issue baseline for nothing, the storage escape valve).
       const result = salvageEquipment(scratch, target.instanceId, rng);
-      return result.ok ? result.next : null;
+      return result.ok ? { next: result.next, recovered: result.recovered, creditsRecovered: 0 } : null;
     }
     case "material": {
       // Consume one salvaged material for its tiered, FA-level-gated loot roll.
       const result = salvageSalvagedMaterial(scratch, target.itemId, rng);
-      return result.ok ? result.next : null;
+      return result.ok ? { next: result.next, recovered: result.recovered, creditsRecovered: 0 } : null;
     }
     case "ship": {
       // Tear a whole hull down: crafted systems back to the spare pool, baselines
@@ -7618,7 +8124,9 @@ function resolveSalvageEffect(
       // docks slot freed. This is the TIMED teardown salvage.ts's header has said was
       // coming since 0.11.1; the instant form stays for the live path.
       const result = salvageShip(scratch, target.shipId, rng);
-      return result.ok ? result.next : null;
+      return result.ok
+        ? { next: result.next, recovered: result.recovered, creditsRecovered: result.creditsRecovered }
+        : null;
     }
   }
 }
@@ -7686,7 +8194,19 @@ export function resolveProcesses(
   // directly with no rng keep working; those assert inventory TOTALS (itemTotal, quality-
   // agnostic), which the roll never changes, so a nondeterministic default tier is harmless
   // there. Non-addItem completions (fuel/blueprint/ship/facility) never touch it.
-  rng: () => number = Math.random
+  rng: () => number = Math.random,
+  // ⚠️ Crafting 0.13.3 (Unit 4.4b), THE INJECTED CLOCK. The wall-clock millisecond stamp
+  // every order completing in THIS call is dated with, threaded in exactly the way the
+  // seeded rng above is threaded, and for the same reason: a Date.now() read inside this
+  // resolver would be non-deterministic, so one long offline catch-up would stamp
+  // different times than the same span stepped live and the offline==live invariant would
+  // break. As an ARGUMENT it is just another input, so determinism is preserved by
+  // construction. The live loop passes Date.now() once per tick; tick() reconstructs a
+  // per-tick schedule across the offline span (see its header for the accuracy limits).
+  // Defaults to UNKNOWN_COMPLETION_TIME_MS (0), NOT to Date.now(): every unit test that
+  // calls this resolver directly stays deterministic, and a production caller that forgets
+  // to inject a clock is visibly wrong rather than silently plausible.
+  nowMs: number = UNKNOWN_COMPLETION_TIME_MS
 ): { next: GameState; fleetAdminXpDelta: number; craftingXpDelta: number } {
   // Cheap same-reference no-op: nothing in flight, or no time actually elapsed.
   // Mirrors applyFleetAdminXp's early-out. (Every SURVIVING process always has
@@ -7769,6 +8289,16 @@ export function resolveProcesses(
   // contributes its lump exactly ONCE (it is dropped on completion), so one big resolve and
   // many small resolves accrue the identical total (see the parity test in tick.test.ts).
   let craftingXpDelta = 0;
+  // Crafting 0.13.3 (Unit 4.4b): the COMPLETED-EVENTS LOG accumulators, threaded exactly
+  // like every accumulator above (seeded from the incoming state, replaced immutably, so a
+  // call that completes nothing returns them value-identical). Defensive `??` because a
+  // branch-local save already stamped v40 skips the migration step that seeds these three
+  // fields; such a save simply starts logging from empty rather than throwing.
+  let completionAcc: CompletionLogState = {
+    log: state.completionLog ?? [],
+    nextId: state.nextCompletionLogId ?? 1,
+    open: state.openJobBatches ?? [],
+  };
   // Survivors are rebuilt in original order, so activeProcesses ordering is stable
   // across both chunkings (the parity test compares the arrays deep-equal).
   const stillActive: TimedProcess[] = [];
@@ -7785,6 +8315,16 @@ export function resolveProcesses(
 
     // COMPLETE. Apply the effect, award the lump FA XP, and DROP the process
     // (never pushed to stillActive) so it resolves exactly once.
+    //
+    // Crafting 0.13.3 (Unit 4.4b): the two OBSERVATIONS the completed-events log cannot
+    // read back off the effect once the branches below have run. Declared here, per
+    // completion, so they can never leak from one process to the next. Both are pure
+    // reporting: nothing below branches on them.
+    //   mintedPieces  how many EquipmentInstances the addEquipment branch actually minted.
+    //   salvageOutcome the manifest a salvageResolve produced, or null for the fail-safe
+    //                 no-op on a stale target (which the log records as a stale entry).
+    let mintedPieces = 0;
+    let salvageOutcome: SalvageEffectOutcome | null = null;
     if (process.effect.type === "addItem") {
       // Quality roll at production (Task 9b): a completed refine/fabricate job rolls ONE
       // quality tier for its whole output amount, which then lands in that tier's bucket via
@@ -8003,6 +8543,7 @@ export function resolveProcesses(
         });
         equipment = [...equipment, minted];
         nextEquipmentId = mintedId + 1;
+        mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.weaponOutput !== undefined) {
         // Combat 1.0 (Unit 1.2b): a completed WEAPON fabricate job mints a crafted weapon as an
         // EquipmentInstance (slotType "weapon"), the weapon-shape parallel to the equipment branch
@@ -8037,6 +8578,7 @@ export function resolveProcesses(
         });
         equipment = [...equipment, minted];
         nextEquipmentId = mintedId + 1;
+        mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.droneOutput !== undefined) {
         // Combat 1.0 (Unit 2.1b): a completed DRONE fabricate job mints a crafted drone pod as an
         // EquipmentInstance (slotType "droneBay"), the drone-shape parallel to the equipment + weapon
@@ -8072,6 +8614,7 @@ export function resolveProcesses(
         });
         equipment = [...equipment, minted];
         nextEquipmentId = mintedId + 1;
+        mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       }
       // (bp / equipmentOutput / weaponOutput / droneOutput all missing = a corrupt/hand-edited effect
       // key: mint NOTHING and draw NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe
@@ -8139,13 +8682,16 @@ export function resolveProcesses(
       // salvage.ts and is discarded with it.
       const scratch: GameState = { ...state, inventory, equipment, ships, credits };
       const resolved = resolveSalvageEffect(scratch, process.effect.target, rng);
+      // 0.13.3 Unit 4.4b: remembered for the completed-events log ONLY. Nothing below
+      // reads it, and null still means "stale target" to the branch exactly as before.
+      salvageOutcome = resolved;
       if (resolved !== null) {
         // Applied as ONE step: these four assignments cannot interleave with anything, and
         // resolveSalvageEffect either produced a fully-formed state or produced null.
-        inventory = resolved.inventory;
-        equipment = resolved.equipment;
-        ships = resolved.ships;
-        credits = resolved.credits;
+        inventory = resolved.next.inventory;
+        equipment = resolved.next.equipment;
+        ships = resolved.next.ships;
+        credits = resolved.next.credits;
       }
       // resolved === null: a STALE or refused target (already salvaged, since installed,
       // hull gone, last-hull guard now firing, none of that material held any more).
@@ -8206,6 +8752,27 @@ export function resolveProcesses(
       // in one span still lands exactly where N single ticks do (see the parity tests).
       craftingXpDelta += craftingXpAwardForProcess(process);
     }
+
+    // ⚠️ Crafting 0.13.3 (Unit 4.4b): RECORD the completion, last, after every branch above
+    // has applied its effect. Placed at the loop TAIL on purpose, so a "level" reward reads
+    // the level the player NOW has (the accumulators are already bumped) rather than the one
+    // they just left, and so the addShip HOLD path (which `continue`s above when the docks
+    // are full) never records a build that has not actually landed.
+    //
+    // PARITY: this is observation only. It draws no rng, reads no ambient clock (nowMs is an
+    // argument), applies no effect, and changes no completion order, so the rng stream
+    // position and every existing deep-equal parity case are untouched. It runs in
+    // activeProcesses array order, the SAME order every completion above runs in, which is
+    // what makes one long offline resolve produce the identical log to many live steps.
+    completionAcc = recordCompletion({
+      process,
+      state,
+      nowMs,
+      levels: { facilities, equipmentStorageLevel, shipStorageCapacity },
+      mintedPieces,
+      salvage: salvageOutcome,
+      acc: completionAcc,
+    });
   }
 
   return {
@@ -8243,6 +8810,14 @@ export function resolveProcesses(
       // completed (seeded from it, and only the salvageResolve branch reassigns it), so
       // every save without a salvage job lands byte-identical to before this unit.
       credits,
+      // Crafting 0.13.3 (Unit 4.4b): the completed-events log, its id source and the
+      // still-running order accumulations. Value-identical to the incoming state's three
+      // fields when no process completed this call (they are seeded from it and only
+      // recordCompletion replaces them), so every save that completes nothing lands
+      // byte-identical to before this unit.
+      completionLog: completionAcc.log,
+      nextCompletionLogId: completionAcc.nextId,
+      openJobBatches: completionAcc.open,
       activeProcesses: stillActive,
     },
     fleetAdminXpDelta,

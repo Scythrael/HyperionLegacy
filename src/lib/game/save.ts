@@ -1628,12 +1628,42 @@ const MIGRATIONS: Record<number, Migration> = {
   // (backfilled by MIGRATIONS[26]), and 0.13.3's crafting-XP reweighting applies going
   // forward only: grandfathering an existing player's crafting level is a design decision,
   // not an oversight, so this step must not recompute or reset either field.
+  // ⚠️ EXTENDED BY 0.13.3 Unit 4.4b (the COMPLETED-EVENTS LOG), riding this SAME v39->v40
+  // step rather than bumping to 41. That is legitimate here and would not be once the
+  // release ships: SAVE_VERSION 40 belongs to the unreleased 0.13.3 branch, so no player
+  // save has ever been stamped v40, which means no shipped migration body is being edited
+  // (Ops §8.E.1). The three added fields follow the identical additive `?? default` shape
+  // as the four above, so the step stays idempotent and value-preserving.
+  //
+  //   - completionLog:        []  (nothing has completed before the feature existed)
+  //   - nextCompletionLogId:  1   (first minted id "done-1")
+  //   - openJobBatches:       []  (no accumulations in flight)
+  //
+  // NO BACKFILL FROM HISTORY, DELIBERATELY: the log records what completed WHILE IT WAS
+  // WATCHING. There is no per-order history anywhere in an older save to reconstruct from,
+  // and inventing entries from lifetimeStats totals would produce timestamps and batch
+  // groupings that never happened. An empty log on the first load after upgrading is the
+  // honest state, and it fills in on its own from the next completed order.
+  //
+  // NO NEW DECIMALS, VERIFIED: CompletionLogEntry / CompletionRewardItem / OpenJobBatch
+  // carry id strings, string-literal keys, plain numbers and DECIMAL STRINGS (never live
+  // Decimal instances, see the ⚠️ block on CompletionLogEntry in model.ts). So all three
+  // fields ride hydrateDecimals's `...state` spread verbatim and hydrateDecimals needs NO
+  // new branch, exactly like processQueue / autoSalvage above.
+  //
+  // ⚠️ A DEV SAVE ALREADY STAMPED v40 (branch-local only) skips this step entirely and so
+  // arrives without the three fields. Every engine read of them is therefore written
+  // defensively (`?? []` / `?? 1`), the same posture refineLines carries, so such a save
+  // simply starts logging from empty rather than throwing.
   39: (state: any): any => ({
     ...state,
     processQueue: state.processQueue ?? [],
     nextQueueId: state.nextQueueId ?? 1,
     autoSalvage: state.autoSalvage ?? { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 },
     salvageConfirmQualities: state.salvageConfirmQualities ?? loadSalvageConfirmQualities(),
+    completionLog: state.completionLog ?? [],
+    nextCompletionLogId: state.nextCompletionLogId ?? 1,
+    openJobBatches: state.openJobBatches ?? [],
   }),
 };
 

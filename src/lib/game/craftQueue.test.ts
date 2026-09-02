@@ -2361,3 +2361,122 @@ describe("buildCraftQueue: the Salvage Bay reports real running rows (Unit 2.4)"
     expect(view.nextToPromoteId).toBeNull(); // nothing can promote while the bay is busy
   });
 });
+
+// ============================================================================
+// Crafting 0.13.3 (Unit 4.4b): THE COMPLETED-EVENTS LOG, offline == live
+//
+// ⚠️ WHY THESE CASES LIVE IN THIS FILE AND NOT IN completionLog.test.ts. The
+// release's parity gate is `npx vitest run -t "parit"` EXCLUDING craftQueue.test.ts
+// and salvage.test.ts, which must keep reading exactly 101 (the pre-0.13.3 baseline).
+// New parity cases therefore belong in one of the two files the gate already
+// excludes, or the baseline number stops meaning anything. This is the queue engine's
+// own parity home, and the completed-events log is written by the same resolver seam
+// this file already proves, so it is the honest place for them. Every NON-parity case
+// for the feature lives in completionLog.test.ts.
+//
+// WHAT THEY PROVE. The log is written from inside resolveProcesses, so an offline
+// catch-up and the same span stepped live must produce a BYTE-IDENTICAL ring buffer,
+// timestamps included. That only holds because the clock is INJECTED (design catch 2):
+// a Date.now() inside the resolver would stamp "now" on every offline entry and these
+// cases would fail immediately.
+//
+// HOW THE REFERENCE SCHEDULE IS BUILT, and why it is not tautological: the live path
+// computes its own per-tick stamps here, in the test, from the anchor and the cadence
+// (start + N cadence periods), exactly as a live poll would produce them by running one
+// tick per second. It does NOT call tick()'s reconstruction helper. So the case really
+// is comparing tick()'s internal schedule against an independently derived live one.
+// ============================================================================
+
+// The whole ring buffer plus its id counter and any still-open accumulations, in one
+// comparable shape. Timestamps are INCLUDED (they are the point of the case), and the
+// open batches are included because a divergence in which orders are still accruing is
+// exactly the shape a fold bug would take.
+function completionSnapshot(state: GameState) {
+  return {
+    log: state.completionLog,
+    nextCompletionLogId: state.nextCompletionLogId,
+    openJobBatches: state.openJobBatches,
+  };
+}
+
+// The live reference: N whole ticks, each stamped the way a live poll running one tick
+// per cadence period would stamp it. Derived here rather than imported so the comparison
+// is against an independent schedule.
+function stepTicksClocked(
+  state: GameState,
+  n: number,
+  rng: () => number,
+  startedAtMs: number,
+  tickDurationSeconds: number
+): GameState {
+  let s = state;
+  for (let i = 0; i < n; i++) {
+    s = economyTick(s, 1, rng, Math.round(startedAtMs + (i + 1) * tickDurationSeconds * 1000));
+  }
+  return s;
+}
+
+describe("completed-events log: parity, one long offline span logs identically to live stepping", () => {
+  const SPAN_TICKS = 60;
+  // A round anchor so the arithmetic in the case is readable; any value works.
+  const RETURNED_AT_MS = 1_700_000_000_000;
+
+  it("produces a byte-identical ring buffer, timestamps included, across both paths", () => {
+    // A loaded fleet: two refine batches and a fabricate batch queued behind a running
+    // line, so the span completes MANY iterations of SEVERAL orders and both the fold and
+    // the emit paths are exercised, not just one lone job.
+    const base = deepQueueState({ commonOre: 5000, titaniumIngot: 200 });
+    const loaded = enqueueAll(base, [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 4) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 3) },
+      { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY, 2) },
+    ]);
+
+    // Path A: ONE offline catch-up over the whole span, anchored at the return moment.
+    const offline = tick(SPAN_TICKS * loaded.tickDurationSeconds, loaded, seededRng(), RETURNED_AT_MS);
+
+    // Path B: the same span, one tick at a time, on an independently derived schedule.
+    const startedAtMs = RETURNED_AT_MS - SPAN_TICKS * loaded.tickDurationSeconds * 1000;
+    const live = stepTicksClocked(loaded, SPAN_TICKS, seededRng(), startedAtMs, loaded.tickDurationSeconds);
+
+    // NON-VACUITY first: a pass must not come from two identically empty logs.
+    expect(offline.completionLog.length).toBeGreaterThan(0);
+    expect(offline.completionLog.every((e) => e.atMs > 0)).toBe(true);
+
+    expect(completionSnapshot(offline)).toEqual(completionSnapshot(live));
+    // And the rest of the economy is still in parity, so the log did not buy its
+    // agreement by perturbing something else.
+    expect(queueSnapshot(offline)).toEqual(queueSnapshot(live));
+  });
+
+  it("dates a mid-span completion at its own moment, not at the return moment (parity of the clock itself)", () => {
+    // The property the injected clock exists for: a job that finished three hours into a
+    // six-hour absence must be dated three hours ago. A Date.now() inside the resolver
+    // would stamp every entry with the return moment and this case would fail.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 5000 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+    ]);
+    const offline = tick(SPAN_TICKS * loaded.tickDurationSeconds, loaded, seededRng(), RETURNED_AT_MS);
+
+    expect(offline.completionLog).toHaveLength(1);
+    const entry = offline.completionLog[0];
+    // It landed strictly inside the span, not at either edge by accident.
+    const startedAtMs = RETURNED_AT_MS - SPAN_TICKS * loaded.tickDurationSeconds * 1000;
+    expect(entry.atMs).toBeGreaterThan(startedAtMs);
+    expect(entry.atMs).toBeLessThan(RETURNED_AT_MS);
+  });
+
+  it("leaves every stamp at the unknown sentinel when no clock is injected (parity of the default)", () => {
+    // The default must stay deterministic: a test (or any caller) that omits the clock
+    // gets 0, never an ambient Date.now() that would make two identical runs differ.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 5000 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+    ]);
+    const a = tick(SPAN_TICKS * loaded.tickDurationSeconds, loaded, seededRng());
+    const b = stepTicks(loaded, SPAN_TICKS, seededRng());
+
+    expect(a.completionLog.length).toBeGreaterThan(0);
+    expect(a.completionLog.every((e) => e.atMs === 0 && e.startedAtMs === 0)).toBe(true);
+    expect(completionSnapshot(a)).toEqual(completionSnapshot(b));
+  });
+});

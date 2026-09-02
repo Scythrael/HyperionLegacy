@@ -3103,6 +3103,133 @@ export function freshSalvageConfirmQualities(): number[] {
   return Array.from({ length: QUALITY_TIERS }, (_, i) => i);
 }
 
+// ===========================================================================
+// Crafting 0.13.3 (Unit 4.4b): THE COMPLETED-EVENTS LOG
+// SUGGESTIONS.md, "COMPLETED-EVENTS LOG" (user, 2026-09-02).
+//
+// WHY THIS EXISTS. Every timed job in the game used to complete SILENTLY: the result
+// simply appeared in inventory with no record that anything had happened. That is an
+// Omega 14 violation repeated across every facility ("silent code is indistinguishable
+// from broken code"), and it is what let 0.13.3 Unit 4.4 lose the Salvage Bay's
+// "Recovered: 3 Titanium Ingot" manifest without anything else noticing: the recovery is
+// computed inside resolveProcesses, where the UI cannot see it. It also closes a hole
+// nothing else could: a job that both STARTS and FINISHES inside one offline catch-up was
+// previously never observed at all.
+//
+// ⚠️ IDS AND AMOUNTS, NEVER PRE-RENDERED STRINGS. An entry stores what was granted as
+// item IDS plus amounts, so the UI applies warehouseRarityColor and the player's own
+// number formatting at render time, and so a later, richer completions interface can
+// re-render the SAME records without a migration.
+//
+// ⚠️ NO DECIMAL ON THESE SHAPES, AND IT MUST STAY THAT WAY (the same rule QueuedJob
+// carries, for the same reason). Amounts are stored as plain DECIMAL STRINGS, which is
+// what a Decimal serializes to anyway (Decimal.toJSON), so the whole log rides
+// hydrateDecimals's `...state` spread verbatim and needs NO hydration branch. A consumer
+// that wants arithmetic does `new Decimal(entry.items[i].amount)` at read time. Adding a
+// live Decimal here without a matching revive in save.ts would load back as a bare string
+// and throw on the first .plus().
+// ===========================================================================
+
+// The honest SUMMARY SHAPE of what a completed order granted. A job does not always
+// grant items: an upgrade grants a LEVEL, research grants an UNLOCK, a build grants a
+// HULL. Keeping the shape explicit means the readout never has to pretend an upgrade
+// produced a pile of materials.
+//   materials  stackable items landed in the Warehouse (refine, material fabrication,
+//              a salvage recovery). The amounts are in `items`.
+//   systems    non-stacking EquipmentInstances were minted (equipment / weapon / drone
+//              fabrication). The count is in `pieces`, the blueprint in `subjectKey`.
+//   fuel       fuel was deposited in the tank. The amount is in `fuelAmount`.
+//   blueprint  a research project unlocked a blueprint (`subjectKey`).
+//   hull       a ship was built (`subjectKey` is the hull type key).
+//   level      a facility / storage / docks rung was reached (`level`, `subjectKey`).
+//   repair     a damaged hull was repaired (`subjectKey` is the ship id).
+//   nothing    the completion granted nothing at all: a stale salvage target that
+//              resolved as a fail-safe no-op, or a Standard-Issue baseline destroyed
+//              for zero reward. Recorded ON PURPOSE, because "nothing happened" reads
+//              as a bug until the player is told nothing was lost either.
+export type CompletionRewardKind =
+  | "materials"
+  | "systems"
+  | "fuel"
+  | "blueprint"
+  | "hull"
+  | "level"
+  | "repair"
+  | "nothing";
+
+// One stackable reward line: WHICH item, and HOW MUCH of it, accumulated across every
+// iteration of the order. `amount` is a Decimal STRING (see the no-Decimal rule above).
+export interface CompletionRewardItem {
+  itemId: string;
+  amount: string;
+}
+
+// One finished ORDER, as the player can read it back.
+//
+// ⚠️ PER ORDER, NOT PER ITERATION (design catch 1, user 2026-09-02). The user's own
+// example is "your run of 10,000 salvage completed", so a 10,000-iteration refine batch
+// must leave ONE entry carrying the accumulated yield, never 10,000 entries. Logging per
+// iteration would let a single big batch evict every other entry and blow the 50-cap
+// instantly, which would make the log actively worse than no log. See OpenJobBatch below
+// for the accumulator that makes this work across ticks and across saves.
+export interface CompletionLogEntry {
+  id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
+  kind: TimedProcessKind;   // which engine produced it, so the UI can pick a verb + icon
+  reward: CompletionRewardKind; // the honest summary shape (see above)
+  // ⚠️ INJECTED WALL CLOCK, NEVER READ INSIDE THE TICK (design catch 2). resolveProcesses
+  // is handed this value as an ARGUMENT exactly as the seeded rng is threaded, because a
+  // Date.now() call inside the resolver would be non-deterministic and an offline catch-up
+  // would then stamp different times than live stepping, breaking the offline==live
+  // invariant this whole release is built on. 0 means "no clock was supplied" (a unit-test
+  // call), which the UI renders as an unknown time rather than as 1970.
+  atMs: number;
+  // When the order's FIRST folded iteration STARTED, reconstructed as its completion stamp
+  // minus its own duration. Carried so a readout can answer the user's "Time elapsed: X"
+  // without a second bookkeeping field. 0 when the clock was unknown.
+  startedAtMs: number;
+  iterations: number;       // how many job iterations folded into this entry (1 for a one-shot)
+  items: CompletionRewardItem[]; // accumulated stackable yield (empty for a non-material reward)
+  pieces: number;           // non-stacking EquipmentInstances minted (0 for every other reward)
+  subjectKey: string | null; // the ONE named subject: blueprint key / hull type / facility key / item id / ship id
+  level: number | null;     // the level or capacity REACHED, for a "level" reward; null otherwise
+  fuelAmount: string | null;   // Decimal string, for a "fuel" reward; null otherwise
+  creditsAmount: string | null; // Decimal string, credits refunded by a hull teardown; null otherwise
+  // The salvage FAIL-SAFE NO-OP: the target was gone by the time its turn came, so the
+  // process dropped and applied nothing. Recorded rather than swallowed so the Salvage Bay
+  // can say "nothing was consumed, you can queue it again" instead of going quiet.
+  stale: boolean;
+}
+
+// The RUNNING accumulation for one line-backed order that has not finished yet.
+//
+// WHY A SEPARATE ARRAY AND NOT AN "OPEN" ENTRY INSIDE THE LOG: the log is the list of
+// things that are DONE. An in-flight order already appears in the dashboard's IN PROGRESS
+// section, so putting it in "Recently completed" too would say the same thing twice and
+// would let a long-running batch occupy (and eventually be evicted from) a ring slot it
+// has not earned. Keeping the accumulator separate also means the ring buffer's eviction
+// rule can never silently drop a batch that is still accruing.
+//
+// BOUNDED BY CONSTRUCTION: there is at most one open batch per live CraftLine, and the
+// number of lines is capped by each facility's slot count, so this array stays tiny (single
+// digits) no matter how long the player is away.
+export interface OpenJobBatch {
+  lineId: string;           // the CraftLine.id whose iterations fold in here
+  kind: TimedProcessKind;
+  reward: CompletionRewardKind;
+  startedAtMs: number;      // when the first folded iteration started (see CompletionLogEntry)
+  lastAtMs: number;         // clock stamp of the most recent folded iteration
+  iterations: number;
+  items: CompletionRewardItem[];
+  pieces: number;
+  subjectKey: string | null;
+}
+
+// How many completed-order entries the ring buffer keeps. The user's number: enough to
+// answer "what did I miss?" after an absence, small enough that the save cannot balloon.
+// Oldest is evicted first (the array is chronological, so eviction is a slice off the
+// front).
+export const COMPLETION_LOG_CAP = 50;
+
 // --- Crafting 0.13.3 (Phase 2 Unit 2.2): salvage DURATION -------------------
 // docs/plans/2026-09-01-crafting-0.13.3-design.md §7.2.
 //
@@ -3423,6 +3550,20 @@ export interface GameState {
   // localStorage value so no player silently loses a setting they already chose.
   // freshState seeds the confirm-every-tier default (freshSalvageConfirmQualities).
   salvageConfirmQualities: number[];
+  // --- Crafting 0.13.3 (Unit 4.4b): the COMPLETED-EVENTS LOG -----------------
+  // The ring buffer of finished ORDERS, oldest first, capped at COMPLETION_LOG_CAP
+  // (oldest evicted). Written ONLY from inside resolveProcesses (and by cancelLine, for
+  // the one orphan case it owns), so offline catch-up and live stepping produce identical
+  // logs by construction. See CompletionLogEntry above for the full rationale.
+  completionLog: CompletionLogEntry[];
+  // Monotonic id source for CompletionLogEntry.id ("done-N"); never reused, mirrors
+  // nextQueueId ("q-N") / nextProcessId ("proc-N"). A counter rather than log.length so an
+  // evicted entry can never let a later completion reissue a live id.
+  nextCompletionLogId: number;
+  // The in-flight accumulations for line-backed orders whose batch has not finished yet
+  // (see OpenJobBatch). Never rendered; this is engine bookkeeping that exists purely so
+  // ONE entry can be emitted per ORDER rather than one per iteration.
+  openJobBatches: OpenJobBatch[];
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -7004,5 +7145,12 @@ export function freshState(): GameState {
     nextQueueId: 1,
     autoSalvage: { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 },
     salvageConfirmQualities: freshSalvageConfirmQualities(),
+    // Crafting 0.13.3 (Unit 4.4b): a brand-new save has completed nothing yet, so the log
+    // starts EMPTY with the id counter at 1 (first minted id "done-1") and no open batches.
+    // Existing saves reach the IDENTICAL shape through the v39->v40 migration (save.ts,
+    // MIGRATIONS[39]), so a fresh save and a migrated save stay indistinguishable in shape.
+    completionLog: [],
+    nextCompletionLogId: 1,
+    openJobBatches: [],
   };
 }

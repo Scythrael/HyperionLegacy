@@ -225,6 +225,12 @@
     // The confirm-every-tier default for state.salvageConfirmQualities, used ONLY as the
     // absent-field fallback below (a saved empty array is a real choice, not an absence).
     freshSalvageConfirmQualities,
+    // 0.13.3 Unit 4.4b: the completed-events record and its per-item reward line. Read by
+    // the Salvage Bay so its "Last salvage" readout can print the real material manifest
+    // again (Unit 4.4 had to drop it: the manifest is produced inside the tick and there
+    // was nowhere to carry it out). Type-only.
+    type CompletionLogEntry,
+    type CompletionRewardItem,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -239,6 +245,9 @@
     type Prompt,
     type LockedSlot,
     type HomeDashboardModel,
+    // 0.13.3 Unit 4.4b: one finished-order row, shaping the RECENTLY COMPLETED loop the
+    // same way ActivityRow shapes the IN PROGRESS loop.
+    type CompletionRow,
   } from "./lib/game/homeDashboard";
   // Equipment 0.11.0 DEV readout (Debug tab only). The fitment helpers
   // (equippedFor / canFitEquipment / fitEquipment / unfitEquipment /
@@ -2207,14 +2216,25 @@
     const loadedSave = loadFromLocalStorage();
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
-      const offlineSeconds = Math.max(0, (Date.now() - loadedSave.lastSavedAt) / 1000);
+      // Captured ONCE and reused for both the span and the catch-up's clock anchor, so the
+      // two can never disagree by the few milliseconds two Date.now() calls would differ by.
+      const returnedAtMs = Date.now();
+      const offlineSeconds = Math.max(0, (returnedAtMs - loadedSave.lastSavedAt) / 1000);
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
       // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
-      // never thread anything through tick() itself. The summary below is a pure diff of
+      // never thread STATE through tick() itself. The summary below is a pure diff of
       // those two snapshots (summarizeOfflineProgress), rolling no RNG and adding no draws.
+      //
+      // ⚠️ THE ONE THING THREADED IN, and why it does not weaken the invariant (0.13.3 Unit
+      // 4.4b): `returnedAtMs`, the wall-clock moment this catch-up ENDS. The completed-events
+      // log needs a real timestamp per finished order, and tick() must not read the clock
+      // itself or offline and live would stamp different times for the same span. Handing it
+      // in as an INPUT keeps tick() a pure function of its arguments (the same posture the
+      // seeded rng has), and tick() derives the per-tick schedule from it. See tick()'s
+      // header for the reconstruction and its accuracy limits.
       const beforeSnapshot = loadedSave.state;
-      state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot) : beforeSnapshot;
+      state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
       if (offlineSeconds > 5) {
         pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
         // Only surface the full "While you were away" modal for a MEANINGFUL absence, and
@@ -2373,14 +2393,24 @@
           // DEV_MODE fast-forward speeds where ticksElapsed > 1. Mirror of tick(): whole
           // steps first, then a trailing fractional remainder. rng is omitted (defaults
           // to Math.random), same as the old single call.
+          //
+          // ⚠️ 0.13.3 Unit 4.4b: the LIVE half of the injected completion clock. Every step
+          // of this poll is stamped with ONE Date.now() captured here, which is exact at
+          // production speed (ticksElapsed is exactly 1, so one poll IS one tick) and is a
+          // deliberate, documented simplification at DEV fast-forward speeds, where several
+          // ticks are batched into one poll and therefore share a stamp. Reading the clock
+          // HERE rather than inside economyTick is the whole point: the tick stays a pure
+          // function of its arguments, so an offline catch-up handed a reconstructed
+          // schedule produces the identical log to this loop.
+          const completionClockMs = Date.now();
           let stepped = state;
           const wholeSteps = Math.floor(ticksElapsed);
           for (let i = 0; i < wholeSteps; i++) {
-            stepped = economyTick(stepped, 1);
+            stepped = economyTick(stepped, 1, Math.random, completionClockMs);
           }
           const frac = ticksElapsed - wholeSteps;
           if (frac > 0) {
-            stepped = economyTick(stepped, frac);
+            stepped = economyTick(stepped, frac, Math.random, completionClockMs);
           }
           // Restore the live fleet clock: economyTick bumped gameTimeSeconds on every
           // step above, but this loop owns that clock continuously off real elapsed time
@@ -2616,6 +2646,9 @@
     storage: "📦",      // Ship Systems storage upgrade
     docks: "⚓",        // docks-capacity expansion
     repair: "🔨",       // ship repair at the Shipyard
+    // 0.13.3 Unit 4.4b: the Salvage Bay, reachable now that a completed salvage leaves a
+    // record on the board (the RECENTLY COMPLETED section's only new hint).
+    salvage: "♻️",      // a completed salvage run
     extraction: "⛏️",   // captain on a gathering / extraction mission
     patrol: "⚔️",       // captain on a combat patrol
     dispatch: "👤",     // idle captain awaiting orders (the dispatch prompt)
@@ -2624,6 +2657,29 @@
   // Resolve an icon hint to its glyph, neutral-dot fallback for any unmapped hint.
   function homeIconGlyph(hint: string): string {
     return HOME_ICON_GLYPH[hint] ?? "•";
+  }
+
+  // ── RECENTLY COMPLETED readouts (0.13.3 Unit 4.4b) ────────────────────────────
+  // The completed-events log stores raw wall-clock stamps (never formatted strings), so
+  // the two formatters live here, in the view layer, exactly as the IN PROGRESS ETA does.
+
+  // WHEN an order finished, as a local clock time. A stamp of 0 means the record was
+  // written with no injected clock (see UNKNOWN_COMPLETION_TIME_MS in tick.ts), which is
+  // reported honestly rather than rendered as a plausible-looking 1970 date.
+  function completionAtText(atMs: number): string {
+    if (atMs <= 0) return "time not recorded";
+    return new Date(atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // HOW LONG the run took. Routed through the SHARED durationReadout so it honors the
+  // player's showTickCounts preference and the fleet's tickDurationSeconds like every
+  // other duration in the game (no second, hardcoded time format). The stored value is
+  // wall-clock milliseconds, so it is converted back into ticks on the fleet's own cadence
+  // first. Returns null when either stamp was unknown, so the row simply omits the line.
+  function completionElapsedText(elapsedMs: number | null): string | null {
+    if (elapsedMs === null) return null;
+    const ticks = Math.max(0, Math.round(elapsedMs / 1000 / state.tickDurationSeconds));
+    return `took ${durationReadout(ticks, showTickCounts, state.tickDurationSeconds)}`;
   }
 
   // Guarded jump for an IN-PROGRESS row (0.13.1, Unit 5). A row whose jumpTarget is null
@@ -3671,17 +3727,25 @@
   // handler; it is fed by an OBSERVER (syncSalvageJobWatch below) that watches jobs enter
   // and leave state.activeProcesses.
   //
-  // ⚠️ THE ONE THING THE OBSERVER CANNOT KNOW, STATED PLAINLY. The MATERIAL MANIFEST (which
-  // items, how many, and which loot tier hit) is produced inside the tick and is not carried
-  // anywhere the UI can read: GameState holds no event log and no per-job result record, and
-  // an inventory diff across the completing tick is NOT attributable (a refine job, a
-  // fabricate job or a returning mission can deposit into the very same tick, so the diff
-  // would sometimes credit salvage with someone else's materials, which is worse than saying
-  // nothing). Reporting a number we cannot prove would be a lie in a readout whose whole job
-  // is to be trusted, so the readout says what is true (what completed, and that its output
-  // went to the Warehouse) and stops there. Restoring the manifest needs a small PERSISTED
-  // result record on GameState, which this unit was explicitly scoped not to invent. It is
-  // written up in the unit's report as the recommended follow-up.
+  // ✅ THE MANIFEST IS BACK (0.13.3 Unit 4.4b). Unit 4.4 had to drop the "Recovered: 3
+  // [Titanium Ingot]" lines because the manifest is produced inside resolveProcesses and
+  // GameState carried no per-job result record, so the readout could only say what
+  // completed. Unit 4.4b added exactly the record that was missing: the completed-events
+  // log (state.completionLog) stores every finished order's item IDS and amounts, written
+  // from inside the resolver on the injected clock. So the observer below still owns WHAT
+  // completed and whether the target went stale (facts it must capture BEFORE the target is
+  // consumed), and the manifest is now READ BACK from the record.
+  //
+  // ⚠️ IT IS STILL NEVER AN INVENTORY DIFF, and that is the important part. A diff across
+  // the completing tick is not attributable (a refine job, a fabricate job or a returning
+  // mission can deposit in the same tick), so it would sometimes credit salvage with
+  // someone else's materials. The record is authored by the code that actually granted the
+  // materials, so it is a report, not an inference.
+  //
+  // BONUS the record buys for free: an offline catch-up that starts AND finishes a salvage
+  // inside one state update was previously invisible to the observer entirely. Those jobs
+  // now appear on the Home board's RECENTLY COMPLETED section with their full manifest,
+  // which is the other half of the gap this readout used to have.
   //
   // `kind` still distinguishes the surfaces so the header tag and the sentence keep their
   // three readings: "system" is a spare-system recycle, "material" is a salvaged-material
@@ -3693,8 +3757,42 @@
     kind: "system" | "material" | "baseline" | "ship";
     sourceName: string;
     stale: boolean;
+    // 0.13.3 Unit 4.4b: the recovered manifest, read back from the completed-events record
+    // the resolver wrote. Item IDS + amounts, never a pre-rendered sentence, so the readout
+    // applies warehouseRarityColor and formatNumber itself. Empty for a baseline destroy
+    // (which genuinely recovers nothing) and for a stale no-op.
+    recovered: CompletionRewardItem[];
+    // Credits refunded by a hull teardown, as a Decimal string; null for every other arm.
+    creditsRecovered: string | null;
   };
   let lastSalvageResult: LastSalvageResult | null = null;
+
+  // The NEWEST completed-events record for one salvage target. Matched on the record's
+  // `subjectKey`, which the resolver sets to the target's own id (instance id / item id /
+  // ship id), so this is an id match and never a string-parse of a label. Searched from the
+  // newest end because a fungible material can be salvaged many times and only the run that
+  // just finished is being reported. Returns null when no record matches, which keeps the
+  // readout degrading to its Unit 4.4 wording rather than throwing.
+  function newestSalvageRecordFor(targetId: string): CompletionLogEntry | null {
+    const log = state.completionLog ?? [];
+    for (let i = log.length - 1; i >= 0; i--) {
+      if (log[i].kind === "salvageJob" && log[i].subjectKey === targetId) return log[i];
+    }
+    return null;
+  }
+
+  // The target's own id, the key the record is filed under. One place, so the observer and
+  // any future consumer cannot disagree about what identifies a salvage.
+  function salvageTargetId(target: SalvageTargetRef): string {
+    switch (target.kind) {
+      case "equipment":
+        return target.instanceId;
+      case "material":
+        return target.itemId;
+      case "ship":
+        return target.shipId;
+    }
+  }
 
   // What the observer remembers about ONE in-flight salvage job.
   //
@@ -3791,7 +3889,17 @@
       if (liveIds.has(id)) continue;
       watchedSalvageJobs.delete(id);
       const stale = salvageTargetSurvived(watched.target);
-      lastSalvageResult = { kind: watched.kind, sourceName: watched.sourceName, stale };
+      // 0.13.3 Unit 4.4b: pull the manifest off the record the SAME state update carried
+      // (the resolver wrote it in the tick that dropped this process), so what the readout
+      // prints is what the engine actually granted.
+      const record = newestSalvageRecordFor(salvageTargetId(watched.target));
+      lastSalvageResult = {
+        kind: watched.kind,
+        sourceName: watched.sourceName,
+        stale,
+        recovered: record?.items ?? [],
+        creditsRecovered: record?.creditsAmount ?? null,
+      };
       if (stale) {
         // The build plan's flagged silent no-op, given a voice. Nothing was consumed, so the
         // sentence says so: the player has lost nothing and can queue it again.
@@ -3802,7 +3910,18 @@
         // observer still knows (a baseline carries nothing, so there is no manifest to lose).
         pushLog(`Discarded Standard-Issue ${watched.sourceName} (no materials recovered).`);
       } else {
-        pushLog(`Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`);
+        // 0.13.3 Unit 4.4b: the log line names what actually came back now that the record
+        // carries it, instead of pointing vaguely at the Warehouse. Falls back to the Unit
+        // 4.4 wording when no record matched (a hand-edited save, or a target id the
+        // resolver never filed).
+        const manifest = (record?.items ?? [])
+          .map((line) => `${formatNumber(new Decimal(line.amount))} [${ITEMS[line.itemId]?.label ?? line.itemId}]`)
+          .join(", ");
+        pushLog(
+          manifest.length > 0
+            ? `Salvage complete → [${watched.sourceName}]. Recovered: ${manifest}.`
+            : `Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`
+        );
       }
     }
   }
@@ -4298,7 +4417,11 @@
   // any in-flight timed job it already started commits + completes normally (design §2). PURE
   // backend fn, same-ref no-op when the id doesn't match, so we always reassign + log + save.
   function doCancelLine(lineId: string) {
-    state = cancelLine(state, lineId);
+    // 0.13.3 Unit 4.4b: the cancel clock. Injected rather than read inside cancelLine for
+    // the same purity reason the tick's clock is, even though this handler is UI-only and
+    // never runs offline: a run stopped partway still leaves a dated record of what it
+    // produced, and the engine stays a pure function of its arguments.
+    state = cancelLine(state, lineId, Date.now());
     pushLog("Production line canceled; remaining reservation released.");
     doSave();
   }
@@ -7863,11 +7986,26 @@
                     {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : lastSalvageResult.kind === "ship" ? "Tore down" : "Broke down"} [{lastSalvageResult.sourceName}].
                     {#if lastSalvageResult.kind === "baseline"}
                       Standard-Issue systems carry no materials to recover.
-                    {:else}
+                    {:else if lastSalvageResult.recovered.length > 0}
+                      <!-- ✅ THE MANIFEST, RESTORED (0.13.3 Unit 4.4b). Printed from the
+                           completed-events record's item IDS and amounts, so each name takes
+                           its own rarity color through the shared warehouseRarityColor and
+                           each amount goes through the app-wide formatNumber. This is the
+                           "Recovered: N [Item], ..." branch Unit 4.4 had to drop. -->
+                      Recovered:
+                      {#each lastSalvageResult.recovered as line, i (line.itemId)}<!--
+                        -->{i > 0 ? ", " : " "}{formatNumber(new Decimal(line.amount))}
+                        <span style="color: {warehouseRarityColor(ITEMS[line.itemId]?.rarity ?? 'common')}">[{ITEMS[line.itemId]?.label ?? line.itemId}]</span><!--
+                      -->{/each}{#if lastSalvageResult.creditsRecovered !== null}, {formatNumber(new Decimal(lastSalvageResult.creditsRecovered))} credits{/if}.
                       <!-- The cross-facility signpost design 8.0 (item 0.9) asks salvage
                            output to carry: the materials are already banked, and the
                            Warehouse is where they can be counted. -->
-                      Recovered materials went straight to the <strong>Warehouse</strong>.
+                      Everything went straight to the <strong>Warehouse</strong>.
+                    {:else}
+                      <!-- The third preserved body branch: the recovery rounded to zero, so
+                           there is genuinely nothing to list. Said plainly rather than shown
+                           as an empty manifest. -->
+                      No materials recovered (rounded to zero).
                     {/if}
                   {/if}
                 </p>
@@ -10328,6 +10466,43 @@
           </span>
         {/snippet}
 
+        <!-- Shared RECENTLY COMPLETED row body (0.13.3 Unit 4.4b). A snippet for the same
+             reason homeRowBody above is one: the navigable (<button>) and the plain-record
+             (<div>) variants must render an identical body. Deliberately carries NO progress
+             bar, because a finished order has no progress left to show. -->
+        {#snippet doneRowBody(done: CompletionRow)}
+          <span class="home-ico" aria-hidden="true">{homeIconGlyph(done.icon)}</span>
+          <span class="home-row-body">
+            <span class="home-l1">{done.primaryLabel}</span>
+            <span class="home-l2">
+              <!-- The run detail: "40 runs" for a folded batch, "Level 3" for an upgrade,
+                   "Nothing was consumed" for the salvage fail-safe no-op. -->
+              {#if done.secondaryLabel !== null}
+                <span class="home-phase">{done.secondaryLabel}</span>
+              {/if}
+              <span class="home-meta">{completionAtText(done.atMs)}</span>
+              <!-- Elapsed time, through the SHARED durationReadout so it respects the
+                   player's tick-count preference like every other duration in the game. -->
+              {#if completionElapsedText(done.elapsedMs) !== null}
+                <span class="home-eta">{completionElapsedText(done.elapsedMs)}</span>
+              {/if}
+            </span>
+            {#if done.rewards.length > 0}
+              <!-- The MANIFEST: what actually landed. Amount first (it answers "how much did
+                   I get"), then the item name in its own rarity color via the shared
+                   warehouseRarityColor, exactly as the Warehouse renders the same item. -->
+              <span class="home-done-rewards">
+                {#each done.rewards as reward (reward.itemId)}
+                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor(reward.rarity)};">
+                    <span class="home-done-amt">{formatNumber(new Decimal(reward.amount))}</span>
+                    <span class="home-done-name">{reward.label}</span>
+                  </span>
+                {/each}
+              </span>
+            {/if}
+          </span>
+        {/snippet}
+
         <!-- One actionable NEEDS-YOUR-ORDERS prompt as a full-width button (0.13.1, Unit 6).
              A snippet so the single-prompt case and the expanded full-list case render an
              identical, STATIONARY button without duplicating markup. The WHOLE prompt is one
@@ -10461,6 +10636,48 @@
                          no chevron, no hover, not focusable. -->
                     <div class="home-row home-row-static">
                       {@render homeRowBody(row)}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            </section>
+          {/if}
+
+          <!-- ============ RECENTLY COMPLETED (finished orders) ============ -->
+          <!-- 0.13.3 Unit 4.4b, the companion to IN PROGRESS: "what is running" above,
+               "what just finished" below. Every row is one finished ORDER, not one job
+               iteration, so a 10,000-run refine batch is a single row reading "10000 runs"
+               rather than ten thousand rows (design catch 1). Rewards render from the
+               STORED item ids: the amount goes through the app-wide formatNumber and the
+               name takes warehouseRarityColor, the same treatment the Warehouse gives it,
+               because the record deliberately stores ids and amounts rather than a
+               pre-rendered sentence. Rows follow the IN PROGRESS idioms exactly (.home-row,
+               .home-ico, .home-l1 / .home-l2), minus the progress bar: a finished order has
+               no progress left to show. -->
+          {#if dashboardModel.recentlyCompleted.length > 0}
+            <section class="home-sec">
+              <div class="home-sec-hd">
+                <span class="home-sec-h">Recently completed</span>
+                <span class="home-sec-count">{dashboardModel.recentlyCompleted.length}</span>
+                <span class="home-sec-rule"></span>
+              </div>
+              <div class="home-prog">
+                {#each dashboardModel.recentlyCompleted as row (row.id)}
+                  {#if row.jumpTarget !== null}
+                    <button
+                      type="button"
+                      class="home-row home-row-done"
+                      on:click={() => jumpToActivityRow(row.jumpTarget)}
+                      aria-label={`View ${row.primaryLabel}`}
+                    >
+                      {@render doneRowBody(row)}
+                      <span class="home-chev" aria-hidden="true">›</span>
+                    </button>
+                  {:else}
+                    <!-- Non-navigable record row (no Section-8 destination): a plain div,
+                         no chevron, no hover, not focusable, same as IN PROGRESS. -->
+                    <div class="home-row home-row-static home-row-done">
+                      {@render doneRowBody(row)}
                     </div>
                   {/if}
                 {/each}
@@ -13653,6 +13870,55 @@
     flex: none;
   }
   .home-chev { flex: none; color: var(--color-text-dim); font-size: 15px; }
+
+  /* --- RECENTLY COMPLETED (0.13.3 Unit 4.4b) ---------------------------------
+     Reuses .home-row / .home-ico / .home-l1 / .home-l2 wholesale; only the
+     "done" tint and the reward manifest are new. The left edge reads success
+     green rather than the accent, so a finished order is distinguishable from a
+     running one at a glance without a second row shape.
+     Tints are color-mix on the theme tokens (locked design system: no new -rgb
+     triplet tokens), so both themes re-hue automatically. */
+  .home-row-done { border-left: 2px solid color-mix(in srgb, var(--color-success) 55%, transparent); }
+  /* The green edge is the row's IDENTITY, so it survives hover (both .home-row:hover and
+     .home-row-static:hover reset border-color on all four sides). */
+  .home-row-done:hover { border-left-color: color-mix(in srgb, var(--color-success) 55%, transparent); }
+  /* The manifest: reward chips wrap onto as many lines as they need, so a long
+     salvage recovery never forces horizontal scroll at 320px. */
+  .home-done-rewards {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin-top: 5px;
+    min-width: 0;
+  }
+  .home-done-reward {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    max-width: 100%;
+    padding: 1px 6px;
+    border-radius: 999px;
+    /* --done-rc is the item's own rarity color, set inline per chip from the
+       shared warehouseRarityColor. */
+    background: color-mix(in srgb, var(--done-rc) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--done-rc) 30%, transparent);
+  }
+  .home-done-amt {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text-secondary);
+    flex: none;
+  }
+  .home-done-name {
+    font-size: 10px;
+    color: var(--done-rc);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   /* Slim single progress bar. */
   .home-bar {
