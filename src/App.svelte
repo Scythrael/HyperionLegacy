@@ -135,6 +135,13 @@
     // lists exactly the craftable GEAR blueprints and nothing stackable.
     blueprintMintsEquipmentInstance,
     blueprintUnlocked,
+    // Crafting 0.13.3 (Phase 4 Unit 4.5): how many crafted item levels ONE learned node
+    // of the `craftingItemLevel` Homeworld Talent grants. Read here ONLY to name the grant
+    // in the crafting-level panel's signpost while the talent is still UNLEARNED. Once it
+    // IS learned the panel shows the SUMMED live bonus from craftingItemLevelBonus(state),
+    // never this per-node constant. Imported rather than written as a literal "+2" so
+    // retuning the constant cannot leave a stale number on screen.
+    CRAFTING_ILEVEL_PER_NODE,
     RESEARCH_FACILITY_KEY,
     // Fabricator (Phase 4, Task F4 UI), the stable "fabricator" facility key the
     // Fabricator rail entry + panel + upgrade wiring reference (never the raw
@@ -617,6 +624,18 @@
     craftingXpAwardFor,
     craftingXpPerTick,
     craftedItemLevelReadout,
+    // Crafting 0.13.3 (Phase 4 Unit 4.5): the crafting-level readout's two remaining
+    // seams. craftingLevelProgress turns the two persisted fields (craftingLevel +
+    // craftingXp, which is already the REMAINDER inside the current level) into level /
+    // into-level / next-level-cost / a 0..1 bar fraction, so the panel below computes no
+    // curve arithmetic of its own and cannot drift from applyCraftingXp. Its
+    // xpForNextLevel IS craftingXpForNext, which is why that function is not imported
+    // separately: one call answers the whole bar.
+    // itemLevelCeilingForTier is the HARD per-tier cap, imported so the panel can state
+    // the "per tier" size (itemLevelCeilingForTier(1)) without hardcoding 20 or reaching
+    // into itemgen.ts for EQUIPMENT_ILEVEL_CAP_PER_TIER.
+    craftingLevelProgress,
+    itemLevelCeilingForTier,
     type CraftingXpSubject,
   } from "./lib/game/craftingProgress";
   // Crafting 0.13.3 (Unit 4.1): the shared inline-SVG icon component, used here for the
@@ -4703,6 +4722,51 @@
     return rates.length === 0 ? 0 : Math.min(...rates);
   })();
 
+  // ============================================================================
+  // CRAFTING LEVEL PANEL (Crafting 0.13.3, Phase 4 Unit 4.5), the STATIC half.
+  // ============================================================================
+  // Three content-table derivations, computed once at component setup for the same reason
+  // refineXpPerTickAnchor above is: BLUEPRINTS is a static table, so there is nothing here
+  // for a reactive statement to react to. The state-dependent half of the panel (level,
+  // XP progress, per-tier iLevel) lives in the reactive block beside the Fabricator's other
+  // derived reads.
+
+  // The blueprint tiers that actually MINT A PIECE OF GEAR, ascending.
+  //
+  // WHY THIS LIST AND NOT 1..maxBlueprintTier: iLevel is a property of an equipment
+  // INSTANCE. A material blueprint deposits a stackable item, which carries no iLevel at
+  // all, so a tier whose only blueprints are materials has no iLevel ceiling to report and
+  // listing it would invent a stat (the same reasoning that gates the Unit 4.3 REWARDS
+  // block's iLevel line behind blueprintMintsEquipmentInstance, and the same predicate).
+  //
+  // Derived from the data, so authoring a tier-3 gear blueprint makes a third row appear on
+  // its own with no code change here.
+  const craftingILevelTiers: number[] = [
+    ...new Set(
+      Object.values(BLUEPRINTS)
+        .filter((bp) => blueprintMintsEquipmentInstance(bp))
+        .map((bp) => bp.tier)
+    ),
+  ].sort((a, b) => a - b);
+
+  // The size of ONE tier's iLevel band (itemLevelCeilingForTier(1) === the per-tier cap).
+  // Asked of craftingProgress.ts rather than importing EQUIPMENT_ILEVEL_CAP_PER_TIER from
+  // itemgen.ts, so the panel reads the cap through the same helper that computes the
+  // ceilings it prints and the two can never disagree.
+  const iLevelPerTier: number = itemLevelCeilingForTier(1);
+
+  // The BEST crafting-XP rate the Fabricator can pay, for the "where does the XP come from"
+  // line. Max across gear blueprints because that is the design's intended lead route
+  // (design 6.4, Route B); paired with refineXpPerTickAnchor's conservative MINIMUM, the
+  // sentence states the widest honest spread between the two routes rather than a flattering
+  // average. Zero when no gear blueprint exists, in which case the line is not rendered.
+  const equipmentXpPerTickBest: number = (() => {
+    const rates = Object.values(BLUEPRINTS)
+      .filter((bp) => blueprintMintsEquipmentInstance(bp))
+      .map((bp) => craftingXpPerTick({ kind: "fabricate", blueprint: bp }));
+    return rates.length === 0 ? 0 : Math.max(...rates);
+  })();
+
   // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
   // canBuildFacilityUpgrade (materials + FA level + talents + no in-flight
   // upgrade for this facility); on any miss it is a no-op.
@@ -5533,6 +5597,48 @@
   // tier-3 blueprint later makes the clause reappear on its own with no code change.
   $: maxBlueprintTier = Object.values(BLUEPRINTS).reduce((max, bp) => Math.max(max, bp.tier), 0);
   $: fabricatorUnlocksNextTier = fabricatorLevel + 1 <= maxBlueprintTier;
+
+  // ── The CRAFTING LEVEL readout (Crafting 0.13.3, Phase 4 Unit 4.5) ──
+  // The state-dependent half of the panel. Everything binds to craftingProgress.ts and
+  // NOTHING is re-derived here, the same discipline the queue (buildCraftQueue) and the
+  // Unit 4.3 REWARDS block already follow: the number the player is shown has to be the
+  // number the tick will actually produce, and calling the tick's own functions is the only
+  // way to guarantee that.
+
+  // Level, XP into the level, the next level's cost, and the 0..1 bar fraction, straight off
+  // the two persisted fields. craftingXp is ALREADY the remainder inside the current level
+  // (applyCraftingXp subtracts each threshold as it is crossed), so there is no cumulative
+  // bookkeeping to do and none is done here.
+  $: craftingLevelView = craftingLevelProgress(state);
+
+  // The LEARNED talent grant, summed off the Homeworld tree.
+  // ⚠️ NOT OPTIONAL (the Unit 3.1 standing note, restated because this is the second console
+  // to render an iLevel): craftedItemLevelReadout takes faTalentBonus as a caller-supplied
+  // parameter defaulting to 0 precisely because craftingProgress.ts must not import tick.ts.
+  // The three real mint sites in resolveProcesses pass craftingItemLevelBonus(state), so a
+  // console that omits it UNDER-REPORTS what the Fabricator actually mints.
+  $: craftingTalentILevelBonus = craftingItemLevelBonus(state);
+
+  // WHAT THE LEVEL IS CURRENTLY BUYING, one row per gear tier: the iLevel a craft from that
+  // tier rolls at right now, that tier's HARD ceiling, and whether more crafting levels have
+  // stopped helping it. computeItemLevel is called exactly once per tier through
+  // craftedItemLevelReadout, so this table and the Craft tab's per-blueprint preview agree by
+  // construction (same function, same talent bonus, same crafting level).
+  $: craftedILevelByTier = craftingILevelTiers.map((tier) => ({
+    tier,
+    readout: craftedItemLevelReadout({
+      craftingLevel: state.craftingLevel,
+      blueprintTier: tier,
+      faTalentBonus: craftingTalentILevelBonus,
+    }),
+  }));
+
+  // Is EVERY gear tier the game currently has at its ceiling? This is the panel's
+  // state-dependent empty state (inventory 0.8): once it is true, more crafting levels buy
+  // nothing at all until higher-tier content exists, and the panel has to say so plainly
+  // rather than leaving the player watching a bar that no longer does anything.
+  $: craftingAllTiersAtCeiling =
+    craftedILevelByTier.length > 0 && craftedILevelByTier.every((row) => row.readout.atCeiling);
 
   // ============================================================================
   // Shipyard (Phase 5, Task S5 UI), the reactive reads the Build/Upgrades panel below
@@ -6612,6 +6718,22 @@
                     </div>
                   {/each}
                 {/if}
+
+                <!-- CRAFTING LEVEL ECHO (Crafting 0.13.3, Phase 4 Unit 4.5). ONE LINE, and
+                     deliberately no bar, no iLevel table and no talent signpost: the full
+                     readout is the Fabricator Overview's panel and there must be exactly one
+                     authoritative copy of it.
+                     WHY AN ECHO EXISTS AT ALL. Refining pays the lowest crafting-XP rate in
+                     the game by design (design 6.4: refining contributes but cannot lead), so
+                     "why is my crafting level barely moving" is a question the player asks
+                     while looking at THIS console, and answering it two consoles away is not
+                     answering it. The rate is derived from REFINE_RECIPES (refineXpPerTickAnchor)
+                     rather than written as a literal, so it cannot go stale. -->
+                <p class="cl-note" style="margin-top: 10px;">
+                  Crafting level {craftingLevelView.level}, {(craftingLevelView.fraction * 100).toFixed(1)}% toward the next.
+                  Refine jobs pay {refineXpPerTickAnchor.toFixed(1)} crafting XP per tick, the game's lowest rate; the full
+                  readout of what the level buys is on the <strong>Fabricator</strong> Overview.
+                </p>
               </Panel>
             {/if}
 
@@ -6945,6 +7067,148 @@
                 <p class="research-status" style="margin-top: 10px; color: var(--color-text-secondary);">
                   Fabricated components become usable when the <strong>Shipyard</strong> comes online (next feature).
                 </p>
+              </Panel>
+
+              <!-- CRAFTING LEVEL (Crafting 0.13.3, Phase 4 Unit 4.5, design 6.5 + plan 4.5).
+                   ================================================================
+                   WHY IT LIVES HERE, AND ONLY HERE.
+                   Phase 3 made crafting level the stat that governs crafted gear, and until
+                   this panel the player could see a per-craft XP number in the Craft tab's
+                   REWARDS block and nothing else: no level, no progress, no statement of what
+                   the level is buying. The Fabricator Overview is crafting's home console (it
+                   is where the blueprint counts, the in-flight crafts and the Shipyard
+                   signpost already live) and it is one tap from the Craft tab that spends the
+                   level, so it is the surface a player already visits with this exact question.
+                   The panel is deliberately NOT repeated on the Facilities dashboard or Home:
+                   scattering it would make three places to keep in sync and none of them
+                   authoritative. The Refinery Overview gets a ONE-LINE echo (no bar, no iLevel
+                   table) for the single reason given at that line: the Refinery is where the
+                   lowest-paying crafting happens, so "why is my level barely moving" is asked
+                   there and has to be answered there.
+
+                   ADDITIVE BY CONSTRUCTION. This is a sibling Panel appended after the
+                   existing FABRICATOR panel, which is not edited at all, so every Overview
+                   affordance in preservation inventory 1c survives untouched: the
+                   "Blueprints fabricable: N / M researched" count, the level and craft-slot
+                   lines, the in-flight job cards with their three-output-kind job names and
+                   their remainingReadout, the "No active fabricate jobs." empty state, and the
+                   Shipyard forward signpost.
+
+                   EVERY NUMBER COMES FROM craftingProgress.ts. The level, the bar and the
+                   per-tier iLevels are the same functions the tick's own award and mint paths
+                   call, so this readout cannot disagree with what the Fabricator produces.
+                   No duration is rendered anywhere in this panel, so there is no
+                   showTickCounts / tickDurationSeconds surface to thread (the durations on
+                   this console all live in the panel above, unchanged). -->
+              <Panel>
+                <div class="panel-title">CRAFTING LEVEL</div>
+                <div class="research-cost">Level: {craftingLevelView.level}</div>
+
+                <!-- The XP bar, the SAME research-bar-track / research-bar-fill /
+                     research-readout idiom the Fleet Admiral XP row, the mission bars and
+                     every in-flight job on this console already use (not a new bar style).
+                     xpIntoLevel is the remainder INSIDE the current level, which is exactly
+                     what the persisted field holds, so the bar needs no cumulative math. -->
+                <div class="research-bar-track">
+                  <div class="research-bar-fill" style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></div>
+                </div>
+                <div class="research-readout">
+                  {formatNumber(craftingLevelView.xpIntoLevel)}/{formatNumber(craftingLevelView.xpForNextLevel)} [{(craftingLevelView.fraction * 100).toFixed(1)}%] toward Level {craftingLevelView.level + 1}
+                </div>
+
+                <!-- WHAT THIS BUYS: the whole reason the panel exists. A crafting level is an
+                     abstraction until it is expressed as the iLevel it mints, one row per gear
+                     tier the game actually has. -->
+                {#if craftedILevelByTier.length > 0}
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="equipment" size={12} /> What this buys</span>
+                    <!-- The pill counts GEAR TIERS, so it says so: a bare number in this slot
+                         reads as "2 of something" and the something is not obvious here the
+                         way "3 / 5 orders" is on the queue panel. -->
+                    <span class="home-sec-count">{craftedILevelByTier.length} {craftedILevelByTier.length === 1 ? "tier" : "tiers"}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
+                  <div class="cl-tiers">
+                    {#each craftedILevelByTier as row (row.tier)}
+                      <div class="cl-tier" class:cl-tier-max={row.readout.atCeiling}>
+                        <span class="home-l1">Tier {row.tier} gear: iLevel {row.readout.iLevel} of {row.readout.ceiling}</span>
+                        <!-- THE TIER CAP, said in the row rather than only in the paragraph
+                             below, because the confusing moment is per tier: one tier can be
+                             finished while another is still climbing. WRAPS on purpose (no
+                             ellipsis), the same rule the queue's block reasons follow: an
+                             explanation the player cannot read in full is no explanation. -->
+                        <span class="cl-state" class:cl-state-max={row.readout.atCeiling}>
+                          {#if row.readout.atCeiling}
+                            At the ceiling. More crafting levels do not raise Tier {row.tier} gear any further. A higher-tier blueprint has a higher ceiling.
+                          {:else}
+                            {row.readout.ceiling - row.readout.iLevel} more item levels before this tier is capped.
+                          {/if}
+                        </span>
+                      </div>
+                    {/each}
+                  </div>
+
+                  <!-- The rule itself, stated once. This is the single most confusing part of
+                       the system (a number that simply stops moving), so it is spelled out
+                       rather than left to be inferred from the rows, and it carries the
+                       Research Lab cross-link that is the actual fix. -->
+                  <p class="cl-note">
+                    The ceiling is hard: {iLevelPerTier} item levels per blueprint tier. Crafting levels raise what you mint
+                    up to a tier's ceiling and never past it, so once a tier reads "at the ceiling" the only way to mint higher
+                    is a higher-tier blueprint. Research those at the <strong>Research Lab</strong>, then raise the Fabricator's
+                    level to craft them.
+                  </p>
+
+                  <!-- State-dependent end state (inventory 0.8): every tier finished. The bar
+                       above still fills, so without this the player is watching progress that
+                       buys nothing and has no way to know it. -->
+                  {#if craftingAllTiersAtCeiling}
+                    <p class="cl-note cl-note-max">
+                      Every gear tier in the game today is at its ceiling. Crafting levels past {craftingLevelView.level} bank
+                      progress but raise nothing until higher-tier blueprints exist. That is the top of current content, not a fault.
+                    </p>
+                  {/if}
+
+                  <!-- The talent, in both states. Named the way the queue panel names its own
+                       talent ("Homeworld Talents → Branch (Node)") so the two signposts read
+                       as one convention. The honest scope is stated in BOTH branches: it is a
+                       catch-up that reaches a ceiling sooner and does nothing at one, which is
+                       exactly what the node's own flavor text promises. -->
+                  {#if craftingTalentILevelBonus > 0}
+                    <p class="cl-note">
+                      Homeworld Talents → Industry (Tooling Upgrade) is adding <strong>+{craftingTalentILevelBonus}</strong> item
+                      levels, already counted in the rows above. It reaches a tier's ceiling sooner and does nothing once you are at it.
+                    </p>
+                  {:else}
+                    <p class="cl-note">
+                      Homeworld Talents → Industry (Tooling Upgrade) grants +{CRAFTING_ILEVEL_PER_NODE} crafted item levels per node.
+                      It reaches a tier's ceiling sooner and does nothing once you are at it.
+                    </p>
+                  {/if}
+                {:else}
+                  <!-- No gear blueprint exists at all (unreachable with today's content, and a
+                       real state on a stripped save). Saying "no iLevel to report yet" is the
+                       honest answer; inventing a tier row would be a fabricated stat. -->
+                  <p class="research-status" style="margin-top: 10px;">
+                    No gear blueprints exist yet, so this level has no item level to raise. Research blueprints at the <strong>Research Lab</strong>.
+                  </p>
+                {/if}
+
+                <!-- WHERE THE XP COMES FROM. The weight model's whole point (design 6.4) is
+                     that refining contributes but cannot lead, and a player who cannot see the
+                     spread has no way to act on it. Both numbers are derived from the content
+                     tables (the conservative MINIMUM refine rate against the best gear rate),
+                     never written as literals, so the sentence cannot go stale. -->
+                {#if equipmentXpPerTickBest > 0}
+                  <div class="home-sec-hd" style="margin-top: 12px;">
+                    <span class="home-sec-h"><Icon name="fabricator" size={12} /> Where the XP comes from</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
+                  <p class="cl-note" style="margin-top: 0;">
+                    Fabricating gear pays up to {equipmentXpPerTickBest.toFixed(1)} crafting XP per tick, against
+                    {refineXpPerTickAnchor.toFixed(1)} for a refine job. Refining still counts toward this level, it simply cannot lead.
+                  </p>
+                {/if}
               </Panel>
             {/if}
 
@@ -14093,6 +14357,67 @@
   @media (max-width: 400px) {
     .cq-row { flex-wrap: wrap; }
     .cq-ctl { width: 100%; justify-content: flex-end; }
+  }
+
+  /* =============== CRAFTING LEVEL PANEL (Crafting 0.13.3, Phase 4 Unit 4.5) ===============
+     The per-tier "what your crafting level buys" rows and the explanatory notes beneath them.
+     Same row grammar as the order queue above and the Home / Ships lists (a bordered row with
+     an ellipsizing headline over a wrapping secondary line), given its OWN class names rather
+     than borrowing .cq-* because .cq-* is documented as the ORDER QUEUE's vocabulary and these
+     are not queue rows. The shared pieces (.home-l1, .home-sec-hd, .home-sec-count,
+     .home-sec-rule, .research-bar-track / -fill / .research-readout) are reused outright.
+
+     Tints are color-mix(in srgb, var(--color-X) N%, transparent), never an -rgb triplet: the
+     locked 0.13.3 design-system decision, so a tint composites against whatever is actually
+     behind the row in either theme.
+
+     No fixed widths and no min-widths anywhere here, so the panel reflows to 320px without
+     horizontal scroll: the headline ellipsizes (.home-l1) and every explanation wraps. */
+  .cl-tiers { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
+  .cl-tier {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 9px;
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+  }
+  /* A tier that has reached its hard ceiling. A quiet SUCCESS wash, not the amber "needs you"
+     treatment and not a danger one: hitting the cap is a destination reached, and the design
+     positions it as a long-game goal rather than a wall. */
+  .cl-tier-max {
+    border-color: color-mix(in srgb, var(--color-success) 45%, transparent);
+    background: color-mix(in srgb, var(--color-success) 8%, transparent);
+  }
+
+  /* The per-row explanation. WRAPS on purpose (no ellipsis), the same rule the queue's block
+     reasons follow: a cap explanation the player cannot read in full explains nothing. */
+  .cl-state {
+    display: block;
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.35;
+    color: var(--color-text-secondary);
+  }
+  .cl-state-max { color: var(--color-success); }
+
+  /* The standing notes (the hard-cap rule, the talent signpost, the XP-source line, and the
+     Refinery echo). Same voice and metrics as .cq-note so the crafting consoles read as one
+     surface. */
+  .cl-note {
+    margin: 8px 0 0;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
+  }
+  /* The everything-is-capped end state: success-tinted, because it reports an achievement
+     ("you are at the top of current content") rather than a problem to fix. */
+  .cl-note-max {
+    color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-success) 28%, transparent);
+    border-radius: 7px;
+    padding: 7px 9px;
   }
 
   /* Reduced-motion: kill the amber prompt pulse AND the ticker crossfade (design / a11y
