@@ -544,6 +544,15 @@
     // the token alone: "notFound" is a member of both unions with two different readings.
     type QueueBlockReason,
     type EnqueueBlockReason,
+    // Crafting 0.13.3 (Phase 4 Unit 4.3): the learned-talent iLevel grant, summed off the
+    // Homeworld talent tree. ⚠️ IT IS NOT OPTIONAL FOR A CONSOLE THAT SHOWS AN iLEVEL.
+    // craftedItemLevelReadout (craftingProgress.ts) takes faTalentBonus as a caller-supplied
+    // parameter defaulting to 0, precisely because that module must not import tick.ts (it
+    // would cycle), and Unit 3.1 left a standing note that a console rendering the readout
+    // MUST pass this or it will UNDER-REPORT the iLevel the Fabricator actually mints. The
+    // three real mint sites in resolveProcesses pass exactly this function's result, so the
+    // Fabricator's preview and the minted piece agree by construction.
+    craftingItemLevelBonus,
   } from "./lib/game/tick";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
   // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
@@ -556,6 +565,24 @@
     type CraftQueueRow,
     type CraftQueueView,
   } from "./lib/game/craftQueue";
+  // Crafting 0.13.3 (Phase 4 Unit 4.3): the PURE crafting-XP weight model and its readouts.
+  // The Fabricator configurator's "what is this craft worth" block binds to these and derives
+  // NOTHING itself, for the same reason the queue binds to buildCraftQueue: the number the
+  // player is shown has to be the number resolveProcesses will actually award, and the only
+  // way to guarantee that is to call the same functions the tick calls.
+  //
+  // ⚠️ WHY THE UI MAY CALL craftingXpAwardFor DIRECTLY (it is the award path, not a readout):
+  // craftingXpAwardForProcess is the tick's entry point and needs a live TimedProcess, which a
+  // configurator has not created yet. craftingXpAwardFor takes the SUBJECT and the DURATION, so
+  // the preview prices the exact job the Start/Add-to-queue button would create. What the UI
+  // must never do is re-implement the floor: craftingXpPerTick is a FLOAT rate for display only
+  // and an odd-length job pays the floored award, never rate * ticks (see that function's note).
+  import {
+    craftingXpAwardFor,
+    craftingXpPerTick,
+    craftedItemLevelReadout,
+    type CraftingXpSubject,
+  } from "./lib/game/craftingProgress";
   // Crafting 0.13.3 (Unit 4.1): the shared inline-SVG icon component, used here for the
   // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
@@ -4268,6 +4295,74 @@
     return "";
   }
 
+  // Does any RUNNING line at this facility never release its slot?
+  //
+  // GENERALIZED IN UNIT 4.3 from the two reactive statements Unit 4.2 wrote inline for the
+  // Refinery (refineryContinuousRunning / refineryAllRunningContinuous). It is the same
+  // question on every queue-capable facility and Unit 4.4 makes it a third caller, so it is
+  // one pure function taking the view rather than a per-console pair of `$:` lines.
+  //
+  // A continuous line runs until it is canceled (design 5.4), so anything queued behind one
+  // waits on a DIFFERENT line, and if every line is continuous the queue waits forever. That
+  // is not a bug, but it is a trap when unlabeled, so the queue section says so. Both halves
+  // are read straight off the running rows the view model already built.
+  //
+  // `all` is false on an idle facility (runningCount === 0): with nothing running at all,
+  // "every running line is continuous" would be a vacuous truth and a misleading warning.
+  function queueContinuousSummary(view: CraftQueueView): { count: number; all: boolean } {
+    const count = view.running.filter((r) => r.continuous).length;
+    return { count, all: view.runningCount > 0 && count === view.runningCount };
+  }
+
+  // ── Per-recipe CRAFTING XP readout (Crafting 0.13.3, Phase 4 Unit 4.3) ─────
+  // The discoverability half of the XP redesign (design 8.3): Unit 3.2 made the weights live,
+  // and a weight system nobody can see is indistinguishable from a random number. These two
+  // helpers exist so the configurator's preview can price the EXACT job its buttons would
+  // create, using craftingProgress.ts's own functions and re-deriving nothing.
+
+  // The XP subject for a fabricate of `recipeKey`, or null when the key names no blueprint.
+  // Null rather than a "none" subject on purpose: "none" is a real answer meaning "this kind
+  // of job earns nothing", and an unresolvable key is a different thing (the readout is simply
+  // not rendered), so the two must not collapse into the same value.
+  function fabricateXpSubject(recipeKey: string): CraftingXpSubject | null {
+    const bp = BLUEPRINTS[recipeKey];
+    return bp ? { kind: "fabricate", blueprint: bp } : null;
+  }
+
+  // XP a fabricate of `recipeKey` awards for ONE completed craft.
+  //
+  // ⚠️ THE DURATION IS bp.craftDurationTicks AND THAT IS NOT AN APPROXIMATION. lineJobSpec
+  // (tick.ts) sets a fabricate job's durationTicks to exactly that field: unlike a refine job,
+  // whose duration is divided by the Refinery's refineSpeedMult rung, the Fabricator has no
+  // speed track, so there is no multiplier to miss here. If one is ever added, this call is
+  // the site that has to learn about it, which is why the reasoning is written down rather
+  // than left as a coincidence.
+  function fabricateXpPerCraft(recipeKey: string): number {
+    const subject = fabricateXpSubject(recipeKey);
+    const bp = BLUEPRINTS[recipeKey];
+    if (subject === null || bp === undefined) return 0;
+    return craftingXpAwardFor(subject, bp.craftDurationTicks);
+  }
+
+  // The COMPARISON ANCHOR the readout is really for: what a refine job pays per tick.
+  //
+  // Derived from the real REFINE_RECIPES rather than written as a literal, so the sentence
+  // cannot go stale the day a recipe declares its own xpWeightNum. It reports the LOWEST rate
+  // across the shipped recipes, which keeps the implied claim ("fabricating pays more") the
+  // conservative reading rather than the flattering one. Every recipe prices identically today
+  // (both are on the default weight), so this is a single honest number, not an average.
+  //
+  // Computed once at component setup: REFINE_RECIPES is a static content table, so there is
+  // nothing here for a reactive statement to react to.
+  const refineXpPerTickAnchor: number = (() => {
+    const rates = Object.values(REFINE_RECIPES).map((recipe) =>
+      craftingXpPerTick({ kind: "refine", recipe })
+    );
+    // An empty table is unreachable (two recipes ship) but Math.min() of nothing is Infinity,
+    // which would render as a nonsense comparison instead of simply not being shown.
+    return rates.length === 0 ? 0 : Math.min(...rates);
+  })();
+
   // Start the NEXT upgrade rung for `facilityKey`. Backend gates on
   // canBuildFacilityUpgrade (materials + FA level + talents + no in-flight
   // upgrade for this facility); on any miss it is a no-op.
@@ -4857,14 +4952,10 @@
   // stories about what starts next. Deriving it here (rather than inline in the template)
   // also means the builder runs once per state change instead of once per row.
   $: refineryQueue = buildCraftQueue(state, "refinery");
-  // Does any RUNNING refinery line never release its slot? A continuous line runs until it
-  // is canceled (design 5.4), so anything queued behind one waits on a DIFFERENT line, and
-  // if every line is continuous the queue waits forever. That is not a bug, but it is a
-  // trap when unlabeled, so the queue section says so. Both halves are read straight off
-  // the running rows the view model already built.
-  $: refineryContinuousRunning = refineryQueue.running.filter((r) => r.continuous).length;
-  $: refineryAllRunningContinuous =
-    refineryQueue.runningCount > 0 && refineryContinuousRunning === refineryQueue.runningCount;
+  // The continuous-line trap, from the shared queueContinuousSummary helper. Unit 4.2 wrote
+  // this as two inline reactive statements; Unit 4.3 generalized them into one function
+  // because the Fabricator asks the identical question of its own view.
+  $: refineryContinuous = queueContinuousSummary(refineryQueue);
 
   // Next Refinery UPGRADE rung. upgrades[level] is the rung that takes the
   // facility from `level` to `level+1` (so a level-0 refinery's next rung is
@@ -5068,6 +5159,16 @@
   // Whether the fabricator is built at all (>= 1 slot). Below 1 slot there are no line
   // slots to render, so the Craft sub-tab shows the Research-Lab empty-state signpost.
   $: fabricatorBuilt = fabricateSlots > 0;
+
+  // ── The Fabricator's ORDER QUEUE view (Crafting 0.13.3, Phase 4 Unit 4.3) ──
+  // The exact twin of refineryQueue above, differing only in the facility key. Both consoles
+  // then render the SAME {#snippet craftOrderQueuePanel} from these two values, so there is
+  // one queue panel in the app rather than two that drift. buildCraftQueue's adapter table is
+  // what makes the key the only difference: the Fabricator's adapter delegates to
+  // fabricateSlotCount and canStartLine("fabricate", ...), which are the same seams the Craft
+  // tab's own Start button already asks, so the queue and the console cannot disagree.
+  $: fabricatorQueue = buildCraftQueue(state, "fabricator");
+  $: fabricatorContinuous = queueContinuousSummary(fabricatorQueue);
 
   // The blueprints a Fabricator line can currently configure: RESEARCHED (blueprintUnlocked)
   // AND tier-available (tier <= fabricator level), the SAME two stable gates the fabricable
@@ -5384,6 +5485,155 @@
       </div>
     {/if}
   </div>
+{/snippet}
+
+<!-- ================= THE ORDER QUEUE PANEL (Crafting 0.13.3) =================
+     ONE queue panel for every queue-capable CRAFT console. Unit 4.2 wrote this markup
+     inline on the Refinery; Unit 4.3 EXTRACTED it here unchanged rather than pasting a
+     second copy into the Fabricator, exactly as the build plan directs ("extract it
+     rather than copying it"). The two consoles now render the same snippet from their
+     own view, so a wording or a11y fix lands on both by construction and they cannot
+     drift into two dialects of the same panel.
+
+     WHAT IS PARAMETERIZED, AND WHAT DELIBERATELY IS NOT:
+       view        the facility's CraftQueueView from buildCraftQueue. Every number, label,
+                   eligibility answer and control-enabled state below is read straight off
+                   it; NOTHING is re-derived here, which is what guarantees a row's
+                   "waiting for a free line" and the tick's own promotion decision are the
+                   same answer from the same adapter.
+       continuous  the queueContinuousSummary of that same view (count + all).
+
+     No facility NAME and no noun parameter: the Refinery and the Fabricator both run
+     "lines", so every string below is already correct for both, and inventing a noun knob
+     for a difference that does not exist would be a parameter with exactly one value. The
+     Salvage Bay (Unit 4.4) runs BAYS and has no continuous mode at all, so it is a
+     genuinely different panel and gets that decision made in its own unit rather than
+     pre-empted here by a half-general parameter.
+
+     Queued rows deliberately get NO progress bar (inventory 0.5): they have not started, so
+     a bar would be a fabricated countdown. They get a position, a state and stable controls
+     instead. -->
+{#snippet craftOrderQueuePanel(view: CraftQueueView, continuous: { count: number; all: boolean })}
+  <Panel>
+    <div class="panel-title">ORDER QUEUE</div>
+
+    <!-- Depth readout, the Home section-header idiom (used / total in the pill).
+         depthUsed/depthTotal are fields on the view model, not a template sum. -->
+    <div class="home-sec-hd">
+      <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
+      <span class="home-sec-count" class:cq-count-over={view.overDepth}>
+        {view.depthUsed} / {view.depthTotal}
+      </span>
+      <span class="home-sec-rule"></span>
+    </div>
+
+    <!-- THE RESPEC DRAIN STATE. A refund of the queue-depth talents can leave a
+         facility holding more waiting orders than the new depth allows. Nothing is
+         destroyed (the over-cap inventory precedent), the extras simply drain and
+         nothing new can be added, so the note says exactly that rather than
+         reading as an error the player has to fix. -->
+    {#if view.overDepth}
+      <p class="cq-note cq-note-warn">
+        Over capacity: {view.depthUsed} orders are held but the current depth is {view.depthTotal}.
+        Nothing is lost. These drain as lines free up, and no new order can be added until the queue is back under {view.depthTotal}.
+        Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
+      </p>
+    {:else if !view.canEnqueue && view.enqueueBlockReason !== null}
+      <p class="cq-note cq-note-warn">{enqueueBlockText(view.enqueueBlockReason)}</p>
+    {/if}
+
+    <!-- THE CONTINUOUS-LINE TRAP (design 5.4). A continuous line runs until it is
+         canceled, so it never hands its slot back. Shown ONCE per section rather
+         than repeated on every row: the warning is a property of the RUNNING lines,
+         identical for every row behind them, and a dense list that repeats the same
+         sentence N times reads as noise instead of information. -->
+    {#if view.depthUsed > 0 && continuous.count > 0}
+      <p class="cq-note cq-note-warn">
+        {#if continuous.all}
+          Every running line is continuous, so no line will free up on its own. Cancel a line to let the queue start.
+        {:else}
+          A continuous line never finishes on its own, so these wait for one of the other lines to free up.
+        {/if}
+      </p>
+    {/if}
+
+    {#if view.queued.length === 0}
+      <!-- State-dependent empty state (inventory 0.8): the two readings are
+           genuinely different problems. No depth at all means "go get depth"; depth
+           with nothing in it means "here is how you fill it".
+           The zero-depth branch is DEFENSIVE and unreachable today: QUEUE_DEPTH_BASE
+           is 1, so every player has one queue slot before any talent. It is written
+           anyway because depth is derived from talents on read, and a future rebalance
+           that moves the base to 0 must not land a blank panel with no explanation. -->
+      <p class="research-status" style="margin-top: 10px;">
+        {#if view.depthTotal <= 0}
+          This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {:else}
+          Nothing queued. Configure a line above and choose <strong>Add to queue</strong> to line up work that starts as soon as a line frees up.
+          Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {/if}
+      </p>
+    {:else}
+      <div class="cq-list">
+        {#each view.queued as row (row.id)}
+          <div class="cq-row" class:cq-row-next={row.nextToPromote}>
+            <!-- Position is the row's 1-based place in THIS facility's queue, and
+                 the array order IS the queue order, so reordering below is honest
+                 with no second sort key behind it. -->
+            <span class="cq-pos" aria-hidden="true">{row.position}</span>
+            <span class="cq-body">
+              <span class="home-l1">{row.label}</span>
+              <span class="home-l2">
+                <span class="home-meta">{row.modeLabel}</span>
+                {#if row.nextToPromote}<span class="cq-tag">Starts next</span>{/if}
+              </span>
+              <!-- The row's live state, as a PERSISTENT note rather than a hover
+                   title (inventory 0.4): this is a dense list, which is exactly
+                   where the tooltip-flicker bug that motivated persistent notes
+                   lives. queueBlockText words "noSlot" as waiting, not as an
+                   error, because for a queued order it IS the normal state. -->
+              <span class="cq-state" class:cq-state-ok={row.canStart}>
+                <!-- "Ready to start", NOT "starts next tick": with one free line
+                     and two eligible rows only the first is promoted, so a
+                     per-row promise about timing would be a lie for row two. The
+                     timing claim lives on the "Starts next" chip, which the view
+                     model awards to exactly one row. -->
+                {#if row.canStart}Ready to start.{:else}{queueBlockText(row)}{/if}
+              </span>
+            </span>
+            <!-- STABLE BUTTONS, never tooltip actions (the 0.13.2 rule). Icon-only,
+                 so each carries its own accessible name; the name STATES THE REASON
+                 when the control is disabled, which is the "button's own label is
+                 the reason" variant of disabled-reason discipline. The <Icon> stays
+                 decorative on purpose: a labelled icon inside a labelled button
+                 would be a second, competing accessible name. -->
+            <span class="cq-ctl">
+              <button
+                class="cq-btn"
+                disabled={!row.canMoveUp}
+                title={row.canMoveUp ? "Move up" : "Already first in the queue"}
+                aria-label={row.canMoveUp ? `Move ${row.label} up` : "Already first in the queue"}
+                on:click={() => doMoveQueuedOrder(row.id, "up")}
+              ><Icon name="chevronUp" size={14} /></button>
+              <button
+                class="cq-btn"
+                disabled={!row.canMoveDown}
+                title={row.canMoveDown ? "Move down" : "Already last in the queue"}
+                aria-label={row.canMoveDown ? `Move ${row.label} down` : "Already last in the queue"}
+                on:click={() => doMoveQueuedOrder(row.id, "down")}
+              ><Icon name="chevronDown" size={14} /></button>
+              <button
+                class="cq-btn cq-btn-danger"
+                title="Remove from queue"
+                aria-label={`Remove ${row.label} from the queue`}
+                on:click={() => doRemoveQueuedOrder(row.id, row.label)}
+              ><Icon name="close" size={14} /></button>
+            </span>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </Panel>
 {/snippet}
 
 <div class="root">
@@ -6059,135 +6309,11 @@
 
               <!-- ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.2, design 8.2).
                    Sits UNDER the production lines because that is the order the work happens
-                   in: what is running, then what is waiting behind it. Every number, label,
-                   eligibility answer and control-enabled state below is read straight off
-                   refineryQueue (buildCraftQueue's pure view model); NOTHING is re-derived
-                   here, which is what guarantees a row's "waiting for a free line" and the
-                   tick's own promotion decision are the same answer from the same adapter.
-                   Queued rows deliberately get NO progress bar (inventory 0.5): they have not
-                   started, so a bar would be a fabricated countdown. They get a position, a
-                   state and stable controls instead. -->
+                   in: what is running, then what is waiting behind it. The panel itself is the
+                   shared craftOrderQueuePanel snippet above, which Unit 4.3 extracted from this
+                   exact markup so the Fabricator renders the identical one. -->
               {#if refineryBuilt}
-                <Panel>
-                  <div class="panel-title">ORDER QUEUE</div>
-
-                  <!-- Depth readout, the Home section-header idiom (used / total in the pill).
-                       depthUsed/depthTotal are fields on the view model, not a template sum. -->
-                  <div class="home-sec-hd">
-                    <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
-                    <span class="home-sec-count" class:cq-count-over={refineryQueue.overDepth}>
-                      {refineryQueue.depthUsed} / {refineryQueue.depthTotal}
-                    </span>
-                    <span class="home-sec-rule"></span>
-                  </div>
-
-                  <!-- THE RESPEC DRAIN STATE. A refund of the queue-depth talents can leave a
-                       facility holding more waiting orders than the new depth allows. Nothing is
-                       destroyed (the over-cap inventory precedent), the extras simply drain and
-                       nothing new can be added, so the note says exactly that rather than
-                       reading as an error the player has to fix. -->
-                  {#if refineryQueue.overDepth}
-                    <p class="cq-note cq-note-warn">
-                      Over capacity: {refineryQueue.depthUsed} orders are held but the current depth is {refineryQueue.depthTotal}.
-                      Nothing is lost. These drain as lines free up, and no new order can be added until the queue is back under {refineryQueue.depthTotal}.
-                      Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
-                    </p>
-                  {:else if !refineryQueue.canEnqueue && refineryQueue.enqueueBlockReason !== null}
-                    <p class="cq-note cq-note-warn">{enqueueBlockText(refineryQueue.enqueueBlockReason)}</p>
-                  {/if}
-
-                  <!-- THE CONTINUOUS-LINE TRAP (design 5.4). A continuous line runs until it is
-                       canceled, so it never hands its slot back. Shown ONCE per section rather
-                       than repeated on every row: the warning is a property of the RUNNING lines,
-                       identical for every row behind them, and a dense list that repeats the same
-                       sentence N times reads as noise instead of information. -->
-                  {#if refineryQueue.depthUsed > 0 && refineryContinuousRunning > 0}
-                    <p class="cq-note cq-note-warn">
-                      {#if refineryAllRunningContinuous}
-                        Every running line is continuous, so no line will free up on its own. Cancel a line to let the queue start.
-                      {:else}
-                        A continuous line never finishes on its own, so these wait for one of the other lines to free up.
-                      {/if}
-                    </p>
-                  {/if}
-
-                  {#if refineryQueue.queued.length === 0}
-                    <!-- State-dependent empty state (inventory 0.8): the two readings are
-                         genuinely different problems. No depth at all means "go get depth"; depth
-                         with nothing in it means "here is how you fill it".
-                         The zero-depth branch is DEFENSIVE and unreachable today: QUEUE_DEPTH_BASE
-                         is 1, so every player has one queue slot before any talent. It is written
-                         anyway because depth is derived from talents on read, and a future rebalance
-                         that moves the base to 0 must not land a blank panel with no explanation. -->
-                    <p class="research-status" style="margin-top: 10px;">
-                      {#if refineryQueue.depthTotal <= 0}
-                        This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
-                      {:else}
-                        Nothing queued. Configure a line above and choose <strong>Add to queue</strong> to line up work that starts as soon as a line frees up.
-                        Depth: {refineryQueue.depthTotal} order{refineryQueue.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
-                      {/if}
-                    </p>
-                  {:else}
-                    <div class="cq-list">
-                      {#each refineryQueue.queued as row (row.id)}
-                        <div class="cq-row" class:cq-row-next={row.nextToPromote}>
-                          <!-- Position is the row's 1-based place in THIS facility's queue, and
-                               the array order IS the queue order, so reordering below is honest
-                               with no second sort key behind it. -->
-                          <span class="cq-pos" aria-hidden="true">{row.position}</span>
-                          <span class="cq-body">
-                            <span class="home-l1">{row.label}</span>
-                            <span class="home-l2">
-                              <span class="home-meta">{row.modeLabel}</span>
-                              {#if row.nextToPromote}<span class="cq-tag">Starts next</span>{/if}
-                            </span>
-                            <!-- The row's live state, as a PERSISTENT note rather than a hover
-                                 title (inventory 0.4): this is a dense list, which is exactly
-                                 where the tooltip-flicker bug that motivated persistent notes
-                                 lives. queueBlockText words "noSlot" as waiting, not as an
-                                 error, because for a queued order it IS the normal state. -->
-                            <span class="cq-state" class:cq-state-ok={row.canStart}>
-                              <!-- "Ready to start", NOT "starts next tick": with one free line
-                                   and two eligible rows only the first is promoted, so a
-                                   per-row promise about timing would be a lie for row two. The
-                                   timing claim lives on the "Starts next" chip, which the view
-                                   model awards to exactly one row. -->
-                              {#if row.canStart}Ready to start.{:else}{queueBlockText(row)}{/if}
-                            </span>
-                          </span>
-                          <!-- STABLE BUTTONS, never tooltip actions (the 0.13.2 rule). Icon-only,
-                               so each carries its own accessible name; the name STATES THE REASON
-                               when the control is disabled, which is the "button's own label is
-                               the reason" variant of disabled-reason discipline. The <Icon> stays
-                               decorative on purpose: a labelled icon inside a labelled button
-                               would be a second, competing accessible name. -->
-                          <span class="cq-ctl">
-                            <button
-                              class="cq-btn"
-                              disabled={!row.canMoveUp}
-                              title={row.canMoveUp ? "Move up" : "Already first in the queue"}
-                              aria-label={row.canMoveUp ? `Move ${row.label} up` : "Already first in the queue"}
-                              on:click={() => doMoveQueuedOrder(row.id, "up")}
-                            ><Icon name="chevronUp" size={14} /></button>
-                            <button
-                              class="cq-btn"
-                              disabled={!row.canMoveDown}
-                              title={row.canMoveDown ? "Move down" : "Already last in the queue"}
-                              aria-label={row.canMoveDown ? `Move ${row.label} down` : "Already last in the queue"}
-                              on:click={() => doMoveQueuedOrder(row.id, "down")}
-                            ><Icon name="chevronDown" size={14} /></button>
-                            <button
-                              class="cq-btn cq-btn-danger"
-                              title="Remove from queue"
-                              aria-label={`Remove ${row.label} from the queue`}
-                              on:click={() => doRemoveQueuedOrder(row.id, row.label)}
-                            ><Icon name="close" size={14} /></button>
-                          </span>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                </Panel>
+                {@render craftOrderQueuePanel(refineryQueue, refineryContinuous)}
               {/if}
             {/if}
 
@@ -6418,15 +6544,45 @@
                       Research blueprints at the <strong>Research Lab</strong> to unlock things to fabricate.
                     </p>
                   {:else}
-                    {#each Array(idleSlots) as _, idx}
+                    <!-- 0.13.3 Unit 4.3 adds ONE EXTRA opener past the real slots when there are
+                         no idle slots left and the queue can still accept an order, mirroring the
+                         Refinery (Unit 4.2). WHY: design 8.3 puts "Add to queue" beside Start
+                         inside this configurator, but the configurator only renders on an IDLE
+                         slot, so with every craft slot busy (the exact moment queueing is worth
+                         anything) there would be no way to reach it. It is deliberately NOT shown
+                         while a slot is idle: an order queued against a free line is promoted on
+                         the very next tick, so offering both there would be two buttons for one
+                         outcome.
+                         ⚠️ THE SECOND CONDITION IS FABRICATOR-SPECIFIC AND LOAD-BEARING (the
+                         Refinery has no equivalent). availableFabricateBlueprints.length > 0
+                         keeps the opener from appearing when NOTHING is researched: the tier and
+                         item dropdowns would both be empty, so it would be a configurator that
+                         cannot configure anything. The nothing-researched state is the Research
+                         Lab signpost above (preservation inventory 1c: that empty state must not
+                         be replaced by a configurator), and the {:else} branch is reached with
+                         idleSlots === 0 in exactly that case, which is what makes the guard
+                         necessary rather than decorative. -->
+                    {@const queueOpeners =
+                      idleSlots === 0 && availableFabricateBlueprints.length > 0 && fabricatorQueue.canEnqueue ? 1 : 0}
+                    {#each Array(idleSlots + queueOpeners) as _, idx}
+                      {@const isQueueOpener = idx >= idleSlots}
                       {@const slotIndex = fabricateLines.length + idx}
                       {@const isOpen = openConfig?.kind === "fabricate" && openConfig.slotIndex === slotIndex}
                       {#if isOpen}
                         {@const maxQty = maxAffordableIterations(state, "fabricate", cfgRecipeKey)}
                         {@const gate = canStartLine(state, "fabricate", cfgRecipeKey, Math.floor(cfgQty))}
                         {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
+                        <!-- The queue button's own gate + its persistent reason, from ONE helper so
+                             the disabled state and the note below can never disagree. -->
+                        {@const queueBlock = craftQueueButtonBlockText(fabricatorQueue, cfgRecipeKey, cfgQty)}
+                        <!-- The selected blueprint, hoisted to this level because {@const} has to be
+                             the immediate child of a block, not of the .mission-card <div> where the
+                             REWARDS readout below actually renders. Undefined until the player has
+                             picked something (or on a save naming a retired key), which is what the
+                             {#if xpBp} guard down there is for. -->
+                        {@const xpBp = BLUEPRINTS[cfgRecipeKey]}
                         <div class="mission-card" style="margin-top: 10px;">
-                          <div class="research-name">Line {slotIndex + 1} · configure a craft</div>
+                          <div class="research-name">{#if isQueueOpener}Queue · configure an order{:else}Line {slotIndex + 1} · configure a craft{/if}</div>
 
                           <div class="dev-row" style="margin-top: 8px; align-items: center;">
                             <!-- Tier dropdown: the researched + tier-available tiers. -->
@@ -6470,6 +6626,64 @@
                             </div>
                           {/each}
 
+                          <!-- REWARDS (Crafting 0.13.3 Unit 4.3, design 8.3): what this craft is
+                               WORTH, sitting directly beneath what it COSTS.
+                               PLACEMENT REASONING. Design 8.3 asks for the award on "each recipe
+                               row". The Fabricator's Craft tab has no list of recipe cards: the
+                               recipe is chosen in this configurator, so this preview IS the recipe
+                               row, and it is also the moment the player is deciding between a
+                               tier-1 component and a tier-2 system. Cost and reward therefore read
+                               as one pair, and the numbers move together as the tier / item / qty
+                               dropdowns change. Putting it on the <option> elements instead was
+                               rejected: an <option> takes no markup, so a tier-2 system's 1,800 XP
+                               would have to be crammed into the label of every entry in the list.
+                               EVERY NUMBER COMES FROM craftingProgress.ts. The award is the same
+                               craftingXpAwardFor the tick's own award path calls, priced on the
+                               same duration lineJobSpec would stamp on the job, so this preview
+                               and the XP actually granted cannot disagree. -->
+                          {#if xpBp}
+                            {@const qty = Math.max(1, Math.floor(cfgQty))}
+                            {@const xpPerCraft = fabricateXpPerCraft(cfgRecipeKey)}
+                            {@const xpRate = craftingXpPerTick({ kind: "fabricate", blueprint: xpBp })}
+                            <div class="research-cost" style="margin-top: 8px;">REWARDS (×{qty})</div>
+                            <div class="mission-card" style="margin-top: 4px;">
+                              <!-- The batch total is per-craft × qty, NOT a rate × total ticks:
+                                   each craft is its own job and floors its own award, so summing
+                                   the floored per-craft award is the only arithmetic that matches
+                                   what N completed jobs will actually pay. -->
+                              <div class="research-cost">
+                                Crafting XP: {formatNumber(xpPerCraft)} per craft · ×{qty} → {formatNumber(xpPerCraft * qty)}
+                              </div>
+                              <!-- THE ANCHOR, and the whole point of the readout (design 8.3): a
+                                   weight system nobody can see is indistinguishable from a random
+                                   number. The refine rate is derived from REFINE_RECIPES, not
+                                   written as a literal, so the comparison cannot go stale. -->
+                              <div class="research-cost" style="color: var(--color-success);">
+                                {xpRate.toFixed(1)} XP per tick, against {refineXpPerTickAnchor.toFixed(1)} for a refine job.
+                              </div>
+                              <!-- iLevel preview, INSTANCE-MINTING BLUEPRINTS ONLY. A material
+                                   blueprint deposits a stackable item, which carries no iLevel at
+                                   all, so showing one there would be a fabricated stat. The
+                                   predicate is blueprintMintsEquipmentInstance, the same one
+                                   lineJobSpec uses to decide which effect the job gets.
+                                   ⚠️ faTalentBonus IS PASSED (the Unit 3.1 standing note): the
+                                   craftingItemLevel talent is live as of Unit 3.3 and the three
+                                   real mint sites in resolveProcesses pass craftingItemLevelBonus
+                                   (state), so omitting it here would UNDER-REPORT what the
+                                   Fabricator actually mints. -->
+                              {#if blueprintMintsEquipmentInstance(xpBp)}
+                                {@const iLevel = craftedItemLevelReadout({
+                                  craftingLevel: state.craftingLevel,
+                                  blueprintTier: xpBp.tier,
+                                  faTalentBonus: craftingItemLevelBonus(state),
+                                })}
+                                <div class="research-cost">
+                                  Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling} · at the ceiling, more crafting levels do not raise this tier{/if}
+                                </div>
+                              {/if}
+                            </div>
+                          {/if}
+
                           <div class="dev-row" style="margin-top: 8px;">
                             <button
                               class="buy-btn"
@@ -6479,18 +6693,48 @@
                             >
                               Fabricate · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
+                            <!-- ADD TO QUEUE (0.13.3 Unit 4.3): the same configured order, parked
+                                 to run later instead of now. Kept as a SEPARATE button rather than
+                                 letting Start silently become Queue when no slot is free, because
+                                 the two do genuinely different things (one reserves materials now,
+                                 one reserves nothing at all) and a button that changes meaning
+                                 under the player is how a mis-click happens. Identical in shape to
+                                 the Refinery's, differing only in the facility and line kind it
+                                 hands doEnqueueLine. -->
+                            <button
+                              class="buy-btn"
+                              disabled={queueBlock !== ""}
+                              on:click={() => doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                            >
+                              Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
+                            </button>
                             <button class="dev-btn" on:click={closeConfigurator}>Close</button>
                           </div>
+                          <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
+                               the reason sits under the button instead of in a hover title, because
+                               a disabled <button> swallows pointer events and a title on it is
+                               unreadable on touch entirely. -->
+                          {#if queueBlock !== ""}
+                            <p class="cq-note">{queueBlock}</p>
+                          {/if}
                         </div>
                       {:else}
                         <button class="buy-btn" style="margin-top: 10px; width: 100%; text-align: left;" on:click={() => openConfigurator("fabricate", slotIndex)}>
-                          Line {slotIndex + 1} · idle, configure a craft
+                          {#if isQueueOpener}Queue · configure an order to run later{:else}Line {slotIndex + 1} · idle, configure a craft{/if}
                         </button>
                       {/if}
                     {/each}
                   {/if}
                 {/if}
               </Panel>
+
+              <!-- ORDER QUEUE (Crafting 0.13.3, Phase 4 Unit 4.3, design 8.3). The SAME
+                   craftOrderQueuePanel snippet the Refinery renders, bound to the Fabricator's
+                   own view. Sits UNDER the craft lines because that is the order the work
+                   happens in: what is running, then what is waiting behind it. -->
+              {#if fabricatorBuilt}
+                {@render craftOrderQueuePanel(fabricatorQueue, fabricatorContinuous)}
+              {/if}
             {/if}
 
             {#if activeFabricatorSubTab === "upgrades"}
