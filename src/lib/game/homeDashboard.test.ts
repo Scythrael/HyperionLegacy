@@ -32,6 +32,9 @@ import {
   // resolved against (ids in, labels + rarities out).
   ITEMS,
   type CompletionLogEntry,
+  // 0.13.3 Unit 4.6: the stored queue entry shape the queued-work + suppression cases
+  // build fixtures from (ids and literal orders only, no Decimal, see QueuedJob).
+  type QueuedJob,
 } from "./model";
 import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } from "./homeDashboard";
 
@@ -677,5 +680,224 @@ describe("buildHomeDashboard: RECENTLY COMPLETED", () => {
     const busy = withLog([completionRecord()]);
     expect(buildHomeDashboard(busy).recentlyCompleted).toHaveLength(1);
     expect(buildHomeDashboard(busy).allCaughtUp).toBe(buildHomeDashboard(freshState()).allCaughtUp);
+  });
+
+  it("routes a completed salvage to the Salvage Bay console (0.13.3 Unit 4.6)", () => {
+    // It shipped in Unit 4.4b with a null target only because JumpTarget had no Salvage Bay
+    // literal yet. Now it does, so a completed salvage is a navigable row like every other.
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ id: "d-salvage", kind: "salvageJob", reward: "materials", subjectKey: null })])
+    );
+    expect(model.recentlyCompleted[0].jumpTarget).toBe("salvageBay");
+    expect(model.recentlyCompleted[0].icon).toBe("salvage");
+  });
+});
+
+// ============================================================================
+// QUEUED WORK + the needs-orders suppression rule (Crafting 0.13.3, Unit 4.6)
+//
+// Two behaviours, one derivation:
+//   1. the board COUNTS what is waiting (it never lists it: a queued order is not running),
+//   2. a facility whose free bays the queue is about to take must NOT be prompted as
+//      "idle, go give it orders", because promoteQueuedOrders fills it next tick without
+//      the player. That prompt would clear itself one second later.
+//
+// States are built BY HAND from freshState() and mutated to force one exact shape each:
+// a Refinery at a known level (so its slot count is known), a known ore stock (so
+// canStartLine's affordability answer is known), and a literal processQueue. The
+// suppression rule is arithmetic on bays, so each case pins ONE of its three inputs.
+// ============================================================================
+
+// A Refinery-ready save: refinery at `level` (level 1 = 1 bay, level 2 = 2 bays), enough
+// commonOre for the refineCommonOre recipe (20 per run), and no captains, so the ONLY
+// prompt this state can produce is the refinery one (a dispatch prompt would still be a
+// different id, but removing the captains keeps each case's assertion about one thing).
+function refineryState(level: number, commonOre: number, queue: QueuedJob[] = []): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    captains: [],
+    facilities: { ...base.facilities, refinery: { level } },
+    inventory: { ...base.inventory, commonOre: [new Decimal(commonOre)] },
+    processQueue: queue,
+  };
+}
+
+// One waiting refine order, in the shape the engine stores.
+function queuedRefine(id: string, recipeKey: string): QueuedJob {
+  return {
+    id,
+    facility: "refinery",
+    order: { type: "craftLine", kind: "refine", recipeKey, mode: { kind: "batch", remaining: 1 } },
+  };
+}
+
+describe("buildHomeDashboard: queued work (Unit 4.6)", () => {
+  it("reports an empty queue for every queue-capable facility on a fresh save", () => {
+    const work = buildHomeDashboard(freshState()).queuedWork;
+    expect(work.total).toBe(0);
+    // One summary per facility, in the engine's own QUEUE_FACILITY_ORDER.
+    expect(work.byFacility.map((s) => s.facility)).toEqual(["refinery", "fabricator", "salvageBay"]);
+    expect(work.byFacility.every((s) => s.queued === 0 && s.readyToStart === 0)).toBe(true);
+  });
+
+  it("counts waiting orders per facility and totals them, without adding in-progress rows", () => {
+    const state = refineryState(1, 1000, [queuedRefine("q-1", "refineCommonOre"), queuedRefine("q-2", "refineCommonOre")]);
+    const model = buildHomeDashboard(state);
+    expect(model.queuedWork.total).toBe(2);
+    const refinery = model.queuedWork.byFacility.find((s) => s.facility === "refinery")!;
+    expect(refinery.queued).toBe(2);
+    // ⚠️ The point of the whole shape: queued orders are COUNTED, never rendered as running
+    // work. Nothing is in flight in this state, so IN PROGRESS stays empty.
+    expect(model.inProgress).toEqual([]);
+  });
+
+  it("reads the free bays and the startable count off the engine's own gates", () => {
+    // Level 1 = one bay, nothing running, so one bay is free; the queued order is affordable
+    // (1000 ore against a 20-ore recipe), so the engine's gate would start it right now.
+    const ready = buildHomeDashboard(refineryState(1, 1000, [queuedRefine("q-1", "refineCommonOre")]));
+    const readySummary = ready.queuedWork.byFacility.find((s) => s.facility === "refinery")!;
+    expect(readySummary.freeSlots).toBe(1);
+    expect(readySummary.readyToStart).toBe(1);
+
+    // Same queue, no ore: the order is still WAITING (queued 1) but it cannot start, and the
+    // model says so rather than implying the bay is about to fill.
+    const broke = buildHomeDashboard(refineryState(1, 0, [queuedRefine("q-1", "refineCommonOre")]));
+    const brokeSummary = broke.queuedWork.byFacility.find((s) => s.facility === "refinery")!;
+    expect(brokeSummary.queued).toBe(1);
+    expect(brokeSummary.readyToStart).toBe(0);
+  });
+});
+
+describe("buildHomeDashboard: needs-orders suppression when the queue owns the bay (Unit 4.6)", () => {
+  it("prompts a genuinely idle refinery with an empty queue", () => {
+    // The control case: one free bay, an affordable recipe, nothing queued. This is the
+    // prompt every case below is measured against.
+    const model = buildHomeDashboard(refineryState(1, 1000));
+    expect(promptById(model, "idle-refinery")).toBeDefined();
+    expect(model.allCaughtUp).toBe(false);
+  });
+
+  it("SUPPRESSES the prompt when a startable queued order will take the only free bay", () => {
+    // One bay, one queued order the engine's own gate approves: promoteQueuedOrders fills
+    // that bay on the next tick with no player action, so asking for orders would be a
+    // prompt that clears itself one second later.
+    const queued = buildHomeDashboard(refineryState(1, 1000, [queuedRefine("q-1", "refineCommonOre")]));
+    expect(promptById(queued, "idle-refinery")).toBeUndefined();
+
+    // And it suppresses ONLY that prompt: every OTHER prompt this state produces is
+    // untouched by the queue, which is what proves the rule is scoped to the facility whose
+    // bays are spoken for rather than quietly muting the board. (This save's ore stock also
+    // clears the Fuel Depot's founding rung, so the unrelated facility-upgrade prompt is
+    // present in both models and must stay present in both.)
+    const idle = buildHomeDashboard(refineryState(1, 1000));
+    expect(idle.needsOrders.map((p) => p.id).filter((id) => id !== "idle-refinery"))
+      .toEqual(queued.needsOrders.map((p) => p.id));
+  });
+
+  it("KEEPS the prompt when the queue is stuck: waiting orders that cannot start", () => {
+    // The honesty case, and the reason suppression is not just "is anything queued".
+    // The queued order is a polysilicate refine (needs uncommonMaterial, of which this save
+    // has none), so it can never take the bay as things stand, while refineCommonOre CAN
+    // start on the 1000 ore. The bay will sit empty until the player acts, so the prompt
+    // must survive: this is exactly when they most need telling.
+    const stuck = refineryState(1, 1000, [queuedRefine("q-1", "refinePolysilicateWafer")]);
+    const model = buildHomeDashboard(stuck);
+    const summary = model.queuedWork.byFacility.find((s) => s.facility === "refinery")!;
+    expect(summary.queued).toBe(1);
+    expect(summary.readyToStart).toBe(0);
+    expect(promptById(model, "idle-refinery")).toBeDefined();
+  });
+
+  it("KEEPS the prompt when the queue cannot fill EVERY free bay", () => {
+    // Two bays (refinery level 2), one startable queued order. After promotion one bay is
+    // still empty and the player can genuinely fill it, so blanket suppression here would
+    // hide real idle capacity. Suppression is arithmetic on bays, not a boolean on "queued".
+    const model = buildHomeDashboard(refineryState(2, 1000, [queuedRefine("q-1", "refineCommonOre")]));
+    const summary = model.queuedWork.byFacility.find((s) => s.facility === "refinery")!;
+    expect(summary.freeSlots).toBe(2);
+    expect(summary.readyToStart).toBe(1);
+    expect(promptById(model, "idle-refinery")).toBeDefined();
+  });
+
+  it("SUPPRESSES again once the queue holds enough startable orders for every free bay", () => {
+    // Same two bays, two startable orders: the tick takes both, so there is nothing to ask.
+    const model = buildHomeDashboard(
+      refineryState(2, 1000, [queuedRefine("q-1", "refineCommonOre"), queuedRefine("q-2", "refineCommonOre")])
+    );
+    expect(promptById(model, "idle-refinery")).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// IN-FLIGHT SALVAGE (Crafting 0.13.3, Unit 4.6)
+//
+// The Unit 2.2 gap: "salvageJob" joined TimedProcessKind but labelForProcess had no case
+// for it, so a running salvage fell through the defensive default and rendered as a bare
+// "In progress" with nowhere to go.
+// ============================================================================
+
+describe("buildHomeDashboard: an in-flight salvage row (Unit 4.6)", () => {
+  // A running salvage on a spare Cargo Hold baseline (blueprintKey null), which is how the
+  // Salvage Bay names a Standard-Issue piece.
+  function salvagingState(): GameState {
+    const base = freshState();
+    return {
+      ...base,
+      equipment: [
+        {
+          id: "eq-1",
+          slotType: "cargoBay",
+          rarity: "standard",
+          ascension: "none",
+          quality: 0,
+          iLevel: 1,
+          // The baseline marker: no blueprint minted it, which is what makes it a
+          // Standard-Issue piece to every naming helper in the game.
+          blueprintKey: null,
+          implicitStats: {},
+          rolledStats: {},
+          mass: 0,
+          powerDraw: 0,
+          durabilityMax: 100,
+          durability: 100,
+          fittedToShipId: null,
+        },
+      ],
+      activeProcesses: [
+        {
+          id: "p-salvage",
+          kind: "salvageJob",
+          remainingTicks: 4,
+          durationTicks: 10,
+          effect: { type: "salvageResolve", target: { kind: "equipment", instanceId: "eq-1" } },
+        },
+      ],
+    };
+  }
+
+  it("names the target, carries the salvage icon and routes to the Salvage Bay", () => {
+    const rows = buildHomeDashboard(salvagingState()).inProgress;
+    const row = rowById(rows, "p-salvage");
+    // Not the old generic fallback.
+    expect(row.primaryLabel).not.toBe("In progress");
+    // Named through craftQueue.ts's salvageTargetLabel, the SAME helper the bay's own queued
+    // and running rows use, so the job reads identically wherever it appears. A baseline
+    // names itself Standard-Issue, which is what keeps the Destroy-versus-Salvage truth
+    // legible without a second verb.
+    expect(row.primaryLabel).toBe("Salvaging, Cargo Bay · Standard-Issue");
+    expect(row.icon).toBe("salvage");
+    expect(row.jumpTarget).toBe("salvageBay");
+    // A real timed job, so it carries the raw ticks for the shared ETA readout.
+    expect(row.remainingTicks).toBe(4);
+    expect(row.durationTicks).toBe(10);
+    expect(row.progress).toBeCloseTo(0.6, 10);
+  });
+
+  it("degrades to the raw id when the target has already gone, instead of throwing", () => {
+    // A stale target is a real state (the piece was installed or recycled elsewhere while
+    // the job ran); completion treats it as a fail-safe no-op, so the row must stay legible.
+    const stale = { ...salvagingState(), equipment: [] };
+    expect(rowById(buildHomeDashboard(stale).inProgress, "p-salvage").primaryLabel).toBe("Salvaging, eq-1");
   });
 });

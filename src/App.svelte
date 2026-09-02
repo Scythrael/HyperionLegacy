@@ -2551,6 +2551,7 @@
       case "fabricator":
       case "shipyard":
       case "fuelDepot":
+      case "salvageBay":
       case "facilities":
         return "facilities";
       default: {
@@ -2607,6 +2608,14 @@
         // so it opens on the facility's default view, matching the dashboard card's nav.
         facilitiesView = "console";
         activeFoundryFacility = "fuelStorage";
+        break;
+      case "salvageBay":
+        // The Salvage Bay console (0.13.3 Unit 4.6). It has no sub-tab rail of its own (one
+        // scrolling surface: explainer, queue, spare systems, salvaged materials), so there
+        // is nothing to pre-select, exactly like the Fuel Depot above. This is where an
+        // in-flight or just-completed salvage row sends the player.
+        facilitiesView = "console";
+        activeFoundryFacility = "salvageBay";
         break;
       case "facilities":
         // The Facilities OVERVIEW (the dashboard of all facility cards), NOT a single foundry
@@ -4673,6 +4682,42 @@
     return { count, all: view.runningCount > 0 && count === view.runningCount };
   }
 
+  // ── Facilities-dashboard queue awareness (Crafting 0.13.3, Phase 4 Unit 4.6) ──
+  //
+  // The dashboard card knows what is RUNNING at a facility but, until this unit, nothing
+  // about what is WAITING: a player with three orders stacked behind a busy Refinery saw a
+  // card that read exactly like a Refinery with an empty queue. These two tiny readers close
+  // that gap off the SAME CraftQueueView the facility's own console binds to (design 8.1),
+  // so a card and its console can never disagree about the depth.
+
+  // The queued TAIL for a card's existing status line, or "" when nothing is waiting. It is a
+  // SUFFIX on purpose: the three-state status string each card already computes is preserved
+  // verbatim and this is appended, which is what makes "2 / 3 slots refining" become
+  // "2 / 3 slots refining, 1 queued" without rewriting a single existing branch.
+  function cardQueuedSuffix(view: CraftQueueView): string {
+    return view.depthUsed === 0 ? "" : `, ${view.depthUsed} queued`;
+  }
+
+  // The Salvage Bay's SECOND card line, its live work.
+  //
+  // WHY A SECOND LINE HERE AND A SUFFIX EVERYWHERE ELSE: the bay's existing status string
+  // ("N spare systems to salvage") describes the POOL, not running work, so appending
+  // ", 2 queued" would splice two different subjects into one sentence. The bay also gained
+  // real running work in this release (a timed salvageJob) that the card said nothing about.
+  // So the pool line is preserved verbatim and the bay's own state gets its own line, the
+  // same two-line treatment the Fuel Depot card already uses for "Fuel: N%".
+  //
+  // Always returns a phrase (never ""), so the card's second line does not appear and vanish
+  // as jobs come and go, which would make the grid's rows jump.
+  function salvageBayCardStatus(view: CraftQueueView): string {
+    const running = view.runningCount > 0;
+    const queued = view.depthUsed;
+    if (running && queued > 0) return `Salvaging, ${queued} queued`;
+    if (running) return "Salvaging";
+    if (queued > 0) return `${queued} queued`;
+    return "Idle";
+  }
+
   // ── Per-recipe CRAFTING XP readout (Crafting 0.13.3, Phase 4 Unit 4.3) ─────
   // The discoverability half of the XP redesign (design 8.3): Unit 3.2 made the weights live,
   // and a weight system nobody can see is indistinguishable from a random number. These two
@@ -6449,13 +6494,17 @@
                 </div>
               </div>
               <div class="roster-card-lines">
+                <!-- 0.13.3 Unit 4.6: the three existing states are UNCHANGED; a queued
+                     tail (cardQueuedSuffix, off the same refineryQueue the console binds
+                     to) is appended when orders are waiting. "Not built" takes no tail:
+                     a facility that does not exist cannot hold a queue. -->
                 <div class="roster-card-line">
                   {#if refinerySlots === 0}
                     Status: Not built
                   {:else if activeRefineJobs.length === 0}
-                    Status: Idle, {refinerySlots} slot{refinerySlots === 1 ? "" : "s"} free
+                    Status: Idle, {refinerySlots} slot{refinerySlots === 1 ? "" : "s"} free{cardQueuedSuffix(refineryQueue)}
                   {:else}
-                    Status: {activeRefineJobs.length} / {refinerySlots} slots refining
+                    Status: {activeRefineJobs.length} / {refinerySlots} slots refining{cardQueuedSuffix(refineryQueue)}
                   {/if}
                 </div>
               </div>
@@ -6478,13 +6527,15 @@
                 </div>
               </div>
               <div class="roster-card-lines">
+                <!-- 0.13.3 Unit 4.6: same queued tail as the Refinery card, off
+                     fabricatorQueue. Existing three states unchanged. -->
                 <div class="roster-card-line">
                   {#if fabricateSlots === 0}
                     Status: Not built
                   {:else if activeFabricateJobs.length === 0}
-                    Status: Idle, {fabricateSlots} slot{fabricateSlots === 1 ? "" : "s"} free
+                    Status: Idle, {fabricateSlots} slot{fabricateSlots === 1 ? "" : "s"} free{cardQueuedSuffix(fabricatorQueue)}
                   {:else}
-                    Status: {activeFabricateJobs.length} / {fabricateSlots} slots crafting
+                    Status: {activeFabricateJobs.length} / {fabricateSlots} slots crafting{cardQueuedSuffix(fabricatorQueue)}
                   {/if}
                 </div>
               </div>
@@ -6600,6 +6651,12 @@
                 <div class="roster-card-line">
                   Status: {spareEquipmentCount(state)} spare system{spareEquipmentCount(state) === 1 ? "" : "s"} to salvage
                 </div>
+                <!-- 0.13.3 Unit 4.6: the bay's LIVE work, on its own line. The status line
+                     above describes the salvageable POOL and is preserved verbatim; this one
+                     says whether the bay is actually running or holding orders, which it
+                     could not do before the bay became a timed, queued facility. Second-line
+                     treatment mirrors the Fuel Depot card's "Fuel: N%". -->
+                <div class="roster-card-line">Bay: {salvageBayCardStatus(salvageBayQueue)}</div>
               </div>
             </button>
 
@@ -10793,7 +10850,7 @@
         <Panel>
           <div class="panel-title">COMMAND HOME</div>
           <p class="home-dash-sub">
-            Your fleet at a glance · {dashboardModel.needsOrders.length} {dashboardModel.needsOrders.length === 1 ? "needs" : "need"} orders · {dashboardModel.inProgress.length} running
+            Your fleet at a glance · {dashboardModel.needsOrders.length} {dashboardModel.needsOrders.length === 1 ? "needs" : "need"} orders · {dashboardModel.inProgress.length} running{#if dashboardModel.queuedWork.total > 0} · {dashboardModel.queuedWork.total} queued{/if}
           </p>
 
           <!-- ============ NEEDS YOUR ORDERS (actionable-idle prompts) ============ -->
@@ -10875,13 +10932,41 @@
           </section>
 
           <!-- ============ IN PROGRESS (every running job + mission) ============ -->
-          {#if dashboardModel.inProgress.length > 0}
+          <!-- 0.13.3 Unit 4.6: the section is now also shown when NOTHING is running but
+               orders are QUEUED, because otherwise a player whose whole queue is blocked on
+               materials would see a completely silent board. Queued work is a COUNT beside
+               the header, never rows: a queued order has no bay, no progress and no ETA, so
+               listing it here would make the section claim work that has not started (the
+               model's QueuedWorkSummary comment states the full reasoning). -->
+          {#if dashboardModel.inProgress.length > 0 || dashboardModel.queuedWork.total > 0}
             <section class="home-sec">
               <div class="home-sec-hd">
                 <span class="home-sec-h">In progress</span>
-                <span class="home-sec-count">{dashboardModel.inProgress.length}</span>
+                {#if dashboardModel.inProgress.length > 0}
+                  <span class="home-sec-count">{dashboardModel.inProgress.length}</span>
+                {/if}
+                {#if dashboardModel.queuedWork.total > 0}
+                  <!-- Its own chip, not folded into the running count: these orders are
+                       WAITING, and a single blended number would overstate what is running. -->
+                  <span class="home-sec-count home-sec-queued">{dashboardModel.queuedWork.total} queued</span>
+                {/if}
                 <span class="home-sec-rule"></span>
               </div>
+              {#if dashboardModel.inProgress.length === 0}
+                <!-- State-dependent empty state (preservation inventory 0.8), not a generic
+                     box: nothing is running, yet the player HAS given orders, so the board
+                     says exactly that. Display-only (a plain div): the orders live at the
+                     console that owns each of them, so there is no single honest jump. -->
+                <!-- Deliberately does NOT name a reason. With every bay empty the orders are
+                     blocked on something the board cannot see from a count (materials, a
+                     research prereq), and the row that CAN say why is the queue row on the
+                     facility's own console, which derives its block reason from the real
+                     gate. Guessing "waiting for a free bay" here would be a wrong reason
+                     printed confidently, which is worse than none. -->
+                <p class="home-queued-note">
+                  Nothing running. {dashboardModel.queuedWork.total} queued {dashboardModel.queuedWork.total === 1 ? "order is" : "orders are"} waiting to start.
+                </p>
+              {/if}
               <div class="home-prog">
                 {#each dashboardModel.inProgress as row (row.id)}
                   {#if row.jumpTarget !== null}
@@ -13928,6 +14013,22 @@
     border: 1px solid var(--color-border);
     border-radius: 20px;
     padding: 1px 7px;
+  }
+  /* The QUEUED companion chip (0.13.3 Unit 4.6). Same pill as .home-sec-count so the two
+     read as one pair, with a quiet accent edge so "3 queued" cannot be mistaken for a
+     second running count. color-mix on the theme token (locked design system), so it
+     re-hues with the theme and adds no -rgb triplet. */
+  .home-sec-queued {
+    color: var(--color-text-secondary);
+    border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+  /* The nothing-running-but-orders-waiting line. Dim body text, wraps freely (no ellipsis,
+     no nowrap), so it never forces horizontal scroll at 320px. */
+  .home-queued-note {
+    margin: 0 0 2px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-secondary);
   }
   /* The thin divider that fills the rest of the header row. */
   .home-sec-rule { flex: 1; height: 1px; background: var(--color-border); }

@@ -37,6 +37,9 @@ import {
   type ShipInstance,
   type MissionKey,
   type PatrolKey,
+  // Crafting 0.13.3 Unit 4.6: the queue-capable facility union, so the queued-work summary
+  // is keyed by the SAME literal the engine's adapter table and QUEUE_FACILITY_ORDER use.
+  type QueueFacilityKey,
   ITEMS,
   BLUEPRINTS,
   SHIP_TYPES,
@@ -65,6 +68,17 @@ import {
   canBuildFacilityUpgrade,
 } from "./tick";
 
+// The queue's OWN pure view model (Crafting 0.13.3, Unit 4.6). The board learns about
+// QUEUED orders by asking the module that already answers every queue question, exactly as
+// it learns about start gates by asking tick.ts, so Home and the Refinery / Fabricator /
+// Salvage Bay consoles can never tell the player two different stories about the queue.
+//
+// ⚠️ DEPENDENCY DIRECTION. craftQueue.ts imports FROM tick.ts and tick.ts never imports
+// craftQueue.ts (that module's header states the rule). This file already imported tick.ts,
+// so adding craftQueue.ts here points one more arrow the SAME way (homeDashboard ->
+// craftQueue -> tick) and introduces no cycle. Nothing in the engine imports this file.
+import { buildAllCraftQueues, salvageTargetLabel, type CraftQueueView } from "./craftQueue";
+
 // ---------------------------------------------------------------------------
 // Public shapes
 // ---------------------------------------------------------------------------
@@ -88,7 +102,13 @@ export type JumpTarget =
   | "fabricator"
   | "shipyard"
   | "fuelDepot"
-  | "facilities";
+  | "facilities"
+  // Crafting 0.13.3 Unit 4.6: the Salvage Bay console. Added because 0.13.3 turned the bay
+  // into a real, queued, timed facility: a salvage now RUNS (an in-flight salvageJob row on
+  // this board) and COMPLETES (a Recently-completed row), and both of those rows have an
+  // obvious place to send the player that did not exist when the union was written. Before
+  // this, a completed salvage carried a null target and rendered as a non-navigable row.
+  | "salvageBay";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -191,12 +211,54 @@ export interface CompletionRow {
   jumpTarget: JumpTarget | null; // where a tap routes; null = a plain, non-navigable row
 }
 
+// ---------------------------------------------------------------------------
+// QUEUED WORK (Crafting 0.13.3, Unit 4.6)
+//
+// WHY A COUNT AND NOT ROWS. A queued order is NOT running. Padding IN PROGRESS with
+// three not-yet-started orders would make the board claim work that no bay has touched,
+// which is the exact dishonesty the section exists to avoid (design section 4's
+// honest-progress rule: a row carries real progress or it does not belong in the list).
+// A queued order has no progress, no ETA and no bay, so it gets a COUNT beside the
+// section instead: "3 queued" says the truth in three characters, and the place to act
+// on those three orders is the console that owns them, one tap away.
+//
+// THE SECOND, LOAD-BEARING REASON THIS EXISTS: buildNeedsOrders needs it. A facility
+// whose free bays are already spoken for by queued orders must not be prompted as
+// "idle, go configure it" (see buildNeedsOrders' suppression rule), and that question is
+// answered from these same per-facility numbers rather than from a second scan.
+// ---------------------------------------------------------------------------
+
+// One queue-capable facility's waiting work, as the board needs it.
+export interface QueuedFacilitySummary {
+  facility: QueueFacilityKey; // "refinery" / "fabricator" / "salvageBay"
+  queued: number;             // orders WAITING here (CraftQueueView.depthUsed)
+  // How many of those waiting orders the engine's OWN gate would start right now
+  // (CraftQueueRow.canStart, which is QUEUE_ADAPTERS[facility].canStart, which is the
+  // predicate promoteQueuedOrders itself runs). This is an UPPER BOUND on how many
+  // actually promote next tick, because each row is gated against the CURRENT state and
+  // a promotion consumes materials the next row was counted as affording. It is honest
+  // as "at least one of these is going to take a bay", which is all the suppression rule
+  // below asks of it.
+  readyToStart: number;
+  // Bays standing empty here right now (slotsTotal - runningCount, floored at 0; 0 when
+  // a future facility has no slot model yet). This is the same arithmetic canStartLine's
+  // `noSlot` gate performs, read off the queue view instead of recomputed.
+  freeSlots: number;
+}
+
+// Every queue-capable facility's waiting work, plus the one number the header shows.
+export interface QueuedWorkSummary {
+  total: number;                        // every waiting order, all facilities
+  byFacility: QueuedFacilitySummary[];  // in QUEUE_FACILITY_ORDER (the engine's own order)
+}
+
 // The ONE view model the Home screen renders from (design Section 5). `allCaughtUp`
 // true => the UI shows the "All caught up, Admiral" banner instead of prompts.
 export interface HomeDashboardModel {
   needsOrders: Prompt[];   // actionable idle only (Unit 2)
   inProgress: ActivityRow[]; // every running job + mission (Unit 1, this file)
   recentlyCompleted: CompletionRow[]; // finished orders, newest first (0.13.3 Unit 4.4b)
+  queuedWork: QueuedWorkSummary; // orders WAITING to start, counted not listed (0.13.3 Unit 4.6)
   locked: LockedSlot[];    // not-yet-unlocked features (Unit 3)
   allCaughtUp: boolean;    // true => show the caught-up banner (Unit 2)
 }
@@ -356,6 +418,33 @@ function labelForProcess(
       return { icon: "repair", primaryLabel: `Repairing, ${shipLabel} hull`, jumpTarget: "shipyard" };
     }
 
+    // Salvage Bay (Crafting 0.13.3, Unit 4.6). ⚠️ THIS CASE WAS THE UNIT 2.2 FLAG: when
+    // "salvageJob" joined TimedProcessKind, only the COMPLETION view got a row (Unit 4.4b's
+    // exhaustive COMPLETION_KIND_VIEW), so an IN-FLIGHT salvage fell through the defensive
+    // default below and rendered as a bare, non-navigable "In progress". It now reads like
+    // every other row: a verb, the thing it is working on, and somewhere to go.
+    //
+    // NAMED THROUGH craftQueue.ts's salvageTargetLabel, the SAME function the bay's queued
+    // rows and its running rows already use, so one job reads identically in all three
+    // places and a stale target (already gone, a fail-safe no-op at completion) degrades to
+    // the raw id here exactly as it does there.
+    //
+    // ONE VERB FOR BOTH ARMS, deliberately. A Standard-Issue baseline is DESTROYED for
+    // nothing while a crafted piece is SALVAGED, and that distinction is non-negotiable
+    // where it is load-bearing: the Salvage Bay's ACTION button, which is what commits the
+    // player. Once queued, the engine runs one kind of job, and the queue's own vocabulary
+    // ("salvage") already carries the distinction in the NAME (a baseline names itself
+    // "<Slot> · Standard-Issue"). Inventing a second verb here would give the same job two
+    // readings on two screens.
+    case "salvageJob": {
+      const target = effect.type === "salvageResolve" ? salvageTargetLabel(state, effect.target) : null;
+      return {
+        icon: "salvage",
+        primaryLabel: target !== null ? `Salvaging, ${target}` : "Salvaging",
+        jumpTarget: "salvageBay",
+      };
+    }
+
     // Defensive fallback: an unknown TimedProcessKind (a future kind from a newer save,
     // or one added to the union without a case here). Renders an honest generic row
     // rather than "undefined". A new kind SHOULD add a case above.
@@ -491,6 +580,46 @@ function rowForPatrol(captain: CaptainState, patrol: PatrolMissionState, state: 
 // dispatchable captains into a single count (they all land in the same Operations tab).
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// THE QUEUE SUPPRESSION RULE (Crafting 0.13.3, Unit 4.6)
+//
+// THE BUG THIS FIXES. Before 0.13.3 a free refine/craft bay could only be filled by the
+// player walking to the console, so "a bay is free and something is startable" was the
+// same statement as "you need to give orders". The queue broke that equivalence: with
+// orders waiting, promoteQueuedOrders fills the free bay on the NEXT TICK, entirely
+// without the player. Prompting them to go configure a bay the engine is about to take
+// is a prompt that clears itself one second later, and a self-clearing prompt trains the
+// player to distrust the whole board.
+//
+// THE RULE, and why it is this and not "any queued order suppresses". Suppression is
+// arithmetic on BAYS, not a boolean on "is anything queued":
+//
+//   suppress when  freeSlots > 0  AND  readyToStart >= freeSlots
+//
+//   - 1 free bay, 1 startable order queued  -> suppressed. The engine takes that bay next
+//     tick. Nothing is being asked of the player.
+//   - 2 free bays, 1 startable order queued -> NOT suppressed. One bay is still going to
+//     be sitting empty after promotion, and the player can genuinely fill it. Blanket
+//     suppression here would HIDE real idle capacity, which is the opposite failure and
+//     just as dishonest.
+//   - 1 free bay, 3 queued orders that are ALL BLOCKED (short on materials) -> NOT
+//     suppressed. The queue is stuck, the bay will stay empty indefinitely, and something
+//     else IS startable there. This is precisely when the player most needs telling.
+//
+// THE ONE KNOWN IMPRECISION, stated rather than hidden: readyToStart is an upper bound
+// (see QueuedFacilitySummary), because each queued row is gated against the current state
+// and a promotion can consume the materials the next row was counted as affording. So a
+// contested-materials queue can suppress a prompt for a bay that ends up staying free for
+// one more tick. Chosen deliberately: the alternative is simulating the promotion pass
+// here, which would be a second implementation of the engine's own loop living in the view
+// (exactly what craftQueue.ts's header forbids), and the cost of the imprecision is one
+// tick of a missing prompt against a guaranteed stream of false ones.
+// ---------------------------------------------------------------------------
+function queueWouldFillEveryFreeBay(summary: QueuedFacilitySummary | undefined): boolean {
+  if (summary === undefined) return false; // a facility with no queue view: nothing to suppress
+  return summary.freeSlots > 0 && summary.readyToStart >= summary.freeSlots;
+}
+
 // Build the NEEDS YOUR ORDERS prompt list: one prompt per slot type that is idle AND
 // actionable right now. PURE (reads state + the static registries, mutates nothing). An
 // empty result means nothing is actionable anywhere, which the builder turns into the
@@ -498,8 +627,17 @@ function rowForPatrol(captain: CaptainState, patrol: PatrolMissionState, state: 
 // a busy/unavailable slot costs only as many gate calls as it takes to find the first ok
 // (or to exhaust a small static registry), keeping this cheap enough for the once-per-tick
 // derivation (design Section 10).
-function buildNeedsOrders(state: GameState): Prompt[] {
+//
+// `queuedWork` (Unit 4.6) is passed IN rather than derived here so the whole board pays for
+// exactly one buildAllCraftQueues pass: the same numbers feed the suppression rule above and
+// the "N queued" readout the UI shows.
+function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prompt[] {
   const prompts: Prompt[] = [];
+
+  // Per-facility lookup for the suppression rule (three entries, so a find is cheaper than
+  // building a Map and reads more plainly).
+  const queueFor = (facility: QueueFacilityKey): QueuedFacilitySummary | undefined =>
+    queuedWork.byFacility.find((s) => s.facility === facility);
 
   // --- Captain (idle = mission == null): one aggregate prompt when at least one IDLE
   // captain can be dispatched on some unlocked mission (canDispatch) or patrol
@@ -552,7 +690,14 @@ function buildNeedsOrders(state: GameState): Prompt[] {
   // count 1 is the minimal startable unit (the SAME gate + count the per-slot configurator's
   // Start button reads, App.svelte:5235); canStartLine's noSlot gate folds in the free-bay
   // (idle) condition.
-  if (Object.keys(REFINE_RECIPES).some((k) => canStartLine(state, "refine", k, 1).ok)) {
+  //
+  // 0.13.3 Unit 4.6: ...UNLESS the queue is already going to take every free bay (see
+  // queueWouldFillEveryFreeBay). The queue check runs FIRST because it is a field comparison
+  // and the recipe scan is a registry walk with an affordability gate per candidate.
+  if (
+    !queueWouldFillEveryFreeBay(queueFor("refinery")) &&
+    Object.keys(REFINE_RECIPES).some((k) => canStartLine(state, "refine", k, 1).ok)
+  ) {
     prompts.push({
       id: "idle-refinery",
       icon: "refine",
@@ -563,8 +708,12 @@ function buildNeedsOrders(state: GameState): Prompt[] {
   }
 
   // --- Fabricator (idle = a free fabricate bay): same shape as refinery, over the blueprint
-  // registry on the "fabricate" line kind (App.svelte:5534 uses the identical gate + count).
-  if (Object.keys(BLUEPRINTS).some((k) => canStartLine(state, "fabricate", k, 1).ok)) {
+  // registry on the "fabricate" line kind (App.svelte:5534 uses the identical gate + count),
+  // including the same 0.13.3 Unit 4.6 queue suppression.
+  if (
+    !queueWouldFillEveryFreeBay(queueFor("fabricator")) &&
+    Object.keys(BLUEPRINTS).some((k) => canStartLine(state, "fabricate", k, 1).ok)
+  ) {
     prompts.push({
       id: "idle-fabricator",
       icon: "fabricate",
@@ -736,7 +885,10 @@ const COMPLETION_KIND_VIEW: Record<TimedProcessKind, { verb: string; icon: strin
   equipmentStorageUpgrade: { verb: "Expanded",    icon: "storage",    jumpTarget: null },
   docksExpansion:          { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
   shipRepair:              { verb: "Repaired",    icon: "repair",     jumpTarget: "shipyard" },
-  salvageJob:              { verb: "Salvaged",    icon: "salvage",    jumpTarget: null },
+  // 0.13.3 Unit 4.6: routes to the Salvage Bay console now that JumpTarget has a literal for
+  // it. It shipped as `null` in Unit 4.4b only because the union had no Salvage Bay
+  // destination at the time, not because a completed salvage has nowhere to send the player.
+  salvageJob:              { verb: "Salvaged",    icon: "salvage",    jumpTarget: "salvageBay" },
 };
 
 // Resolve a record's `subjectKey` (a raw id, never a rendered string) to a display name.
@@ -831,6 +983,35 @@ function buildRecentlyCompleted(state: GameState): CompletionRow[] {
 }
 
 // ---------------------------------------------------------------------------
+// QUEUED WORK: counting what is waiting (Crafting 0.13.3, Unit 4.6)
+// ---------------------------------------------------------------------------
+
+// Fold ONE facility's CraftQueueView into the board's summary. Reads only fields the view
+// already computed (nothing is re-derived, and no gate is called a second time).
+function summariseQueue(view: CraftQueueView): QueuedFacilitySummary {
+  return {
+    facility: view.facility,
+    queued: view.depthUsed,
+    readyToStart: view.queued.reduce((n, row) => (row.canStart ? n + 1 : n), 0),
+    // slotsTotal is null only for a future queue-capable facility with no slot model yet;
+    // "no known slots" reads as no free bays, which makes the suppression rule inert there
+    // rather than making up a number (see QueuedFacilitySummary.freeSlots).
+    freeSlots: view.slotsTotal === null ? 0 : Math.max(0, view.slotsTotal - view.runningCount),
+  };
+}
+
+// Every queue-capable facility's waiting work, in the engine's own QUEUE_FACILITY_ORDER
+// (buildAllCraftQueues iterates that tuple), so the board lists facilities in the order the
+// promotion pass actually walks them.
+function buildQueuedWork(state: GameState): QueuedWorkSummary {
+  const byFacility = buildAllCraftQueues(state).map(summariseQueue);
+  return {
+    total: byFacility.reduce((n, s) => n + s.queued, 0),
+    byFacility,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // The builder
 // ---------------------------------------------------------------------------
 
@@ -872,11 +1053,16 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
     }
   }
 
+  // Unit 4.6: what is WAITING to start, counted per facility. Derived BEFORE needsOrders
+  // because the prompts depend on it: a bay the queue is about to fill is not a bay that
+  // needs orders (see queueWouldFillEveryFreeBay). One pass serves both.
+  const queuedWork = buildQueuedWork(state);
+
   // Unit 2: the idle-and-actionable prompts. allCaughtUp is exactly "no prompts anywhere"
   // (design Section 7 outcome 3): every bay is busy or has nothing available, so the UI
   // shows the earned-breather banner instead of a prompt list. This is independent of
   // whether anything is IN PROGRESS, an all-busy fleet with no new work is still caught up.
-  const needsOrders = buildNeedsOrders(state);
+  const needsOrders = buildNeedsOrders(state, queuedWork);
 
   // Unit 3: the not-yet-unlocked chips (reserved coming-soon nav features + any level-0
   // facility). Independent of needsOrders / inProgress: a locked slot is a "here's what's
@@ -892,6 +1078,11 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
     needsOrders,
     inProgress,
     recentlyCompleted,
+    // Unit 4.6: a COUNT, never rows. Like recentlyCompleted it never affects allCaughtUp:
+    // a queued order is work the player has ALREADY ordered, so a fleet with a full queue
+    // and nothing else to decide is genuinely caught up (indeed the suppression rule above
+    // is what makes that reading true rather than merely tidy).
+    queuedWork,
     locked,
     allCaughtUp: needsOrders.length === 0,
   };
