@@ -217,6 +217,14 @@
     // them from here too), so they are taken from the same place tick.ts takes them.
     type QueuedOrder,
     type QueueFacilityKey,
+    // Crafting 0.13.3 (Phase 4 Unit 4.4): the three-armed thing a salvage order points at
+    // (an equipment instance, a stackable salvaged material, or a hull). The Salvage Bay
+    // builds one of these per Salvage/Destroy click and hands it to enqueueOrder, so the
+    // console speaks the engine's own target vocabulary rather than a parallel one.
+    type SalvageTargetRef,
+    // The confirm-every-tier default for state.salvageConfirmQualities, used ONLY as the
+    // absent-field fallback below (a saved empty array is a real choice, not an absence).
+    freshSalvageConfirmQualities,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -317,25 +325,33 @@
   } from "./lib/game/shipRoster";
   import { threatAssessment, type ThreatAssessment } from "./lib/game/combat/threatAssessment";
   import { resolvePatrolWaves } from "./lib/game/combat/patrolReplay";
-  // Equipment 0.11.0 Phase D (2026-07-20): salvageEquipment(state, id) recycles ONE
-  // spare CRAFTED system back into a fraction of its crafting inputs, returning a
-  // SalvageResult (discriminated on `ok`: success carries { next, recovered }, reject
-  // carries { next: <same ref>, reason }). doSalvageEquipment below reassigns state +
-  // logs the recovered materials on success, mirroring the do* handler idiom.
+  // salvageShip(state, shipId) breaks down a whole HULL from the Ships roster for a
+  // fraction of its build cost. Its SUCCESS branch carries a { next, recovered,
+  // creditsRecovered } shape (SalvageShipResult, credits are unique to the ship path);
+  // a reject is a same-reference no-op plus a reason. doSalvageShip below reassigns
+  // state + logs the recovered materials, credits, and returned systems.
   // SalvageRejectReason types the reason->text mapper.
   //
-  // salvageSalvagedMaterial(state, itemId) is the SECOND salvage model (0.11.0 Task C2):
-  // it consumes ONE unit of a `salvagedMaterial` item (the Damaged Reactor Housing) and
-  // rolls its tiered loot pool for a single drop. The SUCCESS branch additionally carries
-  // `rolled` ({ itemId, tier, quality }) so doSalvageSalvagedMaterial below can narrate the
-  // exact drop it produced. Same discriminated SalvageResult / reject convention.
-  // salvageShip(state, shipId) is the THIRD salvage entry point: it breaks down a whole
-  // HULL from the Docks for a fraction of its build cost. Its SUCCESS branch carries a
-  // { next, recovered, creditsRecovered } shape (SalvageShipResult, credits are unique to
-  // the ship path), reject is the same same-ref + reason convention. doSalvageShip below
-  // reassigns state + logs the recovered materials, credits, and returned systems. It is
-  // INSTANT this patch and slated to become a timed teardown later (see salvage.ts).
-  import { salvageEquipment, salvageSalvagedMaterial, salvageShip, type SalvageRejectReason } from "./lib/game/salvage";
+  // ⚠️ WHY salvageEquipment / salvageSalvagedMaterial ARE NO LONGER IMPORTED HERE
+  // (Crafting 0.13.3, Phase 4 Unit 4.4). Those two used to be called DIRECTLY by the
+  // Salvage Bay's buttons, which made a system recycle and a material loot roll INSTANT.
+  // Phase 2 turned both into timed, queued, offline-safe salvageJob processes, so the
+  // console's job is now to ENQUEUE an order and let resolveProcesses call those two
+  // functions with the tick's own seeded rng. A UI call would resolve on Math.random
+  // outside the economy seam and would be a parity hole, so the imports are gone rather
+  // than merely unused. HULL teardown is deliberately still instant and still a Ships
+  // action (design 8.8: Ships and Docks get no queue UI this release), which is why
+  // salvageShip alone survives here.
+  //
+  // salvageReservations is the DERIVED "what is already spoken for" pass (reservation.ts,
+  // re-exported by salvage.ts). One call per render answers all three arms at once, which
+  // is what lets the tiles below mark a queued or in-flight target instead of letting it
+  // silently vanish for the length of its countdown.
+  import {
+    salvageShip,
+    salvageReservations,
+    type SalvageRejectReason,
+  } from "./lib/game/salvage";
   import {
     tick,
     // Phase 2 (Task A3, docs/plans/phase2-tick-map.md): the shared per-span
@@ -553,6 +569,17 @@
     // three real mint sites in resolveProcesses pass exactly this function's result, so the
     // Fabricator's preview and the minted piece agree by construction.
     craftingItemLevelBonus,
+    // Crafting 0.13.3 (Phase 4 Unit 4.4): the two Salvage Bay seams the console reads.
+    // salvageJobsInFlight is the SINGLE definition of "a salvage is running" (the same one
+    // the queue adapter counts against SALVAGE_SLOT_COUNT), used here to tell a QUEUED
+    // target apart from an IN-FLIGHT one on a tile: the derived reservation set merges the
+    // two on purpose, and a tile that says "Salvaging, 8s" is telling a different story
+    // from one that says "Queued for salvage".
+    // salvageJobDurationTicks prices a target through the EXACT function the start path
+    // uses, so the "about Ns" a tile previews before you commit is the countdown you get.
+    salvageJobsInFlight,
+    salvageJobDurationTicks,
+    type SalvageJobProcess,
   } from "./lib/game/tick";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
   // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
@@ -641,11 +668,12 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
-  import {
-    loadSalvageConfirmQualities,
-    saveSalvageConfirmQualities,
-    salvageNeedsConfirm,
-  } from "./lib/salvageConfirmPreference";
+  // (src/lib/salvageConfirmPreference.ts is NO LONGER IMPORTED HERE as of Crafting 0.13.3
+  //  Phase 4 Unit 4.4: the per-quality salvage-confirm preference now lives on the SAVE
+  //  (state.salvageConfirmQualities), which Unit 1.1 added and seeded from that module's
+  //  localStorage key. The module itself stays in the tree because save.ts's v39 -> v40
+  //  migration still calls loadSalvageConfirmQualities to run that one-time seed; only the
+  //  console's read/write path moved. See doToggleSalvageConfirmTier below.)
   // Ship favorites (0.13.2 Ships tab, Unit 3): the per-device localStorage set of
   // favorited ship ids the roster pins to a Favorites group. Same NOT-on-save posture as
   // refineConfirmEnabled / the combat-log display prefs below (no schema change / no
@@ -1497,6 +1525,43 @@
   // lists only held spares), so an empty hold shows the friendly stub instead of
   // an unactionable zero-count tile. Reactive: reads live inventory.
   $: salvageBayHeldSalvaged = salvageBaySalvagedItems.filter((entry) => itemTotal(state.inventory, entry.id).gt(0));
+
+  // ── The Salvage Bay's QUEUE + RESERVATIONS (Crafting 0.13.3, Phase 4 Unit 4.4) ──
+  // Four derivations, each computed ONCE per state change and read many times by the tiles.
+  //
+  // salvageBayQueue    the same pure CraftQueueView the Refinery and Fabricator bind to,
+  //                    for the third queue-capable facility. slotsTotal is SALVAGE_SLOT_COUNT
+  //                    and `running` carries the in-flight salvage rows (already named
+  //                    through salvageTargetLabel), so the bay's slot readout, its running
+  //                    list and its waiting list all come from one derivation.
+  // bayReservations    the ONE pass over the queue plus the in-flight jobs, per that module's
+  //                    explicit "call this once, not per tile" instruction. It answers all
+  //                    three target arms at once, which is exactly what a grid of dozens of
+  //                    tiles needs.
+  // bayJobsInFlight    the RUNNING half on its own, because a tile has two different things
+  //                    to say: "Salvaging" (a countdown the player can watch) and "Queued for
+  //                    salvage" (waiting its turn). The reservation set deliberately merges
+  //                    the two, so the split has to come from here.
+  // bayInFlight*       the in-flight half INDEXED for O(1) tile lookups: instance id -> the
+  //                    job, and material id -> how many units are being worked right now.
+  $: salvageBayQueue = buildCraftQueue(state, "salvageBay");
+  $: bayReservations = salvageReservations(state);
+  $: bayJobsInFlight = salvageJobsInFlight(state);
+  $: bayInFlightInstances = (() => {
+    const byInstance = new Map<string, SalvageJobProcess>();
+    for (const job of bayJobsInFlight) {
+      if (job.effect.target.kind === "equipment") byInstance.set(job.effect.target.instanceId, job);
+    }
+    return byInstance;
+  })();
+  $: bayInFlightMaterials = (() => {
+    const counts = new Map<string, number>();
+    for (const job of bayJobsInFlight) {
+      const target = job.effect.target;
+      if (target.kind === "material") counts.set(target.itemId, (counts.get(target.itemId) ?? 0) + 1);
+    }
+    return counts;
+  })();
   // Whole-tier empty check: drives a friendly stub when the selected tier holds
   // no materials at all (e.g. a higher tier before its items exist).
   $: materialsTierEmpty = materialsStandardSections.every((s) => s.items.length === 0);
@@ -2127,9 +2192,9 @@
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
     refineConfirmEnabled = loadRefineConfirmEnabled();
-    // salvageConfirmQualities is already loaded at its declaration (it drives only
-    // the checkbox display, and the actual gating reads the persisted set directly
-    // via salvageNeedsConfirm), so it does not need a second load here.
+    // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
+    // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
+    // the save load below rather than through a separate localStorage read on mount.)
 
     // Register the live-state exporter the SavePersistWarning banner's "Export save"
     // button invokes. The closure reads the reactive `state` / `createdAt` at CALL
@@ -3596,70 +3661,157 @@
     }
   }
 
-  // ── Salvage RESULT readout (0.11.2 Task 12) ───────────────────────────────
-  // The MOST RECENT Salvage Bay outcome, captured off the existing handler results
-  // so the Salvage Bay can render a "here is what you got" panel in ADDITION to the
-  // event-log line (which still fires). `kind` distinguishes the two surfaces:
-  // "system" is a spare-system recycle (materials only), "material" is a
-  // salvaged-material loot roll (materials + a rolled tier). `recovered` is the
-  // positive-amount entries only (the same filter the log summary uses). null when
-  // nothing has been salvaged this visit; cleared on leaving the Salvage Bay.
-  // "baseline" is a Standard-Issue declutter (removed, zero reward); it renders a
-  // "discarded" readout distinct from a crafted recycle's "recovered nothing (rounded)".
+  // ── Salvage RESULT readout (0.11.2 Task 12, rebuilt for the QUEUE in 0.13.3 Unit 4.4) ──
+  //
+  // WHAT CHANGED AND WHY. Until this unit the two Salvage Bay buttons called
+  // salvageEquipment / salvageSalvagedMaterial directly, so the handler HELD the result and
+  // could print exactly what came back. Phase 2 made salvage a timed, queued, offline-safe
+  // process: the consume-and-reward now happens inside resolveProcesses, on the tick's own
+  // seeded rng, and it returns nothing to the UI. So this readout is no longer fed by a
+  // handler; it is fed by an OBSERVER (syncSalvageJobWatch below) that watches jobs enter
+  // and leave state.activeProcesses.
+  //
+  // ⚠️ THE ONE THING THE OBSERVER CANNOT KNOW, STATED PLAINLY. The MATERIAL MANIFEST (which
+  // items, how many, and which loot tier hit) is produced inside the tick and is not carried
+  // anywhere the UI can read: GameState holds no event log and no per-job result record, and
+  // an inventory diff across the completing tick is NOT attributable (a refine job, a
+  // fabricate job or a returning mission can deposit into the very same tick, so the diff
+  // would sometimes credit salvage with someone else's materials, which is worse than saying
+  // nothing). Reporting a number we cannot prove would be a lie in a readout whose whole job
+  // is to be trusted, so the readout says what is true (what completed, and that its output
+  // went to the Warehouse) and stops there. Restoring the manifest needs a small PERSISTED
+  // result record on GameState, which this unit was explicitly scoped not to invent. It is
+  // written up in the unit's report as the recommended follow-up.
+  //
+  // `kind` still distinguishes the surfaces so the header tag and the sentence keep their
+  // three readings: "system" is a spare-system recycle, "material" is a salvaged-material
+  // loot roll, "baseline" is a Standard-Issue declutter (removed, zero reward), and "ship"
+  // is a hull teardown. `stale` marks the FAIL-SAFE NO-OP the build plan flagged: the target
+  // was gone by the time its turn came, so the process dropped and applied nothing. null
+  // when nothing has completed this visit; cleared on leaving the Salvage Bay.
   type LastSalvageResult = {
-    kind: "system" | "material" | "baseline";
+    kind: "system" | "material" | "baseline" | "ship";
     sourceName: string;
-    recovered: { itemId: string; amount: number }[];
-    rolledTier?: string;
+    stale: boolean;
   };
   let lastSalvageResult: LastSalvageResult | null = null;
 
-  // SALVAGE a spare crafted system. salvageEquipment returns a SalvageResult
-  // (same-ref no-op + reason on reject; new state + recovered map on success).
-  // On success: reassign state, clear the selection if it was this piece, log the
-  // recovered materials ([Item] convention), and persist, the standard do* idiom.
-  function doSalvageEquipment(instanceId: string) {
-    // Resolve a readable source name BEFORE the salvage consumes the spare: after
-    // state = result.next the piece is gone, so systemSalvageName (the slot + variety
-    // label the confirm modal shows) must be read now. Fall back to the raw id if the
-    // piece is somehow absent (e.g. a hand-edited save).
-    const salvagedPiece = state.equipment.find((e) => e.id === instanceId);
-    // A Standard-Issue baseline (blueprintKey null) salvages as a zero-reward declutter,
-    // so its readout/log say "discarded", not "recovered nothing". Read the flag BEFORE
-    // the salvage consumes the piece.
-    const wasBaseline = salvagedPiece?.blueprintKey === null;
-    const salvagedName = salvagedPiece ? systemSalvageName(salvagedPiece) : instanceId;
-    const result = salvageEquipment(state, instanceId);
-    if (!result.ok) {
-      pushLog(`Cannot salvage system: ${salvageRejectText(result.reason)}.`);
-      return;
+  // What the observer remembers about ONE in-flight salvage job.
+  //
+  // ⚠️ CAPTURED WHEN THE JOB APPEARS, NOT WHEN IT FINISHES, and that ordering is the whole
+  // point: a completed salvage has consumed its target, so by then there is no piece left to
+  // read a name or a baseline flag off. The label and the baseline branch of the readout
+  // would both be impossible to produce after the fact.
+  type WatchedSalvageJob = {
+    kind: "system" | "material" | "baseline" | "ship";
+    sourceName: string;
+    target: SalvageTargetRef;
+  };
+  let watchedSalvageJobs = new Map<string, WatchedSalvageJob>();
+
+  // Describe an in-flight job the way the readout will want to read it back.
+  // The three arms use the SAME naming helpers the tiles and the confirm modal use
+  // (systemSalvageName / ITEMS / devShipLabel), so a job is named identically everywhere.
+  function describeSalvageJob(job: SalvageJobProcess): WatchedSalvageJob {
+    const target = job.effect.target;
+    switch (target.kind) {
+      case "equipment": {
+        const piece = state.equipment.find((e) => e.id === target.instanceId);
+        return {
+          // A Standard-Issue baseline (no blueprint) is a zero-reward DESTROY, not a
+          // recycle, and the readout must keep telling that apart: it is the same
+          // Salvage-versus-Destroy truth the button label carries.
+          kind: piece?.blueprintKey === null ? "baseline" : "system",
+          sourceName: piece ? systemSalvageName(piece) : target.instanceId,
+          target,
+        };
+      }
+      case "material":
+        return { kind: "material", sourceName: ITEMS[target.itemId]?.label ?? target.itemId, target };
+      case "ship":
+        return { kind: "ship", sourceName: devShipLabel(target.shipId), target };
     }
-    state = result.next;
-    if (selectedSystemId === instanceId) selectedSystemId = null;
-    if (wasBaseline) {
-      // Declutter: nothing recovered, so log + readout report a discard.
-      pushLog(`Discarded Standard-Issue ${salvagedName} (no materials recovered).`);
-      lastSalvageResult = { kind: "baseline", sourceName: salvagedName, recovered: [] };
-      doSave();
-      return;
-    }
-    // The positive recoveries (0-amount inputs omitted) as structured entries, the
-    // SINGLE source both the log summary and the Task 12 result panel read from.
-    const positive = Object.entries(result.recovered)
-      .filter(([, amount]) => amount > 0)
-      .map(([itemId, amount]) => ({ itemId, amount }));
-    // Build a "N [Item], M [Item]" summary of the positive recoveries for the log.
-    const parts = positive.map(({ itemId, amount }) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
-    const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
-    pushLog(`Salvaged system ${instanceId} → recovered ${summary}.`);
-    // Capture the outcome for the Salvage Bay result panel (in addition to the log).
-    lastSalvageResult = {
-      kind: "system",
-      sourceName: salvagedName,
-      recovered: positive,
-    };
-    doSave();
   }
+
+  // Did a completed job's target SURVIVE? If it did, nothing was consumed, which means the
+  // resolver took its documented stale-target fail-safe branch and applied nothing.
+  //
+  // ⚠️ THIS IS A PROOF, NOT A GUESS, FOR THE TWO UNIQUE ARMS. A successful equipment or ship
+  // salvage always removes its target from state, so "still present after the job finished"
+  // can only mean the resolver refused it (already salvaged, installed since, hull lost,
+  // last-hull guard now firing). That is exactly the silent no-op the build plan asked this
+  // console to surface, and it needs no new state to detect.
+  //
+  // ⚠️ THE MATERIAL ARM RETURNS false ON PURPOSE, and it is not a gap. A fungible unit cannot
+  // be proven consumed by an existence check (the held count can also rise from loot in the
+  // same tick), but it also cannot go stale in practice: promotion requires held > in-flight
+  // committed (canStartSalvage), and once promoted the unit is RESERVED, and salvage is the
+  // only thing in the game that consumes a salvaged material. So the count cannot reach zero
+  // under a running job, and claiming "no longer available" there would be the false positive
+  // this function exists to avoid.
+  function salvageTargetSurvived(target: SalvageTargetRef): boolean {
+    switch (target.kind) {
+      case "equipment":
+        return state.equipment.some((e) => e.id === target.instanceId);
+      case "ship":
+        return state.ships.some((s) => s.id === target.shipId);
+      case "material":
+        return false;
+    }
+  }
+
+  // THE OBSERVER. Runs on every state change (the reactive statement below): remembers each
+  // salvage job while it is in flight, and reports the moment one leaves.
+  //
+  // WHY AN OBSERVER RATHER THAN A CALLBACK. resolveProcesses is the single completion seam
+  // for live AND offline play, it is pure, and it returns only the next GameState. Adding a
+  // UI callback to it would put a display concern inside the parity-critical path. Watching
+  // state instead costs one Map and works identically for a live tick and for an offline
+  // catch-up that resolves twenty salvages at once.
+  //
+  // ⚠️ IT MUST NOT WRITE TO `state`, or it would re-trigger itself. It only assigns the
+  // readout, the log, and its own Map.
+  //
+  // KNOWN AND ACCEPTED LIMIT: a job that both STARTS and FINISHES inside one state update
+  // (an offline catch-up spanning several salvages) is never seen entering, so it is never
+  // reported. The materials still land; only the readout line is missed. Reporting those
+  // would require the same persisted result record the manifest needs, so the two gaps close
+  // together or not at all, and neither loses the player anything.
+  function syncSalvageJobWatch() {
+    const live = salvageJobsInFlight(state);
+    const liveIds = new Set(live.map((job) => job.id));
+
+    // ENTERING: capture the target's identity while the target still exists.
+    for (const job of live) {
+      if (!watchedSalvageJobs.has(job.id)) watchedSalvageJobs.set(job.id, describeSalvageJob(job));
+    }
+
+    // LEAVING: the process is gone, so it resolved this tick. Report it, then forget it.
+    for (const [id, watched] of [...watchedSalvageJobs]) {
+      if (liveIds.has(id)) continue;
+      watchedSalvageJobs.delete(id);
+      const stale = salvageTargetSurvived(watched.target);
+      lastSalvageResult = { kind: watched.kind, sourceName: watched.sourceName, stale };
+      if (stale) {
+        // The build plan's flagged silent no-op, given a voice. Nothing was consumed, so the
+        // sentence says so: the player has lost nothing and can queue it again.
+        pushLog(`Salvage skipped → [${watched.sourceName}] could no longer be broken down. Nothing was consumed.`);
+      } else if (watched.kind === "baseline") {
+        // Wording preserved VERBATIM from the retired instant handler: the event log should
+        // read the same after this unit as before it for the one outcome whose full truth the
+        // observer still knows (a baseline carries nothing, so there is no manifest to lose).
+        pushLog(`Discarded Standard-Issue ${watched.sourceName} (no materials recovered).`);
+      } else {
+        pushLog(`Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`);
+      }
+    }
+  }
+
+  // The observer's trigger. Referencing `state` is what makes it reactive; the initial run on
+  // a freshly loaded save is not a no-op and must not be, because a save that was closed with
+  // a salvage running comes back with that job already in flight and it needs watching from
+  // the first frame or its completion would go unreported.
+  $: state, syncSalvageJobWatch();
 
   // SALVAGE a whole hull from the Docks. salvageShip returns a SalvageShipResult (same-ref
   // no-op + reason on reject: shipNotFound / shipOnMission; new state + recovered map +
@@ -3734,22 +3886,30 @@
     return eqOut ? equipmentOutputLabel(eqOut) : "this system";
   }
 
-  // ── Per-quality confirm preference (0.11.2 Task 13b) ──────────────────────
-  // The set of quality tiers that REQUIRE a confirm before salvaging, loaded from
-  // localStorage (loadSalvageConfirmQualities). The default is ALL tiers (confirm
-  // everything). The Salvage Bay Options control below toggles individual tiers on/off;
-  // toggling persists immediately via saveSalvageConfirmQualities. Loaded on mount.
+  // ── Per-quality confirm preference (0.11.2 Task 13b, REPOINTED in 0.13.3 Unit 4.4) ──
+  // The set of quality tiers that REQUIRE a confirm before salvaging. The default is ALL
+  // tiers (confirm everything). The Salvage Bay Options checkboxes below toggle individual
+  // tiers on and off, and the semantics are UNCHANGED from the localStorage era: a tier
+  // PRESENT in this array means "ask me first", a tier absent means "queue it straight away".
   //
-  // ⚠️ MID-MIGRATION (Crafting 0.13.3, Phase 1 Unit 1.1). This preference is MOVING onto
-  // GameState (state.salvageConfirmQualities), because the 0.13.3 auto-salvage rules run
-  // in the tick including the OFFLINE catch-up path, which can only read the save. The
-  // v39->v40 migration already ADDS the saved field and SEEDS it from this same
-  // localStorage value, so no player loses a setting. This UI deliberately still reads and
-  // writes localStorage: repointing the checkboxes at game state is a LATER unit, and
-  // leaving this path working means the console keeps behaving correctly in between. When
-  // that unit lands, this declaration and the toggle below move to the state-update path
-  // and salvageConfirmPreference.ts is retired.
-  let salvageConfirmQualities: number[] = loadSalvageConfirmQualities();
+  // ⚠️ THE MIGRATION UNIT 1.1 STARTED IS FINISHED HERE. That unit added
+  // state.salvageConfirmQualities and made the v39 -> v40 save migration seed it from the
+  // old localStorage key, but deliberately left this console reading and writing
+  // localStorage so nothing broke mid-phase. It is now READ OFF THE SAVE, because the
+  // 0.13.3 auto-salvage rules (Phase 5) run inside the tick, including the OFFLINE catch-up
+  // path, which can only read the save: a rule must never auto-salvage a tier the player
+  // asked to be asked about, and it cannot honor a preference it cannot see. Reading the
+  // same field the tick will read is what makes that promise keepable.
+  //
+  // ⚠️ THE FALLBACK IS "CONFIRM EVERYTHING", NOT AN EMPTY ARRAY, and the difference matters.
+  // An EMPTY array is a legitimate saved value (the player unchecked every tier), so the
+  // fallback fires only when the field is genuinely absent (a hand-built fixture, a state
+  // assembled before the field existed). Falling back to [] there would silently turn OFF
+  // every confirmation on a permanently destructive action, which is the failure direction
+  // that costs a player their gear. freshSalvageConfirmQualities is the same
+  // confirm-every-tier default freshState seeds, derived from QUALITY_TIERS, so it cannot
+  // drift from the tier ladder.
+  $: salvageConfirmQualities = state.salvageConfirmQualities ?? freshSalvageConfirmQualities();
 
   // Map a salvaged material's ItemRarity (model.ts: "common" | "uncommon" | "rare" |
   // "epic" | "legendary") to a quality-tier index so the per-quality confirm preference
@@ -3781,38 +3941,56 @@
     if (kind === "system") {
       const piece = state.equipment.find((e) => e.id === id);
       if (!piece) return true; // safe default: confirm a target we cannot inspect
-      return salvageNeedsConfirm(piece.quality);
+      return salvageQualityNeedsConfirm(piece.quality);
     }
     // material
     const rarity = ITEMS[id]?.rarity;
     const tier = rarity !== undefined ? (RARITY_TO_QUALITY_TIER[rarity] ?? 0) : 0;
-    return salvageNeedsConfirm(tier);
+    return salvageQualityNeedsConfirm(tier);
   }
 
-  // Request a salvage. If the target's quality tier is in the player's confirm set, open
-  // the confirm modal (Nothing is destroyed until Confirm; Cancel clears the pending
-  // target). Otherwise EXECUTE IMMEDIATELY through the SAME do* handler the modal would
-  // dispatch to (so the result readout + event-log line still fire), skipping the modal.
-  // Ship teardown always confirms (salvageTargetNeedsConfirm returns true for "ship").
+  // Does THIS quality tier require a confirm? The whole of the preference's meaning, in one
+  // line: PRESENT means "ask me first". Reads the reactive `salvageConfirmQualities`, which
+  // is the save's own field (0.13.3 Unit 4.4), so the console and the Phase 5 auto-salvage
+  // rules will be reading one array and cannot disagree about which tier is protected.
+  function salvageQualityNeedsConfirm(tier: number): boolean {
+    return salvageConfirmQualities.includes(tier);
+  }
+
+  // Request a salvage. If the target's quality tier is in the player's confirm set, open the
+  // confirm modal (nothing is queued until Confirm; Cancel clears the pending target).
+  // Otherwise QUEUE IMMEDIATELY through the SAME handler the modal would dispatch to, so the
+  // two routes can never diverge. Ship teardown always confirms (salvageTargetNeedsConfirm
+  // returns true for "ship") and is still the INSTANT path, see doSalvageShip.
+  //
+  // ⚠️ WHAT "SALVAGE NOW" MEANS AFTER 0.13.3 Unit 4.4. The system and material buttons no
+  // longer destroy anything on click: they ENQUEUE a salvage order at the Salvage Bay, which
+  // the tick promotes into a timed job as soon as the bay is free. The preference's semantics
+  // are untouched (a checked tier still stops and asks), only what happens after the yes.
   function requestSalvage(kind: "system" | "material" | "ship", id: string, name: string) {
     if (!salvageTargetNeedsConfirm(kind, id)) {
-      // Direct-execute path: route through the same handler confirmSalvage would call.
-      if (kind === "system") doSalvageEquipment(id);
-      else if (kind === "ship") doSalvageShip(id);
-      else doSalvageSalvagedMaterial(id);
+      // Direct path: route through the same handler confirmSalvage would call.
+      if (kind === "ship") doSalvageShip(id);
+      else doQueueSalvage(kind, id);
       return;
     }
     salvageConfirm = { kind, id, name };
   }
 
-  // Toggle one quality tier in the confirm set (checked = confirm required), then persist.
-  // Rebuilds the array (rather than mutating in place) so the `salvageConfirmQualities`
-  // reassignment triggers Svelte reactivity for the Options checkboxes.
-  function toggleSalvageConfirmTier(tier: number, needsConfirm: boolean) {
-    salvageConfirmQualities = needsConfirm
-      ? [...salvageConfirmQualities.filter((t) => t !== tier), tier]
-      : salvageConfirmQualities.filter((t) => t !== tier);
-    saveSalvageConfirmQualities(salvageConfirmQualities);
+  // Toggle one quality tier in the confirm set (checked = confirm required), then save.
+  //
+  // A proper do* handler as of 0.13.3 Unit 4.4: it writes GAME STATE and persists through
+  // doSave, exactly like every other action in this file, instead of writing a private
+  // localStorage key. Rebuilds the array rather than mutating in place, both because the
+  // state object is treated as immutable everywhere else and because a mutation would not
+  // re-run the reactive read above that the checkboxes bind to.
+  function doToggleSalvageConfirmTier(tier: number, needsConfirm: boolean) {
+    const current = salvageConfirmQualities;
+    const next = needsConfirm
+      ? [...current.filter((t) => t !== tier), tier]
+      : current.filter((t) => t !== tier);
+    state = { ...state, salvageConfirmQualities: next };
+    doSave();
   }
   function cancelSalvageConfirm() {
     salvageConfirm = null;
@@ -3823,9 +4001,80 @@
     const pending = salvageConfirm;
     salvageConfirm = null;
     if (pending === null) return;
-    if (pending.kind === "system") doSalvageEquipment(pending.id);
-    else if (pending.kind === "ship") doSalvageShip(pending.id);
-    else doSalvageSalvagedMaterial(pending.id);
+    if (pending.kind === "ship") doSalvageShip(pending.id);
+    else doQueueSalvage(pending.kind, pending.id);
+  }
+
+  // ── Salvaging IS queueing now (Crafting 0.13.3, Phase 4 Unit 4.4) ─────────
+  // The single writer behind both Salvage Bay buttons and both confirm routes.
+  //
+  // WHY IT ONLY ENQUEUES, AND NEVER STARTS THE JOB ITSELF. startSalvageJob is exported and
+  // calling it here would shave one tick off the wait when the bay is idle, but promotion
+  // belongs to promoteQueuedOrders and to nothing else: that single call site inside
+  // economyTick is what makes offline resolution identical to live play by construction. A
+  // second promoter in the UI would be a second set of gates to keep in step, for a saving of
+  // one second. So this queues, the very next tick promotes it if the bay is free, and there
+  // is exactly one promotion path in the game (the same rule Unit 4.2 wrote for craft lines).
+  //
+  // A refusal is a same-reference no-op carrying its reason, so the log tells the player why
+  // rather than swallowing the click (Omega 14: no silent failure). The button's own disabled
+  // state already mirrors canEnqueueOrder, so reaching the refusal branch means state moved
+  // between render and click.
+  function doQueueSalvage(kind: "system" | "material", id: string) {
+    const target: SalvageTargetRef =
+      kind === "system" ? { kind: "equipment", instanceId: id } : { kind: "material", itemId: id };
+    const order: QueuedOrder = { type: "salvage", target };
+    const { next, queued, reason } = enqueueOrder(state, "salvageBay", order);
+    if (!queued) {
+      pushLog(`Cannot queue salvage: ${reason === undefined ? "the Salvage Bay refused that order" : enqueueBlockText(reason)}`);
+      return;
+    }
+    state = next;
+    // Named through craftQueue.ts's queuedOrderLabel, the SAME function the queue row uses,
+    // so the log line and the row can never disagree about what was queued.
+    pushLog(`Queued for salvage → [${queuedOrderLabel(state, order)}].`);
+    // The selection is deliberately KEPT: the tile stays in the pool (it is reserved, not
+    // consumed) and the panel now shows its queued state, which is the whole point of the
+    // derived reservation. Clearing it would make the piece look like it had vanished.
+    doSave();
+  }
+
+  // ── Tile-level salvage state (Crafting 0.13.3, Phase 4 Unit 4.4) ──────────
+  // Three tiny readers over the derivations above, so the grid asks a question rather than
+  // re-deriving an answer. A spare system is in exactly one of three states, and the tile
+  // must say which: nothing vanishes from the pool for the length of a countdown, because an
+  // item that disappears from your inventory for thirty seconds looks like a bug (design 7.3).
+
+  // "running" beats "queued" beats "free": a piece cannot be both, and the in-flight reading
+  // is the more specific one (it has a countdown attached), so it is checked first.
+  function systemSalvageState(instanceId: string): "free" | "queued" | "running" {
+    if (bayInFlightInstances.has(instanceId)) return "running";
+    return bayReservations.instanceIds.has(instanceId) ? "queued" : "free";
+  }
+
+  // How many units of a fungible salvaged material are already spoken for (QUEUED plus
+  // IN FLIGHT). This is the reservation-aware stock idiom (preservation inventory 0.3):
+  // the tile shows held, and free = held - this.
+  function materialSalvageQueued(itemId: string): number {
+    return bayReservations.materialCounts.get(itemId) ?? 0;
+  }
+
+  // The live countdown on an in-flight target, or "" when nothing is running on it. Rendered
+  // through the SHARED remainingReadout helper with the player's showTickCounts preference and
+  // state.tickDurationSeconds, per preservation inventory 0.1 and 0.2: no console mints its
+  // own "time remaining" string.
+  function salvageRunningReadout(instanceId: string): string {
+    const job = bayInFlightInstances.get(instanceId);
+    if (job === undefined) return "";
+    return remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds);
+  }
+
+  // How long THIS target would take, previewed BEFORE it is queued, through the exact function
+  // startSalvageJob uses to stamp the countdown. Same helper, same number, so the estimate the
+  // player commits to is the one they get. Formatted by durationReadout (a fixed length, not a
+  // countdown), which is the same treatment every other build-time estimate gets.
+  function salvageDurationPreview(target: SalvageTargetRef): string {
+    return durationReadout(salvageJobDurationTicks(state, target), showTickCounts, state.tickDurationSeconds);
   }
 
   // Ship salvage that would orphan a captain: only an on-mission ship is BLOCKED (onMissionLock),
@@ -3895,45 +4144,13 @@
   // is a harmless null -> null.
   $: activeFoundryFacility, activeTab, facilitiesView, (lastSalvageResult = null);
 
-  // SALVAGE one unit of a salvaged material for a tiered loot roll. salvageSalvagedMaterial
-  // returns a SalvageResult: on reject a same-ref no-op + reason (noneHeld / notSalvagedMaterial),
-  // on success a new state + `recovered` (the deposited amount) + `rolled` (the drop's
-  // item/tier/quality). On success: reassign state, log the roll ("Salvaged <source>:
-  // <drop> xN (<Tier>)"), and persist, the standard do* idiom. Reuses salvageRejectText for
-  // the reject sentence (it already covers both salvaged-material reasons).
-  function doSalvageSalvagedMaterial(itemId: string) {
-    const result = salvageSalvagedMaterial(state, itemId);
-    if (!result.ok) {
-      pushLog(`Cannot salvage material: ${salvageRejectText(result.reason)}.`);
-      return;
-    }
-    state = result.next;
-    // `rolled` is present on this (salvaged-material) path; guard for totality since the
-    // SalvageResult type marks it optional (the equipment-recycle path omits it).
-    const roll = result.rolled;
-    if (roll) {
-      const srcLabel = ITEMS[itemId]?.label ?? itemId;
-      const dropLabel = ITEMS[roll.itemId]?.label ?? roll.itemId;
-      // Amount deposited (always 1 today) read from `recovered` so the log can't drift
-      // from what actually entered inventory.
-      const amount = result.recovered[roll.itemId] ?? 1;
-      // Title-case the raw rarity token ("stellar" -> "Stellar") for the readout.
-      const tierLabel = roll.tier.charAt(0).toUpperCase() + roll.tier.slice(1);
-      pushLog(`Salvaged ${srcLabel}: ${dropLabel} x${amount} (${tierLabel}).`);
-      // Capture the outcome for the Salvage Bay result panel (in addition to the log).
-      // `recovered` here is the single deposited drop; reuse the same positive-amount
-      // filter as the system path so the panel shows exactly what entered inventory.
-      lastSalvageResult = {
-        kind: "material",
-        sourceName: srcLabel,
-        recovered: Object.entries(result.recovered)
-          .filter(([, amt]) => amt > 0)
-          .map(([rid, amt]) => ({ itemId: rid, amount: amt })),
-        rolledTier: tierLabel,
-      };
-    }
-    doSave();
-  }
+  // (doSalvageSalvagedMaterial, the INSTANT salvaged-material loot roll, was RETIRED in
+  //  Crafting 0.13.3 Phase 4 Unit 4.4 along with doSalvageEquipment. Both actions are now
+  //  QUEUED: the button calls doQueueSalvage, promoteQueuedOrders promotes the order into a
+  //  timed salvageJob, and resolveProcesses calls salvageSalvagedMaterial with the tick's own
+  //  SEEDED rng. That last part is why the handler could not simply stay as a fast path: a UI
+  //  call would roll the loot table on Math.random outside the economy seam, and the whole
+  //  point of Phase 2 was that a salvage resolves identically live and offline.)
 
   // (doCraftRecipe, the legacy instant Homeworld craft-button handler, was
   //  RETIRED in Phase 4, Task F5 along with the RECIPES panel it drove. Crafting
@@ -5583,6 +5800,27 @@
         {/if}
       </p>
     {:else}
+      {@render craftQueueRowList(view)}
+    {/if}
+  </Panel>
+{/snippet}
+
+<!-- ================= THE QUEUE ROW LIST (Crafting 0.13.3) ====================
+     The ordered list of WAITING orders and their controls, extracted in Unit 4.4 out
+     of craftOrderQueuePanel above so the Salvage Bay can render the identical rows
+     inside its own, differently-shaped panel.
+     WHY THE SPLIT LANDS HERE AND NOT HIGHER. What the three facilities share is the
+     ROW: position, label, mode, live state and the three stable controls, all read off
+     CraftQueueRow, all worded facility-neutrally already (queueBlockText routes its own
+     wording by the row's order type). What they do NOT share is the panel CHROME: a
+     Refinery runs continuous LINES and needs the section 5.4 trap warning, a Salvage Bay
+     runs BAYS, has no continuous mode for that warning to describe, and has to render
+     its own in-flight jobs because it has no line cards elsewhere on the console to do
+     it. Parameterizing the chrome would have meant a noun knob plus a "hide the warning"
+     flag, which is two parameters standing in for "these are different panels". Sharing
+     the row and splitting the chrome keeps every shared string single-sourced and every
+     divergent one honest. -->
+{#snippet craftQueueRowList(view: CraftQueueView)}
       <div class="cq-list">
         {#each view.queued as row (row.id)}
           <div class="cq-row" class:cq-row-next={row.nextToPromote}>
@@ -5641,6 +5879,108 @@
           </div>
         {/each}
       </div>
+{/snippet}
+
+<!-- ============== THE SALVAGE BAY'S QUEUE PANEL (0.13.3 Unit 4.4) =============
+     A BAY-SHAPED VARIANT of craftOrderQueuePanel, not a second render of it, and the
+     three reasons are all structural rather than cosmetic:
+
+       1. IT RENDERS ITS OWN RUNNING WORK. The Refinery and the Fabricator already show
+          every busy slot as a production-line card further up their console, so their
+          queue panel only has to show what is WAITING. The Salvage Bay has no line
+          cards at all (its job IS the unit of work, there is no line layer), so if this
+          panel did not render the in-flight job, a salvage in progress would appear
+          nowhere on the console it belongs to.
+       2. IT HAS NO CONTINUOUS MODE. A craft line can run until cancelled and never hand
+          its slot back, which is the trap the shared panel warns about. A salvage job
+          always ends; craftQueue.ts hard-codes continuous:false on every bay row. The
+          warning is therefore not merely inapplicable, it is unrenderable, and showing
+          continuous-line wording on a bay would be describing machinery that does not
+          exist here (the explicit instruction Unit 4.3 left for this unit).
+       3. ITS NOUNS ARE BAYS AND ORDERS, NOT LINES AND CRAFTS. The shared empty state
+          says "configure a line above and choose Add to queue", which is not how a
+          salvage is queued: you pick a tile and press Salvage.
+
+     WHAT IS STILL SHARED, so the two panels cannot drift: the ROWS (craftQueueRowList),
+     the block-reason wording (queueBlockText already routes salvage rows to their own
+     vocabulary), the depth readout idiom, the .cq-* styles, and the Icon controls. -->
+{#snippet salvageBayQueuePanel(view: CraftQueueView)}
+  <Panel>
+    <div class="panel-title">SALVAGE QUEUE</div>
+
+    <!-- SLOTS: the bay's concurrency, stated before the queue that waits on it, because
+         "1 / 1 in use" is the whole explanation for why a queued row is waiting.
+         slotsTotal is SALVAGE_SLOT_COUNT through the view model, never a literal here;
+         the `?? 1` arm exists only for the type's null case (a future queue-capable
+         facility with no slot model yet) and is unreachable for this facility. -->
+    <div class="research-cost">
+      Salvage bays: {view.runningCount} / {view.slotsTotal ?? 1} in use
+    </div>
+
+    {#if view.running.length === 0}
+      <p class="research-status" style="margin-top: 8px;">
+        The bay is idle. Choose a spare system or a salvaged material below to queue one.
+      </p>
+    {:else}
+      {#each view.running as job (job.id)}
+        <div class="mission-card" style="margin-top: 10px;">
+          <div class="research-name">BAY · BREAKING DOWN</div>
+          <!-- Named through the same salvageTargetLabel a QUEUED row uses, so a target
+               does not change vocabulary the moment it promotes. -->
+          <div class="research-cost">[{job.label}]</div>
+          <div class="research-bar-track">
+            <div class="research-bar-fill" style="width:{Math.min(100, job.progress * 100)}%"></div>
+          </div>
+          <!-- Raw ticks from the view model, formatted by the SHARED readout helper with
+               the player's showTickCounts preference (preservation inventory 0.1 + 0.2).
+               remainingTicks is non-null on every salvage row (unlike a craft line there is
+               no configured-but-not-started state), so the fallback is defensive only.
+               There is deliberately no Cancel: an in-flight salvage is committed work, and
+               a WAITING one is removed from the queue below instead. -->
+          <div class="research-readout">
+            {job.remainingTicks !== null && job.durationTicks !== null
+              ? remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)
+              : "In progress"}
+          </div>
+        </div>
+      {/each}
+    {/if}
+
+    <!-- Depth readout, the same Home section-header idiom the craft panel uses. -->
+    <div class="home-sec-hd" style="margin-top: 12px;">
+      <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
+      <span class="home-sec-count" class:cq-count-over={view.overDepth}>
+        {view.depthUsed} / {view.depthTotal}
+      </span>
+      <span class="home-sec-rule"></span>
+    </div>
+
+    <!-- The respec drain state and the enqueue block reason, worded exactly as the craft
+         panel words them: the depth talent and the cap are facility-neutral, so the player
+         reads one explanation of queue depth across the whole game. -->
+    {#if view.overDepth}
+      <p class="cq-note cq-note-warn">
+        Over capacity: {view.depthUsed} orders are held but the current depth is {view.depthTotal}.
+        Nothing is lost. These drain as the bay frees up, and no new order can be added until the queue is back under {view.depthTotal}.
+        Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
+      </p>
+    {:else if !view.canEnqueue && view.enqueueBlockReason !== null}
+      <p class="cq-note cq-note-warn">{enqueueBlockText(view.enqueueBlockReason)}</p>
+    {/if}
+
+    {#if view.queued.length === 0}
+      <!-- State-dependent empty state (inventory 0.8), with the BAY's own two readings.
+           The zero-depth branch is defensive and unreachable today (QUEUE_DEPTH_BASE is 1). -->
+      <p class="research-status" style="margin-top: 10px;">
+        {#if view.depthTotal <= 0}
+          This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {:else}
+          Nothing queued. Select a spare system or a salvaged material below and choose <strong>Salvage</strong> to line up work that starts as soon as the bay is free.
+          Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {/if}
+      </p>
+    {:else}
+      {@render craftQueueRowList(view)}
     {/if}
   </Panel>
 {/snippet}
@@ -7437,58 +7777,98 @@
               <p class="research-status">
                 Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first.
               </p>
+              <!-- 0.13.3 Unit 4.4: the second sentence the explainer now owes the player,
+                   because the ACTION changed shape. Salvaging used to happen the instant you
+                   pressed the button; it is now a timed job that runs in this bay, one at a
+                   time, and keeps running while the game is closed. Saying so here is what
+                   stops the countdown from reading as a bug the first time it appears. The
+                   permanence warning above is untouched: what changed is WHEN it happens,
+                   not WHETHER it is permanent. -->
+              <p class="research-status">
+                Salvaging is a job the bay runs over time, one at a time. Queued orders keep their target reserved and continue while you are away.
+              </p>
               <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
                    quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
                    confirm before salvaging an item of that quality; unchecking a
-                   tier salvages it instantly. Persists to localStorage via
-                   toggleSalvageConfirmTier -> saveSalvageConfirmQualities. Reuses the
-                   .dev-row + inline-flex label + checkbox idiom from the System
-                   Options panel; no new styling or colors. Ship (hull) teardown
-                   always confirms regardless of these toggles. Tier labels use the
-                   Q0..Q5 convention the systems tiles already show. -->
+                   tier queues it straight away. Reuses the .dev-row + inline-flex label +
+                   checkbox idiom from the System Options panel; no new styling or colors.
+                   Ship (hull) teardown always confirms regardless of these toggles. Tier
+                   labels use the Q0..Q5 convention the systems tiles already show.
+                   ⚠️ 0.13.3 Unit 4.4 REPOINTED these at the SAVE. They read
+                   salvageConfirmQualities (now derived from state.salvageConfirmQualities)
+                   and write through doToggleSalvageConfirmTier, which updates state and
+                   saves. The semantics are unchanged (checked = ask me first); what changed
+                   is that the Phase 5 auto-salvage rules, which run inside the tick and in
+                   the offline catch-up, can now SEE this preference and refuse to
+                   auto-salvage a tier the player asked to be asked about. -->
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
                 {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
                   <label style="display: inline-flex; align-items: center; gap: 6px;">
                     <input
                       type="checkbox"
                       checked={salvageConfirmQualities.includes(tier)}
-                      on:change={(e) => toggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
+                      on:change={(e) => doToggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
                     />
                     Q{tier}
                   </label>
                 {/each}
               </div>
               <p class="research-status">
-                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to salvage it instantly.
+                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to queue it straight away.
               </p>
             </Panel>
 
-            <!-- LAST SALVAGE readout (0.11.2 Task 12): a "here is what you got"
-                 status shown after a break-down, in ADDITION to the event-log
-                 line. Fed by lastSalvageResult, which the two do* handlers set on
-                 success and the clear reactive resets when leaving the tab. Reuses
-                 the SAME Panel + warehouse-tier-head + research-status tokens as the
-                 surrounding sections; no new styling or colors. -->
+            <!-- THE SALVAGE QUEUE (0.13.3 Unit 4.4). Sits directly under the explainer and
+                 ABOVE the tiles, the reverse of the craft consoles' running-then-queued
+                 order, and deliberately so: on this console the tiles are the ACTION and the
+                 queue is the STATUS of actions already taken, so the status belongs where
+                 the player looks first, before they scroll a grid of dozens of spares. -->
+            {@render salvageBayQueuePanel(salvageBayQueue)}
+
+            <!-- LAST SALVAGE readout (0.11.2 Task 12, re-sourced in 0.13.3 Unit 4.4): a
+                 "here is what happened" status shown after a job finishes, in ADDITION to
+                 the event-log line. Reuses the SAME Panel + warehouse-tier-head +
+                 research-status tokens as the surrounding sections; no new styling.
+                 ⚠️ ITS SOURCE MOVED, AND SO DID WHAT IT CAN HONESTLY SAY. It used to be set
+                 by the two instant handlers, which held the salvage result in hand. Salvage
+                 is a timed process now, so the readout is fed by the completion OBSERVER
+                 (syncSalvageJobWatch), which can prove WHAT completed and whether the target
+                 was still there, but cannot see the material manifest: that is produced
+                 inside resolveProcesses and carried nowhere the UI can read it. The manifest
+                 lines are therefore replaced by a Warehouse signpost rather than by a number
+                 the console would be guessing at. See the LastSalvageResult type for the full
+                 reasoning and the follow-up this needs. -->
             {#if lastSalvageResult !== null}
               <Panel>
                 <div class="warehouse-tier-head">
                   <span class="warehouse-tier-label">Last salvage</span>
                   <span class="warehouse-tier-line"></span>
-                  <span class="warehouse-tier-cap">{lastSalvageResult.kind === "system" ? "recycled" : lastSalvageResult.kind === "baseline" ? "discarded" : "loot roll"}</span>
+                  <!-- THE FOURTH HEADER TAG, and the build plan's flagged silent no-op made
+                       visible. The other three readings are unchanged. -->
+                  <span class="warehouse-tier-cap">
+                    {#if lastSalvageResult.stale}no longer available{:else if lastSalvageResult.kind === "system"}recycled{:else if lastSalvageResult.kind === "baseline"}discarded{:else if lastSalvageResult.kind === "ship"}torn down{:else}loot roll{/if}
+                  </span>
                 </div>
                 <p class="research-status">
-                  {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : "Broke down"} [{lastSalvageResult.sourceName}].
-                  {#if lastSalvageResult.kind === "baseline"}
-                    Standard-Issue systems carry no materials to recover.
-                  {:else if lastSalvageResult.recovered.length > 0}
-                    Recovered: {lastSalvageResult.recovered
-                      .map((r) => `${formatNumber(new Decimal(r.amount))} [${ITEMS[r.itemId]?.label ?? r.itemId}]`)
-                      .join(", ")}.
+                  {#if lastSalvageResult.stale}
+                    <!-- THE STALE-TARGET BRANCH (build plan, Phase 4 note from Unit 2.3).
+                         A queued target that was gone by the time its turn came resolves as a
+                         fail-safe no-op: the process drops and applies nothing. That used to
+                         be completely silent. The sentence leads with the reassurance,
+                         because "nothing happened" reads as a bug until you are told that
+                         nothing was LOST either. -->
+                    Nothing was consumed. [{lastSalvageResult.sourceName}] could no longer be broken down when its turn came in the bay
+                    (salvaged already, installed since, or no longer eligible), so the order was dropped. You can queue it again if it is still in the pool.
                   {:else}
-                    No materials recovered (recovery rounded to zero).
-                  {/if}
-                  {#if lastSalvageResult.rolledTier}
-                    Rolled tier: {lastSalvageResult.rolledTier}.
+                    {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : lastSalvageResult.kind === "ship" ? "Tore down" : "Broke down"} [{lastSalvageResult.sourceName}].
+                    {#if lastSalvageResult.kind === "baseline"}
+                      Standard-Issue systems carry no materials to recover.
+                    {:else}
+                      <!-- The cross-facility signpost design 8.0 (item 0.9) asks salvage
+                           output to carry: the materials are already banked, and the
+                           Warehouse is where they can be counted. -->
+                      Recovered materials went straight to the <strong>Warehouse</strong>.
+                    {/if}
                   {/if}
                 </p>
               </Panel>
@@ -7521,18 +7901,35 @@
                     <div class="warehouse-grid">
                       {#each group.pieces as piece (piece.id)}
                         {@const isBaseline = piece.blueprintKey === null}
+                        <!-- 0.13.3 Unit 4.4: a spare that is QUEUED or already BEING BROKEN
+                             DOWN stays right here in the pool, tinted and tagged, instead of
+                             vanishing for the length of its countdown. That is the visible
+                             half of the derived reservation (design 7.3): the piece is spoken
+                             for, not gone, and an item that disappears from your inventory
+                             for thirty seconds looks like a bug. The title carries the same
+                             fact for a pointer, and the tag carries it for everyone else. -->
+                        {@const salvageState = systemSalvageState(piece.id)}
+                        {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
                         <button
                           type="button"
                           class="systems-tile"
                           class:baseline={isBaseline}
                           class:selected={selectedSystemId === piece.id}
+                          class:sb-reserved={salvageState !== "free"}
                           style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
-                          title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                          title={salvageState === "running"
+                            ? `${baseTitle} · being salvaged now`
+                            : salvageState === "queued"
+                              ? `${baseTitle} · queued for salvage`
+                              : baseTitle}
                           on:click={() => selectSystemTile(piece.id)}
                         >
                           <span class="systems-tile-dot"></span>
                           <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
                           <span class="systems-tile-il">iL {piece.iLevel}</span>
+                          {#if salvageState !== "free"}
+                            <span class="sb-tile-tag">{salvageState === "running" ? "SALV" : "QUE"}</span>
+                          {/if}
                         </button>
                       {/each}
                     </div>
@@ -7551,10 +7948,38 @@
                  always-available storage escape valve, so no spare can ever become un-removable. -->
             {#if selectedSystem}
               {@const sys = selectedSystem}
+              <!-- 0.13.3 Unit 4.4: the button QUEUES the job it used to perform. The label
+                   flip is unchanged and non-negotiable (a crafted spare Salvages, a
+                   Standard-Issue baseline Destroys for nothing), because it is what keeps the
+                   escape valve honest: every spare stays removable, and the label keeps
+                   telling the truth about which of the two is happening.
+                   THREE new states, each with its own persistent reason under the button
+                   (inventory 0.4's persistent-note variant, never a hover title on a disabled
+                   control, which swallows pointer events and is unreadable on touch):
+                     running   the bay is working on this exact piece; show the countdown.
+                     queued    it is already waiting its turn; queueing it twice is refused by
+                               the engine (isDuplicateSalvageTarget) so the control says so
+                               rather than letting the click fail silently.
+                     blocked   the queue itself will not take another order (depth full).
+                   ⚠️ NOTHING HERE CONSULTS equipmentStorageCap, deliberately. Salvage is the
+                   escape valve for a FULL spare pool, so a full pool must always be able to
+                   queue the action that empties it (design 7.3, salvage.ts's file header). -->
+              {@const salvageState = systemSalvageState(sys.id)}
+              {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
+              {@const target = { kind: "equipment", instanceId: sys.id } as SalvageTargetRef}
+              {@const actionNote =
+                salvageState === "running"
+                  ? `Being salvaged now · ${salvageRunningReadout(sys.id)}`
+                  : salvageState === "queued"
+                    ? "Already queued for salvage. Remove it from the queue above to keep it."
+                    : queueBlocked !== null
+                      ? enqueueBlockText(queueBlocked)
+                      : `Takes about ${salvageDurationPreview(target)} in the bay once it starts.`}
               <Panel>
                 <EquipmentTooltip piece={sys}>
                   <button
                     class="buy-btn systems-salvage-btn"
+                    disabled={salvageState !== "free" || queueBlocked !== null}
                     on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
                   >
                     {selectedIsBaseline ? "Destroy" : "Salvage"}
@@ -7562,6 +7987,7 @@
                   {#if selectedIsBaseline}
                     <span class="systems-salvage-none">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
                   {/if}
+                  <span class="systems-salvage-none">{actionNote}</span>
                 </EquipmentTooltip>
               </Panel>
             {/if}
@@ -7585,6 +8011,15 @@
                 <div class="warehouse-grid">
                   {#each salvageBayHeldSalvaged as item (item.id)}
                     {@const count = itemTotal(state.inventory, item.id)}
+                    <!-- 0.13.3 Unit 4.4: a salvaged material is FUNGIBLE, so unlike a unique
+                         spare it is not simply "reserved or not". Holding five and queueing
+                         three is legitimate, so the honest question is HOW MANY units are
+                         spoken for; the tile keeps showing the full held count (nothing has
+                         been consumed yet) and the tag carries the queued share, with
+                         free = held - queued. Reservation-aware stock, the same idiom the
+                         Warehouse uses for allocated materials (inventory 0.3). -->
+                    {@const queued = materialSalvageQueued(item.id)}
+                    {@const running = bayInFlightMaterials.get(item.id) ?? 0}
                     <!-- Reuse the systems-tile visual (rarity dot + code + corner
                          value), painting the count where a system's quality sits.
                          Rarity color via warehouseRarityColor (item rarity). -->
@@ -7592,13 +8027,19 @@
                       type="button"
                       class="systems-tile"
                       class:selected={selectedSalvagedId === item.id}
+                      class:sb-reserved={queued > 0}
                       style="--sys-rc: {warehouseRarityColor(item.rarity)};"
-                      title={`${item.label} · ${item.rarity}`}
+                      title={queued > 0
+                        ? `${item.label} · ${item.rarity} · ${queued} queued for salvage`
+                        : `${item.label} · ${item.rarity}`}
                       on:click={() => selectSalvagedTile(item.id)}
                     >
                       <span class="systems-tile-dot"></span>
                       <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
                       <span class="systems-tile-q">{formatNumber(count)}</span>
+                      {#if queued > 0}
+                        <span class="sb-tile-tag">{running > 0 ? "SALV" : "QUE"} {queued}</span>
+                      {/if}
                     </button>
                   {/each}
                 </div>
@@ -7620,17 +8061,36 @@
               {@const selItem = ITEMS[selectedSalvagedId]}
               {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
               {@const selHeld = selCount.gt(0)}
+              <!-- 0.13.3 Unit 4.4: the queued share, and the free remainder it leaves.
+                   ⚠️ THE BUTTON IS NOT GATED ON `free`, DELIBERATELY. The engine allows the
+                   queue to hold MORE salvage orders than the player holds units (canStartSalvage
+                   bounds promotion against in-flight jobs, not against queued ones), and
+                   promotion is skip-on-block, so an order that cannot run yet waits without
+                   blocking anything behind it. Adding a stricter gate here would be the UI
+                   inventing a rule the engine does not have. The readout stays honest instead,
+                   which is the reservation-aware stock idiom's actual job. -->
+              {@const selQueued = materialSalvageQueued(salvageTargetId)}
+              {@const selFree = Math.max(0, selCount.toNumber() - selQueued)}
               <Panel>
                 <div class="salvaged-action">
                   <div class="salvaged-action-info">
                     <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
                     <div class="salvaged-action-hint">
-                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}{#if selQueued > 0} ({selQueued} queued, {selFree} free){/if}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                    </div>
+                    <div class="salvaged-action-hint">
+                      {#if !selHeld}
+                        None of this material is held.
+                      {:else if salvageBayQueue.enqueueBlockReason !== null}
+                        {enqueueBlockText(salvageBayQueue.enqueueBlockReason)}
+                      {:else}
+                        Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} in the bay once it starts.
+                      {/if}
                     </div>
                   </div>
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={!selHeld}
+                    disabled={!selHeld || salvageBayQueue.enqueueBlockReason !== null}
                     title={selHeld ? undefined : "None of this material is held"}
                     on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
                   >
@@ -11013,9 +11473,22 @@
         {#if salvageShipCaptainWarning !== null}
           <p class="modal-warning">This will leave <strong>{salvageShipCaptainWarning}</strong> without a ship until you assign them another. Any crafted systems return to your spares.</p>
         {/if}
+        <!-- 0.13.3 Unit 4.4: WHEN it happens, added beside the unchanged warning about WHAT
+             happens. A system or material salvage is queued at the bay and runs over time, so
+             the modal says so and the confirm button's own label says so, which is the design's
+             "add to the salvage queue rather than salvage now" wording. A HULL teardown is
+             still instant and still resolves on Confirm, so its branch is left exactly as it
+             was rather than being told a queue story that is not true for it. -->
+        {#if salvageConfirm.kind !== "ship"}
+          <p class="research-status">
+            This adds the order to the salvage queue. The bay works through one order at a time, and the target stays reserved until its turn.
+          </p>
+        {/if}
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelSalvageConfirm}>Cancel</button>
-          <button class="dev-btn danger" on:click={confirmSalvage}>Salvage</button>
+          <button class="dev-btn danger" on:click={confirmSalvage}>
+            {#if salvageConfirm.kind === "ship"}Salvage{:else}Add to queue{/if}
+          </button>
         </div>
       </Panel>
     </div>
@@ -12813,6 +13286,30 @@
   .systems-tile-il {
     font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
     color: var(--color-text-secondary);
+  }
+
+  /* RESERVED-FOR-SALVAGE tile (Crafting 0.13.3, Phase 4 Unit 4.4). A spare that is queued
+     or already in the bay stays in the grid, tinted, rather than vanishing for the length
+     of its countdown. The tint is a color-mix over the accent (the locked tint technique,
+     never a hardcoded hex), so it reads correctly in every theme and in both schemes. It is
+     deliberately a TINT and not an opacity drop: .baseline already owns dimming, and a
+     reserved baseline has to stay distinguishable from a reserved crafted piece. */
+  .systems-tile.sb-reserved {
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  }
+  /* The corner tag naming WHICH reserved state this is ("SALV" in the bay now, "QUE"
+     waiting its turn), so the tint is never the only carrier of the meaning: color alone
+     would leave the state unreadable to anyone who cannot distinguish it. Bottom-left,
+     opposite the rarity dot, so the two markers never collide. */
+  .sb-tile-tag {
+    position: absolute; left: 3px; bottom: 3px;
+    font-size: 8px; font-weight: 700; letter-spacing: 0.06em;
+    padding: 1px 3px;
+    color: var(--color-accent);
+    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+    pointer-events: none;
   }
 
   /* Salvage button in the tooltip action slot: the danger variant (a recycle is
