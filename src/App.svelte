@@ -8122,7 +8122,7 @@
                        WITHIN each branch (no whitespace-only text at a block boundary,
                        which Svelte would trim) so the " · " separator renders. -->
                   <div class="research-cost">
-                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"}{#if fabricatorUnlocksNextTier} · unlocks Tier {fabricatorLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
+                    {#if "addFabricateSlots" in eff}Grants: +{eff.addFabricateSlots} craft slot{eff.addFabricateSlots === 1 ? "" : "s"}{#if fabricatorUnlocksNextTier}{" "}· unlocks Tier {fabricatorLevel + 1} blueprints{/if}{:else}Grants: unlocks Tier {fabricatorLevel + 1} blueprints{/if}
                   </div>
                   <div class="research-cost">Duration: {durationReadout(nextFabricatorUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
@@ -9172,7 +9172,7 @@
                 </p>
               {:else}
                 <p class="cq-note">
-                  {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}
+                  {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}{" "}
                     Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: uncheck a tier under <strong>Confirm before salvaging</strong> just above to include it.
                   {/if}
                   {autoSalvageCountText(autoSalvageMatchCount, autoSalvageRules.enabled)}
