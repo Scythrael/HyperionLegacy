@@ -37,6 +37,10 @@ import {
   enqueueOrder,
   queueDepth,
   AUTO_SALVAGE_MANUAL_HEADROOM,
+  // 0.13.3 batch-salvage follow-up: the enqueue gate the batch bound lives behind, and the
+  // remover the "cancelling a batch releases all of it" cases exercise.
+  canEnqueueOrder,
+  removeQueuedOrder,
 } from "./tick";
 import {
   salvageEquipment,
@@ -58,6 +62,13 @@ import {
   salvageReservedShipIds,
   salvageReservedMaterialCount,
   isDuplicateSalvageTarget,
+  // 0.13.3 batch-salvage follow-up: the ONE interpretation of a queued salvage order's unit
+  // count, and the enqueue-time bound on it. Imported from "./salvage" for the same reason
+  // the five above are: that is the surface callers were promised, and it keeps the
+  // re-export line covered.
+  salvageOrderUnits,
+  exceedsFreeSalvageUnits,
+  type QueuedSalvageOrder,
 } from "./salvage";
 import {
   freshState,
@@ -978,7 +989,12 @@ function stateWithSalvageQueue(...targets: SalvageTargetRef[]): GameState {
   return {
     ...freshState(),
     processQueue: queuedJobs(
-      ...targets.map((target) => ({ facility: "salvageBay" as const, order: { type: "salvage" as const, target } }))
+      ...targets.map((target) => ({
+        facility: "salvageBay" as const,
+        // One unit per order: the pre-batch shape, so every reservation case built on this
+        // fixture keeps asserting exactly what it asserted before batches existed.
+        order: { type: "salvage" as const, target, mode: { kind: "batch" as const, remaining: 1 } },
+      }))
     ),
   };
 }
@@ -2027,7 +2043,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
     const queuedJob: QueuedJob = {
       id: "q-1",
       facility: "salvageBay",
-      order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-a" } },
+      order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-a" }, mode: { kind: "batch", remaining: 1 } },
     };
     const state: GameState = { ...base, processQueue: [queuedJob] };
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-b"]);
@@ -2058,7 +2074,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
         {
           id: "q-1",
           facility: "salvageBay",
-          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-best" } },
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-best" }, mode: { kind: "batch", remaining: 1 } },
         },
       ],
     };
@@ -2171,6 +2187,7 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
     const manual = enqueueOrder(after, "salvageBay", {
       type: "salvage",
       target: { kind: "equipment", instanceId: "eq-039" },
+      mode: { kind: "batch", remaining: 1 },
     });
     expect(manual.queued).toBe(true);
     expect(manual.next.processQueue.length).toBe(3);
@@ -2183,12 +2200,12 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
       {
         id: "q-90",
         facility: "salvageBay",
-        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-030" } },
+        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-030" }, mode: { kind: "batch", remaining: 1 } },
       },
       {
         id: "q-91",
         facility: "salvageBay",
-        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-031" } },
+        order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-031" }, mode: { kind: "batch", remaining: 1 } },
       },
     ];
     const withManual: GameState = { ...state, processQueue: manual };
@@ -2295,5 +2312,466 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     const after = tick(SPAN, off, mulberry32(SEED));
     expect(after.equipment.length).toBe(off.equipment.length);
     expect(after.processQueue).toEqual([]);
+  });
+});
+
+// ============================================================================
+// BATCH SALVAGE (0.13.3 batch-salvage follow-up, 2026-09-04)
+// A queued salvage order for a FUNGIBLE material carries a batch count, exactly as a
+// queued craft order does. Design section 8.7's New list asked for a "batch select to
+// queue"; section 5.1's "for salvage the unit is genuinely one target" holds for the two
+// UNIQUE arms and not for this one.
+//
+// FOUR LAYERS, TESTED SEPARATELY BECAUSE THEY FAIL DIFFERENTLY:
+//   salvageOrderUnits         the single interpretation of the count, including its clamps
+//   salvageReservations       the count scaling the DERIVED reservation
+//   canEnqueueOrder           the bound: never queue more units than are free
+//   promoteQueuedOrders       one unit per job, the residual, and the parity resting on it
+// Closed by the offline==live parity block at the very bottom, which is the one that
+// matters most: a batch drains inside the tick, so a long span away must resolve exactly
+// what the same span at the keyboard would, draw for draw.
+// ============================================================================
+
+// A queued salvage order for `units` of the Damaged Reactor Housing. Written out rather than
+// reusing an existing helper because the COUNT is the whole subject here and it should be
+// visible at every call site.
+function housingBatch(units: number, id = "q-1"): QueuedJob {
+  return {
+    id,
+    facility: "salvageBay",
+    order: {
+      type: "salvage",
+      target: { kind: "material", itemId: HOUSING },
+      mode: { kind: "batch", remaining: units },
+    },
+  };
+}
+
+// A state holding `held` housings with `queue` parked at the bay. FA level is the top of the
+// ladder for the same reason timedSalvageState uses it: several loot tiers are then reachable,
+// so the tier draw is not degenerate and every determinism assertion built on it means
+// something.
+function batchState(held: number, queue: QueuedJob[] = []): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    fleetAdminLevel: MAX_CEILING_LEVEL,
+    inventory: { ...base.inventory, [HOUSING]: [new Decimal(held)] },
+    processQueue: queue,
+  };
+}
+
+describe("salvageOrderUnits: ONE interpretation of a queued salvage order's count", () => {
+  it("reads a material batch's count, and reads a single-unit order as 1", () => {
+    expect(salvageOrderUnits(housingBatch(7).order as QueuedSalvageOrder)).toBe(7);
+    expect(salvageOrderUnits(housingBatch(1).order as QueuedSalvageOrder)).toBe(1);
+  });
+
+  it("clamps the two UNIQUE arms to 1 however the field is set", () => {
+    // A count against one equipment instance or one hull is a category error, not a
+    // quantity: the first unit consumes the object and the rest could only resolve as
+    // stale no-ops. Clamping here is what makes a hand-edited save harmless.
+    const eq: QueuedSalvageOrder = {
+      type: "salvage",
+      target: { kind: "equipment", instanceId: "eq-1" },
+      mode: { kind: "batch", remaining: 99 },
+    };
+    const ship: QueuedSalvageOrder = {
+      type: "salvage",
+      target: { kind: "ship", shipId: "ship-2" },
+      mode: { kind: "batch", remaining: 99 },
+    };
+    expect(salvageOrderUnits(eq)).toBe(1);
+    expect(salvageOrderUnits(ship)).toBe(1);
+  });
+
+  it("normalizes a malformed count DOWNWARD, never upward", () => {
+    // Every bad shape a form field or a hand-edited save can present. All of them read as
+    // ONE, which is the pre-batch behavior: a normalization here can only ever under-claim.
+    const bad = (remaining: unknown): QueuedSalvageOrder => ({
+      type: "salvage",
+      target: { kind: "material", itemId: HOUSING },
+      mode: { kind: "batch", remaining } as never,
+    });
+    expect(salvageOrderUnits(bad(0))).toBe(1);
+    expect(salvageOrderUnits(bad(-5))).toBe(1);
+    expect(salvageOrderUnits(bad(NaN))).toBe(1);
+    expect(salvageOrderUnits(bad(undefined))).toBe(1);
+    // A fraction FLOORS: 2.9 units is two units, never three.
+    expect(salvageOrderUnits(bad(2.9))).toBe(2);
+  });
+
+  it("survives an order carrying no mode at all (a hand-edited or pre-migration entry)", () => {
+    const legacy = {
+      type: "salvage",
+      target: { kind: "material", itemId: HOUSING },
+    } as unknown as QueuedSalvageOrder;
+    expect(salvageOrderUnits(legacy)).toBe(1);
+  });
+});
+
+describe("salvageReservations: a BATCH reserves every one of its units", () => {
+  it("reserves N units for a batch of N, not one", () => {
+    const state = batchState(10, [housingBatch(4)]);
+    expect(salvageReservedMaterialCount(state, HOUSING)).toBe(4);
+  });
+
+  it("sums two batches, and sums a batch beside a single-unit order", () => {
+    const state = batchState(10, [housingBatch(4, "q-1"), housingBatch(3, "q-2"), housingBatch(1, "q-3")]);
+    expect(salvageReservedMaterialCount(state, HOUSING)).toBe(8);
+  });
+
+  it("counts the IN-FLIGHT unit beside the residual, so the total never dips at the handoff", () => {
+    // The moment a batch promotes is the moment a naive implementation loses a unit: the
+    // entry shrinks by one and the job has to make up the difference. Both halves are read
+    // by the SAME derivation, so this is the property that keeps `free = held - queued`
+    // honest for the whole life of a batch.
+    const before = batchState(5, [housingBatch(3)]);
+    expect(salvageReservedMaterialCount(before, HOUSING)).toBe(3);
+    const after = promoteQueuedOrders(before);
+    expect(after.activeProcesses).toHaveLength(1);
+    expect(after.processQueue).toHaveLength(1);
+    expect(salvageReservedMaterialCount(after, HOUSING)).toBe(3);
+  });
+
+  it("a batch of 1 reserves exactly what a pre-batch order reserved", () => {
+    // The regression guard on every existing single-target case: the new field must not have
+    // changed the old number.
+    expect(salvageReservedMaterialCount(batchState(5, [housingBatch(1)]), HOUSING)).toBe(1);
+  });
+});
+
+describe("canEnqueueOrder: a salvage batch can never claim more units than are FREE", () => {
+  // The full talent chain, so a queueFull refusal can never be what these cases are actually
+  // observing.
+  const CHAIN: HomeworldTalentKey[] = ["fleetLogisticsQueue1", "fleetLogisticsQueue2", "fleetLogisticsQueue3"];
+  function deepState(held: number, queue: QueuedJob[] = []): GameState {
+    return { ...batchState(held, queue), unlockedHomeworldTalents: CHAIN };
+  }
+  const batchOrder = (units: number): QueuedOrder => housingBatch(units).order;
+
+  it("accepts a batch exactly the size of the free stock", () => {
+    const state = deepState(500);
+    expect(canEnqueueOrder(state, "salvageBay", batchOrder(500))).toEqual({ ok: true });
+    expect(enqueueOrder(state, "salvageBay", batchOrder(500)).queued).toBe(true);
+  });
+
+  it("refuses one unit more than is held, with notEnoughHeld", () => {
+    const state = deepState(500);
+    expect(canEnqueueOrder(state, "salvageBay", batchOrder(501))).toEqual({
+      ok: false,
+      reason: "notEnoughHeld",
+    });
+    const rejected = enqueueOrder(state, "salvageBay", batchOrder(501));
+    expect(rejected.queued).toBe(false);
+    expect(rejected.reason).toBe("notEnoughHeld");
+    // A refusal is a same-ref no-op and does NOT consume an id (enqueueOrder's contract).
+    expect(rejected.next).toBe(state);
+    expect(rejected.next.nextQueueId).toBe(state.nextQueueId);
+  });
+
+  it("counts what is ALREADY queued, so two batches cannot both claim the same units", () => {
+    // This is the case a raw held-vs-requested check would get wrong, and it is the one that
+    // matters: the second order is asked about what is LEFT, not about the stock.
+    const state = enqueueOrder(deepState(500), "salvageBay", batchOrder(300)).next;
+    expect(salvageReservedMaterialCount(state, HOUSING)).toBe(300);
+    expect(enqueueOrder(state, "salvageBay", batchOrder(201)).reason).toBe("notEnoughHeld");
+    expect(enqueueOrder(state, "salvageBay", batchOrder(200)).queued).toBe(true);
+  });
+
+  it("counts the IN-FLIGHT unit too, so a promoted batch does not free a phantom unit", () => {
+    const queued = enqueueOrder(deepState(3), "salvageBay", batchOrder(3)).next;
+    const running = promoteQueuedOrders(queued);
+    expect(running.activeProcesses).toHaveLength(1); // one unit is in the bay
+    // 2 waiting + 1 in flight = 3 spoken for, so there is no room for a fourth.
+    expect(enqueueOrder(running, "salvageBay", batchOrder(1)).reason).toBe("notEnoughHeld");
+  });
+
+  it("holding NOTHING refuses even a single unit, and holding one still accepts one", () => {
+    expect(enqueueOrder(deepState(0), "salvageBay", batchOrder(1)).reason).toBe("notEnoughHeld");
+    expect(enqueueOrder(deepState(1), "salvageBay", batchOrder(1)).queued).toBe(true);
+  });
+
+  it("leaves the two UNIQUE arms completely alone: the quantity gate is fungible-only", () => {
+    // A spare piece is queueable with no held-count question at all, and the predicate says
+    // so directly. The quantity rule must never leak into the arm the duplicate rule owns.
+    const spare = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 2, id: "sp-9" });
+    const base = deepState(0);
+    const state: GameState = { ...base, equipment: [...base.equipment, spare] };
+    const order: QueuedOrder = {
+      type: "salvage",
+      target: { kind: "equipment", instanceId: "sp-9" },
+      mode: { kind: "batch", remaining: 1 },
+    };
+    expect(exceedsFreeSalvageUnits(state, order as QueuedSalvageOrder)).toBe(false);
+    expect(enqueueOrder(state, "salvageBay", order).queued).toBe(true);
+  });
+});
+
+describe("removeQueuedOrder: removing a BATCH releases every unit still waiting", () => {
+  it("releases all of it at once, and the units are queueable again immediately", () => {
+    const start: GameState = { ...batchState(500), unlockedHomeworldTalents: ["fleetLogisticsQueue1"] };
+    const queued = enqueueOrder(start, "salvageBay", housingBatch(500).order).next;
+    expect(salvageReservedMaterialCount(queued, HOUSING)).toBe(500);
+
+    const cleared = removeQueuedOrder(queued, queued.processQueue[0].id);
+    expect(cleared.processQueue).toEqual([]);
+    // Derived, not stored: dropping the entry IS the release, with no unwind step.
+    expect(salvageReservedMaterialCount(cleared, HOUSING)).toBe(0);
+    // And the freed units are immediately claimable again, which is what "released" has to
+    // mean to be worth anything.
+    expect(enqueueOrder(cleared, "salvageBay", housingBatch(500).order).queued).toBe(true);
+  });
+
+  it("releases only the units still WAITING: the one already in the bay keeps its own", () => {
+    // Removing a partly-drained batch cannot un-start the unit that is already running, and it
+    // must not pretend to: that unit stays reserved by its job until the job resolves.
+    const running = promoteQueuedOrders(batchState(5, [housingBatch(3)]));
+    const cleared = removeQueuedOrder(running, "q-1");
+    expect(cleared.processQueue).toEqual([]);
+    expect(cleared.activeProcesses).toHaveLength(1);
+    expect(salvageReservedMaterialCount(cleared, HOUSING)).toBe(1);
+  });
+});
+
+describe("promoteQueuedOrders: a BATCH consumes ONE unit per job, leaving a residual in place", () => {
+  it("starts a single-unit job and leaves N-1 behind, keeping the entry's id", () => {
+    const promoted = promoteQueuedOrders(batchState(5, [housingBatch(3)]));
+    // Exactly one job, sized as ONE material salvage. The batch did not collapse into one
+    // long job, which is the shape the whole parity argument depends on.
+    expect(promoted.activeProcesses).toHaveLength(1);
+    expect(promoted.activeProcesses[0].durationTicks).toBe(SALVAGE_MATERIAL_TICKS);
+    expect(promoted.activeProcesses[0].effect).toEqual({
+      type: "salvageResolve",
+      target: { kind: "material", itemId: HOUSING },
+    });
+    // The residual keeps the SAME id (so the Remove button still points at it) and the same
+    // target, one unit lighter.
+    expect(promoted.processQueue).toHaveLength(1);
+    expect(promoted.processQueue[0].id).toBe("q-1");
+    expect(salvageOrderUnits(promoted.processQueue[0].order as QueuedSalvageOrder)).toBe(2);
+  });
+
+  it("drops the entry entirely on the LAST unit", () => {
+    const last = promoteQueuedOrders(batchState(5, [housingBatch(1)]));
+    expect(last.processQueue).toEqual([]);
+    expect(last.activeProcesses).toHaveLength(1);
+  });
+
+  it("keeps the residual's QUEUE POSITION, so a long batch never drifts to the back", () => {
+    // Property 4 of the promotion pass: the array is never reordered. Appending the residual
+    // instead of replacing it in place would push a 5000-unit batch behind every other order
+    // five thousand times, silently rewriting the player's ordering.
+    const spare = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 2, id: "sp-9" });
+    const base = batchState(5);
+    const state: GameState = {
+      ...base,
+      equipment: [...base.equipment, spare],
+      unlockedHomeworldTalents: ["fleetLogisticsQueue1"],
+      processQueue: [
+        housingBatch(3, "q-1"),
+        {
+          id: "q-2",
+          facility: "salvageBay",
+          order: {
+            type: "salvage",
+            target: { kind: "equipment", instanceId: "sp-9" },
+            mode: { kind: "batch", remaining: 1 },
+          },
+        },
+      ],
+    };
+    const promoted = promoteQueuedOrders(state);
+    expect(promoted.processQueue.map((j) => j.id)).toEqual(["q-1", "q-2"]);
+  });
+
+  it("promotes at most ONE unit per pass, even with the queue and the stock wide open", () => {
+    // SALVAGE_SLOT_COUNT is 1, so the second unit cannot start until the first completes.
+    // Asserted rather than assumed, because "one unit per job duration" is exactly the
+    // property that keeps the per-unit rng draw pattern identical to the single-unit path.
+    let s = batchState(50, [housingBatch(50)]);
+    s = promoteQueuedOrders(s);
+    s = promoteQueuedOrders(s);
+    s = promoteQueuedOrders(s);
+    expect(s.activeProcesses).toHaveLength(1);
+    expect(salvageOrderUnits(s.processQueue[0].order as QueuedSalvageOrder)).toBe(49);
+  });
+
+  it("drains one unit per SALVAGE_MATERIAL_TICKS through the real tick, not faster", () => {
+    // The end-to-end timing claim, measured against the clock rather than asserted about the
+    // code. A unit costs its job duration plus the tick that promotes the next one, so three
+    // units cannot possibly finish inside two units' worth of ticks.
+    const start = batchState(5, [housingBatch(3)]);
+    const tooSoon = tick(2 * SALVAGE_MATERIAL_TICKS, start, mulberry32(11));
+    expect(itemTotal(tooSoon.inventory, HOUSING).toNumber()).toBeGreaterThan(2);
+
+    const done = tick(4 * (SALVAGE_MATERIAL_TICKS + 2), start, mulberry32(11));
+    // All three units consumed, the entry gone, the bay idle.
+    expect(itemTotal(done.inventory, HOUSING).toNumber()).toBe(2);
+    expect(done.processQueue).toEqual([]);
+    expect(done.activeProcesses).toEqual([]);
+  });
+
+  it("stops mid-batch when the stock runs out, and waits rather than consuming nothing", () => {
+    // A batch that outlives its stock (an over-cap clamp, a consumer spending raw inventory)
+    // must NOT resolve into nothing. canStartSalvage's noneHeld bound is the backstop, and it
+    // is deliberately unchanged by the batch work.
+    const starved: GameState = {
+      ...batchState(1, [housingBatch(3)]),
+      inventory: { [HOUSING]: [new Decimal(0)] },
+    };
+    const after = promoteQueuedOrders(starved);
+    expect(after.activeProcesses).toEqual([]); // nothing started
+    expect(after.processQueue).toHaveLength(1); // the order simply waits
+    // and it did not shrink: no unit was spent to learn it could not run
+    expect(salvageOrderUnits(after.processQueue[0].order as QueuedSalvageOrder)).toBe(3);
+  });
+});
+
+describe("autoSalvageOrders: the manual slot stays free, and the rules never mint a batch", () => {
+  // A pool big enough that an unbounded pass would enqueue dozens. A local twin of the
+  // bigPoolState fixture the Unit 5.1 block defines inside its own describe: rebuilt here
+  // rather than hoisted, because hoisting a fixture out of a passing suite to reach it from a
+  // new one is a change to working code for the new code's convenience (Omega 15a).
+  function batchPoolState(talents: HomeworldTalentKey[] = []): GameState {
+    const pieces = Array.from({ length: 40 }, (_, i) =>
+      autoPiece({ id: `bp-${String(i).padStart(3, "0")}`, quality: 0 })
+    );
+    const base = autoState(pieces, { maxQuality: 5 });
+    return { ...base, unlockedHomeworldTalents: [...base.unlockedHomeworldTalents, ...talents] };
+  }
+
+  it("leaves a depth slot the player can fill with a BATCH order", () => {
+    // The manual-headroom guarantee, re-asserted against the new order shape: the rules never
+    // take the last slot, and what the player puts in it may now be a batch.
+    const pool = batchPoolState(["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
+    const state: GameState = {
+      ...pool,
+      fleetAdminLevel: MAX_CEILING_LEVEL,
+      inventory: { ...pool.inventory, [HOUSING]: [new Decimal(400)] },
+    };
+    expect(queueDepth(state)).toBe(3);
+    const after = autoSalvageOrders(state);
+    expect(after.processQueue.length).toBe(3 - AUTO_SALVAGE_MANUAL_HEADROOM);
+    const manual = enqueueOrder(after, "salvageBay", housingBatch(400).order);
+    expect(manual.queued).toBe(true);
+    expect(manual.next.processQueue.length).toBe(3);
+  });
+
+  it("never mints a multi-unit order of its own", () => {
+    // An automation that destroys items must not acquire a multiplier. Every order the rules
+    // add names ONE unique spare, so every one of them reads as exactly one unit.
+    const after = autoSalvageOrders(batchPoolState(["fleetLogisticsQueue1", "fleetLogisticsQueue2"]));
+    expect(after.processQueue.length).toBeGreaterThan(0);
+    for (const job of after.processQueue) {
+      expect(salvageOrderUnits(job.order as QueuedSalvageOrder)).toBe(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE POINT OF THE WHOLE FOLLOW-UP: offline == live PARITY for a BATCH
+// ---------------------------------------------------------------------------
+// A batch drains INSIDE the economy seam, one unit per job, and every unit draws TWICE from
+// the threaded seeded stream (loot tier, then item). So the property that has to hold is not
+// merely "the same materials came out": it is that the two chunkings consume the stream in the
+// SAME ORDER and to the SAME DEPTH, because everything that completes after the batch depends
+// on where the stream was left. Each path runs its OWN fresh generator over the SAME seed, so
+// any unseeded draw, any reordering, and any batched-up resolution makes the two results
+// differ and fails the deep compare.
+describe("offline==live parity for a BATCH salvage (tick(span) == looping economyTick(_,1))", () => {
+  const UNITS = 4;
+  // Generous enough that every unit promotes AND completes inside the span, with the bay idle
+  // at the end: a span that cut a batch short would still be a valid parity case, but it would
+  // not prove the interesting half (that the LAST unit lands identically too).
+  const SPAN = UNITS * (SALVAGE_MATERIAL_TICKS + 2) + 5;
+  const SEED = 4242;
+
+  function batchSpanState(): GameState {
+    return batchState(10, [housingBatch(UNITS)]);
+  }
+
+  it("a 4-unit batch draining across ONE long offline span lands byte-identically to the span stepped tick by tick", () => {
+    const jumped = tick(SPAN, batchSpanState(), mulberry32(SEED));
+    let stepped = batchSpanState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+
+    // NON-VACUITY: the batch really did drain, all four units, inside the span. Without this
+    // the assertion above could pass by comparing two untouched states.
+    expect(itemTotal(jumped.inventory, HOUSING).toNumber()).toBe(10 - UNITS);
+    expect(jumped.processQueue).toEqual([]);
+    expect(jumped.activeProcesses).toEqual([]);
+  });
+
+  it("both chunkings consume the SAME number of draws, and it is exactly 2 PER UNIT", () => {
+    // THE DRAW-ORDER PROOF. A deep-equal result could in principle be reached while consuming
+    // the stream differently, and a batch is precisely where that could happen: resolving four
+    // units in one completion would take the same eight draws in a different ORDER, and
+    // batching the tier draws would take them in a different SHAPE. Pinning the count at
+    // 2 x UNITS pins that each unit was resolved on its own, in sequence, exactly as four
+    // separately queued single-unit orders would have been.
+    const jumpedCount = countingRng(mulberry32(SEED));
+    tick(SPAN, batchSpanState(), jumpedCount.rng);
+
+    const steppedCount = countingRng(mulberry32(SEED));
+    let stepped = batchSpanState();
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, steppedCount.rng);
+
+    expect(jumpedCount.draws()).toBe(steppedCount.draws());
+    expect(jumpedCount.draws()).toBe(2 * UNITS);
+  });
+
+  it("a BATCH of N is indistinguishable from N single-unit orders, draw for draw", () => {
+    // THE CLOSED-FORM PROPERTY, STATED AS A TEST. The batch is a QUEUE convenience and nothing
+    // else: it must not change what the engine does, only how much of it the player had to
+    // click. So the same span, the same seed and the same stock must land in the same place
+    // whether the four units arrived as one batch or as four separate orders. If this ever
+    // fails, the batch has grown behavior of its own.
+    const asBatch = tick(SPAN, batchState(10, [housingBatch(UNITS)]), mulberry32(SEED));
+    const asSingles = tick(
+      SPAN,
+      batchState(10, [housingBatch(1, "q-1"), housingBatch(1, "q-2"), housingBatch(1, "q-3"), housingBatch(1, "q-4")]),
+      mulberry32(SEED)
+    );
+    // Both end with an EMPTY queue, which is asserted directly; the fingerprint's own
+    // processQueue field is then trivially equal, so the whole fingerprint can be compared.
+    expect(asBatch.processQueue).toEqual([]);
+    expect(asSingles.processQueue).toEqual([]);
+    expect(salvageFingerprint(asBatch)).toEqual(salvageFingerprint(asSingles));
+  });
+
+  it("is NOT comparing two constants: the seed really does drive the result", () => {
+    // THE CONTROL. A parity test that passes because the outcome does not depend on the rng
+    // at all proves nothing, so this shows the compared value IS stream-driven.
+    //
+    // ⚠️ ASSERTED OVER A RUN OF SEEDS, NOT OVER ONE PAIR, and that is a correctness fix
+    // rather than a stylistic one. A batch of four takes only eight draws against a weighted
+    // loot table whose top tiers are deliberately rare, so two neighbouring seeds landing on
+    // the identical four drops is an ordinary coincidence, not a bug: a single-pair control
+    // would be flaky for a reason that has nothing to do with what it is testing. Requiring
+    // MORE THAN ONE distinct outcome across a run of seeds is the same claim without the
+    // coin flip.
+    const outcomes = new Set(
+      Array.from({ length: 8 }, (_, i) =>
+        JSON.stringify(salvageFingerprint(tick(SPAN, batchSpanState(), mulberry32(SEED + i))))
+      )
+    );
+    expect(outcomes.size).toBeGreaterThan(1);
+  });
+
+  it("parity holds when the span is chunked UNEVENLY across the unit boundaries", () => {
+    // A third chunking, deliberately cutting mid-unit rather than between units, on ONE
+    // continuous stream. The countdown arithmetic is closed-form and the draws stay in order,
+    // so this must land exactly where the other two did.
+    const rng = mulberry32(SEED);
+    let split = batchSpanState();
+    const first = SALVAGE_MATERIAL_TICKS + 3; // partway into the second unit
+    for (let i = 0; i < first; i++) split = economyTick(split, 1, rng);
+    for (let i = 0; i < SPAN - first; i++) split = economyTick(split, 1, rng);
+
+    expect(salvageFingerprint(split)).toEqual(salvageFingerprint(tick(SPAN, batchSpanState(), mulberry32(SEED))));
   });
 });

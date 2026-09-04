@@ -3043,6 +3043,27 @@ export type SalvageTargetRef =
   | { kind: "material"; itemId: string }
   | { kind: "ship"; shipId: string };
 
+// The run-mode a queued SALVAGE order carries.
+//
+// ⚠️ THIS IS CraftLineMode's `batch` ARM ITSELF, NOT A COPY OF IT (0.13.3 batch-salvage
+// follow-up, 2026-09-04). Written as an `Extract` rather than as a freshly declared
+// `{ kind: "batch"; remaining: number }` for two reasons that are both load-bearing:
+//   1. There is then exactly ONE definition of "a batch of N" in the game. A craft order
+//      and a salvage order carry the same `kind` literal and the same `remaining` field
+//      with the same meaning (units NOT YET STARTED, counted down as each one begins), so
+//      the queue row, the console and every maintainer read one vocabulary, not two.
+//   2. If CraftLineMode's batch arm ever gains a field, this follows it automatically
+//      instead of silently drifting into a parallel shape.
+//
+// ⚠️ AND IT DELIBERATELY EXCLUDES `continuous`. A continuous craft line runs until it is
+// cancelled, which is harmless: it MAKES things. A continuous salvage would stand at the
+// Salvage Bay destroying every unit of a material as it arrived, forever, which is a
+// permanent-destruction automation. That automation already exists, opt in, rule bounded
+// and confirm-tier aware (AutoSalvageRules below), and it is the right home for it. The
+// Extract makes "continuous" a COMPILE ERROR here rather than a runtime branch someone
+// has to remember to handle.
+export type SalvageOrderMode = Extract<CraftLineMode, { kind: "batch" }>;
+
 // The player's unit of QUEUED INTENT.
 //
 // WHY an ORDER and not a job: for the Refinery and the Fabricator the thing a player
@@ -3050,11 +3071,25 @@ export type SalvageTargetRef =
 // Carrying the line's own config here means promotion can hand this straight to the
 // proven canStartLine / startLine pair (tick.ts) instead of duplicating the per
 // iteration engine, so a queued order can never disagree with what the configurator's
-// Start button would have done. For salvage the unit genuinely IS one target, which
-// the second arm expresses without a second queue.
+// Start button would have done.
+//
+// ⚠️ A SALVAGE ORDER CARRIES A BATCH COUNT TOO as of the 0.13.3 batch-salvage follow-up
+// (2026-09-04). It used to be one target, full stop, on the reasoning in design §5.1 that
+// "for salvage the unit is genuinely one target". That reading is right for the two UNIQUE
+// arms and wrong for the fungible one: design §8.7's own New list asked for a "batch select
+// to queue", and a player holding five thousand Damaged Reactor Housings could otherwise
+// only enqueue them one order at a time against a queue three deep. So the order carries a
+// `mode` exactly as a craft order does.
+//
+// ⚠️ ONLY THE `material` ARM MAY CARRY A COUNT ABOVE 1, and that is enforced in ONE place,
+// reservation.ts's salvageOrderUnits, which every reader goes through. An equipment
+// instance and a hull are each a single distinct object named by a single id, so "salvage
+// 5 of instance eq-7" is not a quantity, it is a nonsense: the first unit consumes the
+// object and the rest could only resolve as stale no-ops. Those two arms therefore always
+// read as 1 however the field is set, which also makes a hand-edited save harmless.
 export type QueuedOrder =
   | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode }
-  | { type: "salvage"; target: SalvageTargetRef };
+  | { type: "salvage"; target: SalvageTargetRef; mode: SalvageOrderMode };
 
 // One entry in GameState.processQueue.
 //

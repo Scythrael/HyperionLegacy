@@ -254,7 +254,7 @@ describe("queuedOrderInputs", () => {
 
   it("a SALVAGE order reserves no material inputs (its target is reserved elsewhere)", () => {
     expect(
-      queuedOrderInputs({ type: "salvage", target: { kind: "equipment", instanceId: "eq-1" } }),
+      queuedOrderInputs({ type: "salvage", target: { kind: "equipment", instanceId: "eq-1" }, mode: { kind: "batch", remaining: 1 } }),
     ).toEqual({});
   });
 
@@ -295,7 +295,7 @@ describe("allocatedItem: the QUEUED arm", () => {
 
   it("a queued SALVAGE order contributes 0 to material allocation", () => {
     const queued: QueuedJob[] = [
-      { id: "q-1", facility: "salvageBay", order: { type: "salvage", target: { kind: "material", itemId: REFINE_INPUT_ITEM } } },
+      { id: "q-1", facility: "salvageBay", order: { type: "salvage", target: { kind: "material", itemId: REFINE_INPUT_ITEM }, mode: { kind: "batch", remaining: 1 } } },
     ];
     expect(allocatedItem([], queued, REFINE_INPUT_ITEM).toNumber()).toBe(0);
   });
@@ -356,6 +356,7 @@ describe("canReserveOrder (the ISOLATED enqueue-affordability policy)", () => {
     const gate = canReserveOrder(stateWith(0), {
       type: "salvage",
       target: { kind: "material", itemId: REFINE_INPUT_ITEM },
+      mode: { kind: "batch", remaining: 1 },
     });
     expect(gate.ok).toBe(true);
   });

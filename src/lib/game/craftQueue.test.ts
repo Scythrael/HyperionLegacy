@@ -302,7 +302,7 @@ function fabricateOrder(recipeKey: string = FABRICATE_KEY, remaining = 1): Queue
   return { type: "craftLine", kind: "fabricate", recipeKey, mode: { kind: "batch", remaining } };
 }
 function salvageOrder(instanceId = "eq-1"): QueuedOrder {
-  return { type: "salvage", target: { kind: "equipment", instanceId } };
+  return { type: "salvage", target: { kind: "equipment", instanceId }, mode: { kind: "batch", remaining: 1 } };
 }
 
 // A state with chosen facility levels + stock, mirroring craft-lines.test.ts's fixture.
@@ -700,11 +700,16 @@ describe("queued orders RESERVE their materials, by derivation and never by dedu
 // ---------------------------------------------------------------------------
 
 // The two non-equipment salvage arms, which salvageOrder() above does not cover.
+// A REAL salvagedMaterial id, so the enqueue quantity gate below is asked about an item that
+// genuinely has a loot pool rather than about a fixture-shaped string.
+const SALVAGED_MATERIAL = "intactReactorCore";
+
+// `units` defaults to 1, the pre-batch shape, so every existing case below is unchanged.
 function shipSalvageOrder(shipId = "ship-9"): QueuedOrder {
-  return { type: "salvage", target: { kind: "ship", shipId } };
+  return { type: "salvage", target: { kind: "ship", shipId }, mode: { kind: "batch", remaining: 1 } };
 }
-function materialSalvageOrder(itemId = "intactReactorCore"): QueuedOrder {
-  return { type: "salvage", target: { kind: "material", itemId } };
+function materialSalvageOrder(itemId = SALVAGED_MATERIAL, units = 1): QueuedOrder {
+  return { type: "salvage", target: { kind: "material", itemId }, mode: { kind: "batch", remaining: units } };
 }
 
 describe("canEnqueueOrder: a UNIQUE salvage target cannot be queued twice", () => {
@@ -736,15 +741,26 @@ describe("canEnqueueOrder: a UNIQUE salvage target cannot be queued twice", () =
   });
 
   it("keeps accepting the SAME salvaged material, because a material is fungible", () => {
-    // Three queued rolls of one material id is legitimate intent (you may hold three, or
-    // expect to). The bound lands at promotion, where canStartSalvage refuses noneHeld
-    // and the extra orders simply wait, so no double-consume is possible either way.
-    const state = enqueueAll(deepQueueState(), [
+    // Three queued rolls of one material id is legitimate intent and the DUPLICATE gate must
+    // not touch it: a second order on an item id is a second unit of real work, not the dead
+    // entry a second order on one instance id would be.
+    //
+    // ⚠️ THE FIXTURE NOW HOLDS FOUR UNITS, and that is the 0.13.3 batch-salvage follow-up
+    // showing through rather than an unrelated tidy-up. Enqueue gained a QUANTITY gate (rule
+    // 4, exceedsFreeSalvageUnits), so this case has to stock what it queues or it would be
+    // refused for `notEnoughHeld` and would stop testing the duplicate gate at all. The
+    // quantity rule itself is pinned in its own describe block below.
+    // dropStock writes an exact amount past every gate; here it is stocking UP rather than
+    // starving something, which is the same one-line transform read the other way round.
+    const stocked = dropStock(deepQueueState(), SALVAGED_MATERIAL, 4);
+    const state = enqueueAll(stocked, [
       { facility: "salvageBay", order: materialSalvageOrder() },
       { facility: "salvageBay", order: materialSalvageOrder() },
       { facility: "salvageBay", order: materialSalvageOrder() },
     ]);
     expect(queuedForFacility(state, "salvageBay")).toHaveLength(3);
+    // The fourth unit is still free, so a fourth order is still accepted: the gate that just
+    // refused nothing is the duplicate gate, exactly as it should be.
     expect(canEnqueueOrder(state, "salvageBay", materialSalvageOrder()).ok).toBe(true);
   });
 
@@ -2680,6 +2696,40 @@ describe("buildCraftQueue: the Salvage Bay reports real running rows (Unit 2.4)"
     expect(view.queued[0].blockReason).toBe("noSlot");
     expect(view.queued[0].modeLabel).toBe("salvage");
     expect(view.nextToPromoteId).toBeNull(); // nothing can promote while the bay is busy
+  });
+
+  it("a MULTI-UNIT salvage batch reads in the CRAFT vocabulary, and a single unit does not", () => {
+    // 0.13.3 batch-salvage follow-up. The two facilities now do the same thing, so a batch
+    // must not be described with a second word: a batch of housings reads exactly as a batch
+    // of ingots does one console over. The single-unit row is asserted alongside it because
+    // "batch 1" would be a worse sentence AND a change to every row that existed before this
+    // feature, including every auto-salvage order.
+    const loaded = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 3) },
+    ]);
+    const row = buildCraftQueue(loaded, "salvageBay").queued[0];
+    expect(row.modeLabel).toBe("batch 3");
+    expect(row.summary).toBe(`${row.label} · batch 3`); // the shared "label · mode" grammar
+
+    const single = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 1) },
+    ]);
+    expect(buildCraftQueue(single, "salvageBay").queued[0].modeLabel).toBe("salvage");
+  });
+
+  it("the batch row's count DECREMENTS as the bay works through it, and the row keeps its id", () => {
+    // What the player watches: one row that counts down, not a row that vanishes and a new
+    // one that appears. The id is asserted because it is the Remove button's target.
+    const loaded = enqueueAll(salvageBayState(), [
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 3) },
+    ]);
+    const rowId = loaded.processQueue[0].id;
+    const promoted = promoteQueuedOrders(loaded);
+    const view = buildCraftQueue(promoted, "salvageBay");
+    expect(view.running).toHaveLength(1);          // one unit is in the bay
+    expect(view.queued).toHaveLength(1);           // the rest are still one row
+    expect(view.queued[0].id).toBe(rowId);
+    expect(view.queued[0].modeLabel).toBe("batch 2");
   });
 });
 

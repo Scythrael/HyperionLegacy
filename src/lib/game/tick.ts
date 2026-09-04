@@ -162,7 +162,9 @@ import {
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
 // without closing an import cycle) and re-exported from the salvage module for callers.
-import { isDuplicateSalvageTarget } from "./reservation";
+// (0.13.3 batch-salvage follow-up adds two more from the same leaf: the canonical unit count
+// a queued salvage order stands for, and the enqueue-time bound on it.)
+import { exceedsFreeSalvageUnits, isDuplicateSalvageTarget, salvageOrderUnits } from "./reservation";
 // Crafting 0.13.3 (Phase 2 Unit 2.3, design sections 7.4 + 7.5): THE RNG MOVE.
 //
 // Salvage used to be forbidden here. It was a live-only INSTANT action drawing bare
@@ -7246,7 +7248,25 @@ void QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE; // type-level assertion only, no runtim
 //                     salvage order reserves a target, not inputs, so canReserveOrder
 //                     always passes it. Named with canStartLine's own token so the UI
 //                     shows ONE "not enough of it" sentence rather than a second wording.
-export type EnqueueBlockReason = "queueFull" | "wrongFacility" | "alreadyQueued" | "materials";
+//   notEnoughHeld   , (0.13.3 batch-salvage follow-up, 2026-09-04) this SALVAGE order asks
+//                     for more units of a fungible material than the player has FREE (held
+//                     minus everything already queued or in flight). Salvage-only: a craft
+//                     order's shortage is `materials` above.
+//
+//                     ⚠️ WHY A SEPARATE TOKEN RATHER THAN REUSING `materials`. The two
+//                     conditions really are the same shape ("not enough of it, now"), and
+//                     sharing the token would have saved one UI branch. They are separated
+//                     because the REMEDY differs and the sentence has to say so: a craft
+//                     shortage is fixed by refining or mining MORE of an input, while a
+//                     salvage shortage is fixed by asking for FEWER units or removing an
+//                     order that has already claimed them. One sentence covering both would
+//                     have to be vague enough to help with neither.
+export type EnqueueBlockReason =
+  | "queueFull"
+  | "wrongFacility"
+  | "alreadyQueued"
+  | "materials"
+  | "notEnoughHeld";
 
 // Does this order shape belong at this facility? A craft line goes to the facility that
 // runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
@@ -7289,8 +7309,9 @@ export function queuedForFacility(state: GameState, facility: QueueFacilityKey):
 //      ONE place, canReserveOrder in allocation.ts, and this is its ONLY caller, so the
 //      user's alternative policy ("reserve what you can, queue beyond it anyway") stays a
 //      one-site change. Read that function's header before touching this line.
-//      A queued SALVAGE order is untouched by this: canReserveOrder always passes one, so
-//      "queue three teardowns while holding one unit" still works exactly as it did.
+//      A queued SALVAGE order is untouched by THIS predicate: canReserveOrder always passes
+//      one, because a salvage reserves a TARGET rather than material inputs. Its own
+//      quantity rule is rule 4 below.
 //
 //   3. (0.13.3 Unit 2.1) A UNIQUE SALVAGE TARGET CANNOT BE QUEUED TWICE. This is a
 //      duplicate check, not an affordability check, and it predates rule 2's reversal.
@@ -7298,8 +7319,20 @@ export function queuedForFacility(state: GameState, facility: QueueFacilityKey):
 //      queued salvage RESERVES its target (design §7.3, reservation.ts). A second order
 //      on the same equipment instance or the same hull could therefore only ever resolve
 //      as a stale no-op, while permanently occupying a depth slot the player cannot clear
-//      by playing. A FUNGIBLE salvaged material is deliberately exempt (queue three, hold
-//      one, the extras simply wait at promotion), which is rule 2 doing its job.
+//      by playing. A FUNGIBLE salvaged material is deliberately exempt from the DUPLICATE
+//      question (a second order on the same item id is a second unit of real work, not a
+//      dead entry); its bound is rule 4.
+//
+//   4. (0.13.3 batch-salvage follow-up, 2026-09-04) A SALVAGE ORDER MAY NOT CLAIM MORE UNITS
+//      THAN THE PLAYER HOLDS FREE. A salvage order now carries a batch count, so one click
+//      can stand for thousands of units, and an unbounded batch would reserve stock that is
+//      not there: the console would print "5000 queued" against 300 held and the player
+//      would have no action that made it true. This is rule 2's policy applied to the other
+//      kind of reservation, and it lives entirely in exceedsFreeSalvageUnits
+//      (reservation.ts), which is its only definition. Note what it is NOT: it is not a
+//      promotion gate. canStartSalvage keeps its own narrower in-flight bound, unchanged, so
+//      a batch that outlives its stock (an over-cap clamp, a mission spending the units)
+//      still waits visibly at promotion rather than consuming something that is gone.
 export function canEnqueueOrder(
   state: GameState,
   facility: QueueFacilityKey,
@@ -7311,6 +7344,16 @@ export function canEnqueueOrder(
   // them to cancel some unrelated order for a slot the duplicate could never use.
   if (order.type === "salvage" && isDuplicateSalvageTarget(state, order.target)) {
     return { ok: false, reason: "alreadyQueued" };
+  }
+  // Rule 4 (0.13.3 batch-salvage follow-up): a salvage order may not claim more units of a
+  // fungible material than the player has FREE. Placed beside the duplicate check because
+  // the two are the same gate for the two kinds of target (unique: already spoken for;
+  // fungible: more than there is), and before the depth cap for the same reason: "you only
+  // have 300 of those free" is about the order just configured and is directly actionable,
+  // while queueFull would send the player off to cancel something unrelated. The whole rule
+  // lives in exceedsFreeSalvageUnits (reservation.ts); nothing is re-derived here.
+  if (order.type === "salvage" && exceedsFreeSalvageUnits(state, order)) {
+    return { ok: false, reason: "notEnoughHeld" };
   }
   // THE ONE CALL SITE of the enqueue-affordability policy (rule 2 above). Placed before
   // the depth cap for the same reason the duplicate check is: "you do not have the ore
@@ -7376,6 +7419,13 @@ export function enqueueOrder(
 // and a player cancelling at cap would silently lose the refund (see allocation.ts's
 // header). Dropping the entry remains the whole operation.
 //
+// ⚠️ IT REMOVES THE WHOLE ENTRY, BATCH AND ALL (0.13.3 batch-salvage follow-up). Removing a
+// salvage order of 5000 units releases all 5000 at once, because the reservation is derived
+// from the entry and the entry is gone. That is the correct and only sane reading of the
+// Remove button: the player asked to cancel the ORDER, not one unit of it. The residual
+// bookkeeping that steps a batch down one unit at a time belongs to promotion alone
+// (withQueuedOrderReleased, below), never to this function.
+//
 // An unknown id is a same-reference no-op (a double click, or a row the promotion pass
 // already consumed, must not throw or clear the queue).
 export function removeQueuedOrder(state: GameState, id: string): GameState {
@@ -7400,21 +7450,71 @@ export function removeQueuedOrder(state: GameState, id: string): GameState {
 //
 // THE ANSWER: promoting is not a new spend, it is a HANDOFF. The same units move from a
 // QueuedJob's reservation to a CraftLine's reservation with no gap and no double count. So
-// the gate is asked about the state in which this order's queue reservation has already
-// been released, which is exactly `removeQueuedOrder(state, jobId)`, and the promotion
-// then starts from that same state so the entry does not need removing a second time.
+// the gate is asked about the state in which this order's own claim on the work it is about
+// to start has already been released, and the promotion then starts from that same state so
+// nothing has to be unpicked a second time.
 //
-// WHY A NAMED WRAPPER RATHER THAN CALLING removeQueuedOrder TWICE: the two call sites must
-// agree EXACTLY, or the queue panel would show a row as blocked that the tick then
+// WHY A NAMED FUNCTION AND NOT AN INLINE removeQueuedOrder AT EACH SITE: the two call sites
+// must agree EXACTLY, or the queue panel would show a row as blocked that the tick then
 // promotes (or worse, the reverse). One named function with the reasoning attached is what
 // makes "the row and the tick ask the identical question" a property of the code instead
-// of a coincidence between two comments.
+// of a coincidence between two comments. That mattered when the body was a one-line forward;
+// it matters more now that it is not.
+//
+// ⚠️ IT RELEASES ONE UNIT OF WORK, NOT ALWAYS THE WHOLE ENTRY (0.13.3 batch-salvage
+// follow-up, 2026-09-04). Read this before assuming it is still a rename of
+// removeQueuedOrder.
+//
+//   A CRAFT order promotes WHOLE: its entire batch count moves into the CraftLine that
+//   startLine appends, and that line then owns the reservation and counts the iterations
+//   down itself. So the entry is removed, exactly as before, and every craft path through
+//   this function is byte-identical to what it did yesterday.
+//
+//   A SALVAGE order promotes ONE UNIT AT A TIME, because the Salvage Bay has no line layer
+//   to hand a batch to: its unit of work IS one timed job, and a job carries one target with
+//   no count (see the salvageResolve effect). A batch of N therefore starts a single-unit job
+//   and leaves a RESIDUAL entry of N-1 behind, IN PLACE, keeping its id and its queue
+//   position. That is what makes the batch consume exactly one unit per job duration, which
+//   is the property the whole parity argument rests on: the per-unit rng draw pattern is
+//   untouched and only the number of units changes.
+//
+// ⚠️ THE RESIDUAL KEEPS ITS ARRAY POSITION, and that is not cosmetic. promoteQueuedOrders'
+// property 4 says the queue is never reordered; appending the residual instead would push a
+// long batch to the back of its facility's queue on every single unit, silently rewriting the
+// player's ordering thousands of times. splice-in-place is the only correct move.
+//
+// ⚠️ THE RESERVATION NEVER GAPS ACROSS THIS TRANSFORM. Before: the entry reserves N. After:
+// the residual reserves N-1 and the started job reserves 1 (reservation.ts bins both), so the
+// total is N at every instant and no other consumer can slip in and take a unit mid-handoff.
+// This is the same handoff argument the craft arm makes, applied one unit at a time.
 //
 // PURE, and a same-REFERENCE no-op for an unknown id (inherited from removeQueuedOrder).
-// It releases ONLY the named order: every other queued order's reservation stays in force,
+// It touches ONLY the named order: every other queued order's reservation stays in force,
 // which is what keeps two orders from both being told they can afford the same units.
 export function withQueuedOrderReleased(state: GameState, jobId: string): GameState {
-  return removeQueuedOrder(state, jobId);
+  const queue = state.processQueue ?? [];
+  const index = queue.findIndex((job) => job.id === jobId);
+  if (index < 0) return state; // unknown id -> same-ref no-op, as before
+
+  const job = queue[index];
+  // Everything except a MULTI-unit salvage batch leaves nothing behind, so the whole entry
+  // goes. Delegated to removeQueuedOrder rather than restated, so the common path (every
+  // craft order, and every single-unit salvage) is provably the exact code it was before.
+  if (job.order.type !== "salvage" || salvageOrderUnits(job.order) <= 1) {
+    return removeQueuedOrder(state, jobId);
+  }
+
+  // The residual: the SAME order minus the one unit about to start. `mode` is rebuilt rather
+  // than mutated (the state object is immutable everywhere in this engine), and the count
+  // comes from salvageOrderUnits, never from `mode.remaining` directly, so a fractional or
+  // otherwise malformed stored count is normalized here exactly as it is everywhere else.
+  const residual: QueuedJob = {
+    ...job,
+    order: { ...job.order, mode: { kind: "batch", remaining: salvageOrderUnits(job.order) - 1 } },
+  };
+  const next = [...queue];
+  next[index] = residual;
+  return { ...state, processQueue: next };
 }
 
 // Moves ONE waiting order up or down within ITS OWN facility's queue.
@@ -7530,9 +7630,20 @@ export function autoSalvageOrders(state: GameState): GameState {
   // refused target is retried next tick if the rules still point at it). `queued` is
   // deliberately not re-derived per iteration, because enqueueOrder re-checks the depth
   // cap itself and is the only place that cap is enforced.
+  //
+  // ⚠️ ALWAYS ONE UNIT PER ORDER, AND IT MUST STAY THAT WAY (0.13.3 batch-salvage
+  // follow-up). Every target the selector returns is a UNIQUE spare EquipmentInstance, for
+  // which a count above 1 is meaningless (salvageOrderUnits clamps it away anyway), so the
+  // batch mode is written as the literal 1 rather than being derived. It is spelled out
+  // rather than defaulted because an automation that destroys items must never acquire a
+  // multiplier by accident.
   let working = state;
   for (const target of targets) {
-    working = enqueueOrder(working, "salvageBay", { type: "salvage", target }).next;
+    working = enqueueOrder(working, "salvageBay", {
+      type: "salvage",
+      target,
+      mode: { kind: "batch", remaining: 1 },
+    }).next;
   }
   return working;
 }
@@ -7647,8 +7758,11 @@ export function promoteQueuedOrders(state: GameState): GameState {
       // reservation is still in force in `candidate`, which is what keeps two entries from
       // both being told they can afford the same units on the same tick.
       //
-      // Salvage is unaffected by this: canStartSalvage reads in-flight jobs and the target
-      // itself, never processQueue, so it returns the identical verdict either way.
+      // Salvage's VERDICT is unaffected by this: canStartSalvage reads in-flight jobs and the
+      // target itself, never processQueue, so it answers the same either way. What the call
+      // does for a salvage BATCH is still load-bearing though, because `candidate` is also the
+      // state the promotion is started FROM: it is the state carrying the residual N-1 entry
+      // (0.13.3 batch-salvage follow-up, see withQueuedOrderReleased).
       const candidate = withQueuedOrderReleased(working, job.id);
 
       // Skip-on-block (property 4 above). The reason is deliberately dropped: a queued
@@ -7683,13 +7797,21 @@ export function promoteQueuedOrders(state: GameState): GameState {
       // leak an order out of the queue or quietly drop its reservation.
       if (!started) continue;
 
-      // Promoted: the order is real running work now, and it has already left the queue,
-      // because `candidate` was built without it. Removing it up front (rather than
-      // filtering after the start) is what makes `working` internally consistent for every
-      // gate that follows, both the material reservations above and the Phase 2 salvage
-      // reservations, neither of which may still count an order that has become a job.
-      // removeQueuedOrder's filter preserves array order, so the REMAINING queue keeps its
-      // exact positions, including any entry this scan skipped.
+      // Promoted: the order is real running work now, and `candidate` was built with its
+      // claim on that work already released, so nothing has to be filtered out afterwards.
+      // Releasing up front (rather than after the start) is what makes `working` internally
+      // consistent for every gate that follows, both the material reservations above and the
+      // Phase 2 salvage reservations, neither of which may still count work that has become a
+      // job. Array order is preserved either way, so the REMAINING queue keeps its exact
+      // positions, including any entry this scan skipped.
+      //
+      // ⚠️ A MULTI-UNIT SALVAGE BATCH IS STILL IN `next`, deliberately, one unit lighter (see
+      // withQueuedOrderReleased). It keeps its id and its position and will be considered
+      // again on a later tick, once the bay frees. It cannot start a SECOND unit on this pass
+      // even at a facility with several slots, because the scan iterates the snapshot taken
+      // before the loop and moves on to the next ENTRY. That is the intended bound, not a
+      // limitation: one unit per job duration is what keeps the per-unit rng draw pattern
+      // identical to the single-unit path, which is the whole parity argument.
       working = next;
     }
   }

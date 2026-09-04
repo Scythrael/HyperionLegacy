@@ -740,7 +740,7 @@ describe("economy uninstall pools the piece (integrity + recoverability)", () =>
 // Park a salvage order for `instanceId` in the queue. Only processQueue is touched: the
 // reservation is derived from it and from nothing else.
 function withQueuedSalvage(state: GameState, target: SalvageTargetRef): GameState {
-  const job: QueuedJob = { id: "q-1", facility: "salvageBay", order: { type: "salvage", target } };
+  const job: QueuedJob = { id: "q-1", facility: "salvageBay", order: { type: "salvage", target, mode: { kind: "batch", remaining: 1 } } };
   return { ...state, processQueue: [...(state.processQueue ?? []), job] };
 }
 

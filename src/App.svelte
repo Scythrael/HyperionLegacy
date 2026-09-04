@@ -4191,7 +4191,12 @@
   // down a whole hull. The three kinds keep their three id vocabularies from being confused
   // (a system instanceId vs a salvaged-material itemId vs a ship id) and route confirmSalvage
   // to the matching handler.
-  let salvageConfirm: { kind: "system" | "material" | "ship"; id: string; name: string } | null = null;
+  // `units` (0.13.3 batch-salvage follow-up) is the batch count the player configured, SNAPSHOT
+  // at request time. It is always 1 for a system and a ship (each is one distinct object) and
+  // is only meaningful for a fungible salvaged material. Snapshotting rather than re-reading
+  // the live qty field is what guarantees the dialog names the number that actually gets
+  // queued, even if the field changes behind the modal.
+  let salvageConfirm: { kind: "system" | "material" | "ship"; id: string; name: string; units: number } | null = null;
 
   // The display name a spare system shows in the salvage-confirm dialog and result
   // readout. A CRAFTED spare uses its slot + variety label (equipmentOutputLabel, the
@@ -4292,14 +4297,21 @@
   // longer destroy anything on click: they ENQUEUE a salvage order at the Salvage Bay, which
   // the tick promotes into a timed job as soon as the bay is free. The preference's semantics
   // are untouched (a checked tier still stops and asks), only what happens after the yes.
-  function requestSalvage(kind: "system" | "material" | "ship", id: string, name: string) {
+  //
+  // ⚠️ `units` (0.13.3 batch-salvage follow-up) rides ALL THE WAY THROUGH, including into the
+  // pending-confirm object. Carrying it here rather than re-reading the qty field inside
+  // confirmSalvage is what stops the player editing the quantity while the modal is open and
+  // confirming a number they were never shown: what the dialog names is what gets queued.
+  // It is meaningless for a system (one instance) and for a hull (one hull), both of which
+  // pass nothing and take the default of 1.
+  function requestSalvage(kind: "system" | "material" | "ship", id: string, name: string, units = 1) {
     if (!salvageTargetNeedsConfirm(kind, id)) {
       // Direct path: route through the same handler confirmSalvage would call.
       if (kind === "ship") doSalvageShip(id);
-      else doQueueSalvage(kind, id);
+      else doQueueSalvage(kind, id, units);
       return;
     }
-    salvageConfirm = { kind, id, name };
+    salvageConfirm = { kind, id, name, units };
   }
 
   // Toggle one quality tier in the confirm set (checked = confirm required), then save.
@@ -4485,7 +4497,7 @@
     salvageConfirm = null;
     if (pending === null) return;
     if (pending.kind === "ship") doSalvageShip(pending.id);
-    else doQueueSalvage(pending.kind, pending.id);
+    else doQueueSalvage(pending.kind, pending.id, pending.units);
   }
 
   // ── Salvaging IS queueing now (Crafting 0.13.3, Phase 4 Unit 4.4) ─────────
@@ -4503,10 +4515,18 @@
   // rather than swallowing the click (Omega 14: no silent failure). The button's own disabled
   // state already mirrors canEnqueueOrder, so reaching the refusal branch means state moved
   // between render and click.
-  function doQueueSalvage(kind: "system" | "material", id: string) {
+  // ⚠️ `units` (0.13.3 batch-salvage follow-up) IS ONLY EVER ABOVE 1 FOR A MATERIAL. A system
+  // is a single distinct instance, so its call site passes nothing and takes the default; the
+  // engine clamps the unique arms to 1 anyway (salvageOrderUnits), so a mistake here can only
+  // ever under-claim, never destroy more than was asked for. It is normalized to a whole
+  // number at or above 1 before it reaches the order, because the qty <input> can hand back a
+  // blank, a fraction or a pasted negative, and an order carrying one of those would be an
+  // order the promotion pass could never drain.
+  function doQueueSalvage(kind: "system" | "material", id: string, units = 1) {
     const target: SalvageTargetRef =
       kind === "system" ? { kind: "equipment", instanceId: id } : { kind: "material", itemId: id };
-    const order: QueuedOrder = { type: "salvage", target };
+    const remaining = Number.isFinite(units) ? Math.max(1, Math.floor(units)) : 1;
+    const order: QueuedOrder = { type: "salvage", target, mode: { kind: "batch", remaining } };
     const { next, queued, reason } = enqueueOrder(state, "salvageBay", order);
     if (!queued) {
       pushLog(`Cannot queue salvage: ${reason === undefined ? "the Salvage Bay refused that order" : enqueueBlockText(reason)}`);
@@ -4514,8 +4534,10 @@
     }
     state = next;
     // Named through craftQueue.ts's queuedOrderLabel, the SAME function the queue row uses,
-    // so the log line and the row can never disagree about what was queued.
-    pushLog(`Queued for salvage → [${queuedOrderLabel(state, order)}].`);
+    // so the log line and the row can never disagree about what was queued. The count is
+    // appended only when there IS one, so a single-unit salvage logs exactly the line it
+    // always logged.
+    pushLog(`Queued for salvage → [${queuedOrderLabel(state, order)}]${remaining > 1 ? ` ×${remaining}` : ""}.`);
     // The selection is deliberately KEPT: the tile stays in the pool (it is reserved, not
     // consumed) and the panel now shows its queued state, which is the whole point of the
     // derived reservation. Clearing it would make the piece look like it had vanished.
@@ -4601,10 +4623,43 @@
   // inventory), so the two tabs never fight over one selection variable.
   let selectedSalvagedId: string | null = null;
 
+  // ── The salvage BATCH QUANTITY (0.13.3 batch-salvage follow-up) ───────────
+  // How many units of the selected material the Salvage button will queue. COMPONENT-LOCAL,
+  // never on GameState, exactly like the craft configurator's cfgQty which it mirrors: it is
+  // an unsubmitted form value, and a form value that survived a reload would be a promise the
+  // engine never made.
+  //
+  // ⚠️ IT IS A FORM VALUE, SO IT CAN HOLD ANYTHING. `bind:value` on a number <input> hands
+  // back NaN for a blank field and honours a pasted fraction or negative, so nothing may trust
+  // it raw. Every consumer runs it through salvageQtyFor below, and doQueueSalvage normalizes
+  // once more at the writer, which is the same belt-and-braces the craft configurator uses.
+  let salvageQty = 1;
+
   // Toggle a salvaged-material tile's selection (click the open tile to close it),
   // the SAME toggle idiom selectSystemTile uses.
+  //
+  // RESETS THE QUANTITY on every selection change, including on deselect. Carrying a batch of
+  // 5000 from one material over to the next tile the player happens to click is exactly the
+  // kind of surprise that gets something destroyed, so the field starts at 1 each time and the
+  // player opts into a batch deliberately.
   function selectSalvagedTile(itemId: string) {
     selectedSalvagedId = selectedSalvagedId === itemId ? null : itemId;
+    salvageQty = 1;
+  }
+
+  // The quantity the buttons will actually use: the raw field, made a whole number, clamped
+  // into 1..max. ONE function so the button label, the disabled gate and the click handler can
+  // never disagree about the number, which is the same discipline craftQueueButtonBlockText
+  // brought to the craft configurator.
+  //
+  // `max` is what is FREE (held minus everything already queued or in flight), never what is
+  // held: the engine refuses an order that claims more than that (canEnqueueOrder rule 4), so
+  // clamping to `free` here is the UI agreeing with the engine rather than inventing a second
+  // rule. A max of 0 clamps to 1, which is harmless because the button is disabled in that
+  // case and the engine would refuse it anyway.
+  function salvageQtyFor(raw: number, max: number): number {
+    const whole = Number.isFinite(raw) ? Math.floor(raw) : 1;
+    return Math.min(Math.max(1, whole), Math.max(1, max));
   }
 
   // The salvaged-material Salvage action lives ONLY in the Salvage Bay facility
@@ -5063,6 +5118,13 @@
         // which is a different moment and a different remedy from why the queue will not
         // ACCEPT an order.
         return "Not enough free materials. A queued order reserves its materials as soon as you queue it, so you need them free now. They are released the moment you remove the order.";
+      case "notEnoughHeld":
+        // 0.13.3 batch-salvage follow-up: the salvage twin of `materials`. A queued salvage
+        // order reserves its UNITS, so a batch can never claim more than are free. Worded
+        // around the two remedies the player actually has here (ask for fewer units, or free
+        // some up by removing an order that is holding them), which is what makes it a
+        // different sentence rather than the same shortage phrased twice.
+        return "You do not hold that many free. A queued salvage reserves its units as soon as you queue it, so lower the quantity, or remove a queued order to release the units it is holding.";
     }
   }
 
@@ -9527,15 +9589,21 @@
               {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
               {@const selHeld = selCount.gt(0)}
               <!-- 0.13.3 Unit 4.4: the queued share, and the free remainder it leaves.
-                   ⚠️ THE BUTTON IS NOT GATED ON `free`, DELIBERATELY. The engine allows the
-                   queue to hold MORE salvage orders than the player holds units (canStartSalvage
-                   bounds promotion against in-flight jobs, not against queued ones), and
-                   promotion is skip-on-block, so an order that cannot run yet waits without
-                   blocking anything behind it. Adding a stricter gate here would be the UI
-                   inventing a rule the engine does not have. The readout stays honest instead,
-                   which is the reservation-aware stock idiom's actual job. -->
+                   ⚠️ THE BUTTON IS GATED ON `free` AS OF THE BATCH-SALVAGE FOLLOW-UP, which
+                   REVERSES the note that stood here. It used to say the button must not gate
+                   on free, because the engine deliberately let the queue hold more salvage
+                   orders than the player held units. That is no longer the engine's rule: a
+                   queued salvage order now reserves its UNITS, and canEnqueueOrder refuses one
+                   that claims more than are free (rule 4, exceedsFreeSalvageUnits). So the
+                   quantity is capped at `selFree` and the button is disabled at zero, which is
+                   the UI agreeing with the engine rather than inventing a rule of its own, and
+                   is exactly what the craft configurator's `(max N)` does one console over. -->
               {@const selQueued = materialSalvageQueued(salvageTargetId)}
               {@const selFree = Math.max(0, selCount.toNumber() - selQueued)}
+              <!-- The number the buttons will actually queue: the raw form value floored and
+                   clamped into 1..selFree, through the ONE helper, so the label, the disabled
+                   gate and the click handler cannot disagree about it. -->
+              {@const selQty = salvageQtyFor(salvageQty, selFree)}
               <Panel>
                 <div class="salvaged-action">
                   <div class="salvaged-action-info">
@@ -9546,20 +9614,63 @@
                     <div class="salvaged-action-hint">
                       {#if !selHeld}
                         None of this material is held.
+                      {:else if selFree <= 0}
+                        <!-- Held but entirely spoken for: every unit is already queued or in
+                             the bay. Said explicitly rather than left to a generic disabled
+                             button, because "I hold 3 and the button is dead" reads as a bug
+                             until the player is told where the 3 went. -->
+                        Every unit you hold is already queued or being salvaged. Remove a queued order to release some.
                       {:else if salvageBayQueue.enqueueBlockReason !== null}
                         {enqueueBlockText(salvageBayQueue.enqueueBlockReason)}
                       {:else}
-                        Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} in the bay once it starts.
+                        <!-- The duration is PER UNIT, and a batch runs them one at a time
+                             through the single bay, so a multi-unit order says so rather than
+                             letting the player read one unit's estimate as the whole job. The
+                             single-unit sentence is left exactly as it was. -->
+                        {#if selQty > 1}
+                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} per unit in the bay, run one at a time.
+                        {:else}
+                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} in the bay once it starts.
+                        {/if}
                       {/if}
                     </div>
+
+                    <!-- QUANTITY (0.13.3 batch-salvage follow-up). The craft configurator's
+                         own control, reused verbatim: the same `Qty` label, the same
+                         .modal-input number field with min/max/step, the same 80px width and
+                         the same `(max N)` .research-cost readout beside it. Reused rather
+                         than restyled precisely because a player who has set a batch in the
+                         Refinery should recognize this on sight.
+                         The max is what is FREE, which is what the engine will accept. -->
+                    <div class="dev-row" style="margin-top: 8px;">
+                      <label style="display: inline-flex; align-items: center; gap: 6px;">
+                        Qty
+                        <input
+                          class="modal-input"
+                          type="number"
+                          min="1"
+                          max={selFree}
+                          step="1"
+                          style="width: 90px;"
+                          bind:value={salvageQty}
+                          aria-label="Salvage quantity"
+                          disabled={selFree <= 0}
+                        />
+                        <span class="research-cost">(max {formatNumber(new Decimal(selFree))})</span>
+                      </label>
+                    </div>
                   </div>
+                  <!-- The label carries the count the click will queue, the same way the
+                       Refinery's "Refine · ×N" and "Add to queue · ×N" do, so the number is
+                       visible on the control itself and not only in the field above it. The
+                       single-unit case keeps reading exactly "Salvage", unchanged. -->
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={!selHeld || salvageBayQueue.enqueueBlockReason !== null}
+                    disabled={!selHeld || selFree <= 0 || salvageBayQueue.enqueueBlockReason !== null}
                     title={selHeld ? undefined : "None of this material is held"}
-                    on:click={() => requestSalvage("material", salvageTargetId, selItem.label)}
+                    on:click={() => requestSalvage("material", salvageTargetId, selItem.label, selQty)}
                   >
-                    Salvage
+                    {selQty > 1 ? `Salvage · ×${selQty}` : "Salvage"}
                   </button>
                 </div>
               </Panel>
@@ -13198,6 +13309,14 @@
         <p class="modal-warning">
           {#if scIsBaseline}
             Permanently discard <strong>{salvageConfirm.name}</strong>? This removes the Standard-Issue system for nothing (it has no materials to recover) and can't be undone.
+          {:else if salvageConfirm.units > 1}
+            <!-- 0.13.3 batch-salvage follow-up: a MULTI-UNIT order names its count in the
+                 warning, because "permanently destroys the material" and "permanently destroys
+                 5000 of them" are not the same decision and the dialog must not blur them. The
+                 count is the SNAPSHOT taken at request time (see salvageConfirm), so what is
+                 named here is exactly what Confirm queues. -->
+            Permanently break down <strong>{salvageConfirm.units} × {salvageConfirm.name}</strong> for parts?
+            This destroys all {salvageConfirm.units} and can't be undone.
           {:else}
             Permanently break down <strong>{salvageConfirm.name}</strong> for parts? This destroys the
             {salvageConfirm.kind === "system" ? "system" : salvageConfirm.kind === "ship" ? "ship" : "material"} and can't be undone.
@@ -13214,7 +13333,11 @@
              was rather than being told a queue story that is not true for it. -->
         {#if salvageConfirm.kind !== "ship"}
           <p class="research-status">
-            This adds the order to the salvage queue. The bay works through one order at a time, and the target stays reserved until its turn.
+            {#if salvageConfirm.units > 1}
+              This adds one order for {salvageConfirm.units} units to the salvage queue. The bay works through them one unit at a time, and all {salvageConfirm.units} stay reserved until their turn. Removing the order releases every unit still waiting.
+            {:else}
+              This adds the order to the salvage queue. The bay works through one order at a time, and the target stays reserved until its turn.
+            {/if}
           </p>
         {/if}
         <div class="modal-row">

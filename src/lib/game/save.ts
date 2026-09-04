@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 40;
+export const SAVE_VERSION = 41;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1664,6 +1664,44 @@ const MIGRATIONS: Record<number, Migration> = {
     completionLog: state.completionLog ?? [],
     nextCompletionLogId: state.nextCompletionLogId ?? 1,
     openJobBatches: state.openJobBatches ?? [],
+  }),
+
+  // --- v40 -> v41: a queued SALVAGE order carries a BATCH COUNT -------------------------
+  // (0.13.3 batch-salvage follow-up, 2026-09-04. Design §8.7's New list asked for a "batch
+  // select to queue"; §5.1's "for salvage the unit is genuinely one target" was written for
+  // the two UNIQUE arms and does not hold for the fungible one. See model.ts's QueuedOrder.)
+  //
+  // WHY THIS IS A REAL VERSION BUMP AND NOT ANOTHER RIDER ON THE v39 -> v40 STEP, which is
+  // what Unit 4.4b legitimately did. The argument that made riding safe was "no player save
+  // has ever been stamped v40". That is still true of SHIPPED saves, but it is NOT true of
+  // this branch's own dev and staging saves, which have been stamped v40 for days and would
+  // therefore SKIP an extended v39 step entirely. Those saves are exactly the ones that can
+  // be holding a queued salvage order right now, so they are the ones that must be migrated.
+  // A save that skips the fix is a save that reads `order.mode.remaining` off undefined.
+  //
+  // WHAT IT WRITES: every queued SALVAGE order gains `mode: { kind: "batch", remaining: 1 }`,
+  // which is precisely what it already meant. One order, one unit. Nothing about the queue's
+  // ORDER, ids, facilities or targets is touched, no entry is added or dropped, and a craft
+  // order is not read at all (it has carried its own `mode` since v40).
+  //
+  // IDEMPOTENT AND VALUE-PRESERVING: `?? ` means an order that already carries a mode keeps
+  // its OWN count, so a re-run (or a save that has already seen this step) cannot reset a
+  // player's batch of 5000 back to 1.
+  //
+  // DEFENSIVE ON THE ARRAY ITSELF: a v40 dev save that predates Unit 1.1's fields, or a
+  // hand-edited one, can arrive without processQueue at all. `?? []` maps over nothing rather
+  // than throwing, and the field is left as the empty array the engine already reads for.
+  //
+  // NO NEW DECIMALS, VERIFIED: `mode` is a string-literal kind plus a plain number, which is
+  // the same shape CraftLineMode has ridden through hydrateDecimals since v40. hydrateDecimals
+  // needs NO new branch. See the ⚠️ warning on QueuedJob (model.ts) before ever adding one.
+  40: (state: any): any => ({
+    ...state,
+    processQueue: (state.processQueue ?? []).map((job: any) =>
+      job?.order?.type === "salvage"
+        ? { ...job, order: { ...job.order, mode: job.order.mode ?? { kind: "batch", remaining: 1 } } }
+        : job
+    ),
   }),
 };
 

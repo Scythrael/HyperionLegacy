@@ -61,6 +61,11 @@ import {
   type TimedProcess,
 } from "./model";
 import type { CraftLine, CraftLineKind, CraftLineMode } from "./allocation";
+// The ONE interpretation of a queued salvage order's unit count (0.13.3 batch-salvage
+// follow-up). Imported rather than re-derived for the same reason every other answer in this
+// file is delegated: a row that counted a batch differently from the engine would be a row
+// that lies about how much work is waiting.
+import { salvageOrderUnits } from "./reservation";
 // The engine's own queue vocabulary. Every one of these is the REAL thing the tick
 // and the mutation API use; none is re-implemented below.
 import {
@@ -297,8 +302,18 @@ export function queuedOrderLabel(state: GameState, order: QueuedOrder): string {
 // "finishing current run" case here (that one belongs to a running line, below).
 // Wording matches the live line card so a row does not change vocabulary the moment
 // it promotes.
+// ⚠️ A MULTI-UNIT SALVAGE BATCH BORROWS THE CRAFT WORDING VERBATIM (0.13.3 batch-salvage
+// follow-up), so a batch of 5000 housings reads "batch 5000" exactly as a batch of 5000
+// ingots does. Sharing the phrase is the point: the two facilities now do the same thing and
+// a player should not have to learn a second word for it. A SINGLE-unit salvage order keeps
+// the literal "salvage" it has always read as, both because "batch 1" is a worse sentence and
+// because every existing single-target row (and every auto-salvage order) then renders
+// byte-identically to before this change.
 function queuedModeLabel(order: QueuedOrder): string {
-  if (order.type === "salvage") return "salvage";
+  if (order.type === "salvage") {
+    const units = salvageOrderUnits(order);
+    return units > 1 ? `batch ${units}` : "salvage";
+  }
   return order.mode.kind === "batch" ? `batch ${order.mode.remaining}` : "continuous";
 }
 
@@ -469,7 +484,17 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
 const ENQUEUE_PROBE: Record<QueueFacilityKey, QueuedOrder> = {
   refinery: { type: "craftLine", kind: "refine", recipeKey: "", mode: { kind: "continuous" } },
   fabricator: { type: "craftLine", kind: "fabricate", recipeKey: "", mode: { kind: "continuous" } },
-  salvageBay: { type: "salvage", target: { kind: "equipment", instanceId: "" } },
+  // ⚠️ THE SALVAGE PROBE'S SINGLE-UNIT batch IS LOAD-BEARING FOR THE SAME REASON as its
+  // empty instanceId, as of the 0.13.3 batch-salvage follow-up, which added an enqueue-time
+  // quantity gate (exceedsFreeSalvageUnits). A probe asking for many units would come back
+  // "notEnoughHeld" and this view would report the whole bay as unable to accept anything.
+  // One unit against an `equipment` target is exempt from that gate entirely (it applies only
+  // to the fungible arm), so the probe still asks only the depth question. Keep it at 1.
+  salvageBay: {
+    type: "salvage",
+    target: { kind: "equipment", instanceId: "" },
+    mode: { kind: "batch", remaining: 1 },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -505,6 +530,12 @@ export function buildCraftQueue(state: GameState, facility: QueueFacilityKey): C
     // that reservation, not a second spend. Every OTHER queued order's reservation is
     // still counted, so a row that genuinely cannot be funded alongside the orders ahead
     // of it still says so honestly.
+    //
+    // ⚠️ FOR A SALVAGE BATCH this releases ONE unit rather than the whole entry (0.13.3
+    // batch-salvage follow-up), which is the same state the promotion pass gates against.
+    // canStartSalvage never reads processQueue, so the verdict is identical either way; the
+    // call stays here so the row and the tick keep asking the literally identical question,
+    // which is the property this line exists to preserve.
     const gate = adapter.canStart(withQueuedOrderReleased(state, job.id), job.order);
     if (gate.ok && hasFreeSlot && nextToPromoteId === null) nextToPromoteId = job.id;
 

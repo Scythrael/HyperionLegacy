@@ -106,7 +106,14 @@ export {
   salvageReservedShipIds,
   salvageReservedMaterialCount,
   isDuplicateSalvageTarget,
+  // 0.13.3 batch-salvage follow-up: the unit count a queued salvage order stands for, and
+  // the enqueue-time bound that keeps a batch inside what the player actually holds. Both
+  // belong to the same reservation module for the same reason as the five above, so both
+  // are re-exported here rather than becoming a second place to import salvage helpers from.
+  salvageOrderUnits,
+  exceedsFreeSalvageUnits,
   type SalvageReservations,
+  type QueuedSalvageOrder,
 } from "./reservation";
 
 // ----------------------------------------------------------------------------
