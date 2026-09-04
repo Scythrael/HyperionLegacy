@@ -3301,6 +3301,80 @@ export const SALVAGE_TICKS_PER_ILEVEL = 0.5;
 // down than a Q0 one of the same iLevel.
 export const SALVAGE_TICKS_PER_QUALITY = 2;
 
+// ============================================================================
+// The equipment arm's OWN CATEGORICAL FACTORS (Crafting 0.13.3 salvage-duration SEAM)
+// ============================================================================
+// ⚠️ EVERY CONSTANT IN THIS BLOCK IS NEUTRAL TODAY, ON PURPOSE, exactly like the material
+// block below it. Each is set to its IDENTITY value (1.0 for a multiplier, 0 for a
+// per-tier step), so the equipment arm still returns exactly
+// `SALVAGE_BASE_TICKS + iLevel * PER_ILEVEL + quality * PER_QUALITY` for every piece the
+// game can mint. Nothing about the game's timings moves until one of these is retuned.
+//
+// WHY THE EQUIPMENT ARM IS WIDENED TOO, and why it is widened NOW rather than during the
+// balance pass: the whole point of the seam is that the balance pass is a NUMBERS edit
+// that never has to reopen parity-critical duration code. Leaving one arm half-widened
+// defeats that, because the first tuning pass that wanted rarity to matter on a salvaged
+// system would have to come back here, change a type, change a call site, and re-argue
+// the parity case under balance pressure. So both arms get their room in the same
+// behaviour-neutral motion, and the follow-up is purely numbers.
+//
+// SAME SHAPE AS THE MATERIAL ARM: the NUMERIC axes (iLevel, quality) stay ADDITIVE, where
+// a coefficient means literally "this many ticks per point", and only the CATEGORICAL
+// axes (rarity, blueprint tier) are allowed to MULTIPLY, because they have few, named,
+// hand-picked values whose product a designer can hold in their head. The fully
+// multiplicative alternative compounds: four axes at a modest 2x each is already 16x.
+// SALVAGE_MAX_TICKS then bounds the product no matter how the two are later tuned.
+
+// MULTIPLIER on the equipment duration for the piece's own EquipmentRarity band. RAISING
+// an entry makes that whole band slower to break down; the ladder is meant to ascend
+// (derelict cheapest, the legendary flavors dearest) once tuned. All 1.0 = rarity is
+// free, today's behavior.
+//
+// ⚠️ ITS OWN TABLE OVER ITS OWN UNION, DELIBERATELY NOT SHARED WITH THE MATERIAL ARM'S.
+// EquipmentRarity (derelict / standard / augmented / stellar / radiant / luminous /
+// constellar) and ItemRarity (common / uncommon / rare / epic / legendary) are DIFFERENT
+// unions with ZERO members in common and different lengths: gear bands and warehouse item
+// bands are separate content ladders that happen to share the word "rarity". Merging them
+// or casting between them would silently mistune one ladder the moment the other grew a
+// band. Two total maps means adding a band to EITHER union is a COMPILE ERROR in ITS OWN
+// table, which is the only arrangement that keeps both honest.
+//
+// A TOTAL MAP, so a new rarity cannot become an item that silently multiplies by
+// undefined (which is NaN, and a NaN duration is a bay occupied forever). The lookup is
+// STILL guarded at the use site, because a hand-edited save can present a rarity string
+// the union does not contain.
+export const SALVAGE_EQUIPMENT_RARITY_MULTIPLIER: Record<EquipmentRarity, number> = {
+  derelict: 1,
+  standard: 1,
+  augmented: 1,
+  stellar: 1,
+  radiant: 1,
+  luminous: 1,
+  constellar: 1,
+};
+
+// MULTIPLIER added per BLUEPRINT tier above T1 (BlueprintDef.tier, the Research-level
+// gate the piece was unlocked behind). The multiplier is 1 + (tier - 1) * this, so T1 is
+// ALWAYS exactly 1.0 by construction and the tunable only ever describes the STEP between
+// tiers. RAISING THIS makes deeper-researched systems take proportionally longer to break
+// down. 0 = tier is free, today's behavior.
+//
+// ⚠️ TIER IS NOT STORED ON THE INSTANCE. An EquipmentInstance carries no tier field at
+// all; tier is a property of the BLUEPRINT that minted it, resolved at the call site
+// through the piece's `blueprintKey` (see salvageJobDurationTicks in tick.ts). A
+// Standard-Issue baseline has NO blueprint by construction (blueprintKey null), and a
+// retired blueprint on an old save resolves to nothing, so BOTH land on the neutral T1
+// rather than NaN, the same defensive posture the material arm takes for an item with no
+// ITEMS entry.
+//
+// ⚠️ THE BLUEPRINT TABLE IS NOT ALL T1, so this tunable REALLY WOULD bite the moment it
+// moved. Neutrality here is the 0, not an accident of the data, which is why the pin test
+// sweeps every BLUEPRINTS entry rather than a sample.
+//
+// Multiplicative rather than additive because tier is CATEGORICAL: T1/T2/T3 are named
+// research bands, not a continuous axis, and a band is the right thing to scale by.
+export const SALVAGE_EQUIPMENT_TIER_MULTIPLIER_PER_TIER = 0;
+
 // The FLOOR for a salvaged-material loot roll: what the cheapest possible material
 // salvage costs before any of the item's own factors are applied. Held as its own
 // constant rather than reusing SALVAGE_BASE_TICKS even though the two are equal today,
@@ -3403,19 +3477,39 @@ export const SALVAGE_SHIP_BUILD_DIVISOR = 3;
 // needs no GameState, no equipment lookup and no recipe table to be tested. The caller
 // (Unit 2.3/2.4) does the one lookup and hands the numbers over.
 //
-// ⚠️ THE MATERIAL ARM CARRIES THE ITEM'S OWN ATTRIBUTES (Crafting 0.13.3 seam). It used
-// to be a bare `{ kind: "material" }`, which is why a common ore roll and a rare Damaged
-// Reactor Housing cost the identical flat 60 ticks: the spec carried nothing to balance
-// ON. It now carries the two ItemDef facts (`tier`, `rarity`) plus the `quality` of the
-// bucket the salvage will draw from, so a balance pass has somewhere to land.
+// ⚠️ BOTH THE MATERIAL AND THE EQUIPMENT ARM CARRY THE TARGET'S OWN CATEGORICAL
+// ATTRIBUTES (Crafting 0.13.3 seam). The material arm used to be a bare
+// `{ kind: "material" }`, which is why a common ore roll and a rare Damaged Reactor
+// Housing cost the identical flat 60 ticks; the equipment arm used to carry only its two
+// NUMERIC axes, which is why a derelict and a radiant piece of the same iLevel and
+// quality cost the same. Neither spec carried anything categorical to balance ON. Both
+// now do, so a balance pass has somewhere to land.
 //
-// THE FIELDS ARE REQUIRED, NOT OPTIONAL, deliberately. Optional-with-a-neutral-default
-// would let a future call site forget one and silently get the cheapest duration forever;
-// required fields make forgetting a COMPILE ERROR, the same posture the exhaustive switch
-// below takes. Defensiveness lives in the arithmetic (every field is clamped), not in the
-// type.
+// THE FIELDS ARE REQUIRED, NOT OPTIONAL, deliberately, on BOTH arms. Optional-with-a-
+// neutral-default would let a future call site forget one and silently get the cheapest
+// duration forever; required fields make forgetting a COMPILE ERROR, the same posture the
+// exhaustive switch below takes. Defensiveness lives in the arithmetic (every field is
+// clamped), not in the type.
+//
+// ⚠️ THE TWO ARMS' `rarity` FIELDS ARE DIFFERENT TYPES ON PURPOSE: EquipmentRarity for a
+// piece of gear, ItemRarity for a warehouse item. They share zero members. See
+// SALVAGE_EQUIPMENT_RARITY_MULTIPLIER for why they are kept apart rather than merged.
 export type SalvageDurationSpec =
-  | { kind: "equipment"; iLevel: number; quality: number }
+  | {
+      kind: "equipment";
+      iLevel: number;
+      quality: number;
+      // EquipmentInstance.rarity, the gear band. A string rather than an ordinal so the
+      // call site hands over what it actually read off the piece, with no lossy
+      // conversion in between. NOT interchangeable with the material arm's ItemRarity.
+      rarity: EquipmentRarity;
+      // The tier of the BLUEPRINT that minted this piece (BlueprintDef.tier), which is
+      // where tier lives: an EquipmentInstance has no tier field of its own. 1-based;
+      // anything below 1 (a Standard-Issue baseline, which has no blueprint at all, or a
+      // retired blueprint key on an old save) is treated as T1 by the arithmetic and
+      // contributes no multiplier.
+      tier: number;
+    }
   | {
       kind: "material";
       // ItemDef.tier, the warehouse content band. 1-based; anything below 1 (an unknown
@@ -3462,7 +3556,10 @@ function clampSalvageTicks(raw: number): number {
 // silently gets some other arm's duration. Same posture as reservation.ts's bin().
 //
 // Per arm (design §7.2):
-//   equipment  base + iLevel * per-iLevel + quality * per-quality, rounded UP
+//   equipment  (base + iLevel * per-iLevel + quality * per-quality) * rarity multiplier
+//              * tier multiplier, rounded UP. NEUTRAL TODAY: both multipliers are 1.0, so
+//              every piece still costs exactly what the two numeric terms give. Same
+//              factor shape as the material arm, over that arm's OWN rarity union.
 //   material   (base + quality * per-quality) * rarity multiplier * tier multiplier,
 //              rounded UP. NEUTRAL TODAY: the weight is 0 and both multipliers are 1.0,
 //              so every material still costs exactly SALVAGE_MATERIAL_TICKS. See the
@@ -3486,13 +3583,41 @@ function clampSalvageTicks(raw: number): number {
 export function salvageDurationTicks(spec: SalvageDurationSpec): number {
   switch (spec.kind) {
     case "equipment": {
+      // --- Clamp every input FIRST ------------------------------------------------
+      // A hand-edited save, a legacy piece minted before iLevel existed, or a piece whose
+      // blueprint has since been retired can present a negative, a NaN or (for rarity) a
+      // string outside the union. Each one lands on the CHEAPEST neutral value, so the
+      // worst case is the plain base duration.
       const safeILevel = Number.isFinite(spec.iLevel) && spec.iLevel > 0 ? spec.iLevel : 0;
       const safeQuality = Number.isFinite(spec.quality) && spec.quality > 0 ? spec.quality : 0;
-      const raw =
+      // Tier is 1-BASED: T1 is the floor of the research ladder, so anything below 1
+      // (including the 0 a Standard-Issue baseline's absent blueprint reads as) is
+      // treated as T1 and contributes no multiplier.
+      const safeTier = Number.isFinite(spec.tier) && spec.tier > 1 ? spec.tier : 1;
+      // The rarity table is total over EquipmentRarity, but `spec.rarity` can still
+      // arrive as a string the union does not contain via a hand-edited save, and
+      // `undefined * n` is NaN. Guarded explicitly rather than trusted, because the cost
+      // of being wrong here is a stuck bay.
+      const rarityMult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[spec.rarity];
+      const safeRarityMult = Number.isFinite(rarityMult) && rarityMult > 0 ? rarityMult : 1;
+
+      // --- Additive numeric axes, then the categorical multipliers -----------------
+      // The base plus the iLevel and quality terms is the "span"; rarity and blueprint
+      // tier scale that span. Written in the same order as the material arm below, so
+      // the eventual balance pass reads the two identically. BOTH MULTIPLIERS ARE
+      // NEUTRAL TODAY (see the factor block above), so this evaluates to exactly the old
+      // `base + iLevel * PER_ILEVEL + quality * PER_QUALITY` for every real piece.
+      const span =
         SALVAGE_BASE_TICKS +
         safeILevel * SALVAGE_TICKS_PER_ILEVEL +
         safeQuality * SALVAGE_TICKS_PER_QUALITY;
-      return clampSalvageTicks(raw);
+      const tierMult = 1 + (safeTier - 1) * SALVAGE_EQUIPMENT_TIER_MULTIPLIER_PER_TIER;
+      // Guarded for the same reason the rarity multiplier is: a retune that ever made the
+      // per-tier step negative could drive this to or below 0, and a 0 duration completes
+      // on its own start tick.
+      const safeTierMult = Number.isFinite(tierMult) && tierMult > 0 ? tierMult : 1;
+
+      return clampSalvageTicks(span * safeRarityMult * safeTierMult);
     }
     case "material": {
       // --- Clamp every input FIRST ------------------------------------------------

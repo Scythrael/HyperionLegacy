@@ -44,6 +44,11 @@ import {
   // Crafting 0.13.3 (salvage-duration seam): the material arm now reads the item's own
   // tier / rarity, so the wiring case needs the registry it reads them from.
   ITEMS,
+  // Crafting 0.13.3 (salvage-duration seam, equipment arm): the equipment wiring case
+  // temporarily un-neutralizes ONE rarity band to watch the duration move, which is the
+  // only way to tell a real read off the instance from a hardcoded placeholder while
+  // every multiplier is 1.0. Restored in a finally; see the case for why.
+  SALVAGE_EQUIPMENT_RARITY_MULTIPLIER,
   type CaptainMissionState,
   type EquipmentInstance,
   type GameState,
@@ -2456,7 +2461,16 @@ describe("startSalvageJob: a timed job that consumes NOTHING at start", () => {
     // the source rather than hard-coded so a retune of the constants retunes this case.
     const piece = state.equipment.find((e) => e.id === SPARE_ID);
     if (piece === undefined) throw new Error("fixture lost its spare");
-    const expected = salvageDurationTicks({ kind: "equipment", iLevel: piece.iLevel, quality: piece.quality });
+    const expected = salvageDurationTicks({
+      kind: "equipment",
+      iLevel: piece.iLevel,
+      quality: piece.quality,
+      // The equipment arm now carries the piece's own rarity band and its BLUEPRINT's
+      // tier (Crafting 0.13.3 seam). Read from the same sources the call site reads, so
+      // this stays a statement about the start path rather than a second opinion.
+      rarity: piece.rarity,
+      tier: BLUEPRINTS[SALVAGE_BP].tier,
+    });
     expect(jobs[0].durationTicks).toBe(expected);
     expect(jobs[0].remainingTicks).toBe(expected);
     expect(expected).toBeGreaterThan(1); // non-vacuous: a real countdown, not an instant
@@ -2505,6 +2519,117 @@ describe("startSalvageJob: a timed job that consumes NOTHING at start", () => {
     expect(salvageJobDurationTicks(q2Only, { kind: "material", itemId: HOUSING })).toBe(
       salvageDurationTicks({ kind: "material", tier: def.tier, rarity: def.rarity, quality: 2 })
     );
+  });
+
+  it("the equipment arm is really WIRED to the piece's rarity, not fed a placeholder", () => {
+    // ⚠️ THE SEAM'S OWN TEST, equipment half (Crafting 0.13.3), and the DECISIVE one.
+    // Every new equipment factor is NEUTRAL, so a call site that filled rarity with a
+    // hardcoded band would produce exactly the right duration today and only reveal
+    // itself during the balance pass, on the parity path, in a release nobody would think
+    // to look here for. An equality assertion alone cannot catch that: with every
+    // multiplier at 1.0, a placeholder and the real value give the same answer.
+    //
+    // So this test TEMPORARILY UN-NEUTRALIZES one rarity band and watches the duration
+    // move. The multiplier table is a plain object, and salvageDurationTicks reads that
+    // same object at call time, which is what makes the probe possible without mocking
+    // the module. Restored in a `finally` so no other case ever sees the tuned value:
+    // this is the one place in the suite that touches a live tunable, and it must leave
+    // the table exactly as it found it.
+    const PROBE = 3;
+    const original = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER.radiant;
+    const state: GameState = {
+      ...salvageBayState(),
+      // Two pieces differing ONLY in rarity: same slot, same blueprint, same iLevel, same
+      // quality. Any difference in their durations can therefore only have come from the
+      // rarity the call site read off the instance.
+      equipment: [
+        { ...craftedSpare("sp-std"), rarity: "standard" },
+        { ...craftedSpare("sp-rad"), rarity: "radiant" },
+      ],
+    };
+    const durationOf = (id: string) =>
+      salvageJobDurationTicks(state, { kind: "equipment", instanceId: id });
+
+    // Neutral today: identical, which is exactly the behaviour-neutrality claim.
+    expect(durationOf("sp-rad")).toBe(durationOf("sp-std"));
+
+    try {
+      SALVAGE_EQUIPMENT_RARITY_MULTIPLIER.radiant = PROBE;
+      // With the band tuned, the radiant piece MUST get longer while the standard one
+      // does not. A hardcoded rarity at the call site fails here on one side or the other.
+      expect(durationOf("sp-rad")).toBeGreaterThan(durationOf("sp-std"));
+      const std = state.equipment.find((e) => e.id === "sp-std");
+      if (std === undefined) throw new Error("fixture lost its standard spare");
+      expect(durationOf("sp-rad")).toBe(
+        salvageDurationTicks({
+          kind: "equipment",
+          iLevel: std.iLevel,
+          quality: std.quality,
+          rarity: "radiant",
+          tier: BLUEPRINTS[SALVAGE_BP].tier,
+        })
+      );
+    } finally {
+      SALVAGE_EQUIPMENT_RARITY_MULTIPLIER.radiant = original;
+    }
+    // And the table really is back, so nothing downstream inherits the probe.
+    expect(SALVAGE_EQUIPMENT_RARITY_MULTIPLIER.radiant).toBe(original);
+    expect(durationOf("sp-rad")).toBe(durationOf("sp-std"));
+  });
+
+  it("the equipment arm reads TIER off the BLUEPRINT, and survives a piece that has none", () => {
+    // The tier half of the wiring. Tier is NOT stored on an EquipmentInstance: it lives on
+    // BlueprintDef, reached through the piece's blueprintKey, so this pins the SOURCE the
+    // call site resolves it from and the two ways that resolution legitimately fails.
+    //
+    // ⚠️ HONEST LIMITATION, stated rather than papered over: unlike rarity above, the tier
+    // step is a plain exported NUMBER, so a test cannot temporarily un-neutralize it the
+    // way it can mutate the rarity table. These assertions therefore pin the lookup's
+    // source and its fallbacks, not the multiplication. The rarity probe above is what
+    // proves the seam is genuinely wired rather than fed placeholders; if the tier step is
+    // ever the first tunable to move, this case becomes decisive on its own.
+    const t1 = BLUEPRINTS[SALVAGE_BP].tier;
+    const t2 = BLUEPRINTS.haulerHoldBp.tier;
+    // Non-vacuous: the two fixtures really are different research bands, so a future
+    // retune of the step has two distinguishable inputs to act on.
+    expect(t1).not.toBe(t2);
+
+    const state: GameState = {
+      ...salvageBayState(),
+      equipment: [
+        craftedSpare("sp-t1"),
+        { ...craftedSpare("sp-t2"), blueprintKey: "haulerHoldBp" },
+        // A STANDARD-ISSUE BASELINE: craft-less by construction, so blueprintKey is null
+        // and there is no tier to read at all. A normal live case, not an error case.
+        { ...craftedSpare("sp-base"), blueprintKey: null },
+        // A RETIRED / hand-edited key: indexes BLUEPRINTS to undefined.
+        { ...craftedSpare("sp-ghost"), blueprintKey: "notABlueprintAtAll" },
+      ],
+    };
+    const durationOf = (id: string) =>
+      salvageJobDurationTicks(state, { kind: "equipment", instanceId: id });
+    const spec = (id: string, tier: number) => {
+      const piece = state.equipment.find((e) => e.id === id);
+      if (piece === undefined) throw new Error(`fixture lost ${id}`);
+      return salvageDurationTicks({
+        kind: "equipment",
+        iLevel: piece.iLevel,
+        quality: piece.quality,
+        rarity: piece.rarity,
+        tier,
+      });
+    };
+
+    expect(durationOf("sp-t1")).toBe(spec("sp-t1", t1));
+    expect(durationOf("sp-t2")).toBe(spec("sp-t2", t2));
+    // Neither unresolvable piece may produce NaN or 0: that is a Salvage Bay slot no
+    // player action can clear. Both fall back to the neutral T1 curve instead.
+    for (const id of ["sp-base", "sp-ghost"]) {
+      const ticks = durationOf(id);
+      expect(Number.isInteger(ticks)).toBe(true);
+      expect(ticks).toBeGreaterThan(1);
+      expect(ticks).toBe(spec(id, 1));
+    }
   });
 
   it("an id with NO ITEMS entry still sizes to a real countdown instead of NaN", () => {
@@ -2669,9 +2794,11 @@ describe("⚠️ parity: a Salvage Bay queue drains identically offline and live
     // it exists for. Covering the work is the whole point of the span, so compute it from
     // the work: both jobs back to back, plus slack for the promotion tick between them.
     // Now immune to any future duration tuning.
-    const spare = base.equipment.find((e) => e.id === SPARE_ID)!;
+    // Both arms asked through salvageJobDurationTicks rather than the raw specs: the
+    // id-to-numbers lookup is exactly what that helper owns, so the span stays correct
+    // through any future widening of either arm's spec.
     const SPAN =
-      salvageDurationTicks({ kind: "equipment", iLevel: spare.iLevel, quality: spare.quality }) +
+      salvageJobDurationTicks(base, { kind: "equipment", instanceId: SPARE_ID }) +
       salvageJobDurationTicks(base, { kind: "material", itemId: HOUSING }) +
       10;
 

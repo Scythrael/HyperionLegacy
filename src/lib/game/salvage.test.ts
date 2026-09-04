@@ -109,6 +109,13 @@ import {
   SALVAGE_MATERIAL_TIER_MULTIPLIER_PER_TIER,
   SALVAGE_MAX_TICKS,
   type ItemRarity,
+  // Crafting 0.13.3 (salvage-duration SEAM, equipment arm): the equipment arm's own
+  // categorical factors, also all NEUTRAL today. Its rarity table is over
+  // EquipmentRarity, a DIFFERENT union from the material arm's ItemRarity (zero shared
+  // members), which is exactly why there are two tables and two imported types here.
+  SALVAGE_EQUIPMENT_RARITY_MULTIPLIER,
+  SALVAGE_EQUIPMENT_TIER_MULTIPLIER_PER_TIER,
+  type EquipmentRarity,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -1262,7 +1269,9 @@ describe("salvageReservations: in-flight salvageJobs reserve identically to queu
 // change smuggled in behind a "shape only" edit. It is never noise.
 describe("salvageDurationTicks: TODAY'S durations are pinned, arm by arm, as literals", () => {
   it("equipment: pinned across an iLevel / quality spread", () => {
-    // 60 base + 0.5/iLevel + 2/quality, rounded up.
+    // 60 base + 0.5/iLevel + 2/quality, rounded up. The rarity and blueprint-tier
+    // multipliers the arm gained are BOTH 1.0, so these literals are unchanged from
+    // before the widening; that is precisely the claim being pinned.
     const cases: Array<[number, number, number]> = [
       // iLevel, quality, expected ticks
       [0, 0, 60],   // the bare floor
@@ -1274,7 +1283,43 @@ describe("salvageDurationTicks: TODAY'S durations are pinned, arm by arm, as lit
       [5000, 5, 2570], // the "set iLevel" future the salvage notes describe: still bounded
     ];
     for (const [iLevel, quality, expected] of cases) {
-      expect(salvageDurationTicks({ kind: "equipment", iLevel, quality })).toBe(expected);
+      // Held at the ladder's floor band + T1 so this case is exactly the old formula.
+      expect(
+        salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity: "derelict", tier: 1 })
+      ).toBe(expected);
+    }
+  });
+
+  it("equipment: the SAME literals hold for EVERY rarity band and EVERY blueprint tier", () => {
+    // ⚠️ THE LOAD-BEARING HALF OF THE EQUIPMENT PIN. The case above proves the formula
+    // did not move at one point on the two new categorical axes; this proves the axes
+    // themselves are still inert, which is the whole claim of a behaviour-neutral
+    // widening. Swept over the REAL EquipmentRarity ladder and the REAL BLUEPRINTS table
+    // rather than a sample, so a band or a blueprint tier added later cannot slip past.
+    const rarities: EquipmentRarity[] = [
+      "derelict", "standard", "augmented", "stellar", "radiant", "luminous", "constellar",
+    ];
+    // Every tier the blueprint table actually contains, plus the two unresolvable
+    // readings a call site can hand over (a Standard-Issue baseline and a retired key
+    // both arrive as 0), so the neutral-floor clamp is pinned alongside the real data.
+    const tiers = [0, ...new Set(Object.values(BLUEPRINTS).map((bp) => bp.tier))];
+    // iLevel, quality, the duration that must not move.
+    const cases: Array<[number, number, number]> = [
+      [0, 0, 60],
+      [10, 1, 67],
+      [20, 5, 80],
+      [37, 3, 85],
+    ];
+    for (const rarity of rarities) {
+      for (const tier of tiers) {
+        for (const [iLevel, quality, expected] of cases) {
+          const ticks = salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity, tier });
+          // rarity/tier in the message so a failure names the axis that moved.
+          expect(`${rarity}/T${tier}/iL${iLevel}/q${quality}=${ticks}`).toBe(
+            `${rarity}/T${tier}/iL${iLevel}/q${quality}=${expected}`
+          );
+        }
+      }
     }
   });
 
@@ -1343,7 +1388,7 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
     // fractional duration would never land exactly on 0 and a 0 duration would complete
     // on its own start tick. Either one is a Salvage Bay slot that misbehaves.
     const durations = [
-      salvageDurationTicks({ kind: "equipment", iLevel: 37, quality: 3 }),
+      salvageDurationTicks({ kind: "equipment", iLevel: 37, quality: 3, rarity: "stellar", tier: 2 }),
       salvageDurationTicks({ kind: "material", tier: 1, rarity: "rare", quality: 2 }),
       salvageDurationTicks({ kind: "ship", buildDurationTicks: 400 }),
     ];
@@ -1356,39 +1401,128 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
   it("is a pure function: the same spec always yields the same answer", () => {
     // No rng, no state, no clock. This is what lets the live path and the offline path
     // size the identical job.
-    const spec = { kind: "equipment" as const, iLevel: 22, quality: 4 };
+    const spec = {
+      kind: "equipment" as const,
+      iLevel: 22,
+      quality: 4,
+      rarity: "radiant" as const,
+      tier: 2,
+    };
     expect(salvageDurationTicks(spec)).toBe(salvageDurationTicks(spec));
     expect(salvageDurationTicks(spec)).toBe(salvageDurationTicks({ ...spec }));
   });
 
-  it("equipment: base plus the iLevel term plus the quality term, rounded up", () => {
+  it("equipment: the numeric span, scaled by the piece's own factors, ALL NEUTRAL today", () => {
+    // The equipment half of the seam, asserted at its identity point. The arm now carries
+    // the piece's rarity band and its blueprint's tier on top of the two numeric axes,
+    // but both multipliers are 1.0, so the answer is still exactly the old span. Derived
+    // from the constants on purpose: retuning one SHOULD move this, and that is the
+    // signal the balance pass has actually landed.
     const iLevel = 30;
     const quality = 2;
-    const expected = Math.ceil(
-      SALVAGE_BASE_TICKS + iLevel * SALVAGE_TICKS_PER_ILEVEL + quality * SALVAGE_TICKS_PER_QUALITY
-    );
-    expect(salvageDurationTicks({ kind: "equipment", iLevel, quality })).toBe(expected);
+    const span =
+      SALVAGE_BASE_TICKS + iLevel * SALVAGE_TICKS_PER_ILEVEL + quality * SALVAGE_TICKS_PER_QUALITY;
+    const tierMult = 1 + (2 - 1) * SALVAGE_EQUIPMENT_TIER_MULTIPLIER_PER_TIER;
+    expect(
+      salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity: "stellar", tier: 2 })
+    ).toBe(Math.ceil(span * SALVAGE_EQUIPMENT_RARITY_MULTIPLIER.stellar * tierMult));
+  });
+
+  it("equipment: every rarity multiplier is a usable positive number, and the map is total", () => {
+    // The stuck-bay guard at the DATA level, the equipment twin of the material table's
+    // case below. An undefined or non-positive entry would multiply a duration to NaN or
+    // 0, so this asserts the table itself stays sane through any future retune, not just
+    // today's all-1.0 values.
+    const rarities: EquipmentRarity[] = [
+      "derelict", "standard", "augmented", "stellar", "radiant", "luminous", "constellar",
+    ];
+    for (const rarity of rarities) {
+      const mult = SALVAGE_EQUIPMENT_RARITY_MULTIPLIER[rarity];
+      expect(Number.isFinite(mult)).toBe(true);
+      expect(mult).toBeGreaterThan(0);
+    }
+    // Total map: no extra keys either, so the table and the union cannot drift apart.
+    expect(Object.keys(SALVAGE_EQUIPMENT_RARITY_MULTIPLIER).sort()).toEqual([...rarities].sort());
+  });
+
+  it("the two rarity tables are over DIFFERENT unions and are deliberately not merged", () => {
+    // ⚠️ THE REASON THERE ARE TWO TABLES. EquipmentRarity (gear bands) and ItemRarity
+    // (warehouse item bands) are separate content ladders that happen to share the word
+    // "rarity": different lengths, and as of this patch ZERO members in common. Asserting
+    // the disjointness here means that if someone later renames a band into a collision,
+    // this test says so out loud rather than the two ladders quietly looking mergeable.
+    // Either way the TYPES stay separate, so adding a band to one union is a compile error
+    // in that union's own table and cannot mistune the other ladder.
+    const equipmentKeys = Object.keys(SALVAGE_EQUIPMENT_RARITY_MULTIPLIER);
+    const materialKeys = Object.keys(SALVAGE_MATERIAL_RARITY_MULTIPLIER);
+    expect(equipmentKeys.filter((k) => materialKeys.includes(k))).toEqual([]);
   });
 
   it("equipment: a bare Q0 iLevel-0 piece costs exactly the floor", () => {
-    expect(salvageDurationTicks({ kind: "equipment", iLevel: 0, quality: 0 })).toBe(SALVAGE_BASE_TICKS);
+    expect(
+      salvageDurationTicks({ kind: "equipment", iLevel: 0, quality: 0, rarity: "standard", tier: 1 })
+    ).toBe(SALVAGE_BASE_TICKS);
   });
 
   it("equipment: duration rises with BOTH iLevel and quality, never falls", () => {
     // The monotonicity is the design intent (a better piece takes longer to break down).
-    // Asserted as a relation so it survives any retune of the coefficients.
-    const base = salvageDurationTicks({ kind: "equipment", iLevel: 10, quality: 1 });
-    expect(salvageDurationTicks({ kind: "equipment", iLevel: 40, quality: 1 })).toBeGreaterThan(base);
-    expect(salvageDurationTicks({ kind: "equipment", iLevel: 10, quality: 5 })).toBeGreaterThan(base);
+    // Asserted as a relation so it survives any retune of the coefficients. Rarity and
+    // tier are held FIXED so this stays a statement about the two numeric axes alone.
+    const at = (iLevel: number, quality: number) =>
+      salvageDurationTicks({ kind: "equipment", iLevel, quality, rarity: "standard", tier: 1 });
+    const base = at(10, 1);
+    expect(at(40, 1)).toBeGreaterThan(base);
+    expect(at(10, 5)).toBeGreaterThan(base);
   });
 
   it("equipment: a fractional iLevel term is rounded UP, never truncated", () => {
     // iLevel contributes a half tick per point on purpose, so an ODD iLevel produces a
     // .5 that must round up. Truncating instead would let a duration drift below the
     // curve and, at the extreme, toward 0.
-    const odd = salvageDurationTicks({ kind: "equipment", iLevel: 1, quality: 0 });
+    const odd = salvageDurationTicks({
+      kind: "equipment", iLevel: 1, quality: 0, rarity: "standard", tier: 1,
+    });
     expect(odd).toBe(Math.ceil(SALVAGE_BASE_TICKS + SALVAGE_TICKS_PER_ILEVEL));
     expect(odd).toBeGreaterThan(SALVAGE_BASE_TICKS);
+  });
+
+  it("equipment: survives a garbage tier, rarity, iLevel or quality with the base duration", () => {
+    // Same hazard as the material arm's garbage case: a hand-edited save, a piece minted
+    // before iLevel existed, or a Standard-Issue baseline whose blueprint does not exist
+    // at all reaches here, and a NaN duration is a bay occupied forever.
+    const garbage = [
+      salvageDurationTicks({
+        kind: "equipment", iLevel: NaN, quality: NaN, rarity: "standard", tier: NaN,
+      }),
+      salvageDurationTicks({
+        kind: "equipment", iLevel: -50, quality: -3, rarity: "standard", tier: -4,
+      }),
+      // The exact shape a STANDARD-ISSUE BASELINE produces at the call site: no blueprint
+      // at all, so the tier reads 0 and must clamp to the neutral T1.
+      salvageDurationTicks({
+        kind: "equipment", iLevel: 0, quality: 0, rarity: "standard", tier: 0,
+      }),
+      salvageDurationTicks({
+        kind: "equipment",
+        iLevel: undefined as unknown as number,
+        quality: undefined as unknown as number,
+        rarity: undefined as unknown as EquipmentRarity,
+        tier: undefined as unknown as number,
+      }),
+      // A rarity string outside the union, which a hand-edited save or a retired band can
+      // present. It would index the multiplier table to undefined if left unguarded.
+      salvageDurationTicks({
+        kind: "equipment",
+        iLevel: 0,
+        quality: 0,
+        rarity: "mythic" as unknown as EquipmentRarity,
+        tier: 1,
+      }),
+    ];
+    for (const d of garbage) {
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBe(SALVAGE_BASE_TICKS);
+    }
   });
 
   it("material: the base, scaled by the item's own factors, which are ALL NEUTRAL today", () => {
@@ -1450,7 +1584,9 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
     // through the one input that can reach absurd magnitudes today (a hull build time),
     // which proves the clamp is really wired into the arms rather than merely exported.
     expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: 1e9 })).toBe(SALVAGE_MAX_TICKS);
-    expect(salvageDurationTicks({ kind: "equipment", iLevel: 1e9, quality: 5 })).toBe(SALVAGE_MAX_TICKS);
+    expect(
+      salvageDurationTicks({ kind: "equipment", iLevel: 1e9, quality: 5, rarity: "radiant", tier: 2 })
+    ).toBe(SALVAGE_MAX_TICKS);
     // And it sits far above everything real, so it cannot be binding on live durations.
     expect(SALVAGE_MAX_TICKS).toBeGreaterThan(salvageDurationTicks({ kind: "ship", buildDurationTicks: 1200 }) * 10);
   });
@@ -1474,9 +1610,19 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
     // The stuck-countdown hazard. A NaN or 0 duration is a slot occupied forever with no
     // player action that can clear it, so every nonsense input clamps to something sane.
     const garbage = [
-      salvageDurationTicks({ kind: "equipment", iLevel: NaN, quality: NaN }),
-      salvageDurationTicks({ kind: "equipment", iLevel: -50, quality: -3 }),
-      salvageDurationTicks({ kind: "equipment", iLevel: undefined as unknown as number, quality: undefined as unknown as number }),
+      salvageDurationTicks({
+        kind: "equipment", iLevel: NaN, quality: NaN, rarity: "standard", tier: 1,
+      }),
+      salvageDurationTicks({
+        kind: "equipment", iLevel: -50, quality: -3, rarity: "standard", tier: 1,
+      }),
+      salvageDurationTicks({
+        kind: "equipment",
+        iLevel: undefined as unknown as number,
+        quality: undefined as unknown as number,
+        rarity: "standard",
+        tier: 1,
+      }),
       salvageDurationTicks({ kind: "ship", buildDurationTicks: NaN }),
       salvageDurationTicks({ kind: "ship", buildDurationTicks: 0 }),
       salvageDurationTicks({ kind: "ship", buildDurationTicks: -10 }),

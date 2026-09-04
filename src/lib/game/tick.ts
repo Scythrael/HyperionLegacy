@@ -7164,12 +7164,39 @@ export function salvageJobDurationTicks(state: GameState, target: SalvageTargetR
   switch (target.kind) {
     case "equipment": {
       const piece = state.equipment.find((e) => e.id === target.instanceId);
-      // A legacy piece minted before iLevel existed reads 0 on both axes, which
+      // ⚠️ TIER IS NOT ON THE INSTANCE, IT IS ON THE BLUEPRINT (Crafting 0.13.3 seam).
+      // An EquipmentInstance stores `blueprintKey` (the same handle craftQueue.ts's
+      // equipmentInstanceLabel resolves a piece's display name through), and
+      // BlueprintDef.tier is the Research-level band it was unlocked behind. Reusing that
+      // existing lookup rather than inventing a second notion of gear tier is what keeps
+      // "which tier is this piece" answerable in exactly one place.
+      //
+      // TWO WAYS IT LEGITIMATELY FAILS TO RESOLVE, and both are handled identically:
+      //   1. A STANDARD-ISSUE BASELINE has no blueprint AT ALL by construction
+      //      (blueprintKey null, it is craft-less). This is a normal live case, not an
+      //      error case, and it is the common one.
+      //   2. A RETIRED or hand-edited blueprint key on an old save indexes BLUEPRINTS to
+      //      undefined.
+      // Both read tier 0, which salvageDurationTicks clamps to the neutral T1, so an
+      // unresolvable piece costs the plain base curve rather than NaN. A NaN duration is
+      // a countdown that never reaches zero: a Salvage Bay slot occupied forever with no
+      // player action able to clear it.
+      const blueprint =
+        piece?.blueprintKey == null ? undefined : BLUEPRINTS[piece.blueprintKey];
+      // A legacy piece minted before iLevel existed reads 0 on both numeric axes, which
       // salvageDurationTicks clamps to the base duration.
       return salvageDurationTicks({
         kind: "equipment",
         iLevel: piece?.iLevel ?? 0,
         quality: piece?.quality ?? 0,
+        // A missing piece (already rejected by canStartSalvage, guarded anyway) falls
+        // back to the CHEAPEST band on the ladder, mirroring the material arm's fallback
+        // to "common": the worst case of an unresolvable target is the base duration.
+        rarity: piece?.rarity ?? "derelict",
+        // 0 rather than 1, so the CLAMP owns the neutral floor rather than this call site
+        // owning a second copy of it. Today the per-tier step is 0, so this cannot move a
+        // duration; it is here so the balance pass has it without reopening this function.
+        tier: blueprint?.tier ?? 0,
       });
     }
     case "material": {
