@@ -9303,7 +9303,17 @@
                     {lastSalvageResult.kind === "system" ? "Recycled" : lastSalvageResult.kind === "baseline" ? "Discarded" : lastSalvageResult.kind === "ship" ? "Tore down" : "Broke down"} [{lastSalvageResult.sourceName}].
                     {#if lastSalvageResult.kind === "baseline"}
                       Standard-Issue systems carry no materials to recover.
-                    {:else if lastSalvageResult.recovered.length > 0}
+                    <!-- ⚠️ GUARD ON THE AMOUNTS, NOT THE ARRAY LENGTH (fix, QA finding J1).
+                         This read `recovered.length > 0`, but a manifest can carry LINES whose
+                         amounts are all zero (a roll that recovered nothing still records which
+                         items it rolled for). That is a non-empty array, so the zero case took
+                         this branch and printed "Recovered: 0 [Frame Segment], 0 [Titanium
+                         Ingot]." followed by "Everything went straight to the Warehouse", which
+                         is a FALSE claim: nothing went anywhere. Testing the amounts sends that
+                         case to the honest branch below, which already existed and already says
+                         it plainly. Credits count too, so a zero-material salvage that still paid
+                         credits keeps its manifest. -->
+                    {:else if lastSalvageResult.recovered.some((line) => new Decimal(line.amount).gt(0)) || (lastSalvageResult.creditsRecovered !== null && new Decimal(lastSalvageResult.creditsRecovered).gt(0))}
                       <!-- ✅ THE MANIFEST, RESTORED (0.13.3 Unit 4.4b). Printed from the
                            completed-events record's item IDS and amounts, so each name takes
                            its own rarity color through the shared warehouseRarityColor and
