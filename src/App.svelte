@@ -5447,7 +5447,35 @@
     if (!started) return;
     state = next;
     const bp = BLUEPRINTS[blueprintKey];
-    pushLog(`Research started → [${bp?.label ?? blueprintKey}].`);
+
+    // STARTING DIRECTLY FULFILS A QUEUED ORDER FOR THE SAME BLUEPRINT, so drop it.
+    //
+    // Without this there is a STUCK STATE reachable in two ordinary clicks: queue a
+    // blueprint, then press Research on its own card while a slot is free. The project
+    // starts, but the queued order survives and can now NEVER promote, because promotion
+    // asks canResearch and gets `inProgress` and then, once it lands, `alreadyResearched`
+    // forever. It sits there holding one of the player's (base 1) depth slots until they
+    // work out they must remove it by hand. The engine refuses DUPLICATE enqueues precisely
+    // to avoid that shape, but it cannot see this ordering, which happens on the console.
+    //
+    // Consuming the entry is the honest reading rather than an edit behind the player's
+    // back: the order said "research this", and it has just been researched. The order is
+    // FULFILLED, not cancelled. It is also a complete, lossless undo, because a research
+    // order reserves NOTHING (the engine deliberately does not reserve credits, since there
+    // is nothing to derive a credit reservation from), so dropping it returns exactly what
+    // enqueueing it took, which is nothing at all. The queue visibly shrinking is the
+    // correct feedback, and the log line below names both halves so it is never a mystery.
+    //
+    // Scoped to the SAME blueprint only: any other queued research is untouched.
+    const queuedSame = (state.processQueue ?? []).find(
+      (job) => job.order.type === "research" && job.order.blueprintKey === blueprintKey,
+    );
+    if (queuedSame) {
+      state = removeQueuedOrder(state, queuedSame.id);
+      pushLog(`Research started → [${bp?.label ?? blueprintKey}] (fulfilled its queued order).`);
+    } else {
+      pushLog(`Research started → [${bp?.label ?? blueprintKey}].`);
+    }
     doSave();
   }
 
