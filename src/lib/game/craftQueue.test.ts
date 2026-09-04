@@ -2615,7 +2615,20 @@ describe("⚠️ parity: a Salvage Bay queue drains identically offline and live
       { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
       { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
     ]);
-    const SPAN = 60; // whole ticks only: tick()'s trailing-fractional artifact is not in play
+    // Whole ticks only: tick()'s trailing-fractional artifact is not in play.
+    //
+    // ⚠️ DERIVED FROM THE ACTUAL DURATIONS, NOT A LITERAL. This was a hardcoded 60, chosen
+    // when a salvage took 5 ticks so the span comfortably covered BOTH jobs. Raising the
+    // base duration to 60 (a pure balance change, 2026-09-04) silently shrank the span to
+    // cover only the FIRST promotion, and the case quietly stopped testing the interleaving
+    // it exists for. Covering the work is the whole point of the span, so compute it from
+    // the work: both jobs back to back, plus slack for the promotion tick between them.
+    // Now immune to any future duration tuning.
+    const spare = base.equipment.find((e) => e.id === SPARE_ID)!;
+    const SPAN =
+      salvageDurationTicks({ kind: "equipment", iLevel: spare.iLevel, quality: spare.quality }) +
+      salvageDurationTicks({ kind: "material" }) +
+      10;
 
     const jumped = tick(SPAN, base, seededRng());
     const { final: stepped, log } = stepTicksLogged(base, SPAN, seededRng());

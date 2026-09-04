@@ -3290,7 +3290,7 @@ export const COMPLETION_LOG_CAP = 50;
 
 // The floor: what the cheapest possible recycle costs in ticks. Design §7.2's "the lowest
 // tier salvage takes about 5 seconds", and one tick is one second at the default cadence.
-export const SALVAGE_BASE_TICKS = 5;
+export const SALVAGE_BASE_TICKS = 60;
 
 // Ticks added per point of the target's iLevel. Fractional on purpose: iLevel climbs in
 // large steps, so a whole tick per point would dominate the formula. The sum is ceil'd.
@@ -3305,7 +3305,7 @@ export const SALVAGE_TICKS_PER_QUALITY = 2;
 // salvaged material is a stackable inventory item, not a rolled instance). Held as its
 // own constant rather than reusing SALVAGE_BASE_TICKS even though the two are equal
 // today, because they answer different questions and will be tuned apart.
-export const SALVAGE_MATERIAL_TICKS = 5;
+export const SALVAGE_MATERIAL_TICKS = 60;
 
 // A hull teardown takes this SHARE of the time the hull took to build. Expressed as a
 // divisor (3 = one third) so the relationship to the build is readable at the call site.

@@ -1692,7 +1692,16 @@ describe("salvageResolve: completing a job RELEASES its derived reservation (0.1
 //   OFFLINE  one tick(span) call, which internally steps economyTick(_,1) per whole tick
 //   LIVE     a hand-stepped economyTick(_,1) loop, the App.svelte poll shape
 describe("⚠️ offline==live parity for timed salvage (tick(span) == looping economyTick(_,1))", () => {
-  const SPAN = 20; // tickDurationSeconds is 1, so 20 seconds is 20 whole ticks, no remainder
+  // tickDurationSeconds is 1, so a span in seconds is a span in whole ticks, no remainder.
+  //
+  // ⚠️ DERIVED, NOT A LITERAL, AND THIS ONE MATTERS MORE THAN IT LOOKS. This was a hardcoded
+  // 20, sized when a salvage took 5 ticks. Raising the base duration to 60 (2026-09-04) did
+  // NOT fail this case, it made it VACUOUS: nothing completes inside 20 ticks any more, so
+  // both chunkings sat on an identical un-finished job and the deep compare passed while
+  // proving nothing. A parity case that silently stops exercising a completion is worse than
+  // one that breaks, because nothing tells you. Sized off the real duration so it always
+  // outlives the work it measures.
+  const SPAN = SALVAGE_MATERIAL_TICKS * 2 + 10;
   const SEED = 909;
 
   // Three jobs completing at DIFFERENT ticks inside the span (4, 7 and 11), one per arm.
@@ -2256,7 +2265,15 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
 // SAVE (no clock, no localStorage, no rng, no unordered iteration), which is exactly what
 // this compares: two independent runs over the same seed, one jumped, one stepped.
 describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 5.1)", () => {
-  const SPAN = 60; // long enough for several rule firings AND several job completions
+  // Long enough for several rule firings AND several job completions, which is the whole
+  // point of this case: rules fire, jobs complete, freed slots let more rules fire.
+  //
+  // ⚠️ DERIVED, NOT A LITERAL. This was a hardcoded 60, sized when a salvage took 5 ticks so
+  // the span covered a dozen completions. Raising the base duration to 60 (2026-09-04) cut it
+  // to barely ONE completion and the case failed, correctly: it was no longer testing the
+  // interleaving it describes. Sized off the real duration so future tuning cannot quietly
+  // hollow it out.
+  const SPAN = SALVAGE_BASE_TICKS * 4 + 20;
   const SEED = 4242;
 
   // Rules ON, nothing confirm-protected, a deep queue (all three talent rungs) and a pool
