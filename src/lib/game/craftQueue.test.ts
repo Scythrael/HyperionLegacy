@@ -75,7 +75,14 @@ import {
   startSalvageJob,
   salvageJobsInFlight,
   salvageJobDurationTicks,
+  // 0.13.3 follow-up (2026-09-04): the facility-upgrade spender, used to prove that a
+  // QUEUED order's reservation protects its materials from every other consumer.
+  canBuildFacilityUpgrade,
+  startFacilityUpgrade,
 } from "./tick";
+// 0.13.3 follow-up: the derived reservation itself, read directly so the cases below can
+// show the numbers moving while the inventory does not.
+import { allocatedItem, freeItemForState } from "./allocation";
 // Unit 2.4: the DERIVED reservation, to prove a completing job releases its target with
 // no bookkeeping. Imported from "./salvage" (the surface the build plan promised callers),
 // which re-exports reservation.ts.
@@ -304,13 +311,34 @@ function salvageOrder(instanceId = "eq-1"): QueuedOrder {
 function craftState(opts: {
   commonOre?: number;
   titaniumIngot?: number;
+  // 0.13.3 follow-up: two more inputs a case can stock. NEITHER is defaulted, unlike the
+  // two above. frameSegment is the fabricate recipe's OUTPUT, so seeding it by default
+  // would change production assertions elsewhere; uncommonMaterial feeds the SECOND refine
+  // recipe and only the skip-on-block cases want it.
+  frameSegment?: number;
+  uncommonMaterial?: number;
   refineryLevel?: number;
   fabricatorLevel?: number;
 } = {}): GameState {
   const s = freshState();
   const inventory: Record<string, Decimal[]> = { ...s.inventory };
-  if (opts.commonOre !== undefined) inventory.commonOre = [new Decimal(opts.commonOre)];
-  if (opts.titaniumIngot !== undefined) inventory.titaniumIngot = [new Decimal(opts.titaniumIngot)];
+  // ⚠️ 0.13.3 follow-up (2026-09-04): THE DEFAULTS ARE GENEROUS ON PURPOSE. Enqueue now
+  // requires a craft order's inputs to be FREE, because a queued order RESERVES them
+  // (allocation.ts). A fixture with no stock would therefore refuse every enqueue, and
+  // every case below about depth, ordering, ids and immutability would fail for a reason
+  // it is not testing. A case that WANTS a shortage still passes an explicit (small or
+  // zero) number, which overrides these, and the affordability rule itself is pinned in
+  // its own describe block further down rather than incidentally by every other case.
+  //
+  // They are MODEST, not enormous, and that is deliberate too: titaniumIngot is the refine
+  // recipe's OUTPUT as well as the fabricate recipe's INPUT, so a huge default would put it
+  // AT its warehouse cap and canStartLine would answer `storageFull` instead of `ok`, which
+  // is a different wrong answer. These cover every quantity the cases below actually queue
+  // (a handful of iterations at depth 4 at most) with room to spare, and stay far under cap.
+  inventory.commonOre = [new Decimal(opts.commonOre ?? 1_000)];
+  inventory.titaniumIngot = [new Decimal(opts.titaniumIngot ?? 100)];
+  if (opts.frameSegment !== undefined) inventory.frameSegment = [new Decimal(opts.frameSegment)];
+  if (opts.uncommonMaterial !== undefined) inventory.uncommonMaterial = [new Decimal(opts.uncommonMaterial)];
   return {
     ...s,
     inventory,
@@ -337,6 +365,29 @@ function enqueueAll(
   }
   return s;
 }
+
+// ⚠️ AN OUT-OF-BAND INVENTORY DROP (0.13.3 follow-up, 2026-09-04). Sets one item's stock
+// directly, bypassing every spend gate in the engine.
+//
+// THIS IS NOW THE ONLY WAY TO REACH A MATERIAL-STARVED QUEUED CRAFT ORDER, and that is
+// exactly why the helper exists and is named this way. Enqueue requires an order's inputs
+// to be FREE, and every in-game spender gates on freeItemForState, so nothing the player
+// can DO takes materials a queued order reserved. Stock can still fall past that gate
+// (clampInventoryToCaps discarding an over-cap stack on load, a consumer that spends raw
+// inventory), so the promotion pass's `materials` skip is still reachable, still tested,
+// and still must not be deleted. Cases below use this to construct that state honestly
+// rather than pretending an unaffordable order could be queued.
+//
+// The SECOND refine recipe (refinePolysilicateWafer, input uncommonMaterial) is what lets
+// those cases starve a head order WITHOUT starving the entries behind it: the reservation
+// is per item, so an order stuck on uncommonMaterial holds no commonOre at all.
+function dropStock(state: GameState, itemId: string, amount: number): GameState {
+  return { ...state, inventory: { ...state.inventory, [itemId]: [new Decimal(amount)] } };
+}
+
+// The second real refine recipe, used as a head order whose input is DIFFERENT from the
+// entries behind it. refinePolysilicateWafer: uncommonMaterial x5 -> polysilicateWafer x1.
+const REFINE_KEY_2 = "refinePolysilicateWafer";
 
 // The queue reduced to "id at facility", the shape most ordering assertions want.
 function queueShape(state: GameState): string[] {
@@ -409,20 +460,27 @@ describe("enqueueOrder: the depth cap is enforced PER FACILITY, at enqueue", () 
     expect(enqueueOrder(state, "salvageBay", salvageOrder()).queued).toBe(true);
   });
 
-  it("does NOT check affordability, research, tier or slots at enqueue (design §5.3)", () => {
-    // Queuing work you cannot start YET is the entire feature. This state has no ore,
-    // no refinery and no fabricator, so canStartLine would refuse every one of these
-    // orders right now; they still queue, and promotion is what gates them later.
-    const barren: GameState = {
-      ...freshState(),
+  // ⚠️ THIS CASE REPLACES THE ONE THAT PINNED DESIGN §5.3 (0.13.3 follow-up, 2026-09-04).
+  // The old case asserted that enqueue checks NOTHING about the order's contents, not
+  // affordability, not research, not tier, not slots. That was correct while a queued
+  // order reserved nothing. A queued order now RESERVES its inputs, so the affordability
+  // half of that assertion is now the opposite of the rule and it is pinned in its own
+  // describe block below. The REST of the old assertion still holds and is what this case
+  // keeps: research, tier and slots remain promotion-time questions, never enqueue ones.
+  it("still does NOT check research, tier or slots at enqueue (only materials moved)", () => {
+    // Queuing work you cannot start YET remains the feature for every gate except
+    // materials. This state HOLDS the ore but has no refinery and no fabricator built, so
+    // canStartLine would refuse the order right now for `noSlot`; it still queues.
+    const unbuilt: GameState = {
+      ...craftState({ commonOre: 1_000_000 }),
       facilities: { ...freshState().facilities, refinery: { level: 0 }, fabricator: { level: 0 } },
     };
-    expect(canEnqueueOrder(barren, "refinery", refineOrder(REFINE_KEY, 999)).ok).toBe(true);
-    const queued = enqueueOrder(barren, "refinery", refineOrder(REFINE_KEY, 999));
+    expect(canEnqueueOrder(unbuilt, "refinery", refineOrder(REFINE_KEY, 5)).ok).toBe(true);
+    const queued = enqueueOrder(unbuilt, "refinery", refineOrder(REFINE_KEY, 5));
     expect(queued.queued).toBe(true);
     // The adapter, asked the same question, says no. Both are correct: enqueue gates on
-    // DEPTH, promotion gates on canStartLine.
-    const gate = QUEUE_ADAPTERS.refinery.canStart(queued.next, refineOrder(REFINE_KEY, 999));
+    // DEPTH and on the RESERVATION being possible, promotion gates on canStartLine.
+    const gate = QUEUE_ADAPTERS.refinery.canStart(queued.next, refineOrder(REFINE_KEY, 5));
     expect(gate.ok).toBe(false);
   });
 
@@ -435,6 +493,196 @@ describe("enqueueOrder: the depth cap is enforced PER FACILITY, at enqueue", () 
     expect(state.nextQueueId).toBe(1);
     expect(result.next).not.toBe(state);
     expect(result.next.processQueue).not.toBe(before);
+  });
+});
+
+// ============================================================================
+// A QUEUED CRAFT ORDER RESERVES ITS MATERIALS (0.13.3 follow-up, 2026-09-04)
+//
+// The user-approved behavior change, end to end at the ENGINE level. The pure
+// allocation math is pinned in allocation.test.ts; these cases pin what the change is
+// actually FOR: nothing else can spend what a queued order is waiting on, the
+// reservation costs the player nothing to place or to cancel, and the order can still
+// promote when its turn comes.
+// ============================================================================
+
+describe("queued orders RESERVE their materials, by derivation and never by deduction", () => {
+  it("NEVER moves a material: the inventory object is IDENTICAL across enqueue and cancel", () => {
+    // ⚠️ THE LOAD-BEARING CASE OF THE WHOLE CHANGE, and it is an IDENTITY check, not a
+    // value check. If enqueue ever deducted (or cancel ever deposited), a cancel at the
+    // warehouse cap would push the refund over the cap and clampInventoryToCaps would
+    // silently DESTROY it on the next load. The only way to be sure that can never happen
+    // is for the material never to move at all, so this asserts the same object comes
+    // back, not merely the same numbers.
+    const base = craftState({ commonOre: 100, refineryLevel: 1 });
+    const beforeInventory = base.inventory;
+
+    const queued = enqueueOrder(base, "refinery", refineOrder(REFINE_KEY, 5)).next;
+    expect(queued.inventory).toBe(beforeInventory); // nothing withdrawn
+    expect(itemTotal(queued.inventory, "commonOre").toString()).toBe("100");
+
+    const cancelled = removeQueuedOrder(queued, "q-1");
+    expect(cancelled.inventory).toBe(beforeInventory); // nothing deposited
+    expect(itemTotal(cancelled.inventory, "commonOre").toString()).toBe("100");
+
+    // What DID move is the DERIVED number, in both directions, exactly.
+    expect(allocatedItem([], base.processQueue, "commonOre").toNumber()).toBe(0);
+    expect(allocatedItem([], queued.processQueue, "commonOre").toNumber()).toBe(100); // 5 x 20
+    expect(allocatedItem([], cancelled.processQueue, "commonOre").toNumber()).toBe(0);
+    expect(freeItemForState(base, "commonOre").toNumber()).toBe(100);
+    expect(freeItemForState(queued, "commonOre").toNumber()).toBe(0);
+    expect(freeItemForState(cancelled, "commonOre").toNumber()).toBe(100); // returned in full
+  });
+
+  it("a FACILITY UPGRADE cannot spend a queued order's materials (the protection asked for)", () => {
+    // The refinery 0 -> 1 rung costs 100 commonOre, which is exactly what a batch-5
+    // refineCommonOre order reserves. Before the order, the upgrade is affordable.
+    const base = craftState({ commonOre: 100, refineryLevel: 0 });
+    expect(canBuildFacilityUpgrade(base, "refinery").ok).toBe(true);
+
+    // Queue the order and the same upgrade is refused, naming the same material. No
+    // edit was needed at the upgrade's own gate: it already spends on freeItemForState,
+    // which now folds the queue in.
+    const queued = enqueueOrder(base, "refinery", refineOrder(REFINE_KEY, 5)).next;
+    const gate = canBuildFacilityUpgrade(queued, "refinery");
+    expect(gate.ok).toBe(false);
+    expect(gate.reason).toMatch(/Titanium Ore/); // ITEMS.commonOre.label
+
+    // And the START path inherits it: same-reference no-op, nothing spent, nothing
+    // started, the ore still sitting there for the order that reserved it.
+    const attempt = startFacilityUpgrade(queued, "refinery");
+    expect(attempt.started).toBe(false);
+    expect(attempt.next).toBe(queued);
+    expect(itemTotal(queued.inventory, "commonOre").toString()).toBe("100");
+
+    // Removing the order releases the reservation and the upgrade is buildable again,
+    // with no refund step anywhere in between.
+    const cancelled = removeQueuedOrder(queued, "q-1");
+    expect(canBuildFacilityUpgrade(cancelled, "refinery").ok).toBe(true);
+  });
+
+  it("a NEW LINE cannot spend a queued order's materials either (same free pool)", () => {
+    // startLine gates on canStartLine, which gates on maxAffordableIterations, which reads
+    // the same free pool. One order reserving everything leaves nothing to start with.
+    const base = craftState({ commonOre: 100, refineryLevel: 2 });
+    expect(startLine(base, "refine", REFINE_KEY, { kind: "batch", remaining: 5 }).started).toBe(true);
+
+    const queued = enqueueOrder(base, "refinery", refineOrder(REFINE_KEY, 5)).next;
+    const blocked = startLine(queued, "refine", REFINE_KEY, { kind: "batch", remaining: 5 });
+    expect(blocked.started).toBe(false);
+    expect(blocked.reason).toBe("materials");
+    expect(blocked.next).toBe(queued); // same-ref refusal, nothing half-done
+  });
+
+  it("REFUSES an unaffordable enqueue with the `materials` reason, and consumes no queue id", () => {
+    // One iteration costs 20 ore; 19 is one short.
+    const short = craftState({ commonOre: 19 });
+    const gate = canEnqueueOrder(short, "refinery", refineOrder(REFINE_KEY, 1));
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toBe("materials");
+
+    const result = enqueueOrder(short, "refinery", refineOrder(REFINE_KEY, 1));
+    expect(result.queued).toBe(false);
+    expect(result.reason).toBe("materials");
+    expect(result.next).toBe(short); // same reference: no id burned, no queue entry
+    expect(short.nextQueueId).toBe(1);
+
+    // One more unit and the identical order is accepted, so the gate is a boundary and
+    // not a wall.
+    expect(enqueueOrder(craftState({ commonOre: 20 }), "refinery", refineOrder(REFINE_KEY, 1)).queued).toBe(true);
+  });
+
+  it("refuses the SECOND order that would double-book the same units", () => {
+    // 100 ore funds exactly five iterations. The first order takes all five; the second
+    // has nothing left to reserve, even though raw inventory still reads 100.
+    const base = craftState({ commonOre: 100, refineryLevel: 1, fabricatorLevel: 1 });
+    const first = enqueueOrder(base, "refinery", refineOrder(REFINE_KEY, 5));
+    expect(first.queued).toBe(true);
+    expect(itemTotal(first.next.inventory, "commonOre").toString()).toBe("100"); // still all there
+
+    const deeper: GameState = { ...first.next, unlockedHomeworldTalents: QUEUE_CHAIN }; // depth is not the blocker
+    const second = enqueueOrder(deeper, "refinery", refineOrder(REFINE_KEY, 1));
+    expect(second.queued).toBe(false);
+    expect(second.reason).toBe("materials");
+  });
+
+  it("does NOT gate a SALVAGE order: it reserves a target, not material inputs", () => {
+    // The affordability policy is craft-line-only by construction (canReserveOrder returns
+    // {} inputs for a salvage order), so "queue three teardowns while holding one unit"
+    // still works exactly as it did before this change.
+    const barren = craftState({ commonOre: 0, titaniumIngot: 0 });
+    const result = enqueueOrder(barren, "salvageBay", salvageOrder("eq-nothing"));
+    expect(result.queued).toBe(true);
+  });
+
+  it("PROMOTES an order that reserved every last free unit (the reservation is a handoff)", () => {
+    // ⚠️ THE REGRESSION GUARD FOR THE SELF-BLOCK. A queued order reserves its own inputs,
+    // so gating it against a state that still holds that reservation would have it refuse
+    // ITSELF with `materials` and the queue would deadlock on its own bookkeeping. Promotion
+    // releases the order's queue reservation and hands the same units to the new line.
+    const base = craftState({ commonOre: 100, refineryLevel: 1 });
+    const queued = enqueueOrder(base, "refinery", refineOrder(REFINE_KEY, 5)).next;
+    expect(freeItemForState(queued, "commonOre").toNumber()).toBe(0); // fully reserved
+
+    // The ROW agrees with the tick, because both ask the gate the same way.
+    expect(buildCraftQueue(queued, "refinery").queued[0].canStart).toBe(true);
+
+    const promoted = promoteQueuedOrders(queued);
+    expect(promoted.processQueue).toEqual([]);
+    expect(promoted.refineLines).toHaveLength(1);
+    expect(promoted.refineLines[0].remaining).toBe(5);
+
+    // The reservation MOVED: it did not vanish (which would let another spender in) and
+    // it did not double (which would read as over-reserved and block the line's own run).
+    expect(itemTotal(promoted.inventory, "commonOre").toString()).toBe("100"); // nothing spent yet
+    expect(allocatedItem(promoted.refineLines, promoted.processQueue, "commonOre").toNumber()).toBe(100);
+    expect(freeItemForState(promoted, "commonOre").toNumber()).toBe(0);
+  });
+
+  it("counts EVERY OTHER queued order while gating one, so two can never promote on the same units", () => {
+    // Two Refinery slots and two queued orders that TOGETHER reserve exactly the stock.
+    // Gating one releases only ITS OWN reservation, so the other's is still counted, and
+    // each is funded by its own half rather than both being told the same units are free.
+    const loaded = enqueueAll(deepQueueState({ commonOre: 200, refineryLevel: 2 }), [
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 5) },
+      { facility: "refinery", order: refineOrder(REFINE_KEY, 5) },
+    ]);
+    expect(freeItemForState(loaded, "commonOre").toNumber()).toBe(0); // 200 held, 200 spoken for
+
+    const promoted = promoteQueuedOrders(loaded);
+    expect(promoted.refineLines).toHaveLength(2);
+    expect(queueIds(promoted)).toEqual([]);
+    // Both reservations survived the handoff intact, as LINE reservations now.
+    expect(itemTotal(promoted.inventory, "commonOre").toString()).toBe("200"); // nothing spent yet
+    expect(allocatedItem(promoted.refineLines, promoted.processQueue, "commonOre").toNumber()).toBe(200);
+  });
+
+  // ⚠️ THE DEGENERATE STATE, DOCUMENTED RATHER THAN PRETENDED AWAY. Reservations can only
+  // exceed stock when inventory falls OUT OF BAND (see dropStock), because enqueue refuses
+  // an order it cannot fund. When that happens, freeItem clamps to 0 for everyone and the
+  // whole facility's queue stalls rather than letting one entry raid another's claim. That
+  // is the conservative reading, it destroys nothing, and it clears the moment the player
+  // removes an order or the stock comes back.
+  it("STALLS rather than raiding when an out-of-band drop leaves the queue over-reserved", () => {
+    const loaded = dropStock(
+      enqueueAll(deepQueueState({ commonOre: 200, refineryLevel: 2 }), [
+        { facility: "refinery", order: refineOrder(REFINE_KEY, 5) },
+        { facility: "refinery", order: refineOrder(REFINE_KEY, 5) },
+      ]),
+      "commonOre",
+      100
+    );
+
+    const stalled = promoteQueuedOrders(loaded);
+    expect(stalled).toBe(loaded); // same reference: nothing promoted, nothing spent
+    expect(queueIds(stalled)).toEqual(["q-1", "q-2"]);
+
+    // The player's escape hatch is the ordinary one, and it costs nothing: remove either
+    // order and the survivor is funded again on the very next pass.
+    const freed = promoteQueuedOrders(removeQueuedOrder(stalled, "q-2"));
+    expect(freed.refineLines).toHaveLength(1);
+    expect(queueIds(freed)).toEqual([]);
+    expect(itemTotal(freed.inventory, "commonOre").toString()).toBe("100");
   });
 });
 
@@ -1107,7 +1355,14 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
     expect(promoteQueuedOrders(unbuilt)).toBe(unbuilt);
 
     // Free slot, but the order is unaffordable -> skipped, and nothing was spent.
-    const broke = enqueueAll(craftState({ commonOre: 0 }), [{ facility: "refinery", order: refineOrder() }]);
+    // 0.13.3 follow-up: the order is queued while its ore IS free (enqueue requires that
+    // now), and the ore then vanishes OUT OF BAND. That is the only remaining route to a
+    // starved queued order, and the skip must still handle it as a clean no-op.
+    const broke = dropStock(
+      enqueueAll(craftState({ commonOre: 100 }), [{ facility: "refinery", order: refineOrder() }]),
+      "commonOre",
+      0
+    );
     expect(promoteQueuedOrders(broke)).toBe(broke);
   });
 
@@ -1213,15 +1468,25 @@ describe("promoteQueuedOrders: a free slot pulls the oldest eligible order out o
 
 describe("promoteQueuedOrders: SKIP-ON-BLOCK, and the array is never reordered", () => {
   it("steps over a blocked head, promotes a later eligible entry, and leaves the head in place", () => {
-    // 100 commonOre = 5 affordable iterations. The head asks for 99, which canStartLine
-    // refuses with `materials`; the entry behind it asks for 1, which it allows. Strict
-    // head-of-line blocking would idle the Refinery here for as long as the head stayed
-    // unaffordable, which offline means the entire span.
-    const loaded = enqueueAll(deepQueueState({ commonOre: 100 }), [
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
-    ]);
-    expect(QUEUE_ADAPTERS.refinery.canStart(loaded, refineOrder(REFINE_KEY, 99))).toEqual({
+    // ⚠️ REWRITTEN FOR THE 0.13.3 RESERVATION FOLLOW-UP. The old fixture queued a 99
+    // iteration order against 100 ore, which enqueue now refuses outright. The SCENARIO
+    // is preserved exactly, and it is now built the only way it can still arise:
+    //   - the head is a POLYSILICATE refine order, queued while its uncommonMaterial is
+    //     free, whose input then vanishes OUT OF BAND (dropStock). It reserves
+    //     uncommonMaterial and nothing else.
+    //   - the entry behind it is a plain commonOre refine, untouched by that shortage,
+    //     because a reservation is PER ITEM.
+    // Strict head-of-line blocking would idle the Refinery for as long as the head stayed
+    // unaffordable, which offline means the entire span. Skip-on-block is what prevents it.
+    const loaded = dropStock(
+      enqueueAll(deepQueueState({ commonOre: 100, uncommonMaterial: 50 }), [
+        { facility: "refinery", order: refineOrder(REFINE_KEY_2, 5) },
+        { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+      ]),
+      "uncommonMaterial",
+      0
+    );
+    expect(QUEUE_ADAPTERS.refinery.canStart(loaded, refineOrder(REFINE_KEY_2, 5))).toEqual({
       ok: false,
       reason: "materials",
     });
@@ -1230,28 +1495,36 @@ describe("promoteQueuedOrders: SKIP-ON-BLOCK, and the array is never reordered",
     // The facility is NOT idle: the later entry ran.
     expect(promoted.refineLines).toHaveLength(1);
     expect(promoted.refineLines[0].remaining).toBe(1);
+    expect(promoted.refineLines[0].recipeKey).toBe(REFINE_KEY);
     // The skipped entry kept its position (still index 0) and its id. Nothing sorted,
     // nothing rotated, nothing silently reordered behind the player's back.
     expect(queueIds(promoted)).toEqual(["q-1"]);
-    expect(promoted.processQueue[0].order).toEqual(refineOrder(REFINE_KEY, 99));
+    expect(promoted.processQueue[0].order).toEqual(refineOrder(REFINE_KEY_2, 5));
   });
 
   it("keeps the relative order of everything it skipped and everything it left behind", () => {
     // Two blocked entries around one affordable entry, plus a Fabricator entry that has
     // no free slot. Only q-3 may go; q-1, q-2 and q-4 must come out in the same order.
     const busyFab = startLine(
-      deepQueueState({ commonOre: 100, titaniumIngot: 20 }),
+      deepQueueState({ commonOre: 100, titaniumIngot: 20, uncommonMaterial: 50 }),
       "fabricate",
       FABRICATE_KEY,
       { kind: "continuous" }
     );
     expect(busyFab.started).toBe(true);
-    const loaded = enqueueAll(busyFab.next, [
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
-      { facility: "refinery", order: refineOrder("noSuchRecipe", 1) },
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
-      { facility: "fabricator", order: fabricateOrder() },
-    ]);
+    // 0.13.3 follow-up: q-1 is the out-of-band-starved POLYSILICATE order (see the case
+    // above for why the head's shortage must be on a DIFFERENT item), q-2 names no recipe
+    // at all, and q-3 is the plain affordable commonOre order.
+    const loaded = dropStock(
+      enqueueAll(busyFab.next, [
+        { facility: "refinery", order: refineOrder(REFINE_KEY_2, 5) },
+        { facility: "refinery", order: refineOrder("noSuchRecipe", 1) },
+        { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+        { facility: "fabricator", order: fabricateOrder() },
+      ]),
+      "uncommonMaterial",
+      0
+    );
 
     const promoted = promoteQueuedOrders(loaded);
     expect(promoted.refineLines).toHaveLength(1);
@@ -1325,11 +1598,21 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
     // fabricate order needs 4 of them, so it is blocked for the first three completions
     // and promotes on the tick the fourth lands. Both paths must agree on that tick, not
     // merely on the end state.
-    const running = startLine(craftState({ commonOre: 80, titaniumIngot: 0 }), "refine", REFINE_KEY, {
+    //
+    // ⚠️ 0.13.3 follow-up: the order is QUEUED while the four ingots are free (enqueue
+    // requires that now), and the ingots are then removed OUT OF BAND. The scenario under
+    // test is unchanged (a head blocked on materials at tick k, promoting at k+m), and it
+    // is now built the only way it can still arise. Note the refine line reserves
+    // commonOre, never its titaniumIngot OUTPUT, so the drip is genuinely what unblocks it.
+    const running = startLine(craftState({ commonOre: 80, titaniumIngot: 4 }), "refine", REFINE_KEY, {
       kind: "continuous",
     });
     expect(running.started).toBe(true);
-    const base = enqueueAll(running.next, [{ facility: "fabricator", order: fabricateOrder() }]);
+    const base = dropStock(
+      enqueueAll(running.next, [{ facility: "fabricator", order: fabricateOrder() }]),
+      "titaniumIngot",
+      0
+    );
     const SPAN = 120;
 
     // Find the promotion tick by live stepping, then hold BOTH paths to it.
@@ -1355,13 +1638,20 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
   });
 
   it("parity: skip-on-block resolves identically offline and live, and does not idle the facility", () => {
-    // The head asks for 99 iterations and is never affordable across the whole span, so
-    // it is skipped every single tick. The offline path must skip it exactly as often
-    // and land in the same place: same remaining queue, same array position.
-    const base = enqueueAll(deepQueueState({ commonOre: 100 }), [
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 99) },
-      { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
-    ]);
+    // The head is a polysilicate refine order whose uncommonMaterial vanished out of band
+    // (0.13.3 follow-up, see the skip-on-block describe above), so it is never affordable
+    // across the whole span and is skipped every single tick. Nothing in this state ever
+    // produces uncommonMaterial, so the block is permanent, exactly as the old 99
+    // iteration head was. The offline path must skip it exactly as often and land in the
+    // same place: same remaining queue, same array position.
+    const base = dropStock(
+      enqueueAll(deepQueueState({ commonOre: 100, uncommonMaterial: 50 }), [
+        { facility: "refinery", order: refineOrder(REFINE_KEY_2, 5) },
+        { facility: "refinery", order: refineOrder(REFINE_KEY, 1) },
+      ]),
+      "uncommonMaterial",
+      0
+    );
     const SPAN = 60;
 
     const jumped = tick(SPAN, base, seededRng());
@@ -1373,7 +1663,7 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
     // head), the blocked head is still queued, still at index 0, still itself.
     expect(log).toEqual(["t1:q-2"]);
     expect(queueIds(jumped)).toEqual(["q-1"]);
-    expect(jumped.processQueue[0].order).toEqual(refineOrder(REFINE_KEY, 99));
+    expect(jumped.processQueue[0].order).toEqual(refineOrder(REFINE_KEY_2, 5));
     expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).toBe("1");
   });
 
@@ -1683,11 +1973,21 @@ describe("buildCraftQueue: eligibility is the ADAPTER's answer, never a second o
     // A free slot (refinery level 2, one line running) plus not enough ore: the row
     // must read "materials", the same reason the configurator's disabled Start shows,
     // because both come from canStartLine.
-    const poor = startLine(deepQueueState({ commonOre: 20, refineryLevel: 2 }), "refine", REFINE_KEY, {
+    //
+    // 0.13.3 follow-up: the order is queued while its 20 ore is genuinely free (40 held,
+    // 20 reserved by the running line), and the ore then drops out of band to 20, leaving
+    // the running line's reservation covering all of it. The ROW is gated against a state
+    // with its OWN reservation released, so what it reports is a real shortage against the
+    // line's claim, not the order refusing itself.
+    const poor = startLine(deepQueueState({ commonOre: 40, refineryLevel: 2 }), "refine", REFINE_KEY, {
       kind: "batch",
       remaining: 1,
     }).next;
-    const loaded = enqueueAll(poor, [{ facility: "refinery", order: refineOrder(REFINE_KEY, 1) }]);
+    const loaded = dropStock(
+      enqueueAll(poor, [{ facility: "refinery", order: refineOrder(REFINE_KEY, 1) }]),
+      "commonOre",
+      20
+    );
 
     const view = buildCraftQueue(loaded, "refinery");
     expect(view.hasFreeSlot).toBe(true); // 1 line of 2 slots, so the block is NOT the slot
@@ -1702,7 +2002,12 @@ describe("buildCraftQueue: eligibility is the ADAPTER's answer, never a second o
     // Skip-on-block as the display sees it: a blocked head does not claim the slot.
     // The head here is an unresearched blueprint (an unambiguous, permanent block) and
     // the row behind it is a plain affordable order.
-    const loaded = enqueueAll(deepQueueState({ titaniumIngot: 40, fabricatorLevel: 2 }), [
+    // 0.13.3 follow-up: frameSegment is stocked because prospectorHoldBp's recipe needs it
+    // (2 frameSegment + 3 titaniumIngot) and enqueue now requires an order's inputs to be
+    // free. The BLOCK under test is unchanged and is still `notResearched`, which is what
+    // makes this the right fixture: the head is permanently blocked for a reason that has
+    // nothing to do with materials.
+    const loaded = enqueueAll(deepQueueState({ titaniumIngot: 40, frameSegment: 20, fabricatorLevel: 2 }), [
       { facility: "fabricator", order: fabricateOrder("prospectorHoldBp") }, // not researched here
       { facility: "fabricator", order: fabricateOrder(FABRICATE_KEY) },
     ]);
@@ -1871,13 +2176,22 @@ describe("buildCraftQueue is PURE: it derives, it never writes", () => {
     // The fixture is built so NOTHING can promote across the two ticks (the refinery's
     // only slot is taken, the fabricate order cannot afford its ingots, the salvage row
     // is stubbed), which is what lets the case assert the queue is untouched.
-    const loaded = enqueueAll(
-      startLine(deepQueueState({ commonOre: 200 }), "refine", REFINE_KEY, { kind: "batch", remaining: 2 }).next,
-      [
-        { facility: "refinery", order: refineOrder() },
-        { facility: "fabricator", order: fabricateOrder() },
-        { facility: "salvageBay", order: salvageOrder() },
-      ]
+    //
+    // 0.13.3 follow-up: the fabricate order is queued while its ingots are free (enqueue
+    // requires that now) and the ingots are then removed OUT OF BAND, which is what keeps
+    // it un-promotable across the two ticks. Two ticks is far short of the refine line's
+    // 12-tick iteration, so nothing replaces them in the meantime.
+    const loaded = dropStock(
+      enqueueAll(
+        startLine(deepQueueState({ commonOre: 200 }), "refine", REFINE_KEY, { kind: "batch", remaining: 2 }).next,
+        [
+          { facility: "refinery", order: refineOrder() },
+          { facility: "fabricator", order: fabricateOrder() },
+          { facility: "salvageBay", order: salvageOrder() },
+        ]
+      ),
+      "titaniumIngot",
+      0
     );
     const state = advance(loaded, 2);
     expect(queueIds(state)).toEqual(["q-1", "q-2", "q-3"]);
@@ -1919,8 +2233,15 @@ describe("buildCraftQueue is PURE: it derives, it never writes", () => {
 
     // Scribbling on a returned row changes nothing about the next build (and nothing
     // about the state), the property a reactive console depends on.
-    first.queued[0].nextToPromote = true;
-    expect(buildCraftQueue(loaded, "refinery").queued[0].nextToPromote).toBe(false);
+    //
+    // 0.13.3 follow-up: the fixture's ore is now ample and the Refinery slot is free, so
+    // this row is NATURALLY the promotion preview. The scribble therefore writes the
+    // OPPOSITE value: a stale `false` must not survive into the next build any more than a
+    // stale `true` would, and asserting against the natural value keeps the case
+    // non-vacuous instead of comparing a scribble to itself.
+    expect(first.queued[0].nextToPromote).toBe(true);
+    first.queued[0].nextToPromote = false;
+    expect(buildCraftQueue(loaded, "refinery").queued[0].nextToPromote).toBe(true);
     expect(loaded.processQueue).toHaveLength(1);
   });
 });

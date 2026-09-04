@@ -76,6 +76,11 @@ import {
   // refineSlotCount does: the engine owns the answer and this module only renders it.
   SALVAGE_SLOT_COUNT,
   salvageJobsInFlight,
+  // Crafting 0.13.3 follow-up (2026-09-04): a queued craft order reserves its own inputs,
+  // so its gate has to be asked about a state that has released that reservation, or it
+  // refuses itself. This is the SAME helper promoteQueuedOrders uses, which is what keeps
+  // a row's verdict and the tick's decision the identical answer. See its header.
+  withQueuedOrderReleased,
   type EnqueueBlockReason,
   type QueueBlockReason,
 } from "./tick";
@@ -447,6 +452,20 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
 // unable to accept anything, which is a lie about the depth cap. The empty-string id can
 // never match a minted EquipmentInstance id, so the probe still asks only the depth
 // question. Keep it empty.
+//
+// ⚠️ THE CRAFT PROBES' EMPTY recipeKey IS LOAD-BEARING FOR THE SAME REASON as of the
+// 0.13.3 follow-up, which added an enqueue-time AFFORDABILITY gate (canReserveOrder). A
+// probe naming a REAL recipe the player cannot currently afford would come back
+// "materials" and this view would report the whole facility as unable to accept anything,
+// which is a lie about the depth cap and would blank the panel's "add an order" affordance
+// for every player who happens to be short of one ingredient. An empty recipeKey resolves
+// to no recipe, which reserves nothing, which passes canReserveOrder unconditionally, so
+// the probe still asks only the depth question. Keep it empty.
+//
+// The REAL per-order affordability answer belongs to the configurator's own "Add to queue"
+// button, which asks canEnqueueOrder about the actual recipe and quantity (App.svelte's
+// craftQueueButtonBlockText). That is the right place for it: it is the only surface that
+// knows which order the player is about to queue.
 const ENQUEUE_PROBE: Record<QueueFacilityKey, QueuedOrder> = {
   refinery: { type: "craftLine", kind: "refine", recipeKey: "", mode: { kind: "continuous" } },
   fabricator: { type: "craftLine", kind: "fabricate", recipeKey: "", mode: { kind: "continuous" } },
@@ -476,8 +495,17 @@ export function buildCraftQueue(state: GameState, facility: QueueFacilityKey): C
 
   const queued: CraftQueueRow[] = waiting.map((job, index) => {
     // THE eligibility question, delegated. No local gate, no local affordability
-    // math, no cached verdict: this is the same predicate the promotion pass runs.
-    const gate = adapter.canStart(state, job.order);
+    // math, no cached verdict: this is the same predicate the promotion pass runs,
+    // asked about the same state the promotion pass asks it about.
+    //
+    // ⚠️ withQueuedOrderReleased IS NOT AN OPTIMIZATION, IT IS THE QUESTION (0.13.3
+    // follow-up). This order's own inputs are reserved BY this order while it waits, so
+    // gating it against the raw state would have it refuse itself with `materials` and
+    // every healthy queued row would read "not enough" forever. Promotion is a handoff of
+    // that reservation, not a second spend. Every OTHER queued order's reservation is
+    // still counted, so a row that genuinely cannot be funded alongside the orders ahead
+    // of it still says so honestly.
+    const gate = adapter.canStart(withQueuedOrderReleased(state, job.id), job.order);
     if (gate.ok && hasFreeSlot && nextToPromoteId === null) nextToPromoteId = job.id;
 
     const label = queuedOrderLabel(state, job.order);

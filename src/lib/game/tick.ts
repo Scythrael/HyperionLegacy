@@ -283,7 +283,22 @@ import { equippedFor, onMissionLock } from "./equipment";
 // used by canBuildFacilityUpgrade's material gate (and S3's canBuildShip) to spend on
 // the reservation-aware `free` pool instead of raw inventory, closing the facility-
 // upgrade leak documented in KNOWN_ISSUES (an upgrade could spend craft-line-reserved ore).
-import { lineInputsPerIteration, freeItem, freeItemForState, type CraftLine, type CraftLineKind, type CraftLineMode } from "./allocation";
+// Crafting 0.13.3 follow-up (2026-09-04): QUEUED craft orders reserve their inputs too, so
+// `freeItem` now takes the queue as well and `freeItemForState` folds state.processQueue in.
+// `canReserveOrder` is the ISOLATED enqueue-affordability policy (see its header, it
+// reverses design 5.3) and it has exactly ONE caller, canEnqueueOrder below.
+// `queuedOrderIterations` is the canonical "how many iterations does a queued order
+// reserve" derivation, which queuedLineIterations now delegates to instead of copying.
+import {
+  lineInputsPerIteration,
+  freeItem,
+  freeItemForState,
+  canReserveOrder,
+  queuedOrderIterations,
+  type CraftLine,
+  type CraftLineKind,
+  type CraftLineMode,
+} from "./allocation";
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
 import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
@@ -6548,9 +6563,17 @@ export function maxAffordableIterations(
   // "cannot start any"), deliberately NOT an unbounded cap.
   if (inputItems.length === 0) return 0;
 
-  // FREE (inventory - already-reserved), across BOTH facilities' lines: the reservable
-  // pool a NEW line draws from. `?? []` guards a pre-C2 state shape defensively.
+  // FREE (inventory - already-reserved), across BOTH facilities' lines AND the waiting
+  // queue: the reservable pool a NEW line draws from. `?? []` guards a pre-C2 state shape
+  // (line arrays) and a pre-0.13.3 one (processQueue) defensively.
+  //
+  // ⚠️ 0.13.3 follow-up: THE QUEUE TERM IS WHY A QUEUED ORDER'S OWN GATE MUST BE ASKED
+  // AGAINST A STATE THAT HAS RELEASED IT. This function now subtracts every queued order's
+  // reservation, INCLUDING the one being promoted if it is still in the queue, which would
+  // make an order refuse itself. promoteQueuedOrders and craftQueue.ts both go through
+  // withQueuedOrderReleased for exactly that reason; see its header.
   const allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  const queued = state.processQueue ?? [];
 
   // min over inputs of floor(free / perUnit). Accumulate as a Decimal (break_infinity)
   // because free stock can exceed Number range; convert once at the end.
@@ -6560,7 +6583,7 @@ export function maxAffordableIterations(
     // A non-positive per-unit amount would divide-by-zero / be meaningless; skip it so it
     // contributes no bound (defensive, real recipes carry positive input amounts).
     if (perUnit.lte(0)) continue;
-    const free = freeItem(state.inventory, allLines, itemId);
+    const free = freeItem(state.inventory, allLines, queued, itemId);
     const iterations = free.div(perUnit).floor(); // whole iterations THIS input can fund
     cap = cap === null ? iterations : Decimal.min(cap, iterations);
   }
@@ -6909,13 +6932,19 @@ export type QueueAdapter = {
 // Iterations a queued craft line reserves at promotion: a batch reserves its full
 // count, a continuous line reserves exactly its ONE queued next iteration.
 //
-// This MIRRORS startLine's own inline derivation (`mode.kind === "batch" ? ... : 1`)
-// on purpose rather than editing startLine to share it: startLine is proven, working
-// code and consolidating it is a separate, approvable change (Omega 4 + 15a). The
-// number matters because it is the count canStartLine's affordability gate validates,
-// so the queue must ask the gate about the SAME count startLine will later reserve.
+// ⚠️ 0.13.3 follow-up: THIS IS NOW A DELEGATION, NOT A COPY. It used to restate
+// startLine's inline `mode.kind === "batch" ? ... : 1` derivation, which was harmless
+// while the number only fed a gate. It is not harmless now: the same number decides how
+// much a queued order RESERVES (allocation.ts's queuedOrderInputs), and a reservation
+// that disagreed with the gate by even one iteration would either double-book stock or
+// leave an order permanently unpromotable. So the canonical definition moved into
+// allocation.ts beside the reservation math and this is a one-line forward, which makes
+// the two provably the same number rather than two copies kept in step by hand.
+// (startLine's own inline derivation is deliberately left untouched, Omega 15a: it is
+// proven code, it is not part of the queue path, and folding it in is a separate,
+// approvable consolidation.)
 function queuedLineIterations(mode: CraftLineMode): number {
-  return mode.kind === "batch" ? mode.remaining : 1;
+  return queuedOrderIterations(mode);
 }
 
 // Builds the Refinery / Fabricator adapter rows from ONE definition, parameterized by
@@ -7212,7 +7241,12 @@ void QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE; // type-level assertion only, no runtim
 //   alreadyQueued   , (0.13.3 Unit 2.1) this salvage order names a UNIQUE target that a
 //                     queued salvage already owns. Salvage-only: no craft-line order can
 //                     ever produce it, because a recipe is not a unique consumable.
-export type EnqueueBlockReason = "queueFull" | "wrongFacility" | "alreadyQueued";
+//   materials       , (0.13.3 follow-up, 2026-09-04) this CRAFT order's inputs are not
+//                     currently FREE, so there is nothing to reserve. Craft-line-only: a
+//                     salvage order reserves a target, not inputs, so canReserveOrder
+//                     always passes it. Named with canStartLine's own token so the UI
+//                     shows ONE "not enough of it" sentence rather than a second wording.
+export type EnqueueBlockReason = "queueFull" | "wrongFacility" | "alreadyQueued" | "materials";
 
 // Does this order shape belong at this facility? A craft line goes to the facility that
 // runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
@@ -7245,13 +7279,21 @@ export function queuedForFacility(state: GameState, facility: QueueFacilityKey):
 //      Fabricator, the exact cross-facility starvation the per-facility model exists to
 //      prevent.
 //
-//   2. AFFORDABILITY IS NOT CHECKED HERE, ON PURPOSE. Queuing work you cannot start yet
-//      IS the feature (design §5.3: a queued order reserves nothing and is gated at
-//      PROMOTION time by canStartLine). An enqueue-time materials check would make the
-//      queue useless for exactly the case it exists to serve.
+//   2. ⚠️ AFFORDABILITY *IS* CHECKED HERE AS OF 2026-09-04, WHICH REVERSES DESIGN §5.3.
+//      Rule 2 used to read "affordability is not checked here, on purpose", because a
+//      queued order reserved nothing and queuing work you could not start yet was the
+//      whole feature. A queued CRAFT order now RESERVES its inputs (allocation.ts), and a
+//      reservation against stock you do not hold is not a reservation, it is a number the
+//      player cannot act on plus a claim on units that are not there. So a craft order
+//      must be affordable from FREE stock to be accepted. The rule itself lives in exactly
+//      ONE place, canReserveOrder in allocation.ts, and this is its ONLY caller, so the
+//      user's alternative policy ("reserve what you can, queue beyond it anyway") stays a
+//      one-site change. Read that function's header before touching this line.
+//      A queued SALVAGE order is untouched by this: canReserveOrder always passes one, so
+//      "queue three teardowns while holding one unit" still works exactly as it did.
 //
-//   3. (0.13.3 Unit 2.1) A UNIQUE SALVAGE TARGET CANNOT BE QUEUED TWICE. This is NOT a
-//      contradiction of rule 2: it is a duplicate check, not an affordability check.
+//   3. (0.13.3 Unit 2.1) A UNIQUE SALVAGE TARGET CANNOT BE QUEUED TWICE. This is a
+//      duplicate check, not an affordability check, and it predates rule 2's reversal.
 //      Salvage is the one process that consumes at COMPLETION rather than at start, so a
 //      queued salvage RESERVES its target (design §7.3, reservation.ts). A second order
 //      on the same equipment instance or the same hull could therefore only ever resolve
@@ -7270,6 +7312,13 @@ export function canEnqueueOrder(
   if (order.type === "salvage" && isDuplicateSalvageTarget(state, order.target)) {
     return { ok: false, reason: "alreadyQueued" };
   }
+  // THE ONE CALL SITE of the enqueue-affordability policy (rule 2 above). Placed before
+  // the depth cap for the same reason the duplicate check is: "you do not have the ore
+  // for this" is about the order the player just configured and is directly actionable,
+  // while queueFull would send them off to cancel some unrelated order for a slot this
+  // order could not have used anyway.
+  const reserve = canReserveOrder(state, order);
+  if (!reserve.ok) return { ok: false, reason: reserve.reason };
   if (queuedForFacility(state, facility).length >= queueDepth(state)) {
     return { ok: false, reason: "queueFull" };
   }
@@ -7316,14 +7365,56 @@ export function enqueueOrder(
   };
 }
 
-// Removes ONE waiting order by id. A queued order reserves nothing (design §5.3), so
-// there is no ledger to unwind: dropping the entry is the whole operation. An unknown
-// id is a same-reference no-op (a double click, or a row the promotion pass already
-// consumed, must not throw or clear the queue).
+// Removes ONE waiting order by id.
+//
+// ⚠️ 0.13.3 follow-up (2026-09-04): A QUEUED CRAFT ORDER DOES RESERVE ITS MATERIALS NOW,
+// AND THERE IS STILL NOTHING TO UNWIND HERE. That is the point of deriving the
+// reservation instead of deducting it: allocatedItem recomputes from processQueue on
+// every read, so dropping the entry IS the release, and the materials are back in `free`
+// on the very next read with no deposit step. Do NOT add one. A deposit would have to put
+// units back into inventory, clampInventoryToCaps DISCARDS over-cap units on every load,
+// and a player cancelling at cap would silently lose the refund (see allocation.ts's
+// header). Dropping the entry remains the whole operation.
+//
+// An unknown id is a same-reference no-op (a double click, or a row the promotion pass
+// already consumed, must not throw or clear the queue).
 export function removeQueuedOrder(state: GameState, id: string): GameState {
   const queue = state.processQueue ?? [];
   if (!queue.some((job) => job.id === id)) return state; // unknown id -> same-ref no-op
   return { ...state, processQueue: queue.filter((job) => job.id !== id) };
+}
+
+// ----------------------------------------------------------------------------
+// withQueuedOrderReleased (Crafting 0.13.3 follow-up, 2026-09-04)
+// ----------------------------------------------------------------------------
+// THE STATE A QUEUED ORDER'S OWN GATE MUST BE ASKED ABOUT. Read this before touching
+// either of its two call sites (promoteQueuedOrders, and craftQueue.ts's row builder).
+//
+// THE PROBLEM IT SOLVES, precisely. Since queued craft orders reserve their inputs,
+// freeItem subtracts EVERY queued order's reservation, including the order currently
+// being gated. Asking canStartLine about an order while that order is still in the queue
+// therefore asks "can you afford this on top of yourself", and a queued order that had
+// reserved exactly its cost would refuse itself forever: the queue would deadlock on its
+// own reservation. This is not a hypothetical, it is the normal case, because the enqueue
+// gate only accepts an order whose inputs are free.
+//
+// THE ANSWER: promoting is not a new spend, it is a HANDOFF. The same units move from a
+// QueuedJob's reservation to a CraftLine's reservation with no gap and no double count. So
+// the gate is asked about the state in which this order's queue reservation has already
+// been released, which is exactly `removeQueuedOrder(state, jobId)`, and the promotion
+// then starts from that same state so the entry does not need removing a second time.
+//
+// WHY A NAMED WRAPPER RATHER THAN CALLING removeQueuedOrder TWICE: the two call sites must
+// agree EXACTLY, or the queue panel would show a row as blocked that the tick then
+// promotes (or worse, the reverse). One named function with the reasoning attached is what
+// makes "the row and the tick ask the identical question" a property of the code instead
+// of a coincidence between two comments.
+//
+// PURE, and a same-REFERENCE no-op for an unknown id (inherited from removeQueuedOrder).
+// It releases ONLY the named order: every other queued order's reservation stays in force,
+// which is what keeps two orders from both being told they can afford the same units.
+export function withQueuedOrderReleased(state: GameState, jobId: string): GameState {
+  return removeQueuedOrder(state, jobId);
 }
 
 // Moves ONE waiting order up or down within ITS OWN facility's queue.
@@ -7547,26 +7638,59 @@ export function promoteQueuedOrders(state: GameState): GameState {
       // what stops the scan the moment the last one is taken.
       if (!adapter.hasFreeSlot(working)) break;
 
+      // ⚠️ THE ORDER'S OWN RESERVATION IS RELEASED BEFORE IT IS GATED (0.13.3 follow-up).
+      // A queued craft order reserves its inputs, so gating it against a state that still
+      // holds its own reservation would ask "can you afford this on top of yourself" and
+      // it would refuse itself forever. Promotion is a HANDOFF, not a second spend: the
+      // units move from this QueuedJob's reservation to the CraftLine's. See
+      // withQueuedOrderReleased for the full argument. EVERY OTHER queued order's
+      // reservation is still in force in `candidate`, which is what keeps two entries from
+      // both being told they can afford the same units on the same tick.
+      //
+      // Salvage is unaffected by this: canStartSalvage reads in-flight jobs and the target
+      // itself, never processQueue, so it returns the identical verdict either way.
+      const candidate = withQueuedOrderReleased(working, job.id);
+
       // Skip-on-block (property 4 above). The reason is deliberately dropped: a queued
       // row derives its block text by asking canStart again at render time (never
       // stored, so it cannot go stale), leaving this pass nothing to record.
-      if (!adapter.canStart(working, job.order).ok) continue;
+      //
+      // ⚠️ WHAT IS NOW EFFECTIVELY UNREACHABLE HERE, AND WHY THE PATH STAYS. With inputs
+      // reserved from enqueue onward, a CRAFT order's `materials` refusal can no longer be
+      // produced by ordinary play: the enqueue gate only accepted the order because its
+      // inputs were free, and nothing that gates on freeItemForState can take them since.
+      // It is NOT dead code and it is NOT to be removed: (a) every other craft reason
+      // (noSlot, storageFull, equipmentStorageFull, notResearched, tierLocked, notFound,
+      // invalidCount) is fully reachable and arrives through this same line; (b) salvage
+      // orders still block for their own reasons (noneHeld, fitted, shipOnMission,
+      // lastShip); and (c) `materials` itself remains reachable whenever inventory drops
+      // OUT OF BAND, past the freeItem gate: an over-cap clamp discarding stock, or a
+      // consumer that spends raw inventory rather than free. Defensive code covering a
+      // real, if now rare, state is exactly the code that must stay.
+      if (!adapter.canStart(candidate, job.order).ok) continue;
 
       // start re-runs the same gate internally, so a promotion is gated twice by ONE
       // predicate and can never launch work the configurator's Start button would
       // refuse. `started:false` after an ok gate is unreachable today; it is handled as a
       // skip (not a throw, not a silent drop) so that a future adapter whose start can
       // refuse for its own reasons simply leaves the entry queued for a retry next tick.
-      const { next, started } = adapter.start(working, job.order);
+      //
+      // Started from `candidate`, the SAME state the gate just approved. Anything else
+      // would gate one state and act on another.
+      const { next, started } = adapter.start(candidate, job.order);
+      // A refusal falls back to `working`, which still HOLDS the entry (and therefore its
+      // reservation): `candidate` is discarded untouched, so a failed promotion cannot
+      // leak an order out of the queue or quietly drop its reservation.
       if (!started) continue;
 
-      // Promoted: the order is real running work now, so it leaves the queue. Removed
-      // IMMEDIATELY (rather than collected and filtered once at the end) so `working`
-      // stays internally consistent for every gate that follows: the Phase 2 salvage
-      // reservations derive from processQueue, and they must not count an order that has
-      // already become a job. filter preserves array order, so the REMAINING queue keeps
-      // its exact positions, including any entry this scan skipped.
-      working = { ...next, processQueue: (next.processQueue ?? []).filter((entry) => entry.id !== job.id) };
+      // Promoted: the order is real running work now, and it has already left the queue,
+      // because `candidate` was built without it. Removing it up front (rather than
+      // filtering after the start) is what makes `working` internally consistent for every
+      // gate that follows, both the material reservations above and the Phase 2 salvage
+      // reservations, neither of which may still count an order that has become a job.
+      // removeQueuedOrder's filter preserves array order, so the REMAINING queue keeps its
+      // exact positions, including any entry this scan skipped.
+      working = next;
     }
   }
 

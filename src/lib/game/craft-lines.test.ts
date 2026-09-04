@@ -178,13 +178,15 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     const line: CraftLine = { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 10, mode: { kind: "batch", remaining: 10 } };
     const state = linesState({ commonOre: 200, refineLines: [line], nextCraftLineId: 2 });
 
-    expect(allocatedItem(state.refineLines, "commonOre").toNumber()).toBe(200);
-    expect(freeItem(state.inventory, state.refineLines, "commonOre").toNumber()).toBe(0);
+    // The queue arm (0.13.3 follow-up) is threaded through here too. It is empty in this
+    // fixture, so these assertions pin the LINE half exactly as they always did.
+    expect(allocatedItem(state.refineLines, state.processQueue, "commonOre").toNumber()).toBe(200);
+    expect(freeItem(state.inventory, state.refineLines, state.processQueue, "commonOre").toNumber()).toBe(0);
 
     const cancelled = cancelLine(state, "craft-1");
     expect(cancelled.refineLines).toHaveLength(0);
-    expect(allocatedItem(cancelled.refineLines, "commonOre").toNumber()).toBe(0);
-    expect(freeItem(cancelled.inventory, cancelled.refineLines, "commonOre").toNumber()).toBe(200);
+    expect(allocatedItem(cancelled.refineLines, cancelled.processQueue, "commonOre").toNumber()).toBe(0);
+    expect(freeItem(cancelled.inventory, cancelled.refineLines, cancelled.processQueue, "commonOre").toNumber()).toBe(200);
   });
 
   it("removes a fabricate line by id, leaving refine lines untouched", () => {
@@ -216,7 +218,7 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     expect(cancelled.refineLines).toHaveLength(1); // line still visible (draining)
     expect(cancelled.refineLines[0].remaining).toBe(0); // stopped, no more iterations queue
     expect(cancelled.refineLines[0].mode).toEqual({ kind: "batch", remaining: 0 });
-    expect(allocatedItem(cancelled.refineLines, "commonOre").toNumber()).toBe(0); // reservation released now
+    expect(allocatedItem(cancelled.refineLines, cancelled.processQueue, "commonOre").toNumber()).toBe(0); // reservation released now
     expect(cancelled.activeProcesses.filter((p) => p.kind === "refineJob")).toHaveLength(1); // in-flight job still committed
 
     const settled = stepTicks(cancelled, 30); // well past the committed job's completion
@@ -234,7 +236,7 @@ describe("cancelLine, drains a running line (finishes the in-flight iteration) o
     const lineId = s.refineLines[0].id;
     const cancelled = cancelLine(s, lineId); // never stepped -> no in-flight job
     expect(cancelled.refineLines).toHaveLength(0); // gone immediately
-    expect(freeItem(cancelled.inventory, cancelled.refineLines, "commonOre").toNumber()).toBe(2000); // full refund
+    expect(freeItem(cancelled.inventory, cancelled.refineLines, cancelled.processQueue, "commonOre").toNumber()).toBe(2000); // full refund
   });
 
   it("is a same-reference no-op for an unknown line id", () => {

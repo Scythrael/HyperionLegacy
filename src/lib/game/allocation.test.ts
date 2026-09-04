@@ -23,11 +23,16 @@
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import { REFINE_RECIPES, BLUEPRINTS } from "./model";
+import type { QueuedJob, QueuedOrder } from "./model";
 import {
   lineInputsPerIteration,
   allocatedItem,
   freeItem,
   freeItemForState,
+  // 0.13.3 follow-up (2026-09-04): queued craft orders reserve their inputs too.
+  queuedOrderIterations,
+  queuedOrderInputs,
+  canReserveOrder,
   type CraftLine,
 } from "./allocation";
 
@@ -50,6 +55,17 @@ function refineLine(id: string, remaining: number): CraftLine {
 // Small helper to build a fabricate line for a real blueprint.
 function fabricateLine(id: string, recipeKey: string, remaining: number): CraftLine {
   return { id, kind: "fabricate", recipeKey, remaining, mode: { kind: "batch", remaining } };
+}
+
+// A QUEUED batch refine order for the same real recipe (0.13.3 follow-up). `count` is what
+// it reserves: count x REFINE_PER_ITER of REFINE_INPUT_ITEM.
+function refineOrder(count: number): QueuedOrder {
+  return { type: "craftLine", kind: "refine", recipeKey: REFINE_KEY, mode: { kind: "batch", remaining: count } };
+}
+
+// The same order wrapped as a queue entry, which is what allocatedItem walks.
+function queuedRefineJob(id: string, count: number): QueuedJob {
+  return { id, facility: "refinery", order: refineOrder(count) };
 }
 
 describe("lineInputsPerIteration", () => {
@@ -94,81 +110,81 @@ describe("lineInputsPerIteration", () => {
 
 describe("allocatedItem", () => {
   it("no lines -> allocated 0", () => {
-    expect(allocatedItem([], "commonOre").toNumber()).toBe(0);
+    expect(allocatedItem([], [], "commonOre").toNumber()).toBe(0);
   });
 
   it("worked example: refine line, remaining 10 -> allocated 10 x per-iteration", () => {
     const lines = [refineLine("l1", 10)];
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(10 * REFINE_PER_ITER);
+    expect(allocatedItem(lines, [], REFINE_INPUT_ITEM).toNumber()).toBe(10 * REFINE_PER_ITER);
   });
 
   it("worked example after crafts: remaining 9 -> allocated 9 x per-iteration", () => {
     const lines = [refineLine("l1", 9)];
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe(9 * REFINE_PER_ITER);
+    expect(allocatedItem(lines, [], REFINE_INPUT_ITEM).toNumber()).toBe(9 * REFINE_PER_ITER);
   });
 
   it("two lines reserving the SAME item sum their allocations", () => {
     const lines = [refineLine("l1", 10), refineLine("l2", 4)];
-    expect(allocatedItem(lines, REFINE_INPUT_ITEM).toNumber()).toBe((10 + 4) * REFINE_PER_ITER);
+    expect(allocatedItem(lines, [], REFINE_INPUT_ITEM).toNumber()).toBe((10 + 4) * REFINE_PER_ITER);
   });
 
   it("multi-INPUT fabricate recipe allocates each input independently", () => {
     // structuralAssemblyBp per iteration: frameSegment 2, powerCoupling 1, titaniumIngot 2
     const lines = [fabricateLine("l1", FAB_KEY, 3)];
-    expect(allocatedItem(lines, "frameSegment").toNumber()).toBe(6); // 2 x 3
-    expect(allocatedItem(lines, "powerCoupling").toNumber()).toBe(3); // 1 x 3
-    expect(allocatedItem(lines, "titaniumIngot").toNumber()).toBe(6); // 2 x 3
+    expect(allocatedItem(lines, [], "frameSegment").toNumber()).toBe(6); // 2 x 3
+    expect(allocatedItem(lines, [], "powerCoupling").toNumber()).toBe(3); // 1 x 3
+    expect(allocatedItem(lines, [], "titaniumIngot").toNumber()).toBe(6); // 2 x 3
     // An item NOT in the recipe is allocated 0.
-    expect(allocatedItem(lines, "commonOre").toNumber()).toBe(0);
+    expect(allocatedItem(lines, [], "commonOre").toNumber()).toBe(0);
   });
 
   it("item not consumed by any line -> allocated 0", () => {
     const lines = [refineLine("l1", 10)];
-    expect(allocatedItem(lines, "titaniumIngot").toNumber()).toBe(0);
+    expect(allocatedItem(lines, [], "titaniumIngot").toNumber()).toBe(0);
   });
 
   it("unknown recipeKey line contributes 0", () => {
     const lines: CraftLine[] = [
       { id: "x", kind: "refine", recipeKey: "doesNotExist", remaining: 999, mode: { kind: "continuous" } },
     ];
-    expect(allocatedItem(lines, "commonOre").toNumber()).toBe(0);
+    expect(allocatedItem(lines, [], "commonOre").toNumber()).toBe(0);
   });
 });
 
 describe("freeItem", () => {
   it("no lines -> free == full stock", () => {
     const inventory = { commonOre: [new Decimal(1000)] };
-    expect(freeItem(inventory, [], "commonOre").toNumber()).toBe(1000);
+    expect(freeItem(inventory, [], [], "commonOre").toNumber()).toBe(1000);
   });
 
   it("worked example: stock == allocated -> free 0", () => {
     const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
     const lines = [refineLine("l1", 10)]; // 10 x per-iteration reserved
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
+    expect(freeItem(inventory, lines, [], "commonOre").toNumber()).toBe(0);
   });
 
   it("worked example after crafts: reduced stock == reduced allocation -> free 0", () => {
     const inventory = { commonOre: [new Decimal(9 * REFINE_PER_ITER)] };
     const lines = [refineLine("l1", 9)]; // 9 x per-iteration reserved
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
+    expect(freeItem(inventory, lines, [], "commonOre").toNumber()).toBe(0);
   });
 
   it("partial reservation leaves the remainder free", () => {
     const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
     const lines = [refineLine("l1", 3)]; // 3 x per-iteration reserved
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe((10 - 3) * REFINE_PER_ITER);
+    expect(freeItem(inventory, lines, [], "commonOre").toNumber()).toBe((10 - 3) * REFINE_PER_ITER);
   });
 
   it("two lines on the same item: free reflects the SUMMED reservation", () => {
     const inventory = { commonOre: [new Decimal(10 * REFINE_PER_ITER)] };
     const lines = [refineLine("l1", 5), refineLine("l2", 2)]; // (5+2) x per-iteration reserved
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe((10 - 5 - 2) * REFINE_PER_ITER);
+    expect(freeItem(inventory, lines, [], "commonOre").toNumber()).toBe((10 - 5 - 2) * REFINE_PER_ITER);
   });
 
   it("free is NEVER negative: over-reserved stock clamps to 0", () => {
     const inventory = { commonOre: [new Decimal(5 * REFINE_PER_ITER)] };
     const lines = [refineLine("l1", 10)]; // reserves 10 x per-iteration > 5 x per-iteration stock
-    const free = freeItem(inventory, lines, "commonOre");
+    const free = freeItem(inventory, lines, [], "commonOre");
     expect(free.toNumber()).toBe(0);
     expect(free.gte(0)).toBe(true);
   });
@@ -176,7 +192,7 @@ describe("freeItem", () => {
   it("missing inventory key -> free 0 (defensive, not NaN/negative)", () => {
     const inventory: Record<string, Decimal[]> = {};
     const lines = [refineLine("l1", 1)]; // reserves one iteration of an absent item
-    expect(freeItem(inventory, lines, "commonOre").toNumber()).toBe(0);
+    expect(freeItem(inventory, lines, [], "commonOre").toNumber()).toBe(0);
   });
 
   it("multi-input fabricate: free tracks each input against its own reservation", () => {
@@ -186,9 +202,172 @@ describe("freeItem", () => {
       titaniumIngot: [new Decimal(10)],
     };
     const lines = [fabricateLine("l1", FAB_KEY, 3)]; // fs 6, pc 3, ti 6 reserved
-    expect(freeItem(inventory, lines, "frameSegment").toNumber()).toBe(4); // 10 - 6
-    expect(freeItem(inventory, lines, "powerCoupling").toNumber()).toBe(7); // 10 - 3
-    expect(freeItem(inventory, lines, "titaniumIngot").toNumber()).toBe(4); // 10 - 6
+    expect(freeItem(inventory, lines, [], "frameSegment").toNumber()).toBe(4); // 10 - 6
+    expect(freeItem(inventory, lines, [], "powerCoupling").toNumber()).toBe(7); // 10 - 3
+    expect(freeItem(inventory, lines, [], "titaniumIngot").toNumber()).toBe(4); // 10 - 6
+  });
+
+  // ⚠️ THE CLAMP IS STILL LOAD-BEARING WITH THE QUEUE ARM IN PLAY. The enqueue gate only
+  // accepts an affordable order, so over-reservation should not arise from queueing, but
+  // inventory can still drop OUT OF BAND past the freeItem gate (an over-cap clamp
+  // discarding stock, a consumer spending raw inventory). free must read 0 there, never a
+  // negative number that a caller would then subtract from.
+  it("free is NEVER negative when a QUEUED order over-reserves (clamp holds)", () => {
+    const inventory = { commonOre: [new Decimal(2 * REFINE_PER_ITER)] };
+    const queued = [queuedRefineJob("q-1", 10)]; // reserves 10 x per-iteration
+    const free = freeItem(inventory, [], queued, "commonOre");
+    expect(free.toNumber()).toBe(0);
+    expect(free.gte(0)).toBe(true);
+  });
+});
+
+// ============================================================================
+// QUEUED ORDERS RESERVE THEIR MATERIALS (0.13.3 follow-up, 2026-09-04)
+//
+// The second allocation source. These pin the pure core; the engine-level protection
+// (a facility upgrade cannot spend a queued order's materials) is pinned in
+// craft-lines.test.ts, and the enqueue policy in craftQueue.test.ts.
+// ============================================================================
+
+describe("queuedOrderIterations", () => {
+  it("a batch order reserves its FULL configured count", () => {
+    expect(queuedOrderIterations({ kind: "batch", remaining: 7 })).toBe(7);
+  });
+
+  it("a continuous order reserves exactly ONE iteration, the same as a running one", () => {
+    expect(queuedOrderIterations({ kind: "continuous" })).toBe(1);
+  });
+});
+
+describe("queuedOrderInputs", () => {
+  it("multiplies the recipe's per-iteration inputs by the batch count", () => {
+    const inputs = queuedOrderInputs({
+      type: "craftLine",
+      kind: "fabricate",
+      recipeKey: FAB_KEY,
+      mode: { kind: "batch", remaining: 3 },
+    });
+    expect(inputs.frameSegment.toNumber()).toBe(6); // 2 x 3
+    expect(inputs.powerCoupling.toNumber()).toBe(3); // 1 x 3
+    expect(inputs.titaniumIngot.toNumber()).toBe(6); // 2 x 3
+  });
+
+  it("a SALVAGE order reserves no material inputs (its target is reserved elsewhere)", () => {
+    expect(
+      queuedOrderInputs({ type: "salvage", target: { kind: "equipment", instanceId: "eq-1" } }),
+    ).toEqual({});
+  });
+
+  it("an unknown recipeKey reserves nothing (defensive, never throws)", () => {
+    expect(
+      queuedOrderInputs({
+        type: "craftLine",
+        kind: "refine",
+        recipeKey: "doesNotExist",
+        mode: { kind: "batch", remaining: 99 },
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("allocatedItem: the QUEUED arm", () => {
+  it("a queued batch order reserves count x per-iteration", () => {
+    const queued = [queuedRefineJob("q-1", 4)];
+    expect(allocatedItem([], queued, REFINE_INPUT_ITEM).toNumber()).toBe(4 * REFINE_PER_ITER);
+  });
+
+  it("a queued CONTINUOUS order reserves exactly one iteration", () => {
+    const queued: QueuedJob[] = [
+      {
+        id: "q-1",
+        facility: "refinery",
+        order: { type: "craftLine", kind: "refine", recipeKey: REFINE_KEY, mode: { kind: "continuous" } },
+      },
+    ];
+    expect(allocatedItem([], queued, REFINE_INPUT_ITEM).toNumber()).toBe(REFINE_PER_ITER);
+  });
+
+  it("running lines and queued orders SUM into one allocation", () => {
+    const lines = [refineLine("l1", 6)];
+    const queued = [queuedRefineJob("q-1", 4)];
+    expect(allocatedItem(lines, queued, REFINE_INPUT_ITEM).toNumber()).toBe((6 + 4) * REFINE_PER_ITER);
+  });
+
+  it("a queued SALVAGE order contributes 0 to material allocation", () => {
+    const queued: QueuedJob[] = [
+      { id: "q-1", facility: "salvageBay", order: { type: "salvage", target: { kind: "material", itemId: REFINE_INPUT_ITEM } } },
+    ];
+    expect(allocatedItem([], queued, REFINE_INPUT_ITEM).toNumber()).toBe(0);
+  });
+
+  it("removing the queued entry releases its reservation exactly, no residue", () => {
+    const queued = [queuedRefineJob("q-1", 4), queuedRefineJob("q-2", 3)];
+    expect(allocatedItem([], queued, REFINE_INPUT_ITEM).toNumber()).toBe(7 * REFINE_PER_ITER);
+    // Derived, not stored: drop the entry and the reservation is simply no longer derived.
+    const afterRemoval = queued.filter((job) => job.id !== "q-1");
+    expect(allocatedItem([], afterRemoval, REFINE_INPUT_ITEM).toNumber()).toBe(3 * REFINE_PER_ITER);
+  });
+});
+
+describe("canReserveOrder (the ISOLATED enqueue-affordability policy)", () => {
+  // Minimal structural state, the same shape freeItemForState accepts.
+  function stateWith(stock: number, lines: CraftLine[] = [], queued: QueuedJob[] = []) {
+    return {
+      inventory: { [REFINE_INPUT_ITEM]: [new Decimal(stock)] },
+      refineLines: lines,
+      fabricateLines: [] as CraftLine[],
+      processQueue: queued,
+    };
+  }
+
+  it("accepts an order whose inputs are entirely free", () => {
+    const gate = canReserveOrder(stateWith(10 * REFINE_PER_ITER), refineOrder(10));
+    expect(gate.ok).toBe(true);
+  });
+
+  it("accepts an order costing EXACTLY the free stock (the boundary is inclusive)", () => {
+    const gate = canReserveOrder(stateWith(3 * REFINE_PER_ITER), refineOrder(3));
+    expect(gate.ok).toBe(true);
+  });
+
+  it("refuses an order one unit short, with the `materials` reason", () => {
+    const gate = canReserveOrder(stateWith(3 * REFINE_PER_ITER - 1), refineOrder(3));
+    expect(gate.ok).toBe(false);
+    if (!gate.ok) expect(gate.reason).toBe("materials");
+  });
+
+  it("counts a RUNNING line's reservation against the order", () => {
+    // Stock covers 10 iterations, but a running line already holds 8 of them.
+    const gate = canReserveOrder(stateWith(10 * REFINE_PER_ITER, [refineLine("l1", 8)]), refineOrder(3));
+    expect(gate.ok).toBe(false);
+  });
+
+  it("counts an ALREADY-QUEUED order's reservation against the next one (no double-book)", () => {
+    const gate = canReserveOrder(
+      stateWith(10 * REFINE_PER_ITER, [], [queuedRefineJob("q-1", 8)]),
+      refineOrder(3),
+    );
+    expect(gate.ok).toBe(false);
+    // ...but the amount that IS still free remains queueable.
+    expect(canReserveOrder(stateWith(10 * REFINE_PER_ITER, [], [queuedRefineJob("q-1", 8)]), refineOrder(2)).ok).toBe(true);
+  });
+
+  it("always accepts a SALVAGE order: it reserves a target, not material inputs", () => {
+    const gate = canReserveOrder(stateWith(0), {
+      type: "salvage",
+      target: { kind: "material", itemId: REFINE_INPUT_ITEM },
+    });
+    expect(gate.ok).toBe(true);
+  });
+
+  it("accepts an UNKNOWN recipe (nothing to reserve), leaving `notFound` to the promotion gate", () => {
+    const gate = canReserveOrder(stateWith(0), {
+      type: "craftLine",
+      kind: "refine",
+      recipeKey: "doesNotExist",
+      mode: { kind: "batch", remaining: 5 },
+    });
+    expect(gate.ok).toBe(true);
   });
 });
 

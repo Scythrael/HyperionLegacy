@@ -15,12 +15,34 @@
 //   stored ledger drifting out of sync with reality (design §1).
 //
 //   allocated(item) = Σ over active lines L of  L.remaining × inputsPerIteration(L)[item]
+//                   + Σ over QUEUED craft orders Q of  iterations(Q) × inputsPerIteration(Q)[item]
 //   free(item)      = max(0, inventory[item] − allocated(item))
 //
 //   Only NOT-YET-STARTED iterations (`remaining`) count toward allocation: an
 //   in-flight timed job already consumed its inputs at start (deduct-at-start), so
 //   those units already left `inventory` and must NOT be double-counted. This is
 //   what keeps `free ≥ 0` (design §1).
+//
+// ⚠️ QUEUED ORDERS RESERVE TOO (0.13.3 follow-up, 2026-09-04, user-approved behavior
+//   change). The second sum above is new. Before it, a queued craft order reserved
+//   NOTHING, so a player could park an order and then watch a facility upgrade, a ship
+//   build, or a second line spend the very materials that order was waiting to use. The
+//   order then sat blocked on a shortage the player had no way to see coming. A queued
+//   order now holds its inputs from the moment it is queued until the moment it promotes
+//   into a real line (which is the SAME reservation, just carried by a CraftLine instead
+//   of a QueuedJob, so there is no instant where the units look free).
+//
+// ⚠️ RESERVED BY DERIVATION, NEVER BY DEDUCTION, AND THAT IS A HARD RULE.
+//   Nothing is withdrawn from `inventory` at enqueue and nothing is deposited back on
+//   cancel. The reservation is recomputed from state.processQueue on every read, exactly
+//   the way the line half already works and exactly the way reservation.ts derives the
+//   salvage reservations. The reason is concrete, not stylistic: clampInventoryToCaps
+//   trims over-cap stacks and DISCARDS the overflow, and it runs on every load. A cancel
+//   that deposited materials back while the player sat at cap would push the refund over
+//   the cap and the game would silently destroy it, which the project forbids outright.
+//   A derived reservation never moves a material, so there is no deposit, no overflow and
+//   no loss. (Ship builds are the counter-example: they deduct their whole BOM atomically
+//   at start, which is exactly why a build cannot be cancelled. Do not copy that here.)
 //
 // SCOPE (Task C1 is the PURE foundation ONLY)
 //   These helpers take the `lines` array as a PARAMETER rather than reading it off
@@ -33,6 +55,11 @@
 
 import Decimal from "break_infinity.js";
 import { REFINE_RECIPES, BLUEPRINTS } from "./model";
+// TYPE-ONLY, AND IT MUST STAY THAT WAY. model.ts already imports CraftLine /
+// CraftLineKind / CraftLineMode FROM this file (as types), so a RUNTIME import in this
+// direction would close a real cycle. Both directions are erased at build time, so the
+// module graph stays a DAG and this file stays the pure leaf its header promises.
+import type { QueuedJob, QueuedOrder } from "./model";
 import { itemTotal } from "./inventory";
 
 // --- Functions ---------------------------------------------------------------
@@ -120,12 +147,69 @@ export function lineInputsPerIteration(line: CraftLine): Record<string, Decimal>
   return result;
 }
 
-// Total amount of `itemId` RESERVED across all given lines =
-//   Σ over lines of  line.remaining × inputsPerIteration(line)[itemId].
-// A line that doesn't consume `itemId` contributes 0 (its perIteration map has no
-// entry for that key -> `?? new Decimal(0)`). No lines -> 0. PURE: reads only the
-// passed lines + the static registries.
-export function allocatedItem(lines: CraftLine[], itemId: string): Decimal {
+// ----------------------------------------------------------------------------
+// Queued craft orders: how many iterations one reserves, and what that costs
+// ----------------------------------------------------------------------------
+
+// Iterations a queued craft order reserves: a batch reserves its FULL count, a
+// continuous order reserves exactly its ONE queued next iteration (the same rule a
+// running continuous line follows, see CraftLineMode's ⚠️ note above).
+//
+// THIS IS THE CANONICAL DEFINITION and it lives here, in the leaf, because the
+// reservation math is what makes the number load-bearing: it has to be the SAME count
+// the promotion gate later validates and the same count startLine will reserve as a
+// line. tick.ts's queuedLineIterations now delegates to this rather than carrying its
+// own copy, so the queue's reservation and the queue's gate can never drift apart.
+export function queuedOrderIterations(mode: CraftLineMode): number {
+  return mode.kind === "batch" ? mode.remaining : 1;
+}
+
+// TOTAL inputs one QUEUED order reserves, as a fresh Decimal map keyed by itemId =
+// iterations(order) × inputsPerIteration(order's recipe).
+//
+// A SALVAGE order returns {} deliberately: a salvage reserves its TARGET, not a
+// material input, and that reservation is derived separately by reservation.ts. Folding
+// the two would give one item id two different reservation meanings.
+//
+// Reuses lineInputsPerIteration by handing it a PROBE line carrying only the two fields
+// that lookup reads (kind + recipeKey), which is the same probe idiom
+// maxAffordableIterations already uses. An unknown recipe therefore yields {} through
+// lineInputsPerIteration's own defensive empty map: a garbage order reserves nothing
+// rather than throwing or reserving a phantom amount.
+//
+// PURE: reads only the passed order + the static registries.
+export function queuedOrderInputs(order: QueuedOrder): Record<string, Decimal> {
+  if (order.type !== "craftLine") return {};
+  const perIteration = lineInputsPerIteration({
+    id: "",
+    kind: order.kind,
+    recipeKey: order.recipeKey,
+    remaining: 0,
+    mode: order.mode,
+  });
+  const iterations = queuedOrderIterations(order.mode);
+  const result: Record<string, Decimal> = {};
+  for (const [itemId, per] of Object.entries(perIteration)) {
+    // per is a fresh Decimal from lineInputsPerIteration (never the registry's own
+    // instance), and .times returns a new one, so nothing shared is touched here.
+    result[itemId] = per.times(iterations);
+  }
+  return result;
+}
+
+// Total amount of `itemId` RESERVED, across both reservation sources =
+//   Σ over lines  of  line.remaining × inputsPerIteration(line)[itemId]
+// + Σ over queued of  iterations(order) × inputsPerIteration(order)[itemId].
+// A line or order that doesn't consume `itemId` contributes 0 (its perIteration map has
+// no entry for that key -> `?? new Decimal(0)`). Nothing running and nothing queued -> 0.
+// PURE: reads only the passed lines/queue + the static registries.
+//
+// ⚠️ `queued` IS A REQUIRED PARAMETER, NOT AN OPTIONAL ONE WITH A `[]` DEFAULT. A default
+// would let a call site silently keep the OLD, leaky answer (queued orders reserving
+// nothing) just by not being updated, which is precisely the bug this change exists to
+// close. Making it required turns every unconverted call site into a compile error, so
+// the compiler enumerates them instead of the reader having to.
+export function allocatedItem(lines: CraftLine[], queued: QueuedJob[], itemId: string): Decimal {
   let total = new Decimal(0);
   for (const line of lines) {
     const perIteration = lineInputsPerIteration(line);
@@ -133,16 +217,27 @@ export function allocatedItem(lines: CraftLine[], itemId: string): Decimal {
     // remaining is a plain iteration COUNT -> wrap in Decimal for the product.
     total = total.plus(new Decimal(line.remaining).times(perItem));
   }
+  for (const job of queued) {
+    // queuedOrderInputs has already multiplied by the order's iteration count, so this
+    // arm adds the whole amount rather than a per-iteration one. A queued SALVAGE order
+    // contributes {} (see queuedOrderInputs), so it adds 0 here.
+    const inputs = queuedOrderInputs(job.order);
+    total = total.plus(inputs[itemId] ?? new Decimal(0));
+  }
   return total;
 }
 
 // Usable stock of `itemId` = inventory − allocated, clamped at 0. The clamp is
 // defensive: allocation should never exceed stock in normal operation (a line only
-// reserves what it could afford at start), but a missing inventory key or any future
-// edge must yield 0, never a negative "free" (design §1: free ≥ 0 always). PURE.
+// reserves what it could afford at start, and as of 0.13.3 a queued order is only
+// accepted when its inputs are free, see canReserveOrder below), but a missing inventory
+// key, an out-of-band inventory drop (a mission consuming stock, an over-cap clamp), or
+// any future edge must yield 0, never a negative "free" (design §1: free ≥ 0 always).
+// PURE.
 export function freeItem(
   inventory: Record<string, Decimal[]>,
   lines: CraftLine[],
+  queued: QueuedJob[],
   itemId: string,
 ): Decimal {
   // Quality-bucketed inventory (Task 9a): usable stock is the item's TOTAL across all
@@ -150,7 +245,7 @@ export function freeItem(
   // `inventory[itemId] ?? 0`). Allocation reserves against the total; buckets are an
   // internal storage detail the allocation math does not care about.
   const stock = itemTotal(inventory, itemId);
-  const reserved = allocatedItem(lines, itemId);
+  const reserved = allocatedItem(lines, queued, itemId);
   return Decimal.max(new Decimal(0), stock.minus(reserved));
 }
 
@@ -168,31 +263,103 @@ export function freeItem(
 //   convenience folds that step into ONE place so a spender writes
 //   `freeItemForState(state, itemId)` and nothing more.
 //
-//   The craft LINES are the SINGLE reservation source (Shipyard controller
+//   The craft LINES were the SINGLE reservation source (Shipyard controller
 //   correction: a ship BUILD consumes its whole BOM at START, deduct-at-start,
 //   never a time-spread reservation, so it is NOT summed here; only refine +
-//   fabricate lines reserve over time). Both line arrays are concatenated and
-//   handed to the pure freeItem, so this inherits freeItem's clamp (free >= 0),
-//   its absent-key handling (missing inventory key -> 0), and its derived-not-
-//   stored guarantee with ZERO new math, it is a thin wrapper, not a second
-//   implementation of the allocation formula.
+//   fabricate lines reserve over time). As of the 0.13.3 follow-up the QUEUED
+//   craft orders are a second source, so this wrapper folds in state.processQueue
+//   as well. That is the whole protection the change buys: every material spender
+//   in the engine (facility upgrades, docks + equipment-storage expansions, ship
+//   builds, new craft lines) already gates on this one function, so they ALL now
+//   respect a queued order's reservation without a single edit at their own sites.
+//   Both line arrays are concatenated and handed, with the queue, to the pure
+//   freeItem, so this inherits freeItem's clamp (free >= 0), its absent-key
+//   handling (missing inventory key -> 0), and its derived-not-stored guarantee
+//   with ZERO new math, it is a thin wrapper, not a second implementation of the
+//   allocation formula.
 //
 // STRUCTURAL PARAM (not the GameState import): this module deliberately imports
 //   ONLY the recipe registries (see the header's SCOPE note). Typing the param as
 //   the minimal shape it actually reads, inventory + the two OPTIONAL line
-//   arrays, keeps that tiny dependency surface intact (no import cycle risk with
-//   model.ts's GameState) while still accepting a full GameState by structural
-//   compatibility (its required CraftLine[] arrays satisfy the optional fields).
-//   The `?? []` tolerates a pre-C2/pre-C6 save shape that predates either array.
+//   arrays + the OPTIONAL queue, keeps that tiny dependency surface intact (no
+//   import cycle risk with model.ts's GameState) while still accepting a full
+//   GameState by structural compatibility (its required arrays satisfy the
+//   optional fields). The `?? []` tolerates a pre-C2/pre-C6 save shape that
+//   predates either line array, and a pre-0.13.3 shape that predates processQueue.
 // ============================================================================
 export function freeItemForState(
   state: {
     inventory: Record<string, Decimal[]>;
     refineLines?: CraftLine[];
     fabricateLines?: CraftLine[];
+    processQueue?: QueuedJob[];
   },
   itemId: string,
 ): Decimal {
   const lines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
-  return freeItem(state.inventory, lines, itemId);
+  return freeItem(state.inventory, lines, state.processQueue ?? [], itemId);
+}
+
+// ============================================================================
+// canReserveOrder: THE ENQUEUE AFFORDABILITY POLICY, ISOLATED ON PURPOSE
+// (Crafting 0.13.3 follow-up, 2026-09-04, user-approved behavior change.)
+//
+// ⚠️ THIS REVERSES DESIGN SECTION 5.3. That section said, in as many words, that
+// enqueue deliberately does NOT check affordability, because "queue work you cannot
+// afford yet" was the queue's whole purpose. It was written when a queued order
+// reserved nothing. Now that a queued order RESERVES its inputs, that policy no longer
+// type-checks against reality: reserving materials you do not hold reserves nothing, it
+// just prints a number the player cannot act on and lets the queue claim stock that is
+// not there. So enqueue now requires the order's inputs to be FREE right now. The design
+// doc and the code disagree on this point until the doc is amended; this comment is the
+// record of which one is current, so a future reader does not "restore" 5.3 by mistake.
+//
+// ⚠️ THE POLICY LIVES HERE, IN ONE PREDICATE, WITH ONE CALLER (canEnqueueOrder in
+// tick.ts). That isolation is deliberate and it was the user's explicit condition: they
+// weighed this against the alternative policy ("reserve what you can, queue the rest
+// anyway, and let the reservation grow as stock arrives") and may revisit it. Switching
+// policies must stay a ONE-SITE change, so nothing outside this function may encode the
+// rule, and no caller may re-derive it.
+//
+// WHAT IT DOES NOT DECIDE, also deliberately:
+//   - A SALVAGE order always passes. Salvage reserves a TARGET, not material inputs, and
+//     that reservation (plus its own duplicate/holding rules) belongs to reservation.ts
+//     and canStartSalvage. Answering ok here keeps this predicate about materials only.
+//   - An UNKNOWN recipe always passes, because queuedOrderInputs returns {} for one and
+//     the loop below never runs. That is the honest answer for THIS question (a recipe
+//     with no inputs reserves nothing, so nothing can be short) and it preserves the
+//     existing behavior for a garbage key: it enqueues, and the promotion gate refuses it
+//     with `notFound`, which is the accurate reason. Reporting "materials" there would be
+//     a true refusal with a false explanation.
+//
+// PURE predicate: reads state, spends nothing, mutates nothing, same posture as
+// canStartLine / canEnqueueOrder. Typed-reason return, matching the file's gate idiom.
+// ============================================================================
+
+// Why an order's inputs cannot be reserved. Exactly one member today, and it is named
+// `materials` on purpose: it is the SAME token canStartLine already returns for the same
+// underlying condition, so the UI reuses one sentence instead of inventing a second
+// wording for "not enough of it".
+export type ReserveBlockReason = "materials";
+
+export function canReserveOrder(
+  state: {
+    inventory: Record<string, Decimal[]>;
+    refineLines?: CraftLine[];
+    fabricateLines?: CraftLine[];
+    processQueue?: QueuedJob[];
+  },
+  order: QueuedOrder,
+): { ok: true } | { ok: false; reason: ReserveBlockReason } {
+  // The order's FULL cost (iterations already folded in), or {} for a salvage order or an
+  // unknown recipe. An empty map means the loop never runs and the answer is ok.
+  const inputs = queuedOrderInputs(order);
+  for (const [itemId, required] of Object.entries(inputs)) {
+    // FREE, not raw stock: the pool this order would draw from is what is left after the
+    // running lines AND the already-queued orders have taken their share. Asking against
+    // raw inventory would let two queued orders both claim the same units, which is the
+    // double-book this whole change exists to prevent.
+    if (freeItemForState(state, itemId).lt(required)) return { ok: false, reason: "materials" };
+  }
+  return { ok: true };
 }

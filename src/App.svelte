@@ -589,6 +589,11 @@
     // offline == live true by construction, so no UI handler may ever call it however much
     // snappier an instant promotion would feel.
     enqueueOrder,
+    // Crafting 0.13.3 follow-up (2026-09-04): the configurator's "Add to queue" gate asks
+    // the REAL enqueue predicate about the REAL order, because the queue now refuses an
+    // order whose inputs are not free and craftQueue.ts's shape-only probe cannot see that
+    // (see craftQueueButtonBlockText).
+    canEnqueueOrder,
     moveQueuedOrder,
     removeQueuedOrder,
     // The two raw reason unions the queue surfaces. QueueBlockReason spans BOTH gate
@@ -4837,10 +4842,17 @@
   // Mirrors commitStartLine's shape exactly (call the pure fn, bail on a same-ref refusal,
   // reassign, log, collapse the configurator, save) with ONE deliberate difference: it does
   // NOT route through the refineConfirm modal. That confirmation exists to warn that a
-  // STARTED line reserves materials; a queued order reserves nothing at all (design 5.3,
-  // which is also why the configurator's Free / Allocated / Total preview stays honest), and
-  // it can be removed with one click, so there is nothing to confirm. Adding a modal here
-  // would be friction with no risk behind it.
+  // STARTED line reserves materials.
+  //
+  // ⚠️ A QUEUED ORDER NOW RESERVES ITS MATERIALS TOO (0.13.3 follow-up, 2026-09-04), which
+  // is the opposite of what this comment used to say, AND THE MODAL IS STILL DELIBERATELY
+  // ABSENT. The confirmation exists because a started line's reservation is COSTLY to undo:
+  // cancelling one leaves any in-flight iteration to finish and its inputs already spent. A
+  // queued order's reservation is free to undo: it is DERIVED from the queue entry, so
+  // removing the row with one click returns every unit to Free immediately, with nothing
+  // spent and nothing lost. There is no risk behind a modal here, only friction.
+  // (This is also why the configurator's Free / Allocated / Total preview stays honest: it
+  // now counts queued orders in Allocated, so the player sees the reservation appear.)
   //
   // The label comes from craftQueue.ts's queuedOrderLabel, the same function the queue ROW
   // uses, so the log line and the row can never disagree about what was queued.
@@ -5041,6 +5053,16 @@
         return "That order cannot be queued at this facility.";
       case "alreadyQueued":
         return "That exact target is already queued here.";
+      case "materials":
+        // 0.13.3 follow-up: a queued craft order RESERVES its inputs, so it can only be
+        // accepted while those inputs are free. Worded to teach the new rule rather than
+        // just report the shortage, because "queue it now, afford it later" was the old
+        // behavior and a player who learned that needs to be told what changed. It shares
+        // canStartLine's `materials` TOKEN (so the engine has one name for the condition)
+        // but not its sentence: startLineBlockText explains why a line will not START,
+        // which is a different moment and a different remedy from why the queue will not
+        // ACCEPT an order.
+        return "Not enough free materials. A queued order reserves its materials as soon as you queue it, so you need them free now. They are released the moment you remove the order.";
     }
   }
 
@@ -5057,15 +5079,46 @@
   // at the call site instead of hidden in a closure over component state.
   //
   // ⚠️ THE QUANTITY CHECK IS LOAD-BEARING, not decoration. enqueueOrder validates the queue
-  // (facility, depth, duplicates) but NOT the order's own contents, while canStartLine rejects
-  // a count below 1 with "invalidCount". A blank or fractional qty would therefore queue an
-  // order that can never be promoted and would sit at the head of the queue forever. Gating
-  // here is what keeps that from being reachable. It deliberately does NOT gate on
-  // affordability: queueing something you cannot afford yet is the entire point of a queue.
-  function craftQueueButtonBlockText(view: CraftQueueView, recipeKey: string, qty: number): string {
+  // (facility, depth, duplicates, and now affordability) but NOT the order's own COUNT,
+  // while canStartLine rejects a count below 1 with "invalidCount". A blank or fractional
+  // qty would therefore queue an order that can never be promoted and would sit at the head
+  // of the queue forever. Gating here is what keeps that from being reachable, and it runs
+  // FIRST because a count below 1 also makes the affordability question meaningless.
+  //
+  // ⚠️ IT NOW ASKS THE REAL GATE ABOUT THE REAL ORDER (0.13.3 follow-up, 2026-09-04).
+  // It used to read `view.enqueueBlockReason`, which comes from craftQueue.ts's shape-only
+  // ENQUEUE_PROBE and therefore only ever answered the facility-level depth question. That
+  // was sufficient while enqueue checked nothing about the order's contents. It is not
+  // sufficient now that a queued craft order RESERVES its inputs and is refused when they
+  // are not free: the probe carries an empty recipeKey (deliberately, see ENQUEUE_PROBE)
+  // and so can never surface a `materials` refusal. Building the actual order and asking
+  // canEnqueueOrder gives the identical depth verdict the probe gave, PLUS the
+  // affordability one, from the same function the click itself will run. The button and
+  // the click therefore cannot disagree.
+  //
+  // `gameState` is passed IN rather than closed over for the reason the file's sibling
+  // helpers are written that way: the template expression then names every reactive input
+  // it depends on at the call site, so what re-runs this readout is visible there instead
+  // of hidden inside the function.
+  function craftQueueButtonBlockText(
+    gameState: GameState,
+    view: CraftQueueView,
+    kind: CraftLineKind,
+    recipeKey: string,
+    qty: number
+  ): string {
     if (recipeKey === "") return "Choose an item to queue.";
-    if (!Number.isFinite(qty) || Math.floor(qty) < 1) return startLineBlockText("invalidCount");
-    if (view.enqueueBlockReason !== null) return enqueueBlockText(view.enqueueBlockReason);
+    const count = Math.floor(qty);
+    if (!Number.isFinite(qty) || count < 1) return startLineBlockText("invalidCount");
+    // The order EXACTLY as doEnqueueLine will build it, including the batch count, so the
+    // affordability answer is about the amount the player is actually about to reserve.
+    const gate = canEnqueueOrder(gameState, view.facility, {
+      type: "craftLine",
+      kind,
+      recipeKey,
+      mode: { kind: "batch", remaining: count },
+    });
+    if (!gate.ok) return enqueueBlockText(gate.reason);
     return "";
   }
 
@@ -5803,6 +5856,14 @@
   // the free/allocated numbers update LIVE as lines start, drain, and cancel. `?? []`
   // guards a pre-C2 save shape defensively (C6's migration seeds the arrays).
   $: allLines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+  // THE SECOND ALLOCATION BASIS (Crafting 0.13.3 follow-up, 2026-09-04): the WAITING
+  // orders. A queued craft order now reserves its inputs exactly as a running line does,
+  // so every allocatedItem / freeItem read below takes this alongside `allLines` and the
+  // Allocated figure includes queued work. Derived off state for the same reason
+  // `allLines` is: removing a queued order returns its materials to Free on the very next
+  // read, because the reservation is DERIVED and never deducted (allocation.ts's header).
+  // `?? []` guards a pre-0.13.3 save shape that predates the field.
+  $: queuedOrders = state.processQueue ?? [];
 
   // ── The Refinery's ORDER QUEUE view (Crafting 0.13.3, Phase 4 Unit 4.2) ────
   // ONE pure builder call per render, and the console template reads nothing but its
@@ -7384,7 +7445,7 @@
                       {@const perIteration = lineInputsPerIteration({ id: "", kind: "refine", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
                       <!-- The queue button's own gate + its persistent reason, from ONE helper so
                            the disabled state and the note below can never disagree. -->
-                      {@const queueBlock = craftQueueButtonBlockText(refineryQueue, cfgRecipeKey, cfgQty)}
+                      {@const queueBlock = craftQueueButtonBlockText(state, refineryQueue, "refine", cfgRecipeKey, cfgQty)}
                       <div class="mission-card" style="margin-top: 10px;">
                         <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -7428,8 +7489,8 @@
                         {#each Object.keys(perIteration) as itemId}
                           {@const per = perIteration[itemId]}
                           {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
-                          {@const free = freeItem(state.inventory, allLines, itemId)}
-                          {@const allocated = allocatedItem(allLines, itemId)}
+                          {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                          {@const allocated = allocatedItem(allLines, queuedOrders, itemId)}
                           {@const stock = itemTotal(state.inventory, itemId)}
                           <div class="cfg-box">
                             <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
@@ -7916,7 +7977,7 @@
                         {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
                         <!-- The queue button's own gate + its persistent reason, from ONE helper so
                              the disabled state and the note below can never disagree. -->
-                        {@const queueBlock = craftQueueButtonBlockText(fabricatorQueue, cfgRecipeKey, cfgQty)}
+                        {@const queueBlock = craftQueueButtonBlockText(state, fabricatorQueue, "fabricate", cfgRecipeKey, cfgQty)}
                         <!-- The selected blueprint, hoisted to this level because {@const} has to be
                              the immediate child of a block, not of the .mission-card <div> where the
                              REWARDS readout below actually renders. Undefined until the player has
@@ -7966,8 +8027,8 @@
                           {#each Object.keys(perIteration) as itemId}
                             {@const per = perIteration[itemId]}
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
-                            {@const free = freeItem(state.inventory, allLines, itemId)}
-                            {@const allocated = allocatedItem(allLines, itemId)}
+                            {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
+                            {@const allocated = allocatedItem(allLines, queuedOrders, itemId)}
                             {@const stock = itemTotal(state.inventory, itemId)}
                             <div class="cfg-box">
                               <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
@@ -13470,18 +13531,20 @@
             <!-- Allocated / Free readout (Crafting Allocation Redesign C5, 2026-07-16).
                  Total is the "Stored" row above (physical stock). Allocated = units
                  reserved by active craft lines (state.refineLines + fabricateLines via
-                 the `allLines` reactive); Free = usable stock. `allocatedItem` is
-                 DISPLAY-CLAMPED to <= Total here (Decimal.min) so a reserve-ahead
-                 continuous line can never render "Allocated > Total", the freeItem
-                 helper already clamps Free >= 0, this keeps the tooltip coherent. -->
-            {@const tipAllocated = Decimal.min(allocatedItem(allLines, tipId), tipCount)}
+                 the `allLines` reactive) PLUS, as of the 0.13.3 follow-up, units reserved
+                 by WAITING craft orders (the `queuedOrders` reactive); Free = usable
+                 stock. `allocatedItem` is DISPLAY-CLAMPED to <= Total here (Decimal.min)
+                 so a reserve-ahead continuous line can never render "Allocated > Total",
+                 the freeItem helper already clamps Free >= 0, this keeps the tooltip
+                 coherent. The two ROWS are unchanged; only the numbers now move. -->
+            {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId), tipCount)}
             <div class="warehouse-tt-row">
               <span>Allocated</span>
               <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipAllocated)}</span>
             </div>
             <div class="warehouse-tt-row">
               <span>Free</span>
-              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, tipId))}</span>
+              <span class="warehouse-tt-v" style="color: var(--color-success)">{formatNumber(freeItem(state.inventory, allLines, queuedOrders, tipId))}</span>
             </div>
             <div class="warehouse-tt-stat">{tip.flavor}</div>
             {#if tipAtCap}
