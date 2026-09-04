@@ -7599,7 +7599,7 @@
                          success/danger color instead of shipping its own per-OS emoji palette;
                          the color, the condition and the text are all untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -8097,7 +8097,7 @@
                                   faTalentBonus: craftingItemLevelBonus(state),
                                 })}
                                 <div class="cfg-line cfg-line-dim">
-                                  Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling} · at the ceiling, more crafting levels do not raise this tier{/if}
+                                  Mints at iLevel {iLevel.iLevel} of {iLevel.ceiling} (Tier {xpBp.tier} ceiling){#if iLevel.atCeiling}{" "}· at the ceiling, more crafting levels do not raise this tier{/if}
                                 </div>
                               {/if}
                             </div>
@@ -8211,7 +8211,7 @@
                          Fabricator track is gated on credits AND (today: empty) materials, and
                          the two can be short for different reasons, so they are never merged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -8493,7 +8493,7 @@
                          the two can be short for different reasons, so they are never merged.
                          The reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -8781,7 +8781,7 @@
                          a component cannot be a ternary branch. Color, text and the
                          reservation-aware "(N reserved)" annotation are unchanged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -8947,7 +8947,7 @@
                            unreachable today and now shows the warning icon rather than a red
                            cross, which is the same signal in the theme's own vocabulary. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                        {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                       </div>
                     {/each}
 
@@ -9531,7 +9531,7 @@
                   <div class="salvaged-action-info">
                     <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
                     <div class="salvaged-action-hint">
-                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}{#if selQueued > 0} ({selQueued} queued, {selFree} free){/if}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}{#if selQueued > 0}{" "}({selQueued} queued, {selFree} free){/if}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
                     </div>
                     <div class="salvaged-action-hint">
                       {#if !selHeld}
@@ -9830,7 +9830,7 @@
                          short for different reasons, so they are never merged. The
                          reservation-aware "(N reserved)" annotation is untouched. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 
@@ -11764,7 +11764,7 @@
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
-                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)} ({formatNumber(reserved)} reserved){/if}
+                      {met ? "✅" : "❌"} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
                   {/each}
 

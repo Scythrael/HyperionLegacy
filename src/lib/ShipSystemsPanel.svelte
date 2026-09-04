@@ -1629,7 +1629,7 @@
             {@const delta = fmtDelta(row)}
             <div class="ss-srow">
               <span class="ss-sk">{row.label}</span>
-              <span class="ss-sv">{fmtStatValue(row)}{#if delta}<small> ({delta})</small>{/if}</span>
+              <span class="ss-sv">{fmtStatValue(row)}{#if delta}{" "}<small>({delta})</small>{/if}</span>
             </div>
           {/each}
         </div>
