@@ -572,6 +572,14 @@
     canBuildShip,
     startShipBuild,
     shipBuildDurationTicks,
+    // Shipyard queue UI (2026-09-04): how many concurrent ship BUILDS the yard may run right
+    // now. ⚠️ NOT shipyardBayCount, and the difference is the whole point of importing it: the
+    // Shipyard's bays are shared with REPAIRS, and this helper is deliberately bays MINUS ONE
+    // so a build can never take the last bay a repair needs. The queue panel's slots readout
+    // has to print BUILD capacity or it would promise the player throughput the engine will not
+    // give them. Same helper craftQueue.ts's slotsTotalFor already delegates to for this
+    // facility, so the panel's fallback and its view model can never disagree.
+    shipBuildSlotCount,
     type ShipBuildBlockReason,
     type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
@@ -5058,8 +5066,17 @@
       // line rather than a re-read of a nested conditional.
       if (row.order.type === "salvage") return "Waiting for a free bay.";
       if (row.order.type === "research") return "Waiting for a free research slot.";
-      // A ship build still reads "line" here, unchanged, until the Shipyard console unit gives
-      // it its own noun: it is the same string that arm renders today, not a new claim.
+      // ⚠️ THE SHIP-BUILD NOUN IS "BUILD SLOT", NOT "BAY" (Shipyard queue UI, 2026-09-04), and
+      // the distinction is the load-bearing one on this console. The Shipyard's BAYS are shared
+      // between builds and repairs; the number a build actually competes for is
+      // shipBuildSlotCount, which is deliberately bays MINUS ONE so a build can never take the
+      // last bay a repair needs. Saying "bay" here would point the player at the bigger number
+      // and promise capacity the engine will not give them. "Build slot" is the exact phrase the
+      // readout at the top of the Shipyard's own queue panel prints, so the row and the readout
+      // name one thing. (This replaces the placeholder "line" reading the queue-engine unit left
+      // here; the "Waiting for a free line." string below is unchanged and still serves every
+      // craft-line row.)
+      if (row.order.type === "shipBuild") return "Waiting for a free build slot.";
       return "Waiting for a free line.";
     }
     if (reason === "wrongFacility") {
@@ -5144,15 +5161,85 @@
       }
     }
 
-    // ⚠️ THE SHIP-BUILD ARM (queue-engine extension, 2026-09-04) DOES NOT HAVE ITS SENTENCES
-    // YET, and this is a deliberately honest placeholder rather than a guess. That unit was
-    // ENGINE ONLY: the Shipyard console gets its queue affordances (and with them the
-    // per-reason wording drawn from canBuildShip's own vocabulary, the way the three arms
-    // above draw theirs) in its own console unit. Wording it here first would mean writing the
-    // sentences twice and having to keep two copies in step. A row that reaches this today is
-    // already showing its engine-accurate `blockReason` token to anything that reads the
-    // model; what it cannot yet do is say it in a full sentence, so it says the true general
-    // thing instead.
+    // THE SHIP-BUILD ARM (Shipyard queue UI, 2026-09-04), which is what the queue-engine unit's
+    // placeholder was holding this spot for. It covers EVERY member of ShipBuildBlockReason
+    // (canBuildShip's own vocabulary), plus the noSlot handled before the split above.
+    //
+    // ⚠️ WRITTEN HERE RATHER THAN BORROWED FROM shipBuildBlockText, for the identical reason
+    // the research arm above is written here. shipBuildBlockText mints BUTTON LABELS:
+    // "Shipyard busy, a build is in progress.", "Ship storage full.", "Not enough credits."
+    // Those are right on a disabled control, which will not act and must say why, and they
+    // read as FAILURES on a queue row, where every one of those conditions is the normal,
+    // expected, self-clearing state of an order that was queued precisely to wait it out. The
+    // NUMBERS and NAMES are still single-sourced: the credit cost and the required blueprint
+    // below are read off the same SHIP_TYPES / BLUEPRINTS fields shipBuildBlockText and the
+    // hull card read.
+    //
+    // ⚠️ QUEUED-BUT-UNAFFORDABLE IS LEGAL BY DESIGN HERE, unlike at enqueue. A queued build
+    // reserves its BILL OF MATERIALS by derivation but its CREDITS are deliberately not
+    // reserved (there is nothing to derive a credit reservation from and a stored one would go
+    // stale, see the shipyardQueueAdapter), so a credit-poor build waits visibly and promotes
+    // the tick the balance covers it. The rows therefore say WHAT is being waited for and that
+    // it starts on its own, never "you cannot do this".
+    //
+    // ⚠️ TWO OF THE SEVEN NEED A HAND, AND THEY SAY SO. `notFound` names a hull class that no
+    // longer exists, which can never become buildable, so it drops the "Waiting:" prefix and
+    // says to remove the order, exactly as the wrongFacility row above does. `storageFull` CAN
+    // clear itself, but only through an action taken on a DIFFERENT console (the Docks), which
+    // a player will not guess from a row that only says "waiting", so it names the remedy.
+    if (row.order.type === "shipBuild") {
+      const hull = SHIP_TYPES[row.order.typeKey as ShipTypeKey];
+      switch (reason) {
+        case "materials":
+          // The BOM was free when the order was queued (enqueue requires it), so reaching this
+          // means something outside the queue has since spent part of it. Self-clearing, and
+          // the remedy is to make the components again.
+          return "Waiting: not enough free materials for the hull. This starts on its own once the missing components are back in stock.";
+        case "credits":
+          // The one shortfall a queued build genuinely plans around, because credits are not
+          // reserved. The cost is named so the player can act on it without scrolling back to
+          // the hull card.
+          return hull === undefined
+            ? "Waiting: not enough credits. This starts on its own once you can afford it."
+            : `Waiting: not enough credits. This starts on its own once you hold ◈ ${formatNumber(hull.buildRecipe.credits)}.`;
+        case "storageFull":
+          // THE DOCKS. A finished hull needs a berth to be parked in, and canBuildShip gates on
+          // that at START so a build never begins that could not be parked. The fix lives on a
+          // different console entirely, so the row names it rather than leaving the player to
+          // work out why a fully affordable build refuses to begin.
+          return "Waiting: the docks are full, so a finished hull would have nowhere to berth. This starts on its own once a berth frees up: expand the Docks, or salvage a ship you no longer need.";
+        case "notResearched":
+          // Content availability. Naming the blueprint (the hull's requiresBlueprint) is what
+          // makes this actionable, exactly as shipBuildBlockText does for the disabled button.
+          {
+            const bpKey = hull?.requiresBlueprint;
+            const bpLabel = bpKey === undefined ? undefined : BLUEPRINTS[bpKey]?.label ?? bpKey;
+            return bpLabel === undefined
+              ? "Waiting: this hull has not been unlocked yet. This starts on its own once its blueprint is researched."
+              : `Waiting: ${bpLabel} must be researched first (Research Lab). This starts on its own once it is.`;
+          }
+        case "notFounded":
+          // Effectively unreachable, because the enqueue affordance only exists on the FOUNDED
+          // build surface and a facility level never falls. Worded honestly anyway: a
+          // hand-edited save must still read as a sentence, not as a missing case.
+          return "Waiting: the Shipyard is not established yet. This starts on its own once it is founded (Upgrades).";
+        case "notFound":
+          // Defensive: a save carrying a retired hull key. It can never promote, so the row
+          // says how to clear it rather than waiting forever in silence.
+          return "That hull class no longer exists. Remove this order.";
+        default:
+          // A craft-line-only, salvage-only or research-only token on a build row is
+          // unreachable: the Shipyard adapter delegates to canBuildShip, which mints only the
+          // reasons above plus the noSlot handled before this split. Worded rather than thrown
+          // so a future adapter change degrades to an honest row instead of a crash.
+          return "Waiting: this order cannot start right now.";
+      }
+    }
+
+    // Any order arm that is neither a craft line nor one of the three handled above. Today this
+    // is unreachable (QueuedOrder has exactly four arms and three are answered already), and it
+    // is kept as the honest general sentence for the next arm added, so a new order type is a
+    // legible row from its first commit rather than a crash or a blank.
     if (row.order.type !== "craftLine") return "Waiting: this order cannot start yet.";
 
     // A craft line. The wording is BORROWED VERBATIM from startLineBlockText so there is
@@ -5520,12 +5607,71 @@
   // state changed between render and click. NO confirm modal (design/mockup: a build is
   // committed once started, so the direct Build press is the commitment). The log names the
   // hull being built (SHIP_TYPES label).
+  //
+  // ⚠️ STARTING DIRECTLY DOES **NOT** CONSUME A QUEUED BUILD FOR THE SAME HULL, AND THAT IS
+  // THE DELIBERATE OPPOSITE OF WHAT doStartResearch DOES (Shipyard queue UI, 2026-09-04).
+  // Read this before "fixing" the asymmetry, because it looks like an oversight and is not.
+  //
+  // doStartResearch drops a matching queued order because it HAS to: a blueprint is researched
+  // exactly once, so the moment a project starts directly, the queued twin can never promote
+  // again (canResearch answers inProgress, then alreadyResearched forever). It sits there
+  // holding a depth slot until removed by hand. That is a real stuck state and the engine's
+  // duplicate-enqueue gate exists precisely to prevent that shape.
+  //
+  // A HULL CLASS IS NOT UNIQUE. Queueing three Freighters is legal, normal and exactly what the
+  // queue is for, which is why the engine has NO duplicate gate on a shipBuild order. So a
+  // player who has three Freighters queued and presses Build on the Freighter card has asked
+  // for FOUR Freighters, not three. Consuming one of the queued orders here would silently
+  // delete work the player configured and paid attention to, to solve a stuck state that does
+  // not exist: after the direct build finishes, canBuildShip answers `ok` for that hull again
+  // and every queued Freighter promotes in turn. The only thing the direct press costs a queued
+  // order is TIME (it waits on `noSlot` while the direct build runs), which is the ordinary
+  // meaning of a queue.
+  //
+  // The direct press also cannot STEAL a queued build's materials, which is the other thing
+  // worth knowing here: canBuildShip's materials gate reads freeItemForState, and that pool is
+  // already net of every queued order's derived reservation. So a direct Build that would eat a
+  // queued build's bill of materials is simply refused with `materials`, and the queue is safe
+  // without any special case in this handler.
   function doStartShipBuild(typeKey: ShipTypeKey) {
     const { next, started } = startShipBuild(state, typeKey);
     if (!started) return;
     state = next;
     const hullLabel = SHIP_TYPES[typeKey]?.label ?? typeKey;
     pushLog(`Ship build started → ${hullLabel}.`);
+    doSave();
+  }
+
+  // Shipyard queue UI (2026-09-04): park a hull to be built LATER, instead of starting it now.
+  // The exact twin of doQueueResearch / doQueueSalvage, and written to the same three rules
+  // every enqueue handler in this file follows:
+  //
+  //   1. IT NEVER CALLS startShipBuild. Promotion stays exclusively in promoteQueuedOrders,
+  //      which is what keeps offline resolution identical to live play by construction: a
+  //      queued hull that comes due while the game is closed is started by the same code path
+  //      that would have started it on screen.
+  //   2. A REFUSAL IS REPORTED, NOT SWALLOWED. The button's own disabled state already mirrors
+  //      canEnqueueOrder, so reaching the refusal branch means state moved between render and
+  //      click; the log says which of the engine's reasons it was, through the shared
+  //      enqueueBlockText, so a click can never look like it did nothing for no reason.
+  //   3. THE LABEL COMES FROM queuedOrderLabel, the same function the queue ROW uses, so the
+  //      log line and the row can never disagree about what was queued.
+  //
+  // ⚠️ UNLIKE THE RESEARCH AND SALVAGE TWINS, THIS ORDER RESERVES SOMETHING: its whole bill of
+  // materials, by derivation (allocation.ts's queuedOrderInputs). Nothing is withdrawn here and
+  // nothing is deposited on removal; the reservation simply stops being derived when the entry
+  // goes, which is why removing a waiting build is a complete and lossless release and needs no
+  // confirmation modal. Its CREDITS are deliberately not reserved, so a queued build can still
+  // reach promotion short of credits and wait there with its own row wording.
+  function doQueueShipBuild(typeKey: ShipTypeKey) {
+    const order: QueuedOrder = { type: "shipBuild", typeKey };
+    const { next, queued, reason } = enqueueOrder(state, "shipyard", order);
+    if (!queued) {
+      pushLog(`Cannot queue build: ${reason === undefined ? "the Shipyard refused that order" : enqueueBlockText(reason)}`);
+      return;
+    }
+    state = next;
+    pushLog(`Queued for build → [${queuedOrderLabel(state, order)}].`);
     doSave();
   }
 
@@ -6418,6 +6564,27 @@
   // being built, read below for the card's label (narrowed on effect.type === "addShip").
   $: activeShipBuild = state.activeProcesses.find((p) => p.kind === "shipBuild");
 
+  // ── The Shipyard's ORDER QUEUE view (Shipyard queue UI, 2026-09-04) ──
+  // The exact twin of refineryQueue / fabricatorQueue / salvageBayQueue / researchQueue,
+  // differing only in the facility key. buildCraftQueue's adapter table is what makes the key
+  // the only difference: the Shipyard's adapter delegates to shipBuildSlotCount and
+  // canBuildShip, which are the same two seams the hull cards' own Build buttons already ask,
+  // so the queue and the cards beside it cannot form two opinions about whether a hull may be
+  // built.
+  //
+  // There is deliberately NO shipyardContinuous companion (the Refinery and Fabricator have
+  // one): a ship build always ends, so craftQueue.ts reports continuous:false on every build
+  // row and the section 5.4 continuous-line warning is not merely inapplicable here, it is
+  // unrenderable. That is the same finding the Salvage Bay's and the Research Lab's panels
+  // record.
+  $: shipyardQueue = buildCraftQueue(state, "shipyard");
+
+  // The yard's BUILD capacity right now. ⚠️ NOT its bay count: builds are capped at bays minus
+  // one so a repair always has somewhere to go (see the import note on shipBuildSlotCount).
+  // Used for the queue panel's slots readout fallback, so the panel prints the same number the
+  // view model's slotsTotal carries and the engine's own noSlot gate compares against.
+  $: shipBuildSlots = shipBuildSlotCount(state);
+
   // The available blueprint KEYS in a given tier, the item dropdown's options for that tier,
   // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
   // availableFabricateBlueprints at call time, so it always reflects the current research/level.
@@ -7077,6 +7244,111 @@
   </Panel>
 {/snippet}
 
+<!-- ========== THE SHIPYARD'S QUEUE PANEL (Shipyard queue UI, 2026-09-04) ==========
+     A YARD-SHAPED VARIANT of craftOrderQueuePanel, following the Salvage Bay and Research Lab
+     precedents rather than inventing a fourth pattern. The ROWS are the shared
+     craftQueueRowList, the depth readout is the shared Home section-header idiom, the block
+     wording is the shared queueBlockText / enqueueBlockText, and the controls are the shared
+     .cq-* Icon buttons, so nothing that any two of these panels say can drift. What differs is
+     the chrome, and only where the facility genuinely differs:
+
+       1. IT HAS NO CONTINUOUS MODE. A craft line can run until cancelled and never hand its
+          slot back, which is the trap the shared panel warns about. A ship build always ends,
+          and craftQueue.ts reports continuous:false on every build row, so the warning is
+          unrenderable rather than merely inapplicable.
+       2. ITS SLOTS READOUT COUNTS BUILDS, NOT BAYS, AND THAT IS LOAD-BEARING. The Shipyard's
+          bays serve BOTH builds and repairs out of one pool, and shipBuildSlotCount is
+          deliberately bayCount MINUS ONE so a build can never take the last bay a damaged hull
+          needs. Printing the bay count here would promise capacity the engine will not give,
+          and a row waiting on noSlot would then point at a number that says a slot is free.
+          The note under the readout says why the number is smaller than the yard's bay count,
+          because a player who has just bought a bay upgrade will otherwise read it as a bug.
+       3. IT DOES NOT RENDER RUNNING WORK, the same divergence from the Salvage Bay's variant
+          that the Research Lab's panel makes, and for the same reason. The bay renders its
+          in-flight job because a running salvage would otherwise appear NOWHERE on its console.
+          A running BUILD already appears on the Build panel directly below this one, as the
+          "BUILDING · {hull}" progress card, and again on the Home board's in-progress rows. A
+          third copy would put one job in three places on one screen, so this panel states the
+          slot COUNT (which is what explains a row waiting on noSlot) and points at the work
+          rather than redrawing it. It also avoids standing a second, cancel-less copy of that
+          card next to a list of rows that DO have a Remove button.
+       4. IT EXPLAINS THE REMOVE-BUT-NO-CANCEL ASYMMETRY IN WORDS. This is the one piece of
+          chrome no sibling panel needs. The Shipyard is the only console where a WAITING order
+          can be removed but a RUNNING one cannot be cancelled, and the reason is real rather
+          than an inconsistency: startShipBuild commits the whole bill of materials AND the
+          credits atomically at start, so a cancel would have nothing to give back without
+          inventing a refund rule the engine does not have (see the READ BEFORE EDITING note on
+          the in-flight card), whereas a queued build has paid NOTHING and its reservation is
+          derived, so dropping the entry IS a complete, lossless release. Left unsaid, the two
+          controls read as an oversight; said once, they read as the rule they are.
+
+     PLACEMENT (above the build surface): see the render site for the reasoning. -->
+{#snippet shipyardQueuePanel(view: CraftQueueView)}
+  <Panel>
+    <div class="panel-title">BUILD QUEUE</div>
+
+    <!-- SLOTS: the yard's BUILD concurrency, stated before the queue that waits on it, because
+         "1 / 1 in use" is the whole explanation for why a queued row is waiting. Both numbers
+         come off the view model rather than being re-derived here; the `?? shipBuildSlots` arm
+         exists only for slotsTotal's null case (a future queue-capable facility with no slot
+         model yet) and is unreachable for this facility, whose slotsTotalFor delegates to the
+         very shipBuildSlotCount that shipBuildSlots is. -->
+    <div class="research-cost">
+      Build slots: {view.runningCount} / {view.slotsTotal ?? shipBuildSlots} in use
+    </div>
+    <p class="cq-note">
+      The Shipyard's bays are shared between building and repairs, and one is always held back
+      for repairs, so this counts build capacity only. A damaged hull can always find a bay.
+    </p>
+
+    <!-- Depth readout, the same Home section-header idiom the other three panels use. -->
+    <div class="home-sec-hd" style="margin-top: 12px;">
+      <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
+      <span class="home-sec-count" class:cq-count-over={view.overDepth}>
+        {view.depthUsed} / {view.depthTotal}
+      </span>
+      <span class="home-sec-rule"></span>
+    </div>
+
+    <!-- The respec drain state and the enqueue block reason, worded exactly as the other three
+         panels word them: the depth talent and the cap are facility-neutral, so the player
+         reads one explanation of queue depth across the whole game. -->
+    {#if view.overDepth}
+      <p class="cq-note cq-note-warn">
+        Over capacity: {view.depthUsed} orders are held but the current depth is {view.depthTotal}.
+        Nothing is lost. These drain as build slots free up, and no new order can be added until the queue is back under {view.depthTotal}.
+        Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
+      </p>
+    {:else if !view.canEnqueue && view.enqueueBlockReason !== null}
+      <p class="cq-note cq-note-warn">{enqueueBlockText(view.enqueueBlockReason)}</p>
+    {/if}
+
+    {#if view.queued.length === 0}
+      <!-- State-dependent empty state (inventory 0.8), with the YARD's own two readings.
+           The zero-depth branch is defensive and unreachable today (QUEUE_DEPTH_BASE is 1). -->
+      <p class="research-status" style="margin-top: 10px;">
+        {#if view.depthTotal <= 0}
+          This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {:else}
+          Nothing queued. Choose <strong>Add to queue</strong> on any hull below to line up a build that starts as soon as a build slot is free.
+          Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {/if}
+      </p>
+    {:else}
+      <!-- THE ASYMMETRY, SAID ONCE, at the only place it can be acted on: beside the Remove
+           buttons. Shown only when there is something to remove, because with an empty queue it
+           would be a rule about nothing. It is a plain note rather than a warning tint: it
+           reports how the two controls differ, not a problem to fix. -->
+      <p class="cq-note">
+        A waiting build has paid nothing yet, so removing it releases every component it is
+        holding, in full. A build that has already started cannot be cancelled: its components
+        and credits were spent the moment it began.
+      </p>
+      {@render craftQueueRowList(view)}
+    {/if}
+  </Panel>
+{/snippet}
+
 <div class="root">
   <Starfield />
   <div class="frame">
@@ -7553,13 +7825,20 @@
                 </div>
               </div>
               <div class="roster-card-lines">
+                <!-- Shipyard queue UI (2026-09-04): the SAME queued tail Unit 4.6 gave the
+                     Refinery and Fabricator cards and the Research unit gave the lab, off the
+                     same shipyardQueue this console binds to, so a card and its console can
+                     never disagree about the depth. The three existing states are unchanged and
+                     the tail is a pure suffix that renders only when orders are waiting. "Not
+                     founded" takes no tail, for the reason the Refinery card records: a facility
+                     that does not exist cannot hold a queue. -->
                 <div class="roster-card-line">
                   {#if !shipyardFounded}
                     Status: Not founded
                   {:else if activeShipBuild}
-                    Status: Building a hull
+                    Status: Building a hull{cardQueuedSuffix(shipyardQueue)}
                   {:else}
-                    Status: Idle
+                    Status: Idle{cardQueuedSuffix(shipyardQueue)}
                   {/if}
                 </div>
               </div>
@@ -10029,6 +10308,35 @@
             />
 
             {#if activeShipyardSubTab === "build"}
+              <!-- BUILD QUEUE (Shipyard queue UI, 2026-09-04), the flat ORDERED list of waiting
+                   hulls, rendered ABOVE the build surface.
+
+                   PLACEMENT, and it follows the RESEARCH LAB's divergence rather than the
+                   Refinery's. The Refinery and Fabricator put their queue BELOW because what
+                   sits above it is a small fixed number of LINE cards, so the queue stays within
+                   a screen of the top. What sits above it here is one tall card per hull class
+                   (seven today, each carrying a stat line, a REQUIRES box of several BOM rows, a
+                   cost line, two buttons and up to two block reasons), and that list grows with
+                   content. A queue panel underneath would sit past every hull and be invisible
+                   at exactly the moment it matters. The reading order is the one every craft
+                   console uses, "the state of the facility, then what is waiting, then what you
+                   may add"; only the third item here happens to be long.
+
+                   ⚠️ GATED, unlike the Research Lab's unconditional panel, and the difference is
+                   that hiding it here cannot hide work. The Research sub-tab always renders its
+                   catalogue, so its panel is rendered unconditionally as a belt-and-braces
+                   guarantee that a save's held orders are never invisible. This sub-tab's
+                   UNFOUNDED branch renders one thing only, the "establish the Shipyard" prompt,
+                   and an unfounded yard cannot be holding orders: the enqueue affordance exists
+                   only on the founded surface and a facility level never falls. The
+                   `|| depthUsed > 0` clause is the belt anyway, so a hand-edited save that
+                   somehow carries queued builds at an unfounded yard still shows them (with
+                   rows that say the yard must be founded) rather than stranding them
+                   invisibly. -->
+              {#if shipyardFounded || shipyardQueue.depthUsed > 0}
+                {@render shipyardQueuePanel(shipyardQueue)}
+              {/if}
+
               <Panel>
                 <div class="panel-title">SHIPYARD, Build</div>
 
@@ -10133,6 +10441,18 @@
                     {@const def = SHIP_TYPES[typeKey as ShipTypeKey]}
                     {@const recipe = def.buildRecipe}
                     {@const gate = canBuildShip(state, typeKey)}
+                    <!-- Shipyard queue UI (2026-09-04): the REAL enqueue gate on the REAL order,
+                         built exactly as doQueueShipBuild will build it, so the "Add to queue"
+                         button below and the click it performs cannot disagree. Asked here
+                         rather than read off the view's shape-only ENQUEUE_PROBE for the reason
+                         the craft configurator's queue button records: the probe carries an
+                         empty typeKey, so it reserves nothing and can only ever answer the
+                         facility-level depth question, while a real hull's BOM must also pass
+                         the enqueue-time affordability gate (canReserveOrder).
+                         It is declared HERE, beside `gate`, rather than beside the button it
+                         drives, because {@const} must be an immediate child of the block that
+                         opens the scope, and the card below is a plain element. -->
+                    {@const queueGate = canEnqueueOrder(state, "shipyard", { type: "shipBuild", typeKey })}
                     <div class="mission-card" style="margin-top: 10px;">
                       <div class="research-name">{def.label}</div>
                       <div class="research-cost">{def.cargoCapacity} cargo · {def.spec}</div>
@@ -10167,8 +10487,28 @@
                         {@const need = recipe.components[itemId]}
                         {@const free = freeItemForState(state, itemId)}
                         {@const short = free.lt(need)}
+                        <!-- Shipyard queue UI (2026-09-04): the "(N reserved)" ANNOTATION, added
+                             so a queued build's hold on its bill of materials is LEGIBLE and not
+                             merely arithmetic.
+                             THE NUMBER WAS ALREADY CORRECT AND IS UNCHANGED: `free` is
+                             freeItemForState, which nets out everything the running craft lines
+                             AND the queued orders reserve, and allocation.ts's queuedOrderInputs
+                             grew a shipBuild arm that returns a queued hull's FULL BOM. So the
+                             moment a build is queued, this row's free stock already fell. What it
+                             did not do was say WHY, which on this console is the one place it
+                             matters most: a queued hull reserves the single most expensive
+                             shopping list in the game, and a player watching their plating
+                             "disappear" with no explanation reads it as a bug rather than as
+                             their own order holding it.
+                             The annotation is the IDENTICAL expression and wording the Warehouse,
+                             Refinery, Fabricator, Mission Control and this console's own Upgrades
+                             tab already carry, down to the `reserved.gt(0)` suppression, so it is
+                             a reuse rather than a new readout. The existing "{need}× [Item] · free
+                             {N}" text and its per-row success/danger color are untouched; this is
+                             a pure suffix. -->
+                        {@const reservedHere = itemTotal(state.inventory, itemId).minus(free)}
                         <div class="research-cost" style="color: {short ? 'var(--color-danger)' : 'var(--color-success)'}">
-                          {need}× [{ITEMS[itemId]?.label ?? itemId}] · free {formatNumber(free)}
+                          {need}× [{ITEMS[itemId]?.label ?? itemId}] · free {formatNumber(free)}{#if reservedHere.gt(0)}{" "}({formatNumber(reservedHere)} reserved){/if}
                         </div>
                       {/each}
 
@@ -10210,6 +10550,54 @@
                            disabled Build button). Suppressed when buildable. -->
                       {#if !gate.ok}
                         <div class="research-cost" style="color: var(--color-danger); margin-top: 4px;">{shipBuildBlockText(gate.reason, typeKey as ShipTypeKey)}</div>
+                      {/if}
+
+                      <!-- ADD TO QUEUE (Shipyard queue UI, 2026-09-04): the same hull, parked to
+                           be built later instead of now.
+                           ⚠️ IT IS ADDED BESIDE THE BUILD BUTTON, NEVER REPLACING IT, and that is
+                           the load-bearing part. Starting a hull the moment the yard is free must
+                           stay ONE CLICK, so the Build button, its `title` and its inline red
+                           block reason are all untouched above, and this is a second control.
+                           STACKED RATHER THAN SET INLINE, which is where this diverges from the
+                           Research Lab's `margin-left: 6px` twin. A blueprint card renders its
+                           block reason AS the Build-equivalent button's own label, so a second
+                           button on the same line is unambiguous there. This card renders its
+                           reason as a red sentence UNDER the button, so an inline second control
+                           would put that sentence under both and make the Build blocker read as
+                           the queue's refusal. Each control keeps its own reason directly beneath
+                           it instead. It is also the safer shape at 320px, where two mono buttons
+                           on one line are close to the wrap point.
+                           ⚠️ RENDERED FOR EVERY HULL, INCLUDING WHILE `gate` IS BLOCKED, and
+                           deliberately: a card whose Build button reads "Ship storage full." or
+                           "Research required" is the single most useful place on this console to
+                           queue, because both clear on their own and the order starts itself when
+                           they do. Unlike the Research Lab there is no branch where a queue
+                           control could only ever say no: a hull class is NOT unique, so the
+                           engine has no already-queued refusal, and every refusal enqueue can
+                           give here (queueFull, materials) is self-clearing.
+                           ⚠️ AND THERE IS DELIBERATELY NO DUPLICATE GATE. Queueing three
+                           Freighters is legal, normal and exactly what a build queue is for; see
+                           doStartShipBuild for why pressing Build must not consume one of
+                           them.
+                           `queueGate` is declared up beside `gate` at the top of this card's
+                           {#each} body, because {@const} may only be an immediate child of the
+                           block that opens the scope. -->
+                      <button
+                        class="buy-btn"
+                        style="margin-top: 6px;"
+                        disabled={!queueGate.ok}
+                        on:click={() => doQueueShipBuild(typeKey as ShipTypeKey)}
+                      >
+                        Add to queue
+                      </button>
+                      <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
+                           the reason sits under the button rather than in a hover title, because
+                           a disabled <button> swallows pointer events and a title on it is
+                           unreadable on touch entirely. The sentence is the shared
+                           enqueueBlockText, so this card and the queue panel above describe a
+                           refusal with one wording rather than two. -->
+                      {#if !queueGate.ok}
+                        <p class="cq-note">{enqueueBlockText(queueGate.reason)}</p>
                       {/if}
                     </div>
                   {/each}
