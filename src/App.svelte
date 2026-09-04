@@ -5076,6 +5076,17 @@
       }
     }
 
+    // ⚠️ THE RESEARCH AND SHIP-BUILD ARMS (queue-engine extension, 2026-09-04) DO NOT HAVE
+    // THEIR SENTENCES YET, and this is a deliberately honest placeholder rather than a guess.
+    // That unit is ENGINE ONLY: the Research Lab and Shipyard consoles get their queue
+    // affordances (and with them the per-reason wording drawn from canResearch's and
+    // canBuildShip's own vocabularies, the way the two arms above draw theirs) in the console
+    // units that follow. Wording it here first would mean writing the sentences twice and
+    // having to keep two copies in step. A row that reaches this today is already showing its
+    // engine-accurate `blockReason` token to anything that reads the model; what it cannot yet
+    // do is say it in a full sentence, so it says the true general thing instead.
+    if (row.order.type !== "craftLine") return "Waiting: this order cannot start yet.";
+
     // A craft line. The wording is BORROWED VERBATIM from startLineBlockText so there is
     // exactly one phrasing of "not enough free materials" in the game and the queue row, the
     // Start button and the tick all tell the player the same story.
@@ -5125,6 +5136,14 @@
         // some up by removing an order that is holding them), which is what makes it a
         // different sentence rather than the same shortage phrased twice.
         return "You do not hold that many free. A queued salvage reserves its units as soon as you queue it, so lower the quantity, or remove a queued order to release the units it is holding.";
+      // Queue-engine extension (2026-09-04): the two RESEARCH-only refusals. Both mean the
+      // project is already dealt with, so the sentence says which of the three places to look
+      // rather than making the player hunt. The token is canResearch's own, so this wording
+      // and the Research Lab's own disabled button describe one condition, not two.
+      case "alreadyResearched":
+        return "You have already researched that.";
+      case "inProgress":
+        return "The lab is already researching that.";
     }
   }
 

@@ -54,7 +54,12 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import { REFINE_RECIPES, BLUEPRINTS } from "./model";
+// SHIP_TYPES joins the two recipe registries here for the queue-engine extension
+// (2026-09-04): a QUEUED SHIP BUILD reserves its bill of materials by derivation, and the
+// BOM lives on SHIP_TYPES[key].buildRecipe.components. Same runtime-import direction the two
+// registries above already use, so the module graph is unchanged.
+import { REFINE_RECIPES, BLUEPRINTS, SHIP_TYPES } from "./model";
+import type { ShipTypeKey } from "./model";
 // TYPE-ONLY, AND IT MUST STAY THAT WAY. model.ts already imports CraftLine /
 // CraftLineKind / CraftLineMode FROM this file (as types), so a RUNTIME import in this
 // direction would close a real cycle. Both directions are erased at build time, so the
@@ -177,24 +182,65 @@ export function queuedOrderIterations(mode: CraftLineMode): number {
 // lineInputsPerIteration's own defensive empty map: a garbage order reserves nothing
 // rather than throwing or reserving a phantom amount.
 //
+// A RESEARCH order returns {} deliberately too: research costs TIME and CREDITS only (no
+// material inputs at all, locked design #3), and credits are outside the derived-reservation
+// model entirely. See the Research Lab's QUEUE_ADAPTERS row for why a credit reservation is
+// not a thing this engine can honestly derive.
+//
+// A SHIP BUILD order returns its FULL BILL OF MATERIALS (queue-engine extension, 2026-09-04).
+// This is the A8 precedent applied to the most expensive order in the game: nothing is
+// withdrawn when the build is queued and nothing is deposited when it is removed, the
+// reservation simply stops being derived. It matters more here than anywhere else, because
+// startShipBuild spends the whole BOM atomically at start; without this arm a queued build
+// would watch another line, another build or a facility upgrade eat its hull plating and then
+// sit at the head of the queue starving. Its CREDITS are deliberately not reserved (same
+// reason as research); a queued build short of credits waits visibly at promotion.
+//
+// ⚠️ WRITTEN AS AN EXHAUSTIVE SWITCH, NOT AS AN EARLY RETURN ON `!== "craftLine"`. That is
+// the whole reason this rewrite exists: the old guard meant "every non-craft order reserves
+// nothing", which was the correct reading of two arms and became a SILENT under-reservation
+// the moment a fourth arm carried real materials. A missing arm is now a compile error.
+//
 // PURE: reads only the passed order + the static registries.
 export function queuedOrderInputs(order: QueuedOrder): Record<string, Decimal> {
-  if (order.type !== "craftLine") return {};
-  const perIteration = lineInputsPerIteration({
-    id: "",
-    kind: order.kind,
-    recipeKey: order.recipeKey,
-    remaining: 0,
-    mode: order.mode,
-  });
-  const iterations = queuedOrderIterations(order.mode);
-  const result: Record<string, Decimal> = {};
-  for (const [itemId, per] of Object.entries(perIteration)) {
-    // per is a fresh Decimal from lineInputsPerIteration (never the registry's own
-    // instance), and .times returns a new one, so nothing shared is touched here.
-    result[itemId] = per.times(iterations);
+  switch (order.type) {
+    case "salvage":
+    case "research":
+      return {};
+    case "craftLine": {
+      const perIteration = lineInputsPerIteration({
+        id: "",
+        kind: order.kind,
+        recipeKey: order.recipeKey,
+        remaining: 0,
+        mode: order.mode,
+      });
+      const iterations = queuedOrderIterations(order.mode);
+      const result: Record<string, Decimal> = {};
+      for (const [itemId, per] of Object.entries(perIteration)) {
+        // per is a fresh Decimal from lineInputsPerIteration (never the registry's own
+        // instance), and .times returns a new one, so nothing shared is touched here.
+        result[itemId] = per.times(iterations);
+      }
+      return result;
+    }
+    case "shipBuild": {
+      // An unknown hull key yields {} through the same defensive shape lineInputsPerIteration
+      // uses for an unknown recipe: a garbage order reserves nothing rather than throwing, and
+      // the promotion gate refuses it with canBuildShip's accurate `notFound`.
+      const def = SHIP_TYPES[order.typeKey as ShipTypeKey];
+      if (def === undefined) return {};
+      const result: Record<string, Decimal> = {};
+      // A ship BOM is a plain-number map (recipe scale, not idle scale), wrapped in a fresh
+      // Decimal at exactly the point startShipBuild wraps it, so the reservation and the
+      // eventual deduct are provably the same numbers. One hull per order, so there is no
+      // iteration multiplier here (see QueuedOrder's note on why the arm carries no count).
+      for (const [itemId, amount] of Object.entries(def.buildRecipe.components)) {
+        result[itemId] = new Decimal(amount);
+      }
+      return result;
+    }
   }
-  return result;
 }
 
 // Total amount of `itemId` RESERVED, across both reservation sources =

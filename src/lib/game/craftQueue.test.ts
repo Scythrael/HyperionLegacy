@@ -55,6 +55,11 @@ import {
   type HomeworldTalentKey,
   type QueueFacilityKey,
   type QueuedOrder,
+  // Queue-engine extension (2026-09-04): the two facility keys the new fixtures seed levels
+  // on, and the hull-key type the Shipyard fixture indexes SHIP_TYPES with.
+  RESEARCH_FACILITY_KEY,
+  SHIPYARD_FACILITY_KEY,
+  type ShipTypeKey,
 } from "./model";
 import {
   QUEUE_DEPTH_BASE,
@@ -87,6 +92,18 @@ import {
   // QUEUED order's reservation protects its materials from every other consumer.
   canBuildFacilityUpgrade,
   startFacilityUpgrade,
+  // Queue-engine extension (2026-09-04): the two new facilities' own gates, starts and slot
+  // counts. Imported so the adapter cases can assert the row's verdict AGAINST the real
+  // function's return value rather than against a hardcoded expectation.
+  canResearch,
+  startResearch,
+  researchSlotCount,
+  canBuildShip,
+  startShipBuild,
+  shipBuildSlotCount,
+  // The state a queued order's own gate must be asked about (the self-block trap). Used by
+  // the Shipyard docks-capacity case to ask the identical question the tick asks.
+  withQueuedOrderReleased,
 } from "./tick";
 // 0.13.3 follow-up: the derived reservation itself, read directly so the cases below can
 // show the numbers moving while the inventory does not.
@@ -114,10 +131,32 @@ const QUEUE_CHAIN: HomeworldTalentKey[] = [
   "fleetLogisticsQueue3",
 ];
 
-// Every facility that can hold a queue today. Listed explicitly (not derived from a
-// runtime map) so adding a QueueFacilityKey without thinking about depth semantics
-// shows up here as a type-level nudge to extend the per-facility case below.
-const QUEUE_FACILITIES: QueueFacilityKey[] = ["refinery", "fabricator", "salvageBay"];
+// Every facility that can hold a queue today, IN THE ENGINE'S DECLARED ITERATION ORDER.
+// Listed explicitly (not derived from a runtime map) so adding a QueueFacilityKey without
+// thinking about depth semantics shows up here as a type-level nudge to extend the
+// per-facility case below.
+//
+// ⚠️ THE ORDER IS PART OF WHAT THIS LITERAL PINS (queue-engine extension, 2026-09-04). It is
+// compared element-for-element against QUEUE_FACILITY_ORDER, so a re-sort of that tuple, which
+// would silently change which facility wins a contested material on a tick where two could
+// both promote, fails here rather than in production.
+const QUEUE_FACILITIES: QueueFacilityKey[] = [
+  "refinery",
+  "fabricator",
+  "salvageBay",
+  "researchLab",
+  "shipyard",
+  "fuelDepot",
+];
+
+// The subset that actually ACCEPTS an order. Every member of QUEUE_FACILITIES except the
+// Fuel Depot, which is in the union so the decision is recorded and type-checked but refuses
+// every enqueue by design (see QUEUE_ADAPTERS' fuelDepot row: its pipelines are always-on and
+// automatic, so a queued fuel batch could not do anything the depot would not already have
+// done on the same tick). Cases that talk about real player capacity count THIS list.
+const ORDER_QUEUEABLE_FACILITIES: QueueFacilityKey[] = QUEUE_FACILITIES.filter(
+  (facility) => facility !== "fuelDepot"
+);
 
 function withTalents(keys: HomeworldTalentKey[]): GameState {
   return { ...freshState(), unlockedHomeworldTalents: keys };
@@ -254,16 +293,22 @@ describe("queueDepth: PER FACILITY semantics", () => {
     // test rather than a silent re-interpretation of the per-facility rule.
     expect(queueDepth.length).toBe(1);
     // Each facility is measured against THIS one number, so the capacity a fully-invested
-    // player actually has is depth PER facility (4 waiting orders each, 12 across the
-    // three), not depth shared across them (which would be 4 total).
-    expect(QUEUE_FACILITIES.length * depth).toBe(12);
-    expect(QUEUE_FACILITIES).toHaveLength(3);
+    // player actually has is depth PER facility (4 waiting orders each, 20 across the five
+    // that accept orders), not depth shared across them (which would be 4 total).
+    //
+    // ⚠️ COUNTED OVER ORDER_QUEUEABLE_FACILITIES, NOT QUEUE_FACILITIES (queue-engine
+    // extension, 2026-09-04). The Fuel Depot is a member of the union but accepts NO order
+    // shape at all, so counting it would claim four waiting slots that no click can ever
+    // fill. See QUEUE_ADAPTERS' fuelDepot row for why that facility is a documented stub.
+    expect(ORDER_QUEUEABLE_FACILITIES.length * depth).toBe(20);
+    expect(ORDER_QUEUEABLE_FACILITIES).toHaveLength(5);
+    expect(QUEUE_FACILITIES).toHaveLength(6);
   });
 
   it("holds at base depth too: one waiting slot at EACH facility, not one shared", () => {
     const depth = queueDepth(freshState());
     expect(depth).toBe(1);
-    expect(QUEUE_FACILITIES.length * depth).toBe(QUEUE_FACILITIES.length);
+    expect(ORDER_QUEUEABLE_FACILITIES.length * depth).toBe(ORDER_QUEUEABLE_FACILITIES.length);
   });
 });
 
@@ -1099,7 +1144,7 @@ describe("QUEUE_ADAPTERS: exhaustive over QueueFacilityKey", () => {
     expect(Object.keys(QUEUE_ADAPTERS).sort()).toEqual([...QUEUE_FACILITIES].sort());
     // The promotion pass iterates THIS tuple, never Object.keys, so promotion order is
     // a stated property of the engine rather than an object-key implementation detail.
-    expect([...QUEUE_FACILITY_ORDER]).toEqual(["refinery", "fabricator", "salvageBay"]);
+    expect([...QUEUE_FACILITY_ORDER]).toEqual(QUEUE_FACILITIES);
     expect([...QUEUE_FACILITY_ORDER].sort()).toEqual([...QUEUE_FACILITIES].sort());
   });
 
@@ -1298,6 +1343,16 @@ function queueSnapshot(state: GameState) {
     craftingXp: state.craftingXp.toString(),
     itemsRefined: decimalMap(state.lifetimeStats.itemsRefined),
     itemsCrafted: decimalMap(state.lifetimeStats.itemsCrafted),
+    // Widened by the queue-engine extension (2026-09-04) so the three new facilities'
+    // parity cases compare the things THEY move. Purely additive: both paths of every
+    // pre-existing case carry these fields too, so no existing comparison changes meaning,
+    // and a research or ship-build divergence now fails here instead of passing unseen.
+    //   credits              , the only cost a research project has, and half of a hull's.
+    //   researchedBlueprints , a completed project's whole observable result.
+    //   ships                , a completed build's whole observable result.
+    credits: state.credits.toString(),
+    researchedBlueprints: [...state.researchedBlueprints].sort(),
+    ships: state.ships.map((ship) => ({ id: ship.id, typeKey: ship.typeKey })),
   };
 }
 
@@ -1716,7 +1771,12 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
       { facility: "refinery", order: continuousRefine },
     ]);
     expect(queueIds(base)).toEqual(["q-1", "q-2"]);
-    expect([...QUEUE_FACILITY_ORDER]).toEqual(["refinery", "fabricator", "salvageBay"]);
+    // ⚠️ THE NEW FACILITIES ARE APPENDED, NEVER INTERLEAVED (queue-engine extension,
+    // 2026-09-04). This literal is the pin on that: the first three keep their exact
+    // positions, so every pre-existing save's contested-tick outcome is unchanged, and the
+    // Shipyard is served LAST so the priciest order in the game cannot outbid the crafting
+    // lines that produce its own bill of materials.
+    expect([...QUEUE_FACILITY_ORDER]).toEqual(QUEUE_FACILITIES);
 
     // Repeated runs of the pure pass agree with each other, every time.
     for (let run = 0; run < 5; run++) {
@@ -1752,6 +1812,517 @@ describe("âš ï¸ promoteQueuedOrders: offline == live parity (the hard inv
     expect(jumped.lifetimeStats.itemsRefined.titaniumIngot.toString()).not.toBe("0");
     expect(jumped.processQueue).toEqual([]);
     expect(jumped.nextQueueId).toBe(base.nextQueueId);
+  });
+});
+
+// ============================================================================
+// THE QUEUE ENGINE EXTENDED TO THE REMAINING PRODUCTION FACILITIES (2026-09-04)
+//
+// The Research Lab, the Shipyard, and the Fuel Depot's documented refusal. The engine
+// itself did not change shape: promoteQueuedOrders still knows nothing about facilities,
+// QUEUE_ADAPTERS is still the only place a per-facility difference lives, and every case
+// below asks the engine's OWN gate rather than a second opinion computed here.
+//
+// The parity cases in this section carry "parity" in their names for the same reason the
+// ones above do: they belong to the release's parity filter, and they are the gate on the
+// one invariant this whole release rests on. They are built the SAME way (two paths from
+// one state, each with its own freshly seeded rng, deep-compared over queueSnapshot,
+// plus a non-vacuity assertion so a pass cannot come from two inert states).
+// ============================================================================
+
+// --- Research Lab fixtures ---------------------------------------------------
+// Two TIER-1 blueprints, so a case can hold two distinct projects without the tier gate
+// being what it is measuring, and one TIER-2 blueprint for the "queueing ahead of an
+// upgrade is allowed" case. Read from the registry rather than hardcoded numbers below.
+const RESEARCH_KEY = "frameSegmentBp";
+const RESEARCH_KEY_2 = "powerCouplingBp";
+const RESEARCH_TIER2_KEY = "structuralAssemblyBp";
+
+function researchOrder(blueprintKey: string = RESEARCH_KEY): QueuedOrder {
+  return { type: "research", blueprintKey };
+}
+
+// A Research Lab with a chosen level, plenty of credits, and NOTHING researched.
+// The full depth chain is learned by default so a queueFull refusal is never what a case
+// is accidentally measuring; the depth cases override it explicitly.
+function researchLabState(opts: { labLevel?: number; credits?: number; talents?: HomeworldTalentKey[] } = {}): GameState {
+  const s = freshState();
+  return {
+    ...s,
+    facilities: { ...s.facilities, [RESEARCH_FACILITY_KEY]: { level: opts.labLevel ?? 1 } },
+    credits: new Decimal(opts.credits ?? 100_000),
+    researchedBlueprints: [],
+    unlockedHomeworldTalents: opts.talents ?? QUEUE_CHAIN,
+  };
+}
+
+// --- Shipyard fixtures -------------------------------------------------------
+// The General Freighter is the one hull with no requiresBlueprint, so a build case is never
+// incidentally testing the warship research gate. Its BOM is read from SHIP_TYPES below so a
+// retune of the recipe retunes these cases with it.
+const HULL_KEY: ShipTypeKey = "generalFreighter";
+const HULL_BOM = SHIP_TYPES[HULL_KEY].buildRecipe;
+
+function shipBuildOrder(typeKey: string = HULL_KEY): QueuedOrder {
+  return { type: "shipBuild", typeKey };
+}
+
+// A founded Shipyard with stock for several hulls and room in the docks.
+function shipyardState(
+  opts: { frameSegment?: number; powerCoupling?: number; credits?: number; shipStorageCapacity?: number } = {}
+): GameState {
+  const s = freshState();
+  return {
+    ...s,
+    facilities: { ...s.facilities, [SHIPYARD_FACILITY_KEY]: { level: 1 } },
+    inventory: {
+      ...s.inventory,
+      frameSegment: [new Decimal(opts.frameSegment ?? HULL_BOM.components.frameSegment * 5)],
+      powerCoupling: [new Decimal(opts.powerCoupling ?? HULL_BOM.components.powerCoupling * 5)],
+    },
+    credits: new Decimal(opts.credits ?? 100_000),
+    shipStorageCapacity: opts.shipStorageCapacity ?? 8,
+    unlockedHomeworldTalents: QUEUE_CHAIN,
+  };
+}
+
+// Plant an entry DIRECTLY on processQueue, bypassing enqueueOrder entirely.
+//
+// ⚠️ THE ONLY WAY TO PRODUCE A FUEL DEPOT ENTRY, which is exactly what it is for. Every
+// legitimate route refuses one (orderMatchesFacility returns false for that facility), so a
+// Fuel Depot row can only arrive on a hand-edited or otherwise corrupted save. The stub has
+// to stay inert against one anyway, and this is how a case builds one honestly instead of
+// pretending the enqueue path could.
+function plantQueueEntry(state: GameState, facility: QueueFacilityKey, order: QueuedOrder): GameState {
+  return {
+    ...state,
+    processQueue: [...(state.processQueue ?? []), { id: `q-${state.nextQueueId}`, facility, order }],
+    nextQueueId: state.nextQueueId + 1,
+  };
+}
+
+describe("QUEUE_ADAPTERS: researchLab + shipyard delegate wholesale to their own engines", () => {
+  it("researchLab.hasFreeSlot counts research projects against researchSlotCount, and canStart IS canResearch", () => {
+    const idle = researchLabState();
+    expect(researchSlotCount(idle)).toBe(1);
+    expect(QUEUE_ADAPTERS.researchLab.hasFreeSlot(idle)).toBe(true);
+
+    // The verdict is asserted against canResearch's OWN return value, not against a
+    // hardcoded expectation: that is the assertion shape that catches a re-derivation which
+    // happens to agree today (the same discipline the Unit 1.5 cases use).
+    expect(QUEUE_ADAPTERS.researchLab.canStart(idle, researchOrder())).toEqual(
+      canResearch(idle, RESEARCH_KEY)
+    );
+
+    // One project running fills the lab's single slot.
+    const busy = startResearch(idle, RESEARCH_KEY).next;
+    expect(busy.activeProcesses.filter((p) => p.kind === "researchProject")).toHaveLength(1);
+    expect(QUEUE_ADAPTERS.researchLab.hasFreeSlot(busy)).toBe(false);
+
+    // A lab that has never been founded has no slots at all, the cheap "no point scanning
+    // this facility" answer the promotion pass wants before it has an order in hand.
+    const unfounded = researchLabState({ labLevel: 0 });
+    expect(researchSlotCount(unfounded)).toBe(0);
+    expect(QUEUE_ADAPTERS.researchLab.hasFreeSlot(unfounded)).toBe(false);
+  });
+
+  it("shipyard.hasFreeSlot counts builds against shipBuildSlotCount, and canStart IS canBuildShip", () => {
+    const idle = shipyardState();
+    expect(QUEUE_ADAPTERS.shipyard.hasFreeSlot(idle)).toBe(true);
+    expect(QUEUE_ADAPTERS.shipyard.canStart(idle, shipBuildOrder())).toEqual(canBuildShip(idle, HULL_KEY));
+
+    const busy = startShipBuild(idle, HULL_KEY).next;
+    expect(busy.activeProcesses.filter((p) => p.kind === "shipBuild")).toHaveLength(1);
+    expect(QUEUE_ADAPTERS.shipyard.hasFreeSlot(busy)).toBe(false);
+
+    // ⚠️ THE REPAIR RESERVATION IS READ, NOT BYPASSED. shipBuildSlotCount is bays MINUS ONE
+    // so a build can never take the last bay a repair needs; hasFreeSlot must read THAT, not
+    // shipyardBayCount, or a queued build would do what a manual build is forbidden to do.
+    expect(QUEUE_ADAPTERS.shipyard.hasFreeSlot(idle)).toBe(
+      idle.activeProcesses.filter((p) => p.kind === "shipBuild").length < shipBuildSlotCount(idle)
+    );
+  });
+
+  it("both refuse an order of the WRONG shape rather than acting on it", () => {
+    const lab = researchLabState();
+    expect(QUEUE_ADAPTERS.researchLab.canStart(lab, refineOrder())).toEqual({
+      ok: false,
+      reason: "wrongFacility",
+    });
+    expect(QUEUE_ADAPTERS.researchLab.start(lab, refineOrder())).toEqual({ next: lab, started: false });
+
+    const yard = shipyardState();
+    expect(QUEUE_ADAPTERS.shipyard.canStart(yard, researchOrder())).toEqual({
+      ok: false,
+      reason: "wrongFacility",
+    });
+    expect(QUEUE_ADAPTERS.shipyard.start(yard, researchOrder())).toEqual({ next: yard, started: false });
+  });
+});
+
+describe("QUEUE_ADAPTERS: the Fuel Depot is a DOUBLE-BRAKED, documented no-op", () => {
+  it("never has a free slot, refuses every order with notImplemented, and starts nothing", () => {
+    // THE FINDING, pinned as a test. processFuelPipelines fills every free pipeline every
+    // tick, automatically, from the one and only fuel recipe, with no player configuration
+    // anywhere in the loop. A queued fuel batch could therefore only ever duplicate work the
+    // depot was about to do on the same tick. Rather than invent a feature, the row refuses.
+    const state = freshState();
+    expect(QUEUE_ADAPTERS.fuelDepot.hasFreeSlot(state)).toBe(false);
+    expect(QUEUE_ADAPTERS.fuelDepot.canStart(state, refineOrder())).toEqual({
+      ok: false,
+      reason: "notImplemented",
+    });
+    const started = QUEUE_ADAPTERS.fuelDepot.start(state, refineOrder());
+    expect(started.started).toBe(false);
+    expect(started.next).toBe(state); // same REFERENCE: it cannot even look like a change
+  });
+
+  it("refuses EVERY order shape at enqueue, so an entry can never legitimately exist there", () => {
+    // The third door. hasFreeSlot and canStart keep the promotion pass out; this keeps the
+    // player out, so no click sequence can park work at a facility that will never run it.
+    const state = { ...freshState(), unlockedHomeworldTalents: QUEUE_CHAIN };
+    for (const order of [refineOrder(), fabricateOrder(), salvageOrder(), researchOrder(), shipBuildOrder()]) {
+      const result = enqueueOrder(state, "fuelDepot", order);
+      expect(result.queued, `fuelDepot accepted a ${order.type} order`).toBe(false);
+      expect(result.reason).toBe("wrongFacility");
+      expect(result.next).toBe(state);
+    }
+  });
+});
+
+describe("canEnqueueOrder: the Research Lab refuses a project that can never run again", () => {
+  it("accepts a fresh project, then refuses the SAME one as alreadyQueued", () => {
+    const state = researchLabState();
+    const first = enqueueOrder(state, "researchLab", researchOrder());
+    expect(first.queued).toBe(true);
+    expect(queuedForFacility(first.next, "researchLab")).toHaveLength(1);
+
+    const duplicate = enqueueOrder(first.next, "researchLab", researchOrder());
+    expect(duplicate.queued).toBe(false);
+    expect(duplicate.reason).toBe("alreadyQueued");
+    // A refusal must not consume an id (the monotonic-mint convention).
+    expect(duplicate.next.nextQueueId).toBe(first.next.nextQueueId);
+
+    // A DIFFERENT project is not a duplicate and is accepted normally.
+    expect(enqueueOrder(first.next, "researchLab", researchOrder(RESEARCH_KEY_2)).queued).toBe(true);
+  });
+
+  it("refuses a project already RUNNING (inProgress) or already OWNED (alreadyResearched)", () => {
+    // Both are reachable by ordinary play: queue a project, watch it start, queue it again.
+    // Both would be a dead row holding a depth slot the player has to notice and clear.
+    const running = startResearch(researchLabState(), RESEARCH_KEY).next;
+    const midFlight = enqueueOrder(running, "researchLab", researchOrder());
+    expect(midFlight.queued).toBe(false);
+    expect(midFlight.reason).toBe("inProgress");
+
+    const owned = { ...researchLabState(), researchedBlueprints: [RESEARCH_KEY] };
+    const done = enqueueOrder(owned, "researchLab", researchOrder());
+    expect(done.queued).toBe(false);
+    expect(done.reason).toBe("alreadyResearched");
+  });
+
+  it("does NOT refuse tierLocked, credits or noSlot at enqueue: those are exactly what queueing is for", () => {
+    // ⚠️ THE LINE THIS CASE DRAWS. A dead entry is refused; a WAITING entry is the feature.
+    // Every condition below clears on its own (upgrade the lab, earn credits, wait for the
+    // running project to finish), so refusing them at enqueue would delete the whole point.
+    const lowTierLab = researchLabState({ labLevel: 1 });
+    expect(canResearch(lowTierLab, RESEARCH_TIER2_KEY)).toEqual({ ok: false, reason: "tierLocked" });
+    expect(enqueueOrder(lowTierLab, "researchLab", researchOrder(RESEARCH_TIER2_KEY)).queued).toBe(true);
+
+    const broke = researchLabState({ credits: 0 });
+    expect(canResearch(broke, RESEARCH_KEY)).toEqual({ ok: false, reason: "credits" });
+    expect(enqueueOrder(broke, "researchLab", researchOrder()).queued).toBe(true);
+
+    // noSlot: the lab is busy with a DIFFERENT project, so a second one is a legitimate wait.
+    const busy = startResearch(researchLabState(), RESEARCH_KEY).next;
+    expect(canResearch(busy, RESEARCH_KEY_2)).toEqual({ ok: false, reason: "noSlot" });
+    expect(enqueueOrder(busy, "researchLab", researchOrder(RESEARCH_KEY_2)).queued).toBe(true);
+  });
+});
+
+describe("canEnqueueOrder: a queued SHIP BUILD reserves its bill of materials, by derivation", () => {
+  it("reserves the whole BOM the moment it is queued, WITHOUT touching inventory", () => {
+    // The A8 precedent applied to the priciest order in the game. Nothing is withdrawn at
+    // enqueue: the reservation is DERIVED from the entry, so inventory is untouched and the
+    // free pool moves instead.
+    const before = shipyardState();
+    const freeFramesBefore = freeItemForState(before, "frameSegment");
+    const after = enqueueOrder(before, "shipyard", shipBuildOrder()).next;
+
+    // Inventory: byte-identical. The materials were never moved anywhere.
+    expect(itemTotal(after.inventory, "frameSegment").toString()).toBe(
+      itemTotal(before.inventory, "frameSegment").toString()
+    );
+    // Allocation: the full BOM, from the derivation the engine itself reads.
+    expect(allocatedItem([], after.processQueue, "frameSegment").toString()).toBe(
+      String(HULL_BOM.components.frameSegment)
+    );
+    expect(allocatedItem([], after.processQueue, "powerCoupling").toString()).toBe(
+      String(HULL_BOM.components.powerCoupling)
+    );
+    // Free: down by exactly the BOM.
+    expect(freeItemForState(after, "frameSegment").toString()).toBe(
+      freeFramesBefore.minus(HULL_BOM.components.frameSegment).toString()
+    );
+  });
+
+  it("REMOVAL releases the reservation, with no deposit step and no inventory movement", () => {
+    // ⚠️ THE do-not-add-a-deposit RULE, pinned. clampInventoryToCaps discards over-cap units
+    // on every load, so a cancel that deposited a hull's BOM back at cap would silently
+    // destroy it. Dropping the entry IS the release, which is why there is nothing to unwind.
+    const before = shipyardState();
+    const queued = enqueueOrder(before, "shipyard", shipBuildOrder()).next;
+    const id = queued.processQueue[0].id;
+    const removed = removeQueuedOrder(queued, id);
+
+    expect(removed.processQueue).toHaveLength(0);
+    expect(allocatedItem([], removed.processQueue, "frameSegment").toString()).toBe("0");
+    // The free pool is back to exactly where it started, and inventory never moved at all.
+    expect(freeItemForState(removed, "frameSegment").toString()).toBe(
+      freeItemForState(before, "frameSegment").toString()
+    );
+    expect(inventorySnapshot(removed)).toEqual(inventorySnapshot(before));
+  });
+
+  it("refuses a build whose BOM is not FREE, naming the shortage with canStartLine's own token", () => {
+    // Exactly one frame segment short of one hull.
+    const short = shipyardState({ frameSegment: HULL_BOM.components.frameSegment - 1 });
+    const result = enqueueOrder(short, "shipyard", shipBuildOrder());
+    expect(result.queued).toBe(false);
+    expect(result.reason).toBe("materials");
+    expect(result.next).toBe(short);
+  });
+
+  it("a queued build's reservation protects its materials from every OTHER spender", () => {
+    // Stock for exactly one hull. Once the build is queued, a manual build of the same hull
+    // can no longer be afforded, because canBuildShip gates on the reservation-aware free
+    // pool. This is the double-book the derived reservation exists to prevent.
+    const exact = shipyardState({
+      frameSegment: HULL_BOM.components.frameSegment,
+      powerCoupling: HULL_BOM.components.powerCoupling,
+    });
+    expect(canBuildShip(exact, HULL_KEY)).toEqual({ ok: true });
+
+    const queued = enqueueOrder(exact, "shipyard", shipBuildOrder()).next;
+    expect(canBuildShip(queued, HULL_KEY)).toEqual({ ok: false, reason: "materials" });
+
+    // ⚠️ AND YET THE QUEUED ORDER ITSELF IS STILL STARTABLE. That is the SELF-BLOCK TRAP:
+    // asking the order's own gate about the raw state asks "can you afford this on top of
+    // yourself" and it would refuse itself forever. withQueuedOrderReleased is the answer,
+    // and the row builder and the promotion pass both go through it, which is what makes
+    // them provably the same question.
+    const row = buildCraftQueue(queued, "shipyard").queued[0];
+    expect(row.canStart).toBe(true);
+    expect(row.blockReason).toBe(null);
+  });
+
+  it("two builds of the SAME hull are legitimate, unlike two orders on a unique target", () => {
+    // A hull class is not a unique consumable: three freighters is a normal thing to want.
+    // So there is deliberately no duplicate gate on this arm, only the reservation bound.
+    const state = shipyardState();
+    const one = enqueueOrder(state, "shipyard", shipBuildOrder()).next;
+    const two = enqueueOrder(one, "shipyard", shipBuildOrder());
+    expect(two.queued).toBe(true);
+    // And the reservation scales: two hulls' worth of frames are spoken for.
+    expect(allocatedItem([], two.next.processQueue, "frameSegment").toString()).toBe(
+      String(HULL_BOM.components.frameSegment * 2)
+    );
+  });
+});
+
+describe("queue DEPTH is per FACILITY and never per LANE", () => {
+  it("a lab with TWO research slots still gets ONE queue slot at base depth", () => {
+    // ⚠️ THE RULE, ON THE FACILITY THAT CAN ACTUALLY BREAK IT. Lanes (concurrent jobs) are
+    // bought with facility upgrades; depth (how far ahead you can plan) is bought with
+    // Homeworld talents. Ten lanes plus one depth upgrade is TWO queue slots, not eleven.
+    // The Research Lab is the multi-lane facility this can be shown on: level 2 grants a
+    // second research slot while the depth talent chain is untouched.
+    const twoLane = researchLabState({ labLevel: 2, talents: [] });
+    expect(researchSlotCount(twoLane)).toBe(2);
+    expect(queueDepth(twoLane)).toBe(QUEUE_DEPTH_BASE);
+    expect(QUEUE_DEPTH_BASE).toBe(1);
+
+    const first = enqueueOrder(twoLane, "researchLab", researchOrder());
+    expect(first.queued).toBe(true);
+    // The SECOND lane buys no second queue slot. This is the assertion the rule lives or
+    // dies on: the depth cap is compared against queueDepth alone, never against the lane
+    // count, so a distinct, perfectly valid second project is still refused as queueFull.
+    const second = enqueueOrder(first.next, "researchLab", researchOrder(RESEARCH_KEY_2));
+    expect(second.queued).toBe(false);
+    expect(second.reason).toBe("queueFull");
+  });
+
+  it("one depth talent on a two-lane lab buys exactly TWO queue slots, not eleven", () => {
+    const twoLane = researchLabState({ labLevel: 2, talents: ["fleetLogisticsQueue1"] });
+    expect(researchSlotCount(twoLane)).toBe(2);
+    expect(queueDepth(twoLane)).toBe(QUEUE_DEPTH_BASE + QUEUE_DEPTH_PER_NODE);
+
+    const one = enqueueOrder(twoLane, "researchLab", researchOrder()).next;
+    const two = enqueueOrder(one, "researchLab", researchOrder(RESEARCH_KEY_2));
+    expect(two.queued).toBe(true);
+    expect(queuedForFacility(two.next, "researchLab")).toHaveLength(queueDepth(twoLane));
+    // Depth reached, whatever the lane count says.
+    expect(enqueueOrder(two.next, "researchLab", researchOrder(RESEARCH_TIER2_KEY)).reason).toBe("queueFull");
+  });
+
+  it("a full Research Lab queue never touches the Shipyard's own depth", () => {
+    // The cross-facility starvation the per-facility model exists to prevent, now proved
+    // across two of the NEW facilities rather than only the original two.
+    const base: GameState = {
+      ...shipyardState(),
+      facilities: {
+        ...shipyardState().facilities,
+        [RESEARCH_FACILITY_KEY]: { level: 1 },
+      },
+      unlockedHomeworldTalents: [],
+    };
+    expect(queueDepth(base)).toBe(1);
+
+    const labFull = enqueueOrder(base, "researchLab", researchOrder()).next;
+    expect(enqueueOrder(labFull, "researchLab", researchOrder(RESEARCH_KEY_2)).reason).toBe("queueFull");
+    // The Shipyard's own slot is untouched by the Lab being full.
+    expect(enqueueOrder(labFull, "shipyard", shipBuildOrder()).queued).toBe(true);
+  });
+});
+
+describe("⚠️ the new facilities: offline == live parity (the hard invariant)", () => {
+  it("parity: a queued RESEARCH project promotes and completes identically across a chunked span and a stepped one", () => {
+    // A busy lab, so the queued project genuinely WAITS for a slot and the promotion
+    // happens mid-span rather than on tick 1 (which a closed-form shortcut could fake).
+    const running = startResearch(researchLabState(), RESEARCH_KEY).next;
+    const base = enqueueOrder(running, "researchLab", researchOrder(RESEARCH_KEY_2)).next;
+    expect(queuedForFacility(base, "researchLab")).toHaveLength(1);
+
+    const SPAN = 200; // both 60-tick projects finish inside it, with room to spare
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // NON-VACUOUS: the queue really drained, the second project really promoted, and BOTH
+    // blueprints are really owned at the end. A pass cannot come from two inert states.
+    expect(jumped.processQueue).toEqual([]);
+    expect([...jumped.researchedBlueprints].sort()).toEqual([RESEARCH_KEY, RESEARCH_KEY_2].sort());
+    // And the credits for BOTH were spent, once each.
+    const cost = BLUEPRINTS[RESEARCH_KEY].researchCreditCost + BLUEPRINTS[RESEARCH_KEY_2].researchCreditCost;
+    expect(jumped.credits.toString()).toBe(researchLabState().credits.minus(cost).toString());
+  });
+
+  it("parity: the tick a queued research project promotes is the SAME tick on both paths", () => {
+    // The final state alone cannot show WHEN a promotion happened, so this compares the
+    // promotion LOG against the tick the running project's slot actually frees.
+    const running = startResearch(researchLabState(), RESEARCH_KEY).next;
+    const base = enqueueOrder(running, "researchLab", researchOrder(RESEARCH_KEY_2)).next;
+
+    const SPAN = 120;
+    const { final, log } = stepTicksLogged(base, SPAN, seededRng());
+    // The running project occupies the only slot for its full duration, so the queued one
+    // cannot promote before it completes. Read from the registry, never hardcoded.
+    expect(log).toEqual([`t${BLUEPRINTS[RESEARCH_KEY].researchDurationTicks}:q-1`]);
+
+    const jumped = tick(SPAN, base, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(final));
+  });
+
+  it("parity: a queued SHIP BUILD pays at PROMOTION, not at enqueue, identically on both paths", () => {
+    // ⚠️ THE PAY-AT-START PROBLEM, RESOLVED AND PINNED. startShipBuild commits the whole BOM
+    // and the credits atomically when the build STARTS. A queued build therefore reserves by
+    // derivation while it waits and pays exactly once, at promotion. This case watches the
+    // whole handoff across a span, on both paths.
+    const busy = startShipBuild(shipyardState(), HULL_KEY).next; // the single build slot is taken
+    const base = enqueueOrder(busy, "shipyard", shipBuildOrder()).next;
+    expect(queuedForFacility(base, "shipyard")).toHaveLength(1);
+    // Nothing has been taken for the QUEUED build yet: only the running one has paid.
+    const spentByRunning = new Decimal(HULL_BOM.credits);
+    expect(base.credits.toString()).toBe(shipyardState().credits.minus(spentByRunning).toString());
+
+    const SPAN = 800; // both 300-tick builds finish inside it
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // NON-VACUOUS: the queue drained and TWO new hulls exist (the fresh save starts with one).
+    expect(jumped.processQueue).toEqual([]);
+    expect(jumped.ships).toHaveLength(3);
+    // PAID EXACTLY ONCE EACH, never twice and never at enqueue: two hulls' credits and two
+    // hulls' BOM left the books across the whole span.
+    expect(jumped.credits.toString()).toBe(
+      shipyardState().credits.minus(new Decimal(HULL_BOM.credits).times(2)).toString()
+    );
+    expect(itemTotal(jumped.inventory, "frameSegment").toString()).toBe(
+      itemTotal(shipyardState().inventory, "frameSegment").minus(HULL_BOM.components.frameSegment * 2).toString()
+    );
+  });
+
+  it("parity: a queued build BLOCKED on docks capacity waits identically on both paths, and promotes when a berth frees", () => {
+    // Skip-on-block at the Shipyard: the storage gate is the one a build most often waits
+    // on, and it is exactly the kind of state a closed-form shortcut would get wrong.
+    // Docks hold 2, one hull is already parked, and one build is running for that last berth.
+    const tight = shipyardState({ shipStorageCapacity: 2 });
+    const busy = startShipBuild(tight, HULL_KEY).next;
+    const base = enqueueOrder(busy, "shipyard", shipBuildOrder()).next;
+    // The queued build cannot start: the yard is busy AND the docks would be full.
+    expect(QUEUE_ADAPTERS.shipyard.canStart(withQueuedOrderReleased(base, "q-1"), shipBuildOrder()).ok).toBe(false);
+
+    const SPAN = 800;
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // NON-VACUOUS, and the honest outcome: the running build filled the docks, so the queued
+    // one is STILL WAITING (visibly, with a reason) rather than having silently vanished or
+    // having exceeded the cap. Its reservation is still in force too.
+    expect(jumped.ships).toHaveLength(2);
+    expect(jumped.ships.length).toBeLessThanOrEqual(jumped.shipStorageCapacity);
+    expect(queuedForFacility(jumped, "shipyard")).toHaveLength(1);
+    expect(allocatedItem([], jumped.processQueue, "frameSegment").toString()).toBe(
+      String(HULL_BOM.components.frameSegment)
+    );
+  });
+
+  it("parity: a hand-planted FUEL DEPOT order never promotes, and leaves the tick byte-identical on both paths", () => {
+    // The Fuel Depot stub, proved inert rather than asserted inert. A legitimate route
+    // cannot make this entry (every enqueue is refused), so it is planted directly, which is
+    // exactly the hand-edited-save case the double brake exists for. The depot's automatic
+    // pipelines keep running underneath it, which is what makes the comparison non-trivial.
+    const fuelling: GameState = {
+      ...freshState(),
+      facilities: { ...freshState().facilities, fuelStorage: { level: 1 } },
+      fuel: new Decimal(0), // tank empty, so the pipelines have somewhere to put fuel
+      inventory: { ...freshState().inventory, deuteriumIce: [new Decimal(10_000)] },
+    };
+    const base = plantQueueEntry(fuelling, "fuelDepot", refineOrder());
+    expect(queuedForFacility(base, "fuelDepot")).toHaveLength(1);
+
+    const SPAN = 300;
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(queueSnapshot(jumped)).toEqual(queueSnapshot(stepped));
+
+    // The entry is untouched, id and position intact, after three hundred ticks.
+    expect(jumped.processQueue).toEqual(base.processQueue);
+    // NON-VACUOUS: the depot's AUTOMATIC pipelines really did run across the span, which is
+    // the whole finding. There is nothing for a queue to add here.
+    expect(jumped.fuel.gt(base.fuel)).toBe(true);
+    expect(itemTotal(jumped.inventory, "deuteriumIce").lt(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
+  });
+
+  it("parity: promoting a research project or a hull build draws NO rng", () => {
+    // Property 2 of promoteQueuedOrders, extended to the new arms. If a promotion ever drew,
+    // it would move the seeded stream's position and offline would stop matching live.
+    const lab = enqueueOrder(researchLabState(), "researchLab", researchOrder()).next;
+    const yard = enqueueOrder(shipyardState(), "shipyard", shipBuildOrder()).next;
+
+    for (const [label, state] of [["research", lab], ["shipBuild", yard]] as const) {
+      const spy = vi.spyOn(Math, "random");
+      try {
+        const promoted = promoteQueuedOrders(state);
+        expect(spy, `${label} promotion drew rng`).not.toHaveBeenCalled();
+        // Non-vacuous: something really was promoted during the un-drawing call.
+        expect(promoted.processQueue).toHaveLength(0);
+      } finally {
+        spy.mockRestore();
+      }
+    }
   });
 });
 

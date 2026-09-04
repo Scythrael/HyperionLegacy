@@ -57,6 +57,10 @@ import {
   type GameState,
   type QueueFacilityKey,
   type QueuedOrder,
+  // Queue-engine extension (2026-09-04): SHIP_TYPES is keyed by a literal union, so a queued
+  // build's PLAIN-STRING typeKey needs the same narrowing cast canBuildShip performs before
+  // it can index the table. Type-only.
+  type ShipTypeKey,
   type SalvageTargetRef,
   type TimedProcess,
 } from "./model";
@@ -76,6 +80,11 @@ import {
   queueDepth,
   queuedForFacility,
   refineSlotCount,
+  // Queue-engine extension (2026-09-04): the two new facilities' own slot counts, read here
+  // for the SAME reason refineSlotCount is, and read through the SAME helpers their adapters'
+  // hasFreeSlot uses, so the panel's "N / M" and the engine's slot gate cannot disagree.
+  researchSlotCount,
+  shipBuildSlotCount,
   // Crafting 0.13.3 (Phase 2 Unit 2.4): the Salvage Bay's real slot count and the ONE
   // definition of "a salvage job is running". Both come from tick.ts for the same reason
   // refineSlotCount does: the engine owns the answer and this module only renders it.
@@ -292,10 +301,32 @@ export function salvageTargetLabel(state: GameState, target: SalvageTargetRef): 
 }
 
 // The output/target name for ANY queued order, the single entry point a row uses.
+//
+// EXHAUSTIVE over QueuedOrder with no default branch (queue-engine extension, 2026-09-04),
+// so a new order arm is a compile error here rather than a row that renders a raw internal
+// key at the player. Every arm falls back to the raw key when its registry lookup misses,
+// the same rule salvageTargetLabel already follows for a target that has gone: a stale order
+// has to stay a legible row until the player clears it.
 export function queuedOrderLabel(state: GameState, order: QueuedOrder): string {
-  return order.type === "craftLine"
-    ? craftLineOutputLabel(order.kind, order.recipeKey)
-    : salvageTargetLabel(state, order.target);
+  switch (order.type) {
+    case "craftLine":
+      return craftLineOutputLabel(order.kind, order.recipeKey);
+    case "salvage":
+      return salvageTargetLabel(state, order.target);
+    case "research":
+      // The blueprint's own authored label, with its " Blueprint" suffix intact: a research
+      // row is about acquiring the BLUEPRINT, not about the thing it will eventually make.
+      // That is the opposite of craftLineOutputLabel's fabricate arm, which strips the suffix
+      // because a fabricate row IS about the output, and the difference is deliberate.
+      return BLUEPRINTS[order.blueprintKey]?.label ?? order.blueprintKey;
+    case "shipBuild":
+      // The HULL CLASS label, never a ship name: nothing has been built yet, so there is no
+      // instance to name. Same label the Shipyard's own build card carries.
+      // The cast is the SAME one canBuildShip makes over the same plain-string field; the
+      // optional chain is what makes an unknown key fall back to the raw string rather than
+      // throwing, so the cast can never turn a stale save into a crash.
+      return SHIP_TYPES[order.typeKey as ShipTypeKey]?.label ?? order.typeKey;
+  }
 }
 
 // The run-mode phrase for a WAITING craft order: nothing has run yet, so there is no
@@ -309,12 +340,24 @@ export function queuedOrderLabel(state: GameState, order: QueuedOrder): string {
 // the literal "salvage" it has always read as, both because "batch 1" is a worse sentence and
 // because every existing single-target row (and every auto-salvage order) then renders
 // byte-identically to before this change.
+// ⚠️ THE TWO COUNTLESS ARMS READ AS ONE PIECE OF WORK (queue-engine extension, 2026-09-04).
+// A research order and a ship-build order carry no mode at all (see QueuedOrder), so there is
+// no count to print and inventing "batch 1" would imply a quantity control that does not
+// exist. They read as the VERB of the facility, matching the salvage arm's literal "salvage",
+// so a row does not change vocabulary the moment it promotes.
 function queuedModeLabel(order: QueuedOrder): string {
-  if (order.type === "salvage") {
-    const units = salvageOrderUnits(order);
-    return units > 1 ? `batch ${units}` : "salvage";
+  switch (order.type) {
+    case "salvage": {
+      const units = salvageOrderUnits(order);
+      return units > 1 ? `batch ${units}` : "salvage";
+    }
+    case "research":
+      return "research";
+    case "shipBuild":
+      return "build";
+    case "craftLine":
+      return order.mode.kind === "batch" ? `batch ${order.mode.remaining}` : "continuous";
   }
-  return order.mode.kind === "batch" ? `batch ${order.mode.remaining}` : "continuous";
 }
 
 // The run-mode phrase for a RUNNING line. EXACT mirror of the line card's own
@@ -346,8 +389,42 @@ function isContinuous(mode: CraftLineMode): boolean {
 // same row model on purpose, because the console renders "running above queued" from
 // ONE derivation and a queued salvage row's block reason is frequently the noSlot the
 // running list sits right above to explain.
+//
+// ⚠️ REWRITTEN FROM AN IF-CHAIN INTO AN EXHAUSTIVE SWITCH (queue-engine extension,
+// 2026-09-04). The old shape ended in "anything that is not the Salvage Bay or the Refinery
+// is the Fabricator", which was true of three facilities and would have silently rendered a
+// Shipyard's running builds as the Fabricator's lines the moment there were six. Behavior for
+// the original three is unchanged, line for line.
 function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueueRunningRow[] {
-  if (facility === "salvageBay") return salvageRunningRows(state);
+  switch (facility) {
+    case "salvageBay":
+      return salvageRunningRows(state);
+    case "researchLab":
+      return timedJobRunningRows(state, "researchProject", "research", (process) =>
+        process.effect.type === "unlockBlueprint"
+          ? BLUEPRINTS[process.effect.key]?.label ?? process.effect.key
+          : "Research"
+      );
+    case "shipyard":
+      // ⚠️ BUILDS ONLY, NOT REPAIRS. The Shipyard's bays are SHARED between builds and repairs
+      // (shipyardBayCount), but only a BUILD is queueable, and hasFreeSlot counts builds
+      // against shipBuildSlotCount. Listing repairs here would put rows above the queue that
+      // the slot readout beside them does not count, which is the one thing this list exists
+      // not to do. A repair still shows on the Home board's in-progress rows.
+      return timedJobRunningRows(state, "shipBuild", "build", (process) =>
+        process.effect.type === "addShip"
+          ? SHIP_TYPES[process.effect.typeKey]?.label ?? process.effect.typeKey
+          : "Hull"
+      );
+    case "fuelDepot":
+      // Deliberately empty: the Fuel Depot accepts no orders, so it has no queue panel to sit
+      // above. Its running pipelines are the automatic engine's business, not the queue's.
+      // See QUEUE_ADAPTERS' fuelDepot row.
+      return [];
+    case "refinery":
+    case "fabricator":
+      break; // falls through to the shared craft-line body below
+  }
 
   const kind: CraftLineKind = facility === "refinery" ? "refine" : "fabricate";
   const lines = (kind === "refine" ? state.refineLines : state.fabricateLines) ?? [];
@@ -423,6 +500,48 @@ function salvageRunningRows(state: GameState): CraftQueueRunningRow[] {
   }));
 }
 
+// The IN-FLIGHT jobs of ONE process kind as running rows, in activeProcesses order
+// (queue-engine extension, 2026-09-04).
+//
+// The Research Lab and the Shipyard both work the way the Salvage Bay does rather than the way
+// the Refinery does: they have NO line layer, their unit of work IS one TimedProcess. So this
+// is salvageRunningRows generalized by the two things that differ between them (which process
+// kind to collect, and how to name one), written once instead of copied twice.
+//
+// The three fields whose meaning differs from a craft line are the SAME three, for the same
+// reasons salvageRunningRows documents: `id` is the process id (there is no owning line),
+// `remaining` is always 0 (a job is one indivisible piece of work with nothing queued inside
+// itself), and there is deliberately no Cancel target (cancelling an in-flight research
+// project or hull build is not a shipped action, and a build has spent its BOM already).
+// `modeLabel` is PASSED IN rather than inferred from `kind`. Inferring it would mean a
+// two-value ternary with a silent else, which is the exact shape this file just removed from
+// runningRowsFor and orderMatchesFacility: correct for two kinds, a silent mislabel for three.
+function timedJobRunningRows(
+  state: GameState,
+  kind: TimedProcess["kind"],
+  modeLabel: string,
+  label: (process: TimedProcess) => string
+): CraftQueueRunningRow[] {
+  return state.activeProcesses
+    .filter((process) => process.kind === kind)
+    .map((process) => ({
+      id: process.id,
+      label: label(process),
+      // The facility's VERB, matching the queued row's modeLabel for the same order, so a row
+      // does not change vocabulary the moment it promotes.
+      modeLabel,
+      continuous: false, // a job ends; only a craft LINE can run until cancelled
+      remaining: 0,
+      // The same 0-duration guard every other row builder uses: a malformed job reads 0
+      // progress rather than dividing by zero.
+      progress: process.durationTicks > 0 ? (process.durationTicks - process.remainingTicks) / process.durationTicks : 0,
+      // RAW ticks, never formatted here: the console runs them through the existing readout
+      // helpers with the player's showTickCounts preference.
+      remainingTicks: process.remainingTicks,
+      durationTicks: process.durationTicks,
+    }));
+}
+
 // The facility's total SLOT count. Delegates to the exported slot helpers so the queue
 // panel's "N / M running" and the console's own slot readout can never disagree about M.
 //
@@ -439,6 +558,20 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
       // A flat constant, not a derivation: the Salvage Bay is deliberately non-leveled and
       // its throughput knob is QUEUE DEPTH, not parallel slots. See SALVAGE_SLOT_COUNT.
       return SALVAGE_SLOT_COUNT;
+    case "researchLab":
+      return researchSlotCount(state);
+    case "shipyard":
+      // ⚠️ shipBuildSlotCount, NOT shipyardBayCount, and the difference is load-bearing: the
+      // build cap is deliberately bays MINUS ONE so a build can never take the last bay a
+      // repair needs. Printing the bay count here would promise the player a build slot the
+      // engine will not give them.
+      return shipBuildSlotCount(state);
+    case "fuelDepot":
+      // THE null ARM, used for exactly the reason the header describes. The Fuel Depot has
+      // pipelines, but it has no QUEUE, so it has no queue-slot model to report; printing
+      // fuelPipelineCount here would attach a queue readout to a facility that accepts no
+      // orders. See QUEUE_ADAPTERS' fuelDepot row.
+      return null;
   }
 }
 
@@ -495,6 +628,20 @@ const ENQUEUE_PROBE: Record<QueueFacilityKey, QueuedOrder> = {
     target: { kind: "equipment", instanceId: "" },
     mode: { kind: "batch", remaining: 1 },
   },
+  // ⚠️ THE TWO NEW PROBES' EMPTY KEYS ARE LOAD-BEARING FOR EXACTLY THE REASONS ABOVE
+  // (queue-engine extension, 2026-09-04). An empty blueprintKey names no blueprint, so it can
+  // never match a queued sibling (alreadyQueued) and canResearch answers `notFound` rather
+  // than the alreadyResearched / inProgress pair the enqueue gate forwards, which leaves the
+  // depth question as the only one the probe can come back with. An empty ship typeKey
+  // resolves to no hull, so queuedOrderInputs returns {} and canReserveOrder passes
+  // unconditionally. Keep both empty.
+  researchLab: { type: "research", blueprintKey: "" },
+  shipyard: { type: "shipBuild", typeKey: "" },
+  // ⚠️ THE FUEL DEPOT PROBE'S SHAPE IS IRRELEVANT, AND THAT IS THE HONEST ANSWER. No order
+  // shape belongs at the Fuel Depot (orderMatchesFacility refuses every one of them), so this
+  // probe comes back `wrongFacility` whatever it is and the view reports canEnqueue: false.
+  // That is exactly right: nothing can be queued there. See QUEUE_ADAPTERS' fuelDepot row.
+  fuelDepot: { type: "shipBuild", typeKey: "" },
 };
 
 // ---------------------------------------------------------------------------

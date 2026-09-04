@@ -3029,10 +3029,35 @@ export const FACILITIES: Record<string, FacilityDef> = {
 // migration is far safer to review on its own than bundled with engine behavior).
 
 // The facilities that can hold a queue. A named union, not a bare string, so a
-// future queue-capable facility (the 0.13.4 Research queue) slots in as ONE new
-// literal and every exhaustive consumer (the Unit 1.3 QUEUE_ADAPTERS Record) turns
-// into a COMPILE ERROR until it is handled, rather than silently missing a row.
-export type QueueFacilityKey = "refinery" | "fabricator" | "salvageBay";
+// future queue-capable facility slots in as ONE new literal and every exhaustive
+// consumer (the Unit 1.3 QUEUE_ADAPTERS Record) turns into a COMPILE ERROR until it
+// is handled, rather than silently missing a row. That property is exactly what drove
+// the widening below: the compiler enumerated every site instead of a reader having to.
+//
+// ⚠️ WIDENED TO EVERY PRODUCTION FACILITY (0.13.3 queue-engine extension, 2026-09-04).
+// The user's scope was always "all production facilities"; the first pass shipped three
+// because those were the three the crafting release touched. The other three:
+//   researchLab , a queued RESEARCH PROJECT. Costs time + credits, no materials.
+//   shipyard    , a queued HULL BUILD. Costs a full bill of materials + credits.
+//   fuelDepot   , DELIBERATELY A STUB THAT ACCEPTS NOTHING. See QUEUE_ADAPTERS' fuelDepot
+//                 row for the full finding: the depot's pipelines are ALWAYS-ON and
+//                 automatic (processFuelPipelines fills every free pipeline every tick
+//                 from the one and only fuel recipe), so there is no player intent for a
+//                 queue to carry and a queued fuel batch could not do anything the depot
+//                 would not already have done on the same tick. The key exists so the
+//                 decision is recorded, exhaustively type-checked and reversible in one
+//                 place, NOT because a fuel queue does anything today.
+//
+// ⚠️ WAREHOUSE AND DOCKS ARE PERMANENTLY EXCLUDED and must not be added. They are
+// LOGISTICAL: they hold things, they do not RUN anything, so there is no job to promote
+// and no slot to wait for. A queue there would be a control with nothing behind it.
+export type QueueFacilityKey =
+  | "refinery"
+  | "fabricator"
+  | "salvageBay"
+  | "researchLab"
+  | "shipyard"
+  | "fuelDepot";
 
 // What a queued SALVAGE order points at. The design never defined this shape; the
 // build plan's assumption 3 fixes it as the three things the Salvage Bay can already
@@ -3087,9 +3112,30 @@ export type SalvageOrderMode = Extract<CraftLineMode, { kind: "batch" }>;
 // 5 of instance eq-7" is not a quantity, it is a nonsense: the first unit consumes the
 // object and the rest could only resolve as stale no-ops. Those two arms therefore always
 // read as 1 however the field is set, which also makes a hand-edited save harmless.
+//
+// ⚠️ THE TWO ARMS ADDED BY THE 0.13.3 QUEUE-ENGINE EXTENSION (2026-09-04), and why
+// neither carries a mode:
+//
+//   research  , ONE project, named by its blueprint key. A batch count would be a nonsense
+//               here in the same way it is for a unique salvage target: a blueprint is
+//               researched exactly once and stays researched, so "research this twice" has
+//               no second unit of work to do. canEnqueueOrder refuses the duplicate rather
+//               than letting a dead entry sit on a depth slot forever.
+//   shipBuild , ONE hull of a type, named by its SHIP_TYPES key. Hulls are NOT unique the
+//               way a blueprint is (a player legitimately wants three freighters), so there
+//               is no duplicate gate on this arm. A count is still deliberately absent: the
+//               Shipyard's unit of work is one hull and one build slot, so "build 3" would
+//               have to be modelled as a residual the way a salvage batch is, which is a
+//               separate, designed change rather than something to smuggle in here. Three
+//               hulls today means three orders, which is exactly what queue depth buys.
+//
+// Both arms are PLAIN STRINGS, keeping the no-Decimal guarantee below intact: they ride
+// hydrateDecimals's spread verbatim and need no revive branch and no migration.
 export type QueuedOrder =
   | { type: "craftLine"; kind: CraftLineKind; recipeKey: string; mode: CraftLineMode }
-  | { type: "salvage"; target: SalvageTargetRef; mode: SalvageOrderMode };
+  | { type: "salvage"; target: SalvageTargetRef; mode: SalvageOrderMode }
+  | { type: "research"; blueprintKey: string }
+  | { type: "shipBuild"; typeKey: string };
 
 // One entry in GameState.processQueue.
 //

@@ -740,7 +740,18 @@ describe("buildHomeDashboard: queued work (Unit 4.6)", () => {
     const work = buildHomeDashboard(freshState()).queuedWork;
     expect(work.total).toBe(0);
     // One summary per facility, in the engine's own QUEUE_FACILITY_ORDER.
-    expect(work.byFacility.map((s) => s.facility)).toEqual(["refinery", "fabricator", "salvageBay"]);
+    // Widened by the 2026-09-04 queue-engine extension: the Research Lab, the Shipyard and the
+    // (order-refusing) Fuel Depot joined the union, so the board carries a summary for each.
+    // They report queued 0 on a fresh save exactly as the first three do, which is what the
+    // next assertion checks, so the header total and the suppression rules are unmoved.
+    expect(work.byFacility.map((s) => s.facility)).toEqual([
+      "refinery",
+      "fabricator",
+      "salvageBay",
+      "researchLab",
+      "shipyard",
+      "fuelDepot",
+    ]);
     expect(work.byFacility.every((s) => s.queued === 0 && s.readyToStart === 0)).toBe(true);
   });
 

@@ -6907,7 +6907,32 @@ export function cancelLine(state: GameState, lineId: string, nowMs: number = UNK
 // only producer and it now has a real adapter, so keeping it would be an unreachable
 // reason that Phase 4 would have to invent player-facing text for. A future stubbed
 // facility re-adds it in the same commit that stubs the row.)
-export type QueueBlockReason = StartLineBlockReason | SalvageRejectReason | "wrongFacility";
+//
+// ⚠️ AND THAT FUTURE STUBBED FACILITY ARRIVED (queue-engine extension, 2026-09-04), so
+// `notImplemented` IS BACK, exactly as the note above prescribed. Its sole producer is the
+// fuelDepot row, which refuses everything by design; see that row for the finding.
+//
+// TWO MORE IMPORTED VOCABULARIES joined at the same time, on the same principle as the
+// first two (a queued order's block reason IS whatever the gate that will actually refuse
+// it says, never a parallel token minted here):
+//   ResearchBlockReason   , canResearch's own tokens, for a queued research project.
+//                    Exactly what the Research Lab's own disabled button shows.
+//   ShipBuildBlockReason  , canBuildShip's own tokens, for a queued hull build. Exactly
+//                    what the Shipyard's own disabled Build button shows.
+//
+// ⚠️ THE SHARED-TOKEN NOTE ABOVE NOW COVERS FOUR VOCABULARIES, NOT TWO. `notFound` appears
+// in all four and reads differently in each (no such recipe / no such equipment instance /
+// no such blueprint / no such hull type); `noSlot`, `notResearched`, `tierLocked`,
+// `storageFull`, `materials` and `credits` are shared in various pairs. The routing rule is
+// unchanged and is what makes that safe: a text mapper picks its wording from the ORDER's
+// `type`, never from the token alone, and the row carries `order` precisely so it can.
+export type QueueBlockReason =
+  | StartLineBlockReason
+  | SalvageRejectReason
+  | ResearchBlockReason
+  | ShipBuildBlockReason
+  | "wrongFacility"
+  | "notImplemented";
 
 // The per-facility divergence, isolated behind one shape (design §5.6).
 //
@@ -7237,11 +7262,114 @@ export function salvageJobDurationTicks(state: GameState, target: SalvageTargetR
   }
 }
 
+// ----------------------------------------------------------------------------
+// researchLabQueueAdapter (queue-engine extension, 2026-09-04)
+// ----------------------------------------------------------------------------
+// The Research Lab's row. SAME POSTURE AS EVERY OTHER ROW: it narrows the order's shape and
+// then delegates WHOLESALE to canResearch / startResearch, the pair the Research Lab's own
+// button already uses. No queue-specific research, tier, credit or slot logic exists here or
+// anywhere else, so a queued row and the console's disabled Research button can never tell
+// the player two different stories.
+//
+// ⚠️ A QUEUED RESEARCH PROJECT RESERVES NOTHING, and that is honest rather than an omission.
+// Research costs TIME and CREDITS only (locked design #3: no material inputs), and credits
+// are not part of the derived material-reservation model at all: there is no per-item
+// allocation to derive them from, and a credit balance moves constantly from mission payouts
+// and sales. A "credit reservation" would therefore be a number that goes stale between two
+// reads, which is precisely the class of thing this engine derives instead of storing. So a
+// queued project that cannot currently afford itself WAITS at promotion with canResearch's
+// own `credits` reason, visibly, and promotes the tick the balance covers it. That is the
+// skip-on-block path doing exactly what it was built for.
+function researchLabQueueAdapter(): QueueAdapter {
+  const matches = (order: QueuedOrder): order is Extract<QueuedOrder, { type: "research" }> =>
+    order.type === "research";
+
+  return {
+    hasFreeSlot(state) {
+      // THE SAME comparison canResearch's own noSlot gate makes, duplicated for the same
+      // reason the craft rows duplicate theirs: the promotion pass needs the cheap "is there
+      // any point scanning this facility" answer BEFORE it has an order in hand, and
+      // canResearch cannot be asked without one.
+      const active = state.activeProcesses.filter((p) => p.kind === "researchProject").length;
+      return active < researchSlotCount(state);
+    },
+    canStart(state, order) {
+      if (!matches(order)) return { ok: false, reason: "wrongFacility" };
+      return canResearch(state, order.blueprintKey);
+    },
+    start(state, order) {
+      if (!matches(order)) return { next: state, started: false };
+      // startResearch re-runs canResearch internally, so promotion is gated twice by the same
+      // predicate. Its `reason` is dropped here deliberately: the promotion pass asks canStart
+      // for the reason it displays, and the start path only needs to know whether it took.
+      const result = startResearch(state, order.blueprintKey);
+      return { next: result.next, started: result.started };
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
+// shipyardQueueAdapter (queue-engine extension, 2026-09-04)
+// ----------------------------------------------------------------------------
+// The Shipyard's row, delegating wholesale to canBuildShip / startShipBuild.
+//
+// ⚠️ THE PAY-AT-START PROBLEM, AND HOW IT IS RESOLVED: THE ORDER PAYS AT PROMOTION, NOT AT
+// ENQUEUE. Read this before changing anything about a queued build.
+//
+// startShipBuild COMMITS the whole bill of materials AND the credits atomically at start,
+// which is exactly why a running build has no Cancel button: there is nothing to give back
+// that would not be a refund, and a refund is the one shape this project never builds (see
+// allocation.ts's header, and the A8 precedent). The obvious-looking move for a queue is to
+// take the payment at enqueue so the order is "paid for" while it waits. That move is WRONG
+// here for the same reason it was wrong for craft orders:
+//   - clampInventoryToCaps DISCARDS over-cap stacks on every load, so a Remove that deposited
+//     a hull's BOM back while the player sat at cap would silently destroy it. Materials the
+//     player cannot get back are worse than an order that waits.
+//   - a deducted-at-enqueue build would also have to hold CREDITS, and there is no credit
+//     escrow anywhere in this engine to hold them in.
+//
+// So the queued order follows the A8 precedent EXACTLY: it RESERVES its BOM BY DERIVATION
+// (allocation.ts's queuedOrderInputs grows a shipBuild arm; nothing is withdrawn at enqueue
+// and nothing is deposited at removal, because dropping the entry IS the release), and the
+// actual payment happens ONCE, at promotion, inside the unchanged startShipBuild. The
+// materials therefore move straight from the queued order's reservation into the build's
+// atomic deduct with no gap for another spender to slip into, which is the same handoff
+// argument a promoting craft order makes.
+//
+// ⚠️ CREDITS ARE NOT RESERVED, deliberately, for the reason spelled out on the Research row
+// above: there is nothing to derive a credit reservation from and a stored one would go
+// stale. A queued build whose credits have been spent elsewhere waits at promotion with
+// canBuildShip's own `credits` reason. That is a visible, self-clearing wait, not a loss.
+function shipyardQueueAdapter(): QueueAdapter {
+  const matches = (order: QueuedOrder): order is Extract<QueuedOrder, { type: "shipBuild" }> =>
+    order.type === "shipBuild";
+
+  return {
+    hasFreeSlot(state) {
+      // THE SAME comparison canBuildShip's own noSlot gate makes. ⚠️ shipBuildSlotCount is
+      // deliberately bays MINUS ONE, so a build can never take the last bay a repair needs
+      // (see its header); reading it here rather than shipyardBayCount is what keeps a queued
+      // build from doing what a manual build is forbidden to do.
+      const active = state.activeProcesses.filter((p) => p.kind === "shipBuild").length;
+      return active < shipBuildSlotCount(state);
+    },
+    canStart(state, order) {
+      if (!matches(order)) return { ok: false, reason: "wrongFacility" };
+      return canBuildShip(state, order.typeKey);
+    },
+    start(state, order) {
+      if (!matches(order)) return { next: state, started: false };
+      const result = startShipBuild(state, order.typeKey);
+      return { next: result.next, started: result.started };
+    },
+  };
+}
+
 // ⚠️ EXHAUSTIVE ON PURPOSE, the same trick PROCESS_XP_AWARDS uses: because this is
 // typed Record<QueueFacilityKey, QueueAdapter>, adding a facility to the union WITHOUT
-// adding its row here is a COMPILE ERROR. A new queue-capable facility (the 0.13.4
-// Research queue) therefore cannot slip in as a silently missing row that the promotion
-// pass would skip at runtime with no explanation.
+// adding its row here is a COMPILE ERROR. A new queue-capable facility therefore cannot
+// slip in as a silently missing row that the promotion pass would skip at runtime with no
+// explanation.
 export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
   refinery: craftLineQueueAdapter("refine"),
   fabricator: craftLineQueueAdapter("fabricate"),
@@ -7260,6 +7388,47 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
     canStart: canStartSalvage,
     start: startSalvageJob,
   },
+  researchLab: researchLabQueueAdapter(),
+  shipyard: shipyardQueueAdapter(),
+  // ==========================================================================
+  // ⚠️ THE FUEL DEPOT: A DELIBERATE, DOUBLE-BRAKED NO-OP. READ THIS BEFORE FILLING IT IN.
+  // (queue-engine extension, 2026-09-04. Investigated first, then NOT built, on purpose.)
+  //
+  // THE FINDING. The Fuel Depot is the one production facility with NO PLAYER INTENT to
+  // queue. processFuelPipelines (below) is ALWAYS-ON and AUTOMATIC: every single tick it
+  // fills EVERY free pipeline slot with a fuel-refine batch, for as long as the tank has
+  // room and there is Deuterium Ice, with no order object, no manual start and no player
+  // configuration anywhere in the loop. There is also exactly ONE fuel recipe, so there is
+  // no choice of output to express either.
+  //
+  // WHAT A QUEUED FUEL BATCH WOULD THEREFORE DO: nothing observable. Promotion runs at
+  // economyTick's tail BEFORE processFuelPipelines, so a promoted batch would occupy a
+  // pipeline slot that the automatic pass was about to fill on the same tick with an
+  // IDENTICAL batch (same input, same output, same duration). The resulting state would be
+  // byte-identical except that the player's queue entry had been silently spent. A queue
+  // that can only ever duplicate work the game already does for free is not a feature, it
+  // is a control the player would learn to distrust.
+  //
+  // WHAT THIS ROW DOES INSTEAD: refuses, twice over, exactly as Unit 1.3's salvageBay stub
+  // did before its real row landed.
+  //   1. hasFreeSlot is FALSE, so promoteQueuedOrders skips this facility before it ever
+  //      builds a waiting list, and no promotion pass can promote here.
+  //   2. canStart returns `notImplemented`, so even a hand-edited save that parked an order
+  //      here gets an honest refusal rather than a silent skip.
+  // orderMatchesFacility (below) closes the third door: NO order shape belongs at the Fuel
+  // Depot, so canEnqueueOrder refuses every enqueue with `wrongFacility` and an entry can
+  // never legitimately exist here in the first place.
+  //
+  // ⚠️ FLAGGED FOR THE USER. This is the one facility in the brief where the honest answer
+  // was "there is nothing here to build". If a fuel queue should exist, it needs a DESIGN
+  // first (a reason for the player to want one, which today would have to mean making the
+  // pipelines stop being automatic), not an adapter. Filling this row in without that
+  // design would ship a control with nothing behind it.
+  fuelDepot: {
+    hasFreeSlot: () => false,
+    canStart: () => ({ ok: false, reason: "notImplemented" }),
+    start: (state) => ({ next: state, started: false }),
+  },
 };
 
 // The FIXED facility iteration order for Unit 1.4's promotion pass.
@@ -7268,7 +7437,22 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
 // order on a runtime object is an implementation detail, and promotion order has to be
 // a stable, stated property of the engine (design §5.5) because it decides which
 // facility wins a contested material when several could promote in the same tick.
-export const QUEUE_FACILITY_ORDER = ["refinery", "fabricator", "salvageBay"] as const satisfies readonly QueueFacilityKey[];
+//
+// ⚠️ THE THREE NEW FACILITIES ARE APPENDED, NEVER INTERLEAVED (queue-engine extension,
+// 2026-09-04). The tuple's order decides who wins a contested material on a tick where two
+// facilities could both promote, so re-sorting it would be a live BEHAVIOR change for every
+// existing save that queues a refine and a fabricate against the same ingots. Appending
+// leaves every pre-existing pairing resolved exactly as it was, and states the new rule for
+// the newcomers: a Shipyard build (the most expensive single order in the game) is served
+// LAST, so it can never outbid the crafting lines that produce its own bill of materials.
+export const QUEUE_FACILITY_ORDER = [
+  "refinery",
+  "fabricator",
+  "salvageBay",
+  "researchLab",
+  "shipyard",
+  "fuelDepot",
+] as const satisfies readonly QueueFacilityKey[];
 
 // Compile-time proof the tuple above lists EVERY QueueFacilityKey. If a key is added to
 // the union and not to the tuple, this alias stops being `never`, the annotation stops
@@ -7309,21 +7493,58 @@ void QUEUE_FACILITY_ORDER_IS_EXHAUSTIVE; // type-level assertion only, no runtim
 //                     salvage shortage is fixed by asking for FEWER units or removing an
 //                     order that has already claimed them. One sentence covering both would
 //                     have to be vague enough to help with neither.
+//   alreadyResearched, (queue-engine extension, 2026-09-04) this RESEARCH order names a
+//                     blueprint the player already owns. Research-only.
+//   inProgress      , (queue-engine extension, 2026-09-04) this RESEARCH order names a
+//                     blueprint a running project is already unlocking. Research-only.
+//
+//                     ⚠️ WHY THESE TWO ARE canResearch's OWN TOKENS RATHER THAN A REUSE OF
+//                     `alreadyQueued`. All three refuse a dead entry, but they name three
+//                     different objects the player has to look at to understand the refusal
+//                     (another queue row, the researched list, a running lab job), and the
+//                     Research Lab already has exact wording for the last two. Borrowing
+//                     them means the queue and the console explain an unresearchable project
+//                     with one sentence, which is the rule the whole QueueBlockReason union
+//                     is built on, applied to the enqueue side.
 export type EnqueueBlockReason =
   | "queueFull"
   | "wrongFacility"
   | "alreadyQueued"
   | "materials"
-  | "notEnoughHeld";
+  | "notEnoughHeld"
+  | "alreadyResearched"
+  | "inProgress";
 
 // Does this order shape belong at this facility? A craft line goes to the facility that
 // runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
 // nonsense entry can never take up a depth slot forever (it could never promote, and
 // the row would show a block reason no player action could clear).
+//
+// ⚠️ REWRITTEN AS AN EXHAUSTIVE SWITCH (queue-engine extension, 2026-09-04). It used to be a
+// chain of ifs ending in a ternary, which quietly meant "anything that is not the Salvage Bay
+// or the Refinery is the Fabricator". That reading was correct while there were three
+// facilities and is a silent misrouting bug the moment there are six, so the shape that a new
+// QueueFacilityKey turns into a COMPILE ERROR replaces it. Behavior for the original three is
+// unchanged, line for line.
 function orderMatchesFacility(facility: QueueFacilityKey, order: QueuedOrder): boolean {
-  if (facility === "salvageBay") return order.type === "salvage";
-  if (order.type !== "craftLine") return false;
-  return facility === "refinery" ? order.kind === "refine" : order.kind === "fabricate";
+  switch (facility) {
+    case "refinery":
+      return order.type === "craftLine" && order.kind === "refine";
+    case "fabricator":
+      return order.type === "craftLine" && order.kind === "fabricate";
+    case "salvageBay":
+      return order.type === "salvage";
+    case "researchLab":
+      return order.type === "research";
+    case "shipyard":
+      return order.type === "shipBuild";
+    case "fuelDepot":
+      // ⚠️ NOTHING BELONGS HERE, AND THAT IS THE POINT. The Fuel Depot has no queueable unit
+      // of work (see its QUEUE_ADAPTERS row for the finding), so every enqueue is refused with
+      // `wrongFacility` and no entry can ever legitimately exist at this facility. This is the
+      // third of the three doors that keep the stub inert; do not open it without a design.
+      return false;
+  }
 }
 
 // The waiting orders held by ONE facility, in queue order (array index IS the order).
@@ -7402,6 +7623,31 @@ export function canEnqueueOrder(
   // lives in exceedsFreeSalvageUnits (reservation.ts); nothing is re-derived here.
   if (order.type === "salvage" && exceedsFreeSalvageUnits(state, order)) {
     return { ok: false, reason: "notEnoughHeld" };
+  }
+  // Rule 5 (queue-engine extension, 2026-09-04): A RESEARCH PROJECT THAT CAN NEVER RUN AGAIN
+  // IS REFUSED AT ENQUEUE. This is rule 3 (the unique-salvage-target duplicate gate) applied
+  // to the other unique target in the game: a blueprint is researched exactly once and stays
+  // researched forever, so a second order on one could only ever resolve as a dead row holding
+  // a depth slot the player has to notice and clear by hand. Three shapes are refused, and
+  // ALL THREE are reachable by ordinary play (queue a project, watch it start, queue it again):
+  //   - a sibling ORDER already names it     -> alreadyQueued
+  //   - a running lab job is unlocking it    -> inProgress
+  //   - the player already owns it           -> alreadyResearched
+  //
+  // ⚠️ ZERO NEW GATE LOGIC: the last two are canResearch's OWN verdict, read and forwarded,
+  // never re-derived. And ONLY those two reasons are forwarded, deliberately. `tierLocked`,
+  // `credits` and `noSlot` are the exact conditions queueing exists to plan around (upgrade
+  // the lab, sell some cargo, wait for a slot) and every one of them clears on its own, so
+  // they must stay promotion-time waits and never enqueue-time refusals.
+  if (order.type === "research") {
+    const duplicate = queuedForFacility(state, "researchLab").some(
+      (job) => job.order.type === "research" && job.order.blueprintKey === order.blueprintKey
+    );
+    if (duplicate) return { ok: false, reason: "alreadyQueued" };
+    const research = canResearch(state, order.blueprintKey);
+    if (!research.ok && (research.reason === "alreadyResearched" || research.reason === "inProgress")) {
+      return { ok: false, reason: research.reason };
+    }
   }
   // THE ONE CALL SITE of the enqueue-affordability policy (rule 2 above). Placed before
   // the depth cap for the same reason the duplicate check is: "you do not have the ore
