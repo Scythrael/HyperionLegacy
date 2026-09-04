@@ -5047,7 +5047,20 @@
     // Shared / queue-only tokens first.
     if (reason === "noSlot") {
       // The normal, healthy waiting state. Worded as waiting, not as a failure.
-      return row.order.type === "salvage" ? "Waiting for a free bay." : "Waiting for a free line.";
+      //
+      // ⚠️ THE NOUN IS THE FACILITY'S OWN (Research Lab queue UI, 2026-09-04). This used to be
+      // a two-way ternary meaning "a salvage waits for a bay, everything else waits for a
+      // line", which was true while only three facilities had queues. A research project does
+      // not wait for a LINE, it waits for a research SLOT, which is the word the readout at
+      // the top of its own panel already prints ("Research slots: 1 / 2 in use"), so a row
+      // saying "line" would point at a readout that console does not have. Written as
+      // explicit arms rather than a longer ternary so the next facility's noun is an added
+      // line rather than a re-read of a nested conditional.
+      if (row.order.type === "salvage") return "Waiting for a free bay.";
+      if (row.order.type === "research") return "Waiting for a free research slot.";
+      // A ship build still reads "line" here, unchanged, until the Shipyard console unit gives
+      // it its own noun: it is the same string that arm renders today, not a new claim.
+      return "Waiting for a free line.";
     }
     if (reason === "wrongFacility") {
       // Only reachable from a save whose order landed under a facility that cannot run it
@@ -5076,15 +5089,70 @@
       }
     }
 
-    // ⚠️ THE RESEARCH AND SHIP-BUILD ARMS (queue-engine extension, 2026-09-04) DO NOT HAVE
-    // THEIR SENTENCES YET, and this is a deliberately honest placeholder rather than a guess.
-    // That unit is ENGINE ONLY: the Research Lab and Shipyard consoles get their queue
-    // affordances (and with them the per-reason wording drawn from canResearch's and
-    // canBuildShip's own vocabularies, the way the two arms above draw theirs) in the console
-    // units that follow. Wording it here first would mean writing the sentences twice and
-    // having to keep two copies in step. A row that reaches this today is already showing its
-    // engine-accurate `blockReason` token to anything that reads the model; what it cannot yet
-    // do is say it in a full sentence, so it says the true general thing instead.
+    // THE RESEARCH ARM (Research Lab queue UI, 2026-09-04), which is what the engine unit's
+    // placeholder was holding this spot for.
+    //
+    // ⚠️ WHY THESE SENTENCES ARE WRITTEN HERE RATHER THAN BORROWED FROM researchBlockText,
+    // which is the opposite of what the craft arm below does. researchBlockText mints BUTTON
+    // LABELS: "Not enough credits", "All research slots busy", "Researching…". Those are
+    // correct on a disabled control (a control that will not act reports why it will not act),
+    // and they read as FAILURES in a queue row, where the same conditions are the normal,
+    // expected, self-clearing state of an order that was queued precisely to wait them out.
+    // That is the identical reason this whole function exists instead of the console calling
+    // startLineBlockText (see the header), so the research arm follows the rule rather than
+    // breaking it. The NUMBERS are still single-sourced: the lab level and the credit cost
+    // below are read off the same BlueprintDef fields researchBlockText and the card read.
+    //
+    // ⚠️ TWO OF THE SIX ARE DEAD ROWS, AND THEY SAY SO. The engine deliberately refuses
+    // alreadyResearched and inProgress at ENQUEUE, so neither can be created here. Both are
+    // still reachable AFTERWARDS by ordinary play: queue a blueprint, then press Research on
+    // its own card while a slot is free. The order is then permanently unpromotable (a
+    // researched blueprint never becomes unresearched), so those two rows drop the "Waiting:"
+    // prefix and say to remove the order, exactly as the wrongFacility row above does. They
+    // are the only two rows on this console that a player must clear by hand.
+    if (row.order.type === "research") {
+      const rbp = BLUEPRINTS[row.order.blueprintKey];
+      switch (reason) {
+        case "credits":
+          // The whole point of queueing ahead: this is not a failure, it is an order parked
+          // until the credits arrive, and it starts itself when they do. The cost is named so
+          // the player can act on it without scrolling back to the card.
+          return rbp === undefined
+            ? "Waiting: not enough credits. This starts on its own once you can afford it."
+            : `Waiting: not enough credits. This starts on its own once you hold ◈ ${formatNumber(rbp.researchCreditCost)}.`;
+        case "tierLocked":
+          // Likewise self-clearing, and the remedy is a facility upgrade rather than a wait,
+          // so the sentence names it. The level is the blueprint's own tier, the same number
+          // researchBlockText puts on the card's disabled button.
+          return rbp === undefined
+            ? "Waiting: the Research Lab is not high enough level for this yet."
+            : `Waiting: the Research Lab must reach level ${rbp.tier}. This starts on its own once the lab is upgraded.`;
+        case "alreadyResearched":
+          return "You have already researched that, so this order can never start. Remove it.";
+        case "inProgress":
+          return "The lab is already researching that, so this order can never start. Remove it.";
+        case "notFound":
+          // Defensive: a save carrying a retired blueprint key. It can never promote, so the
+          // row says how to clear it rather than waiting forever in silence.
+          return "That blueprint no longer exists. Remove this order.";
+        default:
+          // A craft-line-only or salvage-only token on a research row is unreachable: the
+          // Research Lab adapter delegates to canResearch, which mints only the reasons above
+          // plus the noSlot handled before this split. Worded rather than thrown so a future
+          // adapter change degrades to an honest row instead of a crash.
+          return "Waiting: this order cannot start right now.";
+      }
+    }
+
+    // ⚠️ THE SHIP-BUILD ARM (queue-engine extension, 2026-09-04) DOES NOT HAVE ITS SENTENCES
+    // YET, and this is a deliberately honest placeholder rather than a guess. That unit was
+    // ENGINE ONLY: the Shipyard console gets its queue affordances (and with them the
+    // per-reason wording drawn from canBuildShip's own vocabulary, the way the three arms
+    // above draw theirs) in its own console unit. Wording it here first would mean writing the
+    // sentences twice and having to keep two copies in step. A row that reaches this today is
+    // already showing its engine-accurate `blockReason` token to anything that reads the
+    // model; what it cannot yet do is say it in a full sentence, so it says the true general
+    // thing instead.
     if (row.order.type !== "craftLine") return "Waiting: this order cannot start yet.";
 
     // A craft line. The wording is BORROWED VERBATIM from startLineBlockText so there is
@@ -5380,6 +5448,37 @@
     state = next;
     const bp = BLUEPRINTS[blueprintKey];
     pushLog(`Research started → [${bp?.label ?? blueprintKey}].`);
+    doSave();
+  }
+
+  // Research Lab queue UI (2026-09-04): park a blueprint to be researched LATER, instead of
+  // starting it now. The exact twin of doQueueSalvage, and written to the same three rules the
+  // other two enqueue handlers follow:
+  //
+  //   1. IT NEVER CALLS startResearch. Promotion stays exclusively in promoteQueuedOrders,
+  //      which is what keeps offline resolution identical to live play by construction: a
+  //      queued project that comes due while the game is closed is started by the same code
+  //      path that would have started it on screen.
+  //   2. A REFUSAL IS REPORTED, NOT SWALLOWED. The button's own disabled state already mirrors
+  //      canEnqueueOrder, so reaching the refusal branch means state moved between render and
+  //      click; the log says which of the engine's reasons it was, through the shared
+  //      enqueueBlockText, so a click can never look like it did nothing for no reason.
+  //   3. THE LABEL COMES FROM queuedOrderLabel, the same function the queue ROW uses, so the
+  //      log line and the row can never disagree about what was queued.
+  //
+  // NOTHING IS RESERVED AND NOTHING IS SPENT. A research project costs credits and time only
+  // (allocation.ts's queuedOrderInputs returns {} for a research order on purpose), so there
+  // is no ledger to unwind and removing the row is a complete undo. That is also why this
+  // needs no confirmation modal, the same reasoning doEnqueueLine records.
+  function doQueueResearch(blueprintKey: string) {
+    const order: QueuedOrder = { type: "research", blueprintKey };
+    const { next, queued, reason } = enqueueOrder(state, "researchLab", order);
+    if (!queued) {
+      pushLog(`Cannot queue research: ${reason === undefined ? "the Research Lab refused that order" : enqueueBlockText(reason)}`);
+      return;
+    }
+    state = next;
+    pushLog(`Queued for research → [${queuedOrderLabel(state, order)}].`);
     doSave();
   }
 
@@ -6117,6 +6216,19 @@
   $: totalBlueprintCount = Object.keys(BLUEPRINTS).length;
   $: researchedBlueprintCount = state.researchedBlueprints.length;
 
+  // ── The Research Lab's ORDER QUEUE view (Research Lab queue UI, 2026-09-04) ──
+  // The exact twin of refineryQueue / fabricatorQueue / salvageBayQueue, differing only in the
+  // facility key. buildCraftQueue's adapter table is what makes the key the only difference:
+  // the Research Lab's adapter delegates to researchSlotCount and canResearch, which are the
+  // same two seams the blueprint cards' own Research buttons already ask, so the queue and the
+  // catalogue beside it cannot form two opinions about whether a project may start.
+  //
+  // There is deliberately NO researchContinuous companion (the Refinery and Fabricator have
+  // one): a research project always ends, so craftQueue.ts reports continuous:false on every
+  // research row and the section 5.4 continuous-line warning is not merely inapplicable here,
+  // it is unrenderable. That is the same finding the Salvage Bay's panel records.
+  $: researchQueue = buildCraftQueue(state, "researchLab");
+
   // ── Fabricator status (Fabricator Task F4 UI) ─────────────────────────────
   // All derive off state (facilities / activeProcesses / fabricateOrder), so the
   // Fabricator panel's counts, slot gauge, in-flight bars, order status, and button
@@ -6844,6 +6956,99 @@
   </Panel>
 {/snippet}
 
+<!-- ========== THE RESEARCH LAB'S QUEUE PANEL (Research Lab queue UI) ===========
+     A LAB-SHAPED VARIANT of craftOrderQueuePanel, for the same kind of structural reasons
+     the Salvage Bay's variant records, and following that precedent rather than inventing a
+     new one. The ROWS are the shared craftQueueRowList, the depth readout is the shared Home
+     section-header idiom, the block wording is the shared queueBlockText / enqueueBlockText,
+     and the controls are the shared .cq-* Icon buttons, so nothing that both panels say can
+     drift. What differs is the chrome, and only where the facility genuinely differs:
+
+       1. IT HAS NO CONTINUOUS MODE. A craft line can run until cancelled and never hand its
+          slot back, which is the trap the shared panel warns about. A research project always
+          ends, and craftQueue.ts reports continuous:false on every research row, so the
+          warning is unrenderable rather than merely inapplicable.
+       2. ITS NOUNS ARE SLOTS AND PROJECTS, NOT LINES AND CRAFTS. The shared empty state says
+          "configure a line above and choose Add to queue", which is not how research is
+          queued: you pick a blueprint from the tier list below and press Add to queue.
+       3. IT DOES NOT RENDER RUNNING WORK, WHICH IS THE ONE PLACE IT DIVERGES FROM THE SALVAGE
+          BAY'S VARIANT, and deliberately. The bay renders its in-flight job because a running
+          salvage would otherwise appear NOWHERE on its console. A running research project
+          already appears twice on this one: as a progress card on the Overview sub-tab, and
+          as a live bar REPLACING the button on the blueprint's own card a few rows below
+          this panel. A third copy would be the same job in three places on one screen, so
+          this panel states the slot COUNT (which is what explains a row waiting on noSlot)
+          and points at the work rather than redrawing it.
+
+     ⚠️ THE SLOT READOUT IS INTENTIONALLY ALSO PRINTED BY THE CATALOGUE PANEL BELOW. That
+     line is pre-existing and is preserved untouched; this panel states it too because a row
+     reading "Waiting for a free research slot" is unreadable without the numbers in the same
+     panel, and a panel that depends on a sentence in a different panel to make sense is the
+     thing the Salvage Bay variant was written to avoid. Both are the same two numbers from
+     the same helper (researchSlotCount), reached one through the view model and one through
+     the console's own derivation, so they cannot disagree.
+
+     PLACEMENT (the flat-queue versus tier-grouped-catalogue question): this panel sits ABOVE
+     the catalogue, which is the opposite of the Refinery's and the Fabricator's. Their queue
+     sits under a FIXED, small number of line cards (one per lane), so it is always within a
+     screen of the top of the tab. This console's catalogue is unbounded and grows with
+     content, and it is grouped into tier sections, so a queue panel underneath it would sit
+     past every tier and be invisible at the moment it is most needed. The reading order is
+     the same one the craft consoles use, "the state of the facility, then what is waiting,
+     then what you may add"; only the third item here happens to be arbitrarily long. -->
+{#snippet researchLabQueuePanel(view: CraftQueueView)}
+  <Panel>
+    <div class="panel-title">RESEARCH QUEUE</div>
+
+    <!-- SLOTS: the lab's concurrency, stated before the queue that waits on it, because
+         "2 / 2 in use" is the whole explanation for why a queued row is waiting. Both numbers
+         come off the view model rather than being re-derived here; the `?? researchSlots`
+         arm exists only for slotsTotal's null case (a future queue-capable facility with no
+         slot model yet) and is unreachable for this facility, whose slotsTotalFor delegates to
+         the very researchSlotCount that researchSlots is. -->
+    <div class="research-cost">
+      Research slots: {view.runningCount} / {view.slotsTotal ?? researchSlots} in use
+    </div>
+
+    <!-- Depth readout, the same Home section-header idiom the other two panels use. -->
+    <div class="home-sec-hd" style="margin-top: 12px;">
+      <span class="home-sec-h"><Icon name="queue" size={12} /> Waiting orders</span>
+      <span class="home-sec-count" class:cq-count-over={view.overDepth}>
+        {view.depthUsed} / {view.depthTotal}
+      </span>
+      <span class="home-sec-rule"></span>
+    </div>
+
+    <!-- The respec drain state and the enqueue block reason, worded exactly as the other two
+         panels word them: the depth talent and the cap are facility-neutral, so the player
+         reads one explanation of queue depth across the whole game. -->
+    {#if view.overDepth}
+      <p class="cq-note cq-note-warn">
+        Over capacity: {view.depthUsed} orders are held but the current depth is {view.depthTotal}.
+        Nothing is lost. These drain as research slots free up, and no new order can be added until the queue is back under {view.depthTotal}.
+        Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
+      </p>
+    {:else if !view.canEnqueue && view.enqueueBlockReason !== null}
+      <p class="cq-note cq-note-warn">{enqueueBlockText(view.enqueueBlockReason)}</p>
+    {/if}
+
+    {#if view.queued.length === 0}
+      <!-- State-dependent empty state (inventory 0.8), with the LAB's own two readings.
+           The zero-depth branch is defensive and unreachable today (QUEUE_DEPTH_BASE is 1). -->
+      <p class="research-status" style="margin-top: 10px;">
+        {#if view.depthTotal <= 0}
+          This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {:else}
+          Nothing queued. Choose <strong>Add to queue</strong> on any blueprint below to line up research that starts as soon as a slot is free.
+          Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
+        {/if}
+      </p>
+    {:else}
+      {@render craftQueueRowList(view)}
+    {/if}
+  </Panel>
+{/snippet}
+
 <div class="root">
   <Starfield />
   <div class="frame">
@@ -7168,13 +7373,20 @@
                 </div>
               </div>
               <div class="roster-card-lines">
+                <!-- Research Lab queue UI (2026-09-04): the SAME queued tail Unit 4.6 gave the
+                     Refinery and Fabricator cards, off the same researchQueue this console
+                     binds to, so a card and its console can never disagree about the depth.
+                     The three existing states are unchanged and the tail is a pure suffix that
+                     renders only when orders are waiting. "Not built" takes no tail, for the
+                     reason the Refinery card records: a facility that does not exist cannot
+                     hold a queue. -->
                 <div class="roster-card-line">
                   {#if researchSlots === 0}
                     Status: Not built
                   {:else if activeResearchProjects.length === 0}
-                    Status: Idle, {researchSlots} slot{researchSlots === 1 ? "" : "s"} free
+                    Status: Idle, {researchSlots} slot{researchSlots === 1 ? "" : "s"} free{cardQueuedSuffix(researchQueue)}
                   {:else}
-                    Status: {activeResearchProjects.length} / {researchSlots} projects running
+                    Status: {activeResearchProjects.length} / {researchSlots} projects running{cardQueuedSuffix(researchQueue)}
                   {/if}
                 </div>
               </div>
@@ -8417,6 +8629,24 @@
             {/if}
 
             {#if activeResearchSubTab === "research"}
+              <!-- RESEARCH QUEUE (Research Lab queue UI, 2026-09-04), the flat ORDERED list of
+                   waiting projects, rendered above the tier-grouped catalogue.
+                   THE TWO ORGANISATIONS ARE KEPT SEPARATE RATHER THAN RECONCILED. A queue is
+                   ordered and flat, because position IS its meaning; the catalogue is grouped
+                   by tier, because tier is how a player finds a blueprint and it is the
+                   structure the preservation inventory names as load-bearing. Trying to make
+                   one list serve both would have cost one of those two properties (a
+                   reorderable catalogue loses the tier grouping; a tier-grouped queue loses
+                   the position that is the whole point of a queue). So they stay two lists
+                   with two jobs, which is also exactly what the Refinery and the Fabricator
+                   do: a queue panel of its own, next to the surface that fills it.
+                   ⚠️ RENDERED UNCONDITIONALLY, unlike the Refinery's {#if refineryBuilt}
+                   gate. That gate exists because the Refinery's Craft tab renders nothing at
+                   all when unbuilt; this sub-tab always renders its catalogue, and hiding the
+                   panel at zero slots would hide any orders a save is already holding. The
+                   panel's own empty state says what to do instead. -->
+              {@render researchLabQueuePanel(researchQueue)}
+
               <!-- RESEARCH LIST, blueprints grouped by TIER (ascending). Each card
                    shows the blueprint's future-Fabricator RECIPE (inputs → outputQty×
                    output, ITEM labels) + its cost/time, then ONE of three states:
@@ -8506,6 +8736,55 @@
                         <button class="buy-btn" disabled title={researchBlockText(gate.reason, bp)}>
                           {researchBlockText(gate.reason, bp)}
                         </button>
+                      {/if}
+
+                      <!-- ADD TO QUEUE (Research Lab queue UI, 2026-09-04): the same project,
+                           parked to run later instead of now.
+                           ⚠️ IT IS ADDED BESIDE THE THREE-STATE CHAIN ABOVE, NEVER INSIDE IT,
+                           and that is the load-bearing part. Starting a project the moment a
+                           slot is free must stay ONE CLICK, so the existing Research button is
+                           untouched in both of its branches and this is a second control, the
+                           same separation the Refinery configurator makes between Start and Add
+                           to queue for the same reason: the two do different things, and a
+                           button that silently changes meaning under the player is how a
+                           mis-click happens.
+                           WHY IT IS RENDERED FOR THE TWO NOT-YET-RESEARCHED BRANCHES ONLY. The
+                           other two states are precisely the two the engine refuses at enqueue:
+                           `unlocked` IS canResearch's alreadyResearched, and a live `job` IS its
+                           inProgress. Offering a control whose only possible outcome is a
+                           refusal would be a button that exists to say no, so those two branches
+                           keep the readouts they already had and nothing else.
+                           ⚠️ AND IT IS DELIBERATELY OFFERED WHILE `gate` IS BLOCKED. tierLocked,
+                           credits and noSlot are exactly the conditions queueing ahead exists to
+                           plan around, and the engine does not refuse any of them at enqueue, so
+                           the card whose Research button reads "Requires Research Lab level 3"
+                           is the single most useful place on this console to be able to queue. -->
+                      {#if !unlocked && job === undefined}
+                        <!-- The REAL gate on the REAL order, exactly as doQueueResearch will
+                             build it, so the button and the click cannot disagree. This is the
+                             same call the craft configurator's queue button makes rather than
+                             reading the view's shape-only ENQUEUE_PROBE, and here it matters for
+                             a second reason: the probe carries an empty blueprintKey, so it can
+                             never answer the per-blueprint alreadyQueued question this card
+                             needs. -->
+                        {@const queueGate = canEnqueueOrder(state, "researchLab", { type: "research", blueprintKey: bp.key })}
+                        <button
+                          class="buy-btn"
+                          style="margin-left: 6px;"
+                          disabled={!queueGate.ok}
+                          on:click={() => doQueueResearch(bp.key)}
+                        >
+                          Add to queue
+                        </button>
+                        <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
+                             the reason sits under the button rather than in a hover title,
+                             because a disabled <button> swallows pointer events and a title on
+                             it is unreadable on touch entirely. The sentence is the shared
+                             enqueueBlockText, so this card and the queue panel above describe a
+                             refusal with one wording rather than two. -->
+                        {#if !queueGate.ok}
+                          <p class="cq-note">{enqueueBlockText(queueGate.reason)}</p>
+                        {/if}
                       {/if}
                     </div>
                   {/each}
