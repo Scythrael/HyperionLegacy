@@ -102,6 +102,13 @@ import {
   SALVAGE_TICKS_PER_QUALITY,
   SALVAGE_MATERIAL_TICKS,
   SALVAGE_SHIP_BUILD_DIVISOR,
+  // Crafting 0.13.3 (salvage-duration SEAM): the material arm's own factors, all
+  // NEUTRAL today, plus the shared ceiling every arm now clamps to.
+  SALVAGE_MATERIAL_TICKS_PER_QUALITY,
+  SALVAGE_MATERIAL_RARITY_MULTIPLIER,
+  SALVAGE_MATERIAL_TIER_MULTIPLIER_PER_TIER,
+  SALVAGE_MAX_TICKS,
+  type ItemRarity,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -1234,6 +1241,102 @@ describe("salvageReservations: in-flight salvageJobs reserve identically to queu
 // hard-coding a tick count. Retuning a coefficient should move the game, not break the
 // suite; changing the FORMULA should break it.
 // ============================================================================
+// ============================================================================
+// THE BEHAVIOUR-NEUTRALITY PIN (Crafting 0.13.3 salvage-duration SEAM)
+// ============================================================================
+// ⚠️ THE ONE BLOCK IN THIS FILE THAT HARD-CODES TICK COUNTS, AND IT DOES SO ON PURPOSE.
+// Every other duration case above derives its expectation from the exported constants, so
+// that retuning a coefficient retunes the suite with it. That is right for balance, and
+// exactly WRONG for this block, whose entire job is to notice a change nobody intended.
+//
+// WHY IT IS LOAD-BEARING: the salvage-duration factor model was widened (the material arm
+// gained tier / rarity / consumed-bucket quality, every arm gained a shared ceiling) with
+// EVERY new factor set to its identity value, so that the shape could land with proof of
+// no behavior change and the balance pass that follows is a pure numbers edit. Durations
+// size TimedProcesses, so they sit on the live-versus-offline parity path: a duration that
+// silently moved would desynchronize the two paths for anyone mid-salvage across a reload.
+// These literals are the proof that nothing moved.
+//
+// IF A LITERAL HERE FAILS: that is either the intended balance pass (update the numbers
+// deliberately, in the same commit as the constant that moved) or an accidental behavior
+// change smuggled in behind a "shape only" edit. It is never noise.
+describe("salvageDurationTicks: TODAY'S durations are pinned, arm by arm, as literals", () => {
+  it("equipment: pinned across an iLevel / quality spread", () => {
+    // 60 base + 0.5/iLevel + 2/quality, rounded up.
+    const cases: Array<[number, number, number]> = [
+      // iLevel, quality, expected ticks
+      [0, 0, 60],   // the bare floor
+      [1, 0, 61],   // an ODD iLevel: the .5 rounds UP, never truncates
+      [10, 1, 67],  // 60 + 5 + 2
+      [20, 5, 80],  // the current per-tier iLevel cap with a top-quality roll
+      [30, 2, 79],  // 60 + 15 + 4
+      [37, 3, 85],  // 60 + 18.5 + 6 = 84.5, rounded up
+      [5000, 5, 2570], // the "set iLevel" future the salvage notes describe: still bounded
+    ];
+    for (const [iLevel, quality, expected] of cases) {
+      expect(salvageDurationTicks({ kind: "equipment", iLevel, quality })).toBe(expected);
+    }
+  });
+
+  it("material: still exactly 60 for EVERY item in the registry, at EVERY quality rung", () => {
+    // The precise claim the widening had to preserve: a common ore roll and a rare
+    // Damaged Reactor Housing still cost the identical 60 ticks today. Swept over the
+    // REAL ITEMS table rather than a sample, so an item added with a new rarity or a
+    // higher tier cannot slip past this pin.
+    for (const [itemId, def] of Object.entries(ITEMS)) {
+      for (let quality = 0; quality < 6; quality++) {
+        const ticks = salvageDurationTicks({
+          kind: "material",
+          tier: def.tier,
+          rarity: def.rarity,
+          quality,
+        });
+        // itemId in the message so a failure names the item that moved.
+        expect(`${itemId}@q${quality}=${ticks}`).toBe(`${itemId}@q${quality}=60`);
+      }
+    }
+  });
+
+  it("ship: pinned across every hull's real build time, plus the fallbacks", () => {
+    // ceil(buildDurationTicks / 3), with anything unusable falling back to the 60 floor.
+    const cases: Array<[number, number]> = [
+      [300, 100],   // scout-class hull
+      [450, 150],
+      [550, 184],   // 183.33, rounded UP
+      [600, 200],
+      [700, 234],   // 233.33, rounded UP
+      [1150, 384],  // 383.33, rounded UP
+      [1200, 400],  // the longest teardown the game can currently produce
+      [1, 1],       // never rounds down to 0, which would complete on its own start tick
+      [4, 2],
+      [0, 60],      // fallbacks: an unknown hull still takes a moment
+      [-10, 60],
+      [NaN, 60],
+    ];
+    for (const [build, expected] of cases) {
+      expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: build })).toBe(expected);
+    }
+  });
+
+  it("every real hull's teardown is pinned through SHIP_TYPES itself, not a copied number", () => {
+    // Belt and braces on the arm the parity gate cares most about: reads the live table,
+    // so a hull whose build time is retuned shows up here as a duration change rather
+    // than sliding through on a stale literal.
+    for (const [typeKey, def] of Object.entries(SHIP_TYPES)) {
+      const ticks = salvageDurationTicks({
+        kind: "ship",
+        buildDurationTicks: def.buildRecipe.durationTicks,
+      });
+      expect(`${typeKey}=${ticks}`).toBe(
+        `${typeKey}=${Math.ceil(def.buildRecipe.durationTicks / 3)}`
+      );
+      // Non-vacuous, and comfortably inside the safety ceiling.
+      expect(ticks).toBeGreaterThan(1);
+      expect(ticks).toBeLessThan(SALVAGE_MAX_TICKS);
+    }
+  });
+});
+
 describe("salvageDurationTicks: deterministic whole-tick durations for every target kind", () => {
   it("returns a positive INTEGER for every arm", () => {
     // Load-bearing, not cosmetic: remainingTicks is decremented in whole ticks, so a
@@ -1241,7 +1344,7 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
     // on its own start tick. Either one is a Salvage Bay slot that misbehaves.
     const durations = [
       salvageDurationTicks({ kind: "equipment", iLevel: 37, quality: 3 }),
-      salvageDurationTicks({ kind: "material" }),
+      salvageDurationTicks({ kind: "material", tier: 1, rarity: "rare", quality: 2 }),
       salvageDurationTicks({ kind: "ship", buildDurationTicks: 400 }),
     ];
     for (const d of durations) {
@@ -1288,9 +1391,68 @@ describe("salvageDurationTicks: deterministic whole-tick durations for every tar
     expect(odd).toBeGreaterThan(SALVAGE_BASE_TICKS);
   });
 
-  it("material: flat, ignoring anything else", () => {
-    // A salvaged material is a stackable item with no iLevel and no quality to scale on.
-    expect(salvageDurationTicks({ kind: "material" })).toBe(SALVAGE_MATERIAL_TICKS);
+  it("material: the base, scaled by the item's own factors, which are ALL NEUTRAL today", () => {
+    // The seam, asserted at its identity point. The arm now carries tier / rarity /
+    // consumed-bucket quality, but every weight is 0 and every multiplier is 1.0, so the
+    // answer is still exactly the base. Derived from the constants on purpose: retuning
+    // one SHOULD move this, and that is the signal the balance pass has actually landed.
+    const span = SALVAGE_MATERIAL_TICKS + 3 * SALVAGE_MATERIAL_TICKS_PER_QUALITY;
+    const tierMult = 1 + (2 - 1) * SALVAGE_MATERIAL_TIER_MULTIPLIER_PER_TIER;
+    expect(salvageDurationTicks({ kind: "material", tier: 2, rarity: "epic", quality: 3 })).toBe(
+      Math.ceil(span * SALVAGE_MATERIAL_RARITY_MULTIPLIER.epic * tierMult)
+    );
+  });
+
+  it("material: every rarity multiplier is a usable positive number, and the map is total", () => {
+    // The stuck-bay guard at the DATA level. An undefined or non-positive entry would
+    // multiply a duration to NaN or 0, so this asserts the table itself stays sane
+    // through any future retune, not just today's all-1.0 values.
+    const rarities: ItemRarity[] = ["common", "uncommon", "rare", "epic", "legendary"];
+    for (const rarity of rarities) {
+      const mult = SALVAGE_MATERIAL_RARITY_MULTIPLIER[rarity];
+      expect(Number.isFinite(mult)).toBe(true);
+      expect(mult).toBeGreaterThan(0);
+    }
+    // Total map: no extra keys either, so the table and the union cannot drift apart.
+    expect(Object.keys(SALVAGE_MATERIAL_RARITY_MULTIPLIER).sort()).toEqual([...rarities].sort());
+  });
+
+  it("material: survives a garbage tier, rarity or quality with the base duration", () => {
+    // Same hazard as the equipment arm's garbage case: a hand-edited save or an id with
+    // no ITEMS entry reaches here, and a NaN duration is a bay occupied forever.
+    const garbage = [
+      salvageDurationTicks({ kind: "material", tier: NaN, rarity: "common", quality: NaN }),
+      salvageDurationTicks({ kind: "material", tier: -4, rarity: "common", quality: -9 }),
+      salvageDurationTicks({ kind: "material", tier: 0, rarity: "common", quality: 0 }),
+      salvageDurationTicks({
+        kind: "material",
+        tier: undefined as unknown as number,
+        rarity: undefined as unknown as ItemRarity,
+        quality: undefined as unknown as number,
+      }),
+      // The specific shape a legacy / removed item produces: a rarity string outside the
+      // union, which would index the multiplier table to undefined if left unguarded.
+      salvageDurationTicks({
+        kind: "material",
+        tier: 1,
+        rarity: "mythic" as unknown as ItemRarity,
+        quality: 0,
+      }),
+    ];
+    for (const d of garbage) {
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBe(SALVAGE_MATERIAL_TICKS);
+    }
+  });
+
+  it("no arm can ever exceed the SALVAGE_MAX_TICKS ceiling", () => {
+    // The safety rail against a future retune minting a bay locked for days. Driven
+    // through the one input that can reach absurd magnitudes today (a hull build time),
+    // which proves the clamp is really wired into the arms rather than merely exported.
+    expect(salvageDurationTicks({ kind: "ship", buildDurationTicks: 1e9 })).toBe(SALVAGE_MAX_TICKS);
+    expect(salvageDurationTicks({ kind: "equipment", iLevel: 1e9, quality: 5 })).toBe(SALVAGE_MAX_TICKS);
+    // And it sits far above everything real, so it cannot be binding on live durations.
+    expect(SALVAGE_MAX_TICKS).toBeGreaterThan(salvageDurationTicks({ kind: "ship", buildDurationTicks: 1200 }) * 10);
   });
 
   it("ship: a share of the hull's own build time, so a bigger hull takes longer", () => {

@@ -27,6 +27,7 @@ import {
   addItemQuality,
   removeItemQuality,
   removeItemLowestFirst,
+  lowestStockedQuality,
   QUALITY_TIERS,
 } from "./inventory";
 import { migrate, type SaveFile } from "./save";
@@ -148,6 +149,47 @@ describe("removeItemLowestFirst, the documented consume policy (drain low qualit
     // Only reachable if a caller skips its affordability gate; documented for parity.
     const next = removeItemLowestFirst({ commonOre: buckets(30) }, "commonOre", new Decimal(50));
     expect(itemTotal(next, "commonOre").toNumber()).toBe(-20);
+  });
+});
+
+describe("lowestStockedQuality, the bucket the consume policy would draw from next", () => {
+  // Added for the Crafting 0.13.3 salvage-duration seam: a material salvage is PRICED on
+  // the quality of the stock it will eat, and "which stock is that" has exactly one right
+  // answer, the one removeItemLowestFirst gives. These cases keep the two in step.
+
+  it("reports the lowest bucket holding a positive balance", () => {
+    expect(lowestStockedQuality({ commonOre: buckets(5, 5) }, "commonOre")).toBe(0);
+    expect(lowestStockedQuality({ commonOre: buckets(0, 5) }, "commonOre")).toBe(1);
+    expect(lowestStockedQuality({ commonOre: buckets(0, 0, 0, 7) }, "commonOre")).toBe(3);
+  });
+
+  it("AGREES with removeItemLowestFirst about which bucket a one-unit draw empties", () => {
+    // The contract, asserted directly rather than by inspection: whatever this reports is
+    // the bucket that actually loses the unit. If the consume loop is ever retuned, this
+    // fails instead of the duration model quietly pricing the wrong stock.
+    const inv = { commonOre: buckets(0, 0, 4, 9) };
+    const drawn = lowestStockedQuality(inv, "commonOre");
+    const after = removeItemLowestFirst(inv, "commonOre", new Decimal(1));
+    expect(drawn).toBe(2);
+    expect(after.commonOre[drawn].toNumber()).toBe(3); // the reported bucket is the one that moved
+    expect(after.commonOre[3].toNumber()).toBe(9);     // and no higher bucket was touched
+  });
+
+  it("answers 0 for an absent, empty or negative-balance item rather than -1 or undefined", () => {
+    // The cheapest rung is the safe fallback: a duration built on it can never over-price,
+    // and a non-numeric answer here would propagate into a NaN duration (a stuck bay).
+    expect(lowestStockedQuality({}, "commonOre")).toBe(0);
+    expect(lowestStockedQuality({ commonOre: buckets(0) }, "commonOre")).toBe(0);
+    expect(lowestStockedQuality({ commonOre: buckets(0, 0, 0) }, "commonOre")).toBe(0);
+    // A negative bucket is an over-deduct artifact, not stock, and is skipped exactly the
+    // way removeItemLowestFirst skips it.
+    expect(lowestStockedQuality({ commonOre: [new Decimal(-5), new Decimal(2)] }, "commonOre")).toBe(1);
+  });
+
+  it("is a pure read: the inventory is untouched", () => {
+    const inv = { commonOre: buckets(0, 3) };
+    lowestStockedQuality(inv, "commonOre");
+    expect(inv.commonOre.map((b) => b.toNumber())).toEqual([0, 3]);
   });
 });
 

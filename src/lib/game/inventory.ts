@@ -176,3 +176,33 @@ export function removeItemLowestFirst(
 
   return { ...inv, [item]: nextBuckets };
 }
+
+// Which quality bucket removeItemLowestFirst would draw from NEXT: the index of the
+// lowest bucket holding a positive balance, or 0 when the item is absent or fully spent.
+//
+// WHY THIS EXISTS (Crafting 0.13.3 salvage-duration seam): a material salvage consumes
+// ONE unit lowest-quality-first, and the duration model wants to price a salvage on the
+// quality of the stock it will actually eat. That question has exactly ONE correct
+// answer, and it is the consume policy's answer, so it is answered HERE, next to the
+// policy, rather than re-derived by a caller that could drift out of step with
+// removeItemLowestFirst's loop.
+//
+// ⚠️ A READ, NOT A RESERVATION. It reports what the inventory says at the moment it is
+// asked. A caller that reads it now and consumes later (the salvage countdown does
+// exactly that) is taking a SNAPSHOT, and stock acquired in between can change the real
+// answer. That is the caller's contract to document, not something this function can fix.
+//
+// PURE: reads only, allocates nothing, returns a plain number so it is safe on the
+// parity path (identical live and offline for identical state).
+export function lowestStockedQuality(inv: Record<string, Decimal[]>, item: string): number {
+  const buckets = inv[item];
+  if (!buckets) return 0;
+  for (let quality = 0; quality < buckets.length; quality++) {
+    // gt(0), matching removeItemLowestFirst's own skip test exactly: a zero OR a
+    // negative bucket (an over-deduct artifact) is not stock and is not drawn from.
+    if (buckets[quality]?.gt(0)) return quality;
+  }
+  // Nothing on hand. Bucket 0 is the honest answer: it is where a draw would be charged,
+  // and it is the cheapest rung, so a duration built on it can never over-price.
+  return 0;
+}

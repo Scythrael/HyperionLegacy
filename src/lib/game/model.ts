@@ -3301,11 +3301,92 @@ export const SALVAGE_TICKS_PER_ILEVEL = 0.5;
 // down than a Q0 one of the same iLevel.
 export const SALVAGE_TICKS_PER_QUALITY = 2;
 
-// A salvaged-material loot roll is FLAT, with no iLevel or quality to scale on (a
-// salvaged material is a stackable inventory item, not a rolled instance). Held as its
-// own constant rather than reusing SALVAGE_BASE_TICKS even though the two are equal
-// today, because they answer different questions and will be tuned apart.
+// The FLOOR for a salvaged-material loot roll: what the cheapest possible material
+// salvage costs before any of the item's own factors are applied. Held as its own
+// constant rather than reusing SALVAGE_BASE_TICKS even though the two are equal today,
+// because they answer different questions and will be tuned apart.
+//
+// ⚠️ THIS IS THE "SMALL BASE" THE 0.13.3 DURATION DIRECTION IS BUILT AROUND, and it is
+// deliberately still 60 (the 2026-09-04 user decision). Under the factor model below it
+// is expected to come DOWN, with the difference moved into the factors. Lowering it is a
+// pure balance edit; nothing about the shape has to change to allow it.
 export const SALVAGE_MATERIAL_TICKS = 60;
+
+// ============================================================================
+// The material arm's OWN FACTORS (Crafting 0.13.3 salvage-duration SEAM)
+// ============================================================================
+// ⚠️ EVERY CONSTANT IN THIS BLOCK IS NEUTRAL TODAY, ON PURPOSE. Each one is set to its
+// IDENTITY value (0 for an additive weight, 1.0 for a multiplier), so the material arm
+// still returns exactly SALVAGE_MATERIAL_TICKS for every item in the registry and every
+// quality bucket. Nothing about the game's timings moves until one of these is retuned.
+//
+// WHY BUILD THE SEAM EMPTY: durations feed process creation, so this code is on the
+// live/offline parity path. Widening it and tuning it in one motion would mean the
+// parity gate can never tell "the shape changed" apart from "the numbers changed". The
+// shape lands here with proof of no behavior change; the balance pass that follows is
+// then a pure numbers edit that never has to open this function again.
+//
+// WHY THIS SHAPE: small base, ADDITIVE contributions from the NUMERIC axes, multipliers
+// only from the CATEGORICAL axes, plus a hard ceiling.
+//
+// The rejected alternative is the obvious one: base * iLevel * tier * rarity * quality.
+// It compounds. Four axes at a modest 2x each is already 16x, five is 32x, and that is a
+// number you DISCOVER in play rather than one you choose, which is exactly how a common
+// ore roll ends up taking an afternoon. So the numeric axes (quality here, iLevel on the
+// equipment arm) contribute ADDITIVELY, where a coefficient means literally "this many
+// ticks per point". Only the two CATEGORICAL axes are allowed to multiply, because they
+// have few, named, hand-picked values whose product a designer can hold in their head.
+// SALVAGE_MAX_TICKS then bounds the product no matter how those two are later tuned.
+
+// Ticks ADDED per quality tier (0..QUALITY_TIERS-1) of the bucket a material salvage
+// will draw from. RAISING THIS makes salvaging high-quality stock take longer than
+// salvaging low-quality stock of the SAME item. 0 = quality is free, today's behavior.
+// Additive because quality is a numeric rung, not a category.
+export const SALVAGE_MATERIAL_TICKS_PER_QUALITY = 0;
+
+// MULTIPLIER on the material duration for the item's own ItemDef.rarity. RAISING an
+// entry makes that whole rarity band slower to break down; the ladder is meant to
+// ascend (common cheapest, legendary dearest) once tuned. All 1.0 = rarity is free,
+// today's behavior.
+//
+// A TOTAL MAP over ItemRarity, so adding a rarity to the union is a COMPILE ERROR here
+// rather than an item that silently multiplies by undefined (which would be NaN, and a
+// NaN duration is a bay occupied forever). The lookup is STILL guarded at the use site,
+// because a hand-edited save can present a rarity string the union does not contain.
+export const SALVAGE_MATERIAL_RARITY_MULTIPLIER: Record<ItemRarity, number> = {
+  common: 1,
+  uncommon: 1,
+  rare: 1,
+  epic: 1,
+  legendary: 1,
+};
+
+// MULTIPLIER added per warehouse TIER above T1 (ItemDef.tier). The multiplier is
+// 1 + (tier - 1) * this, so T1 is ALWAYS exactly 1.0 by construction and the tunable
+// only ever describes the STEP between tiers. RAISING THIS makes higher-tier materials
+// take proportionally longer. 0 = tier is free, today's behavior.
+//
+// ⚠️ THE REGISTRY IS NOT ALL T1 (24 items at T1, 1 at T2 as of this patch), so this
+// tunable REALLY WOULD bite the moment it moved. Neutrality here is the 0, not an
+// accident of the data, which is why the pin test sweeps every ITEMS entry rather than a
+// sample.
+//
+// Multiplicative rather than additive because tier is CATEGORICAL: T1/T2/T3 are named
+// content bands, not a continuous axis, and a band is the right thing to scale by.
+export const SALVAGE_MATERIAL_TIER_MULTIPLIER_PER_TIER = 0;
+
+// THE CEILING: the largest duration ANY salvage arm may ever return, in ticks.
+// 21600 ticks = 6 hours at the default one-second cadence.
+//
+// ⚠️ THIS IS A SAFETY RAIL, NOT A BALANCE NUMBER. It exists so that a future tuning pass
+// on the multipliers above cannot accidentally mint a multi-day single salvage, which is
+// the specific failure mode a multiplicative model produces: the player would see a bay
+// locked for longer than they will play, with no way to cancel out of the mistake.
+// It is set FAR above every real duration the game can currently produce (the longest is
+// a battleship teardown at 400 ticks, and the largest conceivable equipment salvage is
+// well under 3000), so it does not bind on any value today and cannot change behavior.
+// LOWERING it toward real durations would start clamping and IS a balance change.
+export const SALVAGE_MAX_TICKS = 21600;
 
 // A hull teardown takes this SHARE of the time the hull took to build. Expressed as a
 // divisor (3 = one third) so the relationship to the build is readable at the call site.
@@ -3321,10 +3402,60 @@ export const SALVAGE_SHIP_BUILD_DIVISOR = 3;
 // off that thing). Keeping them separate is what makes the duration math pure, so it
 // needs no GameState, no equipment lookup and no recipe table to be tested. The caller
 // (Unit 2.3/2.4) does the one lookup and hands the numbers over.
+//
+// ⚠️ THE MATERIAL ARM CARRIES THE ITEM'S OWN ATTRIBUTES (Crafting 0.13.3 seam). It used
+// to be a bare `{ kind: "material" }`, which is why a common ore roll and a rare Damaged
+// Reactor Housing cost the identical flat 60 ticks: the spec carried nothing to balance
+// ON. It now carries the two ItemDef facts (`tier`, `rarity`) plus the `quality` of the
+// bucket the salvage will draw from, so a balance pass has somewhere to land.
+//
+// THE FIELDS ARE REQUIRED, NOT OPTIONAL, deliberately. Optional-with-a-neutral-default
+// would let a future call site forget one and silently get the cheapest duration forever;
+// required fields make forgetting a COMPILE ERROR, the same posture the exhaustive switch
+// below takes. Defensiveness lives in the arithmetic (every field is clamped), not in the
+// type.
 export type SalvageDurationSpec =
   | { kind: "equipment"; iLevel: number; quality: number }
-  | { kind: "material" }
+  | {
+      kind: "material";
+      // ItemDef.tier, the warehouse content band. 1-based; anything below 1 (an unknown
+      // or legacy item) is treated as T1 by the arithmetic.
+      tier: number;
+      // ItemDef.rarity. A string rather than an ordinal so the call site hands over what
+      // it actually read off the item, with no lossy conversion in between.
+      rarity: ItemRarity;
+      // The quality RUNG (0..QUALITY_TIERS-1) of the bucket this salvage will consume.
+      //
+      // ⚠️ READ AT START, WHILE THE CONSUME HAPPENS AT COMPLETION. A material salvage
+      // draws ONE unit LOWEST-QUALITY-FIRST (salvage.ts, removeItemLowestFirst), so the
+      // bucket is genuinely a specific one and genuinely knowable, but the caller reads
+      // it when the job is SIZED and the draw happens when the job RESOLVES. If the
+      // player acquires a cheaper unit mid-countdown, the job was priced on the bucket
+      // that WOULD have been drawn at start. That is a snapshot, exactly like the
+      // equipment arm reading a piece's stored iLevel at start, and it is what keeps the
+      // duration a pure function of state-at-start and therefore identical live and
+      // offline. It is NOT a promise about which unit finally disappears.
+      quality: number;
+    }
   | { kind: "ship"; buildDurationTicks: number };
+
+// The ONE place a raw tick figure becomes a legal duration. Applied by EVERY arm so no
+// arm can grow its own rounding or its own bounds.
+//
+// Three jobs, in order:
+//   1. NON-FINITE REJECTION. NaN or Infinity survives arithmetic silently and produces a
+//      countdown that never reaches 0, meaning a Salvage Bay slot occupied forever with
+//      no player action able to clear it. Anything unusable falls back to the base
+//      duration, which is merely wrong-ish rather than a soft lock.
+//   2. CEIL then FLOOR AT 1. remainingTicks is decremented in whole ticks, so a
+//      fractional duration never lands exactly on 0 and a 0 duration completes on its own
+//      start tick. Both are correctness, not polish.
+//   3. THE CEILING. See SALVAGE_MAX_TICKS: a safety rail against a future retune of the
+//      multipliers minting a bay locked for days.
+function clampSalvageTicks(raw: number): number {
+  if (!Number.isFinite(raw)) return SALVAGE_BASE_TICKS;
+  return Math.min(SALVAGE_MAX_TICKS, Math.max(1, Math.ceil(raw)));
+}
 
 // The ONE duration function, exhaustive over the three arms with no default branch, so a
 // fourth salvage target arm becomes a COMPILE ERROR here rather than a target that
@@ -3332,9 +3463,16 @@ export type SalvageDurationSpec =
 //
 // Per arm (design §7.2):
 //   equipment  base + iLevel * per-iLevel + quality * per-quality, rounded UP
-//   material   flat (a loot roll has no iLevel or quality to scale on)
+//   material   (base + quality * per-quality) * rarity multiplier * tier multiplier,
+//              rounded UP. NEUTRAL TODAY: the weight is 0 and both multipliers are 1.0,
+//              so every material still costs exactly SALVAGE_MATERIAL_TICKS. See the
+//              factor block above for why the numeric axis adds and the categorical
+//              axes multiply.
 //   ship       a share of the hull's OWN build time, so a battleship teardown costs more
 //              than a frigate teardown without a second table to keep in sync
+//
+// EVERY ARM ENDS IN clampSalvageTicks, so whole-tick rounding, the floor of 1 and the
+// SALVAGE_MAX_TICKS ceiling are applied identically and cannot drift per arm.
 //
 // DEFENSIVE ON EVERY INPUT: a hand-edited save, a legacy piece minted before iLevel
 // existed, or a hull type with no build recipe can all present undefined, a negative or a
@@ -3354,16 +3492,45 @@ export function salvageDurationTicks(spec: SalvageDurationSpec): number {
         SALVAGE_BASE_TICKS +
         safeILevel * SALVAGE_TICKS_PER_ILEVEL +
         safeQuality * SALVAGE_TICKS_PER_QUALITY;
-      return Math.max(1, Math.ceil(raw));
+      return clampSalvageTicks(raw);
     }
-    case "material":
-      return Math.max(1, Math.ceil(SALVAGE_MATERIAL_TICKS));
+    case "material": {
+      // --- Clamp every input FIRST ------------------------------------------------
+      // A hand-edited save, a legacy item, or an id with no ITEMS entry can present a
+      // negative, a NaN or (for rarity) a string outside the union. Each one lands on
+      // the CHEAPEST neutral value, so the worst case is the flat base duration.
+      const safeQuality =
+        Number.isFinite(spec.quality) && spec.quality > 0 ? spec.quality : 0;
+      // Tier is 1-BASED: T1 is the floor of the ladder, so anything below 1 (including a
+      // missing ITEMS entry read as 0) is treated as T1 and contributes no multiplier.
+      const safeTier = Number.isFinite(spec.tier) && spec.tier > 1 ? spec.tier : 1;
+      // The rarity table is total over the union, but `spec.rarity` can still arrive as
+      // a string the union does not contain via a hand-edited save, and `undefined * n`
+      // is NaN. Guarded explicitly rather than trusted, because the cost of being wrong
+      // here is a stuck bay.
+      const rarityMult = SALVAGE_MATERIAL_RARITY_MULTIPLIER[spec.rarity];
+      const safeRarityMult = Number.isFinite(rarityMult) && rarityMult > 0 ? rarityMult : 1;
+
+      // --- Additive numeric axis, then the categorical multipliers ----------------
+      // The base plus the quality term is the "small span"; rarity and tier scale that
+      // span. Written in this order so the eventual balance pass reads the same way the
+      // design describes it. ALL THREE FACTORS ARE NEUTRAL TODAY (see the factor block),
+      // so this evaluates to exactly SALVAGE_MATERIAL_TICKS for every real item.
+      const span = SALVAGE_MATERIAL_TICKS + safeQuality * SALVAGE_MATERIAL_TICKS_PER_QUALITY;
+      const tierMult = 1 + (safeTier - 1) * SALVAGE_MATERIAL_TIER_MULTIPLIER_PER_TIER;
+      // Guarded for the same reason the rarity multiplier is: a retune that ever made
+      // the per-tier step negative could drive this to or below 0, and a 0 duration
+      // completes on its own start tick.
+      const safeTierMult = Number.isFinite(tierMult) && tierMult > 0 ? tierMult : 1;
+
+      return clampSalvageTicks(span * safeRarityMult * safeTierMult);
+    }
     case "ship": {
       const build = spec.buildDurationTicks;
       // No usable build time falls back to the FLOOR, not to 0: an unknown hull should
       // still take a moment to tear down, and 0 would complete on its own start tick.
       if (!Number.isFinite(build) || build <= 0) return SALVAGE_BASE_TICKS;
-      return Math.max(1, Math.ceil(build / SALVAGE_SHIP_BUILD_DIVISOR));
+      return clampSalvageTicks(build / SALVAGE_SHIP_BUILD_DIVISOR);
     }
   }
 }

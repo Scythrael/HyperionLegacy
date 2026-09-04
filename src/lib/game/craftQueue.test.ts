@@ -41,6 +41,9 @@ import {
   equipmentAtCap,
   BLUEPRINTS,
   SHIP_TYPES,
+  // Crafting 0.13.3 (salvage-duration seam): the material arm now reads the item's own
+  // tier / rarity, so the wiring case needs the registry it reads them from.
+  ITEMS,
   type CaptainMissionState,
   type EquipmentInstance,
   type GameState,
@@ -2462,7 +2465,13 @@ describe("startSalvageJob: a timed job that consumes NOTHING at start", () => {
   it("sizes the material arm flat and the ship arm off the hull's own build time", () => {
     const state = salvageBayState();
     const material = salvageJobsInFlight(startSalvageJob(state, materialSalvageOrder(HOUSING)).next)[0];
-    expect(material.durationTicks).toBe(salvageDurationTicks({ kind: "material" }));
+    // Asked through salvageJobDurationTicks rather than the raw arm: the material arm now
+    // carries the ITEM'S OWN attributes (tier / rarity / consumed bucket quality), and the
+    // id-to-numbers lookup is precisely what that helper owns. Same posture as the ship
+    // assertion below, and immune to any future widening of the spec.
+    expect(material.durationTicks).toBe(
+      salvageJobDurationTicks(state, { kind: "material", itemId: HOUSING })
+    );
 
     const teardown = salvageJobsInFlight(startSalvageJob(state, shipSalvageOrder("ship-2")).next)[0];
     const buildTicks = SHIP_TYPES.generalFreighter.buildRecipe.durationTicks;
@@ -2471,6 +2480,42 @@ describe("startSalvageJob: a timed job that consumes NOTHING at start", () => {
     expect(teardown.durationTicks).toBeGreaterThan(material.durationTicks);
     // The exported helper agrees with what the start path actually used.
     expect(salvageJobDurationTicks(state, { kind: "ship", shipId: "ship-2" })).toBe(teardown.durationTicks);
+  });
+
+  it("the material arm is really WIRED to the item's own attributes, not fed placeholders", () => {
+    // ⚠️ THE SEAM'S OWN TEST (Crafting 0.13.3). Every new material factor is NEUTRAL, so
+    // a call site that filled tier / rarity / quality with garbage would produce exactly
+    // the right duration today and only reveal itself during the balance pass, on the
+    // parity path, in a release nobody would think to look here for. So the wiring is
+    // asserted directly: what the lookup passes must equal what the item actually says.
+    const state = salvageBayState();
+    const def = ITEMS[HOUSING];
+    expect(def).toBeDefined();
+
+    expect(salvageJobDurationTicks(state, { kind: "material", itemId: HOUSING })).toBe(
+      salvageDurationTicks({ kind: "material", tier: def.tier, rarity: def.rarity, quality: 0 })
+    );
+
+    // QUALITY COMES FROM THE BUCKET THE CONSUME WOULD DRAIN, not a hardcoded 0. Stock the
+    // housing ONLY at quality 2, which is the bucket removeItemLowestFirst would take from.
+    const q2Only: GameState = {
+      ...state,
+      inventory: { ...state.inventory, [HOUSING]: [new Decimal(0), new Decimal(0), new Decimal(3)] },
+    };
+    expect(salvageJobDurationTicks(q2Only, { kind: "material", itemId: HOUSING })).toBe(
+      salvageDurationTicks({ kind: "material", tier: def.tier, rarity: def.rarity, quality: 2 })
+    );
+  });
+
+  it("an id with NO ITEMS entry still sizes to a real countdown instead of NaN", () => {
+    // The stuck-bay hazard at the call site: a legacy or removed material id reaches the
+    // lookup, and a NaN duration is a Salvage Bay slot no player action can clear.
+    const ticks = salvageJobDurationTicks(salvageBayState(), {
+      kind: "material",
+      itemId: "notAnItemAtAll",
+    });
+    expect(Number.isInteger(ticks)).toBe(true);
+    expect(ticks).toBeGreaterThan(0);
   });
 
   it("spends NOTHING at start: the target is still there, and so is every material", () => {
@@ -2627,7 +2672,7 @@ describe("⚠️ parity: a Salvage Bay queue drains identically offline and live
     const spare = base.equipment.find((e) => e.id === SPARE_ID)!;
     const SPAN =
       salvageDurationTicks({ kind: "equipment", iLevel: spare.iLevel, quality: spare.quality }) +
-      salvageDurationTicks({ kind: "material" }) +
+      salvageJobDurationTicks(base, { kind: "material", itemId: HOUSING }) +
       10;
 
     const jumped = tick(SPAN, base, seededRng());

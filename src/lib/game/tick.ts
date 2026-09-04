@@ -303,7 +303,7 @@ import {
 } from "./allocation";
 // Quality-bucketed inventory helpers (Equipment 0.11.0, Task 9a): every inventory
 // read/write routes through these so the economy is identical to the old scalar shape.
-import { itemTotal, addItemQuality, removeItemLowestFirst } from "./inventory";
+import { itemTotal, addItemQuality, removeItemLowestFirst, lowestStockedQuality } from "./inventory";
 // Captain custom-name validation seam (Combat 0.13.0, Task 1.4): renameCaptain
 // runs every proposed name through this single client-side chokepoint before it
 // touches state. See captainName.ts for the (deliberately minimal, bypassable)
@@ -7172,9 +7172,30 @@ export function salvageJobDurationTicks(state: GameState, target: SalvageTargetR
         quality: piece?.quality ?? 0,
       });
     }
-    case "material":
-      // Flat: a loot roll has no iLevel or quality to scale on.
-      return salvageDurationTicks({ kind: "material" });
+    case "material": {
+      // THE ONE LOOKUP that turns a material id into the numbers the duration math wants
+      // (Crafting 0.13.3 seam). This arm used to pass nothing at all, which is why a
+      // common ore roll and a rare Damaged Reactor Housing were priced identically.
+      //
+      // An id with NO ITEMS entry (a legacy save, a removed item) reads tier 0 and rarity
+      // "common", both of which salvageDurationTicks clamps to the cheapest neutral
+      // values, so an unknown material costs the flat base rather than NaN.
+      const def = ITEMS[target.itemId];
+      return salvageDurationTicks({
+        kind: "material",
+        tier: def?.tier ?? 0,
+        rarity: def?.rarity ?? "common",
+        // ⚠️ SNAPSHOT AT START, and honest about it. The salvage will consume ONE unit
+        // lowest-quality-first at COMPLETION, so this prices the job on the bucket that
+        // would be drawn RIGHT NOW. Reading state here (rather than at completion) is
+        // deliberate: a TimedProcess's durationTicks is fixed when the job starts, and
+        // pricing it from state-at-start is what keeps the live and offline paths
+        // computing the identical duration. It is not a claim about which unit finally
+        // disappears. Today every material sits in bucket 0 and the per-quality weight
+        // is 0, so this cannot move a duration; it is here so the balance pass has it.
+        quality: lowestStockedQuality(state.inventory, target.itemId),
+      });
+    }
     case "ship": {
       const ship = state.ships.find((s) => s.id === target.shipId);
       const buildTicks = ship === undefined ? 0 : SHIP_TYPES[ship.typeKey]?.buildRecipe.durationTicks ?? 0;
