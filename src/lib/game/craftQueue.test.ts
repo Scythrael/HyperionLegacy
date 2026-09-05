@@ -60,6 +60,10 @@ import {
   RESEARCH_FACILITY_KEY,
   SHIPYARD_FACILITY_KEY,
   type ShipTypeKey,
+  // Salvage Lanes (2026-09-04): the facility table, read directly so the "every rung on the
+  // Salvage Bay's track is a LANE grant, never a queue-depth grant" case checks the DATA
+  // rather than restating a comment about it.
+  FACILITIES,
 } from "./model";
 import {
   QUEUE_DEPTH_BASE,
@@ -83,7 +87,12 @@ import {
   refineSlotCount,
   fabricateSlotCount,
   // Unit 2.4: the Salvage Bay's real adapter parts.
-  SALVAGE_SLOT_COUNT,
+  // ⚠️ Salvage Lanes (2026-09-04): the flat SALVAGE_SLOT_COUNT constant became the derived
+  // salvageSlotCount(state), reading the bay's own upgrade rungs, plus a SALVAGE_BAY_BASE_SLOTS
+  // floor that keeps a level-0 (i.e. every pre-upgrade) save at a working one-lane bay. Both are
+  // imported: the base for the level-0 assertions, the helper everywhere the constant was read.
+  SALVAGE_BAY_BASE_SLOTS,
+  salvageSlotCount,
   canStartSalvage,
   startSalvageJob,
   salvageJobsInFlight,
@@ -2736,10 +2745,11 @@ describe("buildCraftQueue: empty states", () => {
 
   it("reports the Salvage Bay's REAL slot count and its free, empty bay (Unit 2.4)", () => {
     // The view-model twin of the real adapter row: an idle bay has its slot free and
-    // reports SALVAGE_SLOT_COUNT rather than the Phase 1 stub's null.
-    const view = buildCraftQueue(craftState(), "salvageBay");
+    // reports salvageSlotCount rather than the Phase 1 stub's null.
+    const state = craftState();
+    const view = buildCraftQueue(state, "salvageBay");
     expect(view.running).toEqual([]);
-    expect(view.slotsTotal).toBe(SALVAGE_SLOT_COUNT);
+    expect(view.slotsTotal).toBe(salvageSlotCount(state));
     expect(view.hasFreeSlot).toBe(true);
     expect(view.queued).toEqual([]);
   });
@@ -2888,21 +2898,106 @@ function salvageSnapshot(state: GameState) {
   };
 }
 
-describe("SALVAGE_SLOT_COUNT: one bay, no upgrade track (build plan assumption 4)", () => {
-  it("is a flat 1, and the adapter counts in-flight jobs against it", () => {
-    // The value is asserted so a retune is a deliberate, visible edit rather than a silent
-    // behavior change. The Salvage Bay is deliberately non-leveled: queue DEPTH, not slot
-    // count, is its throughput knob this release.
-    expect(SALVAGE_SLOT_COUNT).toBe(1);
+// A Salvage Bay state at a chosen FACILITY LEVEL, so the lane track can be walked rung by
+// rung. Level 0 is the default and is deliberately reachable by passing nothing: it is the
+// state every pre-upgrade save loads in.
+function bayAtLevel(level: number): GameState {
+  const base = salvageBayState();
+  return { ...base, facilities: { ...base.facilities, salvageBay: { level } } };
+}
 
-    const idle = salvageBayState();
+describe("salvageSlotCount: the Salvage Bay's LANE track (Salvage Lanes, 2026-09-04)", () => {
+  // ⚠️ THE LEVEL-0 CASE IS THE ONE THAT MATTERS MOST. The bay shipped with no level track at
+  // all, so EVERY existing save sits at level 0, and a lane count derived by summing from
+  // zero would hand all of them a bay that can never start a job. The base is what makes
+  // level 0 a working bay; these cases pin it.
+  it("LEVEL 0 IS A WORKING ONE-LANE BAY: the base is 1 and the adapter agrees", () => {
+    expect(SALVAGE_BAY_BASE_SLOTS).toBe(1);
+
+    const idle = bayAtLevel(0);
+    expect(salvageSlotCount(idle)).toBe(1);
     expect(salvageJobsInFlight(idle)).toEqual([]);
     expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(idle)).toBe(true);
 
-    // One job in flight fills the bay.
+    // One job in flight fills the ONE lane a level-0 bay has.
     const busy = startSalvageJob(idle, salvageOrder(SPARE_ID)).next;
     expect(salvageJobsInFlight(busy)).toHaveLength(1);
     expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(busy)).toBe(false);
+  });
+
+  it("a save with NO salvageBay facility key at all still has a working one-lane bay", () => {
+    // The pre-upgrade save shape, exactly: the key did not exist before this change, and
+    // facilityLevel reads an absent key as 0. This is the belt to the migration's braces, so
+    // a save that somehow skipped the migration is still playable rather than lane-less.
+    const base = salvageBayState();
+    const facilities = { ...base.facilities };
+    delete (facilities as Record<string, unknown>).salvageBay;
+    const legacy: GameState = { ...base, facilities };
+
+    expect(legacy.facilities.salvageBay).toBeUndefined();
+    expect(salvageSlotCount(legacy)).toBe(1);
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(legacy)).toBe(true);
+    expect(buildCraftQueue(legacy, "salvageBay").slotsTotal).toBe(1);
+  });
+
+  it("each reached rung ADDS a lane on top of the base, and the track caps at 3", () => {
+    // The values are asserted so a retune is a deliberate, visible edit. The rungs only ever
+    // ADD: there is no founding rung on this track, by design.
+    expect(salvageSlotCount(bayAtLevel(0))).toBe(1);
+    expect(salvageSlotCount(bayAtLevel(1))).toBe(2);
+    expect(salvageSlotCount(bayAtLevel(2))).toBe(3);
+    // Over-level (only reachable by a hand-edited save) is bounded by the track length, the
+    // same belt-and-suspenders guard refineSlotCount carries.
+    expect(salvageSlotCount(bayAtLevel(99))).toBe(3);
+  });
+
+  it("EVERY rung on the track is a lane grant, never a queue-depth grant (design 15a rule 2)", () => {
+    // The LOCKED rule, enforced against the data rather than against a comment: "There are
+    // no upgrades that give +1 queue slot X lane." A rung that ever carried a depth payload
+    // would fail here before it could reach a player.
+    for (const rung of FACILITIES.salvageBay.upgrades) {
+      expect("addSalvageSlots" in rung.effect).toBe(true);
+    }
+  });
+
+  it("buying a lane does NOT change queue depth, and depth does not change the lane count", () => {
+    // The two axes, proven independent in both directions on the same fixture. Depth here
+    // comes from the talent chain the fixture already learns; the lane count comes from the
+    // facility level. Moving either one must leave the other exactly where it was.
+    const l0 = bayAtLevel(0);
+    const l2 = bayAtLevel(2);
+    expect(salvageSlotCount(l0)).toBe(1);
+    expect(salvageSlotCount(l2)).toBe(3);
+    expect(queueDepth(l2)).toBe(queueDepth(l0)); // lanes bought, depth unmoved
+
+    const noTalents: GameState = { ...l2, unlockedHomeworldTalents: [] };
+    expect(queueDepth(noTalents)).toBeLessThan(queueDepth(l2)); // depth really is talent-driven
+    expect(salvageSlotCount(noTalents)).toBe(3); // ... and dropping it left the lanes alone
+  });
+
+  it("a MULTI-LANE bay promotes several waiting orders on one tick, and not one more", () => {
+    // The whole point of the feature: the promotion pass fills every free lane in queue
+    // order and then stops. It needs no knowledge of the bay to do it, because hasFreeSlot
+    // re-asks salvageSlotCount after each promotion.
+    const twoLanes = enqueueAll(bayAtLevel(1), [
+      { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
+      { facility: "salvageBay", order: shipSalvageOrder("ship-2") },
+    ]);
+    const promoted = promoteQueuedOrders(twoLanes);
+
+    expect(salvageJobsInFlight(promoted)).toHaveLength(2); // both lanes, in queue order
+    expect(queueIds(promoted)).toEqual(["q-3"]);           // the third kept its place
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(promoted)).toBe(false);
+    // Promoting again is a same-reference no-op while both lanes are busy.
+    expect(promoteQueuedOrders(promoted)).toBe(promoted);
+  });
+
+  it("the queue view model reports the bought lane count, not a literal", () => {
+    // The console's "Salvage bays: N / M in use" line reads M off this field, so a lane the
+    // player paid for has to show up here or the readout lies about why a row is waiting.
+    expect(buildCraftQueue(bayAtLevel(0), "salvageBay").slotsTotal).toBe(1);
+    expect(buildCraftQueue(bayAtLevel(2), "salvageBay").slotsTotal).toBe(3);
   });
 
   it("counts a job by its EFFECT, so the slot count and the reservation can never disagree", () => {
@@ -3268,15 +3363,19 @@ describe("promoteQueuedOrders: the Salvage Bay promotes like every other facilit
     expect([...salvageReservedInstanceIds(promoted)]).toEqual([SPARE_ID]);
   });
 
-  it("respects SALVAGE_SLOT_COUNT: a second order waits for the bay", () => {
+  it("respects salvageSlotCount: a second order waits for the bay", () => {
+    // salvageBayState() is a LEVEL-0 bay (one lane), which is the state every pre-upgrade
+    // save is in, so this stays the single-lane case it always was. The multi-lane behaviour
+    // has its own cases in the lane-track suite above.
     const loaded = enqueueAll(salvageBayState(), [
       { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
       { facility: "salvageBay", order: materialSalvageOrder(HOUSING) },
     ]);
+    expect(salvageSlotCount(loaded)).toBe(1);
     const promoted = promoteQueuedOrders(loaded);
 
     // Exactly one job started, in queue order, and the runner-up kept its place.
-    expect(salvageJobsInFlight(promoted)).toHaveLength(SALVAGE_SLOT_COUNT);
+    expect(salvageJobsInFlight(promoted)).toHaveLength(salvageSlotCount(loaded));
     expect(queueIds(promoted)).toEqual(["q-2"]);
     // Promoting again changes nothing while the bay is busy (same-reference no-op).
     expect(promoteQueuedOrders(promoted)).toBe(promoted);
@@ -3401,7 +3500,7 @@ describe("buildCraftQueue: the Salvage Bay reports real running rows (Unit 2.4)"
     const job = salvageJobsInFlight(running)[0];
 
     const view = buildCraftQueue(running, "salvageBay");
-    expect(view.slotsTotal).toBe(SALVAGE_SLOT_COUNT);
+    expect(view.slotsTotal).toBe(salvageSlotCount(running));
     expect(view.runningCount).toBe(1);
     expect(view.hasFreeSlot).toBe(false); // the bay's only slot is taken
     expect(view.running).toEqual([

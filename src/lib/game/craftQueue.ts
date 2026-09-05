@@ -88,7 +88,9 @@ import {
   // Crafting 0.13.3 (Phase 2 Unit 2.4): the Salvage Bay's real slot count and the ONE
   // definition of "a salvage job is running". Both come from tick.ts for the same reason
   // refineSlotCount does: the engine owns the answer and this module only renders it.
-  SALVAGE_SLOT_COUNT,
+  // ⚠️ Salvage Lanes (2026-09-04): this was the flat SALVAGE_SLOT_COUNT constant and is now
+  // the derived salvageSlotCount(state), the same shape as every other helper in this list.
+  salvageSlotCount,
   salvageJobsInFlight,
   // Crafting 0.13.3 follow-up (2026-09-04): a queued craft order reserves its own inputs,
   // so its gate has to be asked about a state that has released that reservation, or it
@@ -170,7 +172,8 @@ export interface CraftQueueView {
   // slot model has not landed yet. Every facility that exists today reports a real
   // number: Refinery and Fabricator delegate to the same refineSlotCount /
   // fabricateSlotCount the consoles already read, and the Salvage Bay reports
-  // SALVAGE_SLOT_COUNT (Phase 2 Unit 2.4).
+  // salvageSlotCount (Phase 2 Unit 2.4; derived off the bay's own lane rungs since
+  // Salvage Lanes, 2026-09-04).
   slotsTotal: number | null;
   hasFreeSlot: boolean;         // delegated to the adapter, the same question promotion asks
 
@@ -463,7 +466,7 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
 //
 // Enumerated through tick.ts's salvageJobsInFlight, never by a local scan of
 // activeProcesses: that helper is the single definition of "a salvage is running", and
-// it is the same one the adapter's hasFreeSlot counts against SALVAGE_SLOT_COUNT. A
+// it is the same one the adapter's hasFreeSlot counts against salvageSlotCount. A
 // second local predicate here could disagree, and the row list would then contradict the
 // slot readout printed beside it.
 //
@@ -555,9 +558,11 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
     case "fabricator":
       return fabricateSlotCount(state);
     case "salvageBay":
-      // A flat constant, not a derivation: the Salvage Bay is deliberately non-leveled and
-      // its throughput knob is QUEUE DEPTH, not parallel slots. See SALVAGE_SLOT_COUNT.
-      return SALVAGE_SLOT_COUNT;
+      // Salvage Lanes (2026-09-04): a derivation like every other arm here. The bay's lane
+      // count is SALVAGE_BAY_BASE_SLOTS plus its reached { addSalvageSlots } rungs, so the
+      // queue panel's "N / M in use" tracks a bought lane with no change on this line. See
+      // salvageSlotCount. QUEUE DEPTH remains a separate axis and is never folded in here.
+      return salvageSlotCount(state);
     case "researchLab":
       return researchSlotCount(state);
     case "shipyard":

@@ -102,6 +102,9 @@ import {
   RESEARCH_FACILITY_KEY,
   FABRICATOR_FACILITY_KEY,
   SHIPYARD_FACILITY_KEY,
+  // Salvage Lanes (2026-09-04): the Salvage Bay's facility key, so salvageSlotCount reads
+  // FACILITIES.salvageBay through the same named constant its sibling helpers use.
+  SALVAGE_BAY_FACILITY_KEY,
   BLUEPRINTS,
   blueprintKind,
   blueprintMintsEquipmentInstance,
@@ -5361,29 +5364,70 @@ export function shipBuildSlotCount(state: GameState): number {
 }
 
 // ----------------------------------------------------------------------------
-// SALVAGE BAY SLOTS (Crafting 0.13.3, Phase 2 Unit 2.4, build plan assumption 4)
+// SALVAGE BAY SLOTS / LANES (Crafting 0.13.3 Unit 2.4; made DERIVED by Salvage Lanes,
+// 2026-09-04, design section 15d "Adding LANES to a facility")
 // ----------------------------------------------------------------------------
 // How many salvage jobs may be IN FLIGHT at once. It sits here, beside refineSlotCount /
 // fabricateSlotCount / shipyardBayCount, because it answers the same question they do and
 // the queue's hasFreeSlot reads all four through the same adapter shape.
 //
-// ⚠️ A FLAT CONSTANT, NOT A DERIVATION, AND DELIBERATELY WITHOUT AN UPGRADE TRACK. The
-// three helpers above all derive their counts from reached FACILITIES upgrade rungs, so a
-// bare `1` here looks at first glance like an oversight. It is not:
-//   1. The Salvage Bay is one of the three NON-LEVELED facilities (with the Warehouse's
-//      storage track and the Docks, per the 0.13.3 preservation inventory item 1a): its
-//      console shows a SUBTITLE, not "Level N", and FACILITIES carries no salvageBay
-//      upgrade array to scan. There are no rungs to sum, so there is nothing to derive.
-//   2. QUEUE DEPTH, NOT SLOT COUNT, IS THE SALVAGE BAY'S THROUGHPUT KNOB this release.
-//      The player buys the fleetLogisticsQueue talent chain and queues more teardowns; the
-//      bay still works one at a time. That keeps exactly ONE progression axis on this
-//      facility instead of two competing ones, and it is why the design asked for a queue
-//      here rather than for parallel slots.
-//   3. Adding a level track to the Salvage Bay is scope the design did not ask for
-//      (it would need rungs, costs, a console Upgrades block and a migration decision).
-// If a later release does want parallel salvage, this becomes a derived helper with the
-// same signature the adapter already calls, and nothing else moves. FIRST-PASS TUNABLE.
-export const SALVAGE_SLOT_COUNT = 1;
+// ⚠️ THIS REPLACES THE FLAT `SALVAGE_SLOT_COUNT = 1` CONSTANT, exactly as that constant's
+// own note predicted it would ("If a later release does want parallel salvage, this becomes
+// a derived helper with the same signature the adapter already calls, and nothing else
+// moves"). Nothing else moved: the adapter, the gate and the view model all call a function
+// of `state` now instead of reading a number, and every other line of the queue engine is
+// untouched. The constant's stated reason for being flat was that the Salvage Bay had no
+// level track to derive from; FACILITIES.salvageBay (model.ts) is that level track, and it
+// exists because the owner asked for buyable lanes on 2026-09-04. The old comment's third
+// bullet ("adding a level track is scope the design did not ask for") is now stale and this
+// block is its replacement.
+//
+// ⚠️⚠️ THE BASE IS ONE, AND IT IS THE MOST IMPORTANT LINE IN THIS FILE'S SALVAGE SECTION.
+// This is a FLOOR-PLUS-RUNGS derivation (like shipyardBayCount and fuelPipelineCount), NOT
+// a sum-from-zero one (like refineSlotCount and fabricateSlotCount). A sum from zero would
+// give a level-0 facility ZERO lanes, and level 0 is where EVERY EXISTING SAVE sits: the bay
+// shipped with no level track, so nobody has ever bought a rung on it. Zero lanes at level 0
+// would mean every player in existence loading a Salvage Bay that can never start a job,
+// with their queued orders parked forever and their in-flight teardowns unable to be
+// replaced. The base is what makes level 0 a fully working bay and the rungs pure additions
+// on top. There is deliberately no founding rung on the track for the same reason.
+export const SALVAGE_BAY_BASE_SLOTS = 1;
+
+// Salvage LANE count = SALVAGE_BAY_BASE_SLOTS plus the sum of every { addSalvageSlots }
+// grant on the upgrade rungs the Salvage Bay has ALREADY reached.
+//
+// THE LOOP is refineSlotCount's, line for line (`i < level && i < upgrades.length` over
+// FACILITIES[key].upgrades, narrowing by PROPERTY PRESENCE because FacilityUpgradeEffect is
+// a non-discriminated union), reading the `salvageBay` facility and the `addSalvageSlots`
+// property. Derive-on-read, never stored: the upgrade track stays the single source of
+// truth, so retuning a rung or appending one changes the lane count with no bookkeeping and
+// no migration. With the current track:
+//   level 0 -> 1 lane   (base only; the state every pre-upgrade save loads in)
+//   level 1 -> 2 lanes
+//   level 2 -> 3 lanes  (track maxed)
+//
+// DEFENSIVE, and it matters more here than at the sibling helpers: an absent salvageBay
+// facility key reads as level 0 through facilityLevel, and an absent FACILITIES entry would
+// leave `upgrades` undefined. Both fall through to the BASE rather than to zero, so even a
+// hand-edited or half-migrated save still has a working one-lane bay. A lane count must
+// never be able to reach 0.
+//
+// ⚠️ LANES ARE NOT QUEUE DEPTH (design section 15a, LOCKED). queueDepth(state) is facility
+// agnostic and is bought with Homeworld talents; this number is bought with facility
+// upgrades. They are never added together and never multiplied. Nothing in this function
+// may ever read a talent, and nothing in queueDepth may ever read this.
+export function salvageSlotCount(state: GameState): number {
+  const level = facilityLevel(state, SALVAGE_BAY_FACILITY_KEY);
+  const upgrades = FACILITIES[SALVAGE_BAY_FACILITY_KEY]?.upgrades ?? [];
+  let slots = SALVAGE_BAY_BASE_SLOTS;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("addSalvageSlots" in effect) {
+      slots += effect.addSalvageSlots;
+    }
+  }
+  return slots;
+}
 
 // A salvage job that is ALREADY RUNNING, with its effect narrowed so the target is
 // reachable without a second cast at every call site.
@@ -5394,7 +5438,7 @@ export type SalvageJobProcess = TimedProcess & {
 // Every in-flight salvage job, in activeProcesses order.
 //
 // THE single definition of "a salvage is running", so the three consumers cannot drift:
-// the adapter's hasFreeSlot counts these against SALVAGE_SLOT_COUNT, canStartSalvage's
+// the adapter's hasFreeSlot counts these against salvageSlotCount, canStartSalvage's
 // material arm counts the ones already committed to an item id, and the Phase 4 view model
 // renders one progress row per entry.
 //
@@ -6946,7 +6990,7 @@ export type QueueAdapter = {
   // genuinely per-facility question: the Refinery compares refineLines.length against
   // refineSlotCount, the Fabricator compares fabricateLines.length against
   // fabricateSlotCount, and the Salvage Bay counts in-flight jobs against its own
-  // SALVAGE_SLOT_COUNT constant.
+  // salvageSlotCount.
   hasFreeSlot(state: GameState): boolean;
   // May THIS queued order start right now? Pure predicate, spends nothing.
   canStart(state: GameState, order: QueuedOrder): { ok: true } | { ok: false; reason: QueueBlockReason };
@@ -7061,7 +7105,7 @@ export function canStartSalvage(
   // (which compares a facility's lines against its slot count). Reported with the LINE
   // ENGINE's token because the meaning is identical, so a queued row reads "waiting for a
   // free slot" the same way at every facility.
-  if (salvageJobsInFlight(state).length >= SALVAGE_SLOT_COUNT) {
+  if (salvageJobsInFlight(state).length >= salvageSlotCount(state)) {
     return { ok: false, reason: "noSlot" };
   }
 
@@ -7097,13 +7141,16 @@ export function canStartSalvage(
       // plus its siblings, and a player holding one unit with one queued order would be
       // refused forever, which is precisely the case the queue exists to serve.
       //
-      // ⚠️ WITH SALVAGE_SLOT_COUNT AT 1 THE IN-FLIGHT TERM IS CURRENTLY ZERO: the noSlot
-      // gate above has already refused if anything is running, so this reduces exactly to
-      // salvageSalvagedMaterial's own "hold at least one" gate and is behavior-identical
-      // to it today. It is written as the INVARIANT rather than as today's value for the
-      // same reason shipBuildSlotCount is a min() instead of a bare `return 1`: raise the
-      // slot count later and the bound still holds, with no second edit and no window
-      // where two jobs are committed to one unit.
+      // ⚠️ THE IN-FLIGHT TERM IS NOW LIVE, AND THIS IS THE LINE LANES MADE LOAD-BEARING
+      // (Salvage Lanes, 2026-09-04). While the bay had exactly one lane the noSlot gate
+      // above had already refused if anything was running, so this term was always zero and
+      // the comparison reduced to salvageSalvagedMaterial's own "hold at least one" gate.
+      // With two or three lanes a SECOND queued order for the same fungible material can
+      // reach this line while the FIRST is still counting down, and the count is what stops
+      // both from being committed to the same single unit. It was deliberately written as
+      // the INVARIANT rather than as the then-current value (the same reasoning that makes
+      // shipBuildSlotCount a min() instead of a bare `return 1`), which is precisely why
+      // raising the lane count needed no edit here and opened no window.
       const committed = salvageJobsInFlight(state).filter(
         (job) => job.effect.target.kind === "material" && job.effect.target.itemId === target.itemId
       ).length;
@@ -7381,10 +7428,11 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
   // member is a one-line delegation to the function that owns the question, so the queue
   // can never form a second opinion about whether a salvage may run.
   salvageBay: {
-    // The bay's own divergence: it counts in-flight JOBS against its own slot constant,
-    // where the craft facilities count LINES against a derived slot count. See
-    // SALVAGE_SLOT_COUNT for why this one is a flat constant with no upgrade track.
-    hasFreeSlot: (state) => salvageJobsInFlight(state).length < SALVAGE_SLOT_COUNT,
+    // The bay's own divergence: it counts in-flight JOBS, where the craft facilities count
+    // LINES. Both sides of the comparison are now derived (Salvage Lanes, 2026-09-04):
+    // salvageSlotCount reads the bay's own upgrade rungs exactly as refineSlotCount reads
+    // the Refinery's, so buying a lane widens this gate with no change here.
+    hasFreeSlot: (state) => salvageJobsInFlight(state).length < salvageSlotCount(state),
     canStart: canStartSalvage,
     start: startSalvageJob,
   },
@@ -8028,7 +8076,7 @@ export function promoteQueuedOrders(state: GameState): GameState {
     // Cheapest possible rejection first: no room at this facility means there is no
     // point building its waiting list at all. (Every facility answers this its own way:
     // lines against a derived slot count, or in-flight salvage jobs against
-    // SALVAGE_SLOT_COUNT. The pass does not know or care which.)
+    // salvageSlotCount. The pass does not know or care which.)
     if (!adapter.hasFreeSlot(working)) continue;
 
     // This facility's waiting orders, in queue order, SNAPSHOTTED before the scan.

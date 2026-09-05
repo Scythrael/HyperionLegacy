@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 41;
+export const SAVE_VERSION = 42;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1702,6 +1702,61 @@ const MIGRATIONS: Record<number, Migration> = {
         ? { ...job, order: { ...job.order, mode: job.order.mode ?? { kind: "batch", remaining: 1 } } }
         : job
     ),
+  }),
+
+  // --- v41 -> v42: the Salvage Bay gains a facility LEVEL ------------------------------
+  // (Salvage Lanes, 2026-09-04. FACILITIES.salvageBay + salvageSlotCount; design section
+  // 15d "Adding LANES to a facility", step 1: give the facility a level track.)
+  //
+  // ⚠️⚠️ READ THIS BEFORE CHANGING A CHARACTER OF IT: THIS MIGRATION MUST LEAVE EVERY
+  // EXISTING SAVE WITH A FULLY WORKING SALVAGE BAY. The bay shipped with NO level track, so
+  // every save in existence has been salvaging without one, and many are holding queued
+  // orders and in-flight teardowns right now. If a level-0 Salvage Bay were ever read as
+  // "not founded", this one line would take the facility away from every player at once.
+  // It cannot, and here is the chain that guarantees it:
+  //   - salvageSlotCount (tick.ts) is BASE-PLUS-RUNGS, not sum-from-zero: level 0 yields
+  //     SALVAGE_BAY_BASE_SLOTS, which is 1. A level-0 bay runs exactly one job, which is
+  //     exactly what every save did yesterday.
+  //   - FACILITIES.salvageBay has NO founding rung. Its rungs only ADD lanes, so there is
+  //     no gate anywhere that asks whether the bay has been established.
+  //   - Nothing else keys off the bay's level: the console, the queue adapter, the enqueue
+  //     gate and the auto-salvage rules all read lane COUNT or job state, never level.
+  // There is a migration test pinning exactly this (save.test.ts): a pre-upgrade save
+  // migrates to a bay with one lane that can still start and hold salvage work.
+  //
+  // WHAT IT WRITES: `facilities.salvageBay = { level: 0 }` when the key is absent. That is
+  // all. No other facility is read or written, no other field is touched.
+  //
+  // WHY IT EXISTS AT ALL, given it is a behavioral NO-OP: facilityLevel (tick.ts) already
+  // reads an absent facility key as level 0 (the grow-on-demand posture every facility
+  // reader carries), so an unmigrated save would behave identically. The migration is about
+  // SHAPE, not behavior: freshState now seeds the key, and this file's standing discipline
+  // is that "a migrated save and a fresh save are indistinguishable in shape" (see the v39
+  // step's own note). A save missing a key that every new save has is the kind of quiet
+  // divergence that makes a LATER migration have to handle two shapes instead of one.
+  //
+  // WHY A REAL VERSION BUMP RATHER THAN A RIDER ON THE v40 -> v41 STEP: the same argument
+  // MIGRATIONS[40] recorded for itself. This branch's dev and staging saves have been
+  // stamped v41 for days, so they would SKIP an extended v40 step entirely, and those are
+  // exactly the saves that must end up in the new shape.
+  //
+  // IDEMPOTENT AND VALUE-PRESERVING: `??` at the facility level, so a save that ALREADY has
+  // a salvageBay entry (a re-run, or a dev save that has bought a lane) keeps its OWN level
+  // and this step becomes a value-level no-op. It can never reset a purchased lane to 0.
+  //
+  // DEFENSIVE ON THE CONTAINER: a hand-edited save can arrive with no `facilities` object at
+  // all. `?? {}` spreads nothing rather than throwing, and the result is a facilities map
+  // holding just this key, which every reader tolerates (absent keys read as level 0).
+  //
+  // NO NEW DECIMALS, VERIFIED: FacilityState carries a plain number `level` and nothing
+  // else, exactly like every other facility entry that has ridden hydrateDecimals's
+  // `...state` spread since v1. hydrateDecimals needs NO new branch.
+  41: (state: any): any => ({
+    ...state,
+    facilities: {
+      ...(state.facilities ?? {}),
+      salvageBay: (state.facilities ?? {}).salvageBay ?? { level: 0 },
+    },
   }),
 };
 

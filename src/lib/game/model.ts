@@ -2378,7 +2378,31 @@ export type FacilityUpgradeEffect =
   // critically, NO existing facility rung sets it (only FACILITIES.shipyard's later
   // rungs do), so this member changes NO existing behavior. No consumer READS it yet
   // either (the S3 build engine will); it is inert data this pass.
-  | { buildSpeedMult: number };
+  | { buildSpeedMult: number }
+  // --- Salvage Bay (Salvage Lanes, 2026-09-04, design section 15d "Adding LANES") --------
+  // +N concurrent salvage jobs this facility can run. salvageSlotCount (tick.ts) SUMS this
+  // across the reached rungs, the EXACT same derive-on-read/reached-rungs idiom
+  // refineSlotCount uses for `addRefineSlots`, and it adds the sum to a BASE of one rather
+  // than starting from zero (see SALVAGE_BAY_BASE_SLOTS): the bay works at level 0.
+  //
+  // ⚠️ THIS PAYLOAD MEANS "PLUS N CONCURRENT JOBS AT THIS FACILITY", AND MAY NEVER MEAN,
+  // IMPLY OR BE REUSED TO MEAN QUEUE DEPTH (design section 15a rule 2, LOCKED: "There are
+  // no upgrades that give +1 queue slot X lane"). Depth is bought with Homeworld talents,
+  // is per FACILITY, and is never multiplied by anything inside a facility. Lanes are how
+  // fast the bay chews; depth is how far ahead the player may plan.
+  //
+  // NAMING: `addSalvageSlots`, not `addSalvageLanes`, so it matches the effect family it
+  // joins (addRefineSlots / addResearchSlots / addFabricateSlots) and the helper that reads
+  // it (salvageSlotCount, the signature the queue adapter already calls). "Lane" is the
+  // DESIGN's name for the axis and "bay" is the CONSOLE's name for one unit of it; all
+  // three words denote the same thing, and the console keeps saying "bay" because that is
+  // what every shipped string on this facility already says.
+  //
+  // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every member
+  // above), so a rung carrying this is inert to refineSlotCount / researchSlotCount /
+  // fabricateSlotCount / tierCap / fuelCap, and no PRE-EXISTING facility rung sets it, so
+  // this member changes NO existing behavior (anti-regression: Omega 15).
+  | { addSalvageSlots: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -3003,6 +3027,88 @@ export const FACILITIES: Record<string, FacilityDef> = {
         durationTicks: 300, // tunable
         effect: { buildSpeedMult: 2.0 }, // tunable
         requiresFleetAdminLevel: 8, // tunable
+      },
+    ],
+  },
+  // --- Salvage Bay (Salvage Lanes, 2026-09-04, design section 15d "Adding LANES") ------
+  // The bay that breaks spare ship systems, salvaged materials and whole hulls down. It ran
+  // exactly ONE job at a time from the day it shipped, because it was the one production
+  // facility with no level track at all and therefore no rungs to sum. This entry is that
+  // level track, and it sells ONE thing: LANES.
+  //
+  // ⚠️⚠️ THE RULE THAT GOVERNS THIS WHOLE TRACK: LEVEL 0 IS A FULLY WORKING, ONE-LANE
+  // SALVAGE BAY. There is NO founding rung here and there must never be one. Every existing
+  // player already has this bay, uses it, and may have salvage jobs queued and in flight in
+  // it right now; a rung [0] that "founds" the facility would mean every save in existence
+  // loading with its Salvage Bay taken away, its queued orders unreachable and its in-flight
+  // teardowns stranded. Rungs on this track may ONLY ADD lanes on top of the base one.
+  //   - level 0 -> 1 lane   (SALVAGE_BAY_BASE_SLOTS, granted by nothing, owed to everyone)
+  //   - level 1 -> 2 lanes  (rung [0])
+  //   - level 2 -> 3 lanes  (rung [1], track ENDS here)
+  // The precedent is the Fuel Depot, whose tank is usable at level 0 and whose rungs only
+  // expand it, and the Shipyard's SHIPYARD_BAY_BASE floor. It is the deliberate OPPOSITE of
+  // the Refinery's and the Shipyard's founding rungs. See salvageSlotCount (tick.ts).
+  //
+  // ⚠️ LANES ONLY, NO SPEED RUNGS, DELIBERATELY DEFERRED. A speed rung was floated at the
+  // same time as lanes and is NOT built here: salvage durations were just retuned (the base
+  // job moved to 60 ticks on 2026-09-04), and a second throughput lever landing on the same
+  // track in the same pass would make it impossible to tell which knob produced a bad feel.
+  // Speed needs its own design pass against the retuned durations. The track is finite and
+  // extends additively, exactly as the Refinery's mixed slot+speed track does, so adding a
+  // { salvageSpeedMult } rung later is a data change plus one derive-on-read helper.
+  //
+  // ⚠️ LANES ARE NOT QUEUE DEPTH (design section 15a, LOCKED). Depth is bought with the
+  // Homeworld fleetLogisticsQueue talents, applies PER FACILITY, and is never multiplied by
+  // the lane count. A player with 3 lanes and one depth talent runs 3 salvages at once with
+  // 2 orders parked behind them. No rung here may ever grant depth.
+  //
+  // COST MODEL: CREDITS + an FA-level gate, NO materials. Three reasons, in order:
+  //   1. The bay exists to RELIEVE a full pool (it is the shipped equipment-cap escape
+  //      valve). Charging materials to widen it would tax the very stock a player is trying
+  //      to clear, which is the softlock instinct coming back in through the cost column.
+  //   2. Credits are this game's designed long-term sink (the Research Lab's locked cost
+  //      decision), and the bay's own hull-teardown arm PAYS credits, so the facility funds
+  //      its own expansion. That is a legible loop rather than an arbitrary price.
+  //   3. It matches the three most recent facility tracks (Research, Fabricator, Shipyard),
+  //      so the Foundry reads as one economy.
+  //
+  // ⚠️ NO requiresHomeworldTalents, for the SAME reason FACILITIES.fabricator's third-slot
+  // rung records: the Upgrades panels render material rows, a credits row and the
+  // Fleet-Admiral-level row, but only the Refinery's panel renders a talent row. A talent
+  // gate here WOULD be enforced by canBuildFacilityUpgrade while being stated nowhere the
+  // player can see on touch, which is a "why can't I build this" trap.
+  //
+  // ⚠️ THE NUMBERS ARE THE FABRICATOR'S TWO PAID RUNGS, VERBATIM, and that is the point of
+  // the choice rather than laziness: lanes cost the same at the Salvage Bay as they do at
+  // the Fabricator, so neither facility is the obviously-correct first purchase and the
+  // ceiling matches (3 concurrent jobs, the same ceiling the Refinery's three
+  // addRefineSlots rungs and the Fabricator's three addFabricateSlots rungs reach). The
+  // Salvage Bay reaches it from a FREE base rather than from a bought founding rung, which
+  // is why it needs two rungs where the Fabricator needs two on top of a seeded level 1.
+  // ⚠️ FIRST-PASS TUNABLE, like every number in this table; the owner's dedicated balance
+  // pass (post-exploration, around 0.16.0) retunes all of it.
+  salvageBay: {
+    label: "Salvage Bay",
+    upgrades: [
+      // [0] Level 0 -> 1: the SECOND lane. The bay chews two teardowns at once.
+      // Matches FACILITIES.fabricator rung [1] (5,000 credits / 120 ticks / FA 3).
+      {
+        materials: {}, // credits are this track's whole cost, see the cost-model note above
+        credits: new Decimal(5000),
+        durationTicks: 120,
+        effect: { addSalvageSlots: 1 },
+        requiresFleetAdminLevel: 3,
+      },
+      // [1] Level 1 -> 2: the THIRD lane, and the end of the track. Matches
+      // FACILITIES.fabricator rung [2] (20,000 credits / 240 ticks / FA 6), i.e. 4x the
+      // credits, 2x the duration and +3 FA levels over the rung before it, which is the
+      // step SHAPE the Refinery's third-slot rung established.
+      {
+        materials: {},
+        credits: new Decimal(20000),
+        durationTicks: 240,
+        effect: { addSalvageSlots: 1 },
+        requiresFleetAdminLevel: 6,
       },
     ],
   },
@@ -6127,6 +6233,21 @@ export const FABRICATOR_FACILITY_KEY = "fabricator";
 // level 0 (LOCKED / unfounded) in freshState, the founding rung establishes it.
 export const SHIPYARD_FACILITY_KEY = "shipyard";
 
+// The Salvage Bay's key in GameState.facilities (Salvage Lanes, 2026-09-04). Mirrors the
+// three keys above: the SINGLE SOURCE OF TRUTH for the raw "salvageBay" string, which was
+// already in use as a QueueFacilityKey and as the Foundry rail's card id long before the
+// bay had a facility LEVEL. It now has one, so the literal has a name.
+//
+// ⚠️ LEVEL 0 IS A FULLY WORKING BAY, NOT AN UNFOUNDED ONE, and that is the single most
+// important fact about this facility. The bay shipped with no level track at all and is
+// available to every existing player, so a founding rung would have taken the Salvage Bay
+// away from every save in existence (along with its queued and in-flight jobs). Its rungs
+// therefore only ADD lanes on top of a base of one; there is no founding rung and no
+// founding gate anywhere. Same posture as the Fuel Depot (usable tank at level 0) and the
+// Shipyard's bay FLOOR, and the deliberate opposite of the Refinery / Shipyard founding
+// rungs. See salvageSlotCount (tick.ts) and FACILITIES.salvageBay below.
+export const SALVAGE_BAY_FACILITY_KEY = "salvageBay";
+
 // The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
 // research facility, so this returns 0 until R2 seeds it at level 1, meaning tier-1
 // blueprints are NOT researchable in R1 alone and become researchable the moment R2's
@@ -7473,7 +7594,14 @@ export function freshState(): GameState {
     // start at level 0 for founding to be meaningful. shipBuildSlotCount is a const 1
     // regardless of level, but building a hull is gated on level >= 1 (S3's canBuildShip).
     // Existing saves get this same level-0 seed via the v24->v25 migration (S6, save.ts).
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+    // ⚠️ salvageBay seeds at level 0, and level 0 IS A WORKING ONE-LANE BAY (Salvage Lanes,
+    // 2026-09-04). It is level-0-and-operational like warehouseT1 / fuelStorage, NOT
+    // level-0-and-locked like refinery / shipyard: salvageSlotCount adds its rungs to a base
+    // of one, so a save at level 0 salvages exactly as it always did. Existing saves reach
+    // this identical shape through the v41->v42 migration (save.ts, MIGRATIONS[41]), and
+    // would behave identically even without it (facilityLevel reads an absent key as 0); the
+    // migration exists so a fresh save and a migrated save stay indistinguishable in SHAPE.
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the

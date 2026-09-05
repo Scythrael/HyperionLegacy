@@ -41,6 +41,13 @@ import {
   // remover the "cancelling a batch releases all of it" cases exercise.
   canEnqueueOrder,
   removeQueuedOrder,
+  // Salvage Lanes (2026-09-04): the bay's derived LANE count. The multi-lane parity fixtures
+  // assert they really are three-lane bays rather than one-lane bays with jobs bolted on,
+  // and the headroom cases prove the auto-salvage budget does NOT move with it.
+  salvageSlotCount,
+  // The ONE definition of "a salvage is running", used by the lane cases to read which
+  // targets actually took the bay's lanes and in what order.
+  salvageJobsInFlight,
 } from "./tick";
 import {
   salvageEquipment,
@@ -2087,6 +2094,265 @@ describe("⚠️ offline==live parity for timed salvage (tick(span) == looping e
 
     const jumped = tick(SPAN, spanState(), mulberry32(SEED));
     expect(salvageFingerprint(split)).toEqual(salvageFingerprint(jumped));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ⚠️ MULTI-LANE PARITY: SEVERAL SALVAGES COMPLETING ON THE SAME TICK
+// (Salvage Lanes, 2026-09-04. FACILITIES.salvageBay + salvageSlotCount.)
+// ---------------------------------------------------------------------------
+// The suite above STAGGERS its three completions (ticks 4, 7 and 11) on purpose, because
+// with one lane that was the realistic shape and a stagger is what makes an ORDERING
+// divergence detectable. Lanes invert that: two or three salvages finishing on the SAME tick
+// stops being the edge case and becomes the normal one.
+//
+// THAT EXACT CASE HAS ALREADY BEEN A REAL BUG ONCE in this release. Because each salvage
+// function takes a whole GameState and returns a whole GameState, a resolver that handed
+// every completion the UNTOUCHED incoming state kept only the last result and silently
+// discarded the others. It was fixed by threading the accumulators through a scratch state
+// (resolveProcesses' salvageResolve branch), and there is a direct unit case for it above
+// ("resolves SEVERAL salvages completing in one call cumulatively"). What THESE cases add is
+// the property that unit case cannot see: that the cumulative result is also the IDENTICAL
+// result offline and live, draw for draw, when the completions land together.
+//
+// Two fixtures, because they fail differently:
+//   simultaneous  one job per ARM, all completing on the same tick. Catches an ordering or
+//                 accumulator divergence ACROSS the three different reward paths.
+//   sameMaterial  three jobs on the FUNGIBLE arm, same item, same tick. The riskiest shape:
+//                 each one consumes a unit of the same stack and each draws TWICE, so a
+//                 single misordered draw shows up as a different loot table entirely.
+describe("⚠️ offline==live parity with SEVERAL LANES completing on the SAME tick (Salvage Lanes)", () => {
+  const SPAN = SALVAGE_MATERIAL_TICKS * 2 + 10;
+  const SEED = 7311;
+  const SAME_TICK = 6; // every job in these fixtures shares this countdown
+
+  // A genuine THREE-LANE bay: facility level 2, the top of the shipped lane track. The
+  // in-flight jobs below would resolve regardless (resolveProcesses resolves what exists),
+  // but the fixture states the real configuration rather than an impossible one, so a future
+  // reader is not left wondering whether three concurrent salvages were even legal.
+  function threeLaneState(): GameState {
+    const base = timedSalvageState();
+    return { ...base, facilities: { ...base.facilities, salvageBay: { level: 2 } } };
+  }
+
+  it("the fixture really is a three-lane bay (not a one-lane bay with three jobs bolted on)", () => {
+    expect(salvageSlotCount(threeLaneState())).toBe(3);
+    expect(salvageSlotCount(timedSalvageState())).toBe(1); // the level-0 default, unchanged
+  });
+
+  // THREE ARMS, ONE TICK. Same countdown on all three, so they complete together.
+  function simultaneousState(): GameState {
+    const base = threeLaneState();
+    return {
+      ...base,
+      activeProcesses: [
+        salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, SAME_TICK, "proc-1"),
+        salvageJobAt({ kind: "material", itemId: HOUSING }, SAME_TICK, "proc-2"),
+        salvageJobAt({ kind: "ship", shipId: "ship-2" }, SAME_TICK, "proc-3"),
+      ],
+    };
+  }
+
+  it("three lanes finishing on ONE tick land byte-identically offline and live", () => {
+    const jumped = tick(SPAN, simultaneousState(), mulberry32(SEED));
+    let stepped = simultaneousState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+
+    // NON-VACUITY, and specifically that ALL THREE results survived rather than the last one
+    // overwriting the other two, which is the exact bug this shape reintroduces if the
+    // accumulator threading is ever undone.
+    expect(jumped.equipment.find((e) => e.id === "sp-1")).toBeUndefined(); // equipment arm
+    expect(itemTotal(jumped.inventory, HOUSING).toString()).toBe("2");     // material arm
+    expect(jumped.ships.find((s) => s.id === "ship-2")).toBeUndefined();   // ship arm
+    expect(jumped.credits.gt(0)).toBe(true);                               // the refund landed
+    expect(jumped.activeProcesses).toEqual([]);
+  });
+
+  it("both chunkings consume the SAME number of draws (4: equipment 1 + material 2 + ship 1)", () => {
+    // A deep-equal could in principle be reached while consuming the stream differently.
+    // Pinning the COUNT pins the stream POSITION too, which is what every completion after
+    // these three depends on, and it proves the three simultaneous resolutions draw in one
+    // fixed order rather than racing.
+    const jumpedCount = countingRng(mulberry32(SEED));
+    tick(SPAN, simultaneousState(), jumpedCount.rng);
+
+    const steppedCount = countingRng(mulberry32(SEED));
+    let stepped = simultaneousState();
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, steppedCount.rng);
+
+    expect(jumpedCount.draws()).toBe(steppedCount.draws());
+    expect(jumpedCount.draws()).toBe(4);
+  });
+
+  it("is NOT comparing two constants: a different seed produces a different result", () => {
+    // The control. Without it, a parity case whose outcome does not depend on the rng at all
+    // would pass while proving nothing.
+    const seedA = tick(SPAN, simultaneousState(), mulberry32(SEED));
+    const seedB = tick(SPAN, simultaneousState(), mulberry32(SEED + 1));
+    expect(salvageFingerprint(seedA)).not.toEqual(salvageFingerprint(seedB));
+  });
+
+  it("parity holds when the span is chunked UNEVENLY ACROSS the shared completion tick", () => {
+    // The chunking that matters most for a simultaneous batch: the split lands INSIDE the
+    // completion tick's neighbourhood, so one run resolves all three inside a longer jump and
+    // the other resolves them at the head of a second chunk, on ONE continuous stream.
+    const rng = mulberry32(SEED);
+    let split = simultaneousState();
+    for (let i = 0; i < SAME_TICK - 1; i++) split = economyTick(split, 1, rng);
+    for (let i = 0; i < SPAN - (SAME_TICK - 1); i++) split = economyTick(split, 1, rng);
+
+    expect(salvageFingerprint(split)).toEqual(salvageFingerprint(tick(SPAN, simultaneousState(), mulberry32(SEED))));
+  });
+
+  // THREE JOBS ON THE SAME FUNGIBLE MATERIAL, ONE TICK. The riskiest arrangement lanes make
+  // reachable: three consumers of ONE stack, six draws that must be taken in one fixed order.
+  function sameMaterialState(): GameState {
+    const base = threeLaneState();
+    return {
+      ...base,
+      activeProcesses: [
+        salvageJobAt({ kind: "material", itemId: HOUSING }, SAME_TICK, "proc-1"),
+        salvageJobAt({ kind: "material", itemId: HOUSING }, SAME_TICK, "proc-2"),
+        salvageJobAt({ kind: "material", itemId: HOUSING }, SAME_TICK, "proc-3"),
+      ],
+    };
+  }
+
+  it("three lanes chewing the SAME material on one tick consume three units and stay in parity", () => {
+    const jumped = tick(SPAN, sameMaterialState(), mulberry32(SEED));
+    let stepped = sameMaterialState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+
+    // NON-VACUITY: the fixture holds three Housings and all three were consumed, one per
+    // lane. A resolver that discarded earlier results would leave stock behind here.
+    expect(itemTotal(sameMaterialState().inventory, HOUSING).toString()).toBe("3");
+    expect(itemTotal(jumped.inventory, HOUSING).toString()).toBe("0");
+    expect(jumped.activeProcesses).toEqual([]);
+    expect(Object.keys(SALVAGE_LOOT_POOLS).length).toBeGreaterThan(0); // the pools really exist
+  });
+
+  it("the same-material batch draws exactly SIX values (two per material job), on both paths", () => {
+    const jumpedCount = countingRng(mulberry32(SEED));
+    tick(SPAN, sameMaterialState(), jumpedCount.rng);
+
+    const steppedCount = countingRng(mulberry32(SEED));
+    let stepped = sameMaterialState();
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, steppedCount.rng);
+
+    expect(jumpedCount.draws()).toBe(steppedCount.draws());
+    expect(jumpedCount.draws()).toBe(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AUTO-SALVAGE AND LANES: the manual-headroom question, answered
+// (Salvage Lanes, 2026-09-04.)
+// ---------------------------------------------------------------------------
+// Auto-salvage deliberately leaves the player one QUEUE slot (AUTO_SALVAGE_MANUAL_HEADROOM)
+// so the rules can never sit on every slot forever and win every race for one. Lanes raised
+// the obvious follow-up: should the rules also leave a LANE free?
+//
+// THE ANSWER IS NO, AND THE DEPTH HEADROOM ALONE IS SUFFICIENT. Three reasons, the first
+// decisive:
+//   1. THE RACE DOES NOT EXIST ON LANES. A lane is not something a player claims by clicking;
+//      it is filled by the promotion pass, FIFO, out of the queue. autoSalvageOrders runs at
+//      the HEAD of promoteQueuedOrders and APPENDS, so an order the player queued is always
+//      EARLIER in the array than any order the rules add, and the scan promotes in array
+//      order. The player's order therefore reaches a lane FIRST, by construction, in the very
+//      same tick. Reserving a lane would defend against a race the queue's ordering has
+//      already won.
+//   2. RESERVING A LANE WOULD IDLE BOUGHT THROUGHPUT. A lane is bought with credits, and
+//      auto-salvage exists precisely so the player is not standing at the console. A third
+//      lane that only ever runs two jobs while the rules are on is a player paying for a
+//      number that does not move, which is the opposite of what the upgrade sells.
+//   3. THE SHIPPED GUARANTEE IS ABOUT ENQUEUEING, NOT ABOUT STARTING INSTANTLY. At one lane a
+//      manual order ALWAYS waited behind whatever was running, and that was never considered
+//      starvation. Adding a lane reservation would be a strictly STRONGER promise than the
+//      one that shipped, invented on a build pass.
+// The per-tick bound is unaffected either way: the budget is derived from DEPTH, never from
+// the lane count, so more lanes cannot make the rules do more work per tick.
+describe("auto-salvage keeps its DEPTH headroom and does NOT reserve a lane (Salvage Lanes)", () => {
+  // A three-lane bay with the rules on, a deep queue and a pool to chew through.
+  function laneAutoState(): GameState {
+    const pieces = Array.from({ length: 8 }, (_, i) =>
+      autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: i % 3, iLevel: 10 + i })
+    );
+    const base = autoState(pieces, { maxQuality: 1, duplicates: true });
+    return {
+      ...base,
+      facilities: { ...base.facilities, salvageBay: { level: 2 } },
+      // Housings on hand so the PLAYER has something of their own to queue that the rules
+      // will never select (the rules only ever pick spare EQUIPMENT), which is what makes
+      // the manual order below unambiguously the player's in the assertions.
+      inventory: { ...base.inventory, [HOUSING]: [new Decimal(3)] },
+      unlockedHomeworldTalents: [
+        ...base.unlockedHomeworldTalents,
+        "fleetLogisticsQueue1",
+        "fleetLogisticsQueue2",
+        "fleetLogisticsQueue3",
+      ],
+    };
+  }
+
+  it("the budget is DEPTH minus the headroom, and MORE LANES do not raise it", () => {
+    // The bound the tick pass respects is queue depth, never lane count. Proven by running
+    // one tick at one lane and at three and comparing how many orders the rules added.
+    const threeLanes = laneAutoState();
+    const oneLane: GameState = {
+      ...threeLanes,
+      facilities: { ...threeLanes.facilities, salvageBay: { level: 0 } },
+    };
+    expect(salvageSlotCount(threeLanes)).toBe(3);
+    expect(salvageSlotCount(oneLane)).toBe(1);
+
+    // autoSalvageOrders alone (no promotion), so this measures ONLY what the rules queued.
+    const addedThree = autoSalvageOrders(threeLanes).processQueue.length;
+    const addedOne = autoSalvageOrders(oneLane).processQueue.length;
+    expect(addedThree).toBe(addedOne);
+    expect(addedThree).toBe(queueDepth(threeLanes) - AUTO_SALVAGE_MANUAL_HEADROOM);
+  });
+
+  it("the rules still leave the player a free depth slot at a MULTI-LANE bay", () => {
+    // The shipped guarantee, re-proven with lanes in play: whatever the lane count, the
+    // player can always add one order of their own after the rules have run.
+    const after = autoSalvageOrders(laneAutoState());
+    expect(after.processQueue.length).toBe(queueDepth(after) - AUTO_SALVAGE_MANUAL_HEADROOM);
+    expect(canEnqueueOrder(after, "salvageBay", {
+      type: "salvage",
+      target: { kind: "material", itemId: HOUSING },
+      mode: { kind: "batch", remaining: 1 },
+    }).ok).toBe(true);
+  });
+
+  it("THE DECISION, PROVEN: a manually queued order reaches a lane BEFORE any auto order", () => {
+    // The reason no lane reservation is needed. The player queues first, so their entry sits
+    // earlier in the flat queue array; autoSalvageOrders appends behind it; the promotion
+    // scan runs in array order. The manual order is therefore promoted on the same tick,
+    // no matter how many lanes the rules would otherwise have filled.
+    const base = laneAutoState();
+    const manual = enqueueOrder(base, "salvageBay", {
+      type: "salvage",
+      target: { kind: "material", itemId: HOUSING },
+      mode: { kind: "batch", remaining: 1 },
+    });
+    expect(manual.queued).toBe(true);
+    const manualId = manual.next.processQueue[0].id;
+
+    const promoted = promoteQueuedOrders(manual.next);
+    const running = salvageJobsInFlight(promoted);
+    // Every lane is working (the rules filled what the player did not), and the FIRST lane
+    // taken is the player's own material teardown, not a rules-selected spare.
+    expect(running).toHaveLength(3);
+    expect(running[0].effect.target).toEqual({ kind: "material", itemId: HOUSING });
+    // The player's entry is gone from the queue because it STARTED, not because it was
+    // dropped: nothing else in the queue carries its id either.
+    expect(promoted.processQueue.some((job) => job.id === manualId)).toBe(false);
   });
 });
 

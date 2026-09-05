@@ -278,6 +278,10 @@ describe("Phase 1, facility/process reservation fields (additive)", () => {
       research: { level: 1 },
       fabricator: { level: 1 },
       shipyard: { level: 0 },
+      // Salvage Lanes (2026-09-04): the Salvage Bay gained a level track. It seeds at level 0
+      // like warehouseT1 / fuelStorage, and level 0 here means OPERATIONAL (salvageSlotCount
+      // yields one lane off its base), NOT locked the way refinery / shipyard level 0 does.
+      salvageBay: { level: 0 },
     });
   });
 

@@ -157,6 +157,10 @@
     // reads, the Craft-tab canFabricate gate, and the Upgrades tab's
     // canBuildFacilityUpgrade/doStartFacilityUpgrade(FABRICATOR_FACILITY_KEY) calls.
     FABRICATOR_FACILITY_KEY,
+    // Salvage Lanes (2026-09-04), the stable "salvageBay" facility key the bay's new
+    // Upgrades sub-tab + level/lane reads reference (never the raw string), mirroring
+    // RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY.
+    SALVAGE_BAY_FACILITY_KEY,
     // Shipyard (Phase 5, Task S5 UI), the stable "shipyard" facility key the Shipyard
     // rail entry + Build/Upgrades panel + founding/upgrade wiring reference (never the raw
     // string), mirroring RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY. Drives the
@@ -621,7 +625,7 @@
     craftingItemLevelBonus,
     // Crafting 0.13.3 (Phase 4 Unit 4.4): the two Salvage Bay seams the console reads.
     // salvageJobsInFlight is the SINGLE definition of "a salvage is running" (the same one
-    // the queue adapter counts against SALVAGE_SLOT_COUNT), used here to tell a QUEUED
+    // the queue adapter counts against salvageSlotCount), used here to tell a QUEUED
     // target apart from an IN-FLIGHT one on a tile: the derived reservation set merges the
     // two on purpose, and a tile that says "Salvaging, 8s" is telling a different story
     // from one that says "Queued for salvage".
@@ -629,6 +633,10 @@
     // uses, so the "about Ns" a tile previews before you commit is the countdown you get.
     salvageJobsInFlight,
     salvageJobDurationTicks,
+    // Salvage Lanes (2026-09-04): the bay's LANE count, derived off its own upgrade rungs.
+    // Read for the Upgrades tab's current -> next readout and as the queue panel's slot
+    // fallback, through the SAME helper the queue adapter's free-slot gate uses.
+    salvageSlotCount,
     type SalvageJobProcess,
   } from "./lib/game/tick";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
@@ -1592,7 +1600,8 @@
   // Four derivations, each computed ONCE per state change and read many times by the tiles.
   //
   // salvageBayQueue    the same pure CraftQueueView the Refinery and Fabricator bind to,
-  //                    for the third queue-capable facility. slotsTotal is SALVAGE_SLOT_COUNT
+  //                    for the third queue-capable facility. slotsTotal is salvageSlotCount
+  //                    (derived off the bay's own lane rungs since Salvage Lanes, 2026-09-04)
   //                    and `running` carries the in-flight salvage rows (already named
   //                    through salvageTargetLabel), so the bay's slot readout, its running
   //                    list and its waiting list all come from one derivation.
@@ -1925,15 +1934,23 @@
   // DEFAULTS TO "salvage": the action, and the destination every deep link into this
   // console means (an in-flight or just-completed salvage row, see jumpTo's salvageBay
   // case, which now pre-selects this tab the way the Shipyard case pre-selects Build).
-  type SalvageBaySubTab = "salvage" | "rules";
+  //
+  // ⚠️ A THIRD TAB, "upgrades", WAS ADDED BY SALVAGE LANES (2026-09-04), and it is the
+  // deliberate addition the block above anticipated ("a future tab is added to it
+  // deliberately"). It is LAST, matching every sibling console: the Refinery, Fabricator,
+  // Research Lab, Fuel Depot and Shipyard all put Upgrades at the end of their rail, because
+  // it is the visit a player makes rarely. Nothing moved off the other two tabs to make room
+  // for it; the split above still describes them exactly.
+  type SalvageBaySubTab = "salvage" | "rules" | "upgrades";
   let activeSalvageBaySubTab: SalvageBaySubTab = "salvage";
 
-  // The 2 Salvage Bay sub-tabs in display order. A named const (rather than an inline
+  // The 3 Salvage Bay sub-tabs in display order. A named const (rather than an inline
   // array literal) matching WAREHOUSE_CAT_TABS, so the tab set is data a future tab is
   // added to deliberately.
   const SALVAGE_BAY_SUBTABS: { key: SalvageBaySubTab; label: string }[] = [
     { key: "salvage", label: "Salvage" },
     { key: "rules", label: "Rules" },
+    { key: "upgrades", label: "Upgrades" },
   ];
 
   // Crafting Allocation Redesign (Task C4): the per-line CONFIGURATOR's local form state.
@@ -2948,6 +2965,16 @@
         facilitiesView = "console";
         activeFoundryFacility = "shipyard";
         activeShipyardSubTab = "upgrades";
+        break;
+      // Salvage Lanes (2026-09-04): the bay is a levelled facility now, so it can be the
+      // sole startable upgrade and must deep-link like its siblings. Without this case it
+      // would fall through to the Facilities overview, which is safe but costs the player
+      // the two taps this prompt exists to save.
+      case "salvageBay":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "salvageBay";
+        activeSalvageBaySubTab = "upgrades";
         break;
       case "warehouseT1":
       case "warehouseT2":
@@ -6433,6 +6460,32 @@
       p.effect.facility === FABRICATOR_FACILITY_KEY
   );
 
+  // ── Salvage Bay LANES + upgrade track (Salvage Lanes, 2026-09-04) ──────────
+  // A LINE-FOR-LINE clone of the five Fabricator derivations directly above, swapping only
+  // the facility key and the slot helper. Every number the new Upgrades sub-tab renders
+  // comes from these, so the tab re-derives nothing of its own.
+  //
+  // ⚠️ salvageBayLevel 0 IS NOT "NOT BUILT". Unlike fabricatorLevel (whose 0 would mean an
+  // unestablished facility), the Salvage Bay works at level 0 with one lane and always has,
+  // so nothing in the template may gate the bay's affordances on this number. It is used for
+  // exactly two things: indexing the next rung, and printing "Level: N" on the Upgrades tab.
+  $: salvageBayLevel = state.facilities[SALVAGE_BAY_FACILITY_KEY]?.level ?? 0;
+  // The bay's LIVE lane count, through the SAME helper the queue adapter's free-slot gate
+  // reads, so the console and the engine can never disagree about how many jobs fit.
+  $: salvageBaySlots = salvageSlotCount(state);
+  // The next rung (upgrades[level]; the track caps at length 2 today). salvageBayMaxed is an
+  // EXPLICIT length check for the same noUncheckedIndexedAccess reason fabricatorMaxed is, so
+  // nextSalvageBayUpgrade stays non-undefined-typed inside the {:else} branch.
+  $: salvageBayMaxed = salvageBayLevel >= FACILITIES[SALVAGE_BAY_FACILITY_KEY].upgrades.length;
+  $: nextSalvageBayUpgrade = FACILITIES[SALVAGE_BAY_FACILITY_KEY].upgrades[salvageBayLevel];
+  $: salvageBayUpgradeCheck = canBuildFacilityUpgrade(state, SALVAGE_BAY_FACILITY_KEY);
+  $: salvageBayUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === SALVAGE_BAY_FACILITY_KEY
+  );
+
   // Fabricable count: researched blueprints whose tier the fabricator's LEVEL has reached
   // (the STABLE "you have the capability to craft this" count, NOT the transient
   // canFabricate.ok which flickers with live materials/slots). Paired with
@@ -7076,11 +7129,23 @@
 
     <!-- SLOTS: the bay's concurrency, stated before the queue that waits on it, because
          "1 / 1 in use" is the whole explanation for why a queued row is waiting.
-         slotsTotal is SALVAGE_SLOT_COUNT through the view model, never a literal here;
-         the `?? 1` arm exists only for the type's null case (a future queue-capable
-         facility with no slot model yet) and is unreachable for this facility. -->
+         slotsTotal is salvageSlotCount through the view model, never a literal here.
+
+         ⚠️ Salvage Lanes (2026-09-04): the fallback was a hardcoded `?? 1`, correct only
+         while the bay could never have more than one lane. It is now salvageBaySlots, the
+         SAME derivation the view model's arm delegates to, matching how the Research Lab's
+         panel falls back to researchSlots. A literal here would quietly under-report a
+         bought lane on the one line whose whole job is to explain why a row is waiting.
+         The fallback arm itself is still unreachable for this facility: it exists only for
+         slotsTotal's null case (a future queue-capable facility with no slot model yet).
+
+         The noun stays "bays", which is what every shipped string on this console calls one
+         unit of this facility's concurrency ("BAY · BREAKING DOWN", "The bay is idle",
+         "Waiting for a free bay."). The design calls the axis LANES and the code calls it
+         slots; all three name the same number, and the console keeps its own vocabulary
+         rather than introducing a second word for it mid-release. -->
     <div class="research-cost">
-      Salvage bays: {view.runningCount} / {view.slotsTotal ?? 1} in use
+      Salvage bays: {view.runningCount} / {view.slotsTotal ?? salvageBaySlots} in use
     </div>
 
     {#if view.running.length === 0}
@@ -7763,10 +7828,19 @@
               </div>
             </button>
 
-            <!-- Salvage Bay card. No facility level (no build/upgrade track); the
-                 LIVE status reuses spareEquipmentCount(state), the SAME spare
-                 crafted-systems count the Ship Equipment bay header shows, which is
-                 exactly the pool salvageable here (every spare in the bay). -->
+            <!-- Salvage Bay card. The LIVE status reuses spareEquipmentCount(state), the
+                 SAME spare crafted-systems count the Ship Equipment bay header shows, which
+                 is exactly the pool salvageable here (every spare in the bay).
+
+                 ⚠️ THE SUBTITLE STAYS "Recycling bay" AND IS NOT A "Level N" READOUT,
+                 which is a deliberate hold rather than an oversight (Salvage Lanes,
+                 2026-09-04). The bay DID gain a level track in that change, and every other
+                 levelled card here prints "Level N", so consistency argues for the swap. It
+                 was not made because this pass ran under a zero-visible-string-removals gate
+                 and the swap would delete "Recycling bay" outright. The level is printed on
+                 the bay's own Upgrades sub-tab, which is where every sibling facility's level
+                 is also printed, so nothing is unreachable. Swapping it is a one-line change
+                 whenever the owner wants the cards uniform. -->
             <button
               class="roster-card"
               on:click={() => {
@@ -10280,6 +10354,123 @@
                 </div>
               </Panel>
             {/if}
+            {/if}
+
+            {#if activeSalvageBaySubTab === "upgrades"}
+            <!-- ============ TAB 3 OF 3: UPGRADES, the bay's LANE track ==================
+                 (Salvage Lanes, 2026-09-04. FACILITIES.salvageBay + salvageSlotCount.)
+
+                 A LINE-FOR-LINE clone of the Fabricator's Upgrades tab, swapping the
+                 facility key, the slot helper and the effect property. Build is wired to the
+                 SHARED canBuildFacilityUpgrade / doStartFacilityUpgrade / facilityUpgradeButton
+                 machinery, NOT re-implemented, so this tab owns no gate logic of its own and
+                 the disabled-reason popover behaves exactly as it does at every other
+                 facility. The in-flight progress row reuses the same refine/research bar idiom.
+
+                 ⚠️ THIS TAB SELLS LANES AND NOTHING ELSE. A salvage SPEED rung was floated at
+                 the same time and is deliberately not here: salvage durations were retuned on
+                 the same day, and shipping a second throughput lever on one track in the same
+                 pass would make a bad feel impossible to attribute. See FACILITIES.salvageBay.
+
+                 ⚠️ THE TWO NUMBERS ON THIS FACILITY ARE DIFFERENT THINGS, and the explainer
+                 below exists to say so in the player's own words. Bays are how many teardowns
+                 run AT ONCE (bought here, with credits). Queue depth is how many orders may
+                 WAIT behind them (bought with Homeworld Talents, and stated on the queue panel
+                 over on the Salvage tab). They are never added together and never multiplied,
+                 which is exactly the confusion a console showing "3 bays" and "2 waiting" has
+                 to head off. -->
+            <Panel>
+              <div class="panel-title">SALVAGE BAY, Upgrades</div>
+              <div class="research-cost">Level: {salvageBayLevel}</div>
+              <!-- The bay's live concurrency, printed here as well as on the queue panel.
+                   Both are the SAME salvageSlotCount, reached one way through this console's
+                   own derivation and one way through the queue view model, so they cannot
+                   disagree; a player deciding whether to buy a bay should not have to change
+                   tabs to see how many they already have. -->
+              <div class="research-cost">
+                Salvage bays: {salvageBaySlots} running at once
+              </div>
+              <p class="research-status">
+                A bay is one teardown running at a time, so three bays chew three orders at once. This is separate from queue depth, which is how many orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
+              </p>
+
+              {#if salvageBayMaxed}
+                <p class="research-status">Fully upgraded.</p>
+              {:else}
+                {@const eff = nextSalvageBayUpgrade.effect}
+                <div class="research-name">Next: Level {salvageBayLevel} → {salvageBayLevel + 1}</div>
+                <!-- Grant line, with the current → next bay counts underneath it, the shape
+                     the Fuel Depot's "Add Pipeline" rung uses for the same kind of
+                     concurrency grant. The count text lives INSIDE the narrow so
+                     eff.addSalvageSlots is typed (FacilityUpgradeEffect is a non-discriminated
+                     union narrowed by property presence). Every rung on this track carries the
+                     effect, so the {:else} is defensive only. -->
+                {#if "addSalvageSlots" in eff}
+                  <div class="research-cost">Grants: +{eff.addSalvageSlots} salvage bay{eff.addSalvageSlots === 1 ? "" : "s"}</div>
+                  <div class="research-cost">Current bays: {salvageBaySlots}</div>
+                  <div class="research-cost" style="color: var(--color-accent)">Next bays: {salvageBaySlots + eff.addSalvageSlots}</div>
+                {/if}
+                <div class="research-cost">Duration: {durationReadout(nextSalvageBayUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+
+                <!-- Credits cost readiness. This track is priced in credits, not materials:
+                     the bay exists to RELIEVE a full pool, so charging materials to widen it
+                     would tax the stock the player is trying to clear. See the cost-model
+                     note on FACILITIES.salvageBay. -->
+                {#if nextSalvageBayUpgrade.credits !== undefined}
+                  {@const met = state.credits.gte(nextSalvageBayUpgrade.credits)}
+                  <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nextSalvageBayUpgrade.credits)} (have {formatNumber(state.credits)})
+                  </div>
+                {/if}
+
+                <!-- Material readiness ([Item]: have / need), empty for this track today and
+                     kept for parity with the sibling tabs, exactly as the Fabricator's is. -->
+                {#each Object.keys(nextSalvageBayUpgrade.materials) as itemId}
+                  {@const need = nextSalvageBayUpgrade.materials[itemId]}
+                  <!-- FREE (reservation-aware) have, consistent with the Build gate; see
+                       the Refinery upgrade row for the full rationale. -->
+                  {@const stock = itemTotal(state.inventory, itemId)}
+                  {@const have = freeItemForState(state, itemId)}
+                  {@const reserved = stock.minus(have)}
+                  {@const met = have.gte(need)}
+                  <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
+                  </div>
+                {/each}
+
+                <!-- Fleet Admiral level prereq (absent field => no wall). This track carries
+                     NO Homeworld-talent gate on purpose: this panel has no talent row to
+                     state one with, and a gate the player cannot see is a "why can't I build
+                     this" trap on touch. See FACILITIES.salvageBay. -->
+                {#if nextSalvageBayUpgrade.requiresFleetAdminLevel !== undefined}
+                  {@const met = state.fleetAdminLevel >= nextSalvageBayUpgrade.requiresFleetAdminLevel}
+                  <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nextSalvageBayUpgrade.requiresFleetAdminLevel} (current: {state.fleetAdminLevel})
+                  </div>
+                {/if}
+
+                {@render facilityUpgradeButton(
+                  SALVAGE_BAY_FACILITY_KEY,
+                  salvageBayUpgradeCheck,
+                  `Build · Level ${salvageBayLevel} → ${salvageBayLevel + 1}`,
+                  () => doStartFacilityUpgrade(SALVAGE_BAY_FACILITY_KEY)
+                )}
+              {/if}
+
+              {#if salvageBayUpgradeInFlight}
+                {@const progress = salvageBayUpgradeInFlight.durationTicks > 0
+                  ? (salvageBayUpgradeInFlight.durationTicks - salvageBayUpgradeInFlight.remainingTicks) / salvageBayUpgradeInFlight.durationTicks
+                  : 1}
+                <!-- The same in-flight row every sibling Upgrades tab renders. A salvage
+                     JOB already running is unaffected by an upgrade in flight: the level
+                     bumps at completion and the extra lane simply becomes available. -->
+                <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
+                <div class="research-bar-track">
+                  <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                </div>
+                <div class="research-readout">{remainingReadout(salvageBayUpgradeInFlight.remainingTicks, salvageBayUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+              {/if}
+            </Panel>
             {/if}
           {:else if activeFoundryFacility === "shipyard"}
             <!-- SHIPYARD folded into Facilities (0.12.0 Console, CN4b), moved

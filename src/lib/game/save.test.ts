@@ -13,6 +13,12 @@ import { equippedFor } from "./equipment";
 // economyTick to prove a CURRENT-version (v21) save's Fuel Depot still refines after a
 // round trip (the "no new migration needed" proof).
 import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs, installMissingCombatBaselines } from "./tick";
+// Salvage Lanes (2026-09-04): the v41->v42 block proves a PRE-UPGRADE save still has a
+// working one-lane Salvage Bay after migrating, which needs the lane helper, the in-flight
+// definition, the adapter's own free-lane gate and the promotion gate, all read from the
+// engine rather than restated here.
+import { salvageSlotCount, salvageJobsInFlight, QUEUE_ADAPTERS, canStartSalvage } from "./tick";
+import { buildCraftQueue } from "./craftQueue";
 // Combat 0.13.0 (Phase 11): the loss/repair-loop round-trip test needs a combat hull + a
 // patrol key + the repair tunables to prove the NEW optional repair/limp fields survive a
 // save/load with NO version bump (the absent-is-default posture).
@@ -64,7 +70,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -103,7 +109,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -277,7 +283,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -374,7 +380,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -480,7 +486,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -569,7 +575,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -642,7 +648,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -705,7 +711,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -775,7 +781,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -1567,7 +1573,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -1775,7 +1781,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -1897,6 +1903,10 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       research: { level: 1 },
       fabricator: { level: 1 },
       shipyard: { level: 0 }, // Shipyard Task S6 (MIGRATIONS[24] seeds it at level 0 as the chain continues to v25)
+      // Salvage Lanes (2026-09-04, MIGRATIONS[41]): a level-0 salvageBay is a WORKING
+      // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
+      // migrated save and a fresh save carry the identical facilities SHAPE.
+      salvageBay: { level: 0 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -1993,6 +2003,10 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       research: { level: 1 },
       fabricator: { level: 1 },
       shipyard: { level: 0 }, // Shipyard Task S6 (MIGRATIONS[24] seeds it at level 0 as the chain continues to v25)
+      // Salvage Lanes (2026-09-04, MIGRATIONS[41]): a level-0 salvageBay is a WORKING
+      // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
+      // migrated save and a fresh save carry the identical facilities SHAPE.
+      salvageBay: { level: 0 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -2039,6 +2053,10 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
       fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly)
       shipyard: { level: 0 }, // Shipyard Task S1 (fresh round-trip reflects freshState directly; LOCKED/level 0; old-save backfill is S6's v24->v25 step)
+      // Salvage Lanes (2026-09-04, MIGRATIONS[41]): a level-0 salvageBay is a WORKING
+      // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
+      // migrated save and a fresh save carry the identical facilities SHAPE.
+      salvageBay: { level: 0 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2059,7 +2077,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -2125,10 +2143,11 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     // continues through MIGRATIONS[20] (v20->v21, Mission Rework Task 9, seeds fuelStorage
     // level 0 + missionControl level 1), MIGRATIONS[21] (v21->v22, Research Task R6,
     // seeds research level 1), MIGRATIONS[22] (v22->v23, Fabricator Task F6, seeds
-    // fabricator level 1) AND MIGRATIONS[24] (v24->v25, Shipyard Task S6, seeds shipyard
-    // level 0). So the FINAL facilities map holds all EIGHT keys, not the
-    // three MIGRATIONS[18] alone produces.
-    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "refinery", "research", "shipyard", "warehouseT1", "warehouseT2"]);
+    // fabricator level 1), MIGRATIONS[24] (v24->v25, Shipyard Task S6, seeds shipyard
+    // level 0) AND MIGRATIONS[41] (v41->v42, Salvage Lanes, seeds salvageBay level 0). So
+    // the FINAL facilities map holds all NINE keys, not the three MIGRATIONS[18] alone
+    // produces.
+    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "refinery", "research", "salvageBay", "shipyard", "warehouseT1", "warehouseT2"]);
     expect(migrated.facilities.refinery).toEqual({ level: 2 }); // untouched
     expect(migrated.facilities.warehouseT1).toEqual({ level: 0 }); // seeded
     expect(migrated.facilities.warehouseT2).toEqual({ level: 0 }); // seeded (locked)
@@ -2223,7 +2242,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(41);
+    expect(deserialized!.version).toBe(42);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2240,12 +2259,16 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
       research: { level: 1 }, // Research Task R2 (fresh round-trip reflects freshState directly)
       fabricator: { level: 1 }, // Fabricator Task F1 (fresh round-trip reflects freshState directly; old-save backfill is F6's v22->v23 step)
       shipyard: { level: 0 }, // Shipyard Task S1 (fresh round-trip reflects freshState directly; LOCKED/level 0; old-save backfill is S6's v24->v25 step)
+      // Salvage Lanes (2026-09-04, MIGRATIONS[41]): a level-0 salvageBay is a WORKING
+      // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
+      // migrated save and a fresh save carry the identical facilities SHAPE.
+      salvageBay: { level: 0 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -2305,7 +2328,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     // (v22->v23, Fabricator Task F6, seeds fabricator level 1) AND MIGRATIONS[24] (v24->v25,
     // Shipyard Task S6, seeds shipyard level 0), so the FINAL facilities map carries those five
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
-    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } });
+    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } });
     expect(itemTotal(migrated.inventory, "commonOre").equals(750)).toBe(true);
     // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): refinedMaterial (20) folds into titaniumIngot
     // and components (2) is dropped; the itemsRefined lifetimeStats tally below is NOT touched.
@@ -2374,7 +2397,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -2541,7 +2564,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -2732,7 +2755,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -2923,7 +2946,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -3116,7 +3139,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -3293,7 +3316,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -3398,7 +3421,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
       inventory: { commonOre: [0], uncommonMaterial: [0], rareMaterial: [0], refinedMaterial: [0], components: [0] },
-      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, fuel: 500, researchedBlueprints: [],
@@ -3425,7 +3448,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
       gameTimeSeconds: 0, tickDurationSeconds: 1, credits: 0, unlockedHomeworldTalents: [],
       fleetAdminXp: 0, fleetAdminLevel: 1, adminPoints: 0,
       inventory: { commonOre: [0] },
-      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      discovered: [], facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [], shipStorageCapacity: 8, nextShipId: 1, fuel: 500, researchedBlueprints: [],
       refineLines: [], fabricateLines: [], nextCraftLineId: 1,
@@ -3450,7 +3473,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -3613,7 +3636,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
       fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
       inventory: inventoryOverride,
       discovered: ["commonOre"],
-      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
@@ -3652,7 +3675,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(41);
+    expect(roundTripped!.version).toBe(42);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3711,7 +3734,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -3733,7 +3756,7 @@ describe("migrate, equipment iLevel backfill (v29 -> v30)", () => {
       fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
       inventory: { commonOre: ["10"] },
       discovered: ["commonOre"],
-      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
@@ -3822,7 +3845,7 @@ describe("migrate, nextCaptainId backfill (v30 -> v31)", () => {
       fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
       inventory: { commonOre: ["10"] },
       discovered: ["commonOre"],
-      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
@@ -3889,7 +3912,7 @@ describe("migrate, mission-kind discriminant + nextPatrolSeed backfill (v31 -> v
       fleetAdminXp: "0", fleetAdminLevel: 1, adminPoints: 0,
       inventory: { commonOre: ["10"] },
       discovered: ["commonOre"],
-      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 } },
+      facilities: { refinery: { level: 1 }, warehouseT1: { level: 1 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
       activeProcesses: [], nextProcessId: 1,
       ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
       shipStorageCapacity: 8, nextShipId: 2, fuel: "900", researchedBlueprints: [],
@@ -4026,7 +4049,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(41);
+    expect(roundTripped!.version).toBe(42);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4055,7 +4078,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(41);
+    expect(SAVE_VERSION).toBe(42);
   });
 });
 
@@ -4373,8 +4396,8 @@ describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => 
     }
     expect(migrated.equipment).toHaveLength(inputCount); // NOTHING removed
     const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
-    expect(stamped.version).toBe(41);
-    expect(SAVE_VERSION).toBe(41);
+    expect(stamped.version).toBe(42);
+    expect(SAVE_VERSION).toBe(42);
   });
 
   it("REGRESSION: a dev-shaped radiant null-blueprint economy spare is NOT deleted on load", () => {
@@ -4477,7 +4500,7 @@ describe("migrate, Standard-Issue combat baseline re-stat (v37 chain -> SI dials
     const migrated: any = migrate(makeV37Save());
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(41);
+    expect(roundTripped!.version).toBe(42);
   });
 
   it("is IDEMPOTENT: re-migrating an already-re-statted save changes nothing", () => {
@@ -4583,7 +4606,7 @@ describe("migrate, HYBRID-model Standard-Issue SHIELD re-stat (v38 -> v39)", () 
     const migrated: any = migrate(makeV38Save());
     const roundTripped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(roundTripped.version).toBe(SAVE_VERSION);
-    expect(roundTripped.version).toBe(41);
+    expect(roundTripped.version).toBe(42);
     // Re-stamp to v38 and re-run: shield values already at the references -> identical (no-op); plating untouched.
     roundTripped.version = 38;
     const remigrated: any = migrate(roundTripped);
@@ -4701,7 +4724,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
     const migrated: any = migrate(makeV39Save());
     const roundTripped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(roundTripped.version).toBe(SAVE_VERSION);
-    expect(roundTripped.version).toBe(41);
+    expect(roundTripped.version).toBe(42);
     // Re-loading a CURRENT-version save runs zero migration steps, so this proves the new
     // fields survive JSON on their own (they carry no Decimal, so no hydration branch).
     const reloaded: any = migrate(roundTripped);
@@ -4761,7 +4784,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
   it("a v40 save skips the step entirely (already current, hydration only)", () => {
     const fresh = freshState();
     const save = deserialize(serialize(fresh, 0)) as SaveFile;
-    expect(save.version).toBe(41);
+    expect(save.version).toBe(42);
     const restored: any = migrate(save);
     expect(restored.processQueue).toEqual([]);
     expect(restored.nextQueueId).toBe(1);
@@ -4869,6 +4892,138 @@ describe("migrate, salvageConfirmQualities seeded from the legacy localStorage p
   });
 });
 
+// ============================================================================
+// ⚠️⚠️ THE MIGRATION THAT MUST NOT TAKE ANYONE'S SALVAGE BAY AWAY (v41 -> v42)
+// (Salvage Lanes, 2026-09-04. MIGRATIONS[41] + FACILITIES.salvageBay + salvageSlotCount.)
+//
+// The Salvage Bay shipped with NO facility level track, so EVERY save in existence sits at
+// "no salvageBay key at all", and many are holding queued salvage orders and in-flight
+// teardowns right now. Giving the bay a level track is therefore the single most dangerous
+// shape of this change: if a level-0 bay were ever read as "not founded", or if the lane
+// count were summed from zero instead of from a base of one, this one migration would take
+// the facility away from every player at once, strand their in-flight jobs and park their
+// queue forever.
+//
+// This block is the proof that it does not. It builds a GENUINE pre-upgrade save (the
+// salvageBay key deleted outright, exactly as a real v41 save has it), mid-play, with a
+// salvage IN FLIGHT and another QUEUED, and asserts that after migrating it is still a
+// working ONE-LANE Salvage Bay that can hold, run and start salvage work.
+// ============================================================================
+describe("migrate, Salvage Bay level track (v41 -> v42): a pre-upgrade save keeps a WORKING 1-lane bay", () => {
+  const HOUSING = "intactReactorCore"; // a real salvagedMaterial, the material arm's target
+
+  // A realistic mid-play v41 save: stock, credits, a salvage job IN FLIGHT, and a second
+  // salvage QUEUED behind it, stamped to v41 with the salvageBay facility key DELETED (a
+  // genuine v41 save predates that key entirely, which is what makes this fixture honest:
+  // with the key present the migration's `??` arm would never be exercised).
+  function makeV41Save(): SaveFile {
+    const base = freshState();
+    const preState: any = {
+      ...base,
+      credits: new Decimal(50000),
+      fleetAdminLevel: 10,
+      inventory: { ...base.inventory, [HOUSING]: [new Decimal(4)] },
+      activeProcesses: [
+        {
+          id: "proc-1",
+          kind: "salvageJob",
+          remainingTicks: 30,
+          durationTicks: 60,
+          effect: { type: "salvageResolve", target: { kind: "material", itemId: HOUSING } },
+        },
+      ],
+      nextProcessId: 2,
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "material", itemId: HOUSING }, mode: { kind: "batch", remaining: 1 } },
+        },
+      ],
+      nextQueueId: 2,
+    };
+    const raw = deserialize(serialize(preState, 0)) as SaveFile;
+    const s = raw.state as any;
+    delete s.facilities.salvageBay; // THE pre-upgrade shape: the key did not exist
+    raw.version = 41;
+    return raw;
+  }
+
+  it("THE HAZARD CASE: the migrated bay still has ONE working lane, and level 0 is not 'not founded'", () => {
+    const before: any = makeV41Save().state;
+    expect(before.facilities.salvageBay).toBeUndefined(); // the fixture really is pre-upgrade
+
+    const migrated: any = migrate(makeV41Save());
+    // The key is seeded, at level 0, and level 0 is OPERATIONAL.
+    expect(migrated.facilities.salvageBay).toEqual({ level: 0 });
+    expect(salvageSlotCount(migrated)).toBe(1);
+    // The engine agrees: the bay's one lane is BUSY (the in-flight job survived), and the
+    // gate says so for the honest reason rather than because the facility went missing.
+    expect(salvageJobsInFlight(migrated)).toHaveLength(1);
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(migrated)).toBe(false);
+    // And the console reads the same numbers: one bay, one running, one waiting.
+    const view = buildCraftQueue(migrated, "salvageBay");
+    expect(view.slotsTotal).toBe(1);
+    expect(view.runningCount).toBe(1);
+    expect(view.queued).toHaveLength(1);
+  });
+
+  it("the in-flight teardown finishes normally, and the QUEUED order then promotes into the freed lane", () => {
+    // The end-to-end proof that nothing is stranded: run the migrated save forward past the
+    // in-flight job's countdown and the queue drains into the bay exactly as it would have
+    // before this change.
+    let s: any = migrate(makeV41Save());
+    for (let i = 0; i < 31; i++) s = economyTick(s, 1);
+
+    // The first job completed (it consumed one unit and its process was dropped) and the
+    // waiting order took the lane it freed.
+    expect(s.processQueue).toHaveLength(0);
+    expect(salvageJobsInFlight(s)).toHaveLength(1);
+    expect(salvageJobsInFlight(s)[0].id).not.toBe("proc-1");
+  });
+
+  it("an IDLE migrated bay can still start a salvage from scratch (nothing gates on the level)", () => {
+    const migrated: any = migrate(makeV41Save());
+    const idle = { ...migrated, activeProcesses: [], processQueue: [] };
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(idle)).toBe(true);
+    const order = { type: "salvage", target: { kind: "material", itemId: HOUSING }, mode: { kind: "batch", remaining: 1 } } as any;
+    expect(canStartSalvage(idle, order)).toEqual({ ok: true });
+  });
+
+  it("seeds a MIGRATED save into the exact same facilities SHAPE a FRESH save has (no shape drift)", () => {
+    const migrated: any = migrate(makeV41Save());
+    const fresh: any = freshState();
+    expect(Object.keys(migrated.facilities).sort()).toEqual(Object.keys(fresh.facilities).sort());
+    expect(migrated.facilities.salvageBay).toEqual(fresh.facilities.salvageBay);
+  });
+
+  it("is PURELY ADDITIVE and IDEMPOTENT: no other facility moves, and a bought lane is never reset", () => {
+    const migrated: any = migrate(makeV41Save());
+    const fresh: any = freshState();
+    // Every other facility is exactly where freshState put it (the fixture never moved one).
+    for (const key of Object.keys(fresh.facilities)) {
+      if (key === "salvageBay") continue;
+      expect(migrated.facilities[key], `facility ${key} moved`).toEqual(fresh.facilities[key]);
+    }
+    // A save that ALREADY holds a bought lane keeps it. This is the case that would hurt a
+    // player most if `??` were ever changed to an unconditional assignment.
+    const bought = makeV41Save();
+    (bought.state as any).facilities.salvageBay = { level: 2 };
+    const kept: any = migrate(bought);
+    expect(kept.facilities.salvageBay).toEqual({ level: 2 });
+    expect(salvageSlotCount(kept)).toBe(3);
+  });
+
+  it("does not throw on a hand-edited save with no facilities object at all", () => {
+    const broken = makeV41Save();
+    delete (broken.state as any).facilities;
+    expect(() => migrate(broken)).not.toThrow();
+    const out: any = migrate(broken);
+    expect(out.facilities.salvageBay).toEqual({ level: 0 });
+    expect(salvageSlotCount(out)).toBe(1); // still a working bay
+  });
+});
+
 // Fuel Economy v2 (F5): the "no new migration needed" PROOF. F1-F4 added NO new persistent
 // state beyond what MIGRATIONS[20] (v20->v21) already seeds:
 //   - F1 renames are LABEL-ONLY (item/facility KEYS unchanged) -> nothing to migrate.
@@ -4915,7 +5070,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(41);
+    expect(save!.version).toBe(42);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -4992,7 +5147,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(41); // current version is 41 (the 0.13.3 batch-salvage order shape)
+    expect(save!.version).toBe(42); // current version is 41 (the 0.13.3 batch-salvage order shape)
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -5029,7 +5184,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(41);
+    expect(save!.version).toBe(42);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);
