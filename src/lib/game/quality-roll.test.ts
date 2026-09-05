@@ -169,26 +169,49 @@ describe("rollQuality, the pure compounding quality roll", () => {
     // A large seeded sample: assert the roll NEVER exceeds the ceiling, tier 0 dominates,
     // and the observed tier>=1 rate brackets the tunable first-step chance (proving it is
     // neither 0 nor 1). Loose band so the test is not flaky at ~0.1% odds.
+    //
+    // ⚠️ WAS FLAKY, DO NOT PUT expect() BACK INSIDE THIS LOOP. This case used to call
+    // expect(t).toBeGreaterThanOrEqual(0) and expect(t).toBeLessThanOrEqual(...) once per
+    // iteration, i.e. 400,000 assertions. Measured: the 200,000 rollQuality calls actually
+    // under test take ~3ms, while those 400,000 expect() calls take ~2,820ms, so 99.9% of
+    // the runtime was assertion machinery rather than the code being tested. On an idle
+    // machine that squeaked under vitest's 5,000ms default timeout, but in a FULL-SUITE run
+    // the worker processes compete for CPU and the same work stretched past 5,000ms, so the
+    // case failed with "Test timed out in 5000ms" in the suite yet passed in isolation.
+    // The rng here is SEEDED (mulberry32), so this was never randomness: the sampled numbers
+    // are byte-identical every run and the statistical bands below never varied.
+    //
+    // THE FIX IS COVERAGE-PRESERVING, NOT A LOOSENING: tracking the extremes and asserting
+    // them once after the loop is logically identical to asserting every element, because
+    // (every t satisfies 0 <= t <= QUALITY_TIERS-1) is exactly (minTier >= 0 AND maxTier <=
+    // QUALITY_TIERS-1). Same property, same sample size, same seed, ~1000x less overhead.
     const rng = mulberry32(2024);
     const N = 200_000;
     let atLeast1 = 0;
     let atLeast2 = 0;
-    let maxTier = 0;
+    let minTier = Infinity;
+    let maxTier = -Infinity;
     for (let i = 0; i < N; i++) {
       const t = rollQuality(rng);
-      expect(t).toBeGreaterThanOrEqual(0);
-      expect(t).toBeLessThanOrEqual(QUALITY_TIERS - 1); // never above the top bucket
+      if (t < minTier) minTier = t;
       if (t > maxTier) maxTier = t;
       if (t >= 1) atLeast1 += 1;
       if (t >= 2) atLeast2 += 1;
     }
+    // The per-element bound check, hoisted: min/max bracket every one of the N draws.
+    expect(minTier).toBeGreaterThanOrEqual(0);
+    expect(maxTier).toBeLessThanOrEqual(QUALITY_TIERS - 1); // never above the top bucket
     const rate1 = atLeast1 / N;
     // Expected ~0.001; band [0.0004, 0.002] is generous vs the ~14-count std at this N.
+    // Arithmetic, for anyone tempted to retune it: p = QUALITY_STEP_CHANCE[0] = 0.001, so the
+    // expected count is N*p = 200 with sd = sqrt(N*p*(1-p)) = 14.14. The band's counts are
+    // [80, 400], i.e. -8.5sd to +14.1sd. This seed observes 178 (rate1 = 0.000890), and being
+    // seeded it observes exactly that on every run. The band's job is to prove the tunable is
+    // neither 0 nor 1, not to be a tight fit, so it is deliberately wide.
     expect(rate1).toBeGreaterThan(0.0004);
     expect(rate1).toBeLessThan(0.002);
     // Each higher tier is ~1000x rarer, so tier>=2 must be far below tier>=1 (compounding).
     expect(atLeast2).toBeLessThan(atLeast1);
-    expect(maxTier).toBeLessThanOrEqual(QUALITY_TIERS - 1);
   });
 });
 
