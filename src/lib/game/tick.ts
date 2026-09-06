@@ -7501,6 +7501,26 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
   // first (a reason for the player to want one, which today would have to mean making the
   // pipelines stop being automatic), not an adapter. Filling this row in without that
   // design would ship a control with nothing behind it.
+  //
+  // ✅ USER DECISION 2026-09-06: NO QUEUE. Confirmed, and shipped as this stub.
+  //
+  // SELECTABLE FUEL TYPES ARE COMING, AND THEY DO NOT CHANGE THIS. The user has stated
+  // that multiple fuel types will be needed over time, and, decisively, that PICKING A TYPE
+  // JUST AUTO-REFINES EXACTLY AS IT DOES NOW. So the type is a persistent SETTING, not an
+  // order: the automatic pass keeps running and simply reads a different recipe. A setting
+  // is not something a queue can hold, because there is no discrete unit of work to line
+  // up, so this row stays a stub even once fuel is multi-type. That is a stronger position
+  // than "correct for one recipe": the automatic model is what makes a queue meaningless,
+  // and the automatic model is being kept on purpose.
+  //
+  // The ONE thing that would re-open this row: if players ever needed to SEQUENCE types
+  // ("make 1000 of A, then switch to B"), that is a queue of discrete orders and the
+  // argument above stops holding. Nothing in the current direction asks for that, and the
+  // set-and-forget feel is the point, so do not build toward it speculatively.
+  //
+  // What multi-type fuel DOES need is settled elsewhere: see the SUGGESTIONS.md entry
+  // "FUEL TYPES" for the design fork on how several types live in one capped Decimal tank,
+  // and the warning that the fuel runway is LOCKED as measured-EMA plus a pure projection.
   fuelDepot: {
     hasFreeSlot: () => false,
     canStart: () => ({ ok: false, reason: "notImplemented" }),
