@@ -2836,6 +2836,14 @@
         return "fuelStorage";
       case "shipyard":
         return "shipyard";
+      // Salvage Lanes (2026-09-04): the bay gained an upgrade track in that change, so it
+      // can now be a startable facility upgrade and owes its card a dot exactly like its
+      // siblings. jumpToFacilityUpgrade already learned the key; this arm is its twin, and
+      // without it the Salvage Bay card was the one levelled card whose dot could never
+      // light. FACILITY_LABELS / FoundryFacilityKey already carry "salvageBay", so the card
+      // it names is the one the Facilities grid renders.
+      case "salvageBay":
+        return "salvageBay";
       case "warehouseT1":
       case "warehouseT2":
         return "warehouse";
@@ -4503,7 +4511,7 @@
     }
     const subject = count === 1 ? "1 spare system qualifies" : `${count} spare systems qualify`;
     return enabled
-      ? `${subject} right now, queued a few at a time as the bay frees up.`
+      ? `${subject} right now, queued a few at a time as bays free up.`
       : `${subject} right now and would start queueing as soon as you switch this on.`;
   }
 
@@ -6480,6 +6488,15 @@
   // The bay's LIVE lane count, through the SAME helper the queue adapter's free-slot gate
   // reads, so the console and the engine can never disagree about how many jobs fit.
   $: salvageBaySlots = salvageSlotCount(state);
+  // The bay's concurrency AS A SENTENCE FRAGMENT, for the prose that has to name it.
+  // Salvage Lanes made the bay buyably multi-lane, and several shipped strings still
+  // described a bay that ran "one at a time"; a player who bought a lane was being told
+  // their purchase does nothing. Every one of those strings now names the live number, and
+  // they name it through THIS one fragment so the singular/plural agreement is written once
+  // rather than re-derived at four call sites. Reads salvageBaySlots (which is
+  // salvageSlotCount), so it can never disagree with the engine's own free-slot gate.
+  $: salvageBayCapacityPhrase =
+    salvageBaySlots === 1 ? "1 salvage bay runs at once" : `${salvageBaySlots} salvage bays run at once`;
   // The next rung (upgrades[level]; the track caps at length 2 today). salvageBayMaxed is an
   // EXPLICIT length check for the same noUncheckedIndexedAccess reason fabricatorMaxed is, so
   // nextSalvageBayUpgrade stays non-undefined-typed inside the {:else} branch.
@@ -7155,17 +7172,22 @@
          slotsTotal's null case (a future queue-capable facility with no slot model yet).
 
          The noun stays "bays", which is what every shipped string on this console calls one
-         unit of this facility's concurrency ("BAY · BREAKING DOWN", "The bay is idle",
-         "Waiting for a free bay."). The design calls the axis LANES and the code calls it
-         slots; all three name the same number, and the console keeps its own vocabulary
-         rather than introducing a second word for it mid-release. -->
+         unit of this facility's concurrency ("BAY · BREAKING DOWN", "Waiting for a free
+         bay."). The design calls the axis LANES and the code calls it slots; all three name
+         the same number, and the console keeps its own vocabulary rather than introducing a
+         second word for it mid-release. -->
     <div class="research-cost">
       Salvage bays: {view.runningCount} / {view.slotsTotal ?? salvageBaySlots} in use
     </div>
 
     {#if view.running.length === 0}
+      <!-- ⚠️ Salvage Lanes (2026-09-04): the idle line used to read "The bay is idle", a
+           singular that contradicted the "N / M in use" readout directly above it the moment
+           a player bought a lane. Nothing is running in this branch, so EVERY lane is free
+           and the honest statement is the count. Same fallback as the readout above. -->
+      {@const idleSlots = view.slotsTotal ?? salvageBaySlots}
       <p class="research-status" style="margin-top: 8px;">
-        The bay is idle. Choose a spare system or a salvaged material below to queue one.
+        Idle, with {idleSlots} salvage bay{idleSlots === 1 ? "" : "s"} free. Choose a spare system or a salvaged material below to queue one.
       </p>
     {:else}
       {#each view.running as job (job.id)}
@@ -7207,7 +7229,7 @@
     {#if view.overDepth}
       <p class="cq-note cq-note-warn">
         Over capacity: {view.depthUsed} orders are held but the current depth is {view.depthTotal}.
-        Nothing is lost. These drain as the bay frees up, and no new order can be added until the queue is back under {view.depthTotal}.
+        Nothing is lost. These drain as bays free up, and no new order can be added until the queue is back under {view.depthTotal}.
         Queue depth comes from Homeworld Talents → Fleet Logistics (Standing Orders), so a respec can shrink it.
       </p>
     {:else if !view.canEnqueue && view.enqueueBlockReason !== null}
@@ -7221,7 +7243,7 @@
         {#if view.depthTotal <= 0}
           This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
         {:else}
-          Nothing queued. Select a spare system or a salvaged material below and choose <strong>Salvage</strong> to line up work that starts as soon as the bay is free.
+          Nothing queued. Select a spare system or a salvaged material below and choose <strong>Salvage</strong> to line up work that starts as soon as a bay is free.
           Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
         {/if}
       </p>
@@ -8166,11 +8188,15 @@
                         <!-- REQUIRES (×qty) preview: per input, its per/ea → total, plus free / allocated / total.
                              0.13.3 Unit 6.1 (presentation only): the header takes the section-header
                              idiom and each input takes the .cq-row / .cl-tier row grammar (.cfg-box),
-                             instead of a nested 12px .mission-card inside a .mission-card. EVERY
-                             STRING AND EVERY NUMBER IS UNCHANGED, including the FREE / ALLOCATED /
-                             TOTAL what-if allocation preview and the green on Free: the green simply
-                             moved from an inline style to .cfg-line-ok, and the three lines still
-                             render in the same order from the same four {@const} reads. -->
+                             instead of a nested 12px .mission-card inside a .mission-card. Unit 6.1
+                             changed NO string and NO number: the FREE / ALLOCATED / TOTAL what-if
+                             allocation preview and the green on Free were preserved (the green simply
+                             moved from an inline style to .cfg-line-ok), and the three lines still
+                             render in the same order from the same four {@const} reads.
+                             ⚠️ The 0.13.3 holistic pass then changed ONE label: "Allocated" reads
+                             "Allocated (incl. queued)", because the figure gained queued orders in
+                             this release and an unchanged label would have made the number lie. Same
+                             `allocated` read, same position, same .cfg-line-dim treatment. -->
                         <div class="home-sec-hd" style="margin-top: 8px;">
                           <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</span>
                           <span class="home-sec-rule"></span>
@@ -8184,7 +8210,7 @@
                           <div class="cfg-box">
                             <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
                             <div class="cfg-line cfg-line-ok">Free {formatNumber(free)}</div>
-                            <div class="cfg-line cfg-line-dim">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                            <div class="cfg-line cfg-line-dim">Allocated (incl. queued) {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
                           </div>
                         {/each}
 
@@ -8705,10 +8731,13 @@
 
                           <!-- REQUIRES (×qty) preview: per input, per/ea → total, plus free / allocated / total.
                                0.13.3 Unit 6.1 (presentation only): identical treatment to the Refinery's
-                               copy of this block, section header plus .cfg-box rows. EVERY STRING AND
-                               EVERY NUMBER IS UNCHANGED, including the FREE / ALLOCATED / TOTAL what-if
-                               allocation preview and the green on Free (moved from an inline style to
-                               .cfg-line-ok). -->
+                               copy of this block, section header plus .cfg-box rows. That unit changed
+                               NO string and NO number: the FREE / ALLOCATED / TOTAL what-if allocation
+                               preview and the green on Free were preserved (moved from an inline style
+                               to .cfg-line-ok).
+                               ⚠️ The 0.13.3 holistic pass then changed ONE label here too, in step with
+                               the Refinery's copy: "Allocated (incl. queued)", because the figure now
+                               counts queued orders as well as running lines. -->
                           <div class="home-sec-hd" style="margin-top: 8px;">
                             <span class="home-sec-h"><Icon name="warehouse" size={12} /> REQUIRES (×{Math.max(1, Math.floor(cfgQty))})</span>
                             <span class="home-sec-rule"></span>
@@ -8722,7 +8751,7 @@
                             <div class="cfg-box">
                               <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
                               <div class="cfg-line cfg-line-ok">Free {formatNumber(free)}</div>
-                              <div class="cfg-line cfg-line-dim">Allocated {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
+                              <div class="cfg-line cfg-line-dim">Allocated (incl. queued) {formatNumber(allocated)} · Total {formatNumber(stock)}</div>
                             </div>
                           {/each}
 
@@ -9796,13 +9825,18 @@
               </p>
               <!-- 0.13.3 Unit 4.4: the second sentence the explainer now owes the player,
                    because the ACTION changed shape. Salvaging used to happen the instant you
-                   pressed the button; it is now a timed job that runs in this bay, one at a
-                   time, and keeps running while the game is closed. Saying so here is what
-                   stops the countdown from reading as a bug the first time it appears. The
-                   permanence warning above is untouched: what changed is WHEN it happens,
-                   not WHETHER it is permanent. -->
+                   pressed the button; it is now a timed job that runs in this bay and keeps
+                   running while the game is closed. Saying so here is what stops the
+                   countdown from reading as a bug the first time it appears. The permanence
+                   warning above is untouched: what changed is WHEN it happens, not WHETHER
+                   it is permanent.
+                   ⚠️ Salvage Lanes (2026-09-04): this sentence used to end "one at a time",
+                   which was true only while the bay could never have more than one lane. It
+                   now names the LIVE lane count through salvageBayCapacityPhrase, because a
+                   player who has bought a lane on the Upgrades tab must not read the console
+                   telling them their purchase changed nothing. -->
               <p class="research-status">
-                Salvaging is a job the bay runs over time, one at a time. Queued orders keep their target reserved and continue while you are away.
+                Salvaging is a job the bay runs over time ({salvageBayCapacityPhrase}), and anything beyond that waits in the queue. Queued orders keep their target reserved and continue while you are away.
               </p>
             </Panel>
             {/if}
@@ -10000,8 +10034,28 @@
                    player has to be able to trust it before they switch it on. Each clause is a
                    filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
               <p class="research-status">
-                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts, and once your queue holds more than one order it always leaves a slot free for your own work.
+                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts.
               </p>
+              <!-- ⚠️ THE HEADROOM, STATED HONESTLY AT BOTH DEPTHS (0.13.3 holistic pass).
+                   The engine is `depth <= 1 ? depth : depth - AUTO_SALVAGE_MANUAL_HEADROOM`
+                   (autoSalvageOrders, tick.ts), so the reserved slot EXISTS only from depth 2
+                   up. The shipped sentence promised "once your queue holds more than one
+                   order it always leaves a slot free", which is vacuous at the base depth of
+                   1 that every player without a Fleet Logistics node is on: there, the rules
+                   can and will take the only slot. So the branch names the live depth and
+                   tells a base-depth player both the escape (remove the auto order and queue
+                   your own, which the rules cannot take back while the queue is full) and
+                   the fix (deepen the queue). The guarantee is NOT weakened where it holds:
+                   the depth >= 2 branch states it as the hard rule it is. -->
+              {#if salvageBayQueue.depthTotal <= 1}
+                <p class="research-status">
+                  Your queue depth is {salvageBayQueue.depthTotal}, so these rules can use all of it and no slot is held back for you. To work alongside them, remove their order and queue your own in its place: with the queue full they will not take the slot back. Deepen the queue via Homeworld Talents → Fleet Logistics (Standing Orders) and they will always leave one slot free for you.
+                </p>
+              {:else}
+                <p class="research-status">
+                  Your queue depth is {salvageBayQueue.depthTotal}, so these rules use at most {salvageBayQueue.depthTotal - 1} of it and always leave one slot free for your own work.
+                </p>
+              {/if}
             </Panel>
             {/if}
 
@@ -10317,12 +10371,14 @@
                       {:else if salvageBayQueue.enqueueBlockReason !== null}
                         {enqueueBlockText(salvageBayQueue.enqueueBlockReason)}
                       {:else}
-                        <!-- The duration is PER UNIT, and a batch runs them one at a time
-                             through the single bay, so a multi-unit order says so rather than
-                             letting the player read one unit's estimate as the whole job. The
-                             single-unit sentence is left exactly as it was. -->
+                        <!-- The duration is PER UNIT, and a batch starts its units one at a
+                             time (one per promotion), so a multi-unit order says so rather
+                             than letting the player read one unit's estimate as the whole
+                             job. The single-unit sentence is left exactly as it was.
+                             ⚠️ Salvage Lanes (2026-09-04): "through the single bay" is no
+                             longer true, so the live lane count is named instead. -->
                         {#if selQty > 1}
-                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} per unit in the bay, run one at a time.
+                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} per unit, started one at a time as bays free up ({salvageBayCapacityPhrase}).
                         {:else}
                           Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} in the bay once it starts.
                         {/if}
@@ -14284,10 +14340,16 @@
              was rather than being told a queue story that is not true for it. -->
         {#if salvageConfirm.kind !== "ship"}
           <p class="research-status">
+            <!-- ⚠️ Salvage Lanes (2026-09-04): both branches used to promise a bay that
+                 worked "one order at a time" / "one unit at a time", which stopped being
+                 true the moment lanes became buyable. A batch still promotes ONE UNIT PER
+                 PROMOTION (withQueuedOrderReleased leaves the residual in the queue), so the
+                 unit-at-a-time half is real and is kept; what was wrong was the implied
+                 single bay, so the live count is named through salvageBayCapacityPhrase. -->
             {#if salvageConfirm.units > 1}
-              This adds one order for {salvageConfirm.units} units to the salvage queue. The bay works through them one unit at a time, and all {salvageConfirm.units} stay reserved until their turn. Removing the order releases every unit still waiting.
+              This adds one order for {salvageConfirm.units} units to the salvage queue. Units start one at a time as bays free up ({salvageBayCapacityPhrase}), and all {salvageConfirm.units} stay reserved until their turn. Removing the order releases every unit still waiting.
             {:else}
-              This adds the order to the salvage queue. The bay works through one order at a time, and the target stays reserved until its turn.
+              This adds the order to the salvage queue. It starts as soon as a salvage bay is free ({salvageBayCapacityPhrase}), and the target stays reserved until its turn.
             {/if}
           </p>
         {/if}
@@ -14622,8 +14684,14 @@
                  the freeItem helper already clamps Free >= 0, this keeps the tooltip
                  coherent. The two ROWS are unchanged; only the numbers now move. -->
             {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId), tipCount)}
+            <!-- ⚠️ THE LABEL CARRIES THE 0.13.3 MEANING CHANGE. "Allocated" used to mean
+                 "held by a RUNNING line" and now also counts WAITING orders, which is why
+                 Free drops the instant an order is queued. An unchanged label would have let
+                 the number quietly start lying (the design named this the affordance most at
+                 risk of exactly that), so the parenthetical says what moved. Kept to two
+                 words because this is a readout row inside a 210px tooltip, not a paragraph. -->
             <div class="warehouse-tt-row">
-              <span>Allocated</span>
+              <span>Allocated (incl. queued)</span>
               <span class="warehouse-tt-v" style="color: var(--color-warning)">{formatNumber(tipAllocated)}</span>
             </div>
             <div class="warehouse-tt-row">
