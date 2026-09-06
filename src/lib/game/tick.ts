@@ -1145,12 +1145,27 @@ function completionYieldFor(
       }
       const items = foldRewardItems([], salvage.recovered);
       const credits = salvage.creditsRecovered;
+      // ⚠️ CLASSIFY ON THE AMOUNTS, NOT THE ARRAY LENGTH. A manifest can carry LINES whose
+      // amounts are all zero, because a roll that recovers nothing still records which items
+      // it rolled for. `items.length > 0` is therefore TRUE for a salvage that recovered
+      // nothing at all, which logged it to the Home board as a recovery of zeroes
+      // ("Salvaged · 0 Polysilicate Wafer · 0 Power Coupling"). Small recipes floor to zero
+      // at the recovery share, so this is ordinary play, not an edge case.
+      //
+      // This is the SAME defect, in a second place, that 9f55055 fixed on the Salvage Bay's
+      // own Last Salvage panel. That fix treated it as one site; it was a class. If a third
+      // surface ever reads a manifest, it must ask the same question.
+      const recoveredItems = items.filter((item) => new Decimal(item.amount).gt(0));
       return {
         ...empty,
-        // "nothing" is the honest shape for a Standard-Issue baseline: it is DESTROYED for
-        // zero reward (the storage escape valve), so its manifest is legitimately empty.
-        reward: items.length > 0 || credits > 0 ? "materials" : "nothing",
-        items,
+        // "nothing" is the honest shape for a Standard-Issue baseline (DESTROYED for zero
+        // reward, the storage escape valve) AND for a roll that floored to zero. Both are
+        // real outcomes the player must be told about plainly rather than shown an empty
+        // manifest, which reads as a bug.
+        reward: recoveredItems.length > 0 || credits > 0 ? "materials" : "nothing",
+        // Zero lines are dropped so a "materials" entry can never render a 0 next to a real
+        // amount, and a "nothing" entry carries no phantom manifest at all.
+        items: recoveredItems,
         subjectKey,
         creditsAmount: credits > 0 ? String(credits) : null,
       };

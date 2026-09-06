@@ -10909,7 +10909,17 @@
                        lane rungs and the Fuel Depot's pipeline rung both use. Each phrase is
                        kept contiguous within its branch so Svelte doesn't trim it. -->
                   <div class="research-cost">
-                    {#if "addShipyardBays" in eff}Grants: +{eff.addShipyardBays} bay{eff.addShipyardBays === 1 ? "" : "s"} (one more hull building or repairing at once){:else if "buildSpeedMult" in eff}Grants: {eff.buildSpeedMult}× build speed · +1 bay{:else}Grants: establishes the Shipyard (build hulls){/if}
+                    <!-- ⚠️ THE BAY WORDING MUST NOT PROMISE BUILD CONCURRENCY. Verified during
+                         pre-release QA: BUILD_CONCURRENCY_CAP is 1 (a locked decision, the
+                         Shipyard builds ONE hull at a time), and shipBuildSlotCount is
+                         min(cap, bays - 1), so an extra bay NEVER raises how many hulls can
+                         be under construction. What it actually buys is repair capacity, plus
+                         the always-free bay that stops a build starving a repair. The earlier
+                         wording said "one more hull building or repairing at once", which
+                         promised throughput the cap does not deliver. If BUILD_CONCURRENCY_CAP
+                         is ever raised so bays do add build slots, THIS STRING MUST CHANGE
+                         BACK, and the queue panel's build-slots note with it. -->
+                    {#if "addShipyardBays" in eff}Grants: +{eff.addShipyardBays} bay{eff.addShipyardBays === 1 ? "" : "s"} (one more hull repairing at once; builds stay one at a time){:else if "buildSpeedMult" in eff}Grants: {eff.buildSpeedMult}× build speed · +1 bay (repairs){:else}Grants: establishes the Shipyard (build hulls){/if}
                   </div>
                   <!-- Bay counts, rendered for the two rung shapes that actually move the
                        number. The founding rung is excluded deliberately: it adds no bay (the
