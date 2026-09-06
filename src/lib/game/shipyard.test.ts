@@ -109,12 +109,63 @@ describe("FACILITIES.shipyard (S1 facility)", () => {
     const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
     // Finite track: at least one rung BEYOND the founding rung.
     expect(upgrades.length, "shipyard needs at least one upgrade rung past founding").toBeGreaterThan(1);
-    // Every rung past the founding one carries a positive buildSpeedMult.
+    // ⚠️ WIDENED by Shipyard Berths (2026-09-06). This used to require buildSpeedMult on EVERY
+    // rung past founding, which was true while speed was the only thing the track sold. The
+    // track now also sells BAYS ({ addShipyardBays }, rungs [3]+[4]), so the honest assertion is
+    // that every paid rung grants ONE of the two and that neither grant is ever zero or
+    // negative. A rung carrying NEITHER would be a rung that costs credits and does nothing,
+    // which is the failure this case actually guards against.
+    let speedRungs = 0;
+    let berthRungs = 0;
     for (let i = 1; i < upgrades.length; i++) {
       const effect = upgrades[i].effect;
-      expect("buildSpeedMult" in effect, `rung ${i} must carry buildSpeedMult`).toBe(true);
+      const isSpeed = "buildSpeedMult" in effect;
+      const isBerth = "addShipyardBays" in effect;
+      expect(isSpeed || isBerth, `rung ${i} must grant build speed or bays`).toBe(true);
       if ("buildSpeedMult" in effect) {
+        speedRungs++;
         expect(effect.buildSpeedMult, `rung ${i} buildSpeedMult`).toBeGreaterThan(0);
+      }
+      if ("addShipyardBays" in effect) {
+        berthRungs++;
+        expect(effect.addShipyardBays, `rung ${i} addShipyardBays`).toBeGreaterThan(0);
+      }
+    }
+    // Both halves of the track still exist. Without these the case above would pass on a track
+    // that had quietly lost every speed rung, or every berth rung.
+    expect(speedRungs, "shipyard must still sell build speed").toBeGreaterThan(0);
+    expect(berthRungs, "shipyard must still sell bays as an explicit purchase").toBeGreaterThan(0);
+  });
+
+  it("berth rungs cost credits and an FA level, never materials (this track's cost shape)", () => {
+    // Shipyard Berths (2026-09-06): a bay is priced the way every other rung on this track and
+    // every lane rung on the Salvage Bay is priced. Charging hull materials to widen the yard
+    // would tax the same stock the yard is about to spend on a hull.
+    const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
+    for (let i = 0; i < upgrades.length; i++) {
+      const rung = upgrades[i];
+      if (!("addShipyardBays" in rung.effect)) continue;
+      expect(rung.credits instanceof Decimal, `berth rung ${i} credits must be a Decimal`).toBe(true);
+      expect((rung.credits as Decimal).gt(0), `berth rung ${i} credits must be positive`).toBe(true);
+      expect(rung.requiresFleetAdminLevel, `berth rung ${i} FA gate`).toBeGreaterThan(0);
+      expect(Object.keys(rung.materials).length, `berth rung ${i} must cost no materials`).toBe(0);
+      // No talent gate: this console renders no talent row, so a talent gate would be ENFORCED
+      // while being stated nowhere the player can see (the "why can't I build this" trap the
+      // Salvage Bay and Fabricator tracks both record).
+      expect(rung.requiresHomeworldTalents, `berth rung ${i} must carry no talent gate`).toBeUndefined();
+    }
+  });
+
+  it("addShipyardBays is INERT for every other facility (no non-shipyard rung sets it)", () => {
+    // Anti-regression (Omega 15), the same guard buildSpeedMult has below: a new effect member
+    // must change NO existing facility.
+    for (const [facilityKey, def] of Object.entries(FACILITIES)) {
+      if (facilityKey === SHIPYARD_FACILITY_KEY) continue;
+      for (const rung of def.upgrades) {
+        expect(
+          "addShipyardBays" in rung.effect,
+          `${facilityKey} unexpectedly sets addShipyardBays`,
+        ).toBe(false);
       }
     }
   });

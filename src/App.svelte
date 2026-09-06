@@ -584,6 +584,13 @@
     // give them. Same helper craftQueue.ts's slotsTotalFor already delegates to for this
     // facility, so the panel's fallback and its view model can never disagree.
     shipBuildSlotCount,
+    // Shipyard Berths (2026-09-06): the yard's TOTAL shared build/repair bay count, which is
+    // the number the Upgrades panel reports and the number a berth rung raises. Imported
+    // ALONGSIDE shipBuildSlotCount rather than instead of it, because the two answer different
+    // questions and the console prints both in different places on purpose: the BUILD QUEUE
+    // panel prints build capacity (bays minus one, see the note above), and the UPGRADES panel
+    // prints total bays, since a berth rung buys a bay, not a build slot.
+    shipyardBayCount,
     type ShipBuildBlockReason,
     type DispatchBlockReason,
     foldLifetimeStatsDelta, // Task 7 (Progression Pacing Rework): the shared per-captain lifetimeStats fold, called by BOTH tick() and this live loop so live play accrues lifetime stats identically to offline catch-up
@@ -6638,6 +6645,14 @@
   // view model's slotsTotal carries and the engine's own noSlot gate compares against.
   $: shipBuildSlots = shipBuildSlotCount(state);
 
+  // The yard's TOTAL shared build/repair bays right now (Shipyard Berths, 2026-09-06). This is
+  // the LANE count for this facility: what a berth rung buys and what caps concurrent repairs.
+  // It is deliberately a DIFFERENT number from shipBuildSlots above (always one larger, by the
+  // repair reservation), and the console never prints them in the same place: the Upgrades panel
+  // prints this one because it is what a rung grants, and the BUILD QUEUE panel prints
+  // shipBuildSlots because it is what a queued row waits on.
+  $: shipyardBays = shipyardBayCount(state);
+
   // The available blueprint KEYS in a given tier, the item dropdown's options for that tier,
   // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
   // availableFabricateBlueprints at call time, so it always reflects the current research/level.
@@ -10538,7 +10553,7 @@
                        like every other facility's founding rung, NOT a bespoke path. Shows
                        the credit cost + FA-level wall + (when a founding is already running)
                        the in-flight progress bar. nextShipyardUpgrade is the founding rung
-                       here (shipyardMaxed can't be true at level 0 given the 3-rung track). -->
+                       here (shipyardMaxed can't be true at level 0 given the 5-rung track). -->
                   <p class="research-status">Shipyard not yet established. Found it to begin building hulls.</p>
                   {#if !shipyardMaxed}
                     <div class="research-cost" style="margin-top: 8px;">
@@ -10797,30 +10812,61 @@
             {/if}
 
             {#if activeShipyardSubTab === "upgrades"}
-              <!-- UPGRADES, the Shipyard's finite founding + build-SPEED track
-                   (FACILITIES.shipyard.upgrades; founding rung [0] + two buildSpeedMult
-                   rungs). A LINE-FOR-LINE clone of the Fabricator's Upgrades tab, swapping
-                   fabricator→shipyard vars + the grant line (addFabricateSlots →
-                   buildSpeedMult). Build is wired to the SHARED canBuildFacilityUpgrade /
+              <!-- UPGRADES, the Shipyard's finite founding + build-SPEED + BERTH track
+                   (FACILITIES.shipyard.upgrades; founding rung [0], two buildSpeedMult rungs,
+                   two addShipyardBays berth rungs). Structurally the Fabricator's Upgrades tab
+                   with shipyard vars, plus the bay readouts the Salvage Bay's lane track
+                   established, because this facility now sells lanes the same way that one
+                   does. Build is wired to the SHARED canBuildFacilityUpgrade /
                    doStartFacilityUpgrade(SHIPYARD_FACILITY_KEY), NOT re-implemented. This
                    is the SAME founding rung the Build tab's Found button drives, so founding
                    from either place is one code path. -->
               <Panel>
                 <div class="panel-title">SHIPYARD, Upgrades</div>
                 <div class="research-cost">Level: {shipyardLevel}</div>
+                <!-- The yard's live BAY count, printed on the track that sells bays. It is the
+                     same shipyardBayCount the engine gates repairs on, so this readout and the
+                     engine cannot disagree, and a player deciding whether to buy a berth does
+                     not have to count rungs to work out what they already have. -->
+                <div class="research-cost">
+                  Bays: {shipyardBays} building or repairing at once
+                </div>
+                <p class="research-status">
+                  A bay holds one hull, and builds and repairs share the same bays. One bay is always held back for repairs, so a damaged hull can always find somewhere to go. This is separate from queue depth, which is how many build orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
+                </p>
 
                 {#if shipyardMaxed}
                   <p class="research-status">Fully upgraded.</p>
                 {:else}
                   {@const eff = nextShipyardUpgrade.effect}
                   <div class="research-name">Next: Level {shipyardLevel} → {shipyardLevel + 1}</div>
-                  <!-- Grant line: the founding rung ([0], unlocksContent) ESTABLISHES the
-                       Shipyard; the later rungs carry { buildSpeedMult } (the S3 engine
-                       divides a hull's build time by the product of reached mults). Kept
-                       contiguous within each branch so Svelte doesn't trim the phrase. -->
+                  <!-- GRANT LINE, and the bay half of it is the whole point of the Shipyard
+                       Berths change (2026-09-06). Three rung shapes on this track:
+                         - the founding rung ([0], unlocksContent) ESTABLISHES the Shipyard;
+                         - the { buildSpeedMult } rungs cut build time AND carry a bay, because
+                           shipyardBayCount grants +1 per reached speed rung. That bay used to
+                           arrive with NOTHING on screen naming it, which is exactly the
+                           complaint the berth rungs answer, so the line SAYS it here rather
+                           than letting the player discover it by noticing a bigger number;
+                         - the { addShipyardBays } BERTH rungs sell a bay outright.
+                       The current → next bay counts sit underneath, the shape the Salvage Bay's
+                       lane rungs and the Fuel Depot's pipeline rung both use. Each phrase is
+                       kept contiguous within its branch so Svelte doesn't trim it. -->
                   <div class="research-cost">
-                    {#if "buildSpeedMult" in eff}Grants: {eff.buildSpeedMult}× build speed{:else}Grants: establishes the Shipyard (build hulls){/if}
+                    {#if "addShipyardBays" in eff}Grants: +{eff.addShipyardBays} bay{eff.addShipyardBays === 1 ? "" : "s"} (one more hull building or repairing at once){:else if "buildSpeedMult" in eff}Grants: {eff.buildSpeedMult}× build speed · +1 bay{:else}Grants: establishes the Shipyard (build hulls){/if}
                   </div>
+                  <!-- Bay counts, rendered for the two rung shapes that actually move the
+                       number. The founding rung is excluded deliberately: it adds no bay (the
+                       base bays already exist for repair before the yard is founded), so
+                       printing an unchanged "current → next" beside it would imply the founding
+                       purchase does something to bays that it does not. -->
+                  {#if "addShipyardBays" in eff}
+                    <div class="research-cost">Current bays: {shipyardBays}</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next bays: {shipyardBays + eff.addShipyardBays}</div>
+                  {:else if "buildSpeedMult" in eff}
+                    <div class="research-cost">Current bays: {shipyardBays}</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next bays: {shipyardBays + 1}</div>
+                  {/if}
                   <div class="research-cost">Duration: {durationReadout(nextShipyardUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                   <!-- Credits cost readiness (shipyard rungs cost credits, not materials). -->

@@ -5306,34 +5306,63 @@ export function fabricateSlotCount(state: GameState): number {
 //
 // DERIVE-ON-READ, mirroring shipBuildSpeedMult's loop EXACTLY (same `i < level && i <
 // upgrades.length` reached-rungs scan over FACILITIES.shipyard): a SHIPYARD_BAY_BASE floor
-// plus +1 per reached BUILD-SPEED upgrade rung (the rungs carrying `buildSpeedMult`; the
-// founding rung [0] carries none, so founding the yard does NOT add a bay, it just unlocks
-// BUILDING in the base bays that already existed for repair). With the current track:
+// plus TWO independent grants summed off the reached rungs.
+//
+//   TERM 1, the LEGACY grant: +1 per reached BUILD-SPEED rung (the rungs carrying
+//   `buildSpeedMult`; the founding rung [0] carries none, so founding the yard does NOT add a
+//   bay, it just unlocks BUILDING in the base bays that already existed for repair).
+//   TERM 2, the BOUGHT grant (Shipyard Berths, 2026-09-06): the SUM of every reached
+//   { addShipyardBays } rung, the same reached-rungs sum salvageSlotCount does for lanes.
+//
+// With the current track:
 //   level 0 (unfounded) -> 2 bays   (the invariant floor, see below)
 //   level 1 (founded)    -> 2 bays   (baseline; founding adds no bay)
 //   level 2              -> 3 bays   (+1 from the 1.5x speed rung)
-//   level 3 (max)        -> 4 bays   (+1 more from the 2.0x speed rung)
+//   level 3              -> 4 bays   (+1 more from the 2.0x speed rung)
+//   level 4              -> 5 bays   (+1 from berth rung [3], the first bay a player CHOSE)
+//   level 5 (max)        -> 6 bays   (+1 more from berth rung [4])
 // ⚠️ Base + scaling are FIRST-PASS TUNABLE (report for owner review; real balance at S20).
+//
+// ⚠️⚠️ TERM 1 IS DELIBERATELY STILL HERE, AND REMOVING IT IS A DATA-LOSS BUG, NOT A CLEANUP.
+// Bays are DERIVED, never stored, so a save's bay count IS this function's output. A player at
+// shipyard level 3 has 4 bays today because term 1 granted two of them. Deleting term 1 so that
+// bays came only from the new berth rungs would drop that same save to 2 bays on its next load:
+// fewer repair bays than the fleet may already be sitting in, and a shrunken pool that
+// shipBuildSlotCount then narrows further. The berth rungs are therefore an EXTENSION of the
+// track, not a re-homing of the grant, and this function is ADDITIVE for the same reason. The
+// invisibility that motivated the berth rungs was a CONSOLE problem (nothing told the player a
+// speed rung carried a bay) and it is fixed in the console, where it lived: the Shipyard's
+// Upgrades panel now names the bay on the speed rungs. ship-repair.test.ts holds the
+// never-fewer-bays proof, asserting this function's output >= the pre-berths formula at EVERY
+// reachable level.
 //
 // ⚠️ SOFT-LOCK INVARIANT ENFORCEMENT (this replaces P11's warning comment with the actual
 // guarantee): this ALWAYS returns >= SHIPYARD_BAY_BASE (2) at EVERY level, including 0. That
 // floor of >= 2, combined with shipBuildSlotCount capping builds at bayCount - 1 (below) and
 // repairs claiming any free bay (processShipRepairs), STRUCTURALLY guarantees >= 1 bay is
 // always reachable by a damaged hull, so no reachable state strands a wreck (model.ts's
-// SHIPYARD_BAY_BASE block details the (a)+(b)+(c) proof).
+// SHIPYARD_BAY_BASE block details the (a)+(b)+(c) proof). Both grant terms only ever ADD, so
+// no rung on this track can push the count back below the floor.
 export function shipyardBayCount(state: GameState): number {
   const level = facilityLevel(state, SHIPYARD_FACILITY_KEY);
   const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
   // Start at the base floor (never below it -> the soft-lock invariant's structural >= 2).
   let bays = SHIPYARD_BAY_BASE;
   for (let i = 0; i < level && i < upgrades.length; i++) {
-    // Reuse the SAME rungs shipBuildSpeedMult reads: each reached build-speed rung also adds
-    // a bay. The founding rung carries no buildSpeedMult, so it is skipped here (no bay for
-    // founding). The `i < upgrades.length` guard is the sibling helpers' belt-and-suspenders.
-    // `const effect` extracted first to mirror shipBuildSpeedMult's loop body exactly.
+    // FacilityUpgradeEffect is a NON-discriminated union, so both grants narrow by PROPERTY
+    // PRESENCE and a rung can only ever satisfy one of them. The `i < upgrades.length` guard
+    // is the sibling helpers' belt-and-suspenders. `const effect` extracted first to mirror
+    // shipBuildSpeedMult's loop body exactly.
     const effect = upgrades[i].effect;
     if ("buildSpeedMult" in effect) {
+      // TERM 1, LEGACY: reuse the SAME rungs shipBuildSpeedMult reads. Kept verbatim so no
+      // existing save's bay count can fall (see the data-loss note above). The founding rung
+      // carries no buildSpeedMult, so it is skipped here (no bay for founding).
       bays += 1; // FIRST-PASS TUNABLE: +1 bay per build-speed upgrade rung
+    }
+    if ("addShipyardBays" in effect) {
+      // TERM 2, BOUGHT: the berth rungs, the bays a player deliberately purchases.
+      bays += effect.addShipyardBays;
     }
   }
   return bays;

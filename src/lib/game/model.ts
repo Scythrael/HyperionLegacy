@@ -1056,9 +1056,12 @@ export const REPAIR_TICKS_PER_HULL = 0.5;
 //     run at the same time (with a build using one bay, >= 1 remains for repair). It is NOT
 //     what prevents the soft-lock, that is clauses (b)+(c) below, which hold even at a
 //     hypothetical base of 1 (a build would just be capped to 0 bays, leaving the sole bay
-//     claimable by repair). shipyardBayCount then adds +1 per reached build-speed upgrade rung
-//     (level 2 -> 3 bays, level 3 -> 4), reusing the SAME FACILITIES.shipyard rungs
-//     shipBuildSpeedMult reads.
+//     claimable by repair). shipyardBayCount then adds TWO grants on top of this floor: +1 per
+//     reached build-speed rung (level 2 -> 3 bays, level 3 -> 4), reusing the SAME
+//     FACILITIES.shipyard rungs shipBuildSpeedMult reads, PLUS the sum of every reached
+//     { addShipyardBays } BERTH rung (level 4 -> 5 bays, level 5 -> 6). Berths are the bays a
+//     player deliberately BUYS; the speed-rung grant is kept because removing it would take
+//     bays away from saves that already have them (see shipyardBayCount's data-loss note).
 //
 //   BUILD_CONCURRENCY_CAP (1): how many ship BUILDS may run at once, the multi-build cap.
 //     DELIBERATELY HELD AT 1 this pass (owner directive, anti-regression): the bay system now
@@ -2402,7 +2405,44 @@ export type FacilityUpgradeEffect =
   // above), so a rung carrying this is inert to refineSlotCount / researchSlotCount /
   // fabricateSlotCount / tierCap / fuelCap, and no PRE-EXISTING facility rung sets it, so
   // this member changes NO existing behavior (anti-regression: Omega 15).
-  | { addSalvageSlots: number };
+  | { addSalvageSlots: number }
+  // --- Shipyard BERTHS (Shipyard Berths, 2026-09-06, design section 15d "Adding LANES") ---
+  // +N shared build/repair BAYS at the Shipyard. shipyardBayCount (tick.ts) SUMS this across
+  // the reached rungs and ADDS the sum on top of the count it already derived, which is the
+  // whole design of this member: it is a PURE ADDITION to an existing formula, never a
+  // replacement for it.
+  //
+  // ⚠️ WHY THIS EXISTS AT ALL: bays ARE the Shipyard's lanes (design section 15a), and until
+  // now they were the only lane count in the game a player could not CHOOSE to buy. They
+  // arrived as a side effect of buying build SPEED, because shipyardBayCount granted +1 bay
+  // per reached { buildSpeedMult } rung. A player who wanted another bay had no rung to point
+  // at, and a player who bought speed was never told a bay came with it. This member is the
+  // rung they can point at.
+  //
+  // ⚠️⚠️ THE SPEED RUNGS STILL GRANT THEIR BAYS, AND THAT IS NOT A LEFTOVER. Existing saves
+  // have bays TODAY that came from those rungs. MOVING the grant instead of ADDING to it would
+  // mean a shipyard at level 3 loading with fewer bays than it had, which can strand an
+  // in-flight build and destroy purchased progress. So the old grant stays exactly as it was
+  // and these rungs sit ON TOP of it. The console now NAMES the bay on the speed rungs
+  // (App.svelte) so the side effect is a stated grant rather than an invisible one. See the
+  // never-fewer-bays proof in ship-repair.test.ts.
+  //
+  // NAMING: `addShipyardBays`, not `addShipyardBerths`, because "bay" is what every shipped
+  // string, helper and comment on this facility already says (shipyardBayCount,
+  // SHIPYARD_BAY_BASE, "A damaged hull can always find a bay"). "Berth" is the word for the
+  // PURCHASE in the design conversation; the console keeps saying "bay" so one thing has one
+  // name on screen.
+  //
+  // ⚠️ THIS PAYLOAD MEANS "PLUS N CONCURRENT JOBS AT THIS FACILITY", AND MAY NEVER MEAN,
+  // IMPLY OR BE REUSED TO MEAN QUEUE DEPTH (design section 15a rule 2, LOCKED). Depth is
+  // bought with Homeworld talents and is never multiplied by a lane count.
+  //
+  // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every member
+  // above), so a rung carrying this is inert to refineSlotCount / researchSlotCount /
+  // fabricateSlotCount / salvageSlotCount / tierCap / fuelCap / shipBuildSpeedMult, and no
+  // PRE-EXISTING facility rung sets it, so this member changes NO existing behavior
+  // (anti-regression: Omega 15).
+  | { addShipyardBays: number };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -2985,10 +3025,34 @@ export const FACILITIES: Record<string, FacilityDef> = {
   // because establishing the Shipyard is the deliberate unlock (locked brainstorm #3).
   //
   // FINITE track: a founding rung + a first-pass build-SPEED track (two { buildSpeedMult }
-  // rungs). Refit + repairs are FUTURE rungs on this same track (hooked, not built --
-  // design §2/§7). ⚠️ FIRST-PASS TUNABLE values (credits/duration/FA-level/mult), same
-  // launch-placeholder spirit as the Research Lab / Fabricator tracks, real balance at
-  // the device checkpoint.
+  // rungs) + two BERTH rungs (Shipyard Berths, 2026-09-06). Refit is a FUTURE rung on this
+  // same track (hooked, not built, design §2/§7). ⚠️ FIRST-PASS TUNABLE values
+  // (credits/duration/FA-level/mult), same launch-placeholder spirit as the Research Lab /
+  // Fabricator tracks, real balance at the device checkpoint.
+  //
+  // ⚠️⚠️ THE BERTH RUNGS ARE AN EXTENSION, NOT A REWRITE, AND THE REASON IS A HAZARD.
+  // Bays ARE this facility's LANES (design section 15a), and they were the one lane count in
+  // the game a player could not deliberately buy: shipyardBayCount grants +1 bay per reached
+  // { buildSpeedMult } rung, so a bay arrived as an unannounced side effect of buying SPEED.
+  // Rungs [3] and [4] are the bays a player CHOOSES. The speed rungs KEEP granting theirs.
+  //
+  // Restructuring the track so bays came only from the new rungs was the cleaner shape and was
+  // REJECTED: every existing save's bay count is derived from the rungs it has already bought,
+  // so re-homing the grant would hand a level-3 shipyard fewer bays than it had on the previous
+  // load. Fewer bays can strand a running build, shrink repair capacity and destroy purchased
+  // progress, and the only way to avoid it would be a migration that pays the difference back,
+  // i.e. new persisted state and a SAVE_VERSION bump, to reach a state the additive shape
+  // reaches with neither. See shipyardBayCount (tick.ts) and the never-fewer-bays proof in
+  // ship-repair.test.ts, which asserts the new count >= the old count at EVERY level.
+  //
+  // ⚠️ NOT A REPAIR/CONSTRUCTION BERTH SPLIT (owner scope, 2026-09-06, verbatim: "Not the
+  // repair/construction options, but multiple lanes, and queuing"). Bays stay ONE SHARED POOL
+  // serving both builds and repairs, exactly as they do today. A dedicated repair-only track
+  // is logged in SUGGESTIONS.md as a separate future decision; no rung here may split the pool.
+  //
+  // ⚠️ LANES ARE NOT QUEUE DEPTH (design section 15a rule 2, LOCKED). The Shipyard's queue
+  // depth comes from the Homeworld fleetLogisticsQueue talents and is never multiplied by the
+  // bay count. No rung here may ever grant depth.
   shipyard: {
     label: "Shipyard",
     upgrades: [
@@ -3018,15 +3082,58 @@ export const FACILITIES: Record<string, FacilityDef> = {
         effect: { buildSpeedMult: 1.5 }, // 1.5x build speed (tunable)
         requiresFleetAdminLevel: 5, // tunable
       },
-      // [2] Level 2 -> 3: second build-SPEED upgrade. Track ENDS here (finite; refit/
-      // repairs are future rungs). Stacks multiplicatively on rung [1] (1.5 * 2.0 = 3.0x
-      // at level 3, per the S3 product derivation).
+      // [2] Level 2 -> 3: second build-SPEED upgrade, and the LAST rung that carries a bay
+      // as a side effect. Stacks multiplicatively on rung [1] (1.5 * 2.0 = 3.0x at level 3,
+      // per the S3 product derivation).
       {
         materials: {},
         credits: new Decimal(20000), // tunable
         durationTicks: 300, // tunable
         effect: { buildSpeedMult: 2.0 }, // tunable
         requiresFleetAdminLevel: 8, // tunable
+      },
+      // [3] Level 3 -> 4: the FIRST BERTH the player buys ON PURPOSE (Shipyard Berths,
+      // 2026-09-06). A fifth bay: one more hull building or repairing at the same time.
+      //
+      // COST SHAPE, and why these numbers: the STEP is this track's own, continued rather
+      // than a new one. Credits step by 2.5x, which is the step rung [1] -> rung [2] takes
+      // (8,000 -> 20,000). Duration steps by +120 ticks, which is the step rung [1] -> rung
+      // [2] takes (180 -> 300). The FA gate steps by +3, which is the step rung [1] -> rung
+      // [2] takes (5 -> 8) and the same step the Salvage Bay's two lane rungs take (3 -> 6),
+      // so a lane costs an admiral-level stride at both facilities. CREDITS, NO MATERIALS,
+      // matching every other rung on this track and the Salvage Bay's lane rungs: the
+      // Shipyard's whole cost column is credits, and charging hull materials to widen the yard
+      // would tax the same stock the yard is about to spend on a hull.
+      //
+      // ⚠️ NO requiresHomeworldTalents, the same reason FACILITIES.salvageBay and
+      // FACILITIES.fabricator record: this console renders material rows, a credits row and
+      // an FA-level row, and no talent row, so a talent gate would be ENFORCED while being
+      // stated nowhere the player can see. That is a "why can't I build this" trap.
+      {
+        materials: {},
+        credits: new Decimal(50000), // 2.5x rung [2], this track's own credit step (tunable)
+        durationTicks: 420, // +120 over rung [2], this track's own duration step (tunable)
+        effect: { addShipyardBays: 1 },
+        requiresFleetAdminLevel: 11, // +3 over rung [2] (tunable)
+      },
+      // [4] Level 4 -> 5: the SECOND bought berth, a sixth bay, and the END of the track
+      // (finite; refit is a future rung). TWO berth rungs, not one and not five, matching the
+      // Salvage Bay's two lane rungs: two is enough for the axis to read as a real choice
+      // without the yard quietly becoming the cheapest place to park unlimited concurrency.
+      // Same steps again (2.5x credits, +120 ticks, +3 FA).
+      //
+      // ⚠️ EXTRA BAYS RAISE REPAIR CONCURRENCY, NOT BUILD CONCURRENCY, and that is correct
+      // rather than a shortfall. shipBuildSlotCount is min(BUILD_CONCURRENCY_CAP,
+      // bayCount - 1), and BUILD_CONCURRENCY_CAP is deliberately held at 1 (owner directive),
+      // so a sixth bay means six hulls can be under repair at once while builds stay at one.
+      // Raising the build cap is the SEPARATE owner decision the cap comment describes; when
+      // it is raised, these rungs are what the extra builds run in.
+      {
+        materials: {},
+        credits: new Decimal(125000), // 2.5x rung [3] (tunable)
+        durationTicks: 540, // +120 over rung [3] (tunable)
+        effect: { addShipyardBays: 1 },
+        requiresFleetAdminLevel: 14, // +3 over rung [3] (tunable)
       },
     ],
   },

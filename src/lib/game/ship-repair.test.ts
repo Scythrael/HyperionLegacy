@@ -34,6 +34,8 @@ import {
   REPAIR_TICKS_PER_HULL,
   SHIPYARD_BAY_BASE,
   BUILD_CONCURRENCY_CAP,
+  FACILITIES,
+  SHIPYARD_FACILITY_KEY,
   type GameState,
   type ShipInstance,
   type ShipTypeKey,
@@ -399,7 +401,8 @@ describe("ship repair timed process", () => {
 //    repair-reachable so no damaged hull is ever permanently stranded.
 // ---------------------------------------------------------------------------
 
-// A state whose shipyard sits at `level` (0 unfounded .. 3 max), for bay-count scaling +
+// A state whose shipyard sits at `level` (0 unfounded .. 5 max, the two berth rungs included),
+// for bay-count scaling +
 // reservation assertions. Only the facility level matters to shipyardBayCount, so a shallow
 // override of the shipyard FacilityState is enough.
 function withShipyardLevel(state: GameState, level: number): GameState {
@@ -445,21 +448,110 @@ describe("shipyardBayCount (base + scaling)", () => {
     expect(shipyardBayCount(withShipyardLevel(fresh, 2))).toBe(SHIPYARD_BAY_BASE + 1);
     expect(shipyardBayCount(withShipyardLevel(fresh, 3))).toBe(SHIPYARD_BAY_BASE + 2);
   });
+
+  it("adds the bought BERTH rungs on top of that (level 4 -> +3, level 5 -> +4)", () => {
+    // Shipyard Berths (2026-09-06): rungs [3] and [4] carry { addShipyardBays: 1 } each, the
+    // first bays a player buys ON PURPOSE rather than receiving as a side effect of speed.
+    // They stack ON TOP of the two speed-rung bays above, never in place of them.
+    const fresh = freshState();
+    expect(shipyardBayCount(withShipyardLevel(fresh, 4))).toBe(SHIPYARD_BAY_BASE + 3);
+    expect(shipyardBayCount(withShipyardLevel(fresh, 5))).toBe(SHIPYARD_BAY_BASE + 4);
+  });
+
+  it("is MONOTONIC across the whole track: a rung purchase never lowers the bay count", () => {
+    // Buying an upgrade must never cost the player a bay, whatever a rung carries. Derived from
+    // the track's length rather than a literal level list, so a rung added later is covered by
+    // this case the day it lands instead of the day someone remembers to extend the list.
+    const fresh = freshState();
+    const maxLevel = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades.length;
+    for (let level = 1; level <= maxLevel; level++) {
+      const before = shipyardBayCount(withShipyardLevel(fresh, level - 1));
+      const after = shipyardBayCount(withShipyardLevel(fresh, level));
+      expect(after).toBeGreaterThanOrEqual(before);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// THE NEVER-FEWER-BAYS PROOF (Shipyard Berths, 2026-09-06).
+//
+// THE HAZARD THIS EXISTS FOR: bays are DERIVED on read, never stored, so a save's bay count IS
+// shipyardBayCount's output for the level it holds. Before this change, bays came from
+// SHIPYARD_BAY_BASE plus +1 per reached { buildSpeedMult } rung. Any future edit that RE-HOMES
+// that grant onto the new berth rungs instead of adding to it would hand an existing shipyard
+// FEWER bays than it had on its previous load: a shrunken repair pool that can strand a hull, a
+// narrower shipBuildSlotCount underneath it, and purchased progress silently deleted.
+//
+// So the OLD rule is re-implemented here, deliberately and independently, as the historical
+// baseline, and the live helper is asserted >= it at EVERY reachable level. This is not a
+// duplicate of the scaling cases above: those pin what the numbers ARE today, this one pins the
+// FLOOR they may never fall below, and it keeps holding when the numbers are retuned.
+// ---------------------------------------------------------------------------
+
+// The bay count as it was derived BEFORE the berth rungs existed: the base floor plus one bay
+// per reached build-speed rung. Deliberately a SEPARATE re-implementation rather than a call
+// into tick.ts, because a baseline that shares code with the thing it is checking would move
+// whenever that thing moved and could never catch the regression it is here to catch.
+function legacyShipyardBayCount(level: number): number {
+  const upgrades = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades;
+  let bays = SHIPYARD_BAY_BASE;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    if ("buildSpeedMult" in upgrades[i].effect) bays += 1;
+  }
+  return bays;
+}
+
+describe("no save may ever lose a bay (berth rungs are additive)", () => {
+  it("the live bay count is >= the pre-berths bay count at EVERY reachable shipyard level", () => {
+    const fresh = freshState();
+    const maxLevel = FACILITIES[SHIPYARD_FACILITY_KEY].upgrades.length;
+    // Every level a save can actually hold, INCLUDING 0 (unfounded, where the floor matters
+    // most) and the new max. Checked one level at a time so a failure names the level.
+    for (let level = 0; level <= maxLevel; level++) {
+      const live = shipyardBayCount(withShipyardLevel(fresh, level));
+      const legacy = legacyShipyardBayCount(level);
+      expect(live, `shipyard level ${level}: ${live} bays now vs ${legacy} before`).toBeGreaterThanOrEqual(legacy);
+    }
+  });
+
+  it("the baseline is not vacuous: it still grants the two speed-rung bays it always did", () => {
+    // Guards the guard. If legacyShipyardBayCount were ever reduced to a constant floor, the
+    // case above would pass no matter what the live helper did. It must still see levels 2 and 3
+    // as 3 and 4 bays, which is precisely the progress that would be destroyed by a re-homing.
+    expect(legacyShipyardBayCount(0)).toBe(SHIPYARD_BAY_BASE);
+    expect(legacyShipyardBayCount(1)).toBe(SHIPYARD_BAY_BASE);
+    expect(legacyShipyardBayCount(2)).toBe(SHIPYARD_BAY_BASE + 1);
+    expect(legacyShipyardBayCount(3)).toBe(SHIPYARD_BAY_BASE + 2);
+  });
+
+  it("a level that predates the berth rungs is byte-identical, not merely no worse", () => {
+    // Levels 0..3 are the ONLY levels any existing save can hold (the track ended at 3 before
+    // this change), so for those the two derivations must be EQUAL. A live count that drifted
+    // UPWARD there would also be a change to shipped saves, just a generous one, and it would
+    // still be an unreviewed balance change arriving through a data migration.
+    const fresh = freshState();
+    for (const level of [0, 1, 2, 3]) {
+      expect(shipyardBayCount(withShipyardLevel(fresh, level))).toBe(legacyShipyardBayCount(level));
+    }
+  });
 });
 
 describe("shipBuildSlotCount reservation (build cap held at 1, all-but-one bay)", () => {
   it("stays at BUILD_CONCURRENCY_CAP (1) at every shipyard level (multi-build deliberately off)", () => {
     const fresh = freshState();
-    for (const level of [0, 1, 2, 3]) {
+    // Every reachable level, derived from the track length so the berth rungs (and any later
+    // rung) are covered without this list needing to be remembered.
+    for (let level = 0; level <= FACILITIES[SHIPYARD_FACILITY_KEY].upgrades.length; level++) {
       expect(shipBuildSlotCount(withShipyardLevel(fresh, level))).toBe(BUILD_CONCURRENCY_CAP);
     }
   });
 
   it("never lets builds occupy the last bay: slot count <= bayCount - 1 at every level", () => {
     // The structural repair reservation: builds use all-but-one bay so >= 1 is always free for
-    // repair. This is what enforces the soft-lock invariant on the BUILD side.
+    // repair. This is what enforces the soft-lock invariant on the BUILD side, and it has to be
+    // re-confirmed at the NEW bay counts the berth rungs reach, not just the old ones.
     const fresh = freshState();
-    for (const level of [0, 1, 2, 3]) {
+    for (let level = 0; level <= FACILITIES[SHIPYARD_FACILITY_KEY].upgrades.length; level++) {
       const s = withShipyardLevel(fresh, level);
       expect(shipBuildSlotCount(s)).toBeLessThanOrEqual(shipyardBayCount(s) - 1);
     }
