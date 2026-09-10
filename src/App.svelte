@@ -691,6 +691,9 @@
   // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
   import Icon from "./lib/ui/Icon.svelte";
+  // Whole-unit arithmetic for the batch-quantity controls (2026-09-10 fractional-quantity
+  // fix). Presentation/input only, never consulted by a gate: see the module header.
+  import { wholeUnitsFree, clampWholeQty } from "./lib/ui/quantity";
   // Mission Rework (Task 8 UI): the PURE fuel-cost math. fuelNeeded(mission, shipDef)
   // returns the round-trip fuel a hull burns for a mission, shown per mission on the
   // Operations dispatch surface (list card = representative captain's hull; popup =
@@ -2916,12 +2919,46 @@
   // The completed-events log stores raw wall-clock stamps (never formatted strings), so
   // the two formatters live here, in the view layer, exactly as the IN PROGRESS ETA does.
 
-  // WHEN an order finished, as a local clock time. A stamp of 0 means the record was
-  // written with no injected clock (see UNKNOWN_COMPLETION_TIME_MS in tick.ts), which is
-  // reported honestly rather than rendered as a plausible-looking 1970 date.
-  function completionAtText(atMs: number): string {
+  // WHEN an order finished, as HOW LONG AGO plus the local clock time.
+  //
+  // ⚠️ WHY THE RELATIVE AGE LEADS (0.13.3 QA finding D4, user 2026-09-10: "The jobs
+  // completed should reference the amount of time that passed offline"). A bare clock time
+  // is the least useful reading of the case this section exists for: coming back after an
+  // absence, "14:05" makes the player do the subtraction themselves to learn whether a job
+  // landed ten minutes into the night or eight hours in. "7h ago" answers that outright, and
+  // the clock time is kept alongside it because it is the reading that stays true as the
+  // player watches the board (an age drifts, a stamp does not).
+  //
+  // ⚠️ IT IS DERIVED, NOT INVENTED. The age is `nowMs - atMs` over a stamp the engine
+  // reconstructed from the catch-up's own span and cadence (see tick()'s header), so an
+  // offline completion is dated at the moment it actually resolved. Nothing here fabricates
+  // a time: a stamp of 0 means the record was written with NO injected clock (see
+  // UNKNOWN_COMPLETION_TIME_MS in tick.ts) and still says so plainly rather than being
+  // rendered as a plausible-looking 1970 date or a made-up "just now".
+  //
+  // `nowMs` is a PARAMETER rather than an ambient Date.now() so the caller can pass the
+  // reactive tick clock (cycle.nowTick), which is what makes the age re-render as it ages
+  // instead of freezing at whatever it read on first paint.
+  function completionAtText(atMs: number, nowMs: number): string {
     if (atMs <= 0) return "time not recorded";
-    return new Date(atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const clock = new Date(atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${completionAgoText(atMs, nowMs)} (${clock})`;
+  }
+
+  // The age phrase itself, in the coarsest honest unit. Coarse ON PURPOSE: this readout
+  // answers "roughly how long ago", and a to-the-second age would imply a precision the
+  // reconstructed offline schedule does not claim (its stamps round to whole milliseconds
+  // on a sampled cadence, and a span past the offline cap is anchored at the return moment,
+  // see tick()'s ACCURACY LIMITS). A future stamp (a clock change while away) clamps to
+  // "just now" rather than printing a negative age.
+  function completionAgoText(atMs: number, nowMs: number): string {
+    const seconds = Math.max(0, Math.floor((nowMs - atMs) / 1000));
+    if (seconds < 60) return "just now";
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   }
 
   // HOW LONG the run took. Routed through the SHARED durationReadout so it honors the
@@ -3356,7 +3393,17 @@
   function simulateOffline(hours: number) {
     const before = state;
     const secondsAway = hours * 3600;
-    state = tick(secondsAway, before); // fleet-wide: advances every captain, matches real offline catch-up
+    // ⚠️ THE COMPLETION CLOCK, AND WHY ITS ABSENCE WAS A REAL DEFECT (0.13.3 QA finding D4).
+    // This call used to omit tick()'s fourth argument, so every order that completed inside a
+    // simulated absence was stamped with UNKNOWN_COMPLETION_TIME_MS and rendered on the Home
+    // board as "time not recorded", while the identical order completing live showed a real
+    // time. That is not a display bug: the record genuinely had no time in it, because the
+    // one production caller that reconstructs the schedule (the onMount catch-up) was passing
+    // its anchor and this one was not. This button's span ENDS NOW by construction, exactly
+    // like a real return, so Date.now() is the same honest anchor the real path uses and
+    // tick() derives the per-tick schedule from it identically. It stays a plain ARGUMENT, so
+    // the tick still reads no ambient clock and offline == live is untouched.
+    state = tick(secondsAway, before, Math.random, Date.now()); // fleet-wide: advances every captain, matches real offline catch-up
     // Surface the SAME While-You-Were-Away recap the real reload path builds, using the SAME
     // pure diff helper, so this dev button exercises the offline summary end-to-end for a KNOWN
     // duration (verifiable numbers, screenshot-able). Unlike the real onMount path it does NOT
@@ -4180,10 +4227,22 @@
         const manifest = (record?.items ?? [])
           .map((line) => `${formatNumber(new Decimal(line.amount))} [${ITEMS[line.itemId]?.label ?? line.itemId}]`)
           .join(", ");
+        // ⚠️ THE ALL-ZERO CASE GETS ITS OWN SENTENCE (0.13.3 QA findings D3 + D5), and this is
+        // the SAME false claim 9f55055 fixed on the Last Salvage panel, in a third place. A
+        // recovery that floored to zero has an EMPTY manifest, so the fallback below fired and
+        // this line said "Recovered materials are in the Warehouse" when nothing went anywhere.
+        // The record already classifies the outcome honestly (reward "nothing" is decided on
+        // the AMOUNTS, never on the array length), so the branch asks the record rather than
+        // re-deriving the judgement here. The remaining fallback is now only for a genuinely
+        // MISSING record (a hand-edited save, or a target id the resolver never filed), where
+        // the vague signpost is the honest thing to say because nothing is known.
+        const recoveredNothing = record !== null && record.reward === "nothing";
         pushLog(
           manifest.length > 0
             ? `Salvage complete → [${watched.sourceName}]. Recovered: ${manifest}.`
-            : `Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`
+            : recoveredNothing
+              ? `Salvage complete → [${watched.sourceName}]. No materials recovered (rounded to zero).`
+              : `Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`
         );
       }
     }
@@ -4219,9 +4278,15 @@
     state = result.next;
     // Build the same "N [Item]" material summary the system salvage uses (0-amount
     // components omitted so the log names only what was actually returned).
+    // ⚠️ THE AMOUNT GOES THROUGH formatNumber (2026-09-10 consistency pass). It was
+    // interpolated RAW while the credits line directly below it was formatted, in the SAME
+    // sentence: a teardown recovers a FRACTION of the build cost (~30-40%), so the log could
+    // read "recovered 8.399999999999999 [Titanium Ingot], 1.23K credits". Every other
+    // recovery manifest in the game (the Last salvage readout, the completion events) already
+    // formats its amounts; this one line was the holdout.
     const parts = Object.entries(result.recovered)
       .filter(([, amount]) => amount > 0)
-      .map(([itemId, amount]) => `${amount} [${ITEMS[itemId]?.label ?? itemId}]`);
+      .map(([itemId, amount]) => `${formatNumber(amount)} [${ITEMS[itemId]?.label ?? itemId}]`);
     if (result.creditsRecovered > 0) parts.push(`${formatNumber(new Decimal(result.creditsRecovered))} credits`);
     const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
     const systemsNote = returnedSystems > 0 ? ` ${returnedSystems} crafted system(s) returned to spares.` : "";
@@ -4758,11 +4823,25 @@
   // `max` is what is FREE (held minus everything already queued or in flight), never what is
   // held: the engine refuses an order that claims more than that (canEnqueueOrder rule 4), so
   // clamping to `free` here is the UI agreeing with the engine rather than inventing a second
-  // rule. A max of 0 clamps to 1, which is harmless because the button is disabled in that
-  // case and the engine would refuse it anyway.
+  // rule.
+  //
+  // ⚠️ FIXED 2026-09-10: THIS USED TO FLOOR ONLY ONE END. The body was
+  //     Math.min(Math.max(1, Math.floor(raw)), Math.max(1, max))
+  // which floored the FORM VALUE but not the MAX. A salvaged material stack is a Decimal and
+  // is routinely fractional, so with 1.21K held and 1000 queued `max` arrived as
+  // 213.71000000000004 and came straight back out: the button read
+  // "Salvage · ×213.71000000000004" while its own max readout said "(max 213)", and the order
+  // the engine actually queued was 213 (doQueueSalvage floors at the writer, and
+  // salvageOrderUnits floors again), so the label was promising a number the click would not
+  // deliver. A batch is a count of WHOLE JOBS, so a fraction was never meaningful here.
+  //
+  // The arithmetic now lives in src/lib/ui/quantity.ts so it can be pinned by tests, and it
+  // returns 0 rather than 1 when under one whole unit is free. That 0 is deliberate and is
+  // what the Salvage button disables on: the old floor-at-1 offered an order of 1 against a
+  // 0.5 stock, which exceedsFreeSalvageUnits refused with nothing but a log line, i.e. an
+  // enabled button that could never work. See that module's header for the full account.
   function salvageQtyFor(raw: number, max: number): number {
-    const whole = Number.isFinite(raw) ? Math.floor(raw) : 1;
-    return Math.min(Math.max(1, whole), Math.max(1, max));
+    return clampWholeQty(raw, max);
   }
 
   // The salvaged-material Salvage action lives ONLY in the Salvage Bay facility
@@ -7422,8 +7501,15 @@
            a player bought a lane. Nothing is running in this branch, so EVERY lane is free
            and the honest statement is the count. Same fallback as the readout above. -->
       {@const idleSlots = view.slotsTotal ?? salvageBaySlots}
+      <!-- ⚠️ THE TWO GRIDS ARE NAMED IN SCREEN ORDER, and that order flipped on 2026-09-10
+           when Salvaged Materials was moved above Ship Systems on the Salvage tab. "Below" was
+           and still is true for both, so this sentence was never false; what changed is that
+           the FIRST grid it named had become the SECOND one the player scrolls to. Reading
+           order now matches scroll order again. The same swap is made in the "Nothing queued"
+           empty state directly below. If the grids are ever reordered again, both sentences
+           move with them. -->
       <p class="research-status" style="margin-top: 8px;">
-        Idle, with {idleSlots} salvage bay{idleSlots === 1 ? "" : "s"} free. Choose a spare system or a salvaged material below to queue one.
+        Idle, with {idleSlots} salvage bay{idleSlots === 1 ? "" : "s"} free. Choose a salvaged material or a spare system below to queue one.
       </p>
     {:else}
       {#each view.running as job (job.id)}
@@ -7479,7 +7565,7 @@
         {#if view.depthTotal <= 0}
           This facility cannot hold waiting orders yet. Unlock queue depth via Homeworld Talents → Fleet Logistics (Standing Orders).
         {:else}
-          Nothing queued. Select a spare system or a salvaged material below and choose <strong>Salvage</strong> to line up work that starts as soon as a bay is free.
+          Nothing queued. Select a salvaged material or a spare system below and choose <strong>Salvage</strong> to line up work that starts as soon as a bay is free.
           Depth: {view.depthTotal} order{view.depthTotal === 1 ? "" : "s"} · deepen it via Homeworld Talents → Fleet Logistics (Standing Orders).
         {/if}
       </p>
@@ -10098,17 +10184,19 @@
                  Task 11): the dedicated home for the two Salvage actions. NOTHING
                  here is new machinery or new styling; it reuses the SAME tiles,
                  EquipmentTooltip, select state, and requestSalvage/confirmSalvage
-                 flow the Salvage Bay hosted before. Two labeled sections:
-                   1. Ship Systems, the spare-systems bay tiles + the inline
-                      EquipmentTooltip whose action slot carries the Salvage button
-                      (requestSalvage("system", ...)). The Systems Bay CAPACITY
-                      readout + Upgrade Bay action stay in the Ship Equipment tab
-                      (the storage-management home); here it is salvage only.
-                   2. Salvaged Materials, the select-to-salvage tiles + the inline
+                 flow the Salvage Bay hosted before. Two labeled sections, listed
+                 here in the order they are RENDERED (see the reorder note on the
+                 Salvage tab guard below, which put Salvaged Materials first):
+                   1. Salvaged Materials, the select-to-salvage tiles + the inline
                       Salvage action panel (requestSalvage("material", ...)) over
                       the whole salvaged catalog (salvageBaySalvagedItems, no tier
                       selector). Ship teardown (requestSalvage("ship", ...)) is a
                       Logistics Ships action and deliberately NOT relocated here.
+                   2. Ship Systems, the spare-systems bay tiles + the inline
+                      EquipmentTooltip whose action slot carries the Salvage button
+                      (requestSalvage("system", ...)). The Systems Bay CAPACITY
+                      readout + Upgrade Bay action stay in the Ship Equipment tab
+                      (the storage-management home); here it is salvage only.
 
                  0.13.3 Unit 7.0 ADDED THE SUB-TAB RAIL BELOW AND MOVED NOTHING ELSE.
                  Every panel, every affordance and every string listed above still exists;
@@ -10126,11 +10214,22 @@
 
             {#if activeSalvageBaySubTab === "salvage"}
             <!-- ============ TAB 1 OF 2: SALVAGE, the act ============================
-                 Queue -> Last salvage -> Ship Systems (+ selected) -> Salvaged Materials
-                 (+ selected). The vertical order INSIDE the tab is unchanged from the
-                 single-scroll console, which is what keeps the queue's own "choose a spare
-                 system or a salvaged material below" empty states and the selected-system
-                 note's "remove it from the queue above" literally true. -->
+                 Queue -> Last salvage -> Salvaged Materials (+ selected) -> Ship Systems
+                 (+ selected).
+
+                 ⚠️ THE TWO GRIDS WERE SWAPPED (user request, 2026-09-10): Salvaged Materials
+                 now comes FIRST, above Ship Systems. Materials are the salvage a player
+                 accumulates passively and clears in bulk, so they are the more frequent
+                 errand on this tab; spare systems are the rarer, more deliberate one. Each
+                 grid moved as ONE unit with its own selected-item detail panel, so a grid is
+                 still immediately followed by the panel its tiles open. Nothing else on the
+                 tab moved: the explainer, the queue and the last-salvage readout keep their
+                 positions ABOVE both grids, which is what keeps the selected-system note's
+                 "remove it from the queue above" literally true and lets the queue's empty
+                 states go on saying the tiles are "below". The two empty states DID have to
+                 swap the order they name the grids in, so the first thing they mention is
+                 the first thing the player meets scrolling down. -->
+
             <Panel>
               <div class="panel-title">SALVAGE BAY</div>
               <p class="research-status">
@@ -10374,7 +10473,9 @@
 
             {#if activeSalvageBaySubTab === "salvage"}
             <!-- Back on TAB 1 (see the guard above the SALVAGE BAY explainer). Everything from
-                 here to the end of the console is the act of salvaging, in its original order. -->
+                 here to the end of the console is the act of salvaging: queue, last salvage,
+                 then the two grids with Salvaged Materials first (see the reorder note on the
+                 tab header above). -->
 
             <!-- THE SALVAGE QUEUE (0.13.3 Unit 4.4). Sits under the explainer (and, since Unit
                  5.2, under the auto-salvage rules that feed it) but still ABOVE the tiles, the
@@ -10459,6 +10560,271 @@
                     {/if}
                   {/if}
                 </p>
+              </Panel>
+            {/if}
+
+            <!-- SALVAGED MATERIALS salvage: the select-to-salvage tiles over the
+                 whole salvaged catalog (salvageBaySalvagedItems, all tiers, no
+                 tier selector). SAME systems-tile visual + select idiom the
+                 Materials tab shows browse-only. -->
+            <Panel>
+              <div class="warehouse-tier-head">
+                <span class="warehouse-tier-label">Salvaged Materials</span>
+                <span class="warehouse-tier-line"></span>
+                <span class="warehouse-tier-cap">{salvageBayHeldSalvaged.length} material{salvageBayHeldSalvaged.length === 1 ? "" : "s"}</span>
+              </div>
+              {#if salvageBayHeldSalvaged.length === 0}
+                <div class="warehouse-stub">
+                  <div class="warehouse-stub-glyph">♻️</div>
+                  <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
+                </div>
+              {:else}
+                <div class="warehouse-grid">
+                  {#each salvageBayHeldSalvaged as item (item.id)}
+                    {@const count = itemTotal(state.inventory, item.id)}
+                    <!-- 0.13.3 Unit 4.4: a salvaged material is FUNGIBLE, so unlike a unique
+                         spare it is not simply "reserved or not". Holding five and queueing
+                         three is legitimate, so the honest question is HOW MANY units are
+                         spoken for; the tile keeps showing the full held count (nothing has
+                         been consumed yet) and the tag carries the queued share, with
+                         free = held - queued. Reservation-aware stock, the same idiom the
+                         Warehouse uses for allocated materials (inventory 0.3). -->
+                    <!-- bayReservations is named HERE so this {@const} actually depends on it.
+                         Until 2026-09-10 it did not: the tile only kept up because a keyed
+                         {#each} re-sets its item source on every reconcile, which re-ran this
+                         const for an unrelated reason. That accident is what masked the same
+                         bug in the selected-material panel below. See the stale-derivation
+                         trap note on materialSalvageQueued. -->
+                    {@const queued = materialSalvageQueued(bayReservations, item.id)}
+                    {@const running = bayInFlightMaterials.get(item.id) ?? 0}
+                    <!-- Reuse the systems-tile visual (rarity dot + code + corner
+                         value), painting the count where a system's quality sits.
+                         Rarity color via warehouseRarityColor (item rarity). -->
+                    <button
+                      type="button"
+                      class="systems-tile"
+                      class:selected={selectedSalvagedId === item.id}
+                      class:sb-reserved={queued > 0}
+                      style="--sys-rc: {warehouseRarityColor(item.rarity)};"
+                      title={queued > 0
+                        ? `${item.label} · ${item.rarity} · ${formatNumber(queued)} queued for salvage`
+                        : `${item.label} · ${item.rarity}`}
+                      on:click={() => selectSalvagedTile(item.id)}
+                    >
+                      <span class="systems-tile-dot"></span>
+                      <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
+                      <span class="systems-tile-q">{formatNumber(count)}</span>
+                      <!-- The queued count is a MAGNITUDE of units, exactly like the held count
+                           on the line above, so it takes the same formatNumber treatment
+                           (2026-09-10 consistency pass). It was raw, which put an unabbreviated
+                           "QUE 5000" into a tag sized for two or three characters while the
+                           held count beside it read a tidy "5.00K". Same kind of number, same
+                           tile, two formats. -->
+                      {#if queued > 0}
+                        <span class="sb-tile-tag">{running > 0 ? "SALV" : "QUE"} {formatNumber(queued)}</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </Panel>
+
+            <!-- SELECTED MATERIAL: the Salvage action + a short readout. The
+                 Salvage button disables when none is held (the engine also
+                 rejects noneHeld for safety); the roll result is narrated to the
+                 event log. -->
+            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId] && itemTotal(state.inventory, selectedSalvagedId).gt(0)}
+              <!-- Capture the narrowed id into a const so the click closure below
+                   receives a plain `string` (Svelte narrows the template guard, but
+                   an arrow-function callback would otherwise see `string | null`).
+                   Gated on a held count > 0 so that after salvaging the last unit,
+                   the tile leaves the held-only grid AND this action panel closes
+                   together (no lingering panel for an item you no longer hold). -->
+              {@const salvageTargetId = selectedSalvagedId}
+              {@const selItem = ITEMS[selectedSalvagedId]}
+              {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
+              {@const selHeld = selCount.gt(0)}
+              <!-- 0.13.3 Unit 4.4: the queued share, and the free remainder it leaves.
+                   ⚠️ THE BUTTON IS GATED ON `free` AS OF THE BATCH-SALVAGE FOLLOW-UP, which
+                   REVERSES the note that stood here. It used to say the button must not gate
+                   on free, because the engine deliberately let the queue hold more salvage
+                   orders than the player held units. That is no longer the engine's rule: a
+                   queued salvage order now reserves its UNITS, and canEnqueueOrder refuses one
+                   that claims more than are free (rule 4, exceedsFreeSalvageUnits). So the
+                   quantity is capped at `selFree` and the button is disabled at zero, which is
+                   the UI agreeing with the engine rather than inventing a rule of its own, and
+                   is exactly what the craft configurator's `(max N)` does one console over. -->
+              <!-- ⚠️ THE STALE-DERIVATION TRAP LIVED HERE (fixed 2026-09-10). ⚠️
+                   This const used to read `materialSalvageQueued(salvageTargetId)`, which hid
+                   its `bayReservations` read inside the helper. Svelte collects a {@const}'s
+                   dependencies STATICALLY from the identifiers written in the expression and
+                   then evaluates it untracked, so the only dependency was salvageTargetId:
+                   the readout froze at whatever the queue held when the tile was SELECTED and
+                   never moved again. Queueing 1,100 units left this panel insisting
+                   "1 queued, 1225.71 free" while the tile beside it correctly said SALV 1101.
+                   Naming bayReservations in the call is what makes it live. Do NOT fold it
+                   back into a no-argument helper to "tidy" this line. -->
+              {@const selQueued = materialSalvageQueued(bayReservations, salvageTargetId)}
+              {@const selFree = Math.max(0, selCount.toNumber() - selQueued)}
+              <!-- ⚠️ selFree KEEPS FULL PRECISION and is the only honest answer to "how much of
+                   this stack is unspoken for": a salvaged material is a Decimal and 213.71 units
+                   really can be free. selFreeUnits is the QUEUEABLE share of it, floored, because
+                   a salvage order is a count of whole jobs. Everything the player reads and
+                   every gate on this panel uses selFreeUnits; selFree stays intact above it so
+                   the fraction is never silently rounded INTO existence, only out of an order.
+                   Under one whole unit free, selFreeUnits is 0 and the control is disabled with
+                   its reason stated, instead of the pre-2026-09-10 behaviour of offering an
+                   order of 1 that exceedsFreeSalvageUnits refused with only a log line. -->
+              {@const selFreeUnits = wholeUnitsFree(selFree)}
+              <!-- The number the buttons will actually queue: the raw form value floored and
+                   clamped into 1..selFreeUnits, through the ONE helper, so the label, the disabled
+                   gate and the click handler cannot disagree about it. Whole by construction, so
+                   it is printed raw below exactly as the Refinery prints its own "×N". -->
+              {@const selQty = salvageQtyFor(salvageQty, selFreeUnits)}
+              <!-- ONE reading of the bay's enqueue refusal for the Salvage button below
+                   (queue-full popup, 2026-09-10), the same helper the spare-systems panel BELOW
+                   uses, so the bay's two salvage controls behave identically on a full queue.
+                   (That panel used to sit above this one; the 2026-09-10 grid swap put Salvaged
+                   Materials first, so the pointer is now downward.) -->
+              {@const matQueueCtl = enqueueControlFor(salvageBayQueue.enqueueBlockReason)}
+              <Panel>
+                <div class="salvaged-action">
+                  <div class="salvaged-action-info">
+                    <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
+                    <div class="salvaged-action-hint">
+                      <!-- ⚠️ EVERY FIGURE IN THIS SENTENCE GOES THROUGH formatNumber (2026-09-10).
+                           `selQueued` and `selFree` used to be interpolated RAW while `Held`
+                           beside them was formatted, which is how the panel came to read
+                           "Held: 1.21K (1000 queued, 213.71000000000004 free)": three counts of
+                           the same thing in three different formats in one sentence. The free
+                           figure is the QUEUEABLE one (selFreeUnits), because that is the number
+                           the player can act on; selFree keeps its precision for nothing on
+                           screen, which is the point. -->
+                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}{#if selQueued > 0}{" "}({formatNumber(selQueued)} queued, {formatNumber(selFreeUnits)} free){/if}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
+                    </div>
+                    <div class="salvaged-action-hint">
+                      {#if !selHeld}
+                        None of this material is held.
+                      {:else if selQueued <= 0 && selFreeUnits <= 0}
+                        <!-- ⚠️ A SUB-UNIT STOCK IS ITS OWN CASE (found in live testing,
+                             2026-09-10), and it has to be split out from the "already spoken
+                             for" line below or that line tells the player to remove a queued
+                             order they never placed. This branch is reachable only when NOTHING
+                             is queued and the whole stock is still under one unit: loot can
+                             award a fraction, and salvage consumes whole units, so a stack of
+                             0.5 is real, held, and genuinely not yet salvageable. Before this
+                             release the button was simply enabled and every click failed in the
+                             event log; now the reason is on screen next to the dead control. -->
+                        You hold {formatNumber(selCount)} of this material, and salvage works on whole units. Recover at least one before breaking it down.
+                      {:else if selFreeUnits <= 0}
+                        <!-- Held but entirely spoken for: every unit is already queued or in
+                             the bay. Said explicitly rather than left to a generic disabled
+                             button, because "I hold 3 and the button is dead" reads as a bug
+                             until the player is told where the 3 went.
+                             ⚠️ TESTED ON WHOLE UNITS, NOT ON selFree (2026-09-10). A leftover
+                             fraction (0.71 free) is not a salvageable unit: the engine's
+                             exceedsFreeSalvageUnits refuses an order of 1 against it, so
+                             gating on `selFree > 0` left the button enabled on a stock that
+                             could never be queued. Whichever way it is dead, the player is now
+                             told why here rather than discovering it in the event log. -->
+                        Every unit you hold is already queued or being salvaged. Remove a queued order to release some.
+                      {:else if salvageBayQueue.enqueueBlockReason !== null}
+                        {enqueueBlockText(salvageBayQueue.enqueueBlockReason)}
+                      {:else}
+                        <!-- The duration is PER UNIT, and a batch starts its units one at a
+                             time (one per promotion), so a multi-unit order says so rather
+                             than letting the player read one unit's estimate as the whole
+                             job. The single-unit sentence is left exactly as it was.
+                             ⚠️ Salvage Lanes (2026-09-04): "through the single bay" is no
+                             longer true, so the live lane count is named instead.
+                             ⚠️ `state` is passed to salvageDurationPreview so these lines
+                             statically depend on it (stale-derivation trap, 2026-09-10).
+                             Without it the estimate was pinned to the moment the material was
+                             selected and ignored a Salvage Bay upgrade until reselection. -->
+                        {#if selQty > 1}
+                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} per unit, started one at a time as bays free up ({salvageBayCapacityPhrase}).
+                        {:else}
+                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} in the bay once it starts.
+                        {/if}
+                      {/if}
+                    </div>
+
+                    <!-- QUANTITY (0.13.3 batch-salvage follow-up). The craft configurator's
+                         own control, reused verbatim: the same `Qty` label, the same
+                         .modal-input number field with min/max/step, the same 80px width and
+                         the same `(max N)` .research-cost readout beside it. Reused rather
+                         than restyled precisely because a player who has set a batch in the
+                         Refinery should recognize this on sight.
+                         The max is what is FREE IN WHOLE UNITS, which is what the engine will
+                         accept: with min="1" and step="1" the native control could never have
+                         reached a fractional max anyway, so the raw 213.71 it used to carry was
+                         a number no player could type and no order could hold.
+
+                         ⚠️ THE `(max N)` READOUT IS NOW A RAW INTEGER, matching the Refinery and
+                         Fabricator byte for byte ("(max {maxQty})"), where it had been the only
+                         one in the game routed through formatNumber. That was the wrong kind of
+                         formatting for this kind of number: a max beside a type-in field is a
+                         value the player is meant to enter, and formatNumber would abbreviate a
+                         large stack to "1.50K", which cannot be typed into the box next to it.
+                         Resource MAGNITUDES still go through formatNumber everywhere; a form
+                         bound is not a magnitude. -->
+                    <div class="dev-row" style="margin-top: 8px;">
+                      <label style="display: inline-flex; align-items: center; gap: 6px;">
+                        Qty
+                        <input
+                          class="modal-input"
+                          type="number"
+                          min="1"
+                          max={selFreeUnits}
+                          step="1"
+                          style="width: 90px;"
+                          bind:value={salvageQty}
+                          aria-label="Salvage quantity"
+                          disabled={selFreeUnits <= 0}
+                        />
+                        <span class="research-cost">(max {selFreeUnits})</span>
+                      </label>
+                    </div>
+                  </div>
+                  <!-- The label carries the count the click will queue, the same way the
+                       Refinery's "Refine · ×N" and "Add to queue · ×N" do, so the number is
+                       visible on the control itself and not only in the field above it. The
+                       single-unit case keeps reading exactly "Salvage", unchanged.
+
+                       ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
+                       2026-09-10). DO NOT fold the raw `enqueueBlockReason !== null` back into
+                       the disabled expression: a disabled <button> cannot be clicked, so it could
+                       never open the popup, and the depth cap would go back to being a dead
+                       control whose only explanation is the ORDER QUEUE panel further up this tab
+                       (it read "several screens up" until the 2026-09-10 grid swap moved this
+                       panel nearer the top; the reasoning is unchanged, the distance is not).
+                       On a full queue the click OPENS THE POPUP and queues nothing.
+                       The two OTHER gates stay hard disables: `!selHeld` and `selFreeUnits <= 0`
+                       are about THIS material's stock, the hint text directly above already
+                       names both, and the remedy for them is right here (lower the quantity, or
+                       free some units up) rather than somewhere off screen.
+                       ⚠️ THE STOCK GATE NOW READS selFreeUnits, NOT selFree (2026-09-10). It is
+                       the one substantive change to this control: a sub-unit remainder (0.71
+                       free) passed `selFree <= 0` but the engine refuses an order of 1 against
+                       it, so the button was enabled on a stock that could never be queued and
+                       every click ended in a "Cannot queue salvage" log line. Whole units are
+                       what this control can actually order, so they are what it gates on. -->
+                  <button
+                    class="buy-btn systems-salvage-btn"
+                    disabled={!selHeld || selFreeUnits <= 0 || (matQueueCtl.blockText !== "" && !matQueueCtl.queueFullOnly)}
+                    title={selHeld ? undefined : "None of this material is held"}
+                    on:click={() => matQueueCtl.queueFullOnly
+                      ? openQueueFullNotice("salvageBay")
+                      : requestSalvage("material", salvageTargetId, selItem.label, selQty)}
+                  >
+                    <!-- selQty is whole by construction (clampWholeQty), so it is printed RAW,
+                         exactly as the Refinery prints "Refine · ×{N}" and the Fabricator
+                         "Fabricate · ×{N}". This is where "×213.71000000000004" was rendering.
+                         Raw rather than formatNumber for the same reason as the max readout
+                         above: it is the count the player set, not a resource magnitude. -->
+                    {selQty > 1 ? `Salvage · ×${selQty}` : "Salvage"}
+                  </button>
+                </div>
               </Panel>
             {/if}
 
@@ -10601,202 +10967,6 @@
                   {/if}
                   <span class="systems-salvage-none">{actionNote}</span>
                 </EquipmentTooltip>
-              </Panel>
-            {/if}
-
-            <!-- SALVAGED MATERIALS salvage: the select-to-salvage tiles over the
-                 whole salvaged catalog (salvageBaySalvagedItems, all tiers, no
-                 tier selector). SAME systems-tile visual + select idiom the
-                 Materials tab shows browse-only. -->
-            <Panel>
-              <div class="warehouse-tier-head">
-                <span class="warehouse-tier-label">Salvaged Materials</span>
-                <span class="warehouse-tier-line"></span>
-                <span class="warehouse-tier-cap">{salvageBayHeldSalvaged.length} material{salvageBayHeldSalvaged.length === 1 ? "" : "s"}</span>
-              </div>
-              {#if salvageBayHeldSalvaged.length === 0}
-                <div class="warehouse-stub">
-                  <div class="warehouse-stub-glyph">♻️</div>
-                  <p>No salvaged materials yet. Recover them from salvage missions, then break them down here for a loot roll.</p>
-                </div>
-              {:else}
-                <div class="warehouse-grid">
-                  {#each salvageBayHeldSalvaged as item (item.id)}
-                    {@const count = itemTotal(state.inventory, item.id)}
-                    <!-- 0.13.3 Unit 4.4: a salvaged material is FUNGIBLE, so unlike a unique
-                         spare it is not simply "reserved or not". Holding five and queueing
-                         three is legitimate, so the honest question is HOW MANY units are
-                         spoken for; the tile keeps showing the full held count (nothing has
-                         been consumed yet) and the tag carries the queued share, with
-                         free = held - queued. Reservation-aware stock, the same idiom the
-                         Warehouse uses for allocated materials (inventory 0.3). -->
-                    <!-- bayReservations is named HERE so this {@const} actually depends on it.
-                         Until 2026-09-10 it did not: the tile only kept up because a keyed
-                         {#each} re-sets its item source on every reconcile, which re-ran this
-                         const for an unrelated reason. That accident is what masked the same
-                         bug in the selected-material panel below. See the stale-derivation
-                         trap note on materialSalvageQueued. -->
-                    {@const queued = materialSalvageQueued(bayReservations, item.id)}
-                    {@const running = bayInFlightMaterials.get(item.id) ?? 0}
-                    <!-- Reuse the systems-tile visual (rarity dot + code + corner
-                         value), painting the count where a system's quality sits.
-                         Rarity color via warehouseRarityColor (item rarity). -->
-                    <button
-                      type="button"
-                      class="systems-tile"
-                      class:selected={selectedSalvagedId === item.id}
-                      class:sb-reserved={queued > 0}
-                      style="--sys-rc: {warehouseRarityColor(item.rarity)};"
-                      title={queued > 0
-                        ? `${item.label} · ${item.rarity} · ${queued} queued for salvage`
-                        : `${item.label} · ${item.rarity}`}
-                      on:click={() => selectSalvagedTile(item.id)}
-                    >
-                      <span class="systems-tile-dot"></span>
-                      <span class="systems-tile-code">{item.label.split(" ").slice(-1)[0]}</span>
-                      <span class="systems-tile-q">{formatNumber(count)}</span>
-                      {#if queued > 0}
-                        <span class="sb-tile-tag">{running > 0 ? "SALV" : "QUE"} {queued}</span>
-                      {/if}
-                    </button>
-                  {/each}
-                </div>
-              {/if}
-            </Panel>
-
-            <!-- SELECTED MATERIAL: the Salvage action + a short readout. The
-                 Salvage button disables when none is held (the engine also
-                 rejects noneHeld for safety); the roll result is narrated to the
-                 event log. -->
-            {#if selectedSalvagedId !== null && ITEMS[selectedSalvagedId] && itemTotal(state.inventory, selectedSalvagedId).gt(0)}
-              <!-- Capture the narrowed id into a const so the click closure below
-                   receives a plain `string` (Svelte narrows the template guard, but
-                   an arrow-function callback would otherwise see `string | null`).
-                   Gated on a held count > 0 so that after salvaging the last unit,
-                   the tile leaves the held-only grid AND this action panel closes
-                   together (no lingering panel for an item you no longer hold). -->
-              {@const salvageTargetId = selectedSalvagedId}
-              {@const selItem = ITEMS[selectedSalvagedId]}
-              {@const selCount = itemTotal(state.inventory, selectedSalvagedId)}
-              {@const selHeld = selCount.gt(0)}
-              <!-- 0.13.3 Unit 4.4: the queued share, and the free remainder it leaves.
-                   ⚠️ THE BUTTON IS GATED ON `free` AS OF THE BATCH-SALVAGE FOLLOW-UP, which
-                   REVERSES the note that stood here. It used to say the button must not gate
-                   on free, because the engine deliberately let the queue hold more salvage
-                   orders than the player held units. That is no longer the engine's rule: a
-                   queued salvage order now reserves its UNITS, and canEnqueueOrder refuses one
-                   that claims more than are free (rule 4, exceedsFreeSalvageUnits). So the
-                   quantity is capped at `selFree` and the button is disabled at zero, which is
-                   the UI agreeing with the engine rather than inventing a rule of its own, and
-                   is exactly what the craft configurator's `(max N)` does one console over. -->
-              <!-- ⚠️ THE STALE-DERIVATION TRAP LIVED HERE (fixed 2026-09-10). ⚠️
-                   This const used to read `materialSalvageQueued(salvageTargetId)`, which hid
-                   its `bayReservations` read inside the helper. Svelte collects a {@const}'s
-                   dependencies STATICALLY from the identifiers written in the expression and
-                   then evaluates it untracked, so the only dependency was salvageTargetId:
-                   the readout froze at whatever the queue held when the tile was SELECTED and
-                   never moved again. Queueing 1,100 units left this panel insisting
-                   "1 queued, 1225.71 free" while the tile beside it correctly said SALV 1101.
-                   Naming bayReservations in the call is what makes it live. Do NOT fold it
-                   back into a no-argument helper to "tidy" this line. -->
-              {@const selQueued = materialSalvageQueued(bayReservations, salvageTargetId)}
-              {@const selFree = Math.max(0, selCount.toNumber() - selQueued)}
-              <!-- The number the buttons will actually queue: the raw form value floored and
-                   clamped into 1..selFree, through the ONE helper, so the label, the disabled
-                   gate and the click handler cannot disagree about it. -->
-              {@const selQty = salvageQtyFor(salvageQty, selFree)}
-              <!-- ONE reading of the bay's enqueue refusal for the Salvage button below
-                   (queue-full popup, 2026-09-10), the same helper the spare-systems panel above
-                   uses, so the bay's two salvage controls behave identically on a full queue. -->
-              {@const matQueueCtl = enqueueControlFor(salvageBayQueue.enqueueBlockReason)}
-              <Panel>
-                <div class="salvaged-action">
-                  <div class="salvaged-action-info">
-                    <div class="salvaged-action-name" style="color: {warehouseRarityColor(selItem.rarity)};">{selItem.label}</div>
-                    <div class="salvaged-action-hint">
-                      Break it down for a chance at rare salvage. Held: {formatNumber(selCount)}{#if selQueued > 0}{" "}({selQueued} queued, {selFree} free){/if}. Reachable tiers rise with Fleet Admiral level and the salvage talent.
-                    </div>
-                    <div class="salvaged-action-hint">
-                      {#if !selHeld}
-                        None of this material is held.
-                      {:else if selFree <= 0}
-                        <!-- Held but entirely spoken for: every unit is already queued or in
-                             the bay. Said explicitly rather than left to a generic disabled
-                             button, because "I hold 3 and the button is dead" reads as a bug
-                             until the player is told where the 3 went. -->
-                        Every unit you hold is already queued or being salvaged. Remove a queued order to release some.
-                      {:else if salvageBayQueue.enqueueBlockReason !== null}
-                        {enqueueBlockText(salvageBayQueue.enqueueBlockReason)}
-                      {:else}
-                        <!-- The duration is PER UNIT, and a batch starts its units one at a
-                             time (one per promotion), so a multi-unit order says so rather
-                             than letting the player read one unit's estimate as the whole
-                             job. The single-unit sentence is left exactly as it was.
-                             ⚠️ Salvage Lanes (2026-09-04): "through the single bay" is no
-                             longer true, so the live lane count is named instead.
-                             ⚠️ `state` is passed to salvageDurationPreview so these lines
-                             statically depend on it (stale-derivation trap, 2026-09-10).
-                             Without it the estimate was pinned to the moment the material was
-                             selected and ignored a Salvage Bay upgrade until reselection. -->
-                        {#if selQty > 1}
-                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} per unit, started one at a time as bays free up ({salvageBayCapacityPhrase}).
-                        {:else}
-                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} in the bay once it starts.
-                        {/if}
-                      {/if}
-                    </div>
-
-                    <!-- QUANTITY (0.13.3 batch-salvage follow-up). The craft configurator's
-                         own control, reused verbatim: the same `Qty` label, the same
-                         .modal-input number field with min/max/step, the same 80px width and
-                         the same `(max N)` .research-cost readout beside it. Reused rather
-                         than restyled precisely because a player who has set a batch in the
-                         Refinery should recognize this on sight.
-                         The max is what is FREE, which is what the engine will accept. -->
-                    <div class="dev-row" style="margin-top: 8px;">
-                      <label style="display: inline-flex; align-items: center; gap: 6px;">
-                        Qty
-                        <input
-                          class="modal-input"
-                          type="number"
-                          min="1"
-                          max={selFree}
-                          step="1"
-                          style="width: 90px;"
-                          bind:value={salvageQty}
-                          aria-label="Salvage quantity"
-                          disabled={selFree <= 0}
-                        />
-                        <span class="research-cost">(max {formatNumber(new Decimal(selFree))})</span>
-                      </label>
-                    </div>
-                  </div>
-                  <!-- The label carries the count the click will queue, the same way the
-                       Refinery's "Refine · ×N" and "Add to queue · ×N" do, so the number is
-                       visible on the control itself and not only in the field above it. The
-                       single-unit case keeps reading exactly "Salvage", unchanged.
-
-                       ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
-                       2026-09-10). DO NOT fold the raw `enqueueBlockReason !== null` back into
-                       the disabled expression: a disabled <button> cannot be clicked, so it could
-                       never open the popup, and the depth cap would go back to being a dead
-                       control whose only explanation is the ORDER QUEUE panel several screens up
-                       on a phone. On a full queue the click OPENS THE POPUP and queues nothing.
-                       The two OTHER gates stay hard disables and are unchanged: `!selHeld` and
-                       `selFree <= 0` are about THIS material's stock, the hint text directly
-                       above already names both, and the remedy for them is right here (lower the
-                       quantity, or free some units up) rather than somewhere off screen. -->
-                  <button
-                    class="buy-btn systems-salvage-btn"
-                    disabled={!selHeld || selFree <= 0 || (matQueueCtl.blockText !== "" && !matQueueCtl.queueFullOnly)}
-                    title={selHeld ? undefined : "None of this material is held"}
-                    on:click={() => matQueueCtl.queueFullOnly
-                      ? openQueueFullNotice("salvageBay")
-                      : requestSalvage("material", salvageTargetId, selItem.label, selQty)}
-                  >
-                    {selQty > 1 ? `Salvage · ×${selQty}` : "Salvage"}
-                  </button>
-                </div>
               </Panel>
             {/if}
             {/if}
@@ -13451,17 +13621,26 @@
               {#if done.secondaryLabel !== null}
                 <span class="home-phase">{done.secondaryLabel}</span>
               {/if}
-              <span class="home-meta">{completionAtText(done.atMs)}</span>
+              <!-- "7h ago (14:05)". The AGE leads because this section's whole job is
+                   answering "what did I miss while I was away" (QA finding D4); cycle.nowTick
+                   is the app's own reactive tick clock, so the age keeps counting up on the
+                   board instead of freezing at the value it read on first paint. -->
+              <span class="home-meta">{completionAtText(done.atMs, cycle.nowTick)}</span>
               <!-- Elapsed time, through the SHARED durationReadout so it respects the
                    player's tick-count preference like every other duration in the game. -->
               {#if completionElapsedText(done.elapsedMs) !== null}
                 <span class="home-eta">{completionElapsedText(done.elapsedMs)}</span>
               {/if}
             </span>
-            {#if done.rewards.length > 0}
+            {#if done.rewards.length > 0 || done.creditsAmount !== null || done.fuelAmount !== null}
               <!-- The MANIFEST: what actually landed. Amount first (it answers "how much did
                    I get"), then the item name in its own rarity color via the shared
-                   warehouseRarityColor, exactly as the Warehouse renders the same item. -->
+                   warehouseRarityColor, exactly as the Warehouse renders the same item.
+                   ⚠️ ZERO LINES ARE KEPT ON PURPOSE (QA finding D3): a partial recovery shows
+                   "0 Frame Segment, 1.00 Titanium Ingot" because the zero is information, not
+                   noise. A recovery that returned NOTHING AT ALL carries no manifest at all
+                   (the resolver classifies it "nothing"), so this block does not render for
+                   it and the row says so in words on the line above instead. -->
               <span class="home-done-rewards">
                 {#each done.rewards as reward (reward.itemId)}
                   <span class="home-done-reward" style="--done-rc: {warehouseRarityColor(reward.rarity)};">
@@ -13469,6 +13648,23 @@
                     <span class="home-done-name">{reward.label}</span>
                   </span>
                 {/each}
+                <!-- The two gains that are NOT inventory items and so have no item chip of
+                     their own (QA finding D5): a hull teardown's credit refund, and a fuel
+                     batch's deposit into the tank. Rendered in the same chip shape, with the
+                     neutral rarity color, so a fuel row finally reads "Refined, Fuel" with a
+                     quantity instead of a bare verb. -->
+                {#if done.creditsAmount !== null}
+                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
+                    <span class="home-done-amt">{formatNumber(new Decimal(done.creditsAmount))}</span>
+                    <span class="home-done-name">credits</span>
+                  </span>
+                {/if}
+                {#if done.fuelAmount !== null}
+                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
+                    <span class="home-done-amt">{formatNumber(new Decimal(done.fuelAmount))}</span>
+                    <span class="home-done-name">fuel</span>
+                  </span>
+                {/if}
               </span>
             {/if}
           </span>

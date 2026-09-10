@@ -3458,6 +3458,37 @@ export interface CompletionRewardItem {
   amount: string;
 }
 
+// What a completed SALVAGE broke down, kept as the STATIC IDS that name it (0.13.3 QA
+// finding D5, user 2026-09-10: "What was salvaged. What was gained.").
+//
+// ⚠️ WHY THIS FIELD IS GENUINELY UNAVOIDABLE, rather than a convenience. Every other
+// completed kind can be named after the fact from `subjectKey` alone, because its subject
+// still exists: a refined item, an unlocked blueprint, an upgraded facility, a repaired
+// hull. A SALVAGE is the one kind whose subject is DESTROYED by the completion itself. For
+// the fungible arm that is harmless (the subject key is an item id and ITEMS still has the
+// entry), but a crafted piece is an EquipmentInstance whose name is resolved through its
+// slotType + blueprintKey, and both of those die with the instance. So the record either
+// captures them at write time (the resolver holds the pre-completion state, where the piece
+// is still present) or the row can never say more than "Salvaged". There is no third
+// option, and "Salvaged" with no subject is exactly the defect this closes.
+//
+// ⚠️ STILL IDS, NEVER PRE-RENDERED STRINGS, so the rule at the top of this section holds:
+// the reader runs these through the SAME naming helper the Salvage Bay's own queue rows use
+// (craftQueue.ts equipmentInstanceLabel), rather than reading back a sentence this file
+// froze at write time.
+//
+// ⚠️ ADDITIVE AND OPTIONAL, so NO SAVE_VERSION BUMP. An entry written before this field
+// existed simply lacks it and degrades to the previous wording; nothing reads it without a
+// presence check. The material arm is deliberately absent from the union: its subjectKey is
+// already an item id, so storing a second copy would cost save bytes for no new fact.
+export type CompletionSalvageSubject =
+  // A spare Ship System. blueprintKey null is the Standard-Issue baseline (craft-less), the
+  // distinction the Salvage Bay's DESTROY-versus-SALVAGE wording turns on.
+  | { kind: "equipment"; slotType: string; blueprintKey: string | null }
+  // A hull teardown, named by its CLASS. The player's own ship name is not captured: it is
+  // free text rather than an id, and the class is what survives as a stable fact.
+  | { kind: "ship"; typeKey: string };
+
 // One finished ORDER, as the player can read it back.
 //
 // ⚠️ PER ORDER, NOT PER ITERATION (design catch 1, user 2026-09-02). The user's own
@@ -3492,6 +3523,11 @@ export interface CompletionLogEntry {
   // process dropped and applied nothing. Recorded rather than swallowed so the Salvage Bay
   // can say "nothing was consumed, you can queue it again" instead of going quiet.
   stale: boolean;
+  // The consumed salvage target's naming ids (see CompletionSalvageSubject). Present only
+  // on a "salvageJob" entry whose target was an EquipmentInstance or a hull, and only when
+  // the resolver could still see it. Absent everywhere else, and absent on every entry
+  // written before this field existed, so every read is presence-checked.
+  salvageSubject?: CompletionSalvageSubject;
 }
 
 // The RUNNING accumulation for one line-backed order that has not finished yet.

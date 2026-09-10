@@ -31,12 +31,21 @@ import {
   COMPLETION_LOG_CAP,
   ITEMS,
   SHIP_TYPES,
+  // 0.13.3 QA findings D3 + D5 (section 6 below): a real spare piece to salvage, built the
+  // same way salvage.test.ts builds one, so every field the resolver reads is valid.
+  generateStandardIssue,
+  type EquipmentInstance,
+  type EquipmentSlotType,
   type GameState,
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
 } from "./model";
 import { resolveProcesses, economyTick, startLine, cancelLine, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
+// App.svelte as a RAW STRING (Vite's ?raw), for the offline-clock call-site grep in section 7.
+// Same idiom salvage.test.ts uses for its live-only source guards: ?raw keeps this a pure
+// Vite/Vitest concern with no Node type dependency, so `npm run check` stays clean.
+import appSource from "../../App.svelte?raw";
 import { migrate } from "./save";
 import { itemTotal } from "./inventory";
 
@@ -514,6 +523,9 @@ describe("save migration", () => {
           fuelAmount: null,
           creditsAmount: "1200",
           stale: false,
+          // 0.13.3 QA finding D5: the added optional field is plain strings + null, so it
+          // rides the same spread with no hydration branch and needs no SAVE_VERSION bump.
+          salvageSubject: { kind: "equipment", slotType: "cargoBay", blueprintKey: "balancedHoldBp" },
         },
       ],
       nextCompletionLogId: 2,
@@ -529,5 +541,275 @@ describe("save migration", () => {
     // Still a plain string, and still exact at a scale a JS number would round.
     expect(typeof roundTripped.completionLog[0].items[0].amount).toBe("string");
     expect(new Decimal(roundTripped.completionLog[0].items[0].amount).toString()).toBe("1e+30");
+    // The salvage subject survives verbatim, ids intact.
+    expect(roundTripped.completionLog[0].salvageSubject).toEqual({
+      kind: "equipment",
+      slotType: "cargoBay",
+      blueprintKey: "balancedHoldBp",
+    });
+  });
+
+  it("loads an entry written BEFORE the salvage-subject field existed, without inventing one", () => {
+    // The field is optional and additive, which is exactly why SAVE_VERSION did not move.
+    // A record already sitting in a player's ring buffer simply has no subject ids, and the
+    // migration must not manufacture any: an unnamed row is honest, a guessed one is not.
+    const seed = freshState();
+    const legacyEntry = {
+      id: "done-1",
+      kind: "salvageJob" as const,
+      reward: "materials" as const,
+      atMs: T0,
+      startedAtMs: T0 - 5000,
+      iterations: 1,
+      items: [{ itemId: "titaniumIngot", amount: "1" }],
+      pieces: 0,
+      subjectKey: "equip-1",
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
+      stale: false,
+    };
+    const roundTripped = migrate(JSON.parse(JSON.stringify({
+      version: 40,
+      created_at: T0,
+      last_saved_at: T0,
+      game_time_seconds: 0,
+      state: { ...seed, completionLog: [legacyEntry], nextCompletionLogId: 2 },
+    })));
+    expect(roundTripped.completionLog[0]).toEqual(legacyEntry);
+    expect(roundTripped.completionLog[0].salvageSubject).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6. A COMPLETED SALVAGE: WHAT WAS SALVAGED, AND WHAT WAS GAINED
+//    (0.13.3 QA findings D3 + D5, user 2026-09-10)
+//
+// Two rules that pull in opposite directions and must BOTH hold, which is why they are
+// tested together rather than apart:
+//
+//   D3  a PARTIAL recovery keeps its ZERO LINES. "It shows that you don't have enough of
+//       something and doesn't make you think you have to swap over to the warehouse tab to
+//       then find you have 0 of something." A zero is information.
+//   D5  a salvage record must be able to NAME the target it broke down, which for a crafted
+//       piece is impossible after the fact: the completion destroys the instance the name is
+//       resolved through. So the resolver captures the naming IDS while the target lives.
+//
+// And the fix they must not undo: an ALL-ZERO recovery is classified "nothing" on the
+// AMOUNTS (never on the array length) and carries NO manifest, so no reader can print a row
+// of zeroes under a claim that anything reached the Warehouse.
+// ---------------------------------------------------------------------------
+
+// The recovery fraction is `SALVAGE_FRACTION_MIN + rng() * (MAX - MIN)`, so a constant-zero
+// rng pins it at exactly 0.3 with no talent bonus on a fresh state. Each input then recovers
+// floor(qty * 0.3), which is what makes the two manifests below exactly predictable:
+//   balancedHoldBp   frameSegment 2 -> 0, titaniumIngot 4 -> 1   (PARTIAL, one zero line)
+//   highOutputCoreBp powerCoupling 3 -> 0, structuralAssembly 1 -> 0  (ALL ZERO)
+const ZERO_RNG = () => 0;
+
+// One spare CRAFTED piece, built off a real Standard-Issue baseline so every field the
+// resolver reads is valid, with only the three fields salvage cares about overridden.
+function craftedSpare(id: string, slotType: EquipmentSlotType, blueprintKey: string | null): EquipmentInstance {
+  const base = generateStandardIssue({ slotType, fittedToShipId: null, allocateId: () => id });
+  return { ...base, fittedToShipId: null, blueprintKey, quality: 0 };
+}
+
+function salvageStateWith(piece: EquipmentInstance): GameState {
+  return { ...freshState(), equipment: [piece] };
+}
+
+function salvageProcessFor(piece: EquipmentInstance): TimedProcess {
+  return readyProcess("p-salvage", "salvageJob", {
+    type: "salvageResolve",
+    target: { kind: "equipment", instanceId: piece.id },
+  });
+}
+
+describe("a completed salvage records WHAT was broken down and WHAT came back", () => {
+  it("captures the destroyed piece's naming ids, because they die with the piece (D5)", () => {
+    const piece = craftedSpare("equip-77", "cargoBay", "balancedHoldBp");
+    const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
+
+    const out = resolveProcesses(s, 1, ZERO_RNG, T0).next;
+
+    // The piece is genuinely gone, which is the whole reason the ids had to be captured.
+    expect(out.equipment.find((e) => e.id === "equip-77")).toBeUndefined();
+
+    const entry = out.completionLog[0];
+    expect(entry.kind).toBe("salvageJob");
+    // Still the instance id, because the Salvage Bay's readout finds its record by it.
+    expect(entry.subjectKey).toBe("equip-77");
+    // IDS, never a rendered sentence (the model's standing rule for this log).
+    expect(entry.salvageSubject).toEqual({
+      kind: "equipment",
+      slotType: "cargoBay",
+      blueprintKey: "balancedHoldBp",
+    });
+  });
+
+  it("keeps a PARTIAL manifest's ZERO LINES, because a zero is information (D3)", () => {
+    const piece = craftedSpare("equip-78", "cargoBay", "balancedHoldBp");
+    const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
+
+    const entry = resolveProcesses(s, 1, ZERO_RNG, T0).next.completionLog[0];
+
+    // Something DID come back, so the outcome is a real recovery...
+    expect(entry.reward).toBe("materials");
+    // ...and the manifest is the FULL rolled breakdown, zero line included, in recipe order.
+    expect(entry.items).toEqual([
+      { itemId: "frameSegment", amount: "0" },
+      { itemId: "titaniumIngot", amount: "1" },
+    ]);
+  });
+
+  it("records an ALL-ZERO recovery as 'nothing' with NO manifest at all (the fix D3 must not undo)", () => {
+    const piece = craftedSpare("equip-79", "reactorCore", "highOutputCoreBp");
+    const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
+
+    const entry = resolveProcesses(s, 1, ZERO_RNG, T0).next.completionLog[0];
+
+    // Classified on the AMOUNTS. Both lines floored to zero, so nothing was recovered.
+    expect(entry.reward).toBe("nothing");
+    // And it carries NO rows of zeroes for a reader to print under a Warehouse claim.
+    expect(entry.items).toEqual([]);
+    expect(entry.creditsAmount).toBeNull();
+    // It is not the STALE case: the piece really was consumed.
+    expect(entry.stale).toBe(false);
+  });
+
+  it("records a Standard-Issue baseline as a nothing-reward destroy, named by its slot", () => {
+    // A baseline has no blueprint, so it carries no materials to recover BY DESIGN. The
+    // stored blueprintKey null is what lets a readout say that rather than blaming a bad roll.
+    const piece = craftedSpare("equip-80", "cargoBay", null);
+    const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
+
+    const entry = resolveProcesses(s, 1, ZERO_RNG, T0).next.completionLog[0];
+
+    expect(entry.reward).toBe("nothing");
+    expect(entry.items).toEqual([]);
+    expect(entry.salvageSubject).toEqual({ kind: "equipment", slotType: "cargoBay", blueprintKey: null });
+  });
+
+  it("stores NO salvageSubject for the fungible arm, whose subjectKey already names it", () => {
+    // A salvaged MATERIAL is an item id, and ITEMS outlives the salvage, so a second copy
+    // would be save bytes for no new fact.
+    const base = craftState();
+    const s: GameState = {
+      ...base,
+      inventory: { ...base.inventory, [SALVAGED_MATERIAL]: [new Decimal(5)] },
+      activeProcesses: [
+        readyProcess("p-mat", "salvageJob", { type: "salvageResolve", target: { kind: "material", itemId: SALVAGED_MATERIAL } }),
+      ],
+    };
+
+    const entry = resolveProcesses(s, 1, seededRng(), T0).next.completionLog[0];
+    expect(entry.subjectKey).toBe(SALVAGED_MATERIAL);
+    expect(entry.salvageSubject).toBeUndefined();
+  });
+
+  it("adds NO key to a non-salvage record, so an existing entry is byte-identical", () => {
+    // The field is spread in, never assigned, so a refine record does not gain an
+    // `salvageSubject: undefined` key that a deep-equal comparison would trip over.
+    const s: GameState = {
+      ...craftState(),
+      activeProcesses: [readyProcess("p-refine", "refineJob", { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) })],
+    };
+    const entry = resolveProcesses(s, 1, seededRng(), T0).next.completionLog[0];
+    expect("salvageSubject" in entry).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. EVERY OFFLINE CATCH-UP MUST HAND THE TICK A CLOCK
+//    (0.13.3 QA finding D4, user 2026-09-10)
+//
+// THE DEFECT THIS GUARDS, stated plainly because the shape of it is the lesson. Orders that
+// completed during an offline catch-up rendered as "time not recorded" while identical live
+// completions showed a real time. The engine was innocent: tick() reconstructs a per-tick
+// stamp schedule from an anchor it is HANDED, and the cases above and in craftQueue.test.ts
+// already prove that reconstruction. The hole was a CALL SITE. tick()'s fourth argument
+// defaults to UNKNOWN_COMPLETION_TIME_MS (deliberately, so unit tests stay deterministic),
+// and one of the two callers that advance a real absence, the DEV simulate-offline button,
+// was simply not passing one. A defaulted argument fails SILENTLY, which is why it survived.
+//
+// A unit test cannot reach that call site (it lives in a Svelte component), so the guard is
+// a SOURCE GREP, the same idiom salvage.test.ts uses for its live-only invariants: find every
+// call to the offline `tick` in App.svelte and require four arguments. A future third catch-up
+// path that forgets the clock then fails here instead of shipping blank timestamps.
+// ---------------------------------------------------------------------------
+
+// The argument list of a call, given the index of its opening paren. Walks the string
+// counting parens (and skipping over string literals, which can contain unbalanced ones), so
+// a nested call like `tick(a, b, Math.random, Date.now())` is read as FOUR arguments and not
+// as five fragments. Returns the top-level arguments, trimmed.
+function callArguments(source: string, openParenIndex: number): string[] {
+  const args: string[] = [];
+  let depth = 0;
+  let current = "";
+  let quote: string | null = null;
+  for (let i = openParenIndex; i < source.length; i++) {
+    const ch = source[i];
+    if (quote !== null) {
+      if (ch === quote && source[i - 1] !== "\\") quote = null;
+      current += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth += 1;
+      if (depth === 1) continue; // the call's own opening paren starts the list
+    } else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) {
+        if (current.trim().length > 0) args.push(current.trim());
+        return args;
+      }
+    } else if (ch === "," && depth === 1) {
+      args.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  throw new Error("unbalanced parentheses while reading a call argument list");
+}
+
+// Every REAL call to the offline `tick` in App.svelte, as its argument list.
+//
+// ⚠️ THE EMPTY-PARENS FILTER IS NOT A LOOPHOLE. This file's comments refer to the function
+// as "tick()", with nothing between the parens, dozens of times, and a grep that counted
+// those would fail on prose rather than on code. A genuine call always passes at least a
+// span and a state, so "has at least one argument" separates code from commentary exactly.
+// The lookbehind keeps `economyTick(` and any `x.tick(` out.
+function offlineTickCallArguments(): string[][] {
+  const found: string[][] = [];
+  for (const match of appSource.matchAll(/(?<![A-Za-z0-9_$.])tick\(\s*(?!\))/g)) {
+    found.push(callArguments(appSource, match.index! + "tick".length));
+  }
+  return found;
+}
+
+describe("every offline catch-up hands tick() a completion clock", () => {
+  it("finds the call sites at all (non-vacuity)", () => {
+    // A guard that matches nothing passes for the wrong reason. Two catch-up paths exist
+    // today (the onMount return, and the DEV simulate-offline button), so a rename or a
+    // deletion cannot quietly disarm the case below without failing here first.
+    expect(offlineTickCallArguments().length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("passes FOUR arguments at every call site, so no completion is stamped 'time not recorded'", () => {
+    for (const args of offlineTickCallArguments()) {
+      // deltaSeconds, state, rng, endedAtMs. The fourth is the whole point: without it the
+      // catch-up silently stamps UNKNOWN_COMPLETION_TIME_MS on everything it resolves.
+      expect(args).toHaveLength(4);
+      // And it must not be the sentinel spelled out longhand, which would pass the arity
+      // check while reintroducing exactly the defect.
+      expect(args[3]).not.toBe("UNKNOWN_COMPLETION_TIME_MS");
+      expect(args[3]).not.toBe("0");
+    }
   });
 });

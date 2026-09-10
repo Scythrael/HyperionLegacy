@@ -24,6 +24,39 @@ describe("formatNumber", () => {
       expect(formatNumber(5.5)).toBe("5.50");
     });
 
+    // ── Whole numbers never carry ".00" (2026-09-10, quantity-consistency pass) ──────
+    // The defect these pin: the Shipyard's REQUIRES rows printed "free 12 (8.00 reserved)"
+    // beside "free 8.00 (4.00 reserved)". Same kind of value, two formats, adjacent lines,
+    // and BOTH figures were already going through formatNumber. The split was the <10 arm
+    // applying toFixed(2) to whole values, so a whole count's format depended on nothing but
+    // its magnitude. These cases fix the contract in place so it cannot silently come back.
+    it("formats a whole single-digit value as a bare integer, not \"8.00\"", () => {
+      expect(formatNumber(8)).toBe("8");
+      expect(formatNumber(4)).toBe("4");
+      expect(formatNumber(1)).toBe("1");
+      expect(formatNumber(-8)).toBe("-8");
+    });
+
+    it("renders whole values identically either side of the old <10 split (no adjacent-line drift)", () => {
+      // The exact pair from the bug report, which must now agree in shape.
+      expect(formatNumber(12)).toBe("12");
+      expect(formatNumber(8)).toBe("8");
+    });
+
+    it("still keeps 2 decimals for a genuinely fractional small value (precision is not lost)", () => {
+      // The <10 arm's real purpose survives: only WHOLE values skip it.
+      expect(formatNumber(8.35)).toBe("8.35");
+      expect(formatNumber(0.5)).toBe("0.50");
+      expect(formatNumber(9.99)).toBe("9.99");
+    });
+
+    it("does not strip decimals from the TIERED branch, where they are significant figures", () => {
+      // A deliberate distinction: the tiered form is an abbreviation of a rounded value, so
+      // "8.00K" carries information "8K" would drop. Only the literal branch changed.
+      expect(formatNumber(8000)).toBe("8.00K");
+      expect(formatNumber(12000)).toBe("12.0K");
+    });
+
     it("formats a value just under 1000 (999) with no decimals, no tier suffix", () => {
       // abs = 999, < 1000 true, 999 < 10 false -> Math.trunc(999).toString().
       expect(formatNumber(999)).toBe("999");

@@ -157,6 +157,9 @@ import {
   type CompletionLogEntry,
   type CompletionRewardItem,
   type CompletionRewardKind,
+  // 0.13.3 QA finding D5: the naming ids a salvage record captures for the target its own
+  // completion destroys (the one subject that cannot be looked up after the fact).
+  type CompletionSalvageSubject,
   type OpenJobBatch,
   type FacilityState,
   COMPLETION_LOG_CAP,
@@ -1021,6 +1024,10 @@ interface CompletionYield {
   fuelAmount: string | null;
   creditsAmount: string | null;
   stale: boolean;
+  // 0.13.3 QA finding D5: the naming ids of a salvage target that the completion DESTROYS.
+  // undefined for every other kind (and for a salvage whose target was already gone), so the
+  // emitted entry simply omits the optional field. See CompletionSalvageSubject in model.ts.
+  salvageSubject?: CompletionSalvageSubject;
 }
 
 // The post-completion level readings a "level" reward reports. Passed in from
@@ -1072,6 +1079,32 @@ function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntr
   return next.length > COMPLETION_LOG_CAP ? next.slice(next.length - COMPLETION_LOG_CAP) : next;
 }
 
+// The naming ids for a salvage target, read while the target still EXISTS (0.13.3 QA
+// finding D5). Returns undefined for the fungible arm (its item id is already the record's
+// subjectKey, so a second copy would be save bytes for no new fact) and for a target that
+// has already gone (the stale fail-safe, where guessing a name would be worse than none).
+//
+// PURE: two array lookups over the pre-completion state, no mutation, no rng, no clock.
+function salvageSubjectFor(state: GameState, target: SalvageTargetRef): CompletionSalvageSubject | undefined {
+  switch (target.kind) {
+    case "equipment": {
+      const piece = state.equipment.find((e) => e.id === target.instanceId);
+      if (piece === undefined) return undefined;
+      // slotType + blueprintKey are exactly the pair craftQueue.ts's equipmentInstanceLabel
+      // takes, which is what makes the finished row and the queued row name one piece the
+      // same way. blueprintKey null is preserved verbatim: it IS the Standard-Issue baseline.
+      return { kind: "equipment", slotType: piece.slotType, blueprintKey: piece.blueprintKey };
+    }
+    case "ship": {
+      const ship = state.ships.find((s) => s.id === target.shipId);
+      if (ship === undefined) return undefined;
+      return { kind: "ship", typeKey: ship.typeKey };
+    }
+    case "material":
+      return undefined;
+  }
+}
+
 // Read one completed process's contribution off its EFFECT (the payload) and its kind's
 // policy (the declared shape). The effect is the only place the payload lives, which is
 // why the switch is on the effect and the policy supplies the shape.
@@ -1081,12 +1114,17 @@ function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntr
 //                 (0 for a corrupt blueprint that minted and drew nothing).
 //   salvage       the manifest resolveSalvageEffect produced, or null for the fail-safe
 //                 no-op on a stale target.
+//   state         the PRE-COMPLETION state, needed by exactly one branch: a salvage names
+//                 its target from ids that die with the target, so they must be read while
+//                 the target is still there (0.13.3 QA finding D5). Nothing else reads it,
+//                 and nothing here mutates it.
 function completionYieldFor(
   process: TimedProcess,
   policy: CompletionLogPolicy,
   levels: CompletionLevelView,
   mintedPieces: number,
-  salvage: SalvageEffectOutcome | null
+  salvage: SalvageEffectOutcome | null,
+  state: GameState
 ): CompletionYield {
   const empty: CompletionYield = {
     reward: policy.reward === "byEffect" ? "nothing" : policy.reward,
@@ -1137,11 +1175,18 @@ function completionYieldFor(
           : effect.target.kind === "material"
             ? effect.target.itemId
             : effect.target.shipId;
+      // 0.13.3 QA finding D5 ("What was salvaged. What was gained."), the FIRST half.
+      // Captured HERE, off the pre-completion state, because this completion is about to
+      // destroy the only object that can answer it: an EquipmentInstance's display name is
+      // resolved through its slotType + blueprintKey, and both die with the instance. The
+      // fungible arm needs nothing (its subjectKey IS an item id, and ITEMS outlives the
+      // salvage), and a target that has ALREADY gone yields undefined rather than a guess.
+      const salvageSubject = salvageSubjectFor(state, effect.target);
       if (salvage === null) {
         // The documented fail-safe no-op: the target was gone when its turn came, so the
         // process dropped and applied nothing. Recorded as a stale entry rather than
         // swallowed, because that silence is exactly what this feature exists to end.
-        return { ...empty, reward: "nothing", subjectKey, stale: true };
+        return { ...empty, reward: "nothing", subjectKey, stale: true, salvageSubject };
       }
       const items = foldRewardItems([], salvage.recovered);
       const credits = salvage.creditsRecovered;
@@ -1156,18 +1201,34 @@ function completionYieldFor(
       // own Last Salvage panel. That fix treated it as one site; it was a class. If a third
       // surface ever reads a manifest, it must ask the same question.
       const recoveredItems = items.filter((item) => new Decimal(item.amount).gt(0));
+      // The classification, on the AMOUNTS (see the block above). Held in a local because
+      // the manifest rule below depends on it, and the two must never be decided separately.
+      const anythingRecovered = recoveredItems.length > 0 || credits > 0;
       return {
         ...empty,
         // "nothing" is the honest shape for a Standard-Issue baseline (DESTROYED for zero
         // reward, the storage escape valve) AND for a roll that floored to zero. Both are
         // real outcomes the player must be told about plainly rather than shown an empty
         // manifest, which reads as a bug.
-        reward: recoveredItems.length > 0 || credits > 0 ? "materials" : "nothing",
-        // Zero lines are dropped so a "materials" entry can never render a 0 next to a real
-        // amount, and a "nothing" entry carries no phantom manifest at all.
-        items: recoveredItems,
+        reward: anythingRecovered ? "materials" : "nothing",
+        // ⚠️ A PARTIAL MANIFEST KEEPS ITS ZERO LINES; AN ALL-ZERO MANIFEST KEEPS NONE
+        // (0.13.3 QA finding D3, user 2026-09-10, and it reverses half of what this line
+        // used to do). The zero lines were being filtered out entirely, which threw away
+        // information the user explicitly wants: "It shows that you don't have enough of
+        // something and doesn't make you think you have to swap over to the warehouse tab
+        // to then find you have 0 of something." A line reading 0 answers a question the
+        // player would otherwise leave the screen to answer, so on a recovery that DID
+        // return something the full rolled manifest is stored, zeros included.
+        //
+        // The all-zero case is untouched and must stay that way: it classifies as "nothing"
+        // above, and carrying its rows of zeroes would let a reader print a manifest under
+        // a claim that everything went to the Warehouse, which is the false statement fixed
+        // earlier in this release (see the ⚠️ block above and App.svelte's Last Salvage
+        // panel). So "nothing" carries no manifest at all, and its readers say so in words.
+        items: anythingRecovered ? items : [],
         subjectKey,
         creditsAmount: credits > 0 ? String(credits) : null,
+        salvageSubject,
       };
     }
   }
@@ -1221,7 +1282,7 @@ function recordCompletion(args: {
   const policy = PROCESS_COMPLETION_LOG[process.kind];
   if (!policy.logged) return acc;
 
-  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage);
+  const contribution = completionYieldFor(process, policy, levels, mintedPieces, salvage, state);
   const startedAtMs = completionStartedAtMs(nowMs, process, state.tickDurationSeconds);
 
   // A line-backed iteration folds; everything else is a batch of one and emits now.
@@ -1242,6 +1303,11 @@ function recordCompletion(args: {
       fuelAmount: contribution.fuelAmount,
       creditsAmount: contribution.creditsAmount,
       stale: contribution.stale,
+      // SPREAD, not assigned, so an entry that has no salvage subject carries no `undefined`
+      // key at all. That keeps a non-salvage record byte-identical to what it was before this
+      // field existed, which is what every existing deep-equal parity + save round-trip case
+      // compares against.
+      ...(contribution.salvageSubject !== undefined ? { salvageSubject: contribution.salvageSubject } : {}),
     };
     return { log: pushCompletionEntry(acc.log, entry), nextId: acc.nextId + 1, open: acc.open };
   }
@@ -1314,6 +1380,8 @@ function completionEntryFromBatch(batch: OpenJobBatch, id: number): CompletionLo
     fuelAmount: null,
     creditsAmount: null,
     stale: false,
+    // salvageSubject is likewise omitted, and structurally cannot apply: salvageJob is
+    // batched:false in PROCESS_COMPLETION_LOG, so a salvage never reaches this accumulator.
   };
 }
 

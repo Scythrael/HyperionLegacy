@@ -77,7 +77,16 @@ import {
 // craftQueue.ts (that module's header states the rule). This file already imported tick.ts,
 // so adding craftQueue.ts here points one more arrow the SAME way (homeDashboard ->
 // craftQueue -> tick) and introduces no cycle. Nothing in the engine imports this file.
-import { buildAllCraftQueues, salvageTargetLabel, type CraftQueueView } from "./craftQueue";
+import {
+  buildAllCraftQueues,
+  salvageTargetLabel,
+  // 0.13.3 QA finding D5: the SAME piece-naming call the Salvage Bay's queued and running
+  // rows make, reused here so a FINISHED salvage names its (now destroyed) target exactly as
+  // the bay named it while it was queued. Structural argument, so it works off the record's
+  // stored ids without the instance.
+  equipmentInstanceLabel,
+  type CraftQueueView,
+} from "./craftQueue";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -220,6 +229,16 @@ export interface CompletionRow {
   atMs: number;                  // when the order completed; 0 = unknown clock
   elapsedMs: number | null;      // how long the run took; null when either stamp is unknown
   rewards: CompletionRewardChip[]; // item rewards, ids resolved to label + rarity + amount
+  // The two NON-ITEM gains, carried as raw Decimal STRINGS for the same reason the item
+  // chips carry raw amounts: the UI owns formatNumber (0.13.3 QA finding D5). Both are null
+  // unless the record actually granted them, so a row never prints a phantom 0.
+  //   creditsAmount  credits refunded by a hull teardown
+  //   fuelAmount     fuel deposited by a Fuel Depot batch, which lands in the TANK rather
+  //                  than in inventory and therefore never appears among the item chips.
+  //                  Its absence is why a completed fuel batch used to read as a bare
+  //                  "Refined" with no item and no quantity at all.
+  creditsAmount: string | null;
+  fuelAmount: string | null;
   jumpTarget: JumpTarget | null; // where a tap routes; null = a plain, non-navigable row
 }
 
@@ -917,6 +936,12 @@ const COMPLETION_KIND_VIEW: Record<TimedProcessKind, { verb: string; icon: strin
 // hull type key, a facility key, an item id or a ship id depending on what completed. An
 // unknown key falls back to the key itself rather than rendering "undefined".
 function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): string | null {
+  // ⚠️ FUEL IS RESOLVED BEFORE THE KEY GUARD, on purpose. A fuel batch deposits into the
+  // TANK, so it carries no subject key at all, and the guard below therefore returned null
+  // for it before its own case could ever run. That is why a completed fuel batch rendered
+  // as a bare "Refined" (0.13.3 QA finding D5, the fuel arm): the verb names the ACTION, not
+  // the output. Fuel has exactly one name and needs no lookup to produce it.
+  if (entry.reward === "fuel") return "Fuel";
   const key = entry.subjectKey;
   if (key === null) return null;
   switch (entry.reward) {
@@ -941,15 +966,34 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
     case "materials":
     case "nothing": {
       // A refine / material-fabricate subject is an item id. A salvage subject is the
-      // TARGET's id, which for the material arm is also an item id and for the equipment /
-      // ship arms is an instance id with no stable label left to look up (the thing was
-      // consumed), so the honest answer there is no subject name at all.
+      // TARGET's id, which for the material arm is also an item id.
+      //
+      // 0.13.3 QA finding D5 ("What was salvaged"): the equipment and ship arms carry an
+      // INSTANCE id, and the instance was consumed by the very completion being reported, so
+      // ITEMS can never name it and the row used to read a bare "Salvaged". The record now
+      // carries that target's static naming ids alongside (salvageSubject), captured by the
+      // resolver while the target still existed, and the equipment arm resolves them through
+      // craftQueue.ts's OWN equipmentInstanceLabel, the same call the Salvage Bay's queued
+      // rows make. Sharing the call is the point: the bay and the board cannot drift.
+      if (entry.kind === "salvageJob" && entry.salvageSubject !== undefined) {
+        const subject = entry.salvageSubject;
+        if (subject.kind === "equipment") {
+          return equipmentInstanceLabel({ slotType: subject.slotType, blueprintKey: subject.blueprintKey });
+        }
+        // A torn-down hull is named by its CLASS: the record stores the type key, because a
+        // player's ship name is free text rather than an id (see CompletionSalvageSubject).
+        return SHIP_TYPES[subject.typeKey as keyof typeof SHIP_TYPES]?.label ?? subject.typeKey;
+      }
       const item = ITEMS[key];
       if (item !== undefined) return item.label;
+      // Still no name available: an entry written before salvageSubject existed, or a stale
+      // target that was already gone when the resolver looked. Unnamed beats invented.
       return entry.kind === "salvageJob" ? null : key;
     }
-    case "fuel":
-      return null; // fuel has one name and the verb already carries it
+    // NOTE there is deliberately no "fuel" case: the early return above already narrowed it
+    // out of `entry.reward`, so a case here would be dead code TypeScript rejects. The switch
+    // is still EXHAUSTIVE over what remains, so a NEW reward shape is a compile error here
+    // (no return on that path) rather than a silently unnamed row.
   }
 }
 
@@ -958,6 +1002,24 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
 // nothing was consumed. Null when there is nothing worth adding.
 function completionDetail(entry: CompletionLogEntry): string | null {
   if (entry.stale) return "Nothing was consumed";
+  // ⚠️ A SALVAGE THAT RECOVERED NOTHING SAYS SO IN WORDS (0.13.3 QA findings D3 + D5). Its
+  // record carries reward "nothing" and an EMPTY manifest by construction (see the resolver's
+  // classify-on-the-amounts rule), so without this line the row would read "Salvaged, Cargo
+  // Hold · Expanded Bay" with no reward chips and no explanation, which is precisely the
+  // "nothing happened, so this looks broken" silence the completed-events log exists to end.
+  //
+  // The two zero outcomes are told apart because they have different causes, exactly as the
+  // Salvage Bay's own panel tells them apart: a Standard-Issue baseline (blueprintKey null)
+  // carries no materials AT ALL by design, while a crafted piece can simply have rolled a
+  // recovery that floored to zero. Naming the real reason is what stops the first case
+  // reading like a bad-luck roll and the second reading like a rule.
+  if (entry.kind === "salvageJob" && entry.reward === "nothing") {
+    const subject = entry.salvageSubject;
+    if (subject !== undefined && subject.kind === "equipment" && subject.blueprintKey === null) {
+      return "Standard-Issue systems carry no materials to recover";
+    }
+    return "No materials recovered (rounded to zero)";
+  }
   if (entry.reward === "level" && entry.level !== null) {
     // The docks store a capacity rather than a level, so it reports berths.
     return entry.subjectKey === "docks" ? `${entry.level} berths` : `Level ${entry.level}`;
@@ -990,6 +1052,11 @@ function rowForCompletion(entry: CompletionLogEntry, state: GameState): Completi
       rarity: ITEMS[r.itemId]?.rarity ?? "common",
       amount: r.amount,
     })),
+    // 0.13.3 QA finding D5 ("What was gained"), the two gains that are NOT inventory items
+    // and therefore never appeared among the chips above. Passed through verbatim, so a
+    // record that granted neither carries null twice and the row prints nothing extra.
+    creditsAmount: entry.creditsAmount,
+    fuelAmount: entry.fuelAmount,
     jumpTarget: view.jumpTarget,
   };
 }

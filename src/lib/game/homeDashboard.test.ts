@@ -660,8 +660,12 @@ describe("buildHomeDashboard: RECENTLY COMPLETED", () => {
     expect(byId.get("d-upgrade")!.secondaryLabel).toBe("Level 3");
     // The docks store a capacity rather than a level, so they report berths.
     expect(byId.get("d-docks")!.secondaryLabel).toBe("9 berths");
-    // Fuel has one name, so the verb carries it and no subject is invented.
-    expect(byId.get("d-fuel")!.primaryLabel).toBe("Refined");
+    // ⚠️ UPDATED BY 0.13.3 QA finding D5. This used to assert the bare "Refined", on the
+    // reasoning that "fuel has one name, so the verb carries it". The user's QA showed the
+    // reasoning was wrong: the verb names the ACTION, so the row said what the Fuel Depot
+    // DID and never what it made or how much, which made it the least informative row on the
+    // board. Fuel is now named like every sibling row, and the amount rides in fuelAmount.
+    expect(byId.get("d-fuel")!.primaryLabel).toBe("Refined, Fuel");
     // The fail-safe no-op reassures rather than going silent.
     expect(byId.get("d-stale")!.secondaryLabel).toBe("Nothing was consumed");
   });
@@ -973,5 +977,181 @@ describe("buildHomeDashboard: facilityKeys on the upgrade prompt (Unit 4.6b)", (
     expect(promptById(model, "idle-facility-upgrade")).toBeUndefined();
     expect(model.needsOrders.length).toBeGreaterThan(0);
     for (const prompt of model.needsOrders) expect(prompt.facilityKeys).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// RECENTLY COMPLETED: WHAT WAS SALVAGED, WHAT WAS GAINED
+// (0.13.3 QA findings D3 + D5, user 2026-09-10)
+//
+// The VIEW half of the engine cases in completionLog.test.ts section 6. These pin the
+// sentences a player actually reads, because the defect was never that the data was wrong:
+// a salvage row said "Salvaged" and stopped, and a fuel row said "Refined" and stopped.
+// ============================================================================
+
+describe("buildHomeDashboard: a completed salvage names its target and its recovery", () => {
+  it("names a destroyed CRAFTED piece from the record's stored ids", () => {
+    // The instance is long gone, so the row can only be this specific because the resolver
+    // captured slotType + blueprintKey. It is resolved through craftQueue.ts's OWN
+    // equipmentInstanceLabel, the same call the Salvage Bay's queued rows make, so the two
+    // surfaces name one piece identically.
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({
+          id: "d-eq",
+          kind: "salvageJob",
+          reward: "materials",
+          subjectKey: "equip-77",
+          salvageSubject: { kind: "equipment", slotType: "cargoBay", blueprintKey: "balancedHoldBp" },
+          items: [{ itemId: "titaniumIngot", amount: "1" }],
+        }),
+      ])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.primaryLabel.startsWith("Salvaged, ")).toBe(true);
+    // The piece's real name, not an id and not a bare verb.
+    expect(row.primaryLabel).not.toBe("Salvaged");
+    expect(row.primaryLabel).not.toContain("equip-77");
+    expect(row.primaryLabel).toContain("Cargo Bay"); // the slot, from the stored slotType
+    // And WHAT CAME BACK, resolved to a label + rarity + raw amount for the UI to format.
+    expect(row.rewards).toEqual([
+      { itemId: "titaniumIngot", label: ITEMS.titaniumIngot.label, rarity: ITEMS.titaniumIngot.rarity, amount: "1" },
+    ]);
+  });
+
+  it("shows a PARTIAL manifest's zero line alongside the real one (D3)", () => {
+    // The user's ruling: a zero is information ("you don't have enough of something"), so it
+    // must survive all the way to the chip row rather than being tidied away as noise.
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({
+          id: "d-partial",
+          kind: "salvageJob",
+          reward: "materials",
+          subjectKey: "equip-78",
+          salvageSubject: { kind: "equipment", slotType: "cargoBay", blueprintKey: "balancedHoldBp" },
+          items: [
+            { itemId: "frameSegment", amount: "0" },
+            { itemId: "titaniumIngot", amount: "1" },
+          ],
+        }),
+      ])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.rewards.map((r) => [r.itemId, r.amount])).toEqual([
+      ["frameSegment", "0"],
+      ["titaniumIngot", "1"],
+    ]);
+    // A real recovery, so it must NOT wear the nothing-recovered sentence.
+    expect(row.secondaryLabel).toBeNull();
+  });
+
+  it("says an ALL-ZERO recovery recovered nothing, and shows no chips (the fix D3 must not undo)", () => {
+    // The engine classifies this on the amounts and stores no manifest, so the row has
+    // nothing to print. Without a sentence it would read as a silent, broken completion.
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({
+          id: "d-zero",
+          kind: "salvageJob",
+          reward: "nothing",
+          subjectKey: "equip-79",
+          salvageSubject: { kind: "equipment", slotType: "reactorCore", blueprintKey: "highOutputCoreBp" },
+          items: [],
+        }),
+      ])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.rewards).toEqual([]);
+    expect(row.creditsAmount).toBeNull();
+    expect(row.secondaryLabel).toBe("No materials recovered (rounded to zero)");
+    // The target is still named: the player must know WHICH piece went for nothing.
+    expect(row.primaryLabel).toContain("Reactor");
+  });
+
+  it("explains a Standard-Issue baseline by its rule, not as a bad roll", () => {
+    // blueprintKey null IS the baseline. It carries no materials by design, which is a
+    // different fact from a recovery that happened to floor to zero.
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({
+          id: "d-base",
+          kind: "salvageJob",
+          reward: "nothing",
+          subjectKey: "equip-80",
+          salvageSubject: { kind: "equipment", slotType: "cargoBay", blueprintKey: null },
+          items: [],
+        }),
+      ])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.secondaryLabel).toBe("Standard-Issue systems carry no materials to recover");
+    expect(row.primaryLabel).toContain("Standard-Issue");
+  });
+
+  it("names a torn-down hull by its CLASS and carries the credit refund", () => {
+    const hullKey = Object.keys(SHIP_TYPES)[0];
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({
+          id: "d-hull",
+          kind: "salvageJob",
+          reward: "materials",
+          subjectKey: "ship-9",
+          salvageSubject: { kind: "ship", typeKey: hullKey },
+          items: [{ itemId: "titaniumIngot", amount: "4" }],
+          creditsAmount: "1200",
+        }),
+      ])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.primaryLabel).toBe(`Salvaged, ${SHIP_TYPES[hullKey as keyof typeof SHIP_TYPES].label}`);
+    // Credits are a gain with no item id, so they ride their own field rather than a chip.
+    expect(row.creditsAmount).toBe("1200");
+  });
+
+  it("degrades to the old wording for a record written before the subject ids existed", () => {
+    // An entry already in a player's ring buffer has no salvageSubject. Unnamed beats
+    // invented: the row keeps its bare verb rather than guessing at a name.
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ id: "d-old", kind: "salvageJob", reward: "materials", subjectKey: "equip-1", items: [] })])
+    );
+    expect(model.recentlyCompleted[0].primaryLabel).toBe("Salvaged");
+  });
+
+  it("keeps the STALE fail-safe reading as nothing consumed, not as nothing recovered", () => {
+    // The two zero outcomes are different facts: a stale target was never touched, while a
+    // floored roll really did consume the piece. The stale sentence must win.
+    const model = buildHomeDashboard(
+      withLog([
+        completionRecord({ id: "d-stale2", kind: "salvageJob", reward: "nothing", subjectKey: "equip-9", stale: true }),
+      ])
+    );
+    expect(model.recentlyCompleted[0].secondaryLabel).toBe("Nothing was consumed");
+  });
+});
+
+describe("buildHomeDashboard: a completed FUEL batch names its output and its amount", () => {
+  it("reads 'Refined, Fuel' with the deposited amount, not a bare verb", () => {
+    // Fuel lands in the TANK, so it never appears among the item chips. The row used to
+    // carry no subject and no quantity at all, making it the least informative row on the
+    // board (0.13.3 QA finding D5, the fuel arm).
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ id: "d-fuel", kind: "fuelRefineJob", reward: "fuel", fuelAmount: "25", items: [] })])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.primaryLabel).toBe("Refined, Fuel");
+    expect(row.fuelAmount).toBe("25");
+    expect(row.rewards).toEqual([]);
+  });
+
+  it("leaves fuelAmount and creditsAmount null on a record that granted neither", () => {
+    // So a refine row never prints a phantom 0 fuel / 0 credits chip.
+    const model = buildHomeDashboard(
+      withLog([completionRecord({ id: "d-refine", subjectKey: "titaniumIngot", items: [{ itemId: "titaniumIngot", amount: "3" }] })])
+    );
+    const row = model.recentlyCompleted[0];
+    expect(row.fuelAmount).toBeNull();
+    expect(row.creditsAmount).toBeNull();
   });
 });

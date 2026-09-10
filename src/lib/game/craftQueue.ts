@@ -269,7 +269,13 @@ function equipmentVarietyLabel(slotType: string, varietyKey: string): string {
 // a baseline is DESTROYED and yields nothing, a crafted piece is SALVAGED, and the
 // Salvage Bay's label flip depends on the player being able to tell them apart in
 // the queue as well as on the tile.
-function equipmentInstanceLabel(piece: { slotType: string; blueprintKey: string | null }): string {
+//
+// ⚠️ EXPORTED (0.13.3 QA finding D5). Its argument is deliberately a STRUCTURAL pair of ids
+// rather than an EquipmentInstance, which is exactly what lets a COMPLETED salvage reuse it:
+// the piece is gone by then, but its stored CompletionSalvageSubject carries the same two
+// ids, so the Home board's finished row and this console's queued row name the same piece
+// through the SAME call. Two formatters would drift; one cannot.
+export function equipmentInstanceLabel(piece: { slotType: string; blueprintKey: string | null }): string {
   const slotLabel = EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
   if (piece.blueprintKey === null) return `${slotLabel} · Standard-Issue`;
   // An unknown blueprint key (a retired blueprint on an old save) falls back to the

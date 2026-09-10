@@ -30,7 +30,33 @@ export function formatNumber(n: number | Decimal): string {
   // Math.trunc (toward zero), NOT Math.floor (toward -Infinity): a negative net like the
   // fuel chip's -50.7 renders "-50" (matching how a positive 50.7 renders "50"), instead
   // of flooring to a more-negative "-51". Identical to floor for non-negative values.
-  if (abs < 1000) return abs < 10 && abs !== 0 ? n.toFixed(2) : Math.trunc(n).toString();
+  //
+  // ⚠️ A WHOLE NUMBER NEVER GETS ".00" (2026-09-10, quantity-consistency pass). The `< 10`
+  // arm below exists so a genuinely FRACTIONAL small value keeps its precision (fuel at 5.5
+  // must not read "5"). It used to apply to whole values too, which is what produced the
+  // reported defect: the Shipyard's REQUIRES rows printed
+  //     4× [Frame Segment] · free 12 (8.00 reserved)
+  //     2× [Power Coupling] · free 8.00 (4.00 reserved)
+  // Same kind of value, two formats, on adjacent lines. Both figures were already going
+  // through THIS function; the split was ours, not a caller's, because 12 took the trunc arm
+  // and 8 took the toFixed(2) arm purely on magnitude. Testing integrality first means a
+  // whole count now renders as a whole count at every magnitude, and only a value that
+  // actually has a fraction spends characters showing one.
+  //
+  // It also removed the reason callers had to bypass this function to get a clean integer:
+  // statistics.ts's formatCount escape hatch documents that exact motive ("routing them
+  // through formatNumber would print 7.00 for a single-digit level"). Bypassing is how raw
+  // float noise like "226.71000000000004" reached the Salvage Bay, so closing the gap here
+  // closes it everywhere rather than one call site at a time.
+  //
+  // Deliberately NOT extended to the tiered branch below: "8.00K" beside "12.0K" is a
+  // 3-significant-figure abbreviation, where the decimals carry real information about a
+  // rounded value (8.00K and 8.35K are 350 apart). This branch prints the value LITERALLY,
+  // and a literal whole number has no fraction to report.
+  if (abs < 1000) {
+    if (Number.isInteger(n)) return n.toString();
+    return abs < 10 && abs !== 0 ? n.toFixed(2) : Math.trunc(n).toString();
+  }
 
   let tier = Math.floor(Math.log10(abs) / 3);
   if (tier >= TIERS.length) return n.toExponential(2);
