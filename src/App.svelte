@@ -611,7 +611,7 @@
     // Crafting 0.13.3 follow-up (2026-09-04): the configurator's "Add to queue" gate asks
     // the REAL enqueue predicate about the REAL order, because the queue now refuses an
     // order whose inputs are not free and craftQueue.ts's shape-only probe cannot see that
-    // (see craftQueueButtonBlockText).
+    // (see craftQueueButtonState, renamed from craftQueueButtonBlockText by the queue-full popup).
     canEnqueueOrder,
     moveQueuedOrder,
     removeQueuedOrder,
@@ -1496,11 +1496,18 @@
   // i.e. facility level > 0. A tier with NO warehouse facility at all (none
   // today beyond T2) is treated as unlocked so its items still show (fail-open,
   // matching tierCap's own uncapped fail-open for un-warehoused tiers).
-  function warehouseTierUnlocked(tier: number): boolean {
+  // ⚠️ `gameState` is a PARAMETER, not a read of the component's reactive `state`. Reading it
+  // off scope made `{@const tierUnlocked = warehouseTierUnlocked(activeMaterialsTier)}` depend
+  // on activeMaterialsTier ALONE (a template expression's dependencies are collected statically
+  // from the identifiers written in the expression, which is then evaluated untracked), so
+  // completing the tier's unlock rung while sitting on that tier left it rendering as locked
+  // until the player switched tiers and back. Same stale-derivation trap as the Salvage Bay
+  // readers (see the note on systemSalvageState). Do not fold `state` back inside.
+  function warehouseTierUnlocked(gameState: GameState, tier: number): boolean {
     if (tier <= 1) return true;
     const facilityKey = `warehouseT${tier}`;
     if (!FACILITIES[facilityKey]) return true; // no facility gate for this tier
-    return (state.facilities[facilityKey]?.level ?? 0) > 0;
+    return (gameState.facilities[facilityKey]?.level ?? 0) > 0;
   }
 
   // ---- Materials tab sections (0.11.2 Task 9) --------------------------------
@@ -4599,27 +4606,67 @@
   // re-deriving an answer. A spare system is in exactly one of three states, and the tile
   // must say which: nothing vanishes from the pool for the length of a countdown, because an
   // item that disappears from your inventory for thirty seconds looks like a bug (design 7.3).
+  //
+  // ⚠️ STALE-DERIVATION TRAP (fixed 2026-09-10, do NOT "simplify" this away) ⚠️
+  // Every reader below takes the reactive value it needs as an EXPLICIT PARAMETER instead of
+  // reaching up and reading `bayReservations` / `bayInFlightInstances` / `state` off the
+  // component scope. That is not ceremony, it is the only thing keeping these readouts live.
+  //
+  // Svelte compiles a template expression (and every `{@const}`) into a derived whose
+  // dependency list is collected STATICALLY, from the reactive identifiers that appear
+  // SYNTACTICALLY in the expression, and then evaluates the expression itself inside
+  // `untrack(...)`. So a reactive read that happens INSIDE a called function registers NO
+  // dependency at all. `{@const q = materialSalvageQueued(id)}` therefore depended only on
+  // `id`, and froze at whatever the queue looked like when the tile was selected, while the
+  // reservation data underneath it went right on updating.
+  //
+  // That was a real, shipped bug: the Salvage Bay's selected-material panel reported
+  // "1 queued, 1225.71 free" while 1,100 units were genuinely queued, because `selQueued`
+  // only ever recomputed when the SELECTION changed. The material tiles next to it looked
+  // fine purely by accident (a keyed `{#each}` re-sets its item source on every reconcile,
+  // which re-ran their consts for unrelated reasons) which is exactly why it went unnoticed.
+  //
+  // Passing the value in makes the dependency part of the CALL SITE, where the compiler can
+  // see it, and makes it impossible to fold back into a hidden read without a type error.
+  // Anyone tempted to "clean up" these signatures: this is the whole fix.
+  //
+  // KNOWN, DELIBERATE EXCEPTION: the two duration readouts below still read `showTickCounts`
+  // off scope. That is not an oversight. It is the app-wide convention for every durationReadout
+  // caller, and its only consequence is that flipping the tick-count preference is picked up on
+  // the next state change rather than instantly. Converting it would mean touching every
+  // duration readout in the console, which is a separate change, not this one.
+
+  // The reservations snapshot these readers take. Spelled via ReturnType so it stays welded to
+  // salvageReservations' real shape without pulling reservation.ts's type into this file.
+  type BayReservations = ReturnType<typeof salvageReservations>;
 
   // "running" beats "queued" beats "free": a piece cannot be both, and the in-flight reading
   // is the more specific one (it has a countdown attached), so it is checked first.
-  function systemSalvageState(instanceId: string): "free" | "queued" | "running" {
-    if (bayInFlightInstances.has(instanceId)) return "running";
-    return bayReservations.instanceIds.has(instanceId) ? "queued" : "free";
+  // `inFlight` / `reservations` are parameters, not scope reads: see the trap note above.
+  function systemSalvageState(
+    inFlight: Map<string, SalvageJobProcess>,
+    reservations: BayReservations,
+    instanceId: string
+  ): "free" | "queued" | "running" {
+    if (inFlight.has(instanceId)) return "running";
+    return reservations.instanceIds.has(instanceId) ? "queued" : "free";
   }
 
   // How many units of a fungible salvaged material are already spoken for (QUEUED plus
   // IN FLIGHT). This is the reservation-aware stock idiom (preservation inventory 0.3):
   // the tile shows held, and free = held - this.
-  function materialSalvageQueued(itemId: string): number {
-    return bayReservations.materialCounts.get(itemId) ?? 0;
+  // `reservations` is a parameter, not a scope read: see the trap note above.
+  function materialSalvageQueued(reservations: BayReservations, itemId: string): number {
+    return reservations.materialCounts.get(itemId) ?? 0;
   }
 
   // The live countdown on an in-flight target, or "" when nothing is running on it. Rendered
   // through the SHARED remainingReadout helper with the player's showTickCounts preference and
   // state.tickDurationSeconds, per preservation inventory 0.1 and 0.2: no console mints its
   // own "time remaining" string.
-  function salvageRunningReadout(instanceId: string): string {
-    const job = bayInFlightInstances.get(instanceId);
+  // `inFlight` is a parameter, not a scope read: see the trap note above.
+  function salvageRunningReadout(inFlight: Map<string, SalvageJobProcess>, instanceId: string): string {
+    const job = inFlight.get(instanceId);
     if (job === undefined) return "";
     return remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds);
   }
@@ -4628,8 +4675,14 @@
   // startSalvageJob uses to stamp the countdown. Same helper, same number, so the estimate the
   // player commits to is the one they get. Formatted by durationReadout (a fixed length, not a
   // countdown), which is the same treatment every other build-time estimate gets.
-  function salvageDurationPreview(target: SalvageTargetRef): string {
-    return durationReadout(salvageJobDurationTicks(state, target), showTickCounts, state.tickDurationSeconds);
+  // `gameState` is a parameter, not a scope read: see the trap note above. The estimate moves
+  // when the bay is upgraded, so a preview frozen at selection time is a wrong number.
+  function salvageDurationPreview(gameState: GameState, target: SalvageTargetRef): string {
+    return durationReadout(
+      salvageJobDurationTicks(gameState, target),
+      showTickCounts,
+      gameState.tickDurationSeconds
+    );
   }
 
   // Ship salvage that would orphan a captain: only an on-mission ship is BLOCKED (onMissionLock),
@@ -4699,7 +4752,7 @@
 
   // The quantity the buttons will actually use: the raw field, made a whole number, clamped
   // into 1..max. ONE function so the button label, the disabled gate and the click handler can
-  // never disagree about the number, which is the same discipline craftQueueButtonBlockText
+  // never disagree about the number, which is the same discipline craftQueueButtonState
   // brought to the craft configurator.
   //
   // `max` is what is FREE (held minus everything already queued or in flight), never what is
@@ -4775,7 +4828,7 @@
     } else {
       const tiers = availableFabricateTiers;
       cfgTier = tiers[0] ?? 1;
-      cfgRecipeKey = fabricateKeysForTier(cfgTier)[0] ?? "";
+      cfgRecipeKey = fabricateKeysForTier(availableFabricateBlueprints, cfgTier)[0] ?? "";
     }
   }
 
@@ -4789,7 +4842,7 @@
   // the newly-selected tier so cfgRecipeKey never dangles on a tier that no longer lists it.
   function onFabricateTierChange(tier: number) {
     cfgTier = tier;
-    cfgRecipeKey = fabricateKeysForTier(tier)[0] ?? "";
+    cfgRecipeKey = fabricateKeysForTier(availableFabricateBlueprints, tier)[0] ?? "";
   }
 
   // doStartLine is the SINGLE entry point every configurator Start button calls. Mirrors the
@@ -5344,6 +5397,169 @@
     }
   }
 
+  // ══ THE QUEUE-FULL POPUP (device-test feedback, 2026-09-10) ═══════════════════════════
+  //
+  // THE BUG THIS FIXES, in the reporter's own words: "that message is not the best option
+  // for this as it's out of view on mobile when I try to queue something more."
+  //
+  // Before this, hitting the depth cap was a DEAD END on every one of the five queueing
+  // consoles. The enqueue control went disabled (or, at the two craft consoles, vanished
+  // outright, see the queueOpeners counts), and the only explanation lived in the ORDER
+  // QUEUE panel, which on a phone is several screens below the control the player is
+  // pressing. A dead control plus an off-screen reason is the worst possible pairing: the
+  // player taps, nothing happens, nothing on screen says why. It cost this project a real
+  // misdiagnosis, the reporter concluded the game enforced a DUPLICATE-ORDER rule when the
+  // actual cause was the depth cap every time.
+  //
+  // ⚠️ WHY THE CONTROL IS NOW DELIBERATELY LEFT ENABLED WHILE IT IS BLOCKED, and why
+  // "fixing" it back to `disabled` would restore the bug. A disabled <button> cannot be
+  // clicked, so it can never open anything: there is no way to explain a refusal AT THE
+  // MOMENT OF THE ATTEMPT while the control that refuses is inert. So when queueFull is the
+  // ONLY thing standing in the way, the control stays live and its click opens this popup
+  // instead of enqueueing. Nothing is queued, no state is written, the player simply gets
+  // told why and what the two remedies are. The honest reading of a full queue is not
+  // "impossible", it is "here is why not, and here is what to do about it".
+  //
+  // ⚠️ AND WHY ONLY queueFull GETS THIS TREATMENT. Every other EnqueueBlockReason
+  // (materials, notEnoughHeld, alreadyQueued, alreadyResearched, inProgress, wrongFacility)
+  // is about the ORDER THE PLAYER JUST CONFIGURED, and its reason already renders directly
+  // beside the control that refused it, on screen, at the moment of the attempt. Those keep
+  // the existing disabled-plus-persistent-note treatment untouched. queueFull is the only
+  // one whose cause and whose remedy both live somewhere else on the page.
+  //
+  // ⚠️ THE PANEL'S INLINE NOTE IS KEPT AS WELL, not replaced. The two answer different
+  // questions: this popup answers "why did my tap do nothing", the panel note answers "why
+  // is this queue not accepting work" for someone reading the panel. Removing either one
+  // re-opens a gap.
+  //
+  // BUILT ONCE, USED BY ALL FIVE CONSOLES (Refinery, Fabricator, Research Lab, Shipyard,
+  // Salvage Bay). Per-console copies are exactly the drift a holistic pass had just spent a
+  // sweep removing, and the depth cap is one rule with one remedy at every facility.
+
+  // Where queue depth is bought TODAY, written the way a player would navigate to it.
+  //
+  // ⚠️ THIS IS THE REAL PATH, and getting it right was half the point of the report. The
+  // reported wording said "the Admiral talent tree"; no screen in the game carries that name.
+  // The depth nodes (fleetLogisticsQueue, the Standing Orders rungs) are reached through the
+  // Homeworld Talents tree's Fleet Logistics branch, which is the path the ORDER QUEUE panel's
+  // own inline note and every other depth message in the app already print. Sending a player
+  // hunting for a screen that does not exist would trade one dead end for another.
+  //
+  // A named constant rather than a literal because five entries in the table below reference
+  // it, and because it is the value that CHANGES when per-facility depth lands (see that
+  // table's note). The eight pre-existing inline notes elsewhere in this file still spell the
+  // path out literally; converging them on this constant is a separate, behavior-neutral sweep
+  // and is not bundled into a bug fix.
+  const FLEET_LOGISTICS_QUEUE_TALENT_PATH = "Homeworld Talents → Fleet Logistics (Standing Orders)";
+
+  // ── The per-facility queue-depth FACTS the popup is written from ──────────────────────
+  //
+  // Two things per queueing facility, and the whole message is assembled from them:
+  //   registryKey  the FACILITIES row this facility's player-facing NAME comes from, so the
+  //                popup names it from the same table the console titles itself from rather
+  //                than carrying five hardcoded nouns. The two crooked rows are half the
+  //                reason this map exists at all: the queue union calls them `researchLab` /
+  //                `fuelDepot`, the FACILITIES registry calls the same two `research` /
+  //                `fuelStorage`.
+  //   talentPath   where THIS facility's queue depth is bought, as the player would navigate
+  //                to it.
+  //
+  // ⚠️ ALL FIVE talentPath VALUES ARE DELIBERATELY IDENTICAL TODAY, AND THEY ARE STILL FIVE
+  // SEPARATE ENTRIES. That is not redundancy, it is the seam. Queue depth is ONE global talent
+  // chain right now (fleetLogisticsQueue, whose depth applies to every facility independently),
+  // so every facility genuinely does point at Homeworld Talents → Fleet Logistics (Standing
+  // Orders) and every popup renders the same path. The user's intent, logged in SUGGESTIONS.md
+  // as PER-FACILITY QUEUE-DEPTH TALENTS (commit cb3a152) and NOT built here, is for depth to
+  // become purchasable per facility. When that lands, pointing the Refinery at its own node is
+  // then a ONE-LINE DATA EDIT in this table, not a hunt through five copies of a sentence in
+  // five consoles. This is the same seam-first move this release already made with the salvage
+  // duration factors, which shipped with every multiplier neutral so balancing is a numbers
+  // edit rather than a revisit to parity-critical code.
+  //
+  // ⚠️ NOTHING HERE BUILDS ANY PART OF PER-FACILITY TALENTS. This is display copy only; the
+  // engine still has exactly one depth chain and queueDepth(state) still takes no facility.
+  //
+  // Typed as a TOTAL Record over QueueFacilityKey, so a sixth queueing facility is a COMPILE
+  // error here until it is given both a name and a path, rather than a silently missing
+  // message.
+  const QUEUE_FACILITY_DEPTH_FACTS: Record<
+    QueueFacilityKey,
+    { registryKey: string; talentPath: string }
+  > = {
+    refinery: { registryKey: "refinery", talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+    fabricator: { registryKey: FABRICATOR_FACILITY_KEY, talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+    salvageBay: { registryKey: SALVAGE_BAY_FACILITY_KEY, talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+    researchLab: { registryKey: RESEARCH_FACILITY_KEY, talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+    shipyard: { registryKey: SHIPYARD_FACILITY_KEY, talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+    fuelDepot: { registryKey: "fuelStorage", talentPath: FLEET_LOGISTICS_QUEUE_TALENT_PATH },
+  };
+
+  // The facility's player-facing name ("Salvage Bay", "Research Lab", ...). Falls back to the
+  // raw key rather than throwing, the same forward-loose discipline every other lookup over
+  // these registries uses: a facility added to the queue union before it has a FACILITIES row
+  // renders an honest, ugly noun instead of "undefined".
+  function queueFacilityLabel(facility: QueueFacilityKey): string {
+    return FACILITIES[QUEUE_FACILITY_DEPTH_FACTS[facility].registryKey]?.label ?? facility;
+  }
+
+  // The popup's sentence. ONE template, the facility's own name and its own talent path
+  // substituted in, so the message is SPECIFIC ("Your Salvage Bay ...") without five strings
+  // to keep in step and without a hardcoded path to hunt down later.
+  //
+  // ⚠️ IT NAMES THE REMEDY, NEVER A NUMBER. Queue depth is derived from talents on read and
+  // a respec can shrink it, so any depth figure baked into this sentence would eventually be
+  // a lie. The live used / total figure is rendered separately, off the live view model.
+  //
+  // ⚠️ "additional queue slots", NOT "additional <facility> queue slots", AND THAT IS
+  // DELIBERATE FOR NOW. One purchase currently deepens every facility's queue at once, so
+  // scoping the promise to the named facility would under-report what the talent actually
+  // does. When per-facility depth lands, this clause is the other half of that change.
+  function queueFullNoticeText(facility: QueueFacilityKey): string {
+    return (
+      `Your ${queueFacilityLabel(facility)} has no open queue slots right now. ` +
+      "You can cancel a queued job to make room, or invest talent points in " +
+      `${QUEUE_FACILITY_DEPTH_FACTS[facility].talentPath} to unlock additional queue slots.`
+    );
+  }
+
+  // Which facility's queue-full popup is open, or null when none is. The FACILITY KEY is what
+  // is held, not a pre-rendered sentence: the popup then re-derives its text and its live
+  // depth readout from current state on every render, so a job finishing while the sheet is
+  // open (ticks keep running behind a modal) updates the numbers instead of freezing them.
+  let queueFullNotice: QueueFacilityKey | null = null;
+
+  // The live view model behind the open popup, or null when it is closed. buildCraftQueue is
+  // the SAME pure builder every console binds to, so the sheet and the ORDER QUEUE panel
+  // underneath it can never report different depth figures.
+  $: queueFullNoticeView = queueFullNotice === null ? null : buildCraftQueue(state, queueFullNotice);
+
+  function openQueueFullNotice(facility: QueueFacilityKey) {
+    queueFullNotice = facility;
+  }
+  function closeQueueFullNotice() {
+    queueFullNotice = null;
+  }
+
+  // How a single enqueue control should behave, from one refusal reason.
+  //
+  // ONE reader for all five consoles, because all three of its outputs have to agree: the
+  // sentence shown under the control, whether the control is disabled, and whether a click
+  // enqueues or opens the popup. Splitting them across five templates is how a console ends
+  // up disabled with no reason, or enabled with no handler.
+  //
+  //   blockText     the sentence to show under the control, "" when nothing blocks it.
+  //   queueFullOnly the depth cap is the ONLY thing in the way, so the control stays ENABLED
+  //                 and its click opens the popup. See the header note above.
+  //
+  // Takes the raw `EnqueueBlockReason | null` (what CraftQueueView.enqueueBlockReason already
+  // is) rather than a gate object, so a caller holding either shape converts at its own call
+  // site where the conversion is visible.
+  type EnqueueControlState = { blockText: string; queueFullOnly: boolean };
+  function enqueueControlFor(reason: EnqueueBlockReason | null): EnqueueControlState {
+    if (reason === null) return { blockText: "", queueFullOnly: false };
+    return { blockText: enqueueBlockText(reason), queueFullOnly: reason === "queueFull" };
+  }
+
   // Why the configurator's "Add to queue" button is unavailable, or "" when it is available.
   //
   // ONE helper rather than a template ternary because the SAME string drives two things (the
@@ -5378,16 +5594,29 @@
   // helpers are written that way: the template expression then names every reactive input
   // it depends on at the call site, so what re-runs this readout is visible there instead
   // of hidden inside the function.
-  function craftQueueButtonBlockText(
+  //
+  // ⚠️ IT NOW RETURNS THE EnqueueControlState PAIR, NOT A BARE STRING (queue-full popup,
+  // 2026-09-10), and it was renamed to say so. The reason is the one this comment block has
+  // led with since it was written: the SAME answer drives the button's disabled state and the
+  // note under it, and as of the popup it drives a THIRD thing, whether a click enqueues or
+  // explains. Returning only the sentence would have forced the template to re-ask
+  // canEnqueueOrder to find out which, i.e. two gate calls that could disagree. One call, one
+  // answer, three consumers.
+  function craftQueueButtonState(
     gameState: GameState,
     view: CraftQueueView,
     kind: CraftLineKind,
     recipeKey: string,
     qty: number
-  ): string {
-    if (recipeKey === "") return "Choose an item to queue.";
+  ): EnqueueControlState {
+    // The two form-level refusals below are NOT EnqueueBlockReasons and deliberately never
+    // set queueFullOnly: they are about the order the player just configured, they are fixed
+    // right here in this configurator, and they keep the plain disabled-plus-reason treatment.
+    if (recipeKey === "") return { blockText: "Choose an item to queue.", queueFullOnly: false };
     const count = Math.floor(qty);
-    if (!Number.isFinite(qty) || count < 1) return startLineBlockText("invalidCount");
+    if (!Number.isFinite(qty) || count < 1) {
+      return { blockText: startLineBlockText("invalidCount"), queueFullOnly: false };
+    }
     // The order EXACTLY as doEnqueueLine will build it, including the batch count, so the
     // affordability answer is about the amount the player is actually about to reserve.
     const gate = canEnqueueOrder(gameState, view.facility, {
@@ -5396,8 +5625,7 @@
       recipeKey,
       mode: { kind: "batch", remaining: count },
     });
-    if (!gate.ok) return enqueueBlockText(gate.reason);
-    return "";
+    return enqueueControlFor(gate.ok ? null : gate.reason);
   }
 
   // Does any RUNNING line at this facility never release its slot?
@@ -6671,10 +6899,18 @@
   $: shipyardBays = shipyardBayCount(state);
 
   // The available blueprint KEYS in a given tier, the item dropdown's options for that tier,
-  // and the seed the tier-change/open handlers use to reset cfgRecipeKey. Reads the reactive
-  // availableFabricateBlueprints at call time, so it always reflects the current research/level.
-  function fabricateKeysForTier(tier: number): string[] {
-    return availableFabricateBlueprints.filter((bp) => bp.tier === tier).map((bp) => bp.key);
+  // and the seed the tier-change/open handlers use to reset cfgRecipeKey.
+  // ⚠️ `blueprints` is a PARAMETER, not a read of the reactive availableFabricateBlueprints.
+  // It used to read it off scope, and the header used to claim that meant the dropdown "always
+  // reflects the current research/level". It did not: a template expression's dependencies are
+  // collected statically from the identifiers written in the expression and the expression is
+  // then evaluated untracked, so `{#each fabricateKeysForTier(cfgTier) as bk}` depended only on
+  // cfgTier. Finishing a research project with the configurator open left the new blueprint out
+  // of the Item dropdown until the tier was switched away and back. Naming
+  // availableFabricateBlueprints at the call site is what makes it live. Same stale-derivation
+  // trap as the Salvage Bay readers (see the note on systemSalvageState).
+  function fabricateKeysForTier(blueprints: BlueprintDef[], tier: number): string[] {
+    return blueprints.filter((bp) => bp.tier === tier).map((bp) => bp.key);
   }
 
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
@@ -8144,8 +8380,18 @@
                        rule, so the player configures a queued order exactly the way they already
                        configure a running one. It is deliberately NOT shown while a line is idle:
                        an order queued against a free line is promoted on the very next tick, so
-                       offering both there would be two buttons for one outcome. -->
-                  {@const queueOpeners = idleSlots === 0 && refineryQueue.canEnqueue ? 1 : 0}
+                       offering both there would be two buttons for one outcome.
+
+                       ⚠️ THE `&& refineryQueue.canEnqueue` CLAUSE WAS REMOVED (queue-full popup,
+                       2026-09-10). DO NOT PUT IT BACK. With it, the moment the queue hit its
+                       depth cap this opener stopped rendering entirely, so on a full queue with
+                       every line busy the console showed NO enqueue control at all: the player's
+                       control did not go dead, it VANISHED, which is strictly worse (there is
+                       nothing left to press and therefore nothing that can explain itself). The
+                       opener now always renders once every line is busy, and the "Add to queue"
+                       button inside it stays enabled on a full queue and opens the queue-full
+                       popup instead of enqueueing. See the popup's header note in the script. -->
+                  {@const queueOpeners = idleSlots === 0 ? 1 : 0}
                   {#each Array(idleSlots + queueOpeners) as _, idx}
                     {@const isQueueOpener = idx >= idleSlots}
                     {@const slotIndex = refineLines.length + idx}
@@ -8155,8 +8401,9 @@
                       {@const gate = canStartLine(state, "refine", cfgRecipeKey, Math.floor(cfgQty))}
                       {@const perIteration = lineInputsPerIteration({ id: "", kind: "refine", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
                       <!-- The queue button's own gate + its persistent reason, from ONE helper so
-                           the disabled state and the note below can never disagree. -->
-                      {@const queueBlock = craftQueueButtonBlockText(state, refineryQueue, "refine", cfgRecipeKey, cfgQty)}
+                           the disabled state, the note below and (queue-full popup, 2026-09-10)
+                           what the click actually does can never disagree. -->
+                      {@const queueCtl = craftQueueButtonState(state, refineryQueue, "refine", cfgRecipeKey, cfgQty)}
                       <div class="mission-card" style="margin-top: 10px;">
                         <div class="research-name">{#if isQueueOpener}<Icon name="queue" size={12} /> Queue · configure an order{:else}<Icon name="refinery" size={12} /> Line {slotIndex + 1} · configure a craft{/if}</div>
 
@@ -8230,11 +8477,23 @@
                                one reserves nothing at all) and a button that changes meaning under
                                the player is how a mis-click happens. When every line is busy the
                                Start button beside it is disabled with its own reason, which is
-                               what teaches why this one exists. -->
+                               what teaches why this one exists.
+
+                               ⚠️ IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full
+                               popup, 2026-09-10). DO NOT "fix" this back to a plain
+                               `disabled={queueCtl.blockText !== ""}`: a disabled <button> cannot be
+                               clicked, so it could never open the popup, and the depth cap would go
+                               back to being a dead control whose only explanation is a panel far
+                               below the fold on a phone. On a full queue the click OPENS THE POPUP
+                               and queues nothing; every other refusal keeps the control disabled
+                               with its reason directly underneath. Full rationale in the script's
+                               queue-full popup header. -->
                           <button
                             class="buy-btn"
-                            disabled={queueBlock !== ""}
-                            on:click={() => doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                            disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
+                            on:click={() => queueCtl.queueFullOnly
+                              ? openQueueFullNotice("refinery")
+                              : doEnqueueLine("refinery", "refine", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
                           >
                             Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                           </button>
@@ -8243,9 +8502,11 @@
                         <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
                              the reason sits under the button instead of in a hover title, because
                              a disabled <button> swallows pointer events and a title on it is
-                             unreadable on touch entirely. -->
-                        {#if queueBlock !== ""}
-                          <p class="cq-note">{queueBlock}</p>
+                             unreadable on touch entirely. Still rendered for the queue-full case
+                             even though that button is now live: the note is what a player READING
+                             the configurator sees, the popup is what a player PRESSING it sees. -->
+                        {#if queueCtl.blockText !== ""}
+                          <p class="cq-note">{queueCtl.blockText}</p>
                         {/if}
                       </div>
                     {:else}
@@ -8679,9 +8940,22 @@
                          Lab signpost above (preservation inventory 1c: that empty state must not
                          be replaced by a configurator), and the {:else} branch is reached with
                          idleSlots === 0 in exactly that case, which is what makes the guard
-                         necessary rather than decorative. -->
+                         necessary rather than decorative.
+
+                         ⚠️ THE `&& fabricatorQueue.canEnqueue` CLAUSE WAS REMOVED (queue-full
+                         popup, 2026-09-10). DO NOT PUT IT BACK, and note that the OTHER two
+                         conditions above are untouched and must stay. With it, a full queue made
+                         this opener stop rendering entirely, so with every slot busy the console
+                         showed NO enqueue control at all: the control did not go dead, it
+                         VANISHED, which is strictly worse (there is nothing left to press and so
+                         nothing that can explain itself). The opener now always renders once
+                         every slot is busy and something IS researched, and the "Add to queue"
+                         button inside it stays enabled on a full queue and opens the queue-full
+                         popup instead of enqueueing. The blueprint-availability guard is a
+                         genuinely different condition (a configurator with nothing to configure)
+                         and keeps its old behavior. -->
                     {@const queueOpeners =
-                      idleSlots === 0 && availableFabricateBlueprints.length > 0 && fabricatorQueue.canEnqueue ? 1 : 0}
+                      idleSlots === 0 && availableFabricateBlueprints.length > 0 ? 1 : 0}
                     {#each Array(idleSlots + queueOpeners) as _, idx}
                       {@const isQueueOpener = idx >= idleSlots}
                       {@const slotIndex = fabricateLines.length + idx}
@@ -8691,8 +8965,9 @@
                         {@const gate = canStartLine(state, "fabricate", cfgRecipeKey, Math.floor(cfgQty))}
                         {@const perIteration = lineInputsPerIteration({ id: "", kind: "fabricate", recipeKey: cfgRecipeKey, remaining: 0, mode: { kind: "continuous" } })}
                         <!-- The queue button's own gate + its persistent reason, from ONE helper so
-                             the disabled state and the note below can never disagree. -->
-                        {@const queueBlock = craftQueueButtonBlockText(state, fabricatorQueue, "fabricate", cfgRecipeKey, cfgQty)}
+                             the disabled state, the note below and (queue-full popup, 2026-09-10)
+                             what the click actually does can never disagree. -->
+                        {@const queueCtl = craftQueueButtonState(state, fabricatorQueue, "fabricate", cfgRecipeKey, cfgQty)}
                         <!-- The selected blueprint, hoisted to this level because {@const} has to be
                              the immediate child of a block, not of the .mission-card <div> where the
                              REWARDS readout below actually renders. Undefined until the player has
@@ -8716,7 +8991,10 @@
                             <label style="display: inline-flex; align-items: center; gap: 6px;">
                               Item
                               <select class="modal-input" bind:value={cfgRecipeKey} aria-label="Item">
-                                {#each fabricateKeysForTier(cfgTier) as bk}
+                                <!-- availableFabricateBlueprints is named HERE so this {#each}
+                                     re-runs when research/level changes it, not only when
+                                     cfgTier does (stale-derivation trap, 2026-09-10). -->
+                                {#each fabricateKeysForTier(availableFabricateBlueprints, cfgTier) as bk}
                                   <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
                                 {/each}
                               </select>
@@ -8837,11 +9115,24 @@
                                  one reserves nothing at all) and a button that changes meaning
                                  under the player is how a mis-click happens. Identical in shape to
                                  the Refinery's, differing only in the facility and line kind it
-                                 hands doEnqueueLine. -->
+                                 hands doEnqueueLine.
+
+                                 ⚠️ IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL
+                                 (queue-full popup, 2026-09-10), exactly as the Refinery's twin is.
+                                 DO NOT "fix" this back to a plain
+                                 `disabled={queueCtl.blockText !== ""}`: a disabled <button> cannot
+                                 be clicked, so it could never open the popup, and the depth cap
+                                 would go back to being a dead control whose only explanation is a
+                                 panel far below the fold on a phone. On a full queue the click
+                                 OPENS THE POPUP and queues nothing; every other refusal keeps the
+                                 control disabled with its reason directly underneath. Full
+                                 rationale in the script's queue-full popup header. -->
                             <button
                               class="buy-btn"
-                              disabled={queueBlock !== ""}
-                              on:click={() => doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
+                              disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
+                              on:click={() => queueCtl.queueFullOnly
+                                ? openQueueFullNotice("fabricator")
+                                : doEnqueueLine("fabricator", "fabricate", cfgRecipeKey, { kind: "batch", remaining: Math.floor(cfgQty) })}
                             >
                               Add to queue · ×{Math.max(1, Math.floor(cfgQty))}
                             </button>
@@ -8850,9 +9141,12 @@
                           <!-- Disabled-reason discipline (inventory 0.4), PERSISTENT-NOTE variant:
                                the reason sits under the button instead of in a hover title, because
                                a disabled <button> swallows pointer events and a title on it is
-                               unreadable on touch entirely. -->
-                          {#if queueBlock !== ""}
-                            <p class="cq-note">{queueBlock}</p>
+                               unreadable on touch entirely. Still rendered for the queue-full case
+                               even though that button is now live: the note is what a player
+                               READING the configurator sees, the popup is what a player PRESSING
+                               it sees. -->
+                          {#if queueCtl.blockText !== ""}
+                            <p class="cq-note">{queueCtl.blockText}</p>
                           {/if}
                         </div>
                       {:else}
@@ -9193,11 +9487,28 @@
                              never answer the per-blueprint alreadyQueued question this card
                              needs. -->
                         {@const queueGate = canEnqueueOrder(state, "researchLab", { type: "research", blueprintKey: bp.key })}
+                        <!-- ONE reading of that gate for all three things it drives: the note
+                             below, the disabled state, and what the click does (queue-full popup,
+                             2026-09-10). The shared helper is what keeps this card behaving
+                             identically to the other four consoles' enqueue controls. -->
+                        {@const queueCtl = enqueueControlFor(queueGate.ok ? null : queueGate.reason)}
+                        <!-- ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL, and it must stay
+                             that way. A disabled <button> cannot be clicked, so it could never
+                             open the queue-full popup, and the depth cap would go back to being a
+                             dead control whose only explanation is the ORDER QUEUE panel far above
+                             this blueprint list (this console's list is long, so on a phone that
+                             panel is reliably off screen, which is the exact bug being fixed). On
+                             a full queue the click OPENS THE POPUP and queues nothing. The card's
+                             other two refusals (alreadyResearched, inProgress) are about THIS
+                             blueprint, are already explained right here, and keep the plain
+                             disabled treatment. Full rationale in the script's popup header. -->
                         <button
                           class="buy-btn"
                           style="margin-left: 6px;"
-                          disabled={!queueGate.ok}
-                          on:click={() => doQueueResearch(bp.key)}
+                          disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
+                          on:click={() => queueCtl.queueFullOnly
+                            ? openQueueFullNotice("researchLab")
+                            : doQueueResearch(bp.key)}
                         >
                           Add to queue
                         </button>
@@ -9206,9 +9517,11 @@
                              because a disabled <button> swallows pointer events and a title on
                              it is unreadable on touch entirely. The sentence is the shared
                              enqueueBlockText, so this card and the queue panel above describe a
-                             refusal with one wording rather than two. -->
-                        {#if !queueGate.ok}
-                          <p class="cq-note">{enqueueBlockText(queueGate.reason)}</p>
+                             refusal with one wording rather than two. Kept for the queue-full case
+                             too: the note is for a player READING the card, the popup is for one
+                             PRESSING it. -->
+                        {#if queueCtl.blockText !== ""}
+                          <p class="cq-note">{queueCtl.blockText}</p>
                         {/if}
                       {/if}
                     </div>
@@ -10183,7 +10496,10 @@
                              for, not gone, and an item that disappears from your inventory
                              for thirty seconds looks like a bug. The title carries the same
                              fact for a pointer, and the tag carries it for everyone else. -->
-                        {@const salvageState = systemSalvageState(piece.id)}
+                        <!-- bayInFlightInstances + bayReservations are named HERE, in the
+                             {@const} itself, so the compiler records them as dependencies.
+                             See the stale-derivation trap note on systemSalvageState. -->
+                        {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
                         {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
                         <button
                           type="button"
@@ -10239,23 +10555,44 @@
                    ⚠️ NOTHING HERE CONSULTS equipmentStorageCap, deliberately. Salvage is the
                    escape valve for a FULL spare pool, so a full pool must always be able to
                    queue the action that empties it (design 7.3, salvage.ts's file header). -->
-              {@const salvageState = systemSalvageState(sys.id)}
+              <!-- bayInFlightInstances / bayReservations / state are named in the {@const}
+                   expressions that need them, never read from scope inside a helper. See the
+                   stale-derivation trap note on systemSalvageState. -->
+              {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, sys.id)}
               {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
+              <!-- ONE reading of the bay's enqueue refusal for both the note and the button
+                   (queue-full popup, 2026-09-10). The bay's view model probes with a single-unit
+                   equipment target, so `queueFull` is the ONLY refusal it can report here, but the
+                   shared helper is still used rather than a `=== "queueFull"` test inline: it is
+                   what makes this control behave identically to the four other consoles'. -->
+              {@const queueCtl = enqueueControlFor(queueBlocked)}
               {@const target = { kind: "equipment", instanceId: sys.id } as SalvageTargetRef}
               {@const actionNote =
                 salvageState === "running"
-                  ? `Being salvaged now · ${salvageRunningReadout(sys.id)}`
+                  ? `Being salvaged now · ${salvageRunningReadout(bayInFlightInstances, sys.id)}`
                   : salvageState === "queued"
                     ? "Already queued for salvage. Remove it from the queue above to keep it."
                     : queueBlocked !== null
                       ? enqueueBlockText(queueBlocked)
-                      : `Takes about ${salvageDurationPreview(target)} in the bay once it starts.`}
+                      : `Takes about ${salvageDurationPreview(state, target)} in the bay once it starts.`}
               <Panel>
                 <EquipmentTooltip piece={sys}>
+                  <!-- ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
+                       2026-09-10). DO NOT fold `queueBlocked !== null` back into the disabled
+                       expression: a disabled <button> cannot be clicked, so it could never open
+                       the popup, and the depth cap would go back to being a dead control whose
+                       only explanation is the ORDER QUEUE panel at the top of this tab, several
+                       screens up on a phone. This is the exact control the bug was reported
+                       against. On a full queue the click OPENS THE POPUP and queues nothing.
+                       `salvageState !== "free"` (already running, already queued) stays a hard
+                       disable: those are about THIS piece and the note beside it already says so,
+                       and the engine would refuse the click anyway. -->
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={salvageState !== "free" || queueBlocked !== null}
-                    on:click={() => requestSalvage("system", sys.id, systemSalvageName(sys))}
+                    disabled={salvageState !== "free" || (queueBlocked !== null && !queueCtl.queueFullOnly)}
+                    on:click={() => queueCtl.queueFullOnly
+                      ? openQueueFullNotice("salvageBay")
+                      : requestSalvage("system", sys.id, systemSalvageName(sys))}
                   >
                     {selectedIsBaseline ? "Destroy" : "Salvage"}
                   </button>
@@ -10293,7 +10630,13 @@
                          been consumed yet) and the tag carries the queued share, with
                          free = held - queued. Reservation-aware stock, the same idiom the
                          Warehouse uses for allocated materials (inventory 0.3). -->
-                    {@const queued = materialSalvageQueued(item.id)}
+                    <!-- bayReservations is named HERE so this {@const} actually depends on it.
+                         Until 2026-09-10 it did not: the tile only kept up because a keyed
+                         {#each} re-sets its item source on every reconcile, which re-ran this
+                         const for an unrelated reason. That accident is what masked the same
+                         bug in the selected-material panel below. See the stale-derivation
+                         trap note on materialSalvageQueued. -->
+                    {@const queued = materialSalvageQueued(bayReservations, item.id)}
                     {@const running = bayInFlightMaterials.get(item.id) ?? 0}
                     <!-- Reuse the systems-tile visual (rarity dot + code + corner
                          value), painting the count where a system's quality sits.
@@ -10346,12 +10689,26 @@
                    quantity is capped at `selFree` and the button is disabled at zero, which is
                    the UI agreeing with the engine rather than inventing a rule of its own, and
                    is exactly what the craft configurator's `(max N)` does one console over. -->
-              {@const selQueued = materialSalvageQueued(salvageTargetId)}
+              <!-- ⚠️ THE STALE-DERIVATION TRAP LIVED HERE (fixed 2026-09-10). ⚠️
+                   This const used to read `materialSalvageQueued(salvageTargetId)`, which hid
+                   its `bayReservations` read inside the helper. Svelte collects a {@const}'s
+                   dependencies STATICALLY from the identifiers written in the expression and
+                   then evaluates it untracked, so the only dependency was salvageTargetId:
+                   the readout froze at whatever the queue held when the tile was SELECTED and
+                   never moved again. Queueing 1,100 units left this panel insisting
+                   "1 queued, 1225.71 free" while the tile beside it correctly said SALV 1101.
+                   Naming bayReservations in the call is what makes it live. Do NOT fold it
+                   back into a no-argument helper to "tidy" this line. -->
+              {@const selQueued = materialSalvageQueued(bayReservations, salvageTargetId)}
               {@const selFree = Math.max(0, selCount.toNumber() - selQueued)}
               <!-- The number the buttons will actually queue: the raw form value floored and
                    clamped into 1..selFree, through the ONE helper, so the label, the disabled
                    gate and the click handler cannot disagree about it. -->
               {@const selQty = salvageQtyFor(salvageQty, selFree)}
+              <!-- ONE reading of the bay's enqueue refusal for the Salvage button below
+                   (queue-full popup, 2026-09-10), the same helper the spare-systems panel above
+                   uses, so the bay's two salvage controls behave identically on a full queue. -->
+              {@const matQueueCtl = enqueueControlFor(salvageBayQueue.enqueueBlockReason)}
               <Panel>
                 <div class="salvaged-action">
                   <div class="salvaged-action-info">
@@ -10376,11 +10733,15 @@
                              than letting the player read one unit's estimate as the whole
                              job. The single-unit sentence is left exactly as it was.
                              ⚠️ Salvage Lanes (2026-09-04): "through the single bay" is no
-                             longer true, so the live lane count is named instead. -->
+                             longer true, so the live lane count is named instead.
+                             ⚠️ `state` is passed to salvageDurationPreview so these lines
+                             statically depend on it (stale-derivation trap, 2026-09-10).
+                             Without it the estimate was pinned to the moment the material was
+                             selected and ignored a Salvage Bay upgrade until reselection. -->
                         {#if selQty > 1}
-                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} per unit, started one at a time as bays free up ({salvageBayCapacityPhrase}).
+                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} per unit, started one at a time as bays free up ({salvageBayCapacityPhrase}).
                         {:else}
-                          Takes about {salvageDurationPreview({ kind: "material", itemId: salvageTargetId })} in the bay once it starts.
+                          Takes about {salvageDurationPreview(state, { kind: "material", itemId: salvageTargetId })} in the bay once it starts.
                         {/if}
                       {/if}
                     </div>
@@ -10413,12 +10774,25 @@
                   <!-- The label carries the count the click will queue, the same way the
                        Refinery's "Refine · ×N" and "Add to queue · ×N" do, so the number is
                        visible on the control itself and not only in the field above it. The
-                       single-unit case keeps reading exactly "Salvage", unchanged. -->
+                       single-unit case keeps reading exactly "Salvage", unchanged.
+
+                       ⚠️ DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full popup,
+                       2026-09-10). DO NOT fold the raw `enqueueBlockReason !== null` back into
+                       the disabled expression: a disabled <button> cannot be clicked, so it could
+                       never open the popup, and the depth cap would go back to being a dead
+                       control whose only explanation is the ORDER QUEUE panel several screens up
+                       on a phone. On a full queue the click OPENS THE POPUP and queues nothing.
+                       The two OTHER gates stay hard disables and are unchanged: `!selHeld` and
+                       `selFree <= 0` are about THIS material's stock, the hint text directly
+                       above already names both, and the remedy for them is right here (lower the
+                       quantity, or free some units up) rather than somewhere off screen. -->
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={!selHeld || selFree <= 0 || salvageBayQueue.enqueueBlockReason !== null}
+                    disabled={!selHeld || selFree <= 0 || (matQueueCtl.blockText !== "" && !matQueueCtl.queueFullOnly)}
                     title={selHeld ? undefined : "None of this material is held"}
-                    on:click={() => requestSalvage("material", salvageTargetId, selItem.label, selQty)}
+                    on:click={() => matQueueCtl.queueFullOnly
+                      ? openQueueFullNotice("salvageBay")
+                      : requestSalvage("material", salvageTargetId, selItem.label, selQty)}
                   >
                     {selQty > 1 ? `Salvage · ×${selQty}` : "Salvage"}
                   </button>
@@ -10715,6 +11089,13 @@
                          drives, because {@const} must be an immediate child of the block that
                          opens the scope, and the card below is a plain element. -->
                     {@const queueGate = canEnqueueOrder(state, "shipyard", { type: "shipBuild", typeKey })}
+                    <!-- ONE reading of that gate for all three things it drives: the note under
+                         the queue button, the button's disabled state, and what a click on it
+                         does (queue-full popup, 2026-09-10). Declared HERE beside `queueGate`
+                         for the same reason `queueGate` itself is: {@const} may only be an
+                         immediate child of the block that opens the scope, and the card below is
+                         a plain element. -->
+                    {@const queueCtl = enqueueControlFor(queueGate.ok ? null : queueGate.reason)}
                     <div class="mission-card" style="margin-top: 10px;">
                       <div class="research-name">{def.label}</div>
                       <div class="research-cost">{def.cargoCapacity} cargo · {def.spec}</div>
@@ -10843,12 +11224,26 @@
                            them.
                            `queueGate` is declared up beside `gate` at the top of this card's
                            {#each} body, because {@const} may only be an immediate child of the
-                           block that opens the scope. -->
+                           block that opens the scope.
+                           ⚠️ AND IT IS DELIBERATELY LEFT ENABLED WHEN THE QUEUE IS FULL (queue-full
+                           popup, 2026-09-10). DO NOT "fix" this back to `disabled={!queueGate.ok}`:
+                           a disabled <button> cannot be clicked, so it could never open the popup,
+                           and the depth cap would go back to being a dead control whose only
+                           explanation is the ORDER QUEUE panel above this hull list, reliably off
+                           screen on a phone. On a full queue the click OPENS THE POPUP and queues
+                           nothing. The only other refusal this card can produce (materials) is
+                           about THIS hull's bill of materials, is already spelled out in the
+                           REQUIRES rows directly above, and keeps the plain disabled treatment.
+                           Full rationale in the script's queue-full popup header.
+                           `queueCtl` is declared beside `queueGate` for the same {@const} scoping
+                           reason recorded above. -->
                       <button
                         class="buy-btn"
                         style="margin-top: 6px;"
-                        disabled={!queueGate.ok}
-                        on:click={() => doQueueShipBuild(typeKey as ShipTypeKey)}
+                        disabled={queueCtl.blockText !== "" && !queueCtl.queueFullOnly}
+                        on:click={() => queueCtl.queueFullOnly
+                          ? openQueueFullNotice("shipyard")
+                          : doQueueShipBuild(typeKey as ShipTypeKey)}
                       >
                         Add to queue
                       </button>
@@ -10857,9 +11252,11 @@
                            a disabled <button> swallows pointer events and a title on it is
                            unreadable on touch entirely. The sentence is the shared
                            enqueueBlockText, so this card and the queue panel above describe a
-                           refusal with one wording rather than two. -->
-                      {#if !queueGate.ok}
-                        <p class="cq-note">{enqueueBlockText(queueGate.reason)}</p>
+                           refusal with one wording rather than two. Kept for the queue-full case
+                           too: the note is for a player READING the card, the popup is for one
+                           PRESSING it. -->
+                      {#if queueCtl.blockText !== ""}
+                        <p class="cq-note">{queueCtl.blockText}</p>
                       {/if}
                     </div>
                   {/each}
@@ -11252,7 +11649,9 @@
                their subCategory. Sections with no items at the selected tier are
                hidden. Salvaged Materials is the final section and stays browse-only
                (select-to-salvage lives in the Salvage tab). -->
-          {@const tierUnlocked = warehouseTierUnlocked(activeMaterialsTier)}
+          <!-- `state` is named HERE so this const re-runs when the unlock rung completes, not
+               only when the tier selector moves (stale-derivation trap, 2026-09-10). -->
+          {@const tierUnlocked = warehouseTierUnlocked(state, activeMaterialsTier)}
           {@const cap = tierCap(state, activeMaterialsTier)}
 
           <!-- TIER SELECTOR: pick which storage tier's stock to view. Reuses
@@ -14373,6 +14772,67 @@
     </div>
   {/if}
 
+  {#if queueFullNotice !== null}
+    <!-- ============ THE QUEUE-FULL POPUP (device-test feedback, 2026-09-10) ============
+         Shown at the MOMENT OF THE ATTEMPT, when the player presses an enqueue control at a
+         facility whose queue is at its depth cap. Before this, that press either did nothing
+         (a disabled button) or had nothing to press at all (the craft consoles removed the
+         control outright), and the only explanation lived in the ORDER QUEUE panel, which on a
+         phone sits several screens away from the control. The reporter's words: "that message
+         is not the best option for this as it's out of view on mobile when I try to queue
+         something more."
+
+         ONE POPUP FOR ALL FIVE QUEUEING CONSOLES (Refinery, Fabricator, Research Lab,
+         Shipyard, Salvage Bay). The facility is named from live data, so the message is
+         specific without five copies of a sentence to keep in step; see
+         QUEUE_FACILITY_DEPTH_FACTS, which also carries each facility's talent path so
+         per-facility depth talents become a data edit rather than five string hunts.
+
+         THE SHELL IS THE EXISTING .fsheet-* FAMILY, the same one CONFIRM CRAFT and CONFIRM
+         SALVAGE above use: a bottom sheet on a phone, a centered popup from 700px up, backdrop
+         click + Escape + a header ✕, focus trapped inside. That is the whole point of the
+         choice: this popup appears on exactly the consoles those two already serve, and being
+         anchored to the bottom edge on a phone is what puts it under the thumb that pressed
+         the control. Mirrored locally rather than extracted, the decision recorded on CONFIRM
+         CRAFT: these sheets share a LOOK, not a shape.
+
+         EVERY DISMISSAL PATH IS THE SAME PATH. This popup writes NO state and queues NOTHING,
+         so unlike CONFIRM SALVAGE it has no dangerous exit to guard: backdrop, Escape, ✕ and
+         the Got it button all call closeQueueFullNotice and all mean the same thing. -->
+    {@const queueFullFacility = queueFullNotice}
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the two confirm sheets above, the backdrop is a presentation dimmer whose click-to-dismiss is a convenience. Escape (the focusTrap below) and the header ✕ both close it from the keyboard, and the only control lives inside the dialog. -->
+    <div class="fsheet-backdrop" on:click|self={closeQueueFullNotice}>
+      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Queue full" use:focusTrap={closeQueueFullNotice}>
+        <div class="fsheet-head">
+          <span>QUEUE FULL</span>
+          <button class="fsheet-close" on:click={closeQueueFullNotice} aria-label="Close">&times;</button>
+        </div>
+        <!-- The message. Both remedies, no depth NUMBER in the prose: depth is derived from
+             talents on read and a respec can shrink it, so a baked-in figure would eventually
+             be a lie. -->
+        <p class="fsheet-explain">{queueFullNoticeText(queueFullFacility)}</p>
+        <!-- The live figure, from the SAME buildCraftQueue view the ORDER QUEUE panel behind
+             this sheet binds to, so the two can never report different depths. It keeps
+             updating while the sheet is open (ticks keep running), which is what makes it the
+             one number safe to print. The over-capacity reading (a respec left the facility
+             holding more than the current cap allows) prints honestly as e.g. "3 / 1"; the
+             panel underneath carries the full drain explanation for that case. -->
+        {#if queueFullNoticeView !== null}
+          <p class="modal-instruction">Waiting orders at your {queueFacilityLabel(queueFullFacility)}: {queueFullNoticeView.depthUsed} / {queueFullNoticeView.depthTotal}.</p>
+        {/if}
+        <!-- The way out. A plain dismiss, and only a dismiss: there is no existing jump helper
+             to the Homeworld Talents tree (jumpToActivity's JumpTarget union routes to
+             facilities and operations only, and the tree lives inside the Crew tab's Fleet
+             Admiral modal), so the popup SAYS where to go rather than inventing a second
+             navigation path in a bug fix. Cancelling a queued job is done in the ORDER QUEUE
+             panel on the console already behind this sheet. -->
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closeQueueFullNotice}>Got it</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
   {#if homeworldRespecModalOpen}
     <!-- Homeworld Talents Reset confirmation modal (Task 13, Talent Tree
          Visual Redesign), reuses the SAME .modal-backdrop/Panel.modal-
@@ -15856,6 +16316,19 @@
     border-color: var(--color-accent);
   }
   .fsheet-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  /* .fsheet-explain: the NEUTRAL sibling of .modal-warning and .modal-note, for a sheet whose
+     body is an EXPLANATION rather than a caution or a reassurance. Identical size, line-height
+     and 10px bottom margin, so a sheet's paragraphs share one rhythm whichever of the three it
+     uses; only the color differs.
+     WHY IT EXISTS (queue-full popup, 2026-09-10): the three existing modal paragraph classes
+     each carry a semantic color that would MISREPORT this message. .modal-warning is danger
+     red, and a full queue is a normal, self-clearing state, not an error the player did wrong.
+     .modal-note is success green, which reads as reassurance about something that just went
+     right. .modal-instruction is the 12px secondary line used for a supporting detail, too
+     quiet to be a sheet's entire body. This is exactly the reason .modal-note itself was added
+     one release earlier, and it takes the same shape rather than inventing a second one.
+     Tokens only, no new palette value. */
+  .fsheet-explain { font-size: 13px; color: var(--color-text-primary); line-height: 1.5; margin: 0 0 10px; }
   /* Readonly backup textarea for the corrupt-save recovery modal (P4). Mirrors
      .modal-input's themed surface, but as a multi-row, monospace, wrapping box
      the player can select/copy from. overflow-wrap:anywhere keeps the long
