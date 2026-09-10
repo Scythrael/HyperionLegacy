@@ -14349,7 +14349,7 @@
              still instant and still resolves on Confirm, so its branch is left exactly as it
              was rather than being told a queue story that is not true for it. -->
         {#if salvageConfirm.kind !== "ship"}
-          <p class="research-status">
+          <p class="modal-note">
             <!-- ⚠️ Salvage Lanes (2026-09-04): both branches used to promise a bay that
                  worked "one order at a time" / "one unit at a time", which stopped being
                  true the moment lanes became buyable. A batch still promotes ONE UNIT PER
@@ -15717,6 +15717,17 @@
   .profile-portrait { flex: 0 0 48px; height: 48px; font-size: 22px; }
   .profile-identity-name { font-size: 13px; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
   .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
+  /* .modal-note: the REASSURING sibling of .modal-warning, for the "here is what
+     actually happens next" line under a destructive warning. Same size, line-height
+     and 10px bottom margin, differing only in color, so a modal's paragraphs share
+     one rhythm no matter which of the two they are.
+     WHY IT EXISTS (2026-09-10): the CONFIRM SALVAGE dialog used .research-status
+     here, which is a CONSOLE readout class carrying `margin: 0`, so the green
+     sentence sat flush against the Cancel / Add to queue row with no breathing space
+     while the red warning above it had its 10px. Fixed here rather than by touching
+     .research-status, which is shared across the facility consoles and would have
+     moved spacing on surfaces this has nothing to do with. */
+  .modal-note { font-size: 13px; color: var(--color-success); line-height: 1.5; margin: 0 0 10px; }
   .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
   .modal-input {
     width: 100%;
