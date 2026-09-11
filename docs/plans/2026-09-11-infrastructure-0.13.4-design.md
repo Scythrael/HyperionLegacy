@@ -109,6 +109,7 @@ Each of these is a **CLAUDE INFERENCE**. They are repeated in section 13 so the 
 2. **Patrol termination reasons**: an exhaustive `PatrolEndReason` union, recorded per run with the routes completed on that run, surfaced in the existing completion log.
 3. **The lane allocation model**: `remaining` moves from the lane to a new order record; a free lane takes an unstarted queued order first and otherwise joins a running order.
 4. **Per-facility queue depth**: `queueDepth(state, facility)`, the existing chain kept as the shared trunk, five new per-facility branch nodes.
+5. **Standard-Issue fills every slot** (added 2026-09-11, user decision, after the 0.13.3.1 QA pass): every hull ships a Standard-Issue weapon in every hardpoint and a pod in every drone bay, with per-hull magnitudes re-tuned so total Standard-Issue offense stays where the patrol sim is tuned today. See §16. ⚠️ **This is the one non-infrastructure item in the release, and it is therefore the first thing to peel** if 0.13.4 grows. It is here because it is small and self-contained, not because it fits the theme.
 
 **Out (explicit non-goals, each with a reason and a target):**
 
@@ -136,6 +137,7 @@ Each of these is a **CLAUDE INFERENCE**. They are repeated in section 13 so the 
 | 6 | Lane model gate | A single-lane facility must be **byte-identical** to today. That is what keeps the 101 baseline meaningful. |
 | 7 | Queue depth | Per facility, additive, never multiplicative, never per lane. The existing chain is the shared trunk with no re-scoping and therefore no migration. |
 | 8 | Tick discipline | Every new decision is a pure function of state at that tick; every new pass lives at an existing `economyTick` seam with exactly one call site; no ambient clock, no new rng in the tick. |
+| 9 | Standard-Issue slots | **Middle path, user decision 2026-09-11.** Every slot gets a Standard-Issue piece, AND per-hull magnitudes are re-tuned so total Standard-Issue offense per hull stays at today's tuned level. A full loadout is the same power spread thinner, not more power. An empty hardpoint is treated as the same class of dead end as an empty required slot. See §16. |
 
 ## 4. Code grounding (what exists, verified on this branch tip)
 
@@ -762,3 +764,64 @@ This document was re-read end to end against itself, because 0.13.3's doc contra
 | §9.3 requires exactly 101; new parity cases are required throughout. | Consistent: new cases live in NEW files that are added to the exclusion list, which is 0.13.3's own convention. The 101 is the count of the UNTOUCHED baseline, not of all parity cases. |
 
 **No unresolved contradiction was found.** Anything that looked like one is either flagged as an inference in §1.5 or answered in the table above. If a future reader finds a real one, §14 wins and the other section is the thing to fix.
+
+---
+
+## 16. F5: Standard-Issue fills every slot
+
+*Added 2026-09-11, after the 0.13.3.1 QA pass. Numbered 16 rather than inserted as a fifth F-section so the existing Â§5 to Â§15 numbering, which the rest of this document cross-references, does not shift.*
+
+### 16.1 The user's reasoning, which is the decision
+
+> "Middle path. Because there's no great reason to limit/remove weapons. It'd be a softlock in the same way if they weren't an option. Except that you can be dispatched and will lose guaranteed."
+
+The argument is a **dead-end argument, not a power argument**, and that is what makes it consistent with the rest of the project. 0.13.3.1 spent its whole budget establishing that a slot which cannot be filled is a dead end: the never-empty invariant, the Quartermaster, the reframed baseline warning. An empty hardpoint is the same shape one step weaker. It does not ground the ship, so the player is free to dispatch it, and the game's answer to "why did that go badly" is a slot they did not know was empty.
+
+âš ï¸ **One factual correction a future reader must carry, because acting on the literal wording would mis-tune this.** "Will lose guaranteed" is an overstatement of today's behaviour: `patrol-balance.test.ts` tunes economy hulls to a win rate that is **below the destroyer's, not zero**. The decision does not depend on the overstatement. It rests on the dead-end argument above, which is true as stated. Do not re-tune toward "economy hulls currently always lose", because they do not.
+
+### 16.2 What exists today, verified
+
+`COMBAT_DEFAULT_LOADOUT` (`src/lib/game/combat/bridge.ts`, around :360) against `SHIP_TYPES` hardpoints (`src/lib/game/model.ts`, around :788 to :900):
+
+| Hull | Hardpoints | Standard-Issue weapons | Bays | Pods | Empty |
+|---|---|---|---|---|---|
+| `generalFreighter` | 2 | 1 (autocannon) | 0 | 0 | 1 gun |
+| `prospectorHauler` | 2 | 1 (autocannon) | 0 | 0 | 1 gun |
+| `prospectorRunner` | 1 | 1 (autocannon) | 0 | 0 | none |
+| `prospectorMiner` | 1 | 1 (autocannon) | 0 | 0 | none |
+| `destroyer` | 4 | 2 (autocannon, plasma) | 0 | 0 | 2 guns |
+| `battleship` | 6 | 3 (railgun, concussionTorpedo, voltaic) | 0 | 0 | 3 guns |
+| `carrier` | 2 | 1 (pointDefenseArray) | 2 | 1 (attack) | 1 gun, 1 bay |
+
+**The gap is deliberate and documented**, which is why this is a design change and not a bug fix. The in-code comment says the guns are "deliberately fewer than the hull's weaponHardpoints", and that the economy counts were tuned against the real patrol sim so that every economy hull's Standard-Issue win rate lands below the destroyer's on both the Sweep and the Warband. Whoever builds this is overriding a tuned decision on purpose, with the user's authority, and must leave the comment truthful afterwards rather than leaving a comment that describes the old intent.
+
+`seedCombatStandardIssueForShip` (`model.ts`, around :6382) mints exactly one piece per `signatureWeapons` entry and one per `droneRoles` entry, in a fixed order the id allocation depends on. **It already does the right thing**: it mints one per entry. So F5 is mostly a change to the DATA table plus a magnitude re-tune, not a change to the seeder's shape.
+
+### 16.3 What changes
+
+1. **`COMBAT_DEFAULT_LOADOUT` weapon arrays grow to the hull's `weaponHardpoints`**, and `droneRoles` grows to `droneBays`. Five of seven hulls change; runner and miner are already full.
+2. **Per-hull Standard-Issue magnitudes are re-tuned downward** so total offense per hull lands where the sim sits today. The lever is the Standard-Issue weapon's own generated magnitude in `generateCombatStandardIssue`, not the choice of `WeaponId`, because the `WeaponId` choices carry the hulls' family identities (the battleship's railgun plus torpedo plus voltaic is its character, not a number).
+3. **âš ï¸ Decide and record: is the magnitude cut per-hull or global?** A global cut is simpler but changes runner and miner, which gain no slots and would therefore be a straight nerf. **Recommend per-hull**, scaled by `newSlotCount / oldSlotCount`, which leaves runner and miner byte-identical at a ratio of 1 and makes "spread thinner" literally true.
+4. **The never-empty invariant now has more slots to keep full.** Every path that enforces it (the four uninstall routes in `equipment.ts`, the Quartermaster's per-slot-type bound) must be re-checked against the wider loadout. The Quartermaster bound is per slot type, not per slot, so a 6-hardpoint battleship missing three guns can only requisition one at a time. That is probably still correct (installing re-opens the row) but it is now a longer recovery and should be confirmed against the peace value rather than assumed.
+
+### 16.4 The gate
+
+`patrol-balance.test.ts` **is** the acceptance test, and it is not advisory. The ordering it asserts, every economy hull below the destroyer on both encounters, must still hold after the re-tune. It will not pass by construction and must be re-run and re-tuned until it does.
+
+Additionally: the 101 excluded-baseline parity count is unaffected in principle (this touches mint magnitudes and a data table, not the tick), but it must still be printed, because a magnitude change reaching a seeded patrol would show up there and that is exactly the kind of surprise this gate exists to catch.
+
+### 16.5 Save and migration
+
+**This needs a SAVE_VERSION bump and a real migration**, and it is the reason F5 was not folded into 0.13.3.1.
+
+Existing ships carry their minted baselines in the save. Without a migration, a ship built before the change keeps its sparse loadout while a ship built after gets a full one, so two identical hulls in the same fleet differ invisibly. That is precisely the silent inconsistency the project's never-surprise-the-player posture forbids.
+
+The migration must **mint the missing pieces onto every existing ship**, installed, using the same deterministic order `seedCombatStandardIssueForShip` uses, appending new ids rather than renumbering (the v34 to v35 drone-pod migration is the precedent to copy: it appended and did not renumber).
+
+âš ï¸ **Open: does the migration also re-tune magnitudes on ALREADY MINTED pieces?** If it does not, an old ship ends up with full-strength original guns plus new weaker ones, so it is stronger than a freshly built one. If it does, it is rewriting the stats on items the player already owns, which is a thing this project has never done. **Recommend rewriting them**, because the alternative is a permanent power difference based on build date that no player can see or fix, and because Standard-Issue pieces are explicitly the auto-managed floor rather than player property (they recover nothing when broken down, and the Quartermaster hands out replacements for free). Record the answer here before building.
+
+### 16.6 Accepted cost
+
+**A crafted weapon stops being a free win.** Today a first crafted gun goes into an empty hardpoint, so it is an unambiguous gain requiring no comparison. After F5 it is a swap, and it only helps if it beats the Standard-Issue floor, which is more for a new player to read at the moment they have the least context.
+
+The middle path softens this rather than removing it: because magnitudes are cut, the floor each crafted gun has to beat is lower than today's Standard-Issue, so a crafted gun clears it more easily and more often. The residual cost is the comparison itself, not the odds of winning it. **Accepted deliberately.** If it turns out to bite, the mitigation is presentational (make the compare-against-installed readout louder in the install modal, which already exists from 0.13.2) and belongs to 0.13.5, not here.
