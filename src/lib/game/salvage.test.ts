@@ -56,6 +56,15 @@ import {
   salvageTalentBonus,
   // Crafting 0.13.3 (Phase 5 Unit 5.1): the PURE auto-salvage rule evaluator.
   selectAutoSalvageTargets,
+  // 0.13.3.1: the PROTECTION SEAM (the named reason a target is off limits to the automation)
+  // and the shared post-craft grace math the engine and the console both read.
+  autoSalvageProtectionForTarget,
+  autoSalvageProtectionContext,
+  autoSalvageSubjectForPiece,
+  autoSalvageProtection,
+  autoSalvageGraceRemainingSeconds,
+  AUTO_SALVAGE_PROTECTION_ORDER,
+  type AutoSalvageProtection,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
@@ -123,6 +132,18 @@ import {
   SALVAGE_EQUIPMENT_RARITY_MULTIPLIER,
   SALVAGE_EQUIPMENT_TIER_MULTIPLIER_PER_TIER,
   type EquipmentRarity,
+  // 0.13.3.1: the per-rarity rule's model (the TOTAL record that makes a new band a compile
+  // error, the derived ladder, and the defensive reader) plus the grace period's default and
+  // option list.
+  AUTO_SALVAGE_RARITIES_NONE,
+  EQUIPMENT_RARITY_LADDER,
+  normalizeAutoSalvageRarities,
+  autoSalvageRarityRuleOn,
+  AUTO_SALVAGE_GRACE_OPTIONS,
+  AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+  resolveAutoSalvageGraceSeconds,
+  rarityIndex,
+  type AutoSalvageRaritySelection,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -2409,6 +2430,14 @@ function autoPiece(opts: {
 // protected (see the section header). freshState's own four FITTED ship-1 baselines are
 // kept as deliberate bystanders: they are installed AND baselines, so any test that ends
 // up selecting one has broken two safety filters at once.
+// ⚠️ 0.13.3.1: the fixture seeds the two NEW rule fields at their off/default values, so every
+// case above and below reads as "the rule under test, and nothing else". `rarities` is the
+// no-band-selected default (the rarity rule off) and `graceSeconds` the shipped 60-minute
+// default. The pieces autoPiece builds carry NO mint stamp, which the grace predicate reads as
+// PAST GRACE (a piece with no stamp predates the stamp, see autoSalvageGraceRemainingSeconds),
+// so the grace is inert here unless a case stamps a piece on purpose. That is deliberate: it is
+// the same reading a pre-0.13.3.1 save gets, which keeps these fixtures honest about what an
+// upgraded save actually does.
 function autoState(
   pieces: EquipmentInstance[],
   rules: Partial<GameState["autoSalvage"]> = {}
@@ -2418,8 +2447,55 @@ function autoState(
     ...base,
     equipment: [...base.equipment, ...pieces],
     salvageConfirmQualities: [], // nothing protected, so the RULES are what is under test
-    autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1, ...rules },
+    autoSalvage: {
+      enabled: true,
+      maxQuality: null,
+      duplicates: false,
+      keepPerVariety: 1,
+      rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+      graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+      ...rules,
+    },
   };
+}
+
+// Run a REAL equipment fabricate job to completion inside economyTick, with the auto-salvage
+// rules wide open, and return the resulting state.
+//
+// WHY A REAL COMPLETION rather than a hand-built EquipmentInstance: this is the ONE case that
+// proves the game-clock mint STAMP is actually written by the Fabricator's mint branch
+// (tick.ts). A fixture that stamped its own piece would pass whether or not that line existed,
+// which is exactly the kind of test that lets a protection quietly stop being applied.
+//
+// The job is one tick from done, so a single economyTick completes it; the rules then run in
+// the SAME tick (autoSalvageOrders sits at the head of promoteQueuedOrders) and would queue the
+// minted piece immediately if the grace did not hold it.
+function runFabricateToCompletion(): GameState {
+  const base = autoState([], { maxQuality: 5, duplicates: true });
+  const start: GameState = {
+    ...base,
+    // A clock well past one grace period, so nothing here depends on a young-save accident.
+    gameTimeSeconds: 100_000,
+    activeProcesses: [
+      {
+        id: "proc-fab",
+        kind: "fabricateJob",
+        remainingTicks: 1,
+        durationTicks: 1,
+        effect: { type: "addEquipment", blueprintKey: SALVAGE_BP },
+      },
+    ],
+  };
+  return economyTick(start, 1, mulberry32(99));
+}
+
+// A per-band rarity selection from a list of bands, for the rarity-rule cases. Built on the
+// TOTAL default, so a band added to EquipmentRarity later is present here (unselected) with no
+// edit, exactly as it is in the engine and the console.
+function raritySelection(bands: EquipmentRarity[]): AutoSalvageRaritySelection {
+  const out = { ...AUTO_SALVAGE_RARITIES_NONE };
+  for (const band of bands) out[band] = true;
+  return out;
 }
 
 // The instance ids a selection names, in the order it returned them.
@@ -2676,6 +2752,411 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
   });
 });
 
+// ============================================================================
+// 0.13.3.1 FEATURE 1: THE RARITY RULE
+// ============================================================================
+// Per-band selection, unioned with the other two rules. The case that matters most is the
+// luminous/constellar one: those two bands SHARE rarityIndex 5 (parallel legendary flavors at
+// one power tier), so any threshold-shaped implementation would sweep both the moment a player
+// picked either, destroying a band they never chose.
+describe("selectAutoSalvageTargets: the RARITY rule selects exactly the checked bands (0.13.3.1)", () => {
+  it("selects every spare in a checked band and nothing outside it", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", rarity: "derelict" }),
+        autoPiece({ id: "eq-b", rarity: "standard" }),
+        autoPiece({ id: "eq-c", rarity: "augmented" }),
+        autoPiece({ id: "eq-d", rarity: "radiant" }),
+      ],
+      { rarities: raritySelection(["derelict", "augmented"]) }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a", "eq-c"]);
+  });
+
+  it("⚠️ selecting LUMINOUS does NOT take CONSTELLAR (the shared-ordinal trap)", () => {
+    // rarityIndex is NOT a ladder here: both bands are ordinal 5. This is the exact case an
+    // "at or below" rule gets wrong, and the reason the rule is per-band.
+    expect(rarityIndex("luminous")).toBe(rarityIndex("constellar"));
+    const pieces = [
+      autoPiece({ id: "eq-lum", rarity: "luminous" }),
+      autoPiece({ id: "eq-con", rarity: "constellar" }),
+    ];
+    expect(
+      selectedIds(selectAutoSalvageTargets(autoState(pieces, { rarities: raritySelection(["luminous"]) }), NO_BOUND))
+    ).toEqual(["eq-lum"]);
+    // And the mirror: picking constellar leaves luminous alone.
+    expect(
+      selectedIds(selectAutoSalvageTargets(autoState(pieces, { rarities: raritySelection(["constellar"]) }), NO_BOUND))
+    ).toEqual(["eq-con"]);
+  });
+
+  it("⚠️ selecting a HIGH band does not drag the bands below it in (it is not a threshold)", () => {
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-low", rarity: "derelict" }),
+        autoPiece({ id: "eq-mid", rarity: "stellar" }),
+        autoPiece({ id: "eq-high", rarity: "radiant" }),
+      ],
+      { rarities: raritySelection(["radiant"]) }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-high"]);
+  });
+
+  it("no band checked means the rule is OFF, not 'every band'", () => {
+    const pieces = [autoPiece({ id: "eq-a", rarity: "derelict" }), autoPiece({ id: "eq-b", rarity: "radiant" })];
+    expect(selectAutoSalvageTargets(autoState(pieces, { rarities: AUTO_SALVAGE_RARITIES_NONE }), NO_BOUND)).toEqual([]);
+    // Every band checked is the opposite extreme and takes everything, which is what proves
+    // the empty case above is "off" rather than "no pieces matched".
+    const all = autoState(pieces, { rarities: raritySelection([...EQUIPMENT_RARITY_LADDER]) });
+    expect(selectedIds(selectAutoSalvageTargets(all, NO_BOUND))).toEqual(["eq-a", "eq-b"]);
+  });
+
+  it("UNIONS with the other two rules rather than narrowing them", () => {
+    // The rarity rule ADDS selections; it is not a filter over what quality/duplicates chose.
+    // eq-keep is a high-quality radiant that only the rarity rule reaches, and it is taken.
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-lowq", rarity: "stellar", quality: 0 }), // the quality rule's pick
+        autoPiece({ id: "eq-rare", rarity: "radiant", quality: 5 }), // the rarity rule's pick
+        autoPiece({ id: "eq-neither", rarity: "stellar", quality: 5, slotType: "ftlDrive" }),
+      ],
+      { maxQuality: 0, rarities: raritySelection(["radiant"]) }
+    );
+    expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))].sort()).toEqual(["eq-lowq", "eq-rare"]);
+  });
+
+  it("⚠️ the CONFIRM interlock still wins: a confirm-ON tier is never taken by the rarity rule", () => {
+    // Rarity is an ADDITIONAL way to select, never a way around the confirm preference. There
+    // is deliberately no confirm-by-rarity: the interlock stays keyed to QUALITY.
+    const base = autoState(
+      [autoPiece({ id: "eq-a", rarity: "radiant", quality: 4 }), autoPiece({ id: "eq-b", rarity: "radiant", quality: 2 })],
+      { rarities: raritySelection(["radiant"]) }
+    );
+    const guarded: GameState = { ...base, salvageConfirmQualities: [4] };
+    expect(selectedIds(selectAutoSalvageTargets(guarded, NO_BOUND))).toEqual(["eq-b"]);
+  });
+
+  it("a MISSING or malformed rarity selection reads as no band selected, never as every band", () => {
+    const pieces = [autoPiece({ id: "eq-a", rarity: "radiant" })];
+    const missing = {
+      ...autoState(pieces),
+      autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1 },
+    } as unknown as GameState;
+    expect(selectAutoSalvageTargets(missing, NO_BOUND)).toEqual([]);
+    const junk = {
+      ...autoState(pieces),
+      autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1, rarities: "all" },
+    } as unknown as GameState;
+    expect(selectAutoSalvageTargets(junk, NO_BOUND)).toEqual([]);
+  });
+});
+
+describe("the rarity selection MODEL is total over EquipmentRarity (0.13.3.1)", () => {
+  it("the ladder lists every band the default record carries, and the record is the only source", () => {
+    // EQUIPMENT_RARITY_LADDER is DERIVED from AUTO_SALVAGE_RARITIES_NONE's keys, so these two
+    // cannot disagree by construction. The assertion pins that they are genuinely derived
+    // rather than two hand-written lists that happen to match today.
+    expect(EQUIPMENT_RARITY_LADDER).toEqual(Object.keys(AUTO_SALVAGE_RARITIES_NONE));
+    // Every band is answered for, and the default answers "not selected" for all of them.
+    for (const band of EQUIPMENT_RARITY_LADDER) {
+      expect(AUTO_SALVAGE_RARITIES_NONE[band]).toBe(false);
+    }
+    expect(autoSalvageRarityRuleOn(AUTO_SALVAGE_RARITIES_NONE)).toBe(false);
+  });
+
+  it("normalizeAutoSalvageRarities fills every band and only an exact true selects", () => {
+    const normalized = normalizeAutoSalvageRarities({ radiant: true, standard: "yes", stellar: 1 });
+    expect(Object.keys(normalized).sort()).toEqual([...EQUIPMENT_RARITY_LADDER].sort());
+    expect(normalized.radiant).toBe(true);
+    expect(normalized.standard).toBe(false); // a truthy non-true value must NOT select
+    expect(normalized.stellar).toBe(false);
+    // Absent / unreadable inputs land on "nothing selected", the keep-items direction.
+    expect(autoSalvageRarityRuleOn(normalizeAutoSalvageRarities(undefined))).toBe(false);
+    expect(autoSalvageRarityRuleOn(normalizeAutoSalvageRarities("radiant"))).toBe(false);
+  });
+});
+
+// ============================================================================
+// 0.13.3.1 FEATURE 2: FAVORITES
+// ============================================================================
+describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salvaged (0.13.3.1)", () => {
+  it("is skipped however widely the rules select, and its neighbours are unaffected", () => {
+    const base = autoState(
+      [
+        autoPiece({ id: "eq-fav", quality: 0, rarity: "radiant" }),
+        autoPiece({ id: "eq-open", quality: 0, rarity: "radiant" }),
+      ],
+      { maxQuality: 5, duplicates: true, rarities: raritySelection([...EQUIPMENT_RARITY_LADDER]) }
+    );
+    // Control: with nothing favorited, both are taken.
+    expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual(["eq-fav", "eq-open"]);
+    // Pin one: it survives, the other does not.
+    const pinned: GameState = {
+      ...base,
+      equipment: base.equipment.map((e) => (e.id === "eq-fav" ? { ...e, favorite: true } : e)),
+    };
+    expect(selectedIds(selectAutoSalvageTargets(pinned, NO_BOUND))).toEqual(["eq-open"]);
+  });
+
+  it("a favorited BEST-IN-SLOT still holds its group's keeper slot, so the rule takes no extra copy", () => {
+    // The favorite stays in the ranking pool rather than being removed from it. If it were
+    // removed, the next copy down would inherit the keeper slot and a THIRD copy would be
+    // queued in its place, which would make favoriting a piece cost the player a different one.
+    const base = autoState(
+      [
+        autoPiece({ id: "eq-best", iLevel: 90 }),
+        autoPiece({ id: "eq-mid", iLevel: 50 }),
+        autoPiece({ id: "eq-worst", iLevel: 10 }),
+      ],
+      { duplicates: true }
+    );
+    expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual(["eq-mid", "eq-worst"]);
+    const pinned: GameState = {
+      ...base,
+      equipment: base.equipment.map((e) => (e.id === "eq-best" ? { ...e, favorite: true } : e)),
+    };
+    // Unchanged: the favorite was already the keeper, so pinning it selects no more and no less.
+    expect([...selectedIds(selectAutoSalvageTargets(pinned, NO_BOUND))].sort()).toEqual(["eq-mid", "eq-worst"]);
+  });
+
+  it("MANUAL salvage of a favorite is still allowed (the flag protects against the AUTOMATION only)", () => {
+    const base = stateWith([makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 0, id: "eq-1" })]);
+    const pinned: GameState = { ...base, equipment: [{ ...base.equipment[0], favorite: true }] };
+    const result = salvageEquipment(pinned, "eq-1", () => 0.5);
+    expect(result.ok).toBe(true);
+    expect(result.next.equipment.some((e) => e.id === "eq-1")).toBe(false);
+  });
+
+  it("the favorite flag is the only thing that changes: an unpinned piece is selected again", () => {
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 });
+    const pinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)) };
+    expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
+    const unpinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: false } : e)) };
+    expect(selectedIds(selectAutoSalvageTargets(unpinned, NO_BOUND))).toEqual(["eq-a"]);
+  });
+});
+
+// ============================================================================
+// 0.13.3.1 FEATURE 3: THE POST-CRAFT GRACE PERIOD
+// ============================================================================
+describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1)", () => {
+  // A state whose clock reads `now`, holding one spare stamped at `mintedAt`.
+  function graceState(now: number, mintedAt: number | undefined, graceSeconds?: number): GameState {
+    const base = autoState([autoPiece({ id: "eq-new", quality: 0 })], {
+      maxQuality: 5,
+      ...(graceSeconds === undefined ? {} : { graceSeconds }),
+    });
+    return {
+      ...base,
+      gameTimeSeconds: now,
+      equipment: base.equipment.map((e) =>
+        e.id === "eq-new" ? { ...e, mintedAtGameSeconds: mintedAt } : e
+      ),
+    };
+  }
+
+  it("a WITHIN-GRACE spare is never selected", () => {
+    // Minted 10 game-minutes ago under the 60-minute default: still protected.
+    expect(selectAutoSalvageTargets(graceState(10_000, 10_000 - 600), NO_BOUND)).toEqual([]);
+  });
+
+  it("a PAST-GRACE spare IS selected", () => {
+    // Minted 61 game-minutes ago: the window is over.
+    expect(selectedIds(selectAutoSalvageTargets(graceState(10_000, 10_000 - 3_660), NO_BOUND))).toEqual(["eq-new"]);
+  });
+
+  it("the boundary is exact: at exactly the grace length the window is OVER", () => {
+    const atBoundary = graceState(10_000, 10_000 - AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+    expect(selectedIds(selectAutoSalvageTargets(atBoundary, NO_BOUND))).toEqual(["eq-new"]);
+    // One second inside it, it is still held.
+    const insideBoundary = graceState(10_000, 10_000 - AUTO_SALVAGE_GRACE_SECONDS_DEFAULT + 1);
+    expect(selectAutoSalvageTargets(insideBoundary, NO_BOUND)).toEqual([]);
+  });
+
+  it("the length is the PLAYER'S choice, read off the save", () => {
+    const mintedAgo = 20 * 60; // 20 game-minutes ago
+    // Under a 10-minute grace that is long past; under 24 hours it is brand new.
+    expect(selectedIds(selectAutoSalvageTargets(graceState(100_000, 100_000 - mintedAgo, 10 * 60), NO_BOUND))).toEqual([
+      "eq-new",
+    ]);
+    expect(selectAutoSalvageTargets(graceState(100_000, 100_000 - mintedAgo, 24 * 60 * 60), NO_BOUND)).toEqual([]);
+  });
+
+  it("a piece with NO mint stamp is treated as OLD (the pre-0.13.3.1 save decision)", () => {
+    // The decision recorded on MIGRATIONS[42]: an item that predates the stamp has no craft
+    // moment to protect, so the grace does not apply and the rules behave exactly as before.
+    expect(selectedIds(selectAutoSalvageTargets(graceState(600, undefined), NO_BOUND))).toEqual(["eq-new"]);
+    // ⚠️ AND SPECIFICALLY NOT as "minted at game-second 0", which on a young save would have
+    // protected every legacy spare and silently paused a running automation.
+    expect(selectedIds(selectAutoSalvageTargets(graceState(60, undefined), NO_BOUND))).toEqual(["eq-new"]);
+  });
+
+  it("a grace length the save does not carry falls back to the 60-minute default, never to 0", () => {
+    const noLength = {
+      ...graceState(10_000, 10_000 - 600),
+      autoSalvage: { enabled: true, maxQuality: 5, duplicates: false, keepPerVariety: 1, rarities: AUTO_SALVAGE_RARITIES_NONE },
+    } as unknown as GameState;
+    // Still inside the DEFAULT window, so still protected. A 0 fallback would have taken it.
+    expect(selectAutoSalvageTargets(noLength, NO_BOUND)).toEqual([]);
+    expect(resolveAutoSalvageGraceSeconds(undefined)).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+    expect(resolveAutoSalvageGraceSeconds({ graceSeconds: -5 } as never)).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+    expect(resolveAutoSalvageGraceSeconds({ graceSeconds: Number.NaN } as never)).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+    // A deliberate 0 IS honored (a legitimate "no grace for me" choice), which is why the
+    // guard tests the value's shape rather than its truthiness.
+    expect(resolveAutoSalvageGraceSeconds({ graceSeconds: 0 } as never)).toBe(0);
+  });
+
+  it("⚠️ A FRESHLY CRAFTED PIECE IS PROTECTED END TO END, through the real Fabricator mint", () => {
+    // The whole feature in one case, and the one that proves the STAMP is actually written:
+    // run a real fabricate job to completion inside the tick, with the rules wide open, and
+    // the piece it mints must still be in the pool afterwards rather than queued for salvage.
+    const crafted = runFabricateToCompletion();
+    const minted = crafted.equipment.find((e) => e.blueprintKey === SALVAGE_BP && e.fittedToShipId === null);
+    expect(minted).toBeDefined();
+    // It carries the game-clock stamp...
+    expect(typeof minted?.mintedAtGameSeconds).toBe("number");
+    // ...and it is inside its window, so no rule can take it.
+    expect(autoSalvageGraceRemainingSeconds(crafted, minted as EquipmentInstance)).toBeGreaterThan(0);
+    expect(
+      selectAutoSalvageTargets(crafted, NO_BOUND).some(
+        (t) => t.kind === "equipment" && t.instanceId === minted?.id
+      )
+    ).toBe(false);
+  });
+});
+
+describe("autoSalvageGraceRemainingSeconds: the shared grace math (0.13.3.1)", () => {
+  const piece = (mintedAtGameSeconds?: number): EquipmentInstance => ({
+    ...autoPiece({ id: "eq-x" }),
+    mintedAtGameSeconds,
+  });
+  const at = (now: number): GameState => ({ ...autoState([]), gameTimeSeconds: now });
+
+  it("counts down with game time and never reads below zero", () => {
+    expect(autoSalvageGraceRemainingSeconds(at(1_000), piece(1_000))).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+    expect(autoSalvageGraceRemainingSeconds(at(1_600), piece(1_000))).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT - 600);
+    expect(autoSalvageGraceRemainingSeconds(at(99_999), piece(1_000))).toBe(0);
+  });
+
+  it("returns 0 for a piece with no stamp, and clamps a future stamp to a full window", () => {
+    expect(autoSalvageGraceRemainingSeconds(at(1_000), piece(undefined))).toBe(0);
+    // A stamp in the future (a rewound or hand-edited save) errs toward keeping the item.
+    expect(autoSalvageGraceRemainingSeconds(at(1_000), piece(5_000))).toBeGreaterThan(0);
+  });
+
+  it("every offered grace option is a usable positive length, and the default is one of them", () => {
+    expect(AUTO_SALVAGE_GRACE_OPTIONS.length).toBeGreaterThan(0);
+    for (const opt of AUTO_SALVAGE_GRACE_OPTIONS) {
+      expect(opt.seconds).toBeGreaterThan(0);
+      expect(opt.label.length).toBeGreaterThan(0);
+    }
+    expect(AUTO_SALVAGE_GRACE_OPTIONS.some((o) => o.seconds === AUTO_SALVAGE_GRACE_SECONDS_DEFAULT)).toBe(true);
+    // The option values are unique, so the console's <select> cannot render two identical rows.
+    const seconds = AUTO_SALVAGE_GRACE_OPTIONS.map((o) => o.seconds);
+    expect(new Set(seconds).size).toBe(seconds.length);
+  });
+});
+
+// ============================================================================
+// 0.13.3.1: THE PROTECTION SEAM (the named reason, and its totality)
+// ============================================================================
+// The six ad-hoc safety filters became ONE enumerable concept so that a seventh (the planned
+// "sitting in an armory loadout") is a compile error rather than five silent omissions. These
+// cases pin the two properties that make it worth having: every reason is REPORTABLE, and the
+// table is TOTAL over the union.
+describe("autoSalvageProtection: WHY a target is off limits, as a named reason (0.13.3.1)", () => {
+  it("reports each reason for the state that causes it", () => {
+    const pieces = [
+      autoPiece({ id: "eq-baseline", blueprintKey: null }),
+      autoPiece({ id: "eq-installed", fittedToShipId: "ship-1" }),
+      autoPiece({ id: "eq-plain", quality: 2 }),
+      autoPiece({ id: "eq-fav", quality: 2 }),
+      autoPiece({ id: "eq-fresh", quality: 2 }),
+      autoPiece({ id: "eq-queued", quality: 2 }),
+    ];
+    const base = autoState(pieces, { maxQuality: 5 });
+    const state: GameState = {
+      ...base,
+      gameTimeSeconds: 10_000,
+      salvageConfirmQualities: [3], // Q3 asks first; the fixtures above are Q2 unless stated
+      equipment: base.equipment.map((e) =>
+        e.id === "eq-fav"
+          ? { ...e, favorite: true }
+          : e.id === "eq-fresh"
+            ? { ...e, mintedAtGameSeconds: 10_000 - 60 }
+            : e
+      ),
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-queued" }, mode: { kind: "batch", remaining: 1 } },
+        },
+      ],
+    };
+    const reasonFor = (id: string) => autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: id });
+    expect(reasonFor("eq-baseline")).toBe("baseline");
+    expect(reasonFor("eq-installed")).toBe("installed");
+    expect(reasonFor("eq-queued")).toBe("reserved");
+    expect(reasonFor("eq-fav")).toBe("favorited");
+    expect(reasonFor("eq-fresh")).toBe("craftGrace");
+    expect(reasonFor("eq-plain")).toBeNull(); // nothing protects it: the rules may take it
+    // The confirm interlock, on a piece whose tier IS set to ask first.
+    const q3: GameState = {
+      ...state,
+      equipment: [...state.equipment, autoPiece({ id: "eq-confirm", quality: 3 })],
+    };
+    expect(autoSalvageProtectionForTarget(q3, { kind: "equipment", instanceId: "eq-confirm" })).toBe("confirmTier");
+  });
+
+  it("⚠️ a FAVORITE is exempt at the TARGET level, so a hull target is protected too", () => {
+    // The rules are equipment-only today, so this is forward-looking by design: whatever
+    // auto-salvage is ever pointed at, a favorite must be exempt. A HULL has no saved favorite
+    // flag at all (ship favorites are a per-device localStorage view preference the tick cannot
+    // read), so the only offline-honest answer for a hull is "treat it as protected".
+    const state = autoState([autoPiece({ id: "eq-a" })], { maxQuality: 5 });
+    expect(autoSalvageProtectionForTarget(state, { kind: "ship", shipId: "ship-1" })).toBe("favorited");
+  });
+
+  it("the reason ORDER is declared and covers the whole union exactly once", () => {
+    // The order decides only WHICH reason is reported when several apply. It is derived from
+    // the total predicate record's own keys, so a new reason takes its place automatically and
+    // cannot be omitted from the walk.
+    const expected: AutoSalvageProtection[] = [
+      "baseline",
+      "installed",
+      "reserved",
+      "confirmTier",
+      "favorited",
+      "craftGrace",
+    ];
+    expect(AUTO_SALVAGE_PROTECTION_ORDER).toEqual(expected);
+    expect(new Set(AUTO_SALVAGE_PROTECTION_ORDER).size).toBe(AUTO_SALVAGE_PROTECTION_ORDER.length);
+  });
+
+  it("an unreadable confirm preference protects EVERY piece, through the seam as well", () => {
+    const broken = {
+      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 }),
+      salvageConfirmQualities: undefined,
+    } as unknown as GameState;
+    expect(autoSalvageProtectionForTarget(broken, { kind: "equipment", instanceId: "eq-a" })).toBe("confirmTier");
+  });
+
+  it("the context is derived once and answers many pieces (the selector's hot path)", () => {
+    // The shape the tick uses: one context, many subjects, no per-piece reservation derivation.
+    const base = autoState([autoPiece({ id: "eq-a" }), autoPiece({ id: "eq-b" })], { maxQuality: 5 });
+    const state: GameState = {
+      ...base,
+      equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)),
+    };
+    const ctx = autoSalvageProtectionContext(state);
+    const pieceA = state.equipment.find((e) => e.id === "eq-a") as EquipmentInstance;
+    const pieceB = state.equipment.find((e) => e.id === "eq-b") as EquipmentInstance;
+    expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceA))).toBe("favorited");
+    expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceB))).toBeNull();
+  });
+});
+
 describe("selectAutoSalvageTargets: DISABLED rules do nothing (0.13.3 Unit 5.1)", () => {
   const pieces = [autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })];
 
@@ -2903,6 +3384,86 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     const after = tick(SPAN, off, mulberry32(SEED));
     expect(after.equipment.length).toBe(off.equipment.length);
     expect(after.processQueue).toEqual([]);
+  });
+
+  // --- 0.13.3.1: the TWO NEW PROTECTIONS, PROVEN OFFLINE -------------------------------
+  // ⚠️ THIS IS THE CASE THE WHOLE "FAVORITES MUST LIVE IN THE SAVE" ARGUMENT EXISTS FOR. A
+  // favorite kept in localStorage would be invisible to the offline resolver, so the rules
+  // would spare a pinned piece while the player watched and destroy it while they were away.
+  // Running the SAME span both ways and requiring the pinned piece to survive BOTH is what
+  // makes that promise checkable rather than asserted.
+  it("⚠️ parity: a FAVORITED spare survives the whole span offline AND live, and is byte-identical", () => {
+    function pinnedState(): GameState {
+      const base = autoParityState();
+      // Pin the piece the rules would certainly take: eq-000 is a Q0 (inside maxQuality 1) and
+      // the WORST of its variety by iLevel (so the duplicates rule wants it too).
+      return {
+        ...base,
+        equipment: base.equipment.map((e) => (e.id === "eq-000" ? { ...e, favorite: true } : e)),
+      };
+    }
+    const jumped = tick(SPAN, pinnedState(), mulberry32(SEED));
+    let stepped = pinnedState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // It survives BOTH runs: never queued, never salvaged, still pinned.
+    for (const [label, run] of [["offline", jumped], ["live", stepped]] as const) {
+      const survivor = run.equipment.find((e) => e.id === "eq-000");
+      expect(survivor, `eq-000 must survive the ${label} run`).toBeDefined();
+      expect(survivor?.favorite).toBe(true);
+      expect(
+        run.processQueue.some(
+          (j) => j.order.type === "salvage" && j.order.target.kind === "equipment" && j.order.target.instanceId === "eq-000"
+        )
+      ).toBe(false);
+    }
+    // And the two runs agree on everything else, so the protection did not desync the stream.
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+    expect(jumped.nextQueueId).toBe(stepped.nextQueueId);
+    // NON-VACUITY: the span really did chew through the pool, so surviving meant something.
+    expect(jumped.equipment.length).toBeLessThan(pinnedState().equipment.length);
+    // The control: the same piece UNPINNED does not survive, which is what proves the flag is
+    // the cause and not the fixture.
+    const unpinned = tick(SPAN, autoParityState(), mulberry32(SEED));
+    expect(unpinned.equipment.some((e) => e.id === "eq-000")).toBe(false);
+  });
+
+  it("⚠️ parity: a WITHIN-GRACE spare survives offline AND live, and its window really expires", () => {
+    // The grace is measured on gameTimeSeconds, which advances inside economyTick on BOTH
+    // paths, so a stamped piece has to be protected identically in each. The 24-hour option is
+    // used so the window cannot close during the span (SPAN is a few hundred ticks).
+    function freshlyCraftedState(): GameState {
+      const base = autoParityState();
+      return {
+        ...base,
+        gameTimeSeconds: 50_000,
+        autoSalvage: { ...base.autoSalvage, graceSeconds: 24 * 60 * 60 },
+        equipment: base.equipment.map((e) =>
+          e.id === "eq-000" ? { ...e, mintedAtGameSeconds: 50_000 } : e
+        ),
+      };
+    }
+    const jumped = tick(SPAN, freshlyCraftedState(), mulberry32(SEED));
+    let stepped = freshlyCraftedState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    expect(jumped.equipment.some((e) => e.id === "eq-000")).toBe(true);
+    expect(stepped.equipment.some((e) => e.id === "eq-000")).toBe(true);
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+
+    // ⚠️ AND THE GRACE IS A DELAY, NOT A PARDON. The same piece stamped a full grace period in
+    // the past is taken, which is what stops this case from passing for the wrong reason (a
+    // permanently protected item would satisfy every assertion above).
+    const expiredBase = freshlyCraftedState();
+    const expired: GameState = {
+      ...expiredBase,
+      equipment: expiredBase.equipment.map((e) =>
+        e.id === "eq-000" ? { ...e, mintedAtGameSeconds: 50_000 - 24 * 60 * 60 } : e
+      ),
+    };
+    expect(tick(SPAN, expired, mulberry32(SEED)).equipment.some((e) => e.id === "eq-000")).toBe(false);
   });
 });
 

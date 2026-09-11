@@ -9369,7 +9369,20 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        equipment = [...equipment, minted];
+        // 0.13.3.1 Feature 3: STAMP THE MINT MOMENT on the fleet's GAME clock, which is what
+        // the post-craft auto-salvage grace measures against (salvage.ts, craftGrace). This is
+        // the first of the three crafted-mint branches; the weapon and drone branches below
+        // carry the identical one-line stamp, and this comment is the one that explains it.
+        //
+        // ⚠️ GAME TIME, NEVER Date.now(). `state` here is economyTick's postMissionState, whose
+        // gameTimeSeconds has ALREADY been advanced for this tick, so a piece minted during an
+        // offline catch-up is stamped with the same game-clock value it would have been stamped
+        // with live. A wall-clock stamp would make the protection depend on WHEN the tick ran,
+        // which is exactly the offline==live divergence this file exists to prevent.
+        //
+        // ⚠️ DRAWS NOTHING. It is a pure read of state, so the documented rng draw order and
+        // count above are untouched and the mint stays bit-identical offline and live.
+        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.weaponOutput !== undefined) {
@@ -9404,7 +9417,9 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        equipment = [...equipment, minted];
+        // 0.13.3.1 Feature 3: the same game-clock mint stamp as the equipment branch above
+        // (see its comment for the full parity reasoning). Draws no rng.
+        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.droneOutput !== undefined) {
@@ -9440,7 +9455,9 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        equipment = [...equipment, minted];
+        // 0.13.3.1 Feature 3: the same game-clock mint stamp as the equipment branch above
+        // (see its comment for the full parity reasoning). Draws no rng.
+        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       }

@@ -57,6 +57,9 @@
 //   SalvageResult                        the discriminated success | reject union
 //   salvageEquipment                     the action
 //   (re-exported from reservation.ts)    the DERIVED salvage-reservation helpers, 0.13.3
+//   AutoSalvageProtection + the seam     WHY a target is off limits to the automation, as one
+//                                        enumerable union + a TOTAL predicate record (0.13.3.1)
+//   autoSalvageGraceRemainingSeconds     the post-craft grace, in GAME seconds (0.13.3.1)
 //   selectAutoSalvageTargets             the PURE auto-salvage rule evaluator, 0.13.3 Unit 5.1
 //                                        (reads state, draws NO rng, returns targets only)
 // ============================================================================
@@ -78,6 +81,11 @@ import {
   SHIP_TYPES,
   isStandardIssueBaseline,
   rarityIndex,
+  // 0.13.3.1: the per-rarity rule's model (a TOTAL record over EquipmentRarity, so a new band
+  // is a compile error there) and the post-craft grace period's resolver + default.
+  normalizeAutoSalvageRarities,
+  autoSalvageRarityRuleOn,
+  resolveAutoSalvageGraceSeconds,
 } from "./model";
 // The DERIVED reservation pass (every queued OR in-flight salvage target). Imported as a
 // real binding here, because the re-export block below only FORWARDS the name to consumers
@@ -698,6 +706,292 @@ function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
   return new Set(configured);
 }
 
+// ============================================================================
+// THE PROTECTION SEAM (0.13.3.1): WHY a target is off limits to the automation
+// ============================================================================
+// Auto-salvage's safety filters used to be a run of unnamed `continue` lines inside
+// selectAutoSalvageTargets: never a baseline, never installed, never reserved, never a
+// confirm-ON tier. Four booleans was already at the edge of readable; this release adds two
+// more (favorited, within the post-craft grace) and the user has a third coming (gear sitting
+// in an ARMORY LOADOUT, a later release). Six-plus scattered checks in a hot loop is how a
+// future reason gets added to five of the places that need it.
+//
+// So the checks become ONE NAMED, ENUMERABLE CONCEPT: a PROTECTION REASON. Three properties
+// follow from that, and they are the reason this shape exists:
+//
+//   a. ADDING A REASON IS A COMPILE ERROR that names every place needing an answer. The union
+//      AutoSalvageProtection is the declaration; AUTO_SALVAGE_PROTECTIONS is a TOTAL Record
+//      over it, so a new member fails to type-check until its predicate is written, exactly
+//      like QUEUE_ADAPTERS (tick.ts) and equipmentRarityColor (EquipmentTooltip.svelte). The
+//      console's own phrase map is a second total record over the same union, so the UI is
+//      forced to answer too.
+//   b. THE ENGINE CAN SAY WHY, not merely whether. autoSalvageProtection returns the reason,
+//      which is what lets a console tell a player "this piece is protected because you
+//      favorited it" instead of leaving a rule looking broken. The auto-salvage panel already
+//      does exactly this for the confirm interlock, and that readout is the reason the
+//      interlock is trusted rather than reported as a bug.
+//   c. IT IS TARGET-LEVEL, NOT EQUIPMENT-LEVEL (user, mid-build: "item favoriting should 100%
+//      skip auto-salvage, regardless of type"). Every predicate is asked about a
+//      SalvageTargetRef, so when a future arm of the rules is pointed at a hull or a material
+//      stack it INHERITS these answers instead of needing the checks re-derived in a second
+//      code path. Today the rules are equipment-only (design 7.6), so the non-equipment arms
+//      are inert; each one is still answered explicitly below, and where an answer would have
+//      to be invented it is documented as the ONE line a future arm must revisit.
+//
+// ⚠️ THIS IS A REFACTOR, NOT A BEHAVIOR CHANGE. The four pre-existing reasons keep their
+// exact predicates, and the reasons are evaluated in a declared order that decides only WHICH
+// reason is reported, never WHETHER the target is skipped. So the selector's output is
+// byte-identical to before for every state, which is what lets the shipped parity cases stand
+// untouched.
+//
+// ⚠️ STILL A PURE FUNCTION OF THE SAVE, which is the whole parity contract of this file (see
+// the selectAutoSalvageTargets header). No rng, no clock, no localStorage: the grace predicate
+// reads state.gameTimeSeconds (advanced inside economyTick, so it moves identically offline
+// and live) and the favorite predicate reads a SAVED flag on the instance.
+// ============================================================================
+
+// Every reason the automation may refuse a target. ORDER IS DECLARED HERE and reused as the
+// evaluation order (see AUTO_SALVAGE_PROTECTION_ORDER): the cheapest, most structural facts
+// first, the player's own two choices last, so a reported reason is the most fundamental one
+// that applies rather than whichever predicate happened to run first.
+export type AutoSalvageProtection =
+  | "baseline"    // a Standard-Issue floor: destroys for zero reward, so removal stays manual
+  | "installed"   // fitted to a ship: in use, never a candidate
+  | "reserved"    // already queued or in flight for salvage: never double-queued
+  | "confirmTier" // the player asked to be ASKED about this quality tier
+  | "favorited"   // the player pinned this exact item (0.13.3.1 Feature 2)
+  | "craftGrace"; // freshly minted and still inside the post-craft grace (0.13.3.1 Feature 3)
+
+// The SUBJECT of a protection question: the target, plus whatever the save resolves it to.
+//
+// WHY THE RESOLVED PIECE IS CARRIED HERE rather than looked up inside each predicate: this
+// runs at the head of EVERY tick over a pool that can hold hundreds of spares, and six
+// predicates each doing their own state.equipment.find would turn one scan into six (Omega 5).
+// The lookup happens ONCE, in the two subject builders below.
+export interface AutoSalvageSubject {
+  target: SalvageTargetRef;
+  // The EquipmentInstance the target names, or undefined when the target is not a piece of
+  // gear (a hull, a material stack) or names an id the pool no longer holds.
+  piece: EquipmentInstance | undefined;
+}
+
+// Everything the predicates may read, derived ONCE per pass by autoSalvageProtectionContext.
+export interface AutoSalvageProtectionContext {
+  state: GameState;
+  // Every instance id a queued OR in-flight salvage already owns (the DERIVED reservation
+  // pass, walked once; see salvageReservations' own header).
+  reserved: Set<string>;
+  // The confirm-ON quality tiers, or NULL when the preference is unreadable, which means
+  // "protect EVERY tier" (see autoSalvageProtectedQualities above for why the missing case
+  // must fail that way round).
+  protectedQualities: Set<number> | null;
+  // The live post-craft grace length in GAME seconds, already resolved off the rules.
+  graceSeconds: number;
+}
+
+// Build the context once. Call this per PASS (or per console render), never per candidate.
+export function autoSalvageProtectionContext(state: GameState): AutoSalvageProtectionContext {
+  return {
+    state,
+    reserved: salvageReservations(state).instanceIds,
+    protectedQualities: autoSalvageProtectedQualities(state),
+    graceSeconds: resolveAutoSalvageGraceSeconds(state.autoSalvage),
+  };
+}
+
+// The subject for a target the caller has NOT already resolved (the console's entry point).
+// The switch is EXHAUSTIVE over SalvageTargetRef's arms with no default, so adding an arm to
+// that union is a compile error HERE, in one place, instead of silently reading as
+// "not equipment" inside every predicate.
+export function autoSalvageSubjectForTarget(
+  state: GameState,
+  target: SalvageTargetRef
+): AutoSalvageSubject {
+  switch (target.kind) {
+    case "equipment":
+      return { target, piece: state.equipment.find((e) => e.id === target.instanceId) };
+    case "ship":
+      return { target, piece: undefined };    // a hull is not a piece of gear
+    case "material":
+      return { target, piece: undefined };    // a fungible stack is not a piece of gear
+  }
+}
+
+// The subject for a piece the caller ALREADY holds (the selector's hot path). Skips the
+// lookup entirely, which is the point: the tick iterates pieces, not ids.
+export function autoSalvageSubjectForPiece(piece: EquipmentInstance): AutoSalvageSubject {
+  return { target: { kind: "equipment", instanceId: piece.id }, piece };
+}
+
+// One reason's test. True = THIS reason protects the subject.
+type AutoSalvageProtectionPredicate = (
+  ctx: AutoSalvageProtectionContext,
+  subject: AutoSalvageSubject
+) => boolean;
+
+// ----------------------------------------------------------------------------
+// AUTO_SALVAGE_PROTECTIONS: the TOTAL predicate table (the compile-error anchor)
+// ----------------------------------------------------------------------------
+// A Record over the whole union, so a new reason CANNOT be added to AutoSalvageProtection
+// without writing its predicate here. Key insertion order is also the evaluation order (see
+// AUTO_SALVAGE_PROTECTION_ORDER below), which is why the keys are written in the union's
+// order rather than alphabetically.
+const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtectionPredicate> = {
+  // A Standard-Issue baseline DESTROYS for zero reward (salvageEquipment's declutter branch),
+  // and automatically destroying an item for nothing is a data-loss shape. Destroy stays a
+  // deliberate manual act. Non-gear targets: a hull and a material stack have no baseline
+  // concept, so this reason cannot apply to them.
+  baseline: (_ctx, subject) => subject.piece !== undefined && isStandardIssueBaseline(subject.piece),
+
+  // fittedToShipId is the single source of truth for where a piece lives; an installed piece
+  // is in use. (This is also what makes the grace period meaningful: it protects newly minted
+  // UNINSTALLED pieces, because installed ones were never candidates in the first place.)
+  installed: (_ctx, subject) => subject.piece !== undefined && subject.piece.fittedToShipId !== null,
+
+  // Already queued or already being broken down: the piece is spoken for, and queueing it
+  // twice is refused by the engine anyway (isDuplicateSalvageTarget).
+  //
+  // ⚠️ THE EQUIPMENT ARM ONLY, and a future arm must extend it. A material reservation is a
+  // COUNT (holding five and queueing three is legitimate, salvageReservedMaterialCount), not
+  // a set membership, so "is this stack reserved" has no yes/no answer; a hull reservation is
+  // in salvageReservations' shipIds bin. Neither kind is ever auto-selected today (design
+  // 7.6), so neither is reachable. When an arm for them is designed, THIS predicate is where
+  // its reservation rule goes.
+  reserved: (ctx, subject) => subject.piece !== undefined && ctx.reserved.has(subject.piece.id),
+
+  // ⚠️ THE CONFIRM INTERLOCK, AND IT IS NOT WEAKENED BY ANYTHING THIS RELEASE ADDS. A tier
+  // the player asked to be asked about can NEVER be auto-salvaged: an automation must not
+  // answer a confirmation on the player's behalf. The new rarity rule is an ADDITIONAL way to
+  // SELECT a piece, never a way around this, which is why there is deliberately no
+  // confirm-by-rarity: the interlock stays keyed to QUALITY, the axis the player configured.
+  //
+  // An unreadable preference (protectedQualities null) protects EVERY tier, so this returns
+  // true for any inspectable piece; the selector also early-exits on that case.
+  //
+  // Non-gear targets read as unprotected HERE and are unreachable in practice: the rules never
+  // select them, and the CONSOLE's confirm gate for a material or a hull is a separate,
+  // already-shipped path (salvageTargetNeedsConfirm in App.svelte, which maps an item rarity
+  // to a tier and always confirms a hull).
+  confirmTier: (ctx, subject) => {
+    if (subject.piece === undefined) return false;
+    if (ctx.protectedQualities === null) return true; // fail safe: protect every tier
+    return ctx.protectedQualities.has(subject.piece.quality);
+  },
+
+  // ⚠️ FAVORITED: THE PLAYER'S EXPLICIT "NEVER TAKE THIS" (0.13.3.1 Feature 2), and the ONE
+  // reason that is answered for every arm rather than only for gear, because the requirement
+  // is type-agnostic: whatever auto-salvage is ever pointed at, a favorite is exempt.
+  //   equipment  the SAVED flag on the instance (EquipmentInstance.favorite). Saved, not
+  //              localStorage, precisely so the offline catch-up can see it.
+  //   ship       PROTECTED, unconditionally. Ship favorites are a per-device VIEW preference
+  //              in localStorage (shipFavoritesPreference.ts), which the tick cannot read at
+  //              all, so the only offline-honest answer for a hull is "treat it as protected".
+  //              Inert today (hulls are never auto-selected); a future arm that tears hulls
+  //              down must first move that flag into the save, and this line is the reminder.
+  //   material   NOT protected: a fungible stack has no per-unit identity to pin, so there is
+  //              no favorite flag to read. Inert today (materials are never auto-selected).
+  //              When material favoriting exists, THIS is the single line that wires it in.
+  // This deliberately does NOT gate MANUAL salvage: the player may always salvage their own
+  // favorite by hand (the Salvage Bay button is unchanged). It protects against the AUTOMATION.
+  favorited: (_ctx, subject) => {
+    switch (subject.target.kind) {
+      case "equipment":
+        return subject.piece?.favorite === true;
+      case "ship":
+        return true;
+      case "material":
+        return false;
+    }
+  },
+
+  // ⚠️ THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3): a piece minted moments ago is exempt
+  // for graceSeconds of GAME time, so a craft cannot be swept away before the player has
+  // looked at it. Measured on state.gameTimeSeconds, never Date.now(), because the tick that
+  // asks this question runs in the offline catch-up too (see mintedAtGameSeconds in model.ts).
+  //
+  // A piece with NO stamp is PAST grace (see autoSalvageGraceRemainingSeconds): it predates
+  // the stamp, so the grace has nothing to measure. Non-gear targets have no mint stamp and no
+  // craft moment, so this reason cannot apply to them.
+  craftGrace: (ctx, subject) =>
+    subject.piece !== undefined &&
+    autoSalvageGraceRemainingSeconds(ctx.state, subject.piece, ctx.graceSeconds) > 0,
+};
+
+// The evaluation order: the record's own key insertion order (ES2015+), so there is no second
+// list to keep in step and a new reason takes its place by where it is written above.
+//
+// It decides only WHICH reason is REPORTED when several apply, never whether the target is
+// skipped (any single true is a skip), which is what keeps this refactor behavior-neutral.
+export const AUTO_SALVAGE_PROTECTION_ORDER = Object.keys(
+  AUTO_SALVAGE_PROTECTIONS
+) as AutoSalvageProtection[];
+
+// ----------------------------------------------------------------------------
+// autoSalvageProtection
+// ----------------------------------------------------------------------------
+// THE ONE QUESTION: what, if anything, protects this subject from the auto-salvage rules?
+// Returns the FIRST reason in declared order, or null when the automation may take it.
+//
+// PURE: reads the context's state, allocates nothing, mutates nothing, draws no randomness.
+export function autoSalvageProtection(
+  ctx: AutoSalvageProtectionContext,
+  subject: AutoSalvageSubject
+): AutoSalvageProtection | null {
+  for (const reason of AUTO_SALVAGE_PROTECTION_ORDER) {
+    if (AUTO_SALVAGE_PROTECTIONS[reason](ctx, subject)) return reason;
+  }
+  return null;
+}
+
+// The console's convenience entry point: resolve a target against a state in one call, for a
+// UI that holds a target ref rather than a context. Builds the context itself, so it is O(the
+// queue + the pool) per call: fine for a click handler or a single selected tile, NOT for a
+// loop over a pool (use autoSalvageProtectionContext once and pass it in, as the selector does).
+export function autoSalvageProtectionForTarget(
+  state: GameState,
+  target: SalvageTargetRef
+): AutoSalvageProtection | null {
+  return autoSalvageProtection(
+    autoSalvageProtectionContext(state),
+    autoSalvageSubjectForTarget(state, target)
+  );
+}
+
+// ----------------------------------------------------------------------------
+// autoSalvageGraceRemainingSeconds
+// ----------------------------------------------------------------------------
+// How much of a piece's post-craft grace is LEFT, in game seconds. 0 means the grace is over
+// (or never applied), so a positive number is exactly "still protected". Shared by the
+// craftGrace predicate above and by the console's readout, so the engine and the UI can never
+// disagree about whether a piece is still inside its window.
+//
+// `graceSeconds` is passed in so a caller that already resolved it (the selector, once per
+// pass) does not re-resolve it per piece; it defaults to resolving off the state's own rules
+// for a one-off UI call.
+//
+// ⚠️ NO STAMP = NO GRACE (returns 0). A piece with mintedAtGameSeconds absent predates the
+// stamp, and the decision recorded on MIGRATIONS[42] (save.ts) is that such a piece is treated
+// as OLD: its protection is exactly what it was before this release. The two alternatives were
+// both worse. Reading an absent stamp as "minted at game-second 0" would protect every legacy
+// spare on any save younger than one grace period, silently pausing a running automation with no
+// explanation on screen; reading it as "minted NOW" would protect every legacy spare FOREVER.
+// A Standard-Issue baseline also never carries a stamp (its two generators are deliberately
+// clock-free so a migration can re-run them), which is harmless: a baseline is already protected
+// outright by the `baseline` reason.
+export function autoSalvageGraceRemainingSeconds(
+  state: GameState,
+  piece: EquipmentInstance,
+  graceSeconds: number = resolveAutoSalvageGraceSeconds(state.autoSalvage)
+): number {
+  const mintedAt = piece.mintedAtGameSeconds;
+  if (typeof mintedAt !== "number" || !Number.isFinite(mintedAt)) return 0; // predates the stamp
+  const age = state.gameTimeSeconds - mintedAt;
+  // A NEGATIVE age (a stamp in the future: a hand-edited save, or a save whose clock was
+  // rewound) reads as freshly minted, which errs toward keeping the item. Math.max keeps the
+  // return contract simple: never below 0.
+  return Math.max(0, graceSeconds - age);
+}
+
 // ----------------------------------------------------------------------------
 // autoSalvageDuplicateKey
 // ----------------------------------------------------------------------------
@@ -764,9 +1058,11 @@ function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolea
 //      anything, which is what keeps this affordable at the head of EVERY tick.
 //   1. THE CANDIDATE POOL. Spare, non-baseline, not reserved. See the pool comment for
 //      why reserved pieces are removed HERE and not only in the final safety pass.
-//   2. THE RULES select from the pool (max-quality, duplicates). Union, not either/or.
-//   3. THE HARD SAFETY FILTERS run over the selection, in full, as the last word. Nothing
-//      leaves this function without passing them, whatever a rule concluded.
+//   2. THE RULES select from the pool (max-quality, rarity, duplicates). Union, not
+//      either/or: a piece any one rule points at is selected.
+//   3. THE PROTECTION PASS runs over the selection, in full, as the last word. Nothing
+//      leaves this function that autoSalvageProtection reports a reason for, whatever a
+//      rule concluded.
 //   4. Truncate to `limit`, in the deterministic candidate order.
 //
 // ⚠️ WHY THE FILTERS APPEAR TWICE (stage 1 and stage 3), which looks redundant and is not:
@@ -779,10 +1075,13 @@ function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolea
 //     OUT of the pool, so letting it hold the "keeper" slot would auto-queue the last
 //     remaining free copy of a variety and destroy both. Removing reserved pieces before
 //     ranking is strictly the safer reading and can only ever select FEWER items.
-//   * The CONFIRM-protected tier is deliberately NOT removed at stage 1. A confirm-ON
-//     piece still counts as the keeper of its group (the preference means "ask me before
-//     destroying this tier", not "this piece does not exist"), and stage 3 is what makes
-//     sure it is never itself selected.
+//   * THE PLAYER'S OWN THREE PROTECTIONS ARE DELIBERATELY NOT REMOVED AT STAGE 1: a
+//     confirm-ON tier, a FAVORITED piece and a piece still inside its post-craft GRACE all
+//     stay in the pool and may hold the keeper slot for their variety. Each of those means
+//     "do not destroy this one", NOT "this one does not exist", and keeping them in the
+//     ranking can only ever select FEWER items: a favorited best-in-slot keeps its group's
+//     keeper slot, so the next copy down is not queued in its place. Stage 3 is what makes
+//     sure none of the three is ever itself selected.
 export function selectAutoSalvageTargets(state: GameState, limit: number): SalvageTargetRef[] {
   const rules = state.autoSalvage;
 
@@ -793,15 +1092,18 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
   // No budget -> nothing to say. The caller has already decided the queue has no room, so
   // scanning the pool would be work whose result is discarded.
   if (limit <= 0) return [];
-  // Fail-safe: an unreadable confirm preference protects EVERY tier (see the helper).
-  const protectedQualities = autoSalvageProtectedQualities(state);
-  if (protectedQualities === null) return [];
+  // THE PROTECTION CONTEXT, derived ONCE per pass (never per piece): the reservation set,
+  // the confirm-ON tiers and the live grace length. salvageReservations walks the queue and
+  // the in-flight processes a single time and bins every target (its header says "call this
+  // once, not per tile", and that applies just as much inside the tick).
+  const protection = autoSalvageProtectionContext(state);
+  // Fail-safe: an unreadable confirm preference protects EVERY tier, so there is nothing to
+  // select and no reason to scan the pool. (The confirmTier predicate enforces this too; this
+  // is the cheap exit, not the guarantee.)
+  if (protection.protectedQualities === null) return [];
 
   // --- 1. THE CANDIDATE POOL ------------------------------------------------
-  // The reservation set is derived ONCE here, not per piece: salvageReservations walks the
-  // queue and the in-flight processes a single time and bins every target (its header says
-  // "call this once, not per tile", and that applies just as much inside the tick).
-  const reserved = salvageReservations(state).instanceIds;
+  const reserved = protection.reserved;
   const pool = state.equipment.filter(
     (piece) =>
       // SPARE only. fittedToShipId is the single source of truth for where a piece lives;
@@ -841,6 +1143,27 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
     }
   }
 
+  // RULE C, RARITY (0.13.3.1 Feature 1). "Auto-queue spares in THESE rarity bands", one
+  // checkbox per band, unioned with the other two rules exactly as they union with each other.
+  // No band selected = the rule is off, the same meaning maxQuality null carries.
+  //
+  // ⚠️ PER-BAND, NEVER A THRESHOLD, and the reason is in the data: rarityIndex is not a
+  // straight ladder (luminous and constellar BOTH return 5, parallel legendary FLAVORS at one
+  // power tier), so an "at or below" rule would sweep BOTH the moment a player picked EITHER
+  // and destroy a band they never selected. See AutoSalvageRaritySelection in model.ts.
+  //
+  // The selection is NORMALIZED off the save rather than read raw, so a save written before
+  // this release, a hand-edited one, or one predating a newly added band all read as "that
+  // band is not selected" instead of throwing or selecting by accident. A piece carrying a
+  // rarity string outside the union (only reachable by hand-editing) finds no entry and is
+  // likewise not selected: unreadable always means keep.
+  const rarities = normalizeAutoSalvageRarities(rules.rarities);
+  if (autoSalvageRarityRuleOn(rarities)) {
+    for (const piece of candidates) {
+      if (rarities[piece.rarity] === true) selected.add(piece.id);
+    }
+  }
+
   // RULE B, DUPLICATES. Same blueprint + same slot, KEEP THE BEST, auto-queue the rest
   // (locked user decision). keepPerVariety is fixed at 1 this release and not yet
   // player-editable, but it is read from the rules rather than hardcoded so 5.2 (or a
@@ -877,25 +1200,32 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
 
   if (selected.size === 0) return [];
 
-  // --- 3. THE HARD SAFETY FILTERS, THE LAST WORD ----------------------------
-  // Re-stated in full and applied AFTER the rules, so no rule (present or future) can
-  // route around them. Walked in `candidates` order, which is the sorted order, so the
+  // --- 3. THE PROTECTION PASS, THE LAST WORD --------------------------------
+  // Applied AFTER the rules, over the whole selection, so no rule (present or future) can
+  // route around it. Walked in `candidates` order, which is the sorted order, so the
   // returned list is deterministic and the `limit` truncation below always cuts the same
   // pieces on the same state.
   //
+  // ⚠️ ONE CALL, SIX REASONS, AND A SEVENTH IS A COMPILE ERROR. Every safety filter this
+  // function used to spell out inline (baseline, installed, reserved, confirm-ON tier) plus
+  // the two this release adds (favorited, post-craft grace) is asked as a single question
+  // through autoSalvageProtection. The reasons are enumerable and named, so a later one (the
+  // planned "sitting in an armory loadout") is added to ONE union and ONE total record rather
+  // than to a run of `continue` lines that a future rule might not go through. See the
+  // PROTECTION SEAM block above for the full rationale. Behavior is unchanged: any reason at
+  // all is a skip, exactly as any true filter was.
+  //
   // ⚠️ THE ESCAPE VALVE IS INTACT: equipmentStorageCap / equipmentAtCap is NOT consulted
-  // anywhere in this function, deliberately. Salvage is the always-available relief for a
-  // full spare pool (salvage.ts header, 0.11.1's softlock fix), and auto-salvage is most
-  // useful precisely when the pool is full. A cap check here would disable the feature at
-  // the exact moment it is needed.
+  // anywhere in this function, and is deliberately NOT a protection reason. Salvage is the
+  // always-available relief for a full spare pool (salvage.ts header, 0.11.1's softlock fix),
+  // and auto-salvage is most useful precisely when the pool is full. A cap check here would
+  // disable the feature at the exact moment it is needed.
   const out: SalvageTargetRef[] = [];
   for (const piece of candidates) {
     if (out.length >= limit) break; // --- 4. bounded output, in deterministic order
     if (!selected.has(piece.id)) continue;
-    if (isStandardIssueBaseline(piece)) continue;       // never auto-destroy a baseline
-    if (piece.fittedToShipId !== null) continue;        // never touch installed gear
-    if (reserved.has(piece.id)) continue;               // never double-queue a reserved target
-    if (protectedQualities.has(piece.quality)) continue; // the player asked to be ASKED about this tier
+    // The piece is already in hand, so the subject is built without a pool lookup.
+    if (autoSalvageProtection(protection, autoSalvageSubjectForPiece(piece)) !== null) continue;
     out.push({ kind: "equipment", instanceId: piece.id });
   }
   return out;

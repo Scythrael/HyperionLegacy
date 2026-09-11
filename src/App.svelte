@@ -248,6 +248,22 @@
     // Salvage Bay panel edits. Type-only; the values live in the SAVE (state.autoSalvage),
     // never in localStorage, because the tick reads them offline.
     type AutoSalvageRules,
+    // 0.13.3.1: the per-rarity auto-salvage rule's model. EQUIPMENT_RARITY_LADDER is every
+    // rarity band in ladder order, DERIVED from the total AUTO_SALVAGE_RARITIES_NONE record, so
+    // adding a band to EquipmentRarity is a compile error in model.ts and this checkbox row
+    // then grows on its own with no edit here. normalizeAutoSalvageRarities is the same
+    // defensive read the engine uses, so the panel and the tick agree about a save that
+    // predates the field; autoSalvageRarityRuleOn is the one reading of "is the rule on".
+    EQUIPMENT_RARITY_LADDER,
+    AUTO_SALVAGE_RARITIES_NONE,
+    normalizeAutoSalvageRarities,
+    autoSalvageRarityRuleOn,
+    type AutoSalvageRaritySelection,
+    // 0.13.3.1: the post-craft grace period's option list (the dropdown's data: adding an
+    // option is a one-line change THERE, not here), its default, and the defensive resolver.
+    AUTO_SALVAGE_GRACE_OPTIONS,
+    AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+    resolveAutoSalvageGraceSeconds,
     // 0.13.3 Unit 4.4b: the completed-events record and its per-item reward line. Read by
     // the Salvage Bay so its "Last salvage" readout can print the real material manifest
     // again (Unit 4.4 had to drop it: the manifest is produced inside the tick and there
@@ -387,11 +403,21 @@
   // draws no rng and returns a list of targets; it does not enqueue, mutate or start
   // anything, so a preview call is free of side effects by construction (see the preview
   // derivation below, which is where the "what does it cost to call this" note lives).
+  //
+  // 0.13.3.1: autoSalvageProtectionForTarget answers "WHY is this spare off limits to the
+  // automation" as a NAMED reason (baseline / installed / reserved / confirmTier / favorited /
+  // craftGrace) rather than as a bare boolean, which is what lets the selected-spare panel say
+  // it out loud. autoSalvageGraceRemainingSeconds is the shared grace math, so the console's
+  // countdown and the engine's own filter can never disagree about whether a freshly crafted
+  // piece is still protected.
   import {
     salvageShip,
     salvageReservations,
     selectAutoSalvageTargets,
+    autoSalvageProtectionForTarget,
+    autoSalvageGraceRemainingSeconds,
     type SalvageRejectReason,
+    type AutoSalvageProtection,
   } from "./lib/game/salvage";
   import {
     tick,
@@ -3553,7 +3579,10 @@
     });
     state = {
       ...state,
-      equipment: [...state.equipment, piece],
+      // 0.13.3.1: stamped with the game clock exactly as the Fabricator's own mint is
+      // (tick.ts), so a dev-granted spare behaves like a real craft under the post-craft
+      // auto-salvage grace instead of arriving stamp-less and immediately sweepable.
+      equipment: [...state.equipment, { ...piece, mintedAtGameSeconds: state.gameTimeSeconds }],
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
@@ -3624,7 +3653,9 @@
     }
     state = {
       ...state,
-      equipment: [...state.equipment, piece],
+      // 0.13.3.1: same game-clock mint stamp as devGrantEquipment above and as the real
+      // Fabricator mint, so QA gear is subject to the same post-craft grace as a real craft.
+      equipment: [...state.equipment, { ...piece, mintedAtGameSeconds: state.gameTimeSeconds }],
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
@@ -4473,8 +4504,34 @@
     maxQuality: null,
     duplicates: false,
     keepPerVariety: 1,
+    // 0.13.3.1: no rarity band selected (the third rule OFF, same opt-in posture as the other
+    // two) and the 60-minute post-craft grace default.
+    rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+    graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
   };
   $: autoSalvageRules = state.autoSalvage ?? AUTO_SALVAGE_RULES_OFF;
+
+  // ── THE RARITY RULE (0.13.3.1 Feature 1) ──────────────────────────────────
+  // The live per-band selection, read through the ENGINE'S OWN normalizer rather than off
+  // state directly: a save written before this release carries no `rarities` at all, and the
+  // normalizer reads that (and any malformed value) as "no band selected" instead of throwing
+  // or selecting something. Reading it the same way the tick does is what keeps the checkbox
+  // row honest about what the rules will actually take.
+  $: autoSalvageRarities = normalizeAutoSalvageRarities(autoSalvageRules.rarities);
+  $: autoSalvageRarityOn = autoSalvageRarityRuleOn(autoSalvageRarities);
+  // The bands currently selected, in ladder order, for the summary sentence.
+  $: autoSalvageSelectedRarities = EQUIPMENT_RARITY_LADDER.filter((band) => autoSalvageRarities[band]);
+
+  // ── THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3) ──────────────────────
+  // The live grace length, resolved through the engine's own defensive reader (an absent or
+  // malformed value lands on the 60-minute default, never on 0, because a 0 would silently
+  // switch a player-protection feature off).
+  $: autoSalvageGraceSeconds = resolveAutoSalvageGraceSeconds(autoSalvageRules);
+  // The chosen option's label for the summary sentence. A value the option list does not carry
+  // (only reachable by hand-editing a save) is described in plain minutes rather than hidden.
+  $: autoSalvageGraceLabel =
+    AUTO_SALVAGE_GRACE_OPTIONS.find((opt) => opt.seconds === autoSalvageGraceSeconds)?.label ??
+    `${Math.round(autoSalvageGraceSeconds / 60)} minutes`;
 
   // Every quality tier, ascending: the same 0..QUALITY_TIERS-1 ladder the confirm
   // checkboxes render, derived from the same constant so the two controls can never
@@ -4490,18 +4547,28 @@
   // ("Q0 and below", the most useful one for clearing loot clutter) and null is the only
   // value that means "rule off". `if (rules.maxQuality)` would silently treat the most
   // common setting as no rule at all.
-  $: autoSalvageHasRule = autoSalvageRules.maxQuality !== null || autoSalvageRules.duplicates;
+  //
+  // 0.13.3.1: the RARITY rule counts as a rule for exactly the same reason the other two do,
+  // so a player who selects only rarity bands is not told "no rule is chosen".
+  $: autoSalvageHasRule =
+    autoSalvageRules.maxQuality !== null || autoSalvageRules.duplicates || autoSalvageRarityOn;
 
   // WHICH quality tiers the selected rules can REACH, before the confirm interlock is
   // applied. The duplicates rule is quality-blind (it ranks a variety and queues the
   // losers whatever their tier), so it reaches every tier; the max-quality rule reaches
   // 0..maxQuality. Selected together they union to every tier, which the duplicates arm
   // already covers.
-  $: autoSalvageReachedTiers = autoSalvageRules.duplicates
-    ? autoSalvageAllTiers
-    : autoSalvageRules.maxQuality !== null
-      ? autoSalvageAllTiers.filter((tier) => tier <= (autoSalvageRules.maxQuality ?? -1))
-      : [];
+  //
+  // 0.13.3.1: the RARITY rule is quality-blind in exactly the same way the duplicates rule is
+  // (it selects by band, whatever the piece's tier), so it too reaches every tier. Folded into
+  // the same first branch rather than given its own, because "reaches everything" is one fact
+  // however many quality-blind rules produce it.
+  $: autoSalvageReachedTiers =
+    autoSalvageRules.duplicates || autoSalvageRarityOn
+      ? autoSalvageAllTiers
+      : autoSalvageRules.maxQuality !== null
+        ? autoSalvageAllTiers.filter((tier) => tier <= (autoSalvageRules.maxQuality ?? -1))
+        : [];
 
   // ⚠️ THE CONFIRM INTERLOCK, AS TWO LISTS. This is the single most important thing this
   // panel says. A tier the player has asked to be CONFIRMED about can never be
@@ -4545,18 +4612,29 @@
   // vocabulary. keepPerVariety is READ, not hardcoded, even though it is fixed at 1 this
   // release and not yet player-editable: the day it becomes editable this sentence is
   // already correct.
-  function autoSalvageSummary(rules: AutoSalvageRules): string {
+  // ⚠️ REWRITTEN AS A CLAUSE LIST FOR 0.13.3.1, and not as a tidy-up. It used to be a nested
+  // branch per COMBINATION of rules, which is fine for two rules (four readings) and becomes
+  // eight readings the moment a third rule exists. One clause per rule, joined, means adding a
+  // fourth rule adds ONE line instead of doubling the branches, and no combination can be
+  // accidentally left unwritten. The single-rule wordings are preserved as they shipped.
+  function autoSalvageSummary(
+    rules: AutoSalvageRules,
+    selectedRarities: EquipmentRarity[]
+  ): string {
     const keep = Math.max(0, rules.keepPerVariety);
-    if (rules.maxQuality !== null && rules.duplicates) {
-      return `Queues spare systems at Q${rules.maxQuality} or below, and duplicates beyond the best ${keep} of each type.`;
-    }
-    if (rules.maxQuality !== null) {
-      return `Queues spare systems at Q${rules.maxQuality} or below.`;
-    }
-    if (rules.duplicates) {
-      return `Queues duplicate spare systems, keeping the best ${keep} of each type and queueing the rest.`;
-    }
-    return "No rule chosen yet, so nothing would be queued.";
+    const clauses: string[] = [];
+    if (rules.maxQuality !== null) clauses.push(`at Q${rules.maxQuality} or below`);
+    // The bands are named in full, because "by rarity" without the list is not something a
+    // player can check against their own pool.
+    if (selectedRarities.length > 0) clauses.push(`in these rarities (${selectedRarities.join(", ")})`);
+    if (rules.duplicates) clauses.push(`duplicates beyond the best ${keep} of each type`);
+    if (clauses.length === 0) return "No rule chosen yet, so nothing would be queued.";
+    // "a, b and c" reads as one sentence at any length; a bare comma list does not.
+    const list =
+      clauses.length === 1
+        ? clauses[0]
+        : `${clauses.slice(0, -1).join(", ")} and ${clauses[clauses.length - 1]}`;
+    return `Queues spare systems ${list}.`;
   }
 
   // "Q0, Q1, Q2" from a tier list, for the two interlock lines. Always reads as the same
@@ -4607,6 +4685,98 @@
   function doToggleAutoSalvageDuplicates(duplicates: boolean) {
     state = { ...state, autoSalvage: { ...autoSalvageRules, duplicates } };
     doSave();
+  }
+  // 0.13.3.1: toggle ONE rarity band. Writes a full, normalized selection rather than
+  // patching whatever the save happened to hold, so a save that predates the field gains a
+  // complete record on the first click instead of a single-key object the engine would then
+  // have to read around. The band being toggled is applied on top.
+  function doToggleAutoSalvageRarity(band: EquipmentRarity, selected: boolean) {
+    const rarities: AutoSalvageRaritySelection = {
+      ...normalizeAutoSalvageRarities(autoSalvageRules.rarities),
+      [band]: selected,
+    };
+    state = { ...state, autoSalvage: { ...autoSalvageRules, rarities } };
+    doSave();
+  }
+  // 0.13.3.1: set the post-craft grace length. The <select> carries seconds as strings (a DOM
+  // value is always a string), so the parse happens HERE, in one place. An unparseable or
+  // unknown value leaves the setting alone rather than writing a number that would change how
+  // long a player's crafts are protected.
+  //
+  // ⚠️ THIS CONTROL MOVES TO Options > Gameplay IN 0.13.5 (SUGGESTIONS.md, "AUTOMATION RULES
+  // ALSO BELONG UNDER OPTIONS"). When it does, that control must be a SECOND VIEW of this same
+  // saved value (state.autoSalvage.graceSeconds) calling this same handler, never a copy of the
+  // setting: two stores for one preference is exactly the drift the confirm-by-quality
+  // preference had to be migrated out of localStorage to escape.
+  function doSetAutoSalvageGrace(raw: string) {
+    const seconds = Number(raw);
+    if (!Number.isFinite(seconds) || seconds < 0) return; // unparseable: leave the rule alone
+    if (!AUTO_SALVAGE_GRACE_OPTIONS.some((opt) => opt.seconds === seconds)) return; // not an offered option
+    state = { ...state, autoSalvage: { ...autoSalvageRules, graceSeconds: seconds } };
+    doSave();
+  }
+
+  // ── FAVORITING A SPARE (0.13.3.1 Feature 2) ───────────────────────────────
+  // Pin (or unpin) ONE equipment instance. A favorited piece is PERMANENTLY exempt from the
+  // auto-salvage rules (the `favorited` protection reason, salvage.ts) and is NOT exempt from a
+  // hand-clicked salvage: the player may always scrap their own favorite deliberately, which is
+  // why the Salvage button beside this toggle is untouched.
+  //
+  // ⚠️ IT WRITES GAME STATE, NEVER localStorage, and that is the whole point of the feature.
+  // src/lib/shipFavoritesPreference.ts keeps SHIP favorites per device because they are a view
+  // preference; this is not one. The rules run inside the tick, including the offline catch-up,
+  // which can read the SAVE and nothing else, so a localStorage favorite would be invisible
+  // offline and the rules would destroy favorited gear while the player was away. Same argument
+  // as doToggleSalvageConfirmTier and the three auto-salvage writers above.
+  //
+  // Rebuilds the equipment array immutably (never mutates the instance), both because state is
+  // treated as immutable everywhere in this file and because a mutation would not re-run the
+  // reactive reads the tiles and the tooltip bind to.
+  function doToggleEquipmentFavorite(instanceId: string, favorite: boolean) {
+    const equipment = state.equipment.map((piece) =>
+      piece.id === instanceId ? { ...piece, favorite } : piece
+    );
+    state = { ...state, equipment };
+    doSave();
+  }
+
+  // WHY this spare is off limits to the automation, in the player's words, or null when the
+  // rules may take it. A TOTAL Record over the engine's AutoSalvageProtection union, so adding
+  // a protection reason (the planned "sitting in an armory loadout") is a COMPILE ERROR here
+  // until the console can say it out loud, which is the reason the union exists rather than six
+  // scattered booleans. The wording matches the vocabulary already on this panel.
+  const AUTO_SALVAGE_PROTECTION_TEXT: Record<AutoSalvageProtection, string> = {
+    baseline: "Standard-Issue gear is never auto-salvaged (it yields nothing, so removing one stays your choice).",
+    installed: "Installed systems are never auto-salvaged.",
+    reserved: "Already queued or being broken down, so the rules will not touch it again.",
+    confirmTier: "Its quality tier is set to ask you first under Confirm before salvaging, and auto-salvage never answers a confirmation for you.",
+    favorited: "Favorited, so auto-salvage will never take it. You can still salvage it yourself.",
+    craftGrace: "Recently crafted, so auto-salvage is leaving it alone for now.",
+  };
+
+  // The protection reason for ONE spare, resolved against the live state. Called for the
+  // SELECTED spare only (one call per render), never in a loop over the pool: the engine's own
+  // entry point derives the reservation set per call, which is the right cost for a single tile
+  // and the wrong cost for hundreds (see autoSalvageProtectionForTarget's note).
+  //
+  // ⚠️ `state` is passed explicitly so a {@const} that calls this depends on it and cannot
+  // freeze at the moment the tile was selected. That stale-derivation trap has already bitten
+  // this console twice (see the notes on materialSalvageQueued / systemSalvageState).
+  function systemAutoSalvageProtection(s: GameState, instanceId: string): AutoSalvageProtection | null {
+    return autoSalvageProtectionForTarget(s, { kind: "equipment", instanceId });
+  }
+
+  // "about 12 minutes" / "about 2 hours" for the remaining grace on a freshly crafted spare, or
+  // null when it is not inside a grace window at all. Rounded up to the next whole minute,
+  // because a countdown that reads "0 minutes" while the piece is still protected is worse than
+  // one that is a few seconds generous.
+  function systemGraceRemainingText(s: GameState, piece: EquipmentInstance): string | null {
+    const remaining = autoSalvageGraceRemainingSeconds(s, piece);
+    if (remaining <= 0) return null;
+    const minutes = Math.ceil(remaining / 60);
+    if (minutes < 90) return `about ${minutes} minute${minutes === 1 ? "" : "s"} left`;
+    const hours = Math.round(minutes / 60);
+    return `about ${hours} hour${hours === 1 ? "" : "s"} left`;
   }
 
   function cancelSalvageConfirm() {
@@ -10403,6 +10573,71 @@
                 </label>
               </div>
 
+              <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================
+                   ⚠️ ONE CHECKBOX PER BAND, NOT AN "AND BELOW" DROPDOWN, and the reason is in
+                   the data rather than in taste: rarityIndex (model.ts) is NOT a straight
+                   ladder, because luminous and constellar BOTH sit at ordinal 5 as parallel
+                   legendary FLAVORS of one power tier. An at-or-below control would therefore
+                   sweep BOTH of them the instant a player selected EITHER, destroying a band
+                   they never chose. Per-band selection cannot express that mistake.
+
+                   The row is DERIVED from EQUIPMENT_RARITY_LADDER, which is itself derived from
+                   the total AUTO_SALVAGE_RARITIES_NONE record, so adding a rarity to the game
+                   makes model.ts fail to compile and then appears here automatically. There is
+                   deliberately no hardcoded list of band names in this file.
+
+                   Same .dev-row + inline-flex label + checkbox idiom as the confirm-by-quality
+                   row above, which is the control this one is meant to read as a sibling of. -->
+              <div class="research-cost" style="margin-top: 8px;">Rarity bands to queue</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
+                {#each EQUIPMENT_RARITY_LADDER as band (band)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={autoSalvageRarities[band]}
+                      on:change={(e) => doToggleAutoSalvageRarity(band, (e.target as HTMLInputElement).checked)}
+                    />
+                    <!-- The band's own rarity color, the SAME equipmentRarityColor the tiles and
+                         the tooltip use, so a band is recognizable here without reading it. -->
+                    <span style="color: {equipmentRarityColor(band)}">{band}</span>
+                  </label>
+                {/each}
+              </div>
+              <p class="research-status">
+                Checked bands are queued whatever their quality. Nothing checked means this rule is off. It adds to the other two rules rather than narrowing them: a spare is queued if any rule you switched on points at it.
+              </p>
+
+              <!-- ============ THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3) ============
+                   A freshly crafted spare is left alone for this long, so a craft cannot be
+                   swept away before you have looked at it. Measured in GAME time, so it keeps
+                   running down while the game is closed, exactly as the rules themselves do.
+
+                   ⚠️ THIS CONTROL'S FINAL HOME IS Options > Gameplay (0.13.5, SUGGESTIONS.md
+                   "AUTOMATION RULES ALSO BELONG UNDER OPTIONS"). That tab does not exist yet, so
+                   it sits here beside the rules it governs. When the Gameplay tab lands, that
+                   control must be a SECOND VIEW of this same saved value, never a copy.
+
+                   The options come from AUTO_SALVAGE_GRACE_OPTIONS, so adding "12 hours" is a
+                   one-line data change in model.ts and needs no edit here. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  Leave new crafts alone for
+                  <select
+                    class="modal-input"
+                    value={String(autoSalvageGraceSeconds)}
+                    on:change={(e) => doSetAutoSalvageGrace((e.target as HTMLSelectElement).value)}
+                    aria-label="Auto-salvage grace period for newly crafted systems"
+                  >
+                    {#each AUTO_SALVAGE_GRACE_OPTIONS as opt (opt.seconds)}
+                      <option value={String(opt.seconds)}>{opt.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              </div>
+              <p class="research-status">
+                A system you just crafted is skipped by these rules for {autoSalvageGraceLabel} of game time, so a good roll is never swept away before you see it. Installing it protects it outright, and favoriting it protects it for good.
+              </p>
+
               <!-- The duplicates rule's semantics said out loud, because "duplicates" alone does
                    not say WHICH copy survives, and that is the only question a player actually
                    has about it. keepPerVariety is read from the rules (fixed at 1 this release,
@@ -10413,7 +10648,7 @@
 
               <!-- The plain-language summary of the CURRENT rule selection (design §7.6:
                    "a plain language summary of what it will do"). -->
-              <p class="research-status">{autoSalvageSummary(autoSalvageRules)}</p>
+              <p class="research-status">{autoSalvageSummary(autoSalvageRules, autoSalvageSelectedRarities)}</p>
 
               <!-- ⚠️ THE ELIGIBILITY READOUT: the interlock, made legible. Four states, and each
                    one names its own fix rather than leaving the player to infer it. The two
@@ -10445,8 +10680,12 @@
               <!-- THE SAFETY GUARANTEES, stated because this is a destructive automation and a
                    player has to be able to trust it before they switch it on. Each clause is a
                    filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
+              <!-- 0.13.3.1: the list gained its fifth and sixth clauses (favorited, and the
+                   post-craft grace), which are the two new protections. Every clause here is a
+                   reason that genuinely exists in the engine's AutoSalvageProtection union
+                   (salvage.ts), not a reassurance, and the union is what makes that checkable. -->
               <p class="research-status">
-                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, and never take a quality tier you asked to confirm. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts.
+                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, never take a system you have favorited, and never take one you have only just crafted. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts.
               </p>
               <!-- ⚠️ THE HEADROOM, STATED HONESTLY AT BOTH DEPTHS (0.13.3 holistic pass).
                    The engine is `depth <= 1 ? depth : depth - AUTO_SALVAGE_MANUAL_HEADROOM`
@@ -10878,12 +11117,24 @@
                             ? `${baseTitle} · being salvaged now`
                             : salvageState === "queued"
                               ? `${baseTitle} · queued for salvage`
-                              : baseTitle}
+                              : piece.favorite === true
+                                ? `${baseTitle} · favorited, never auto-salvaged`
+                                : baseTitle}
                           on:click={() => selectSystemTile(piece.id)}
                         >
                           <span class="systems-tile-dot"></span>
                           <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
                           <span class="systems-tile-il">iL {piece.iLevel}</span>
+                          <!-- 0.13.3.1 Feature 2: the favorite MARKER, an indicator and not a
+                               control. The tile is itself a <button> (clicking it selects the
+                               piece), and nesting an interactive element inside a button is
+                               invalid HTML and unreachable for a keyboard, so the TOGGLE lives
+                               in the selected-spare panel below where it has room for a label.
+                               The marker is what makes a pinned piece findable at a glance in a
+                               grid of dozens. -->
+                          {#if piece.favorite === true}
+                            <span class="sb-tile-fav" aria-hidden="true">★</span>
+                          {/if}
                           {#if salvageState !== "free"}
                             <span class="sb-tile-tag">{salvageState === "running" ? "SALV" : "QUE"}</span>
                           {/if}
@@ -10962,10 +11213,59 @@
                   >
                     {selectedIsBaseline ? "Destroy" : "Salvage"}
                   </button>
+                  <!-- ============ THE FAVORITE TOGGLE (0.13.3.1 Feature 2) ==================
+                       ⚠️ IT DOES NOT GATE THE SALVAGE BUTTON ABOVE, deliberately. A favorite is
+                       protection from the AUTOMATION, not a lock: the player may always scrap
+                       their own pinned piece by hand, and the confirm dialog they already chose
+                       for that quality tier is the right place for a second thought. Making this
+                       disable manual salvage would turn a convenience into a way to strand gear
+                       in a full pool, which is the softlock shape this whole facility exists to
+                       prevent.
+
+                       Shown for EVERY spare including a Standard-Issue baseline. A baseline is
+                       already exempt from the rules (the `baseline` protection reason), so
+                       pinning one changes nothing, but hiding the control on one kind of tile
+                       would make the toggle look broken rather than redundant.
+
+                       The button carries a visible text label, never a bare star, so it is not
+                       an icon-only control; the star is the state, the words are the action. -->
+                  <!-- NOT the .systems-salvage-btn danger variant: that red is the app's
+                       convention for a destructive control, and pinning a piece is the opposite
+                       of destructive. Its own amber variant, matching the star. -->
+                  <button
+                    class="buy-btn systems-fav-btn"
+                    class:systems-fav-btn-on={sys.favorite === true}
+                    on:click={() => doToggleEquipmentFavorite(sys.id, sys.favorite !== true)}
+                    aria-pressed={sys.favorite === true}
+                  >
+                    {sys.favorite === true ? "★ Favorited" : "☆ Favorite"}
+                  </button>
                   {#if selectedIsBaseline}
                     <span class="systems-salvage-none">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
                   {/if}
                   <span class="systems-salvage-none">{actionNote}</span>
+                  <!-- ⚠️ WHY THIS SPARE IS OFF LIMITS TO THE AUTOMATION, IN WORDS. The engine
+                       answers with a NAMED reason (AutoSalvageProtection, salvage.ts) rather than
+                       a boolean, and AUTO_SALVAGE_PROTECTION_TEXT is a TOTAL record over that
+                       union, so a reason the engine can report always has a sentence here. This
+                       is the same "make the interlock legible" job the auto-salvage panel's
+                       eligibility readout does: a protection nobody can see reads as a bug.
+
+                       Shown only while the rules are ON, because with the feature off every
+                       spare is trivially safe and the line would be noise on every tile.
+                       `state` is named in the call so this {@const} re-evaluates as the save
+                       changes (the stale-derivation trap, see systemSalvageState). -->
+                  {#if autoSalvageRules.enabled}
+                    {@const protection = systemAutoSalvageProtection(state, sys.id)}
+                    {@const graceLeft = protection === "craftGrace" ? systemGraceRemainingText(state, sys) : null}
+                    {#if protection !== null}
+                      <span class="systems-salvage-none">
+                        Auto-salvage: {AUTO_SALVAGE_PROTECTION_TEXT[protection]}{#if graceLeft !== null}{" "}({graceLeft}){/if}
+                      </span>
+                    {:else if autoSalvageHasRule}
+                      <span class="systems-salvage-none">Auto-salvage may queue this spare. Favorite it to keep it.</span>
+                    {/if}
+                  {/if}
                 </EquipmentTooltip>
               </Panel>
             {/if}
@@ -17034,6 +17334,32 @@
     background: color-mix(in srgb, var(--color-accent) 18%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
     pointer-events: none;
+  }
+
+  /* FAVORITE MARKER on a spare tile (0.13.3.1 Feature 2): the star that makes a pinned piece
+     findable in a grid of dozens. Top-LEFT, the one free corner (the rarity dot owns top-right
+     and the reserved SALV/QUE tag owns bottom-left), so no two markers can ever collide.
+     --color-warning is a :root-only stable token (never redeclared per [data-theme], see
+     app.css), the same choice equipmentRarityColor makes for the luminous band, so the star
+     reads identically in every theme. pointer-events none: the tile itself is the button. */
+  .sb-tile-fav {
+    position: absolute; left: 4px; top: 3px;
+    font-size: 11px; line-height: 1;
+    color: var(--color-warning);
+    pointer-events: none;
+  }
+  /* The favorite TOGGLE in the tooltip action slot. Amber (matching the star), not the danger
+     red of .systems-salvage-btn beside it: one is protection, the other is destruction, and the
+     two controls sit next to each other so they must not read alike. The -on variant fills in
+     when the piece is pinned, so the button's own state is visible without reading the label. */
+  .systems-fav-btn {
+    border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+    background: color-mix(in srgb, var(--color-warning) 10%, transparent);
+    color: var(--color-warning);
+  }
+  .systems-fav-btn-on {
+    background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+    border-color: color-mix(in srgb, var(--color-warning) 70%, transparent);
   }
 
   /* Salvage button in the tooltip action slot: the danger variant (a recycle is

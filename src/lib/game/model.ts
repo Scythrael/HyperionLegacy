@@ -1185,6 +1185,46 @@ export interface EquipmentInstance {
   durability: number;                     // never drops this patch; combat drives loss in 0.12.0
   fittedToShipId: string | null;          // null = spare in the pool. THE fitment authority (mirrors ShipInstance.assignedCaptainId)
   integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
+  // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
+  // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
+  // from the auto-salvage rules (never from a hand-clicked salvage, see the protection
+  // seam in salvage.ts). Absent or false = not favorited.
+  //
+  // ⚠️ IT LIVES ON THE SAVE, AND THAT IS THE WHOLE POINT. src/lib/shipFavoritesPreference.ts
+  // keeps SHIP favorites in localStorage and documents why that is right for a per-device
+  // VIEW preference. This is NOT that: the auto-salvage rules run inside the tick, including
+  // the OFFLINE CATCH-UP seam, and the offline resolver can read the SAVE and nothing else. A
+  // localStorage favorite would therefore be INVISIBLE offline, so the rules would destroy
+  // favorited gear while the player was away and spare it while they watched. That is the
+  // identical argument already recorded for AutoSalvageRules and salvageConfirmQualities
+  // themselves (both were moved into the save for exactly this reason).
+  //
+  // WHY ON THE INSTANCE rather than as a GameState id set: a favorite is a property OF the
+  // piece, and the codebase's standing posture is that such a property lives on the one
+  // record that owns it and is never duplicated elsewhere (see fittedToShipId above, kept off
+  // the ship "so the two never disagree"). On the instance it is also SELF-CLEANING: salvage
+  // the piece and the flag goes with it, leaving no stale id behind to prune.
+  //
+  // OPTIONAL + ADDITIVE (like weaponType / droneRole / integrity above): absent means NOT
+  // favorited, which is the truth for every piece that existed before this release, so the
+  // v42 -> v43 migration deliberately does not backfill it.
+  favorite?: boolean;
+  // WHEN THIS PIECE WAS MINTED, on the fleet's own GAME CLOCK (state.gameTimeSeconds), which
+  // is what the post-craft grace period (salvage.ts, AUTO_SALVAGE_GRACE_*) measures against.
+  //
+  // ⚠️ GAME TIME, NEVER Date.now(). gameTimeSeconds advances inside economyTick, so it
+  // advances identically for a live tick and for an offline catch-up tick. A wall-clock stamp
+  // compared inside the tick would make a piece's protection depend on WHEN the tick ran
+  // rather than on how much game has elapsed, which breaks the offline==live parity invariant
+  // this whole engine is built on.
+  //
+  // ⚠️ ABSENT IS NOT A GAP, IT IS THE RECORD: it means "this piece predates the stamp", which
+  // the grace predicate reads as PAST GRACE (unprotected). That is the decision recorded on
+  // MIGRATIONS[42] in save.ts: every item that existed before this release is treated as OLD,
+  // so the automation behaves for it exactly as it did before the upgrade. This is why the
+  // migration deliberately does NOT backfill the field (and why a Standard-Issue baseline,
+  // minted by the two clock-free generators, never carries one).
+  mintedAtGameSeconds?: number;
 }
 
 // The 0-based rarity ordinal the budget pipeline (later task) reads. Ascends
@@ -3380,6 +3420,136 @@ export interface AutoSalvageRules {
   maxQuality: number | null; // auto-queue spares at or below this quality tier; null = rule off
   duplicates: boolean;       // auto-queue duplicates beyond keepPerVariety
   keepPerVariety: number;    // how many of a variety to KEEP; fixed at 1 this release, not yet player-editable
+  // 0.13.3.1 Feature 1: the PER-RARITY selection, a third selecting rule alongside
+  // maxQuality and duplicates (they UNION, see selectAutoSalvageTargets). The rule is OFF
+  // when no band is selected, exactly as maxQuality null means off. See
+  // AutoSalvageRaritySelection below for why this is a per-band record and not a threshold.
+  rarities: AutoSalvageRaritySelection;
+  // 0.13.3.1 Feature 3: how long a freshly minted, uninstalled piece is exempt from the
+  // rules, in GAME seconds. Player-chosen from AUTO_SALVAGE_GRACE_OPTIONS, defaulting to
+  // AUTO_SALVAGE_GRACE_SECONDS_DEFAULT (60 minutes). In the SAVE for the same reason as
+  // every other field on this shape: the tick reads it and the offline path can see nothing
+  // else. Read through resolveAutoSalvageGraceSeconds, never raw, so an absent or malformed
+  // value lands on the default instead of on 0 (a 0 would silently switch the protection off).
+  graceSeconds: number;
+}
+
+// ----------------------------------------------------------------------------
+// AutoSalvageRaritySelection (0.13.3.1 Feature 1)
+// ----------------------------------------------------------------------------
+// WHICH EquipmentRarity bands the auto-salvage rules may take: one boolean per band, and
+// the rule is off when every band is false.
+//
+// ⚠️ PER-BAND SELECTION, NEVER A THRESHOLD, AND THE REASON IS CONCRETE. rarityIndex (above)
+// is NOT a straight ladder: luminous and constellar BOTH return 5, because they are parallel
+// legendary-class FLAVORS at one power tier rather than two more rungs. So an "at or below
+// this rarity" rule would sweep BOTH of them the instant a player selected EITHER, destroying
+// a band they never chose. A per-band record cannot express that mistake, and it matches the
+// per-quality-tier confirm control the Salvage Bay already shows.
+//
+// ⚠️ A TOTAL Record, SO GROWING THE LADDER IS A COMPILE ERROR (user requirement: "leave this
+// system modular to include additional item rarity types as they are added in"). Adding a
+// member to EquipmentRarity breaks every object LITERAL of this type until the new band is
+// answered for, which is the same discipline SALVAGE_EQUIPMENT_RARITY_MULTIPLIER above,
+// QUEUE_ADAPTERS (tick.ts) and equipmentRarityColor (EquipmentTooltip.svelte) already use.
+// There is deliberately no index comparison and no hardcoded list of seven strings anywhere.
+export type AutoSalvageRaritySelection = Record<EquipmentRarity, boolean>;
+
+// The "no band selected" default: the rarity rule OFF. THE compile-error anchor for the whole
+// feature (a new EquipmentRarity member fails to type-check here first), and the seed both
+// freshState and the v42 -> v43 migration write.
+export const AUTO_SALVAGE_RARITIES_NONE: AutoSalvageRaritySelection = {
+  derelict: false,
+  standard: false,
+  augmented: false,
+  stellar: false,
+  radiant: false,
+  luminous: false,
+  constellar: false,
+};
+
+// Every EquipmentRarity band in ladder order, for the console's checkbox row and for the
+// "is any band selected" scan.
+//
+// DERIVED FROM THE TOTAL RECORD ABOVE, never written out a second time: object key order is
+// insertion order in ES2015+ (the same guarantee seedStandardIssueForShip already relies on
+// for its mint order), so this list grows automatically the moment a band is added to
+// AUTO_SALVAGE_RARITIES_NONE. That is the point: a new rarity is a compile error in ONE
+// place, and every consumer, engine and UI alike, then picks it up with no further edit.
+export const EQUIPMENT_RARITY_LADDER = Object.keys(AUTO_SALVAGE_RARITIES_NONE) as EquipmentRarity[];
+
+// Read a rarity selection off a SAVED value, defensively.
+//
+// ⚠️ FAIL SAFE TOWARD KEEPING ITEMS. Only an exact `true` selects a band. An absent field (a
+// save from before this release, a hand-built fixture), a malformed value, or a band the
+// object simply does not carry (a save written before that band existed) all read as NOT
+// selected. Salvage is irreversible, so the direction of every unreadable value has to be
+// "do not destroy this", which is the same posture autoSalvageProtectedQualities takes for a
+// missing confirm preference.
+export function normalizeAutoSalvageRarities(raw: unknown): AutoSalvageRaritySelection {
+  const source = (raw ?? {}) as Partial<Record<string, unknown>>;
+  const out = { ...AUTO_SALVAGE_RARITIES_NONE };
+  for (const band of EQUIPMENT_RARITY_LADDER) {
+    out[band] = source[band] === true;
+  }
+  return out;
+}
+
+// Is the rarity rule actually ON (at least one band selected)? One reading, shared by the
+// engine and the console so they can never disagree about what "off" means.
+export function autoSalvageRarityRuleOn(selection: AutoSalvageRaritySelection): boolean {
+  return EQUIPMENT_RARITY_LADDER.some((band) => selection[band]);
+}
+
+// ----------------------------------------------------------------------------
+// The post-craft GRACE PERIOD options (0.13.3.1 Feature 3)
+// ----------------------------------------------------------------------------
+// A freshly minted, uninstalled piece is exempt from the auto-salvage rules for this long, so
+// a craft cannot be swept away before the player has looked at it. Measured in GAME seconds
+// against state.gameTimeSeconds (see EquipmentInstance.mintedAtGameSeconds for why it is
+// never wall time).
+//
+// AN ENUMERABLE, TYPED LIST rather than a free-text field: the console renders exactly these
+// options, so adding "12 hours" is a one-line DATA change here and needs no UI work and no
+// engine work. Labels live beside their values for the same reason (one source of truth for
+// what a value is called).
+//
+// ⚠️ THE DROPDOWN'S FINAL HOME IS Options > Gameplay (0.13.5), not the Salvage Bay. That tab
+// does not exist yet (SUGGESTIONS.md, "AUTOMATION RULES ALSO BELONG UNDER OPTIONS"), so this
+// release puts the control on the Salvage Bay Rules tab beside the rules it governs. When the
+// Gameplay tab lands, that control must be a SECOND VIEW OF THIS SAME SAVED VALUE
+// (state.autoSalvage.graceSeconds), never a copy: two stores for one setting is exactly the
+// drift the confirm-by-quality preference had to be migrated out of localStorage to escape.
+export const AUTO_SALVAGE_GRACE_OPTIONS: readonly { seconds: number; label: string }[] = [
+  { seconds: 5 * 60, label: "5 minutes" },
+  { seconds: 10 * 60, label: "10 minutes" },
+  { seconds: 30 * 60, label: "30 minutes" },
+  { seconds: 60 * 60, label: "60 minutes" },
+  { seconds: 24 * 60 * 60, label: "24 hours" },
+  { seconds: 7 * 24 * 60 * 60, label: "7 days" },
+];
+
+// THE FIRST-PASS DEFAULT, and the value every save that has not chosen one resolves to.
+// RAISING IT protects a newly crafted piece for longer, which makes the automation slower to
+// tidy a busy crafting session and makes a "why has this not been queued yet" question more
+// likely; LOWERING it narrows the window in which the player can rescue something the rules
+// would otherwise take. 60 minutes is the user's chosen starting point, not a tuned value.
+export const AUTO_SALVAGE_GRACE_SECONDS_DEFAULT = 60 * 60;
+
+// Resolve the live grace length off the rules, defensively.
+//
+// ⚠️ THE FALLBACK IS THE DEFAULT, NEVER 0. A save from before this release carries no
+// graceSeconds, and a hand-edited one can carry anything. Reading either as 0 would silently
+// switch a player-protection feature OFF, so anything that is not a finite, non-negative
+// number resolves to AUTO_SALVAGE_GRACE_SECONDS_DEFAULT. A deliberate 0 IS honored (it is a
+// legitimate "I do not want a grace period" choice), which is why the guard tests the VALUE's
+// shape and not its truthiness.
+export function resolveAutoSalvageGraceSeconds(rules: AutoSalvageRules | undefined): number {
+  const raw = rules?.graceSeconds;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return AUTO_SALVAGE_GRACE_SECONDS_DEFAULT;
+  }
+  return raw;
 }
 
 // The "confirm everything" default for salvageConfirmQualities: every quality tier
@@ -7787,7 +7957,21 @@ export function freshState(): GameState {
     // new game), so it never reaches for a browser store.
     processQueue: [],
     nextQueueId: 1,
-    autoSalvage: { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 },
+    // 0.13.3.1: `rarities` seeds the no-band-selected default (the rarity rule OFF, matching
+    // the other two rules' opt-in posture) and `graceSeconds` the 60-minute first pass.
+    // Existing saves reach the IDENTICAL shape via the v42 -> v43 migration, so a fresh save
+    // and a migrated save stay indistinguishable in shape.
+    autoSalvage: {
+      enabled: false,
+      maxQuality: null,
+      duplicates: false,
+      keepPerVariety: 1,
+      // SPREAD, not the shared const reference: freshState hands out a state per call (dozens
+      // of fixtures build from it), and handing every one of them the SAME object would let a
+      // single stray write reach all of them. Same defensive posture as freshLifetimeStats.
+      rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+      graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+    },
     salvageConfirmQualities: freshSalvageConfirmQualities(),
     // Crafting 0.13.3 (Unit 4.4b): a brand-new save has completed nothing yet, so the log
     // starts EMPTY with the id counter at 1 (first minted id "done-1") and no open batches.
