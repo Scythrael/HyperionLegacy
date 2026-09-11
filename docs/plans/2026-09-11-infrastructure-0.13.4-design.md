@@ -706,6 +706,8 @@ The last command is the invariant. New parity cases live in NEW files that are a
 
 ## 13. Open questions for the user
 
+> ✅ **ALL FOURTEEN ARE ANSWERED. See §17, which supersedes this section wherever the two differ.** Four were answered directly by the user (1, 2, 3, 12) and ten were taken at the recommended value with the user's explicit authorisation. ⚠️ **Q2's answer changed the track (to 10, not 6) and carries a correction to §5.3's captain arithmetic**: `MAX_UNLOCKABLE_CAPTAINS` is **4**, not the 5 this section and §5.3 both claim. Read §17.2 before building anything that depends on that number.
+
 Each has a recommendation. None is silently decided.
 
 1. **Turnaround-slot NAME.** Recommend **Transit Berth**, because the scope-lock entry itself wrote the feature as "transit-berth / turnaround docking slots". Alternatives the user listed: Turnaround Bay, Cargo Gantry, Unloading Gantry. Also confirms **Drydock Berths** as the player-facing name for today's `shipStorageCapacity`.
@@ -825,3 +827,51 @@ The migration must **mint the missing pieces onto every existing ship**, install
 **A crafted weapon stops being a free win.** Today a first crafted gun goes into an empty hardpoint, so it is an unambiguous gain requiring no comparison. After F5 it is a swap, and it only helps if it beats the Standard-Issue floor, which is more for a new player to read at the moment they have the least context.
 
 The middle path softens this rather than removing it: because magnitudes are cut, the floor each crafted gun has to beat is lower than today's Standard-Issue, so a crafted gun clears it more easily and more often. The residual cost is the comparison itself, not the odds of winning it. **Accepted deliberately.** If it turns out to bite, the mitigation is presentational (make the compare-against-installed readout louder in the install modal, which already exists from 0.13.2) and belongs to 0.13.5, not here.
+
+---
+
+## 17. ANSWERS (user, 2026-09-11). This section supersedes Â§13's recommendations wherever the two differ.
+
+Â§13 asked 14 questions, each with a recommendation. The user answered **four directly**; the remaining ten are **taken at their recommended value**, which the user authorised explicitly rather than by silence ("ten of them are settled well enough by evidence in the code that I'd just take my own recommendation and flag it"). Every one of those ten is listed in 17.3 so that "we decided this by default" stays visible and re-openable, rather than becoming an invisible assumption.
+
+### 17.1 The four answered directly
+
+| Q | Answer | Note |
+|---|---|---|
+| **1. Name** | **Transit Berth**, as recommended. **Drydock Berths** confirmed for today's `shipStorageCapacity`. | Two berth types sharing one noun, which is why this pairing was recommended over Bay (collides with Salvage Bay and drone bays) or Gantry. |
+| **2. Count and track** | **Base 2**, as recommended, but the track runs **to 10, not to 6**. Plus: **the captain ceiling should be 10.** | âš ï¸ Changed from the recommendation. See 17.2, which contains a correction to this document. |
+| **3. Bypass** | **No bypass**, as recommended. | The wait stays bounded and the upgrade track stays the only relief. Do not add a paid bypass later without re-opening this: it was declined on the "do not manufacture friction and then sell relief from it" ground, not on a balance ground. |
+| **12. Talent cost** | **8 adminPoints, `requiresFleetAdminLevel: 12`.** | âš ï¸ Changed from the recommendation of 6 / FA 10. Per-facility queue depth is deliberately a LATE purchase, so the shared trunk carries most players for longer. Still identical across all five nodes, which was the part that mattered structurally. |
+
+### 17.2 âš ï¸ Q2 in full, including a correction to this document
+
+**The track now runs base 2 to 10**, not base 2 to 6. Adopt the **`docksExpansion` precedent: +1 per rung, 8 rungs**, which is the same shape as the existing docks track (+1 per level from 8 to 16) and reads as predictably as that one does. Do NOT use +2 rungs to reach 10 in four: a track whose step size differs from the only other capacity track in the game is a needless second pattern.
+
+**âš ï¸ CORRECTION, and it runs against this document's own Â§5.3 argument.** Â§5.3 and Â§13 Q2 both state that `MAX_UNLOCKABLE_CAPTAINS` is **5** (1 plus 4 `unlockCaptainSlot` nodes). **It is 4.** There are **three** `unlockCaptainSlot` nodes (`model.ts` around :7577, :7589, :7600), so the derived ceiling is 1 + 3 = 4, exactly as the constant's own comment says. The recommendation was given to the user with the wrong number attached.
+
+**The recommendation survives the correction, and is slightly strengthened by it.** The base-2 case was argued on "the reachable captain count is far below the 10 in the example, so base 4 ships nearly inert". At 4 captains rather than 5 that is MORE true, not less: with base 4 and 4 captains, **no ship ever waits at all**. The worst case at base 2 is `ceil(4 / 2) x 8 = 16 ticks` with up to 2 ships queued, not the 24 stated in Â§5.3. **Correct the 5 and the 24 wherever Â§5.3 relies on them before building**, and re-derive the parity fixture boundary from 4 rather than assuming Â§5.3's arithmetic carries.
+
+**On "the max unlockable captains should be at 10": this is ALREADY the design, and needs no work.** Verified rather than assumed:
+- `MAX_UNLOCKABLE_CAPTAINS` is **derived, never hardcoded**: `1 + count(unlockCaptainSlot nodes)`. Its own comment states the intent, that it "grows automatically the day a `fleetLogisticsSlot4` node is added".
+- **The roster UI already renders ten slots** (`App.svelte`, `Array.from({ length: Math.max(0, 10 - state.captains.length) })`) and already splits them: a slot within the derived ceiling shows **"Locked, recruit via Homeworld Talents"**, and a slot past it shows **"Coming soon, not yet unlockable"**.
+
+So 10 is already the roadmap ceiling the game displays, and the user's "the others are not yet available" is already exactly how the UI describes them. **Raising the constant by hand would be wrong**: it is derived on purpose, and forcing it to 10 would relabel six unreachable slots as "Locked, recruit via Homeworld Talents" and point players at talents that do not exist. The way to reach 10 captains is to **add the seven missing `unlockCaptainSlot` nodes**, at which point the constant and both labels move on their own. Logged as its own work, NOT part of 0.13.4.
+
+âš ï¸ **Consequence for the berth track that must not be missed:** the track was sized to 10 against a fleet that today tops out at 4. Fully upgraded berths exceed the reachable captain count by more than 2x, so **the last several rungs buy nothing a player can currently use.** That is acceptable and deliberate (the track is being sized for the 10-captain endstate the roster already advertises), but the rungs past 4 or 5 must NOT be presented as solving a problem the player has. Price and gate them as forward investment, and do not let the Homeworld talent copy imply an immediate throughput gain.
+
+### 17.3 The ten taken at their recommended value
+
+Recorded so a default never masquerades as a decision. Any of these can be re-opened at build time; none is locked by anything structural.
+
+| Q | Taken as |
+|---|---|
+| 4 | Transit berths do **not** gate patrol returns (patrols have no unloading phase). |
+| 5 | **No** new `docking` MissionPhase. |
+| 6 | Lane join rule: **oldest first**, tie-broken by declared index. |
+| 7 | **No** explicit per-order lane cap; the precedence rule is the cap. |
+| 8 | ETA shows **current allocation with the lane count beside it**. |
+| 9 | Continuous orders take **one lane and are never joined**. |
+| 10 | The Salvage Bay's **one-unit-per-tick bound stays** this release. |
+| 11 | Talent chain: **keep all three global nodes**, add five new per-facility nodes (at the 8 / FA 12 from Q12). |
+| 13 | `CaptainStopReason` is **derived** from `PatrolEndReason` via an exhaustive Record. |
+| 14 | The patrol record **shares `completionLog`**, widening only `CompletionLogEntry.kind` and `COMPLETION_KIND_VIEW`. |
