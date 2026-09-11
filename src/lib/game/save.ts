@@ -4,7 +4,7 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 42;
+export const SAVE_VERSION = 44;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1757,6 +1757,175 @@ const MIGRATIONS: Record<number, Migration> = {
       ...(state.facilities ?? {}),
       salvageBay: (state.facilities ?? {}).salvageBay ?? { level: 0 },
     },
+  }),
+
+  // --- v42 -> v43: the auto-salvage RARITY rule + the post-craft GRACE PERIOD ------------
+  // (0.13.3.1 auto-salvage additions. model.ts: AutoSalvageRaritySelection,
+  // AUTO_SALVAGE_GRACE_OPTIONS, EquipmentInstance.graceStartedAtGameSeconds / favorite.)
+  //
+  // ⚠️⚠️ THE ONE DECISION THIS MIGRATION RECORDS: ITEMS THAT ALREADY EXIST ARE TREATED AS
+  // OLD, i.e. their post-craft grace is already over, so the automation behaves for them
+  // EXACTLY as it did before the upgrade. Both readings were defensible and this is the one
+  // that was chosen, for three reasons:
+  //   1. NOTHING NEW IS DESTROYED AND NOTHING IS SILENTLY SWITCHED OFF. Every spare in an
+  //      existing pool has already survived every tick under the player's OWN rules, so it is
+  //      not the freshly-minted accident the grace exists to prevent. Treating them as NEW
+  //      would instead pause a running, opted-in automation for a full grace period with no
+  //      explanation on screen, which reads as a broken feature.
+  //   2. THE GRACE GUARDS THE CRAFT MOMENT, and a piece that predates the stamp has no craft
+  //      moment to guard. The protection it does get is unchanged and unweakened: baseline,
+  //      installed, reserved, confirm-ON tier, and now favorited.
+  //   3. IT CANNOT DESTROY ANYTHING BY ITSELF. This migration only ever ADDS fields; the rules
+  //      still have to be enabled, a rule still has to select the piece, and the confirm
+  //      interlock (which the shipped default sets for EVERY quality tier) still has to have
+  //      been opted out of by the player before anything can be taken at all.
+  //
+  // WHAT IT WRITES, and nothing else:
+  //   - autoSalvage.rarities      the no-band-selected default (the rarity rule OFF), so the
+  //                               new rule cannot switch itself on for anybody. The existing
+  //                               enabled / maxQuality / duplicates / keepPerVariety values
+  //                               ride through untouched via the spread.
+  //   - autoSalvage.graceSeconds  the 60-minute first-pass default.
+  // ⚠️ WHAT IT DELIBERATELY DOES NOT WRITE, AND THIS IS THE OTHER HALF OF THE DECISION: it does
+  // NOT touch state.equipment. Neither of the two new per-instance fields is backfilled, and for
+  // each of them ABSENCE IS THE CORRECT RECORD rather than a gap to be filled:
+  //   favorite                     absent IS not-favorited, which is the truth for every piece in
+  //                                existence (nobody has been able to pin one yet).
+  //   graceStartedAtGameSeconds    absent IS "this piece predates the stamp", which the grace
+  //                                predicate reads as PAST GRACE (autoSalvageGraceRemainingSeconds
+  //                                returns 0). That is exactly the decision above, expressed in the
+  //                                shape itself. (This field was called mintedAtGameSeconds when
+  //                                this step was written; MIGRATIONS[43] below carries the rename,
+  //                                and nothing about THIS step's behavior changed with it.)
+  // Writing a synthetic past-grace stamp onto every legacy piece was tried first and is WRONG on
+  // this codebase's own terms: freshState's Standard-Issue baselines carry no stamp (the two
+  // generators are rng-free and clock-free precisely so a migration can re-run them), so
+  // stamping migrated pieces would make a migrated save and a fresh save differ piece by piece,
+  // which is the divergence this file's discipline exists to prevent (three shipped migration
+  // tests compare exactly that). Both new fields therefore stay optional-and-absent, exactly
+  // like weaponType / droneRole / integrity, the other optional members of EquipmentInstance
+  // that no migration has ever written.
+  //
+  // WHY A REAL VERSION BUMP: the same argument MIGRATIONS[40] and [41] each recorded for
+  // themselves. v42 is SHIPPED (0.13.3 is in prod), so real player saves are stamped v42 and
+  // are exactly the saves that must end up in the new shape; extending an earlier step would
+  // skip every one of them. Unlike MIGRATIONS[41] this step is NOT a behavioral no-op either:
+  // AutoSalvageRules gains two REQUIRED fields, and seeding them is what keeps a loaded save's
+  // rules object the same shape freshState builds.
+  //
+  // IDEMPOTENT AND VALUE-PRESERVING: `??` at every field, so a re-run (or an already-migrated
+  // save) keeps its OWN band selection and its OWN grace choice. It can never reset a player's
+  // rules back to the defaults.
+  //
+  // DEFENSIVE ON THE CONTAINER: a hand-edited save can arrive with no `autoSalvage` object at
+  // all. The `??` fallback supplies the same all-off default MIGRATIONS[39] seeds, so the result
+  // is a complete rules object rather than a throw or a half-built one.
+  //
+  // NO NEW DECIMALS, VERIFIED: `rarities` is a flat record of booleans and `graceSeconds` is a
+  // plain number, so both ride hydrateDecimals's `...state` spread verbatim exactly like the rest
+  // of AutoSalvageRules. hydrateDecimals needs NO new branch. Same for the two per-instance
+  // fields if a player ever writes them (a boolean and a plain number). See the ⚠️ warning on
+  // QueuedJob (model.ts) before ever adding a Decimal to any of these shapes.
+  42: (state: any): any => ({
+    ...state,
+    autoSalvage: {
+      ...(state.autoSalvage ?? { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 }),
+      rarities: (state.autoSalvage ?? {}).rarities ?? { ...AUTO_SALVAGE_RARITIES_NONE },
+      graceSeconds: (state.autoSalvage ?? {}).graceSeconds ?? AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+    },
+  }),
+
+  // --- v43 -> v44: the AUTO-SALVAGE TERMINAL gains its own queue -------------------------
+  // (2026-09-11. model.ts: GameState.autoSalvageQueue. tick.ts: the Terminal's lane,
+  // promotion pass and borrow window.)
+  //
+  // WHAT IT WRITES: `autoSalvageQueue = []` when the key is absent. That is all. No other
+  // field is read or written, and in particular state.processQueue is NOT touched: a player
+  // mid-upgrade may be holding auto-added salvage orders in their MANUAL queue right now
+  // (that is where the automation used to put them), and those entries are left exactly where
+  // they are to drain normally. Moving them across would rewrite the player's own visible
+  // queue during a load, and they are indistinguishable from hand-queued orders anyway, since
+  // the old shape recorded no origin. They promote on general lanes like any manual order,
+  // which is correct and costs nothing; from here on the automation writes to the new array.
+  //
+  // ⚠️ EXTENDED (same unreleased step, 2026-09-11) BY THE GRACE-STAMP RENAME. The per-instance
+  // stamp MIGRATIONS[42] introduced as `mintedAtGameSeconds` is now
+  // `graceStartedAtGameSeconds`, because the window it records restarts on UNINSTALL as well as
+  // on a mint (see startAutoSalvageGrace, model.ts, and the destructive gap it closes: without
+  // it, a piece the player had just taken off a ship was auto-salvage-eligible the same
+  // instant). A field named mintedAt that also records uninstalls would be a lie in the save.
+  //
+  // WHY THE RENAME RIDES THIS STEP RATHER THAN TAKING A v44 -> v45 OF ITS OWN, which is the
+  // opposite of what MIGRATIONS[40] / [41] / [42] each argued for themselves. Their argument was
+  // "saves are already stamped at the current version, so extending an earlier step would skip
+  // them". It does not apply here: the old key has NEVER existed in a shipped save. Production is
+  // stamped v42 and 0.13.3.1 (v43) has not been released, so the only saves that can be carrying
+  // `mintedAtGameSeconds` are this branch's own dev and staging saves, and every one of them is
+  // stamped v43 and therefore RUNS this step. A new version would buy nothing and cost a
+  // SAVE_VERSION bump plus its pinned assertions.
+  //
+  // ⚠️ THE ONE SAVE THIS DOES NOT REACH, stated plainly rather than left to be discovered: a dev
+  // save stamped v44 by this same uncommitted working tree, i.e. one written after the Terminal
+  // landed but before this rename. It skips the step and keeps the old key. It fails SAFE and in
+  // the SAME direction the release already documents: an unreadable stamp reads as ABSENT, absent
+  // reads as PAST GRACE, and past-grace is exactly how every pre-0.13.3.1 piece is treated
+  // (MIGRATIONS[42]'s recorded decision). The cost is that one dev save's in-flight grace windows
+  // expire early once; no item is destroyed by this step, and no player save can be affected.
+  //
+  // WHAT THE RENAME WRITES: for each equipment instance carrying the old key, the same numeric
+  // value under the new key, and the old key is DROPPED so a migrated save matches a fresh one
+  // key for key (this file's standing "a migrated save and a fresh save are indistinguishable in
+  // shape" discipline). A piece carrying NEITHER key is left exactly as it is: absence is the
+  // correct record, not a gap, so nothing is backfilled here either. A piece that somehow carries
+  // BOTH keeps the NEW one, since that is the one every reader uses.
+  //
+  // IDEMPOTENT: a re-run finds no old keys and returns the instances untouched.
+  //
+  // ⚠️ WHY A REAL VERSION BUMP, AND NOT A DERIVED-ONLY CHANGE: almost all of this feature IS
+  // derived (the lane split is recomputed from the in-flight jobs on every read, exactly like
+  // salvageSlotCount and every reservation), and none of that needs a save version. This step
+  // exists for the one part that genuinely could not be: the automation's waiting list is new
+  // PERSISTED state. v43 is SHIPPED, so real player saves are stamped v43 and are exactly the
+  // saves that must end up in the new shape; extending an earlier step would skip every one
+  // of them (the argument MIGRATIONS[40], [41] and [42] each recorded for themselves).
+  //
+  // IT IS A BEHAVIOURAL NO-OP ON ITS OWN, like MIGRATIONS[41]: every reader of the new array
+  // carries `?? []`, so an unmigrated save would behave identically. The migration is about
+  // SHAPE, so that a migrated save and a fresh save stay indistinguishable and a LATER
+  // migration has one shape to handle rather than two.
+  //
+  // ⚠️ salvageIdleWatch IS DELIBERATELY NOT WRITTEN, and absence is the CORRECT record rather
+  // than a gap. It is the borrow window's history, and an existing save has no history of a
+  // window that did not exist. An absent watch reads as "the window has not elapsed" (the
+  // fail-safe direction: the automation waits rather than sweeping a lane the player may be
+  // reaching for), and the first promotion pass after load seeds it from the real lane state.
+  // freshState does not seed it either, so this keeps fresh and migrated saves identical.
+  //
+  // IDEMPOTENT AND VALUE-PRESERVING: `??` at the field, so a re-run (or an already-migrated
+  // save) keeps whatever it already holds and this step becomes a value-level no-op. It can
+  // never drop a pending Terminal order.
+  //
+  // NO NEW DECIMALS, VERIFIED: QueuedJob is id strings, string-literal keys and plain numbers
+  // only (see its ⚠️ warning in model.ts), so the array rides hydrateDecimals's `...state`
+  // spread verbatim exactly as processQueue has since v40. hydrateDecimals needs NO new branch.
+  43: (state: any): any => ({
+    ...state,
+    autoSalvageQueue: state.autoSalvageQueue ?? [],
+    equipment: (state.equipment ?? []).map((piece: any) => {
+      // Nothing to rename: the overwhelmingly common case (every piece that has never been
+      // stamped, and every piece already written under the new key). Returned by reference so
+      // this step allocates nothing for a save that does not need it.
+      if (piece === null || typeof piece !== "object") return piece;
+      if (!("mintedAtGameSeconds" in piece)) return piece;
+      // Carry the value across under the new name and DROP the old key, so the migrated shape
+      // matches what freshState + startAutoSalvageGrace write. `??` keeps an already-renamed
+      // value winning if a hand-edited save somehow carries both.
+      const { mintedAtGameSeconds, ...rest } = piece;
+      return {
+        ...rest,
+        graceStartedAtGameSeconds: piece.graceStartedAtGameSeconds ?? mintedAtGameSeconds,
+      };
+    }),
   }),
 };
 

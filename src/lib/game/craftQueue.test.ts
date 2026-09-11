@@ -64,6 +64,9 @@ import {
   // Salvage Bay's track is a LANE grant, never a queue-depth grant" case checks the DATA
   // rather than restating a comment about it.
   FACILITIES,
+  // Auto-Salvage Terminal (2026-09-11): the no-band-selected rarity default, so the Terminal
+  // fixtures seed a COMPLETE AutoSalvageRules object with only the rule under test switched on.
+  AUTO_SALVAGE_RARITIES_NONE,
 } from "./model";
 import {
   QUEUE_DEPTH_BASE,
@@ -113,6 +116,15 @@ import {
   // The state a queued order's own gate must be asked about (the self-block trap). Used by
   // the Shipyard docks-capacity case to ask the identical question the tick asks.
   withQueuedOrderReleased,
+  // Auto-Salvage Terminal (2026-09-11): the automation's own lane, queue, gate and borrow
+  // window. The cases at the bottom of this file prove the reproduction of the original
+  // softlock chain, the lane split, and the parity of both across a chunked and a stepped span.
+  AUTO_SALVAGE_TERMINAL_LANES,
+  AUTO_SALVAGE_BORROW_IDLE_SECONDS,
+  salvageLaneUsage,
+  autoSalvageQueued,
+  autoSalvageOrders,
+  canStartAutoSalvage,
 } from "./tick";
 // 0.13.3 follow-up: the derived reservation itself, read directly so the cases below can
 // show the numbers moving while the inventory does not.
@@ -127,6 +139,7 @@ import { salvageReservedInstanceIds, salvageReservedShipIds } from "./salvage";
 import {
   buildCraftQueue,
   buildAllCraftQueues,
+  buildAutoSalvageTerminal,
   craftLineOutputLabel,
   salvageTargetLabel,
 } from "./craftQueue";
@@ -3704,5 +3717,364 @@ describe("completed-events log: parity, one long offline span logs identically t
     expect(a.completionLog.length).toBeGreaterThan(0);
     expect(a.completionLog.every((e) => e.atMs === 0 && e.startedAtMs === 0)).toBe(true);
     expect(completionSnapshot(a)).toEqual(completionSnapshot(b));
+  });
+});
+
+// ============================================================================
+// THE AUTO-SALVAGE TERMINAL (2026-09-11)
+//
+// ⚠️ WHY THESE CASES LIVE IN THIS FILE. The release's parity gate is
+// `npx vitest run -t "parit"` EXCLUDING craftQueue.test.ts and salvage.test.ts, which must
+// keep reading exactly 101 (the pre-0.13.3 baseline). New parity cases therefore belong in
+// one of the two files the gate already excludes, and the promotion pass is this file's own
+// subject, so this is the honest home for them.
+//
+// WHAT IS BEING PROVEN, in order:
+//   1. THE ORIGINAL CHAIN IS BROKEN. With every general lane saturated by a multi-day
+//      material batch, auto-salvage still starts, so a full spare pool still drains and
+//      fabrication is never halted by work the player would have to delete to unblock.
+//   2. THE LANE MODEL. The Terminal lane is auto-only; general lanes serve manual work first
+//      and are borrowed by the automation only after the idle window; nothing is preempted.
+//   3. PARITY. Every one of the above resolves identically across one tick(span) and the same
+//      span stepped one economyTick(_, 1) at a time, which is the only way the offline
+//      catch-up can be trusted with a feature that runs inside the promotion pass.
+// ============================================================================
+
+// A spare CRAFTED system the auto-salvage rules will select: quality 0 (so no confirm tier
+// protects it in these fixtures), a real blueprint (so it SALVAGES rather than being
+// destroyed as a baseline), and NO mint stamp, which the grace predicate reads as past grace
+// exactly as it reads every piece on a save that predates the stamp.
+function autoSpare(id: string): EquipmentInstance {
+  return craftedSpare(id, 0);
+}
+
+// The Salvage Bay fixture WITH the auto-salvage rules on and a pool for them to chew.
+// Built on salvageBayState so the manual arms (a hull, a stock of Housings, the deep queue
+// talents) are all still available to the same case.
+//
+// ⚠️ salvageConfirmQualities IS EMPTIED, and that is the fixture being honest rather than the
+// interlock being weakened: the shipped default confirms EVERY tier, and a confirm-ON tier can
+// never be auto-salvaged (by design, and it is not relaxed anywhere in this change). A case
+// about lanes must therefore opt those tiers out, or it would be measuring the interlock.
+function terminalState(pool = 6, bayLevel = 0): GameState {
+  const base = salvageBayState();
+  const spares = Array.from({ length: pool }, (_, i) => autoSpare(`auto-${String(i).padStart(2, "0")}`));
+  return {
+    ...base,
+    facilities: { ...base.facilities, salvageBay: { level: bayLevel } },
+    equipment: [...base.equipment, ...spares],
+    salvageConfirmQualities: [],
+    autoSalvage: {
+      enabled: true,
+      maxQuality: 5,
+      duplicates: true,
+      keepPerVariety: 0,
+      rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+      graceSeconds: 0,
+    },
+  };
+}
+
+// Everything the Terminal can move, in one comparable shape. salvageSnapshot plus the
+// automation's own queue and the borrow window's bookkeeping, because a divergence in EITHER
+// is exactly the shape an offline/live split would take and neither is in salvageSnapshot.
+function terminalSnapshot(state: GameState) {
+  return {
+    ...salvageSnapshot(state),
+    autoSalvageQueue: state.autoSalvageQueue,
+    salvageIdleWatch: state.salvageIdleWatch,
+    // Which POOL each running job holds. A divergence here would not necessarily change any
+    // other field (the same targets could be torn down on different lanes), so it is compared
+    // explicitly rather than inferred.
+    autoJobs: state.activeProcesses
+      .filter((p) => p.effect.type === "salvageResolve")
+      .map((p) => (p.effect.type === "salvageResolve" ? p.effect.auto === true : false)),
+  };
+}
+
+describe("⚠️ the Auto-Salvage Terminal: the reproduction of the original chain", () => {
+  it("THE BUG CASE: with every general lane saturated by a long material batch, an equipment salvage STILL starts", () => {
+    // The exact chain this feature exists to break, built step by step:
+    //   1. the player queues a large material batch,
+    //   2. it takes every general lane and holds them for a very long time,
+    //   3. the spare pool is full, so fabrication is stopped by equipmentStorageFull,
+    //   4. the remedy is to salvage spares,
+    //   5. which, before the Terminal, was impossible without deleting the batch.
+    // Step 5 is what must now fail to happen.
+    const base = terminalState(8, 2); // three general lanes, so "saturated" means something
+    expect(salvageSlotCount(base)).toBe(3);
+
+    // STEP 1 + 2: fill every general lane with the player's own material teardowns, and leave
+    // a batch of 5000 waiting behind them so the lanes are spoken for indefinitely.
+    const stocked: GameState = { ...base, inventory: { ...base.inventory, [HOUSING]: [new Decimal(5000)] } };
+    let manual = stocked;
+    for (let i = 0; i < 3; i++) {
+      manual = enqueueOrder(manual, "salvageBay", materialSalvageOrder(HOUSING, 1)).next;
+    }
+    // 4000 rather than the full 5000: the three single-unit orders above have already
+    // reserved three units, and the enqueue gate (exceedsFreeSalvageUnits) correctly refuses a
+    // batch larger than what is FREE. At 60 ticks a unit this is still ~66 hours of work, which
+    // is the "for days" the chain depends on.
+    manual = enqueueOrder(manual, "salvageBay", materialSalvageOrder(HOUSING, 4000)).next;
+
+    const running = promoteQueuedOrders(manual);
+    const lanes = salvageLaneUsage(running);
+    // STEP 2, CONFIRMED: every general lane is held by the PLAYER'S material work, none free.
+    expect(lanes.manualUsed).toBe(3);
+    expect(lanes.generalFree).toBe(0);
+    expect(lanes.autoBorrowedGeneral).toBe(0);
+    // ... and the batch is still waiting, so they stay held. This is the "for days" half.
+    expect(queuedForFacility(running, "salvageBay")).toHaveLength(1);
+
+    // STEP 5 DOES NOT HAPPEN: the automation started a teardown anyway, on the Terminal lane.
+    const autoRunning = salvageJobsInFlight(running).filter((job) => job.effect.auto === true);
+    expect(autoRunning).toHaveLength(AUTO_SALVAGE_TERMINAL_LANES);
+    expect(autoRunning[0].effect.target.kind).toBe("equipment");
+    expect(lanes.terminalUsed).toBe(AUTO_SALVAGE_TERMINAL_LANES);
+
+    // AND THE POOL REALLY DRAINS, which is the point: step past the teardown and the spare is
+    // gone, freeing the equipment storage that was stopping fabrication. No order of the
+    // player's was removed to get there.
+    const duration = autoRunning[0].durationTicks;
+    const later = stepTicks(running, duration + 2, seededRng());
+    expect(later.equipment.length).toBeLessThan(running.equipment.length);
+    // The player's batch is untouched and still theirs.
+    expect(queuedForFacility(later, "salvageBay")).toHaveLength(1);
+  });
+
+  it("a MANUAL salvage can never take the Terminal lane, at any lane count", () => {
+    // The floor, from the other side. Even with the general lanes full and the Terminal free,
+    // a manual order is refused with noSlot rather than being handed the automation's lane.
+    const base = terminalState(0, 0); // no spares for the rules, so the Terminal sits idle
+    const busy = startSalvageJob(base, materialSalvageOrder(HOUSING)).next;
+    expect(salvageLaneUsage(busy).generalFree).toBe(0);
+    expect(salvageLaneUsage(busy).terminalFree).toBe(AUTO_SALVAGE_TERMINAL_LANES);
+
+    expect(canStartSalvage(busy, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "noSlot" });
+    expect(QUEUE_ADAPTERS.salvageBay.hasFreeSlot(busy)).toBe(false);
+    // The AUTOMATION, asked about the same state, may go: the lane is its own.
+    expect(canStartAutoSalvage(busy, salvageOrder(SPARE_ID))).toEqual({ ok: true });
+  });
+
+  it("auto-salvage benefits automatically: it only ever ENQUEUES, and the Terminal promotes", () => {
+    // The requirement that auto-salvage picks the feature up with no rule change of its own.
+    // autoSalvageOrders' whole mutation is an append to the Terminal queue; every lane
+    // decision belongs to the promotion pass, so the rules needed no knowledge of lanes.
+    const base = terminalState(4, 0);
+    // FIVE, not four: salvageBayState's own SPARE_ID is a crafted spare too, and the rules
+    // (duplicates, keep 0) legitimately select it alongside the four the fixture adds. Derived
+    // rather than written as a literal so the fixture and the expectation cannot drift.
+    const eligible = base.equipment.filter((e) => e.fittedToShipId === null).length;
+    const enqueued = autoSalvageOrders(base);
+    expect(enqueued.activeProcesses).toEqual(base.activeProcesses); // started nothing itself
+    expect(enqueued.processQueue).toEqual([]);                      // touched no player entry
+    expect(autoSalvageQueued(enqueued).length).toBe(eligible);      // appended, and only that
+
+    // The promotion pass is what turns one of them into work.
+    const promoted = promoteAutoSalvageOrdersViaTick(enqueued);
+    expect(salvageJobsInFlight(promoted).filter((j) => j.effect.auto === true)).toHaveLength(1);
+    expect(autoSalvageQueued(promoted).length).toBe(eligible - 1);
+  });
+});
+
+// A tiny helper so the case above reads through the REAL seam rather than reaching for the
+// Terminal's pass directly: promoteQueuedOrders is the only caller in the engine, so calling
+// it is what proves the wiring, not just the function.
+function promoteAutoSalvageOrdersViaTick(state: GameState): GameState {
+  return promoteQueuedOrders(state);
+}
+
+describe("⚠️ the Auto-Salvage Terminal: the borrow rule and its idle window", () => {
+  it("borrows an idle general lane ONLY after the window, and takes the Terminal lane at once", () => {
+    // The window in isolation. A bay with one general lane and a pool of spares: tick 1 fills
+    // the Terminal lane immediately (auto-only, nobody races the automation for it) and the
+    // general lane stays EMPTY until the window has elapsed.
+    const base = terminalState(6, 0);
+    expect(salvageSlotCount(base)).toBe(1);
+
+    const first = economyTick(base, 1, seededRng());
+    expect(salvageLaneUsage(first).terminalUsed).toBe(1); // no delay on its own lane
+    expect(salvageLaneUsage(first).autoBorrowedGeneral).toBe(0); // ... and no borrow yet
+
+    // Step to just BEFORE the window expires: still no borrow.
+    const windowTicks = Math.ceil(AUTO_SALVAGE_BORROW_IDLE_SECONDS / base.tickDurationSeconds);
+    const justBefore = stepTicks(first, windowTicks - 2, seededRng());
+    expect(salvageLaneUsage(justBefore).autoBorrowedGeneral).toBe(0);
+
+    // Step past it: the idle general lane is now borrowed.
+    const after = stepTicks(justBefore, 3, seededRng());
+    expect(salvageLaneUsage(after).autoBorrowedGeneral).toBe(1);
+    expect(salvageLaneUsage(after).generalFree).toBe(0);
+  });
+
+  it("MANUAL WORK IS NEVER DELAYED BY THE WINDOW: the player takes an idle lane at once", () => {
+    // ⚠️ The window gates the AUTOMATION and must never gate the player. Same fixture as
+    // above, stopped on a tick where auto has deliberately not borrowed yet: the player's own
+    // order promotes on the very next tick regardless.
+    const base = terminalState(6, 0);
+    const first = economyTick(base, 1, seededRng());
+    expect(salvageLaneUsage(first).generalFree).toBe(1); // idle, and auto has not taken it
+
+    const queued = enqueueOrder(first, "salvageBay", materialSalvageOrder(HOUSING)).next;
+    const promoted = economyTick(queued, 1, seededRng());
+    const manualJobs = salvageJobsInFlight(promoted).filter((job) => job.effect.auto !== true);
+    expect(manualJobs).toHaveLength(1);
+    expect(manualJobs[0].effect.target).toEqual({ kind: "material", itemId: HOUSING });
+  });
+
+  it("NO PREEMPTION: a manual order arriving while auto borrows waits, and takes the lane back", () => {
+    // The stated trade. The player waits at most ONE UNIT, nothing is cancelled, and the lane
+    // comes back to them rather than being re-borrowed out from under the waiting order.
+    const base = terminalState(6, 0);
+    const windowTicks = Math.ceil(AUTO_SALVAGE_BORROW_IDLE_SECONDS / base.tickDurationSeconds);
+    const borrowed = stepTicks(base, windowTicks + 3, seededRng());
+    expect(salvageLaneUsage(borrowed).autoBorrowedGeneral).toBe(1);
+
+    // The player queues now. Their order is refused a lane (honestly: noSlot) and WAITS.
+    const queued = enqueueOrder(borrowed, "salvageBay", materialSalvageOrder(HOUSING)).next;
+    expect(canStartSalvage(queued, materialSalvageOrder(HOUSING))).toEqual({ ok: false, reason: "noSlot" });
+    const stillWaiting = economyTick(queued, 1, seededRng());
+    expect(queuedForFacility(stillWaiting, "salvageBay")).toHaveLength(1); // nothing preempted
+
+    // Step past the borrowed unit's completion. The player's order gets the lane.
+    const borrowedJob = salvageJobsInFlight(queued).filter((j) => j.effect.auto === true).pop();
+    if (borrowedJob === undefined) throw new Error("fixture: expected a borrowed auto job");
+    const later = stepTicks(queued, borrowedJob.remainingTicks + 3, seededRng());
+    expect(queuedForFacility(later, "salvageBay")).toHaveLength(0);
+    const manualJobs = salvageJobsInFlight(later).filter((job) => job.effect.auto !== true);
+    expect(manualJobs).toHaveLength(1);
+    expect(manualJobs[0].effect.target).toEqual({ kind: "material", itemId: HOUSING });
+  });
+
+  it("the console can SEE a borrowed bay, from both panels, without either re-deriving it", () => {
+    // The visibility requirement. The manual panel must count the borrowed bay as occupied and
+    // NAME it as the automation's; the Terminal must report that it is using more than its own
+    // lane. Both read salvageLaneUsage, so they cannot tell two different stories.
+    const base = terminalState(6, 0);
+    const windowTicks = Math.ceil(AUTO_SALVAGE_BORROW_IDLE_SECONDS / base.tickDurationSeconds);
+    const borrowed = stepTicks(base, windowTicks + 3, seededRng());
+
+    const manualView = buildCraftQueue(borrowed, "salvageBay");
+    expect(manualView.slotsTotal).toBe(salvageSlotCount(borrowed)); // GENERAL lanes, not the total
+    expect(manualView.runningCount).toBe(1);                        // the borrowed bay is occupied
+    expect(manualView.hasFreeSlot).toBe(false);
+    expect(manualView.running[0].modeLabel).toBe("auto-salvage, borrowed bay");
+
+    const terminal = buildAutoSalvageTerminal(borrowed);
+    expect(terminal.enabled).toBe(true);
+    expect(terminal.terminalLanes).toBe(AUTO_SALVAGE_TERMINAL_LANES);
+    expect(terminal.terminalUsed).toBe(1);
+    expect(terminal.borrowedGeneral).toBe(1);
+    expect(terminal.runningCount).toBe(2); // its own lane plus the borrowed one
+    expect(terminal.queuedCount).toBe(autoSalvageQueued(borrowed).length);
+  });
+});
+
+describe("⚠️ parity: the Auto-Salvage Terminal resolves identically offline and live", () => {
+  it("parity: an auto order promotes and completes while general lanes are FULL of material work", () => {
+    // Requirement 2's first case. The general lanes are saturated by the player's own batch
+    // for the whole span, so every auto promotion in it happens on the Terminal lane, and the
+    // two paths must agree about every one of them.
+    const base = terminalState(6, 1); // two general lanes
+    const stocked: GameState = { ...base, inventory: { ...base.inventory, [HOUSING]: [new Decimal(500)] } };
+    const loaded = enqueueAll(stocked, [
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 200) },
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 200) },
+    ]);
+    // Long enough for several auto teardowns to start AND complete inside it.
+    const SPAN = salvageJobDurationTicks(loaded, { kind: "equipment", instanceId: "auto-00" }) * 3 + 20;
+
+    const jumped = tick(SPAN, loaded, seededRng());
+    const stepped = stepTicks(loaded, SPAN, seededRng());
+    expect(terminalSnapshot(jumped)).toEqual(terminalSnapshot(stepped));
+
+    // NON-VACUITY: auto work really ran, really finished, and the player's lanes really were
+    // full of their own material work the whole time.
+    expect(jumped.equipment.length).toBeLessThan(loaded.equipment.length);
+    expect(salvageLaneUsage(jumped).manualUsed).toBe(2);
+    expect(salvageLaneUsage(jumped).terminalUsed).toBe(AUTO_SALVAGE_TERMINAL_LANES);
+  });
+
+  it("parity: a MIXED queue (manual material, manual hull, auto systems) drains identically", () => {
+    // Requirement 2's second case. Both pipelines running at once, across three target arms,
+    // with completions interleaving: the shape where a divergence in promotion order or in rng
+    // draw order shows up as different loot rather than as a different queue.
+    const base = terminalState(6, 1);
+    const loaded = enqueueAll(base, [
+      { facility: "salvageBay", order: materialSalvageOrder(HOUSING, 2) },
+      { facility: "salvageBay", order: shipSalvageOrder("ship-2") },
+      { facility: "salvageBay", order: salvageOrder(SPARE_ID) },
+    ]);
+    const SPAN =
+      salvageJobDurationTicks(loaded, { kind: "ship", shipId: "ship-2" }) +
+      salvageJobDurationTicks(loaded, { kind: "equipment", instanceId: SPARE_ID }) * 2 +
+      30;
+
+    const jumped = tick(SPAN, loaded, seededRng());
+    const { final: stepped, log } = stepTicksLogged(loaded, SPAN, seededRng());
+    expect(terminalSnapshot(jumped)).toEqual(terminalSnapshot(stepped));
+
+    // NON-VACUITY: every one of the player's three orders promoted, and auto work ran too.
+    expect(log.map((entry) => entry.split(":")[1])).toContain("q-1");
+    expect(queuedForFacility(jumped, "salvageBay")).toHaveLength(0);
+    expect(jumped.ships.find((s) => s.id === "ship-2")).toBeUndefined();
+    expect(autoSalvageQueued(jumped).length).toBeLessThan(6);
+  });
+
+  it("parity: auto BORROWING general lanes while a manual order arrives resolves identically", () => {
+    // Requirement 3 from the borrow rule: the interleaving where the automation is holding a
+    // general lane, the player's order arrives behind it, and the lane changes hands mid-span.
+    // Everything about that sequence has to land on the same tick on both paths.
+    const base = terminalState(6, 1);
+    const windowTicks = Math.ceil(AUTO_SALVAGE_BORROW_IDLE_SECONDS / base.tickDurationSeconds);
+    // Advance until auto is genuinely borrowing, THEN queue the player's order, so the span
+    // under comparison starts from a borrowed state rather than reaching one by luck.
+    const borrowed = stepTicks(base, windowTicks + 4, seededRng());
+    expect(salvageLaneUsage(borrowed).autoBorrowedGeneral).toBeGreaterThan(0);
+    const loaded = enqueueOrder(borrowed, "salvageBay", materialSalvageOrder(HOUSING, 2)).next;
+
+    const SPAN = salvageJobDurationTicks(loaded, { kind: "equipment", instanceId: "auto-00" }) * 2 + 25;
+    const jumped = tick(SPAN, loaded, seededRng());
+    const stepped = stepTicks(loaded, SPAN, seededRng());
+    expect(terminalSnapshot(jumped)).toEqual(terminalSnapshot(stepped));
+
+    // NON-VACUITY: the player's order really did take the lane back during the span.
+    expect(queuedForFacility(jumped, "salvageBay")).toHaveLength(0);
+  });
+
+  it("parity: the borrow WINDOW elapsing mid-chunk lands on the same tick on both paths", () => {
+    // ⚠️ THE BOUNDARY CASE, and the one a naive implementation gets wrong. A window measured
+    // on anything but saved game time (a wall clock, a per-call counter, a value recomputed
+    // per chunk) diverges exactly when the boundary falls INSIDE a chunked advance instead of
+    // on a step edge. The span is chosen so it does.
+    const base = terminalState(6, 0);
+    const windowTicks = Math.ceil(AUTO_SALVAGE_BORROW_IDLE_SECONDS / base.tickDurationSeconds);
+    const SPAN = windowTicks + 4; // the window expires several ticks INTO the span
+
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(terminalSnapshot(jumped)).toEqual(terminalSnapshot(stepped));
+
+    // NON-VACUITY: the borrow really did happen inside the span, so the boundary was crossed
+    // rather than never reached. And the watch really is being maintained.
+    expect(salvageLaneUsage(jumped).autoBorrowedGeneral).toBe(1);
+    expect(jumped.salvageIdleWatch).toBeDefined();
+    expect(jumped.salvageIdleWatch).toEqual(stepped.salvageIdleWatch);
+  });
+
+  it("parity: an untouched save with the rules OFF is byte-identical, offline and live", () => {
+    // The no-op guarantee, restated for the new pass. Nothing about the Terminal may perturb a
+    // save that has never opted in, which is almost every save almost all of the time.
+    const base = salvageBayState(); // rules off (freshState's default)
+    const SPAN = 40;
+    const jumped = tick(SPAN, base, seededRng());
+    const stepped = stepTicks(base, SPAN, seededRng());
+    expect(terminalSnapshot(jumped)).toEqual(terminalSnapshot(stepped));
+    // No Terminal state was invented: no queue, and no idle watch (which is only written when
+    // the automation actually has something to run).
+    expect(autoSalvageQueued(jumped)).toEqual([]);
+    expect(jumped.salvageIdleWatch).toBeUndefined();
+    // And promoteQueuedOrders is still a same-REFERENCE no-op on it.
+    expect(promoteQueuedOrders(base)).toBe(base);
   });
 });
