@@ -144,6 +144,12 @@ import {
   resolveAutoSalvageGraceSeconds,
   rarityIndex,
   type AutoSalvageRaritySelection,
+  // 0.13.3.1 QA: the bands the console may OFFER, the roll they are a restatement of, and the
+  // display-only capitalizer. The first two are asserted against each other below, which is what
+  // stops the offered list from drifting away from what the game can actually mint.
+  PRODUCIBLE_EQUIPMENT_RARITIES,
+  rollCraftedRarity,
+  equipmentRarityLabel,
 } from "./model";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
@@ -2873,6 +2879,106 @@ describe("the rarity selection MODEL is total over EquipmentRarity (0.13.3.1)", 
     // Absent / unreadable inputs land on "nothing selected", the keep-items direction.
     expect(autoSalvageRarityRuleOn(normalizeAutoSalvageRarities(undefined))).toBe(false);
     expect(autoSalvageRarityRuleOn(normalizeAutoSalvageRarities("radiant"))).toBe(false);
+  });
+});
+
+// ============================================================================
+// 0.13.3.1 QA: THE OFFERED BANDS vs THE MODELLED BANDS
+// ----------------------------------------------------------------------------
+// The console stopped offering luminous and constellar because nothing in the game can mint
+// them yet (user: "those qualities are not possible in-game yet"). These tests pin the two
+// halves of that change that could silently rot:
+//   1. PRODUCIBLE_EQUIPMENT_RARITIES really is what rollCraftedRarity produces. It is a
+//      hand-written mirror of a threshold ladder, so only a test can tie them together, and
+//      this one probes the REAL function rather than restating its numbers.
+//   2. Narrowing the DISPLAY did not narrow the MODEL. The rules record stays total over the
+//      whole EquipmentRarity union, so a save naming an unoffered band still round-trips and
+//      is still honored by the selector.
+// ============================================================================
+describe("PRODUCIBLE_EQUIPMENT_RARITIES tracks what the game can actually mint (0.13.3.1 QA)", () => {
+  // Every rarity rollCraftedRarity can return, found by driving it across its whole input
+  // domain rather than by copying its branch numbers into the test. The roll consumes exactly
+  // one draw and compares it with `<` against fixed thresholds, so a fine sweep of [0, 1) plus
+  // the exact boundary values visits every branch it has.
+  function raritiesTheRollCanProduce(): Set<EquipmentRarity> {
+    const seen = new Set<EquipmentRarity>();
+    const STEPS = 20000;
+    for (let i = 0; i < STEPS; i++) {
+      seen.add(rollCraftedRarity(() => i / STEPS));
+    }
+    // The published thresholds and the values either side of them, so a branch that is only
+    // reachable in a window narrower than the sweep step is still visited.
+    for (const edge of [0, 0.6, 0.85, 0.97, 0.9999999]) {
+      seen.add(rollCraftedRarity(() => edge));
+    }
+    return seen;
+  }
+
+  it("lists exactly the bands rollCraftedRarity returns, in ladder order", () => {
+    const produced = raritiesTheRollCanProduce();
+    // Set equality both ways: nothing offered that the roll cannot make, nothing the roll makes
+    // left out. Retuning the roll (adding luminous, say) fails HERE until the table beside it in
+    // model.ts is updated, which is the tie between the function and the list.
+    expect([...PRODUCIBLE_EQUIPMENT_RARITIES].sort()).toEqual([...produced].sort());
+    // Ordered by the ladder, not by the roll's branch order or by a Set's iteration order, so a
+    // newly producible band lands in its proper place on screen with no UI edit.
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES).toEqual(
+      EQUIPMENT_RARITY_LADDER.filter((band) => produced.has(band))
+    );
+  });
+
+  it("excludes the bands nothing can produce this patch, and offers the four that can", () => {
+    // Stated as an explicit expectation as well as derived above, because this is the user-
+    // visible behaviour the QA fix was asked for and it deserves to fail by name if it changes.
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES).toEqual(["standard", "augmented", "stellar", "radiant"]);
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES).not.toContain("luminous");
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES).not.toContain("constellar");
+    // derelict is a decay state rather than a craft output, so it is not offered either.
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES).not.toContain("derelict");
+  });
+
+  it("⚠️ narrows the DISPLAY only: the rules record is still total over EquipmentRarity", () => {
+    // The model still answers for every band, including the two the console stopped offering.
+    // This is what makes adding a rarity to the union a compile error rather than a silent gap.
+    expect(Object.keys(AUTO_SALVAGE_RARITIES_NONE).sort()).toEqual([...EQUIPMENT_RARITY_LADDER].sort());
+    for (const band of EQUIPMENT_RARITY_LADDER) {
+      expect(AUTO_SALVAGE_RARITIES_NONE[band]).toBe(false);
+    }
+    // The offered list is a strict subset of the modelled one, never a replacement for it.
+    for (const band of PRODUCIBLE_EQUIPMENT_RARITIES) {
+      expect(EQUIPMENT_RARITY_LADDER).toContain(band);
+    }
+    expect(PRODUCIBLE_EQUIPMENT_RARITIES.length).toBeLessThan(EQUIPMENT_RARITY_LADDER.length);
+  });
+
+  it("⚠️ a saved rule naming an UNPRODUCIBLE band round-trips and is still honored", () => {
+    // The failure this guards against: hiding a band from the console quietly dropping it from
+    // a save, or from the engine's reading of that save. Salvage is irreversible, so a rule that
+    // silently changes meaning is the worst outcome available here.
+    const saved = { ...AUTO_SALVAGE_RARITIES_NONE, constellar: true, luminous: true };
+    const read = normalizeAutoSalvageRarities(saved);
+    expect(read.constellar).toBe(true);
+    expect(read.luminous).toBe(true);
+    expect(autoSalvageRarityRuleOn(read)).toBe(true);
+    // And the selector still acts on it: a constellar spare is taken by a constellar rule even
+    // though the console no longer offers that checkbox on a fresh rule.
+    const pieces = [autoPiece({ id: "eq-c", rarity: "constellar" }), autoPiece({ id: "eq-r", rarity: "radiant" })];
+    const state = autoState(pieces, { maxQuality: null, duplicates: false, rarities: read });
+    expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))]).toEqual(["eq-c"]);
+  });
+
+  it("equipmentRarityLabel capitalizes for DISPLAY without touching the key", () => {
+    for (const band of EQUIPMENT_RARITY_LADDER) {
+      const label = equipmentRarityLabel(band);
+      // Capitalized first letter, same word otherwise, and the band itself is unchanged.
+      expect(label).toBe(band.charAt(0).toUpperCase() + band.slice(1));
+      expect(label.toLowerCase()).toBe(band);
+      expect(label[0]).toBe(label[0].toUpperCase());
+      // The stored key stays lowercase: nothing here is ever written back to state.
+      expect(AUTO_SALVAGE_RARITIES_NONE[band]).toBe(false);
+    }
+    expect(equipmentRarityLabel("radiant")).toBe("Radiant");
+    expect(equipmentRarityLabel("constellar")).toBe("Constellar");
   });
 });
 

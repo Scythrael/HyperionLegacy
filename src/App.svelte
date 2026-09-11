@@ -255,6 +255,14 @@
     // defensive read the engine uses, so the panel and the tick agree about a save that
     // predates the field; autoSalvageRarityRuleOn is the one reading of "is the rule on".
     EQUIPMENT_RARITY_LADDER,
+    // 0.13.3.1 QA: the bands the pipeline can actually MINT today (rollCraftedRarity's own
+    // output set). The checkbox row OFFERS these; the rule's model stays total over the whole
+    // ladder above, so a save naming a band we do not currently offer keeps round-tripping and
+    // keeps being honored. Display narrows, the model never does.
+    PRODUCIBLE_EQUIPMENT_RARITIES,
+    // 0.13.3.1 QA: the DISPLAY spelling of a band ("radiant" -> "Radiant"). Never written back
+    // to state, never compared against a key: every stored value stays lowercase.
+    equipmentRarityLabel,
     AUTO_SALVAGE_RARITIES_NONE,
     normalizeAutoSalvageRarities,
     autoSalvageRarityRuleOn,
@@ -3621,7 +3629,12 @@
   // the real reachable range: 1 (the crafting floor), 20 (the tier-1 cap), 40 (the
   // tier-2 cap == EQUIPMENT_ILEVEL_CAP_PER_TIER * 2). Rarity is the craftable band.
   const DEV_MINT_ILEVELS: number[] = [1, 20, 40];
-  const DEV_MINT_RARITIES: EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
+  // 0.13.3.1 QA: the rarity options now come from PRODUCIBLE_EQUIPMENT_RARITIES (model.ts)
+  // rather than from a second hand-written copy of the same four names. Identical values today
+  // (standard/augmented/stellar/radiant, exactly what rollCraftedRarity returns), but the whole
+  // point of the picker is to mint gear a player could genuinely own, so it should track the
+  // real producible set instead of drifting away from it the next time that set changes.
+  const DEV_MINT_RARITIES: readonly EquipmentRarity[] = PRODUCIBLE_EQUIPMENT_RARITIES;
 
   // Mint one crafted spare for the selected blueprint at the chosen quality/iLevel/
   // rarity and add it to the pool (fittedToShipId null, set inside the generators).
@@ -4520,7 +4533,29 @@
   $: autoSalvageRarities = normalizeAutoSalvageRarities(autoSalvageRules.rarities);
   $: autoSalvageRarityOn = autoSalvageRarityRuleOn(autoSalvageRarities);
   // The bands currently selected, in ladder order, for the summary sentence.
+  //
+  // ⚠️ FILTERED OVER THE WHOLE LADDER, NOT OVER THE OFFERED LIST BELOW. The summary has to name
+  // every band the rules will actually act on, including one the console no longer offers, or
+  // it would under-report what is about to be destroyed.
   $: autoSalvageSelectedRarities = EQUIPMENT_RARITY_LADDER.filter((band) => autoSalvageRarities[band]);
+
+  // WHICH bands the checkbox row OFFERS (0.13.3.1 QA fix).
+  //
+  // Normally just PRODUCIBLE_EQUIPMENT_RARITIES: luminous and constellar are not minted by any
+  // path this patch (see the table beside rollCraftedRarity in model.ts), so offering a rule for
+  // them promises something the engine cannot deliver. They reappear here on their own the day
+  // that table says they are producible; there is deliberately no list of band names in this
+  // file to edit.
+  //
+  // ⚠️ PLUS ANY BAND THE SAVE HAS ALREADY SELECTED, and that clause is the important one. A rule
+  // written by a future build, an imported save, or a hand-edit can name a band we do not offer.
+  // Rendering only the offered list would leave that rule ON, named in the summary sentence, and
+  // IMPOSSIBLE TO SWITCH OFF from the console: a dead end the player cannot escape. Showing the
+  // selected band keeps it both visible and removable, and the moment it is unchecked it drops
+  // out of this list on its own. Ladder order, so an added band never appears out of sequence.
+  $: autoSalvageRarityOptions = EQUIPMENT_RARITY_LADDER.filter(
+    (band) => PRODUCIBLE_EQUIPMENT_RARITIES.includes(band) || autoSalvageRarities[band]
+  );
 
   // ── THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3) ──────────────────────
   // The live grace length, resolved through the engine's own defensive reader (an absent or
@@ -10533,7 +10568,17 @@
               <!-- THE CONTROLS. Same .dev-row + inline-flex label idiom as the confirm
                    checkboxes above and the crafting configurator's dropdowns, so this reads as
                    the same console rather than a third dialect. Every control carries a visible
-                   text label, so none of them is icon-only. -->
+                   text label, so none of them is icon-only.
+
+                   ⚠️ 0.13.3.1 QA REORDER (user: "we will want to move the rarity options up near
+                   the qualities"). Duplicates has moved OUT of this row to below the rarity
+                   block, which is what actually puts the rarity checkboxes next to the quality
+                   dropdown: they were already the next thing on the panel, but Duplicates sat
+                   between them. Quality and rarity are the same KIND of rule (choose which bands
+                   may be swept) and now read as the pair they are; Duplicates is a different
+                   kind (keep the best of each variety, whatever band it is in) and follows with
+                   its own explanation. A pure move: no control was changed, added, removed or
+                   restyled, and every handler is the one it always was. -->
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
                 <label style="display: inline-flex; align-items: center; gap: 6px;">
                   <input
@@ -10563,14 +10608,6 @@
                     {/each}
                   </select>
                 </label>
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  <input
-                    type="checkbox"
-                    checked={autoSalvageRules.duplicates}
-                    on:change={(e) => doToggleAutoSalvageDuplicates((e.target as HTMLInputElement).checked)}
-                  />
-                  Duplicates
-                </label>
               </div>
 
               <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================
@@ -10581,16 +10618,26 @@
                    sweep BOTH of them the instant a player selected EITHER, destroying a band
                    they never chose. Per-band selection cannot express that mistake.
 
-                   The row is DERIVED from EQUIPMENT_RARITY_LADDER, which is itself derived from
-                   the total AUTO_SALVAGE_RARITIES_NONE record, so adding a rarity to the game
-                   makes model.ts fail to compile and then appears here automatically. There is
-                   deliberately no hardcoded list of band names in this file.
+                   ⚠️ 0.13.3.1 QA: THE ROW OFFERS ONLY THE BANDS THE GAME CAN MINT TODAY (user:
+                   "those qualities are not possible in-game yet"). It renders
+                   autoSalvageRarityOptions, which is PRODUCIBLE_EQUIPMENT_RARITIES (model.ts,
+                   the restatement of rollCraftedRarity's own output set) plus any band this
+                   save has already selected, so an unoffered band that somehow got switched on
+                   stays visible and switch-off-able instead of becoming an invisible rule.
+
+                   THE UNDERLYING RULE IS UNCHANGED AND STILL TOTAL over EquipmentRarity: this
+                   narrows what is OFFERED, never what is stored or honored. The row is still
+                   ordered by EQUIPMENT_RARITY_LADDER, itself derived from the total
+                   AUTO_SALVAGE_RARITIES_NONE record, so a rarity added to the game is a compile
+                   error in model.ts and then appears here automatically the moment that file
+                   says it is producible. There is deliberately no list of band names, and no
+                   exclusion list, in this file.
 
                    Same .dev-row + inline-flex label + checkbox idiom as the confirm-by-quality
                    row above, which is the control this one is meant to read as a sibling of. -->
               <div class="research-cost" style="margin-top: 8px;">Rarity bands to queue</div>
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
-                {#each EQUIPMENT_RARITY_LADDER as band (band)}
+                {#each autoSalvageRarityOptions as band (band)}
                   <label style="display: inline-flex; align-items: center; gap: 6px;">
                     <input
                       type="checkbox"
@@ -10598,13 +10645,38 @@
                       on:change={(e) => doToggleAutoSalvageRarity(band, (e.target as HTMLInputElement).checked)}
                     />
                     <!-- The band's own rarity color, the SAME equipmentRarityColor the tiles and
-                         the tooltip use, so a band is recognizable here without reading it. -->
-                    <span style="color: {equipmentRarityColor(band)}">{band}</span>
+                         the tooltip use, so a band is recognizable here without reading it.
+                         0.13.3.1 QA: capitalized for display via equipmentRarityLabel. The KEY
+                         `band` is untouched and stays lowercase; only the text changes. -->
+                    <span style="color: {equipmentRarityColor(band)}">{equipmentRarityLabel(band)}</span>
                   </label>
                 {/each}
               </div>
               <p class="research-status">
                 Checked bands are queued whatever their quality. Nothing checked means this rule is off. It adds to the other two rules rather than narrowing them: a spare is queued if any rule you switched on points at it.
+              </p>
+
+              <!-- DUPLICATES, moved here by the 0.13.3.1 QA reorder noted on the controls row
+                   above, so that quality and rarity (the two band-selecting rules) are adjacent.
+                   The control is byte-identical to the one that used to sit in that row: same
+                   .dev-row wrapper, same inline-flex label, same handler. Its explanation, which
+                   used to sit further down past the grace period, travelled with it, because
+                   "duplicates" on its own does not say WHICH copy survives and that is the only
+                   question a player actually has about this rule. keepPerVariety is READ from
+                   the rules rather than hardcoded, even though it is fixed at 1 this release, so
+                   the sentence stays true the day it becomes adjustable. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <input
+                    type="checkbox"
+                    checked={autoSalvageRules.duplicates}
+                    on:change={(e) => doToggleAutoSalvageDuplicates((e.target as HTMLInputElement).checked)}
+                  />
+                  Duplicates
+                </label>
+              </div>
+              <p class="research-status">
+                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now.
               </p>
 
               <!-- ============ THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3) ============
@@ -10638,13 +10710,9 @@
                 A system you just crafted is skipped by these rules for {autoSalvageGraceLabel} of game time, so a good roll is never swept away before you see it. Installing it protects it outright, and favoriting it protects it for good.
               </p>
 
-              <!-- The duplicates rule's semantics said out loud, because "duplicates" alone does
-                   not say WHICH copy survives, and that is the only question a player actually
-                   has about it. keepPerVariety is read from the rules (fixed at 1 this release,
-                   not yet editable), so this line stays true the day it becomes adjustable. -->
-              <p class="research-status">
-                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now.
-              </p>
+              <!-- The duplicates rule's semantics used to be explained here, three paragraphs
+                   away from the checkbox that switches it on. The 0.13.3.1 QA reorder moved the
+                   checkbox and this explanation up together, directly under the rarity row. -->
 
               <!-- The plain-language summary of the CURRENT rule selection (design §7.6:
                    "a plain language summary of what it will do"). -->
@@ -10658,9 +10726,15 @@
               {#if !autoSalvageHasRule}
                 <p class="cq-note" class:cq-note-warn={autoSalvageRules.enabled}>
                   {#if autoSalvageRules.enabled}
-                    Auto-salvage is on but no rule is chosen, so nothing will be queued. Pick a quality tier, switch on Duplicates, or both.
+                    <!-- ⚠️ THIS LIST MUST NAME EVERY SELECTING RULE. It said "a quality tier,
+                         Duplicates, or both" and went stale the moment 0.13.3.1 added RARITY
+                         as a third rule, telling the player only two of the three ways out of
+                         a state whose entire purpose is explaining how to leave it. If a
+                         fourth rule is ever added, this sentence and its sibling below are
+                         the first two things that must change. -->
+                    Auto-salvage is on but no rule is chosen, so nothing will be queued. Pick a quality tier, choose one or more rarity bands, switch on Duplicates, or any combination.
                   {:else}
-                    Switched off, and no rule is chosen yet. Pick a quality tier or switch on Duplicates, then turn these rules on.
+                    Switched off, and no rule is chosen yet. Pick a quality tier, choose one or more rarity bands, or switch on Duplicates, then turn these rules on.
                   {/if}
                 </p>
               {:else if autoSalvageEligibleTiers.length === 0}

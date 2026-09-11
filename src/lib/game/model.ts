@@ -3478,6 +3478,25 @@ export const AUTO_SALVAGE_RARITIES_NONE: AutoSalvageRaritySelection = {
 // place, and every consumer, engine and UI alike, then picks it up with no further edit.
 export const EQUIPMENT_RARITY_LADDER = Object.keys(AUTO_SALVAGE_RARITIES_NONE) as EquipmentRarity[];
 
+// The DISPLAY spelling of a rarity band ("radiant" -> "Radiant").
+//
+// ⚠️ DISPLAY ONLY, AND THAT IS THE WHOLE POINT. The union member, the record key and every
+// saved value stay lowercase; nothing here is ever written back to state, compared against a
+// key, or used to look anything up. It exists so a console can show a band the way the rest
+// of the game's chrome shows proper nouns (the user asked for the auto-salvage rarity options
+// to be capitalized) WITHOUT anyone being tempted to capitalize the data to get there, which
+// would break every Record<EquipmentRarity, ...> in the file at once.
+//
+// Derived from the band itself rather than a second label table, because a label table is one
+// more thing to forget when a band is added: a new EquipmentRarity member is already a compile
+// error at AUTO_SALVAGE_RARITIES_NONE above, and it needs no edit here to render correctly.
+// (EquipmentTooltip.svelte computes the same spelling privately for its "{Rarity} Grade" line.
+// Consolidating the two is a worthwhile follow-up but is NOT done here: that component's
+// presentation is under a standing do-not-touch constraint.)
+export function equipmentRarityLabel(rarity: EquipmentRarity): string {
+  return rarity.charAt(0).toUpperCase() + rarity.slice(1);
+}
+
 // Read a rarity selection off a SAVED value, defensively.
 //
 // ⚠️ FAIL SAFE TOWARD KEEPING ITEMS. Only an exact `true` selects a band. An absent field (a
@@ -6918,6 +6937,58 @@ export function rollCraftedRarity(rng: () => number): EquipmentRarity {
   if (r < 0.97) return "stellar";   // 12%
   return "radiant";                 //  3% top-end base craft
 }
+
+// ----------------------------------------------------------------------------
+// WHICH RARITY BANDS THE GAME CAN ACTUALLY PRODUCE TODAY (0.13.3.1 QA)
+// ----------------------------------------------------------------------------
+// rollCraftedRarity above is the ONLY place a fresh piece's rarity is decided (the Fabricator
+// mint, the weapon mint and the drone-pod mint in tick.ts all call it; the Standard-Issue
+// baselines are minted at a fixed "standard"). So the set of bands it can return IS the set of
+// bands a player can ever hold, and everything below is a restatement of that function.
+//
+// WHY THIS EXISTS AT ALL. A console that offers a player a rule for luminous or constellar is
+// offering a rule that can never fire: those bands are the talent-gated legendary procs a later
+// release mints, and derelict is a decay state rather than a craft output. Offering them is not
+// harmless, it is a promise the engine cannot keep. The user asked for them to stop being
+// offered "for now", which is the operative phrase: they come BACK the day they are producible.
+//
+// ⚠️ THIS NARROWS A DISPLAY LIST, NEVER THE MODEL. AutoSalvageRaritySelection stays a TOTAL
+// Record over the whole EquipmentRarity union, saves keep round-tripping every band, and the
+// engine keeps honoring a band that is selected however it got selected. If the displayed list
+// were allowed to become the model, a save carrying an unproducible band would silently lose
+// it, which is precisely the class of quiet data loss the rest of this feature is built to
+// avoid. Consumers that reason about the RULE (normalizeAutoSalvageRarities, the selector, the
+// summary sentence) must keep using EQUIPMENT_RARITY_LADDER; only a control that OFFERS a
+// choice uses the list below.
+//
+// ⚠️ A TOTAL Record, SO GROWING THE LADDER IS STILL A COMPILE ERROR. Adding a member to
+// EquipmentRarity fails to type-check here as well as at AUTO_SALVAGE_RARITIES_NONE, which
+// forces the one question that matters ("can the pipeline mint this yet?") to be answered
+// rather than defaulted. The alternative, a hardcoded exclusion list of the two bands we are
+// hiding this patch, would have to be found and edited by hand later and is exactly the
+// anti-modular shape this feature was told not to grow.
+//
+// KEEPING IT HONEST: this table is a hand-written mirror of rollCraftedRarity's branches
+// because that function is a threshold ladder rather than a data table, so there is nothing to
+// derive from. salvage.test.ts probes the REAL rollCraftedRarity across its whole input range
+// and asserts the produced set equals this list, so retuning the roll (adding luminous, say)
+// fails the suite here until this table is updated. The test is the tie between the two.
+const CRAFTED_RARITY_PRODUCIBLE: Record<EquipmentRarity, boolean> = {
+  derelict: false,   // a decay state, never minted: a fresh piece is not a wreck
+  standard: true,    // rollCraftedRarity: 60%
+  augmented: true,   // rollCraftedRarity: 25%
+  stellar: true,     // rollCraftedRarity: 12%
+  radiant: true,     // rollCraftedRarity:  3%, the top of the base craft band
+  luminous: false,   // talent-gated legendary proc, not minted this patch
+  constellar: false, // talent-gated legendary proc, not minted this patch
+};
+
+// The producible bands in LADDER ORDER, for any control that offers the player a rarity choice.
+// Ordered by EQUIPMENT_RARITY_LADDER rather than by this table's own key order so there is one
+// authority on what order rarity bands read in, and so a band becoming producible needs no
+// second thought about where it lands on screen.
+export const PRODUCIBLE_EQUIPMENT_RARITIES: readonly EquipmentRarity[] =
+  EQUIPMENT_RARITY_LADDER.filter((band) => CRAFTED_RARITY_PRODUCIBLE[band]);
 
 // --- Captain & Homeworld Talent Trees (docs/plans/2026-07-07-captain-homeworld-talent-trees-plan.md) ---
 // Two new data-driven tables, mirroring the exact conventions the (now-deleted)
