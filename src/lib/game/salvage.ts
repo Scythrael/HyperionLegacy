@@ -72,6 +72,10 @@ import type {
   SalvagedMaterialItemId,
   SalvageLootTier,
   SalvageTargetRef,
+  // 0.13.3.1 follow-up (baselines become auto-salvageable when the rules reach them): the rule
+  // shape itself is read by autoSalvageRulesReachBaseline below, which answers a question about
+  // the RULES rather than about a piece of state.
+  AutoSalvageRules,
 } from "./model";
 import {
   BLUEPRINTS,
@@ -726,6 +730,115 @@ function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
 }
 
 // ============================================================================
+// DO THE PLAYER'S RULES REACH A STANDARD-ISSUE BASELINE? (0.13.3.1 follow-up)
+// ============================================================================
+// WHY THIS EXISTS AT ALL. Until now a Standard-Issue baseline could NEVER be auto-salvaged:
+// the `baseline` protection below was unconditional. The user hit the cost of that in play.
+// Uninstalling a system leaves the slot EMPTY (unfitEquipmentInstance), so EVERY gear swap
+// pools another baseline, they pile up in the equipment bay, and the one automation built to
+// clear clutter was the one thing that would not touch them. So baselines are now POOLED IN
+// WITH EVERY OTHER standard-rarity / quality-0 spare and the ordinary rules may select them.
+//
+// ⚠️ BUT THE PROTECTION IS KEPT, MADE CONDITIONAL RATHER THAN DELETED, and that is the whole
+// design of this change. A baseline is still protected BY DEFAULT and becomes eligible only
+// when the player's own rules actually reach it. Three things follow, and they are the reasons
+// for this shape:
+//   a. THE SEAM SURVIVES. `baseline` is still a member of AutoSalvageProtection, so the console
+//      can still say "protected because it is Standard-Issue" in the ordinary case instead of
+//      reporting null and leaving a spare looking unexplained.
+//   b. NOTHING IS SWEPT THAT A RULE DID NOT NAME. The condition below is a SUPERSET of what the
+//      three rules can select (see the clause notes), so for every baseline a rule actually
+//      selects the condition is true, and for a baseline no rule selects the reason is reported.
+//   c. THE OTHER FIVE PROTECTIONS ARE UNTOUCHED. installed, reserved, confirmTier, favorited and
+//      graceWindow all still run over a baseline exactly as they run over a crafted piece, which
+//      is why a FAVORITED baseline, or one still inside its post-uninstall grace, survives no
+//      matter how wide the rules are set. Q0 is also confirm-ON by default, so a default save
+//      still takes nothing at all.
+//
+// PURE, and a function of the RULES only: no clock, no rng, no localStorage, so the tick and the
+// console cannot disagree about which baselines are in play.
+
+// The two fields that make a piece "the Standard-Issue floor", as VALUES, so the rules-only
+// question below can be asked without a piece in hand.
+//
+// ⚠️ A MIRROR OF generateStandardIssue (model.ts), WHICH IS THE AUTHORITY. It hardcodes
+// rarity "standard" and quality 0 for every baseline it mints, and isStandardIssueBaseline
+// tests that same rarity. This is written out here rather than derived because deriving it would
+// mean calling the generator (which needs a live slot definition and an id allocator) at module
+// load. The drift that copying invites is closed by a TEST: salvage.test.ts mints a real
+// baseline and asserts it matches this shape, so retuning the floor fails the suite here.
+const STANDARD_ISSUE_SHAPE: Pick<EquipmentInstance, "quality" | "rarity"> = {
+  quality: 0,
+  rarity: "standard",
+};
+
+// Does this rule set reach a piece with these (quality, rarity) coordinates?
+//
+// ONE CLAUSE PER SELECTING RULE, each matching that rule's own test in selectAutoSalvageTargets
+// so the two can never disagree about what "reached" means:
+//   maxQuality  identical to the rule's test (null = off; 0 is a real setting, never falsy-tested)
+//   rarity      identical to the rule's test, read through the ENGINE'S normalizer so an absent
+//               or malformed selection reads as "no band selected" and therefore as NOT reached
+//   duplicates  BROADER than the rule on purpose. The duplicates rule ranks a variety and selects
+//               everything past the keeper, so whether a GIVEN piece is selected depends on its
+//               group, which this function cannot see. Answering "reached" for the whole rule is
+//               the safe direction for the seam: it can only make the `baseline` reason report
+//               LESS often (the keeper reads as unprotected while still never being selected),
+//               never make a piece eligible that no rule selects.
+export function autoSalvageRulesReachBaseline(
+  rules: AutoSalvageRules | undefined,
+  piece: Pick<EquipmentInstance, "quality" | "rarity">
+): boolean {
+  if (rules === undefined) return false; // no rules at all: nothing reaches anything
+  if (rules.maxQuality !== null && piece.quality <= rules.maxQuality) return true;
+  if (normalizeAutoSalvageRarities(rules.rarities)[piece.rarity] === true) return true;
+  return rules.duplicates === true;
+}
+
+// The same question asked of the CONFIGURATION alone: could these rules reach a Standard-Issue
+// baseline at all? Every baseline shares one (quality, rarity) pair, so this is the same answer
+// for all of them, which is what lets the console warn about a rule change before looking at a
+// single item.
+export function autoSalvageRulesReachStandardIssue(rules: AutoSalvageRules | undefined): boolean {
+  return autoSalvageRulesReachBaseline(rules, STANDARD_ISSUE_SHAPE);
+}
+
+// ----------------------------------------------------------------------------
+// autoSalvageDuplicatesOffWarnsAboutBaselines
+// ----------------------------------------------------------------------------
+// THE CONSOLE'S CONFIRM TRIGGER, as a pure predicate so it is testable without a DOM.
+//
+// "Should switching the Duplicates checkbox to OFF raise the Standard-Issue warning?" True only
+// when ALL THREE of these hold:
+//   1. the change is the OFF direction (switching duplicates ON is never the dangerous move),
+//   2. duplicates is currently ON, so this is a real transition and not a repeated write, and
+//   3. the rules REMAINING after the change still reach Standard-Issue gear, which is what makes
+//      the resulting configuration one that can destroy every baseline the player holds rather
+//      than one that simply stops selecting duplicates.
+//
+// ⚠️ CLAUSE 3 IS EVALUATED ON THE POST-CHANGE RULES (duplicates already false), because the
+// question is about the configuration the player is about to be in. With no quality rule and no
+// rarity band selected, switching Duplicates off makes baselines FULLY protected again, and a
+// dialog there would be warning about a change that removes the risk.
+//
+// ⚠️ DELIBERATELY BLIND TO `enabled` AND TO THE POOL. The master switch can be flipped on later
+// and a baseline can be pooled a second after the dialog would have been skipped, so keying the
+// warning to either would mean the player is warned or not by accident of timing. It is a
+// question about the RULES, asked when the rules change.
+//
+// The per-device "don't show this again" preference is the CALLER'S business
+// (autoSalvageBaselineWarningPreference.ts): it is a view preference and must never reach the
+// engine, because it does not change what the tick does.
+export function autoSalvageDuplicatesOffWarnsAboutBaselines(
+  rules: AutoSalvageRules | undefined,
+  nextDuplicates: boolean
+): boolean {
+  if (nextDuplicates) return false;             // only the OFF direction is the dangerous one
+  if (rules?.duplicates !== true) return false; // already off: not a transition
+  return autoSalvageRulesReachStandardIssue({ ...rules, duplicates: false });
+}
+
+// ============================================================================
 // THE PROTECTION SEAM (0.13.3.1): WHY a target is off limits to the automation
 // ============================================================================
 // Auto-salvage's safety filters used to be a run of unnamed `continue` lines inside
@@ -757,11 +870,15 @@ function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
 //      are inert; each one is still answered explicitly below, and where an answer would have
 //      to be invented it is documented as the ONE line a future arm must revisit.
 //
-// ⚠️ THIS IS A REFACTOR, NOT A BEHAVIOR CHANGE. The four pre-existing reasons keep their
-// exact predicates, and the reasons are evaluated in a declared order that decides only WHICH
-// reason is reported, never WHETHER the target is skipped. So the selector's output is
-// byte-identical to before for every state, which is what lets the shipped parity cases stand
-// untouched.
+// ⚠️ THE SEAM ITSELF WAS A REFACTOR, NOT A BEHAVIOR CHANGE. The four pre-existing reasons kept
+// their exact predicates, and the reasons are evaluated in a declared order that decides only
+// WHICH reason is reported, never WHETHER the target is skipped.
+//
+// ⚠️ ONE PREDICATE HAS SINCE CHANGED ON PURPOSE (the 0.13.3.1 follow-up): `baseline` is now
+// CONDITIONAL on the player's rules reaching the piece, so a Standard-Issue spare can be taken
+// when a rule names its band or its tier. That is a deliberate behavior change with its own
+// parity case; every other reason is still exactly what it was. See the
+// autoSalvageRulesReachBaseline block above.
 //
 // ⚠️ STILL A PURE FUNCTION OF THE SAVE, which is the whole parity contract of this file (see
 // the selectAutoSalvageTargets header). No rng, no clock, no localStorage: the grace predicate
@@ -774,7 +891,9 @@ function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
 // first, the player's own two choices last, so a reported reason is the most fundamental one
 // that applies rather than whichever predicate happened to run first.
 export type AutoSalvageProtection =
-  | "baseline"    // a Standard-Issue floor: destroys for zero reward, so removal stays manual
+  // ⚠️ CONDITIONAL SINCE THE 0.13.3.1 FOLLOW-UP, and the only member that is. A Standard-Issue
+  // floor is protected while the player's rules do NOT reach it, and eligible once they do.
+  | "baseline"    // a Standard-Issue floor no rule reaches: destroys for zero reward, so it stays
   | "installed"   // fitted to a ship: in use, never a candidate
   | "reserved"    // already queued or in flight for salvage: never double-queued
   | "confirmTier" // the player asked to be ASKED about this quality tier
@@ -860,11 +979,22 @@ type AutoSalvageProtectionPredicate = (
 // AUTO_SALVAGE_PROTECTION_ORDER below), which is why the keys are written in the union's
 // order rather than alphabetically.
 const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtectionPredicate> = {
-  // A Standard-Issue baseline DESTROYS for zero reward (salvageEquipment's declutter branch),
-  // and automatically destroying an item for nothing is a data-loss shape. Destroy stays a
-  // deliberate manual act. Non-gear targets: a hull and a material stack have no baseline
-  // concept, so this reason cannot apply to them.
-  baseline: (_ctx, subject) => subject.piece !== undefined && isStandardIssueBaseline(subject.piece),
+  // ⚠️ THE ONE CONDITIONAL REASON (0.13.3.1 follow-up). A Standard-Issue baseline is protected
+  // BY DEFAULT, and stops being protected the moment the player's own rules reach it. It used to
+  // be unconditional, and the cost of that was a bay filling with baselines the automation would
+  // not touch (see the autoSalvageRulesReachBaseline block above for the full rationale, and for
+  // why the reason is kept rather than deleted).
+  //
+  // A baseline still DESTROYS for zero reward (salvageEquipment's declutter branch), which is
+  // exactly why it takes a rule that names its band or its tier to make one eligible: nothing
+  // here selects a baseline that the player's configuration did not already point at.
+  //
+  // Non-gear targets: a hull and a material stack have no baseline concept, so this reason
+  // cannot apply to them.
+  baseline: (ctx, subject) =>
+    subject.piece !== undefined &&
+    isStandardIssueBaseline(subject.piece) &&
+    !autoSalvageRulesReachBaseline(ctx.state.autoSalvage, subject.piece),
 
   // fittedToShipId is the single source of truth for where a piece lives; an installed piece
   // is in use.
@@ -1012,9 +1142,13 @@ export function autoSalvageProtectionForTarget(
 // both worse. Reading an absent stamp as "minted at game-second 0" would protect every legacy
 // spare on any save younger than one grace period, silently pausing a running automation with no
 // explanation on screen; reading it as "minted NOW" would protect every legacy spare FOREVER.
-// A Standard-Issue baseline also never carries a stamp (its two generators are deliberately
-// clock-free so a migration can re-run them), which is harmless: a baseline is already protected
-// outright by the `baseline` reason.
+// A MINTED Standard-Issue baseline carries no stamp either (its two generators are deliberately
+// clock-free so a migration can re-run them), so a baseline that has only ever sat in a slot
+// reads as PAST grace. That matters more than it used to: since the 0.13.3.1 follow-up a
+// baseline the rules reach is eligible, and the grace is one of the five protections still
+// standing over it. An UNINSTALLED baseline IS stamped, because every uninstall route stamps
+// whatever it pools (startAutoSalvageGrace), which is exactly the case a player is most likely
+// to be looking at: the baseline that came off a ship a moment ago is inside its window.
 export function autoSalvageGraceRemainingSeconds(
   state: GameState,
   piece: EquipmentInstance,
@@ -1042,8 +1176,12 @@ export function autoSalvageGraceRemainingSeconds(
 // because it is the wording the user locked. slotType is folded into the key anyway, so a
 // hypothetical future blueprint that minted into two slots would still group correctly.
 //
-// A Standard-Issue baseline has blueprintKey null and is excluded from the candidate pool
-// long before this is called, so the key is never built from a null.
+// ⚠️ THE NULL ARM IS LIVE SINCE THE 0.13.3.1 FOLLOW-UP. A Standard-Issue baseline has
+// blueprintKey null and USED to be filtered out of the candidate pool long before this was
+// called, so the "baseline" fallback was unreachable. Baselines are pooled in now, so this is
+// the key that groups them: all baselines of one slot form one variety, ranked and thinned like
+// any other. The fallback string was already here and needed no change, which is why the pool
+// could be opened without touching this function.
 function autoSalvageDuplicateKey(piece: EquipmentInstance): string {
   return `${piece.blueprintKey ?? "baseline"}::${piece.slotType}`;
 }
@@ -1093,8 +1231,10 @@ function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolea
 //   0. TWO O(1) EARLY EXITS, before the pool is ever touched. Rules off (the default for
 //      every existing save) and no budget both return an empty array without scanning
 //      anything, which is what keeps this affordable at the head of EVERY tick.
-//   1. THE CANDIDATE POOL. Spare, non-baseline, not reserved. See the pool comment for
-//      why reserved pieces are removed HERE and not only in the final safety pass.
+//   1. THE CANDIDATE POOL. Spare and not reserved. (Standard-Issue baselines are IN the pool
+//      since the 0.13.3.1 follow-up; the conditional `baseline` protection at stage 3 is what
+//      decides whether one may actually be taken.) See the pool comment for why reserved
+//      pieces are removed HERE and not only in the final safety pass.
 //   2. THE RULES select from the pool (max-quality, rarity, duplicates). Union, not
 //      either/or: a piece any one rule points at is selected.
 //   3. THE PROTECTION PASS runs over the selection, in full, as the last word. Nothing
@@ -1146,10 +1286,16 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
       // SPARE only. fittedToShipId is the single source of truth for where a piece lives;
       // an installed piece is in use and is never a candidate.
       piece.fittedToShipId === null &&
-      // NEVER a Standard-Issue baseline. A baseline DESTROYS for zero reward, and
-      // automatically destroying an item is a data-loss shape, so baselines are excluded
-      // from the auto rules entirely and Destroy stays a manual, deliberate act.
-      !isStandardIssueBaseline(piece) &&
+      // ⚠️ STANDARD-ISSUE BASELINES ARE NO LONGER FILTERED OUT HERE (0.13.3.1 follow-up), and
+      // removing this line is the change, not an oversight. They are now POOLED IN with every
+      // other spare so the ordinary rules can see them, and whether one may actually be taken is
+      // decided by the CONDITIONAL `baseline` protection at stage 3, which reports the reason and
+      // keeps a baseline safe unless the player's rules reach it. Keeping the filter here would
+      // have made that conditional unreachable.
+      //
+      // Pooling them also means a baseline takes part in the DUPLICATES ranking, grouped under
+      // its own "baseline::slot" key (autoSalvageDuplicateKey), which is the behavior the user
+      // asked for: keep the best of each and queue the rest, baselines included.
       // Already queued or in flight -> already spoken for (see the stage 1 note above).
       !reserved.has(piece.id)
   );

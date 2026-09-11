@@ -319,6 +319,18 @@
     unfitEquipmentInstance,
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
+  // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
+  // DERIVED row list (built from the total REQUISITION_CATALOGUE Record over
+  // EquipmentSlotType), so this console renders whatever slots have a Standard-Issue floor
+  // with NO edit here when a new one is added. canRequisition / requisitionBlockText give the
+  // per-row disabled state its persistent reason; requisitionStandardIssue is the transform.
+  import {
+    REQUISITION_ENTRIES,
+    canRequisition,
+    freeSpareBaselinesFor,
+    requisitionBlockText,
+    requisitionStandardIssue,
+  } from "./lib/game/quartermaster";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
@@ -421,12 +433,20 @@
   // it out loud. autoSalvageGraceRemainingSeconds is the shared grace math, so the console's
   // countdown and the engine's own filter can never disagree about whether a just-crafted or
   // just-uninstalled piece is still protected.
+  //
+  // 0.13.3.1 follow-up: autoSalvageDuplicatesOffWarnsAboutBaselines is the ENGINE'S OWN answer to
+  // "does switching Duplicates off put this player in the configuration that can destroy their
+  // Standard-Issue spares?". The trigger condition lives beside the rules it reasons about (and
+  // is unit-tested there) rather than being re-derived in this file, for the same reason the
+  // qualifying count is read from the selector: a console that computes its own version of a
+  // rule is a console that can promise something the engine does not do.
   import {
     salvageShip,
     salvageReservations,
     selectAutoSalvageTargets,
     autoSalvageProtectionForTarget,
     autoSalvageGraceRemainingSeconds,
+    autoSalvageDuplicatesOffWarnsAboutBaselines,
     type SalvageRejectReason,
     type AutoSalvageProtection,
   } from "./lib/game/salvage";
@@ -794,6 +814,15 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  // 0.13.3.1 follow-up: the per-device "warn me before Duplicates-off exposes my Standard-Issue
+  // spares" preference. Same localStorage-only posture, and the same "don't show this again"
+  // shape, as refineConfirmEnabled directly above: it changes whether a DIALOG appears on this
+  // device, never what the tick does, so it must not go on the save. Its module header records
+  // that the 0.13.5 Options toggle has to read this same key rather than keep its own copy.
+  import {
+    loadAutoSalvageBaselineWarningEnabled,
+    saveAutoSalvageBaselineWarningEnabled,
+  } from "./lib/autoSalvageBaselineWarningPreference";
   // (src/lib/salvageConfirmPreference.ts is NO LONGER IMPORTED HERE as of Crafting 0.13.3
   //  Phase 4 Unit 4.4: the per-quality salvage-confirm preference now lives on the SAVE
   //  (state.salvageConfirmQualities), which Unit 1.1 added and seeded from that module's
@@ -893,6 +922,18 @@
   // tickBarEnabled above, so it survives a delete-save and needs no save
   // migration. Loaded in onMount alongside tickBarEnabled; default TRUE.
   let refineConfirmEnabled = true;
+  // 0.13.3.1 follow-up: whether the "this will include your Standard-Issue systems" confirmation
+  // is shown before switching the auto-salvage Duplicates rule OFF in a configuration that
+  // reaches them. Same localStorage posture and same default-TRUE reasoning as
+  // refineConfirmEnabled above (loaded in onMount; an absent or unreadable value shows the
+  // warning, because the direction that costs a player their gear is the silent one).
+  let autoSalvageBaselineWarningEnabled = true;
+  // The dialog's own three pieces of view state. The captured control is the checkbox the player
+  // clicked, restored on cancel (see doToggleAutoSalvageDuplicates for why a one-way `checked`
+  // attribute cannot put itself back).
+  let autoSalvageBaselineWarnOpen = false;
+  let autoSalvageBaselineWarnDontShowAgain = false;
+  let autoSalvageBaselineWarnControl: HTMLInputElement | null = null;
   // Combat-log DISPLAY preferences (Combat 0.13.0). localStorage-backed (NOT on
   // GameState), loaded at declaration like salvageConfirmQualities below, so they
   // survive a delete-save and need no save migration. The combat view reads the same
@@ -1235,7 +1276,13 @@
   // the Facilities (building) perspective. "shipyard" = the hull-build facility
   // (moved verbatim); "docks" = ship-STORAGE management only (berth capacity +
   // expansion; per-hull list/assign/salvage live in Logistics > Ships).
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks";
+  // 0.13.3.1: "quartermaster" joins as the free Standard-Issue counter. It is a SERVICE
+  // COUNTER, not a production building: no FACILITIES entry, no state.facilities key, no
+  // level and no upgrade track, which is the DOCKS posture (a card + a console and nothing
+  // stored) rather than the Salvage Bay's "seeded at level 0" posture, because the bay has
+  // lanes to sell and this has nothing to sell. See quartermaster.ts for why it ships in the
+  // same release that made Standard-Issue baselines auto-salvageable.
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -1261,6 +1308,7 @@
     salvageBay: "Salvage Bay",
     shipyard: "Shipyard",
     docks: "Docks",
+    quartermaster: "Quartermaster",
   };
 
   // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
@@ -1965,6 +2013,28 @@
   type ShipyardSubTab = "build" | "upgrades";
   let activeShipyardSubTab: ShipyardSubTab = "build";
 
+  // Quartermaster (0.13.3.1): the counter's THREE-tab axis, and only the first one is real
+  // this release. Same SubTabs component + typed-union + let-state discipline as every
+  // sibling above; no new pattern.
+  //   "requisition" , the free Standard-Issue counter. Every slot with a Standard-Issue
+  //                   floor, 0 credits, one row each, derived from REQUISITION_ENTRIES.
+  //   "purchase"    , NOT BUILT. A locked "Coming Soon!" rail slot.
+  //   "sell"        , NOT BUILT. A locked "Coming Soon!" rail slot.
+  //
+  // ⚠️ WHY TWO LOCKED TABS RATHER THAN NO TABS AT ALL. A real merchant needs pricing, stock
+  // and an economy balance pass, which is its own feature and is deliberately not in this
+  // release. The choice was between shipping the counter with no rail (and adding one later,
+  // moving the requisition list under a tab it did not used to be under) or shipping the rail
+  // now with the two future halves marked honestly. The second is the precedent this codebase
+  // already set: the Refinery carries a locked "Coming Soon!" rail slot for exactly this
+  // reason, SubTabs renders it dimmed, padlocked and natively `disabled`, and a player can
+  // read the roadmap without being able to press a half-built shop.
+  //
+  // DEFAULTS TO "requisition": it is the only functional tab, and the reason the facility
+  // exists at all.
+  type QuartermasterSubTab = "requisition" | "purchase" | "sell";
+  let activeQuartermasterSubTab: QuartermasterSubTab = "requisition";
+
   // Salvage Bay (0.13.3 Unit 7.0): the bay's TWO-tab axis. It is the LAST Facilities
   // console that was still one long scroll, and this release is what made it long: the
   // explainer grew a timed-job paragraph (Unit 4.4), the queue panel arrived (4.4), the
@@ -2377,6 +2447,7 @@
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
     refineConfirmEnabled = loadRefineConfirmEnabled();
+    autoSalvageBaselineWarningEnabled = loadAutoSalvageBaselineWarningEnabled();
     // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
     // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
     // the save load below rather than through a separate localStorage read on mount.)
@@ -4746,9 +4817,60 @@
     state = { ...state, autoSalvage: { ...autoSalvageRules, maxQuality } };
     doSave();
   }
-  function doToggleAutoSalvageDuplicates(duplicates: boolean) {
+  // ── THE DUPLICATES RULE, AND THE STANDARD-ISSUE WARNING (0.13.3.1 follow-up) ──
+  // The commit half: unchanged from what shipped, and still the only thing that writes the rule.
+  function commitAutoSalvageDuplicates(duplicates: boolean) {
     state = { ...state, autoSalvage: { ...autoSalvageRules, duplicates } };
     doSave();
+  }
+  //
+  // The checkbox's handler now routes through a confirmation FIRST in exactly one case: the
+  // player is switching Duplicates OFF while their remaining rules still reach standard-rarity /
+  // quality-0 spares, which since the 0.13.3.1 follow-up includes the Standard-Issue systems
+  // their ships came with. The engine owns that condition
+  // (autoSalvageDuplicatesOffWarnsAboutBaselines, salvage.ts); this handler adds only the
+  // per-device "don't show this again" preference on top of it.
+  //
+  // ⚠️ THE CHECKBOX ELEMENT IS CAPTURED, and it is not decoration. The control is
+  // `checked={autoSalvageRules.duplicates}`, a one-way attribute: when the player clicks it the
+  // DOM node flips itself immediately, and if we then DECLINE to change state the bound value is
+  // the same `true` it always was, so Svelte has nothing to re-render and the box would sit
+  // visibly unchecked while the rule was still on. Cancelling therefore puts the node back by
+  // hand. Same reason the other confirm-gated controls in this file commit on Confirm only.
+  function doToggleAutoSalvageDuplicates(duplicates: boolean, control: HTMLInputElement | null) {
+    if (
+      autoSalvageBaselineWarningEnabled &&
+      autoSalvageDuplicatesOffWarnsAboutBaselines(autoSalvageRules, duplicates)
+    ) {
+      autoSalvageBaselineWarnControl = control;
+      autoSalvageBaselineWarnDontShowAgain = false; // a fresh checkbox every time it opens
+      autoSalvageBaselineWarnOpen = true;
+      return; // nothing is written until Confirm
+    }
+    commitAutoSalvageDuplicates(duplicates);
+  }
+  // Confirm: honor the "don't show this again" box first (persisted like refineConfirmEnabled),
+  // then write the rule the player asked for. The dialog only ever guards the OFF direction, so
+  // the committed value is always false.
+  function confirmAutoSalvageDuplicatesOff() {
+    if (autoSalvageBaselineWarnDontShowAgain) {
+      autoSalvageBaselineWarningEnabled = false;
+      saveAutoSalvageBaselineWarningEnabled(false);
+    }
+    autoSalvageBaselineWarnOpen = false;
+    autoSalvageBaselineWarnControl = null;
+    autoSalvageBaselineWarnDontShowAgain = false;
+    commitAutoSalvageDuplicates(false);
+  }
+  // Cancel (and every dismissal path: backdrop, Escape, the header close): change NOTHING, and
+  // restore the checkbox the click already flipped. The "don't show this again" tick is
+  // deliberately DISCARDED here rather than saved, because the player did not go through with
+  // the change, so they have not seen the consequence this dialog is offered for.
+  function cancelAutoSalvageDuplicatesOff() {
+    if (autoSalvageBaselineWarnControl !== null) autoSalvageBaselineWarnControl.checked = true;
+    autoSalvageBaselineWarnOpen = false;
+    autoSalvageBaselineWarnControl = null;
+    autoSalvageBaselineWarnDontShowAgain = false;
   }
   // 0.13.3.1: toggle ONE rarity band. Writes a full, normalized selection rather than
   // patching whatever the save happened to hold, so a save that predates the field gains a
@@ -4810,7 +4932,12 @@
   // until the console can say it out loud, which is the reason the union exists rather than six
   // scattered booleans. The wording matches the vocabulary already on this panel.
   const AUTO_SALVAGE_PROTECTION_TEXT: Record<AutoSalvageProtection, string> = {
-    baseline: "Standard-Issue gear is never auto-salvaged (it yields nothing, so removing one stays your choice).",
+    // ⚠️ CONDITIONAL SINCE THE 0.13.3.1 FOLLOW-UP, so the sentence says WHY it is safe rather
+    // than promising it always will be. The engine only reports this reason when the player's
+    // rules do NOT reach the piece, so "your rules do not reach it" is precisely the fact that
+    // made this the answer, and naming the two rules that would reach it tells the player how to
+    // change the outcome instead of leaving a protected item looking like a broken rule.
+    baseline: "Standard-Issue, and your rules do not reach it. A quality rule at Q0, or the Standard rarity band, would include it.",
     installed: "Installed systems are never auto-salvaged.",
     reserved: "Already queued or being broken down, so the rules will not touch it again.",
     confirmTier: "Its quality tier is set to ask you first under Confirm before salvaging, and auto-salvage never answers a confirmation for you.",
@@ -5021,6 +5148,30 @@
     if (!started) return;
     state = next;
     pushLog("Docks expansion started.");
+    doSave();
+  }
+
+  // ── Quartermaster: take one free Standard-Issue baseline (0.13.3.1) ────────
+  // The ONE writer behind the Requisition tab's rows. requisitionStandardIssue is the pure
+  // transform (quartermaster.ts); this is the thin Svelte wrapper that assigns the new state,
+  // persists, and says what happened.
+  //
+  // ⚠️ IT NEVER FAILS SILENTLY, which is why the refusal branch logs instead of returning.
+  // The row's button is already disabled when the gate is closed, so a refusal here is a race
+  // or a stale render rather than an ordinary outcome, and a free action that appeared to do
+  // nothing would be indistinguishable from a broken button. requisitionBlockText is the SAME
+  // sentence the disabled row shows, so the log and the row can never say different things.
+  //
+  // NO COST, so there is nothing to deduct and no confirm to ask for: the counter's whole job
+  // is to make a missing slot floor an errand instead of a wall.
+  function doRequisition(slotType: EquipmentSlotType, label: string) {
+    const { next, minted, reason } = requisitionStandardIssue(state, slotType);
+    if (minted === null) {
+      pushLog(`Cannot requisition ${label}: ${reason === null ? "the Quartermaster refused that request" : requisitionBlockText(reason)}`);
+      return;
+    }
+    state = next;
+    pushLog(`Requisitioned a Standard-Issue ${label}. It is in your spare systems, ready to install.`);
     doSave();
   }
 
@@ -6753,6 +6904,24 @@
   // disagree: every card in this set contributes "facilities" to navAttention by construction.
   // See deriveFacilityAttention for the two prompt-to-card paths and why it re-derives nothing.
   $: facilityAttention = deriveFacilityAttention(dashboardModel);
+
+  // ── Quartermaster live readouts (0.13.3.1) ────────────────────────────────
+  // How many of the counter's patterns can be taken RIGHT NOW, for the dashboard card's
+  // status line. Derived from the SAME canRequisition gate the rows use, so the card and the
+  // console can never disagree about what is available. REQUISITION_ENTRIES is itself derived
+  // from the catalogue, so the denominator tracks the data too: adding a slot type with a
+  // Standard-Issue floor moves this readout with no edit here.
+  //
+  // ⚠️ THE QUARTERMASTER HAS NO ATTENTION DOT TODAY, AND THAT IS CORRECT. facilityAttention is
+  // built from dashboardModel.needsOrders, which only ever names an idle production lane or a
+  // startable facility upgrade. A service counter has neither: it runs nothing and sells no
+  // rungs, so it can never be the thing that "needs your orders". The card still renders the
+  // dot markup its siblings do, so a future signal lights it with no card rewrite, but nothing
+  // in the model can set it now. A card that dotted whenever a pattern was in stock would be
+  // permanently lit, which is how a dot stops meaning anything.
+  $: quartermasterAvailableCount = REQUISITION_ENTRIES.filter(
+    (entry) => canRequisition(state, entry.slotType).ok
+  ).length;
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -8577,6 +8746,47 @@
               <div class="roster-card-lines">
                 <div class="roster-card-line">
                   Status: {state.ships.length} / {state.shipStorageCapacity} berths used
+                </div>
+              </div>
+            </button>
+
+            <!-- Quartermaster card (0.13.3.1). Same card treatment as its eight siblings,
+                 including the attention-dot markup, which can never light today and should
+                 not: see quartermasterAvailableCount's comment for why a service counter is
+                 structurally incapable of "needing your orders".
+
+                 NO "Level N" SUBTITLE, and that is the DOCKS treatment rather than an
+                 omission. The Docks card reads "Ship storage" because the Docks has no build
+                 or upgrade level; the Quartermaster has none either (no FACILITIES entry, no
+                 state.facilities key, nothing to buy), so printing a level would be printing
+                 a zero that never moves. Every card here that DOES have a level prints it.
+
+                 The live status reuses quartermasterAvailableCount, which runs the SAME
+                 canRequisition gate the rows run, so the card cannot disagree with the
+                 console it opens. -->
+            <button
+              class="roster-card"
+              on:click={() => {
+                activeFoundryFacility = "quartermaster";
+                facilitiesView = "console";
+              }}
+            >
+              <div class="roster-card-head">
+                <div class="roster-card-glyph" aria-hidden="true">📦</div>
+                <div class="roster-card-heading">
+                  <div class="roster-card-name-wrap">
+                    <div class="research-name">{FACILITY_LABELS.quartermaster}</div>
+                    {#if facilityAttention.has("quartermaster")}
+                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
+                      <span class="sr-only"> (needs attention)</span>
+                    {/if}
+                  </div>
+                  <div class="roster-card-sub">Supply counter</div>
+                </div>
+              </div>
+              <div class="roster-card-lines">
+                <div class="roster-card-line">
+                  Status: {quartermasterAvailableCount} of {REQUISITION_ENTRIES.length} Standard-Issue patterns available
                 </div>
               </div>
             </button>
@@ -10742,16 +10952,24 @@
                    the sentence stays true the day it becomes adjustable. -->
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
                 <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <!-- 0.13.3.1 follow-up: the handler now takes the ELEMENT as well as the value,
+                       because switching this OFF can open a confirmation and a cancelled
+                       confirmation has to put this one-way `checked` attribute back by hand. See
+                       doToggleAutoSalvageDuplicates. Switching it ON is never gated. -->
                   <input
                     type="checkbox"
                     checked={autoSalvageRules.duplicates}
-                    on:change={(e) => doToggleAutoSalvageDuplicates((e.target as HTMLInputElement).checked)}
+                    on:change={(e) =>
+                      doToggleAutoSalvageDuplicates(
+                        (e.target as HTMLInputElement).checked,
+                        e.target as HTMLInputElement
+                      )}
                   />
                   Duplicates
                 </label>
               </div>
               <p class="research-status">
-                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now.
+                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now. Standard-Issue systems are ranked as their own variety per slot, so this rule reaches them too.
               </p>
 
               <!-- ============ THE GRACE PERIOD (0.13.3.1 Feature 3) ============
@@ -10811,7 +11029,7 @@
                   {:else}
                     Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules will be queued for salvage immediately the moment you switch these rules on, with no window in which to look at it and keep it.
                   {/if}
-                  Every other protection still holds: an installed system, a Standard-Issue baseline, a favorited system, one already queued, and any quality tier set to ask you first are all still safe. To get the window back, pick a length above.
+                  Every other protection still holds: an installed system, a favorited system, one already queued, and any quality tier set to ask you first are all still safe. A Standard-Issue system is safe only while your rules do not reach it. To get the window back, pick a length above.
                 </p>
               {:else}
                 <p class="research-status">
@@ -10876,7 +11094,20 @@
                    startAutoSalvageGrace, model.ts): naming only the craft would be a promise the
                    engine keeps more of than the sentence admits, which is its own kind of wrong. -->
               <p class="research-status">
-                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, {#if autoSalvageGraceOff}and never take a system you have favorited.{:else}never take a system you have favorited, and never take one you have only just crafted or only just uninstalled.{/if} It only adds orders to the Auto-Salvage Terminal, shown under the salvage queue on the Salvage tab, and turning these rules off clears everything still waiting there.
+                It will never touch an installed system, never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, {#if autoSalvageGraceOff}and never take a system you have favorited.{:else}never take a system you have favorited, and never take one you have only just crafted or only just uninstalled.{/if} It only adds orders to the Auto-Salvage Terminal, shown under the salvage queue on the Salvage tab, and turning these rules off clears everything still waiting there.
+              </p>
+              <!-- ⚠️ THE STANDARD-ISSUE CLAUSE WAS A GUARANTEE AND IS NOW A CONDITION (0.13.3.1
+                   follow-up). It used to sit in the sentence above reading "never destroy a
+                   Standard-Issue baseline (those yield nothing, so removing one stays a deliberate
+                   manual choice)", which stopped being true the moment the `baseline` protection
+                   became conditional on the rules reaching the piece. A withdrawn guarantee left
+                   standing in prose is worse than one never made, so it is restated here as what
+                   it actually is: a default that the player's own rules can lift.
+                   It deliberately does NOT say that leaving Duplicates on keeps the player safe.
+                   Duplicates keeps one spare per VARIETY, not one per SHIP, and it is unioned with
+                   the other rules rather than limiting them, so it is not a safety net. -->
+              <p class="research-status">
+                <strong>Standard-Issue systems.</strong> The spare Standard-Issue gear your ships come with is left alone unless a rule you switched on reaches it, which the quality rule does at Q0 and the rarity rule does in the Standard band. When a rule does reach it, it is queued like any other spare and recovers nothing. Uninstalling a system leaves that slot empty, so a ship whose replacement has not been installed yet cannot fly until you install something else. Installing, favoriting, the grace window and your confirm-before-salvaging tiers all protect a Standard-Issue system exactly as they protect a crafted one.
               </p>
               <!-- ⚠️ REPLACES THE HEADROOM PARAGRAPHS (Auto-Salvage Terminal, 2026-09-11).
                    What stood here was a two-branch explanation of AUTO_SALVAGE_MANUAL_HEADROOM:
@@ -12226,6 +12457,99 @@
                   Individual hull management, captain assignment, system installs, and salvage now live in Logistics, Ships.
                 </p>
               </Panel>
+          {:else if activeFoundryFacility === "quartermaster"}
+              <!-- QUARTERMASTER (0.13.3.1). The free Standard-Issue counter.
+                   See quartermaster.ts for the full design; the short version is that this
+                   release made Standard-Issue baselines destroyable by auto-salvage, and a
+                   ship with an empty required slot cannot fly, so the recovery route had to
+                   ship alongside the risk. A warning dialog says "do not do this"; a free
+                   refill makes doing it survivable, and only the second removes the failure.
+
+                   MECHANICAL RE-USE ONLY, no new layout. SubTabs is the same rail every
+                   sibling console uses (with the Refinery's locked "Coming Soon!" treatment
+                   for the two unbuilt halves), Panel is the same container, and the rows are
+                   the .cq-row / .cq-body / .cq-ctl queue-row idiom this tab already renders
+                   everywhere else. Nothing here is a new opinion about how a facility looks.
+
+                   ⚠️ THE ROW LIST IS DERIVED, NOT WRITTEN HERE. It iterates
+                   REQUISITION_ENTRIES, which is built from the total REQUISITION_CATALOGUE
+                   Record over EquipmentSlotType, so a new slot type with a Standard-Issue
+                   floor surfaces a new row with ZERO edits to this file. That is the standing
+                   content-driven-UI rule, and the compiler enforces the totality end of it
+                   (a new union member is a compile error in the catalogue until someone gives
+                   it a row or an explicit null). -->
+              <SubTabs
+                tabs={[
+                  { key: "requisition", label: "Requisition" },
+                  { key: "purchase", label: "Coming Soon!", locked: true },
+                  { key: "sell", label: "Coming Soon!", locked: true },
+                ]}
+                active={activeQuartermasterSubTab}
+                onSelect={(key) => (activeQuartermasterSubTab = key as QuartermasterSubTab)}
+              />
+
+              <!-- Only "requisition" is reachable: SubTabs renders a locked tab natively
+                   `disabled`, so onSelect can never set the other two. They therefore get NO
+                   content branch, exactly as the Refinery's locked rail slot and Logistics'
+                   locked Crew Equipment tab do: the locked tab IS the placeholder. -->
+              {#if activeQuartermasterSubTab === "requisition"}
+                <Panel>
+                  <div class="panel-title">REQUISITION</div>
+                  <p class="research-status">
+                    Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen.
+                  </p>
+                  <!-- The honest statement of what a baseline IS, so nobody comes here
+                       expecting gear. No numbers: the magnitudes are tunable data, and a
+                       number printed here would let a retune turn this into a lie. -->
+                  <p class="cq-note">
+                    A Standard-Issue piece is the floor, not an upgrade: it fills a slot so the ship can fly, and it is always the weakest version of that system. Crafted systems are the real gains.
+                  </p>
+
+                  <div class="cq-list">
+                    {#each REQUISITION_ENTRIES as entry (entry.slotType)}
+                      <!-- The SAME gate the transform runs (canRequisition), so the disabled
+                           state and the actual refusal can never diverge, and the reason is a
+                           PERSISTENT note under the row rather than a hover title (the
+                           2026-07-24 flicker decision this tab already made for the Docks
+                           button: a reason the player cannot read is the same as no reason). -->
+                      {@const gate = canRequisition(state, entry.slotType)}
+                      {@const held = freeSpareBaselinesFor(state, entry.slotType).length}
+                      <div class="cq-row">
+                        <div class="cq-body">
+                          <span class="home-l1">{entry.label}</span>
+                          <span class="home-l2">
+                            <span class="home-meta">0 credits</span>
+                            {#if held > 0}
+                              <span class="home-meta">{held} spare in the pool</span>
+                            {/if}
+                          </span>
+                          <span class="cq-state">{entry.blurb}</span>
+                          {#if !gate.ok}
+                            <span class="cq-state">{requisitionBlockText(gate.reason)}</span>
+                          {/if}
+                        </div>
+                        <div class="cq-ctl">
+                          <button
+                            class="buy-btn"
+                            disabled={!gate.ok}
+                            on:click={() => doRequisition(entry.slotType, entry.label)}
+                          >
+                            Requisition
+                          </button>
+                        </div>
+                      </div>
+                    {/each}
+                  </div>
+
+                  <!-- WHY THE COUNTER ISSUES ONE AT A TIME, stated where a player meets the
+                       limit rather than only in the code. It is a bound on a free mint, and it
+                       can never block recovery: installing the spare re-opens the row, and a
+                       baseline already queued for salvage does not count as one you hold. -->
+                  <p class="cq-note">
+                    The counter issues one spare of each pattern at a time. Install it and the counter will issue another.
+                  </p>
+                </Panel>
+              {/if}
           {/if}
         {/if}
       </div>
@@ -14673,6 +14997,19 @@
         </div>
         <p class="prestige-text">When enabled, a confirmation popup appears before starting a refine order. Ticking "Don't show this again" in that popup turns this off.</p>
 
+        <!-- ⚠️ DELIBERATELY NOT HERE YET: the re-enable toggle for the auto-salvage
+             Standard-Issue warning (0.13.3.1 follow-up). That warning's "Don't show this again"
+             checkbox can currently only be switched off, with no way back, which is a gap and is
+             logged as one. It belongs in the Options > GAMEPLAY tab planned for 0.13.5
+             (SUGGESTIONS.md, "AUTOMATION RULES ALSO BELONG UNDER OPTIONS") beside the
+             auto-salvage grace-period control, which is waiting on the same tab, rather than
+             being wedged into this display-preferences list now and moved twice.
+             ⚠️ WHEN IT LANDS IT MUST READ THE SAME STORED VALUE through
+             loadAutoSalvageBaselineWarningEnabled / saveAutoSalvageBaselineWarningEnabled, the
+             way this refine row reads its own pref, and NEVER keep a second copy of the setting:
+             two stores for one preference is the drift the confirm-by-quality preference had to
+             be migrated out of localStorage to escape. -->
+
         <!-- ============================================================
              COMBAT LOG settings (Combat 0.13.0). The FIRST section of a growing
              accessibility/theming options hub: future sections (high-contrast,
@@ -15456,6 +15793,62 @@
         <div class="modal-row">
           <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
           <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if autoSalvageBaselineWarnOpen}
+    <!-- ============ THE STANDARD-ISSUE WARNING (0.13.3.1 follow-up) =================
+         Raised when the player switches the auto-salvage DUPLICATES rule OFF while their
+         remaining rules still reach standard-rarity / quality-0 spares, which is the
+         configuration in which every Standard-Issue system they hold becomes eligible. The
+         trigger itself is the engine's (autoSalvageDuplicatesOffWarnsAboutBaselines, salvage.ts)
+         so the console cannot warn about a configuration the rules do not actually produce.
+
+         SAME SHELL AS THE CRAFT CONFIRM ABOVE, mirrored locally rather than extracted, for the
+         reason recorded on that modal: a bottom sheet on a phone, a centered popup on a desktop,
+         dismissible by backdrop click, by Escape and by the header close, with focus trapped
+         while it is open. It owns a "don't show this again" checkbox exactly as that one does.
+
+         EVERY DISMISSAL PATH IS THE SAFE ONE, like the salvage confirm below: backdrop, Escape
+         and the close button all route to cancelAutoSalvageDuplicatesOff, which writes nothing
+         and puts the checkbox back. Only the explicit Confirm button changes the rule.
+
+         ⚠️ WHAT THIS TEXT MUST NOT SAY: that leaving Duplicates ON keeps the player safe. It
+         keeps the best one per VARIETY, not one per SHIP, so five ships that each want a Cargo
+         Bay baseline are not covered by a single surviving spare, and it unions with the other
+         rules rather than limiting them. The wording therefore states what is true about the
+         configuration being entered and makes no promise about the one being left. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the craft confirm's backdrop, a presentation dimmer whose click-to-dismiss is a convenience. Escape and the header close both dismiss from the keyboard, and both cancel safely. -->
+    <div class="fsheet-backdrop" on:click|self={cancelAutoSalvageDuplicatesOff}>
+      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm auto-salvage rule change" use:focusTrap={cancelAutoSalvageDuplicatesOff}>
+        <div class="fsheet-head">
+          <span>INCLUDE STANDARD-ISSUE?</span>
+          <button class="fsheet-close" on:click={cancelAutoSalvageDuplicatesOff} aria-label="Close without changing the rule">&times;</button>
+        </div>
+        <p class="modal-warning">
+          With Duplicates switched off, these rules will include the <strong>Standard-Issue systems your ships come with</strong>. This configuration can destroy the spare Standard-Issue gear your ships rely on, down to the last one.
+        </p>
+        <p class="modal-warning">
+          <!-- ⚠️ RECONCILED with the Quartermaster, which shipped in this same release. This
+               sentence used to end "until you craft one", written before a free replacement
+               existed. That is now false: requisition hands out Standard-Issue gear at no cost
+               and never runs out, which is the whole reason the counter was built alongside
+               this change. Warning the player about a dead end that has a door in it would be
+               the same class of falsehood this release has already fixed three times. -->
+          Uninstalling a system leaves that slot empty, and a ship with an empty required slot cannot fly until you install something else. Salvaging its Standard-Issue spare before a replacement is installed can ground that ship until you fetch another, though the Quartermaster issues Standard-Issue gear free and always has it in stock. Standard-Issue gear recovers nothing when it is broken down.
+        </p>
+        <p class="modal-note">
+          Duplicates is not a safeguard against this: it keeps one spare of each variety, not one per ship, so several ships wanting the same system are not covered by a single surviving spare. Favoriting a Standard-Issue spare keeps the rules off it for good.
+        </p>
+        <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
+          <input type="checkbox" bind:checked={autoSalvageBaselineWarnDontShowAgain} />
+          Don't show this again
+        </label>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelAutoSalvageDuplicatesOff}>Cancel</button>
+          <button class="dev-btn danger" on:click={confirmAutoSalvageDuplicatesOff}>Switch off anyway</button>
         </div>
       </div>
     </div>

@@ -70,6 +70,12 @@ import {
   autoSalvageGraceRemainingSeconds,
   AUTO_SALVAGE_PROTECTION_ORDER,
   type AutoSalvageProtection,
+  // 0.13.3.1 follow-up (Standard-Issue baselines became auto-salvageable when the rules reach
+  // them): the reachability test the CONDITIONAL `baseline` protection is built on, its
+  // rules-only form, and the console's confirm trigger for switching Duplicates off.
+  autoSalvageRulesReachBaseline,
+  autoSalvageRulesReachStandardIssue,
+  autoSalvageDuplicatesOffWarnsAboutBaselines,
   SALVAGE_FRACTION_MIN,
   SALVAGE_FRACTION_MAX,
   SALVAGE_QUALITY_BONUS_PER_TIER,
@@ -2749,13 +2755,19 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
     expect(selectAutoSalvageTargets(broken, NO_BOUND)).toEqual([]);
   });
 
-  it("NEVER selects a Standard-Issue baseline (a baseline DESTROYS for zero reward)", () => {
+  // ⚠️ THIS CASE USED TO READ "NEVER selects a Standard-Issue baseline", and it was the
+  // statement of a protection that has since become CONDITIONAL (0.13.3.1 follow-up). A baseline
+  // is skipped while no rule reaches it and taken once one does, so the old wording is kept here
+  // only as the first half of the pair. The rest of the behavior has its own block further down.
+  it("skips a Standard-Issue baseline while NO rule reaches it", () => {
     const state = autoState(
       [
         autoPiece({ id: "eq-baseline", blueprintKey: null, quality: 0 }), // standard rarity + no blueprint
-        autoPiece({ id: "eq-crafted", quality: 0 }),
+        autoPiece({ id: "eq-crafted", quality: 0, rarity: "stellar" }),
       ],
-      { duplicates: true, maxQuality: 5 }
+      // A rarity rule that names a band the baseline is NOT in: the crafted stellar spare is
+      // selected, the standard-rarity baseline is not reached and stays put.
+      { rarities: raritySelection(["stellar"]) }
     );
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-crafted"]);
   });
@@ -3311,12 +3323,17 @@ describe("⚠️ a ZERO grace period: the rules take a fresh piece, and the OTHE
     expect(autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: "eq-q2" })).toBe("confirmTier");
   });
 
-  it("installed, Standard-Issue baseline and already-queued pieces are all still safe at zero grace", () => {
-    // The remaining three reasons, so all five surviving protections are pinned at zero grace and
+  it("installed and already-queued pieces are still safe at zero grace", () => {
+    // The remaining reasons, so all five surviving protections are pinned at zero grace and
     // not just the two a player is most likely to notice.
+    //
+    // ⚠️ THE BASELINE MOVED OUT OF THIS TRIO (0.13.3.1 follow-up). This fixture runs maxQuality 5,
+    // which REACHES a Q0 Standard-Issue baseline, so under the conditional `baseline` protection
+    // a baseline here is correctly eligible rather than safe. Asserting otherwise would have kept
+    // a retired guarantee alive in the suite. Its zero-grace behavior is pinned in the
+    // Standard-Issue block further down, on both sides of the condition.
     const state = zeroGraceState([
       autoPiece({ id: "eq-installed", quality: 0, fittedToShipId: "ship-1" }),
-      autoPiece({ id: "eq-baseline", quality: 0, blueprintKey: null }),
       autoPiece({ id: "eq-queued", quality: 0 }),
     ]);
     const guarded: GameState = {
@@ -3332,7 +3349,6 @@ describe("⚠️ a ZERO grace period: the rules take a fresh piece, and the OTHE
     expect(selectAutoSalvageTargets(guarded, NO_BOUND)).toEqual([]);
     const reasonFor = (id: string) => autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: id });
     expect(reasonFor("eq-installed")).toBe("installed");
-    expect(reasonFor("eq-baseline")).toBe("baseline");
     expect(reasonFor("eq-queued")).toBe("reserved");
   });
 
@@ -3436,7 +3452,9 @@ describe("⚠️ UNINSTALLING a system starts its auto-salvage grace window (0.1
     expect(reasonFor(after, "eq-worn")).toBe("graceWindow");
     // This route also MINTS a fresh Standard-Issue into the emptied slot (its never-empty
     // invariant), so the "rules select nothing" assertion is made about the evicted piece
-    // rather than about the pool: the minted baseline is protected by `baseline` regardless.
+    // rather than about the pool. The minted baseline is INSTALLED, which keeps it out of the
+    // candidate pool whatever the rules say; since the 0.13.3.1 follow-up made the `baseline`
+    // reason conditional, `installed` is the protection actually carrying it here.
     expect(
       selectAutoSalvageTargets(after, NO_BOUND).some(
         (t) => t.kind === "equipment" && t.instanceId === "eq-worn"
@@ -3568,7 +3586,6 @@ describe("⚠️ GUARD: every uninstall route stamps the grace window (0.13.3.1 
 describe("autoSalvageProtection: WHY a target is off limits, as a named reason (0.13.3.1)", () => {
   it("reports each reason for the state that causes it", () => {
     const pieces = [
-      autoPiece({ id: "eq-baseline", blueprintKey: null }),
       autoPiece({ id: "eq-installed", fittedToShipId: "ship-1" }),
       autoPiece({ id: "eq-plain", quality: 2 }),
       autoPiece({ id: "eq-fav", quality: 2 }),
@@ -3596,7 +3613,6 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       ],
     };
     const reasonFor = (id: string) => autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: id });
-    expect(reasonFor("eq-baseline")).toBe("baseline");
     expect(reasonFor("eq-installed")).toBe("installed");
     expect(reasonFor("eq-queued")).toBe("reserved");
     expect(reasonFor("eq-fav")).toBe("favorited");
@@ -3608,6 +3624,17 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       equipment: [...state.equipment, autoPiece({ id: "eq-confirm", quality: 3 })],
     };
     expect(autoSalvageProtectionForTarget(q3, { kind: "equipment", instanceId: "eq-confirm" })).toBe("confirmTier");
+    // ⚠️ THE `baseline` REASON NEEDS ITS OWN RULE SET, because it is the one CONDITIONAL member
+    // of the union (0.13.3.1 follow-up): the fixture above runs maxQuality 5, which reaches a Q0
+    // baseline, so no baseline in THAT state could report this reason. Here the only rule on is a
+    // rarity band the baseline is not in, so the reason is reported. The other half of the
+    // condition (a rule that DOES reach it, reporting null) is in the Standard-Issue block below.
+    const unreached = autoState([autoPiece({ id: "eq-baseline", blueprintKey: null })], {
+      rarities: raritySelection(["stellar"]),
+    });
+    expect(autoSalvageProtectionForTarget(unreached, { kind: "equipment", instanceId: "eq-baseline" })).toBe(
+      "baseline"
+    );
   });
 
   it("⚠️ a FAVORITE is exempt at the TARGET level, so a hull target is protected too", () => {
@@ -3643,6 +3670,18 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     expect(autoSalvageProtectionForTarget(broken, { kind: "equipment", instanceId: "eq-a" })).toBe("confirmTier");
   });
 
+  it("⚠️ the `baseline` reason is CONDITIONAL: reported when no rule reaches the piece, absent when one does", () => {
+    // The whole delta of the 0.13.3.1 follow-up, stated once, on ONE piece, with only the rules
+    // changing between the two readings. If this ever passes in only one direction the feature is
+    // either doing nothing or has quietly stopped protecting anything.
+    const piece = autoPiece({ id: "eq-baseline", blueprintKey: null });
+    const target = { kind: "equipment", instanceId: "eq-baseline" } as const;
+    const unreached = autoState([piece], { rarities: raritySelection(["stellar"]) });
+    const reached = autoState([piece], { maxQuality: 0 });
+    expect(autoSalvageProtectionForTarget(unreached, target)).toBe("baseline");
+    expect(autoSalvageProtectionForTarget(reached, target)).toBeNull();
+  });
+
   it("the context is derived once and answers many pieces (the selector's hot path)", () => {
     // The shape the tick uses: one context, many subjects, no per-piece reservation derivation.
     const base = autoState([autoPiece({ id: "eq-a" }), autoPiece({ id: "eq-b" })], { maxQuality: 5 });
@@ -3655,6 +3694,286 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     const pieceB = state.equipment.find((e) => e.id === "eq-b") as EquipmentInstance;
     expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceA))).toBe("favorited");
     expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceB))).toBeNull();
+  });
+});
+
+// ============================================================================
+// ⚠️ STANDARD-ISSUE BASELINES ARE AUTO-SALVAGEABLE WHEN THE RULES REACH THEM (0.13.3.1 follow-up)
+// ============================================================================
+// THE PROBLEM THIS CLOSED, as the user found it in play: uninstalling a system leaves the slot
+// EMPTY, so every gear swap pools another Standard-Issue baseline, and the automation built to
+// clear clutter was the one thing that refused to touch a single one of them. So baselines are
+// now pooled in with every other standard-rarity / quality-0 spare and the ordinary rules select
+// them.
+//
+// ⚠️ THE PROTECTION WAS KEPT AND MADE CONDITIONAL, NOT DELETED, and these cases are what pin
+// that distinction: a baseline is still skipped by default, and only a rule that actually reaches
+// it makes it eligible. The five other protections are asserted over a baseline too, because
+// "never weaken the others" is not something a conditional predicate proves on its own.
+describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-up)", () => {
+  // A spare Standard-Issue baseline, built the same way every other fixture here builds a piece.
+  // blueprintKey null + rarity standard is exactly what isStandardIssueBaseline tests for.
+  function baselinePiece(id: string, slotType: EquipmentSlotType = "cargoBay"): EquipmentInstance {
+    return autoPiece({ id, blueprintKey: null, quality: 0, slotType });
+  }
+
+  // ⚠️ THE TIE BETWEEN THE ENGINE'S ASSUMED BASELINE SHAPE AND THE REAL GENERATOR.
+  // autoSalvageRulesReachStandardIssue answers the rules-only question by probing a hardcoded
+  // (quality 0, rarity "standard") shape, because building a real baseline needs a live slot
+  // definition and an id allocator. That copy can drift, and nothing in the type system would
+  // notice, so this case mints a REAL baseline and requires the two to agree.
+  it("the rules-only question matches a REAL minted baseline, rule set for rule set", () => {
+    const minted = generateStandardIssue({
+      slotType: "cargoBay",
+      fittedToShipId: null,
+      allocateId: () => "eq-minted",
+    });
+    expect(isStandardIssueBaseline(minted)).toBe(true);
+    // Across every interesting rule shape, not just one: a single agreeing case could pass on a
+    // shape that happens to answer the same way for the wrong reason.
+    const ruleSets: Partial<GameState["autoSalvage"]>[] = [
+      {},
+      { maxQuality: 0 },
+      { maxQuality: 5 },
+      { duplicates: true },
+      { rarities: raritySelection(["standard"]) },
+      { rarities: raritySelection(["stellar"]) },
+      { rarities: raritySelection(["stellar", "standard"]) },
+    ];
+    for (const rules of ruleSets) {
+      const state = autoState([], rules);
+      expect(
+        autoSalvageRulesReachStandardIssue(state.autoSalvage),
+        `rules-only answer must match the real baseline for ${JSON.stringify(rules)}`
+      ).toBe(autoSalvageRulesReachBaseline(state.autoSalvage, minted));
+    }
+  });
+
+  // The predicate itself, one clause at a time, so a failure names WHICH rule stopped reaching.
+  it("autoSalvageRulesReachBaseline: one clause per selecting rule, and OFF means off", () => {
+    const piece = baselinePiece("eq-b");
+    const rules = (over: Partial<GameState["autoSalvage"]>) => autoState([], over).autoSalvage;
+    // No rule at all: nothing reaches it. This is the default every existing save is on.
+    expect(autoSalvageRulesReachBaseline(rules({}), piece)).toBe(false);
+    // The QUALITY rule. `null` is off; 0 is a REAL setting and must reach a Q0 baseline, which is
+    // the null-versus-0 trap the rest of this feature is careful about.
+    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: null }), piece)).toBe(false);
+    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: 0 }), piece)).toBe(true);
+    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: 5 }), piece)).toBe(true);
+    // The RARITY rule, per band: the baseline's own band reaches it, another band does not.
+    expect(autoSalvageRulesReachBaseline(rules({ rarities: raritySelection(["standard"]) }), piece)).toBe(true);
+    expect(autoSalvageRulesReachBaseline(rules({ rarities: raritySelection(["stellar"]) }), piece)).toBe(false);
+    // The DUPLICATES rule, which is variety-based rather than band-based and so reaches every
+    // baseline in principle (the ranking decides which copies are actually selected).
+    expect(autoSalvageRulesReachBaseline(rules({ duplicates: true }), piece)).toBe(true);
+    // An absent rule object: no rules, nothing reached. Never read as "everything is fair game".
+    expect(autoSalvageRulesReachBaseline(undefined, piece)).toBe(false);
+    // A malformed rarity selection reads as no band selected, like everywhere else in the engine.
+    const malformed = { ...rules({}), rarities: "not a selection" as unknown as AutoSalvageRaritySelection };
+    expect(autoSalvageRulesReachBaseline(malformed, piece)).toBe(false);
+  });
+
+  // ---- THE SELECTOR: TAKEN WHEN REACHED -------------------------------------------------
+  it("⚠️ the QUALITY rule at Q0 takes a spare baseline, including the only one left", () => {
+    // The setting the user will actually use to clear their bay. It is deliberately allowed to
+    // take the last copy: maxQuality is the rule that means "this tier is worthless to me".
+    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 0 });
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-baseline"]);
+  });
+
+  it("the STANDARD rarity band takes a spare baseline", () => {
+    const state = autoState([baselinePiece("eq-baseline")], { rarities: raritySelection(["standard"]) });
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-baseline"]);
+  });
+
+  it("the DUPLICATES rule ranks baselines as their own variety per slot and keeps the best one", () => {
+    // All baselines share one iLevel, quality and rarity, so the ranking falls to the declared id
+    // tie-break: the lowest id is the keeper. That is the point of the total order, and it is what
+    // makes this outcome the same offline and live.
+    const state = autoState(
+      [baselinePiece("eq-b1"), baselinePiece("eq-b2"), baselinePiece("eq-b3")],
+      { duplicates: true }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-b2", "eq-b3"]);
+  });
+
+  it("baselines in DIFFERENT slots are different varieties, so each slot keeps one", () => {
+    const state = autoState(
+      [
+        baselinePiece("eq-cargo1", "cargoBay"),
+        baselinePiece("eq-cargo2", "cargoBay"),
+        baselinePiece("eq-ftl1", "ftlDrive"),
+      ],
+      { duplicates: true }
+    );
+    // The ftl baseline is the only one of its variety and survives; the second cargo one does not.
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-cargo2"]);
+  });
+
+  // ---- THE SELECTOR: SKIPPED WHEN NOT REACHED -------------------------------------------
+  it("⚠️ a baseline is UNTOUCHED by a rule set that does not reach it, and says why", () => {
+    const state = autoState(
+      [baselinePiece("eq-baseline"), autoPiece({ id: "eq-stellar", quality: 4, rarity: "stellar" })],
+      { rarities: raritySelection(["stellar"]) }
+    );
+    // The rule fires on the piece it names and passes over the baseline entirely.
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-stellar"]);
+    expect(autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: "eq-baseline" })).toBe("baseline");
+  });
+
+  // ---- THE OTHER FIVE PROTECTIONS STILL COVER A BASELINE --------------------------------
+  // ⚠️ EACH OF THESE IS RUN WITH THE RULES WIDE OPEN (maxQuality 5 reaches every baseline), so
+  // the baseline reason is definitely NOT the thing doing the protecting. That is the only way
+  // these cases prove what they claim.
+  it("⚠️ a FAVORITED baseline survives however wide the rules are set", () => {
+    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const pinned: GameState = {
+      ...state,
+      equipment: state.equipment.map((e) => (e.id === "eq-baseline" ? { ...e, favorite: true } : e)),
+    };
+    expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-baseline" })).toBe("favorited");
+    // The control: the same baseline UNPINNED is taken, so the flag is the cause.
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-baseline"]);
+  });
+
+  it("⚠️ a baseline still inside its GRACE WINDOW survives (the just-uninstalled case)", () => {
+    // The case a player actually meets: they took the baseline off a ship a moment ago, and every
+    // uninstall route stamps what it pools. A stamped baseline is inside its window like any piece.
+    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const fresh: GameState = {
+      ...state,
+      gameTimeSeconds: 10_000,
+      equipment: state.equipment.map((e) =>
+        e.id === "eq-baseline" ? { ...e, graceStartedAtGameSeconds: 10_000 } : e
+      ),
+    };
+    expect(selectAutoSalvageTargets(fresh, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(fresh, { kind: "equipment", instanceId: "eq-baseline" })).toBe("graceWindow");
+    // And it is a DELAY, not a pardon: past the window the same baseline is taken.
+    const later: GameState = { ...fresh, gameTimeSeconds: 10_000 + AUTO_SALVAGE_GRACE_SECONDS_DEFAULT };
+    expect(selectedIds(selectAutoSalvageTargets(later, NO_BOUND))).toEqual(["eq-baseline"]);
+  });
+
+  it("a real UNINSTALL leaves the pooled baseline inside its grace window", () => {
+    // Not a hand-stamped fixture: the actual uninstall route, so the stamp being written to a
+    // BASELINE (and not only to crafted gear) is what is under test.
+    const base = autoState([], { maxQuality: 5, duplicates: true });
+    const start: GameState = { ...base, gameTimeSeconds: 10_000 };
+    // freshState fits ship-1 with four baselines; take one off through the live route.
+    const fittedBaseline = start.equipment.find(
+      (e) => e.fittedToShipId === "ship-1" && isStandardIssueBaseline(e)
+    ) as EquipmentInstance;
+    const after = unfitEquipmentInstance(start, "ship-1", fittedBaseline.id);
+    const pooledPiece = after.equipment.find((e) => e.id === fittedBaseline.id);
+    expect(pooledPiece?.fittedToShipId).toBeNull();
+    expect(pooledPiece?.graceStartedAtGameSeconds).toBe(10_000);
+    expect(autoSalvageProtectionForTarget(after, { kind: "equipment", instanceId: fittedBaseline.id })).toBe(
+      "graceWindow"
+    );
+  });
+
+  it("an INSTALLED baseline is never a candidate, whatever the rules say", () => {
+    const state = autoState([], { maxQuality: 5, duplicates: true });
+    // freshState's own four ship-1 baselines are installed, and every one of them must be safe.
+    const installedBaselines = state.equipment.filter(
+      (e) => e.fittedToShipId !== null && isStandardIssueBaseline(e)
+    );
+    expect(installedBaselines.length).toBeGreaterThan(0); // non-vacuity: there are some to protect
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+    for (const piece of installedBaselines) {
+      expect(autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: piece.id })).toBe("installed");
+    }
+  });
+
+  it("⚠️ a CONFIRM-ON Q0 protects every baseline, which is what a DEFAULT save has", () => {
+    // The shipped default asks about every quality tier, and a baseline is always Q0, so a player
+    // who has not opted Q0 out of confirmation cannot lose a baseline to the rules at all. This is
+    // the interlock, not the baseline reason, and it must not have been weakened by this change.
+    const base = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const guarded: GameState = { ...base, salvageConfirmQualities: [0] };
+    expect(selectAutoSalvageTargets(guarded, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: "eq-baseline" })).toBe(
+      "confirmTier"
+    );
+  });
+
+  it("a QUEUED baseline is not queued a second time", () => {
+    const base = autoState([baselinePiece("eq-baseline")], { maxQuality: 0 });
+    const state: GameState = {
+      ...base,
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-baseline" }, mode: { kind: "batch", remaining: 1 } },
+        },
+      ],
+    };
+    expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: "eq-baseline" })).toBe("reserved");
+  });
+
+  // ---- THE CONSOLE'S CONFIRM TRIGGER ----------------------------------------------------
+  // The dialog itself is Svelte and cannot be unit-tested here, which is exactly why its
+  // CONDITION is a pure engine function. These cases are the "fires on exactly the trigger and
+  // not otherwise" half of the feature.
+  describe("autoSalvageDuplicatesOffWarnsAboutBaselines: the Duplicates-off confirm trigger", () => {
+    const rulesWith = (over: Partial<GameState["autoSalvage"]>) => autoState([], over).autoSalvage;
+
+    it("FIRES when Duplicates goes off while another rule still reaches Standard-Issue gear", () => {
+      // Both of the band-naming rules, because either one alone leaves the player in the
+      // configuration the warning is about.
+      expect(
+        autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: true, maxQuality: 0 }), false)
+      ).toBe(true);
+      expect(
+        autoSalvageDuplicatesOffWarnsAboutBaselines(
+          rulesWith({ duplicates: true, rarities: raritySelection(["standard"]) }),
+          false
+        )
+      ).toBe(true);
+    });
+
+    it("does NOT fire when switching Duplicates ON", () => {
+      // Switching it on can only ever narrow what happens to baselines (it adds a keeper), so
+      // there is nothing to warn about and a dialog there would train the player to dismiss them.
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, maxQuality: 0 }), true)).toBe(
+        false
+      );
+    });
+
+    it("does NOT fire when Duplicates is ALREADY off (a repeated write is not a transition)", () => {
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, maxQuality: 0 }), false)).toBe(
+        false
+      );
+    });
+
+    it("⚠️ does NOT fire when the remaining rules do not reach Standard-Issue gear at all", () => {
+      // With no quality rule and no Standard band, switching Duplicates off makes baselines FULLY
+      // protected again, so a warning here would be about a change that REMOVES the risk.
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: true }), false)).toBe(false);
+      expect(
+        autoSalvageDuplicatesOffWarnsAboutBaselines(
+          rulesWith({ duplicates: true, rarities: raritySelection(["stellar"]) }),
+          false
+        )
+      ).toBe(false);
+    });
+
+    it("does not fire on an absent rule set", () => {
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(undefined, false)).toBe(false);
+    });
+
+    it("is blind to the master switch, so the warning cannot be skipped by configuring while off", () => {
+      // The rules can be switched on a second later, so keying the warning to `enabled` would warn
+      // or not by accident of the order the player clicks things in.
+      for (const enabled of [true, false]) {
+        expect(
+          autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ enabled, duplicates: true, maxQuality: 0 }), false)
+        ).toBe(true);
+      }
+    });
   });
 });
 
@@ -3937,6 +4256,76 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     // the cause and not the fixture.
     const unpinned = tick(SPAN, autoParityState(), mulberry32(SEED));
     expect(unpinned.equipment.some((e) => e.id === "eq-000")).toBe(false);
+  });
+
+  // --- 0.13.3.1 FOLLOW-UP: A BASELINE TAKEN UNDER THE NEW CONDITION, PROVEN OFFLINE ------
+  // ⚠️ THE PARITY CASE THE CONDITIONAL PROTECTION NEEDS. Selection runs at the head of every
+  // tick, in the offline catch-up as well as live, and the `baseline` predicate now reads the
+  // player's RULES rather than being a constant. A rule set is a saved field, so this must land
+  // identically on both paths: if it ever did not, a player would come back from being away to
+  // find Standard-Issue gear destroyed that the live path had spared (or the reverse, an
+  // automation that only works while they watch).
+  //
+  // The CONTROL underneath is the important half: the same span, with a rule set that does NOT
+  // reach a baseline, leaves all three baselines standing. Without it this case would pass for a
+  // selector that had simply stopped protecting baselines at all.
+  it("⚠️ parity: a spare BASELINE the rules reach is taken identically offline and live", () => {
+    // The fixture's maxQuality 1 reaches a Q0 Standard-Issue baseline, so these three are
+    // eligible under the new condition. They sit alongside the twelve crafted spares, so the bay
+    // is busy and the rules keep firing across the span.
+    const BASELINE_IDS = ["eq-si-1", "eq-si-2", "eq-si-3"];
+    function baselineState(rules: Partial<GameState["autoSalvage"]> = {}): GameState {
+      const base = autoParityState();
+      return {
+        ...base,
+        autoSalvage: { ...base.autoSalvage, ...rules },
+        equipment: [
+          ...base.equipment,
+          ...BASELINE_IDS.map((id) => autoPiece({ id, blueprintKey: null, quality: 0 })),
+        ],
+      };
+    }
+    // "The rules took it": already broken down, or standing in the Terminal's own queue with its
+    // fate sealed. Both count, for the same throughput reason the hull-teardown case records.
+    function claimed(state: GameState, id: string): boolean {
+      if (!state.equipment.some((e) => e.id === id)) return true;
+      return (state.autoSalvageQueue ?? []).some(
+        (job) =>
+          job.order.type === "salvage" &&
+          job.order.target.kind === "equipment" &&
+          job.order.target.instanceId === id
+      );
+    }
+
+    const jumped = tick(SPAN, baselineState(), mulberry32(SEED));
+    let stepped = baselineState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    // Every baseline was claimed on BOTH paths, and the two runs agree on everything else.
+    for (const [label, run] of [["offline", jumped], ["live", stepped]] as const) {
+      for (const id of BASELINE_IDS) {
+        expect(claimed(run, id), `${id} must be taken on the ${label} run`).toBe(true);
+      }
+    }
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+    expect(jumped.nextQueueId).toBe(stepped.nextQueueId);
+
+    // ⚠️ THE CONTROL: the SAME span with a rule set that does not reach a baseline (only a
+    // stellar rarity band, no quality rule, no duplicates) leaves all three standing, on both
+    // paths. This is what proves the CONDITION is doing the work rather than the protection
+    // having been deleted.
+    const unreachedRules = { maxQuality: null, duplicates: false, rarities: raritySelection(["stellar"]) };
+    const jumpedSafe = tick(SPAN, baselineState(unreachedRules), mulberry32(SEED));
+    let steppedSafe = baselineState(unreachedRules);
+    const safeRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) steppedSafe = economyTick(steppedSafe, 1, safeRng);
+    for (const [label, run] of [["offline", jumpedSafe], ["live", steppedSafe]] as const) {
+      for (const id of BASELINE_IDS) {
+        expect(claimed(run, id), `${id} must SURVIVE the ${label} run`).toBe(false);
+      }
+    }
+    expect(salvageFingerprint(jumpedSafe)).toEqual(salvageFingerprint(steppedSafe));
   });
 
   it("⚠️ parity: a WITHIN-GRACE spare survives offline AND live, and its window really expires", () => {
