@@ -171,6 +171,26 @@ export function salvageReservations(state: GameState): SalvageReservations {
     bin(job.order.target, salvageOrderUnits(job.order), instanceIds, shipIds, materialCounts);
   }
 
+  // --- THE AUTO-SALVAGE TERMINAL'S QUEUE (2026-09-11) -----------------------
+  // ⚠️ THE THIRD SOURCE, AND IT IS NOT OPTIONAL. The Terminal keeps the automation's waiting
+  // orders in their OWN array (GameState.autoSalvageQueue) so it can never consume the
+  // player's queue depth. That separation must NOT reach the reservation set: a piece the
+  // automation has queued is exactly as spoken for as one the player queued, and if this loop
+  // were missing, that piece could be installed on a ship and then destroyed under the pilot,
+  // or queued a second time by hand. It feeds the SAME bin() the other two sources do, so all
+  // three reserve identically by construction rather than by three hand-kept-in-sync copies.
+  //
+  // It is also what lets enqueueAutoSalvageOrder's duplicate refusal see the player's own
+  // queue and the player's enqueue gate see the automation's: one piece, one teardown,
+  // whoever asked first.
+  //
+  // `?? []` for the same defensive reason as the loop above: the field is additive as of
+  // SAVE_VERSION 44 and an older fixture can legitimately not carry it.
+  for (const job of state.autoSalvageQueue ?? []) {
+    if (job.order.type !== "salvage") continue;
+    bin(job.order.target, salvageOrderUnits(job.order), instanceIds, shipIds, materialCounts);
+  }
+
   // --- IN-FLIGHT JOBS (Unit 2.2, the extension point Unit 2.1 marked) --------
   // The second source. Narrows on the EFFECT, not on process.kind, for two reasons:
   //   1. the effect is what carries the target, so this is the narrowing that actually

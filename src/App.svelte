@@ -267,11 +267,14 @@
     normalizeAutoSalvageRarities,
     autoSalvageRarityRuleOn,
     type AutoSalvageRaritySelection,
-    // 0.13.3.1: the post-craft grace period's option list (the dropdown's data: adding an
-    // option is a one-line change THERE, not here), its default, and the defensive resolver.
+    // 0.13.3.1: the grace period's option list (the dropdown's data: adding an option is a
+    // one-line change THERE, not here), its default, and the defensive resolver.
     AUTO_SALVAGE_GRACE_OPTIONS,
     AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
     resolveAutoSalvageGraceSeconds,
+    // The ONE writer of the grace stamp, shared with the engine's mint and uninstall routes, so
+    // a dev-minted spare gets the same window a real craft gets instead of arriving unstamped.
+    startAutoSalvageGrace,
     // 0.13.3 Unit 4.4b: the completed-events record and its per-item reward line. Read by
     // the Salvage Bay so its "Last salvage" readout can print the real material manifest
     // again (Unit 4.4 had to drop it: the manifest is produced inside the tick and there
@@ -414,10 +417,10 @@
   //
   // 0.13.3.1: autoSalvageProtectionForTarget answers "WHY is this spare off limits to the
   // automation" as a NAMED reason (baseline / installed / reserved / confirmTier / favorited /
-  // craftGrace) rather than as a bare boolean, which is what lets the selected-spare panel say
+  // graceWindow) rather than as a bare boolean, which is what lets the selected-spare panel say
   // it out loud. autoSalvageGraceRemainingSeconds is the shared grace math, so the console's
-  // countdown and the engine's own filter can never disagree about whether a freshly crafted
-  // piece is still protected.
+  // countdown and the engine's own filter can never disagree about whether a just-crafted or
+  // just-uninstalled piece is still protected.
   import {
     salvageShip,
     salvageReservations,
@@ -678,6 +681,10 @@
     // Read for the Upgrades tab's current -> next readout and as the queue panel's slot
     // fallback, through the SAME helper the queue adapter's free-slot gate uses.
     salvageSlotCount,
+    // Auto-Salvage Terminal (2026-09-11): the live lane SPLIT (general lanes, the Terminal's
+    // own lane, and how many general lanes the automation is currently borrowing). The manual
+    // queue panel reads the borrowed count so a player whose order is waiting can see WHY.
+    salvageLaneUsage,
     type SalvageJobProcess,
   } from "./lib/game/tick";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
@@ -687,6 +694,11 @@
   // order, borrowed here so an enqueue log line names the order exactly as its row does.
   import {
     buildCraftQueue,
+    // Auto-Salvage Terminal (2026-09-11): the automation's own pipeline as a pure view model
+    // (its lane, its borrowed general lanes, its running jobs, and the total item count the
+    // user asked for by name). Bound like every other queue readout, so the panel derives
+    // nothing of its own.
+    buildAutoSalvageTerminal,
     queuedOrderLabel,
     type CraftQueueRow,
     type CraftQueueView,
@@ -3587,10 +3599,10 @@
     });
     state = {
       ...state,
-      // 0.13.3.1: stamped with the game clock exactly as the Fabricator's own mint is
-      // (tick.ts), so a dev-granted spare behaves like a real craft under the post-craft
+      // 0.13.3.1: the grace window is started with the game clock exactly as the Fabricator's
+      // own mint does it (tick.ts), so a dev-granted spare behaves like a real craft under the
       // auto-salvage grace instead of arriving stamp-less and immediately sweepable.
-      equipment: [...state.equipment, { ...piece, mintedAtGameSeconds: state.gameTimeSeconds }],
+      equipment: [...state.equipment, startAutoSalvageGrace(piece, state.gameTimeSeconds)],
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
@@ -3666,9 +3678,9 @@
     }
     state = {
       ...state,
-      // 0.13.3.1: same game-clock mint stamp as devGrantEquipment above and as the real
-      // Fabricator mint, so QA gear is subject to the same post-craft grace as a real craft.
-      equipment: [...state.equipment, { ...piece, mintedAtGameSeconds: state.gameTimeSeconds }],
+      // 0.13.3.1: same game-clock grace stamp as devGrantEquipment above and as the real
+      // Fabricator mint, so QA gear is subject to the same grace window as a real craft.
+      equipment: [...state.equipment, startAutoSalvageGrace(piece, state.gameTimeSeconds)],
       nextEquipmentId: state.nextEquipmentId + 1,
     };
     doSave();
@@ -4567,6 +4579,17 @@
   $: autoSalvageGraceLabel =
     AUTO_SALVAGE_GRACE_OPTIONS.find((opt) => opt.seconds === autoSalvageGraceSeconds)?.label ??
     `${Math.round(autoSalvageGraceSeconds / 60)} minutes`;
+  // Has the player opted OUT of the grace entirely (the "No grace period" option)?
+  //
+  // Read off the RESOLVED length rather than the raw saved field, so it can only ever be true
+  // for a deliberate 0: an absent or malformed value resolves to the 60-minute default above and
+  // lands here as false. That matters because this flag drives a WARNING, and a warning shown to
+  // a player who never chose this would be a lie about their own save.
+  //
+  // Three paragraphs on the Rules tab branch on it, and they all have to: at zero grace the
+  // "skipped for 60 minutes" summary, the safety-guarantee list's "never take one you have only
+  // just crafted" clause, and the absence of a warning would each be stating something untrue.
+  $: autoSalvageGraceOff = autoSalvageGraceSeconds === 0;
 
   // Every quality tier, ascending: the same 0..QUALITY_TIERS-1 ladder the confirm
   // checkboxes render, derived from the same constant so the two controls can never
@@ -4695,9 +4718,15 @@
         : "No spare system would qualify right now.";
     }
     const subject = count === 1 ? "1 spare system qualifies" : `${count} spare systems qualify`;
+    // ⚠️ "a few at a time" WAS TRUE OF THE DEPTH RATION AND IS NOT TRUE ANY MORE
+    // (Auto-Salvage Terminal, 2026-09-11). The rules used to be bounded to a couple of orders
+    // per tick by the queue depth; they now queue every qualifying spare at once onto the
+    // Terminal's own unbounded waiting list and work through it one at a time. Saying "a few
+    // at a time" would understate what the player is about to switch on, which is exactly the
+    // wrong direction to be vague in for a destructive automation.
     return enabled
-      ? `${subject} right now, queued a few at a time as bays free up.`
-      : `${subject} right now and would start queueing as soon as you switch this on.`;
+      ? `${subject} right now and are lined up at the Auto-Salvage Terminal, broken down one at a time; new ones are picked up as they appear.`
+      : `${subject} right now and would all be lined up at the Auto-Salvage Terminal as soon as you switch this on, broken down one at a time.`;
   }
 
   // The three writers. Each rebuilds the rules object rather than mutating it, both
@@ -4786,7 +4815,11 @@
     reserved: "Already queued or being broken down, so the rules will not touch it again.",
     confirmTier: "Its quality tier is set to ask you first under Confirm before salvaging, and auto-salvage never answers a confirmation for you.",
     favorited: "Favorited, so auto-salvage will never take it. You can still salvage it yourself.",
-    craftGrace: "Recently crafted, so auto-salvage is leaving it alone for now.",
+    // ⚠️ IT MUST NOT SAY "just crafted". The same window starts when a piece is UNINSTALLED, and
+    // the uninstall case is the one a player is most likely to be looking at (they took the piece
+    // off a ship a moment ago and are deciding what to do with it). A sentence naming only the
+    // craft would read as wrong information about the item in front of them, so it names both.
+    graceWindow: "Recently crafted or uninstalled, so auto-salvage is leaving it alone for now.",
   };
 
   // The protection reason for ONE spare, resolved against the live state. Called for the
@@ -4801,8 +4834,10 @@
     return autoSalvageProtectionForTarget(s, { kind: "equipment", instanceId });
   }
 
-  // "about 12 minutes" / "about 2 hours" for the remaining grace on a freshly crafted spare, or
-  // null when it is not inside a grace window at all. Rounded up to the next whole minute,
+  // "about 12 minutes" / "about 2 hours" for the remaining grace on a just-crafted or
+  // just-uninstalled spare, or null when it is not inside a grace window at all. The two causes
+  // share one window, so this does not need to know which one started it (see
+  // startAutoSalvageGrace, model.ts). Rounded up to the next whole minute,
   // because a countdown that reads "0 minutes" while the piece is still protected is worse than
   // one that is a few seconds generous.
   function systemGraceRemainingText(s: GameState, piece: EquipmentInstance): string | null {
@@ -7007,8 +7042,23 @@
   // they name it through THIS one fragment so the singular/plural agreement is written once
   // rather than re-derived at four call sites. Reads salvageBaySlots (which is
   // salvageSlotCount), so it can never disagree with the engine's own free-slot gate.
+  // ⚠️ IT NAMES THE GENERAL LANES, WHICH IS EXACTLY RIGHT FOR EVERY SENTENCE THAT USES IT
+  // (Auto-Salvage Terminal, 2026-09-11). All four call sites describe what happens to an order
+  // THE PLAYER is about to place, and a player's order may only ever run on a general lane, so
+  // salvageBaySlots (salvageSlotCount) is still the honest number and this fragment is
+  // unchanged. The Terminal's own lane is reported in the Terminal's own panel, where it
+  // belongs; folding it in here would promise the player capacity the engine will refuse them.
   $: salvageBayCapacityPhrase =
     salvageBaySlots === 1 ? "1 salvage bay runs at once" : `${salvageBaySlots} salvage bays run at once`;
+  // ── The AUTO-SALVAGE TERMINAL (2026-09-11) ─────────────────────────────────
+  // The automation's own pipeline, as one pure view model. Everything the Terminal panel
+  // renders comes from here, and every number in it is the engine's own (salvageLaneUsage,
+  // salvageJobsInFlight, the Terminal queue), so the panel re-derives nothing.
+  $: salvageTerminal = buildAutoSalvageTerminal(state);
+  // The live lane split, read here as well because the MANUAL queue panel needs the borrowed
+  // count to explain why a player's own order is waiting. Same call the view model makes, so
+  // the two panels cannot disagree about how many bays the automation is using.
+  $: salvageLanes = salvageLaneUsage(state);
   // The next rung (upgrades[level]; the track caps at length 2 today). salvageBayMaxed is an
   // EXPLICIT length check for the same noUncheckedIndexedAccess reason fabricatorMaxed is, so
   // nextSalvageBayUpgrade stays non-undefined-typed inside the {:else} branch.
@@ -7699,6 +7749,19 @@
     <div class="research-cost">
       Salvage bays: {view.runningCount} / {view.slotsTotal ?? salvageBaySlots} in use
     </div>
+    <!-- ⚠️ THE BORROWED-BAY LINE (Auto-Salvage Terminal, 2026-09-11), and it is the answer to
+         "why is my order waiting when I only queued one thing?". Auto-salvage may borrow a
+         general bay that has been idle for a while, and it is never preempted, so a player's
+         own order can sit waiting behind automation work. Without this line a borrowed bay is
+         indistinguishable from the bay simply being slow, which is exactly the visibility
+         failure the queue-full popup was added to fix earlier in this release.
+         Rendered ONLY when a bay is actually borrowed, so the common case gains no noise.
+         The running card for that bay names it too ("auto-salvage, borrowed bay"). -->
+    {#if salvageLanes.autoBorrowedGeneral > 0}
+      <div class="research-cost" style="color: var(--color-accent)">
+        {salvageLanes.autoBorrowedGeneral} of them borrowed by the Auto-Salvage Terminal. Your orders take priority and claim each bay back as it frees.
+      </div>
+    {/if}
 
     {#if view.running.length === 0}
       <!-- ⚠️ Salvage Lanes (2026-09-04): the idle line used to read "The bay is idle", a
@@ -7719,7 +7782,12 @@
     {:else}
       {#each view.running as job (job.id)}
         <div class="mission-card" style="margin-top: 10px;">
-          <div class="research-name">BAY · BREAKING DOWN</div>
+          <!-- ⚠️ THE HEADER NAMES WHOSE WORK IT IS (Auto-Salvage Terminal, 2026-09-11). A
+               borrowed bay is running the automation's order, not the player's, and the row
+               has to say so or the player reads it as an order they do not remember placing.
+               modeLabel comes from the view model (craftQueue.ts's salvageRunningRows), which
+               decides borrowed-versus-manual by the SAME rule the lane counts use. -->
+          <div class="research-name">BAY · {job.modeLabel === "salvage" ? "BREAKING DOWN" : "AUTO-SALVAGE, BORROWED BAY"}</div>
           <!-- Named through the same salvageTargetLabel a QUEUED row uses, so a target
                does not change vocabulary the moment it promotes. -->
           <div class="research-cost">[{job.label}]</div>
@@ -10455,6 +10523,13 @@
               <p class="research-status">
                 Salvaging is a job the bay runs over time ({salvageBayCapacityPhrase}), and anything beyond that waits in the queue. Queued orders keep their target reserved and continue while you are away.
               </p>
+              <!-- ⚠️ The Auto-Salvage Terminal (2026-09-11). The explainer owes the player one
+                   more sentence, because the bay now has TWO pipelines and only one of them is
+                   theirs. Saying so here is what stops the Terminal's own section further down
+                   from reading as a duplicate of the salvage queue. -->
+              <p class="research-status">
+                Auto-salvage runs on its own separate bay, the Auto-Salvage Terminal, so it never takes a salvage bay your own orders need. It may borrow a salvage bay that has been sitting idle, and gives it straight back: your orders always come first.
+              </p>
             </Panel>
             {/if}
 
@@ -10679,10 +10754,17 @@
                 Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now.
               </p>
 
-              <!-- ============ THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3) ============
-                   A freshly crafted spare is left alone for this long, so a craft cannot be
-                   swept away before you have looked at it. Measured in GAME time, so it keeps
-                   running down while the game is closed, exactly as the rules themselves do.
+              <!-- ============ THE GRACE PERIOD (0.13.3.1 Feature 3) ============
+                   A spare that was just crafted, or that you just uninstalled from a ship, is
+                   left alone for this long. Measured in GAME time, so it keeps running down
+                   while the game is closed, exactly as the rules themselves do.
+
+                   ⚠️ THE UNINSTALL HALF IS NOT COSMETIC. The rules never touch INSTALLED gear,
+                   so without this window a piece went from permanently protected to fully
+                   eligible the instant it came off a ship: swap a reactor for a better one and
+                   the old one could be queued before you went to put it back. Favoriting would
+                   stop that, but a destructive default must not depend on having opted in.
+                   Every sentence on this control therefore names BOTH causes.
 
                    ⚠️ THIS CONTROL'S FINAL HOME IS Options > Gameplay (0.13.5, SUGGESTIONS.md
                    "AUTOMATION RULES ALSO BELONG UNDER OPTIONS"). That tab does not exist yet, so
@@ -10693,12 +10775,12 @@
                    one-line data change in model.ts and needs no edit here. -->
               <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px;">
                 <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  Leave new crafts alone for
+                  Leave just-crafted and just-uninstalled systems alone for
                   <select
                     class="modal-input"
                     value={String(autoSalvageGraceSeconds)}
                     on:change={(e) => doSetAutoSalvageGrace((e.target as HTMLSelectElement).value)}
-                    aria-label="Auto-salvage grace period for newly crafted systems"
+                    aria-label="Auto-salvage grace period for newly crafted and newly uninstalled systems"
                   >
                     {#each AUTO_SALVAGE_GRACE_OPTIONS as opt (opt.seconds)}
                       <option value={String(opt.seconds)}>{opt.label}</option>
@@ -10706,9 +10788,36 @@
                   </select>
                 </label>
               </div>
-              <p class="research-status">
-                A system you just crafted is skipped by these rules for {autoSalvageGraceLabel} of game time, so a good roll is never swept away before you see it. Installing it protects it outright, and favoriting it protects it for good.
-              </p>
+              <!-- ⚠️ TWO PARAGRAPHS, AND WHICH ONE SHOWS IS THE WHOLE FEATURE.
+                   With a grace length chosen, the explanation below is the shipped one, unchanged.
+                   With "No grace period" chosen, that sentence would read "skipped for No grace
+                   period of game time", which is both broken prose and the OPPOSITE of what is
+                   happening, so the branch replaces it with the warning rather than patching the
+                   wording. The warning is PERSISTENT (it stays for as long as the setting is
+                   active) and not a confirm dialog: this is a setting, not an act, so the risk is
+                   ongoing rather than momentary and a dialog the player dismisses once would stop
+                   telling them about a state that has not stopped. It uses the panel's existing
+                   .cq-note-warn treatment, the same one the dead-end eligibility states use, so
+                   there is no new idiom to learn or maintain.
+                   It also names the protections that DO still hold, because those six reasons are
+                   independent filters in the engine (AutoSalvageProtection, salvage.ts) and the
+                   grace is only one of them: a player switching this on is trusting the other
+                   five, and the panel should say so rather than leave them to hope. -->
+              {#if autoSalvageGraceOff}
+                <p class="cq-note cq-note-warn">
+                  <strong>No grace period.</strong>
+                  {#if autoSalvageRules.enabled}
+                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules is queued for salvage immediately, with no window in which to look at it and keep it.
+                  {:else}
+                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules will be queued for salvage immediately the moment you switch these rules on, with no window in which to look at it and keep it.
+                  {/if}
+                  Every other protection still holds: an installed system, a Standard-Issue baseline, a favorited system, one already queued, and any quality tier set to ask you first are all still safe. To get the window back, pick a length above.
+                </p>
+              {:else}
+                <p class="research-status">
+                  A system you just crafted, or just uninstalled from a ship, is skipped by these rules for {autoSalvageGraceLabel} of game time. So a good roll is never swept away before you see it, and a system you took off to try something else is still there when you go to put it back. Installing it protects it outright, and favoriting it protects it for good.
+                </p>
+              {/if}
 
               <!-- The duplicates rule's semantics used to be explained here, three paragraphs
                    away from the checkbox that switches it on. The 0.13.3.1 QA reorder moved the
@@ -10755,32 +10864,36 @@
                    player has to be able to trust it before they switch it on. Each clause is a
                    filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
               <!-- 0.13.3.1: the list gained its fifth and sixth clauses (favorited, and the
-                   post-craft grace), which are the two new protections. Every clause here is a
+                   grace window), which are the two new protections. Every clause here is a
                    reason that genuinely exists in the engine's AutoSalvageProtection union
                    (salvage.ts), not a reassurance, and the union is what makes that checkable. -->
+              <!-- ⚠️ THE SIXTH CLAUSE IS CONDITIONAL, because the player can now switch that one
+                   protection off. Every clause here is a promise about the engine's behavior, so
+                   "never take one you have only just crafted or only just uninstalled" must
+                   disappear the moment the grace is 0 rather than sit here contradicting the
+                   warning above it. The other five are unconditional in the engine and stay
+                   unconditional here. It names BOTH causes because one window covers both (see
+                   startAutoSalvageGrace, model.ts): naming only the craft would be a promise the
+                   engine keeps more of than the sentence admits, which is its own kind of wrong. -->
               <p class="research-status">
-                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, never take a system you have favorited, and never take one you have only just crafted. It only adds orders to the queue on the Salvage tab, where you can remove one before it starts.
+                It will never touch an installed system, never destroy a Standard-Issue baseline (those yield nothing, so removing one stays a deliberate manual choice), never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, {#if autoSalvageGraceOff}and never take a system you have favorited.{:else}never take a system you have favorited, and never take one you have only just crafted or only just uninstalled.{/if} It only adds orders to the Auto-Salvage Terminal, shown under the salvage queue on the Salvage tab, and turning these rules off clears everything still waiting there.
               </p>
-              <!-- ⚠️ THE HEADROOM, STATED HONESTLY AT BOTH DEPTHS (0.13.3 holistic pass).
-                   The engine is `depth <= 1 ? depth : depth - AUTO_SALVAGE_MANUAL_HEADROOM`
-                   (autoSalvageOrders, tick.ts), so the reserved slot EXISTS only from depth 2
-                   up. The shipped sentence promised "once your queue holds more than one
-                   order it always leaves a slot free", which is vacuous at the base depth of
-                   1 that every player without a Fleet Logistics node is on: there, the rules
-                   can and will take the only slot. So the branch names the live depth and
-                   tells a base-depth player both the escape (remove the auto order and queue
-                   your own, which the rules cannot take back while the queue is full) and
-                   the fix (deepen the queue). The guarantee is NOT weakened where it holds:
-                   the depth >= 2 branch states it as the hard rule it is. -->
-              {#if salvageBayQueue.depthTotal <= 1}
-                <p class="research-status">
-                  Your queue depth is {salvageBayQueue.depthTotal}, so these rules can use all of it and no slot is held back for you. To work alongside them, remove their order and queue your own in its place: with the queue full they will not take the slot back. Deepen the queue via Homeworld Talents → Fleet Logistics (Standing Orders) and they will always leave one slot free for you.
-                </p>
-              {:else}
-                <p class="research-status">
-                  Your queue depth is {salvageBayQueue.depthTotal}, so these rules use at most {salvageBayQueue.depthTotal - 1} of it and always leave one slot free for your own work.
-                </p>
-              {/if}
+              <!-- ⚠️ REPLACES THE HEADROOM PARAGRAPHS (Auto-Salvage Terminal, 2026-09-11).
+                   What stood here was a two-branch explanation of AUTO_SALVAGE_MANUAL_HEADROOM:
+                   at depth 2+ the rules left the player one queue slot, and at depth 1 they
+                   honestly admitted they could take the only one. BOTH branches described
+                   auto-salvage and the player COMPETING for one queue, and they no longer do:
+                   the rules write to the Terminal's own unbounded queue and cannot reach the
+                   player's at any depth. The constant is gone from the engine, so the sentence
+                   that explained it had to go from the console: an unconditional, stronger
+                   promise replaces a conditional, weaker one. The depth-1 player, who used to
+                   be the one told the guarantee did not apply to them, is the one this helps
+                   most. Queue depth is still named because it is still what bounds the PLAYER'S
+                   own orders, and a player reading this panel should not conclude it has
+                   stopped mattering. -->
+              <p class="research-status">
+                These rules run on the Auto-Salvage Terminal, a separate bay with its own waiting list, so they never use your queue depth ({salvageBayQueue.depthTotal} at the Salvage Bay) and never take a salvage bay your own orders need. The Terminal will borrow one of your salvage bays if it has been sitting idle, and your orders take it straight back as soon as the borrowed teardown finishes.
+              </p>
             </Panel>
             {/if}
 
@@ -10801,6 +10914,88 @@
                  tiles, which is the load-bearing half of that reasoning and the reason this
                  panel's own empty states can go on saying the tiles are "below". -->
             {@render salvageBayQueuePanel(salvageBayQueue)}
+
+            <!-- ============ THE AUTO-SALVAGE TERMINAL (2026-09-11) =====================
+                 The automation's own pipeline, given its own section directly UNDER the
+                 salvage queue, which is where the user asked for it: visible "under the
+                 salvage yard (not on the home screen, as it doesn't fit the need), so you can
+                 see if something is being auto-salvaged and so forth. Plus a count of total
+                 items queued for auto-salvage."
+
+                 ⚠️ NOTHING ABOUT IT GOES ON THE HOME DASHBOARD, by that same instruction. That
+                 is also why the Terminal is NOT a seventh QueueFacilityKey: buildAllCraftQueues
+                 walks the facility tuple to build both the Facilities cards and Home's "a free
+                 bay is waiting" prompts, so a seventh key would have put it on Home
+                 automatically. See buildAutoSalvageTerminal's header.
+
+                 EVERY NUMBER HERE IS THE ENGINE'S OWN, through salvageTerminal; this section
+                 derives nothing. It reuses the surrounding Panel / research-cost /
+                 research-status / mission-card tokens rather than introducing styling, exactly
+                 as the queue panel above it does. -->
+            <Panel>
+              <div class="panel-title">AUTO-SALVAGE TERMINAL</div>
+
+              {#if !salvageTerminal.enabled}
+                <!-- OFF is a different statement from IDLE, and the section says which. Zero
+                     running and zero queued would otherwise read as "the automation is stuck". -->
+                <p class="research-status">
+                  Off. Turn auto-salvage on under Rules to have the Terminal break down spare systems on its own bay, without ever using the salvage bays your own orders run on.
+                </p>
+              {:else}
+                <!-- THE TERMINAL'S OWN CAPACITY, stated before its work, the same order the
+                     salvage queue panel above uses. The Terminal lane is auto-only: nothing the
+                     player queues can ever take it, which is the guarantee that keeps a full
+                     spare pool from halting crafting. -->
+                <div class="research-cost">
+                  Terminal bay: {salvageTerminal.terminalUsed} / {salvageTerminal.terminalLanes} in use
+                </div>
+                {#if salvageTerminal.borrowedGeneral > 0}
+                  <!-- THE OTHER HALF OF THE BORROWED-BAY VISIBILITY REQUIREMENT. The salvage
+                       queue panel says a bay is borrowed; this says who borrowed it, so the two
+                       readouts explain each other instead of each telling half a story. -->
+                  <div class="research-cost" style="color: var(--color-accent)">
+                    Plus {salvageTerminal.borrowedGeneral} of your {salvageTerminal.generalLanes} salvage bay{salvageTerminal.generalLanes === 1 ? "" : "s"}, borrowed while idle
+                  </div>
+                {/if}
+                <!-- THE COUNT THE USER ASKED FOR BY NAME. One entry is one item: the rules only
+                     ever queue single-unit orders, so there is no batch to expand. There is no
+                     cap to print beside it either, deliberately: this queue is unbounded. -->
+                <div class="research-cost">
+                  Queued for auto-salvage: {salvageTerminal.queuedCount} item{salvageTerminal.queuedCount === 1 ? "" : "s"}
+                </div>
+
+                {#if salvageTerminal.running.length === 0}
+                  <p class="research-status" style="margin-top: 8px;">
+                    {#if salvageTerminal.queuedCount > 0}
+                      Waiting for its bay to free up.
+                    {:else}
+                      Idle. Nothing in your spares matches your rules right now.
+                    {/if}
+                  </p>
+                {:else}
+                  {#each salvageTerminal.running as job (job.id)}
+                    <div class="mission-card" style="margin-top: 10px;">
+                      <div class="research-name">AUTO · BREAKING DOWN</div>
+                      <!-- Named through the same salvageTargetLabel the manual rows use, so a
+                           piece reads identically whichever pipeline is tearing it down. -->
+                      <div class="research-cost">[{job.label}]</div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{Math.min(100, job.progress * 100)}%"></div>
+                      </div>
+                      <!-- Raw ticks from the view model, formatted by the SHARED readout helper
+                           with the player's showTickCounts preference (preservation inventory
+                           0.1 + 0.2). No Cancel, for the same reason the manual rows have none:
+                           an in-flight salvage is committed work. -->
+                      <div class="research-readout">
+                        {job.remainingTicks !== null && job.durationTicks !== null
+                          ? remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)
+                          : "In progress"}
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              {/if}
+            </Panel>
 
             <!-- LAST SALVAGE readout (0.11.2 Task 12, re-sourced in 0.13.3 Unit 4.4): a
                  "here is what happened" status shown after a job finishes, in ADDITION to
@@ -11331,7 +11526,7 @@
                        changes (the stale-derivation trap, see systemSalvageState). -->
                   {#if autoSalvageRules.enabled}
                     {@const protection = systemAutoSalvageProtection(state, sys.id)}
-                    {@const graceLeft = protection === "craftGrace" ? systemGraceRemainingText(state, sys) : null}
+                    {@const graceLeft = protection === "graceWindow" ? systemGraceRemainingText(state, sys) : null}
                     {#if protection !== null}
                       <span class="systems-salvage-none">
                         Auto-salvage: {AUTO_SALVAGE_PROTECTION_TEXT[protection]}{#if graceLeft !== null}{" "}({graceLeft}){/if}
@@ -11379,8 +11574,17 @@
               <div class="research-cost">
                 Salvage bays: {salvageBaySlots} running at once
               </div>
+              <!-- ⚠️ THIS TRACK BUYS THE PLAYER'S OWN BAYS, NOT THE TERMINAL'S (Auto-Salvage
+                   Terminal, 2026-09-11). The number above is salvageSlotCount, which is the
+                   GENERAL lane count and is exactly what this track raises, so it is unchanged.
+                   What had to be added is the sentence saying the Terminal is a separate bay
+                   and is not included in it, or a player counting bays on the Salvage tab (where
+                   the Terminal's own readout sits) would find a number this tab does not show. -->
+              <div class="research-cost">
+                Plus 1 Auto-Salvage Terminal bay, not bought here
+              </div>
               <p class="research-status">
-                A bay is one teardown running at a time, so three bays chew three orders at once. This is separate from queue depth, which is how many orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
+                A bay is one teardown running at a time, so three bays chew three orders at once. These are YOUR bays: the Auto-Salvage Terminal has its own separate bay that this track does not change, and auto-salvage can never take one of yours (it only borrows one that has been sitting idle, and gives it back). This is also separate from queue depth, which is how many orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
               </p>
 
               {#if salvageBayMaxed}
@@ -11396,8 +11600,10 @@
                      effect, so the {:else} is defensive only. -->
                 {#if "addSalvageSlots" in eff}
                   <div class="research-cost">Grants: +{eff.addSalvageSlots} salvage bay{eff.addSalvageSlots === 1 ? "" : "s"}</div>
-                  <div class="research-cost">Current bays: {salvageBaySlots}</div>
-                  <div class="research-cost" style="color: var(--color-accent)">Next bays: {salvageBaySlots + eff.addSalvageSlots}</div>
+                  <!-- "your bays", not "bays": the Terminal's bay is not on this track and is
+                       not included in either number (Auto-Salvage Terminal, 2026-09-11). -->
+                  <div class="research-cost">Current bays of your own: {salvageBaySlots}</div>
+                  <div class="research-cost" style="color: var(--color-accent)">Next bays of your own: {salvageBaySlots + eff.addSalvageSlots}</div>
                 {/if}
                 <div class="research-cost">Duration: {durationReadout(nextSalvageBayUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 

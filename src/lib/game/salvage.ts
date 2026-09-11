@@ -59,7 +59,7 @@
 //   (re-exported from reservation.ts)    the DERIVED salvage-reservation helpers, 0.13.3
 //   AutoSalvageProtection + the seam     WHY a target is off limits to the automation, as one
 //                                        enumerable union + a TOTAL predicate record (0.13.3.1)
-//   autoSalvageGraceRemainingSeconds     the post-craft grace, in GAME seconds (0.13.3.1)
+//   autoSalvageGraceRemainingSeconds     the post-craft / post-uninstall grace, in GAME seconds
 //   selectAutoSalvageTargets             the PURE auto-salvage rule evaluator, 0.13.3 Unit 5.1
 //                                        (reads state, draws NO rng, returns targets only)
 // ============================================================================
@@ -82,10 +82,14 @@ import {
   isStandardIssueBaseline,
   rarityIndex,
   // 0.13.3.1: the per-rarity rule's model (a TOTAL record over EquipmentRarity, so a new band
-  // is a compile error there) and the post-craft grace period's resolver + default.
+  // is a compile error there) and the grace period's resolver + default.
   normalizeAutoSalvageRarities,
   autoSalvageRarityRuleOn,
   resolveAutoSalvageGraceSeconds,
+  // The ONE writer of EquipmentInstance.graceStartedAtGameSeconds. salvageShip below is the
+  // FOURTH uninstall route in the codebase (the other three are in equipment.ts), so it stamps
+  // the systems it returns to the spare pool exactly as those do.
+  startAutoSalvageGrace,
 } from "./model";
 // The DERIVED reservation pass (every queued OR in-flight salvage target). Imported as a
 // real binding here, because the re-export block below only FORWARDS the name to consumers
@@ -601,12 +605,27 @@ export function salvageShip(
   // systems (canFabricate), NOT returns from a scrapped hull. A player who overflows simply
   // cannot craft more until they trim the pool (via salvageEquipment) back under the cap; no
   // spare is ever destroyed by the cap here.
+  //
+  // ⚠️ EVERY RECOVERED PIECE ALSO GETS ITS AUTO-SALVAGE GRACE WINDOW RESTARTED, and this is the
+  // uninstall route where that matters MOST. Auto-salvage never touches INSTALLED gear, so the
+  // moment a hull is scrapped its whole loadout goes from permanently protected to fully eligible
+  // at once, and a player scrapping a hull is not thinking about the salvage rules at all: they
+  // would simply find the systems they had just recovered queued for destruction. The stamp gives
+  // the pooled systems the same head start a freshly crafted piece gets. See startAutoSalvageGrace
+  // (model.ts), which every uninstall route in equipment.ts calls for the same reason.
+  //
+  // ⚠️ GAME TIME, NEVER Date.now(): state.gameTimeSeconds, so a hull torn down by the TIMED
+  // salvageJob inside the offline catch-up stamps the identical value the same teardown stamps
+  // live. It is a pure read of state and draws no rng, so the documented draw order below is
+  // untouched.
   const equipment = state.equipment
     // Drop ONLY this hull's genuine Standard-Issue floors.
     .filter((e) => !(e.fittedToShipId === shipId && isStandardIssueBaseline(e)))
     // Recover EVERY other piece on this hull (crafted AND dev/valuable) to the spare pool.
     .map((e) =>
-      e.fittedToShipId === shipId && !isStandardIssueBaseline(e) ? { ...e, fittedToShipId: null } : e
+      e.fittedToShipId === shipId && !isStandardIssueBaseline(e)
+        ? startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds)
+        : e
     );
 
   // --- Unassign the captain --------------------------------------------------
@@ -712,7 +731,7 @@ function autoSalvageProtectedQualities(state: GameState): Set<number> | null {
 // Auto-salvage's safety filters used to be a run of unnamed `continue` lines inside
 // selectAutoSalvageTargets: never a baseline, never installed, never reserved, never a
 // confirm-ON tier. Four booleans was already at the edge of readable; this release adds two
-// more (favorited, within the post-craft grace) and the user has a third coming (gear sitting
+// more (favorited, within the grace window) and the user has a third coming (gear sitting
 // in an ARMORY LOADOUT, a later release). Six-plus scattered checks in a hot loop is how a
 // future reason gets added to five of the places that need it.
 //
@@ -759,8 +778,12 @@ export type AutoSalvageProtection =
   | "installed"   // fitted to a ship: in use, never a candidate
   | "reserved"    // already queued or in flight for salvage: never double-queued
   | "confirmTier" // the player asked to be ASKED about this quality tier
-  | "favorited"   // the player pinned this exact item (0.13.3.1 Feature 2)
-  | "craftGrace"; // freshly minted and still inside the post-craft grace (0.13.3.1 Feature 3)
+  | "favorited"    // the player pinned this exact item (0.13.3.1 Feature 2)
+  // ⚠️ "graceWindow", NOT "craftGrace". It was called craftGrace when only a MINT started the
+  // window; it now also starts on UNINSTALL, so a name saying "craft" would be wrong for every
+  // piece a player just took off a ship. The engine reason and the player-facing sentence both
+  // have to cover BOTH causes (see startAutoSalvageGrace, model.ts).
+  | "graceWindow"; // just crafted OR just uninstalled, still inside the grace (0.13.3.1 Feature 3)
 
 // The SUBJECT of a protection question: the target, plus whatever the save resolves it to.
 //
@@ -785,7 +808,7 @@ export interface AutoSalvageProtectionContext {
   // "protect EVERY tier" (see autoSalvageProtectedQualities above for why the missing case
   // must fail that way round).
   protectedQualities: Set<number> | null;
-  // The live post-craft grace length in GAME seconds, already resolved off the rules.
+  // The live grace length in GAME seconds, already resolved off the rules.
   graceSeconds: number;
 }
 
@@ -844,8 +867,11 @@ const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtect
   baseline: (_ctx, subject) => subject.piece !== undefined && isStandardIssueBaseline(subject.piece),
 
   // fittedToShipId is the single source of truth for where a piece lives; an installed piece
-  // is in use. (This is also what makes the grace period meaningful: it protects newly minted
-  // UNINSTALLED pieces, because installed ones were never candidates in the first place.)
+  // is in use.
+  // ⚠️ AND THIS IS EXACTLY WHY UNINSTALLING RESTARTS THE GRACE WINDOW. Because installed gear is
+  // never a candidate, the moment a piece stops being installed is the moment ALL of its
+  // protection would otherwise disappear, in one step, with no window. That cliff is the
+  // destructive gap the graceWindow reason below now covers for both of its causes.
   installed: (_ctx, subject) => subject.piece !== undefined && subject.piece.fittedToShipId !== null,
 
   // Already queued or already being broken down: the piece is spoken for, and queueing it
@@ -904,15 +930,22 @@ const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtect
     }
   },
 
-  // ⚠️ THE POST-CRAFT GRACE PERIOD (0.13.3.1 Feature 3): a piece minted moments ago is exempt
-  // for graceSeconds of GAME time, so a craft cannot be swept away before the player has
-  // looked at it. Measured on state.gameTimeSeconds, never Date.now(), because the tick that
-  // asks this question runs in the offline catch-up too (see mintedAtGameSeconds in model.ts).
+  // ⚠️ THE GRACE PERIOD (0.13.3.1 Feature 3): a piece that was CRAFTED or UNINSTALLED moments
+  // ago is exempt for graceSeconds of GAME time. Two moments, one window:
+  //   a fresh CRAFT is not swept away before the player has looked at it, and
+  //   a piece the player just UNINSTALLED is not swept away mid-swap. That second half closes a
+  //   real destructive gap: the `installed` reason above means gear on a ship is never a
+  //   candidate, so WITHOUT this the instant a piece came off it went straight from permanently
+  //   protected to fully eligible, and a player swapping systems could go to switch back and
+  //   find the old piece already queued. Favoriting would have prevented it, but a destructive
+  //   default must not depend on the player having opted in.
+  // Measured on state.gameTimeSeconds, never Date.now(), because the tick that asks this
+  // question runs in the offline catch-up too (see graceStartedAtGameSeconds in model.ts).
   //
   // A piece with NO stamp is PAST grace (see autoSalvageGraceRemainingSeconds): it predates
-  // the stamp, so the grace has nothing to measure. Non-gear targets have no mint stamp and no
-  // craft moment, so this reason cannot apply to them.
-  craftGrace: (ctx, subject) =>
+  // the stamp, so the grace has nothing to measure. Non-gear targets carry no stamp and have
+  // neither a craft moment nor an uninstall moment, so this reason cannot apply to them.
+  graceWindow: (ctx, subject) =>
     subject.piece !== undefined &&
     autoSalvageGraceRemainingSeconds(ctx.state, subject.piece, ctx.graceSeconds) > 0,
 };
@@ -960,16 +993,20 @@ export function autoSalvageProtectionForTarget(
 // ----------------------------------------------------------------------------
 // autoSalvageGraceRemainingSeconds
 // ----------------------------------------------------------------------------
-// How much of a piece's post-craft grace is LEFT, in game seconds. 0 means the grace is over
-// (or never applied), so a positive number is exactly "still protected". Shared by the
-// craftGrace predicate above and by the console's readout, so the engine and the UI can never
-// disagree about whether a piece is still inside its window.
+// How much of a piece's grace is LEFT, in game seconds. 0 means the grace is over (or never
+// applied), so a positive number is exactly "still protected". Shared by the graceWindow
+// predicate above and by the console's readout, so the engine and the UI can never disagree
+// about whether a piece is still inside its window.
+//
+// ONE MEASUREMENT, TWO CAUSES: the stamp it reads restarts on a MINT and on an UNINSTALL alike
+// (startAutoSalvageGrace, model.ts), so this function does not know or care which one happened.
+// That is the point of keeping it one field: there is one window to measure, not two.
 //
 // `graceSeconds` is passed in so a caller that already resolved it (the selector, once per
 // pass) does not re-resolve it per piece; it defaults to resolving off the state's own rules
 // for a one-off UI call.
 //
-// ⚠️ NO STAMP = NO GRACE (returns 0). A piece with mintedAtGameSeconds absent predates the
+// ⚠️ NO STAMP = NO GRACE (returns 0). A piece with graceStartedAtGameSeconds absent predates the
 // stamp, and the decision recorded on MIGRATIONS[42] (save.ts) is that such a piece is treated
 // as OLD: its protection is exactly what it was before this release. The two alternatives were
 // both worse. Reading an absent stamp as "minted at game-second 0" would protect every legacy
@@ -983,11 +1020,11 @@ export function autoSalvageGraceRemainingSeconds(
   piece: EquipmentInstance,
   graceSeconds: number = resolveAutoSalvageGraceSeconds(state.autoSalvage)
 ): number {
-  const mintedAt = piece.mintedAtGameSeconds;
-  if (typeof mintedAt !== "number" || !Number.isFinite(mintedAt)) return 0; // predates the stamp
-  const age = state.gameTimeSeconds - mintedAt;
+  const startedAt = piece.graceStartedAtGameSeconds;
+  if (typeof startedAt !== "number" || !Number.isFinite(startedAt)) return 0; // predates the stamp
+  const age = state.gameTimeSeconds - startedAt;
   // A NEGATIVE age (a stamp in the future: a hand-edited save, or a save whose clock was
-  // rewound) reads as freshly minted, which errs toward keeping the item. Math.max keeps the
+  // rewound) reads as freshly stamped, which errs toward keeping the item. Math.max keeps the
   // return contract simple: never below 0.
   return Math.max(0, graceSeconds - age);
 }
@@ -1076,7 +1113,7 @@ function autoSalvageIsBetter(a: EquipmentInstance, b: EquipmentInstance): boolea
 //     remaining free copy of a variety and destroy both. Removing reserved pieces before
 //     ranking is strictly the safer reading and can only ever select FEWER items.
 //   * THE PLAYER'S OWN THREE PROTECTIONS ARE DELIBERATELY NOT REMOVED AT STAGE 1: a
-//     confirm-ON tier, a FAVORITED piece and a piece still inside its post-craft GRACE all
+//     confirm-ON tier, a FAVORITED piece and a piece still inside its GRACE WINDOW all
 //     stay in the pool and may hold the keeper slot for their variety. Each of those means
 //     "do not destroy this one", NOT "this one does not exist", and keeping them in the
 //     ranking can only ever select FEWER items: a favorited best-in-slot keeps its group's
@@ -1208,7 +1245,7 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
   //
   // ⚠️ ONE CALL, SIX REASONS, AND A SEVENTH IS A COMPILE ERROR. Every safety filter this
   // function used to spell out inline (baseline, installed, reserved, confirm-ON tier) plus
-  // the two this release adds (favorited, post-craft grace) is asked as a single question
+  // the two this release adds (favorited, the grace window) is asked as a single question
   // through autoSalvageProtection. The reasons are enumerable and named, so a later one (the
   // planned "sitting in an armory loadout") is added to ONE union and ONE total record rather
   // than to a run of `continue` lines that a future rule might not go through. See the

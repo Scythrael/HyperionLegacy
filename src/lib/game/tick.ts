@@ -163,6 +163,11 @@ import {
   type OpenJobBatch,
   type FacilityState,
   COMPLETION_LOG_CAP,
+  // 0.13.3.1 Feature 3: the ONE writer of EquipmentInstance.graceStartedAtGameSeconds. The
+  // three crafted-mint branches below call it so a fresh craft is not swept away by the
+  // auto-salvage rules; the uninstall routes (equipment.ts, salvageShip) call it for the
+  // mirror-image reason. See the function's own comment in model.ts.
+  startAutoSalvageGrace,
 } from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
@@ -5568,6 +5573,285 @@ export function salvageJobsInFlight(state: GameState): SalvageJobProcess[] {
 }
 
 // ============================================================================
+// THE AUTO-SALVAGE TERMINAL: A DEDICATED LANE FOR THE AUTOMATION (2026-09-11)
+// ============================================================================
+// WHAT THIS FIXES, in the player's words: "once your ship system warehouse tab fills up,
+// then that halts crafting cadence, and that feels bad." The chain behind that sentence is
+// reachable in a shipped build and every step of it is real:
+//   1. the player queues a large material batch (5000 units at 60 ticks each is ~83 hours),
+//   2. their spare-system pool fills,
+//   3. canFabricate's `equipmentStorageFull` gate STOPS equipment crafting (it is a
+//      fabricate-only stop reason, so nothing else in the game reports it),
+//   4. the remedy is to salvage spare systems,
+//   5. but every lane in the bay is occupied by the material batch for days,
+//   6. so the ONLY way forward is for the player to delete an order they deliberately set up.
+// A remedy that costs the player the work they configured is the exact shape the 0.11.1
+// docks softlock fix exists to prevent.
+//
+// ⚠️ THE SPLIT IS BY ORIGIN, NOT BY TARGET TYPE (user decision, 2026-09-11). The obvious
+// reading of the chain above is "give EQUIPMENT its own lane", and that was the first
+// design. It is not the one that shipped, and the difference matters:
+//
+//   THE AUTO-SALVAGE TERMINAL IS A LANE ONLY THE AUTOMATION MAY USE.
+//   Auto-salvage orders go to the Terminal. Manual orders NEVER do.
+//   GENERAL lanes serve MANUAL work first, and auto-salvage BORROWS whatever is left IDLE.
+//
+// Why that fixes the same chain: with the rules on, the spare pool drains on a pipeline the
+// player's own queue cannot occupy, so step 5 cannot happen and crafting never halts.
+// Manual salvage keeps the general lanes it always had, with priority on them. Splitting by
+// ORIGIN also means the guarantee does not have to be re-argued every time a new class of
+// equippable gear appears (0.15.0's crew equipment, for one): whatever the automation is
+// pointed at, it runs on its own lane plus whatever is spare.
+//
+// ⚠️ THIS IS THE SHIPYARD'S REPAIR MODEL, LINE FOR LINE IN SPIRIT (processShipRepairs, and
+// shipBuildSlotCount's `bays - 1`). There, repairs claim ANY free bay so idle build capacity
+// flexes into repair, while builds are capped so they can never take the last bay a repair
+// needs, and NOTHING IS EVER PREEMPTED. Map it across: auto-salvage is the repair side (it
+// claims any free general lane), manual salvage is the build side (it can never take the
+// Terminal lane), and the reservation is expressed as an ADDITIONAL lane rather than as a
+// subtraction because this facility's base count is 1 and `lanes - 1` would leave a level-0
+// bay with zero general lanes, which is where every save that has not bought a rung sits.
+//
+// ⚠️ NO PREEMPTION, AND THE BOUND IS WHAT MAKES THAT FINE. A manual order that arrives while
+// auto-salvage is borrowing a general lane WAITS, and it waits at most ONE UNIT DURATION,
+// because salvage runs one unit per job and a job cannot grow. Nothing is cancelled, no lane
+// is held empty against a manual order that may never come, and no in-flight auto unit is
+// ever thrown away half-done (which would destroy time for nothing). The alternative,
+// reserving a general lane against auto, would idle real capacity permanently to save a
+// bounded one-job wait: strictly worse on both counts.
+//
+// ⚠️ SCOPE, DELIBERATELY SMALL: base 1 Terminal lane, from the named constant below, and NO
+// new upgrade rungs and NO speed talents. Both are wanted later and both are logged
+// (SUGGESTIONS.md); raising the count is a one-line data change here when the balance pass
+// has play data to size it against. Note that the borrow rule already makes auto-salvage
+// scale with the general lane track the player is buying anyway.
+export const AUTO_SALVAGE_TERMINAL_LANES = 1;
+
+// The bay's capacity, split by which pipeline is holding it. Every field is DERIVED on read;
+// none is stored, so none can go stale (the salvageSlotCount / shipyardBayCount posture).
+//
+// The three "used" numbers are kept SEPARATE rather than summed, because the console has to
+// be able to say WHICH of them is in the way. A player who queues manual work and watches it
+// wait must be able to see that a general lane is running borrowed automation rather than
+// simply concluding the bay is slow, which is the same visibility failure the queue-full
+// popup was added to fix earlier in this release.
+export interface SalvageLaneUsage {
+  generalLanes: number;        // the bought, player-facing lanes (salvageSlotCount)
+  terminalLanes: number;       // the Auto-Salvage Terminal (AUTO_SALVAGE_TERMINAL_LANES)
+  totalLanes: number;          // the whole facility's concurrency, for a headline readout
+  manualUsed: number;          // general lanes running the PLAYER'S OWN orders
+  autoBorrowedGeneral: number; // general lanes running BORROWED auto work (the visible one)
+  generalUsed: number;         // manualUsed + autoBorrowedGeneral
+  terminalUsed: number;        // the Terminal's own lane(s), auto only
+  autoUsed: number;            // terminalUsed + autoBorrowedGeneral, all auto work running
+  generalFree: number;         // clamped at 0 (see the over-capacity note below)
+  terminalFree: number;
+}
+
+// ----------------------------------------------------------------------------
+// salvageLaneUsage: WHICH POOL EACH RUNNING JOB IS HOLDING
+// ----------------------------------------------------------------------------
+// ⚠️ THE DETERMINISTIC LANE-SELECTION RULE, STATED ONCE AND DERIVED EVERYWHERE. This runs
+// INSIDE the tick and therefore inside the offline catch-up seam, so "whichever lane
+// happened to be free" would not be a rule at all, it would be an accident that could
+// resolve differently between a chunked span and a stepped one. The rule, in full:
+//
+//   1. AN ORDER'S ORIGIN IS FIXED AT ENQUEUE AND DECIDES WHICH POOLS IT MAY USE.
+//      A MANUAL order lives in state.processQueue and may use ONLY general lanes.
+//      An AUTO order lives in state.autoSalvageQueue and may use the Terminal lane, or an
+//      IDLE general lane.
+//   2. AN AUTO JOB TAKES THE TERMINAL LANE FIRST and borrows a general lane only when the
+//      Terminal is already held by another auto job.
+//   3. MANUAL WORK IS PROMOTED FIRST WITHIN A TICK, which is what "manual has priority on
+//      the general lanes" means in the absence of preemption: the manual pass runs to
+//      completion before the auto pass is offered anything (see promoteQueuedOrders'
+//      declared pass order). Auto therefore only ever sees lanes that manual did not want
+//      on this tick.
+//
+// Rule 2 is what makes the accounting below a pure count rather than a search: every auto
+// job prefers the same pool, so the number in the Terminal is just min(autoJobs, lanes).
+//
+// ⚠️ ASSIGNMENT IS RE-DERIVED ON EVERY READ, NOT STAMPED ON THE JOB, and the difference is
+// visible in one case worth spelling out. Suppose one auto job holds the Terminal and a
+// second is borrowing a general lane; the Terminal one completes. A stamped model would
+// leave the survivor in the borrowed general lane with the Terminal idle. This model re-reads
+// rule 2 and places the survivor in the Terminal, freeing the general lane for manual work.
+// That is work-conserving and strictly better for the player, and it is legitimate precisely
+// because a lane has NO other identity: no per-lane speed, no per-lane state, nothing that
+// could make "which lane" mean more than "how many of each pool may run". Re-deriving is
+// also what keeps this a pure function of the save, which is the parity contract.
+//
+// ⚠️ ORIGIN IS STRUCTURAL, NOT A FILTER SOMEBODY HAS TO REMEMBER. The two queues are two
+// different arrays. That is the strongest available form of the guarantee the Terminal
+// exists to make: the automation cannot consume the player's queue depth, cannot be
+// reordered into a player's entry and cannot be counted in the player's "N waiting"
+// readout, because it is not in the container any of those things are computed from. A
+// marker field on one shared array would have made every one of those a filter that has to
+// be applied in the right five places forever.
+//
+// PURE: one pass over the in-flight jobs, no allocation beyond the returned object.
+export function salvageLaneUsage(state: GameState): SalvageLaneUsage {
+  const generalLanes = salvageSlotCount(state);
+  const terminalLanes = AUTO_SALVAGE_TERMINAL_LANES;
+
+  // Counted off the EFFECT, the same field reservation.ts and salvageJobsInFlight narrow on,
+  // so "is this job the automation's" has exactly one answer in the codebase. An ABSENT flag
+  // reads as MANUAL, which is the correct reading for every job that predates the Terminal
+  // and for every job a manual promotion starts.
+  let autoJobs = 0;
+  let manualUsed = 0;
+  for (const job of salvageJobsInFlight(state)) {
+    if (job.effect.auto === true) autoJobs += 1;
+    else manualUsed += 1;
+  }
+
+  // Rule 2, applied: auto fills the Terminal first and the remainder is borrowing general.
+  const terminalUsed = Math.min(autoJobs, terminalLanes);
+  const autoBorrowedGeneral = autoJobs - terminalUsed;
+  const generalUsed = manualUsed + autoBorrowedGeneral;
+
+  return {
+    generalLanes,
+    terminalLanes,
+    totalLanes: generalLanes + terminalLanes,
+    manualUsed,
+    autoBorrowedGeneral,
+    generalUsed,
+    terminalUsed,
+    autoUsed: autoJobs,
+    // ⚠️ CLAMPED AT 0 on purpose. `used` can legitimately exceed `lanes` for a while: a
+    // hand-edited save, or a facility level that somehow reads lower than it did when the
+    // jobs started. A negative "free" count reads as nonsense on a console and, worse, would
+    // compare as "< 0" rather than as "no room" in a future gate. The same clamp
+    // CraftQueueView.depthFree carries, for the same reason.
+    generalFree: Math.max(0, generalLanes - generalUsed),
+    terminalFree: Math.max(0, terminalLanes - terminalUsed),
+  };
+}
+
+// Is a GENERAL lane free? The manual Salvage Bay's whole concurrency question, and the
+// promotion pass's cheap "is there any point scanning this facility" pre-check.
+//
+// ⚠️ IT DELIBERATELY DOES NOT SEE THE TERMINAL LANE. The salvageBay adapter serves the
+// player's queue and nothing else, so a free Terminal lane must not make a manual order look
+// promotable; if it did, the promotion pass would start a manual job on the lane the
+// automation is guaranteed and the guarantee would be gone on the first tick.
+//
+// It DOES see a general lane that auto-salvage is currently borrowing, as occupied, which is
+// the honest answer: no preemption, so the manual order waits for that one unit to finish.
+//
+// BYTE-IDENTICAL to the comparison this used to be written as
+// (`salvageJobsInFlight(state).length < salvageSlotCount(state)`) for every state with no
+// auto job running, which is every state that existed before this change.
+export function hasFreeSalvageLane(state: GameState): boolean {
+  return salvageLaneUsage(state).generalFree > 0;
+}
+
+// Is a lane free that the AUTOMATION may use? The Terminal lane, or an idle general one.
+// Rule 1's auto arm, expressed as pure CAPACITY. The borrow WINDOW below is a separate
+// question and is asked separately (canStartAutoSalvage), so this stays a statement about
+// lanes rather than a statement about eligibility.
+export function hasFreeAutoSalvageLane(state: GameState): boolean {
+  const lanes = salvageLaneUsage(state);
+  return lanes.terminalFree > 0 || lanes.generalFree > 0;
+}
+
+// ----------------------------------------------------------------------------
+// THE BORROW WINDOW: a general lane must sit idle a while before auto may take it
+// ----------------------------------------------------------------------------
+// ⚠️ THE FRICTION THIS REMOVES, in the user's words: "Just make sure that there's a window
+// before that is used though. So if someone wants to queue up a salvage, they don't fight
+// the game to do so." Without a window, the instant a player's salvage finishes they are in
+// a RACE with the automation for their own bay: they watch a job complete, tap across to
+// queue the next one, and the tick in between handed the lane to auto-salvage. Losing a race
+// you did not know you had entered is exactly what the project's standing value forbids
+// (build ease of use, sell peace, never build in friction or punishment).
+//
+// FIRST-PASS TUNABLE, and it is a FEEL number, so expect to move it:
+//   RAISE it  -> the player gets a longer, more comfortable grab window after every job
+//                completes, and auto-salvage is slower to soak up idle capacity.
+//   LOWER it  -> idle general lanes are put to work sooner, at the cost of the player having
+//                to be quicker to claim their own bay after a job ends.
+// At 0 it degenerates to "auto takes any free lane immediately", which is the behaviour this
+// constant exists to prevent; do not set it there.
+//
+// ⚠️ GAME SECONDS, NEVER Date.now(). The comparison happens inside the tick, so it happens
+// inside the offline catch-up too, and a wall-clock read there would make a span played at
+// the keyboard resolve differently from the identical span resolved on load. Measured on
+// state.gameTimeSeconds, which economyTick advances by tickDurationSeconds before the
+// promotion pass runs, exactly like EquipmentInstance.graceStartedAtGameSeconds.
+export const AUTO_SALVAGE_BORROW_IDLE_SECONDS = 10;
+
+// (The window's stored bookkeeping, SalvageIdleWatch, is declared in model.ts beside
+// GameState's own field, because GameState has to name its type and model.ts may never
+// import from tick.ts. See its header there for why this one fact is stored rather than
+// derived like every other lane fact.)
+
+// ----------------------------------------------------------------------------
+// refreshSalvageIdleWatch: restart the window whenever the general pool changes hands
+// ----------------------------------------------------------------------------
+// ⚠️ THE RULE, AND WHY IT IS WRITTEN ON THE COUNT RATHER THAN PER LANE (the alternative the
+// brief asked to be evaluated and reported on). A per-lane idle stamp would require lanes to
+// have IDENTITY, and in this engine they have none: a lane is anonymous capacity, and
+// occupancy is a COUNT derived from the in-flight jobs, with nothing anywhere assigning a job
+// to a lane index. Introducing per-lane identity purely to hold a timestamp would add stored
+// state that has to be kept in step with a number that is currently derived, which is the
+// exact drift class this module avoids everywhere else.
+//
+// So the window is written on the COUNT, and restarted whenever the count CHANGES in either
+// direction. That is behaviourally equivalent to per-lane tracking in every case that matters
+// and is CONSERVATIVE (in the player's favour) in the rest:
+//   a job completes, freeing a lane  -> the count rises, the window restarts. This is the
+//                                       race case, and it is handled exactly right: the
+//                                       newly freed lane is off limits to auto for the full
+//                                       window, so the player has their grab.
+//   auto borrows a lane              -> the count falls, the window restarts. So auto takes
+//                                       AT MOST ONE general lane per window rather than
+//                                       sweeping every free lane at once, which is what a
+//                                       per-lane model would also have done for a lane freed
+//                                       at a different moment.
+//   a lane is bought                 -> the count rises, the window restarts. A brand new
+//                                       lane is a new lane, not one that has been idle.
+// The conservative case is a lane that has genuinely been idle for hours while ANOTHER lane
+// changes hands: the old lane waits one more window. That costs the automation ten seconds
+// and costs the player nothing, which is the right way round to be wrong.
+//
+// ⚠️ MANUAL WORK IS NEVER DELAYED BY ANY OF THIS. This function and its predicate are read
+// ONLY by canStartAutoSalvage. canStartSalvage does not consult them, so a player queueing
+// into an idle general lane takes it on the very next tick however long it has been idle, and
+// however recently the window restarted.
+//
+// ⚠️ AND IT DOES NOT PREEMPT. If auto is already borrowing a lane when the player queues,
+// the player waits for that unit to finish (bounded by one job duration, see the header of
+// the Terminal section). The window governs when auto may TAKE a lane, never whether it may
+// KEEP one it is using.
+//
+// CALLED EXACTLY ONCE PER TICK, from promoteQueuedOrders, immediately before the auto pass.
+// One call site is what makes the window advance identically live and offline, the same
+// one-seam argument the promotion pass itself rests on. Same-REFERENCE no-op when the count
+// has not moved, which is the overwhelmingly common case.
+export function refreshSalvageIdleWatch(state: GameState): GameState {
+  const generalFree = salvageLaneUsage(state).generalFree;
+  const watch = state.salvageIdleWatch;
+  if (watch !== undefined && watch.generalFree === generalFree) return state;
+  return { ...state, salvageIdleWatch: { generalFree, sinceGameSeconds: state.gameTimeSeconds } };
+}
+
+// May the automation BORROW a general lane right now? Pure read of the watch above.
+//
+// ⚠️ A MISSING OR STALE WATCH READS AS "NOT YET", which is the fail-safe direction: a save
+// that predates the field, or one whose free count moved since the watch was written, holds
+// the automation back for one window rather than letting it sweep a lane the player may be
+// reaching for. refreshSalvageIdleWatch runs immediately before the automation is offered
+// anything, so the stale case lasts exactly one tick.
+export function autoSalvageBorrowUnlocked(state: GameState): boolean {
+  const watch = state.salvageIdleWatch;
+  if (watch === undefined) return false;
+  if (watch.generalFree !== salvageLaneUsage(state).generalFree) return false;
+  return state.gameTimeSeconds - watch.sinceGameSeconds >= AUTO_SALVAGE_BORROW_IDLE_SECONDS;
+}
+
+// ============================================================================
 // Shipyard build engine, Phase 5, Task S3
 // (docs/plans/2026-07-16-shipyard-plan.md §S3, design §5). Three functions built on
 // the shared startProcess/resolveProcesses engine + the S1 buildRecipe/facility data
@@ -7213,18 +7497,46 @@ export function canStartSalvage(
   // makes, and unreachable through enqueueOrder, which refuses the mismatch up front.
   if (order.type !== "salvage") return { ok: false, reason: "wrongFacility" };
 
-  // --- Concurrency: one job per slot, the Salvage Bay twin of canStartLine's noSlot gate
+  // --- Concurrency: one job per lane, the Salvage Bay twin of canStartLine's noSlot gate
   // (which compares a facility's lines against its slot count). Reported with the LINE
   // ENGINE's token because the meaning is identical, so a queued row reads "waiting for a
   // free slot" the same way at every facility.
-  if (salvageJobsInFlight(state).length >= salvageSlotCount(state)) {
+  //
+  // ⚠️ GENERAL LANES ONLY, AND THAT IS THE MANUAL HALF OF THE LANE RULE (Auto-Salvage
+  // Terminal, 2026-09-11). This is the gate for the PLAYER'S OWN queue, so it asks
+  // hasFreeSalvageLane, which sees the general lanes and deliberately does not see the
+  // Terminal lane. The automation's twin gate is canStartAutoSalvage. For every state with no
+  // auto job running (every state that existed before the Terminal) this is byte-identical to
+  // the flat `salvageJobsInFlight(state).length >= salvageSlotCount(state)` it replaced.
+  //
+  // A general lane that auto-salvage is currently BORROWING counts as occupied here, which is
+  // the honest reading under the no-preemption rule: the player's order waits for that one
+  // unit to finish, which is bounded by one job duration and never longer.
+  if (!hasFreeSalvageLane(state)) {
     return { ok: false, reason: "noSlot" };
   }
 
-  // --- Target validity, per arm. EXHAUSTIVE over SalvageTargetRef's three arms with no
-  // default branch, so a fourth arm is a compile error here rather than a target that
-  // silently promotes and then resolves into nothing.
-  const target = order.target;
+  // --- Target validity, per arm, shared verbatim with the automation's gate so the two can
+  // never form different opinions about whether a target is still salvageable.
+  return salvageTargetBlock(state, order.target);
+}
+
+// ----------------------------------------------------------------------------
+// salvageTargetBlock: IS THIS TARGET STILL SALVAGEABLE, ignoring lanes entirely
+// ----------------------------------------------------------------------------
+// Split out of canStartSalvage (Auto-Salvage Terminal, 2026-09-11) so the manual gate and the
+// automation's gate share ONE copy of it. The two differ ONLY in which lane pool they ask
+// about; everything after that is the same question about the same world, and two copies of
+// it would be two things to keep in step (Omega 4). Not a behavior change: the body below is
+// canStartSalvage's own switch, moved, not rewritten.
+//
+// EXHAUSTIVE over SalvageTargetRef's three arms with no default branch, so a fourth arm is a
+// compile error here rather than a target that silently promotes and then resolves into
+// nothing.
+function salvageTargetBlock(
+  state: GameState,
+  target: SalvageTargetRef
+): { ok: true } | { ok: false; reason: QueueBlockReason } {
   switch (target.kind) {
     case "equipment": {
       const piece = state.equipment.find((e) => e.id === target.instanceId);
@@ -7328,6 +7640,70 @@ export function startSalvageJob(
     {}, // ⚠️ no inputs: consume-at-completion, see the header
     salvageJobDurationTicks(state, order.target),
     { type: "salvageResolve", target: order.target }
+  );
+}
+
+// ============================================================================
+// THE AUTO-SALVAGE TERMINAL'S OWN GATE AND START (2026-09-11)
+// ============================================================================
+// The automation's twins of canStartSalvage / startSalvageJob. They exist as separate
+// functions rather than as a flag on the manual pair for one reason that is worth stating:
+// the SALVAGE_BAY adapter is a row in QUEUE_ADAPTERS and is wired to the player's queue.
+// Putting an origin branch inside it would mean the manual gate could, on some path, answer
+// a question about the Terminal, which is exactly the drift the two-array design removes.
+//
+// EVERYTHING THAT IS NOT THE LANE QUESTION IS SHARED VERBATIM (salvageTargetBlock), so a
+// target the player cannot salvage is a target the automation cannot salvage, always.
+
+// THE gate for promoting a queued AUTO salvage order. Same shape and posture as
+// canStartSalvage: pure, spends nothing, draws nothing, typed reason.
+//
+// ⚠️ THE BORROW WINDOW IS ENFORCED HERE, not in the lane accounting, and the split matters.
+// salvageLaneUsage answers "is a lane free"; this answers "may the automation take one right
+// now". Keeping the window out of the usage struct means every readout still shows the true
+// occupancy, and only the automation's own eligibility is delayed.
+export function canStartAutoSalvage(
+  state: GameState,
+  order: QueuedOrder
+): { ok: true } | { ok: false; reason: QueueBlockReason } {
+  if (order.type !== "salvage") return { ok: false, reason: "wrongFacility" };
+
+  // --- Concurrency, the automation's arm of the lane rule: the Terminal lane first, then an
+  // idle general lane. The Terminal lane is claimed IMMEDIATELY, with no window: it is
+  // auto-only, so nobody is racing the automation for it. The window applies only to the
+  // borrow (see autoSalvageBorrowUnlocked).
+  const lanes = salvageLaneUsage(state);
+  const canBorrow = lanes.generalFree > 0 && autoSalvageBorrowUnlocked(state);
+  if (lanes.terminalFree <= 0 && !canBorrow) {
+    return { ok: false, reason: "noSlot" };
+  }
+
+  return salvageTargetBlock(state, order.target);
+}
+
+// Promote a queued AUTO salvage order into a real, timed, offline-safe job.
+//
+// IDENTICAL to startSalvageJob except for two things, both deliberate:
+//   1. it gates through canStartAutoSalvage (the Terminal's lane rule), and
+//   2. the completion effect carries `auto: true`, which is what lets salvageLaneUsage read
+//      the lane split back off a SAVED job rather than inferring it from anything positional.
+// The duration, the consume-at-completion deviation and the empty inputs map are the manual
+// path's, unchanged: the automation salvages exactly what a player's click salvages, at
+// exactly the same speed, and a future speed talent for the Terminal belongs in
+// salvageJobDurationTicks where every other duration modifier already lives.
+export function startAutoSalvageJob(
+  state: GameState,
+  order: QueuedOrder
+): { next: GameState; started: boolean } {
+  if (!canStartAutoSalvage(state, order).ok) return { next: state, started: false };
+  if (order.type !== "salvage") return { next: state, started: false };
+
+  return startProcess(
+    state,
+    "salvageJob",
+    {}, // ⚠️ no inputs: consume-at-completion, exactly as the manual path
+    salvageJobDurationTicks(state, order.target),
+    { type: "salvageResolve", target: order.target, auto: true }
   );
 }
 
@@ -7544,7 +7920,15 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
     // LINES. Both sides of the comparison are now derived (Salvage Lanes, 2026-09-04):
     // salvageSlotCount reads the bay's own upgrade rungs exactly as refineSlotCount reads
     // the Refinery's, so buying a lane widens this gate with no change here.
-    hasFreeSlot: (state) => salvageJobsInFlight(state).length < salvageSlotCount(state),
+    //
+    // ⚠️ THE SECOND DIVERGENCE (dedicated equipment lane, 2026-09-11): this bay is the one
+    // facility whose capacity is not a single number, so the flat
+    // `jobsInFlight < slotCount` comparison became hasFreeSalvageLane, which is the OR over
+    // both lane kinds. It stays TARGET-BLIND on purpose, because the promotion pass asks it
+    // before it has an order in hand; the per-target answer is enforced one line down, in
+    // canStartSalvage, which is also where the queue row reads its block reason from. See
+    // salvageLaneUsage for why those two questions must stay in that relationship.
+    hasFreeSlot: hasFreeSalvageLane,
     canStart: canStartSalvage,
     start: startSalvageJob,
   },
@@ -8055,55 +8439,68 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
 // not read it, and a rule that behaves differently offline is a parity break even when a
 // deep-equal test happens to pass.
 //
-// ⚠️ BOUNDED PER TICK, AND THE BOUND IS THE DEPTH HEADROOM (Omega 14: no unbounded work
-// in the tick). At most `budget - queued` orders are added per tick, which today is at
-// most three (base depth 1 plus three talent nodes, minus the manual headroom). A pool of
-// two hundred spares therefore cannot spike a tick and a two-day offline catch-up cannot
-// enqueue thousands at once: it enqueues a handful per tick and drains them at one
-// salvage slot per completion, exactly as a player watching every tick would.
+// ⚠️⚠️ THE MANUAL-DEPTH HEADROOM IS GONE, AND THE REASON IT EXISTED IS GONE WITH IT
+// (Auto-Salvage Terminal, 2026-09-11). AUTO_SALVAGE_MANUAL_HEADROOM used to hold one of the
+// player's queue slots back, and the depth-1 special case existed so the feature was not dead
+// for a player who had learned no queue-depth talent. BOTH were compensating for one thing:
+// auto-salvage was competing with the player for the SAME queue. It no longer shares a queue,
+// a depth cap or a lane reservation with them, so there is nothing left to hold back from.
+// The guarantee that replaced it is stronger and is structural rather than arithmetic: the
+// automation writes to state.autoSalvageQueue and CANNOT reach state.processQueue at all.
 //
-// ⚠️ AUTO-SALVAGE MUST NOT STARVE MANUAL QUEUEING, so it leaves the player one depth slot
-// (AUTO_SALVAGE_MANUAL_HEADROOM). Without it the rules would sit on every slot forever:
-// a player who removed an auto order to make room for their own would find the next tick
-// had taken the slot back, and there is no click sequence that wins that race. The
-// headroom is skipped ONLY at depth 1, because reserving the single slot there would make
-// the feature dead for every player who has not learned a queue-depth talent. At depth 1
-// the player is not starved either, they simply remove the auto order and enqueue their
-// own in the same handler; the queue is then full, so the next tick's budget is zero and
-// the rules leave it alone.
+// ⚠️ WHAT CHANGED FOR AN EXISTING SAVE, stated plainly because it is a real behaviour change:
+// a player at queue depth 1 with the rules on used to see auto-salvage take their only
+// Salvage Bay slot, and had to remove that order to queue their own. They now have their slot
+// permanently, and auto-salvage runs beside it on the Terminal. Strictly better, and nothing
+// they had queued is touched by the change.
 //
-// It NEVER removes, reorders or evicts anything. Its only mutation is an append through
-// enqueueOrder, so every gate that function applies (the depth cap, the duplicate-target
-// refusal, the facility shape check) applies to an auto-added order exactly as it applies
-// to a hand-clicked one, with no second copy of any of them here.
+// ⚠️ THE QUEUE IS UNBOUNDED (user decision: "No queue size limitations are necessary"), and
+// the per-tick work is STILL BOUNDED, which is what Omega 14 actually asks for. The bound is
+// structural rather than a policy number: every target the selector returns is RESERVED the
+// moment it is queued (reservation.ts walks the Terminal queue too), so a target is offered
+// exactly once and the total work this pass can ever do is bounded by the size of the spare
+// pool, which is itself hard-capped by equipmentStorageCap. The steady state is therefore a
+// handful of appends per tick; the one large pass is the first tick after the rules are
+// switched on, over a pool that cannot exceed its cap.
 //
-// PURE and a same-REFERENCE no-op whenever the rules add nothing (which includes every
-// save with the feature off, the default).
-export const AUTO_SALVAGE_MANUAL_HEADROOM = 1;
-
+// ⚠️ SWITCHING THE RULES OFF CLEARS THE PENDING TERMINAL QUEUE, which is new and is a
+// PROTECTION, not a loss. While the queue was bounded to a couple of entries, "turn it off
+// and remove the leftovers by hand" was a reasonable ask. Against an unbounded queue it is
+// not: a player who changes their mind could be left hand-removing a hundred pending
+// destructions, and every one that slipped through would destroy an item after they had said
+// stop. Nothing is destroyed by the clear itself (a queued order has consumed nothing; the
+// entry simply stops existing and its reservation stops being derived). An already-RUNNING
+// auto job is deliberately left to finish, exactly as every other in-flight job in this
+// engine is.
+//
+// It NEVER touches state.processQueue, never removes or reorders a player's entry, and never
+// evicts anything. PURE, and a same-REFERENCE no-op whenever the rules add nothing (which
+// includes every save with the feature off, the default).
 export function autoSalvageOrders(state: GameState): GameState {
-  // Cheapest possible exit, taken by every save that has not opted in. Checked here as
-  // well as inside the selector so the common path does not even compute a depth.
-  if (!state.autoSalvage?.enabled) return state;
+  // Cheapest possible exit, taken by every save that has not opted in. When the rules are
+  // OFF, any pending Terminal orders are dropped (see the clear note above); the `length`
+  // check keeps the common path a same-reference no-op.
+  if (!state.autoSalvage?.enabled) {
+    if ((state.autoSalvageQueue ?? []).length === 0) return state;
+    return { ...state, autoSalvageQueue: [] };
+  }
 
-  // THE BUDGET. Depth is per facility (queueDepth applies to EACH facility independently),
-  // so this counts the Salvage Bay's own waiting orders, never processQueue.length.
-  const depth = queueDepth(state);
-  const budget = depth <= 1 ? depth : depth - AUTO_SALVAGE_MANUAL_HEADROOM;
-  const queued = queuedForFacility(state, "salvageBay").length;
-  const limit = budget - queued;
-  if (limit <= 0) return state; // full (or the player's own orders hold the room) -> no-op
-
-  // THE DECISION. Pure, sorted, and already truncated to `limit` by the selector.
-  const targets = selectAutoSalvageTargets(state, limit);
+  // THE DECISION. Pure, sorted, and truncated by the selector.
+  //
+  // ⚠️ THE `limit` ARGUMENT IS A STRUCTURAL BOUND, NOT A POLICY LIMIT, as of this change. It
+  // used to be the depth headroom, the number the feature was rationed by. There is no
+  // ration any more, so it is passed the only number that is genuinely an upper bound on how
+  // many spares could possibly be selected: how many pieces exist. The selector cannot return
+  // more than that however the rules are set, so this can never be the thing that holds a
+  // target back, and the argument is kept rather than removed because a caller that wants a
+  // smaller pass (a future throttle, a test) still has the seam.
+  const targets = selectAutoSalvageTargets(state, state.equipment.length);
   if (targets.length === 0) return state; // same-ref no-op: the rules found nothing
 
-  // THE ENQUEUE. Threaded immutably, one target at a time, through the SAME enqueueOrder
-  // the Salvage Bay's own buttons use. A refusal is a skip, never a throw: enqueueOrder
-  // returns the same state reference plus a reason, and the loop simply moves on (a
-  // refused target is retried next tick if the rules still point at it). `queued` is
-  // deliberately not re-derived per iteration, because enqueueOrder re-checks the depth
-  // cap itself and is the only place that cap is enforced.
+  // THE ENQUEUE, into the TERMINAL's own queue. Threaded immutably, one target at a time,
+  // through enqueueAutoSalvageOrder, which applies the duplicate-target refusal (the one
+  // enqueue gate that still matters here) and mints from the same monotonic id counter the
+  // player's queue uses.
   //
   // ⚠️ ALWAYS ONE UNIT PER ORDER, AND IT MUST STAY THAT WAY (0.13.3 batch-salvage
   // follow-up). Every target the selector returns is a UNIQUE spare EquipmentInstance, for
@@ -8113,11 +8510,115 @@ export function autoSalvageOrders(state: GameState): GameState {
   // multiplier by accident.
   let working = state;
   for (const target of targets) {
-    working = enqueueOrder(working, "salvageBay", {
+    working = enqueueAutoSalvageOrder(working, {
       type: "salvage",
       target,
       mode: { kind: "batch", remaining: 1 },
-    }).next;
+    });
+  }
+  return working;
+}
+
+// --- THE TERMINAL'S QUEUE (Auto-Salvage Terminal, 2026-09-11) ----------------
+// state.autoSalvageQueue is the automation's own waiting list, and it is a SEPARATE ARRAY
+// from state.processQueue on purpose. See salvageLaneUsage's header for the full argument;
+// the short form is that "the automation never touches the player's queue" is then a fact
+// about the data model rather than a filter five call sites have to remember to apply.
+//
+// It reuses the QueuedJob shape (and the same monotonic nextQueueId counter, so no id can
+// ever name an entry in both arrays) because an auto order IS a queued salvage order in every
+// respect except which lanes it may run on.
+
+// The Terminal's waiting orders, in queue order. `?? []` for the same defensive reason every
+// processQueue reader carries it: a fixture or a save that predates the field must read as
+// empty, never throw.
+export function autoSalvageQueued(state: GameState): QueuedJob[] {
+  return state.autoSalvageQueue ?? [];
+}
+
+// Append one order to the Terminal's queue.
+//
+// ⚠️ NO DEPTH CAP, ON PURPOSE (see autoSalvageOrders' header). The ONE gate kept from the
+// manual enqueue path is the duplicate-target refusal, and it is kept because it is not a
+// rationing rule at all: a second order on the same unique instance could only ever resolve
+// as a stale no-op, so it would be a dead entry inflating the Terminal's own count. Note that
+// isDuplicateSalvageTarget reads the reservation set, which spans BOTH queues plus the
+// in-flight jobs, so this also refuses a piece the player has already queued by hand. That is
+// correct: one piece, one teardown, whoever asked for it first.
+//
+// Same-REFERENCE no-op on a refusal, the file's standing convention.
+export function enqueueAutoSalvageOrder(state: GameState, order: QueuedOrder): GameState {
+  if (order.type !== "salvage") return state;
+  if (isDuplicateSalvageTarget(state, order.target)) return state;
+  const job: QueuedJob = { id: `q-${state.nextQueueId}`, facility: "salvageBay", order };
+  return {
+    ...state,
+    autoSalvageQueue: [...autoSalvageQueued(state), job],
+    nextQueueId: state.nextQueueId + 1,
+  };
+}
+
+// --- THE TERMINAL'S PROMOTION PASS -------------------------------------------
+// promoteAutoSalvageOrders(state): fill the Terminal lane, and any general lane the borrow
+// window has released, from the automation's own queue.
+//
+// ⚠️ IT RUNS AFTER THE MANUAL PASS, AND THAT ORDERING IS THE WHOLE OF "MANUAL HAS PRIORITY".
+// With no preemption, priority can only mean "served first within the tick": by the time this
+// runs, every manual order that could have taken a general lane this tick already has one, so
+// the automation is only ever offered capacity the player did not want. Moving this call
+// above the facility loop would silently invert that, which is why the order is declared in
+// promoteQueuedOrders rather than left to read as incidental.
+//
+// A LINE-FOR-LINE MIRROR of the manual scan's body (snapshot, re-check room per promotion,
+// skip-on-block, start from the gated state, `started:false` is a skip) for the same reasons
+// documented there. It is written out rather than shared with the facility loop because the
+// two differ in the two things that matter most, the queue they read and the lane pool they
+// gate against, and a shared loop taking both as parameters would hide exactly the asymmetry
+// this feature is.
+//
+// DRAWS NO RNG, like every other promotion: the reward roll still happens at completion.
+export function promoteAutoSalvageOrders(state: GameState): GameState {
+  const waiting = autoSalvageQueued(state);
+  if (waiting.length === 0) return state; // same-reference no-op, the common case
+
+  // ⚠️ THE BORROW WINDOW IS ADVANCED HERE, AFTER THE EMPTY-QUEUE RETURN, AND THAT PLACEMENT
+  // IS DELIBERATE ON BOTH COUNTS.
+  //   AFTER, because promoteQueuedOrders promises to be a same-REFERENCE no-op on a save with
+  //   nothing queued, and a watch refresh above this line would perturb every idle tick of
+  //   every save in existence (several shipped cases pin that no-op, and they are right to).
+  //   HERE AT ALL, because this is the one function the window gates, it has exactly one call
+  //   site inside the promotion pass, and the promotion pass has exactly one call site inside
+  //   economyTick. That chain is what makes the window advance identically live and offline.
+  //
+  // The cost of refreshing only on ticks where the Terminal has work: if the free lane count
+  // moved while the Terminal was idle, the window restarts the moment it next has something
+  // to run, so auto waits a full window from THEN rather than from the moment the lane
+  // actually freed. That is conservative in the player's favour (auto waits longer, never
+  // shorter) and is invisible in the case the window exists for, which is a lane freeing while
+  // the automation already has a backlog.
+  let working = refreshSalvageIdleWatch(state);
+  for (const job of waiting) {
+    // Re-checked per promotion, not once: the Terminal lane plus any borrowable general lane
+    // may allow several starts on one tick, and this stops the scan the moment the last one
+    // is taken. hasFreeAutoSalvageLane is pure CAPACITY; the borrow WINDOW is asked inside
+    // canStartAutoSalvage, so a tick where only a too-recently-freed general lane is open
+    // exits here on the gate rather than spinning.
+    if (!hasFreeAutoSalvageLane(working)) break;
+
+    // ⚠️ NO withQueuedOrderReleased EQUIVALENT IS NEEDED. That call exists because a queued
+    // CRAFT order reserves its own inputs and would otherwise refuse itself. An auto order
+    // reserves a TARGET, and canStartAutoSalvage never reads either queue (it reads the
+    // target and the in-flight jobs), so it answers identically with the entry present.
+    if (!canStartAutoSalvage(working, job.order).ok) continue; // skip-on-block, keeps its place
+
+    const { next, started } = startAutoSalvageJob(working, job.order);
+    if (!started) continue; // unreachable after an ok gate; a skip, never a throw
+
+    // Promoted: drop this entry and nothing else, so every skipped entry keeps its exact
+    // position. Auto orders are ALWAYS single-unit (autoSalvageOrders writes the literal 1),
+    // so there is no residual to leave behind, which is the one place this pass is genuinely
+    // simpler than the manual one.
+    working = { ...next, autoSalvageQueue: autoSalvageQueued(next).filter((j) => j.id !== job.id) };
   }
   return working;
 }
@@ -8192,10 +8693,27 @@ export function promoteQueuedOrders(state: GameState): GameState {
   // work and no rules still lands byte-identical to before this unit.
   const withAuto = autoSalvageOrders(state);
 
-  // Empty queue -> same-reference no-op. True for every save that predates the feature
-  // and every player who never queues anything, so it is checked first and costs one
-  // length read. (`?? []` tolerates a pre-0.13.3 save that predates the field.)
-  if ((withAuto.processQueue ?? []).length === 0) return withAuto;
+  // ⚠️ THE PASS ORDER IS DECLARED HERE AND IS LOAD-BEARING (Auto-Salvage Terminal,
+  // 2026-09-11). Three passes run in this exact sequence, every tick, on both paths:
+  //   1. autoSalvageOrders        the rules APPEND to the Terminal's own queue (above).
+  //   2. the facility loop        the PLAYER'S queue is served, including every general
+  //                              Salvage Bay lane it wants.
+  //   3. promoteAutoSalvageOrders the Terminal lane is filled, and any general lane the
+  //                              player did not take AND the borrow window has released.
+  // Step 2 before step 3 IS the "manual work has priority on general lanes" rule: with no
+  // preemption anywhere in this engine, priority can only be expressed as who is served
+  // first within a tick. Swapping them would let the automation take a general lane out from
+  // under a queued player order on the same tick, which is the friction this feature exists
+  // to remove. Do not reorder these.
+  //
+  // ⚠️ THE EMPTY-QUEUE EARLY RETURN BELOW IS NOW GUARDED BY BOTH QUEUES. It used to be a
+  // pure processQueue check; a state whose PLAYER queue is empty while the Terminal holds
+  // work is now entirely ordinary (it is the common case for a player with the rules on and
+  // nothing of their own queued), and returning early there would leave the automation
+  // permanently unpromoted.
+  if ((withAuto.processQueue ?? []).length === 0) {
+    return promoteAutoSalvageOrders(withAuto);
+  }
 
   // Threaded immutably: each promotion produces a new state that the NEXT promotion's
   // gate sees, so two orders competing for the same material on the same tick cannot
@@ -8289,6 +8807,12 @@ export function promoteQueuedOrders(state: GameState): GameState {
       working = next;
     }
   }
+
+  // --- STEP 3: the Auto-Salvage Terminal, LAST (see the pass-order note above) ----------
+  // It reads the free general-lane count AFTER the player's own promotions have settled,
+  // which is the count the borrow window must be measured on: a lane the player just claimed
+  // was never idle.
+  working = promoteAutoSalvageOrders(working);
 
   // === the input state (same reference) when auto-salvage added nothing AND nothing was
   // promoted, which is the overwhelmingly common case.
@@ -9369,10 +9893,12 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        // 0.13.3.1 Feature 3: STAMP THE MINT MOMENT on the fleet's GAME clock, which is what
-        // the post-craft auto-salvage grace measures against (salvage.ts, craftGrace). This is
-        // the first of the three crafted-mint branches; the weapon and drone branches below
-        // carry the identical one-line stamp, and this comment is the one that explains it.
+        // 0.13.3.1 Feature 3: START THE PIECE'S AUTO-SALVAGE GRACE WINDOW on the fleet's GAME
+        // clock, which is what the grace measures against (salvage.ts, the graceWindow reason).
+        // This is the first of the three crafted-mint branches; the weapon and drone branches
+        // below carry the identical one-line call, and this comment is the one that explains it.
+        // The SAME helper is called by every UNINSTALL route (equipment.ts, and salvageShip in
+        // salvage.ts), which is what stops a gear swap from destroying the piece just taken off.
         //
         // ⚠️ GAME TIME, NEVER Date.now(). `state` here is economyTick's postMissionState, whose
         // gameTimeSeconds has ALREADY been advanced for this tick, so a piece minted during an
@@ -9382,7 +9908,7 @@ export function resolveProcesses(
         //
         // ⚠️ DRAWS NOTHING. It is a pure read of state, so the documented rng draw order and
         // count above are untouched and the mint stays bit-identical offline and live.
-        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
+        equipment = [...equipment, startAutoSalvageGrace(minted, state.gameTimeSeconds)];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.weaponOutput !== undefined) {
@@ -9417,9 +9943,9 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        // 0.13.3.1 Feature 3: the same game-clock mint stamp as the equipment branch above
+        // 0.13.3.1 Feature 3: the same game-clock grace stamp as the equipment branch above
         // (see its comment for the full parity reasoning). Draws no rng.
-        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
+        equipment = [...equipment, startAutoSalvageGrace(minted, state.gameTimeSeconds)];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       } else if (bp !== undefined && bp.droneOutput !== undefined) {
@@ -9455,9 +9981,9 @@ export function resolveProcesses(
           rng, // draws #3.. (affix rolls) off the SAME threaded stream
           allocateId: () => `equip-${mintedId}`,
         });
-        // 0.13.3.1 Feature 3: the same game-clock mint stamp as the equipment branch above
+        // 0.13.3.1 Feature 3: the same game-clock grace stamp as the equipment branch above
         // (see its comment for the full parity reasoning). Draws no rng.
-        equipment = [...equipment, { ...minted, mintedAtGameSeconds: state.gameTimeSeconds }];
+        equipment = [...equipment, startAutoSalvageGrace(minted, state.gameTimeSeconds)];
         nextEquipmentId = mintedId + 1;
         mintedPieces = 1; // observation only (0.13.3 Unit 4.4b): one piece landed, for the completed-events log
       }

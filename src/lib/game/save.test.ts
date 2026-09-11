@@ -88,7 +88,7 @@ describe("migrate, tickDurationSeconds backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -127,7 +127,7 @@ describe("migrate, research field backfill", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -301,7 +301,7 @@ describe("migrate, captains roster backfill (v4 -> v5)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -398,7 +398,7 @@ describe("migrate, captain miner-floor backfill (hotfix)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -504,7 +504,7 @@ describe("migrate, skill tree backfill (v6 -> v7)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -593,7 +593,7 @@ describe("migrate, home planet storage & captain mission backfill (v7 -> v8)", (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -666,7 +666,7 @@ describe("migrate, captain leveling and Homeworld crafting backfill (v8 -> v9)",
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -729,7 +729,7 @@ describe("migrate, captain and Fleet Admiral talent tree backfill (v9 -> v10)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -799,7 +799,7 @@ describe("migrate, fleet-wide tickDurationSeconds backfill (v10 -> v11)", () => 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -1591,7 +1591,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -1799,7 +1799,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2095,7 +2095,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2260,7 +2260,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     const deserialized = deserialize(raw);
     expect(deserialized).not.toBeNull();
     expect(deserialized!.version).toBe(SAVE_VERSION); // current version -> zero migration steps
-    expect(deserialized!.version).toBe(43);
+    expect(deserialized!.version).toBe(44);
 
     const migrated: any = migrate(deserialized!);
     // Mission Rework Task 4 added fuelStorage (level 0), Task 6 added missionControl
@@ -2286,7 +2286,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2415,7 +2415,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2582,7 +2582,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2773,7 +2773,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -2964,7 +2964,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -3157,7 +3157,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -3334,7 +3334,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -3491,7 +3491,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -3693,7 +3693,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // (a v28 save chains all the way through the iLevel backfill at v29->v30 and the
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
-    expect(roundTripped!.version).toBe(43);
+    expect(roundTripped!.version).toBe(44);
     expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
@@ -3752,7 +3752,7 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
   });
 
   it("SAVE_VERSION is pinned to its expected value", () => {
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 
   it("freshState seeds equipmentStorageLevel 0 (Task B1), matching the migration's seed on old saves", () => {
@@ -4067,7 +4067,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     const migrated: any = migrate(save);
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(43);
+    expect(roundTripped!.version).toBe(44);
     // The now-v33 save carries the field; re-migrating keeps it (no re-backfill, no reset).
     const before = (roundTripped!.state as any).captains[0].mission.playerSystemDurability;
     const remigrated: any = migrate(roundTripped as SaveFile);
@@ -4096,7 +4096,7 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     expect(mission.kind).toBe("patrol");
     // No full durability derivable => field stays absent (no crash, no fabricated value).
     expect(mission.playerSystemDurability).toBeUndefined();
-    expect(SAVE_VERSION).toBe(43);
+    expect(SAVE_VERSION).toBe(44);
   });
 });
 
@@ -4414,8 +4414,8 @@ describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => 
     }
     expect(migrated.equipment).toHaveLength(inputCount); // NOTHING removed
     const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
-    expect(stamped.version).toBe(43);
-    expect(SAVE_VERSION).toBe(43);
+    expect(stamped.version).toBe(44);
+    expect(SAVE_VERSION).toBe(44);
   });
 
   it("REGRESSION: a dev-shaped radiant null-blueprint economy spare is NOT deleted on load", () => {
@@ -4518,7 +4518,7 @@ describe("migrate, Standard-Issue combat baseline re-stat (v37 chain -> SI dials
     const migrated: any = migrate(makeV37Save());
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(43);
+    expect(roundTripped!.version).toBe(44);
   });
 
   it("is IDEMPOTENT: re-migrating an already-re-statted save changes nothing", () => {
@@ -4624,7 +4624,7 @@ describe("migrate, HYBRID-model Standard-Issue SHIELD re-stat (v38 -> v39)", () 
     const migrated: any = migrate(makeV38Save());
     const roundTripped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(roundTripped.version).toBe(SAVE_VERSION);
-    expect(roundTripped.version).toBe(43);
+    expect(roundTripped.version).toBe(44);
     // Re-stamp to v38 and re-run: shield values already at the references -> identical (no-op); plating untouched.
     roundTripped.version = 38;
     const remigrated: any = migrate(roundTripped);
@@ -4742,7 +4742,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
     const migrated: any = migrate(makeV39Save());
     const roundTripped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(roundTripped.version).toBe(SAVE_VERSION);
-    expect(roundTripped.version).toBe(43);
+    expect(roundTripped.version).toBe(44);
     // Re-loading a CURRENT-version save runs zero migration steps, so this proves the new
     // fields survive JSON on their own (they carry no Decimal, so no hydration branch).
     const reloaded: any = migrate(roundTripped);
@@ -4802,12 +4802,76 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
   it("a v40 save skips the step entirely (already current, hydration only)", () => {
     const fresh = freshState();
     const save = deserialize(serialize(fresh, 0)) as SaveFile;
-    expect(save.version).toBe(43);
+    expect(save.version).toBe(44);
     const restored: any = migrate(save);
     expect(restored.processQueue).toEqual([]);
     expect(restored.nextQueueId).toBe(1);
     expect(restored.autoSalvage).toEqual(AUTO_SALVAGE_RULES_DEFAULT);
     expect(restored.salvageConfirmQualities).toEqual(freshSalvageConfirmQualities());
+  });
+});
+
+// ============================================================================
+// migrate, the GRACE STAMP RENAME (v43 -> v44, riding MIGRATIONS[43])
+//
+// The per-instance stamp shipped on this branch as `mintedAtGameSeconds`. The window it records
+// now restarts on UNINSTALL as well as on a mint, so the field is `graceStartedAtGameSeconds` and
+// a name saying "minted" would be a lie in the save. The old key has NEVER existed in a shipped
+// save (production is stamped v42), so the only carriers are this branch's own v43 dev saves,
+// which is exactly why the rename rides the existing v43 -> v44 step instead of taking a version
+// of its own. See MIGRATIONS[43]'s comment for the full argument and for the one save it misses.
+// ============================================================================
+describe("migrate, the auto-salvage grace stamp is renamed (v43 -> v44)", () => {
+  // A v43 branch save carrying the OLD key on one spare, and nothing at all on the rest.
+  function makeV43Save(stampedValue: unknown = 4000): SaveFile {
+    const base = freshState();
+    const spare: any = {
+      ...base.equipment[0],
+      id: "equip-99",
+      fittedToShipId: null,
+      blueprintKey: "prospectorHoldBp",
+    };
+    const preState: any = { ...base, gameTimeSeconds: 4321, equipment: [...base.equipment, spare] };
+    const raw = deserialize(serialize(preState, 0)) as SaveFile;
+    const s = raw.state as any;
+    const target = s.equipment.find((e: any) => e.id === "equip-99");
+    delete target.graceStartedAtGameSeconds;
+    target.mintedAtGameSeconds = stampedValue;
+    delete s.autoSalvageQueue; // a genuine v43 save predates the Terminal's queue too
+    raw.version = 43;
+    return raw;
+  }
+
+  it("carries the value across under the new key and DROPS the old one", () => {
+    const migrated: any = migrate(makeV43Save());
+    const spare = migrated.equipment.find((e: any) => e.id === "equip-99");
+    expect(spare.graceStartedAtGameSeconds).toBe(4000);
+    // The old key is GONE, so a migrated save matches a fresh one key for key rather than
+    // carrying a dead field through every future spread.
+    expect("mintedAtGameSeconds" in spare).toBe(false);
+    // ...and the grace math reads the migrated stamp, which is the whole point of moving it.
+    expect(autoSalvageGraceRemainingSeconds(migrated, spare)).toBeGreaterThan(0);
+  });
+
+  it("leaves an UNSTAMPED piece alone: absence is still the record, never a backfill", () => {
+    const migrated: any = migrate(makeV43Save());
+    for (const piece of migrated.equipment) {
+      if (piece.id === "equip-99") continue;
+      expect(piece.graceStartedAtGameSeconds).toBeUndefined();
+      expect("mintedAtGameSeconds" in piece).toBe(false);
+    }
+  });
+
+  it("is IDEMPOTENT: a save already on the new key is untouched", () => {
+    const once: any = migrate(makeV43Save());
+    const stamped = deserialize(serialize(once, 0)) as SaveFile;
+    stamped.version = 43; // force the step to run again over an already-renamed state
+    const twice: any = migrate(stamped);
+    expect(twice.equipment.find((e: any) => e.id === "equip-99").graceStartedAtGameSeconds).toBe(4000);
+  });
+
+  it("the step's OTHER job still happens: the Terminal's queue is seeded", () => {
+    expect((migrate(makeV43Save()) as any).autoSalvageQueue).toEqual([]);
   });
 });
 
@@ -4896,7 +4960,7 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
     // synthetic stamp would also make a migrated save differ piece-by-piece from a fresh one.
     const migrated: any = migrate(makeV42Save());
     for (const piece of migrated.equipment) {
-      expect(piece.mintedAtGameSeconds).toBeUndefined();
+      expect(piece.graceStartedAtGameSeconds).toBeUndefined();
       expect(piece.favorite).toBeUndefined();
     }
   });
@@ -4952,7 +5016,7 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
       autoSalvage: { ...migrated.autoSalvage, rarities: selected, graceSeconds: 10 * 60 },
       // A pinned + stamped piece too, since those are the other two new persisted values.
       equipment: migrated.equipment.map((e: any) =>
-        e.id === "equip-99" ? { ...e, favorite: true, mintedAtGameSeconds: 4000 } : e
+        e.id === "equip-99" ? { ...e, favorite: true, graceStartedAtGameSeconds: 4000 } : e
       ),
     };
     const reloaded: any = migrate(deserialize(serialize(chosen, 0)) as SaveFile);
@@ -4960,7 +5024,7 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
     expect(reloaded.autoSalvage.graceSeconds).toBe(10 * 60);
     const spare = reloaded.equipment.find((e: any) => e.id === "equip-99");
     expect(spare.favorite).toBe(true);
-    expect(spare.mintedAtGameSeconds).toBe(4000); // a plain number, not a stringified Decimal
+    expect(spare.graceStartedAtGameSeconds).toBe(4000); // a plain number, not a stringified Decimal
   });
 });
 
@@ -5241,7 +5305,7 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     const save = deserialize(serialize(s, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(43);
+    expect(save!.version).toBe(44);
     const restored = migrate(save as SaveFile);
 
     // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
@@ -5318,7 +5382,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     const save = deserialize(serialize(inFlight, 0)) as SaveFile;
     expect(save).not.toBeNull();
     expect(save!.version).toBe(SAVE_VERSION);
-    expect(save!.version).toBe(43);
+    expect(save!.version).toBe(44);
     const restored = migrate(save);
 
     // Empty repair state survived: the ship reads as healthy, the in-flight patrol is intact
@@ -5355,7 +5419,7 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // Round-trip: the damaged flag, repairDamage, AND the in-flight shipRepair (clearShipDamage
     // effect) must all survive JSON with no hydration change.
     const save = deserialize(serialize(withRepair, 0)) as SaveFile;
-    expect(save!.version).toBe(43);
+    expect(save!.version).toBe(44);
     const restored = migrate(save!);
     const shipAfter = restored.ships.find((s) => s.id === "ship-1")!;
     expect(shipAfter.damaged).toBe(true);

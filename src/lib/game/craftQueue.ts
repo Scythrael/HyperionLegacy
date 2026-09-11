@@ -90,7 +90,13 @@ import {
   // refineSlotCount does: the engine owns the answer and this module only renders it.
   // ⚠️ Salvage Lanes (2026-09-04): this was the flat SALVAGE_SLOT_COUNT constant and is now
   // the derived salvageSlotCount(state), the same shape as every other helper in this list.
-  salvageSlotCount,
+  // ⚠️ Dedicated equipment lane (2026-09-11): salvageSlotCount is now only the GENERAL half
+  // of the bay's capacity, so the panel's total comes from salvageLaneUsage instead. See
+  // slotsTotalFor's salvageBay arm.
+  salvageLaneUsage,
+  // The Auto-Salvage Terminal's waiting list (2026-09-11), read for the one number the user
+  // asked for by name: "a count of total items queued for auto-salvage".
+  autoSalvageQueued,
   salvageJobsInFlight,
   // Crafting 0.13.3 follow-up (2026-09-04): a queued craft order reserves its own inputs,
   // so its gate has to be asked about a state that has released that reservation, or it
@@ -171,10 +177,16 @@ export interface CraftQueueView {
   // Total SLOTS at this facility, or null for a future queue-capable facility whose
   // slot model has not landed yet. Every facility that exists today reports a real
   // number: Refinery and Fabricator delegate to the same refineSlotCount /
-  // fabricateSlotCount the consoles already read, and the Salvage Bay reports
-  // salvageSlotCount (Phase 2 Unit 2.4; derived off the bay's own lane rungs since
-  // Salvage Lanes, 2026-09-04).
+  // fabricateSlotCount the consoles already read, and the Salvage Bay reports its GENERAL
+  // lanes, the only ones a player's own order may run on (Phase 2 Unit 2.4; derived off the
+  // bay's own lane rungs since Salvage Lanes, 2026-09-04; narrowed to exclude the
+  // automation's Terminal lane on 2026-09-11, see slotsTotalFor).
   slotsTotal: number | null;
+  // ⚠️ A GENERAL LANE THAT AUTO-SALVAGE IS BORROWING READS AS OCCUPIED HERE, which is the
+  // honest answer under the no-preemption rule: the player's order really does have to wait
+  // for that unit to finish. The console says WHICH kind of work is in the way, from
+  // buildAutoSalvageTerminal's borrowed count, so a borrowed lane is never mistaken for the
+  // bay simply being slow.
   hasFreeSlot: boolean;         // delegated to the adapter, the same question promotion asks
 
   // --- the queue (the depth) ---
@@ -486,14 +498,37 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
 //   remaining   always 0: a job is one indivisible piece of work with nothing queued
 //               behind it inside itself, which is exactly what the craft-line model calls
 //               "finishing its current run".
+// ⚠️ THE GENERAL LANES ONLY, AND A BORROWED AUTO JOB IS ONE OF THEM (Auto-Salvage Terminal,
+// 2026-09-11). This list is what the "N / M in use" readout above it divides by generalLanes,
+// so it must hold exactly the jobs occupying a general lane, which is:
+//   every MANUAL job, plus
+//   every AUTO job BEYOND the Terminal's own lanes, which is what "borrowing" means.
+// Listing all in-flight jobs (the shipped behaviour, correct while there was one pool) would
+// make the ratio read "2 / 1 in use" the first time the automation ran. Listing only manual
+// jobs would be worse: a borrowed lane would be invisible, and a player whose own order sat
+// waiting would have nothing on screen explaining why, which is the exact visibility failure
+// the queue-full popup was added to fix earlier in this release. So the borrowed job appears
+// here, NAMED as the automation's, in the panel whose capacity it is using.
+//
+// WHICH auto jobs are the borrowed ones is the SAME deterministic rule salvageLaneUsage
+// applies (the Terminal is filled first, in activeProcesses order), re-read here off the same
+// enumeration rather than re-decided, so the row list and the lane counts cannot disagree.
 function salvageRunningRows(state: GameState): CraftQueueRunningRow[] {
-  return salvageJobsInFlight(state).map((job) => ({
+  const lanes = salvageLaneUsage(state);
+  const jobs = salvageJobsInFlight(state);
+  const manual = jobs.filter((job) => job.effect.auto !== true);
+  // Skip the auto jobs sitting on the Terminal's own lanes; what is left is borrowing.
+  const borrowed = jobs.filter((job) => job.effect.auto === true).slice(lanes.terminalUsed);
+
+  return [...manual, ...borrowed].map((job) => ({
     id: job.id,
     // Named through the same helper a QUEUED salvage row uses, so the target reads
     // identically before and after promotion (and falls back to the raw id if it has
     // gone, which is a real state: a stale target is a fail-safe no-op at completion).
     label: salvageTargetLabel(state, job.effect.target),
-    modeLabel: "salvage",
+    // The one place a row says WHOSE work is holding the bay. Kept short because it renders
+    // beside the target name on a narrow mobile card.
+    modeLabel: job.effect.auto === true ? "auto-salvage, borrowed bay" : "salvage",
     continuous: false, // a job ends; only a craft LINE can run until cancelled
     remaining: 0,
     // The same 0-duration guard the line rows use: a malformed job reads 0 progress
@@ -568,7 +603,14 @@ function slotsTotalFor(state: GameState, facility: QueueFacilityKey): number | n
       // count is SALVAGE_BAY_BASE_SLOTS plus its reached { addSalvageSlots } rungs, so the
       // queue panel's "N / M in use" tracks a bought lane with no change on this line. See
       // salvageSlotCount. QUEUE DEPTH remains a separate axis and is never folded in here.
-      return salvageSlotCount(state);
+      //
+      // ⚠️ GENERAL LANES ONLY, NOT THE WHOLE FACILITY (Auto-Salvage Terminal, 2026-09-11).
+      // This view is the PLAYER'S queue panel, and the general lanes are the only ones their
+      // orders may run on, so folding the Terminal lane in here would promise them capacity
+      // the engine will refuse them. It is the same distinction slotsTotalFor's shipyard arm
+      // already makes by reading shipBuildSlotCount rather than shipyardBayCount.
+      // The Terminal's own capacity is reported by buildAutoSalvageTerminal, below.
+      return salvageLaneUsage(state).generalLanes;
     case "researchLab":
       return researchSlotCount(state);
     case "shipyard":
@@ -762,4 +804,81 @@ export function buildCraftQueue(state: GameState, facility: QueueFacilityKey): C
 // facilities in the order the engine actually walks them.
 export function buildAllCraftQueues(state: GameState): CraftQueueView[] {
   return QUEUE_FACILITY_ORDER.map((facility) => buildCraftQueue(state, facility));
+}
+
+// ---------------------------------------------------------------------------
+// THE AUTO-SALVAGE TERMINAL (2026-09-11)
+// ---------------------------------------------------------------------------
+// The Terminal's own read-only view model, for the section that lives under the Salvage Bay
+// (user: visible "under the salvage yard ... so you can see if something is being
+// auto-salvaged and so forth. Plus a count of total items queued for auto-salvage").
+//
+// ⚠️ WHY IT IS NOT A CraftQueueView. A CraftQueueView is the shape SIX facilities share, and
+// every field on it that the Terminal does not have is a field that would have to be faked:
+// there is no depth cap (the Terminal's queue is unbounded), no enqueue probe (the player
+// cannot add to it), and no move controls (the automation's order is not the player's to
+// reorder). Making the Terminal a seventh QueueFacilityKey was the other option and was
+// rejected for a concrete reason: buildAllCraftQueues iterates the facility tuple to build
+// the Facilities dashboard AND the Home board's "a free bay is waiting" prompts, so a seventh
+// key would have put the Terminal on the Home screen, which is exactly where the user said it
+// does not belong ("not on the home screen, as it doesn't fit the need").
+//
+// ⚠️ NOTHING HERE IS RE-DERIVED. The lane numbers come straight from salvageLaneUsage, the
+// same function the engine's own gates read, and the running rows come from the same
+// salvageJobsInFlight enumeration the manual panel uses. A second opinion about how many
+// lanes are borrowed is precisely what would make the two panels contradict each other.
+export interface AutoSalvageTerminalView {
+  // --- capacity ---
+  terminalLanes: number;       // the Terminal's own, auto-only lanes
+  terminalUsed: number;
+  // ⚠️ THE VISIBILITY REQUIREMENT: general lanes currently running BORROWED auto work. A
+  // player who queues manual salvage and watches it wait has to be able to see this number,
+  // or a borrowed lane is indistinguishable from the bay simply being slow.
+  borrowedGeneral: number;
+  generalLanes: number;        // for the "borrowing 1 of your 2" sentence
+  running: CraftQueueRunningRow[]; // the auto jobs in flight, same row shape the panels use
+  runningCount: number;
+  // --- the waiting list ---
+  queuedCount: number;         // "a count of total items queued for auto-salvage", the ask
+  // Is the automation switched on at all? The section renders an explanation rather than an
+  // empty board when it is off, since zero running and zero queued means two very different
+  // things depending on this flag.
+  enabled: boolean;
+}
+
+// Build the Terminal's view. Pure, and cheap: one lane derivation plus one filtered pass over
+// the in-flight jobs.
+export function buildAutoSalvageTerminal(state: GameState): AutoSalvageTerminalView {
+  const lanes = salvageLaneUsage(state);
+  // The auto jobs only. Named through the SAME salvageTargetLabel a manual row uses, so a
+  // piece reads identically whichever pipeline is tearing it down.
+  const running: CraftQueueRunningRow[] = salvageJobsInFlight(state)
+    .filter((job) => job.effect.auto === true)
+    .map((job) => ({
+      id: job.id,
+      label: salvageTargetLabel(state, job.effect.target),
+      modeLabel: "auto-salvage",
+      continuous: false,
+      remaining: 0,
+      // The same 0-duration guard every other row builder carries: a malformed job reads 0
+      // progress rather than dividing by zero.
+      progress: job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0,
+      // RAW ticks, never formatted here (preservation inventory items 0.1 + 0.2).
+      remainingTicks: job.remainingTicks,
+      durationTicks: job.durationTicks,
+    }));
+
+  return {
+    terminalLanes: lanes.terminalLanes,
+    terminalUsed: lanes.terminalUsed,
+    borrowedGeneral: lanes.autoBorrowedGeneral,
+    generalLanes: lanes.generalLanes,
+    running,
+    runningCount: running.length,
+    // ⚠️ ONE ENTRY IS ONE ITEM HERE, which is true rather than a simplification: the
+    // automation only ever enqueues single-unit orders (tick.ts writes the literal 1), so
+    // there is no batch to expand and no second interpretation of the count to get wrong.
+    queuedCount: autoSalvageQueued(state).length,
+    enabled: state.autoSalvage?.enabled === true,
+  };
 }

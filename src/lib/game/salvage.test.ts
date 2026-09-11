@@ -36,7 +36,12 @@ import {
   promoteQueuedOrders,
   enqueueOrder,
   queueDepth,
-  AUTO_SALVAGE_MANUAL_HEADROOM,
+  // Auto-Salvage Terminal (2026-09-11): the lane split the Terminal cases read, so a case can
+  // assert WHICH pool a running job is holding rather than only how many are running.
+  // (AUTO_SALVAGE_MANUAL_HEADROOM used to be imported here. It is GONE: auto-salvage no longer
+  // shares a queue with the player, so there is nothing left to hold back from. See the
+  // "the automation never touches the player's queue" section for what replaced it.)
+  salvageLaneUsage,
   // 0.13.3 batch-salvage follow-up: the enqueue gate the batch bound lives behind, and the
   // remover the "cancelling a batch releases all of it" cases exercise.
   canEnqueueOrder,
@@ -57,7 +62,7 @@ import {
   // Crafting 0.13.3 (Phase 5 Unit 5.1): the PURE auto-salvage rule evaluator.
   selectAutoSalvageTargets,
   // 0.13.3.1: the PROTECTION SEAM (the named reason a target is off limits to the automation)
-  // and the shared post-craft grace math the engine and the console both read.
+  // and the shared post-craft / post-uninstall grace math the engine and the console both read.
   autoSalvageProtectionForTarget,
   autoSalvageProtectionContext,
   autoSalvageSubjectForPiece,
@@ -89,6 +94,9 @@ import {
 import {
   freshState,
   generateStandardIssue,
+  // The STRICT baseline predicate (blueprintKey null AND rarity "standard"), used by the
+  // uninstall-grace fixtures to drop freshState's own fitted baseline from a slot under test.
+  isStandardIssueBaseline,
   spareEquipmentCount,
   equipmentAtCap,
   equipmentStorageCap,
@@ -151,6 +159,15 @@ import {
   rollCraftedRarity,
   equipmentRarityLabel,
 } from "./model";
+// 0.13.3.1 follow-up (the UNINSTALL GRACE gap): the three uninstall routes that live outside
+// salvage.ts. Every one of them must restart the grace window on the piece it pools, or a gear
+// swap can hand the automation the piece the player just took off. salvageShip (imported from
+// "./salvage" above) is the fourth route and is covered in the same block.
+import { fitEquipment, unfitEquipment, unfitEquipmentInstance } from "./equipment";
+// The same file as SOURCE, for the completeness guard below: it asserts that EVERY
+// installed-to-spare write in equipment.ts (and salvage.ts) goes through startAutoSalvageGrace,
+// so a fifth uninstall route cannot be added without the stamp.
+import equipmentSource from "./equipment.ts?raw";
 import Decimal from "break_infinity.js";
 import { getBucket, itemTotal } from "./inventory";
 
@@ -2278,34 +2295,24 @@ describe("⚠️ offline==live parity with SEVERAL LANES completing on the SAME 
 });
 
 // ---------------------------------------------------------------------------
-// AUTO-SALVAGE AND LANES: the manual-headroom question, answered
-// (Salvage Lanes, 2026-09-04.)
+// THE AUTO-SALVAGE TERMINAL: the guarantee that REPLACED the manual-depth headroom
+// (2026-09-11. Supersedes the "auto-salvage keeps its DEPTH headroom" section.)
 // ---------------------------------------------------------------------------
-// Auto-salvage deliberately leaves the player one QUEUE slot (AUTO_SALVAGE_MANUAL_HEADROOM)
-// so the rules can never sit on every slot forever and win every race for one. Lanes raised
-// the obvious follow-up: should the rules also leave a LANE free?
+// ⚠️ WHAT THESE CASES REPLACE, AND WHY THEY ARE NOT SIMPLY DELETED. The shipped cases here
+// proved AUTO_SALVAGE_MANUAL_HEADROOM: that the rules left the player one QUEUE slot, that
+// more lanes did not raise the budget, and that a manual order reached a lane first because
+// it sat earlier in one shared array. Every one of those was a statement about auto-salvage
+// and the player COMPETING for one queue and one lane pool. They no longer compete:
 //
-// THE ANSWER IS NO, AND THE DEPTH HEADROOM ALONE IS SUFFICIENT. Three reasons, the first
-// decisive:
-//   1. THE RACE DOES NOT EXIST ON LANES. A lane is not something a player claims by clicking;
-//      it is filled by the promotion pass, FIFO, out of the queue. autoSalvageOrders runs at
-//      the HEAD of promoteQueuedOrders and APPENDS, so an order the player queued is always
-//      EARLIER in the array than any order the rules add, and the scan promotes in array
-//      order. The player's order therefore reaches a lane FIRST, by construction, in the very
-//      same tick. Reserving a lane would defend against a race the queue's ordering has
-//      already won.
-//   2. RESERVING A LANE WOULD IDLE BOUGHT THROUGHPUT. A lane is bought with credits, and
-//      auto-salvage exists precisely so the player is not standing at the console. A third
-//      lane that only ever runs two jobs while the rules are on is a player paying for a
-//      number that does not move, which is the opposite of what the upgrade sells.
-//   3. THE SHIPPED GUARANTEE IS ABOUT ENQUEUEING, NOT ABOUT STARTING INSTANTLY. At one lane a
-//      manual order ALWAYS waited behind whatever was running, and that was never considered
-//      starvation. Adding a lane reservation would be a strictly STRONGER promise than the
-//      one that shipped, invented on a build pass.
-// The per-tick bound is unaffected either way: the budget is derived from DEPTH, never from
-// the lane count, so more lanes cannot make the rules do more work per tick.
-describe("auto-salvage keeps its DEPTH headroom and does NOT reserve a lane (Salvage Lanes)", () => {
-  // A three-lane bay with the rules on, a deep queue and a pool to chew through.
+//   the automation writes to state.autoSalvageQueue, a DIFFERENT ARRAY, unbounded, and runs
+//   on its own Terminal lane plus whatever general lane the player did not want this tick.
+//
+// So the headroom constant is gone, and the property it bought is now proven the other way
+// round: not "the automation leaves one slot" but "the automation cannot reach the player's
+// queue AT ALL, at any depth". That is a strictly stronger guarantee, and the depth-1 player
+// (who used to watch the rules take their only slot) is the one it changes most.
+describe("the Auto-Salvage Terminal: the automation never touches the player's queue", () => {
+  // A three-lane bay with the rules on and a pool to chew through.
   function laneAutoState(): GameState {
     const pieces = Array.from({ length: 8 }, (_, i) =>
       autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: i % 3, iLevel: 10 + i })
@@ -2327,29 +2334,35 @@ describe("auto-salvage keeps its DEPTH headroom and does NOT reserve a lane (Sal
     };
   }
 
-  it("the budget is DEPTH minus the headroom, and MORE LANES do not raise it", () => {
-    // The bound the tick pass respects is queue depth, never lane count. Proven by running
-    // one tick at one lane and at three and comparing how many orders the rules added.
-    const threeLanes = laneAutoState();
-    const oneLane: GameState = {
-      ...threeLanes,
-      facilities: { ...threeLanes.facilities, salvageBay: { level: 0 } },
-    };
-    expect(salvageSlotCount(threeLanes)).toBe(3);
-    expect(salvageSlotCount(oneLane)).toBe(1);
+  it("the rules add NOTHING to processQueue, whatever the depth, and the Terminal is unbounded", () => {
+    // THE replacement for "the budget is DEPTH minus the headroom". There is no budget any
+    // more, so the two things to prove are that the player's array is untouched and that the
+    // automation's is not rationed by the depth cap.
+    const deep = laneAutoState();
+    const after = autoSalvageOrders(deep);
+    expect(after.processQueue).toEqual([]); // the player's queue: never written to
+    // Every eligible spare is queued in ONE pass, which is what "unbounded" means here, and
+    // it is comfortably more than queueDepth would ever have allowed.
+    expect(after.autoSalvageQueue.length).toBeGreaterThan(queueDepth(deep));
 
-    // autoSalvageOrders alone (no promotion), so this measures ONLY what the rules queued.
-    const addedThree = autoSalvageOrders(threeLanes).processQueue.length;
-    const addedOne = autoSalvageOrders(oneLane).processQueue.length;
-    expect(addedThree).toBe(addedOne);
-    expect(addedThree).toBe(queueDepth(threeLanes) - AUTO_SALVAGE_MANUAL_HEADROOM);
+    // And DEPTH 1 (no queue-depth talent at all) behaves identically, which is the case the
+    // old depth-1 special case existed to rescue: the feature used to be rationed to a single
+    // order there, and could take the player's only slot to get it.
+    const shallow: GameState = { ...deep, unlockedHomeworldTalents: [] };
+    expect(queueDepth(shallow)).toBe(1);
+    const shallowAfter = autoSalvageOrders(shallow);
+    expect(shallowAfter.processQueue).toEqual([]);
+    expect(shallowAfter.autoSalvageQueue.length).toBe(after.autoSalvageQueue.length);
   });
 
-  it("the rules still leave the player a free depth slot at a MULTI-LANE bay", () => {
-    // The shipped guarantee, re-proven with lanes in play: whatever the lane count, the
-    // player can always add one order of their own after the rules have run.
-    const after = autoSalvageOrders(laneAutoState());
-    expect(after.processQueue.length).toBe(queueDepth(after) - AUTO_SALVAGE_MANUAL_HEADROOM);
+  it("the player can ALWAYS enqueue their own order, at DEPTH 1, with the rules running", () => {
+    // The shipped guarantee's real content, now proven at the depth where it used to fail.
+    // The headroom existed so the player kept one slot; the Terminal means they keep all of
+    // them, because nothing the automation does is counted against their cap.
+    const base: GameState = { ...laneAutoState(), unlockedHomeworldTalents: [] };
+    expect(queueDepth(base)).toBe(1);
+    const after = autoSalvageOrders(base);
+    expect(after.autoSalvageQueue.length).toBeGreaterThan(0); // non-vacuous: the rules DID run
     expect(canEnqueueOrder(after, "salvageBay", {
       type: "salvage",
       target: { kind: "material", itemId: HOUSING },
@@ -2357,29 +2370,88 @@ describe("auto-salvage keeps its DEPTH headroom and does NOT reserve a lane (Sal
     }).ok).toBe(true);
   });
 
-  it("THE DECISION, PROVEN: a manually queued order reaches a lane BEFORE any auto order", () => {
-    // The reason no lane reservation is needed. The player queues first, so their entry sits
-    // earlier in the flat queue array; autoSalvageOrders appends behind it; the promotion
-    // scan runs in array order. The manual order is therefore promoted on the same tick,
-    // no matter how many lanes the rules would otherwise have filled.
+  it("MANUAL WORK HAS PRIORITY ON THE GENERAL LANES: every one goes to the player first", () => {
+    // The replacement for "a manually queued order reaches a lane BEFORE any auto order",
+    // which used to rest on array position in one shared queue. It now rests on PASS ORDER:
+    // promoteQueuedOrders serves the player's facility loop to completion before the Terminal
+    // is offered anything, so the automation only ever sees lanes the player did not take.
     const base = laneAutoState();
-    const manual = enqueueOrder(base, "salvageBay", {
-      type: "salvage",
-      target: { kind: "material", itemId: HOUSING },
-      mode: { kind: "batch", remaining: 1 },
-    });
-    expect(manual.queued).toBe(true);
-    const manualId = manual.next.processQueue[0].id;
+    expect(salvageSlotCount(base)).toBe(3); // three general lanes to contest
 
-    const promoted = promoteQueuedOrders(manual.next);
+    // Fill all three general lanes with the player's OWN orders.
+    let manual = base;
+    const manualIds: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const result = enqueueOrder(manual, "salvageBay", {
+        type: "salvage",
+        target: { kind: "material", itemId: HOUSING },
+        mode: { kind: "batch", remaining: 1 },
+      });
+      expect(result.queued).toBe(true);
+      manualIds.push(result.next.processQueue[result.next.processQueue.length - 1].id);
+      manual = result.next;
+    }
+
+    const promoted = promoteQueuedOrders(manual);
     const running = salvageJobsInFlight(promoted);
-    // Every lane is working (the rules filled what the player did not), and the FIRST lane
-    // taken is the player's own material teardown, not a rules-selected spare.
-    expect(running).toHaveLength(3);
-    expect(running[0].effect.target).toEqual({ kind: "material", itemId: HOUSING });
-    // The player's entry is gone from the queue because it STARTED, not because it was
-    // dropped: nothing else in the queue carries its id either.
-    expect(promoted.processQueue.some((job) => job.id === manualId)).toBe(false);
+    // FOUR jobs: the player's three on the three general lanes, plus ONE the automation put
+    // on its own Terminal lane. The automation borrowed nothing, because nothing was spare.
+    expect(running).toHaveLength(4);
+    const manualRunning = running.filter((job) => job.effect.auto !== true);
+    const autoRunning = running.filter((job) => job.effect.auto === true);
+    expect(manualRunning).toHaveLength(3);
+    expect(autoRunning).toHaveLength(1);
+    for (const job of manualRunning) {
+      expect(job.effect.target).toEqual({ kind: "material", itemId: HOUSING });
+    }
+    // Every player entry left the queue because it STARTED, not because it was dropped.
+    for (const id of manualIds) {
+      expect(promoted.processQueue.some((job) => job.id === id)).toBe(false);
+    }
+    // And the lane readout agrees: three general lanes held by manual work, none borrowed.
+    const lanes = salvageLaneUsage(promoted);
+    expect(lanes.manualUsed).toBe(3);
+    expect(lanes.autoBorrowedGeneral).toBe(0);
+    expect(lanes.terminalUsed).toBe(1);
+  });
+
+  it("switching the rules OFF clears the pending Terminal queue, destroying nothing", () => {
+    // New protection, and the reason it exists: an unbounded queue makes "turn it off and
+    // remove the leftovers by hand" an unreasonable ask, and every leftover that slipped
+    // through would destroy an item after the player said stop.
+    const loaded = autoSalvageOrders(laneAutoState());
+    expect(loaded.autoSalvageQueue.length).toBeGreaterThan(0);
+
+    const off: GameState = { ...loaded, autoSalvage: { ...loaded.autoSalvage, enabled: false } };
+    const cleared = autoSalvageOrders(off);
+    expect(cleared.autoSalvageQueue).toEqual([]);
+    // NOTHING WAS DESTROYED: a queued order had consumed nothing, so every piece is still
+    // in the pool and the reservations it held simply stop being derived.
+    expect(cleared.equipment).toEqual(loaded.equipment);
+    expect(salvageReservedInstanceIds(cleared).size).toBe(0);
+    // Same-reference no-op once the queue is already empty, so an idle disabled save is
+    // never perturbed by this pass.
+    expect(autoSalvageOrders(cleared)).toBe(cleared);
+  });
+
+  it("a queued AUTO order RESERVES its target, so the player cannot queue or install it", () => {
+    // ⚠️ THE SEPARATE ARRAY MUST NOT WEAKEN THE RESERVATION. A piece the automation has
+    // queued is exactly as spoken for as one the player queued; if it were not, it could be
+    // installed on a ship and then destroyed under the pilot.
+    const loaded = autoSalvageOrders(laneAutoState());
+    const claimed = loaded.autoSalvageQueue[0].order;
+    expect(claimed.type).toBe("salvage");
+    if (claimed.type !== "salvage" || claimed.target.kind !== "equipment") throw new Error("fixture");
+    const instanceId = claimed.target.instanceId;
+
+    expect(salvageReservedInstanceIds(loaded).has(instanceId)).toBe(true);
+    // The player's own enqueue of the same piece is refused as a duplicate, from the other
+    // side of the split: one piece, one teardown, whoever asked first.
+    expect(canEnqueueOrder(loaded, "salvageBay", {
+      type: "salvage",
+      target: { kind: "equipment", instanceId },
+      mode: { kind: "batch", remaining: 1 },
+    })).toEqual({ ok: false, reason: "alreadyQueued" });
   });
 });
 
@@ -3043,11 +3115,14 @@ describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salva
 });
 
 // ============================================================================
-// 0.13.3.1 FEATURE 3: THE POST-CRAFT GRACE PERIOD
+// 0.13.3.1 FEATURE 3: THE GRACE PERIOD
 // ============================================================================
-describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1)", () => {
-  // A state whose clock reads `now`, holding one spare stamped at `mintedAt`.
-  function graceState(now: number, mintedAt: number | undefined, graceSeconds?: number): GameState {
+// The window starts on a MINT and on an UNINSTALL alike (one stamp, two causes, see
+// startAutoSalvageGrace in model.ts). This block covers the WINDOW ITSELF, driving it off a
+// hand-written stamp; the block further down covers the UNINSTALL ROUTES that write it.
+describe("⚠️ selectAutoSalvageTargets: the GRACE PERIOD (0.13.3.1)", () => {
+  // A state whose clock reads `now`, holding one spare whose grace window started at `startedAt`.
+  function graceState(now: number, startedAt: number | undefined, graceSeconds?: number): GameState {
     const base = autoState([autoPiece({ id: "eq-new", quality: 0 })], {
       maxQuality: 5,
       ...(graceSeconds === undefined ? {} : { graceSeconds }),
@@ -3056,7 +3131,7 @@ describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1
       ...base,
       gameTimeSeconds: now,
       equipment: base.equipment.map((e) =>
-        e.id === "eq-new" ? { ...e, mintedAtGameSeconds: mintedAt } : e
+        e.id === "eq-new" ? { ...e, graceStartedAtGameSeconds: startedAt } : e
       ),
     };
   }
@@ -3088,7 +3163,7 @@ describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1
     expect(selectAutoSalvageTargets(graceState(100_000, 100_000 - mintedAgo, 24 * 60 * 60), NO_BOUND)).toEqual([]);
   });
 
-  it("a piece with NO mint stamp is treated as OLD (the pre-0.13.3.1 save decision)", () => {
+  it("a piece with NO grace stamp is treated as OLD (the pre-0.13.3.1 save decision)", () => {
     // The decision recorded on MIGRATIONS[42]: an item that predates the stamp has no craft
     // moment to protect, so the grace does not apply and the rules behave exactly as before.
     expect(selectedIds(selectAutoSalvageTargets(graceState(600, undefined), NO_BOUND))).toEqual(["eq-new"]);
@@ -3120,7 +3195,7 @@ describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1
     const minted = crafted.equipment.find((e) => e.blueprintKey === SALVAGE_BP && e.fittedToShipId === null);
     expect(minted).toBeDefined();
     // It carries the game-clock stamp...
-    expect(typeof minted?.mintedAtGameSeconds).toBe("number");
+    expect(typeof minted?.graceStartedAtGameSeconds).toBe("number");
     // ...and it is inside its window, so no rule can take it.
     expect(autoSalvageGraceRemainingSeconds(crafted, minted as EquipmentInstance)).toBeGreaterThan(0);
     expect(
@@ -3132,9 +3207,9 @@ describe("⚠️ selectAutoSalvageTargets: the post-craft GRACE PERIOD (0.13.3.1
 });
 
 describe("autoSalvageGraceRemainingSeconds: the shared grace math (0.13.3.1)", () => {
-  const piece = (mintedAtGameSeconds?: number): EquipmentInstance => ({
+  const piece = (graceStartedAtGameSeconds?: number): EquipmentInstance => ({
     ...autoPiece({ id: "eq-x" }),
-    mintedAtGameSeconds,
+    graceStartedAtGameSeconds,
   });
   const at = (now: number): GameState => ({ ...autoState([]), gameTimeSeconds: now });
 
@@ -3150,16 +3225,336 @@ describe("autoSalvageGraceRemainingSeconds: the shared grace math (0.13.3.1)", (
     expect(autoSalvageGraceRemainingSeconds(at(1_000), piece(5_000))).toBeGreaterThan(0);
   });
 
-  it("every offered grace option is a usable positive length, and the default is one of them", () => {
+  it("every offered grace option is a usable length, and the default is one of them", () => {
     expect(AUTO_SALVAGE_GRACE_OPTIONS.length).toBeGreaterThan(0);
     for (const opt of AUTO_SALVAGE_GRACE_OPTIONS) {
-      expect(opt.seconds).toBeGreaterThan(0);
+      // Non-negative rather than positive: 0 is now an OFFERED option (the opt-in "No grace
+      // period"). A NEGATIVE value would still be a bug, because resolveAutoSalvageGraceSeconds
+      // rejects one as malformed and would quietly hand back the default instead of the length
+      // the console is showing as selected.
+      expect(opt.seconds).toBeGreaterThanOrEqual(0);
       expect(opt.label.length).toBeGreaterThan(0);
     }
     expect(AUTO_SALVAGE_GRACE_OPTIONS.some((o) => o.seconds === AUTO_SALVAGE_GRACE_SECONDS_DEFAULT)).toBe(true);
     // The option values are unique, so the console's <select> cannot render two identical rows.
     const seconds = AUTO_SALVAGE_GRACE_OPTIONS.map((o) => o.seconds);
     expect(new Set(seconds).size).toBe(seconds.length);
+  });
+
+  it("⚠️ the off option is offered exactly once, sits at an END of the list, and is not labelled as a duration", () => {
+    // THE PLACEMENT IS A SAFETY PROPERTY, not a style choice, which is why it is pinned here.
+    // An "off" row sitting BETWEEN two durations could be hit by a mis-tap from a player
+    // scanning lengths, and that mis-tap silently disables a protection against irreversible
+    // data loss. At an end it has one neighbor instead of two, and the end it is at (the long
+    // end) makes that neighbor the most over-protective option rather than the shortest one.
+    const zeroes = AUTO_SALVAGE_GRACE_OPTIONS.filter((o) => o.seconds === 0);
+    expect(zeroes.length).toBe(1);
+    const index = AUTO_SALVAGE_GRACE_OPTIONS.findIndex((o) => o.seconds === 0);
+    expect([0, AUTO_SALVAGE_GRACE_OPTIONS.length - 1]).toContain(index);
+    // The label says what it DOES, so it cannot be mistaken for another, shorter duration while
+    // the eye is running down a column of lengths.
+    expect(zeroes[0].label).toBe("No grace period");
+    expect(zeroes[0].label).not.toMatch(/minute|hour|day|second/i);
+    // And the resolver honors it, which is the reason no engine change was needed to offer it.
+    expect(resolveAutoSalvageGraceSeconds({ graceSeconds: zeroes[0].seconds } as never)).toBe(0);
+  });
+});
+
+// ============================================================================
+// 0.13.3.1: THE OPT-IN "NO GRACE PERIOD" OPTION
+// ============================================================================
+// The player may switch the grace period OFF entirely, so a brand new piece is eligible the
+// instant it is minted. That is what makes the rules QA-able without waiting out a window, and it
+// is exactly why the cases below matter: the grace is ONE protection reason out of six, not a
+// master switch, and a player who opts out is trusting the other five to keep holding.
+describe("⚠️ a ZERO grace period: the rules take a fresh piece, and the OTHER protections still hold", () => {
+  // One spare, minted at THIS instant, with the rules wide open and the grace switched off.
+  function zeroGraceState(pieces: EquipmentInstance[]): GameState {
+    const base = autoState(pieces, { maxQuality: 5, graceSeconds: 0 });
+    return {
+      ...base,
+      gameTimeSeconds: 10_000,
+      equipment: base.equipment.map((e) => ({ ...e, graceStartedAtGameSeconds: 10_000 })),
+    };
+  }
+
+  it("a piece minted THIS SECOND is immediately eligible", () => {
+    // The same fixture is protected under every other offered length (the case below proves it),
+    // so this is the option doing the work and not the stamp going missing.
+    expect(selectedIds(selectAutoSalvageTargets(zeroGraceState([autoPiece({ id: "eq-new", quality: 0 })]), NO_BOUND))).toEqual([
+      "eq-new",
+    ]);
+  });
+
+  it("and the very same piece is held by every OTHER offered length", () => {
+    for (const opt of AUTO_SALVAGE_GRACE_OPTIONS.filter((o) => o.seconds > 0)) {
+      const state = zeroGraceState([autoPiece({ id: "eq-new", quality: 0 })]);
+      const held: GameState = { ...state, autoSalvage: { ...state.autoSalvage, graceSeconds: opt.seconds } };
+      expect(selectAutoSalvageTargets(held, NO_BOUND)).toEqual([]);
+    }
+  });
+
+  it("⚠️ a FAVORITED fresh piece is still safe at zero grace", () => {
+    // The protection a player leans on hardest once the window is gone: pinning a good roll.
+    const state = zeroGraceState([autoPiece({ id: "eq-fav", quality: 0 })]);
+    const pinned: GameState = { ...state, equipment: state.equipment.map((e) => ({ ...e, favorite: true })) };
+    expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-fav" })).toBe("favorited");
+  });
+
+  it("⚠️ a CONFIRM-ON quality tier is still safe at zero grace", () => {
+    // Auto-salvage never answers a confirmation for the player, and switching the grace off does
+    // not make it start: the confirm tier is a separate filter on a separate saved field.
+    const state = zeroGraceState([autoPiece({ id: "eq-q2", quality: 2 })]);
+    const guarded: GameState = { ...state, salvageConfirmQualities: [2] };
+    expect(selectAutoSalvageTargets(guarded, NO_BOUND)).toEqual([]);
+    expect(autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: "eq-q2" })).toBe("confirmTier");
+  });
+
+  it("installed, Standard-Issue baseline and already-queued pieces are all still safe at zero grace", () => {
+    // The remaining three reasons, so all five surviving protections are pinned at zero grace and
+    // not just the two a player is most likely to notice.
+    const state = zeroGraceState([
+      autoPiece({ id: "eq-installed", quality: 0, fittedToShipId: "ship-1" }),
+      autoPiece({ id: "eq-baseline", quality: 0, blueprintKey: null }),
+      autoPiece({ id: "eq-queued", quality: 0 }),
+    ]);
+    const guarded: GameState = {
+      ...state,
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "eq-queued" }, mode: { kind: "batch", remaining: 1 } },
+        },
+      ],
+    };
+    expect(selectAutoSalvageTargets(guarded, NO_BOUND)).toEqual([]);
+    const reasonFor = (id: string) => autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: id });
+    expect(reasonFor("eq-installed")).toBe("installed");
+    expect(reasonFor("eq-baseline")).toBe("baseline");
+    expect(reasonFor("eq-queued")).toBe("reserved");
+  });
+
+  it("the grace is the ONLY protection that zero removes: graceWindow stops being reported", () => {
+    // A piece that WOULD read "graceWindow" under the default reads null instead, because nothing
+    // else about it is protected. This is the whole behavioral delta of the option, stated once.
+    const fresh = zeroGraceState([autoPiece({ id: "eq-new", quality: 0 })]);
+    expect(autoSalvageProtectionForTarget(fresh, { kind: "equipment", instanceId: "eq-new" })).toBeNull();
+    const defaulted: GameState = {
+      ...fresh,
+      autoSalvage: { ...fresh.autoSalvage, graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT },
+    };
+    expect(autoSalvageProtectionForTarget(defaulted, { kind: "equipment", instanceId: "eq-new" })).toBe("graceWindow");
+  });
+});
+
+// ============================================================================
+// ⚠️ THE GRACE WINDOW ALSO STARTS ON UNINSTALL (0.13.3.1 follow-up, user-reported gap)
+// ============================================================================
+// THE GAP THESE CASES CLOSE, stated as the player found it: auto-salvage never touches
+// INSTALLED gear, and the grace window used to start only on a MINT. So the instant a piece
+// stopped being installed it went from PERMANENTLY protected to FULLY eligible, with no window
+// at all. Swap a reactor for a better one, and the rules could queue the old one before the
+// player went to put it back: "a player is left wondering where their item went when they go to
+// switch back". Favoriting would have prevented it, but a destructive default must not depend on
+// the player having opted in.
+//
+// So the stamp restarts at BOTH moments (startAutoSalvageGrace, model.ts) and EVERY route that
+// takes a piece off a ship calls it. There are FOUR, and there is one case per route below,
+// because each is a separate write and forgetting one is exactly how this gap would come back:
+//   unfitEquipmentInstance  the Ships loadout board's uninstall (what a player actually taps)
+//   fitEquipment            the SINGLETON swap's displaced occupant (installing over a slot)
+//   unfitEquipment          the slot-targeted uninstall (dev/debug route, same eviction)
+//   salvageShip             a scrapped hull returning its installed systems to the pool
+// A structural guard at the end of this block asserts the list is COMPLETE rather than merely
+// current: every installed-to-spare transition in equipment.ts and salvage.ts goes through the
+// stamp, so a fifth route added to either file fails the guard until it does too.
+describe("⚠️ UNINSTALLING a system starts its auto-salvage grace window (0.13.3.1 follow-up)", () => {
+  // The fixture clock. Every stamp below is asserted to equal exactly this, which is what pins
+  // the stamp to GAME time (state.gameTimeSeconds) rather than to a wall clock.
+  const NOW = 10_000;
+
+  // A state holding ONE crafted cargo bay installed on ship-1, with the rules wide open.
+  //
+  // freshState's OWN ship-1 cargo-bay baseline is filtered out so the slot has exactly one
+  // occupant: with two, the singleton swap would evict both at once and it would stop being
+  // obvious which piece an assertion is about. (The baseline is protected outright anyway.)
+  function installedState(extra: EquipmentInstance[] = []): GameState {
+    const base = autoState(
+      [autoPiece({ id: "eq-worn", quality: 0, fittedToShipId: "ship-1" }), ...extra],
+      { maxQuality: 5 }
+    );
+    return {
+      ...base,
+      gameTimeSeconds: NOW,
+      equipment: base.equipment.filter(
+        (e) => !(e.fittedToShipId === "ship-1" && e.slotType === "cargoBay" && isStandardIssueBaseline(e))
+      ),
+    };
+  }
+
+  const reasonFor = (state: GameState, id: string) =>
+    autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: id });
+  const pooled = (state: GameState, id: string) => state.equipment.find((e) => e.id === id);
+
+  // Every route is asserted the SAME way, because they all have to end in the same place: the
+  // piece is a spare, it is stamped on the game clock, the automation reports the grace window
+  // as its reason, and the rules select nothing.
+  function expectProtectedAfterUninstall(after: GameState, id: string) {
+    const piece = pooled(after, id);
+    expect(piece, `${id} must still exist after being uninstalled`).toBeDefined();
+    expect(piece?.fittedToShipId).toBeNull();                   // it really is a spare now
+    expect(piece?.graceStartedAtGameSeconds).toBe(NOW);         // GAME time, not Date.now()
+    expect(reasonFor(after, id)).toBe("graceWindow");
+    expect(selectAutoSalvageTargets(after, NO_BOUND)).toEqual([]);
+  }
+
+  it("ROUTE 1 (the Ships loadout): unfitEquipmentInstance stamps the piece it pools", () => {
+    const before = installedState();
+    // The cliff, shown before it is crossed: while installed the piece is protected by the
+    // `installed` reason and by nothing else, so uninstalling is the moment ALL of its
+    // protection would otherwise disappear in one step.
+    expect(reasonFor(before, "eq-worn")).toBe("installed");
+    expectProtectedAfterUninstall(unfitEquipmentInstance(before, "ship-1", "eq-worn"), "eq-worn");
+  });
+
+  it("ROUTE 2 (the swap): installing over an occupied slot stamps the piece that came OFF", () => {
+    // THE CASE THE USER DESCRIBED, exactly: a better piece goes on, the old one comes off, and
+    // the old one must not be queued before the player can change their mind.
+    const before = installedState([autoPiece({ id: "eq-better", quality: 0, iLevel: 99 })]);
+    const after = fitEquipment(before, "ship-1", "eq-better");
+    expect(pooled(after, "eq-better")?.fittedToShipId).toBe("ship-1"); // the swap really happened
+    expectProtectedAfterUninstall(after, "eq-worn");
+  });
+
+  it("ROUTE 3 (the slot-targeted uninstall): unfitEquipment stamps its evicted occupant", () => {
+    const after = unfitEquipment(installedState(), "ship-1", "cargoBay");
+    const piece = pooled(after, "eq-worn");
+    expect(piece?.fittedToShipId).toBeNull();
+    expect(piece?.graceStartedAtGameSeconds).toBe(NOW);
+    expect(reasonFor(after, "eq-worn")).toBe("graceWindow");
+    // This route also MINTS a fresh Standard-Issue into the emptied slot (its never-empty
+    // invariant), so the "rules select nothing" assertion is made about the evicted piece
+    // rather than about the pool: the minted baseline is protected by `baseline` regardless.
+    expect(
+      selectAutoSalvageTargets(after, NO_BOUND).some(
+        (t) => t.kind === "equipment" && t.instanceId === "eq-worn"
+      )
+    ).toBe(false);
+  });
+
+  it("⚠️ ROUTE 4 (scrapping a hull): salvageShip stamps every system it returns to the pool", () => {
+    // The route where a player is LEAST expecting their gear to be at risk: they are scrapping a
+    // ship, not thinking about the salvage rules, and its whole loadout lands in the pool at once.
+    const base = installedState([autoPiece({ id: "eq-onhull", quality: 0, fittedToShipId: "ship-2" })]);
+    const withHull: GameState = {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    };
+    const result = salvageShip(withHull, "ship-2", () => 0.5);
+    if (!result.ok) throw new Error(`expected the hull teardown to succeed, got ${result.reason}`);
+    expect(result.next.ships.find((s) => s.id === "ship-2")).toBeUndefined(); // the hull is gone
+    const piece = pooled(result.next, "eq-onhull");
+    expect(piece?.fittedToShipId).toBeNull();
+    expect(piece?.graceStartedAtGameSeconds).toBe(NOW);
+    expect(reasonFor(result.next, "eq-onhull")).toBe("graceWindow");
+  });
+
+  it("⚠️ it is a DELAY, not a pardon: past the window the uninstalled piece is taken", () => {
+    // Without this the four cases above would all pass for a permanently protected item, which
+    // is a different bug and not the fix.
+    const after = unfitEquipmentInstance(installedState(), "ship-1", "eq-worn");
+    const later: GameState = { ...after, gameTimeSeconds: NOW + AUTO_SALVAGE_GRACE_SECONDS_DEFAULT };
+    expect(reasonFor(later, "eq-worn")).toBeNull();
+    expect(selectedIds(selectAutoSalvageTargets(later, NO_BOUND))).toContain("eq-worn");
+  });
+
+  it("the ZERO grace option still exposes an uninstalled piece immediately (it is opted into)", () => {
+    // "No grace period" is a deliberate, opt-in choice with a persistent on-screen warning, so it
+    // must keep meaning what it says for THIS half of the window too. The stamp is still written
+    // (the engine does not branch on the length); it is the RESOLVED length that is zero.
+    const base = installedState();
+    const zero: GameState = { ...base, autoSalvage: { ...base.autoSalvage, graceSeconds: 0 } };
+    const after = unfitEquipmentInstance(zero, "ship-1", "eq-worn");
+    expect(pooled(after, "eq-worn")?.graceStartedAtGameSeconds).toBe(NOW);
+    expect(reasonFor(after, "eq-worn")).toBeNull();
+    expect(selectedIds(selectAutoSalvageTargets(after, NO_BOUND))).toContain("eq-worn");
+  });
+
+  it("⚠️ a FAVORITED piece is still protected after uninstalling, window or no window", () => {
+    // No protection this fix touches is weakened by it: the favorite outranks the grace in the
+    // declared reason order and holds even at zero grace, where the window is gone entirely.
+    const base = installedState();
+    const pinned: GameState = {
+      ...base,
+      autoSalvage: { ...base.autoSalvage, graceSeconds: 0 },
+      equipment: base.equipment.map((e) => (e.id === "eq-worn" ? { ...e, favorite: true } : e)),
+    };
+    const after = unfitEquipmentInstance(pinned, "ship-1", "eq-worn");
+    expect(reasonFor(after, "eq-worn")).toBe("favorited");
+    expect(selectAutoSalvageTargets(after, NO_BOUND)).toEqual([]);
+  });
+
+  it("a CONFIRM-ON quality tier is still protected after uninstalling, window or no window", () => {
+    const base = autoState([autoPiece({ id: "eq-q2", quality: 2, fittedToShipId: "ship-1" })], {
+      maxQuality: 5,
+      graceSeconds: 0,
+    });
+    const guarded: GameState = { ...base, gameTimeSeconds: NOW, salvageConfirmQualities: [2] };
+    const after = unfitEquipmentInstance(guarded, "ship-1", "eq-q2");
+    expect(reasonFor(after, "eq-q2")).toBe("confirmTier");
+    expect(selectAutoSalvageTargets(after, NO_BOUND)).toEqual([]);
+  });
+});
+
+// ============================================================================
+// ⚠️ GUARD: THE UNINSTALL LIST IS COMPLETE, NOT MERELY CURRENT
+// ============================================================================
+// The four cases above prove the four routes that exist TODAY. This guard is what makes the
+// claim hold for a route added TOMORROW: it reads the source of the two files that can move a
+// piece from INSTALLED to SPARE and asserts that every such write goes through the stamp.
+//
+// WHY A SOURCE GREP (the same posture, and the same justification, as the rng-threading guard at
+// the top of this file): a missing stamp compiles cleanly, breaks nothing visible, and only shows
+// up as an item quietly destroyed on some later tick for a player who had auto-salvage on. A grep
+// fails on the LINE that broke; a behavioral test for a route nobody wrote yet cannot exist.
+//
+// ⚠️ ITS BOUNDARY, STATED SO IT IS NOT MISTAKEN FOR MORE THAN IT IS: it covers equipment.ts and
+// salvage.ts, which today hold every installed-to-spare transition in the codebase. A `fittedToShipId:
+// null` in itemgen.ts is NOT an uninstall and is deliberately out of scope: those are the three
+// GENERATORS, where a piece is BORN spare and has never been installed at all (their mint sites are
+// stamped separately, in tick.ts's fabricate branches and App.svelte's dev mints). If an uninstall is
+// ever written in a THIRD file, this guard cannot see it, which is why AutoSalvageProtection's own
+// header and startAutoSalvageGrace's comment both say plainly that every uninstall route must call it.
+describe("⚠️ GUARD: every uninstall route stamps the grace window (0.13.3.1 follow-up)", () => {
+  // The two files that transition a piece from installed to spare.
+  const uninstallSources = [
+    { name: "equipment.ts", code: stripComments(equipmentSource) },
+    { name: "salvage.ts", code: stripComments(salvageSource) },
+  ];
+  // A write that pools a piece. `fittedToShipId: null` is the ONE way a piece becomes a spare
+  // (that field is the single source of truth for where a piece lives, model.ts).
+  const POOLS_A_PIECE = /fittedToShipId:\s*null/g;
+  // The same write, wrapped in the stamp. `[^}]*` cannot span the object's closing brace, so this
+  // only matches a stamp that is actually wrapping THIS object literal.
+  const POOLS_WITH_STAMP = /startAutoSalvageGrace\(\{[^}]*fittedToShipId:\s*null[^}]*\}/g;
+
+  it("every installed-to-spare write in equipment.ts and salvage.ts goes through startAutoSalvageGrace", () => {
+    let pools = 0;
+    let stamped = 0;
+    for (const source of uninstallSources) {
+      const filePools = countMatches(source.code, POOLS_A_PIECE);
+      const fileStamped = countMatches(source.code, POOLS_WITH_STAMP);
+      // Reported per file so a failure names WHICH file grew an unstamped route.
+      expect(fileStamped, `${source.name} has an unstamped uninstall`).toBe(filePools);
+      pools += filePools;
+      stamped += fileStamped;
+    }
+    // NON-VACUITY: four routes, four writes. Without this, deleting the wiring entirely would
+    // make 0 === 0 and the guard would pass while defending nothing.
+    expect(pools).toBeGreaterThanOrEqual(4);
+    expect(stamped).toBe(pools);
   });
 });
 
@@ -3189,7 +3584,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
         e.id === "eq-fav"
           ? { ...e, favorite: true }
           : e.id === "eq-fresh"
-            ? { ...e, mintedAtGameSeconds: 10_000 - 60 }
+            ? { ...e, graceStartedAtGameSeconds: 10_000 - 60 }
             : e
       ),
       processQueue: [
@@ -3205,7 +3600,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     expect(reasonFor("eq-installed")).toBe("installed");
     expect(reasonFor("eq-queued")).toBe("reserved");
     expect(reasonFor("eq-fav")).toBe("favorited");
-    expect(reasonFor("eq-fresh")).toBe("craftGrace");
+    expect(reasonFor("eq-fresh")).toBe("graceWindow");
     expect(reasonFor("eq-plain")).toBeNull(); // nothing protects it: the rules may take it
     // The confirm interlock, on a piece whose tier IS set to ask first.
     const q3: GameState = {
@@ -3234,7 +3629,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       "reserved",
       "confirmTier",
       "favorited",
-      "craftGrace",
+      "graceWindow",
     ];
     expect(AUTO_SALVAGE_PROTECTION_ORDER).toEqual(expected);
     expect(new Set(AUTO_SALVAGE_PROTECTION_ORDER).size).toBe(AUTO_SALVAGE_PROTECTION_ORDER.length);
@@ -3336,36 +3731,30 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
     expect(autoSalvageOrders(state)).toBe(state);
   });
 
-  it("âš ï¸ BOUNDED PER TICK: a 40-piece pool does not enqueue everything at once", () => {
-    // At base depth 1 the pass may add exactly one order per tick. The pool size is
-    // irrelevant to how much work one tick does, which is the Omega 14 property.
+  it("THE WORK IS STILL BOUNDED, by the POOL rather than by a ration (Omega 14)", () => {
+    // ⚠️ REWRITTEN FOR THE AUTO-SALVAGE TERMINAL (2026-09-11). This case used to read
+    // "a 40-piece pool does not enqueue everything at once", and it was a statement about the
+    // DEPTH RATION: at base depth 1 the pass added exactly one order per tick. The queue is
+    // unbounded now (user: "No queue size limitations are necessary"), so the ration is gone
+    // and the Omega 14 property has to be proven the honest way it is actually held: every
+    // target is RESERVED as it is queued, so it is offered exactly ONCE, and the total work
+    // this pass can ever do is bounded by the size of the spare pool.
     const state = bigPoolState();
-    expect(queueDepth(state)).toBe(1);
+    expect(queueDepth(state)).toBe(1); // depth no longer rations the automation at all
     const after = autoSalvageOrders(state);
-    expect(after.processQueue.length).toBe(1);
-    // And a second pass on the RESULT adds nothing, because the queue is now full.
-    expect(autoSalvageOrders(after).processQueue.length).toBe(1);
+    expect(after.processQueue).toEqual([]);         // the player's queue: untouched
+    expect(after.autoSalvageQueue.length).toBe(40); // bounded BY THE POOL, exactly
+    // THE BOUND, PROVEN: a second pass on the RESULT adds nothing, because every piece is
+    // now reserved. There is no unbounded re-offering of the same targets tick after tick.
+    expect(autoSalvageOrders(after).autoSalvageQueue.length).toBe(40);
   });
 
-  it("âš ï¸ leaves the player ONE depth slot so auto-salvage cannot starve manual queueing", () => {
-    // Depth 3 (base 1 + two talent rungs): the rules take 2 and leave 1 for the player.
+  it("NEVER evicts, reorders or even reads the player's own queue entries", () => {
+    // ⚠️ REWRITTEN (2026-09-11): the old case measured "the auto budget is already spent by
+    // the player's two orders, so nothing is added". Budgets are gone; the stronger property
+    // that replaced it is that the player's array is not an input to this pass at all, so
+    // holding orders of their own changes NOTHING about what the automation does.
     const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
-    expect(queueDepth(state)).toBe(3);
-    const after = autoSalvageOrders(state);
-    expect(after.processQueue.length).toBe(3 - AUTO_SALVAGE_MANUAL_HEADROOM);
-    // The player's own order still fits, which is the point of the headroom.
-    const manual = enqueueOrder(after, "salvageBay", {
-      type: "salvage",
-      target: { kind: "equipment", instanceId: "eq-039" },
-      mode: { kind: "batch", remaining: 1 },
-    });
-    expect(manual.queued).toBe(true);
-    expect(manual.next.processQueue.length).toBe(3);
-  });
-
-  it("stops at the depth cap and NEVER evicts or reorders a manual order", () => {
-    const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
-    // The player has queued two of their own, which already fill the auto budget.
     const manual: QueuedJob[] = [
       {
         id: "q-90",
@@ -3380,39 +3769,54 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
     ];
     const withManual: GameState = { ...state, processQueue: manual };
     const after = autoSalvageOrders(withManual);
-    // budget = 3 - 1 headroom = 2, already held by the player -> nothing added, same ref.
-    expect(after).toBe(withManual);
+    // The player's entries are untouched, in their exact order, by REFERENCE.
+    expect(after.processQueue).toBe(withManual.processQueue);
     expect(after.processQueue.map((j) => j.id)).toEqual(["q-90", "q-91"]);
+    // And the two pieces the PLAYER claimed are the two the automation did not take: the
+    // reservation set spans both queues, so the split cannot double-book a piece.
+    const autoIds = after.autoSalvageQueue.map((j) =>
+      j.order.type === "salvage" && j.order.target.kind === "equipment" ? j.order.target.instanceId : "?"
+    );
+    expect(autoIds).not.toContain("eq-030");
+    expect(autoIds).not.toContain("eq-031");
   });
 
-  it("enqueues through enqueueOrder, so a target already queued is refused rather than duplicated", () => {
+  it("refuses a target already queued rather than duplicating it, and mints from nextQueueId", () => {
     const state = bigPoolState({}, ["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
     const after = autoSalvageOrders(state);
-    const ids = after.processQueue.map((j) =>
+    const ids = after.autoSalvageQueue.map((j) =>
       j.order.type === "salvage" && j.order.target.kind === "equipment" ? j.order.target.instanceId : "?"
     );
     expect(new Set(ids).size).toBe(ids.length); // no target queued twice
-    // The minted ids come from nextQueueId through the normal path.
-    expect(after.nextQueueId).toBe(state.nextQueueId + after.processQueue.length);
+    // The minted ids come from the SAME monotonic counter the player's queue uses, so no id
+    // can ever name an entry in both arrays.
+    expect(after.nextQueueId).toBe(state.nextQueueId + after.autoSalvageQueue.length);
   });
 
-  it("âš ï¸ THE ESCAPE VALVE SURVIVES: a spare pool OVER the equipment cap still auto-salvages", () => {
+  it("THE ESCAPE VALVE SURVIVES: a spare pool OVER the equipment cap still auto-salvages", () => {
     // Salvage is the always-available relief for a full pool (0.11.1's softlock fix). If
     // auto-salvage consulted equipmentStorageCap it would switch itself off at exactly the
     // moment it is most needed. Anyone adding a cap check re-opens a shipped softlock.
+    //
+    // ⚠️ THIS IS ALSO THE CASE THE TERMINAL WAS BUILT FOR. The chain the feature breaks is:
+    // a long material batch owns every general lane, so the spare pool fills, so
+    // equipmentStorageFull stops fabrication, so the only remedy is deleting your own queued
+    // work. With the Terminal, the relief runs on a lane that batch cannot occupy.
     const state = bigPoolState();
     expect(spareEquipmentCount(state)).toBeGreaterThan(equipmentStorageCap(state));
     expect(equipmentAtCap(state)).toBe(true);
-    expect(autoSalvageOrders(state).processQueue.length).toBe(1);
+    expect(autoSalvageOrders(state).autoSalvageQueue.length).toBeGreaterThan(0);
   });
 
   it("an order the rules add is PROMOTED the same tick, not one tick later", () => {
-    // The rules run at the head of promoteQueuedOrders, before the promotion scan, so a
-    // piece the player never touched starts salvaging on the very tick the rule fires.
+    // The rules run at the head of promoteQueuedOrders and the Terminal's promotion pass runs
+    // at its tail, so a piece the player never touched starts salvaging on the very tick the
+    // rule fires. ONE job, not two: a level-0 bay has one general lane, and the borrow window
+    // has not elapsed on the first tick, so only the Terminal's own lane is taken.
     const state = bigPoolState();
     const after = promoteQueuedOrders(state);
     expect(after.activeProcesses.filter((p) => p.kind === "salvageJob").length).toBe(1);
-    expect(after.processQueue.length).toBe(0); // the added order was consumed by the promotion
+    expect(after.autoSalvageQueue.length).toBe(39); // the promoted order left the queue
   });
 });
 
@@ -3546,7 +3950,7 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
         gameTimeSeconds: 50_000,
         autoSalvage: { ...base.autoSalvage, graceSeconds: 24 * 60 * 60 },
         equipment: base.equipment.map((e) =>
-          e.id === "eq-000" ? { ...e, mintedAtGameSeconds: 50_000 } : e
+          e.id === "eq-000" ? { ...e, graceStartedAtGameSeconds: 50_000 } : e
         ),
       };
     }
@@ -3566,10 +3970,98 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     const expired: GameState = {
       ...expiredBase,
       equipment: expiredBase.equipment.map((e) =>
-        e.id === "eq-000" ? { ...e, mintedAtGameSeconds: 50_000 - 24 * 60 * 60 } : e
+        e.id === "eq-000" ? { ...e, graceStartedAtGameSeconds: 50_000 - 24 * 60 * 60 } : e
       ),
     };
     expect(tick(SPAN, expired, mulberry32(SEED)).equipment.some((e) => e.id === "eq-000")).toBe(false);
+  });
+
+  // --- 0.13.3.1 follow-up: THE UNINSTALL HALF OF THE WINDOW, PROVEN OFFLINE ---------------
+  // ⚠️ THIS IS THE PARITY CASE THE UNINSTALL FIX NEEDS, and the reason it can exist at all is
+  // that ONE of the four uninstall routes runs INSIDE the tick: a queued hull teardown
+  // (salvageShip, via the salvageJob completion) pools the scrapped ship's installed systems.
+  // The other three routes are player clicks and never run in the offline seam.
+  //
+  // WHAT WOULD BREAK WITHOUT IT: the stamp is written from state.gameTimeSeconds at the moment
+  // the teardown completes. If that read were ever swapped for a wall clock, or if the teardown
+  // landed on a different tick in a jumped span than in a stepped one, the pooled systems would
+  // carry DIFFERENT stamps on the two paths, and a player who was away would find gear destroyed
+  // that a player at the keyboard kept. The 24-hour window is used so it cannot close during the
+  // span: the subject here is the STAMP's parity, not the expiry's.
+  it("⚠️ parity: a system UNEQUIPPED during the span (a hull teardown) is protected identically offline and live", () => {
+    // Mid-span teardown: the job completes early enough that the rules then run for hundreds of
+    // ticks with the freed systems sitting in the pool, which is exactly the window in which an
+    // unprotected piece would be queued and destroyed.
+    const TEARDOWN_AT = 5;
+
+    // "The rules took it": either it has already been broken down, or it is standing in the
+    // automation's own queue waiting its turn. BOTH count, and the distinction is only about
+    // lane throughput: the fixture's twelve other spares keep the bay busy, so a piece the rules
+    // have claimed may still be sitting in the pool at the end of the span with its fate sealed.
+    // Asserting "gone from the pool" alone would make this control depend on queue speed rather
+    // than on the decision the case is actually about.
+    function takenByTheRules(state: GameState, id: string): boolean {
+      if (!state.equipment.some((e) => e.id === id)) return true; // already salvaged
+      return (state.autoSalvageQueue ?? []).some(
+        (job) =>
+          job.order.type === "salvage" &&
+          job.order.target.kind === "equipment" &&
+          job.order.target.instanceId === id
+      );
+    }
+    function scrapMidSpanState(graceSeconds = 24 * 60 * 60): GameState {
+      const base = autoParityState();
+      return {
+        ...base,
+        gameTimeSeconds: 50_000,
+        autoSalvage: { ...base.autoSalvage, graceSeconds },
+        ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+        // A Q0 crafted system bolted to the doomed hull. Q0 is inside the fixture's maxQuality 1,
+        // so the moment it lands in the pool the rules WANT it: the control below proves that.
+        equipment: [
+          ...base.equipment,
+          autoPiece({ id: "eq-hull", quality: 0, iLevel: 10, fittedToShipId: "ship-2" }),
+        ],
+        activeProcesses: [salvageJobAt({ kind: "ship", shipId: "ship-2" }, TEARDOWN_AT, "proc-scrap")],
+      };
+    }
+
+    const jumped = tick(SPAN, scrapMidSpanState(), mulberry32(SEED));
+    let stepped = scrapMidSpanState();
+    const liveRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
+
+    for (const [label, run] of [["offline", jumped], ["live", stepped]] as const) {
+      // The teardown really happened on this path.
+      expect(run.ships.find((s) => s.id === "ship-2"), `the hull must be gone on the ${label} run`).toBeUndefined();
+      const survivor = run.equipment.find((e) => e.id === "eq-hull");
+      expect(survivor, `eq-hull must survive the ${label} run`).toBeDefined();
+      expect(survivor?.fittedToShipId).toBeNull();
+      // The SAME game-clock stamp on both paths, which is the parity claim itself.
+      expect(survivor?.graceStartedAtGameSeconds).toBe(jumped.equipment.find((e) => e.id === "eq-hull")?.graceStartedAtGameSeconds);
+      expect(
+        autoSalvageProtectionForTarget(run, { kind: "equipment", instanceId: "eq-hull" }),
+        `eq-hull must be inside its window on the ${label} run`
+      ).toBe("graceWindow");
+      // And the automation never claimed it: not salvaged, and not standing in its queue.
+      expect(takenByTheRules(run, "eq-hull"), `eq-hull must not be claimed on the ${label} run`).toBe(false);
+    }
+    // And the two runs agree on everything a salvage can touch, so the new stamp did not desync
+    // the seeded stream or change what was queued. autoSalvageQueue is compared explicitly
+    // because salvageFingerprint predates the Terminal and covers the PLAYER's queue only.
+    expect(salvageFingerprint(jumped)).toEqual(salvageFingerprint(stepped));
+    expect(jumped.autoSalvageQueue).toEqual(stepped.autoSalvageQueue);
+    expect(jumped.nextQueueId).toBe(stepped.nextQueueId);
+
+    // NON-VACUITY + THE CONTROL: the same span with the grace switched OFF destroys the very same
+    // piece, on BOTH paths. That is what proves the window is the cause and not the fixture, and
+    // it is the precise behavior the user reported before the window covered uninstalls at all.
+    const noGraceJumped = tick(SPAN, scrapMidSpanState(0), mulberry32(SEED));
+    let noGraceStepped = scrapMidSpanState(0);
+    const controlRng = mulberry32(SEED);
+    for (let i = 0; i < SPAN; i++) noGraceStepped = economyTick(noGraceStepped, 1, controlRng);
+    expect(takenByTheRules(noGraceJumped, "eq-hull"), "the control run must take eq-hull offline").toBe(true);
+    expect(takenByTheRules(noGraceStepped, "eq-hull"), "the control run must take eq-hull live").toBe(true);
   });
 });
 
@@ -3886,7 +4378,7 @@ describe("promoteQueuedOrders: a BATCH consumes ONE unit per job, leaving a resi
   });
 });
 
-describe("autoSalvageOrders: the manual slot stays free, and the rules never mint a batch", () => {
+describe("autoSalvageOrders: the player's whole queue stays free, and the rules never mint a batch", () => {
   // A pool big enough that an unbounded pass would enqueue dozens. A local twin of the
   // bigPoolState fixture the Unit 5.1 block defines inside its own describe: rebuilt here
   // rather than hoisted, because hoisting a fixture out of a passing suite to reach it from a
@@ -3899,9 +4391,11 @@ describe("autoSalvageOrders: the manual slot stays free, and the rules never min
     return { ...base, unlockedHomeworldTalents: [...base.unlockedHomeworldTalents, ...talents] };
   }
 
-  it("leaves a depth slot the player can fill with a BATCH order", () => {
-    // The manual-headroom guarantee, re-asserted against the new order shape: the rules never
-    // take the last slot, and what the player puts in it may now be a batch.
+  it("leaves the player EVERY depth slot, so a full-depth BATCH order still fits", () => {
+    // ⚠️ REWRITTEN FOR THE AUTO-SALVAGE TERMINAL (2026-09-11). The old assertion was the
+    // manual-headroom one ("the rules never take the LAST slot"). The automation no longer
+    // takes ANY slot, so the guarantee is now the whole cap rather than one slot of it, and
+    // the player can fill all three with batches of their own.
     const pool = batchPoolState(["fleetLogisticsQueue1", "fleetLogisticsQueue2"]);
     const state: GameState = {
       ...pool,
@@ -3910,18 +4404,19 @@ describe("autoSalvageOrders: the manual slot stays free, and the rules never min
     };
     expect(queueDepth(state)).toBe(3);
     const after = autoSalvageOrders(state);
-    expect(after.processQueue.length).toBe(3 - AUTO_SALVAGE_MANUAL_HEADROOM);
+    expect(after.autoSalvageQueue.length).toBeGreaterThan(0); // non-vacuous: the rules DID run
+    expect(after.processQueue).toEqual([]);                   // and took none of the player's depth
     const manual = enqueueOrder(after, "salvageBay", housingBatch(400).order);
     expect(manual.queued).toBe(true);
-    expect(manual.next.processQueue.length).toBe(3);
+    expect(manual.next.processQueue.length).toBe(1);
   });
 
   it("never mints a multi-unit order of its own", () => {
     // An automation that destroys items must not acquire a multiplier. Every order the rules
     // add names ONE unique spare, so every one of them reads as exactly one unit.
     const after = autoSalvageOrders(batchPoolState(["fleetLogisticsQueue1", "fleetLogisticsQueue2"]));
-    expect(after.processQueue.length).toBeGreaterThan(0);
-    for (const job of after.processQueue) {
+    expect(after.autoSalvageQueue.length).toBeGreaterThan(0);
+    for (const job of after.autoSalvageQueue) {
       expect(salvageOrderUnits(job.order as QueuedSalvageOrder)).toBe(1);
     }
   });

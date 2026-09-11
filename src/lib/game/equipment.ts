@@ -36,6 +36,17 @@
 // ("strip a required combat slot -> cannot patrol"); the stripped baseline sits in the pool
 // and can be re-installed, so it is a recoverable state, never a permanent brick.
 //
+// ⚠️ EVERY UNINSTALL ROUTE IN THIS FILE RESTARTS THE AUTO-SALVAGE GRACE WINDOW on the piece it
+// pools, via startAutoSalvageGrace (model.ts). There are three of them and they are all below:
+//   fitEquipment            the SINGLETON swap's displaced occupant (the gear-swap case)
+//   unfitEquipment          the slot-targeted uninstall's evicted occupant
+//   unfitEquipmentInstance  the instance-targeted uninstall (what the Ships loadout board calls)
+// The reason is data safety, not polish: auto-salvage never touches INSTALLED gear, so without
+// the stamp a piece goes from permanently protected to fully eligible the instant it is taken
+// off, and a player mid-swap could find the piece they just removed already queued for salvage.
+// A FOURTH route lives outside this file (salvageShip, salvage.ts, which pools a scrapped hull's
+// installed systems) and stamps them the same way. If a fifth is ever added, it must too.
+//
 // Contents (Functions -> types -> queries -> gate -> mutators):
 //   captainBranchToShipSpec  the CaptainTalentBranch -> ShipSpec bridge the gate needs
 //   EquipFitBlockReason      the typed block-reason union (mirrors DispatchBlockReason)
@@ -54,7 +65,17 @@ import type {
   ShipSpec,
   CaptainTalentBranch,
 } from "./model";
-import { EQUIPMENT_SLOTS, SHIP_TYPES, generateStandardIssue, isStandardIssueBaseline } from "./model";
+// startAutoSalvageGrace is the ONE writer of EquipmentInstance.graceStartedAtGameSeconds. Every
+// uninstall route in this file calls it on the piece it pools, so a piece the player just took
+// off a ship gets the same head start a freshly crafted one gets. See the function's own comment
+// (model.ts) for why that is a data-safety requirement and not a nicety.
+import {
+  EQUIPMENT_SLOTS,
+  SHIP_TYPES,
+  generateStandardIssue,
+  isStandardIssueBaseline,
+  startAutoSalvageGrace,
+} from "./model";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED set of equipment instances a queued
 // (later: in-flight) salvage owns. Imported from reservation.ts and NOT from salvage.ts
 // on purpose: salvage.ts imports onMissionLock from THIS file, so reaching for it here
@@ -438,8 +459,13 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
     // The incoming piece: fit it to this ship.
     if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
     // Any OTHER occupant of the SAME slot on this ship (the displaced piece): evict to the spare pool.
+    // ⚠️ AND RESTART ITS AUTO-SALVAGE GRACE, which is the point: this is THE gear-swap route, and
+    // without the stamp the piece the player swapped OUT would become auto-salvage-eligible the very
+    // instant it landed in the pool (installed gear is never a candidate, so it goes from fully
+    // protected to fully exposed in one step). The player would then go to switch back and find it
+    // gone. The window gives them the same head start a fresh craft gets.
     if (e.fittedToShipId === shipId && e.slotType === slotType) {
-      return { ...e, fittedToShipId: null };
+      return startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds);
     }
     // Everything else (other ships, other slots, spares): untouched.
     return e;
@@ -508,8 +534,15 @@ export function unfitEquipment(
   }
 
   // Evict a CRAFTED occupant (if any) to the pool. The slot is now empty.
+  // ⚠️ AND RESTART ITS AUTO-SALVAGE GRACE: a piece that has just stopped being installed must not
+  // be auto-salvageable the same instant, or a swap can destroy the piece the player just took off
+  // (see startAutoSalvageGrace, model.ts). This is the slot-targeted uninstall route.
   const evicted = occupant
-    ? state.equipment.map((e) => (e.id === occupant.id ? { ...e, fittedToShipId: null } : e))
+    ? state.equipment.map((e) =>
+        e.id === occupant.id
+          ? startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds)
+          : e
+      )
     : state.equipment;
 
   // Mint + fit a fresh Standard-Issue so the slot is never left empty (this also FILLS a slot that was
@@ -593,10 +626,18 @@ export function unfitEquipmentInstance(
   // baseline or crafted, is a re-installable spare, so nothing the player uninstalls is ever lost.
   // (`occupant.blueprintKey` / `occupant.slotType` no longer branch anything here; occupant is used
   // only by the identity guards above.)
+  // ⚠️ AND RESTART ITS AUTO-SALVAGE GRACE. This is the route the Ships loadout board uses for
+  // EVERY slot, so it is the one a player hits when they uninstall a system to try another one.
+  // Without the stamp the piece would be auto-salvage-eligible the instant it reached the pool
+  // (the rules never touch installed gear, so uninstalling is the moment protection would
+  // otherwise vanish), and the player would go to switch back to find it gone. See
+  // startAutoSalvageGrace (model.ts).
   return {
     ...state,
     equipment: state.equipment.map((e) =>
-      e.id === instanceId ? { ...e, fittedToShipId: null } : e
+      e.id === instanceId
+        ? startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds)
+        : e
     ),
   };
 }

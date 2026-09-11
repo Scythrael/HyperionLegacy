@@ -1209,8 +1209,23 @@ export interface EquipmentInstance {
   // favorited, which is the truth for every piece that existed before this release, so the
   // v42 -> v43 migration deliberately does not backfill it.
   favorite?: boolean;
-  // WHEN THIS PIECE WAS MINTED, on the fleet's own GAME CLOCK (state.gameTimeSeconds), which
-  // is what the post-craft grace period (salvage.ts, AUTO_SALVAGE_GRACE_*) measures against.
+  // WHEN THIS PIECE'S AUTO-SALVAGE GRACE WINDOW LAST STARTED, on the fleet's own GAME CLOCK
+  // (state.gameTimeSeconds), which is what the grace period (salvage.ts, AUTO_SALVAGE_GRACE_*)
+  // measures against.
+  //
+  // ⚠️ TWO MOMENTS RESTART IT, NOT ONE, AND THE SECOND ONE IS THE WHOLE REASON THIS FIELD IS
+  // NOT CALLED mintedAt ANY MORE (0.13.3.1 follow-up, user-reported gap):
+  //   MINT      a freshly crafted piece must not be swept away before the player has looked at it.
+  //   UNINSTALL a piece the player has just taken OFF a ship must not be swept away while they
+  //             are mid-swap. Auto-salvage never touches INSTALLED gear, so before this the
+  //             instant a piece was uninstalled it went from "permanently protected" to "fully
+  //             eligible" with no window at all: uninstall a good reactor to try another one,
+  //             and the rules could queue the old one before the player could put it back.
+  //             Favoriting would have prevented it, but a destructive default must not depend
+  //             on the player having opted in.
+  // So the stamp records "this piece was recently crafted OR recently uninstalled", and
+  // startAutoSalvageGrace (below) is the ONE writer for both. See its comment for why there is
+  // one field and one reason rather than two of each.
   //
   // ⚠️ GAME TIME, NEVER Date.now(). gameTimeSeconds advances inside economyTick, so it
   // advances identically for a live tick and for an offline catch-up tick. A wall-clock stamp
@@ -1224,7 +1239,38 @@ export interface EquipmentInstance {
   // so the automation behaves for it exactly as it did before the upgrade. This is why the
   // migration deliberately does NOT backfill the field (and why a Standard-Issue baseline,
   // minted by the two clock-free generators, never carries one).
-  mintedAtGameSeconds?: number;
+  graceStartedAtGameSeconds?: number;
+}
+
+// ----------------------------------------------------------------------------
+// startAutoSalvageGrace
+// ----------------------------------------------------------------------------
+// (RE)START a piece's auto-salvage grace window at `gameTimeSeconds`, returning a NEW instance.
+//
+// ⚠️ THIS EXISTS SO A GEAR SWAP CAN NEVER DESTROY THE PIECE YOU JUST TOOK OFF. Every site that
+// MINTS a piece and every site that UNINSTALLS one calls this, which is the entire mechanism
+// behind the grace period. If a new uninstall route is ever added and does NOT call this, the
+// piece it pools becomes eligible for the automation the same instant, which is exactly the
+// destructive gap this function was introduced to close.
+//
+// ONE FIELD, ONE REASON, DELIBERATELY. A mint and an uninstall could each have carried their own
+// stamp and their own protection reason, and that was considered and rejected: the rules ask a
+// single question ("is this piece still inside its window?"), so two fields would mean two places
+// to read, two places to forget, and a "which one wins" rule for a piece that was crafted and
+// then installed and then taken off. The player-facing sentence covers both causes instead (see
+// AUTO_SALVAGE_PROTECTION_TEXT in App.svelte), which is the only place the difference would have
+// been visible.
+//
+// ⚠️ THE CALLER PASSES GAME TIME, NEVER Date.now(): the uninstall routes and the tick's mint
+// routes all have a GameState in hand, so they pass state.gameTimeSeconds. That keeps the stamp
+// a pure function of saved state, which is what the offline==live parity invariant needs.
+//
+// PURE: allocates a fresh instance, mutates nothing.
+export function startAutoSalvageGrace(
+  piece: EquipmentInstance,
+  gameTimeSeconds: number
+): EquipmentInstance {
+  return { ...piece, graceStartedAtGameSeconds: gameTimeSeconds };
 }
 
 // The 0-based rarity ordinal the budget pipeline (later task) reads. Ascends
@@ -2276,7 +2322,16 @@ export type ProcessEffect =
   // clearShipDamage, and it round-trips through JSON as {type,target:{kind,id}} strings.
   // Keep it that way: a Decimal added here without a matching revive in save.ts would
   // load back as a bare string and throw on the first arithmetic.
-  | { type: "salvageResolve"; target: SalvageTargetRef };
+  // ⚠️ `auto` MARKS A JOB THE AUTO-SALVAGE TERMINAL STARTED (2026-09-11), and it is the
+  // ONLY thing that distinguishes an automation teardown from a player's own once both are
+  // running. It is stored rather than derived because there is nothing left to derive it
+  // from: the queue entry is gone by then, so the in-flight job has to carry its own origin
+  // or the lane split could not be read back after a save/load or an offline resolve.
+  // ABSENT MEANS MANUAL, which is the correct reading for every job that predates the
+  // Terminal and for every job a manual promotion starts, so no migration touches
+  // activeProcesses. It is `true | undefined` rather than `boolean` so "false" cannot be
+  // written as a third, meaningless state. A plain boolean, so hydrateDecimals is unchanged.
+  | { type: "salvageResolve"; target: SalvageTargetRef; auto?: true };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -3406,6 +3461,29 @@ export interface QueuedJob {
   order: QueuedOrder;
 }
 
+// ----------------------------------------------------------------------------
+// SalvageIdleWatch (Auto-Salvage Terminal, 2026-09-11)
+// ----------------------------------------------------------------------------
+// The bookkeeping behind the BORROW WINDOW: the free general-lane count the window last
+// restarted at, and the GAME time it restarted. tick.ts's refreshSalvageIdleWatch maintains
+// it (one call site, inside the promotion pass) and autoSalvageBorrowUnlocked reads it.
+//
+// ⚠️ WHY THIS ONE LANE FACT IS STORED WHEN EVERY OTHER ONE IS DERIVED. Lane counts, lane
+// occupancy and every reservation in this engine are functions of the CURRENT state, so they
+// are recomputed on read and cannot go stale. "How long has a lane been idle" is not a fact
+// about the current state at all, it is a fact about HISTORY, and nothing in the save records
+// when a job finished. Two plain numbers is the smallest honest record of it.
+//
+// ⚠️ GAME SECONDS, NEVER Date.now(), for the same reason EquipmentInstance.graceStartedAtGameSeconds
+// is: the comparison happens inside the tick and therefore inside the offline catch-up, where
+// a wall-clock read would make an offline span resolve differently from the identical span
+// played live. Both fields are plain numbers, so this rides hydrateDecimals's `...state`
+// spread with no revive branch (see the ⚠️ warning on QueuedJob above).
+export interface SalvageIdleWatch {
+  generalFree: number;      // the free general-lane count this window belongs to
+  sinceGameSeconds: number; // the game time (state.gameTimeSeconds) the window started
+}
+
 // The opt-in auto-salvage rules (design §7.6).
 //
 // WHY THESE LIVE IN THE SAVE AND NOT IN localStorage: they change what the TICK does,
@@ -3425,8 +3503,8 @@ export interface AutoSalvageRules {
   // when no band is selected, exactly as maxQuality null means off. See
   // AutoSalvageRaritySelection below for why this is a per-band record and not a threshold.
   rarities: AutoSalvageRaritySelection;
-  // 0.13.3.1 Feature 3: how long a freshly minted, uninstalled piece is exempt from the
-  // rules, in GAME seconds. Player-chosen from AUTO_SALVAGE_GRACE_OPTIONS, defaulting to
+  // 0.13.3.1 Feature 3: how long a piece that was just CRAFTED or just UNINSTALLED is exempt
+  // from the rules, in GAME seconds. Player-chosen from AUTO_SALVAGE_GRACE_OPTIONS, defaulting to
   // AUTO_SALVAGE_GRACE_SECONDS_DEFAULT (60 minutes). In the SAVE for the same reason as
   // every other field on this shape: the tick reads it and the offline path can see nothing
   // else. Read through resolveAutoSalvageGraceSeconds, never raw, so an absent or malformed
@@ -3521,12 +3599,13 @@ export function autoSalvageRarityRuleOn(selection: AutoSalvageRaritySelection): 
 }
 
 // ----------------------------------------------------------------------------
-// The post-craft GRACE PERIOD options (0.13.3.1 Feature 3)
+// The GRACE PERIOD options (0.13.3.1 Feature 3)
 // ----------------------------------------------------------------------------
-// A freshly minted, uninstalled piece is exempt from the auto-salvage rules for this long, so
-// a craft cannot be swept away before the player has looked at it. Measured in GAME seconds
-// against state.gameTimeSeconds (see EquipmentInstance.mintedAtGameSeconds for why it is
-// never wall time).
+// A spare that was just CRAFTED, or that the player just UNINSTALLED from a ship, is exempt
+// from the auto-salvage rules for this long, so neither a fresh craft nor a gear swap can be
+// swept away before the player has looked at it. Measured in GAME seconds against
+// state.gameTimeSeconds (see EquipmentInstance.graceStartedAtGameSeconds for why it is never
+// wall time, and for why one stamp covers both moments).
 //
 // AN ENUMERABLE, TYPED LIST rather than a free-text field: the console renders exactly these
 // options, so adding "12 hours" is a one-line DATA change here and needs no UI work and no
@@ -3546,6 +3625,28 @@ export const AUTO_SALVAGE_GRACE_OPTIONS: readonly { seconds: number; label: stri
   { seconds: 60 * 60, label: "60 minutes" },
   { seconds: 24 * 60 * 60, label: "24 hours" },
   { seconds: 7 * 24 * 60 * 60, label: "7 days" },
+  // ⚠️ THE OPT-IN "OFF" ENTRY, AND IT IS DELIBERATELY LAST RATHER THAN IN LADDER POSITION.
+  //
+  // It needs no engine work: resolveAutoSalvageGraceSeconds below already honors a deliberate
+  // 0 (it tests the value's SHAPE, not its truthiness), and the console's own setter refuses
+  // any value this list does not carry. So offering it here is the entire mechanism, which is
+  // why this is a data change and not a behavior change.
+  //
+  // WHY LAST, breaking the otherwise-ascending order: the risk of a mis-tap is ASYMMETRIC. The
+  // durations run shortest to longest, so 0 belongs at the HEAD by sorting. But the head puts
+  // "no protection at all" directly against "5 minutes", and a player reaching for the shortest
+  // grace who overshoots by one row would silently switch a data-loss protection off. At the
+  // tail its only neighbor is "7 days": overshooting there over-protects, which is recoverable
+  // by definition. A player scanning DURATIONS never travels in this direction, and one who
+  // wants the option is choosing it on purpose. It is never in the middle for the same reason.
+  //
+  // The label says what it DOES ("no grace period") rather than naming a length, so it cannot be
+  // read as just another, shorter duration while scanning the list.
+  //
+  // ⚠️ SELECTING IT MUST KEEP A PERSISTENT WARNING ON SCREEN (App.svelte, the Rules tab). It is
+  // a setting rather than an act, so the risk is ongoing rather than momentary and a one-off
+  // confirm the player dismisses and forgets would not cover it.
+  { seconds: 0, label: "No grace period" },
 ];
 
 // THE FIRST-PASS DEFAULT, and the value every save that has not chosen one resolves to.
@@ -4327,6 +4428,28 @@ export interface GameState {
   // v39->v40 migration (save.ts, MIGRATIONS[39]) backfills [] onto existing saves.
   // Carries no Decimal (see QueuedJob's warning above), so hydrateDecimals is unchanged.
   processQueue: QueuedJob[];
+  // ⚠️ THE AUTO-SALVAGE TERMINAL'S OWN WAITING LIST (2026-09-11), and a SEPARATE ARRAY from
+  // processQueue above on purpose. The automation writes here and NOWHERE ELSE, which is what
+  // makes "auto-salvage never touches the player's queue" a fact about the data model instead
+  // of a filter that five call sites have to remember to apply. Three properties fall out of
+  // that and all three are requirements, not side effects:
+  //   - it is UNBOUNDED (queueDepth is a per-facility cap on processQueue and does not reach
+  //     this array), which is the user's own call: "No queue size limitations are necessary";
+  //   - it cannot consume, reorder or be counted in the player's depth readouts;
+  //   - its entries run ONLY on Terminal lanes plus idle general lanes (see tick.ts's
+  //     salvageLaneUsage), never on a general lane the player wanted this tick.
+  // Same QueuedJob shape and the SAME nextQueueId counter as processQueue, so no id can ever
+  // name an entry in both arrays. Carries no Decimal, for the same reason processQueue does
+  // not, so hydrateDecimals is unchanged. freshState seeds []; the v43 -> v44 migration
+  // backfills [] onto existing saves.
+  autoSalvageQueue: QueuedJob[];
+  // ⚠️ THE BORROW WINDOW'S BOOKKEEPING (2026-09-11). Auto-salvage may borrow an IDLE general
+  // lane, but only after that lane has sat idle for AUTO_SALVAGE_BORROW_IDLE_SECONDS, so a
+  // player whose job just finished is not racing the automation for their own bay. See
+  // SalvageIdleWatch above for why this one lane fact is STORED when every other one is
+  // derived. OPTIONAL because a save that predates it must load: an absent watch reads as
+  // "the window has not elapsed", the fail-safe direction, and the next tick seeds it.
+  salvageIdleWatch?: SalvageIdleWatch;
   // Monotonic id source for new QueuedJob.id ("q-N"); never reused, mirrors
   // nextShipId ("ship-N") / nextProcessId ("proc-N") / nextCraftLineId ("craft-N").
   // freshState seeds 1 so the first minted id is "q-1"; the v39->v40 migration
@@ -8027,6 +8150,14 @@ export function freshState(): GameState {
     // stay a PURE function (dozens of tests build fixtures from it, and a new game is a
     // new game), so it never reaches for a browser store.
     processQueue: [],
+    // The Auto-Salvage Terminal's own queue, empty on a new game exactly as processQueue is.
+    // Existing saves reach the identical shape through the v43 -> v44 migration, so a fresh
+    // save and a migrated save stay indistinguishable in shape (this file's standing rule).
+    // salvageIdleWatch is deliberately NOT seeded here: it is optional, absent reads as "the
+    // borrow window has not elapsed" (the fail-safe direction), and the first promotion pass
+    // writes it. Seeding a watch on a bay that has never run anything would be inventing a
+    // history that did not happen.
+    autoSalvageQueue: [],
     nextQueueId: 1,
     // 0.13.3.1: `rarities` seeds the no-band-selected default (the rarity rule OFF, matching
     // the other two rules' opt-in posture) and `graceSeconds` the 60-minute first pass.
