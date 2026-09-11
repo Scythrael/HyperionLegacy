@@ -771,7 +771,7 @@ This document was re-read end to end against itself, because 0.13.3's doc contra
 
 ## 16. F5: Standard-Issue fills every slot
 
-*Added 2026-09-11, after the 0.13.3.1 QA pass. Numbered 16 rather than inserted as a fifth F-section so the existing Â§5 to Â§15 numbering, which the rest of this document cross-references, does not shift.*
+*Added 2026-09-11, after the 0.13.3.1 QA pass. Numbered 16 rather than inserted as a fifth F-section so the existing §5 to §15 numbering, which the rest of this document cross-references, does not shift.*
 
 ### 16.1 The user's reasoning, which is the decision
 
@@ -779,7 +779,7 @@ This document was re-read end to end against itself, because 0.13.3's doc contra
 
 The argument is a **dead-end argument, not a power argument**, and that is what makes it consistent with the rest of the project. 0.13.3.1 spent its whole budget establishing that a slot which cannot be filled is a dead end: the never-empty invariant, the Quartermaster, the reframed baseline warning. An empty hardpoint is the same shape one step weaker. It does not ground the ship, so the player is free to dispatch it, and the game's answer to "why did that go badly" is a slot they did not know was empty.
 
-âš ï¸ **One factual correction a future reader must carry, because acting on the literal wording would mis-tune this.** "Will lose guaranteed" is an overstatement of today's behaviour: `patrol-balance.test.ts` tunes economy hulls to a win rate that is **below the destroyer's, not zero**. The decision does not depend on the overstatement. It rests on the dead-end argument above, which is true as stated. Do not re-tune toward "economy hulls currently always lose", because they do not.
+⚠️ **One factual correction a future reader must carry, because acting on the literal wording would mis-tune this.** "Will lose guaranteed" is an overstatement of today's behaviour: `patrol-balance.test.ts` tunes economy hulls to a win rate that is **below the destroyer's, not zero**. The decision does not depend on the overstatement. It rests on the dead-end argument above, which is true as stated. Do not re-tune toward "economy hulls currently always lose", because they do not.
 
 ### 16.2 What exists today, verified
 
@@ -803,7 +803,7 @@ The argument is a **dead-end argument, not a power argument**, and that is what 
 
 1. **`COMBAT_DEFAULT_LOADOUT` weapon arrays grow to the hull's `weaponHardpoints`**, and `droneRoles` grows to `droneBays`. Five of seven hulls change; runner and miner are already full.
 2. **Per-hull Standard-Issue magnitudes are re-tuned downward** so total offense per hull lands where the sim sits today. The lever is the Standard-Issue weapon's own generated magnitude in `generateCombatStandardIssue`, not the choice of `WeaponId`, because the `WeaponId` choices carry the hulls' family identities (the battleship's railgun plus torpedo plus voltaic is its character, not a number).
-3. **âš ï¸ Decide and record: is the magnitude cut per-hull or global?** A global cut is simpler but changes runner and miner, which gain no slots and would therefore be a straight nerf. **Recommend per-hull**, scaled by `newSlotCount / oldSlotCount`, which leaves runner and miner byte-identical at a ratio of 1 and makes "spread thinner" literally true.
+3. **⚠️ Decide and record: is the magnitude cut per-hull or global?** A global cut is simpler but changes runner and miner, which gain no slots and would therefore be a straight nerf. **Recommend per-hull**, scaled by `newSlotCount / oldSlotCount`, which leaves runner and miner byte-identical at a ratio of 1 and makes "spread thinner" literally true.
 4. **The never-empty invariant now has more slots to keep full.** Every path that enforces it (the four uninstall routes in `equipment.ts`, the Quartermaster's per-slot-type bound) must be re-checked against the wider loadout. The Quartermaster bound is per slot type, not per slot, so a 6-hardpoint battleship missing three guns can only requisition one at a time. That is probably still correct (installing re-opens the row) but it is now a longer recovery and should be confirmed against the peace value rather than assumed.
 
 ### 16.4 The gate
@@ -820,7 +820,7 @@ Existing ships carry their minted baselines in the save. Without a migration, a 
 
 The migration must **mint the missing pieces onto every existing ship**, installed, using the same deterministic order `seedCombatStandardIssueForShip` uses, appending new ids rather than renumbering (the v34 to v35 drone-pod migration is the precedent to copy: it appended and did not renumber).
 
-âš ï¸ **Open: does the migration also re-tune magnitudes on ALREADY MINTED pieces?** If it does not, an old ship ends up with full-strength original guns plus new weaker ones, so it is stronger than a freshly built one. If it does, it is rewriting the stats on items the player already owns, which is a thing this project has never done. **Recommend rewriting them**, because the alternative is a permanent power difference based on build date that no player can see or fix, and because Standard-Issue pieces are explicitly the auto-managed floor rather than player property (they recover nothing when broken down, and the Quartermaster hands out replacements for free). Record the answer here before building.
+⚠️ **Open: does the migration also re-tune magnitudes on ALREADY MINTED pieces?** If it does not, an old ship ends up with full-strength original guns plus new weaker ones, so it is stronger than a freshly built one. If it does, it is rewriting the stats on items the player already owns, which is a thing this project has never done. **Recommend rewriting them**, because the alternative is a permanent power difference based on build date that no player can see or fix, and because Standard-Issue pieces are explicitly the auto-managed floor rather than player property (they recover nothing when broken down, and the Quartermaster hands out replacements for free). Record the answer here before building.
 
 ### 16.6 Accepted cost
 
@@ -830,26 +830,26 @@ The middle path softens this rather than removing it: because magnitudes are cut
 
 ---
 
-## 17. ANSWERS (user, 2026-09-11). This section supersedes Â§13's recommendations wherever the two differ.
+## 17. ANSWERS (user, 2026-09-11). This section supersedes §13's recommendations wherever the two differ.
 
-Â§13 asked 14 questions, each with a recommendation. The user answered **four directly**; the remaining ten are **taken at their recommended value**, which the user authorised explicitly rather than by silence ("ten of them are settled well enough by evidence in the code that I'd just take my own recommendation and flag it"). Every one of those ten is listed in 17.3 so that "we decided this by default" stays visible and re-openable, rather than becoming an invisible assumption.
+§13 asked 14 questions, each with a recommendation. The user answered **four directly**; the remaining ten are **taken at their recommended value**, which the user authorised explicitly rather than by silence ("ten of them are settled well enough by evidence in the code that I'd just take my own recommendation and flag it"). Every one of those ten is listed in 17.3 so that "we decided this by default" stays visible and re-openable, rather than becoming an invisible assumption.
 
 ### 17.1 The four answered directly
 
 | Q | Answer | Note |
 |---|---|---|
 | **1. Name** | **Transit Berth**, as recommended. **Drydock Berths** confirmed for today's `shipStorageCapacity`. | Two berth types sharing one noun, which is why this pairing was recommended over Bay (collides with Salvage Bay and drone bays) or Gantry. |
-| **2. Count and track** | **Base 2**, as recommended, but the track runs **to 10, not to 6**. Plus: **the captain ceiling should be 10.** | âš ï¸ Changed from the recommendation. See 17.2, which contains a correction to this document. |
+| **2. Count and track** | **Base 2**, as recommended, but the track runs **to 10, not to 6**. Plus: **the captain ceiling should be 10.** | ⚠️ Changed from the recommendation. See 17.2, which contains a correction to this document. |
 | **3. Bypass** | **No bypass**, as recommended. | The wait stays bounded and the upgrade track stays the only relief. Do not add a paid bypass later without re-opening this: it was declined on the "do not manufacture friction and then sell relief from it" ground, not on a balance ground. |
-| **12. Talent cost** | **8 adminPoints, `requiresFleetAdminLevel: 12`.** | âš ï¸ Changed from the recommendation of 6 / FA 10. Per-facility queue depth is deliberately a LATE purchase, so the shared trunk carries most players for longer. Still identical across all five nodes, which was the part that mattered structurally. |
+| **12. Talent cost** | **8 adminPoints, `requiresFleetAdminLevel: 12`.** | ⚠️ Changed from the recommendation of 6 / FA 10. Per-facility queue depth is deliberately a LATE purchase, so the shared trunk carries most players for longer. Still identical across all five nodes, which was the part that mattered structurally. |
 
-### 17.2 âš ï¸ Q2 in full, including a correction to this document
+### 17.2 ⚠️ Q2 in full, including a correction to this document
 
 **The track now runs base 2 to 10**, not base 2 to 6. Adopt the **`docksExpansion` precedent: +1 per rung, 8 rungs**, which is the same shape as the existing docks track (+1 per level from 8 to 16) and reads as predictably as that one does. Do NOT use +2 rungs to reach 10 in four: a track whose step size differs from the only other capacity track in the game is a needless second pattern.
 
-**âš ï¸ CORRECTION, and it runs against this document's own Â§5.3 argument.** Â§5.3 and Â§13 Q2 both state that `MAX_UNLOCKABLE_CAPTAINS` is **5** (1 plus 4 `unlockCaptainSlot` nodes). **It is 4.** There are **three** `unlockCaptainSlot` nodes (`model.ts` around :7577, :7589, :7600), so the derived ceiling is 1 + 3 = 4, exactly as the constant's own comment says. The recommendation was given to the user with the wrong number attached.
+**⚠️ CORRECTION, and it runs against this document's own §5.3 argument.** §5.3 and §13 Q2 both state that `MAX_UNLOCKABLE_CAPTAINS` is **5** (1 plus 4 `unlockCaptainSlot` nodes). **It is 4.** There are **three** `unlockCaptainSlot` nodes (`model.ts` around :7577, :7589, :7600), so the derived ceiling is 1 + 3 = 4, exactly as the constant's own comment says. The recommendation was given to the user with the wrong number attached.
 
-**The recommendation survives the correction, and is slightly strengthened by it.** The base-2 case was argued on "the reachable captain count is far below the 10 in the example, so base 4 ships nearly inert". At 4 captains rather than 5 that is MORE true, not less: with base 4 and 4 captains, **no ship ever waits at all**. The worst case at base 2 is `ceil(4 / 2) x 8 = 16 ticks` with up to 2 ships queued, not the 24 stated in Â§5.3. **Correct the 5 and the 24 wherever Â§5.3 relies on them before building**, and re-derive the parity fixture boundary from 4 rather than assuming Â§5.3's arithmetic carries.
+**The recommendation survives the correction, and is slightly strengthened by it.** The base-2 case was argued on "the reachable captain count is far below the 10 in the example, so base 4 ships nearly inert". At 4 captains rather than 5 that is MORE true, not less: with base 4 and 4 captains, **no ship ever waits at all**. The worst case at base 2 is `ceil(4 / 2) x 8 = 16 ticks` with up to 2 ships queued, not the 24 stated in §5.3. **Correct the 5 and the 24 wherever §5.3 relies on them before building**, and re-derive the parity fixture boundary from 4 rather than assuming §5.3's arithmetic carries.
 
 **On "the max unlockable captains should be at 10": this is ALREADY the design, and needs no work.** Verified rather than assumed:
 - `MAX_UNLOCKABLE_CAPTAINS` is **derived, never hardcoded**: `1 + count(unlockCaptainSlot nodes)`. Its own comment states the intent, that it "grows automatically the day a `fleetLogisticsSlot4` node is added".
@@ -857,7 +857,7 @@ The middle path softens this rather than removing it: because magnitudes are cut
 
 So 10 is already the roadmap ceiling the game displays, and the user's "the others are not yet available" is already exactly how the UI describes them. **Raising the constant by hand would be wrong**: it is derived on purpose, and forcing it to 10 would relabel six unreachable slots as "Locked, recruit via Homeworld Talents" and point players at talents that do not exist. The way to reach 10 captains is to **add the seven missing `unlockCaptainSlot` nodes**, at which point the constant and both labels move on their own. Logged as its own work, NOT part of 0.13.4.
 
-âš ï¸ **Consequence for the berth track that must not be missed:** the track was sized to 10 against a fleet that today tops out at 4. Fully upgraded berths exceed the reachable captain count by more than 2x, so **the last several rungs buy nothing a player can currently use.** That is acceptable and deliberate (the track is being sized for the 10-captain endstate the roster already advertises), but the rungs past 4 or 5 must NOT be presented as solving a problem the player has. Price and gate them as forward investment, and do not let the Homeworld talent copy imply an immediate throughput gain.
+⚠️ **Consequence for the berth track that must not be missed:** the track was sized to 10 against a fleet that today tops out at 4. Fully upgraded berths exceed the reachable captain count by more than 2x, so **the last several rungs buy nothing a player can currently use.** That is acceptable and deliberate (the track is being sized for the 10-captain endstate the roster already advertises), but the rungs past 4 or 5 must NOT be presented as solving a problem the player has. Price and gate them as forward investment, and do not let the Homeworld talent copy imply an immediate throughput gain.
 
 ### 17.3 The ten taken at their recommended value
 
