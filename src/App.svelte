@@ -15828,16 +15828,18 @@
           <button class="fsheet-close" on:click={cancelAutoSalvageDuplicatesOff} aria-label="Close without changing the rule">&times;</button>
         </div>
         <p class="modal-warning">
-          With Duplicates switched off, these rules will include the <strong>Standard-Issue systems your ships come with</strong>. This configuration can destroy the spare Standard-Issue gear your ships rely on, down to the last one.
+          With Duplicates switched off, these rules will include the <strong>Standard-Issue systems your ships come with</strong>, down to the last spare.
         </p>
         <p class="modal-warning">
-          <!-- ⚠️ RECONCILED with the Quartermaster, which shipped in this same release. This
-               sentence used to end "until you craft one", written before a free replacement
-               existed. That is now false: requisition hands out Standard-Issue gear at no cost
-               and never runs out, which is the whole reason the counter was built alongside
-               this change. Warning the player about a dead end that has a door in it would be
-               the same class of falsehood this release has already fixed three times. -->
-          Uninstalling a system leaves that slot empty, and a ship with an empty required slot cannot fly until you install something else. Salvaging its Standard-Issue spare before a replacement is installed can ground that ship until you fetch another, though the Quartermaster issues Standard-Issue gear free and always has it in stock. Standard-Issue gear recovers nothing when it is broken down.
+          <!-- ⚠️ THIS IS AN INCONVENIENCE WARNING, NOT A SOFTLOCK WARNING, and the wording has
+               to match that. The Quartermaster shipped in this same release specifically so
+               losing a Standard-Issue spare is never a dead end: requisition is free and never
+               out of stock. An earlier draft ended "until you craft one", written before that
+               existed, which would have warned a player about a door they could simply open.
+               So this names BOTH routes out and describes the cost honestly, which is a trip
+               to the counter rather than a stranded ship. Do not re-inflate it into a
+               softlock warning; the softlock is the thing that was designed away. -->
+          Uninstalling a system leaves that slot empty, and a ship with an empty required slot cannot fly until something is installed in it. So if these rules take a Standard-Issue spare you were relying on, you will need another before that ship flies again: craft one, or requisition a free replacement at the Quartermaster, which always has them in stock. Standard-Issue gear recovers nothing when it is broken down.
         </p>
         <p class="modal-note">
           Duplicates is not a safeguard against this: it keeps one spare of each variety, not one per ship, so several ships wanting the same system are not covered by a single surviving spare. Favoriting a Standard-Issue spare keeps the rules off it for good.
