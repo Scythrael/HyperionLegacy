@@ -29,10 +29,26 @@
 //     blocks the (cap+1)th with a new "hardpointsFull" reason.
 //   - shieldEmitters + hullPlating are SINGLETONS, exactly like the economy slots (install
 //     replaces the current piece in that slot).
-// NEVER-EMPTY vs ALLOW-EMPTY split (the key combat behavior): ECONOMY slots keep the
-// never-empty invariant (uninstall restores a Standard-Issue baseline). COMBAT slots ALLOW
-// EMPTY: uninstalling a combat piece just returns it to the spare pool, leaving the slot
-// bare. This is REQUIRED so the dispatch blocker (canDispatchPatrol, Unit 1.3) is reachable
+// ⚠️ THIS PARAGRAPH WAS STALE AND CAUSED A PLAYER-FACING FALSEHOOD (corrected 2026-09-11).
+// It described a never-empty / allow-empty SPLIT, where economy slots restored a
+// Standard-Issue baseline on uninstall and only combat slots were left bare. That split no
+// longer describes what a player experiences, and two Help topics had been repeating it
+// since 0.13.2, telling players their economy slots refill themselves when they do not.
+//
+// WHAT IS ACTUALLY TRUE, and the distinction is WHICH FUNCTION IS CALLED, not which slot:
+//   unfitEquipmentInstance  ALLOW-EMPTY for EVERY slot, combat and economy alike. This is
+//                           the route the Ships loadout board calls, so it is the ONLY
+//                           uninstall behaviour a player can reach. The piece returns to the
+//                           spare pool and the slot is left empty.
+//   unfitEquipment          still mints a Standard-Issue replacement so the slot is never
+//                           empty. Slot-targeted, and NOT reachable from the loadout board.
+// So "never-empty" is a property of one internal function, not of economy slots.
+//
+// The combat slots being emptiable is still REQUIRED so the dispatch blocker
+// (canDispatchPatrol, Unit 1.3) is reachable ("strip a required combat slot -> cannot
+// patrol"); the stripped baseline sits in the pool and can be re-installed, so it is a
+// recoverable state, never a permanent brick. That reasoning is unchanged; only the claim
+// that economy slots behave differently was wrong. This is REQUIRED so the dispatch blocker (canDispatchPatrol, Unit 1.3) is reachable
 // ("strip a required combat slot -> cannot patrol"); the stripped baseline sits in the pool
 // and can be re-installed, so it is a recoverable state, never a permanent brick.
 //
