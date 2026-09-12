@@ -2161,6 +2161,44 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
 // offline summary + recap modal. It is NOT set on a clean completion or a user recall.
 export type CaptainStopReason = "fuel" | "cargo" | "defeat";
 
+// Infrastructure 0.13.4 (Phase 2 Unit 2.1, design §6.2): WHY A PATROL ENDED, enumerated
+// EXHAUSTIVELY over every code path that sets a patrol's `mission` to null.
+//
+// ⚠️ THIS IS NOT A WIDENING OF CaptainStopReason ABOVE, AND MUST NOT BECOME ONE (design
+// §6.5 / §17.3 Q13). That type is a three-member TRANSIENT hint for the offline recap, and
+// "cargo" is extraction-only. This one is a COMPLETE record of patrol endings, including the
+// two clean ones (`ordersComplete`, `recalled`) that are deliberately NOT wall-stops and must
+// never raise a recap note. Keeping them separate gives the game ONE vocabulary per question
+// instead of two overlapping unions; the recap's hint is DERIVED from this through an
+// exhaustive Record, so there is exactly one place the mapping lives.
+//
+// The five members, each tied to the real branch that produces it:
+export type PatrolEndReason =
+  // The limp-home countdown reached 0. The hull arrives damaged and this is the one ending
+  // that flags the ship. (tickCaptainPatrol, the limpingHome branch.)
+  | "defeat"
+  // A repeat-dispatch relaunch was unaffordable even after the credits auto-buy: the
+  // anti-infinite-fuel floor. (tickCaptainPatrol, the canRelaunch false branch.)
+  | "outOfFuel"
+  // Dispatch Once finished its route cleanly. NOT a wall-stop.
+  | "ordersComplete"
+  // The player recalled it and it finished the route it was on. NOT a wall-stop.
+  //
+  // ⚠️ `ordersComplete` AND `recalled` LEAVE THROUGH THE SAME `else` IN THE ENGINE and were
+  // indistinguishable before this release. Splitting them is a one-line read of
+  // `mission.recalled` at that branch, and it matters: conflating them prints "orders
+  // complete" to a player who pressed Recall, which is a small lie the log does not need.
+  | "recalled"
+  // The unknown-key inert guard dropped the captain to idle because the patrol key no longer
+  // exists in the registry. Rare and self-healing, but it IS an ending, and leaving it out
+  // would be exactly the blank reason this enumeration exists to make impossible.
+  | "missionKeyRetired";
+
+// ⚠️ ONE PATH LOOKS LIKE AN ENDING AND IS NOT, named here so nobody adds a sixth member for
+// it: tickCaptainPatrol's defensive no-op, taken when the assigned ship or its
+// combatHullTypeOf is absent, returns the captain and its mission UNCHANGED. The patrol does
+// not end, it simply fails to advance this call. It must never carry a reason.
+
 export interface CaptainState {
   id: number;
   label: string; // live, user-editable display name (defaults to "Captain N"), edited via renameCaptain (tick.ts) behind validateCaptainName (captainName.ts)
@@ -3820,9 +3858,30 @@ export type CompletionSalvageSubject =
 // iteration would let a single big batch evict every other entry and blow the 50-cap
 // instantly, which would make the log actively worse than no log. See OpenJobBatch below
 // for the accumulator that makes this work across ticks and across saves.
+// Infrastructure 0.13.4 (Phase 2 Unit 2.2, design §6.4): what can APPEAR in the completion
+// log. Every TimedProcessKind, plus patrol runs, which are NOT timed processes and are the
+// reason this alias exists.
+//
+// ⚠️ THE BOUNDARY THAT KEEPS THIS FROM SPREADING. Only this alias and COMPLETION_KIND_VIEW
+// widen. `PROCESS_XP_AWARDS` and `PROCESS_COMPLETION_LOG` stay keyed by `TimedProcessKind`,
+// because they are about PROCESSES and are consulted per process inside resolveProcesses;
+// widening them would add rows that nothing ever reads. COMPLETION_KIND_VIEW widens because
+// it is the VIEW table and by definition must cover every RENDERABLE entry. That split is
+// deliberate and is not a contradiction: one table is about rendering, the others are about
+// processes.
+export type CompletionLogKind = TimedProcessKind | "patrolRun";
+
 export interface CompletionLogEntry {
   id: string;               // "done-N", minted from state.nextCompletionLogId (mirrors "proc-N" / "q-N")
-  kind: TimedProcessKind;   // which engine produced it, so the UI can pick a verb + icon
+  kind: CompletionLogKind;  // which engine produced it, so the UI can pick a verb + icon
+  // Infrastructure 0.13.4 (Phase 2 Unit 2.2): WHY a patrol ended. Non-null ONLY on a
+  // `patrolRun` entry; null on every process entry, which have no such concept.
+  //
+  // ⚠️ `iterations` CARRIES THE ROUTE COUNT for a patrolRun entry, and that reuse is
+  // deliberate rather than lazy: its documented meaning is "how many job iterations folded
+  // into this entry", and routes-flown-in-a-run is the same fact. Inventing a parallel
+  // `routes` field would give the log two counters meaning one thing.
+  patrolEndReason?: PatrolEndReason | null;
   reward: CompletionRewardKind; // the honest summary shape (see above)
   // ⚠️ INJECTED WALL CLOCK, NEVER READ INSIDE THE TICK (design catch 2). resolveProcesses
   // is handed this value as an ARGUMENT exactly as the seeded rng is threaded, because a

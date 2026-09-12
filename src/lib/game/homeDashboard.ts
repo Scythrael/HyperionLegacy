@@ -29,6 +29,10 @@ import {
   type GameState,
   type TimedProcess,
   type TimedProcessKind,
+  // 0.13.4 Phase 2: the widened log-entry kind plus the patrol-ending vocabulary.
+  type CompletionLogKind,
+  type PatrolEndReason,
+  type CaptainStopReason,
   type CompletionLogEntry,
   type ItemRarity,
   type CaptainState,
@@ -913,7 +917,11 @@ export const HOME_RECENT_COMPLETIONS_LIMIT = 8;
 // the player will read. Deliberately NOT a switch with a default, unlike labelForProcess
 // above (whose defensive default predates this discipline): a silent generic row is
 // exactly the "silent completion" this feature exists to end.
-const COMPLETION_KIND_VIEW: Record<TimedProcessKind, { verb: string; icon: string; jumpTarget: JumpTarget | null }> = {
+// ⚠️ 0.13.4 Phase 2 Unit 2.2: keyed by CompletionLogKind, NOT TimedProcessKind, because a
+// patrol run is not a timed process but IS a renderable log entry. This is the one
+// process-keyed table that widens; see CompletionLogKind's note in model.ts for why
+// PROCESS_XP_AWARDS and PROCESS_COMPLETION_LOG deliberately do not.
+const COMPLETION_KIND_VIEW: Record<CompletionLogKind, { verb: string; icon: string; jumpTarget: JumpTarget | null }> = {
   refineJob:               { verb: "Refined",     icon: "refine",     jumpTarget: "refinery" },
   fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  jumpTarget: "fabricator" },
   researchProject:         { verb: "Researched",  icon: "research",   jumpTarget: "research" },
@@ -929,6 +937,40 @@ const COMPLETION_KIND_VIEW: Record<TimedProcessKind, { verb: string; icon: strin
   // it. It shipped as `null` in Unit 4.4b only because the union had no Salvage Bay
   // destination at the time, not because a completed salvage has nowhere to send the player.
   salvageJob:              { verb: "Salvaged",    icon: "salvage",    jumpTarget: "salvageBay" },
+  // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
+  // rather than outcome-flavoured, because one row has to cover a clean finish, a recall, a
+  // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from
+  // PATROL_END_REASON_VIEW, so the verb never has to lie about how it went.
+  //
+  // Jumps to "combat", the union's existing literal for Battlespace, which is where a patrol is
+  // dispatched and recalled, so the row sends the player to the screen that can act on it. No
+  // new JumpTarget member was needed.
+  patrolRun:               { verb: "Patrolled",   icon: "patrol",     jumpTarget: "combat" },
+};
+
+// 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
+//
+// ⚠️ THIS RECORD IS THE COMPILE-ERROR MECHANISM, and it is the half of the design's
+// three-part guarantee that actually holds. A TypeScript type cannot say "endReason is
+// non-null exactly when the mission ended", but it CAN refuse to build when a new
+// PatrolEndReason member has no row here. Adding a sixth reason without wording is a failed
+// `npm run check`, not a blank line in a player's log.
+//
+// `wallStop` is the DERIVED bridge to CaptainStopReason (design §6.5 / §17.3 Q13): the offline
+// recap reads it instead of carrying its own second opinion, so there is ONE vocabulary for
+// why a patrol ended and two surfaces reading it. null means "not a wall-stop", which is why
+// ordersComplete and recalled must never raise a recap note.
+export const PATROL_END_REASON_VIEW: Record<
+  PatrolEndReason,
+  { label: string; wallStop: CaptainStopReason | null }
+> = {
+  ordersComplete:    { label: "orders complete",        wallStop: null },
+  recalled:          { label: "recalled",               wallStop: null },
+  defeat:            { label: "defeated, limped home",  wallStop: "defeat" },
+  outOfFuel:         { label: "out of fuel",            wallStop: "fuel" },
+  // Rare and self-healing, but it IS an ending and it gets real words rather than a blank.
+  // Worded for a player rather than a developer: they did not retire anything, the content did.
+  missionKeyRetired: { label: "patrol no longer available", wallStop: null },
 };
 
 // Resolve a record's `subjectKey` (a raw id, never a rendered string) to a display name.
@@ -944,6 +986,13 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   if (entry.reward === "fuel") return "Fuel";
   const key = entry.subjectKey;
   if (key === null) return null;
+  // 0.13.4 Phase 2 Unit 2.2: a patrol run is resolved by KIND, not by reward shape, because its
+  // reward is "nothing" (its loot is folded per won wave as it lands, so re-listing it here would
+  // double-report). Without this branch it would fall through the reward switch below and render
+  // as a bare "Patrolled" with no indication of WHICH patrol. Falls back to the raw key if the
+  // patrol has since been retired from the registry, which is the same degradation every other
+  // lookup here uses and is exactly the state a missionKeyRetired entry is reporting.
+  if (entry.kind === "patrolRun") return PATROLS[key]?.label ?? key;
   switch (entry.reward) {
     case "blueprint":
     case "systems":
@@ -1023,6 +1072,26 @@ function completionDetail(entry: CompletionLogEntry): string | null {
   if (entry.reward === "level" && entry.level !== null) {
     // The docks store a capacity rather than a level, so it reports berths.
     return entry.subjectKey === "docks" ? `${entry.level} berths` : `Level ${entry.level}`;
+  }
+  // 0.13.4 Phase 2 Unit 2.2: a patrol's detail is WHY IT ENDED plus HOW MANY routes it flew,
+  // which together are the user's own sentence ("Completed X combat patrol missions before
+  // returning"). Placed BEFORE the generic iterations line below, which would otherwise print a
+  // bare "3 runs" and drop the reason entirely.
+  //
+  // The reason is worded from the exhaustive PATROL_END_REASON_VIEW, so a new PatrolEndReason
+  // cannot reach a player as a blank. A pre-0.13.4 entry cannot exist (patrols were never
+  // logged before this release), but the field is optional on the interface, so an absent
+  // reason degrades to the route count alone rather than printing "undefined".
+  if (entry.kind === "patrolRun") {
+    const reason = entry.patrolEndReason != null ? PATROL_END_REASON_VIEW[entry.patrolEndReason].label : null;
+    // ⚠️ ZERO IS A REAL, REPORTABLE CASE, not a missing value: a patrol recalled during its
+    // first transit, or dropped by the retired-key guard, genuinely flew no routes. Saying "no
+    // routes completed" is the honest reading; falling through to a bare reason would leave the
+    // player wondering whether the count failed to record. This is the same zero-result rule
+    // this release had to fix three times elsewhere.
+    const routes = entry.iterations === 1 ? "1 route" : `${entry.iterations} routes`;
+    const flown = entry.iterations === 0 ? "no routes completed" : routes;
+    return reason !== null ? `${flown}, ${reason}` : flown;
   }
   if (entry.iterations > 1) return `${entry.iterations} runs`;
   return null;

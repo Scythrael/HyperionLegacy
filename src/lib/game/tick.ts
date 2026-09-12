@@ -85,6 +85,8 @@ import {
   type HomeworldTalentEffect,
   type TimedProcess,
   type TimedProcessKind,
+  // 0.13.4 Phase 2: the exhaustive patrol-ending enumeration.
+  type PatrolEndReason,
   type ProcessEffect,
   // The single-order model (RefineOrder / FabricateOrder + their *Mode unions + the
   // startRefineOrder/startFabricateOrder setters) is fully RETIRED as of Task C4, the
@@ -1121,6 +1123,63 @@ function completionStartedAtMs(nowMs: number, process: TimedProcess, tickDuratio
 function pushCompletionEntry(log: CompletionLogEntry[], entry: CompletionLogEntry): CompletionLogEntry[] {
   const next = [...log, entry];
   return next.length > COMPLETION_LOG_CAP ? next.slice(next.length - COMPLETION_LOG_CAP) : next;
+}
+
+// Infrastructure 0.13.4 (Phase 2 Unit 2.2, design §6.4): append ONE completion-log entry per
+// patrol that ended this tick, and advance the log id counter by exactly that many.
+//
+// ⚠️ ONE ENTRY PER RUN, NEVER ONE PER ROUTE, and this is the whole reason the per-run counter
+// exists. CompletionLogEntry's header states the LOCKED rule "PER ORDER, NOT PER ITERATION"
+// because COMPLETION_LOG_CAP is 50 with oldest-first eviction, so a repeat-dispatch patrol
+// flying dozens of routes across an offline span would evict every other entry in the log and
+// make it actively worse than no log. The routes fold into `iterations` instead, which is the
+// SAME accumulator pattern OpenJobBatch uses for a big craft batch.
+//
+// ⚠️ ZERO-RESULT IS NOT SILENT, by construction: an empty `endings` returns the state by
+// REFERENCE, so a tick with no patrol ending is byte-identical and allocates nothing. That is
+// the honest version of "log nothing when there is nothing", as opposed to appending an empty
+// entry (noise) or silently dropping a real one (the bug this release hit three times).
+//
+// PURE: builds a new state when there is something to add, returns the input otherwise.
+function appendPatrolCompletions(
+  state: GameState,
+  endings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[],
+  nowMs: number
+): GameState {
+  if (endings.length === 0) return state;
+  let log = state.completionLog ?? [];
+  let nextId = state.nextCompletionLogId ?? 1;
+  for (const ending of endings) {
+    log = pushCompletionEntry(log, {
+      id: `done-${nextId}`,
+      kind: "patrolRun",
+      // "nothing" is the honest shape: a patrol's loot is folded into inventory PER WON WAVE as
+      // it lands, so re-listing it here would DOUBLE-REPORT rewards the player already has. The
+      // entry's job is the run's outcome, not its haul.
+      reward: "nothing",
+      atMs: nowMs,
+      // A patrol's run length is not a fixed duration the way a process's is (it depends on
+      // routes flown, relaunches and the limp), so there is no durationTicks to subtract the way
+      // completionStartedAtMs does. Reporting the completion stamp for both is the honest answer:
+      // an unknown start stays unknown rather than becoming an invented date.
+      startedAtMs: nowMs,
+      // The route count. See the ring-buffer note above for why it lives here.
+      iterations: ending.routes,
+      items: [],
+      pieces: 0,
+      subjectKey: ending.patrolKey,
+      level: null,
+      fuelAmount: null,
+      creditsAmount: null,
+      patrolEndReason: ending.reason,
+      // A patrol ending is never the salvage fail-safe no-op this flag exists to record, so it
+      // is always false here. Set explicitly rather than left to a default: the field is
+      // required precisely so no writer can forget to make that claim.
+      stale: false,
+    });
+    nextId += 1;
+  }
+  return { ...state, completionLog: log, nextCompletionLogId: nextId };
 }
 
 // The naming ids for a salvage target, read while the target still EXISTS (0.13.3 QA
@@ -2361,6 +2420,28 @@ interface PatrolTickResult {
   // above (empty on a no-win call). See the build site below for which fields map and which
   // extraction-specific field (missionsCompleted) is deliberately left empty for patrols.
   lifetimeStatsDelta: MissionLifetimeStatsDelta;
+  // Infrastructure 0.13.4 (Phase 2 Unit 2.1, design §6.2): WHY the patrol ended this call.
+  //
+  // ⚠️ THE INVARIANT, which a type cannot express and a test therefore pins in BOTH
+  // directions: `endReason` is non-null IF AND ONLY IF this call set `captain.mission` to
+  // null. A call that advances a patrol reports null. A call that ends one always reports a
+  // reason, never null.
+  //
+  // Deliberately SEPARATE from `shipDamaged` even though "defeat" implies it: shipDamaged is
+  // an instruction to economyTick (go stamp the hull), while this is a record of a fact.
+  // Folding them would mean a future non-damaging defeat, or a damaging non-defeat, could not
+  // be expressed without untangling them again.
+  //
+  // The no-op result below reports null, which is correct and is the reason the defensive
+  // ship-absent path can never be mistaken for an ending.
+  endReason: PatrolEndReason | null;
+  // Infrastructure 0.13.4 (Phase 2 Unit 2.1, design §6.3): routes flown on THIS RUN at the
+  // moment it ended, for the completion-log entry's `iterations`. 0 unless endReason is
+  // non-null, since a run that has not ended has nothing to report yet. Read off
+  // PatrolMissionState.routesCompletedThisRun (which accumulates across calls AND across a
+  // relaunch) rather than from this call's local `routesCompleted`, which counts only the
+  // routes flown in THIS call and would under-report any run that spanned two calls.
+  endRoutesCompleted: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -2408,6 +2489,12 @@ export function tickCaptainPatrol(
     homePlanetDelta: {},
     creditsDelta: 0,
     fleetAdminXpDelta: 0,
+    // 0.13.4 Phase 2: NULL, and this is load-bearing rather than a default. `noOp` returns the
+    // captain with its mission UNCHANGED, so the patrol has not ended and must not carry a
+    // reason. See PatrolEndReason's closing note in model.ts: this is the one path that looks
+    // like an ending and is not.
+    endReason: null,
+    endRoutesCompleted: 0,
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
@@ -2483,6 +2570,18 @@ export function tickCaptainPatrol(
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
   let routesCompleted = 0;
+  // 0.13.4 Phase 2: the PER-RUN accumulator, seeded from the mission's persisted value so it
+  // continues a run already in progress rather than restarting it. `?? 0` covers an in-flight
+  // patrol from a pre-v45 save (the migration seeds new ones, but a mission object handed in
+  // by a test fixture or a hand-edited save may still lack it).
+  //
+  // ⚠️ TWO COUNTERS, AND THEY ARE NOT REDUNDANT. `routesCompleted` above is PER CALL and feeds
+  // the lifetime missionsCompleted tally, which must not double-count across calls. This one is
+  // PER RUN and survives both a call boundary and a relaunch. A single variable cannot do both
+  // jobs, which is why the persisted field exists.
+  let routesThisRun = mission.routesCompletedThisRun ?? 0;
+  // 0.13.4 Phase 2: set at each ending path, read into the result at the end of the call.
+  let endReason: PatrolEndReason | null = null;
 
   let remaining = ticksElapsed;
   while (remaining > 0 && mission !== null) {
@@ -2520,6 +2619,7 @@ export function tickCaptainPatrol(
         shipDamaged = true;
         shipDamageTaken = mission.limpDamage ?? 0; // 0 only on a corrupt/absent capture
         stopReason = "defeat"; // wall-stop: a defeated patrol limped home and ended damaged
+        endReason = "defeat"; // 0.13.4 Phase 2: ending #1 of 4 in this function
         mission = null;
         break;
       }
@@ -2679,6 +2779,10 @@ export function tickCaptainPatrol(
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
+      // 0.13.4 Phase 2: the same completion, accumulated PER RUN. Incremented here (beside the
+      // per-call counter) rather than at the ending, because a repeat-dispatch run completes
+      // many routes and only the last one coincides with an ending.
+      routesThisRun += 1;
       if (mission.repeatDispatch && !mission.recalled) {
         // RELAUNCH (Dispatch Repeatedly, not recalled). Spend one round trip's fuel from
         // the shared budget mirroring extraction's auto-repeat rule: tank covers -> spend;
@@ -2726,16 +2830,31 @@ export function tickCaptainPatrol(
             // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
             installedGear,
           });
+          // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
+          // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
+          // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
+          // start of one. Without this line a repeat-dispatch patrol would report 1 route at its
+          // ending no matter how many it actually flew, which is the exact failure the per-run
+          // counter exists to prevent. Phase 0's comment on the factory predicted this line.
+          mission.routesCompletedThisRun = routesThisRun;
           progress = 0;
           // Loop continues: any remaining ticks advance the FRESH patrol.
         } else {
           stopReason = "fuel"; // wall-stop: could not afford a relaunch (anti-infinite-fuel floor)
+          endReason = "outOfFuel"; // 0.13.4 Phase 2: ending #2 of 4
           mission = null; // truly broke: end (captain idles until refuelled/re-dispatched)
           break;
         }
       } else {
         // Dispatch Once, OR a recalled patrol that finished its route: end (captain idles).
         // A recalled patrol does NOT relaunch (recall honored at cycle end, like extraction).
+        //
+        // 0.13.4 Phase 2: endings #3 AND #4, SPLIT HERE. These two share a branch because the
+        // engine treats them identically (both simply stop), but they are different facts to a
+        // player: one finished the job it was given, the other was called back. Reading
+        // `mission.recalled` is the whole distinction. Neither sets `stopReason`, because
+        // neither is a wall-stop and the offline recap must not raise a note for them.
+        endReason = mission.recalled ? "recalled" : "ordersComplete";
         mission = null;
         break;
       }
@@ -2755,6 +2874,12 @@ export function tickCaptainPatrol(
   if (mission !== null) {
     mission.progressTicks =
       mission.phase === "limpingHome" ? Math.min(progress, routeLength) : progress;
+    // 0.13.4 Phase 2: persist the per-run count onto the SURVIVING mission, so the next call
+    // resumes the accumulator instead of restarting it. This is the call-boundary half of the
+    // "accumulates across calls AND across a relaunch" requirement; the relaunch half is the
+    // assignment inside the loop above. Covers the ordinary case where a run spans many ticks
+    // without relaunching at all (a single long Dispatch Once).
+    mission.routesCompletedThisRun = routesThisRun;
   }
 
   // ---- CAPTAIN XP + level-ups (Combat 0.13.0, Phase 10, design S12). --------------------
@@ -2823,6 +2948,16 @@ export function tickCaptainPatrol(
     creditsDelta: creditsAwarded,
     fleetAdminXpDelta: fleetAdminXpAwarded,
     lifetimeStatsDelta,
+    // 0.13.4 Phase 2. The if-and-only-if invariant holds by construction here: `endReason` is
+    // assigned at exactly the four sites that set `mission = null` and nowhere else, and
+    // `mission` is the same local being returned above, so the two cannot disagree. A test
+    // pins it in both directions anyway, because "by construction" is only true until someone
+    // adds a fifth ending.
+    endReason,
+    // Reported only at an ending. On a call that advances a patrol the count lives on the
+    // surviving mission (persisted above) and there is nothing to report yet, so 0 keeps the
+    // field meaning "routes in the run that just finished" rather than "routes so far".
+    endRoutesCompleted: endReason === null ? 0 : routesThisRun,
   };
 }
 
@@ -3140,6 +3275,16 @@ export function economyTick(
   // RELAUNCH_SEED_SALT), so there is no seed counter to thread here. Threading it would
   // reintroduce the multi-patrol parity defect (map-iteration-order-dependent seeds).
   const damagedShips = new Map<string, number>();
+  // 0.13.4 Phase 2 Unit 2.1: PATROL ENDINGS recorded during this captain map, drained into the
+  // completion log by Unit 2.2 after the map. Same side-channel shape as `damagedShips` directly
+  // above, which is the established idiom in this function for "the map noticed something the
+  // caller must fold in once".
+  //
+  // ⚠️ IT IS COLLECTED HERE RATHER THAN INSIDE tickCaptainPatrol BECAUSE ONE OF THE FOUR
+  // ENDINGS IS NOT IN THAT FUNCTION. The unknown-key inert guard below drops a captain to idle
+  // without ever calling it, so a patrol can end without a PatrolTickResult existing. Collecting
+  // at this level is the only place that sees all four.
+  const patrolEndings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[] = [];
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -3158,6 +3303,22 @@ export function economyTick(
         ? PATROLS[captain.mission.patrolKey] !== undefined
         : MISSIONS[captain.mission.missionKey] !== undefined;
     if (!missionKeyKnown) {
+      // 0.13.4 Phase 2: ENDING #4, and the one that had no reason at all before this release.
+      // Recorded only for a PATROL: an extraction mission dropped by the same guard is outside
+      // PatrolEndReason's scope entirely, and inventing an entry for it would put a "patrol
+      // ended" line in the log for something that was never a patrol.
+      //
+      // The route count is read straight off the mission, since this path never runs the tick
+      // helper and so has no accumulator. `?? 0` because a pre-v45 in-flight patrol reaching a
+      // retired key is precisely the save most likely to lack the field.
+      if (captain.mission.kind === "patrol") {
+        patrolEndings.push({
+          captainId: captain.id,
+          patrolKey: captain.mission.patrolKey,
+          reason: "missionKeyRetired",
+          routes: captain.mission.routesCompletedThisRun ?? 0,
+        });
+      }
       return { ...captain, mission: null };
     }
     // Combat 0.13.0 (Phase 9b.5a): ROUTE by mission KIND. CaptainState.mission is now a
@@ -3221,6 +3382,18 @@ export function economyTick(
         // Flag the ship when its defeated patrol finished limping home this call (folded into
         // state.ships once, below), recording the hull damage so the repair scales with it.
         if (patrolResult.shipDamaged && patrolShip) damagedShips.set(patrolShip.id, patrolResult.shipDamageTaken);
+        // 0.13.4 Phase 2: endings #1 to #3 (defeat / outOfFuel / ordersComplete-or-recalled).
+        // Reading `endReason !== null` is the whole gate: the invariant on the field is that it
+        // is non-null exactly when the patrol ended, so this records every ending the tick helper
+        // produces and nothing else. A patrol that merely advanced pushes nothing.
+        if (patrolResult.endReason !== null) {
+          patrolEndings.push({
+            captainId: captain.id,
+            patrolKey: captain.mission.patrolKey,
+            reason: patrolResult.endReason,
+            routes: patrolResult.endRoutesCompleted,
+          });
+        }
         // Combat 0.13.0 (Phase 10, design S12): fold this patrol's REWARDS into the SAME
         // fleet-wide accumulators the extraction arm folds tickCaptainMission's deltas into
         // (see that fold ~80 lines below), so patrol loot lands in home inventory, patrol
@@ -3569,11 +3742,26 @@ export function economyTick(
   // early-outs to a same-reference no-op today, inert but correct + drift-proof
   // for when processes exist.
   const {
-    next: postProcessState,
+    next: postProcessStateRaw,
     fleetAdminXpDelta: processFleetAdminXpDelta,
     craftingXpDelta: processCraftingXpDelta,
   } = resolveProcesses(postMissionState, ticksElapsed, rng, nowMs);
   fleetAdminXpDelta += processFleetAdminXpDelta;
+
+  // 0.13.4 Phase 2 Unit 2.2: drain the patrol endings the captain map collected into the
+  // completion log.
+  //
+  // ⚠️ PLACED AFTER resolveProcesses ON PURPOSE, AND THE REASON IS THE ID COUNTER. Both this
+  // and resolveProcesses mint ids from state.nextCompletionLogId. Appending before it would
+  // mean two writers allocating from the same counter in one tick, which is exactly how
+  // duplicate ids happen. Running after it means resolveProcesses has already advanced the
+  // counter and this continues from there, so there is one allocator at a time.
+  //
+  // ORDERING CONSEQUENCE, stated so it is a choice and not an accident: within a single tick a
+  // patrol ending sorts AFTER a process completion in the log. Both carry the same `atMs`
+  // (there is one clock per tick), so no readout can tell them apart by time anyway, and the
+  // log is chronological by append order.
+  const postProcessState = appendPatrolCompletions(postProcessStateRaw, patrolEndings, nowMs);
 
   // Crafting 0.13.3 (Phase 1 Unit 1.4, design §5.5): promote WAITING queued orders into
   // real running work, at THE one correct seam: AFTER resolveProcesses (so a facility
