@@ -34,9 +34,26 @@
   --color-text-dim: #628591;
   /* Disabled control text. ⚠️ 0.13.5: disabled labels were drawn as the accent at 0.4 alpha,
      which resolves to 3.01:1 and fails AA outright (UX review point 3, "disabled contrast").
-     0.6 is the lowest alpha that clears 4.5 (it measures 5.23), so this token exists to give
-     every disabled control ONE value rather than each rule inventing its own alpha. */
-  --color-text-disabled: rgba(var(--color-accent-rgb), 0.6);
+     This token exists so every disabled control shares ONE value rather than each rule
+     inventing its own alpha.
+
+     ⚠️ RAISED 0.6 -> 0.85 (user, 2026-09-12: "still hard to read the text of"), and that
+     report found a REAL HOLE rather than a matter of taste. 0.6 was chosen by measuring the
+     CYAN accent alone, where it gives 5.23. But this is one alpha over SIX different accent
+     colours, and cyan is nearly the BRIGHTEST of them. Measured on the panel background:
+
+       alpha 0.60   cyan 5.23   green 5.56   white 6.03   gray 3.53   blue 3.12   red 2.94
+       alpha 0.85   cyan 9.44   green 10.22  white 11.14  gray 5.88   blue 5.05   red 4.84
+
+     So on the red, blue and gray themes the "fixed" token was still FAILING AA, and red at
+     2.94 was essentially the original 3.01 defect untouched. The per-theme minimum alpha that
+     clears 4.5 is red 0.82, blue 0.79, gray 0.72; 0.85 clears every theme with a little margin
+     instead of sitting on the line.
+
+     It is still visibly DIMMER than an enabled control (a full-strength cyan accent measures
+     12.80 against 9.44 here), so "disabled" still reads as disabled. Alpha is the only thing
+     that moved: no hue, no per-theme override, one value. */
+  --color-text-disabled: rgba(var(--color-accent-rgb), 0.85);
   --color-warning: #fbbf24;
   --color-warning-rgb: 251, 191, 36; /* R,G,B triplet matching --color-warning, for rgba() tints (Ships-tab attention row) */
   --color-danger: #f87171;

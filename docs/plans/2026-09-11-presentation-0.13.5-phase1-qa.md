@@ -13,7 +13,7 @@
 > contrast ratio clears AA, and a preset writes the right values. I cannot check whether a screen
 > LOOKS right, and most of what is left is exactly that.
 
-**Build:** `feat/presentation-0.13.5` at `037e736`, deployed to **staging** (devpreview).
+**Build:** `feat/presentation-0.13.5` at `HEAD`, deployed to **staging** (devpreview).
 **Prod is unchanged** at `9054a32` (0.13.4).
 
 ⚠️ **NO SAVE_VERSION BUMP.** Phase 1 is localStorage and presentation only, so your save is untouched and you can move between this build and prod freely.
@@ -31,6 +31,7 @@ The token layer touches every screen's *potential* styling, so the first questio
 | A1 | Load your existing save. | Loads clean, no banner, everything as you left it. |
 | ◐ A2 | Look at any screen you know well (Home, Ships, a facility). | ⚠️ **Should look essentially IDENTICAL to 0.13.4.** The type scale was introduced NEUTRAL (every step matches a size already in use) so phase 1 changes nothing on screen except the items below. If a screen's text size visibly moved, that is a bug. |
 | ✅ A3 | Check text that was previously dim (secondary readouts, captions). | Very slightly lighter than before. This is the only intentional colour change: every theme's dim text was below WCAG AA and was lifted by the minimum needed. |
+| ✅ A3b | **DISABLED** control text (a greyed-out button or label). | ⚠️ **Brightened again at your report, and you found a real defect.** The first pass set disabled text to accent-at-0.6 having measured only the CYAN accent (5.23, a pass). One alpha covers all six accents, and cyan is nearly the brightest: on **red it measured 2.94, blue 3.12, gray 3.53**, so half the themes were still failing AA while a green test said otherwise. Now 0.85, which clears AA on all six (red 4.84 worst). Still visibly dimmer than an enabled control, so disabled still reads as disabled. **Worth a look on the RED theme specifically**, which was the worst case. |
 | ✅ A4 | Switch through all six themes. | Each still reads as itself. The lift moved lightness only, not hue. |
 
 ## B. The tick bar (two live prod bugs)
