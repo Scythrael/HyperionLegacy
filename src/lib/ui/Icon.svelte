@@ -34,7 +34,13 @@
   // a :global escape hatch, which is a trap worth not shipping. Layout belongs
   // to a wrapper element at the call site; this component only draws.
 
-  import { ICON_PATHS, iconA11y, type IconName } from "./icons";
+  import { iconA11y, type IconName } from "./icons";
+  // 0.13.5 Phase 2: the glyph geometry now comes from the ACTIVE PACK rather than straight from
+  // the base registry. resolveIconPaths falls back to the base set per icon, so a pack that
+  // overrides twelve glyphs still renders the other fifty correctly and a partial pack is
+  // shippable. Subscribing to the store (rather than reading a variable) is what makes a pack
+  // switch take effect immediately instead of on the next reload.
+  import { activeIconPack, resolveIconPaths } from "./iconPacks";
 
   /** Which glyph to draw. Typed against the icons.ts key set, so a typo fails the build. */
   export let name: IconName;
@@ -58,7 +64,9 @@
   // mode. No runes anywhere in this repo.
   $: sizeAttr = typeof size === "number" ? `${size}px` : size;
   $: a11y = iconA11y(title);
-  $: paths = ICON_PATHS[name];
+  // Re-resolves when EITHER the name or the active pack changes, which is the whole of
+  // requirement 2: switching packs re-renders every glyph without a reload.
+  $: paths = resolveIconPaths(name, $activeIconPack);
 </script>
 
 <!-- Attribute set is deliberately identical to the 0.13.2 nav icons in

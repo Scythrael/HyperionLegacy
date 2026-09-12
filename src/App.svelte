@@ -358,6 +358,7 @@
     applyAccessibility,
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
+  import { initIconPack } from "./lib/ui/iconPacks";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
@@ -2651,6 +2652,10 @@
 
     currentTheme = loadTheme();
     document.documentElement.dataset.theme = currentTheme;
+    // 0.13.5 Phase 2: publish the stored icon pack, beside the theme, because a cosmetic pack
+    // changes both together. Only the base set exists today, so this is a no-op in practice; it is
+    // wired now so the seam is LIVE rather than dormant code nobody has ever executed.
+    initIconPack();
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
     // 0.13.5: load the accessibility settings and APPLY them immediately. Applying on load is the
