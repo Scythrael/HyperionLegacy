@@ -58,38 +58,49 @@ anything), and **meaning preservation** enforced two ways: a pack can only overr
 already exist, and every name carries a semantic class in an exhaustive Record. **Nothing was
 swept**; that is phase 5.
 
-### ⚠️ F5 is PARKED, not abandoned: `feat/f5-standard-issue-slots` at `072d1ad`
+### ⚠️ F5 is PARKED on a DESIGN DECISION, not on remaining work: `feat/f5-standard-issue-slots` at `9c25aa3`
 
-**The engine is done and the acceptance gate PASSES.** `patrol-balance.test.ts` holds with no
-re-tune, which was not guaranteed:
+**The engine is done. The test conversion is done. The acceptance gate FAILS, and my earlier
+"passes with no re-tune" was wrong.** Full write-up: design doc §16.8. The short version:
 
-| | economy hulls | destroyer |
+Three test files carry a local `combatSpecFor(hull)` whose comment claims it replicates the tick.ts
+caller. It did not: it still built the SIGNATURE weapon list while the real caller now passes
+`defaultWeaponsForHull` (every hardpoint). Every balance number I reported was therefore the PRE-F5
+loadout measured against post-F5 code. Made faithful in `9c25aa3`, and the real reading is:
+
+| | pre-F5 | Route A |
 |---|---|---|
-| Sweep | 62.5 / 76.6 / 62.5 / 62.5% | 98.4% |
-| Warband | 1.6 / 4.7 / 1.6 / 1.6% | 15.6% |
+| SI carrier, Warband | 1.6% | **100.0%** |
+| SI battleship, Warband | 15.6% | **100.0%** |
+| SI prospectorHauler, Sweep | 76.6% | **100.0%** |
+| SI destroyer, Sweep | 98.4% | **100.0%** |
 
-Every economy hull is still strictly below the destroyer on both encounters.
+⚠️ **The load-bearing failure is the last row.** Free gear saturating at 100% leaves crafted gear no
+headroom, so `craftedGearPayoff.test.ts`'s "crafted wins more often than Standard-Issue" fails at
+100 vs 100. That test is the proof of the craft-to-fight loop, on the release before the crafting
+overhaul.
 
-**What remains is ~33 test assertions, and they are NOT all mechanical.** That is why it is parked
-rather than finished:
+**Cause:** the signature loadouts fill roughly HALF each hull's authored hardpoints, so Route A
+doubles weapon count (destroyer 2 to 4, battleship 3 to 6, carrier 1 to 2 plus a second drone pod).
+§16.7 called that "a small power increase". It is not small.
 
-1. **Count/loadout assertions** (most; ~17 already converted). These encoded the old loadout. The
-   fix is to make them DERIVED (`expectedBaselinePieces`, `defaultWeaponsForHull`) rather than
-   re-hardcoded, so a future retune moves them automatically. Continue this mechanically.
-2. ⚠️ **Behavioural fixtures** in `patrol-tick`, `ship-repair` and `patrol-rewards` that
-   deliberately construct a DEFEAT to exercise the limp-home and repair paths. F5 made those ships
-   strong enough to WIN ("expected 'engaging' to be 'limpingHome'", "expected 600 to be less than
-   600"). **These need the SCENARIO re-tuned, not the expectation edited.** Editing the expectation
-   would silently delete coverage of the defeat path.
+**Also corrected:** §16.7 ruled out "same power spread thinner" as mechanically unavailable. That
+was wrong. It does not need new item mechanics, it needs **one new weak `WEAPON_DEFS` entry** used
+only as the free filler mount: a data addition that touches no existing weapon and no crafted stat
+model. That is the new **Route D**, and it is the recommendation.
 
-The release branch was restored to green rather than left red.
+**Nothing is blocked on me.** The branch is deliberately RED (the failing gate IS the finding) and
+the release branch is untouched and green.
 
 ---
 
 ## ⚠️ Open decisions (waiting on the user, nothing blocked)
 
 1. **`showTickCounts` placement.** The record files it under Gameplay; by this release's own storage rule it is a display preference and belongs in **Visual**, where I left it. Flagged in the design doc for the user to overrule.
-2. **F5's "same gun" ambiguity.** Route A is chosen. For the ECONOMY hulls it is unambiguous (one autocannon, one empty slot). For a BATTLESHIP, which carries a railgun, a torpedo and a voltaic with three slots empty, "the same gun as the other slots" has no single referent. **Default recorded: fill with the floor gun (autocannon)**, which is route A as approved by name and the smaller balance change. Confirm before building phase 6.
+2. ⚠️ **F5's route, now a REAL decision rather than a detail.** Route A is built, measured, and fails
+   the balance gate (see above and design doc §16.8). The recommendation is **Route D: one new weak
+   filler mount in `WEAPON_DEFS`**, which delivers both halves of the middle path the user actually
+   chose. Route A can only ship by re-tuning the whole patrol ladder upward on a live game.
 
 ## Remaining Phase 1 work (small)
 
