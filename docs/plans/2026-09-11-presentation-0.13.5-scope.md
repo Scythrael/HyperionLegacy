@@ -64,43 +64,39 @@ Self-evident, and cheap, which is why it is a good first item.
 
 ---
 
-## 4. Recommended split
+## 4. ✅ DECIDED (user, 2026-09-11): ONE RELEASE, ALL EIGHTEEN ITEMS
 
-Three releases, cut along the dependency seams above rather than by size.
+**All 16 items ship as 0.13.5, and BOTH maybes are rolled in**, making it eighteen.
 
-### 0.13.5 "Foundations": the things everything else needs
-- **Options shell**: the reorg, intent-grouped subtabs, dropdowns, dev-panel organisation (1, 2, 3)
-- **The Gameplay and Accessibility tabs** themselves (8, 9), since the shell is right there
-- **The global token layer**: type scale, hierarchy, contrast, max reading width (4)
-- **The icon registry and pack seam**, DESIGNED AND BUILT, but NOT the sweep (11a)
-- **Tick-bar fixes** (12), which are small, live, and already overdue
-- ⚠️ **Deliberately excludes the view-layer split**, because that decision deserves mockups first.
+**The user's reasoning, which is the deciding one:** *"It's a large patch, but it's all UX/UI work, so it all goes together quite well. Not enough to be a full major patch though."*
 
-**Why this is a coherent release on its own:** the player gets a legible, reorganised options system and a global readability improvement across every screen at once. Nothing here needs a mockup, and the token layer is what every later pass inherits.
+That is a coherent argument and it answers the objection in section 2 rather than ignoring it. The concern there was scope; the reply is cohesion. Eighteen items that all touch the same layer, shipped together, give the player ONE coherent "the game looks and reads better now" moment instead of three partial ones, and none of them individually justifies a major version bump. A split would have produced three releases that each felt like a fragment.
 
-### 0.13.6 "Two Faces": the platform split
-- **Mockups first, per platform** (the user's standing rule, and their own nitpick plan)
-- **Separate view components** for mobile and desktop (6), **force-mobile option** (7), **desktop treatment** (5)
-- Mobile preserved exactly; desktop designed rather than stretched
+The recommendation for a split is therefore WITHDRAWN, and this section replaces it.
 
-**Why it is its own release:** it is a re-platforming, it is mockup-gated, and it is the thing every later per-screen pass depends on.
+### 4.1 ⚠️ BUT THE DEPENDENCY ORDER SURVIVES THE DECISION
 
-### 0.13.7 "Sweeps": the per-screen passes, done once per platform
-- **Icon sweep** onto the registry from 0.13.5 (11b)
-- **Tooltip system** (10)
-- **Ops / Logistics tidy** (13)
-- **Contextual help buttons + accessible labels** (14)
-- **Colon house style** (15)
-- **Tick-bar pulse** (16), if wanted
+Not splitting removes the release boundaries. It does NOT remove the prerequisites in section 3, which are technical facts about doing work twice rather than arguments about release size.
 
-**Why last:** every item here visits every screen, so they should visit once, after the platform split, in one pass per screen rather than five.
+**So section 3's ordering becomes the PHASE ORDER INSIDE 0.13.5.** The phases are internal and gated rather than separately shipped, which is exactly how 0.13.3 and 0.13.4 were built:
+
+| Phase | Contents | Why here |
+|---|---|---|
+| **1. Foundations** | Options shell + intent tabs (1, 2, 3), the Gameplay and Accessibility tabs (8, 9), global type/contrast/width tokens (4), tick-bar + disabled-contrast fixes (12) | Nothing needs a mockup; the token layer is what every later phase inherits |
+| **2. Icon architecture** | The named registry, runtime-swappable set, defined fallback, meaning-preservation rule (11a) | ⚠️ Must precede the sweep, or the sweep blocks paid packs |
+| **3. Mockups** | Mobile review pass, then a desktop mockup, both signed off before code | The user's standing rule, and their own planned nitpick round |
+| **4. Two faces** | Separate view components (6), desktop treatment (5), force-mobile (7) | Must precede every per-screen pass, or each is redone in the second view layer |
+| **5. Sweeps** | Icon sweep (11b), tooltip system (10), Ops/Logistics tidy (13), contextual help + accessible labels (14), colon house style (15), action-modal standardisation | Each visits every screen; doing them together means one visit per screen, not six |
+| **6. Extras** | F5 (Standard-Issue fills every slot), tick-bar travelling pulse (16) | Independent of the presentation work; F5 needs its route decision first |
+
+**Peelability is retained even though the release is not split.** If 0.13.5 grows past what the user wants to ship at once, the natural peel point is after phase 4: phases 1 to 4 are a complete, coherent release (a reorganised options system, a global readability lift, and two real platform treatments), and phase 5 onward can become 0.13.6. That is a fallback, not the plan.
 
 ---
 
-## 5. Open questions for the user
+## 5. Answers (user, 2026-09-11)
 
-1. **Does the three-way split land, or do you want a different cut?** The seams above are technical, but the sizing is a judgement call.
-2. **F5**: 0.13.5, 0.13.6, or 0.13.7? It is unrelated to presentation and could ride any of them, but it still needs the route decision from design §16.7 first.
-3. **The action-modal standardisation** is blocked on a validation test only you can run: is the bottom-sheet-on-mobile pattern better received than a centred one? Worth doing during 0.13.5 so it can land in the sweeps release.
-4. **Does the colon apply to EVERY row, or only facility/system rows?** Captain and mission rows read as "who, what" rather than "system: action".
-5. **Is anything in section 1 wrong or stale?** These commitments span weeks. This is the check that the 0.13.3 round trip existed to make routine.
+1. **Split?** No. All eighteen as 0.13.5. See section 4.
+2. **F5?** In 0.13.5. ⚠️ **Still needs its ROUTE decision** (design section 16.7, routes A/B/C) before it can be built, because the agreed "same power spread thinner" is not mechanically available.
+3. **Action-modal standardisation?** In 0.13.5. ⚠️ Still gated on the user's own validation test: is a bottom-sheet-on-mobile better received than a centred one?
+4. **Colon scope?** Deferred to the user's UI review pass: *"I can let you know where it should change in each spot as I go through the entire UI later on in the patch."* So the colon sweep is driven by their per-screen notes rather than decided up front. Build it in phase 5 alongside the other per-screen work, with their notes as the input.
+5. **Anything stale?** No. The inventory is accurate as recorded.
