@@ -1366,6 +1366,26 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - **Naming, decided:** "Docks" becomes **"Docking Bay"**. The user considered and rejected "Spacedock" (reads as Star Trek's Starbase One). Behaviour identical at first: this is a rename plus a relocation, not a rework.
   - **The Starbase upgrade track absorbs docking bays**, so ship capacity stops being a lone one-rung facility and becomes one line on a real progression track.
   - **Future Starbase functionality (not now):** invasion by OTHER PLAYERS, and later RANDOM ENEMY INVASIONS that can fire at any time on a cooldown, unlocked as the campaign progresses.
+  - **⭐ THE IN-PROGRESS AND COMPLETION ROWS SHOULD NAME THE STARBASE ONCE IT EXISTS (user,
+    2026-09-11, reviewing the 0.13.4 build).** The user's verdict on what ships today: "It does show
+    what is happening" (so this is NOT a bug and NOT a 0.13.4 change), "but eventually ... it should
+    reflect that it's an Orbital Starbase update".
+    - **Wanted shape:** something like **"Docking Bay: Slot Expansion"**, with the TIMER and BAR
+      exactly as they are now, "similarly formatted to how the captain cards show on the home
+      dashboard". Today the row reads "Docking bays, add one".
+    - ⚠️ **THIS IS A CONVENTION CHANGE, NOT ONE LABEL, AND THAT IS THE THING TO DECIDE AT DESIGN
+      TIME.** The whole board currently uses a COMMA form: "Refining, Titanium Ingot", "Captain 2,
+      Lunar Mine Contract", "Docks, expand capacity", "Patrolled, Crimson-Reaver Sweep". A colon form
+      for one row would read as an inconsistency rather than an improvement. So either the colon
+      becomes the house style for FACILITY rows generally (a deliberate, sweeping change), or this
+      lands as "Orbital Starbase, docking bay expansion" and keeps the existing comma idiom. The
+      user asked for it to match the captain cards, and the captain cards use the comma, so there is
+      a real tension in the request worth resolving WITH them rather than picking one silently.
+    - **Where it lives in code:** `labelForProcess` (homeDashboard.ts) for the in-progress row and
+      `COMPLETION_KIND_VIEW` + `completionSubjectLabel` for the completed row. Both are already
+      keyed per process kind, so this is a data-level edit, not a structural one.
+    - **Do it WITH the Starbase rename**, not before: naming a Starbase that does not exist yet would
+      be a label pointing at nothing.
   - ⚠️ **0.13.4 MADE THIS MIGRATION BIGGER, and the entry is updated rather than left to surprise
     someone.** Transit berths shipped onto the Docks console as it exists TODAY (a named deferral,
     0.13.4 design 1.1 / 5.8), so the Starbase now has to re-home **two** capacities, **two** rung
