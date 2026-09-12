@@ -32,11 +32,11 @@ User decision: no split. *"It's all UX/UI work, so it all goes together quite we
 | Phase | Status |
 |---|---|
 | **1. Foundations** | ✅ **BUILT, awaiting QA** |
-| 2. Icon registry + pack seam | not started |
+| **2. Icon registry + pack seam** | ✅ **BUILT** |
 | 3. Mockups (mobile review, then desktop) | not started |
 | 4. Two faces (separate view layers, desktop treatment, force-mobile) | not started |
 | 5. Sweeps (icons, tooltips, Ops tidy, help buttons, colon style) | not started |
-| 6. Extras (F5, tick-bar pulse) | not started |
+| 6. Extras | ⚠️ **F5 ENGINE DONE, PARKED on `feat/f5-standard-issue-slots`.** Tick-bar pulse not started. |
 
 ### What Phase 1 delivered
 
@@ -47,6 +47,42 @@ User decision: no split. *"It's all UX/UI work, so it all goes together quite we
 - **Accessibility tab**: UI scale, reduced motion (defaults to the OS setting), high contrast, dyslexia font, force-mobile (disabled, honest about why).
 - **Confirmation presets**: a WRITE ACTION, not a stored mode, so a hand adjustment afterwards is never overridden.
 - **Theme dropdown** replacing unlabelled colour blots, swatch kept beside it.
+
+### Phase 2 (icon pack seam) delivered
+
+The registry already existed (icons.ts, 0.13.3) and gives requirement 1. This unit added the
+other three: a **runtime-swappable** active set via a store (a module variable would only take
+effect on reload), a **per-icon fallback** so a pack overriding twelve glyphs still renders the
+other fifty (a per-pack completeness gate would force an author to draw everything before shipping
+anything), and **meaning preservation** enforced two ways: a pack can only override names that
+already exist, and every name carries a semantic class in an exhaustive Record. **Nothing was
+swept**; that is phase 5.
+
+### ⚠️ F5 is PARKED, not abandoned: `feat/f5-standard-issue-slots` at `072d1ad`
+
+**The engine is done and the acceptance gate PASSES.** `patrol-balance.test.ts` holds with no
+re-tune, which was not guaranteed:
+
+| | economy hulls | destroyer |
+|---|---|---|
+| Sweep | 62.5 / 76.6 / 62.5 / 62.5% | 98.4% |
+| Warband | 1.6 / 4.7 / 1.6 / 1.6% | 15.6% |
+
+Every economy hull is still strictly below the destroyer on both encounters.
+
+**What remains is ~33 test assertions, and they are NOT all mechanical.** That is why it is parked
+rather than finished:
+
+1. **Count/loadout assertions** (most; ~17 already converted). These encoded the old loadout. The
+   fix is to make them DERIVED (`expectedBaselinePieces`, `defaultWeaponsForHull`) rather than
+   re-hardcoded, so a future retune moves them automatically. Continue this mechanically.
+2. ⚠️ **Behavioural fixtures** in `patrol-tick`, `ship-repair` and `patrol-rewards` that
+   deliberately construct a DEFEAT to exercise the limp-home and repair paths. F5 made those ships
+   strong enough to WIN ("expected 'engaging' to be 'limpingHome'", "expected 600 to be less than
+   600"). **These need the SCENARIO re-tuned, not the expectation edited.** Editing the expectation
+   would silently delete coverage of the defeat path.
+
+The release branch was restored to green rather than left red.
 
 ---
 

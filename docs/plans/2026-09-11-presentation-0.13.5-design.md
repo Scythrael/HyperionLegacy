@@ -98,6 +98,75 @@ npm run build                 # the production bundle compiles
 
 ---
 
+## PHASE 3 BRIEF: THE HEADER REDESIGN (added 2026-09-12, user)
+
+Phase 3 is the mockup phase, and this is its first concrete subject. Recorded now, while the
+reasoning is fresh, so the mockup starts from an inventory rather than from memory.
+
+### What the header carries today
+
+```
+.top-bar
+  .top-bar-header
+    .top-bar-portrait          <- the ONLY route into Options
+      .portrait-gear-badge     <- a small gear, rendered ON the portrait
+    .top-bar-info
+      "Fleet Admiral - Level N"
+      Exp: [====------] 4.86M/50.7M [9.6%]
+  .top-bar-currencies          <- credits, fuel
+  .top-bar-tick-row            <- TICK: [====------] 0.4s   (optional)
+```
+
+### The three asks
+
+**1. A SQUARE GEAR BUTTON for Options.** The user: *"a great deal more obvious than 'tap your
+portrait'."*
+
+⚠️ **THE GEAR ALREADY EXISTS, WHICH SHARPENS THE PROBLEM RATHER THAN DISSOLVING IT.**
+`.portrait-gear-badge` renders a gear on the portrait today. So the issue is not a missing
+affordance, it is a SUBORDINATE one: a badge sitting on an avatar reads as decoration, and the
+avatar reads as "your profile", not "settings". Making it a PEER control (its own square button,
+its own hit target, beside the portrait rather than on it) is the change. Same family as the
+contextual-help `?` button already logged: **a visible affordance beats an invisible one**, and a
+badge on another control is closer to invisible than it looks.
+
+**2. CRAFTING LEVEL IN THE HEADER.** It is a GLOBAL progression stat, not a facility's property:
+`refineJob`, `fabricateJob` and `shipBuild` all award crafting XP, yet the Fabricator shows a full
+panel, the Refinery a one-line mention, and **the Shipyard nothing at all despite awarding it**.
+Three facilities feeding one number, presented three ways.
+
+The strongest argument for the header is that **crafting level is the same KIND of thing as Fleet
+Admiral level**, and FA level already lives there for exactly that reason. It should read as a
+sibling, not an invention.
+
+⚠️ Counterweight to design against: the header is prime real estate on a phone and already carries
+three rows. A fourth costs vertical space on EVERY screen forever, to show a number that matters
+mainly while crafting. The compact-pill option exists precisely to avoid that.
+
+**3. THE TWO PLATFORMS DIVERGE HERE, and this is the clearest example of why phase 4 exists.**
+- **MOBILE: preserve the current look.** User: *"pretty much mirror the exact look it currently
+  has. That one isn't going away."* Mobile is a constraint satisfaction problem: fit crafting level
+  in without growing the header.
+- **DESKTOP: use the space.** User: *"the desktop version doesn't make good use of the space it
+  has, leading to the whole option for desktop evolving in a different direction."* Desktop has
+  horizontal room the mobile layout simply ignores. A header that is cramped on a phone and
+  half-empty on a monitor is the single most visible instance of the mobile-stretched-to-desktop
+  problem the platform split exists to fix.
+
+### What the mockup must answer
+
+1. Where the gear button sits, at a real touch target size, without crowding the portrait.
+2. Whether crafting level is its own row, a pill on the FA row, or something else entirely.
+3. What desktop does with its horizontal space that mobile cannot (side-by-side rows? the
+   currencies and both progression bars on one line?).
+4. Whether the tick bar's row survives the reshuffle or folds in.
+
+⚠️ **DO NOT BUILD THIS BEFORE THE MOCKUP.** It is a spatial layout, which is precisely the category
+the user's standing rule covers, and the last time a layout was built from a text description it
+missed the intent.
+
+---
+
 ## PHASES 2 TO 6
 
 Designed after phase 1 lands, so the mockups (phase 3) can react to what the token layer actually looks like on screen rather than to a description of it. The scope document holds their contents and ordering.
