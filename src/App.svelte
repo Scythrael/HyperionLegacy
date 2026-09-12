@@ -15617,18 +15617,37 @@
         </div>
         <p class="prestige-text">When on, the combat log keeps the newest round in view as it streams. When off, the log holds position so you can read back without being pulled to the bottom.</p>
 
-        <div class="theme-row">
-          {#each THEME_NAMES as name}
-            <button
-              class="theme-swatch"
-              class:active={currentTheme === name}
-              style="background:{THEME_PREVIEW_COLORS[name]}"
-              title={name}
-              aria-label={name}
-              on:click={() => setTheme(name)}
-            ></button>
-          {/each}
-        </div>
+        <!-- ⚠️ A NAMED DROPDOWN PLUS A PREVIEW SWATCH, replacing six unlabelled colour blots
+             (0.13.5 Phase 1; the record asked for "real DROPDOWNS ... instead of the little
+             color-blot theme swatches").
+
+             THE ACCESSIBILITY ARGUMENT IS STRONGER THAN THE TIDINESS ONE, and it is why this is in
+             the release that adds a colourblind-relevant options tab: a control whose ONLY
+             information is its colour is unusable to a player who cannot distinguish those colours,
+             and "cyan" versus "blue" is a pair many people genuinely cannot tell apart. The blots
+             also carried no keyboard affordance worth the name and announced only via title.
+             A real <select> gets names, keyboard navigation, screen-reader support and the
+             platform's own touch picker for free.
+
+             THE SWATCH IS KEPT BESIDE IT rather than dropped, because the colour IS the useful part
+             for everyone else: it shows what you have selected without applying it blind. So this
+             ADDS the name rather than replacing the colour. It is aria-hidden because the select
+             already announces the value; announcing it twice is noise. -->
+        <SettingRow
+          label="Theme"
+          description="Changes the accent colour used across the whole interface. Panels and text re-hue with it."
+        >
+          <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
+          <select
+            class="setting-select"
+            value={currentTheme}
+            on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
+          >
+            {#each THEME_NAMES as name}
+              <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+            {/each}
+          </select>
+        </SettingRow>
         <div class="dev-row">
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
           <!-- Label-wrapping-hidden-input is the standard way to skin a file
@@ -17427,6 +17446,16 @@
   }
   /* The preset buttons. Wraps so three buttons plus a long label survive a narrow phone, which is
      the same overflow class that pushed a timestamp off screen in 0.13.3.1. */
+  /* The current theme's colour, shown beside the named dropdown. Purely informative (the select
+     announces the value), so it is aria-hidden. */
+  .theme-preview {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    border: 1px solid var(--color-border-strong);
+    display: inline-block;
+    flex: none;
+  }
   .preset-row {
     display: flex;
     flex-wrap: wrap;
@@ -17778,18 +17807,14 @@
   }
   .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
   .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
-  .theme-row { display: flex; gap: 8px; margin-bottom: 12px; }
-  .theme-swatch {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    cursor: pointer;
-    padding: 0;
-  }
-  .theme-swatch.active {
-    border-color: var(--color-text-primary);
-  }
+  /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the colour-blot
+     theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
+     and dead CSS that still compiles is exactly the kind of thing a later reader restores by
+     accident because it looks intentional. The replacement is .theme-preview plus .setting-select.
+     ⚠️ One selector elsewhere still NAMES .theme-swatch.active in a comment, as the precedent for
+     an active-state border. That comment is now describing something that no longer exists; it is
+     left alone here because editing an unrelated rule's comment is a different concern, and it is
+     noted in the handoff instead. */
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }

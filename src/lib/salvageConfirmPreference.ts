@@ -1,5 +1,22 @@
-// Per-quality salvage-confirm preference (0.11.2). localStorage only, same shape
-// and rationale as src/lib/refineConfirmPreference.ts (NOT on GameState). The
+// Per-quality salvage-confirm preference (0.11.2).
+//
+// ⚠️ THIS MODULE IS A LEGACY MIGRATION SOURCE, NOT THE LIVE SETTING (corrected 0.13.5, the header
+// had been false since 0.13.3). It used to say "localStorage only ... NOT on GameState". That
+// stopped being true when 0.13.3 moved the setting INTO THE SAVE as
+// GameState.salvageConfirmQualities, for the reason that governs every setting split in this
+// project: the SIMULATION reads it, so it has to be in the save or the tick cannot see it offline
+// and offline stops matching live.
+//
+// What remains here is READ ONCE: save.ts imports loadSalvageConfirmQualities to seed the save
+// field in the v39 to v40 migration. Nothing writes the key any more (verified 0.13.5: no caller
+// of the setter or of salvageNeedsConfirm outside this file).
+//
+// ⚠️ DO NOT RESURRECT THE localStorage PATH. A second writer would give one setting two homes that
+// disagree depending on which screen was opened last, and the device-side copy would be invisible
+// to the tick. If a UI needs this setting, it reads and writes GameState.
+//
+// Same shape as src/lib/refineConfirmPreference.ts, which IS still device-side and correctly so
+// (it gates a DIALOG, which the simulation never reads). The
 // player selects which quality tiers require a confirm before salvaging; the
 // default is ALL tiers (safe: confirm everything until the player opts out of the
 // low tiers). salvageNeedsConfirm(quality) answers "does salvaging an item of this
