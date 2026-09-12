@@ -57,6 +57,8 @@ import {
   requiredTicksForPhase,
   extractionMissionOf,
 } from "./model";
+// 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
+import { missionPhaseStatus } from "./berths";
 
 // The game's REAL "can I start this?" gates (Unit 2). Each is the single source of truth
 // the corresponding setup UI's Start/Dispatch button already reads, so the dashboard's
@@ -518,6 +520,10 @@ function rowForProcess(process: TimedProcess, state: GameState): ActivityRow {
 function rowForExtraction(
   captain: CaptainState,
   mission: NonNullable<ReturnType<typeof extractionMissionOf>>,
+  // 0.13.4 Phase 4: needed so the row can report a TRANSIT BERTH hold. The berth question is
+  // about the whole fleet (who else is docked, how many berths exist), so it cannot be answered
+  // from one captain.
+  state: GameState,
 ): ActivityRow {
   const missionDef = MISSIONS[mission.missionKey];
   const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
@@ -527,7 +533,10 @@ function rowForExtraction(
     id: `extraction-${captain.id}`,
     icon: "extraction",
     primaryLabel: `${captain.label}, ${missionDef.label}`,
-    secondaryLabel: MISSION_PHASE_LABEL[mission.phase],
+    // 0.13.4 Phase 4: through missionPhaseStatus, the SINGLE source both render sites use, so a
+    // held ship reads "Waiting for a transit berth (3rd in line)" here and on the captain card
+    // with identical wording. An uncontended fleet reads exactly as it did before.
+    secondaryLabel: missionPhaseStatus(state, captain),
     kind: "extraction",
     progress,
     remainingTicks,
@@ -1207,7 +1216,7 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   for (const captain of state.captains) {
     const extraction = extractionMissionOf(captain);
     if (extraction !== null) {
-      inProgress.push(rowForExtraction(captain, extraction));
+      inProgress.push(rowForExtraction(captain, extraction, state));
       continue;
     }
     if (captain.mission !== null && captain.mission.kind === "patrol") {

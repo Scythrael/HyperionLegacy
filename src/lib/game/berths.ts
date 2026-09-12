@@ -60,6 +60,7 @@
 // ============================================================================
 
 import {
+  MISSION_PHASE_LABEL,
   TRANSIT_BERTH_BASE,
   TRANSIT_BERTH_RUNGS,
   MISSIONS,
@@ -202,4 +203,66 @@ export function worstCaseBerthWaitTicks(state: GameState, concurrentReturns: num
   const berths = transitBerthCount(state);
   const worstUnload = Math.max(...Object.values(MISSIONS).map((m) => m.unloadTicks));
   return Math.ceil(Math.max(0, concurrentReturns) / Math.max(1, berths)) * worstUnload;
+}
+
+// ============================================================================
+// THE PLAYER-FACING STATUS (Phase 4 Unit 4.1)
+// ============================================================================
+
+// The phase label a captain should show, WITH the berth hold folded in.
+//
+// ⚠️ ONE FUNCTION FOR EVERY RENDER SITE, AND THAT IS THE WHOLE POINT. There are exactly two
+// places that render a mission phase (the captain card in App.svelte and the Home board row in
+// homeDashboard.ts), and both previously read MISSION_PHASE_LABEL directly. Giving each its own
+// held-state branch would be two chances to word it differently and two chances to forget. This
+// release has already shipped a one-site fix twice (the trimmed-space bug, the zero-manifest
+// guard) and had the same bug survive elsewhere, so the class gets swept, not the instance.
+//
+// A captain that is NOT held reads exactly as it did before this release, character for
+// character, so nothing on either surface changes for an uncontended fleet.
+//
+// ⚠️ THE WAIT IS NAMED, NOT IMPLIED. "Waiting for a transit berth (3rd in line)" is the
+// requirement the user attached to this feature: a feature whose only player-facing signal is
+// "my missions got slower" is the failure mode they named by name. A held ship must never look
+// like a stalled one.
+export function missionPhaseStatus(state: GameState, captain: CaptainState): string {
+  const mission = captain.mission;
+  if (mission === null) return "";
+  // A PATROL is not an extraction mission and has its own phase vocabulary (PATROL_PHASE_LABEL),
+  // which this function deliberately does not own: patrols never occupy a berth (design 5.4), so
+  // there is nothing for it to add. Returning "" hands the caller back to whatever it rendered
+  // before, rather than indexing the extraction label table with a patrol phase.
+  if (mission.kind !== "extraction") return "";
+  if (!isAwaitingBerth(state, captain)) return MISSION_PHASE_LABEL[mission.phase];
+  const position = berthQueuePosition(state, captain.id);
+  // Position is non-null here by construction (isAwaitingBerth is the same predicate
+  // captainsAwaitingBerth filters on), but a defensive fall-through beats rendering "null".
+  if (position === null) return "Waiting for a transit berth";
+  // ⚠️ BANKED IS NOT THE SAME AS BLOCKED, and conflating them mislabels a ship that is about to
+  // dock. isAwaitingBerth recognises the BANKED state (progress at the requirement, phase still
+  // transitBack), which is also the state a captain passes through for an instant on the tick it
+  // claims a berth normally. If a berth is actually available for this captain (its queue
+  // position is within the free count, the same test berthEtaTicks uses to return 0), it is
+  // arriving, not queuing, and must read as an ordinary return leg.
+  if (position <= transitBerthsFree(state)) return MISSION_PHASE_LABEL[mission.phase];
+  return `Waiting for a transit berth (${ordinal(position)} in line)`;
+}
+
+// 1st / 2nd / 3rd / 4th. Small and local rather than a shared utility, because this is the only
+// place in the codebase that needs an ordinal and inventing a general one now would be
+// speculative. Handles the English teens correctly (11th, not 11st), which a naive
+// last-digit switch gets wrong and which is reachable once the captain roster grows.
+function ordinal(n: number): string {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
 }

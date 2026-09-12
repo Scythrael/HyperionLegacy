@@ -331,6 +331,16 @@
     requisitionBlockText,
     requisitionStandardIssue,
   } from "./lib/game/quartermaster";
+  // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
+  // does, so the two can never disagree about how many berths exist or who is waiting.
+  import {
+    missionPhaseStatus,
+    isAwaitingBerth,
+    berthEtaTicks,
+    transitBerthCount,
+    transitBerthsFree,
+    transitBerthsOccupied,
+  } from "./lib/game/berths";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
@@ -515,6 +525,9 @@
     // destructures `started`.
     canUpgradeDocks,
     startDocksExpansion,
+    // 0.13.4 Phase 4: the transit-berth gate + action, the same pair shape as the docks two above.
+    canUpgradeTransitBerths,
+    startTransitBerthExpansion,
     // Crafting Allocation Redesign (Task C3/C4), the per-slot production LINE seams the
     // Refinery + Fabricator configurators wire up (replacing the retired standing-order
     // actions). startLine(state, kind, recipeKey, mode) appends a configured line (gated by
@@ -5149,6 +5162,14 @@
     state = next;
     pushLog("Docks expansion started.");
     doSave();
+  }
+
+  // 0.13.4 Phase 4: start the next TRANSIT BERTH rung. Deliberately a mirror of doExpandDocks
+  // directly above (same shape, same no-op-on-refusal posture), because it is the same kind of
+  // purchase and the two buttons sit in the same panel.
+  function doExpandTransitBerths() {
+    const { next, started } = startTransitBerthExpansion(state);
+    if (started) state = next;
   }
 
   // ── Quartermaster: take one free Standard-Issue baseline (0.13.3.1) ────────
@@ -12449,6 +12470,48 @@
                 {#if !docksCheck.ok}
                   <div class="docks-expand-note">{docksCheck.reason}</div>
                 {/if}
+                <!-- ⚠️ TRANSIT BERTHS (0.13.4 Phase 4 Unit 4.2): A SECOND, INDEPENDENT CAPACITY.
+                     It shares the noun "berth" with the Drydock capacity above and NOTHING else.
+                     Design section 3 locks that the two "never add, never multiply, never share a
+                     pool": a DRYDOCK berth holds a parked hull indefinitely (it is what lets you
+                     OWN another ship), while a TRANSIT berth is occupied by an unloading phase that
+                     always ends (it is what lets ships LAND faster). Two numbers that look related
+                     but are not is worse than two that obviously are not, so this renders as its own
+                     labelled readout with its own occupancy, NOT as a second figure on the line
+                     above.
+
+                     Deliberately follows the Drydock block's structure verbatim (readout, button,
+                     persistent disabled-reason note) because it IS the same kind of purchase. That
+                     also inherits the 2026-07-24 flicker fix: the reason is a persistent text node,
+                     never a hover title. Do not "tidy" it into a title.
+
+                     ⚠️ THE COPY MUST NOT PROMISE AN IMMEDIATE THROUGHPUT GAIN. The track runs to 10
+                     berths while only 4 captains are currently reachable, so the upper rungs are
+                     forward investment toward the 10-captain endstate the captain roster already
+                     advertises as "Coming soon" (design 17.2). The readout therefore states
+                     occupancy as a FACT ("1 of 2 in use") and says nothing about what buying more
+                     would do. -->
+                {@const berthCheck = canUpgradeTransitBerths(state)}
+                <div class="docks-cap-head">
+                  <div class="research-cost">
+                    Transit berths: {transitBerthsOccupied(state)} / {transitBerthCount(state)} in use
+                  </div>
+                  <button
+                    class="buy-btn docks-expand-btn"
+                    disabled={!berthCheck.ok}
+                    on:click={doExpandTransitBerths}
+                  >
+                    Add Transit Berth
+                  </button>
+                </div>
+                {#if !berthCheck.ok}
+                  <div class="docks-expand-note">{berthCheck.reason}</div>
+                {/if}
+                <p class="research-status">
+                  Returning ships need a free transit berth to dock and unload. With every berth
+                  busy, the next ship waits at the end of its return leg and takes the first one
+                  that frees.
+                </p>
                 <!-- Where per-hull management went. The list/assign/salvage that
                      used to render here now live in Logistics > Ships (the ITEM
                      perspective); this pointer keeps the player oriented after the
@@ -13767,7 +13830,27 @@
                   {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                   <div class="mission-card">
                     <div class="research-name">{captain.label}, {missionDef.label}</div>
-                    <div class="research-cost">Phase: {MISSION_PHASE_LABEL[mission.phase]}</div>
+                    <!-- 0.13.4 Phase 4: through missionPhaseStatus, the SINGLE source this and the
+                         Home In Progress row both read, so a TRANSIT BERTH hold is worded
+                         identically on both surfaces and neither can be updated without the other.
+                         An uncontended fleet renders exactly the string it did before. -->
+                    <div class="research-cost">Phase: {missionPhaseStatus(state, captain)}</div>
+                    {#if isAwaitingBerth(state, captain)}
+                      <!-- ⚠️ THE ETA IS DISPLAY-ONLY and is an UPPER BOUND that ticks down (see
+                           berthEtaTicks). It is shown only while actually held, so an ordinary
+                           return leg gains no extra line. Naming the wait plus its position plus an
+                           estimate is the three-part requirement the user attached to this
+                           feature. -->
+                      <div class="research-cost">
+                        About {remainingReadout(
+                          berthEtaTicks(state, captain.id) ?? 0,
+                          Math.max(1, berthEtaTicks(state, captain.id) ?? 1),
+                          showTickCounts,
+                          state.tickDurationSeconds,
+                        )} for a berth
+                        ({transitBerthsFree(state)} of {transitBerthCount(state)} free)
+                      </div>
+                    {/if}
                     <div class="research-bar-track">
                       <div class="research-bar-fill" style="width:{progress * 100}%"></div>
                     </div>

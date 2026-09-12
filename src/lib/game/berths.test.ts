@@ -21,12 +21,14 @@ import Decimal from "break_infinity.js";
 import {
   freshState,
   MISSIONS,
+  MISSION_PHASE_LABEL,
   TRANSIT_BERTH_BASE,
   TRANSIT_BERTH_RUNGS,
   type GameState,
   type CaptainMissionState,
 } from "./model";
 import {
+  missionPhaseStatus,
   transitBerthCount,
   transitBerthsOccupied,
   transitBerthsFree,
@@ -440,5 +442,68 @@ describe("the upgrade track", () => {
     const out = dispatchCaptainOnMission(state, 1, MISSION_KEY);
     expect(out.success).toBe(true);
     expect(transitBerthsFree(out.next)).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// THE PLAYER-FACING STATUS (Phase 4 Unit 4.1)
+//
+// ⚠️ ONE SOURCE, TWO SURFACES. missionPhaseStatus is what both the captain card and the Home
+// In Progress row render, so these cases cover both at once. That is the point of the shared
+// function: this release twice shipped a one-site fix while the same bug survived elsewhere.
+// ============================================================================
+describe("missionPhaseStatus: the held ship is NAMED, not silently slower", () => {
+  it("names the wait and the queue position for a held captain", () => {
+    // Three held captains, two base berths: the third is genuinely waiting.
+    const held = withHeldAtReturn(fleetOf(3), 3);
+    const after = economyTick(held, 1, RNG);
+    const waiting = captainsAwaitingBerth(after);
+    expect(waiting).toHaveLength(1);
+    const captain = after.captains.find((c) => c.id === waiting[0])!;
+    const status = missionPhaseStatus(after, captain);
+    // ⚠️ "my missions got slower" with no explanation is the failure mode the user named by
+    // name. The status must say WHAT is happening and WHERE in the queue.
+    expect(status.toLowerCase()).toContain("waiting for a transit berth");
+    expect(status).toMatch(/\d+(st|nd|rd|th) in line/);
+  });
+
+  it("reads EXACTLY as before for a captain that is not held", () => {
+    // The regression guard for the whole phase: an uncontended fleet must render character for
+    // character what it rendered before 0.13.4, on both surfaces.
+    const docked = withUnloading(fleetOf(1), 1);
+    expect(missionPhaseStatus(docked, docked.captains[0])).toBe(MISSION_PHASE_LABEL.unloading);
+    const held = withHeldAtReturn(fleetOf(1), 1);
+    // One captain, two berths: not contended, so it reads as an ordinary return leg.
+    expect(missionPhaseStatus(held, held.captains[0])).toBe(MISSION_PHASE_LABEL.transitBack);
+  });
+
+  it("returns empty for an idle captain and for a PATROL, rather than mislabelling either", () => {
+    // A patrol has its own phase vocabulary and never occupies a berth, so this function has
+    // nothing to add and must not index the extraction label table with a patrol phase.
+    const idle = fleetOf(1);
+    expect(missionPhaseStatus(idle, idle.captains[0])).toBe("");
+    const patrolling: GameState = {
+      ...idle,
+      captains: idle.captains.map((c) => ({
+        ...c,
+        mission: { kind: "patrol", patrolKey: "crimsonReaverSweep", phase: "engaging" } as never,
+      })),
+    };
+    expect(missionPhaseStatus(patrolling, patrolling.captains[0])).toBe("");
+  });
+
+  it("uses correct English ordinals, including the teens", () => {
+    // 11th, not 11st. Reachable once the captain roster grows past ten, which the roster
+    // already advertises as coming.
+    const held = withHeldAtReturn(fleetOf(13), 13);
+    const after = economyTick(held, 1, RNG);
+    const statuses = after.captains
+      .filter((c) => captainsAwaitingBerth(after).includes(c.id))
+      .map((c) => missionPhaseStatus(after, c));
+    const joined = statuses.join(" | ");
+    expect(joined).not.toContain("11st");
+    expect(joined).not.toContain("12nd");
+    expect(joined).not.toContain("13rd");
+    expect(joined).toContain("11th");
   });
 });
