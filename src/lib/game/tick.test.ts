@@ -2885,6 +2885,7 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     shipBuild: { type: "addShip", typeKey: "prospectorMiner" },
     equipmentStorageUpgrade: { type: "equipmentStorageLevelUp" },
     docksExpansion: { type: "docksCapacityUp" },
+    transitBerthExpansion: { type: "transitBerthLevelUp" },
     shipRepair: { type: "clearShipDamage", shipId: "ship-1" },
     // Crafting 0.13.3 (Unit 2.2). The target is a plausible-but-absent instance id on
     // purpose: this suite only exercises XP ROUTING, and a salvageResolve effect is a
@@ -2918,6 +2919,7 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
     shipBuild: { fa: true, crafting: true, craftingXp: 180 },
     equipmentStorageUpgrade: { fa: true, crafting: false, craftingXp: 0 },
     docksExpansion: { fa: true, crafting: false, craftingXp: 0 },
+    transitBerthExpansion: { fa: true, crafting: false, craftingXp: 0 },
     // Combat 0.13.0 (Phase 11): a ship repair is a consequence, not an achievement/production
     // job, so it grants NEITHER axis (joins fuelRefineJob as the only neither-axis kind).
     shipRepair: { fa: false, crafting: false, craftingXp: 0 },

@@ -12,6 +12,9 @@ import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
   effectiveMissionDef,
+  // 0.13.4 Phase 3: the berth floor, for turning a stored rung level into a reported count.
+  TRANSIT_BERTH_BASE,
+  TRANSIT_BERTH_RUNGS,
   xpForNextLevel,
   xpForNextFleetAdminLevel,
   craftingXpForNext,
@@ -287,6 +290,9 @@ import { craftingXpAwardForProcess } from "./craftingProgress";
 // canStartSalvage's ship arm reuses it rather than re-reading captain.mission itself, so a
 // queued teardown is refused by exactly the rule salvageShip will apply at completion.
 import { equippedFor, onMissionLock } from "./equipment";
+// 0.13.4 Phase 3: the transit-berth read model. The engine reads berths.ts so it and the
+// console can never disagree about how many berths exist, who holds one, or who is waiting.
+import { transitBerthsFree } from "./berths";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -957,6 +963,10 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   shipBuild:               { fleetAdmin: true,  crafting: true },  // 0.12.1: flipped to true (finite, high-value)
   equipmentStorageUpgrade: { fleetAdmin: true,  crafting: false },
   docksExpansion:          { fleetAdmin: true,  crafting: false },
+  // 0.13.4 Phase 3: same shape as its docks sibling. It is fleet INFRASTRUCTURE, so it feeds
+  // Fleet Admiral XP; it crafts nothing, so no Crafting XP. Granting crafting XP for buying a
+  // berth would be a faucet with no craft behind it.
+  transitBerthExpansion:   { fleetAdmin: true,  crafting: false },
   // Combat 0.13.0 (Phase 11, design S13): a ship REPAIR grants NEITHER axis. Repair is a
   // CONSEQUENCE of losing a patrol (restoring a wrecked hull), not an achievement or a
   // production job, so it must not farm FA or crafting XP (a defeat-repair-redispatch loop
@@ -1050,6 +1060,10 @@ const PROCESS_COMPLETION_LOG: Record<TimedProcessKind, CompletionLogPolicy> = {
   fuelRefineJob:           { logged: true, batched: false, reward: "fuel" },
   equipmentStorageUpgrade: { logged: true, batched: false, reward: "level" },
   docksExpansion:          { logged: true, batched: false, reward: "level" },
+  // 0.13.4 Phase 3: logged (a capacity change is worth telling the player about), NOT batched
+  // (one purchase is one event, never an iterating run), reward "level" (it reports the level
+  // reached, exactly as the docks row does).
+  transitBerthExpansion:   { logged: true, batched: false, reward: "level" },
   shipRepair:              { logged: true, batched: false, reward: "repair" },
   // byEffect: a salvage grants "materials" when it actually recovered something, and
   // "nothing" for the two honest empty outcomes (a Standard-Issue baseline destroyed for
@@ -1085,6 +1099,9 @@ interface CompletionLevelView {
   facilities: Record<string, FacilityState>;
   equipmentStorageLevel: number;
   shipStorageCapacity: number;
+  // 0.13.4 Phase 3: the post-completion TRANSIT BERTH rung level. The record-builder turns it
+  // into a berth COUNT for display; see the transitBerthLevelUp case for why.
+  transitBerthLevel: number;
 }
 
 // Fold one reward line into a running list, immutably. Same-item amounts ADD (as Decimals,
@@ -1267,6 +1284,18 @@ function completionYieldFor(
       // The docks store the CAPACITY itself rather than a level, so the capacity is what is
       // reported. Naming it "docks" keeps the subject readable without a second field.
       return { ...empty, reward: "level", subjectKey: "docks", level: levels.shipStorageCapacity };
+    case "transitBerthLevelUp":
+      // ⚠️ REPORTS THE BERTH COUNT, NOT THE RUNG LEVEL, even though the level is what is stored.
+      // "Transit Berths, 4 berths" is the fact a player cares about; "level 2" is an
+      // implementation detail they never see anywhere else in this feature. The count is the
+      // base plus the level, which is transitBerthCount's arithmetic inlined here because this
+      // pure record-builder does not take a whole GameState.
+      return {
+        ...empty,
+        reward: "level",
+        subjectKey: "transitBerths",
+        level: TRANSIT_BERTH_BASE + levels.transitBerthLevel,
+      };
     case "clearShipDamage":
       return { ...empty, reward: "repair", subjectKey: effect.shipId };
     case "salvageResolve": {
@@ -1673,7 +1702,23 @@ export function tickCaptainMission(
   // creditsPerUnit defaults to FUEL_CREDITS_PER_UNIT (the real price) so a caller passing only
   // a finite creditsBudget still charges correctly.
   creditsBudget: number = Infinity,
-  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT
+  creditsPerUnit: number = FUEL_CREDITS_PER_UNIT,
+  // Infrastructure 0.13.4 (Phase 3 Unit 3.2, design section 5.2): how many TRANSIT BERTHS this
+  // call may claim for this captain. The advance from `transitBack` into `unloading` is gated
+  // on it: with none free, the phase HOLDS instead of advancing.
+  //
+  // ⚠️ THE DEFAULT Infinity IS WHAT KEEPS EVERY EXISTING CALL SITE AND TEST BYTE-IDENTICAL.
+  // Omitting this argument means "berths are never contended", which is exactly the
+  // pre-0.13.4 behaviour, so the 101 parity baseline cannot move because of this parameter's
+  // existence. Only economyTick passes a real number.
+  //
+  // ⚠️ IT IS A BUDGET FOR THE WHOLE economyTick CALL, NOT A LIVE READ, and that is the parity
+  // argument. economyTick computes it ONCE from the incoming state and draws it down as
+  // captains claim, in state.captains order. A berth freed by ANOTHER captain during the same
+  // economyTick does NOT become claimable until the next one. That is deliberate: this
+  // function cannot observe another captain's progress, so if within-call freeing were
+  // claimable, one big call and many small calls would disagree about who docked when.
+  berthBudget: number = Infinity
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -1697,6 +1742,11 @@ export function tickCaptainMission(
   // subtracts this from the shared Decimal credits balance, mirroring fuelSpent. 0 on the
   // early-outs and whenever no auto-buy fired (the tank always covered the cycle).
   creditsSpentOnFuel: number;
+  // Infrastructure 0.13.4 (Phase 3 Unit 3.2): how many berths this call actually CLAIMED, so
+  // economyTick can draw its shared budget down before the next captain is processed. Mirrors
+  // fuelSpent's reporting posture exactly. Normally 0 or 1; a call long enough to complete a
+  // whole cycle and start another return leg can claim more than once.
+  berthsClaimed: number;
 } {
   if (!captain.mission || ticksElapsed <= 0) {
     return {
@@ -1707,6 +1757,10 @@ export function tickCaptainMission(
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
       fuelSpent: 0,
       creditsSpentOnFuel: 0,
+      // 0.13.4 Phase 3: an early-out advanced nothing, so it claimed no berth. Stated
+      // explicitly at both early-outs rather than defaulted, because a phantom claim here would
+      // silently shrink economyTick's shared budget and hold a DIFFERENT captain.
+      berthsClaimed: 0,
     };
   }
 
@@ -1732,6 +1786,10 @@ export function tickCaptainMission(
       lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
       fuelSpent: 0,
       creditsSpentOnFuel: 0,
+      // 0.13.4 Phase 3: an early-out advanced nothing, so it claimed no berth. Stated
+      // explicitly at both early-outs rather than defaulted, because a phantom claim here would
+      // silently shrink economyTick's shared budget and hold a DIFFERENT captain.
+      berthsClaimed: 0,
     };
   }
   const extractionMission = captain.mission;
@@ -1751,6 +1809,11 @@ export function tickCaptainMission(
   const missionDef = shipStats ? effectiveMissionDef(rawMissionDef, shipStats) : rawMissionDef;
   let mission: CaptainMissionState | null = { ...extractionMission, cargo: { ...extractionMission.cargo } };
   let remaining = ticksElapsed;
+  // 0.13.4 Phase 3: berths claimed so far in THIS call, and the budget still available to it.
+  // Drawn down locally so a call long enough to finish a cycle and come back round cannot claim
+  // the same berth twice.
+  let berthsClaimed = 0;
+  let berthsAvailable = berthBudget;
   // Mission Rework (Task 1): typed Record<string,Decimal> (not the narrow
   // LootMaterialKey) because the cycle-delivery below remaps the abstract-tier cargo
   // onto the mission's own lootTable item keys, which may not be one of the 3 seed
@@ -2079,6 +2142,35 @@ export function tickCaptainMission(
           }
         }
       } else {
+        // ⚠️ 0.13.4 Phase 3 Unit 3.2: THE TRANSIT-BERTH HOLD, and the ONE gated phase advance in
+        // this loop. A returning ship needs a free berth before it can dock and unload.
+        //
+        // ⚠️ THIS IS A HOLD, NOT A NEW PHASE (design 5.2). Adding a `docking` phase would
+        // lengthen EVERY mission cycle for EVERY existing save whether or not a berth is ever
+        // contended, and it would silently move the LOCKED fuel-runway projection, which sums
+        // the same per-phase lengths through FUEL_CYCLE_PHASES. A phase also needs a duration,
+        // and "waiting for a berth" has no duration: it depends on other captains.
+        //
+        // THE POSTURE IS stepCraftLine's, VERBATIM: a blocked step survives unchanged and
+        // retries next tick. Progress BANKS at exactly `requiredTicks` (it is already there,
+        // since that is the condition we are inside), the phase stays `transitBack`, and the
+        // loop BREAKS so no budget is burned spinning on a gate that cannot open.
+        //
+        // ⚠️ THE BREAK IS ALSO THE PARITY ARGUMENT. A berth can only free through ANOTHER
+        // captain's progress, which this function cannot observe. So no amount of remaining
+        // budget in this call could change the answer, and one big call therefore agrees with
+        // many small ones. Spinning instead of breaking would burn the rest of the budget to
+        // reach the same state, which is equivalent here but wastes the loop; breaking is the
+        // honest expression of "nothing further can happen to this captain this call".
+        //
+        // Waiting is then FULLY DERIVED with no stored field: berths.ts's isAwaitingBerth
+        // recognises exactly this banked state. Nothing is written, so nothing can go stale.
+        const advancingIntoUnloading = MISSION_PHASE_ORDER[nextIndex] === "unloading";
+        if (advancingIntoUnloading && berthsAvailable < 1) break;
+        if (advancingIntoUnloading) {
+          berthsAvailable -= 1;
+          berthsClaimed += 1;
+        }
         mission.phase = MISSION_PHASE_ORDER[nextIndex];
         mission.phaseProgressTicks = 0;
       }
@@ -2189,6 +2281,8 @@ export function tickCaptainMission(
     lifetimeStatsDelta,
     fuelSpent,
     creditsSpentOnFuel,
+    // 0.13.4 Phase 3: berths this call claimed, for economyTick's shared budget.
+    berthsClaimed,
   };
 }
 
@@ -3285,6 +3379,21 @@ export function economyTick(
   // without ever calling it, so a patrol can end without a PatrolTickResult existing. Collecting
   // at this level is the only place that sees all four.
   const patrolEndings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[] = [];
+  // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
+  // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
+  // incoming state, then drawn down as each captain claims, so a later captain in this same map
+  // sees the reduced value and two ships cannot claim one berth.
+  //
+  // ⚠️ COMPUTED FROM THE INCOMING STATE, NOT RE-READ PER CAPTAIN, AND THAT IS THE PARITY
+  // ARGUMENT. A berth freed by a captain finishing its unload during THIS call does not become
+  // claimable until the NEXT call. Re-reading occupancy per captain would let a freed berth be
+  // reclaimed within one big call but not within the equivalent sequence of single ticks, which
+  // is precisely how a closed-form parity invariant breaks. The cost is at most one tick of
+  // latency on a re-claim, against a mission cycle hundreds of ticks long.
+  //
+  // Queue order is state.captains order, i.e. monotonic captain-id insertion order: the same
+  // determinism processShipRepairs uses, stable across save, load and offline catch-up.
+  let berthBudgetRemaining = transitBerthsFree(state);
   const captains = state.captains.map((captain) => {
     if (captain.mission === null) return captain;
     // UNKNOWN-KEY INERT GUARD (fix: a removed/renamed mission/patrol key hard-crashed every tick,
@@ -3541,6 +3650,7 @@ export function economyTick(
       lifetimeStatsDelta: captainLifetimeStatsDelta,
       fuelSpent: captainFuelSpent,
       creditsSpentOnFuel: captainCreditsSpentOnFuel,
+      berthsClaimed: captainBerthsClaimed,
     } = tickCaptainMission(
       ticksElapsed,
       captain,
@@ -3549,8 +3659,13 @@ export function economyTick(
       shipStats,
       fuelBudgetRemaining,
       fuelPerCycle,
-      creditsBudgetRemaining
+      creditsBudgetRemaining,
+      FUEL_CREDITS_PER_UNIT, // explicit so berthBudgetRemaining lands in the right slot
+      berthBudgetRemaining
     );
+    // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
+    // Same posture as the fuel and credit draw-downs directly below.
+    berthBudgetRemaining -= captainBerthsClaimed;
     // Mission Rework (Task 5): draw this captain's auto-repeat fuel from the shared tank
     // budget so a later captain in this SAME map sees the reduced budget (no
     // double-spend), and sum it for the single Decimal tank deduction below.
@@ -5430,6 +5545,72 @@ export function canUpgradeDocks(state: GameState): { ok: boolean; reason?: strin
 // { type: "docksCapacityUp" } bumps shipStorageCapacity by 1 (resolveProcesses applies
 // it). Returns { next, started }, the SAME shape/naming startFacilityUpgrade uses. On
 // any failed gate it is a same-reference no-op ({ next: state, started: false }).
+// ============================================================================
+// TRANSIT BERTHS, the upgrade track (Infrastructure 0.13.4, Phase 3 Unit 3.3)
+//
+// Deliberately a near-copy of the docks pair directly below, because it IS the same kind of
+// purchase and a player should not have to learn two shapes for it. The ONE structural
+// difference: transitBerthCapacity stores a RUNG LEVEL, so the rung index IS the field and
+// needs no base subtraction, where the docks derive their index as capacity - base.
+//
+// ⚠️ UPGRADE COPY MUST NOT PROMISE AN IMMEDIATE THROUGHPUT GAIN FROM THE UPPER RUNGS (design
+// 17.2). The track runs to 10 berths while only 4 captains are currently reachable, so rungs
+// past roughly 5 are forward investment toward the 10-captain endstate the captain roster
+// already advertises as "Coming soon". That is deliberate, and it is also a promise the UI can
+// accidentally break.
+// ============================================================================
+
+// PURE predicate: could the player start the NEXT transit-berth expansion right now? Same gate
+// ORDER as canUpgradeDocks (structural gates, then credits, then materials last) so the two
+// consoles report failures in the same sequence.
+export function canUpgradeTransitBerths(state: GameState): { ok: boolean; reason?: string } {
+  // The stored field IS the rung index. Floored at 0 so a hand-edited negative cannot index
+  // backwards, matching the defensive posture of every sibling gate in this file.
+  const rungIndex = Math.max(0, Math.floor(state.transitBerthCapacity ?? 0));
+  const rung = TRANSIT_BERTH_RUNGS[rungIndex]; // the NEXT rung (undefined = fully expanded)
+  if (!rung) {
+    return { ok: false, reason: "Transit berths are fully expanded" };
+  }
+  // One at a time, same as the docks: a second in-flight expansion would let a player queue
+  // the whole track in one click and hide the cost.
+  if (state.activeProcesses.some((p) => p.effect.type === "transitBerthLevelUp")) {
+    return { ok: false, reason: "A transit-berth expansion is already under way" };
+  }
+  if (state.credits.lt(rung.credits)) {
+    return { ok: false, reason: `Need ${rung.credits.toString()} credits (have ${state.credits.toString()})` };
+  }
+  for (const itemId of Object.keys(rung.materials)) {
+    const need = rung.materials[itemId];
+    // ⚠️ freeItemForState, NOT a raw inventory total, and this matches canUpgradeDocks exactly.
+    // Queued orders RESERVE their materials (derived, never deducted), so the affordability
+    // question is "how much is unclaimed", not "how much exists". A raw total here would let an
+    // expansion spend materials a queued craft has already claimed, and the loser would be
+    // whichever of the two ran second.
+    const have = freeItemForState(state, itemId);
+    if (have.lt(need)) {
+      const itemLabel = ITEMS[itemId]?.label ?? itemId;
+      return { ok: false, reason: `Need ${need.toString()} ${itemLabel} (have ${have.toString()})` };
+    }
+  }
+  return { ok: true };
+}
+
+// The ACTION. Credits come off a fresh clone FIRST so the credit spend, the material deduct and
+// the process push land in ONE atomic transition (startFacilityUpgrade's posture). A failed gate
+// is a same-reference no-op.
+export function startTransitBerthExpansion(state: GameState): { next: GameState; started: boolean } {
+  const check = canUpgradeTransitBerths(state);
+  if (!check.ok) {
+    return { next: state, started: false };
+  }
+  const rungIndex = Math.max(0, Math.floor(state.transitBerthCapacity ?? 0));
+  const rung = TRANSIT_BERTH_RUNGS[rungIndex];
+  const afterCredits = { ...state, credits: state.credits.minus(rung.credits) };
+  return startProcess(afterCredits, "transitBerthExpansion", rung.materials, rung.durationTicks, {
+    type: "transitBerthLevelUp",
+  });
+}
+
 export function startDocksExpansion(state: GameState): { next: GameState; started: boolean } {
   const check = canUpgradeDocks(state);
   if (!check.ok) {
@@ -9862,6 +10043,11 @@ export function resolveProcesses(
   // one branch increments it). Unlike equipmentStorageLevel (a stored LEVEL a derived
   // cap reads), this IS the cap itself, so the +1 lands here directly.
   let shipStorageCapacity = state.shipStorageCapacity;
+  // 0.13.4 Phase 3: the TRANSIT BERTH rung level, raised by any completing transitBerthExpansion
+  // this call. Seeded from the incoming state and touched ONLY by the transitBerthLevelUp
+  // branch, so a call with no expansion completing lands byte-identical. `?? 0` for a save that
+  // predates the field, which also keeps the berth count on its floor rather than at zero.
+  let transitBerthLevel = state.transitBerthCapacity ?? 0;
   // Crafting 0.13.3 (Phase 2 Unit 2.3): the credit balance, threaded so a completing
   // salvageJob that tears a HULL down can refund its share of the build credits (the one
   // salvage arm that pays credits as well as materials). Seeded from the incoming state,
@@ -10250,6 +10436,19 @@ export function resolveProcesses(
       // one big offline resolve and many small live steps land the identical capacity
       // (see the offline==live parity test in docks-expansion.test.ts).
       shipStorageCapacity += 1;
+    } else if (process.effect.type === "transitBerthLevelUp") {
+      // 0.13.4 Phase 3: a completed expansion raises the TRANSIT BERTH rung LEVEL by 1, and
+      // berths.ts derives the count from it, so the new berth is claimable on the very next
+      // tick with nothing else to update.
+      //
+      // ⚠️ THE LEVEL, NOT A COUNT, which is the one way this differs from its docks sibling
+      // directly above (where shipStorageCapacity IS the capacity). See transitBerthCount for
+      // why: a stored count can outlive the table it was computed from.
+      //
+      // Deterministic, no rng, fires exactly ONCE on the completion that drops the process, so
+      // it is closed-form like every sibling here: one big offline resolve and many small live
+      // steps land the identical level.
+      transitBerthLevel += 1;
     } else if (process.effect.type === "clearShipDamage") {
       // Combat 0.13.0 (Phase 11, design S13): a completed shipRepair CLEARS the target
       // ship's damage so it becomes dispatchable again. Find the hull by id and drop both
@@ -10379,7 +10578,7 @@ export function resolveProcesses(
       process,
       state,
       nowMs,
-      levels: { facilities, equipmentStorageLevel, shipStorageCapacity },
+      levels: { facilities, equipmentStorageLevel, shipStorageCapacity, transitBerthLevel },
       mintedPieces,
       salvage: salvageOutcome,
       acc: completionAcc,
@@ -10416,6 +10615,9 @@ export function resolveProcesses(
       // docksExpansion this call. Value-identical to state.shipStorageCapacity when no
       // expansion completed (seeded from it, only the docksCapacityUp branch increments it).
       shipStorageCapacity,
+      // 0.13.4 Phase 3: the berth rung level, raised by any completing expansion this call.
+      // Named transitBerthCapacity on GameState (the field stores the LEVEL; see berths.ts).
+      transitBerthCapacity: transitBerthLevel,
       // Crafting 0.13.3 (Phase 2 Unit 2.3): the credit balance, raised by any completing
       // HULL teardown this call. Value-identical to state.credits when no teardown
       // completed (seeded from it, and only the salvageResolve branch reassigns it), so

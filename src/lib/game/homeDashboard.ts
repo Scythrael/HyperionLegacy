@@ -932,6 +932,11 @@ const COMPLETION_KIND_VIEW: Record<CompletionLogKind, { verb: string; icon: stri
   // these render as plain, non-navigable rows rather than routing somewhere invented.
   equipmentStorageUpgrade: { verb: "Expanded",    icon: "storage",    jumpTarget: null },
   docksExpansion:          { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
+  // 0.13.4 Phase 3: the same verb and icon as its docks sibling, because to a player both read
+  // as "we have more room to dock now" and inventing a second vocabulary for the same idea
+  // would be noise. The two are told apart by their SUBJECT ("Transit Berths" vs "docks"),
+  // which is the field that actually differs.
+  transitBerthExpansion:   { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
   shipRepair:              { verb: "Repaired",    icon: "repair",     jumpTarget: "shipyard" },
   // 0.13.3 Unit 4.6: routes to the Salvage Bay console now that JumpTarget has a literal for
   // it. It shipped as `null` in Unit 4.4b only because the union had no Salvage Bay

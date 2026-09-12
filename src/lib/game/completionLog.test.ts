@@ -40,6 +40,7 @@ import {
   type TimedProcess,
   type TimedProcessKind,
   type ProcessEffect,
+  TRANSIT_BERTH_BASE,
 } from "./model";
 import { resolveProcesses, economyTick, startLine, cancelLine, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
 // App.svelte as a RAW STRING (Vite's ?raw), for the offline-clock call-site grep in section 7.
@@ -283,6 +284,7 @@ const ALL_KINDS = [
   "fuelRefineJob",
   "equipmentStorageUpgrade",
   "docksExpansion",
+  "transitBerthExpansion",
   "shipRepair",
   "salvageJob",
 ] as const satisfies readonly TimedProcessKind[];
@@ -302,7 +304,9 @@ const SALVAGED_MATERIAL =
 describe("every TimedProcessKind leaves an honest record", () => {
   it("is exhaustive over the union (compile-time guard)", () => {
     expect(ALL_KINDS_IS_EXHAUSTIVE).toBe(true);
-    expect(ALL_KINDS).toHaveLength(10);
+    // 0.13.4 Phase 3: 11 with transitBerthExpansion. The literal is a tripwire, so a new kind
+    // has to be acknowledged here as well as given a row in each exhaustive table.
+    expect(ALL_KINDS).toHaveLength(11);
   });
 
   it("records one entry per kind, each with the reward shape that kind actually grants", () => {
@@ -322,6 +326,7 @@ describe("every TimedProcessKind leaves an honest record", () => {
         readyProcess("p-fuel", "fuelRefineJob", { type: "addFuel", amount: new Decimal(25) }),
         readyProcess("p-storage", "equipmentStorageUpgrade", { type: "equipmentStorageLevelUp" }),
         readyProcess("p-docks", "docksExpansion", { type: "docksCapacityUp" }),
+        readyProcess("p-berths", "transitBerthExpansion", { type: "transitBerthLevelUp" }),
         readyProcess("p-repair", "shipRepair", { type: "clearShipDamage", shipId: base.ships[0].id }),
         readyProcess("p-salvage", "salvageJob", { type: "salvageResolve", target: { kind: "material", itemId: SALVAGED_MATERIAL } }),
       ],
@@ -358,6 +363,14 @@ describe("every TimedProcessKind leaves an honest record", () => {
     // The two standalone storage tracks report their new rung / capacity.
     expect(byKind.get("equipmentStorageUpgrade")).toMatchObject({ reward: "level", subjectKey: "equipmentStorage", level: 1 });
     expect(byKind.get("docksExpansion")).toMatchObject({ reward: "level", subjectKey: "docks", level: base.shipStorageCapacity + 1 });
+    // 0.13.4 Phase 3. ⚠️ REPORTS THE BERTH COUNT, NOT THE STORED RUNG LEVEL: the field holds a
+    // level, but "4 berths" is the fact a player reads, so the record converts. base + level + 1
+    // is the count AFTER this completion applied its bump.
+    expect(byKind.get("transitBerthExpansion")).toMatchObject({
+      reward: "level",
+      subjectKey: "transitBerths",
+      level: TRANSIT_BERTH_BASE + (base.transitBerthCapacity ?? 0) + 1,
+    });
     // A repair grants a working hull, named by ship id.
     expect(byKind.get("shipRepair")).toMatchObject({ reward: "repair", subjectKey: base.ships[0].id, items: [] });
     // Salvage grants the RECOVERY MANIFEST: the very thing Unit 4.4 lost.

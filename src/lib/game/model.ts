@@ -2293,7 +2293,12 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // It grants NEITHER XP axis. See PROCESS_XP_AWARDS (tick.ts) for the reasoning, which is
 // load-bearing: salvage returns only a fraction of what went in, so paying XP for it would
 // turn craft, recycle, craft into an XP faucet.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "shipRepair" | "salvageJob";
+// ⚠️ 0.13.4 Phase 3 adds "transitBerthExpansion", and that addition is a COMPILE ERROR in
+// three exhaustive Records until each is given a row, which is the point: PROCESS_XP_AWARDS,
+// PROCESS_COMPLETION_LOG (both tick.ts) and COMPLETION_KIND_VIEW (homeDashboard.ts). A new
+// timed process cannot ship without deciding whether it grants XP, whether it is logged, and
+// how it renders.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -2363,6 +2368,13 @@ export type ProcessEffect =
   // facilityLevelUp / equipmentStorageLevelUp it holds NO Decimal and round-trips
   // through JSON as {type} only (hydrateDecimals skips it, no "amount" key).
   | { type: "docksCapacityUp" }
+  // 0.13.4 Phase 3: raises the TRANSIT BERTH rung level by 1. No payload, like
+  // docksCapacityUp above and for the same reason: the target field is fixed.
+  //
+  // ⚠️ IT RAISES A LEVEL, NOT A CAPACITY, which is the one way it differs from its docks
+  // sibling. transitBerthCapacity stores the rung level and berths.ts derives the count from
+  // it; see transitBerthCount for why that direction was chosen.
+  | { type: "transitBerthLevelUp" }
   // Combat 0.13.0 (Phase 11, design S13): a completed shipRepair job CLEARS the target
   // ship's damage. resolveProcesses finds the ship by `shipId` and lowers its `damaged` +
   // `repairDamage` back to undefined, so the hull becomes dispatchable again. This is a NEW
@@ -6705,6 +6717,79 @@ export const SHIP_DOCKS_RUNGS: ShipDocksRung[] = buildShipDocksRungs();
 // SHIP_DOCKS_BASE + i to SHIP_DOCKS_BASE + i + 1. Kept as a named builder (not an
 // inline literal) so the formula is the single source of truth and extending the
 // track is a one-line COUNT bump, mirroring buildEquipmentStorageRungs.
+// ============================================================================
+// TRANSIT BERTHS (Infrastructure 0.13.4, Phase 3, design section 5)
+//
+// A SECOND, INDEPENDENT docking capacity: a returning extraction ship needs a free
+// transit berth before it can dock and unload.
+//
+// The shape mirrors the docks track directly above it, because that is the closest thing
+// in the repo and the two will later be re-homed together under the Starbase.
+//
+// PLAYER-FACING NAMES (design section 17.1 Q1): this is a TRANSIT BERTH. The docks
+// capacity above is a DRYDOCK BERTH. Two berth types, one shared noun.
+//
+// THEY NEVER ADD, NEVER MULTIPLY AND NEVER SHARE A POOL (design section 3, locked). A
+// drydock berth holds a PARKED HULL indefinitely; a transit berth is occupied by a PHASE
+// that always ends. Conflating them is the single most likely misreading of this feature.
+// ============================================================================
+
+// The level-0 berth count, and the FLOOR nothing can lower. See transitBerthCount in
+// berths.ts for the softlock proof this constant anchors.
+//
+// ⚠️ WHY 2 AND NOT THE 4 IN THE USER'S EXAMPLE (design 5.3, answered 17.1 Q2). Their
+// example assumed 10 reachable captains. MAX_UNLOCKABLE_CAPTAINS is 4 today (1 plus three
+// unlockCaptainSlot nodes), so at base 4 NO ship would ever wait and the feature would ship
+// inert with an upgrade track that sells nothing.
+//
+// ⚠️ IT IS ALSO A PARITY CONSTRAINT, NOT ONLY A BALANCE ONE. The base must be at least the
+// largest number of simultaneously returning extraction ships in any existing parity
+// fixture, or those fixtures change behaviour and the 101 baseline moves. The mission
+// fixtures use at most TWO mission captains at once, so 2 sits exactly on the boundary.
+// That is safe but TIGHT. If a fixture ever moves, RAISE THE BASE TO 3; never re-baseline
+// the parity count and never edit the fixture.
+export const TRANSIT_BERTH_BASE = 2;
+
+export interface TransitBerthRung {
+  credits: Decimal;
+  materials: Record<string, Decimal>;
+  durationTicks: number;
+}
+
+// The transit-berth RUNGS: each reached rung ADDS +1, so the count climbs LINEARLY
+// 2 -> 3 -> ... -> 10 (base + 8 rungs).
+//
+// ⚠️ EIGHT RUNGS OF +1, NOT FOUR OF +2 (user decision, design 17.1 Q2: "base 2, and up to
+// 10"). The +1 step matches buildShipDocksRungs directly below, which is the only other
+// capacity ladder in the game. A second step size for the same kind of purchase would be a
+// needless pattern for a player to learn.
+//
+// ⚠️ THE TRACK OUTRUNS THE FLEET ON PURPOSE, and the copy must not pretend otherwise
+// (design 17.2). At 4 reachable captains, berths past about 5 buy nothing a player can
+// currently use: they are forward investment toward the 10-captain endstate the captain
+// roster already advertises as "Coming soon". Do NOT write upgrade copy implying an
+// immediate throughput gain from the upper rungs.
+//
+// FIRST-PASS TUNABLE, priced BELOW the docks ladder beside it: a transit berth is a
+// throughput smoother, while a drydock berth is what lets you own another hull at all.
+export const TRANSIT_BERTH_RUNGS: TransitBerthRung[] = buildTransitBerthRungs();
+
+function buildTransitBerthRungs(): TransitBerthRung[] {
+  const RUNG_COUNT = 8; // base 2 + 8 rungs of +1 -> a 2..10 linear ladder
+  const rungs: TransitBerthRung[] = [];
+  for (let i = 0; i < RUNG_COUNT; i++) {
+    const scale = i + 1; // cost grows LINEARLY with the rung, as the docks track does
+    rungs.push({
+      credits: new Decimal(1200 * scale),
+      materials: {
+        structuralAssembly: new Decimal(2 * scale),
+      },
+      durationTicks: 180 + 40 * i, // 180, 220, ... 460: shorter than a docks expansion
+    });
+  }
+  return rungs;
+}
+
 function buildShipDocksRungs(): ShipDocksRung[] {
   const RUNG_COUNT = 8; // base 8 + 8 rungs of +1 -> an 8..16 linear ladder
   const rungs: ShipDocksRung[] = [];

@@ -315,6 +315,9 @@ export function craftingXpSubjectForProcess(process: TimedProcess): CraftingXpSu
     case "researchProject":
     case "equipmentStorageUpgrade":
     case "docksExpansion":
+    // 0.13.4 Phase 3: buying a berth crafts nothing, so there is no crafting-XP subject. Grouped
+    // with its docks sibling directly above because it is the same kind of purchase.
+    case "transitBerthExpansion":
     case "shipRepair":
     case "salvageJob":
       return { kind: "none" };
