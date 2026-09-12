@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 45;
+export const SAVE_VERSION = 46;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1982,6 +1982,35 @@ const MIGRATIONS: Record<number, Migration> = {
       if (typeof mission.routesCompletedThisRun === "number") return captain;
       return { ...captain, mission: { ...mission, routesCompletedThisRun: 0 } };
     }),
+  }),
+  // --- v45 -> v46: the LANE ALLOCATION MODEL ------------------------------------------
+  // (Infrastructure 0.13.4, Phase 5. allocation.ts: CraftOrder. model.ts:
+  // GameState.craftOrders + nextCraftOrderId.)
+  //
+  // ⚠️ IT SEEDS THE FIELDS AND CONVERTS NOTHING, AND THAT IS THE WHOLE DESIGN. An existing lane
+  // keeps its own `remaining` and gets NO orderId, so it behaves exactly as it did before this
+  // release: allocatedItem still counts it directly (see its unattached-lane branch) and
+  // stepCraftLine still decrements it directly. A player mid-batch across this upgrade sees no
+  // change at all, which is design section 3's locked item 6 (a single-lane facility must be
+  // byte-identical) applied to the migration itself.
+  //
+  // WHY NOT CONVERT EXISTING LANES INTO ORDERS: it would be a rewrite of in-flight work for zero
+  // player benefit. A lane already running its own batch finishes that batch identically either
+  // way; the only thing an order would buy it is the ability to be JOINED, which matters for
+  // orders created AFTER the upgrade and not for one already half-done. Converting would mean
+  // minting ids, re-deriving modes and re-pointing reservations on live work, and every one of
+  // those is a chance to move a number the player is watching.
+  //
+  // So orders start empty and fill naturally as the player queues new work. The two worlds
+  // coexist by design: attached lanes read their order, unattached lanes read themselves.
+  //
+  // IDEMPOTENT: `??` at both fields, so a re-run or an already-migrated save is a value-level
+  // no-op. NO NEW DECIMALS (CraftOrder is strings, string-literal keys and plain numbers), so
+  // hydrateDecimals needs no branch.
+  45: (state: any): any => ({
+    ...state,
+    craftOrders: state.craftOrders ?? [],
+    nextCraftOrderId: state.nextCraftOrderId ?? 1,
   }),
 };
 

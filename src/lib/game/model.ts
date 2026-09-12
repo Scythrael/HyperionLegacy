@@ -10,7 +10,7 @@ import Decimal from "break_infinity.js";
 // reuses allocation.ts's CraftLineKind / CraftLineMode rather than minting parallel unions
 // that could drift from what startLine actually accepts. Still type-only (erased), so the
 // no-runtime-cycle property above is unchanged.
-import type { CraftLine, CraftLineKind, CraftLineMode } from "./allocation";
+import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allocation";
 // Quality rolls (Equipment 0.11.0, Phase 4, Task 9b): rollQuality's tier ceiling is the
 // SAME quality-bucket range inventory.ts already owns (tiers 0..5, QUALITY_TIERS === 6).
 // Imported so the roll and the storage share ONE source of truth for the ceiling rather
@@ -4486,6 +4486,24 @@ export interface GameState {
   // spread verbatim.
   refineLines: CraftLine[];
   fabricateLines: CraftLine[];
+  // ⚠️ INFRASTRUCTURE 0.13.4 (Phase 5, design section 7.3.1): THE ORDERS the lanes above pull
+  // from. One array for every facility (each order names its own `facility`), because the
+  // allocation math and the join pass both want "every order in the fleet" far more often than
+  // they want one facility's.
+  //
+  // ⚠️ OPTIONAL, AND EMPTY IS THE PRE-0.13.4 WORLD. A lane with no orderId reads its own
+  // `remaining` exactly as it always has, so a save with no orders behaves byte-identically. That
+  // is what keeps design section 3's locked item 6 (a single-lane facility must be byte-identical)
+  // true, and with it the 101 parity baseline.
+  //
+  // ⚠️ NO DECIMALS IN HERE. Every field is a string, a string-literal key or a plain number, the
+  // same discipline QueuedJob follows, so the array rides hydrateDecimals's `...state` spread with
+  // no new branch. An iteration COUNT is a number; only the item amounts it implies are Decimals,
+  // and those are computed on read from the recipe.
+  craftOrders?: CraftOrder[];
+  // The id source for craftOrders, mirroring nextCompletionLogId / nextCraftLineId. Monotonic and
+  // never reused, so a cancelled order's id cannot collide with a later one.
+  nextCraftOrderId?: number;
   // Monotonic id source for new CraftLine.id ("craft-N"); never reused, mirrors
   // nextShipId ("ship-N") / nextProcessId ("proc-N"). A started line's timed job
   // stamps this id on TimedProcess.lineId so the engine can match a job back to its
@@ -8386,6 +8404,10 @@ export function freshState(): GameState {
     // see the field's own note on GameState. Seeding 0 here keeps a fresh game and a
     // migrated v44 save byte-identical on this field, which is what the migration asserts.
     transitBerthCapacity: 0,
+    // 0.13.4 Phase 5: no orders yet, and the id source starts at 1. A fresh game and a migrated
+    // v45 save are identical on both fields, which is what the migration test asserts.
+    craftOrders: [],
+    nextCraftOrderId: 1,
     nextShipId: 2,
     // Combat 0.13.0 (Task 1.1): the one starting captain (freshCaptains(1) -> id 1)
     // holds id 1, so the next allocatable captain id is 2 (mirrors nextShipId's "ship-1

@@ -9042,7 +9042,7 @@
                           {@const per = perIteration[itemId]}
                           {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                           {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
-                          {@const allocated = allocatedItem(allLines, queuedOrders, itemId)}
+                          {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                           {@const stock = itemTotal(state.inventory, itemId)}
                           <div class="cfg-box">
                             <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
@@ -9614,7 +9614,7 @@
                             {@const per = perIteration[itemId]}
                             {@const total = per.times(Math.max(1, Math.floor(cfgQty)))}
                             {@const free = freeItem(state.inventory, allLines, queuedOrders, itemId)}
-                            {@const allocated = allocatedItem(allLines, queuedOrders, itemId)}
+                            {@const allocated = allocatedItem(allLines, queuedOrders, itemId, state.craftOrders ?? [])}
                             {@const stock = itemTotal(state.inventory, itemId)}
                             <div class="cfg-box">
                               <div class="cfg-line">[{ITEMS[itemId]?.label ?? itemId}] · {formatNumber(per)}/ea → {formatNumber(total)}</div>
@@ -16407,7 +16407,7 @@
                  so a reserve-ahead continuous line can never render "Allocated > Total",
                  the freeItem helper already clamps Free >= 0, this keeps the tooltip
                  coherent. The two ROWS are unchanged; only the numbers now move. -->
-            {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId), tipCount)}
+            {@const tipAllocated = Decimal.min(allocatedItem(allLines, queuedOrders, tipId, state.craftOrders ?? []), tipCount)}
             <!-- ⚠️ THE LABEL CARRIES THE 0.13.3 MEANING CHANGE. "Allocated" used to mean
                  "held by a RUNNING line" and now also counts WAITING orders, which is why
                  Free drops the instant an order is queued. An unchanged label would have let

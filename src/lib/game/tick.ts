@@ -7288,11 +7288,32 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   const hasInFlightJob = state.activeProcesses.some((p) => p.lineId === line.id);
   if (hasInFlightJob) return { next: state, line };
 
-  // No in-flight job. A BATCH line whose `remaining` has reached 0 has therefore
+  // ⚠️ 0.13.4 Phase 5: THE POOL THIS LANE IS DRAWING FROM. For an ATTACHED lane it is the
+  // ORDER's remaining, shared with every other lane on that order; for an unattached lane it is
+  // the lane's own `remaining`, exactly as before this release.
+  //
+  // ⚠️ NARROWING OF THE DESIGN, DELIBERATE AND WORTH KNOWING. Design 7.3.1 has `kind`,
+  // `recipeKey` and `mode` MOVE onto the order. They are MIRRORED here instead: the order is
+  // authoritative for `remaining` ONLY, and the lane keeps its copies of the rest. Reason: those
+  // three fields are read by roughly thirty console rows, fixtures and helpers, and moving them
+  // would mean rewriting all of them in the same commit as the parity-critical allocation change.
+  // Mirroring keeps the blast radius to the two places that actually matter (the allocation basis
+  // and this decrement) and keeps an unattached lane byte-identical. The mirror is safe because
+  // the lane's copies are written ONCE, when it attaches, and never diverge afterwards: nothing
+  // mutates a lane's kind or recipeKey while it is attached.
+  const attachedOrder =
+    line.orderId === undefined ? undefined : (state.craftOrders ?? []).find((o) => o.id === line.orderId);
+  const poolRemaining = attachedOrder !== undefined ? attachedOrder.remaining : line.remaining;
+
+  // No in-flight job. A BATCH line whose pool has reached 0 has therefore
   // finished its LAST iteration (its final job already completed, otherwise
   // hasInFlightJob above would be true) -> REMOVE it. A CONTINUOUS line never reaches
   // this stop: its `remaining` is held at 1 and never decremented (see below).
-  if (line.mode.kind === "batch" && line.remaining <= 0) {
+  //
+  // For an attached lane this DETACHES it from a drained order rather than ending the work: any
+  // sibling lane still finishing its own in-flight job keeps going, and the order itself is swept
+  // once no lane holds it.
+  if (line.mode.kind === "batch" && poolRemaining <= 0) {
     return { next: state, line: null };
   }
 
@@ -7334,7 +7355,26 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
   // they cannot drift (see CraftLineMode's ⚠️ note). For a CONTINUOUS line, `remaining`
   // stays 1, it always reserves its next queued iteration and never counts down.
   if (line.mode.kind === "batch") {
-    const nextRemaining = line.remaining - 1;
+    const nextRemaining = poolRemaining - 1;
+    // ⚠️ 0.13.4 Phase 5: AN ATTACHED LANE DECREMENTS THE ORDER, NOT ITSELF. That is what makes two
+    // lanes on one batch consume ONE pool instead of two: each started iteration comes off the
+    // shared count, so the order drains twice as fast and reserves exactly as much as before.
+    //
+    // The lane's own `remaining` / `mode.remaining` are kept IN STEP with the order rather than
+    // left stale, because every console row and progress readout still reads them (see the
+    // mirroring note above). They are a display mirror of one authoritative number, written in the
+    // same construction, so they cannot drift.
+    if (attachedOrder !== undefined) {
+      const nextOrders = (next.craftOrders ?? []).map((o) =>
+        o.id === attachedOrder.id
+          ? { ...o, remaining: nextRemaining, mode: { kind: "batch" as const, remaining: nextRemaining } }
+          : o,
+      );
+      return {
+        next: { ...next, craftOrders: nextOrders },
+        line: { ...line, remaining: nextRemaining, mode: { kind: "batch", remaining: nextRemaining } },
+      };
+    }
     return { next, line: { ...line, remaining: nextRemaining, mode: { kind: "batch", remaining: nextRemaining } } };
   }
   return { next, line };
@@ -7346,6 +7386,96 @@ function stepCraftLine(state: GameState, line: CraftLine): { next: GameState; li
 // work: at most one job start per line per call, and the array length is capped at the
 // facility's slot count (startLine), so no Omega-14 unbounded-loop concern even across
 // a 172,800-tick offline catch-up (it runs once per LINE, not once per tick).
+// ============================================================================
+// THE JOIN PASS (Infrastructure 0.13.4, Phase 5 Unit 5.2, design section 7.1)
+//
+// THE RULE, as the user stated it: "a free lane takes the next UNSTARTED queued order first; if
+// no unstarted order is waiting, it JOINS an order already running and pulls one unit at a time
+// from that order's remaining pool."
+//
+// Their worked example IS the acceptance test: three 1000-unit orders A, B, C at a two-lane
+// facility. A and B start, C waits. A finishes, that lane starts C. B finishes, that lane starts C
+// too. BOTH lanes end up on C.
+//
+// ⚠️ THE TWO-LEVEL PRECEDENCE COSTS NOTHING BECAUSE economyTick'S TAIL ORDER ALREADY DELIVERS IT:
+//
+//   resolveProcesses      completions free lanes
+//   promoteQueuedOrders   LEVEL 1: an UNSTARTED queued order takes a free lane
+//   processRefineLines    LEVEL 2: a still-free lane JOINS a running order   <- this pass
+//   processFabricateLines same, for the Fabricator
+//
+// So the join lives in the LINE ENGINE and NOT in promoteQueuedOrders. Folding it into promotion
+// would give that function two subjects (it is about processQueue, i.e. work that has not started)
+// and would break its documented early return on an empty queue, which is the same-reference
+// no-op that keeps a queueless save untouched. It also keeps promoteQueuedOrders at exactly ONE
+// call site, which is the release's hardest invariant.
+//
+// ⚠️ ORDER OF PREFERENCE AMONG RUNNING ORDERS: OLDEST FIRST, tie-broken by array index (design
+// 17.3 Q6). Deterministic and stable across save, load and offline catch-up. Preferring
+// "most remaining" or "soonest to finish" would make the choice depend on values that move every
+// tick, so the same fleet could allocate differently offline and live.
+//
+// ⚠️ CONTINUOUS ORDERS ARE NEVER JOINED (design 17.3 Q9). A continuous order has no finite pool,
+// so joining has no end condition: the second lane would never be released and the order would
+// monopolise the facility permanently. It takes exactly one lane, always.
+//
+// PURE: returns new lanes, or the SAME array reference when nothing joins, so a facility with no
+// spare capacity and a save with no orders are both byte-identical.
+function joinFreeLanesToRunningOrders(
+  state: GameState,
+  lines: CraftLine[],
+  kind: CraftLineKind,
+): { lines: CraftLine[]; nextCraftLineId: number } {
+  const nextId = state.nextCraftLineId;
+  const orders = state.craftOrders ?? [];
+  if (orders.length === 0) return { lines, nextCraftLineId: nextId }; // pre-0.13.4 world
+  // ⚠️ FREE CAPACITY IS slotCount MINUS EXISTING LANES, NOT "a lane sitting idle".
+  //
+  // My first implementation looked for an idle lane to re-point and found none, because THERE ARE
+  // NO PERSISTENT LANES in this engine: startLine CREATES a lane per work item and stepCraftLine
+  // REMOVES it (returns null) the moment its batch drains. A facility's capacity is its slot count;
+  // its lanes are however many are currently doing something. So joining means MINTING a lane
+  // attached to an already-running order, not reassigning one.
+  const slotCount = kind === "refine" ? refineSlotCount(state) : fabricateSlotCount(state);
+  let free = slotCount - lines.length;
+  if (free <= 0) return { lines, nextCraftLineId: nextId };
+  // Candidates: BATCH orders of this kind with units still unstarted. CONTINUOUS is excluded
+  // (design 17.3 Q9): it has no finite pool, so a joined lane would have no end condition and the
+  // order would monopolise the facility permanently.
+  //
+  // OLDEST FIRST is array order, since orders are appended (design 17.3 Q6). Deterministic and
+  // stable across save, load and offline catch-up; preferring "most remaining" or "soonest to
+  // finish" would depend on values that move every tick, so offline and live could diverge.
+  const attachable = orders.filter((o) => o.kind === kind && o.mode.kind === "batch" && o.remaining > 0);
+  if (attachable.length === 0) return { lines, nextCraftLineId: nextId };
+  const added: CraftLine[] = [];
+  let mintId = nextId;
+  for (const order of attachable) {
+    if (free <= 0) break;
+    // ⚠️ NEVER MORE LANES ON ONE ORDER THAN IT HAS UNSTARTED UNITS. Two lanes on a 1-unit order
+    // would have the second find an empty pool and be removed again next tick, churning a lane id
+    // per tick forever.
+    const alreadyOn = lines.filter((l) => l.orderId === order.id).length + added.filter((l) => l.orderId === order.id).length;
+    if (alreadyOn >= order.remaining) continue;
+    // ⚠️ THE LANE MIRRORS THE ORDER'S WORK FIELDS, and this is the ONE place that write happens.
+    // Every console row and progress readout still reads the lane's own kind/recipeKey/mode, so
+    // they are copied once here and never touched again while attached. `remaining` is copied as a
+    // DISPLAY mirror only; the ORDER stays authoritative and stepCraftLine decrements it.
+    added.push({
+      id: `craft-${mintId}`,
+      orderId: order.id,
+      kind: order.kind,
+      recipeKey: order.recipeKey,
+      remaining: order.remaining,
+      mode: order.mode,
+    });
+    mintId += 1;
+    free -= 1;
+  }
+  if (added.length === 0) return { lines, nextCraftLineId: nextId };
+  return { lines: [...lines, ...added], nextCraftLineId: mintId };
+}
+
 function runCraftLines(state: GameState, lines: CraftLine[]): { next: GameState; lines: CraftLine[] } {
   let working = state;
   const nextLines: CraftLine[] = [];
@@ -7365,7 +7495,11 @@ function runCraftLines(state: GameState, lines: CraftLine[]): { next: GameState;
 export function processRefineLines(state: GameState): GameState {
   const lines = state.refineLines ?? [];
   if (lines.length === 0) return state; // no lines -> same-reference no-op
-  const { next, lines: nextLines } = runCraftLines(state, lines);
+  // 0.13.4 Phase 5: join BEFORE stepping, so a lane that attaches this tick also starts its first
+  // iteration this tick. That mirrors how a slot freed by a completion is refilled the same tick,
+  // which is the cadence the rest of this engine already promises.
+  const joined = joinFreeLanesToRunningOrders(state, lines, "refine");
+  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines);
   return { ...next, refineLines: nextLines };
 }
 
@@ -7378,7 +7512,11 @@ export function processRefineLines(state: GameState): GameState {
 export function processFabricateLines(state: GameState): GameState {
   const lines = state.fabricateLines ?? [];
   if (lines.length === 0) return state; // no lines -> same-reference no-op
-  const { next, lines: nextLines } = runCraftLines(state, lines);
+  // 0.13.4 Phase 5: same join-then-step order as processRefineLines. The two engines deliberately
+  // stay symmetrical; a divergence between them is how one facility quietly gains a behaviour the
+  // other lacks.
+  const joined = joinFreeLanesToRunningOrders(state, lines, "fabricate");
+  const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines);
   return { ...next, fabricateLines: nextLines };
 }
 

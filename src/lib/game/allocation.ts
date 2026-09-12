@@ -64,7 +64,7 @@ import type { ShipTypeKey } from "./model";
 // CraftLineKind / CraftLineMode FROM this file (as types), so a RUNTIME import in this
 // direction would close a real cycle. Both directions are erased at build time, so the
 // module graph stays a DAG and this file stays the pure leaf its header promises.
-import type { QueuedJob, QueuedOrder } from "./model";
+import type { QueuedJob, QueuedOrder, QueueFacilityKey } from "./model";
 import { itemTotal } from "./inventory";
 
 // --- Functions ---------------------------------------------------------------
@@ -113,6 +113,51 @@ export interface CraftLine {
   recipeKey: string; // REFINE_RECIPES key when kind==="refine"; BLUEPRINTS key when "fabricate"
   remaining: number; // iterations not yet started (inputs still reserved, not yet consumed), allocation basis
   mode: CraftLineMode; // batch (fixed N) or continuous (unbounded); see CraftLineMode's ⚠️ note
+  // ⚠️ INFRASTRUCTURE 0.13.4 (Phase 5): WHICH ORDER THIS LANE IS PULLING FROM, or undefined for a
+  // lane that predates the lane-allocation model.
+  //
+  // THIS IS THE WHOLE SHAPE OF THE CHANGE. Before 0.13.4 a line WAS the work: it owned the
+  // recipe, the mode and the remaining pool, which is exactly why a batch could never spread
+  // across two lanes (each lane had its own pool, so two lanes on one batch would double-reserve
+  // its inputs). With an order id, several lanes can pull from ONE pool that lives on the order.
+  //
+  // ⚠️ OPTIONAL, NOT REQUIRED, AND THAT IS DELIBERATE. Every field above stays exactly where it
+  // is: `kind`, `recipeKey`, `mode` and `remaining` are still read by every existing console row,
+  // every fixture and every allocation call. A single-lane facility with no order attached must
+  // remain BYTE-IDENTICAL to today (design section 3, locked item 6), because that byte-identity
+  // is what keeps the 101 parity baseline meaningful. So this is ADDITIVE: when it is undefined,
+  // the lane behaves precisely as it did before, reading its own `remaining`.
+  orderId?: string;
+}
+
+// ============================================================================
+// CraftOrder: THE WORK, as distinct from the LANE that runs it
+// Infrastructure 0.13.4, Phase 5 (design section 7.3.1).
+//
+// An ORDER is a quantity of identical iterations the player asked for. A LANE (CraftLine above)
+// is one unit of facility capacity. Before this release the two were the same object, so a
+// 1000-unit batch could only ever occupy one lane.
+//
+// ⚠️ THE POOL LIVES HERE SO SEVERAL LANES CAN SHARE IT WITHOUT DOUBLE-RESERVING. That is the
+// entire reason this type exists. allocatedItem sums each ORDER once, never once per attached
+// lane, so attaching a second lane to an order changes throughput and changes NOTHING about how
+// much stock is reserved. Getting that wrong in the other direction would over-reserve and make
+// a player's own materials unspendable, which is the failure this shape prevents by construction.
+//
+// ⚠️ RESERVATIONS STAY DERIVED, NEVER DEDUCTED. An order's remaining pool is READ to compute
+// allocation; nothing is ever moved out of inventory when an order is created and nothing is ever
+// deposited back when one is cancelled. That is a hard project invariant, not a style choice:
+// clampInventoryToCaps trims over-cap stacks and DISCARDS the overflow on every load, so a
+// deposit-on-cancel path would silently destroy a player's items. The game never does that.
+// ============================================================================
+export interface CraftOrder {
+  id: string; // "ord-N", minted from state.nextCraftOrderId
+  facility: QueueFacilityKey;
+  kind: CraftLineKind;
+  recipeKey: string;
+  // Iterations NOT YET STARTED across every lane attached to this order. THE allocation basis.
+  remaining: number;
+  mode: CraftLineMode; // batch (fixed N) or continuous
 }
 
 // Inputs consumed by a SINGLE iteration of this line, as a fresh Decimal map keyed
@@ -128,6 +173,13 @@ export interface CraftLine {
 // returns {}, an empty input map, so the line reserves nothing rather than
 // throwing. This mirrors the forward-loose, runtime-guarded lookups the rest of the
 // engine uses on these Record<string, ...> registries.
+// ⚠️ 0.13.4 Phase 5: THE SAME FUNCTION SERVES A LANE AND AN ORDER, and it needed no signature
+// change to do it. A CraftOrder carries every field CraftLine requires (id, kind, recipeKey,
+// remaining, mode) plus `facility`, so it satisfies this parameter structurally and can be passed
+// straight in. Two copies of this lookup would be two chances for a lane and its order to disagree
+// about what one iteration costs, and that disagreement would surface as a reservation that never
+// clears. (A narrower Pick<> was tried and reverted: it makes excess-property checking reject the
+// fresh object literals several call sites pass, for no benefit.)
 export function lineInputsPerIteration(line: CraftLine): Record<string, Decimal> {
   const result: Record<string, Decimal> = {};
 
@@ -255,9 +307,34 @@ export function queuedOrderInputs(order: QueuedOrder): Record<string, Decimal> {
 // nothing) just by not being updated, which is precisely the bug this change exists to
 // close. Making it required turns every unconverted call site into a compile error, so
 // the compiler enumerates them instead of the reader having to.
-export function allocatedItem(lines: CraftLine[], queued: QueuedJob[], itemId: string): Decimal {
+export function allocatedItem(
+  lines: CraftLine[],
+  queued: QueuedJob[],
+  itemId: string,
+  // ⚠️ INFRASTRUCTURE 0.13.4 (Phase 5): the ORDERS whose pools the lanes are pulling from.
+  // DEFAULTS TO EMPTY so every existing call site and fixture is byte-identical: with no orders,
+  // every lane is counted exactly as it was before this release.
+  orders: CraftOrder[] = []
+): Decimal {
   let total = new Decimal(0);
+  // ⚠️ AN ORDER IS COUNTED ONCE, NEVER ONCE PER ATTACHED LANE. This is the single most important
+  // line in the lane-allocation model. Attaching a second lane to an order must change THROUGHPUT
+  // and must change NOTHING about how much stock is reserved: the pool it draws from is the same
+  // pool. Summing per lane instead would double-reserve a shared batch's inputs and make a
+  // player's own materials unspendable, which is the exact failure this shape prevents.
+  const countedOrderIds = new Set<string>();
+  for (const order of orders) {
+    countedOrderIds.add(order.id);
+    const perIteration = lineInputsPerIteration(order);
+    const perItem = perIteration[itemId] ?? new Decimal(0);
+    total = total.plus(new Decimal(order.remaining).times(perItem));
+  }
   for (const line of lines) {
+    // A lane ATTACHED to an order contributes nothing of its own: its order already contributed
+    // the whole pool above. Only an UNATTACHED lane (every lane on a pre-0.13.4 save, and every
+    // lane at a facility the lane model has not reached) still reads its own `remaining`, which is
+    // what keeps a single-lane facility byte-identical to today.
+    if (line.orderId !== undefined && countedOrderIds.has(line.orderId)) continue;
     const perIteration = lineInputsPerIteration(line);
     const perItem = perIteration[itemId] ?? new Decimal(0);
     // remaining is a plain iteration COUNT -> wrap in Decimal for the product.
@@ -285,13 +362,15 @@ export function freeItem(
   lines: CraftLine[],
   queued: QueuedJob[],
   itemId: string,
+  // 0.13.4 Phase 5: defaults to empty so every existing caller is byte-identical.
+  orders: CraftOrder[] = [],
 ): Decimal {
   // Quality-bucketed inventory (Task 9a): usable stock is the item's TOTAL across all
   // quality buckets, read via itemTotal (absent key -> 0, same as the old scalar
   // `inventory[itemId] ?? 0`). Allocation reserves against the total; buckets are an
   // internal storage detail the allocation math does not care about.
   const stock = itemTotal(inventory, itemId);
-  const reserved = allocatedItem(lines, queued, itemId);
+  const reserved = allocatedItem(lines, queued, itemId, orders);
   return Decimal.max(new Decimal(0), stock.minus(reserved));
 }
 
@@ -339,11 +418,18 @@ export function freeItemForState(
     refineLines?: CraftLine[];
     fabricateLines?: CraftLine[];
     processQueue?: QueuedJob[];
+    // 0.13.4 Phase 5: the orders the lanes are pulling from.
+    craftOrders?: CraftOrder[];
   },
   itemId: string,
 ): Decimal {
   const lines = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
-  return freeItem(state.inventory, lines, state.processQueue ?? [], itemId);
+  // ⚠️ THIS IS THE ONE CHOKEPOINT EVERY AFFORDABILITY GATE IN THE GAME GOES THROUGH, which is why
+  // orders are threaded HERE rather than at each caller. canReserveOrder, every facility upgrade
+  // gate, the dispatch gates and the craft-start gates all reach the reservation math through this
+  // function, so a single-lane save and an order-shared save are both correct for all of them
+  // without touching any of them.
+  return freeItem(state.inventory, lines, state.processQueue ?? [], itemId, state.craftOrders ?? []);
 }
 
 // ============================================================================
