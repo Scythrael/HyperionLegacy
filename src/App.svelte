@@ -8515,7 +8515,34 @@
       <div class="top-bar-tick-row">
         <span class="top-bar-tick-label">TICK:</span>
         <div class="tick-bar-track top-bar-tick-track">
-          <div class="tick-bar-fill" style="width:{globalTickProgress * 100}%"></div>
+          <!-- ⚠️ 0.13.5: THE FILL IS DRIVEN BY A CSS ANIMATION, NOT BY THE POLLED VALUE, and that
+               is the fix for the "tick bar stops at ~80%" bug (external UX review point 1, live on
+               prod since before 0.13.2).
+
+               ROOT CAUSE, which is a SAMPLING artefact rather than bad arithmetic: the fill read
+               (nowTick - barCycleStart), and BOTH are updated inside the same 100ms poll. On the
+               poll where progress crosses 1, the economy runs and barCycleStart is reset to `now`,
+               so that poll renders 0. The highest value ever SAMPLED is therefore the poll before
+               the boundary, which on a 1000ms cycle is ~90%, and poll drift drags it toward 80%.
+               The bar was mathematically incapable of showing its own last tenth.
+
+               The {#key} is what restarts the animation: barCycleStart changes exactly once per
+               cycle, so keying on it gives one clean 0-to-100% run per tick, reaching 100%.
+
+               ⚠️ IT ALSO FIXES HALF OF REVIEW POINT 2 ("too bright and fast, constantly pulling my
+               attention"). A bar stepping at 10fps is WHY it read as jittery; a continuous
+               animation is calmer at the same speed. The other half, brightness, is the dimmed
+               fill colour in the CSS.
+
+               The inline width stays as the REDUCED-MOTION fallback: the media query below turns
+               the animation off, and the polled width then applies, which is exactly today's
+               behaviour and is genuinely less motion. -->
+          {#key cycle.barCycleStart}
+            <div
+              class="tick-bar-fill"
+              style="width:{globalTickProgress * 100}%; animation-duration:{globalBarSeconds}s"
+            ></div>
+          {/key}
         </div>
         <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
       </div>
@@ -17107,9 +17134,24 @@
       0 4px
     );
   }
+  @keyframes tick-bar-sweep {
+    from { width: 0%; }
+    to { width: 100%; }
+  }
   .tick-bar-fill {
     height: 100%;
-    background: var(--color-accent);
+    /* ⚠️ DE-EMPHASISED IN 0.13.5 (external UX review point 2): was a full-strength
+       var(--color-accent), which the reviewer called "too bright and fast for a BACKGROUND
+       element, constantly pulling my attention". This is ambient furniture the player sees on
+       every screen forever, so it should recede. 0.45 alpha keeps the theme's hue (it still reads
+       as the accent, and still re-hues per theme) while dropping the pull.
+       It is a BACKGROUND element, not text, so the AA text threshold does not apply to it. */
+    background: rgba(var(--color-accent-rgb), 0.45);
+    /* The sweep. animation-duration is set inline from globalBarSeconds so it always matches the
+       real tick length, including when the speed control changes it. `forwards` holds the bar at
+       100% for the sliver between the animation finishing and the next cycle starting, which
+       reads as "tick complete" rather than as a bar that vanished. */
+    animation: tick-bar-sweep linear forwards;
     transition: width 0.1s linear;
   }
   .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
@@ -18999,6 +19041,10 @@
        ARE these classes; scoping it to Facilities would mean forking the fill into a second
        class whose only difference is respecting an accessibility setting. */
     .research-bar-fill,
-    .tick-bar-fill { transition: none; }
+    /* ⚠️ 0.13.5: the ANIMATION is disabled too, not just the transition. With it off, the inline
+       width from the polled progress applies, which is the pre-0.13.5 behaviour: a bar that steps
+       rather than sweeps. That is genuinely less motion, which is the point of this query, and it
+       is why the inline width is kept on the element rather than removed. */
+    .tick-bar-fill { transition: none; animation: none; }
   }
 </style>
