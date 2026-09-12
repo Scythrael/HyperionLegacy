@@ -1242,3 +1242,27 @@ describe("extraction rows measure the SHIP's mission, not the mission's baseline
     expect(row!.durationTicks).toBeGreaterThan(0);
   });
 });
+
+// 0.13.4: the docking-bay completion row names itself, and reports a COUNT not a level.
+// Found by running the QA harness and READING the output: the row rendered "Expanded,
+// dockingBays / Level 3" because the subject key had no label case and the detail treated a
+// capacity as a level. Both compiled fine and both were wrong on screen.
+describe("a docking bay expansion reads as a capacity, not a raw key", () => {
+  it("names the subject and reports bays", () => {
+    const base = freshState();
+    const entry: CompletionLogEntry = {
+      id: "done-1", kind: "transitBerthExpansion", reward: "level",
+      atMs: 1_700_000_000_000, startedAtMs: 1_700_000_000_000, iterations: 1,
+      items: [], pieces: 0, subjectKey: "dockingBays", level: 3,
+      fuelAmount: null, creditsAmount: null, stale: false,
+    };
+    const state: GameState = { ...base, completionLog: [entry] };
+    const row = buildHomeDashboard(state).recentlyCompleted.find((r) => r.id === "done-1");
+    expect(row).toBeDefined();
+    // The NAME, not the key.
+    expect(row!.primaryLabel).toContain("Docking Bays");
+    expect(row!.primaryLabel).not.toContain("dockingBays");
+    // The COUNT, not a level: it is the number the Docks console shows.
+    expect(row!.secondaryLabel).toBe("3 bays");
+  });
+});

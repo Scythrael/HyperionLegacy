@@ -1078,6 +1078,11 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
       // here; every other key is a real facility.
       if (key === "equipmentStorage") return "Ship Systems storage";
       if (key === "docks") return "Docks";
+      // 0.13.4: docking bays are not a FACILITIES entry either, so like the two storage tracks
+      // above they are named here. Without this the row rendered the RAW KEY, reading
+      // "Expanded, dockingBays", which is the kind of thing that only shows up when you look at
+      // the actual output rather than at whether the code compiled.
+      if (key === "dockingBays") return "Docking Bays";
       return FACILITIES[key]?.label ?? key;
     case "repair": {
       const ship = state.ships.find((s) => s.id === key) ?? null;
@@ -1141,8 +1146,16 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     return "No materials recovered (rounded to zero)";
   }
   if (entry.reward === "level" && entry.level !== null) {
-    // The docks store a capacity rather than a level, so it reports berths.
-    return entry.subjectKey === "docks" ? `${entry.level} berths` : `Level ${entry.level}`;
+    // ⚠️ SOME "LEVEL" REWARDS ARE REALLY CAPACITIES, and reporting a level for them is wrong in a
+    // way a player would notice: the Docks and the Docking Bays both report HOW MANY you now have,
+    // because that is the number the console shows and the number the purchase bought. A facility
+    // upgrade genuinely is a level and still reads as one.
+    if (entry.subjectKey === "docks") return `${entry.level} berths`;
+    // 0.13.4: "3 bays", not "Level 3". The field stores a rung level internally, but the record
+    // already converts it to a COUNT (see the transitBerthLevelUp case in tick.ts), so this is
+    // naming the same number the Docks console shows.
+    if (entry.subjectKey === "dockingBays") return `${entry.level} bays`;
+    return `Level ${entry.level}`;
   }
   // 0.13.4 Phase 2 Unit 2.2: a patrol's detail is WHY IT ENDED plus HOW MANY routes it flew,
   // which together are the user's own sentence ("Completed X combat patrol missions before
