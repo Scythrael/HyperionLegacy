@@ -68,7 +68,7 @@ Self-evident, and cheap, which is why it is a good first item.
 
 Three releases, cut along the dependency seams above rather than by size.
 
-### 0.13.5 "Foundations" — the things everything else needs
+### 0.13.5 "Foundations": the things everything else needs
 - **Options shell**: the reorg, intent-grouped subtabs, dropdowns, dev-panel organisation (1, 2, 3)
 - **The Gameplay and Accessibility tabs** themselves (8, 9), since the shell is right there
 - **The global token layer**: type scale, hierarchy, contrast, max reading width (4)
@@ -78,14 +78,14 @@ Three releases, cut along the dependency seams above rather than by size.
 
 **Why this is a coherent release on its own:** the player gets a legible, reorganised options system and a global readability improvement across every screen at once. Nothing here needs a mockup, and the token layer is what every later pass inherits.
 
-### 0.13.6 "Two Faces" — the platform split
+### 0.13.6 "Two Faces": the platform split
 - **Mockups first, per platform** (the user's standing rule, and their own nitpick plan)
 - **Separate view components** for mobile and desktop (6), **force-mobile option** (7), **desktop treatment** (5)
 - Mobile preserved exactly; desktop designed rather than stretched
 
 **Why it is its own release:** it is a re-platforming, it is mockup-gated, and it is the thing every later per-screen pass depends on.
 
-### 0.13.7 "Sweeps" — the per-screen passes, done once per platform
+### 0.13.7 "Sweeps": the per-screen passes, done once per platform
 - **Icon sweep** onto the registry from 0.13.5 (11b)
 - **Tooltip system** (10)
 - **Ops / Logistics tidy** (13)
