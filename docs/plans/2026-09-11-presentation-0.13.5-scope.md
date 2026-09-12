@@ -96,7 +96,14 @@ Not splitting removes the release boundaries. It does NOT remove the prerequisit
 ## 5. Answers (user, 2026-09-11)
 
 1. **Split?** No. All eighteen as 0.13.5. See section 4.
-2. **F5?** In 0.13.5. ⚠️ **Still needs its ROUTE decision** (design section 16.7, routes A/B/C) before it can be built, because the agreed "same power spread thinner" is not mechanically available.
-3. **Action-modal standardisation?** In 0.13.5. ⚠️ Still gated on the user's own validation test: is a bottom-sheet-on-mobile better received than a centred one?
+2. **F5?** In 0.13.5, **ROUTE A** (user, 2026-09-11): *"Just the same gun as the other slots. This would make sense."* Spare hardpoints are filled with a weapon the hull already carries rather than inventing one, and the patrol ladder is re-tuned to absorb the increase.
+   - ⚠️ **ONE AMBIGUITY TO RESOLVE AT BUILD TIME, because the two readings diverge on multi-weapon hulls.** "The same gun as the other slots" is unambiguous for the ECONOMY hulls, which carry a single autocannon and one empty slot, so both readings give the autocannon. It is ambiguous for a BATTLESHIP, which carries a railgun, a concussion torpedo and a voltaic across three slots with three more empty: "the same gun" has no single referent there.
+   - **Two readings:** (i) fill every spare slot with the FLOOR GUN (the autocannon), which is route A as written in design 16.7 and is the balance-safest, or (ii) REPEAT the hull's existing pattern, so a battleship gains more railguns and torpedoes. Reading (ii) is a far larger power increase and would need a much heavier patrol re-tune.
+   - **DEFAULT IF NOT RESOLVED: reading (i), the floor gun.** It matches route A as the user approved it by name, it is the smaller change to absorb, and it keeps each hull's signature weapons as the thing that distinguishes it. Confirm before building phase 6.
+3. **Action-modal standardisation?** In 0.13.5, and ✅ **THE VALIDATION TEST IS RESOLVED IN FAVOUR OF THE BOTTOM SHEET** (user, 2026-09-11): *"the popup that is easier to reach with your thumb to hit options? Yes. I like this option, and it should work perfectly."*
+   - So the 0.13.2 install-flow pattern is CONFIRMED and becomes the standard: bottom sheet on mobile, centred on desktop, backdrop plus focus trap, sticky header with an X.
+   - **Extract it into a shared component** rather than copying it, and apply it to every action modal (install flow, confirms, pickers).
+   - ⚠️ **THE EXPLICIT EXCLUSION STANDS:** NOT the Options / System gear popup, and not the other existing `.modal-backdrop` / `Panel.modal-dialog` menus, unless separately decided.
+   - **The reason the user gave is the design principle worth keeping:** thumb reach. On a phone the bottom of the screen is the easy half, so an action modal belongs there. That argument does not apply on desktop, which is why the centred variant is right there and this is one component with two treatments rather than two patterns.
 4. **Colon scope?** Deferred to the user's UI review pass: *"I can let you know where it should change in each spot as I go through the entire UI later on in the patch."* So the colon sweep is driven by their per-screen notes rather than decided up front. Build it in phase 5 alongside the other per-screen work, with their notes as the input.
 5. **Anything stale?** No. The inventory is accurate as recorded.
