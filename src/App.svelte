@@ -13869,7 +13869,20 @@
                 <div class="panel-title">IN PROGRESS</div>
                 {#each embarked as captain}
                   {@const mission = extractionMissionOf(captain)!}
-                  {@const missionDef = MISSIONS[mission.missionKey]}
+                  <!-- ⚠️ THE EFFECTIVE DEF, NOT THE RAW ONE (stuck-at-00:00 fix, 2026-09-11).
+                       requiredTicksForPhase("extracting") is ceil(cargoCapacity /
+                       extractionRatePerTick), and effectiveMissionDef swaps in THE SHIP'S OWN
+                       cargoCapacity. Reading the raw def here measured the mission's BASELINE hold
+                       (90 on the Lunar Mine Contract) while the engine advanced against the ship's
+                       real hold (180+), so the countdown hit zero, clamped, and sat at 00:00 for
+                       the rest of a perfectly healthy extraction.
+                       Resolved the SAME way the engine resolves it, so the card and the tick cannot
+                       disagree about how long a phase is. A ship-less captain falls back to the raw
+                       def, which is the engine's own "no modifier" fallback. -->
+                  {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
+                  {@const missionDef = missionShip
+                    ? effectiveMissionDef(MISSIONS[mission.missionKey], shipDerivedStats(missionShip, equippedFor(state, missionShip.id)))
+                    : MISSIONS[mission.missionKey]}
                   {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
                   {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                   {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}

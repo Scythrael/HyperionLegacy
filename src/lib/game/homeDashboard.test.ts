@@ -40,6 +40,8 @@ import {
   type QueuedJob,
 } from "./model";
 import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } from "./homeDashboard";
+// The stuck-at-00:00 regression cases below read the mission table directly.
+import { MISSIONS } from "./model";
 
 // One TimedProcess of every kind, each with a valid effect whose noun resolves against
 // the real launch tables (so the label assertions below track any content rename). The
@@ -1157,5 +1159,86 @@ describe("buildHomeDashboard: a completed FUEL batch names its output and its am
     const row = model.recentlyCompleted[0];
     expect(row.fuelAmount).toBeNull();
     expect(row.creditsAmount).toBeNull();
+  });
+});
+
+// ============================================================================
+// THE "STUCK AT 00:00" REGRESSION (user report, 2026-09-11)
+//
+// "Sometimes missions get stuck at 00:00 on the main dashboard ... during the extracting step ...
+// seems to happen every loop or two."
+//
+// ⚠️ NOTHING WAS EVER STUCK. The readout was measuring a SHORTER mission than the one being flown:
+// requiredTicksForPhase("extracting") is ceil(cargoCapacity / extractionRatePerTick), and
+// effectiveMissionDef swaps in THE SHIP'S cargoCapacity, but the row read the RAW mission def. On
+// the Lunar Mine Contract that is 90 ticks displayed against 180+ actually worked, so the countdown
+// reached zero, clamped at Math.max(0, ...), and pinned there for the rest of a healthy extraction.
+//
+// These cases pin the row against the SHIP, which is what the engine advances against.
+// ============================================================================
+describe("extraction rows measure the SHIP's mission, not the mission's baseline", () => {
+  const MISSION_KEY = "longOreRun"; // the Lunar Mine Contract, the one the user reported
+
+  // A captain part-way through EXTRACTING, on a ship with a hold BIGGER than the mission baseline.
+  function extractingOnBigHold(shipTypeKey: string) {
+    const base = freshState();
+    const rawDef = MISSIONS[MISSION_KEY];
+    const captain: CaptainState = {
+      ...freshCaptainStack(),
+      id: 1,
+      label: "Alpha",
+      mission: {
+        kind: "extraction",
+        missionKey: MISSION_KEY,
+        phase: "extracting",
+        // PAST the raw requirement, which is precisely where the old code pinned at zero, but
+        // still short of what a bigger hold actually needs.
+        phaseProgressTicks: Math.ceil(rawDef.cargoCapacity / rawDef.extractionRatePerTick) + 5,
+        cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+        recalled: false,
+      } as CaptainMissionState,
+    };
+    return {
+      ...base,
+      captains: [captain],
+      ships: [{ id: "ship-1", typeKey: shipTypeKey as never, assignedCaptainId: 1 }],
+    } as GameState;
+  }
+
+  it("⚠️ does NOT pin at 0 remaining while a big-hold ship is still extracting", () => {
+    // prospectorHauler carries 180 against the mission's 90 baseline, so at raw+5 ticks it is
+    // barely half done. The row must say so.
+    const state = extractingOnBigHold("prospectorHauler");
+    const row = buildHomeDashboard(state).inProgress.find((r) => r.kind === "extraction");
+    expect(row).toBeDefined();
+    expect(row!.remainingTicks).toBeGreaterThan(0);
+    // ...and the bar is not sitting at a full 100% either, which is the same lie in visual form.
+    expect(row!.progress).toBeLessThan(1);
+  });
+
+  it("reports the SHIP's phase length, not the mission def's", () => {
+    const state = extractingOnBigHold("prospectorHauler");
+    const row = buildHomeDashboard(state).inProgress.find((r) => r.kind === "extraction")!;
+    const rawDef = MISSIONS[MISSION_KEY];
+    const rawTicks = Math.ceil(rawDef.cargoCapacity / rawDef.extractionRatePerTick);
+    // Strictly longer than the baseline: this is the whole bug in one assertion.
+    expect(row.durationTicks).toBeGreaterThan(rawTicks);
+  });
+
+  it("still matches the baseline when the ship's hold IS the baseline", () => {
+    // generalFreighter carries 90, exactly the mission's own figure, so nothing should move for it.
+    // Non-vacuous guard: proves the fix did not simply inflate every mission's length.
+    const state = extractingOnBigHold("generalFreighter");
+    const row = buildHomeDashboard(state).inProgress.find((r) => r.kind === "extraction")!;
+    const rawDef = MISSIONS[MISSION_KEY];
+    expect(row.durationTicks).toBe(Math.ceil(rawDef.cargoCapacity / rawDef.extractionRatePerTick));
+  });
+
+  it("falls back to the raw def for a captain with no ship, rather than throwing", () => {
+    const state = extractingOnBigHold("prospectorHauler");
+    const shipless: GameState = { ...state, ships: [] };
+    const row = buildHomeDashboard(shipless).inProgress.find((r) => r.kind === "extraction");
+    expect(row).toBeDefined();
+    expect(row!.durationTicks).toBeGreaterThan(0);
   });
 });
