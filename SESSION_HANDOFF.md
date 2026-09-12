@@ -1,83 +1,70 @@
-# Session Handoff — The First Cause (fleet-admiral)
+# SESSION HANDOFF, 2026-09-11
 
-_Last updated: 2026-09-10. Read this, then CLAUDE.md, SUGGESTIONS.md, and any \*\_LOCKED / \*\_STATUS docs before working._
+## Where things stand
 
-## Where things stand RIGHT NOW
+| | ref | what |
+|---|---|---|
+| **PROD** `main` | `9054a32` | **0.13.4 "Infrastructure", LIVE**, plus three bug fixes shipped today |
+| **PREVIEW** `staging` | `02bfc84` | **0.13.5 Phase 1**, ready for QA |
+| **BRANCH** | `feat/presentation-0.13.5` | same as staging |
 
-- **✅ 0.13.3 "CRAFTING" PROMOTED TO PROD 2026-09-10.** `main`: `e413e6d` → `b0ade9c` (clean fast-forward; pre-flight `git log HEAD..origin/main` empty, and `git merge-base --is-ancestor origin/main HEAD` verified before pushing). **PROD == staging == `b0ade9c`, APP_VERSION 0.13.3, SAVE_VERSION 39 → 42.** 92 commits. Gates at the tip: check 0 errors (2 pre-existing RadialWeb a11y warnings), suite **2438**, parity **135**, and with `--exclude "**/craftQueue.test.ts" --exclude "**/salvage.test.ts"` **exactly 101** (the pre-existing baseline, untouched all release). Production build clean.
-  - ⚠️ **PROMOTION GOTCHA WORTH REMEMBERING: the LOCAL `main` was STALE** (still at `4a2e52f`, 0.12.1), so `git merge --ff-only` printed a 72,000-line diffstat covering all of 0.13.x and looked alarming. The REMOTE push was a genuine two-commit fast-forward. **Always verify with `git merge-base --is-ancestor origin/main HEAD` rather than trusting the local ref**, in either direction: a stale local main makes a promotion look terrifying, and in the other direction it is how the Combat 1.0 hotfix trap nearly ate four prod-only commits.
-  - **WHAT SHIPPED:** order queues on FIVE facilities (Refinery, Fabricator, Salvage Bay, Research Lab, Shipyard; the **Fuel Depot is a deliberate triple-braked stub**, see below); crafting levels feeding item level on a gentle-then-steep curve with HARD per-tier ceilings; salvage as a timed job (60 ticks base) with BATCH quantities; opt-in auto-salvage rules with a confirm interlock; the Salvage Bay gaining a facility level track with buyable LANES (up to 3) and a third Upgrades tab; explicit Shipyard berth rungs; the full Facilities presentation pass (23-icon SVG set, modal reskin, a11y, responsive); and a behaviour-neutral salvage-duration FACTOR SEAM so balancing is a numbers edit.
-  - **NEW PURE MODULES:** `craftQueue.ts` (read-only view model), `reservation.ts` (leaf, derives salvage reservations), `craftingProgress.ts` (XP curve), `src/lib/ui/Icon.svelte` + `icons.ts`, `src/lib/ui/quantity.ts`.
-  - **16 BUGS FOUND AND FIXED**, including: the Refinery's refining-speed upgrade being advertised, purchasable and totally inert; an inert Homeworld talent node; two salvages in one tick discarding each other; credits not threaded through `resolveProcesses`; a Salvage button that was ENABLED while every click was refused; and a suite flake that was a 5s timeout, not randomness (400,000 `expect()` calls in a hot loop, 99.9% of runtime in assertion machinery).
-  - ⚠️ **THREE LESSONS THIS RELEASE PAID FOR TWICE EACH, worth carrying forward:** (1) **A design doc that contradicts itself will be followed faithfully in the wrong direction** (§5.1 said salvage was one target while §8.7 said batch select; the first was built and the second dropped, and the user caught it 50 commits later). (2) **When a defect is about how a SHAPE is interrogated, sweep for the shape**: the trimmed-space bug hit 9 sites after 2 were "fixed", and the zero-manifest guard recurred in a second and then a THIRD place. (3) **Reconcile a plan against the USER'S STATED SCOPE, not just against the design doc**, before building.
-- **PRIOR:** 0.13.2 "Ships" promoted 2026-09-01 (`232b43c`); 0.13.1 "Command Home" (`56812c5`); Combat 1.0 (`b6749f5`). Detail preserved below as history.
+**Next action: the user QAs 0.13.5 Phase 1** using `docs/plans/2026-09-11-presentation-0.13.5-phase1-qa.md`. Nothing is blocked on me.
 
-- **✅ 0.13.2 "SHIPS" PROMOTED TO PROD 2026-09-01.** `main`: `892da75` → `232b43c` (clean fast-forward, pre-flight `git log main ^branch` empty, no hotfix trap). **PROD == staging == `232b43c`, APP_VERSION 0.13.2, SAVE_VERSION 39 (unchanged).** The Ships-tab redesign: a 6th "Ships" bottom-nav tab (SVG icons + attention dots) moved OUT of Logistics; a sortable/favoritable/class-grouped roster with attention flags; the Layout C loadout board (hull + auto-scaling weapon-tile grid + Defense/Systems + live readout); the install flow reworked into a PORTAL-TO-BODY MODAL (bottom sheet on mobile / centered popup on desktop) with the compatible-spare list + net Battle Rating + side-by-side compare; DISPLAY-ONLY tooltips (the vanishing-tooltip fix, actions on stable buttons). Mobile fixes from QA: the equip modal (portal escapes a containing-block ancestor), weapon-tile buttons stack, empty-tile Install aligns with Swap, and `theme-color`+`color-scheme:dark` tint the mobile browser chrome/nav-bar to the dark theme. Built via 8 units + QA fixes on `feat/ships-tab-0.13.2`; new pure modules `src/lib/game/shipRoster.ts` + `shipLoadout.ts` (+ tests); UI in `src/App.svelte` + `src/lib/ShipSystemsPanel.svelte`. User QA 30/30 desktop+mobile. Pure UI/model, no economy change. check 0, suite 1925, parity 101.
-- **PRIOR:** 0.13.1 "Command Home" promoted 2026-09-01 (`56812c5`); Combat 1.0 promoted 2026-08-28 (`b6749f5`). Detail preserved below as history.
-- **🔜 NEXT UP = 0.13.4, a SMALLER INFRASTRUCTURE release (user decision 2026-09-10).** The user asked whether to merge 0.13.4 into 0.13.5 and then ruled against it: "0.13.4 should still be its own beast. A smaller patch, but still its own. Infrastructure under the hood." Contents: the **transit-berth / turnaround docking slots** (⚠️ carries a real softlock risk, design the escape valve FIRST, the Shipyard's `bays - 1` reservation is the in-repo precedent), **patrol termination reasons** (QA item D6: nothing tracks WHY a patrol ended, so the sim must record it), and the candidates parked at "0.13.4 or later" (the **lane-allocation model** and **per-facility queue-depth talents**). **0.13.5 stays the presentation and architecture release.** Full reasoning for keeping them apart is in SUGGESTIONS.md; the short version is QA attributability, since 0.13.4 changes how the game BEHAVES while 0.13.5 changes how every screen LOOKS and is BUILT.
-  - **STILL OPEN for 0.13.4 planning:** whether the light Ops/Logistics presentation tidy rides in 0.13.4 (tab-by-tab spine) or folds into 0.13.5's global readability pass. Pick deliberately.
-  - **0.13.5 has GROWN and is the one to watch for ballooning.** It now holds: the Options reorg, the global readability pass, the desktop/mobile presentation split, the accessibility pass, the **app-wide SVG icon sweep** (⚠️ an ARCHITECTURE task: build the swappable registry FIRST, placeholder art is fine, hundreds of hardcoded call sites are not), the tooltip rework, the **contextual `?` help button** (must LINK to `helpTopics.ts`, never duplicate its prose), the **Options Gameplay tab** (auto-salvage rules reachable from two places, one state), and the **invisible-affordances sweep** (ship rename, captain rename; largely the same edit as the a11y pass).
-  - **What shipped:** order queues on Refinery/Fabricator/SalvageBay (`processQueue`, talent-gated depth, base 1); crafting levels feeding item level (gentle-then-steep curve, tier ceilings HARD-CAPPED and must stay so); salvage as a timed `salvageJob`; opt-in auto-salvage rules; the full Facilities presentation pass (23-icon SVG set, modal reskin, a11y, responsive); and the Salvage Bay's new 2-tab rail.
-  - **New pure modules:** `craftQueue.ts` (read-only view model), `reservation.ts` (leaf, derives salvage reservations), `craftingProgress.ts` (XP curve), `src/lib/ui/Icon.svelte` + `icons.ts`.
-  - **7 bugs fixed en route,** incl. the refining-speed upgrade that was advertised, purchasable and totally inert; an inert Homeworld talent node; two salvages in one tick discarding each other; and credits not threaded through `resolveProcesses`.
-  - Original DESIGN + PLAN, all open questions resolved: `docs/plans/2026-09-01-crafting-0.13.3-design.md` (incl. section 14 "Open questions RESOLVED") + `-plan.md` (8 phases, 24 units, explicit PEEL POINTS, incl. the trailing "RESOLVED ASSUMPTION" on salvageConfirmQualities). Also read `docs/plans/2026-09-01-redesign-preservation-inventory.md` (the per-tab "do not forget" checklist the UX units must walk).
-  - **DONE:** Unit 0.1 `89eaeb5` (captain-page return path restored, closing the ONE regression the 0.13.2 audit found). Unit 1.1 `8803ba2` (SAVE_VERSION 39 -> 40, additive: processQueue + nextQueueId + autoSalvage + salvageConfirmQualities moved into the save and seeded from localStorage; 11 new save tests; nothing reads the fields yet).
-  - **Also DONE:** 1.2 `a36f133` (the `fleetLogisticsQueue1/2/3` talent chain + the `queueDepth(state)` helper: base 1, per-facility, the active job does not consume a slot), 1.3 `2b9c81c` (pure queue mutation API + an exhaustive `QUEUE_ADAPTERS` with salvageBay double-braked as a stub for Unit 2.4, plus the `QUEUE_FACILITY_ORDER` tuple; a respec that drops depth lets over-cap entries DRAIN rather than truncating them, mirroring the over-cap inventory precedent), 1.4 `6dd34e7` (THE PARITY UNIT: `promoteQueuedOrders` with exactly ONE call site inside `economyTick`, skip-on-block FIFO, free slots re-checked per entry).
-  - **ALL PHASES DONE.** Phase 1 (queue engine) 1.5 `…`; Phase 2 (salvage as a queued process); Phase 3 (crafting XP/levels); Phase 4 (queue UI + the Icon set + per-card attention dots) `d1b0803`; Phase 5 auto-salvage `eacb381` (engine) + `9a6b02e` (rules panel); Phase 6 presentation `60de6b1` Refinery+Fabricator, `bc01969` Research+Warehouse, `1e9f547` Fuel Depot, `264d6d2` Shipyard+Docks, `fd6c8d6` cross-cutting sweep; Unit 7.0 `6536fb4` (the four holistic-pass fixes); release `be79af3`.
-  - ⚠️ **PARITY BASELINE IS 117 THIS RELEASE, NOT 101.** New parity cases carrying "parit" in their names live in `craftQueue.test.ts` and `salvage.test.ts`. The pre-existing 101 were verified untouched at EVERY unit via `npx vitest run -t "parit" --exclude "**/craftQueue.test.ts" --exclude "**/salvage.test.ts"`. Keep doing that; if it ever prints anything but 101, a parity-critical invariant broke.
-  - ⚠️ **FOUR QUEUES DEFERRED ON PURPOSE** (engine accepts all four, each needs its own affordance pass): research (must reconcile a cross-tier queue with a tier-grouped list), warehouse upgrades, fuel batches (low value, pipelines already auto-refill), and **ship builds, the most requested and first candidate for 0.13.4**.
-  - ⚠️ **DEFERRED CROSS-TAB WORK, logged in SUGGESTIONS.md, deliberately NOT done in this release** because it would change already-shipped Home/Ships surfaces: the app-wide `rgba()` to `color-mix()` convergence (`.mission-card`, `.buy-btn`, `.dev-btn`, `.research-bar-track`, `.research-readout`) and the shared-glyph convergence (`◈` ~13 sites, `⚠` ~6 incl. Ships, `⏱` 1, `✓` on Home). Both need ONE app-wide pass, never per-tab.
-    - **✅ NOW SCHEDULED FOR 0.13.5 with a WIDER scope (user, 2026-09-04, from QA case F3):** convert EVERY emoji in the app, placeholders and intentional glyphs alike (item/material tiles, Facilities overview cards, the locked-button padlock, the four glyph families above). ⚠️ **Treat it as ARCHITECTURE, not a find-and-replace:** the user's long-term plan is PAID COSMETIC PACKS bundling theme + layout + ICON SET + lighting, so build the named-registry / runtime-swappable / defined-fallback seam FIRST or the sweep has to be unpicked when packs arrive. 0.13.5 already owns Options + theming + accessibility, and icon packs and themes are the same swappable-presentation system. Full reasoning in SUGGESTIONS.md.
-  - ⚠️ **KNOWN, NOT A REGRESSION:** the app's unload autosave clobbers an externally-written save during a reload (the hazard `confirmImport` documents). Matters only when injecting saves for QA tooling; neutralize the teardown write first.
-  - ⚠️ **PEEL POINTS:** Phase 4 is the recommended fallback (a complete coherent release); **Phase 3 is NOT a safe stop** (the crafting rebalance would ship unexplained with the queue still invisible). Phases 1-2 are not player-visible.
-  - ⚠️ Still open (design recommendations stand unless the user says otherwise): salvage XP axes (recommended false/false), skip-on-block vs strict FIFO promotion (recommended skip-on-block), per-recipe crafting-XP visibility in the UI, and whether the 0.13.2 action-modal pattern is validated for wider extraction (the user wants to TEST bottom-sheet-vs-centered on mobile before standardizing).
-- **AFTER 0.13.3:** Crafting levels / iLevel redesign + salvage + the UNIVERSAL talent-gated QUEUE engine (one engine on `state.activeProcesses` for ALL timed jobs; crafting/salvage UI in 0.13.3, other facilities staged fast-follows) + a whole-system crafting UX pass. Then 0.13.4 Operations (+ maybe Logistics), 0.13.5 Options/System + the ACCESSIBILITY pass (global readability/desktop-first-class + a new Accessibility tab + the tick-bar 80% fix + the deferred tooltip de-emphasis/contrast). Full tab-by-tab roadmap in SUGGESTIONS.md (~line 1006) + [[project_fleet_admiral_combat_1.0]] memory. ⚠️ Pending user test: standardize the 0.13.2 action-modal pattern (bottom-sheet mobile) across similar modals; add per-tab sub-item attention dots as each tab gets its patch.
-- **SAVE_VERSION = 39,** unchanged since Combat 1.0 (0.13.1 and 0.13.2 added no migrations).
-- **Gates green at the 0.13.1 tip (`56812c5`):** `npm run check` = 0 errors (2 pre-existing RadialWeb a11y warnings, unrelated), `npx vitest run -t "parit"` = 101, `npx vitest run` = 1900 passed / 75 files.
+---
 
-## ⚑ UNCOMMITTED THIS SESSION (2026-08-28): save-persist safeguard
+## Shipped to prod today
 
-- **6 working-tree files, intentional, NOT yet committed (user held the commit to fold into the full QA pass).** Do NOT `git checkout` them.
-  - `src/lib/game/save.ts` (new `downloadLiveSave`), `src/lib/savePersist.ts` (new store bridge), `src/lib/savePersist.test.ts` (new, 4 tests), `src/App.svelte` (`doSave` now captures the write boolean + registers the live exporter), `src/SavePersistWarning.svelte` (new banner), `src/Root.svelte` (mounts it).
-  - **What it does:** `doSave` used to discard `saveToLocalStorage`'s boolean, so a blocked/full mobile store failed silently and a reload wiped everything since the last successful write. Now a failed write raises a loud, non-dismissable, self-clearing banner whose Export serializes LIVE state directly (bypassing the dead/stale localStorage). Verified end-to-end in a live browser (banner raise on a blocked store, live-state export of a real 2164-byte save, self-clear on recovery). No SAVE_VERSION bump (UI + wiring only). Commits with the promotion bundle.
-- **Captain "data-loss" investigation (this session): concluded NO code bug.** `renameCaptain` writes `label`, serialize/deserialize round-trip it, the slot-unlock preserves existing labels, and the offline recap reads the live `label` (all confirmed by reading the code + the user's own save bytes). The user's "vanished Picard" was an IMPORT of a pre-naming July save (which never held the custom names) plus the mobile silent-save-fail above; the three uploaded saves are all July-derived and contain no "Picard". This safeguard is the fix for the silent-save-fail half.
-- **QA report updated (same artifact URL):** https://claude.ai/code/artifact/8db980f1-6f3d-4c62-b2e8-1c7a216a88d9 now has a "Save Persistence" category in Part A (6 rows: 5 machine-verified, 1 device). Totals: 161 cases, 145 machine-verified, 16 device.
+**0.13.4 "Infrastructure"** (promoted with the user's explicit green light): docking bays (engine plus surfaces), patrol end reasons, batches spreading across bays, lane readouts, five per-facility queue-depth talents. Parity baseline held at exactly 101 through all six phases.
 
-## What shipped to staging this session (the combat-defense epic)
+**Three prod bug fixes**, all found by the user while QA-ing 0.13.4 against the wrong build:
+1. Recently-completed rows pushed their timestamp off a phone screen (`.home-l2` had no `flex-wrap`, and all three children were `nowrap`).
+2. Missions appeared **stuck at 00:00 while extracting**. Nothing was stuck: the readout used the RAW mission def while the engine uses `effectiveMissionDef`, which swaps in the SHIP's `cargoCapacity`. Lunar Mine baseline is 90; a Prospector Hauler carries 180+. The countdown finished at the halfway mark and pinned.
+3. Navigation inherited the previous view's scroll offset. ⚠️ **My first fix was inert** (it called `window.scrollTo`, but the shell is `overflow:hidden` and `.tab-scroll-area` is the real scroller). The working version only exists in 0.13.5, so **prod still has the inert one**. Harmless, but the real fix ships with this release.
 
-1. **Hybrid combat-defense model** (commit `d5c47fb`): HULL is additive (`innateHullArmor + plating`, `SI_PLATING_HP=100`; an unplated ship keeps a nonzero bare frame, never 0). SHIELD + RECHARGE are multiplicative "Effectiveness %" (`installed x authored/REF`, `REF_SHIELD_CAPACITY=300`, `REF_SHIELD_RECHARGE=6`; no emitter = 0). Byte-identical for Standard-Issue ships (parity 101). Killed the old x3-x5 runaway shield compounding. Crafted first-tier still beats SI (plating ~109, cap 311, recharge 7).
-2. **Offense gate** (commit `e66175e`): a capReached (60s) timeout can only be won by a team that actually reduced the other's hull. Weaponless ships can no longer false-win by out-tanking (sim + Threat Assessment both honest); closed a patrol-farm exploit.
-3. **Renamable ships** (`df406e9`): click-to-edit name in the ShipSystemsPanel header; `renameShip` in tick.ts; `handleRenameShip` in App.svelte; additive `name?` field, no migration.
-4. **Review + fix-pass** (commit `4e607d9`): 3-lens holistic review found NO blockers. Added a roster-wide SI byte-identity guard test + pre-freeze comment corrections.
-5. **Tooltip opacity fix** (commit `3cf9c9e`): the recurring mobile "tooltip overlap" was root-caused (the threat tooltip used the 32%-opaque `--color-panel-bg`, so card content bled through; NOT position/z-index). Fixed with an opaque surface (same idiom as `.currency-tooltip`). Full opaque-tooltip-token standardization deferred to the 0.13.1 tooltip redesign (logged).
+---
 
-## QA status
+## 0.13.5 "Presentation": eighteen items, ONE release
 
-- **User's on-device DELTA QA pass = PASSED (2026-08-27).** Only the two changed areas since the prior 100% run (offense gate + shield Effectiveness-% swap) needed re-checking; both confirmed good on-device. Delta checklist: https://claude.ai/code/artifact/00649e52-f05c-4762-a52e-14b3b699658b (full sheet, mostly redundant now: https://claude.ai/code/artifact/386d9489-faef-4271-98a9-2b9b656e3f19).
-- Logic was PRE-VERIFIED by tests + the 3-lens review; the on-device pass confirmed the visual/interaction side.
+User decision: no split. *"It's all UX/UI work, so it all goes together quite well. Not enough to be a full major patch though."*
 
-## Remaining before prod promotion
+⚠️ **The dependency order survives that decision** and became the internal phase order. Scope and reasoning: `docs/plans/2026-09-11-presentation-0.13.5-scope.md`. Phase design: `...-0.13.5-design.md`.
 
-- **Fable bug-check pass + Opus fix session: BOTH DONE (2026-08-27).** The Fable pass (`docs/plans/2026-08-27-fable-bugcheck-plan-of-attack.md`) found 1 blocker + 5 MAJORs + a ~15-item P2 ledger; the Opus session then fixed the ENTIRE ledger. 31 commits on staging (`b479c38` T1 through `d23e174`), each one-fix-one-commit and gated (check 0, parity EXACTLY 101, suite grew 1834 -> 1872), whole session "--"-clean.
-  - **T1 BLOCKER FIXED (`b479c38`):** every patrol carry-state + forecast surface now folds installed gear via one shared helper `foldedPlayerDefense` (which calls `shipToCombatant`, the exact sim fold). Crafted plating/emitters finally work in patrols. SI byte-identical, so parity held.
-  - **All 5 MAJORs fixed:** Delete-Save crash (`3eb8d0e`), Escape ownership via capture-phase (`0224325`), negative hull display clamp (`ed70732`), localStorage hardening via a shared `safeStorage` wrapper (`772fe8a`), last-ship salvage softlock guard (`38679fa`).
-  - **All P2 items fixed** (tick.ts economy/hygiene x10, combat-sim rounding + mid-turn liveness, display/UI x8) EXCEPT the reactor gate (below). The 0.16.0 crafted-float deferral was pulled FORWARD and resolved (`d9bbf3b` rounds the fold to integers, so the "507.4" decimal is gone).
-  - **Design decisions actioned:** EquipmentTooltip `df53dd5` BLESSED (stale "unchanged" comments corrected, `cfffc13`; the file itself stays as the user left it); "4 guns" -> "4 hardpoints" (`9abf53f`); crafted-vs-SI mass asymmetry accepted for the debut, magnitude tuning deferred to 0.16.0 (SUGGESTIONS).
-- **ONE open item: reactor-gate direction (P2-3), awaiting the user's call.** The recovery trace confirmed extending the patrol reactor-block to extraction WOULD open a narrow softlock corner (single hull + empty reactor slot + no spare + empty wallet, with extraction being the only income). Claude recommends **(A) keep it patrol-only** (soften the rationale comment, zero behavior change, zero softlock risk); alternative **(B) extend + add an always-available "restore Standard-Issue reactor" action**. NOT built; A changes no behavior, so the promotion is not blocked on it.
-- **Next:** user runs the on-device crafted-gear DELTA QA on staging (patrol combat WITH crafted defensive gear installed, the exact thing T1 fixed and which the earlier QA could not have caught), gives the reactor A/B call, then the **explicit go**, then ONE prod promotion (v30 -> v39). Nothing touches `main` until then.
+| Phase | Status |
+|---|---|
+| **1. Foundations** | ✅ **BUILT, awaiting QA** |
+| 2. Icon registry + pack seam | not started |
+| 3. Mockups (mobile review, then desktop) | not started |
+| 4. Two faces (separate view layers, desktop treatment, force-mobile) | not started |
+| 5. Sweeps (icons, tooltips, Ops tidy, help buttons, colon style) | not started |
+| 6. Extras (F5, tick-bar pulse) | not started |
 
-## Known deferrals (already logged in SUGGESTIONS.md, do NOT re-litigate)
+### What Phase 1 delivered
 
-- **0.16.0** — offense-gate healing mask: end-vs-start damage proxy is masked by support-drone healing, so a weaponless support build may DRAW a timeout it should lose (never WINS; within envelope). Fix = a per-team damage-application latch.
-- **0.16.0** — crafted shield stats are floats (e.g. 5.83/s); harmless + deterministic + parity-safe, but shows a decimal in the panel. Fix = round the crafted shield cap/recharge at the bridge fold.
-- **0.13.1** — 4 UI-label reads in App.svelte use bare `blueprintKey === null` for DISPLAY (dev-only, non-destructive mislabel). Align to `isStandardIssueBaseline`.
-- Full 0.13.1 QoL bundle + tooltip system, and the larger roadmap (0.14.0 online + flag ledger + analytics/mod panels; 0.14.1 narrative/tutorial engine; skinning deferred), are in SUGGESTIONS.md.
+- **Token layer**: 9-step type scale, spacing scale, `--max-reading-width`, and `--ui-scale`. ⚠️ Introduced **NEUTRAL**: every step matches a size already in use, so nothing moved on screen. Phase 5 re-tunes the values once.
+- **Contrast**: `--color-text-dim` failed WCAG AA on **all six themes** (blue worst at 3.39). Each lifted by the minimum, lightness only. Disabled labels were 3.01, now a token at 5.23. Guarded by `contrast.test.ts`, which parses `app.css` so a seventh theme cannot skip the check.
+- **Tick bar**: reaches 100% now (it was a *sampling* artefact, not bad maths: the poll that crossed the boundary also reset it, so the last tenth was unobservable). De-emphasised and switched to a CSS sweep, which also fixed the "reads as panic" complaint.
+- **Options reorg**: three intent tabs (Visual / Gameplay / Accessibility) on the shared `SubTabs` rail. New `SettingRow` component replaces markup that was hand-copied per setting.
+- **Accessibility tab**: UI scale, reduced motion (defaults to the OS setting), high contrast, dyslexia font, force-mobile (disabled, honest about why).
+- **Confirmation presets**: a WRITE ACTION, not a stored mode, so a hand adjustment afterwards is never overridden.
+- **Theme dropdown** replacing unlabelled colour blots, swatch kept beside it.
 
-## Load-bearing invariants (do NOT break)
+---
 
-- Parity (offline == live) must stay EXACTLY 101; do not put "parit" in an `it()` title.
-- The game must NEVER silently delete a player's item. Every destroy site is pooling or gated by `isStandardIssueBaseline` (`blueprintKey === null && rarity === "standard"`).
-- Hull always has a bare frame (additive); only shields go to 0 without gear.
-- Peace override: push back (unprompted) on anything that could lose player peace; risk is fine only when opt-in, recoverable, and never a softlock.
-- No em dashes and no "--" in prose/code/docs (colons/periods/commas/parens). Say INSTALL/UNINSTALL, never fit/fitment.
-- EquipmentTooltip.svelte is preserve-unchanged. model.ts must not import combat internals at runtime.
+## ⚠️ Open decisions (waiting on the user, nothing blocked)
+
+1. **`showTickCounts` placement.** The record files it under Gameplay; by this release's own storage rule it is a display preference and belongs in **Visual**, where I left it. Flagged in the design doc for the user to overrule.
+2. **F5's "same gun" ambiguity.** Route A is chosen. For the ECONOMY hulls it is unambiguous (one autocannon, one empty slot). For a BATTLESHIP, which carries a railgun, a torpedo and a voltaic with three slots empty, "the same gun as the other slots" has no single referent. **Default recorded: fill with the floor gun (autocannon)**, which is route A as approved by name and the smaller balance change. Confirm before building phase 6.
+
+## Remaining Phase 1 work (small)
+
+- **Relocate the auto-salvage rules and per-quality salvage confirms** into the Gameplay tab properly. Deliberately NOT mirrored (two UIs writing one save-side setting is how a setting disagrees with itself); this needs a real move, not a copy.
+- **Save management** (Export / Import / Delete) currently sits inside the Visual tab. It is not a setting and belongs outside the intent tabs.
+- One CSS comment elsewhere still cites `.theme-swatch.active` as a precedent; that selector no longer exists.
+
+---
+
+## Things that bit me today, worth not repeating
+
+- **Working directory.** The session was rooted in `RPG-Idle-Game`, so bare `git` commands, markdown file links and `SendUserFile` relative paths all silently targeted the wrong repo. The user fixed it by changing the directory. If it recurs: `git remote get-url origin` must print `HyperionLegacy.git`.
+- **`npm run build` was missing from the gate for all of 0.13.4.** `check` and vitest never bundle. It is in the definition of done now.
+- **Three "tests that looked like coverage but constrained nothing":** a `default:` clause that swallowed a new process kind, a module test for an update detector I wrongly declared unwired, and a `?raw` import that made a contrast test read an empty string and pass vacuously. Every one passed while the thing it named was broken.
