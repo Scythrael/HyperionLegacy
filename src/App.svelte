@@ -341,6 +341,23 @@
     transitBerthsFree,
     transitBerthsOccupied,
   } from "./lib/game/berths";
+  // 0.13.5 Phase 1: the accessibility settings, their persistence and the single apply path.
+  import {
+    UI_SCALE_STEPS,
+    UI_SCALE_DEFAULT,
+    loadUiScale,
+    saveUiScale,
+    loadReducedMotion,
+    saveReducedMotion,
+    loadHighContrast,
+    saveHighContrast,
+    loadDyslexiaFont,
+    saveDyslexiaFont,
+    loadForceMobile,
+    saveForceMobile,
+    applyAccessibility,
+  } from "./lib/accessibilityPreference";
+  import SettingRow from "./lib/SettingRow.svelte";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
   // crafted EquipmentInstance off a blueprint at a CHOSEN quality / iLevel / rarity
@@ -2302,6 +2319,53 @@
   type SystemSubTab = "profile" | "options" | "log" | "debug" | "about" | "patchNotes" | "community";
   let activeSystemSubTab: SystemSubTab = "options";
 
+  // ============================================================================
+  // OPTIONS, GROUPED BY INTENT (0.13.5 Phase 1)
+  //
+  // The user's requirement: "options should be easy to sus out based on the tab selection and what
+  // you want to do." So the player finds a setting by asking what they are TRYING TO CHANGE, not
+  // by remembering where it was filed.
+  //
+  //   VISUAL        how the game LOOKS: theme, the tick bar, combat-log presentation
+  //   GAMEPLAY      what the game DOES without asking: confirmations, automation rules
+  //   ACCESSIBILITY how the game is READ and OPERATED: text size, motion, contrast, palette
+  //
+  // ⚠️ THE SPLIT IS NOT COSMETIC, IT ENCODES WHERE A SETTING IS STORED. A setting the SIMULATION
+  // reads must live in the SAVE or the tick cannot see it offline and offline stops matching live
+  // (the conflict 0.13.3 surfaced and resolved). A device or display preference lives in
+  // localStorage. GAMEPLAY is the tab whose contents are save-side; VISUAL and ACCESSIBILITY are
+  // device-side. When sorting a NEW setting into a tab, ask which side it belongs on first: if the
+  // answers disagree, the storage wins and the tab is wrong.
+  //
+  // ⚠️ TABS DELIBERATELY NOT CREATED: Online/Account (0.14.0 has no settings yet), Notifications
+  // (nothing notifies), Audio (no sound exists), Exploration (0.15.0). An empty tab for a feature
+  // that does not exist is chrome that switches to nowhere, the same rule that dropped the
+  // single-tab Docks rail.
+  // ============================================================================
+  // ACCESSIBILITY SETTINGS (0.13.5 Phase 1). Device-side, loaded on mount and pushed onto the
+  // document root through the single writer in accessibilityPreference.ts.
+  let uiScale: number = UI_SCALE_DEFAULT;
+  let reducedMotion = false;
+  let highContrast = false;
+  let dyslexiaFont = false;
+  let forceMobile = false;
+
+  // ⚠️ ONE PATH FOR EVERY CHANGE. Each control calls this rather than writing the document itself,
+  // so "persist it" and "apply it" cannot drift apart. The classic bug this avoids is a setting
+  // that applies when toggled but not when the game is reopened; here both go through the same
+  // two lines.
+  function applyAccessibilityNow(): void {
+    applyAccessibility({ uiScale, highContrast, dyslexiaFont, reducedMotion });
+  }
+
+  type OptionsTab = "visual" | "gameplay" | "accessibility";
+  let activeOptionsTab: OptionsTab = "visual";
+  const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
+    { key: "visual", label: "Visual" },
+    { key: "gameplay", label: "Gameplay" },
+    { key: "accessibility", label: "Accessibility" },
+  ];
+
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
   // left the bottom nav; its settings content now opens as a MODAL from the
   // header portrait instead of a top-level tab. systemModalOpen gates the modal;
@@ -2541,6 +2605,15 @@
     document.documentElement.dataset.theme = currentTheme;
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
+    // 0.13.5: load the accessibility settings and APPLY them immediately. Applying on load is the
+    // half that is easy to forget and impossible to notice while developing (you toggle a setting,
+    // it works, you never reopen the app with it already on).
+    uiScale = loadUiScale();
+    reducedMotion = loadReducedMotion();
+    highContrast = loadHighContrast();
+    dyslexiaFont = loadDyslexiaFont();
+    forceMobile = loadForceMobile();
+    applyAccessibilityNow();
     refineConfirmEnabled = loadRefineConfirmEnabled();
     autoSalvageBaselineWarningEnabled = loadAutoSalvageBaselineWarningEnabled();
     // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
@@ -15195,6 +15268,112 @@
       {/if}
 
       {#if activeSystemSubTab === "options"}
+      <!-- ⚠️ OPTIONS IS NOW GROUPED BY INTENT (0.13.5 Phase 1). The rail below splits the settings
+           into VISUAL (how it looks), GAMEPLAY (what it does without asking) and ACCESSIBILITY
+           (how it is read and operated), because the user's requirement was that "options should
+           be easy to sus out based on the tab selection and what you want to do".
+
+           ⚠️ THE SPLIT ALSO ENCODES STORAGE, which is the part that must not be got wrong: a
+           setting the SIMULATION reads has to live in the SAVE or the tick cannot see it offline.
+           GAMEPLAY is the save-side tab; VISUAL and ACCESSIBILITY are device-side. When adding a
+           setting, decide the storage first and let it pick the tab.
+
+           Reuses the SAME SubTabs component every other console in the app uses, rather than
+           inventing an options-only rail. -->
+      <SubTabs
+        tabs={OPTIONS_TABS}
+        active={activeOptionsTab}
+        onSelect={(k) => (activeOptionsTab = k as OptionsTab)}
+      />
+
+      {#if activeOptionsTab === "accessibility"}
+      <Panel>
+        <div class="panel-title">ACCESSIBILITY</div>
+        <p class="setting-group-note">
+          These settings are stored on this device, not in your save, so you can set them
+          differently on a phone and a desktop.
+        </p>
+
+        <SettingRow
+          label="Text and interface size"
+          description="Scales the whole interface. Every size in the game moves together, so nothing is left behind at the old scale."
+        >
+          <select
+            class="setting-select"
+            value={String(uiScale)}
+            on:change={(e) => {
+              uiScale = Number((e.target as HTMLSelectElement).value);
+              saveUiScale(uiScale);
+              applyAccessibilityNow();
+            }}
+          >
+            {#each UI_SCALE_STEPS as step}
+              <option value={String(step)}>{Math.round(step * 100)}%</option>
+            {/each}
+          </select>
+        </SettingRow>
+
+        <SettingRow
+          label="Reduce motion"
+          description="Turns off the animated tick bar sweep and other movement. This starts matching your device's own reduced-motion setting, and changing it here overrides that either way."
+        >
+          <input
+            type="checkbox"
+            checked={reducedMotion}
+            on:change={(e) => {
+              reducedMotion = (e.target as HTMLInputElement).checked;
+              saveReducedMotion(reducedMotion);
+              applyAccessibilityNow();
+            }}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="High contrast"
+          description="Raises text and border contrast beyond the standard. The normal palette already meets WCAG AA on every theme; this is a further step for anyone who needs it."
+        >
+          <input
+            type="checkbox"
+            checked={highContrast}
+            on:change={(e) => {
+              highContrast = (e.target as HTMLInputElement).checked;
+              saveHighContrast(highContrast);
+              applyAccessibilityNow();
+            }}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Dyslexia-friendly text"
+          description="Switches body text to a more legible typeface if you have one installed. Headings keep the game's own font."
+        >
+          <input
+            type="checkbox"
+            checked={dyslexiaFont}
+            on:change={(e) => {
+              dyslexiaFont = (e.target as HTMLInputElement).checked;
+              saveDyslexiaFont(dyslexiaFont);
+              applyAccessibilityNow();
+            }}
+          />
+        </SettingRow>
+
+        <!-- ⚠️ RENDERED DISABLED RATHER THAN HIDDEN, and the description says why. The separate
+             mobile and desktop layouts do not exist until a later phase, so there is no mobile
+             view to force yet. The preference IS persisted now, so that phase wires a switch that
+             already remembers its value. A setting that silently appears later is worse than one
+             that honestly says "not yet". -->
+        <SettingRow
+          label="Always use the mobile layout"
+          description="Not available yet. Once the desktop layout ships, this will let you keep the compact mobile view on a wide screen."
+          disabled={true}
+        >
+          <input type="checkbox" checked={forceMobile} disabled />
+        </SettingRow>
+      </Panel>
+      {/if}
+
+      {#if activeOptionsTab === "visual"}
       <Panel>
         <div class="panel-title">OPTIONS</div>
         <div class="dev-row">
@@ -15363,6 +15542,7 @@
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
+      {/if}
       {/if}
 
       {#if DEV_MODE && activeSystemSubTab === "debug"}
@@ -17134,6 +17314,32 @@
       0 4px
     );
   }
+  /* 0.13.5 Phase 1: the options screens. Deliberately few rules, because SettingRow owns the row
+     layout and everything here reads a token rather than a literal, making these screens the first
+     real consumer of the type scale. */
+  .setting-group-note {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    margin: 0 0 var(--space-4) 0;
+    max-width: var(--max-reading-width);
+  }
+  .setting-select {
+    background: var(--color-panel-bg-strong);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-primary);
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    padding: var(--space-2) var(--space-3);
+    border-radius: 4px;
+    /* ⚠️ A REAL <select>, NOT A CUSTOM WIDGET. It gets keyboard navigation, screen-reader support
+       and the platform's own touch picker for free, which is the whole point on an accessibility
+       screen. Styling is limited to colours and type so the native behaviour is untouched. */
+  }
+  .setting-select:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
   @keyframes tick-bar-sweep {
     from { width: 0%; }
     to { width: 100%; }

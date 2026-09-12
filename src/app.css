@@ -220,3 +220,52 @@ button {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ============================================================================
+   ACCESSIBILITY MODES (0.13.5 Phase 1)
+
+   Driven by data-attributes on <html>, written by ONE function
+   (accessibilityPreference.ts's applyAccessibility) on load and on every change.
+   Each block below only REDEFINES TOKENS, never styles a component directly, so a
+   mode reaches every screen at once and nothing has to opt in.
+   ============================================================================ */
+
+/* HIGH CONTRAST. ⚠️ This is a step BEYOND compliance, not the thing that makes the
+   default palette acceptable: 0.13.5 already lifted every text token to clear WCAG
+   AA in all six themes. This is for players who need more than the standard.
+   Text goes to the near-white primary across the board (so the dim and secondary
+   tiers stop being dimmer at all), and borders gain strength so panel edges and
+   focus rings are unambiguous. The ACCENT is deliberately untouched: it carries
+   meaning (it is the theme), and washing it out would trade one accessibility
+   problem for a comprehension one. */
+:root[data-high-contrast="on"] {
+  --color-text-secondary: #e6f4f8;
+  --color-text-dim: #cfe2e8;
+  --color-border: rgba(230, 244, 248, 0.45);
+  --color-border-strong: rgba(230, 244, 248, 0.75);
+  --color-text-disabled: rgba(230, 244, 248, 0.75);
+}
+
+/* DYSLEXIA-FRIENDLY BODY TEXT. Body only: the display font is short headings that
+   carry the game's identity, and swapping it costs the look for very little.
+   ⚠️ NO WEBFONT IS DOWNLOADED. The stack lists faces a player may already have
+   installed (OpenDyslexic if they use it, then Comic Sans MS, which is widely
+   available and repeatedly reported as easier to read for the same reasons), then
+   falls back to the system sans. Shipping a font file would add weight for every
+   player to serve a setting most never enable, and the option is still useful to
+   anyone who has installed one. */
+:root[data-dyslexia-font="on"] {
+  --font-body: "OpenDyslexic", "Comic Sans MS", "Verdana", sans-serif;
+}
+
+/* REDUCED MOTION, as an explicit SETTING rather than only an OS query.
+   ⚠️ THE OS QUERY STILL WORKS ON ITS OWN (see the prefers-reduced-motion block in
+   App.svelte): this exists so a player whose operating system is NOT configured for
+   it can still turn motion off here. The preference loader defaults to the OS value,
+   so the two agree unless the player deliberately overrides. */
+:root[data-reduced-motion="on"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}

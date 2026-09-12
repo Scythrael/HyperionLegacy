@@ -75,11 +75,18 @@ function valuesOf(token: string): { value: string; index: number }[] {
   return out;
 }
 
-// Which theme block an offset falls in, so a failure names the theme rather than a byte offset.
+// Which block an offset falls in, so a failure names the CULPRIT rather than a byte offset.
+//
+// ⚠️ It matches the accessibility-mode blocks too, not just [data-theme]. Without that, a failure
+// inside :root[data-high-contrast="on"] would be blamed on whichever theme happened to be declared
+// above it (currently "gray"), sending the next reader to the wrong place entirely.
 function themeAt(index: number): string {
   const before = CSS.slice(0, index);
-  const matches = [...before.matchAll(/\[data-theme="(\w+)"\]/g)];
-  return matches.length === 0 ? ":root" : matches[matches.length - 1][1];
+  const matches = [...before.matchAll(/\[data-(?:theme|high-contrast|dyslexia-font|reduced-motion)="([\w-]+)"\]/g)];
+  if (matches.length === 0) return ":root";
+  const last = matches[matches.length - 1];
+  // Name the ATTRIBUTE for a mode block, since "on" alone would not say which mode.
+  return last[0].includes("data-theme") ? last[1] : last[0];
 }
 
 const TEXT_TOKENS = ["--color-text-primary", "--color-text-secondary", "--color-text-dim"];
