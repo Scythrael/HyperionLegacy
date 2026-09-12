@@ -67,9 +67,34 @@ Grouped by INTENT, per the record: *"options should be easy to sus out based on 
 
 ### 1.4 Confirmation presets
 
+> ⚠️ **THIS SECTION WAS WRONG AND IT SHIPPED THE WRONG FEATURE. Corrected 2026-09-12, see 1.4a.**
+
 Raised during 0.13.3.1 and owed a home: one control that sets every confirmation toggle at once, with named levels (**All Enabled, Tutorial, Beginner, Intermediate, Advanced, All Off**).
 
 ⚠️ **A preset must SET the individual toggles, never replace them.** A player picking "Intermediate" and then turning one confirm back on must not have the preset silently override them again. So the preset is a WRITE ACTION, not a stored mode: selecting one writes the toggles and then forgets it was selected. That also means no migration and no new save field.
+
+### 1.4a ⚠️ CORRECTION: the interaction model was already specified, and this doc dropped it
+
+*User, 2026-09-12: "The confirmation level settings implementation doesn't match what we had discussed at all. No checkboxes, no dropdown, no 'custom' mode that prompts you to confirm if you have edited your settings manually, all on its own tab for things like this." Verified against the record: they are right on every count.*
+
+**SUGGESTIONS.md already carried the refined model**, marked ✅ and attributed to the user on 2026-09-11:
+
+> individual checkboxes AND a preset dropdown, side by side. Editing any checkbox flips the dropdown to **Custom**. Changing the dropdown raises a confirmation asking whether to overwrite the current settings with that preset; **Apply** overwrites, **Cancel** reverts the dropdown to what it was.
+
+plus three more requirements in the same entry: confirm **only** when the current state is Custom (switching between clean presets destroys nothing, so a dialog there is the nagging the feature exists to remove); the preset confirm is **not itself a managed dialog** (otherwise "All Off" disables the protection on the control that sets "All Off"); and a **help box beside the selector**, explicitly not in the manual.
+
+⚠️ **1.4 compressed all of that into one sentence about write actions, and the build followed 1.4.** Three buttons shipped: no checkboxes, no dropdown, no Custom, no help box, and only two of the three managed settings governed. **The detail was never missing. A thin design doc is what lost it**, which is the identical failure mode recorded for 0.11.2 and the reason "verify notes before build" is a standing rule. The lesson that generalises: when a design section is SHORTER than the record it summarises, that is a signal to re-read the record, not evidence the item is simple.
+
+**WHAT WAS BUILT INSTEAD (`src/lib/confirmationPresets.ts` plus a Confirmations tab):**
+
+1. **Its own tab.** The cluster is a dropdown plus a help box plus every checkbox, which would dominate a tab it was a guest in. Gameplay keeps what the game DOES on its own (the auto-salvage rules); Confirmations holds what it ASKS.
+2. **Checkboxes and the dropdown together.** Only the dropdown makes the preset a cage; only the checkboxes makes a multi-dialog game a multi-step chore.
+3. ⚠️ **The selected level is DERIVED, never stored**, which is a deliberate improvement on the record's "one more stored value". A stored id is a second source of truth that can disagree with the checkboxes, i.e. exactly the stale-label bug the record warns about two bullets earlier. Deriving makes it **unrepresentable** rather than merely tested for, and needs no key and no migration. The price is that the rungs must be pairwise DISTINCT, which is asserted.
+4. ⚠️ **Six honest rungs needed a graduated setting.** Two booleans give four states, so a six-rung ladder on booleans alone would ship duplicate rungs, and a duplicate rung makes the derived label ambiguous. The **per-quality salvage confirm** supplies the middle steps: each rung stops asking about one more band of cheap gear before the booleans switch off. The ladder is asserted **MONOTONE** (each rung strictly fewer confirmations than the one above), so the names cannot come to mislead.
+5. **The overwrite confirm**, gated on Custom only, excluded from the managed set.
+6. **Per-quality confirms are GOVERNED here but EDITED in the bay.** A preset writes them (they are what makes six levels mean six things), but the six-tier grid already exists beside the gear, so this tab reports the count and links. One editor per field.
+
+⚠️ **Two named settings in the record do NOT exist as toggles** (verified: no preference module, no gate): the **batch confirm** and the **no-grace warning**. They are not managed. The unconditional destructive confirms (Delete Save, respec, captain-aboard salvage) are also excluded: they have no toggle at all, so putting them under "All Off" would mean BUILDING a way to skip them. Both groups are logged rather than smuggled in.
 
 ### 1.5 The token layer
 

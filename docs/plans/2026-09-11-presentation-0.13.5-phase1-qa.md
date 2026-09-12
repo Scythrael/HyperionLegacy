@@ -50,9 +50,7 @@ The token layer touches every screen's *potential* styling, so the first questio
 | ◐ C1 | Open System, Options. | Three tabs: **Visual**, **Gameplay**, **Accessibility**, on the same rail every other console uses. |
 | ◐ C2 | Visual tab. | Tick bar, tick counts, the four combat-log settings, and **Theme as a named dropdown** with a colour swatch beside it. |
 | C3 | Change the theme from the dropdown. | Applies immediately; the swatch updates. |
-| C4 | Gameplay tab. | Confirmation level presets, confirm-before-refining, the Standard-Issue warning toggle, and a note pointing at the Salvage Bay for the rules. |
-| ✅ C5 | Press each confirmation preset, then check the toggles below. | ⚠️ "Ask me everything" turns both ON. "Standard" turns refine OFF but keeps the Standard-Issue warning ON. "Stop asking" turns both OFF. |
-| ✅ C6 | Press a preset, then change ONE toggle by hand, then leave the tab and come back. | ⚠️ **Your hand change must stick.** A preset is a one-time write, not a mode, so nothing should override you afterwards. |
+| ◐ C4 | Gameplay tab. | ⚠️ **Now holds only the auto-salvage rules link.** The confirmation settings moved to their own tab (section H) at your report. |
 
 ## D. Accessibility (all new)
 
@@ -87,6 +85,36 @@ ships today, which is a content decision rather than missing work.
 | ◐ G3 | Gameplay tab, press **Open Salvage Bay rules**. | ⚠️ The System modal CLOSES and you land on the Salvage Bay's **Rules** tab. If you land behind a still-open overlay, that is the bug this step exists to catch. |
 | G4 | From there, press back / navigate away and re-open Options. | Nothing is stuck; Options re-opens normally. |
 
+## H. Confirmations, REBUILT (added 2026-09-12)
+
+⚠️ **The first version of this was the wrong feature and you caught it.** The refined interaction
+model was already in SUGGESTIONS.md; the design doc compressed it away and the build followed the
+design doc. Three buttons shipped instead of the dropdown-plus-checkboxes model. Rebuilt to the
+record: design doc §1.4a has the full account.
+
+| # | Step | Expected |
+|---|---|---|
+| ◐ H1 | Options. | ⚠️ **FOUR tabs now: Visual, Gameplay, Confirmations, Accessibility.** |
+| ◐ H2 | Confirmations tab. | A **Confirmation level** dropdown, a help box under it describing the level currently shown, then the individual checkboxes. |
+| ✅ H3 | Open the dropdown. | Six levels in order: Ask me everything, Tutorial, Beginner, Intermediate, Advanced, Stop asking. |
+| H4 | Pick **Beginner**. | Applies immediately, **no dialog**. The help box changes to Beginner's text. |
+| ✅ H5 | Now pick **Advanced**. | ⚠️ Still **no dialog**: you were on a clean level, so nothing of yours is being lost. Confirming here would be pure friction. |
+| H6 | Untick **Confirm before refining** by hand. | ⚠️ The dropdown flips to **Custom** on its own, and the help box says it is your own mix. |
+| ✅ H7 | With the level reading Custom, pick any level from the dropdown. | ⚠️ **NOW a dialog appears**, naming the level and what it does, with **Cancel** and **Apply**. |
+| H8 | Press **Cancel**. | Nothing changes. The dropdown goes back to reading **Custom** and your checkboxes are untouched. |
+| H9 | Repeat H7 and press **Apply**. | The checkboxes are overwritten to that level and the dropdown reads it. |
+| H10 | Try to select **Custom** from the dropdown directly. | You cannot: it is shown greyed out. Custom is something you reach by editing, never by choosing. |
+| ◐ H11 | Look at the **Confirm before salvaging** row. | Reports a count ("All tiers", "3 of 6 tiers", "No tiers") plus a **Change** button that takes you to the Salvage Bay rules. ⚠️ It is edited there and **governed here**: a level sets it, but only one screen has the tier-by-tier grid. |
+| H12 | Set a level, then check the Salvage Bay's tier checkboxes. | They match what the level implied. Then tick one there by hand and return to Options: the level should now read **Custom**. |
+| ✅ H13 | The level ladder. | Each rung asks for strictly fewer confirmations than the one above it (asserted in tests), so the names cannot come to mislead. |
+
+⚠️ **Two things named in the original record are NOT here, on purpose:** the **batch confirm** and the
+**no-grace warning** do not exist as toggles anywhere in the game (verified: no preference module, no
+gate), so there was nothing to manage. And the unconditional destructive confirms (Delete Save,
+respec, captain-aboard salvage) are excluded because they have no toggle at all: putting them under
+"Stop asking" would mean BUILDING a way to skip them, which is new behaviour rather than a reorg.
+**Tell me if you want either group built out** and they are a data addition plus a gate each.
+
 ## E. Your judgement, not pass/fail
 
 | # | Question |
@@ -95,6 +123,7 @@ ships today, which is a content decision rather than missing work.
 | E2 | Is the tick bar now too subtle, or right? It was called "panic"-inducing before; I may have overcorrected. |
 | E3 | Is 150% a sensible ceiling for the size control, or should it go higher/lower? |
 | E4 | Does the theme dropdown lose anything you valued about the colour blots? |
+| E5 | Are the six confirmation levels the right SIX? The middle four are graduated mostly by which salvage quality tiers still ask, because that is the only setting fine-grained enough to give six honest steps. If that reads as arbitrary, fewer and clearer rungs is a better product. |
 
 ---
 

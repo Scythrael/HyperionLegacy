@@ -845,6 +845,17 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
+  // "confirm only when something would be lost" rule all live in the module so they are
+  // unit-testable without a DOM; this file is wiring only.
+  import {
+    CONFIRMATION_PRESETS,
+    CONFIRMATION_PRESET_ORDER,
+    presetOverwriteNeedsConfirm,
+    resolveConfirmationLevel,
+    type ConfirmationPresetId,
+    type ConfirmationSettings,
+  } from "./lib/confirmationPresets";
   // 0.13.3.1 follow-up: the per-device "warn me before Duplicates-off exposes my Standard-Issue
   // spares" preference. Same localStorage-only posture, and the same "don't show this again"
   // shape, as refineConfirmEnabled directly above: it changes whether a DIALOG appears on this
@@ -2389,53 +2400,83 @@
   // One control that sets every confirmation toggle at once, so a player does not have to reason
   // about each dialog individually to get to "stop asking me" or "ask me everything".
   //
-  // ⚠️ A PRESET IS A WRITE ACTION, NOT A STORED MODE, and that distinction is the whole design.
-  // Choosing one WRITES the toggles and is then forgotten. If the preset were remembered as a
-  // mode, a player who picked "Intermediate" and then turned one confirm back on would be
-  // silently overridden whenever anything re-read the mode, which is exactly the kind of
-  // "the game changed my setting back" behaviour that destroys trust in a settings screen.
-  // It also means no new save field and no migration.
+  // ── CONFIRMATION LEVELS (0.13.5, REBUILT 2026-09-12) ──────────────────────
   //
-  // ⚠️ THE LADDER RUNS SAFE TO RISKY, and the default state of the game is the SAFE end. A new
-  // player is confirmed at every step; the presets are how an experienced one opts out. Nothing
-  // here can turn a confirm on that would not otherwise exist.
-  const CONFIRM_PRESETS = [
-    { key: "all", label: "Ask me everything" },
-    { key: "standard", label: "Standard" },
-    { key: "none", label: "Stop asking" },
-  ] as const;
-  type ConfirmPresetKey = (typeof CONFIRM_PRESETS)[number]["key"];
+  // ⚠️ THE FIRST VERSION OF THIS WAS THE WRONG FEATURE, and the reason is worth keeping: the
+  // refined interaction model was already written down in SUGGESTIONS.md (checkboxes AND a
+  // dropdown, a Custom state, a confirm only when something would be lost), the 0.13.5 design doc
+  // compressed it to "a preset is a write action, not a stored mode", and the build followed the
+  // design doc. Three buttons shipped instead. The detail was never missing, only dropped.
+  //
+  // The ladder, the Custom derivation and the confirm rule all live in lib/confirmationPresets.ts
+  // so they are unit-testable without a DOM. This block is WIRING ONLY: read the live settings into
+  // the module's shape, write the module's answers back out.
+  //
+  // ⚠️ The managed settings have TWO DIFFERENT HOMES and applying a preset must respect both:
+  // refine + baselineWarning are device-side (localStorage), salvageQualities is SAVE-side because
+  // the tick reads it. One writer per home, no mirroring.
+  $: confirmationSettings = {
+    refine: refineConfirmEnabled,
+    baselineWarning: autoSalvageBaselineWarningEnabled,
+    salvageQualities: salvageConfirmQualities,
+  } satisfies ConfirmationSettings;
 
-  // ⚠️ EXHAUSTIVE over the preset keys, so adding a preset without deciding what it does is a
-  // COMPILE ERROR rather than a button that silently does nothing. Same discipline as
-  // QUEUE_ADAPTERS and PROCESS_XP_AWARDS.
-  const CONFIRM_PRESET_VALUES: Record<ConfirmPresetKey, { refine: boolean; baselineWarning: boolean }> = {
-    // Every confirmation on. The game's own default, and the safe end of the ladder.
-    all: { refine: true, baselineWarning: true },
-    // The middle: routine, reversible actions stop asking, but the one warning about
-    // IRREVERSIBLE loss of gear your ships depend on stays. That asymmetry is the point of having
-    // a middle setting at all.
-    standard: { refine: false, baselineWarning: true },
-    // ⚠️ Everything off, INCLUDING the Standard-Issue warning. Offered because a player who has
-    // understood the system should not be nagged forever, and because the Quartermaster makes the
-    // underlying situation recoverable (a free replacement is always in stock). It would be a much
-    // harder call without that escape valve.
-    none: { refine: false, baselineWarning: false },
-  };
+  // The dropdown's displayed value, DERIVED every time rather than stored. A hand edit flips this to
+  // "custom" on its own, with no flag to keep in sync and no way for the label to go stale.
+  $: confirmationLevel = resolveConfirmationLevel(confirmationSettings);
 
-  function applyConfirmPreset(key: ConfirmPresetKey): void {
-    const values = CONFIRM_PRESET_VALUES[key];
+  // The pending preset while the overwrite dialog is open. Non-null IS the dialog's open state, so
+  // there is no second boolean that can disagree with it.
+  let pendingConfirmationPreset: ConfirmationPresetId | null = null;
+
+  // ⚠️ Cancel must put the dropdown BACK, not leave it showing a preset that was never applied.
+  // A <select> updates its own display on change before any handler runs, so the value is re-bound
+  // from `confirmationLevel` (which never moved) when the dialog closes either way. This counter
+  // forces that re-bind even when Svelte would otherwise see no change to the value it last wrote.
+  let confirmationSelectNonce = 0;
+
+  function requestConfirmationPreset(id: ConfirmationPresetId): void {
+    if (presetOverwriteNeedsConfirm(confirmationSettings, id)) {
+      pendingConfirmationPreset = id;
+      confirmationSelectNonce++;
+      return;
+    }
+    applyConfirmationPreset(id);
+  }
+
+  function applyConfirmationPreset(id: ConfirmationPresetId): void {
+    const values = CONFIRMATION_PRESETS[id].values;
     refineConfirmEnabled = values.refine;
     saveRefineConfirmEnabled(values.refine);
     autoSalvageBaselineWarningEnabled = values.baselineWarning;
     saveAutoSalvageBaselineWarningEnabled(values.baselineWarning);
+    // SAVE-side: goes through the same state write + doSave the Salvage Bay's own tier checkboxes
+    // use, so there is one writer for this field rather than a settings-screen copy of the logic.
+    state = { ...state, salvageConfirmQualities: [...values.salvageQualities] };
+    doSave();
+    pendingConfirmationPreset = null;
+    // ⚠️ NO nonce bump here, deliberately. On apply the <select> is ALREADY showing the value the
+    // player chose, and confirmationLevel derives to that same value, so there is nothing to revert.
+    // Forcing a re-create would risk rendering from a confirmationLevel that has not flushed yet.
+    // The nonce exists only for the two REVERT paths, where the browser has moved the select to a
+    // value we are refusing.
   }
 
-  type OptionsTab = "visual" | "gameplay" | "accessibility";
+  function cancelConfirmationPreset(): void {
+    pendingConfirmationPreset = null;
+    confirmationSelectNonce++;
+  }
+
+  // ⚠️ CONFIRMATIONS IS ITS OWN TAB (user, 2026-09-12: "all on its own tab for things like this").
+  // It earns one: the cluster is a preset dropdown plus a help box plus every individual checkbox,
+  // which would dominate a tab it was only a guest in. Gameplay keeps what is genuinely about what
+  // the game DOES on its own (the auto-salvage rules), and Confirmations holds what it ASKS.
+  type OptionsTab = "visual" | "gameplay" | "confirmations" | "accessibility";
   let activeOptionsTab: OptionsTab = "visual";
   const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
     { key: "visual", label: "Visual" },
     { key: "gameplay", label: "Gameplay" },
+    { key: "confirmations", label: "Confirmations" },
     { key: "accessibility", label: "Accessibility" },
   ];
 
@@ -15455,26 +15496,80 @@
       <Panel>
         <div class="panel-title">GAMEPLAY</div>
         <p class="setting-group-note">
-          These settings change what the game does on its own. They are stored in your save rather
-          than on this device, so they follow your fleet everywhere and keep working while the game
-          is closed.
+          What the game does on its own. These are stored in your save rather than on this device, so
+          they follow your fleet everywhere and keep working while the game is closed.
+        </p>
+        <!-- ⚠️ THE AUTO-SALVAGE RULES ARE LINKED, NOT MIRRORED. They are a rich multi-control panel
+             that already lives in the Salvage Bay beside the gear they act on, and they are
+             SAVE-side, so a second copy would be two UIs writing one piece of state: the classic way
+             a setting ends up disagreeing with itself depending on which screen you opened. The
+             record's rule for contextual help applies to settings too: LINK, never duplicate. -->
+        <p class="setting-group-note">
+          The auto-salvage rules live in the Salvage Bay, beside the gear they act on.
+        </p>
+        <div class="dev-row">
+          <button class="dev-btn" on:click={jumpToSalvageRules}>Open Salvage Bay rules</button>
+        </div>
+      </Panel>
+      {/if}
+
+      {#if activeOptionsTab === "confirmations"}
+      <Panel>
+        <div class="panel-title">CONFIRMATIONS</div>
+        <p class="setting-group-note">
+          Which actions stop and ask before they happen. Pick a level, or tick the individual ones
+          yourself: editing any of them by hand sets the level to Custom.
         </p>
 
-        <!-- ⚠️ CONFIRMATION PRESETS ARE A WRITE ACTION, NOT A STORED MODE. Choosing one SETS the
-             individual toggles below and is then forgotten. That matters: if the preset were
-             remembered as a mode, a player who picked "Intermediate" and then turned one confirm
-             back on would be silently overridden the next time anything re-read it. It also means
-             no new save field and no migration. -->
+        <!-- ⚠️ A DROPDOWN AND THE CHECKBOXES TOGETHER, NOT ONE OR THE OTHER. The dropdown is how a
+             player sets six things at once; the checkboxes are how they disagree with it. Offering
+             only the dropdown would make the preset a cage, and offering only the checkboxes would
+             make a six-dialog game a six-step chore.
+
+             The displayed value is DERIVED from the checkboxes on every render (resolveConfirmationLevel),
+             so it cannot claim a level the player has since edited away from. That stale-label bug is
+             the one the record calls out by name, and deriving makes it unrepresentable rather than
+             merely tested for. "Custom" is therefore a computed READING, not a selectable option, and
+             it is rendered disabled for exactly that reason: you reach Custom by editing, never by
+             choosing it. -->
         <SettingRow
           label="Confirmation level"
-          description="Sets every confirmation below at once. Pick the closest starting point, then adjust any individual one; your changes stick."
+          description="Sets every confirmation below at once. Your own edits always win: change any checkbox and the level becomes Custom."
         >
-          <div class="preset-row">
-            {#each CONFIRM_PRESETS as preset}
-              <button class="dev-btn" on:click={() => applyConfirmPreset(preset.key)}>{preset.label}</button>
-            {/each}
-          </div>
+          {#key confirmationSelectNonce}
+            <select
+              class="setting-select"
+              value={confirmationLevel}
+              on:change={(e) => requestConfirmationPreset((e.target as HTMLSelectElement).value as ConfirmationPresetId)}
+            >
+              {#if confirmationLevel === "custom"}
+                <option value="custom" disabled>Custom</option>
+              {/if}
+              {#each CONFIRMATION_PRESET_ORDER as id}
+                <option value={id}>{CONFIRMATION_PRESETS[id].label}</option>
+              {/each}
+            </select>
+          {/key}
         </SettingRow>
+
+        <!-- THE HELP BOX, beside the selector rather than in the manual. The record was specific
+             about that placement ("right next to the option rather than buried"), and it is the same
+             instinct as the contextual help buttons logged for a later phase: an explanation you
+             have to go and find is one most players never read. It describes the level currently
+             shown, so it answers "what did I just pick?" rather than listing all six at once. -->
+        <div class="confirm-help">
+          <div class="confirm-help-title">
+            {confirmationLevel === "custom" ? "Custom" : CONFIRMATION_PRESETS[confirmationLevel].label}
+          </div>
+          <p>
+            {#if confirmationLevel === "custom"}
+              Your own mix. Nothing will change it unless you pick a level above, and that will ask
+              first.
+            {:else}
+              {CONFIRMATION_PRESETS[confirmationLevel].blurb}
+            {/if}
+          </p>
+        </div>
 
         <SettingRow
           label="Confirm before refining"
@@ -15504,23 +15599,26 @@
           />
         </SettingRow>
 
-        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS AND THE AUTO-SALVAGE RULES ARE NOT DUPLICATED HERE,
-             deliberately. Both are rich, multi-control panels that already live in the Salvage Bay
-             next to the thing they act on, and both are SAVE-SIDE, so a second copy would be two
-             UIs writing one piece of state: the classic way a setting ends up disagreeing with
-             itself depending on which screen you opened.
-             The record's own rule for contextual help applies just as well to settings: LINK, never
-             duplicate. Relocating them properly (rather than mirroring them) is its own unit, and
-             is listed in the handoff. -->
-        <p class="setting-group-note">
-          Per-quality salvage confirmations and the auto-salvage rules live in the Salvage Bay,
-          beside the gear they act on.
-        </p>
-        <!-- The note above told the player where to go and then left them to find it. This takes
-             them, which is the difference between a cross-reference and a dead end. -->
-        <div class="dev-row">
-          <button class="dev-btn" on:click={jumpToSalvageRules}>Open Salvage Bay rules</button>
-        </div>
+        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS ARE GOVERNED HERE BUT EDITED IN THE BAY, and that
+             split is deliberate rather than an omission. A preset has to write them (they are the
+             graduated setting that makes six named levels mean six different things), so they are
+             part of the managed set. But the six-tier grid already exists in the Salvage Bay next to
+             the gear, and a second grid would be two editors for one save field.
+             So: this row REPORTS what the setting currently is, the level above WRITES it, and the
+             button goes to the one place that edits it tier by tier. -->
+        <SettingRow
+          label="Confirm before salvaging"
+          description="Which quality tiers stop and ask before they are salvaged. Edited tier by tier in the Salvage Bay; a confirmation level above sets them all at once."
+        >
+          <span class="confirm-tier-summary">
+            {salvageConfirmQualities.length === 0
+              ? "No tiers"
+              : salvageConfirmQualities.length === QUALITY_TIERS
+                ? "All tiers"
+                : `${salvageConfirmQualities.length} of ${QUALITY_TIERS} tiers`}
+          </span>
+          <button class="dev-btn" on:click={jumpToSalvageRules}>Change</button>
+        </SettingRow>
       </Panel>
       {/if}
 
@@ -16336,6 +16434,40 @@
          the captain disappears (e.g. the patrol ends). -->
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Combat View" use:focusTrap={closeCombatView}>
       <CombatView {state} captain={combatViewCaptain} onClose={closeCombatView} />
+    </div>
+  {/if}
+
+  <!-- PRESET OVERWRITE CONFIRM (0.13.5).
+       ⚠️ THIS DIALOG IS NOT ITSELF A MANAGED CONFIRMATION, and that exclusion is load-bearing
+       rather than tidy. If it were in the set the presets govern, choosing "Stop asking" would
+       switch off the protection on the very control that sets "Stop asking": a recursion, and a way
+       to lose hand-tuned settings in one click forever after.
+
+       ⚠️ It also appears ONLY when the current level is Custom (presetOverwriteNeedsConfirm). Moving
+       between clean levels destroys nothing reproducible, so a dialog there would be the exact
+       nagging this whole feature exists to reduce, and it would train the player to click through
+       the one case where it matters. -->
+  {#if pendingConfirmationPreset !== null}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Overwrite confirmation settings"
+      use:focusTrap={cancelConfirmationPreset}
+    >
+      <Panel class="modal-dialog">
+        <div class="panel-title">OVERWRITE YOUR SETTINGS?</div>
+        <p class="modal-warning">
+          Your confirmations are set to Custom. Switching to
+          <strong>{CONFIRMATION_PRESETS[pendingConfirmationPreset].label}</strong>
+          will replace them.
+        </p>
+        <p class="modal-instruction">{CONFIRMATION_PRESETS[pendingConfirmationPreset].blurb}</p>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelConfirmationPreset}>Cancel</button>
+          <button class="dev-btn" on:click={() => applyConfirmationPreset(pendingConfirmationPreset!)}>Apply</button>
+        </div>
+      </Panel>
     </div>
   {/if}
 
@@ -17496,8 +17628,6 @@
     margin: 0 0 var(--space-4) 0;
     max-width: var(--max-reading-width);
   }
-  /* The preset buttons. Wraps so three buttons plus a long label survive a narrow phone, which is
-     the same overflow class that pushed a timestamp off screen in 0.13.3.1. */
   /* The current theme's colour, shown beside the named dropdown. Purely informative (the select
      announces the value), so it is aria-hidden. */
   .theme-preview {
@@ -17508,10 +17638,37 @@
     display: inline-block;
     flex: none;
   }
-  .preset-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
+  /* THE HELP BOX beside the confirmation-level selector (0.13.5). A quiet inset rather than a
+     bordered callout: it is explanatory text that should be there when looked for and invisible when
+     not, and the panel already has a border doing the job of separating this content from the rest.
+     max-width keeps it inside the reading measure the token layer sets, so a wide desktop panel does
+     not stretch one sentence across the screen. */
+  .confirm-help {
+    background: var(--color-panel-bg-strong);
+    border-left: 2px solid var(--color-border-strong);
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    max-width: var(--max-reading-width);
+  }
+  .confirm-help-title {
+    font-size: var(--text-2xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: var(--space-1);
+  }
+  .confirm-help p {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin: 0;
+  }
+  /* The read-only tier count beside the Change button. tabular-nums so "2 of 6" and "6 of 6" do not
+     shift the button left and right as the number changes. */
+  .confirm-tier-summary {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
   }
   .setting-select {
     background: var(--color-panel-bg-strong);
