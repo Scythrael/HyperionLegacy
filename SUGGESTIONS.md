@@ -1468,6 +1468,24 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     3. ⭐ **QA ATTRIBUTABILITY, the strongest reason.** 0.13.4 changes how the game BEHAVES; 0.13.5 changes how every screen LOOKS and is BUILT. Shipped together, a bad feeling cannot be attributed to either half: is it the new logistics friction, or the new global type scale? 0.13.3 demonstrated the value of a bounded delta-QA (18 human items instead of a full sweep), and that only works when a release has one blast radius.
   - **STILL OPEN, worth deciding when 0.13.4 is planned:** whether the light **Ops / Logistics presentation tidy** rides in 0.13.4 (keeping the tab-by-tab spine intact) or folds into 0.13.5's global readability pass, which re-tunes every screen anyway. The tab-by-tab roadmap says the former; the "infrastructure under the hood" framing suggests the latter. Either is defensible; just pick deliberately rather than by default, since building Ops presentation at the current scale and re-tuning it one release later is the accepted plan for 0.13.2 and 0.13.3 already.
 
+- **⭐ A THIRD TICK-BAR STYLE: A TRAVELLING PULSE (user idea, 2026-09-11).** Instead of a filling bar or a
+  numeric countdown, the tick reads as a soft pulse that travels from one side to the other once per
+  second. The user's own reference: the pulse that runs along the LINKAGES BETWEEN TALENTS on the
+  radial web, but **softer and more subtle than that** (the talent-web version is a deliberate
+  flourish; this one is ambient furniture the player sees constantly, so it has to recede).
+  - **The user's own framing of its value, kept because it is the honest one:** "I don't think it
+    will be a super useful option that many will use." Logged as a COSMETIC OPTION, possibly part of
+    a later SKIN PACK, explicitly NOT as a core feature. Do not let it grow into one.
+  - ⚠️ **IT MUST BE OPT-IN AND REDUCED-MOTION AWARE.** A once-per-second animation in permanent
+    peripheral vision is exactly the kind of thing an accessibility pass has to be able to switch
+    off. 0.13.5 is adding a reduced-motion toggle; this must respect it, and should probably be
+    hidden or forced off when reduced motion is on rather than merely slowed.
+  - **Fits the existing tick-bar work rather than adding a new axis:** 0.13.5 already carries the
+    tick-bar 80% bug, the tick-bar de-emphasis, and the showTickCounts tick-versus-time toggle. This
+    becomes a THIRD value of a setting that already exists rather than a new setting.
+  - **Cheap seam to reuse:** the talent-web linkage pulse already exists, so the animation technique
+    is proven in this codebase; the work is re-tuning it down, not inventing it.
+
 - **⭐ STANDARDIZE THE PATCH-NOTE FORMAT (user, 2026-09-10, "a thing for future me").** Every release so far has had its notes written fresh, and they have drifted: 0.13.3's first draft was long enough that it did not fit a Discord post and had to be rewritten by hand after the fact. There are effectively THREE audiences and they want different lengths, which is the actual problem: the **in-game Patch Notes tab** (long, complete, one paragraph per release, the current `PATCH_NOTES` shape), the **landing page news strip** (short), and a **Discord post** (hard 2,000 character ceiling, skimmable, bold headers).
   - Worth defining once: a section order (headline feature, then supporting features, then fixes, then the save-safety line), a rule for what earns a bold header, and a length target per audience.
   - ⚠️ **The real prize is deriving them from ONE source rather than writing three.** `patchNotes.ts` is already single-sourced between the game and the landing page (its own header says so). A Discord draft could be generated from the same entry rather than hand-cut, which is exactly the drift this entry exists to stop. If that is too clever, at minimum keep the Discord version IN the repo beside the entry it summarises, so the two are edited together.
