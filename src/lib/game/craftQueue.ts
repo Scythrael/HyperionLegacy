@@ -711,7 +711,9 @@ export function buildCraftQueue(state: GameState, facility: QueueFacilityKey): C
   // array index IS the queue order, so position is just the index plus one.
   const waiting = queuedForFacility(state, facility);
   const depthUsed = waiting.length;
-  const depthTotal = queueDepth(state);
+  // 0.13.4 Phase 1: scoped to the facility this view is being built for, so the console's
+  // "2 / 4 queued" readout reflects a learned branch node instead of under-reporting it.
+  const depthTotal = queueDepth(state, facility);
 
   // The promotion preview (see CraftQueueView.nextToPromoteId). Resolved BEFORE the
   // rows are built so each row can carry its own flag, and computed only when a slot

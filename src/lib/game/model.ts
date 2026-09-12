@@ -7247,6 +7247,26 @@ export type HomeworldTalentEffect =
   // tunable lives in exactly one place, the same single-source discipline the
   // SALVAGE_TALENT_* consts give salvageBoost.
   | { type: "queueDepth"; depth: number }
+  // Infrastructure 0.13.4 (Phase 1 Unit 1.1, design §8): the PER-FACILITY depth grant,
+  // the BRANCH to `queueDepth`'s TRUNK. Adds `depth` queued slots to ONE named facility,
+  // on top of whatever the global chain already grants everywhere.
+  //
+  // ⚠️ THE GLOBAL CHAIN IS DELIBERATELY NOT RE-SCOPED (design §17.3 Q11, user decision).
+  // Re-pointing the existing rungs 2 and 3 at single facilities was the alternative, and it
+  // would have REMOVED depth at five facilities from every player who already bought them.
+  // That is the silent loss the user's own rules forbid, so the trunk stays global and this
+  // is purely additive. Accepted consequence, recorded so it is not read later as a bug: a
+  // fully invested player reaches depth 5 at one facility.
+  //
+  // ⚠️ `facility` EXCLUDES "fuelDepot", and that exclusion is a TYPE, not a comment. The
+  // Fuel Depot has no queue and never will (user decision 2026-09-06, recorded in tick.ts:
+  // selectable fuel TYPES are coming and do not change it, because picking a type is a
+  // persistent SETTING rather than an order). Typing it out here means a node pointed at the
+  // Fuel Depot fails to compile instead of shipping a talent that silently does nothing.
+  //
+  // Same SUMMING payload shape as the trunk above, for the same forward-compatibility
+  // reason: a second node for one facility, or a node granting +2, needs no engine change.
+  | { type: "facilityQueueDepth"; facility: Exclude<QueueFacilityKey, "fuelDepot">; depth: number }
   // Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): the CRAFTING ITEM LEVEL grant.
   // This is the effect that finally feeds `faTalentBonus`, the third addend of
   // computeItemLevel (itemgen.ts), which shipped with a real parameter and a
@@ -7542,6 +7562,15 @@ export type HomeworldTalentKey =
   | "fleetLogisticsQueue1"
   | "fleetLogisticsQueue2"
   | "fleetLogisticsQueue3"
+  // fleetLogistics: the PER-FACILITY depth fan (Infrastructure 0.13.4, Phase 1 Unit 1.1).
+  // Five NEW keys, nothing renamed and nothing re-scoped, so existing saves stay valid with
+  // no migration for the same reason the trunk needed none: talents persist BY KEY.
+  // ⚠️ There is deliberately NO fuelDepot key. See the effect type's note.
+  | "fleetLogisticsQueueRefinery"
+  | "fleetLogisticsQueueFabricator"
+  | "fleetLogisticsQueueSalvageBay"
+  | "fleetLogisticsQueueResearchLab"
+  | "fleetLogisticsQueueShipyard"
   // industry, hub + one existing content node
   | "industryHub"
   | "industryBonusOutput";
@@ -7567,6 +7596,23 @@ export const SALVAGE_TALENT_CEILING_BONUS = 1;
 // SALVAGE_TALENT_* consts above feed salvageBoost). +1 per node is the design's
 // proposal: depth is a scarce, deliberately-bought resource, not a free-flowing one.
 export const QUEUE_DEPTH_PER_NODE = 1;
+
+// Infrastructure 0.13.4 (Phase 1 Unit 1.1, design §8 + §17.1 Q12): the three tunables for
+// the PER-FACILITY depth branch. Single source of truth, same discipline as the trunk's
+// QUEUE_DEPTH_PER_NODE directly above.
+//
+// ⚠️ IDENTICAL ACROSS ALL FIVE NODES, ON PURPOSE. The user picked the cost (§17.1 Q12) and
+// the structural half of that decision is the uniformity: differing costs would implicitly
+// favour one facility, and there is no design reason to say a Refinery queue slot is worth
+// more than a Shipyard one. If a future release ever wants to price them apart, that is a
+// deliberate balance decision and these constants should be replaced by a per-facility
+// table, not quietly edited into a spread.
+export const FACILITY_QUEUE_DEPTH_PER_NODE = 1;
+// The user chose 8 over the recommended 6 (§17.1 Q12): per-facility depth is deliberately a
+// LATE purchase, so the shared trunk carries most players for longer.
+export const FACILITY_QUEUE_DEPTH_NODE_COST = 8;
+// ...and FA 12 over the recommended 10, for the same reason.
+export const FACILITY_QUEUE_DEPTH_FA_WALL = 12;
 
 // Crafting 0.13.3 (Phase 3 Unit 3.3, design §6.5): how many ITEM LEVELS one node of
 // the `craftingItemLevel` effect grants a crafted piece. SINGLE SOURCE OF TRUTH, the
@@ -7737,11 +7783,100 @@ export const HOMEWORLD_TALENTS: Record<HomeworldTalentKey, HomeworldTalentDef & 
     cost: 8,
     x: -440,
     y: 280,
-    neighbors: ["fleetLogisticsQueue2"],
+    neighbors: [
+      "fleetLogisticsQueue2",
+      // 0.13.4 Phase 1: the five per-facility branches all hang off the END of the trunk,
+      // so the global chain is a PREREQUISITE for any per-facility depth. That is the
+      // "shared trunk, then branches" shape the design specifies, and it means the cheap
+      // global rungs stay the obvious first purchase.
+      "fleetLogisticsQueueRefinery",
+      "fleetLogisticsQueueFabricator",
+      "fleetLogisticsQueueSalvageBay",
+      "fleetLogisticsQueueResearchLab",
+      "fleetLogisticsQueueShipyard",
+    ],
     effect: { type: "queueDepth", depth: QUEUE_DEPTH_PER_NODE },
     requiresFleetAdminLevel: 25,
     flavor:
       "The deepest buffer the yard's schedulers will admit exists. Line up the whole shift and walk away.",
+  },
+  // --- fleetLogistics, the PER-FACILITY depth fan (0.13.4 Phase 1 Unit 1.1) -------------
+  // Five independent leaves fanned around fleetLogisticsQueue3, the trunk's last rung.
+  //
+  // ⚠️ INDEPENDENT, NOT A CHAIN. Each names only Queue3 as its neighbor, so they have no
+  // ordering between them: a player who only cares about the Refinery buys exactly that one
+  // and no other. Chaining them would impose a purchase order the design does not want and
+  // would make the last facility in the chain cost five nodes to reach.
+  //
+  // All five carry IDENTICAL cost and FA wall from the shared constants, so no facility is
+  // implicitly favoured. See FACILITY_QUEUE_DEPTH_NODE_COST for why that uniformity matters.
+  //
+  // ⚠️ THERE IS NO FUEL DEPOT NODE, AND THERE MUST NEVER BE ONE. The effect's `facility` type
+  // excludes it, so adding one is a compile error rather than a dead talent.
+  //
+  // ⚠️ COORDINATES ARE A FIRST PASS. They fan from Queue3 at (-440, 280) at roughly the web's
+  // own 140/80 step scale, clear of the slot chain (up-left) and the yield/salvage spoke
+  // (up-right). Positions are pure data: moving a node is two numbers and carries zero logic
+  // risk, so treat these as adjustable on sight rather than settled.
+  fleetLogisticsQueueRefinery: {
+    branch: "fleetLogistics",
+    label: "Refinery Standing Orders (+1 queued slot)",
+    cost: FACILITY_QUEUE_DEPTH_NODE_COST,
+    x: -560,
+    y: 200,
+    neighbors: ["fleetLogisticsQueue3"],
+    effect: { type: "facilityQueueDepth", facility: "refinery", depth: FACILITY_QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: FACILITY_QUEUE_DEPTH_FA_WALL,
+    flavor:
+      "Scheduling core wired directly into the smelters. The refinery crew stop asking what is next, because the answer is already queued.",
+  },
+  fleetLogisticsQueueFabricator: {
+    branch: "fleetLogistics",
+    label: "Fabricator Standing Orders (+1 queued slot)",
+    cost: FACILITY_QUEUE_DEPTH_NODE_COST,
+    x: -600,
+    y: 300,
+    neighbors: ["fleetLogisticsQueue3"],
+    effect: { type: "facilityQueueDepth", facility: "fabricator", depth: FACILITY_QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: FACILITY_QUEUE_DEPTH_FA_WALL,
+    flavor:
+      "One more order the fabricators can hold without a supervisor present. They insist this is the last one they can fit. They said that before.",
+  },
+  fleetLogisticsQueueSalvageBay: {
+    branch: "fleetLogistics",
+    label: "Salvage Bay Standing Orders (+1 queued slot)",
+    cost: FACILITY_QUEUE_DEPTH_NODE_COST,
+    x: -560,
+    y: 400,
+    neighbors: ["fleetLogisticsQueue3"],
+    effect: { type: "facilityQueueDepth", facility: "salvageBay", depth: FACILITY_QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: FACILITY_QUEUE_DEPTH_FA_WALL,
+    flavor:
+      "The breakers' list gets a line longer. Nothing in the bay has ever been in a hurry, but now it waits in a tidier order.",
+  },
+  fleetLogisticsQueueResearchLab: {
+    branch: "fleetLogistics",
+    label: "Research Lab Standing Orders (+1 queued slot)",
+    cost: FACILITY_QUEUE_DEPTH_NODE_COST,
+    x: -440,
+    y: 440,
+    neighbors: ["fleetLogisticsQueue3"],
+    effect: { type: "facilityQueueDepth", facility: "researchLab", depth: FACILITY_QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: FACILITY_QUEUE_DEPTH_FA_WALL,
+    flavor:
+      "The lab now accepts a second line of enquiry before anyone has finished the first. They call this progress. It is at least parallelism.",
+  },
+  fleetLogisticsQueueShipyard: {
+    branch: "fleetLogistics",
+    label: "Shipyard Standing Orders (+1 queued slot)",
+    cost: FACILITY_QUEUE_DEPTH_NODE_COST,
+    x: -300,
+    y: 400,
+    neighbors: ["fleetLogisticsQueue3"],
+    effect: { type: "facilityQueueDepth", facility: "shipyard", depth: FACILITY_QUEUE_DEPTH_PER_NODE },
+    requiresFleetAdminLevel: FACILITY_QUEUE_DEPTH_FA_WALL,
+    flavor:
+      "A standing berth order, filed and countersigned. The yard will start the next hull without being asked twice.",
   },
   // --- homelandDefense, hub-only gateway stub -------------------------
   homelandDefenseHub: {

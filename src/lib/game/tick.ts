@@ -594,10 +594,35 @@ export const QUEUE_DEPTH_BASE = 1;
 // property MAX_UNLOCKABLE_CAPTAINS gets from counting nodes instead of hardcoding 4.
 //
 // PURE: reads state, allocates nothing, mutates nothing.
-export function queueDepth(state: GameState): number {
+//
+// ⚠️ INFRASTRUCTURE 0.13.4 (Phase 1 Unit 1.1, design §8): `facility` IS NOW REQUIRED, and the
+// depth is TRUNK PLUS BRANCH.
+//
+// The two effect kinds are summed in one pass: every `queueDepth` node counts for EVERY
+// facility (the global trunk, unchanged), and every `facilityQueueDepth` node counts only for
+// the facility it names (the branch). So the answer is base + trunk + this facility's branches.
+//
+// WHY THE PARAMETER IS REQUIRED RATHER THAN OPTIONAL, given that the trunk is still global and
+// an argument-less call would have kept working for it: an optional facility would make the
+// UNSCOPED call the easy one to write, and an unscoped call is now WRONG at every real site
+// (it silently under-reports depth for any facility with a branch node learned). Required
+// turns that mistake into a compile error. It found both live call sites immediately, and
+// both already had a `facility` in scope, so nothing had to be threaded.
+//
+// The base and the trunk are unchanged, so a player who has learned no branch node gets
+// exactly the number they got before this release at every facility. That is what makes this
+// additive rather than a rebalance.
+export function queueDepth(state: GameState, facility: QueueFacilityKey): number {
   return state.unlockedHomeworldTalents.reduce((depth, key) => {
     const effect = HOMEWORLD_TALENTS[key].effect;
-    return effect.type === "queueDepth" ? depth + effect.depth : depth;
+    // The global trunk: applies to every facility, including the Fuel Depot (which has no
+    // queue, so nothing ever asks, but the arithmetic stays uniform rather than special-cased).
+    if (effect.type === "queueDepth") return depth + effect.depth;
+    // The per-facility branch: only the named facility. The `facility` on the effect is typed
+    // as Exclude<QueueFacilityKey, "fuelDepot">, so this comparison can never match a Fuel
+    // Depot query, which is exactly why no Fuel Depot guard is needed here.
+    if (effect.type === "facilityQueueDepth" && effect.facility === facility) return depth + effect.depth;
+    return depth;
   }, QUEUE_DEPTH_BASE);
 }
 
@@ -760,6 +785,20 @@ export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): st
     // which is the exact misunderstanding the per-facility model exists to avoid.
     case "queueDepth":
       return `+${effect.depth} queued order per facility`;
+    // Infrastructure 0.13.4 (Phase 1 Unit 1.1): the per-facility branch. Adding the effect
+    // type turned this switch red, which is the exhaustiveness guard doing its job.
+    //
+    // ⚠️ DELIBERATELY DOES NOT NAME THE FACILITY, even though the payload carries it. Two
+    // reasons. First, every node with this effect already names its facility in its own
+    // `label` ("Refinery Standing Orders"), and this string is rendered alongside that label,
+    // so repeating it adds no information. Second, naming it here would need a
+    // QueueFacilityKey -> display-name table, and there is no usable one: FACILITIES keys the
+    // research lab as `research`, not `researchLab`, so `FACILITIES[facility].label` returns
+    // undefined for it. A hand-written second table would be a drift risk against the node
+    // labels for zero gain. If a future surface genuinely needs standalone facility names,
+    // that is when the table earns its place, and it should be exhaustive when it lands.
+    case "facilityQueueDepth":
+      return `+${effect.depth} queued order at this facility`;
     // Crafting 0.13.3 (Phase 3 Unit 3.3): the crafting item-level grant. "up to the
     // blueprint's tier cap" is LOAD-BEARING in this string, not hedging. The cap is
     // hard (design §14 item 1), so a player at the ceiling gets nothing from this node,
@@ -8230,7 +8269,10 @@ export function canEnqueueOrder(
   // order could not have used anyway.
   const reserve = canReserveOrder(state, order);
   if (!reserve.ok) return { ok: false, reason: reserve.reason };
-  if (queuedForFacility(state, facility).length >= queueDepth(state)) {
+  // 0.13.4 Phase 1: scoped to THIS facility, so a learned branch node actually widens the
+  // gate that refuses an order. Both sides of the comparison are now per-facility, which is
+  // the invariant design section 15a locks (depth is per facility, never a shared pool).
+  if (queuedForFacility(state, facility).length >= queueDepth(state, facility)) {
     return { ok: false, reason: "queueFull" };
   }
   return { ok: true };

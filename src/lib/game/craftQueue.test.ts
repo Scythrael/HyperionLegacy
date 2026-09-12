@@ -32,6 +32,10 @@ import {
   freshState,
   HOMEWORLD_TALENTS,
   QUEUE_DEPTH_PER_NODE,
+  // 0.13.4 Phase 1: the per-facility branch tunables.
+  FACILITY_QUEUE_DEPTH_PER_NODE,
+  FACILITY_QUEUE_DEPTH_NODE_COST,
+  FACILITY_QUEUE_DEPTH_FA_WALL,
   // Crafting 0.13.3 (Phase 2 Unit 2.4): the Salvage Bay fixtures + the duration math a
   // promoted salvageJob must be sized by (read from the source, never hard-coded, so a
   // retune of the constants retunes these cases with it).
@@ -192,7 +196,7 @@ describe("queueDepth: base depth", () => {
     const state = freshState();
     expect(state.unlockedHomeworldTalents).toEqual([]);
     expect(QUEUE_DEPTH_BASE).toBe(1);
-    expect(queueDepth(state)).toBe(1);
+    expect(queueDepth(state, "refinery")).toBe(1);
   });
 
   it("is unchanged by talents that grant something other than queue depth", () => {
@@ -209,7 +213,7 @@ describe("queueDepth: base depth", () => {
     for (const key of unrelated) {
       expect(HOMEWORLD_TALENTS[key].effect.type).not.toBe("queueDepth");
     }
-    expect(queueDepth(withTalents(unrelated))).toBe(QUEUE_DEPTH_BASE);
+    expect(queueDepth(withTalents(unrelated), "refinery")).toBe(QUEUE_DEPTH_BASE);
   });
 });
 
@@ -222,10 +226,10 @@ describe("queueDepth: the fleetLogisticsQueue chain", () => {
     for (const key of QUEUE_CHAIN) {
       learned = [...learned, key];
       expected += QUEUE_DEPTH_PER_NODE;
-      expect(queueDepth(withTalents(learned))).toBe(expected);
+      expect(queueDepth(withTalents(learned), "refinery")).toBe(expected);
     }
     // All three learned: 1 base + 3 * 1 = 4.
-    expect(queueDepth(withTalents(QUEUE_CHAIN))).toBe(4);
+    expect(queueDepth(withTalents(QUEUE_CHAIN), "refinery")).toBe(4);
   });
 
   it("reads each rung's grant off the talent's own effect payload, never a local copy", () => {
@@ -237,14 +241,14 @@ describe("queueDepth: the fleetLogisticsQueue chain", () => {
       if (effect.type !== "queueDepth") throw new Error("unreachable, narrowing only");
       expect(effect.depth).toBe(QUEUE_DEPTH_PER_NODE);
       // One node learned alone is worth exactly its own payload above the base.
-      expect(queueDepth(withTalents([key]))).toBe(QUEUE_DEPTH_BASE + effect.depth);
+      expect(queueDepth(withTalents([key]), "refinery")).toBe(QUEUE_DEPTH_BASE + effect.depth);
     }
   });
 
   it("is order-independent and unaffected by a duplicate-free learned set's ordering", () => {
     const forward = withTalents([...QUEUE_CHAIN]);
     const reversed = withTalents([...QUEUE_CHAIN].reverse());
-    expect(queueDepth(forward)).toBe(queueDepth(reversed));
+    expect(queueDepth(forward, "refinery")).toBe(queueDepth(reversed, "refinery"));
   });
 
   it("chain shape mirrors the captain-slot chain: escalating cost, rung 1 ungated, then L5 / L25", () => {
@@ -300,6 +304,144 @@ describe("queueDepth: the fleetLogisticsQueue chain", () => {
   });
 });
 
+// ============================================================================
+// queueDepth: the PER-FACILITY branch (Infrastructure 0.13.4, Phase 1 Unit 1.1)
+//
+// The trunk above is global and UNCHANGED. These cover the branch: five leaves off
+// fleetLogisticsQueue3, each widening exactly one facility's queue.
+//
+// ⚠️ The single most important property here is the LAST test in this block: a player who
+// has learned no branch node must get the IDENTICAL number they got before this release, at
+// every facility. That is what makes this release additive rather than a rebalance.
+// ============================================================================
+describe("queueDepth: the per-facility branch", () => {
+  // The five facilities that get a branch node. Written as a literal rather than derived
+  // from the nodes, on purpose: deriving it from the thing under test would make the
+  // exhaustiveness test below tautological. This is the SPEC; the nodes are the claim.
+  const BRANCHED: Exclude<QueueFacilityKey, "fuelDepot">[] = [
+    "refinery",
+    "fabricator",
+    "salvageBay",
+    "researchLab",
+    "shipyard",
+  ];
+
+  // Every node carrying the branch effect, paired with the facility it names.
+  function branchNodes(): { key: HomeworldTalentKey; facility: Exclude<QueueFacilityKey, "fuelDepot"> }[] {
+    return (Object.keys(HOMEWORLD_TALENTS) as HomeworldTalentKey[])
+      .map((key) => ({ key, effect: HOMEWORLD_TALENTS[key].effect }))
+      .filter((n) => n.effect.type === "facilityQueueDepth")
+      .map((n) => {
+        if (n.effect.type !== "facilityQueueDepth") throw new Error("unreachable, narrowing only");
+        return { key: n.key, facility: n.effect.facility };
+      });
+  }
+
+  it("covers exactly the five queueable facilities, one node each, and NOTHING points at the Fuel Depot", () => {
+    const nodes = branchNodes();
+    expect(nodes.length).toBe(BRANCHED.length);
+    // One node per facility: no duplicates, no gaps. A sorted compare so node declaration
+    // order is free to change without breaking this.
+    expect(nodes.map((n) => n.facility).sort()).toEqual([...BRANCHED].sort());
+    // The Fuel Depot's exclusion is enforced by the effect's TYPE (a node pointed at it
+    // would not compile), so this assertion is a belt-and-braces guard against someone
+    // widening that type without revisiting the user's 2026-09-06 decision.
+    expect(nodes.some((n) => (n.facility as string) === "fuelDepot")).toBe(false);
+  });
+
+  it("adds depth ONLY to the facility its node names, and leaves every other facility alone", () => {
+    // The whole point of the branch. One node learned, one facility widened.
+    for (const facility of BRANCHED) {
+      const node = branchNodes().find((n) => n.facility === facility)!;
+      const state = withTalents([node.key]);
+      expect(queueDepth(state, facility)).toBe(QUEUE_DEPTH_BASE + FACILITY_QUEUE_DEPTH_PER_NODE);
+      // Every OTHER facility is untouched, including the Fuel Depot.
+      for (const other of [...BRANCHED, "fuelDepot" as const]) {
+        if (other === facility) continue;
+        expect(queueDepth(state, other)).toBe(QUEUE_DEPTH_BASE);
+      }
+    }
+  });
+
+  it("STACKS on the global trunk rather than replacing it", () => {
+    // Trunk fully bought (base + 3) plus one branch node = base + 4 at that facility, and
+    // base + 3 everywhere else. This is the "fully invested player reaches depth 5 at one
+    // facility" consequence the design accepted out loud.
+    const node = branchNodes().find((n) => n.facility === "refinery")!;
+    const state = withTalents([...QUEUE_CHAIN, node.key]);
+    const trunkTotal = QUEUE_DEPTH_BASE + QUEUE_CHAIN.length * QUEUE_DEPTH_PER_NODE;
+    expect(queueDepth(state, "refinery")).toBe(trunkTotal + FACILITY_QUEUE_DEPTH_PER_NODE);
+    expect(queueDepth(state, "fabricator")).toBe(trunkTotal);
+    // 1 base + 3 trunk + 1 branch = 5, stated as a literal so the accepted consequence is
+    // visible in the test output rather than hidden behind arithmetic.
+    expect(queueDepth(state, "refinery")).toBe(5);
+  });
+
+  it("reads the grant off each node's own payload, never a local copy", () => {
+    for (const node of branchNodes()) {
+      const effect = HOMEWORLD_TALENTS[node.key].effect;
+      if (effect.type !== "facilityQueueDepth") throw new Error("unreachable, narrowing only");
+      expect(effect.depth).toBe(FACILITY_QUEUE_DEPTH_PER_NODE);
+    }
+  });
+
+  it("prices all five IDENTICALLY, so no facility is implicitly favoured", () => {
+    // The structural half of the user's cost decision (design section 17.1 Q12). Differing
+    // costs would say a Refinery slot is worth more than a Shipyard one, and there is no
+    // design reason to say that.
+    for (const node of branchNodes()) {
+      const talent = HOMEWORLD_TALENTS[node.key];
+      expect(talent.cost).toBe(FACILITY_QUEUE_DEPTH_NODE_COST);
+      expect(talent.requiresFleetAdminLevel).toBe(FACILITY_QUEUE_DEPTH_FA_WALL);
+    }
+  });
+
+  it("hangs every branch off the trunk's LAST rung, and never off another branch", () => {
+    // "Shared trunk, then branches": the global chain is a prerequisite, and the five leaves
+    // have no ordering between them, so a player wanting only the Refinery buys exactly one.
+    for (const node of branchNodes()) {
+      expect(HOMEWORLD_TALENTS[node.key].neighbors).toEqual(["fleetLogisticsQueue3"]);
+    }
+    // ...and the trunk's last rung names all five, so adjacency resolves from both directions.
+    const queue3 = HOMEWORLD_TALENTS.fleetLogisticsQueue3.neighbors;
+    for (const node of branchNodes()) {
+      expect(queue3).toContain(node.key);
+    }
+  });
+
+  it("drains on respec: unlearning the node drops the depth the same tick", () => {
+    // Derive-on-read, never stored. Same property the trunk has, re-proven for the branch
+    // because a stored copy is exactly how a respec leaves a phantom bonus behind.
+    const node = branchNodes().find((n) => n.facility === "shipyard")!;
+    const invested = withTalents([...QUEUE_CHAIN, node.key]);
+    const respecced = withTalents([]);
+    expect(queueDepth(invested, "shipyard")).toBeGreaterThan(queueDepth(respecced, "shipyard"));
+    expect(queueDepth(respecced, "shipyard")).toBe(QUEUE_DEPTH_BASE);
+  });
+
+  it("is order-independent across trunk and branch", () => {
+    const node = branchNodes().find((n) => n.facility === "fabricator")!;
+    const forward = withTalents([...QUEUE_CHAIN, node.key]);
+    const reversed = withTalents([node.key, ...[...QUEUE_CHAIN].reverse()]);
+    expect(queueDepth(forward, "fabricator")).toBe(queueDepth(reversed, "fabricator"));
+  });
+
+  it("⚠️ IS PURELY ADDITIVE: a player with no branch node gets the pre-0.13.4 number everywhere", () => {
+    // The regression guard for the whole release. The trunk was global before this change and
+    // is global after it, so for any learned set containing no branch node, every facility
+    // must agree with every other facility, and with the trunk-only arithmetic.
+    for (const learned of [[], ["fleetLogisticsQueue1"], [...QUEUE_CHAIN]] as HomeworldTalentKey[][]) {
+      const state = withTalents(learned);
+      const trunkOnly =
+        QUEUE_DEPTH_BASE +
+        learned.filter((k) => HOMEWORLD_TALENTS[k].effect.type === "queueDepth").length * QUEUE_DEPTH_PER_NODE;
+      for (const facility of [...BRANCHED, "fuelDepot" as const]) {
+        expect(queueDepth(state, facility)).toBe(trunkOnly);
+      }
+    }
+  });
+});
+
 describe("queueDepth: PER FACILITY semantics", () => {
   it("returns the same depth for every queue-capable facility (never split between them)", () => {
     // Design section 5.2: a shared pool would let a full Refinery queue silently starve
@@ -307,13 +449,32 @@ describe("queueDepth: PER FACILITY semantics", () => {
     // facility argument), and callers count only same-facility entries against it. This
     // case pins the rule callers must honor: one number, applied to each facility.
     const state = withTalents(QUEUE_CHAIN);
-    const depth = queueDepth(state);
+    const depth = queueDepth(state, "refinery");
     expect(depth).toBe(4);
-    // Facility-independent BY CONSTRUCTION: the helper takes state and nothing else, so
-    // there is no argument through which one facility could ever get a different answer.
-    // Pinning the arity makes a future "queueDepth(state, facility)" overload a failing
-    // test rather than a silent re-interpretation of the per-facility rule.
-    expect(queueDepth.length).toBe(1);
+    // ⚠️ THIS ARITY TRIPWIRE FIRED AS DESIGNED, AND IS BEING RE-AIMED, NOT REMOVED.
+    //
+    // It previously read `toBe(1)` with the note: "the helper takes state and nothing else,
+    // so there is no argument through which one facility could ever get a different answer.
+    // Pinning the arity makes a future queueDepth(state, facility) overload a failing test
+    // rather than a silent re-interpretation of the per-facility rule." Infrastructure
+    // 0.13.4 Phase 1 is exactly that change, and the tripwire did its job: it forced this
+    // to be a deliberate decision instead of a quiet edit. Recording the outcome here.
+    //
+    // WHAT CHANGED: depth is now TRUNK (global, unchanged) PLUS BRANCH (per facility), so
+    // two facilities CAN legitimately differ once a branch node is learned.
+    //
+    // WHAT DID NOT CHANGE, and is the rule this test actually exists to protect: depth is
+    // still counted PER FACILITY and never as a SHARED POOL. A full Refinery queue still
+    // cannot starve the Fabricator. The per-facility allowance became variable; it did not
+    // become communal. The final case in the "per-facility branch" block above pins the
+    // other half, that a player with no branch node sees the pre-0.13.4 number everywhere.
+    expect(queueDepth.length).toBe(2);
+    // Facility-independence is now CONDITIONAL rather than structural, so it gets asserted
+    // instead of assumed: with only trunk nodes learned (this fixture's QUEUE_CHAIN), every
+    // facility still answers identically.
+    for (const facility of QUEUE_FACILITIES) {
+      expect(queueDepth(state, facility)).toBe(depth);
+    }
     // Each facility is measured against THIS one number, so the capacity a fully-invested
     // player actually has is depth PER facility (4 waiting orders each, 20 across the five
     // that accept orders), not depth shared across them (which would be 4 total).
@@ -328,7 +489,7 @@ describe("queueDepth: PER FACILITY semantics", () => {
   });
 
   it("holds at base depth too: one waiting slot at EACH facility, not one shared", () => {
-    const depth = queueDepth(freshState());
+    const depth = queueDepth(freshState(), "refinery");
     expect(depth).toBe(1);
     expect(ORDER_QUEUEABLE_FACILITIES.length * depth).toBe(ORDER_QUEUEABLE_FACILITIES.length);
   });
@@ -473,7 +634,7 @@ describe("enqueueOrder: the depth cap is enforced PER FACILITY, at enqueue", () 
   it("accepts up to queueDepth waiting orders at one facility, then refuses with queueFull", () => {
     // Base depth 1: exactly one waiting order, then the door closes.
     const state = craftState();
-    expect(queueDepth(state)).toBe(1);
+    expect(queueDepth(state, "refinery")).toBe(1);
 
     const first = enqueueOrder(state, "refinery", refineOrder());
     expect(first.queued).toBe(true);
@@ -508,7 +669,7 @@ describe("enqueueOrder: the depth cap is enforced PER FACILITY, at enqueue", () 
 
   it("a deeper queue talent raises the cap at EVERY facility", () => {
     const state: GameState = { ...craftState(), unlockedHomeworldTalents: QUEUE_CHAIN };
-    expect(queueDepth(state)).toBe(4);
+    expect(queueDepth(state, "refinery")).toBe(4);
     let s = state;
     for (let i = 0; i < 4; i++) {
       s = enqueueAll(s, [
@@ -1037,7 +1198,7 @@ describe("respec shrinks depth: over-depth queues DRAIN, they are never truncate
       unlockedHomeworldTalents: QUEUE_CHAIN,
       credits: new Decimal(1000), // respec charges RESPEC_COST_CREDITS
     };
-    expect(queueDepth(invested)).toBe(4);
+    expect(queueDepth(invested, "refinery")).toBe(4);
     const loaded = enqueueAll(invested, [
       { facility: "refinery", order: refineOrder() },
       { facility: "refinery", order: refineOrder() },
@@ -1050,7 +1211,7 @@ describe("respec shrinks depth: over-depth queues DRAIN, they are never truncate
     const respec = respecHomeworldTalents(loaded);
     expect(respec.success).toBe(true);
     const shrunk = respec.next;
-    expect(queueDepth(shrunk)).toBe(QUEUE_DEPTH_BASE); // 4 -> 1
+    expect(queueDepth(shrunk, "refinery")).toBe(QUEUE_DEPTH_BASE); // 4 -> 1
 
     // 1. Nothing was destroyed: all four entries survive, in their original order.
     expect(queueShape(shrunk)).toEqual([
@@ -1093,7 +1254,7 @@ describe("respec shrinks depth: over-depth queues DRAIN, they are never truncate
       { facility: "refinery", order: refineOrder() },
     ]);
     const shrunk = respecHomeworldTalents(loaded).next;
-    expect(queuedForFacility(shrunk, "refinery").length).toBeGreaterThan(queueDepth(shrunk));
+    expect(queuedForFacility(shrunk, "refinery").length).toBeGreaterThan(queueDepth(shrunk, "refinery"));
 
     const moved = moveQueuedOrder(shrunk, "q-2", "up");
     expect(queueShape(moved)).toEqual(["refinery:q-2", "refinery:q-1"]);
@@ -2161,7 +2322,7 @@ describe("queue DEPTH is per FACILITY and never per LANE", () => {
     // second research slot while the depth talent chain is untouched.
     const twoLane = researchLabState({ labLevel: 2, talents: [] });
     expect(researchSlotCount(twoLane)).toBe(2);
-    expect(queueDepth(twoLane)).toBe(QUEUE_DEPTH_BASE);
+    expect(queueDepth(twoLane, "refinery")).toBe(QUEUE_DEPTH_BASE);
     expect(QUEUE_DEPTH_BASE).toBe(1);
 
     const first = enqueueOrder(twoLane, "researchLab", researchOrder());
@@ -2177,12 +2338,12 @@ describe("queue DEPTH is per FACILITY and never per LANE", () => {
   it("one depth talent on a two-lane lab buys exactly TWO queue slots, not eleven", () => {
     const twoLane = researchLabState({ labLevel: 2, talents: ["fleetLogisticsQueue1"] });
     expect(researchSlotCount(twoLane)).toBe(2);
-    expect(queueDepth(twoLane)).toBe(QUEUE_DEPTH_BASE + QUEUE_DEPTH_PER_NODE);
+    expect(queueDepth(twoLane, "refinery")).toBe(QUEUE_DEPTH_BASE + QUEUE_DEPTH_PER_NODE);
 
     const one = enqueueOrder(twoLane, "researchLab", researchOrder()).next;
     const two = enqueueOrder(one, "researchLab", researchOrder(RESEARCH_KEY_2));
     expect(two.queued).toBe(true);
-    expect(queuedForFacility(two.next, "researchLab")).toHaveLength(queueDepth(twoLane));
+    expect(queuedForFacility(two.next, "researchLab")).toHaveLength(queueDepth(twoLane, "refinery"));
     // Depth reached, whatever the lane count says.
     expect(enqueueOrder(two.next, "researchLab", researchOrder(RESEARCH_TIER2_KEY)).reason).toBe("queueFull");
   });
@@ -2198,7 +2359,7 @@ describe("queue DEPTH is per FACILITY and never per LANE", () => {
       },
       unlockedHomeworldTalents: [],
     };
-    expect(queueDepth(base)).toBe(1);
+    expect(queueDepth(base, "refinery")).toBe(1);
 
     const labFull = enqueueOrder(base, "researchLab", researchOrder()).next;
     expect(enqueueOrder(labFull, "researchLab", researchOrder(RESEARCH_KEY_2)).reason).toBe("queueFull");
@@ -2673,7 +2834,7 @@ describe("buildCraftQueue: depth used vs total, and the enqueue gate", () => {
     for (const facility of QUEUE_FACILITIES) {
       const view = buildCraftQueue(loaded, facility);
       expect(view.depthUsed).toBe(queuedForFacility(loaded, facility).length);
-      expect(view.depthTotal).toBe(queueDepth(loaded));
+      expect(view.depthTotal).toBe(queueDepth(loaded, "refinery"));
       expect(view.depthFree).toBe(view.depthTotal - view.depthUsed);
       expect(view.overDepth).toBe(false);
     }
@@ -2981,10 +3142,10 @@ describe("salvageSlotCount: the Salvage Bay's LANE track (Salvage Lanes, 2026-09
     const l2 = bayAtLevel(2);
     expect(salvageSlotCount(l0)).toBe(1);
     expect(salvageSlotCount(l2)).toBe(3);
-    expect(queueDepth(l2)).toBe(queueDepth(l0)); // lanes bought, depth unmoved
+    expect(queueDepth(l2, "refinery")).toBe(queueDepth(l0, "refinery")); // lanes bought, depth unmoved
 
     const noTalents: GameState = { ...l2, unlockedHomeworldTalents: [] };
-    expect(queueDepth(noTalents)).toBeLessThan(queueDepth(l2)); // depth really is talent-driven
+    expect(queueDepth(noTalents, "refinery")).toBeLessThan(queueDepth(l2, "refinery")); // depth really is talent-driven
     expect(salvageSlotCount(noTalents)).toBe(3); // ... and dropping it left the lanes alone
   });
 

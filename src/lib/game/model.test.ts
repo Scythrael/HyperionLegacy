@@ -769,8 +769,11 @@ describe("HOMEWORLD_TALENTS, launch set", () => {
   it("Fleet Logistics is the rich category; Homeland Defense/Citizenry are hub-only stubs", () => {
     const branches = Object.values(HOMEWORLD_TALENTS).map((t) => t.branch);
     // fleetLogistics: hub + Slot1/2/3 + Yield + Salvage (0.11.0 Task C4)
-    // + Queue1/2/3 (the Crafting 0.13.3 queue-depth chain) = 9 total.
-    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(9);
+    // + Queue1/2/3 (the Crafting 0.13.3 queue-depth TRUNK) = 9,
+    // + the five per-facility queue BRANCHES (Infrastructure 0.13.4 Phase 1:
+    //   Refinery / Fabricator / SalvageBay / ResearchLab / Shipyard) = 14 total.
+    // ⚠️ There are five and not six: the Fuel Depot has no queue and never gets a node.
+    expect(branches.filter((b) => b === "fleetLogistics").length).toBe(14);
     // economy/industry: hub + 1 content node each = 2 total.
     expect(branches.filter((b) => b === "economy").length).toBe(2);
     expect(branches.filter((b) => b === "industry").length).toBe(2);

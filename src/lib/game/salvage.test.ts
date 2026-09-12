@@ -2349,13 +2349,13 @@ describe("the Auto-Salvage Terminal: the automation never touches the player's q
     expect(after.processQueue).toEqual([]); // the player's queue: never written to
     // Every eligible spare is queued in ONE pass, which is what "unbounded" means here, and
     // it is comfortably more than queueDepth would ever have allowed.
-    expect(after.autoSalvageQueue.length).toBeGreaterThan(queueDepth(deep));
+    expect(after.autoSalvageQueue.length).toBeGreaterThan(queueDepth(deep, "salvageBay"));
 
     // And DEPTH 1 (no queue-depth talent at all) behaves identically, which is the case the
     // old depth-1 special case existed to rescue: the feature used to be rationed to a single
     // order there, and could take the player's only slot to get it.
     const shallow: GameState = { ...deep, unlockedHomeworldTalents: [] };
-    expect(queueDepth(shallow)).toBe(1);
+    expect(queueDepth(shallow, "salvageBay")).toBe(1);
     const shallowAfter = autoSalvageOrders(shallow);
     expect(shallowAfter.processQueue).toEqual([]);
     expect(shallowAfter.autoSalvageQueue.length).toBe(after.autoSalvageQueue.length);
@@ -2366,7 +2366,7 @@ describe("the Auto-Salvage Terminal: the automation never touches the player's q
     // The headroom existed so the player kept one slot; the Terminal means they keep all of
     // them, because nothing the automation does is counted against their cap.
     const base: GameState = { ...laneAutoState(), unlockedHomeworldTalents: [] };
-    expect(queueDepth(base)).toBe(1);
+    expect(queueDepth(base, "salvageBay")).toBe(1);
     const after = autoSalvageOrders(base);
     expect(after.autoSalvageQueue.length).toBeGreaterThan(0); // non-vacuous: the rules DID run
     expect(canEnqueueOrder(after, "salvageBay", {
@@ -4059,7 +4059,7 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
     // target is RESERVED as it is queued, so it is offered exactly ONCE, and the total work
     // this pass can ever do is bounded by the size of the spare pool.
     const state = bigPoolState();
-    expect(queueDepth(state)).toBe(1); // depth no longer rations the automation at all
+    expect(queueDepth(state, "salvageBay")).toBe(1); // depth no longer rations the automation at all
     const after = autoSalvageOrders(state);
     expect(after.processQueue).toEqual([]);         // the player's queue: untouched
     expect(after.autoSalvageQueue.length).toBe(40); // bounded BY THE POOL, exactly
@@ -4791,7 +4791,7 @@ describe("autoSalvageOrders: the player's whole queue stays free, and the rules 
       fleetAdminLevel: MAX_CEILING_LEVEL,
       inventory: { ...pool.inventory, [HOUSING]: [new Decimal(400)] },
     };
-    expect(queueDepth(state)).toBe(3);
+    expect(queueDepth(state, "salvageBay")).toBe(3);
     const after = autoSalvageOrders(state);
     expect(after.autoSalvageQueue.length).toBeGreaterThan(0); // non-vacuous: the rules DID run
     expect(after.processQueue).toEqual([]);                   // and took none of the player's depth
