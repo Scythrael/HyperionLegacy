@@ -1293,7 +1293,7 @@ function completionYieldFor(
       return {
         ...empty,
         reward: "level",
-        subjectKey: "transitBerths",
+        subjectKey: "dockingBays",
         level: TRANSIT_BERTH_BASE + levels.transitBerthLevel,
       };
     case "clearShipDamage":
@@ -5569,12 +5569,12 @@ export function canUpgradeTransitBerths(state: GameState): { ok: boolean; reason
   const rungIndex = Math.max(0, Math.floor(state.transitBerthCapacity ?? 0));
   const rung = TRANSIT_BERTH_RUNGS[rungIndex]; // the NEXT rung (undefined = fully expanded)
   if (!rung) {
-    return { ok: false, reason: "Transit berths are fully expanded" };
+    return { ok: false, reason: "Docking bays are fully expanded" };
   }
   // One at a time, same as the docks: a second in-flight expansion would let a player queue
   // the whole track in one click and hide the cost.
   if (state.activeProcesses.some((p) => p.effect.type === "transitBerthLevelUp")) {
-    return { ok: false, reason: "A transit-berth expansion is already under way" };
+    return { ok: false, reason: "A docking bay is already being added" };
   }
   if (state.credits.lt(rung.credits)) {
     return { ok: false, reason: `Need ${rung.credits.toString()} credits (have ${state.credits.toString()})` };

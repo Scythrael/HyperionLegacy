@@ -21,18 +21,18 @@
 | A5 | Let a mission complete end to end. | Completes and delivers cargo normally. |
 | A6 | Save, reload. | Everything above still true. |
 
-## B. Transit berths
+## B. Docking bays
 
 | # | Step | Expected |
 |---|---|---|
-| B1 | Facilities, Docks. | TWO capacity lines now: the existing drydock "Berths: N / M" and a new "Transit berths: X / 2 in use", each with its own button. They should read as clearly separate things. |
+| B1 | Facilities, Docks. | TWO capacity lines now: the existing drydock "Berths: N / M" and a new "Docking bays: X / 2 in use", each with its own button. They should read as clearly separate things. |
 | B2 | With 1 or 2 captains, run missions normally. | ⚠️ **Nothing changes.** No waiting, no new status. This is the case most players are in. |
-| B3 | Get THREE ships returning at once (dispatch three short runs together). | Two dock and unload; the third reads "Waiting for a transit berth (1st in line)" with an estimate and a free/total count beside it. |
+| B3 | Get THREE ships returning at once (dispatch three short runs together). | Two dock and unload; the third reads "Waiting for a docking bay (1st in line)" with an estimate and a free/total count beside it. |
 | B4 | Watch the held ship. | It docks as soon as a berth frees, then unloads and completes normally. Nothing is lost and nobody gets stuck. |
 | B5 | Home board, In Progress, while a ship is held. | The row says the same thing as the captain card. Same wording, not two versions of it. |
-| B6 | Click "Add Transit Berth". | Starts a timed expansion. Recently completed logs it as "Expanded, Transit Berths" reporting a BERTH COUNT (3), not a level. |
+| B6 | Click "Add Docking Bay". | Starts a timed expansion. Recently completed logs it as "Expanded, Docking Bays" reporting a BERTH COUNT (3), not a level. |
 | B7 | After it completes, repeat B3. | Three ships now dock at once. |
-| B8 | Press "Add Transit Berth" with no materials. | Button disabled, with a persistent reason underneath (not a hover tooltip). |
+| B8 | Press "Add Docking Bay" with no materials. | Button disabled, with a persistent reason underneath (not a hover tooltip). |
 | B9 | Send a PATROL out and back. | It never mentions berths and never waits for one. Patrols have no cargo to unload. |
 
 ## C. Patrol end reasons

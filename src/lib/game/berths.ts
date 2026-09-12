@@ -237,7 +237,7 @@ export function missionPhaseStatus(state: GameState, captain: CaptainState): str
   const position = berthQueuePosition(state, captain.id);
   // Position is non-null here by construction (isAwaitingBerth is the same predicate
   // captainsAwaitingBerth filters on), but a defensive fall-through beats rendering "null".
-  if (position === null) return "Waiting for a transit berth";
+  if (position === null) return "Waiting for a docking bay";
   // ⚠️ BANKED IS NOT THE SAME AS BLOCKED, and conflating them mislabels a ship that is about to
   // dock. isAwaitingBerth recognises the BANKED state (progress at the requirement, phase still
   // transitBack), which is also the state a captain passes through for an instant on the tick it
@@ -245,7 +245,7 @@ export function missionPhaseStatus(state: GameState, captain: CaptainState): str
   // position is within the free count, the same test berthEtaTicks uses to return 0), it is
   // arriving, not queuing, and must read as an ordinary return leg.
   if (position <= transitBerthsFree(state)) return MISSION_PHASE_LABEL[mission.phase];
-  return `Waiting for a transit berth (${ordinal(position)} in line)`;
+  return `Waiting for a docking bay (${ordinal(position)} in line)`;
 }
 
 // 1st / 2nd / 3rd / 4th. Small and local rather than a shared utility, because this is the only

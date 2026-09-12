@@ -12539,14 +12539,14 @@
                 {@const berthCheck = canUpgradeTransitBerths(state)}
                 <div class="docks-cap-head">
                   <div class="research-cost">
-                    Transit berths: {transitBerthsOccupied(state)} / {transitBerthCount(state)} in use
+                    Docking bays: {transitBerthsOccupied(state)} / {transitBerthCount(state)} in use
                   </div>
                   <button
                     class="buy-btn docks-expand-btn"
                     disabled={!berthCheck.ok}
                     on:click={doExpandTransitBerths}
                   >
-                    Add Transit Berth
+                    Add Docking Bay
                   </button>
                 </div>
                 {#if !berthCheck.ok}
@@ -13905,7 +13905,7 @@
                           Math.max(1, berthEtaTicks(state, captain.id) ?? 1),
                           showTickCounts,
                           state.tickDurationSeconds,
-                        )} for a berth
+                        )} for a bay
                         ({transitBerthsFree(state)} of {transitBerthCount(state)} free)
                       </div>
                     {/if}

@@ -463,7 +463,7 @@ describe("missionPhaseStatus: the held ship is NAMED, not silently slower", () =
     const status = missionPhaseStatus(after, captain);
     // ⚠️ "my missions got slower" with no explanation is the failure mode the user named by
     // name. The status must say WHAT is happening and WHERE in the queue.
-    expect(status.toLowerCase()).toContain("waiting for a transit berth");
+    expect(status.toLowerCase()).toContain("waiting for a docking bay");
     expect(status).toMatch(/\d+(st|nd|rd|th) in line/);
   });
 

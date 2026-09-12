@@ -368,7 +368,7 @@ describe("every TimedProcessKind leaves an honest record", () => {
     // is the count AFTER this completion applied its bump.
     expect(byKind.get("transitBerthExpansion")).toMatchObject({
       reward: "level",
-      subjectKey: "transitBerths",
+      subjectKey: "dockingBays",
       level: TRANSIT_BERTH_BASE + (base.transitBerthCapacity ?? 0) + 1,
     });
     // A repair grants a working hull, named by ship id.
