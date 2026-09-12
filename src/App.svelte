@@ -2111,6 +2111,30 @@
   // The 3 Salvage Bay sub-tabs in display order. A named const (rather than an inline
   // array literal) matching WAREHOUSE_CAT_TABS, so the tab set is data a future tab is
   // added to deliberately.
+  // Options -> Salvage Bay RULES deep link (0.13.5 Phase 1).
+  //
+  // ⚠️ A LINK RATHER THAN A SECOND COPY OF THE CONTROLS, and that is the whole design decision.
+  // The per-quality salvage confirms and the auto-salvage rules are SAVE-SIDE and already live in
+  // the bay next to the gear they act on. Mirroring them into the Gameplay tab would put two UIs on
+  // one piece of state, which is how a setting ends up disagreeing with itself depending on which
+  // screen you opened. So Gameplay POINTS at them.
+  //
+  // ⚠️ It closes the System modal first. Without that the player lands on the bay behind an overlay
+  // that is still covering it, which reads as "the button did nothing". Same reason
+  // jumpToFacilityUpgrade exists rather than a bare tab assignment: a link that saves taps has to
+  // land somewhere usable, not merely somewhere correct.
+  //
+  // "rules" and not "salvage" (which is what jumpToActivity picks): this link means "come change
+  // your rules", not "come look at your salvage", and the sub-tab is sticky `let` state, so it has
+  // to be set explicitly or a player who last left the console elsewhere lands on the wrong screen.
+  function jumpToSalvageRules(): void {
+    systemModalOpen = false;
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "salvageBay";
+    activeSalvageBaySubTab = "rules";
+  }
+
   const SALVAGE_BAY_SUBTABS: { key: SalvageBaySubTab; label: string }[] = [
     { key: "salvage", label: "Salvage" },
     { key: "rules", label: "Rules" },
@@ -14590,8 +14614,9 @@
 
                   <!-- STANCE selector (segmented, default Balanced). Three .dev-btn options
                        with aria-pressed marking the active one (the same accent-border
-                       selection signal .mission-card-selectable.expanded / .theme-swatch.active
-                       use), fed to dispatchCaptainOnPatrol at dispatch time. -->
+                       selection signal .mission-card-selectable.expanded uses; the
+                       .theme-swatch.active half of this citation was REMOVED in 0.13.5 with the
+                       colour-blot theme picker), fed to dispatchCaptainOnPatrol at dispatch time. -->
                   <div class="mission-col-label" style="margin-top: 8px">Stance</div>
                   <div class="patrol-segmented" role="group" aria-label="Combat stance">
                     <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolKey, "aggressive")}>Aggressive</button>
@@ -15491,6 +15516,11 @@
           Per-quality salvage confirmations and the auto-salvage rules live in the Salvage Bay,
           beside the gear they act on.
         </p>
+        <!-- The note above told the player where to go and then left them to find it. This takes
+             them, which is the difference between a cross-reference and a dead end. -->
+        <div class="dev-row">
+          <button class="dev-btn" on:click={jumpToSalvageRules}>Open Salvage Bay rules</button>
+        </div>
       </Panel>
       {/if}
 
@@ -15653,6 +15683,24 @@
             {/each}
           </select>
         </SettingRow>
+      </Panel>
+      {/if}
+
+      <!-- SAVE DATA, OUTSIDE THE INTENT TABS ON PURPOSE (0.13.5 Phase 1).
+           These three controls spent 0.13.5's first pass inside the VISUAL tab, which was simply
+           where they already were when the tab existed around them. They are not settings: nothing
+           here is a preference that persists a choice, they are one-shot ACTIONS on the save file,
+           and the one on the right is destructive.
+
+           The intent tabs answer "what am I trying to change?", so an action that changes nothing
+           has no honest tab to sit in. Filing it under Visual actively misled: a player looking for
+           Export would never think to look under the tab that holds the theme picker.
+
+           It sits BELOW the tab strip rather than inside it, so it is reachable from every tab and
+           belongs to none, the same posture the Salvage Bay note takes in Gameplay. -->
+      <Panel>
+        <div class="panel-title">SAVE DATA</div>
+        <p class="prestige-text">One-off actions on your save file rather than settings. Export writes a copy you can keep or move to another device; Import replaces what is here with a copy.</p>
         <div class="dev-row">
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
           <!-- Label-wrapping-hidden-input is the standard way to skin a file
@@ -15668,7 +15716,6 @@
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
-      {/if}
       {/if}
 
       {#if DEV_MODE && activeSystemSubTab === "debug"}
@@ -17606,9 +17653,10 @@
   /* Combat Patrols (Combat 0.13.0, Phase 9b.5d) segmented controls (Stance /
      Dispatch mode): a tight row of .dev-btn options where the SELECTED one is
      signalled with aria-pressed. The pressed style reuses the SAME accent-border +
-     accent-bright-text selection signal .mission-card-selectable.expanded and
-     .theme-swatch.active already use (no new color, theme-linked via the accent
-     tokens), so it reads as this app's existing "this option is chosen" affordance
+     accent-bright-text selection signal .mission-card-selectable.expanded already
+     uses (no new color, theme-linked via the accent tokens; this citation also named
+     .theme-swatch.active until 0.13.5 removed the colour-blot theme picker),
+     so it reads as this app's existing "this option is chosen" affordance
      rather than a new visual language. Each button flexes to share the row width. */
   .patrol-segmented { display: flex; gap: 4px; margin-top: 4px; }
   .patrol-segmented .dev-btn { flex: 1; }
@@ -17816,10 +17864,9 @@
      theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
      and dead CSS that still compiles is exactly the kind of thing a later reader restores by
      accident because it looks intentional. The replacement is .theme-preview plus .setting-select.
-     ⚠️ One selector elsewhere still NAMES .theme-swatch.active in a comment, as the precedent for
-     an active-state border. That comment is now describing something that no longer exists; it is
-     left alone here because editing an unrelated rule's comment is a different concern, and it is
-     noted in the handoff instead. */
+     Two comments elsewhere cited .theme-swatch.active as the precedent for an active-state border
+     (the Stance selector's markup and .patrol-segmented's rule). Both were corrected to name only
+     the precedent that still exists, rather than left pointing at a deleted selector. */
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
