@@ -2441,6 +2441,62 @@
     }
   }
 
+  // ============================================================================
+  // SCROLL TO TOP ON NAVIGATION (bug fix, 2026-09-11, user report)
+  //
+  // "If I scroll down on the facilities tab and select warehouse, salvage bay, or quartermaster,
+  // it lands them partially scrolled down."
+  //
+  // ⚠️ ROOT CAUSE IS A MISSING RESET, NOT A LAYOUT PROBLEM. onMount below takes MANUAL control of
+  // scroll (history.scrollRestoration = "manual", then scrollTo(0, 0)) precisely because an old
+  // pixel offset can land well below the top. That was only ever applied ONCE, at mount. This is a
+  // single-page app, so every in-app navigation since has silently INHERITED the previous view's
+  // offset.
+  //
+  // The user's own theory was that tall content loads you in lower. The real mechanism is the
+  // other way round and explains the same observation: the offset is ALWAYS retained, and it only
+  // SURVIVES when the destination is tall enough to allow it. A short destination gets clamped
+  // back to the top by the browser, which is why it looked like it only happened on long pages,
+  // and why Warehouse / Salvage Bay / Quartermaster (the three longest consoles) were the ones
+  // that showed it.
+  //
+  // ⚠️ EVERY NAVIGATION STATE IS LISTED, NOT JUST THE THREE REPORTED. The bug is the missing
+  // reset, so fixing only the Facilities rail would leave the identical bug on every other tab,
+  // sub-tab and drill-in. This release line has twice shipped a one-site fix while the same bug
+  // survived elsewhere; this is the same trap.
+  //
+  // Uses a PLAIN OBJECT rather than a `let` for the previous key on purpose: a reactive `let` read
+  // inside this block would make the block depend on a value it also writes.
+  const navScroll = { lastKey: "" };
+  $: {
+    const navKey = [
+      activeTab,
+      activeHomeTab,
+      activePersonnelTab,
+      personnelRosterView,
+      shipsView,
+      facilitiesView,
+      activeFoundryFacility,
+      activeLogisticsTab,
+      activeOperationsTab,
+      activeRefinerySubTab,
+      activeMissionControlSubTab,
+      activeFuelStorageSubTab,
+      activeResearchSubTab,
+      activeFabricatorSubTab,
+      activeShipyardSubTab,
+      activeQuartermasterSubTab,
+      activeSalvageBaySubTab,
+      activeSystemSubTab,
+    ].join("/");
+    if (navKey !== navScroll.lastKey) {
+      navScroll.lastKey = navKey;
+      // Guarded for the non-browser case (tests import this module without a DOM). The first run
+      // happens at init and is a harmless no-op, since onMount scrolls to the top anyway.
+      if (typeof window !== "undefined") window.scrollTo(0, 0);
+    }
+  }
+
   onMount(() => {
     // Browsers restore scroll position across reloads by default (an
     // absolute pixel offset from the LAST time this page was open). This
