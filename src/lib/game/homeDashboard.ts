@@ -449,6 +449,14 @@ function labelForProcess(
       return { icon: "docks", primaryLabel: "Docks, expand capacity", jumpTarget: "shipyard" };
     }
 
+    // 0.13.4: adding a DOCKING BAY (the arrival capacity a returning ship unloads in), which is a
+    // different thing from the drydock berths its sibling above expands. Same icon and destination
+    // because both are bought on the same console; the LABEL is what tells them apart, and it has
+    // to, because "expand capacity" on its own would be ambiguous now that there are two.
+    case "transitBerthExpansion": {
+      return { icon: "docks", primaryLabel: "Docking bays, add one", jumpTarget: "shipyard" };
+    }
+
     // Ship repair (mirrors App.svelte:2964-2968, "Repairing <ship> ... at the Shipyard").
     // The target ship is looked up by the effect's shipId; a stale id (ship salvaged
     // mid-repair) falls back to the id string.
@@ -488,10 +496,25 @@ function labelForProcess(
       };
     }
 
-    // Defensive fallback: an unknown TimedProcessKind (a future kind from a newer save,
-    // or one added to the union without a case here). Renders an honest generic row
-    // rather than "undefined". A new kind SHOULD add a case above.
+    // Defensive fallback: an unknown TimedProcessKind, i.e. a future kind from a NEWER save that
+    // this build does not know about. Renders an honest generic row rather than "undefined".
+    //
+    // ⚠️ THE COMPILE-TIME GUARD BELOW EXISTS BECAUSE THIS DEFAULT ONCE HID A REAL BUG. A `default`
+    // clause makes a switch non-exhaustive to the compiler, so adding a member to TimedProcessKind
+    // produced errors in the three exhaustive Records (PROCESS_XP_AWARDS, PROCESS_COMPLETION_LOG,
+    // COMPLETION_KIND_VIEW) and stayed SILENT here. 0.13.4's transitBerthExpansion therefore shipped
+    // to a preview rendering as a bare, non-navigable "In progress" with a bar and no name. The old
+    // comment here said "a new kind SHOULD add a case above", and a SHOULD is enforced by nothing.
+    // (This is the second time: the same default swallowed an in-flight salvageJob in 0.13.3, see
+    // the note on that case above.)
+    //
+    // The assignment below narrows to `never` only when every union member is handled, so an
+    // unhandled kind is now a FAILED BUILD rather than a silent generic row. The runtime fallback is
+    // kept exactly as it was, because forward-compatibility with a newer save is a separate and
+    // still-real concern: the guard is about kinds THIS build should know, not kinds it cannot.
     default: {
+      const unhandled: never = process.kind;
+      void unhandled;
       return { icon: "activity", primaryLabel: "In progress", jumpTarget: null };
     }
   }

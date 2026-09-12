@@ -2491,10 +2491,36 @@
     ].join("/");
     if (navKey !== navScroll.lastKey) {
       navScroll.lastKey = navKey;
-      // Guarded for the non-browser case (tests import this module without a DOM). The first run
-      // happens at init and is a harmless no-op, since onMount scrolls to the top anyway.
-      if (typeof window !== "undefined") window.scrollTo(0, 0);
+      void scrollActiveViewToTop();
     }
+  }
+
+  // ⚠️ THE PAGE IS NOT WHAT SCROLLS, AND MY FIRST FIX GOT THIS WRONG (corrected 2026-09-11 after
+  // the user reported the bug was still live on devpreview).
+  //
+  // The app shell is `overflow: hidden` and the real scroller is `.tab-scroll-area`, a nested
+  // element each tab wraps its content in (its own CSS comment says so: "it (not the page) is what
+  // actually scrolls"). So `window.scrollTo(0, 0)` is INERT here. It silently did nothing, which is
+  // the worst kind of wrong: the code read as a fix and the bug was untouched.
+  //
+  // ⚠️ NOTE THE SAME CALL IN onMount BELOW IS INERT FOR THE SAME REASON. It predates this layout
+  // (the shell became overflow:hidden in a later UI pass) and has been a no-op ever since, which is
+  // why nobody noticed: an initial page load starts at the top regardless. Left in place because it
+  // is still correct for any page-level scroll, and this function is called there too.
+  //
+  // AWAITS tick() FIRST: a reactive block runs BEFORE the DOM updates, so scrolling at that moment
+  // would reset the OUTGOING view and then hand the incoming one whatever offset it inherits.
+  //
+  // Scrolls EVERY .tab-scroll-area rather than the "current" one: several exist in the markup (one
+  // per tab) and only one is mounted at a time, so a querySelectorAll is both simpler and safer
+  // than deciding which is live.
+  async function scrollActiveViewToTop() {
+    if (typeof document === "undefined") return;
+    await svelteTick();
+    for (const area of document.querySelectorAll<HTMLElement>(".tab-scroll-area")) {
+      area.scrollTop = 0;
+    }
+    if (typeof window !== "undefined") window.scrollTo(0, 0);
   }
 
   onMount(() => {
