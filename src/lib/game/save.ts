@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 46;
+export const SAVE_VERSION = 47;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2012,6 +2012,37 @@ const MIGRATIONS: Record<number, Migration> = {
     craftOrders: state.craftOrders ?? [],
     nextCraftOrderId: state.nextCraftOrderId ?? 1,
   }),
+  // --- v46 -> v47: EVERY SLOT SHIPS FILLED (F5) -----------------------------------------
+  // (0.13.5 Phase 6. bridge.ts: defaultWeaponsForHull / defaultDroneRolesForHull.)
+  //
+  // ⚠️ WITHOUT THIS STEP, AN OLD HULL AND A NEW ONE OF THE SAME CLASS WOULD DIFFER INVISIBLY IN
+  // THE SAME FLEET. A battleship built before this release carries three guns; one built after
+  // carries six. Two identical-looking ships with different firepower and no way for the player to
+  // see why is precisely the silent inconsistency this project's never-surprise rule forbids.
+  //
+  // ⚠️ IT DELEGATES TO installMissingCombatBaselines RATHER THAN MINTING ANYTHING ITSELF, which is
+  // the whole reason this step is four lines instead of forty. That function already: counts the
+  // weapons and pods a hull ALREADY has, mints only the MISSING ones, appends ids without
+  // renumbering, and mints in the same deterministic order a fresh build uses. Its `required` list
+  // now comes from defaultWeaponsForHull, so "missing" automatically means "short of the hull's
+  // hardpoint count" rather than "short of its signature list". The v33 and v34 steps are the same
+  // pattern for the same reason.
+  //
+  // ⚠️ IT DOES NOT RE-STAT ANYTHING ALREADY OWNED. The open question in design 16.5 was whether the
+  // migration should also rewrite magnitudes on existing Standard-Issue pieces. It does not need
+  // to: route A adds WHOLE EXTRA GUNS rather than changing per-piece numbers, so there is nothing
+  // to re-stat and an old hull ends up with exactly the loadout a new one gets. The question is
+  // therefore CLOSED by the route choice rather than deferred.
+  //
+  // IDEMPOTENT by construction: a hull that already has every hardpoint filled has nothing missing,
+  // so a re-run mints nothing and the state is unchanged.
+  46: (state: any): any =>
+    installMissingCombatBaselines({
+      ...state,
+      ships: state.ships ?? [],
+      equipment: state.equipment ?? [],
+      nextEquipmentId: state.nextEquipmentId ?? 1,
+    }),
 };
 
 export function migrate(save: SaveFile): GameState {

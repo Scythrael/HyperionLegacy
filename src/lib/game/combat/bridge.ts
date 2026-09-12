@@ -35,6 +35,10 @@ import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstanc
 // derives the hull's bare frame (authored - SI_PLATING_HP, additive) + its shield effectiveness ratios
 // (authored / REF), so the fold recomposes an SI ship's gear to the hull's authored totals (byte-identical).
 import { SI_PLATING_HP, REF_SHIELD_CAPACITY, REF_SHIELD_RECHARGE } from "../model";
+// 0.13.5 F5: the hull table, read to derive how many hardpoints and bays need padding. A VALUE
+// import from model into a combat leaf is the allowed direction (model never imports combat at
+// runtime), the same direction the three constants above already travel.
+import { SHIP_TYPES } from "../model";
 import type { Combatant, CombatTeam, CombatWeapon, FamilyResist } from "./types";
 import type { CombatStance } from "./positioning";
 import { makeWeaponInstance, WEAPON_DEFS, type WeaponId } from "./weapons";
@@ -429,6 +433,68 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 	},
 };
 
+// ============================================================================
+// F5: EVERY SLOT SHIPS FILLED (0.13.5 Phase 6, design 2026-09-11-infrastructure-0.13.4 section 16)
+//
+// ⚠️ THE SIGNATURE WEAPONS ABOVE ARE NO LONGER THE WHOLE LOADOUT. They are the part that gives a
+// hull its IDENTITY; the rest of its hardpoints are padded with the floor gun by the two functions
+// below, so no ship ever launches with an empty weapon slot.
+//
+// THE USER'S ARGUMENT, which is a DEAD-END argument rather than a power one and is what makes this
+// consistent with 0.13.3.1's empty-slot work: "There's no great reason to limit/remove weapons.
+// It'd be a softlock in the same way if they weren't an option. Except that you can be dispatched
+// and will lose guaranteed." An empty hardpoint does not ground a ship, so the player is free to
+// dispatch it, and the game's only answer to "why did that go badly" is a slot they never knew was
+// empty.
+//
+// ⚠️ ROUTE A, AND IT IS NOT BALANCE-NEUTRAL. The agreed middle path was "same power spread
+// thinner", achieved by cutting per-hull magnitudes. THAT LEVER DOES NOT EXIST: a Standard-Issue
+// WEAPON carries no per-instance magnitude (its spec comment: "its yield bonus is always 0; the
+// base WEAPON_DEF carries the real stats"), and editing WEAPON_DEFS would retune every instance of
+// that weapon in the game, crafted ones included. So the spare slots take the AUTOCANNON, the
+// weakest gun in the roster, which is the smallest increase available. The user chose this knowing
+// it is an increase ("Just the same gun as the other slots").
+//
+// ⚠️ patrol-balance.test.ts IS THE ACCEPTANCE GATE, NOT AN ADVISORY. Its ordering (every economy
+// hull below the destroyer on both encounters) must still hold after this change. It did not pass
+// by construction; see the commit for the measured result.
+//
+// ⚠️ DERIVED FROM weaponHardpoints, NEVER HARDCODED. Padding the table by hand would silently go
+// stale the moment a hull is retuned: a battleship raised to 8 hardpoints would go back to having
+// empty slots and nobody would notice. Reading the hull's own number means the invariant holds
+// automatically.
+// ============================================================================
+
+// The floor gun. Named once so the "pad with the weakest thing available" decision has one home
+// and is not restated at two call sites.
+const PAD_WEAPON: WeaponId = "autocannon";
+
+// A hull's FULL default weapon loadout: its signature weapons, then autocannons until every
+// hardpoint is filled.
+//
+// Clamped at 0 so a hull whose signature list is LONGER than its hardpoints (only reachable by a
+// retune that shrinks hardpoints without trimming the list) pads nothing rather than producing a
+// negative-length array. Such a hull would still be over-armed, which is a data bug for the
+// balance pass to catch, not something to paper over here.
+export function defaultWeaponsForHull(hullType: CombatHullType): WeaponId[] {
+  const signature = COMBAT_DEFAULT_LOADOUT[hullType].weapons;
+  const hardpoints = SHIP_TYPES[hullType].weaponHardpoints;
+  const padCount = Math.max(0, hardpoints - signature.length);
+  return [...signature, ...Array<WeaponId>(padCount).fill(PAD_WEAPON)];
+}
+
+// The same idea for DRONE BAYS: a carrier's second bay shipped empty, so it gets a second pod of
+// the same role rather than a new one. ⚠️ Repeats the LAST declared role rather than inventing a
+// role the hull was never designed around, which would be a capability change rather than filling
+// a slot. A hull with no bays and no roles pads nothing.
+export function defaultDroneRolesForHull(hullType: CombatHullType): DroneRole[] {
+  const roles = COMBAT_DEFAULT_LOADOUT[hullType].droneRoles;
+  const bays = SHIP_TYPES[hullType].droneBays ?? 0;
+  if (roles.length === 0 || bays <= roles.length) return [...roles];
+  const last = roles[roles.length - 1];
+  return [...roles, ...Array<DroneRole>(bays - roles.length).fill(last)];
+}
+
 // combatHullTypeOf: narrow a ShipTypeKey (passed as a plain string) to a CombatHullType,
 // or null if the string is not a known hull at all. Since "every hull is combat-capable"
 // (CombatHullType === ShipTypeKey, and COMBAT_DEFAULT_LOADOUT now carries an entry for
@@ -453,7 +519,8 @@ export function combatHullTypeOf(typeKey: string): CombatHullType | null {
 // match what a bridged carrier would fly. idPrefix scopes the squadron ids to one patrol.
 // PURE.
 export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string): DroneSquadron[] {
-  return COMBAT_DEFAULT_LOADOUT[hullType].droneRoles.map((role, index) =>
+  // 0.13.5 F5: every bay, not just the declared roles.
+  return defaultDroneRolesForHull(hullType).map((role, index) =>
     makeSquadron(role, undefined, 0, `${idPrefix}-${role}${index}`),
   );
 }
@@ -635,7 +702,12 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// Resolve the default loadout (if any) once: only when a real combat hull type
 	// is supplied. Undefined for economy hulls / hardcoded enemies (they must pass
 	// weapons explicitly or fly unarmed).
-	const defaults = args.hullType ? COMBAT_DEFAULT_LOADOUT[args.hullType] : undefined;
+	// 0.13.5 F5: the FULL default loadout, padded to the hull's hardpoints and bays, rather than
+	// the signature list alone. This is the path a patrol combatant is built through, so without it
+	// a ship would be SEEDED with a full loadout but FIGHT with the old partial one.
+	const defaults = args.hullType
+		? { weapons: defaultWeaponsForHull(args.hullType), droneRoles: defaultDroneRolesForHull(args.hullType) }
+		: undefined;
 
 	// The ship's installed combat gear (the PLAYER path). Undefined for enemies / the
 	// durability seed / tests (path B, byte-identical to pre-1.4).

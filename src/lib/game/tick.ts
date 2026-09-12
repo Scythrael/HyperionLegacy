@@ -218,7 +218,10 @@ import { fuelNeeded, fuelForRoundTrip } from "./fuel";
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
 // resolves the persisted wave schedule at dispatch (a pure fn of the master seed).
-import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
+import { combatHullTypeOf, COMBAT_DEFAULT_LOADOUT, defaultDronesForHull,
+  // 0.13.5 F5: the full padded loadout helpers.
+  defaultWeaponsForHull,
+  defaultDroneRolesForHull, installedDronesForPatrol, defaultSystemDurabilityForHull, foldedPlayerDefense, type CombatHullType } from "./combat/bridge";
 // Combat 1.0 (Unit 1.4): WeaponId types the per-hull Standard-Issue weapon loadout the combat
 // baseline seeder + installMissingCombatBaselines build (type-only, no runtime coupling).
 import type { WeaponId } from "./combat/weapons";
@@ -4487,11 +4490,15 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
   }
   return {
     // The FULL default loadout (every hardpoint the hull ships with), in order.
-    signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+    // 0.13.5 F5: the FULL loadout (signature weapons plus autocannons to fill every remaining
+    // hardpoint), so a ship is never seeded with an empty weapon slot. Derived from the hull's own
+    // weaponHardpoints, so a retune cannot silently reintroduce empty slots.
+    signatureWeapons: defaultWeaponsForHull(hull),
     // The hull's default drone-pod roles (Unit 2.3a): a carrier is ["attack"] (its one built-in
     // attack squadron), a destroyer/battleship is [] (no bays). Sourced from the SAME default-loadout
     // table the ABSENT-path drone build reads, so a Standard-Issue carrier folds to its default screen.
-    droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
+    // 0.13.5 F5: likewise every drone bay, so a carrier's second bay ships with a pod in it.
+    droneRoles: defaultDroneRolesForHull(hull),
     // FIXED SI-gear dials (same on every hull). The bridge MULTIPLIES the emitter's cap/recharge by the
     // hull's shield effectiveness (an SI destroyer's 300-cap emitter x its 100% cap-effectiveness recomposes
     // to its 300 shield). The plating's hullStrength (100) is ADDED to the hull's bare frame (100 + a
