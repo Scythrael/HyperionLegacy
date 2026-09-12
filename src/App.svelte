@@ -17472,7 +17472,11 @@
   .dev-btn:disabled {
     background: rgba(var(--color-accent-rgb), 0.03);
     border-color: rgba(var(--color-accent-rgb), 0.15);
-    color: rgba(var(--color-accent-rgb), 0.4);
+    /* ⚠️ 0.13.5: was rgba(accent, 0.4), which resolves to 3.01:1 against the panel and fails
+       WCAG AA outright (UX review point 3). --color-text-disabled is 0.6 alpha, the lowest
+       that clears 4.5 (it measures 5.23). Read from the token rather than re-stating an
+       alpha here, so every disabled control moves together if it is ever re-tuned. */
+    color: var(--color-text-disabled);
     cursor: not-allowed;
   }
   /* A disabled DANGER button keeps its red hue (dimmed) rather than falling back

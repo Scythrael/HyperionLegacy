@@ -19,7 +19,24 @@
   --color-accent-rgb: 103, 232, 249; /* R,G,B triplet matching --color-accent, for rgba() use in App.svelte */
   --color-text-primary: #e6f4f8;
   --color-text-secondary: #8fa3ad;
-  --color-text-dim: #5a7a85;
+  /* ⚠️ LIFTED IN 0.13.5 FOR CONTRAST, and the old value is kept here as the receipt.
+     WAS #5a7a85, which measured 4.03:1 against the panel background (#0a141e, the
+     resolved blend of --color-panel-bg over --color-bg-deep). WCAG AA wants 4.5:1 for
+     normal text, and essentially all of this app's text is normal-size (the bulk sits at
+     10-13px, nowhere near the 18.66px the large-text exemption starts at), so 4.03 was a
+     real failure rather than a technicality.
+     #628591 is the MINIMUM lift that clears it: hue and saturation are untouched, only
+     lightness moves (L 0.437 -> 0.477), so the token still reads as the same dim grey-blue
+     and no theme re-tuning is needed. It now measures 4.67 on panel and 4.98 on the deep
+     background. Every other text token already passed comfortably (secondary 7.08, accent
+     12.80, danger 6.71, success 9.65, warning 11.12, primary 16.49), so this was the ONLY
+     colour that needed touching. */
+  --color-text-dim: #628591;
+  /* Disabled control text. ⚠️ 0.13.5: disabled labels were drawn as the accent at 0.4 alpha,
+     which resolves to 3.01:1 and fails AA outright (UX review point 3, "disabled contrast").
+     0.6 is the lowest alpha that clears 4.5 (it measures 5.23), so this token exists to give
+     every disabled control ONE value rather than each rule inventing its own alpha. */
+  --color-text-disabled: rgba(var(--color-accent-rgb), 0.6);
   --color-warning: #fbbf24;
   --color-warning-rgb: 251, 191, 36; /* R,G,B triplet matching --color-warning, for rgba() tints (Ships-tab attention row) */
   --color-danger: #f87171;
@@ -36,6 +53,60 @@
   --font-display: "Orbitron", sans-serif;
   --font-body: "Space Grotesk", "Inter", sans-serif;
   --font-mono: "JetBrains Mono", monospace;
+
+  /* ========================================================================
+     TYPE SCALE + UI SCALE (0.13.5 Phase 1, the token layer)
+     ========================================================================
+     ⚠️ INTRODUCED DELIBERATELY NEUTRAL. Every step below matches a size the app
+     ALREADY uses, so adding these tokens changes NOTHING on screen. That is the
+     point: phase 1 delivers the SEAM, and phase 5 re-tunes the step values once,
+     in this one place, after the mockup review. Defining the scale and re-tuning
+     it in the same release would change every screen before anyone had agreed
+     what they should look like.
+
+     The sizes are measured, not invented. The app's real distribution today:
+       11px x36, 10px x22, 12px x19, 13px x18, 15px x6, 10.5px x6, 9px x5,
+       18px x4, 14px x4, 8px x3, 22px x3, 24px x2, 16px x2, 28px x1
+     which is the arithmetic behind the "too small" finding in the external UX
+     review: the bulk of the interface sits at 10 to 13px.
+
+     ⚠️ THERE IS DELIBERATELY NO 8px STEP. Three sites use it today and they are
+     below any defensible accessibility floor. They are NOT changed in phase 1
+     (nothing is converted yet); they get bumped to --text-3xs when their screen
+     is converted in phase 5. Leaving the step out means nobody can adopt 8px
+     while converting.
+
+     --ui-scale is the hook the ACCESSIBILITY text-size control turns. Every step
+     is a calc() against it, so one variable rescales the entire interface and the
+     control needs no per-element knowledge. Default 1 = today's sizes exactly. */
+  --ui-scale: 1;
+  --text-3xs: calc(9px * var(--ui-scale));
+  --text-2xs: calc(10px * var(--ui-scale));
+  --text-xs: calc(11px * var(--ui-scale));
+  --text-sm: calc(12px * var(--ui-scale));
+  --text-md: calc(13px * var(--ui-scale));
+  --text-lg: calc(15px * var(--ui-scale));
+  --text-xl: calc(18px * var(--ui-scale));
+  --text-2xl: calc(22px * var(--ui-scale));
+  --text-3xl: calc(28px * var(--ui-scale));
+
+  /* Spacing scale. Same neutral-introduction rule: these are the gaps the app
+     already uses, named so a later pass can move them together. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 14px;
+  --space-7: 20px;
+
+  /* ⚠️ MAX READING WIDTH (UX review: "spans full width"). A row stretched across a
+     wide monitor is unreadable, and the app is mobile-first so nothing constrains
+     it today. NOTHING CONSUMES THIS YET: the desktop treatment in phase 4 is what
+     applies it, because deciding where a constraint bites is a layout decision
+     that needs the mockup. Defined here so phase 4 inherits a value rather than
+     inventing one. */
+  --max-reading-width: 72ch;
 }
 
 /* Each theme shifts three things beyond the accent/border it always did:
@@ -55,7 +126,7 @@
   --color-border-strong: rgba(103, 232, 249, 0.4);
   --color-panel-bg: rgba(20, 40, 60, 0.32);
   --color-text-secondary: #8fa3ad;
-  --color-text-dim: #5a7a85;
+  --color-text-dim: #618490; /* 0.13.5 contrast lift: was #5a7a85, 4.03:1 against the panel, now 4.60:1 */
   --color-starfield: #bfe9f5;
 }
 [data-theme="green"] {
@@ -66,7 +137,7 @@
   --color-border-strong: rgba(103, 249, 168, 0.4);
   --color-panel-bg: rgba(20, 52, 40, 0.32);
   --color-text-secondary: #8fad9c;
-  --color-text-dim: #5a856f;
+  --color-text-dim: #5b8770; /* 0.13.5 contrast lift: was #5a856f, 4.44:1 against the panel, now 4.55:1 */
   --color-starfield: #c2f5db;
 }
 [data-theme="blue"] {
@@ -77,7 +148,7 @@
   --color-border-strong: rgba(103, 152, 249, 0.4);
   --color-panel-bg: rgba(24, 34, 64, 0.32);
   --color-text-secondary: #8f9cad;
-  --color-text-dim: #5a6a85;
+  --color-text-dim: #6c7e9c; /* 0.13.5 contrast lift: was #5a6a85, 3.39:1 against the panel, now 4.51:1 */
   --color-starfield: #c2d6f5;
 }
 [data-theme="red"] {
@@ -88,7 +159,7 @@
   --color-border-strong: rgba(249, 103, 103, 0.4);
   --color-panel-bg: rgba(56, 28, 30, 0.32);
   --color-text-secondary: #ad9694;
-  --color-text-dim: #85686a;
+  --color-text-dim: #947678; /* 0.13.5 contrast lift: was #85686a, 3.70:1 against the panel, now 4.53:1 */
   --color-starfield: #f5d2ce;
 }
 [data-theme="white"] {
@@ -99,7 +170,7 @@
   --color-border-strong: rgba(232, 232, 240, 0.4);
   --color-panel-bg: rgba(44, 46, 54, 0.32);
   --color-text-secondary: #a8a8b0;
-  --color-text-dim: #70707a;
+  --color-text-dim: #7e7e88; /* 0.13.5 contrast lift: was #70707a, 3.79:1 against the panel, now 4.62:1 */
   --color-starfield: #eaeaf2;
 }
 [data-theme="gray"] {
@@ -110,7 +181,7 @@
   --color-border-strong: rgba(160, 168, 176, 0.4);
   --color-panel-bg: rgba(40, 44, 50, 0.32);
   --color-text-secondary: #9aa0a8;
-  --color-text-dim: #686e76;
+  --color-text-dim: #787e88; /* 0.13.5 contrast lift: was #686e76, 3.61:1 against the panel, now 4.54:1 */
   --color-starfield: #d8dce2;
 }
 
