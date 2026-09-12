@@ -771,6 +771,8 @@ This document was re-read end to end against itself, because 0.13.3's doc contra
 
 ## 16. F5: Standard-Issue fills every slot
 
+> ⚠️ **PEELED OUT OF 0.13.4 AT BUILD TIME. READ 16.7 FIRST.** The retune lever this section assumes does not exist: a Standard-Issue WEAPON carries no per-instance magnitude. F5 needs a user decision between three routes before it can ship.
+
 *Added 2026-09-11, after the 0.13.3.1 QA pass. Numbered 16 rather than inserted as a fifth F-section so the existing §5 to §15 numbering, which the rest of this document cross-references, does not shift.*
 
 ### 16.1 The user's reasoning, which is the decision
@@ -827,6 +829,34 @@ The migration must **mint the missing pieces onto every existing ship**, install
 **A crafted weapon stops being a free win.** Today a first crafted gun goes into an empty hardpoint, so it is an unambiguous gain requiring no comparison. After F5 it is a swap, and it only helps if it beats the Standard-Issue floor, which is more for a new player to read at the moment they have the least context.
 
 The middle path softens this rather than removing it: because magnitudes are cut, the floor each crafted gun has to beat is lower than today's Standard-Issue, so a crafted gun clears it more easily and more often. The residual cost is the comparison itself, not the odds of winning it. **Accepted deliberately.** If it turns out to bite, the mitigation is presentational (make the compare-against-installed readout louder in the install modal, which already exists from 0.13.2) and belongs to 0.13.5, not here.
+
+### 16.7 ⚠️ BUILD-TIME BLOCKER: THE RETUNE LEVER DOES NOT EXIST. F5 IS PEELED.
+
+*Found 2026-09-11 while starting Phase 7. F5 is peeled out of 0.13.4 and needs a user decision before it can ship. Everything in 16.1 to 16.6 stands; only the implementation route is blocked.*
+
+**What 16.3 assumed.** Unit 7.1 specified cutting per-hull Standard-Issue magnitudes inside `generateCombatStandardIssue`, scaled by `newSlotCount / oldSlotCount`, so a hull's TOTAL offense stayed where the patrol sim is tuned while every slot got filled. That is the user's "same power spread thinner" (17.1 Q2 reasoning, and the whole basis of the middle path).
+
+**Why it cannot be done that way.** Verified in `model.ts` (`CombatStandardIssueSpec`, around :6408) and `combat/weapons.ts` (`makeWeaponInstance`):
+
+- A Standard-Issue **shield emitter** takes `shieldCapacity` + `shieldRecharge`.
+- Standard-Issue **hull plating** takes `hullStrength`.
+- A Standard-Issue **weapon** takes NOTHING. The spec's own comment: *"Absent for a weapon (its yield bonus is always 0; the base WEAPON_DEF carries the real stats)"*. Same for a drone pod, whose stats come from `ROLE_TEMPLATE`.
+
+So there is no per-instance magnitude on the one slot type F5 is about. The only numbers a Standard-Issue gun has are the shared `WEAPON_DEFS` entry's, and editing that would retune **every** instance of that weapon in the game, crafted ones included, which is a balance change far outside F5's scope.
+
+**The three routes, and none is a free choice.**
+
+| Route | What it does | Cost |
+|---|---|---|
+| **A. Fill with the weakest gun** | Keep each hull's signature weapons exactly as they are; fill the REMAINING hardpoints with the autocannon (the floor gun). | Not "same power spread thinner": it is a real, if small, power INCREASE. `patrol-balance.test.ts` must be re-run and may need the economy hulls re-tuned to keep every one below the destroyer. Cheapest route, and it preserves hull identity. |
+| **B. Give Standard-Issue weapons a real magnitude** | Add a per-instance damage scalar to the item layer so a hull's guns can be individually weakened. | New item mechanics in the equipment layer, touching crafted gear's stat model too. Much larger than the release F5 was a passenger in, and it changes how every weapon's stats resolve. |
+| **C. Accept the power increase** | Fill every slot with the hull's existing signature pattern and let total offense rise. | Contradicts the user's own "same power spread thinner". Would need a fresh balance pass on the whole patrol ladder. |
+
+**RECOMMENDATION: Route A**, and it needs the user's explicit agreement because it changes what they approved. Their DECIDING argument was the dead-end one (16.1: an empty hardpoint is a slot the player cannot fill, which is the 0.13.3.1 shape one step weaker), and Route A satisfies that completely: every slot ships filled. What it does not satisfy is the "spread thinner" half, which was my framing of how to keep the balance neutral, not their requirement. Route A makes hulls slightly stronger and asks the patrol sim to absorb it.
+
+⚠️ **Do NOT quietly pick Route A and ship it.** The user chose "middle path" over "fill every slot" specifically because the middle path was described as balance-neutral. Route A is not balance-neutral, so shipping it as if it were would be delivering something other than what was agreed.
+
+**Peeled, not abandoned.** F5 was already flagged in section 2 as the one non-infrastructure item and therefore the FIRST to peel, and the 0.13.4 plan marks Phase 7 the same way. This is precisely the situation that flag exists for: a blocker that needs a decision rather than more work. Phases 0 to 6 are unaffected and ship as 0.13.4.
 
 ---
 

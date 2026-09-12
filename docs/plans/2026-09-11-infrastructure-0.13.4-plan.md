@@ -53,7 +53,7 @@ Ordered so the branch is a coherent, shippable release at every peel point, and 
 | **4. Transit berths, surfaces** | **The headline release.** Berths with full status, position and ETA, plus patrol reasons and the talent nodes. | Lane model, F5. | ✅ **RECOMMENDED FALLBACK PEEL.** Complete and coherent on its own. |
 | **5. Lane allocation model** | Batches spread across free lanes. `SAVE_VERSION` 45 -> 46. | Readouts, F5. | ⚠️ **Marginal stop.** Sharing would work but the ETA would halve with nothing explaining why, the exact "looks broken" outcome §7.6 exists to prevent. Prefer peeling 5 and 6 together. |
 | **6. Lane-model readouts** | `lanesAttached` and `etaTicks` on the running row. | F5. | Clean stop. |
-| **7. Standard-Issue fills every slot (F5)** | Every hardpoint and bay ships filled, magnitudes re-tuned. `SAVE_VERSION` 46 -> 47 plus a migration. | Nothing. | ✅ **FIRST TO PEEL** (§2). Deliberately last: it is the one non-infrastructure item, and it touches no tick code, so building it last carries zero interaction risk with phases 0 to 6. |
+| **7. Standard-Issue fills every slot (F5)** | ⚠️ **PEELED, 2026-09-11.** | n/a | ⚠️ **PEELED AT BUILD TIME, NOT SHIPPED.** The retune lever design 16.3 specified does not exist: a Standard-Issue WEAPON carries no per-instance magnitude (its yield bonus is always 0 and the shared WEAPON_DEF supplies its stats), so per-hull offense cannot be cut to offset the extra guns. Three routes exist and all three change what the user approved, so it needs their decision. Full analysis in design §16.7. Phases 0 to 6 are unaffected. |
 | **8. Release close** | QA sheet, APP_VERSION, patch note, Discord cut, promotion. | n/a | Always runs, whatever the last content phase was. |
 
 **Why three SAVE_VERSION bumps rather than one.** Phases 5 and 7 are independently peelable and each needs its own field. Bundling their save shape into Phase 0 would mean shipping a version whose fields nothing reads if either peels, which is exactly the dormant-field confusion that makes a migration hard to reason about later. Each peelable phase owns its own bump.
@@ -223,6 +223,11 @@ Cut per-hull Standard-Issue magnitudes so **total offense per hull lands where t
 ---
 
 ## Phase 8: Release close
+
+> ✅ **DONE, 2026-09-11.** APP_VERSION 0.13.4, SAVE_VERSION 46. Patch note written against what
+> SHIPPED (phases 0 to 6, no F5). Discord cut at `docs/patch-notes/discord-0.13.4.md`, 1,822 of
+> 2,000 characters. Delta QA sheet at `2026-09-11-infrastructure-0.13.4-qa.md`. Promotion awaits
+> the user's explicit green light.
 
 1. **Delta QA sheet** (desktop + mobile), scoped to what actually shipped. Delta, not full: this is incremental work on affected systems.
 2. **APP_VERSION** bump to 0.13.4.
