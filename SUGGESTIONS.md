@@ -1373,14 +1373,25 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
     - **Wanted shape:** something like **"Docking Bay: Slot Expansion"**, with the TIMER and BAR
       exactly as they are now, "similarly formatted to how the captain cards show on the home
       dashboard". Today the row reads "Docking bays, add one".
-    - ⚠️ **THIS IS A CONVENTION CHANGE, NOT ONE LABEL, AND THAT IS THE THING TO DECIDE AT DESIGN
-      TIME.** The whole board currently uses a COMMA form: "Refining, Titanium Ingot", "Captain 2,
-      Lunar Mine Contract", "Docks, expand capacity", "Patrolled, Crimson-Reaver Sweep". A colon form
-      for one row would read as an inconsistency rather than an improvement. So either the colon
-      becomes the house style for FACILITY rows generally (a deliberate, sweeping change), or this
-      lands as "Orbital Starbase, docking bay expansion" and keeps the existing comma idiom. The
-      user asked for it to match the captain cards, and the captain cards use the comma, so there is
-      a real tension in the request worth resolving WITH them rather than picking one silently.
+    - ✅ **RESOLVED (user, 2026-09-11): OPTION 1. THE COLON BECOMES THE HOUSE STYLE.** Their reason,
+      which is the deciding one and worth keeping: "I like the use of colons. It's my style."
+      - ⚠️ **THIS IS A SWEEP, NOT ONE LABEL.** The whole board is COMMA-formed today: "Refining,
+        Titanium Ingot", "Captain 2, Lunar Mine Contract", "Docks, expand capacity", "Patrolled,
+        Crimson-Reaver Sweep", "Salvaged, Cargo Bay". Converting one row would read as a bug. Every
+        row converts together or none does.
+      - ⚠️ **THEREFORE IT BELONGS IN 0.13.5, NOT WITH THE STARBASE.** This was originally logged as
+        Starbase work because that is where it came up, but a board-wide text convention is exactly
+        what the 0.13.5 PRESENTATION pass is for, and doing it there means the Starbase row simply
+        INHERITS the established style instead of introducing it. Sequencing it the other way round
+        would have one row in the new style and the rest in the old until the Starbase ships.
+      - **Scope of the sweep:** `labelForProcess` and `completionSubjectLabel` / `COMPLETION_KIND_VIEW`
+        (homeDashboard.ts) cover the in-progress and completed rows, plus the mission and patrol row
+        builders, plus the equivalents in App.svelte's captain cards. All are per-kind data, so the
+        change is mechanical; the work is finding every site, not deciding each one.
+      - **Decide at design time:** whether the colon applies to EVERY row type or only to
+        FACILITY/SYSTEM rows, with captain and mission rows keeping the comma (they read as
+        "who, what" rather than "system: action"). The user asked for the docking-bay row to match
+        the captain cards, so a blanket sweep is the likely reading, but confirm before sweeping.
     - **Where it lives in code:** `labelForProcess` (homeDashboard.ts) for the in-progress row and
       `COMPLETION_KIND_VIEW` + `completionSubjectLabel` for the completed row. Both are already
       keyed per process kind, so this is a data-level edit, not a structural one.
