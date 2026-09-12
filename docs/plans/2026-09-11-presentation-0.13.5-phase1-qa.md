@@ -13,7 +13,7 @@
 > contrast ratio clears AA, and a preset writes the right values. I cannot check whether a screen
 > LOOKS right, and most of what is left is exactly that.
 
-**Build:** `feat/presentation-0.13.5` at `924f17c`, deployed to **staging** (devpreview).
+**Build:** `feat/presentation-0.13.5` at `037e736`, deployed to **staging** (devpreview).
 **Prod is unchanged** at `9054a32` (0.13.4).
 
 ⚠️ **NO SAVE_VERSION BUMP.** Phase 1 is localStorage and presentation only, so your save is untouched and you can move between this build and prod freely.
@@ -77,6 +77,15 @@ ships today, which is a content decision rather than missing work.
 
 ⚠️ **No emoji was swept.** That is phase 5. If the interface still shows OS emoji, that is expected.
 
+## G. The Phase 1 remainder (added 2026-09-12, build `037e736`)
+
+| # | Step | Expected |
+|---|---|---|
+| ◐ G1 | Options, any tab. | A **SAVE DATA** panel sits BELOW the tab strip, visible from all three tabs, holding Export / Import / Delete. It used to be inside Visual, which is not a place anyone would look for Export. |
+| G2 | Export a save from it. | Downloads as before (the controls moved, nothing about them changed). |
+| ◐ G3 | Gameplay tab, press **Open Salvage Bay rules**. | ⚠️ The System modal CLOSES and you land on the Salvage Bay's **Rules** tab. If you land behind a still-open overlay, that is the bug this step exists to catch. |
+| G4 | From there, press back / navigate away and re-open Options. | Nothing is stuck; Options re-opens normally. |
+
 ## E. Your judgement, not pass/fail
 
 | # | Question |
@@ -102,5 +111,5 @@ ships today, which is a content decision rather than missing work.
 ## Known, deliberate, not bugs
 
 - **Most screens are unconverted.** Phase 1 delivers the token layer and converts only the options screens. Everything else still uses hardcoded sizes until phase 5.
-- **The Gameplay tab does not contain the auto-salvage rules or per-quality salvage confirms.** Both are save-side panels that already live in the Salvage Bay, and duplicating them would create two UIs writing one setting. Relocating them properly is its own unit.
+- **The Gameplay tab does not contain the auto-salvage rules or per-quality salvage confirms.** Both are save-side panels that already live in the Salvage Bay, and duplicating them would create two UIs writing one setting. As of `037e736` the tab LINKS to them (G3) instead of only naming them. A physical relocation is a spatial change and waits for your UI walkthrough.
 - **Force-mobile does nothing**, because the mobile and desktop view layers do not exist until phase 4.
