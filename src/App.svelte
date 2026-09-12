@@ -18506,7 +18506,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .home-l2 { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+  /* ⚠️ flex-wrap IS LOAD-BEARING, NOT TIDYING (mobile overflow fix, 2026-09-11, user report).
+     This row holds up to three children and EVERY ONE of them is white-space: nowrap
+     (.home-phase, .home-meta, .home-eta). Three non-wrapping children in a non-wrapping flex
+     row can only ever overflow once their combined width passes the container, which is what
+     happened on a phone to a Recently-completed entry whose detail line was long ("Standard-Issue
+     systems carry no materials to recover"): the timestamp beside it was pushed off the right
+     edge and clipped mid-word.
+     Wrapping is the right fix rather than truncating the detail, because every one of these
+     strings is information the row exists to deliver: the reason a salvage recovered nothing,
+     when it happened, and how long it took. Dropping one to fit would trade a layout bug for a
+     missing fact.
+     ROW gap is deliberately tighter than the COLUMN gap (2px vs 7px): when this wraps, the two
+     lines belong to one row and should read as a block, not as two separate entries. */
+  .home-l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; margin-top: 4px; }
   .home-phase { font-size: 10px; color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
   /* The combat defeat phase reads danger-red (matches the source combat card). */
   .home-phase-danger { color: var(--color-danger); }
