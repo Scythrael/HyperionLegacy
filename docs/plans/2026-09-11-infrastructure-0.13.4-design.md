@@ -858,6 +858,66 @@ So there is no per-instance magnitude on the one slot type F5 is about. The only
 
 **Peeled, not abandoned.** F5 was already flagged in section 2 as the one non-infrastructure item and therefore the FIRST to peel, and the 0.13.4 plan marks Phase 7 the same way. This is precisely the situation that flag exists for: a blocker that needs a decision rather than more work. Phases 0 to 6 are unaffected and ship as 0.13.4.
 
+### 16.8 ⚠️ MEASURED 2026-09-12: ROUTE A FAILS THE BALANCE GATE, AND IT IS NOT CLOSE
+
+*Route A is built and the engine works. The acceptance gate does NOT pass. This section corrects two
+things I told the user earlier, both of which were wrong.*
+
+**CORRECTION 1: "the balance gate passes with no re-tune" was measured through a stale helper.**
+`patrol-balance.test.ts`, `craftedGearPayoff.test.ts` and `bridge.test.ts` each carry a test-local
+`combatSpecFor(hull)` whose comment claims it replicates the tick.ts caller. It did not: it still
+built `COMBAT_DEFAULT_LOADOUT[hull].weapons` (the SIGNATURE list) while the real caller now passes
+`defaultWeaponsForHull(hull)` (every hardpoint). So the reassuring numbers were the PRE-F5 loadout
+measured against post-F5 code. Made faithful in `9c25aa3`.
+
+**CORRECTION 2: 16.7's "a real, if small, power INCREASE" understates it by an order of magnitude.**
+Route A does not add one gun to a hull that had several. It roughly DOUBLES weapon count on every
+combat hull, because the signature loadouts fill about half of each hull's authored hardpoints:
+
+| Hull | hardpoints | signature guns | F5 guns | drone bays / pods |
+|---|---|---|---|---|
+| destroyer | 4 | 2 | **4** | 0 |
+| battleship | 6 | 3 | **6** | 0 |
+| carrier | 2 | 1 | **2** | 2 bays, 1 pod -> **2 pods** |
+| prospectorHauler | 2 | 1 | **2** | 0 |
+
+**What the faithful gate reads.** Free Standard-Issue gear now wins the hardest content outright,
+which is the one outcome the combat economy cannot absorb:
+
+| Measurement | pre-F5 | Route A | gate |
+|---|---|---|---|
+| SI carrier, Crimson-Reaver Warband | 1.6% | **100.0%** | must be under 85% (a real fight, not Guaranteed) |
+| SI battleship, Warband | 15.6% | **100.0%** | must be under 85% |
+| SI prospectorHauler, Sweep | 76.6% | **100.0%** | must be strictly below the destroyer |
+| SI destroyer, Sweep | 98.4% | **100.0%** | crafted must beat it, and now nothing can |
+
+⚠️ **The load-bearing failure is the last row, not the first.** A saturated free-gear win rate leaves
+crafted gear no headroom, so `craftedGearPayoff.test.ts`'s "a crafted-geared destroyer wins the
+benchmark matchup more often than Standard-Issue" fails at 100 vs 100. That test is the proof of the
+whole craft-to-fight economy loop: the promise that building better gear does something. Route A as
+built breaks it, on the release right before the crafting overhaul (0.13.3's successor work).
+
+**CORRECTION 3: "same power spread thinner" IS mechanically available. 16.7 was wrong to rule it out.**
+16.7 correctly found that a Standard-Issue weapon carries no per-instance magnitude, and correctly
+ruled out editing a shared `WEAPON_DEFS` entry. It then wrongly concluded that thinner spreading
+needs new item mechanics (Route B). It does not. It needs a **new WEAPON_DEFS entry**: one weak
+filler mount that exists only as the free floor. That is a DATA addition of exactly the kind the
+project's modularity rule favours, it touches no existing weapon and no crafted stat model, and it
+is how every slot gets filled without the total offense moving.
+
+**THE ROUTES, RE-PRICED.**
+
+| Route | What it does | Cost |
+|---|---|---|
+| **D. A dedicated filler mount** (NEW, recommended) | Add one weak `WEAPON_DEFS` entry (a token mount). Signature weapons unchanged; every remaining hardpoint gets the filler. Tune the filler's yield so each hull's total offense lands near its pre-F5 total. | One data addition plus one tuning pass against the existing gate. Satisfies BOTH halves of the middle path. Reads well to a player too: the free mount is a placeholder, real guns are crafted, which strengthens the crafted-gear promise instead of erasing it. |
+| **A. As built** | Fill with the autocannon. | Rejected by the gate above. To ship it, the whole patrol ladder needs re-tuning UPWARD on a LIVE game, which changes the difficulty every current player already has. |
+| **E. Fill visually, not mechanically** | Show the empty hardpoints as "no mount installed" with clear copy, and drop the free gun. | Zero balance change. But it re-opens 16.1's dead-end argument, which is the reason F5 exists. |
+| **B / C** | As 16.7. | Unchanged: B is a new item mechanic, C is a full ladder re-tune. |
+
+⚠️ **F5 STAYS PARKED on `feat/f5-standard-issue-slots` (`9c25aa3`, deliberately RED).** The release
+branch is untouched and green. The decision is the user's: Route D is a real design change to what
+they approved by name, and Route A cannot ship as-is.
+
 ---
 
 ## 17. ANSWERS (user, 2026-09-11). This section supersedes §13's recommendations wherever the two differ.
