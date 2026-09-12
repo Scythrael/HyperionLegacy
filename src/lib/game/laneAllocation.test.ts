@@ -26,6 +26,7 @@ import { freshState, FACILITIES, REFINE_RECIPES, type GameState } from "./model"
 import type { CraftLine, CraftOrder } from "./allocation";
 import { allocatedItem, freeItemForState, lineInputsPerIteration } from "./allocation";
 import { economyTick, tick } from "./tick";
+import { buildCraftQueue } from "./craftQueue";
 
 const RNG = () => 0.5;
 
@@ -306,5 +307,81 @@ describe("offline-equals-live parity for the lane model", () => {
     let live = start;
     for (let i = 0; i < span; i++) live = economyTick(live, 1, RNG);
     expect(offline.refineLines.map((l) => l.orderId ?? null)).toEqual(live.refineLines.map((l) => l.orderId ?? null));
+  });
+});
+
+// ============================================================================
+// THE READOUTS (Phase 6 Unit 6.1)
+//
+// ⚠️ THESE EXIST BECAUSE OF A SPECIFIC WAY THE FEATURE COULD LOOK BROKEN. When a second lane joins
+// an order, the whole-batch countdown roughly HALVES between two ticks. A number that jumps for an
+// invisible reason reads as a bug, so the lane count is surfaced beside the ETA as the CAUSE.
+// ============================================================================
+describe("the running row reports lanes and an order-level ETA", () => {
+  it("reports 1 lane for an unattached line, so an ordinary line reads unchanged", () => {
+    const state = stocked({
+      craftOrders: [],
+      refineLines: [lane("craft-1", { remaining: 5, mode: { kind: "batch", remaining: 5 } })],
+    });
+    const row = buildCraftQueue(state, "refinery").running.find((r) => r.id === "craft-1");
+    expect(row).toBeDefined();
+    expect(row!.lanesAttached).toBe(1);
+  });
+
+  it("reports the shared count when two lanes work one order", () => {
+    const state = stocked({
+      craftOrders: [order("ord-1", 50)],
+      refineLines: [
+        lane("craft-1", { orderId: "ord-1", remaining: 50, mode: { kind: "batch", remaining: 50 } }),
+        lane("craft-2", { orderId: "ord-1", remaining: 50, mode: { kind: "batch", remaining: 50 } }),
+      ],
+    });
+    const rows = buildCraftQueue(state, "refinery").running;
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.lanesAttached).toBe(2);
+  });
+
+  it("reports a null ETA when nothing is in flight rather than inventing a number", () => {
+    // No running job means no rate to extrapolate from. A fabricated figure here would be the
+    // same class of dishonesty as a fabricated completion time.
+    const state = stocked({
+      craftOrders: [order("ord-1", 50)],
+      refineLines: [lane("craft-1", { orderId: "ord-1", remaining: 50, mode: { kind: "batch", remaining: 50 } })],
+    });
+    expect(buildCraftQueue(state, "refinery").running[0].etaTicks).toBeNull();
+  });
+
+  it("⚠️ the ETA HALVES when a second lane joins, which is what the lane count explains", () => {
+    // Drive a real order until a job is in flight, measure, then attach a second lane and measure
+    // again. This is the exact jump a player would otherwise see with nothing to explain it.
+    // ⚠️ ONE SLOT ONLY, and this matters. My first version used the default 3-slot fixture and
+    // found no single-lane row to measure: the join pass had already attached a second lane by
+    // tick 3, which is the feature working correctly and breaking the test's own premise. Pinning
+    // the facility to ONE slot is what keeps the baseline measurement single-lane.
+    let state = stocked({
+      facilities: { refinery: { level: refineryLevelFor(1) } } as never,
+      craftOrders: [order("ord-1", 40)],
+      refineLines: [lane("craft-1", { orderId: "ord-1", remaining: 40, mode: { kind: "batch", remaining: 40 } })],
+    });
+    for (let i = 0; i < 3; i++) state = economyTick(state, 1, RNG);
+    const single = buildCraftQueue(state, "refinery").running.find((r) => r.lanesAttached === 1);
+    expect(single).toBeDefined();
+    expect(single?.etaTicks).not.toBeNull();
+    // Now a second lane on the same order.
+    const shared: GameState = {
+      ...state,
+      refineLines: [
+        ...state.refineLines,
+        lane("craft-200", {
+          orderId: "ord-1",
+          remaining: state.refineLines[0].remaining,
+          mode: state.refineLines[0].mode,
+        }),
+      ],
+    };
+    const both = buildCraftQueue(shared, "refinery").running.filter((r) => r.etaTicks !== null);
+    expect(both.length).toBeGreaterThan(0);
+    // Roughly half, allowing for the ceil. Strictly LESS is the property that matters.
+    expect(both[0].etaTicks!).toBeLessThan(single!.etaTicks!);
   });
 });

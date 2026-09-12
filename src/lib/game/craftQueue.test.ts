@@ -2570,6 +2570,12 @@ describe("buildCraftQueue: RUNNING work sits alongside the QUEUED orders", () =>
       progress: (job!.durationTicks - job!.remainingTicks) / job!.durationTicks,
       remainingTicks: job!.remainingTicks,
       durationTicks: job!.durationTicks,
+      // 0.13.4 Phase 6: 1 for an unattached line, which every pre-lane-model line is. Expressed as
+      // a derivation, not a literal, so a retuned recipe duration cannot make it silently wrong:
+      // the order-level ETA is the whole batch (remaining not-yet-started, plus the one in flight)
+      // at this lane's own iteration cost.
+      lanesAttached: 1,
+      etaTicks: Math.ceil((line.remaining + 1) * job!.durationTicks),
     });
     // Non-vacuous: the bar is genuinely partway, not the 0 an absent job would give.
     expect(view.running[0].progress).toBeGreaterThan(0);
@@ -3687,6 +3693,10 @@ describe("buildCraftQueue: the Salvage Bay reports real running rows (Unit 2.4)"
         progress: 0, // freshly started: nothing has elapsed yet
         remainingTicks: job.durationTicks,
         durationTicks: job.durationTicks,
+        // 0.13.4 Phase 6: a salvage job occupies its own bay and is never lane-shared, so 1 is the
+        // honest count and the ETA is simply this job's own remaining ticks.
+        lanesAttached: 1,
+        etaTicks: job.remainingTicks,
       },
     ]);
   });

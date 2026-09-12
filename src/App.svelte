@@ -7532,6 +7532,21 @@
   // A CONTINUOUS line is endless (line.remaining is pinned at 1 and never counts
   // down), so there is no finite batch to total, it keeps the plain per-item
   // countdown. Callers guard `job` non-null and render "Queued" when it is null.
+  // 0.13.4 Phase 6: how many lanes are working the same ORDER as this lane.
+  //
+  // Reads the live state rather than the craftQueue view model, because the two line cards render
+  // straight off state.refineLines / state.fabricateLines and threading a whole view model into
+  // them would be a larger change than the one readout justifies. The COUNT is the same either way:
+  // both count lanes sharing an orderId.
+  //
+  // 1 for an unattached lane, which is the honest answer (one lane, one order's work) and is what
+  // suppresses the readout for every ordinary line.
+  function laneShareCount(line: { id: string; orderId?: string }): number {
+    if (line.orderId === undefined) return 1;
+    const all = [...(state.refineLines ?? []), ...(state.fabricateLines ?? [])];
+    return all.filter((l) => l.orderId === line.orderId).length;
+  }
+
   function lineRemainingReadout(
     job: { remainingTicks: number; durationTicks: number },
     line: CraftLine,
@@ -8957,6 +8972,21 @@
                       <div class="research-readout">
                         {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
+                           BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
+                           it finishes in roughly half the time, so the whole-batch countdown HALVES
+                           between two ticks. A figure that jumps for an invisible reason reads as a
+                           bug, so the CAUSE is shown beside the effect.
+
+                           Rendered ONLY when more than one lane is actually sharing the order:
+                           "1 bay" on every ordinary line would be noise on the densest console in
+                           the game, and this release's own density rule is that a readout earns its
+                           line. -->
+                      {#if laneShareCount(line) > 1}
+                        <div class="research-cost">
+                          {laneShareCount(line)} bays working this order together
+                        </div>
+                      {/if}
                     </div>
                   {/each}
 
@@ -9503,6 +9533,21 @@
                       <div class="research-readout">
                         {#if job}{lineRemainingReadout(job, line, showTickCounts, state.tickDurationSeconds)}{:else}Queued, starts next tick{/if}
                       </div>
+                      <!-- ⚠️ THE LANE COUNT EXISTS TO EXPLAIN A NUMBER THAT WOULD OTHERWISE LOOK
+                           BROKEN (0.13.4 Phase 6, design 7.6). When a second lane joins this order,
+                           it finishes in roughly half the time, so the whole-batch countdown HALVES
+                           between two ticks. A figure that jumps for an invisible reason reads as a
+                           bug, so the CAUSE is shown beside the effect.
+
+                           Rendered ONLY when more than one lane is actually sharing the order:
+                           "1 bay" on every ordinary line would be noise on the densest console in
+                           the game, and this release's own density rule is that a readout earns its
+                           line. -->
+                      {#if laneShareCount(line) > 1}
+                        <div class="research-cost">
+                          {laneShareCount(line)} bays working this order together
+                        </div>
+                      {/if}
                     </div>
                   {/each}
 

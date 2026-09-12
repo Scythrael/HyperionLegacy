@@ -131,6 +131,29 @@ export interface CraftQueueRunningRow {
   progress: number;              // 0..1 for the slim bar; 0 while no iteration is in flight yet
   remainingTicks: number | null; // raw ticks left on the in-flight iteration; null = none in flight
   durationTicks: number | null;  // raw total ticks of that iteration; null = none in flight
+  // ⚠️ INFRASTRUCTURE 0.13.4 (Phase 6, design section 7.6): HOW MANY LANES ARE WORKING THIS
+  // ORDER, and the ORDER-LEVEL ETA.
+  //
+  // These exist because of a specific way the lane model could LOOK BROKEN. When a second lane
+  // joins an order, the order finishes in roughly half the time, so any ETA derived from one
+  // lane's throughput HALVES between two ticks with nothing on screen to explain it. A number
+  // that jumps for an invisible reason reads as a bug, which is exactly the "looks broken"
+  // outcome design 7.6 exists to prevent.
+  //
+  // The fix is to show the CAUSE beside the effect: the lane count is rendered next to the ETA,
+  // so a halving reads as "a second lane picked this up" rather than as a glitch.
+  //
+  // 1 for an unattached lane (a pre-0.13.4 lane, or any lane at a facility no order has reached),
+  // which is the honest answer: it is one lane doing one order's work.
+  lanesAttached: number;
+  // Ticks until the WHOLE ORDER is done at the CURRENT allocation, or null when nothing is in
+  // flight to measure a rate from (design 17.3 Q8: current allocation, with the lane count shown
+  // beside it, so the derivation stays pure and a change of rate reads as a cause).
+  //
+  // ⚠️ AN ESTIMATE, AND DISPLAY-ONLY. Nothing in the engine reads it. It assumes the current lane
+  // count holds, which is exactly why the lane count is surfaced alongside: the estimate is
+  // honest about the assumption rather than hiding it.
+  etaTicks: number | null;
 }
 
 // One WAITING order at a facility, in queue order. Everything the Phase 4 row needs
@@ -467,6 +490,21 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
     const progress = job !== undefined && job.durationTicks > 0
       ? (job.durationTicks - job.remainingTicks) / job.durationTicks
       : 0;
+    // 0.13.4 Phase 6: how many lanes share this line's order. Counted over the SAME lines array
+    // this row list is built from, so the number a player sees is the number the engine is running.
+    // 1 for an unattached lane: it is one lane doing one order's work.
+    const lanesAttached =
+      line.orderId === undefined ? 1 : lines.filter((l) => l.orderId === line.orderId).length;
+    // The ORDER-level estimate. Per-iteration duration comes from the in-flight job, so with
+    // nothing running there is no rate to extrapolate from and the honest answer is null rather
+    // than a fabricated number.
+    //
+    // remaining counts iterations NOT YET STARTED, so the in-flight one is added back before
+    // dividing: a 10-unit order with 1 running and 9 waiting has 10 iterations of work left, not 9.
+    const etaTicks =
+      job === undefined || job.durationTicks <= 0
+        ? null
+        : Math.ceil(((line.remaining + 1) * job.durationTicks) / Math.max(1, lanesAttached));
     return {
       id: line.id,
       label: craftLineOutputLabel(line.kind, line.recipeKey),
@@ -476,6 +514,8 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
       progress,
       remainingTicks: job?.remainingTicks ?? null,
       durationTicks: job?.durationTicks ?? null,
+      lanesAttached,
+      etaTicks,
     };
   });
 }
@@ -540,6 +580,11 @@ function salvageRunningRows(state: GameState): CraftQueueRunningRow[] {
     // row, because unlike a craft line the job IS the work: there is no "configured but
     // not yet started" state to represent.
     remainingTicks: job.remainingTicks,
+    // 0.13.4 Phase 6: ALWAYS ONE LANE. A salvage job, a research project and a hull build each
+    // occupy their own bay and are never lane-shared, so 1 is the honest count rather than a
+    // placeholder, and the ETA is simply this job's own remaining ticks.
+    lanesAttached: 1,
+    etaTicks: job.remainingTicks,
     durationTicks: job.durationTicks,
   }));
 }
@@ -582,6 +627,11 @@ function timedJobRunningRows(
       // RAW ticks, never formatted here: the console runs them through the existing readout
       // helpers with the player's showTickCounts preference.
       remainingTicks: process.remainingTicks,
+      // 0.13.4 Phase 6: ALWAYS ONE LANE. A salvage job, a research project and a hull build each
+      // occupy their own bay and are never lane-shared, so 1 is the honest count rather than a
+      // placeholder, and the ETA is simply this job's own remaining ticks.
+      lanesAttached: 1,
+      etaTicks: process.remainingTicks,
       durationTicks: process.durationTicks,
     }));
 }
@@ -867,6 +917,11 @@ export function buildAutoSalvageTerminal(state: GameState): AutoSalvageTerminalV
       progress: job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 0,
       // RAW ticks, never formatted here (preservation inventory items 0.1 + 0.2).
       remainingTicks: job.remainingTicks,
+      // 0.13.4 Phase 6: ALWAYS ONE LANE. A salvage job, a research project and a hull build each
+      // occupy their own bay and are never lane-shared, so 1 is the honest count rather than a
+      // placeholder, and the ETA is simply this job's own remaining ticks.
+      lanesAttached: 1,
+      etaTicks: job.remainingTicks,
       durationTicks: job.durationTicks,
     }));
 
