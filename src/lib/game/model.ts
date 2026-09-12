@@ -1792,6 +1792,39 @@ export interface PatrolMissionState {
   // input). PRESENT only alongside limpTicksRemaining (the limp phase); ABSENT otherwise, so
   // optional / absent-is-default, no migration. A plain number, JSON-safe.
   limpDamage?: number;
+  // Infrastructure 0.13.4 (Phase 0 Unit 0.1, design section 6.3): ROUTES COMPLETED ON THIS
+  // RUN, accumulated ACROSS calls and across saves. NOTHING READS THIS FIELD YET; Phase 2
+  // (patrol end reasons) is what reads it out at the ending. It is landed here, dormant, so
+  // the save shape moves once at the start of the release instead of mid-feature.
+  //
+  // WHY A PERSISTED FIELD AND NOT THE EXISTING LOCAL: tick.ts already counts routes in a
+  // local `routesCompleted`, but that is PER CALL. A repeat-dispatch patrol relaunches
+  // WITHOUT ending, so the user's readout ("Completed X combat patrol missions before
+  // returning") has to survive both a call boundary and a save/load boundary. A local cannot.
+  //
+  // ⚠️ THIS FIELD IS ALSO A RING-BUFFER GUARD, which is the real reason it exists rather
+  // than being a convenience. COMPLETION_LOG_CAP is 50 with oldest-first eviction, and
+  // CompletionLogEntry's header states the LOCKED rule "PER ORDER, NOT PER ITERATION"
+  // precisely because a big batch logging per iteration would evict every other entry and
+  // blow the 50-cap instantly. A repeat-dispatch patrol completing dozens of routes across
+  // an offline span would do exactly that if each route wrote an entry. So Phase 2 must write
+  // ONE entry per patrol ENDING carrying `iterations = routesCompletedThisRun`, which is
+  // OpenJobBatch's accumulator pattern applied to patrols. Do not log per route.
+  //
+  // Set by: dispatch (0), then incremented at each route completion (Phase 2). Plain number,
+  // JSON-safe like every other field here, so it rides hydrateDecimals's `...state` spread
+  // with no new branch.
+  //
+  // ⚠️ REQUIRED, NOT OPTIONAL, AND THIS IS A DELIBERATE DEPARTURE from the two limp fields
+  // above (which are optional / absent-is-default / no migration). Those are absent on
+  // purpose: they are meaningful ONLY during a limp, so "absent" carries real information.
+  // A route count is meaningful on EVERY patrol, so an absent value would mean nothing but
+  // "an old save", and an optional field would push a `?? 0` onto every future read site and
+  // make a missed dispatch site invisible. Required makes a new dispatch path a COMPILE
+  // ERROR instead. The cost is that the v44 -> v45 migration must reach into IN-FLIGHT
+  // mission state to seed it (see save.ts), which it does; the v43 step already walks
+  // state.equipment, so walking captains is the same shape and not a new kind of risk.
+  routesCompletedThisRun: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -4297,6 +4330,27 @@ export interface GameState {
   // (tick.ts) in their own later tasks.
   ships: ShipInstance[];
   shipStorageCapacity: number; // max hulls the fleet can hold (parked + assigned); starter cap
+  // Infrastructure 0.13.4 (Phase 0 Unit 0.1, design section 5): the TRANSIT BERTH rung
+  // LEVEL. NOTHING READS THIS FIELD YET; Phase 3 is what derives a capacity from it.
+  // Landed here dormant so the save shape moves once at the start of the release.
+  //
+  // ⚠️ THIS IS THE STORED LEVEL, NOT THE DERIVED COUNT, and the distinction is the
+  // feature's softlock guarantee rather than a style preference. Design section 3 locks the
+  // berth safety argument as STRUCTURAL: occupancy is derived-never-stored and the count has
+  // a floor that cannot be reduced. Storing a capacity NUMBER would let a save carry a value
+  // the code can no longer justify (the exact drift equipmentStorageCap avoids by computing
+  // on read from a level). So Phase 3 computes `TRANSIT_BERTH_BASE + reachedRungs`, base 2,
+  // 8 rungs of +1 to a ceiling of 10, and this field only ever holds the rung level.
+  //
+  // ⚠️ IT IS A SECOND, INDEPENDENT CAPACITY FROM shipStorageCapacity DIRECTLY ABOVE, and
+  // they must never be conflated: design section 3 locks that the two "never add, never
+  // multiply, never share a pool". Player-facing they are DRYDOCK BERTHS (that field) and
+  // TRANSIT BERTHS (this one). They are deliberately adjacent here so the next reader sees
+  // both at once rather than discovering the second one later and assuming it replaced the
+  // first.
+  //
+  // Plain number, so it rides hydrateDecimals's `...state` spread with no new branch.
+  transitBerthCapacity: number;
   nextShipId: number; // monotonic id source for new ShipInstance.id ("ship-N"); never reused
   // Combat 0.13.0 (Task 1.1): monotonic id source for a new captain's numeric id;
   // never reused, mirrors nextShipId / nextEquipmentId. Captain ids USED to be
@@ -8048,6 +8102,11 @@ export function freshState(): GameState {
     // because "ship-1" is already taken by this seeded hull.
     ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
     shipStorageCapacity: 8,
+    // 0.13.4 Phase 0: rung LEVEL 0, so a fresh game starts on the BASE berth count that
+    // Phase 3 derives (TRANSIT_BERTH_BASE = 2) and has bought nothing. Level, not count:
+    // see the field's own note on GameState. Seeding 0 here keeps a fresh game and a
+    // migrated v44 save byte-identical on this field, which is what the migration asserts.
+    transitBerthCapacity: 0,
     nextShipId: 2,
     // Combat 0.13.0 (Task 1.1): the one starting captain (freshCaptains(1) -> id 1)
     // holds id 1, so the next allocatable captain id is 2 (mirrors nextShipId's "ship-1

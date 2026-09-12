@@ -39,7 +39,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 44;
+export const SAVE_VERSION = 45;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -1925,6 +1925,62 @@ const MIGRATIONS: Record<number, Migration> = {
         ...rest,
         graceStartedAtGameSeconds: piece.graceStartedAtGameSeconds ?? mintedAtGameSeconds,
       };
+    }),
+  }),
+  // --- v44 -> v45: the 0.13.4 SAVE SHAPE, landed dormant -------------------------------
+  // (Infrastructure 0.13.4, Phase 0 Unit 0.1. model.ts: GameState.transitBerthCapacity and
+  // PatrolMissionState.routesCompletedThisRun.)
+  //
+  // ⚠️ NOTHING READS EITHER FIELD YET. This step exists so the save shape moves ONCE, at the
+  // start of the release, instead of mid-feature. Phase 3 derives a berth count from the
+  // first; Phase 2 increments and reads out the second.
+  //
+  // ⚠️ v44 IS SHIPPED. 0.13.3.1 is in prod, so real player saves are stamped v44 RIGHT NOW
+  // and this body will run against them. That makes it different from the v39 -> v40 and
+  // v41 -> v42 steps above, whose comments reason from "no shipped save has ever been
+  // stamped vN" and could therefore be edited freely while their release was unreleased.
+  // That argument is NOT available here. Treat this body as immutable once 0.13.4 ships.
+  //
+  // WHAT IT WRITES, and nothing else:
+  //
+  // 1. `transitBerthCapacity = 0`, the rung LEVEL (not a count), matching freshState so a
+  //    migrated save and a new game are byte-identical on this field.
+  //
+  // 2. `routesCompletedThisRun = 0` on an IN-FLIGHT PATROL. This step deliberately reaches
+  //    into mission state, which the equipment walk in the v43 step above already does, so it
+  //    is the same shape rather than a new kind of risk. WHY IT MUST: the field is REQUIRED on
+  //    PatrolMissionState (see its note there, which explains the departure from the optional
+  //    limp fields), so leaving an in-flight patrol without it would be a type lie that only
+  //    shows up as a runtime NaN the first time Phase 2 increments it.
+  //
+  //    SEEDED TO 0 AND NOT TO A GUESS. A v44 patrol genuinely does not record how many routes
+  //    it has finished: `routesCompleted` was a per-CALL local in tick.ts and was never
+  //    persisted, so the information does not exist in the save. wavesWon is NOT a substitute
+  //    (waves are per route, not routes) and neither is progressTicks (absolute position in
+  //    the CURRENT route). So 0 is the honest value: a patrol already in flight across this
+  //    upgrade under-reports its route count once, at its next ending, and every run dispatched
+  //    afterwards is exact. Inventing a number from wavesWon would make the readout WRONG
+  //    rather than conservative, which is worse for a field whose whole job is a player-facing
+  //    count.
+  //
+  // IDEMPOTENT AND VALUE-PRESERVING: `??` at both fields, so a re-run or an already-migrated
+  // save keeps what it holds and this step becomes a value-level no-op. An extraction mission
+  // and an idle captain are returned BY REFERENCE, so a save with no patrol in flight (the
+  // common case) allocates nothing beyond the captains array itself.
+  //
+  // NO NEW DECIMALS, VERIFIED: both fields are plain numbers, so they ride hydrateDecimals's
+  // `...state` spread verbatim and it needs no new branch.
+  44: (state: any): any => ({
+    ...state,
+    transitBerthCapacity: state.transitBerthCapacity ?? 0,
+    captains: (state.captains ?? []).map((captain: any) => {
+      // Not a captain object, or not flying a patrol: nothing to seed. Returned by reference.
+      if (captain === null || typeof captain !== "object") return captain;
+      const mission = captain.mission;
+      if (mission === null || typeof mission !== "object" || mission.kind !== "patrol") return captain;
+      // Already carries a value (a re-run, or a hand-edited save): leave it entirely alone.
+      if (typeof mission.routesCompletedThisRun === "number") return captain;
+      return { ...captain, mission: { ...mission, routesCompletedThisRun: 0 } };
     }),
   }),
 };

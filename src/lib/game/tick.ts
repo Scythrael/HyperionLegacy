@@ -4091,6 +4091,16 @@ function freshPatrolMission(args: {
     nextWaveIndex: 0,
     wavesWon: 0,
     wavesLost: 0,
+    // 0.13.4 Phase 0: seeded 0 at dispatch. NOTHING INCREMENTS IT YET; Phase 2 does that at
+    // each route completion and reads it out at the ending. This is the ONLY patrol-dispatch
+    // site in the codebase, which is why the required field produced exactly one error here:
+    // a future second dispatch path will be a compile error until it seeds this too.
+    //
+    // ⚠️ A RELAUNCH MUST NOT RESET IT. A repeat-dispatch patrol relaunches WITHOUT ending, and
+    // the count is per RUN rather than per call, so whichever code path Phase 2 adds for the
+    // relaunch has to carry the existing value forward rather than calling back through here.
+    // This site is the START of a run; a relaunch is the middle of one.
+    routesCompletedThisRun: 0,
     // Carry-state seeded to FULL: hull/shield from the FOLDED installed-gear defense (folded above,
     // the SAME pool the wave combatant fights with), and the drones the ship
     // actually carries. Combat 1.0 (Unit 2.3b): seed from the ship's INSTALLED droneBay pods

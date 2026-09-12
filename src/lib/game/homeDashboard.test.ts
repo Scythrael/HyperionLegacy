@@ -134,6 +134,10 @@ function patrolCaptain(): CaptainState {
     playerSystemDurability: { weapons: [], reactor: 0, ftl: 0 },
     recalled: false,
     repeatDispatch: false,
+    // 0.13.4 Phase 0: 1, matching this fixture's wavesWon/nextWaveIndex story (one route
+    // resolved). Nothing in homeDashboard reads it; set consistently rather than 0 so the
+    // fixture does not quietly become a counter-example when Phase 2 starts reading it.
+    routesCompletedThisRun: 1,
   };
   return { ...freshCaptainStack(), id: 1, label: "Alpha", mission };
 }
