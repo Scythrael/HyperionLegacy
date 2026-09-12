@@ -49,6 +49,10 @@ import {
   PATROLS,
   REFINE_RECIPES,
   MISSION_PHASE_LABEL,
+  // The stuck-at-00:00 fix (2026-09-11): the readout must resolve the SAME effective mission def
+  // the engine advances against. See rowForExtraction.
+  effectiveMissionDef,
+  shipDerivedStats,
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   extractionMissionOf,
@@ -87,6 +91,8 @@ import {
   equipmentInstanceLabel,
   type CraftQueueView,
 } from "./craftQueue";
+// Same reason as the model imports above: the ship's INSTALLED gear feeds shipDerivedStats.
+import { equippedFor } from "./equipment";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -514,8 +520,35 @@ function rowForProcess(process: TimedProcess, state: GameState): ActivityRow {
 function rowForExtraction(
   captain: CaptainState,
   mission: NonNullable<ReturnType<typeof extractionMissionOf>>,
+  // ⚠️ NEEDED TO RESOLVE THE ASSIGNED SHIP. See the effective-def note below: without it this row
+  // measures a different mission from the one the engine is running.
+  state: GameState,
 ): ActivityRow {
-  const missionDef = MISSIONS[mission.missionKey];
+  // ⚠️ THE EFFECTIVE DEF, NOT THE RAW ONE, AND THIS IS THE "STUCK AT 00:00" FIX (user report,
+  // 2026-09-11: "missions get stuck at 00:00 on the main dashboard ... during the extracting step
+  // ... every loop or two").
+  //
+  // ROOT CAUSE: requiredTicksForPhase("extracting") is ceil(cargoCapacity / extractionRatePerTick),
+  // and effectiveMissionDef SWAPS IN THE SHIP'S OWN cargoCapacity. This row used the RAW mission
+  // def, so it measured the mission's BASELINE hold while the engine advanced against the SHIP's
+  // real hold. On the Lunar Mine Contract that is 90 ticks displayed against 180+ actually worked,
+  // so the countdown reached zero, clamped at Math.max(0, ...), and SAT at 00:00 for the rest of a
+  // perfectly healthy extraction. Nothing was ever stuck: the readout was measuring a shorter
+  // mission than the one being flown.
+  //
+  // It affects transit too, in the opposite and less visible direction: effectiveMissionDef divides
+  // the transit legs by transitSpeedMult, so a fast ship's real leg is SHORTER than the raw one and
+  // the phase appears to end early.
+  //
+  // Resolved through the SAME two calls economyTick makes before it hands shipStats to
+  // tickCaptainMission (equippedFor then shipDerivedStats), so the readout and the engine cannot
+  // form two opinions about how long a phase is. A ship-less captain keeps the raw def, which is
+  // the same "no modifier" fallback the engine uses.
+  const rawMissionDef = MISSIONS[mission.missionKey];
+  const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+  const missionDef = ship
+    ? effectiveMissionDef(rawMissionDef, shipDerivedStats(ship, equippedFor(state, ship.id)))
+    : rawMissionDef;
   const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);
   const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks));
@@ -1133,7 +1166,7 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   for (const captain of state.captains) {
     const extraction = extractionMissionOf(captain);
     if (extraction !== null) {
-      inProgress.push(rowForExtraction(captain, extraction));
+      inProgress.push(rowForExtraction(captain, extraction, state));
       continue;
     }
     if (captain.mission !== null && captain.mission.kind === "patrol") {
