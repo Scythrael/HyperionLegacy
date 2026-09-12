@@ -1366,6 +1366,16 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - **Naming, decided:** "Docks" becomes **"Docking Bay"**. The user considered and rejected "Spacedock" (reads as Star Trek's Starbase One). Behaviour identical at first: this is a rename plus a relocation, not a rework.
   - **The Starbase upgrade track absorbs docking bays**, so ship capacity stops being a lone one-rung facility and becomes one line on a real progression track.
   - **Future Starbase functionality (not now):** invasion by OTHER PLAYERS, and later RANDOM ENEMY INVASIONS that can fire at any time on a cooldown, unlocked as the campaign progresses.
+  - ⚠️ **0.13.4 MADE THIS MIGRATION BIGGER, and the entry is updated rather than left to surprise
+    someone.** Transit berths shipped onto the Docks console as it exists TODAY (a named deferral,
+    0.13.4 design 1.1 / 5.8), so the Starbase now has to re-home **two** capacities, **two** rung
+    tracks and **two** TimedProcessKinds instead of one: `shipStorageCapacity` + `docksExpansion`
+    AND `transitBerthCapacity` + `transitBerthExpansion`. The in-flight hazard below therefore
+    applies TWICE, once per kind. The saving grace is unchanged and now doubly useful: both kinds
+    sit behind the same exhaustive Records, so the type system still enumerates the work.
+    ⚠️ One asymmetry to notice while migrating: `shipStorageCapacity` stores a COUNT while
+    `transitBerthCapacity` stores a RUNG LEVEL (see berths.ts for why). They are not the same shape
+    and must not be migrated with one shared helper.
   - ⚠️ **MIGRATION IS THE REAL WORK, and it must not lose anything.** Retiring a facility touches the `FACILITIES` table, saved facility levels, `state.shipStorageCapacity`, the **`docksExpansion` TimedProcessKind**, the nav, and the Facilities dashboard card. The dangerous case is a save with an **IN-FLIGHT `docksExpansion` process** at migration time: it must complete or transfer, never be dropped, because dropping it silently destroys a paid-for upgrade. The good news is that `TimedProcessKind` sits behind four exhaustive `Record`s (`PROCESS_XP_AWARDS`, `QUEUE_ADAPTERS`, `PROCESS_COMPLETION_LOG`, `COMPLETION_KIND_VIEW`), so removing or renaming the kind is a compile error in every one of them and the type system enumerates the work for you.
 
 - **⭐ CAMPAIGN FLAGS: campaign progress as a game-state gate (user, 2026-09-04, "needs to be logged").** Campaigns will be a **flagged game state** that enables and disables features. Reaching campaign X turns things on: the stated example is that random enemy invasion attempts on the Starbase become possible only past a certain campaign point.
