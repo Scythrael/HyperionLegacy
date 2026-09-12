@@ -2358,6 +2358,54 @@
     applyAccessibility({ uiScale, highContrast, dyslexiaFont, reducedMotion });
   }
 
+  // ============================================================================
+  // CONFIRMATION PRESETS (0.13.5 Phase 1)
+  //
+  // One control that sets every confirmation toggle at once, so a player does not have to reason
+  // about each dialog individually to get to "stop asking me" or "ask me everything".
+  //
+  // ⚠️ A PRESET IS A WRITE ACTION, NOT A STORED MODE, and that distinction is the whole design.
+  // Choosing one WRITES the toggles and is then forgotten. If the preset were remembered as a
+  // mode, a player who picked "Intermediate" and then turned one confirm back on would be
+  // silently overridden whenever anything re-read the mode, which is exactly the kind of
+  // "the game changed my setting back" behaviour that destroys trust in a settings screen.
+  // It also means no new save field and no migration.
+  //
+  // ⚠️ THE LADDER RUNS SAFE TO RISKY, and the default state of the game is the SAFE end. A new
+  // player is confirmed at every step; the presets are how an experienced one opts out. Nothing
+  // here can turn a confirm on that would not otherwise exist.
+  const CONFIRM_PRESETS = [
+    { key: "all", label: "Ask me everything" },
+    { key: "standard", label: "Standard" },
+    { key: "none", label: "Stop asking" },
+  ] as const;
+  type ConfirmPresetKey = (typeof CONFIRM_PRESETS)[number]["key"];
+
+  // ⚠️ EXHAUSTIVE over the preset keys, so adding a preset without deciding what it does is a
+  // COMPILE ERROR rather than a button that silently does nothing. Same discipline as
+  // QUEUE_ADAPTERS and PROCESS_XP_AWARDS.
+  const CONFIRM_PRESET_VALUES: Record<ConfirmPresetKey, { refine: boolean; baselineWarning: boolean }> = {
+    // Every confirmation on. The game's own default, and the safe end of the ladder.
+    all: { refine: true, baselineWarning: true },
+    // The middle: routine, reversible actions stop asking, but the one warning about
+    // IRREVERSIBLE loss of gear your ships depend on stays. That asymmetry is the point of having
+    // a middle setting at all.
+    standard: { refine: false, baselineWarning: true },
+    // ⚠️ Everything off, INCLUDING the Standard-Issue warning. Offered because a player who has
+    // understood the system should not be nagged forever, and because the Quartermaster makes the
+    // underlying situation recoverable (a free replacement is always in stock). It would be a much
+    // harder call without that escape valve.
+    none: { refine: false, baselineWarning: false },
+  };
+
+  function applyConfirmPreset(key: ConfirmPresetKey): void {
+    const values = CONFIRM_PRESET_VALUES[key];
+    refineConfirmEnabled = values.refine;
+    saveRefineConfirmEnabled(values.refine);
+    autoSalvageBaselineWarningEnabled = values.baselineWarning;
+    saveAutoSalvageBaselineWarningEnabled(values.baselineWarning);
+  }
+
   type OptionsTab = "visual" | "gameplay" | "accessibility";
   let activeOptionsTab: OptionsTab = "visual";
   const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
@@ -15373,9 +15421,77 @@
       </Panel>
       {/if}
 
+      {#if activeOptionsTab === "gameplay"}
+      <Panel>
+        <div class="panel-title">GAMEPLAY</div>
+        <p class="setting-group-note">
+          These settings change what the game does on its own. They are stored in your save rather
+          than on this device, so they follow your fleet everywhere and keep working while the game
+          is closed.
+        </p>
+
+        <!-- ⚠️ CONFIRMATION PRESETS ARE A WRITE ACTION, NOT A STORED MODE. Choosing one SETS the
+             individual toggles below and is then forgotten. That matters: if the preset were
+             remembered as a mode, a player who picked "Intermediate" and then turned one confirm
+             back on would be silently overridden the next time anything re-read it. It also means
+             no new save field and no migration. -->
+        <SettingRow
+          label="Confirmation level"
+          description="Sets every confirmation below at once. Pick the closest starting point, then adjust any individual one; your changes stick."
+        >
+          <div class="preset-row">
+            {#each CONFIRM_PRESETS as preset}
+              <button class="dev-btn" on:click={() => applyConfirmPreset(preset.key)}>{preset.label}</button>
+            {/each}
+          </div>
+        </SettingRow>
+
+        <SettingRow
+          label="Confirm before refining"
+          description="Shows a confirmation before starting a refine order. Ticking 'Don't show this again' in that popup turns this off."
+        >
+          <input
+            type="checkbox"
+            checked={refineConfirmEnabled}
+            on:change={(e) => {
+              refineConfirmEnabled = (e.target as HTMLInputElement).checked;
+              saveRefineConfirmEnabled(refineConfirmEnabled);
+            }}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label="Warn before auto-salvage can take Standard-Issue gear"
+          description="Shows a one-time warning when your auto-salvage rules are widened far enough to include the Standard-Issue systems your ships came with."
+        >
+          <input
+            type="checkbox"
+            checked={autoSalvageBaselineWarningEnabled}
+            on:change={(e) => {
+              autoSalvageBaselineWarningEnabled = (e.target as HTMLInputElement).checked;
+              saveAutoSalvageBaselineWarningEnabled(autoSalvageBaselineWarningEnabled);
+            }}
+          />
+        </SettingRow>
+
+        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS AND THE AUTO-SALVAGE RULES ARE NOT DUPLICATED HERE,
+             deliberately. Both are rich, multi-control panels that already live in the Salvage Bay
+             next to the thing they act on, and both are SAVE-SIDE, so a second copy would be two
+             UIs writing one piece of state: the classic way a setting ends up disagreeing with
+             itself depending on which screen you opened.
+             The record's own rule for contextual help applies just as well to settings: LINK, never
+             duplicate. Relocating them properly (rather than mirroring them) is its own unit, and
+             is listed in the handoff. -->
+        <p class="setting-group-note">
+          Per-quality salvage confirmations and the auto-salvage rules live in the Salvage Bay,
+          beside the gear they act on.
+        </p>
+      </Panel>
+      {/if}
+
       {#if activeOptionsTab === "visual"}
       <Panel>
-        <div class="panel-title">OPTIONS</div>
+        <div class="panel-title">VISUAL</div>
         <div class="dev-row">
           <label style="display: inline-flex; align-items: center; gap: 6px;">
             <input
@@ -15411,20 +15527,6 @@
              the Enable Tick Bar row directly above (localStorage-persisted pref, not
              on GameState). The modal's own "Don't show this again" checkbox turns
              this OFF; this toggle turns it back ON. -->
-        <div class="dev-row">
-          <label style="display: inline-flex; align-items: center; gap: 6px;">
-            <input
-              type="checkbox"
-              checked={refineConfirmEnabled}
-              on:change={(e) => {
-                refineConfirmEnabled = (e.target as HTMLInputElement).checked;
-                saveRefineConfirmEnabled(refineConfirmEnabled);
-              }}
-            />
-            Confirm before refining
-          </label>
-        </div>
-        <p class="prestige-text">When enabled, a confirmation popup appears before starting a refine order. Ticking "Don't show this again" in that popup turns this off.</p>
 
         <!-- ⚠️ DELIBERATELY NOT HERE YET: the re-enable toggle for the auto-salvage
              Standard-Issue warning (0.13.3.1 follow-up). That warning's "Don't show this again"
@@ -17322,6 +17424,13 @@
     color: var(--color-text-secondary);
     margin: 0 0 var(--space-4) 0;
     max-width: var(--max-reading-width);
+  }
+  /* The preset buttons. Wraps so three buttons plus a long label survive a narrow phone, which is
+     the same overflow class that pushed a timestamp off screen in 0.13.3.1. */
+  .preset-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
   }
   .setting-select {
     background: var(--color-panel-bg-strong);
