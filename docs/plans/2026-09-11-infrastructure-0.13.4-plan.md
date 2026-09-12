@@ -10,7 +10,18 @@ Companion to `2026-09-11-infrastructure-0.13.4-design.md`. Branch `feat/infrastr
 npm run check                 # 0 errors. The 2 pre-existing RadialWeb a11y warnings are expected and stay.
 npx vitest run                # full suite green
 npx vitest run -t "parit"     # the excluded baseline must print EXACTLY 101
+npm run build                 # the PRODUCTION BUNDLE actually compiles
 ```
+
+⚠️ **`npm run build` WAS MISSING FROM THIS GATE FOR THE WHOLE RELEASE, and that was luck rather
+than diligence.** Phases 0 to 8 were all gated on check + suite + parity, and none of those three
+proves `vite build` succeeds: svelte-check type-checks without bundling, and vitest runs modules
+through its own transform, not the production pipeline. A build-only failure (a bad dynamic import,
+a CSS syntax error svelte-check tolerates, an asset path) would have passed every gate and only
+surfaced as a FAILED DEPLOY, which is the worst place to find it: after the push, on someone else's
+machine, with the branch already shipped to a preview. It was first run at release close and passed,
+so nothing was hiding. It is in the list now because "it passed" is not the same as "it was
+checked".
 
 A unit that cannot go green does not get committed. A unit that turns parity red is **reverted, not patched forward**.
 
@@ -241,6 +252,7 @@ Cut per-hull Standard-Issue magnitudes so **total offense per hull lands where t
 
 - Every unit gated green and committed, one concern per commit.
 - `npm run check` 0 errors, 2 expected RadialWeb warnings.
+- `npm run build` succeeds. See the gate block at the top for why this is not optional.
 - Full suite green; the excluded parity run printing **exactly 101**.
 - Every new parity case in a NEW file added to the exclusion list.
 - No em dashes anywhere. INSTALL terminology throughout.
