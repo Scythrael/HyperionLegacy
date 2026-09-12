@@ -9,6 +9,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
+	defaultWeaponsForHull,
+	defaultDroneRolesForHull,
 	shipToCombatant,
 	sampleLoadout,
 	COMBAT_DEFAULT_LOADOUT,
@@ -310,10 +312,12 @@ describe("bridged Combatant is valid resolveBattle input", () => {
 // which the fold adds/multiplies so an SI set still lands on the hull's authored totals (byte-identical).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
 	return {
-		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+		// 0.13.5 F5: defaultWeaponsForHull, NOT the raw signature list, because that is what the real
+		// caller (tick.ts) passes: every hardpoint is filled, so no ship is seeded with an empty slot.
+		signatureWeapons: defaultWeaponsForHull(hull),
 		// Unit 2.3a: the hull's default drone-pod roles (carrier ["attack"], else []), so the seeded
 		// carrier gear includes its attack pod and the fold reproduces its default squadron.
-		droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
+		droneRoles: defaultDroneRolesForHull(hull),
 		shieldCapacity: SI_EMITTER_CAP,
 		shieldRecharge: SI_EMITTER_RECHARGE,
 		hullStrength: SI_PLATING_HP,

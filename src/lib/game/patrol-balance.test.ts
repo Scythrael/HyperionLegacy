@@ -48,6 +48,8 @@ import { dispatchCaptainOnPatrol, economyTick, installMissingCombatBaselines } f
 // Combat 1.0 Unit 2.5b (the SHOWCASE-PATROL block below only): the forecast path App.svelte's
 // dispatch card shows, so the block asserts the exact Threat Assessment band a player reads.
 import {
+	defaultWeaponsForHull,
+	defaultDroneRolesForHull,
   COMBAT_DEFAULT_LOADOUT,
   installedDronesForPatrol,
   defaultSystemDurabilityForHull,
@@ -201,8 +203,10 @@ const FORECAST_SAMPLES = 64;
 // the hull's innate stats, so the win-rate bands below are unchanged (byte-identical SI combatant).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
   return {
-    signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
-    droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
+    // 0.13.5 F5: defaultWeaponsForHull, NOT the raw signature list, because that is what the real
+    // caller (tick.ts) passes: every hardpoint is filled, so no ship is seeded with an empty slot.
+    signatureWeapons: defaultWeaponsForHull(hull),
+    droneRoles: defaultDroneRolesForHull(hull),
     shieldCapacity: SI_EMITTER_CAP,
     shieldRecharge: SI_EMITTER_RECHARGE,
     hullStrength: SI_PLATING_HP,
@@ -237,15 +241,18 @@ function craftedGear(hull: CombatHullType, shipId: string): EquipmentInstance[] 
   const alloc = idAllocator("crafted");
   const rarity = "radiant" as const;
   const quality = 5;
-  const weapons = COMBAT_DEFAULT_LOADOUT[hull].weapons.map((weaponType: WeaponId) =>
+  // 0.13.5 F5: the FULL hardpoint count, so crafted and Standard-Issue fill the SAME number of
+  // slots and any win-rate gap is gear POWER alone (the whole point of this fixture).
+  const weapons = defaultWeaponsForHull(hull).map((weaponType: WeaponId) =>
     generateWeapon({ weaponType, blueprintKey: null, iLevel: 40, quality, rarity, ascension: "none", rng, allocateId: alloc }),
   );
   const emitter = generateEquipment({ slotType: "shieldEmitters", varietyKey: "capacitorBank", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc });
   const plating = generateEquipment({ slotType: "hullPlating", varietyKey: "reinforcedPlating", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc });
   const pieces: EquipmentInstance[] = [...weapons, emitter, plating];
   // Carrier: mint a crafted attack pod so its drone screen scales with gear too.
-  if (COMBAT_DEFAULT_LOADOUT[hull].droneRoles.length > 0) {
-    pieces.push(generateDronePod({ droneRole: "attack", blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc }));
+  // 0.13.5 F5: one crafted pod per BAY, matching the Standard-Issue screen.
+  for (const droneRole of defaultDroneRolesForHull(hull)) {
+    pieces.push(generateDronePod({ droneRole, blueprintKey: null, iLevel: 90, quality, rarity, ascension: "none", rng, allocateId: alloc }));
   }
   return pieces.map((p) => ({ ...p, fittedToShipId: shipId }));
 }

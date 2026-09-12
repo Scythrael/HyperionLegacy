@@ -196,10 +196,21 @@ describe("rewards on WIN only", () => {
     const dispatched = dispatch(patrolState("destroyer", 3), true);
     const cap = dispatched.captains[0];
     const m = cap.mission as PatrolMissionState;
-    // Force a loss on the first wave (sliver hull, no shield): the patrol ends with 0 wins.
+    // Force a loss on the first wave: the patrol ends with 0 wins.
+    //
+    // ⚠️ 0.13.5 F5: A SLIVER HULL IS NO LONGER ENOUGH, and the fixture is re-tuned rather than the
+    // assertion relaxed. It used to set playerHull 5 / playerShield 0 and rely on 5 HP being
+    // unsurvivable. F5 fills every hardpoint, so a destroyer now carries four guns instead of two
+    // and can KILL THE WAVE BEFORE IT DIES: low hull stopped implying a loss once offense doubled.
+    //
+    // Stripping the ship's INSTALLED GEAR alongside the sliver hull restores a genuine guaranteed
+    // defeat: no weapons means no kills, so the wave cannot be won at any hull value. Editing the
+    // expectation instead would have deleted this case's entire purpose, since it exists to prove
+    // a LOST wave awards nothing.
     const wounded: GameState = {
       ...dispatched,
-      captains: [{ ...cap, mission: { ...m, playerHull: 5, playerShield: 0 } }],
+      equipment: dispatched.equipment.filter((e) => e.slotType !== "weapon" && e.slotType !== "droneBay"),
+      captains: [{ ...cap, mission: { ...m, playerHull: 5, playerShield: 0, playerDrones: [] } }],
     };
 
     const done = stepped(wounded, ROUTE_LEN + 4);

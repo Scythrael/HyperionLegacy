@@ -78,7 +78,7 @@ import { EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 import { MAX_CAPTAIN_NAME } from "./captainName"; // Renamable Ships: shared name-length ceiling (renameShip reuses the captain-name gate)
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import type { CraftLine } from "./allocation"; // Task 19: fabricate-line parity fixtures
-import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge"; // Combat 1.0 (Unit 1.3): per-hull signature weapon
+import { COMBAT_DEFAULT_LOADOUT, defaultWeaponsForHull } from "./combat/bridge"; // Combat 1.0 (Unit 1.3): per-hull signature weapon
 
 function missionCaptain(
   // Mission Rework (Task 1): widened from the 2 ore-run keys to the full MissionKey
@@ -4876,9 +4876,11 @@ describe("shipBuild completion installs the combat baseline on every hull (Comba
   it("a newly-built COMBAT hull (destroyer) is born with its full combat set: 4 economy + (loadout weapons + shield + plating)", () => {
     const { next, newShipId, newShip } = buildHull("destroyer");
     expect(newShip.typeKey).toBe("destroyer");
-    // Combat 1.0 (Unit 1.4): the baseline mints ONE weapon per hull hardpoint (the FULL default
-    // loadout), so a destroyer (2-weapon loadout) is born with 4 economy + 2 weapons + shield + plating.
-    const loadout = COMBAT_DEFAULT_LOADOUT.destroyer.weapons;
+    // Combat 1.0 (Unit 1.4): the baseline mints ONE weapon per hull hardpoint.
+    // ⚠️ 0.13.5 F5: now literally one per HARDPOINT, so a destroyer is born with 4 weapons (its 2
+    // signature guns plus 2 autocannons) rather than 2. Derived from the padded helper so a hull
+    // retune moves this with the data.
+    const loadout = defaultWeaponsForHull("destroyer");
     const fitted = next.equipment.filter((e) => e.fittedToShipId === newShipId);
     expect(fitted).toHaveLength(4 + loadout.length + 2);
     // Every required combat slot is present (dispatchable), plus the four economy slots.

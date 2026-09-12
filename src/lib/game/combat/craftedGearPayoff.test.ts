@@ -31,6 +31,8 @@
 
 import { describe, it, expect } from "vitest";
 import {
+	defaultWeaponsForHull,
+	defaultDroneRolesForHull,
 	shipToCombatant,
 	COMBAT_DEFAULT_LOADOUT,
 	type CombatHullType,
@@ -65,9 +67,11 @@ const SHIP_ID = "ship-1";
 // by the same innate mult (so crafted defense clears the modest SI floor with real margin).
 function combatSpecFor(hull: CombatHullType): CombatStandardIssueSpec {
 	return {
-		signatureWeapons: [...COMBAT_DEFAULT_LOADOUT[hull].weapons],
+		// 0.13.5 F5: defaultWeaponsForHull, NOT the raw signature list, because that is what the real
+		// caller (tick.ts) passes: every hardpoint is filled, so no ship is seeded with an empty slot.
+		signatureWeapons: defaultWeaponsForHull(hull),
 		// Unit 2.3a: the hull's default drone-pod roles (destroyer under test has none).
-		droneRoles: [...COMBAT_DEFAULT_LOADOUT[hull].droneRoles],
+		droneRoles: defaultDroneRolesForHull(hull),
 		shieldCapacity: SI_EMITTER_CAP,
 		shieldRecharge: SI_EMITTER_RECHARGE,
 		hullStrength: SI_PLATING_HP,
@@ -151,7 +155,10 @@ function craftedGear(shipId: string, defenseILevel: number = CRAFTED_DEFENSE_ILE
 	// One shared seeded stream drives the whole mint so the set is reproducible.
 	const rng = mulberry32(90210);
 	const alloc = idAllocator("crafted");
-	const weaponTypes = COMBAT_DEFAULT_LOADOUT[HULL].weapons;
+	// 0.13.5 F5: the FULL hardpoint count, matching the Standard-Issue set this is compared against.
+	// A crafted fixture that minted only the signature weapons would be comparing 2 crafted guns to 4
+	// free ones, which measures slot COUNT rather than gear QUALITY.
+	const weaponTypes = defaultWeaponsForHull(HULL);
 
 	// Crafted weapons, in the SAME loadout order the Standard-Issue set mints them,
 	// so shipToCombatant reconstructs them in the same slot order (by-index alignment).

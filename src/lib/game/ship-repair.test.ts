@@ -106,13 +106,26 @@ function stepped(state: GameState, n: number): GameState {
 // Dispatch a REPEAT patrol on a destroyer, then wound the carry-state to a guaranteed loss
 // (sliver hull, no shield) so the NEXT wave it fights is a certain defeat (robust against any
 // future S20 balance pass). Returns the state poised to lose its first wave.
+// A patrol that WILL lose its first wave.
+//
+// ⚠️ 0.13.5 F5: A SLIVER HULL ALONE NO LONGER GUARANTEES A LOSS, and every case in this file
+// depends on it doing so. The helper used to set playerHull 5 / playerShield 0 and rely on 5 HP
+// being unsurvivable. F5 fills every hardpoint, so a destroyer carries four guns rather than two
+// and can now KILL THE WAVE BEFORE IT DIES: low hull stopped implying defeat the moment offense
+// doubled.
+//
+// Stripping the INSTALLED WEAPONS and DRONES alongside the sliver hull restores a real guaranteed
+// loss: with no offense the wave cannot be won at any hull value. This is a FIXTURE re-tune, not
+// an expectation change, because the cases below exist to prove the limp-home and repair paths
+// work AT ALL. Relaxing them to accept a win would have silently deleted coverage of both.
 function dispatchedIntoCertainLoss(seed = 3): GameState {
   const dispatched = dispatch(patrolState("destroyer", seed), true);
   const cap = dispatched.captains[0];
   const m = cap.mission as PatrolMissionState;
   return {
     ...dispatched,
-    captains: [{ ...cap, mission: { ...m, playerHull: 5, playerShield: 0 } }],
+    equipment: dispatched.equipment.filter((e) => e.slotType !== "weapon" && e.slotType !== "droneBay"),
+    captains: [{ ...cap, mission: { ...m, playerHull: 5, playerShield: 0, playerDrones: [] } }],
   };
 }
 

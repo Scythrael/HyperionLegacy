@@ -3413,7 +3413,9 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.equipment.every((e: any) => e.fittedToShipId === "ship-1")).toBe(true);
     expect(migrated.equipment.every((e: any) => e.blueprintKey === null)).toBe(true);
     expect(typeof migrated.nextEquipmentId).toBe("number");
-    expect(migrated.nextEquipmentId).toBe(8); // advanced past the seven minted ids
+    // ⚠️ 0.13.5 F5: derived from the piece count rather than a literal, since every extra hardpoint
+    // mints one more id. Ids are 1-based, so the NEXT id is count + 1.
+    expect(migrated.nextEquipmentId).toBe(expectedBaselinePieces("generalFreighter") + 1);
     expect(migrated.craftingLevel).toBe(1);
     expect(migrated.craftingXp instanceof Decimal).toBe(true); // hydrated to a LIVE Decimal, not a string/NaN
     expect(migrated.craftingXp.equals(0)).toBe(true);
@@ -3554,11 +3556,13 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     // The full chain runs past the v27->v28 economy seed all the way to SAVE_VERSION, so each of
     // the three economy ships now carries its four economy Standard-Issue baselines PLUS its weak
     // combat set ("every hull is combat-capable": 1 weapon + shield emitter + hull plating = 3).
-    // Three ships × (4 economy + 3 combat) = 21 baselines, ids unique + monotonic.
-    expect(migrated.equipment).toHaveLength(21);
+    // ⚠️ 0.13.5 F5: derived, because each economy hull now fills BOTH its hardpoints. Three ships
+    // times the per-hull piece count, rather than a literal that a retune would invalidate.
+    const expectedTotal = 3 * expectedBaselinePieces("generalFreighter");
+    expect(migrated.equipment).toHaveLength(expectedTotal);
     const ids = migrated.equipment.map((e: any) => e.id);
-    expect(new Set(ids).size).toBe(21); // all unique
-    expect(migrated.nextEquipmentId).toBe(22); // advanced past all twenty-one
+    expect(new Set(ids).size).toBe(expectedTotal); // all unique
+    expect(migrated.nextEquipmentId).toBe(expectedTotal + 1); // advanced past every minted id
 
     for (const shipId of ["ship-1", "ship-2", "ship-3"]) {
       // This test owns the ECONOMY Standard-Issue seed; restrict to the four economy live slots
@@ -3642,13 +3646,18 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
     // ends at 1 economy + 3 combat = 4, and ship-2 at 4 economy + 3 combat = 7.
     const ship1 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     const ship2 = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-2");
-    expect(ship1).toHaveLength(4);
+    // ⚠️ 0.13.5 F5: derived. A generalFreighter now carries 2 weapons (2 hardpoints) rather than 1.
+    expect(ship1).toHaveLength(1 + defaultWeaponsForHull("generalFreighter").length + 2);
     expect(ship1.some((e: any) => e.id === "equip-99")).toBe(true); // the pre-existing economy piece survives
     expect(ship1.filter((e: any) => LIVE_SLOTS.includes(e.slotType))).toHaveLength(1); // economy NOT re-seeded
-    expect(ship2).toHaveLength(7);
-    // ship-2 mints 4 economy (100..103) at v27->v28, then the combat seed mints 3 for ship-1
-    // (104..106) + 3 for ship-2 (107..109), so the counter advances to 110.
-    expect(migrated.nextEquipmentId).toBe(110);
+    expect(ship2).toHaveLength(expectedBaselinePieces("generalFreighter"));
+    // ⚠️ 0.13.5 F5: asserted as the INVARIANT rather than as arithmetic. What actually matters is
+    // that the counter is past every id in use, so the next mint cannot collide. The exact number
+    // depends on how many pieces each hull now needs, which is precisely the thing F5 changed and
+    // a future retune will change again; pinning it to a literal would mean recomputing it by hand
+    // every time, and getting that wrong is silent.
+    const usedIds = migrated.equipment.map((e: any) => Number(String(e.id).replace("equip-", "")));
+    expect(migrated.nextEquipmentId).toBeGreaterThan(Math.max(...usedIds));
   });
 });
 
@@ -4137,9 +4146,11 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     expect(before).toHaveLength(4);
     expect(before.some((e: any) => e.slotType === "weapon")).toBe(false);
 
-    // Combat 1.0 (Unit 1.4): the baseline now mints one weapon per hull hardpoint (the FULL default
-    // loadout), not just the signature gun, so a destroyer gets its 2 weapons + shield + plating.
-    const loadout = COMBAT_DEFAULT_LOADOUT.destroyer.weapons;
+    // Combat 1.0 (Unit 1.4): the baseline mints one weapon per hull hardpoint.
+    // ⚠️ 0.13.5 F5: that is now literally true. The loadout is the PADDED list (signature weapons
+    // plus autocannons up to weaponHardpoints), so a destroyer gets 4 weapons rather than 2.
+    // Derived, so a hull retune moves this expectation instead of breaking it.
+    const loadout = defaultWeaponsForHull("destroyer");
     const migrated: any = migrate(save);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     expect(fitted).toHaveLength(4 + loadout.length + 2); // 4 economy + (N weapons + shield + plating)
@@ -4162,7 +4173,7 @@ describe("migrate, Standard-Issue combat baseline seed (v33 -> v34)", () => {
     expect(remigrated.equipment.length).toBe(countAfterFirst); // no double-seed
     expect(remigrated.nextEquipmentId).toBe(nextIdAfterFirst);
     expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon")).toHaveLength(
-      COMBAT_DEFAULT_LOADOUT.destroyer.weapons.length,
+      defaultWeaponsForHull("destroyer").length,
     );
   });
 
@@ -4225,13 +4236,18 @@ describe("migrate, Standard-Issue drone-pod baseline seed (v34 -> v35)", () => {
 
     const migrated: any = migrate(save);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
-    // Exactly ONE Standard-Issue attack drone pod is now installed (the carrier's built-in squadron).
+    // ⚠️ 0.13.5 F5: a pod per BAY, not one pod. A carrier has two bays and used to ship with one
+    // filled; both are now seeded, so its second bay is no longer empty on a fresh hull.
     const pods = fitted.filter((e: any) => e.slotType === "droneBay");
-    expect(pods).toHaveLength(1);
-    expect(pods[0].droneRole).toBe("attack");
+    expect(pods).toHaveLength(defaultDroneRolesForHull("carrier").length);
+    expect(pods.every((p: any) => p.droneRole === "attack")).toBe(true);
     expect(pods[0].quality).toBe(0); // the quality-0 floor -> the default squadron on the fold
-    // The pre-existing weapon/shield/plating are UNTOUCHED (only the pod was appended).
-    expect(fitted.filter((e: any) => e.slotType === "weapon")).toHaveLength(weaponCountBefore);
+    // ⚠️ 0.13.5 F5: the pre-existing weapons are untouched, but this is no longer a pod-only
+    // append: a carrier has TWO hardpoints and shipped with one filled, so the migration now adds
+    // the second gun as well. The claim that still holds, and is the one this case is about, is
+    // that nothing is REMOVED, so the count can only have grown.
+    expect(fitted.filter((e: any) => e.slotType === "weapon").length).toBeGreaterThanOrEqual(weaponCountBefore);
+    expect(fitted.filter((e: any) => e.slotType === "weapon")).toHaveLength(defaultWeaponsForHull("carrier").length);
     expect(fitted.filter((e: any) => e.slotType === "shieldEmitters")).toHaveLength(1);
     expect(fitted.filter((e: any) => e.slotType === "hullPlating")).toHaveLength(1);
   });
@@ -4245,7 +4261,9 @@ describe("migrate, Standard-Issue drone-pod baseline seed (v34 -> v35)", () => {
     const remigrated: any = migrate(reSave);
     expect(remigrated.equipment.length).toBe(countAfterFirst); // no double-seed
     expect(remigrated.nextEquipmentId).toBe(nextIdAfterFirst);
-    expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "droneBay")).toHaveLength(1);
+    expect(remigrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "droneBay")).toHaveLength(
+      defaultDroneRolesForHull("carrier").length,
+    );
   });
 
   it("leaves a non-carrier combat hull (destroyer, no bays) untouched: no drone pod seeded", () => {
@@ -4307,7 +4325,7 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
     const migrated: any = migrate(save);
     const fitted = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1");
     // Now 4 economy + the weak combat set (its 1-autocannon default loadout + shield + plating = 3).
-    expect(fitted).toHaveLength(7);
+    expect(fitted).toHaveLength(expectedBaselinePieces("generalFreighter"));
     // 0.13.5 F5: the full padded loadout, derived, not the signature list.
     expect(fitted.filter((e: any) => e.slotType === "weapon").map((e: any) => e.weaponType)).toEqual(
       defaultWeaponsForHull("generalFreighter"),
@@ -4357,7 +4375,8 @@ describe("migrate, every-hull combat baseline seed (v35 -> v36)", () => {
     const nextIdAfterFirst = migrated.nextEquipmentId;
     // The destroyer keeps EXACTLY its full loadout (no extra weapon/shield/plating minted).
     const destroyerWeapons = migrated.equipment.filter((e: any) => e.fittedToShipId === "ship-1" && e.slotType === "weapon");
-    expect(destroyerWeapons).toHaveLength(COMBAT_DEFAULT_LOADOUT.destroyer.weapons.length);
+    // 0.13.5 F5: the PADDED loadout, so a destroyer carries one weapon per hardpoint.
+    expect(destroyerWeapons).toHaveLength(defaultWeaponsForHull("destroyer").length);
     // Re-stamp to v35 and migrate again: nothing more is seeded (idempotent).
     const reSave = deserialize(serialize(migrated, 0)) as SaveFile;
     reSave.version = 35;
@@ -4430,7 +4449,9 @@ describe("migrate, v36 -> v37 is a no-op pass-through (deletes nothing)", () => 
     ]) {
       expect(ids.has(id)).toBe(true);
     }
-    expect(migrated.equipment).toHaveLength(inputCount); // NOTHING removed
+    // ⚠️ 0.13.5 F5: at LEAST the input count, not exactly it. The claim is that nothing is REMOVED;
+    // the v46 step legitimately adds pieces for hardpoints that were empty.
+    expect(migrated.equipment.length).toBeGreaterThanOrEqual(inputCount); // NOTHING removed
     const stamped = deserialize(serialize(migrated, 0)) as SaveFile;
     expect(stamped.version).toBe(47);
     expect(SAVE_VERSION).toBe(47);
@@ -4750,7 +4771,15 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
     expect(migrated.activeProcesses[0].effect.amount.toNumber()).toBe(1); // still a live Decimal
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
     expect(migrated.ships).toEqual(before.ships);
-    expect(migrated.equipment).toEqual(before.equipment);
+    // ⚠️ 0.13.5 F5: a SUBSET check, not equality, and the distinction is the point. This case is
+    // about what THIS STEP does to equipment (nothing), but migrate() runs the WHOLE CHAIN to
+    // SAVE_VERSION, and the v46 step now APPENDS the pieces that fill previously-empty hardpoints.
+    // So the honest assertion is "every existing piece survives UNCHANGED", which is what the case
+    // always meant. Asserting exact equality would force this test to fail for a correct addition,
+    // and "fixing" it by baking in the new array would stop it checking preservation at all.
+    for (const piece of before.equipment) {
+      expect(migrated.equipment, `piece ${piece.id} was removed or rewritten`).toContainEqual(piece);
+    }
     // GRANDFATHERED ON PURPOSE: the crafting track is never recomputed by this step.
     expect(migrated.craftingLevel).toBe(7);
     expect(migrated.craftingXp.toNumber()).toBe(4321);
@@ -5076,8 +5105,12 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
     // The confirm interlock is untouched, which matters most: it is the guard that decides what
     // the automation may take at all.
     expect(migrated.salvageConfirmQualities).toEqual([4, 5]);
-    // Nothing is added to or removed from the pool, and no piece is rewritten.
-    expect(migrated.equipment).toEqual(before.equipment);
+    // ⚠️ 0.13.5 F5: no piece is REMOVED or REWRITTEN by this step, which is what this case is
+    // about. The whole chain does ADD pieces now (the v46 step fills empty hardpoints), so this is
+    // a subset check rather than equality. See the matching note in the v39 case above.
+    for (const piece of before.equipment) {
+      expect(migrated.equipment, `piece ${piece.id} was removed or rewritten`).toContainEqual(piece);
+    }
     expect(migrated.equipment.some((e: any) => e.id === "equip-99")).toBe(true);
     // The in-flight queue survives, so a salvage already ordered still resolves.
     expect(migrated.processQueue).toEqual(before.processQueue);

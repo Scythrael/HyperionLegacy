@@ -33,7 +33,7 @@ import {
   installMissingCombatBaselines,
 } from "./tick";
 import { planWaveSchedule } from "./combat/waveSchedule";
-import { defaultDronesForHull, squadronFromPod } from "./combat/bridge";
+import { defaultDroneRolesForHull, defaultDronesForHull, squadronFromPod } from "./combat/bridge";
 
 const PATROL_KEY = "crimsonReaverSweep";
 
@@ -200,9 +200,10 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", false);
     expect(result.success).toBe(true);
     const mission = result.next.captains[0].mission as PatrolMissionState;
-    // Carrier default loadout fields exactly one Attack squadron (COMBAT_DEFAULT_LOADOUT).
-    expect(mission.playerDrones.length).toBe(1);
-    expect(mission.playerDrones[0].role).toBe("attack");
+    // ⚠️ 0.13.5 F5: a squadron per BAY. A carrier has two bays and used to ship with one filled;
+    // both are now seeded, so its default screen is two Attack squadrons rather than one.
+    expect(mission.playerDrones.length).toBe(defaultDroneRolesForHull("carrier").length);
+    expect(mission.playerDrones.every((d) => d.role === "attack")).toBe(true);
     expect(mission.playerHull).toBe(SHIP_TYPES.carrier.hullIntegrity);
     // Combat 1.0 (Unit 2.3b): a Standard-Issue carrier now seeds its carry-state from its INSTALLED
     // attack pod, which must be BYTE-IDENTICAL to the old hull-default seed (defaultDronesForHull), so
@@ -236,10 +237,13 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     expect(result.success).toBe(true);
     const mission = result.next.captains[0].mission as PatrolMissionState;
 
-    // The patrol now carries a DEFENSE squadron (not the hull-default attack screen): the crafted pod
-    // reached the field.
-    expect(mission.playerDrones.length).toBe(1);
-    expect(mission.playerDrones[0].role).toBe("defense");
+    // ⚠️ 0.13.5 F5: the claim is that the CRAFTED pod reached the field, and that still holds. What
+    // changed is that it is no longer the ONLY squadron: a carrier has two bays, so the crafted
+    // defense pod now flies ALONGSIDE a Standard-Issue one rather than replacing the whole screen.
+    // Asserting membership rather than exclusivity keeps the original claim intact; asserting
+    // length 1 would now be testing "the second bay is empty", which is the thing F5 fixed.
+    expect(mission.playerDrones.length).toBe(defaultDroneRolesForHull("carrier").length);
+    expect(mission.playerDrones.some((d) => d.role === "defense")).toBe(true);
     // And it is the EXACT reconstruction the combat bridge produces from that pod (one source of truth),
     // keyed to the patrol's master seed, so the live seed and the display replay stay byte-identical.
     expect(mission.playerDrones[0]).toEqual(
