@@ -1517,6 +1517,33 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - **Cheap seam to reuse:** the talent-web linkage pulse already exists, so the animation technique
     is proven in this codebase; the work is re-tuning it down, not inventing it.
 
+- **⭐ F5: STANDARD-ISSUE FILLS EVERY SLOT. Scheduled for 0.13.5 or 0.13.6 (user, 2026-09-11).**
+  Peeled out of 0.13.4 at build time and still owed a decision before it can be built. Full analysis
+  in `docs/plans/2026-09-11-infrastructure-0.13.4-design.md` section 16, and the blocker in 16.7.
+  - **What it is:** every hull ships a Standard-Issue piece in EVERY hardpoint and drone bay. Today
+    five of seven hulls ship with empty slots (a battleship has 6 hardpoints and 3 guns).
+  - **The user's deciding argument, which is a DEAD-END argument and not a power one:** "There's no
+    great reason to limit/remove weapons. It'd be a softlock in the same way if they weren't an
+    option. Except that you can be dispatched and will lose guaranteed." An empty hardpoint is the
+    0.13.3.1 empty-slot shape one step weaker: the ship still flies, so the game's only answer to
+    "why did that go badly" is a slot the player never knew was empty.
+  - ⚠️ **THE BLOCKER: THE RETUNE LEVER DOES NOT EXIST.** The agreed middle path was "same power
+    spread thinner", cutting per-hull magnitudes to offset the extra guns. A Standard-Issue WEAPON
+    carries NO per-instance magnitude (its own spec comment: "its yield bonus is always 0; the base
+    WEAPON_DEF carries the real stats"). Shield emitters and hull plating take per-hull numbers;
+    weapons and drone pods do not. Editing WEAPON_DEFS would retune every instance of that weapon in
+    the game, crafted ones included.
+  - **Three routes, ALL of which change what was agreed** (16.7 has the full table): (A) fill the
+    spare hardpoints with the floor gun and re-tune the patrol ladder, (B) add a per-instance weapon
+    magnitude to the item layer, (C) accept the power increase and re-balance. **Recommend A**, but
+    it needs the user's explicit agreement because they chose the middle path specifically on the
+    basis that it was balance-neutral, and A is not.
+  - **Gate:** `patrol-balance.test.ts` is the acceptance test, not advisory. Every economy hull must
+    still land below the destroyer on both encounters.
+  - **Needs a SAVE_VERSION bump and a migration** that mints the missing pieces onto existing ships,
+    or an old hull and a new one of the same class differ invisibly in the same fleet. One question
+    open there too: whether the migration also rewrites magnitudes on already-owned pieces.
+
 - **⭐ STANDARDIZE THE PATCH-NOTE FORMAT (user, 2026-09-10, "a thing for future me").** Every release so far has had its notes written fresh, and they have drifted: 0.13.3's first draft was long enough that it did not fit a Discord post and had to be rewritten by hand after the fact. There are effectively THREE audiences and they want different lengths, which is the actual problem: the **in-game Patch Notes tab** (long, complete, one paragraph per release, the current `PATCH_NOTES` shape), the **landing page news strip** (short), and a **Discord post** (hard 2,000 character ceiling, skimmable, bold headers).
   - Worth defining once: a section order (headline feature, then supporting features, then fixes, then the save-safety line), a rule for what earns a bold header, and a length target per audience.
   - ⚠️ **The real prize is deriving them from ONE source rather than writing three.** `patchNotes.ts` is already single-sourced between the game and the landing page (its own header says so). A Discord draft could be generated from the same entry rather than hand-cut, which is exactly the drift this entry exists to stop. If that is too clever, at minimum keep the Discord version IN the repo beside the entry it summarises, so the two are edited together.
