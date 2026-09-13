@@ -17491,6 +17491,10 @@
     .tb-stats { order: 3; flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 22px; }
     .tb-resources { order: 4; flex: 0 0 auto; }
     .top-bar-header .top-bar-gear { order: 5; }
+    /* Desktop re-anchors the popup to its button wrapper (there is room to the right),
+       instead of the mobile full-row clamp above. */
+    .tb-pop-wrap { position: relative; }
+    .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
   }
   /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
      class (0,1,0), this reliably overrides .mission-portrait-frame's own
@@ -17547,8 +17551,13 @@
      ⚠️ The popover is position:absolute inside the header (which IS a stacking layer via
      .top-bar's own z-index), NOT portaled: it belongs to a control that is always in the
      document flow, unlike the settings HelpTip that had to escape a transformed modal. */
-  .tb-resources { display: flex; align-items: center; gap: 8px; }
-  .tb-pop-wrap { position: relative; display: inline-flex; }
+  /* ⚠️ position:relative here (not on .tb-pop-wrap) so that on MOBILE the popup anchors to the
+     FULL-WIDTH resource ROW, not to its narrow button. A right:0 popup hung off the button ran
+     off the LEFT screen edge (the Fuel button sits mid-row), which is the off-screen bug the user
+     reported. Anchoring to the row lets left/right clamp it to the viewport. Desktop re-anchors it
+     to the button wrapper in the min-width query below, where there is room. */
+  .tb-resources { display: flex; align-items: center; gap: 8px; position: relative; }
+  .tb-pop-wrap { position: static; display: inline-flex; }
   .tb-hbtn {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 4px 9px;
@@ -17570,10 +17579,12 @@
   .tb-pop {
     position: absolute;
     top: calc(100% + 6px);
-    right: 0;
+    /* MOBILE: pinned to both edges of the resource row so it can never leave the viewport. */
+    left: 8px;
+    right: 8px;
     z-index: 5;
-    width: max-content;
-    max-width: 260px;
+    width: auto;
+    max-width: none;
     padding: 8px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: 6px;
