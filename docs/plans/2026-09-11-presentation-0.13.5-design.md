@@ -192,6 +192,128 @@ missed the intent.
 
 ---
 
+## PHASE 3 BRIEF 2: THE OPTIONS INFORMATION ARCHITECTURE (added 2026-09-12, user)
+
+The header redesign brief above is the first mockup subject; this is the second, and the two are
+connected (ask 1 of the header brief IS the gear button this brief depends on). Recorded now while
+the reasoning is fresh. ⚠️ **Nothing here is built yet, at the user's own instruction ("should
+ultimately be flagged for implementation, likely in a later phase still").**
+
+### What the user asked for
+
+1. **The Salvage Bay RULES move into Options > Gameplay** and become the real editor there, not a
+   link. The Gameplay section becomes "the new and improved version of the rules section".
+2. **Auto-Salvage gets a TOGGLE**, specifically a square-cornered slider rather than the usual pill:
+   off is left and greyed a little, on is right and brighter with the knob glowing in the current
+   theme. ⚠️ **When it is ON, the quality and rarity checkboxes appear**, plus a **"Duplicates Only"**
+   checkbox. (iPhone-settings shape, squared off.)
+3. **SAVE DATA moves to a new tab named SYSTEM**, placed last, after Accessibility. It becomes the
+   home for 0.14.0 save handling (delete, maybe cloud, maybe a force-save).
+4. **A "UI THEME" section** for background visualisation, skin, colour theme and so on.
+5. **Options leaves the portrait modal and gets its own header button.** Profile stays in the portrait
+   modal, which may become account-wide detail.
+6. Open, and asked of me directly: does Save Data deserve its own tab or should it be folded in? Does
+   everything except Profile move to System? **"It is hard to tell if I am trying to organise things
+   too heavily."**
+
+### ⚠️ FOUR FINDINGS BEFORE ANY OF IT IS DESIGNED
+
+**(a) "Duplicates Only" ALREADY EXISTS, so item 2 is smaller than it looks.** `AutoSalvageRules`
+carries `duplicates: boolean` ("auto-queue duplicates beyond keepPerVariety") alongside
+`keepPerVariety`, which is fixed at 1 this release. So the ask is a presentation change, not engine
+work: the rule is live and already honoured offline. Same for the master switch, which is
+`enabled: boolean` today, rendered as a plain checkbox. **The toggle is a reskin of an existing
+control, not a new capability.**
+
+**(b) ⚠️ "CHECKBOXES FOR QUALITY" COLLIDES WITH A DELIBERATE DECISION, and the reason is written into
+the code.** Auto-salvage quality is `maxQuality: number | null`, rendered as a SELECT on purpose:
+
+> A SELECT, NOT A CHECKBOX, and deliberately. maxQuality has THREE kinds of value, not two: null
+> means the rule is off, and 0 is a real and useful setting ("Q0 and below"). A truthy control would
+> collapse those two into one and quietly turn the most common setting into no rule at all.
+
+It is likely the user is picturing the **per-quality salvage CONFIRM** checkboxes (Q0 to Q5, which
+genuinely are checkboxes and sit in the same console), and reasonably expects the two quality
+controls to look alike. Two routes, and the second is a save change:
+
+| Route | What it is | Cost |
+|---|---|---|
+| **Keep the threshold** | Quality stays a select ("Q3 and below"), rarities stay checkboxes. | Free. But two quality controls in one facility look different, which is what prompted the ask. |
+| **Make quality a SELECTION** (worth considering) | `maxQuality` becomes a per-tier record like `rarities`, so every quality control in the game is a checkbox row. No tier checked means the rule is off, which dissolves the three-state problem rather than working around it. | A save-shape change plus a migration (threshold N becomes tiers 0..N checked). Strictly more expressive: a player could auto-salvage Q0 and Q4 while keeping Q1 to Q3, which a threshold cannot say. |
+
+**(c) THE SQUARE TOGGLE IS A NEW CONTROL PRIMITIVE AND SHOULD BE BUILT AS ONE.** It will not stay in
+one place: the moment it exists, every boolean in the options screens will want it. So it is a
+component (`Toggle.svelte`), the way `SettingRow` was, rather than markup pasted into the Salvage Bay.
+Three constraints the mockup must respect:
+
+- ⚠️ **Accessibility.** A styled `<div>` is not a checkbox. It needs `role="switch"`, `aria-checked`,
+  keyboard activation (Space and Enter) and a visible focus ring, or it is a control a keyboard or
+  screen-reader user cannot operate at all. Same class of problem the colour-blot theme picker had.
+- ⚠️ **"Greyed out a bit" must NOT reuse the DISABLED token.** An OFF toggle is not a disabled
+  control: it is fully interactive and its label must stay readable. `--color-text-disabled` exists
+  for controls you cannot use, and a fresh contrast hole is exactly what 0.13.5 just closed twice.
+- **The glow is theme-linked** (`--color-accent`), never a literal, so it recolours with the theme
+  and with a future skin or icon pack.
+
+**(d) PROGRESSIVE DISCLOSURE MUST NOT RESET ANYTHING.** Hiding the quality and rarity rows when the
+toggle is off is good (an off rule's detail is noise), but the values must survive being hidden and
+re-shown. A player who switches auto-salvage off for an evening and back on must find their rules
+exactly as they left them. Hiding is a VIEW change; clearing would be a data change, and this project
+does not silently discard a player's settings.
+
+### MY ANSWERS TO THE OPEN QUESTIONS
+
+**Options in its own header button: yes, and it is ALREADY LOGGED.** Ask 1 of the header brief above
+is a square gear button as a peer control, for the reason given there: a badge on the portrait reads
+as decoration. So item 5 is not new scope, it is confirmation of a direction already recorded. It
+also dissolves the "two instances of System" worry: once Options leaves the portrait, the portrait
+modal is identity and reading material, and System is a tab INSIDE Options. They never appear side
+by side.
+
+**Save Data in its own System tab: yes.** That is why it was pulled out of Visual in the first place:
+it is not a setting, so no intent tab was an honest home and it currently floats below the tab strip.
+A System tab gives it a real one, and 0.14.0's cloud handling needs one anyway. Do NOT fold it into
+another tab; folding is how it ended up under the theme picker.
+
+**"Does everything except Profile move to System?" No, and there is a cleaner cut: SPLIT BY VERB.**
+The portrait modal currently holds Profile, Options, Log, About, Patch Notes, Community and Debug.
+Those are two different kinds of thing:
+
+| Where | What | Why |
+|---|---|---|
+| **Portrait modal** = things you LOOK AT | Profile, Log, About, Patch Notes, Community | None of them changes anything. They are identity and reading material, and a player opening them is browsing, not configuring. Burying Patch Notes inside a System tab of an Options menu would make them harder to find than they are today. |
+| **Gear button** = things you CHANGE | UI Theme, Gameplay, Confirmations, Accessibility, System | Every one of them writes a setting. |
+| **Debug** | into Options > System, still DEV-only | It is a settings-shaped tool, not reading material. |
+
+That split is predictable without learning a taxonomy, which is the real test of whether an
+information architecture works.
+
+**"Am I organising too heavily?" One specific place, yes: item 4 collides with a tab that exists.**
+"UI Theme" holding background visualisation, skin and colour theme describes what the **Visual** tab
+already holds (theme dropdown, tick bar, tick-bar style). Adding UI Theme beside Visual would give
+the player two tabs that both plausibly own "where is the theme?", which is the exact failure the
+intent tabs were created to fix. **Recommendation: RENAME Visual to UI Theme (or Appearance) and let
+it absorb skins and backgrounds.** Five tabs, not six:
+
+```
+UI Theme  |  Gameplay  |  Confirmations  |  Accessibility  |  System
+```
+
+Everything else in the ask adds a tab holding something genuinely distinct, so the count is earned
+rather than administrative. ⚠️ **The honest ceiling is around five or six**: past that a player hunts
+instead of predicting, and the requirement was "easy to sus out based on the tab selection".
+
+### What the mockup must answer
+
+1. The square toggle at a real touch-target size, in all three states (off, on, focused).
+2. Whether the migrated rules panel keeps its current density inside an Options tab, which is
+   narrower than the facility console it lives in today.
+3. Whether quality becomes a checkbox row (finding b) BEFORE the panel is drawn, since it changes the
+   panel's shape.
+4. Where the gear button sits, which the header brief above already has to answer.
+
+---
+
 ## PHASES 2 TO 6
 
 Designed after phase 1 lands, so the mockups (phase 3) can react to what the token layer actually looks like on screen rather than to a description of it. The scope document holds their contents and ordering.
