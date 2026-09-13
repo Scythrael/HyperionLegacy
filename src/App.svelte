@@ -2471,13 +2471,24 @@
   // It earns one: the cluster is a preset dropdown plus a help box plus every individual checkbox,
   // which would dominate a tab it was only a guest in. Gameplay keeps what is genuinely about what
   // the game DOES on its own (the auto-salvage rules), and Confirmations holds what it ASKS.
-  type OptionsTab = "visual" | "gameplay" | "confirmations" | "accessibility";
+  // The SUBTABS of the Settings tab, in the user's Window / Tab / Subtab / Section vocabulary
+  // (2026-09-12). ⚠️ "Save Data" is named for WHAT IT HOLDS rather than for its category: the
+  // obvious category name would be "System", and System > Settings > System pushes the exact
+  // duplication this renaming set out to remove down one level instead of removing it. It holds one
+  // thing today, so the concrete name costs nothing and can widen to "Save & Account" when 0.14.0
+  // adds cloud handling.
+  //
+  // ⚠️ A one-item subtab is deliberate. Save Data spent this release's first pass folded into the
+  // Visual tab purely because that tab existed around it, and the result was Export sitting under
+  // the theme picker where nobody would look. A thin, correctly named home beats a fat wrong one.
+  type OptionsTab = "visual" | "gameplay" | "confirmations" | "accessibility" | "saveData";
   let activeOptionsTab: OptionsTab = "visual";
   const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
     { key: "visual", label: "Visual" },
     { key: "gameplay", label: "Gameplay" },
     { key: "confirmations", label: "Confirmations" },
     { key: "accessibility", label: "Accessibility" },
+    { key: "saveData", label: "Save Data" },
   ];
 
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
@@ -2498,7 +2509,11 @@
   // DEV_MODE is a constant for the session, so this is a plain const, not a $: reactive.
   const systemModalTabs = [
     { key: "profile", label: "Profile" },
-    { key: "options", label: "Options" },
+    // ⚠️ LABEL "Settings", KEY still "options" (user, 2026-09-12). The key is internal sticky state
+    // and renaming it would touch every switch arm for zero player benefit; the LABEL is what the
+    // player reads. "Settings" was chosen over "Options" because the window is already called
+    // System, and System > Options > System (the old shape) repeated a word at two different levels.
+    { key: "options", label: "Settings" },
     { key: "log", label: "Log" },
     { key: "about", label: "About" },
     { key: "patchNotes", label: "Patch Notes" },
@@ -15849,7 +15864,8 @@
       </Panel>
       {/if}
 
-      <!-- SAVE DATA, OUTSIDE THE INTENT TABS ON PURPOSE (0.13.5 Phase 1).
+      {#if activeOptionsTab === "saveData"}
+      <!-- SAVE DATA, now its own SUBTAB (0.13.5, user 2026-09-12).
            These three controls spent 0.13.5's first pass inside the VISUAL tab, which was simply
            where they already were when the tab existed around them. They are not settings: nothing
            here is a preference that persists a choice, they are one-shot ACTIONS on the save file,
@@ -15859,8 +15875,10 @@
            has no honest tab to sit in. Filing it under Visual actively misled: a player looking for
            Export would never think to look under the tab that holds the theme picker.
 
-           It sits BELOW the tab strip rather than inside it, so it is reachable from every tab and
-           belongs to none, the same posture the Salvage Bay note takes in Gameplay. -->
+           It first shipped BELOW the tab strip, reachable from every subtab and belonging to none,
+           which was the right call while there were only intent subtabs to choose between. Giving it
+           its own named subtab is better: a floating panel under a tab strip has no address a player
+           can be told to go to, and "Settings > Save Data" does. -->
       <Panel>
         <div class="panel-title">SAVE DATA</div>
         <p class="prestige-text">One-off actions on your save file rather than settings. Export writes a copy you can keep or move to another device; Import replaces what is here with a copy.</p>
@@ -15879,6 +15897,7 @@
           <button class="dev-btn danger" on:click={() => (deleteModalOpen = true)}>Delete Save</button>
         </div>
       </Panel>
+      {/if}
       {/if}
 
       {#if DEV_MODE && activeSystemSubTab === "debug"}

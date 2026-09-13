@@ -422,6 +422,75 @@ when the list has two entries.**
 
 ---
 
+### ⚠️ REVISION 3 (user, 2026-09-12). THE NAMING CONVENTION. Supersedes revision 2's tab list.
+
+**The user established a four-level vocabulary, and it should be used in every doc and commit from
+here on, because most of the confusion in revisions 1 and 2 was two people using "tab" for three
+different things:**
+
+| Level | Meaning | Example |
+|---|---|---|
+| **WINDOW** | The modal the portrait opens | **System** |
+| **TAB** | A top-level destination inside a window | Patch Notes, Community, Bug Report, **Settings**, About |
+| **SUBTAB** | A grouping inside a tab | **UI**, Gameplay, Confirmations |
+| **SECTION** | A labelled block inside a subtab | **Salvage Bay**, UI Theme, Accessibility, Combat Log |
+
+**WHAT THIS CHANGES FROM REVISION 2, and why my "COMMS" suggestion was wrong.** I proposed renaming
+the window because I had assumed Settings would leave it for a gear button. The user corrected the
+premise: **Settings STAYS in the System window, as a TAB.** So the window still holds settings plus
+reading material, which makes any communication-flavoured name a lie. The window keeps the name
+**System**, and the disambiguation happens one level down instead.
+
+**THE RESOLVED STRUCTURE:**
+
+```
+WINDOW   System
+  TAB      Patch Notes
+  TAB      Community
+  TAB      Bug Report        <- was "Log"; error log + compose-and-post-to-Discord
+  TAB      Settings          <- was "Options"
+    SUBTAB   UI              <- Visual and Accessibility MERGED
+      SECTION  UI Theme
+      SECTION  Accessibility
+      SECTION  Tick bar
+      SECTION  Readouts
+      SECTION  Combat Log
+    SUBTAB   Gameplay
+      SECTION  Salvage Bay   <- the rules panel MOVES here from the facility
+    SUBTAB   Confirmations
+    SUBTAB   ???             <- see the open question below
+  TAB      About             <- last
+```
+
+⚠️ **"UI" ABSORBS ACCESSIBILITY AS A SECTION** (user), which also retires the "UI Settings" name from
+revision 2. Shorter is better here: the tab is already called Settings, so "UI Settings" would have
+repeated the word. The accessibility-discoverability caution from revision 2 still stands: keep the
+ACCESSIBILITY section header visible in the scroll, and put it FIRST within the UI subtab.
+
+#### ⚠️ ONE OPEN QUESTION: the Save Data subtab still collides
+
+Revision 2 put Save Data in a subtab named **System**. Under the settled vocabulary that reads
+`System > Settings > System`, which is the same duplication the user set out to remove, just pushed
+down a level.
+
+**RECOMMENDATION: name the subtab for what it holds, not for its category: "Save Data".** It contains
+exactly one thing, so the category name buys nothing and costs a collision. When 0.14.0 adds cloud
+handling and account controls it can widen to "Save & Account", which is still concrete and still
+does not repeat the window's name. ⚠️ A one-item subtab is fine here for the reason already
+established: Save Data spent this release's first pass folded into the Visual tab purely because that
+tab existed around it, and the result was Export living under the theme picker. A thin, correctly
+named home beats a fat, wrong one.
+
+#### The gear button, reconciled rather than dropped
+
+Brief 1's ask 1 (a square gear button as a peer control, instead of a badge on the portrait) still
+holds and does not conflict with Settings living in the System window. **The gear simply opens the
+System window ON the Settings tab**, while the portrait opens it on its default tab. One window, two
+doors, each landing where its icon promises. That keeps the visible affordance the brief argued for
+without splitting settings across two places.
+
+---
+
 ## PHASE 3 BRIEF 3: THE COLLAPSIBLE HEADER (user idea, 2026-09-12)
 
 Raised as "an idea we can noodle about", and it lands on the same mockup as brief 1, so it is recorded
