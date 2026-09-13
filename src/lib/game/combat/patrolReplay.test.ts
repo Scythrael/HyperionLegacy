@@ -600,6 +600,51 @@ describe("foldWaveSnapshots (per-round arena state)", () => {
     }
   });
 
+  // ---------------------------------------------------------------------------
+  // REGRESSION (0.13.5): A DESTROYED COMBATANT MUST NEVER FOLD TO A POSITIVE HULL.
+  //
+  // The bug: the per-round aggregated DoT line is stamped at the END of a round but used to carry
+  // a `hullAfter` captured at the moment of the last DoT TICK. When a weapon killed the target
+  // later in that same round, the log ended:
+  //
+  //     round 3  hullAfter = -8   <- the killing blow
+  //     round 3  hullAfter = 7    <- the dot line, from earlier in the round
+  //
+  // Anything folding the log in order (foldWaveSnapshots, and therefore the combat replay) then
+  // showed a destroyed ship sitting at positive hull. Fixed by reading the target's hull at FLUSH
+  // time in resolveBattle.
+  //
+  // ⚠️ SWEPT ACROSS MANY SEEDS ON PURPOSE. A single-seed version of this case is what let the
+  // defect hide: the original integration test below used seed 29 and passed for a long time
+  // because, with only two weapons, a weapon and a burn rarely landed on the same target in the
+  // same round. F5 raised that to four weapons and the failure rate went to 54 of 120. One seed
+  // proves nothing here; the sweep is the test.
+  it("⚠️ a DESTROYED enemy never folds to a positive hull, across many seeds", () => {
+    let deadEnemiesChecked = 0;
+    const offenders: string[] = [];
+    for (let seed = 1; seed <= 60; seed++) {
+      const dispatched = dispatch(patrolState("destroyer", seed), false);
+      const replay = replayPatrol(dispatched, dispatched.captains[0]);
+      if (!replay.available) continue;
+      for (const wave of replay.waves) {
+        if (!wave.log || wave.log.length === 0) continue;
+        const snaps = foldWaveSnapshots(wave.log, [wave.playerStart, ...wave.enemyStart]);
+        const last = snaps[snaps.length - 1];
+        for (const enemy of wave.enemyEnd) {
+          if (enemy.alive) continue;
+          deadEnemiesChecked += 1;
+          const folded = last.combatants[enemy.id]?.hull;
+          if (folded !== null && folded !== undefined && folded > 0) {
+            offenders.push(`seed ${seed} ${enemy.id} folded to ${folded}`);
+          }
+        }
+      }
+    }
+    // Non-vacuity: if the sweep stops finding dead enemies at all, it is checking nothing.
+    expect(deadEnemiesChecked).toBeGreaterThan(20);
+    expect(offenders).toEqual([]);
+  });
+
   it("folds a REAL replayed wave with its start baseline (integration)", () => {
     const dispatched = dispatch(patrolState("destroyer", 29), false);
     const replay = replayPatrol(dispatched, dispatched.captains[0]);

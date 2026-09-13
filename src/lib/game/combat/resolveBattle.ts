@@ -1704,7 +1704,30 @@ export function resolveBattle(
 		defId: string;
 		damage: number; // summed hull damage this round
 		rank: number; // rank at the latest tick (for the "Plasma Fire II" flavor)
-		hullAfter: number; // target hull after the latest DoT tick this round
+		// ⚠️ THE COMBATANT ITSELF, NOT A HULL SNAPSHOT, AND THAT IS THE BUG FIX (0.13.5).
+		//
+		// This used to store `hullAfter: number`, captured at the moment of the latest DoT TICK.
+		// But the aggregated line is stamped at the END of the round and flushed after every one of
+		// that round's ticks has resolved, so a snapshot taken mid-round is stale by the time it is
+		// emitted. When a WEAPON killed the target later in the same round, the log read:
+		//
+		//     round 3  hullAfter = 11
+		//     round 3  hullAfter = -8   <- the killing blow
+		//     round 3  hullAfter = 7    <- this dot line, from an earlier tick
+		//
+		// Anything folding the log in order (foldWaveSnapshots, and therefore the combat replay)
+		// then showed a DESTROYED ship sitting at positive hull. Holding the reference and reading
+		// `.hull` at flush time reports the pools as they actually are when the line is stamped.
+		//
+		// Found when F5 filled every hardpoint: with four guns per round instead of two, a weapon
+		// landing on a burning target in the same round went from rare to routine (54 of 120 dead
+		// enemies across a 120-seed scan). The defect is older than F5; only its frequency changed.
+		//
+		// ⚠️ LOG-ONLY, so this cannot move the simulation. The damage itself is applied
+		// unconditionally in the tick loop above; this map exists solely to aggregate narration and
+		// is only ever touched under `generateLog`. Offline never builds it, which is why the
+		// closed-form parity gate is unaffected.
+		target: Combatant;
 	}
 	const dotRoundAccum = new Map<string, DotRoundEntry>();
 	// The round the accumulator currently holds (flushed when the tick's round
@@ -1726,7 +1749,8 @@ export function resolveBattle(
 						targetId: entry.combatantId,
 						result: "dot",
 						damage: entry.damage,
-						hullAfter: entry.hullAfter,
+						// Read at FLUSH time, not at tick time: see DotRoundEntry.target.
+						hullAfter: entry.target.hull,
 						effectDefId: entry.defId,
 						effectRank: entry.rank,
 					},
@@ -2344,7 +2368,6 @@ export function resolveBattle(
 				const existing = dotRoundAccum.get(key);
 				if (existing) {
 					existing.damage += dmg;
-					existing.hullAfter = self.hull;
 					existing.rank = liveRank ?? existing.rank;
 				} else {
 					dotRoundAccum.set(key, {
@@ -2352,7 +2375,7 @@ export function resolveBattle(
 						defId,
 						damage: dmg,
 						rank: liveRank ?? 1,
-						hullAfter: self.hull,
+						target: self,
 					});
 				}
 			}
