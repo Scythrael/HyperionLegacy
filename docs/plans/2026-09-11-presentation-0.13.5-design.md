@@ -182,6 +182,57 @@ the two ever differ, the mockup wins. Artifact copy: https://claude.ai/code/arti
 
 ---
 
+### ⚠️ AUTO-SALVAGE QUALITY: THE UI IS THE SMALL PART (found 2026-09-12, before building)
+
+*The user asked for Q0-Q5 checkboxes rather than the threshold dropdown, defaulted all-unchecked,
+and said: "quality being off makes no sense. Because if Quality is set to off, rarity bands won't
+work either. Because every item exists between Q0 and Q5." Checked against `selectAutoSalvageTargets`
+before answering, and the engine says something different.*
+
+**FINDING: THE THREE RULES UNION. THEY DO NOT AND.** From `salvage.ts`, verbatim: *"Selected as a Set
+of instance ids, so the two rules UNION cleanly."* Quality, rarity and duplicates each select pieces
+independently and the results are merged. So today, with quality off, **the rarity rule still works
+perfectly well on its own** ("No band selected = the rule is off, the same meaning maxQuality null
+carries"). The premise that one switches the other off is not how it behaves.
+
+⚠️ **WHICH MEANS THE REQUEST IMPLIES A SEMANTIC CHANGE, NOT A CONTROL CHANGE.** Under the CURRENT
+union, six unchecked quality boxes would be actively dangerous: ticking **Q5 alone would queue every
+Q5 item in the fleet regardless of rarity**, because quality selects on its own. Nobody wants that,
+and it is the exact shape of the mistake that destroys a player's best gear.
+
+What the user is describing is **INTERSECTION**: a piece is taken when its quality is checked AND its
+rarity is checked. Three things point the same way:
+- It is the only reading where "all unchecked by default, so you actively choose" is safe.
+- It is how a player reads two checkbox grids in one panel: as a filter, not as two separate alarms.
+- ⭐ **"Duplicates ONLY" is already filter language**, not selector language. The user named it that
+  themselves, which suggests the filter model is the one they have been picturing all along.
+
+**SO: THE UI IS HALF A DAY. THE SEMANTICS ARE THE DECISION.** Union to intersection changes what
+auto-salvage DESTROYS for players who already have rules set, and this project's hardest rule is that
+the game never silently deletes a player's items.
+
+**MIGRATION, and it can be made safe.** Convert `maxQuality: N` to tiers 0..N checked, then **check
+EVERY box on the axis the player left off**:
+
+| Their rule today | Today's behaviour | After migration | Same? |
+|---|---|---|---|
+| quality <= 2, no rarity | all pieces Q0-Q2 | tiers 0-2 + all rarities | ✅ identical |
+| no quality, rarity {common} | all common pieces | all tiers + common | ✅ identical |
+| quality <= 2 AND rarity {radiant} | union: everything Q0-Q2, PLUS every radiant at any quality | tiers 0-2 + radiant only | ⚠️ NARROWER |
+
+The third case is the only one that moves, and it moves in the **safe direction**: the rule takes
+LESS than it used to, so nothing is destroyed that would not have been before. A player who wanted
+the wider behaviour can tick more boxes, and the panel now makes that visible, which the old union
+never did.
+
+**RECOMMENDATION: make the change, with intersection semantics and the all-checked migration.** It is
+a better model (two grids that read as one filter), it retires a genuinely confusing control (the
+three-state threshold, whose "off" the user correctly found nonsensical once quality is a set), and
+it is strictly safer on migration. ⚠️ It DOES need a SAVE_VERSION bump, which 0.13.5 has so far
+avoided; that is a real cost and the reason this is written down rather than just done.
+
+---
+
 ## PHASE 3 BRIEF: THE HEADER REDESIGN (added 2026-09-12, user)
 
 Phase 3 is the mockup phase, and this is its first concrete subject. Recorded now, while the
