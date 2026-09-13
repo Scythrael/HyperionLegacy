@@ -19724,19 +19724,21 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
   }
-  /* ⚠️ THE COMPLETED GRID NEEDS TWO THINGS THE IN-PROGRESS GRID DOES NOT (fixed 2026-09-13).
-     Its rows EXPAND, and a CSS grid stretches every cell in a row to the tallest one by default,
-     so opening a row on the left grew the untouched row on its right to match. `align-items:
-     start` lets each cell keep its own height, which is what the user asked for: only the one
-     being opened should grow.
+  /* ⚠️ RECENTLY COMPLETED IS A SINGLE COLUMN, NOT THE 2-UP GRID (fixed 2026-09-13, take two).
+     It inherited .home-prog's two-column grid from IN PROGRESS, and that is fundamentally wrong for
+     rows that EXPAND: in a grid, both cells on a row share ONE row-track height, so opening the
+     left row made the track as tall as its detail and left a tall empty box beside it on the right.
+     `align-items: start` (my first attempt) only stops the right CARD stretching; the track is
+     still tall, so the empty box remained. There is no clean grid fix, because the emptiness is the
+     track, not the cell.
 
-     And "show more history" was landing in ONE CELL, so on desktop it sat under half the board.
-     Spanning every column makes it a footer for the section rather than an entry in it. */
+     A single column removes the pairing entirely: each row owns its own height and expanding one
+     touches nothing else. It also matches the approved mockup, which showed completed work as a
+     single-column list (the 2-up was only ever right for the fixed-height IN PROGRESS cards).
+     "Show more history" is naturally full-width here with no grid-span needed. */
   .home-prog-done {
-    align-items: start;
-  }
-  .home-prog-done > .done-more {
-    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
   }
   /* Mobile: one column. 560px matches the app's other narrow-layout breakpoints
      (see UpdateBanner), so a phone (~375px) always gets the single-column stack. */
