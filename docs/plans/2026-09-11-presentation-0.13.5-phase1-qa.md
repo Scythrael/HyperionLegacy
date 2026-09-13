@@ -46,6 +46,11 @@ The token layer touches every screen's *potential* styling, so the first questio
 | B5 | ⚠️ **NEW, re-test.** With **Reduce motion ON**, watch the bar complete several ticks. | It should be SEEN reaching 100% before restarting, rather than stepping 90% to 0%. The 90-to-0 jump was a sampling artefact: the poll that crossed the boundary was also the poll that reset the cycle, so the last tenth existed for zero renders. ⚠️ **This adds no motion.** It adds one more discrete value to a sequence that already steps. |
 | B6 | With Reduce motion ON, **pause the game** (debug speed 0) mid-tick, then resume. | The bar must not be stuck at 100%. The completed frame is cleared at the top of every poll before any early return, specifically so a pause cannot strand it. |
 
+| B7 | ⚠️ **NEW.** With reduce motion OFF, watch a **craft/refine queue bar**, a **mission bar** on Home, and the **FA XP bar** in the header. | All of them should now fill CONTINUOUSLY rather than jumping once a tick and sitting still. Previously the shared fill glided for 0.2s and then froze for the rest of the tick, which is why only the tick bar looked alive. |
+| B8 | Same bars with **reduce motion ON**. | All of them STEP, exactly like the tick bar does. No special case was needed: the blanket reduced-motion rule collapses the transition. |
+| B9 | ⚠️ **Watch what a bar does when its job FINISHES or an XP bar levels up** (the value drops to near zero). | Honest question rather than pass/fail: does the bar **drain backwards** noticeably? A transition smooths in both directions, and most finished rows vanish so you should rarely see it. If a backwards drain looks wrong on the XP bar, say so and I will make the smoothing forward-only. |
+| B10 | Change the game **speed** (debug), then watch any bar. | The smoothing follows the new tick length, because it is driven by the same value the tick bar's duration is. |
+
 ## C. Options, reorganised
 
 | # | Step | Expected |

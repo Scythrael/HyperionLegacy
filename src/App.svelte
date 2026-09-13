@@ -7256,6 +7256,31 @@
   // completed frame belongs to the gauge, and forcing globalTickProgress itself to 1 would make the
   // remaining-time readout blink to zero for a tenth of a second every single tick.
   $: globalBarFill = barCompletedFrame ? 1 : globalTickProgress;
+
+  // ⚠️ ONE VARIABLE SMOOTHS EVERY PROGRESS BAR IN THE GAME, and it works because of a property of
+  // this engine rather than a styling trick: EVERY bar except the tick bar is driven by a value the
+  // ECONOMY TICK updates, and the economy tick fires on one shared cadence. So the interval between
+  // a mission bar's jumps, a craft bar's jumps and an XP bar's jumps is the same number, and that
+  // number is globalBarSeconds.
+  //
+  // Set a transition of exactly that length and each per-tick jump glides across the whole gap
+  // before the next value lands: the bar reads as filling CONTINUOUSLY while remaining driven by
+  // the real, authoritative value. It can never run ahead of the truth, which a keyframe animation
+  // (the technique the TICK bar uses) genuinely could: the tick bar can animate 0 to 100% blind
+  // because its progress IS elapsed time, whereas a craft bar's progress is state, and state can
+  // pause, change speed, or advance a hundred ticks at once on an offline return.
+  //
+  // ⚠️ REDUCED MOTION NEEDS NO SPECIAL CASE HERE, unlike the tick bar. The blanket rule in app.css
+  // collapses transition-duration to 0.001ms, so every one of these bars STEPS instead of gliding,
+  // which is exactly the behaviour the tick bar has under the same setting. The tick bar needed an
+  // exception only because it uses an ANIMATION, and a `forwards` animation collapsed to zero
+  // duration pins at its end state rather than stepping.
+  //
+  // It is written to documentElement rather than a wrapper so components outside App.svelte
+  // (CombatView, ShipSystemsPanel) inherit it without being passed anything.
+  $: if (typeof document !== "undefined") {
+    document.documentElement.style.setProperty("--bar-step-seconds", `${globalBarSeconds}s`);
+  }
   // Header redesign (2026-07-07), single source for the Fleet Admiral XP
   // ratio, consumed by both the bar-fill width (clamped to 100) and the
   // readout percentage below (unclamped, .toFixed(1)), avoids the same
@@ -17758,10 +17783,17 @@
       0 4px
     );
   }
+  /* THE SHARED PROGRESS FILL: crafting, refining, missions, research, XP, crafting level. Thirty
+     call sites, which is why smoothing it here reaches almost every bar in the game at once.
+     ⚠️ The duration is --bar-step-seconds (the live tick length), NOT a fixed 0.2s. At 0.2s the bar
+     jumped, glided briefly, then sat frozen for the rest of the tick, which is the "not actually
+     filling" feel the user reported. Matching the tick length makes the glide exactly span the gap
+     between value updates, so the bar is always moving and always truthful.
+     The fallback keeps it sane before the first poll writes the variable. */
   .research-bar-fill {
     height: 100%;
     background: var(--color-accent);
-    transition: width 0.2s linear;
+    transition: width var(--bar-step-seconds, 0.2s) linear;
   }
   .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
   /* AVAILABLE MISSIONS grid (2026-07-15 card redesign), was a single-column
@@ -19315,7 +19347,15 @@
     overflow: hidden;
     margin-top: 6px;
   }
-  .home-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--color-accent); }
+  /* The Home board's in-progress fills. These had NO transition at all, so they jumped once per
+     tick and sat still between. Same treatment as the shared fill above. */
+  .home-bar > i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--color-accent);
+    transition: width var(--bar-step-seconds, 0.2s) linear;
+  }
   /* Dual hull / shield bars for a combat patrol. */
   .home-duo { display: flex; gap: 5px; margin-top: 6px; }
   .home-b { flex: 1; height: 3px; border-radius: 3px; background: var(--color-bg-deep); overflow: hidden; }

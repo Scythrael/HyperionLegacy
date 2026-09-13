@@ -1870,10 +1870,15 @@
     background: rgba(255, 255, 255, 0.08);
     overflow: hidden;
   }
+  /* The repair fill. ⚠️ --bar-step-seconds is the LIVE TICK LENGTH, published on documentElement by
+     App.svelte, so this bar smooths on exactly the cadence its value updates on, like every other
+     progress bar in the game. Reduced motion collapses the transition via app.css's blanket rule,
+     which makes it STEP, matching the tick bar's behaviour under the same setting. */
   .ss-repair-bar i {
     display: block;
     height: 100%;
     background: linear-gradient(90deg, var(--color-warning), var(--color-success));
+    transition: width var(--bar-step-seconds, 0.2s) linear;
   }
   .ss-repair-eta {
     font-family: var(--font-mono);
