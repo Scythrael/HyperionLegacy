@@ -1342,7 +1342,15 @@
      .ss-dialog: an opaque surface so it stays legible on browsers without
      backdrop blur, and it owns its own scroll rather than growing the page). The
      host wraps this in the shared .modal-backdrop. -->
-<div class="cv-dialog" role="document" bind:this={dialogEl}>
+<!-- ⚠️ --combat-step-seconds is the COMBAT equivalent of App.svelte's --bar-step-seconds, and it is
+     a SEPARATE variable on purpose. The economy bars smooth across the economy tick; these bars
+     advance when the log reveals the next ROUND, which is a completely different cadence and one the
+     player controls directly (Options > Log speed: Fast 1s / Slow 5s). Smoothing a hull bar over the
+     economy tick would be a number picked from an unrelated clock.
+     logSpeedToMs is already the single source of truth for that mapping, so this follows a speed
+     change mid-replay with no extra wiring. Scoped to the dialog rather than documentElement because
+     nothing outside combat has this cadence. -->
+<div class="cv-dialog" role="document" bind:this={dialogEl} style="--combat-step-seconds: {logSpeedToMs(logSpeed) / 1000}s">
   <!-- Close: a window-style X pinned to the top-right CORNER of the panel (absolute,
        positioned against .cv-dialog), shown in BOTH the available and unavailable
        states. Sits above the top bar via z-index; the top bar reserves right padding
@@ -2131,10 +2139,15 @@
     overflow: hidden;
     border: 1px solid var(--color-border);
   }
+  /* The main arena hull/shield gauges. ⚠️ Smoothed over --combat-step-seconds (the log's reveal
+     interval) so a hit reads as damage being DEALT across the round rather than as a bar teleporting
+     the instant the round flips. Reduced motion collapses the transition via app.css's blanket rule,
+     which makes these step, matching every other bar in the game under that setting. */
   .bar > span {
     display: block;
     height: 100%;
     border-radius: 5px;
+    transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .bar.hull > span {
     background: linear-gradient(90deg, #34d399, #67e8f9);
@@ -2759,10 +2772,12 @@
     border: 1px solid var(--color-border);
     overflow: hidden;
   }
+  /* The compact mobile gauges. Same treatment as .bar > span above; they show the same values. */
   .cvm-mbar > span {
     display: block;
     height: 100%;
     border-radius: 3px;
+    transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .cvm-mbar.hull > span {
     background: linear-gradient(90deg, #34d399, #67e8f9);

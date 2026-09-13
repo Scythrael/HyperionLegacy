@@ -51,6 +51,9 @@ The token layer touches every screen's *potential* styling, so the first questio
 | B9 | ⚠️ **Watch what a bar does when its job FINISHES or an XP bar levels up** (the value drops to near zero). | Honest question rather than pass/fail: does the bar **drain backwards** noticeably? A transition smooths in both directions, and most finished rows vanish so you should rarely see it. If a backwards drain looks wrong on the XP bar, say so and I will make the smoothing forward-only. |
 | B10 | Change the game **speed** (debug), then watch any bar. | The smoothing follows the new tick length, because it is driven by the same value the tick bar's duration is. |
 
+| B11 | ⚠️ **NEW.** Watch a combat replay's hull/shield bars. | They now drain SMOOTHLY across each revealed round instead of teleporting when the round flips. ⚠️ The duration follows **Options > Log speed** (Fast 1s / Slow 5s), not the economy tick: these bars advance when the log reveals a round, which is a different clock and one you control. Try both speeds. |
+| B12 | A combat replay with **reduce motion ON**. | The gauges step, like every other bar under that setting. |
+
 ## C. Options, reorganised
 
 | # | Step | Expected |
