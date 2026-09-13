@@ -283,6 +283,7 @@
     // was nowhere to carry it out). Type-only.
     type CompletionLogEntry,
     type CompletionRewardItem,
+    type CaptainState,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -1584,8 +1585,10 @@
   // Combat 0.13.0 (Phase 9b.5d): "combat" is now a LIVE Operations sub-tab (the Combat
   // Patrols dispatch surface), no longer a locked reserved slot. Gathering stays the
   // default landing tab; missionControl + combat are the other two live tabs.
-  type OperationsTab = "gathering" | "missionControl" | "combat";
-  let activeOperationsTab: OperationsTab = "gathering";
+  // ⚠️ "overview" LEADS (0.13.5, user): every in-progress mission on one tab, so the fleet's
+  // state is the first thing Operations shows rather than being scattered across the mission tabs.
+  type OperationsTab = "overview" | "gathering" | "missionControl" | "combat";
+  let activeOperationsTab: OperationsTab = "overview";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
   // 0.12.0 "Console" nav (Logistics, CN3a): the Warehouse's two CONTENT tabs left
@@ -13992,6 +13995,7 @@
            principle. -->
       <ConsoleTabs
         tabs={[
+          { key: "overview", label: "Overview" },
           { key: "gathering", label: "Gathering" },
           { key: "combat", label: "Combat Patrols" },
           { key: "exploration", label: "Exploration", locked: true },
@@ -14002,6 +14006,173 @@
         active={activeOperationsTab}
         onSelect={(key) => (activeOperationsTab = key as OperationsTab)}
       />
+
+      <!-- ============================================================================
+           OPERATIONS > OVERVIEW (0.13.5, user 2026-09-13)
+           Every in-progress mission on ONE tab, grouped by type, instead of each
+           mission tab carrying its own IN PROGRESS list. The user's ask: "create the
+           overview tab and move the in progress into that one, with a category for each
+           mission type to differentiate them."
+
+           ⚠️ MOVED, NOT COPIED. The per-captain card markup lives in the two snippets
+           below, defined ONCE. The gathering and combat tabs no longer render their own
+           IN PROGRESS lists; those blocks were deleted, not left behind, so there is a
+           single source of truth for how an in-progress mission reads.
+           ============================================================================ -->
+      {#snippet extractionInProgressCard(captain: CaptainState)}
+                    {@const mission = extractionMissionOf(captain)!}
+                    <!-- ⚠️ THE EFFECTIVE DEF, NOT THE RAW ONE (stuck-at-00:00 fix, 2026-09-11).
+                         requiredTicksForPhase("extracting") is ceil(cargoCapacity /
+                         extractionRatePerTick), and effectiveMissionDef swaps in THE SHIP'S OWN
+                         cargoCapacity. Reading the raw def here measured the mission's BASELINE hold
+                         (90 on the Lunar Mine Contract) while the engine advanced against the ship's
+                         real hold (180+), so the countdown hit zero, clamped, and sat at 00:00 for
+                         the rest of a perfectly healthy extraction.
+                         Resolved the SAME way the engine resolves it, so the card and the tick cannot
+                         disagree about how long a phase is. A ship-less captain falls back to the raw
+                         def, which is the engine's own "no modifier" fallback. -->
+                    {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
+                    {@const missionDef = missionShip
+                      ? effectiveMissionDef(MISSIONS[mission.missionKey], shipDerivedStats(missionShip, equippedFor(state, missionShip.id)))
+                      : MISSIONS[mission.missionKey]}
+                    {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+                    {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
+                    {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
+                    <div class="mission-card">
+                      <div class="research-name">{captain.label}, {missionDef.label}</div>
+                      <!-- 0.13.4 Phase 4: through missionPhaseStatus, the SINGLE source this and the
+                           Home In Progress row both read, so a TRANSIT BERTH hold is worded
+                           identically on both surfaces and neither can be updated without the other.
+                           An uncontended fleet renders exactly the string it did before. -->
+                      <div class="research-cost">Phase: {missionPhaseStatus(state, captain)}</div>
+                      {#if isAwaitingBerth(state, captain)}
+                        <!-- ⚠️ THE ETA IS DISPLAY-ONLY and is an UPPER BOUND that ticks down (see
+                             berthEtaTicks). It is shown only while actually held, so an ordinary
+                             return leg gains no extra line. Naming the wait plus its position plus an
+                             estimate is the three-part requirement the user attached to this
+                             feature. -->
+                        <div class="research-cost">
+                          About {remainingReadout(
+                            berthEtaTicks(state, captain.id) ?? 0,
+                            Math.max(1, berthEtaTicks(state, captain.id) ?? 1),
+                            showTickCounts,
+                            state.tickDurationSeconds,
+                          )} for a bay
+                          ({transitBerthsFree(state)} of {transitBerthCount(state)} free)
+                        </div>
+                      {/if}
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{progress * 100}%"></div>
+                      </div>
+                      <div class="research-readout">{remainingReadout(remainingTicks, Math.ceil(requiredTicks), showTickCounts, state.tickDurationSeconds)} in phase</div>
+                      <div class="research-cost">
+                        Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
+                        {formatNumber(mission.cargo.rareMaterial)} rare
+                      </div>
+                      {#if mission.recalled}
+                        <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current cycle's unloading completes.</p>
+                      {:else}
+                        <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                      {/if}
+                    </div>
+      {/snippet}
+      {#snippet patrolInProgressCard(captain: CaptainState)}
+                  {@const patrol = captain.mission !== null && captain.mission.kind === "patrol" ? captain.mission : null}
+                  {#if patrol !== null}
+                    {@const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id) ?? null}
+                    {@const patrolShipDef = patrolShip ? SHIP_TYPES[patrolShip.typeKey] : null}
+                    {@const faction = FACTIONS[patrol.factionId]}
+                    {@const totalWaves = patrol.waveTicks.length}
+                    {@const wavesResolved = patrol.wavesWon + patrol.wavesLost}
+                    {@const defeated = patrol.phase === "limpingHome"}
+                    <!-- Hull/shield carry-state as fractions of the ship's MAX (the same
+                         pools bridge.ts seeds a wave's combatant from). Clamped 0..1 and
+                         guarded against a 0 max (never in shipped content, but keeps the
+                         bar honest if a hull ever had a 0 pool). -->
+                    {@const hullMax = patrolShipDef ? patrolShipDef.hullIntegrity : 0}
+                    {@const shieldMax = patrolShipDef ? patrolShipDef.shieldCapacity : 0}
+                    {@const hullRatio = hullMax > 0 ? Math.max(0, Math.min(1, patrol.playerHull / hullMax)) : 0}
+                    {@const shieldRatio = shieldMax > 0 ? Math.max(0, Math.min(1, patrol.playerShield / shieldMax)) : 0}
+                    <div class="mission-card">
+                      <div class="research-name">
+                        {captain.label}
+                        {#if patrolShipDef}, {patrolShipDef.label}{/if}
+                        {#if faction} vs {faction.name}{/if}
+                      </div>
+                      <!-- Phase line, patrol counterpart to the extraction card's "Phase:"
+                           row. On defeat it reads in danger color to flag the loss state. -->
+                      <div class="research-cost" style={defeated ? "color: var(--color-danger)" : undefined}>
+                        Phase: {PATROL_PHASE_LABEL[patrol.phase]}
+                        {#if defeated} (defeated, returning to repair){/if}
+                      </div>
+                      <div class="research-cost">
+                        Waves: {wavesResolved} / {totalWaves} resolved
+                        &middot; <span style="color: var(--color-success)">{patrol.wavesWon}W</span>
+                        &middot; <span style="color: var(--color-danger)">{patrol.wavesLost}L</span>
+                      </div>
+
+                      <!-- Player carry-state bars (playerHull / playerShield over the hull's
+                           max), reusing the existing research-bar-track/fill pair the whole
+                           app uses for progress readouts (no bespoke bar styling). The hull
+                           PERSISTS across waves; the shield REGENERATES between them. -->
+                      <div class="mission-col-label">Hull, {formatNumber(Math.round(patrol.playerHull))} / {formatNumber(hullMax)}</div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{hullRatio * 100}%"></div>
+                      </div>
+                      <div class="mission-col-label">Shield, {formatNumber(Math.round(patrol.playerShield))} / {formatNumber(shieldMax)}</div>
+                      <div class="research-bar-track">
+                        <div class="research-bar-fill" style="width:{shieldRatio * 100}%"></div>
+                      </div>
+
+                      <!-- Repeat-mode indicator: a patrol dispatched "repeatedly" relaunches
+                           a fresh cycle on completion; recall ends it after the current run
+                           (recallCaptain flags intent, honored at cycle end, so the recalled
+                           text below matches the extraction card's wording). -->
+                      <div class="research-cost">
+                        {#if patrol.repeatDispatch}Mode: Repeating (relaunches after each run){:else}Mode: Single run{/if}
+                      </div>
+
+                      <div class="patrol-card-actions">
+                        <!-- View Combat Log (Combat 0.13.0, Phase 12b Unit C): opens the
+                             DISPLAY-ONLY CombatView modal for this captain's patrol. Shown
+                             only when the assigned hull is a combat hull (a patrol always
+                             flies one, but the guard keeps the button honest if a non-combat
+                             hull ever appears here). The view reads a pure replay and never
+                             mutates game state. -->
+                        {#if patrolShip !== null && combatHullTypeOf(patrolShip.typeKey) !== null}
+                          <button class="dev-btn" on:click={() => openCombatView(captain.id)}>View Combat Log</button>
+                        {/if}
+                        {#if patrol.recalled}
+                          <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current run completes.</p>
+                        {:else}
+                          <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
+                        {/if}
+                      </div>
+                    </div>
+                  {/if}
+      {/snippet}
+
+      {#if activeOperationsTab === "overview"}
+        {@const gatheringCaptains = state.captains.filter((c) => extractionMissionOf(c) !== null)}
+        {@const patrolCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
+      <div class="tab-scroll-area">
+        {#if gatheringCaptains.length === 0 && patrolCaptains.length === 0}
+          <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering or Combat Patrols tab.</p>
+        {/if}
+        {#if gatheringCaptains.length > 0}
+          <div class="panel-title">Gathering</div>
+          {#each gatheringCaptains as captain (captain.id)}
+            {@render extractionInProgressCard(captain)}
+          {/each}
+        {/if}
+        {#if patrolCaptains.length > 0}
+          <div class="panel-title">Combat Patrols</div>
+          {#each patrolCaptains as captain (captain.id)}
+            {@render patrolInProgressCard(captain)}
+          {/each}
+        {/if}
+      </div>
+      {/if}
 
       {#if activeOperationsTab === "gathering"}
       <div class="tab-scroll-area">
@@ -14046,68 +14217,6 @@
                    patrolling captain is excluded from `embarked` (its mission is not an
                    extraction run). The `!` inside the each is safe because the filter
                    guaranteed an extraction mission for every listed captain. -->
-              {@const embarked = state.captains.filter((c) => { const em = extractionMissionOf(c); return em !== null && tierIMissions.some(([key]) => key === em.missionKey); })}
-
-              {#if embarked.length > 0}
-                <div class="panel-title">IN PROGRESS</div>
-                {#each embarked as captain}
-                  {@const mission = extractionMissionOf(captain)!}
-                  <!-- ⚠️ THE EFFECTIVE DEF, NOT THE RAW ONE (stuck-at-00:00 fix, 2026-09-11).
-                       requiredTicksForPhase("extracting") is ceil(cargoCapacity /
-                       extractionRatePerTick), and effectiveMissionDef swaps in THE SHIP'S OWN
-                       cargoCapacity. Reading the raw def here measured the mission's BASELINE hold
-                       (90 on the Lunar Mine Contract) while the engine advanced against the ship's
-                       real hold (180+), so the countdown hit zero, clamped, and sat at 00:00 for
-                       the rest of a perfectly healthy extraction.
-                       Resolved the SAME way the engine resolves it, so the card and the tick cannot
-                       disagree about how long a phase is. A ship-less captain falls back to the raw
-                       def, which is the engine's own "no modifier" fallback. -->
-                  {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
-                  {@const missionDef = missionShip
-                    ? effectiveMissionDef(MISSIONS[mission.missionKey], shipDerivedStats(missionShip, equippedFor(state, missionShip.id)))
-                    : MISSIONS[mission.missionKey]}
-                  {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
-                  {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
-                  {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
-                  <div class="mission-card">
-                    <div class="research-name">{captain.label}, {missionDef.label}</div>
-                    <!-- 0.13.4 Phase 4: through missionPhaseStatus, the SINGLE source this and the
-                         Home In Progress row both read, so a TRANSIT BERTH hold is worded
-                         identically on both surfaces and neither can be updated without the other.
-                         An uncontended fleet renders exactly the string it did before. -->
-                    <div class="research-cost">Phase: {missionPhaseStatus(state, captain)}</div>
-                    {#if isAwaitingBerth(state, captain)}
-                      <!-- ⚠️ THE ETA IS DISPLAY-ONLY and is an UPPER BOUND that ticks down (see
-                           berthEtaTicks). It is shown only while actually held, so an ordinary
-                           return leg gains no extra line. Naming the wait plus its position plus an
-                           estimate is the three-part requirement the user attached to this
-                           feature. -->
-                      <div class="research-cost">
-                        About {remainingReadout(
-                          berthEtaTicks(state, captain.id) ?? 0,
-                          Math.max(1, berthEtaTicks(state, captain.id) ?? 1),
-                          showTickCounts,
-                          state.tickDurationSeconds,
-                        )} for a bay
-                        ({transitBerthsFree(state)} of {transitBerthCount(state)} free)
-                      </div>
-                    {/if}
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{progress * 100}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(remainingTicks, Math.ceil(requiredTicks), showTickCounts, state.tickDurationSeconds)} in phase</div>
-                    <div class="research-cost">
-                      Cargo so far: {formatNumber(mission.cargo.commonOre)} ore, {formatNumber(mission.cargo.uncommonMaterial)} uncommon,
-                      {formatNumber(mission.cargo.rareMaterial)} rare
-                    </div>
-                    {#if mission.recalled}
-                      <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current cycle's unloading completes.</p>
-                    {:else}
-                      <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
-                    {/if}
-                  </div>
-                {/each}
-              {/if}
 
               <div class="panel-title">AVAILABLE MISSIONS</div>
               <div class="mission-list">
@@ -14311,86 +14420,6 @@
       {@const patrolling = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
       <div class="tab-scroll-area">
 
-            {#if patrolling.length > 0}
-              <div class="panel-title">IN PROGRESS</div>
-              {#each patrolling as captain (captain.id)}
-                <!-- Inline narrow to the patrol arm (guaranteed non-null by the filter
-                     above, but TS/svelte-check won't carry that through the {#each}). -->
-                {@const patrol = captain.mission !== null && captain.mission.kind === "patrol" ? captain.mission : null}
-                {#if patrol !== null}
-                  {@const patrolShip = state.ships.find((s) => s.assignedCaptainId === captain.id) ?? null}
-                  {@const patrolShipDef = patrolShip ? SHIP_TYPES[patrolShip.typeKey] : null}
-                  {@const faction = FACTIONS[patrol.factionId]}
-                  {@const totalWaves = patrol.waveTicks.length}
-                  {@const wavesResolved = patrol.wavesWon + patrol.wavesLost}
-                  {@const defeated = patrol.phase === "limpingHome"}
-                  <!-- Hull/shield carry-state as fractions of the ship's MAX (the same
-                       pools bridge.ts seeds a wave's combatant from). Clamped 0..1 and
-                       guarded against a 0 max (never in shipped content, but keeps the
-                       bar honest if a hull ever had a 0 pool). -->
-                  {@const hullMax = patrolShipDef ? patrolShipDef.hullIntegrity : 0}
-                  {@const shieldMax = patrolShipDef ? patrolShipDef.shieldCapacity : 0}
-                  {@const hullRatio = hullMax > 0 ? Math.max(0, Math.min(1, patrol.playerHull / hullMax)) : 0}
-                  {@const shieldRatio = shieldMax > 0 ? Math.max(0, Math.min(1, patrol.playerShield / shieldMax)) : 0}
-                  <div class="mission-card">
-                    <div class="research-name">
-                      {captain.label}
-                      {#if patrolShipDef}, {patrolShipDef.label}{/if}
-                      {#if faction} vs {faction.name}{/if}
-                    </div>
-                    <!-- Phase line, patrol counterpart to the extraction card's "Phase:"
-                         row. On defeat it reads in danger color to flag the loss state. -->
-                    <div class="research-cost" style={defeated ? "color: var(--color-danger)" : undefined}>
-                      Phase: {PATROL_PHASE_LABEL[patrol.phase]}
-                      {#if defeated} (defeated, returning to repair){/if}
-                    </div>
-                    <div class="research-cost">
-                      Waves: {wavesResolved} / {totalWaves} resolved
-                      &middot; <span style="color: var(--color-success)">{patrol.wavesWon}W</span>
-                      &middot; <span style="color: var(--color-danger)">{patrol.wavesLost}L</span>
-                    </div>
-
-                    <!-- Player carry-state bars (playerHull / playerShield over the hull's
-                         max), reusing the existing research-bar-track/fill pair the whole
-                         app uses for progress readouts (no bespoke bar styling). The hull
-                         PERSISTS across waves; the shield REGENERATES between them. -->
-                    <div class="mission-col-label">Hull, {formatNumber(Math.round(patrol.playerHull))} / {formatNumber(hullMax)}</div>
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{hullRatio * 100}%"></div>
-                    </div>
-                    <div class="mission-col-label">Shield, {formatNumber(Math.round(patrol.playerShield))} / {formatNumber(shieldMax)}</div>
-                    <div class="research-bar-track">
-                      <div class="research-bar-fill" style="width:{shieldRatio * 100}%"></div>
-                    </div>
-
-                    <!-- Repeat-mode indicator: a patrol dispatched "repeatedly" relaunches
-                         a fresh cycle on completion; recall ends it after the current run
-                         (recallCaptain flags intent, honored at cycle end, so the recalled
-                         text below matches the extraction card's wording). -->
-                    <div class="research-cost">
-                      {#if patrol.repeatDispatch}Mode: Repeating (relaunches after each run){:else}Mode: Single run{/if}
-                    </div>
-
-                    <div class="patrol-card-actions">
-                      <!-- View Combat Log (Combat 0.13.0, Phase 12b Unit C): opens the
-                           DISPLAY-ONLY CombatView modal for this captain's patrol. Shown
-                           only when the assigned hull is a combat hull (a patrol always
-                           flies one, but the guard keeps the button honest if a non-combat
-                           hull ever appears here). The view reads a pure replay and never
-                           mutates game state. -->
-                      {#if patrolShip !== null && combatHullTypeOf(patrolShip.typeKey) !== null}
-                        <button class="dev-btn" on:click={() => openCombatView(captain.id)}>View Combat Log</button>
-                      {/if}
-                      {#if patrol.recalled}
-                        <p class="prestige-text mission-recalled-text">Recall ordered, returning to base once the current run completes.</p>
-                      {:else}
-                        <button class="recall-btn" on:click={() => doRecallCaptain(captain.id)}>Recall Captain</button>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-              {/each}
-            {/if}
 
             <div class="panel-title">AVAILABLE PATROLS</div>
             <div class="mission-list">
