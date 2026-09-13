@@ -43,6 +43,9 @@ The token layer touches every screen's *potential* styling, so the first questio
 | ◐ B3 | Change the game speed (debug panel). | The sweep duration follows the new tick length. |
 | B4 | Turn the tick bar off and on (Options, Visual). | Disappears and returns cleanly. |
 
+| B5 | ⚠️ **NEW, re-test.** With **Reduce motion ON**, watch the bar complete several ticks. | It should be SEEN reaching 100% before restarting, rather than stepping 90% to 0%. The 90-to-0 jump was a sampling artefact: the poll that crossed the boundary was also the poll that reset the cycle, so the last tenth existed for zero renders. ⚠️ **This adds no motion.** It adds one more discrete value to a sequence that already steps. |
+| B6 | With Reduce motion ON, **pause the game** (debug speed 0) mid-tick, then resume. | The bar must not be stuck at 100%. The completed frame is cleared at the top of every poll before any early return, specifically so a pause cannot strand it. |
+
 ## C. Options, reorganised
 
 | # | Step | Expected |

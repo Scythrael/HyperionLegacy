@@ -2566,6 +2566,27 @@
   // captain owning its own independent barCycleStart/nowTick pair.
   let cycle: { barCycleStart: number; nowTick: number } = { barCycleStart: Date.now(), nowTick: Date.now() };
 
+  // ⚠️ THE COMPLETED FRAME. True for exactly the one render in which a tick finished, so the bar is
+  // SEEN reaching 100% before the next cycle starts it over.
+  //
+  // The bug it fixes (user, 2026-09-12, after D5): under reduced motion the bar stepped from about
+  // 90% straight to 0%, never showing full. That is a SAMPLING artefact, not bad maths: the poll
+  // that crosses the boundary is the SAME poll that resets barCycleStart, so the final tenth of
+  // every cycle exists for zero renders and nobody can ever see it.
+  //
+  // ⚠️ WHY THIS IS WORTH FIXING RATHER THAN CALLING IT A REDUCED-MOTION TRADE-OFF, which is what
+  // the user generously offered: the ANIMATED path already shows 100%, because its CSS sweep runs
+  // for the full duration and is declared `forwards`, independent of when the poll happens to
+  // sample. So the artefact only ever hit the players who asked for less motion. Reduced motion
+  // should mean less MOVEMENT, never less INFORMATION, and a progress bar that is never observed
+  // completing reads as broken. Leaving it would have made an accessibility setting the one place
+  // the gauge lies.
+  //
+  // ⚠️ AND IT ADDS NO MOTION. It adds one more discrete value to a sequence that is already
+  // discrete: ... 0.8, 0.9, 1.0, then the next cycle. Nothing animates, nothing eases, nothing
+  // moves continuously. What reduced motion objects to is sustained movement, not a gauge updating.
+  let barCompletedFrame = false;
+
   // Fuel-runway measurement (Wave 2, 2026-07-16), MEASURED, not modelled. Mission
   // ice output is a stochastic loot roll, so instead of modelling it we sample the
   // ACTUAL per-tick net fuel & ice deltas out of the live economy loop and smooth
@@ -2829,6 +2850,9 @@
     // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
     tickHandle = setInterval(() => {
       const now = Date.now();
+      // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
+      // before any early return, so a pause or a speed change cannot strand the bar at 100%.
+      barCompletedFrame = false;
 
       if (speed === 0) {
         paused = true;
@@ -2972,6 +2996,9 @@
         // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
         // same as always.)
         cycle.barCycleStart = now;
+        // ⚠️ Raised in the SAME poll that resets the cycle, which is the whole point: without it
+        // the reset above is the reason the last tenth is never rendered. The next poll clears it.
+        barCompletedFrame = true;
       }
     }, 100);
 
@@ -7225,6 +7252,10 @@
   $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
   $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
+  // What the BAR draws, which is not always what the countdown reads. Separate on purpose: the
+  // completed frame belongs to the gauge, and forcing globalTickProgress itself to 1 would make the
+  // remaining-time readout blink to zero for a tenth of a second every single tick.
+  $: globalBarFill = barCompletedFrame ? 1 : globalTickProgress;
   // Header redesign (2026-07-07), single source for the Fleet Admiral XP
   // ratio, consumed by both the bar-fill width (clamped to 100) and the
   // readout percentage below (unclamped, .toFixed(1)), avoids the same
@@ -8731,7 +8762,7 @@
           {#key cycle.barCycleStart}
             <div
               class="tick-bar-fill"
-              style="width:{globalTickProgress * 100}%; animation-duration:{globalBarSeconds}s"
+              style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"
             ></div>
           {/key}
         </div>
