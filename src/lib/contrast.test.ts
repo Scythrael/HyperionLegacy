@@ -91,6 +91,11 @@ function themeAt(index: number): string {
 
 const TEXT_TOKENS = ["--color-text-primary", "--color-text-secondary", "--color-text-dim"];
 
+// Every theme's accent, in declaration order. Used by the disabled-text checks, which apply ONE
+// alpha across all of them. Parsed rather than listed so a new theme is swept automatically.
+// The trailing colon in valuesOf's pattern keeps this off --color-accent-rgb / --color-accent-bright.
+const accentDeclarations = () => valuesOf("--color-accent");
+
 describe("every text colour clears WCAG AA, in every theme", () => {
   it("finds all six themes plus :root, so the sweep is not silently partial", () => {
     // Non-vacuous guard. If the regex stops matching (a refactor to SCSS, a rename), this test
@@ -116,24 +121,59 @@ describe("every text colour clears WCAG AA, in every theme", () => {
     });
   }
 
-  it("the disabled-text token clears AA too", () => {
-    // ⚠️ Disabled controls were the OTHER half of the UX review's contrast finding: labels were
-    // drawn at accent 0.4 alpha, which resolves to 3.01:1. The token is now 0.6. Alpha over the
-    // panel is composited here the same way the browser does it.
+  // ⚠️ THIS BLOCK USED TO MEASURE ONE ACCENT AND CALL IT THE WORST CASE. IT WAS NOT.
+  //
+  // Disabled controls were the other half of the UX review's contrast finding: labels were drawn at
+  // accent 0.4 alpha, which resolves to 3.01:1. The token was set to 0.6 and this test asserted it
+  // passed, measured against the cyan accent (5.23) with a comment claiming cyan was "whichever
+  // accent is darkest". Cyan is nearly the BRIGHTEST of the six. On red the same token measured
+  // 2.94, blue 3.12 and gray 3.53, so the defect was still live on half the themes while a green
+  // test said it was fixed. Found by a user reading the screen, not by this file.
+  //
+  // ONE alpha is applied over SIX different accent colours, so the only honest check is all six.
+  // The accents are parsed out of app.css rather than listed here, for the same reason the dim-text
+  // block parses them: a seventh theme must not be able to skip the check by not being in a literal.
+  const composite = (fg: string, a: number, bg: string): string => {
+    const f = fg.replace("#", "");
+    const b = bg.replace("#", "");
+    const mix = (i: number) =>
+      Math.round(parseInt(f.slice(i, i + 2), 16) * a + parseInt(b.slice(i, i + 2), 16) * (1 - a));
+    return `#${[0, 2, 4].map((i) => mix(i).toString(16).padStart(2, "0")).join("")}`;
+  };
+
+  it("declares an accent for every theme, so the disabled check below cannot be vacuous", () => {
+    // Non-vacuity guard, the same shape as the dim-text one: if this stops finding seven
+    // declarations (:root plus the six themes) the sweep below is silently measuring less.
+    expect(accentDeclarations().length).toBe(7);
+  });
+
+  it("the disabled-text token clears AA on EVERY theme's accent", () => {
     const m = CSS.match(/--color-text-disabled:\s*rgba\(var\(--color-accent-rgb\),\s*([0-9.]+)\)/);
     expect(m).not.toBeNull();
     const alpha = Number(m![1]);
-    // Worst case across themes is whichever accent is darkest against the panel. Checked against
-    // the :root cyan accent, which the original 3.01 measurement used.
-    const accent = "#67e8f9";
-    const composite = (fg: string, a: number, bg: string): string => {
-      const f = fg.replace("#", "");
-      const b = bg.replace("#", "");
-      const mix = (i: number) =>
-        Math.round(parseInt(f.slice(i, i + 2), 16) * a + parseInt(b.slice(i, i + 2), 16) * (1 - a));
-      return `#${[0, 2, 4].map((i) => mix(i).toString(16).padStart(2, "0")).join("")}`;
-    };
-    expect(contrast(composite(accent, alpha, PANEL_BG), PANEL_BG)).toBeGreaterThanOrEqual(AA_NORMAL);
+    const failures = accentDeclarations()
+      .map((d) => ({
+        theme: themeAt(d.index),
+        ratio: contrast(composite(d.value, alpha, PANEL_BG), PANEL_BG),
+      }))
+      .filter((r) => r.ratio < AA_NORMAL);
+    // Named failures, so the message says WHICH theme and by how much rather than just "false".
+    expect(failures.map((f) => `${f.theme} = ${f.ratio.toFixed(2)}:1`)).toEqual([]);
+  });
+
+  it("disabled text stays visibly DIMMER than an enabled control in every theme", () => {
+    // ⚠️ The counterweight to the test above, and it is why the fix was a bounded lift rather than
+    // "turn the alpha up until nobody complains". Raising alpha far enough always clears AA; at 1.0
+    // a disabled control would be indistinguishable from an enabled one, trading a contrast problem
+    // for a comprehension one. So the token must clear AA AND stay clearly below full strength.
+    const m = CSS.match(/--color-text-disabled:\s*rgba\(var\(--color-accent-rgb\),\s*([0-9.]+)\)/);
+    const alpha = Number(m![1]);
+    expect(alpha).toBeLessThan(1);
+    for (const d of accentDeclarations()) {
+      const disabled = contrast(composite(d.value, alpha, PANEL_BG), PANEL_BG);
+      const enabled = contrast(d.value, PANEL_BG);
+      expect(disabled, `${themeAt(d.index)} disabled must read dimmer than enabled`).toBeLessThan(enabled);
+    }
   });
 });
 

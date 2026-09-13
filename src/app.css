@@ -34,9 +34,26 @@
   --color-text-dim: #628591;
   /* Disabled control text. ⚠️ 0.13.5: disabled labels were drawn as the accent at 0.4 alpha,
      which resolves to 3.01:1 and fails AA outright (UX review point 3, "disabled contrast").
-     0.6 is the lowest alpha that clears 4.5 (it measures 5.23), so this token exists to give
-     every disabled control ONE value rather than each rule inventing its own alpha. */
-  --color-text-disabled: rgba(var(--color-accent-rgb), 0.6);
+     This token exists so every disabled control shares ONE value rather than each rule
+     inventing its own alpha.
+
+     ⚠️ RAISED 0.6 -> 0.85 (user, 2026-09-12: "still hard to read the text of"), and that
+     report found a REAL HOLE rather than a matter of taste. 0.6 was chosen by measuring the
+     CYAN accent alone, where it gives 5.23. But this is one alpha over SIX different accent
+     colours, and cyan is nearly the BRIGHTEST of them. Measured on the panel background:
+
+       alpha 0.60   cyan 5.23   green 5.56   white 6.03   gray 3.53   blue 3.12   red 2.94
+       alpha 0.85   cyan 9.44   green 10.22  white 11.14  gray 5.88   blue 5.05   red 4.84
+
+     So on the red, blue and gray themes the "fixed" token was still FAILING AA, and red at
+     2.94 was essentially the original 3.01 defect untouched. The per-theme minimum alpha that
+     clears 4.5 is red 0.82, blue 0.79, gray 0.72; 0.85 clears every theme with a little margin
+     instead of sitting on the line.
+
+     It is still visibly DIMMER than an enabled control (a full-strength cyan accent measures
+     12.80 against 9.44 here), so "disabled" still reads as disabled. Alpha is the only thing
+     that moved: no hue, no per-theme override, one value. */
+  --color-text-disabled: rgba(var(--color-accent-rgb), 0.85);
   --color-warning: #fbbf24;
   --color-warning-rgb: 251, 191, 36; /* R,G,B triplet matching --color-warning, for rgba() tints (Ships-tab attention row) */
   --color-danger: #f87171;
@@ -268,4 +285,29 @@ button {
   animation-iteration-count: 1 !important;
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
+}
+
+/* ⚠️ PROGRESS FILLS ARE THE EXCEPTION, AND LEAVING THEM TO THE BLUNT RULE ABOVE IS A REAL BUG.
+   (Found by the user, 2026-09-12, QA item D5: "Reduce motion doesn't make the bar step. The bar
+   just stays full.")
+
+   The blunt rule collapses every animation to a 0.001ms duration. For decoration that is exactly
+   right: the effect finishes instantly and is never seen. But the tick bar's animation is not
+   decoration, it IS the readout, and it is declared `forwards`, so collapsing its duration runs it
+   to completion immediately and then HOLDS IT AT 100% for the rest of the tick. The player asked
+   for less motion and got a broken gauge.
+
+   Killing the animation by NAME instead lets the element fall back to its inline width, which the
+   100ms poll already keeps current: the bar STEPS rather than sweeps, which is the pre-0.13.5
+   behaviour and is genuinely less motion. animation-name is what has to be overridden, because the
+   rule above only marks the DURATION important.
+
+   ⚠️ WHY THIS LIVES HERE AND NOT ONLY IN App.svelte: reduced motion has TWO entry points, the OS
+   setting (a prefers-reduced-motion media query) and the in-game toggle (this data attribute), and
+   until now only the media-query path carried the progress-fill exception. So the feature worked
+   for a player whose OS was configured for it and broke for a player who used the setting we
+   added. Two mechanisms, one of them fixed: that gap is the bug. Both paths now carry it. */
+:root[data-reduced-motion="on"] .tick-bar-fill,
+:root[data-reduced-motion="on"] .research-bar-fill {
+  animation-name: none !important;
 }

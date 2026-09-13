@@ -2323,7 +2323,7 @@ describe("the Auto-Salvage Terminal: the automation never touches the player's q
     const pieces = Array.from({ length: 8 }, (_, i) =>
       autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: i % 3, iLevel: 10 + i })
     );
-    const base = autoState(pieces, { maxQuality: 1, duplicates: true });
+    const base = autoState(pieces, { qualities: [0, 1], duplicates: true });
     return {
       ...base,
       facilities: { ...base.facilities, salvageBay: { level: 2 } },
@@ -2522,6 +2522,13 @@ function autoPiece(opts: {
 // so the grace is inert here unless a case stamps a piece on purpose. That is deliberate: it is
 // the same reading a pre-0.13.3.1 save gets, which keeps these fixtures honest about what an
 // upgraded save actually does.
+// 0.13.5 NOTE FOR ANYONE WIDENING A FIXTURE HERE: `duplicates: true` is NOT a widener any more.
+// Until 0.13.5 the three rules UNIONED, so adding duplicates could only ever select MORE. They now
+// FILTER, so duplicates narrows the pool to the copies past each variety's keep quota. Several
+// "however widely the rules select" fixtures below used to pass it for extra width and had it
+// REMOVED rather than forgotten: with the filter model, all tiers ticked plus all bands ticked IS
+// the widest possible rule, and adding duplicates would have made those safety cases weaker while
+// still reading as maximal.
 function autoState(
   pieces: EquipmentInstance[],
   rules: Partial<GameState["autoSalvage"]> = {}
@@ -2533,7 +2540,7 @@ function autoState(
     salvageConfirmQualities: [], // nothing protected, so the RULES are what is under test
     autoSalvage: {
       enabled: true,
-      maxQuality: null,
+      qualities: [],
       duplicates: false,
       keepPerVariety: 1,
       rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
@@ -2555,7 +2562,7 @@ function autoState(
 // the SAME tick (autoSalvageOrders sits at the head of promoteQueuedOrders) and would queue the
 // minted piece immediately if the grace did not hold it.
 function runFabricateToCompletion(): GameState {
-  const base = autoState([], { maxQuality: 5, duplicates: true });
+  const base = autoState([], { qualities: [0, 1, 2, 3, 4, 5] });
   const start: GameState = {
     ...base,
     // A clock well past one grace period, so nothing here depends on a young-save accident.
@@ -2599,7 +2606,7 @@ describe("selectAutoSalvageTargets: the MAX-QUALITY rule (0.13.3 Unit 5.1)", () 
         autoPiece({ id: "eq-c", quality: 2 }),
         autoPiece({ id: "eq-d", quality: 5 }),
       ],
-      { maxQuality: 1 }
+      { qualities: [0, 1] }
     );
     // "at or below" is inclusive on purpose: maxQuality 1 takes Q0 AND Q1.
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a", "eq-b"]);
@@ -2609,12 +2616,12 @@ describe("selectAutoSalvageTargets: the MAX-QUALITY rule (0.13.3 Unit 5.1)", () 
     // null means "rule off"; 0 means "Q0 and below". A truthiness check on maxQuality
     // would collapse the two and silently disable the most useful setting there is.
     const pieces = [autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 1 })];
-    expect(selectedIds(selectAutoSalvageTargets(autoState(pieces, { maxQuality: 0 }), NO_BOUND))).toEqual(["eq-a"]);
-    expect(selectAutoSalvageTargets(autoState(pieces, { maxQuality: null }), NO_BOUND)).toEqual([]);
+    expect(selectedIds(selectAutoSalvageTargets(autoState(pieces, { qualities: [0] }), NO_BOUND))).toEqual(["eq-a"]);
+    expect(selectAutoSalvageTargets(autoState(pieces, { qualities: [] }), NO_BOUND)).toEqual([]);
   });
 
   it("takes the ONLY copy of a variety when its tier qualifies (the rule is about worth, not about duplicates)", () => {
-    const state = autoState([autoPiece({ id: "eq-only", quality: 0 })], { maxQuality: 0 });
+    const state = autoState([autoPiece({ id: "eq-only", quality: 0 })], { qualities: [0] });
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-only"]);
   });
 });
@@ -2690,13 +2697,32 @@ describe("selectAutoSalvageTargets: the DUPLICATES rule keeps the BEST (0.13.3 U
     ).toEqual(["eq-a"]); // keeps eq-c and eq-b, the two best
   });
 
-  it("UNIONS with the max-quality rule rather than double-counting a piece both rules point at", () => {
+  it("NARROWS the quality axis rather than adding to it (0.13.5: the rules filter, they do not union)", () => {
+    // THIS CASE INVERTED IN 0.13.5 AND THE OLD NAME SAID SO ("UNIONS with the max-quality rule").
+    // Duplicates used to SELECT independently and merge; now it narrows whatever the axes allow.
+    // Only Q0 is ticked, so eq-b is filtered out before duplicates groups anything. eq-a is then
+    // alone in its group and is not beyond the keep quota, so nothing is taken.
     const state = autoState(
       [
-        autoPiece({ id: "eq-a", iLevel: 10, quality: 0 }), // both rules want this one
-        autoPiece({ id: "eq-b", iLevel: 40, quality: 3 }), // the duplicates keeper
+        autoPiece({ id: "eq-a", iLevel: 10, quality: 0 }),
+        autoPiece({ id: "eq-b", iLevel: 40, quality: 3 }), // the better copy, outside the ticked tier
       ],
-      { duplicates: true, maxQuality: 0 }
+      { duplicates: true, qualities: [0] }
+    );
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual([]);
+  });
+
+  it("duplicates groups the AXIS-FILTERED pool, so a piece outside the ticked tiers cannot be the keeper", () => {
+    // The distinguishing case for the filter model. Under the OLD union, eq-b (Q3) would have been
+    // the duplicates keeper for the whole variety. Under the filter model the player said "only
+    // Q0", so the Q3 copy is not in the conversation at all and Q0 ranks among itself.
+    const state = autoState(
+      [
+        autoPiece({ id: "eq-a", iLevel: 10, quality: 0 }),
+        autoPiece({ id: "eq-a2", iLevel: 20, quality: 0 }),
+        autoPiece({ id: "eq-b", iLevel: 90, quality: 3 }), // best of the variety, but not ticked
+      ],
+      { duplicates: true, qualities: [0] }
     );
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-a"]);
   });
@@ -2715,10 +2741,14 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
         autoPiece({ id: "eq-open", quality: 2, iLevel: 10 }),
         autoPiece({ id: "eq-keeper", quality: 2, iLevel: 90 }),
       ],
-      { duplicates: true, maxQuality: 5 } // both rules select as widely as possible
+      // 0.13.5: `duplicates` was REMOVED from this fixture, not forgotten. It used to WIDEN the
+      // selection (a third rule unioning in); it now NARROWS (a filter), so leaving it in would
+      // have made this "as widely as possible" fixture select LESS and quietly weakened the most
+      // important safety case in the file. All tiers ticked IS the widest rule now.
+      { qualities: [0, 1, 2, 3, 4, 5] }
     );
 
-    // Control: with nothing protected, all three are taken (maxQuality 5 covers them all).
+    // Control: with nothing protected, all three are taken (every tier is ticked).
     expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual([
       "eq-keeper",
       "eq-open",
@@ -2738,7 +2768,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
     const state: GameState = {
       ...autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
         duplicates: true,
-        maxQuality: 5,
+        qualities: [0, 1, 2, 3, 4, 5],
       }),
       salvageConfirmQualities: freshState().salvageConfirmQualities,
     };
@@ -2749,7 +2779,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
     // A hand-edited save or a partial fixture must not be read as "nothing is protected".
     // Salvage is irreversible, so the undefined case has to err toward keeping items.
     const broken = {
-      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 }),
+      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { qualities: [0, 1, 2, 3, 4, 5] }),
       salvageConfirmQualities: undefined,
     } as unknown as GameState;
     expect(selectAutoSalvageTargets(broken, NO_BOUND)).toEqual([]);
@@ -2778,7 +2808,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
         autoPiece({ id: "eq-fitted", fittedToShipId: "ship-1", quality: 0 }),
         autoPiece({ id: "eq-spare", quality: 0 }),
       ],
-      { maxQuality: 5 }
+      { qualities: [0, 1, 2, 3, 4, 5] }
     );
     // Exactly one selection: the spare. freshState's own four fitted ship-1 baselines are
     // bystanders and must be untouched too, which the length assertion covers.
@@ -2787,7 +2817,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
 
   it("NEVER selects a target a QUEUED salvage order already owns", () => {
     const base = autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
-      maxQuality: 5,
+      qualities: [0, 1, 2, 3, 4, 5],
     });
     const queuedJob: QueuedJob = {
       id: "q-1",
@@ -2800,7 +2830,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
 
   it("NEVER selects a target an IN-FLIGHT salvage job already owns", () => {
     const base = autoState([autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })], {
-      maxQuality: 5,
+      qualities: [0, 1, 2, 3, 4, 5],
     });
     const state: GameState = {
       ...base,
@@ -2831,7 +2861,7 @@ describe("âš ï¸ selectAutoSalvageTargets: the HARD SAFETY FILTERS (0.13.3
   });
 
   it("never selects a SHIP or a SALVAGED MATERIAL: the rules are scoped to spare systems", () => {
-    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { duplicates: true, maxQuality: 5 });
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { duplicates: true, qualities: [0, 1, 2, 3, 4, 5] });
     const state: GameState = {
       ...base,
       fleetAdminLevel: MAX_CEILING_LEVEL,
@@ -2901,18 +2931,52 @@ describe("selectAutoSalvageTargets: the RARITY rule selects exactly the checked 
     expect(selectedIds(selectAutoSalvageTargets(all, NO_BOUND))).toEqual(["eq-a", "eq-b"]);
   });
 
-  it("UNIONS with the other two rules rather than narrowing them", () => {
-    // The rarity rule ADDS selections; it is not a filter over what quality/duplicates chose.
-    // eq-keep is a high-quality radiant that only the rarity rule reaches, and it is taken.
-    const state = autoState(
-      [
-        autoPiece({ id: "eq-lowq", rarity: "stellar", quality: 0 }), // the quality rule's pick
-        autoPiece({ id: "eq-rare", rarity: "radiant", quality: 5 }), // the rarity rule's pick
-        autoPiece({ id: "eq-neither", rarity: "stellar", quality: 5, slotType: "ftlDrive" }),
-      ],
-      { maxQuality: 0, rarities: raritySelection(["radiant"]) }
-    );
-    expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))].sort()).toEqual(["eq-lowq", "eq-rare"]);
+  // 0.13.5 REPLACED THE UNION WITH A FILTER CHAIN, and these cases are the user's own statement of
+  // the rules, pinned verbatim:
+  //   "If Quality is off, common being checked eats all common items."
+  //   "If rarity is off and Q0 is checked, eats all Q0 items of all types."
+  //   "If both have a selection like common and Q0, it only eats items that are common Q0 items."
+  describe("the two axes NARROW each other (0.13.5)", () => {
+    const mixed = () => [
+      autoPiece({ id: "eq-lowq", rarity: "stellar", quality: 0 }),
+      autoPiece({ id: "eq-rare", rarity: "radiant", quality: 5 }),
+      autoPiece({ id: "eq-both", rarity: "radiant", quality: 0, slotType: "ftlDrive" }),
+    ];
+
+    it("BOTH axes ticked takes only the pieces matching BOTH", () => {
+      // The case that inverted. Under the old union this took eq-lowq (Q0) AND eq-rare (radiant)
+      // AND eq-both. Now only the intersection survives.
+      const state = autoState(mixed(), { qualities: [0], rarities: raritySelection(["radiant"]) });
+      expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))].sort()).toEqual(["eq-both"]);
+    });
+
+    it("quality alone still takes every piece in those tiers, whatever its rarity", () => {
+      // An EMPTY rarity axis does not narrow. This is what stops the filter model from making one
+      // axis useless without the other, and it is half of what the user specified.
+      const state = autoState(mixed(), { qualities: [0] });
+      expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))].sort()).toEqual(["eq-both", "eq-lowq"]);
+    });
+
+    it("rarity alone still takes every piece in those bands, whatever its quality", () => {
+      const state = autoState(mixed(), { rarities: raritySelection(["radiant"]) });
+      expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))].sort()).toEqual(["eq-both", "eq-rare"]);
+    });
+
+    it("NOTHING ticked on any axis takes NOTHING, even with the master switch ON", () => {
+      // THE MOST IMPORTANT CASE IN THIS FILE NOW. A filter chain with no filters narrows nothing,
+      // so without the explicit guard this would select the player's ENTIRE spare inventory. The
+      // old union got this for free; the new model has to defend it, and this is the defence.
+      const state = autoState(mixed(), {});
+      expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual([]);
+    });
+
+    it("clearing the quality axis leaves the rarity rule working on its own", () => {
+      // The user's exact words: "if you click off on quality, it deselects Q1 and Q2 and then only
+      // eats all common/uncommon items regardless of quality."
+      const withBoth = autoState(mixed(), { qualities: [0], rarities: raritySelection(["radiant"]) });
+      const cleared: GameState = { ...withBoth, autoSalvage: { ...withBoth.autoSalvage, qualities: [] } };
+      expect([...selectedIds(selectAutoSalvageTargets(cleared, NO_BOUND))].sort()).toEqual(["eq-both", "eq-rare"]);
+    });
   });
 
   it("⚠️ the CONFIRM interlock still wins: a confirm-ON tier is never taken by the rarity rule", () => {
@@ -2930,12 +2994,12 @@ describe("selectAutoSalvageTargets: the RARITY rule selects exactly the checked 
     const pieces = [autoPiece({ id: "eq-a", rarity: "radiant" })];
     const missing = {
       ...autoState(pieces),
-      autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1 },
+      autoSalvage: { enabled: true, qualities: [], duplicates: false, keepPerVariety: 1 },
     } as unknown as GameState;
     expect(selectAutoSalvageTargets(missing, NO_BOUND)).toEqual([]);
     const junk = {
       ...autoState(pieces),
-      autoSalvage: { enabled: true, maxQuality: null, duplicates: false, keepPerVariety: 1, rarities: "all" },
+      autoSalvage: { enabled: true, qualities: [], duplicates: false, keepPerVariety: 1, rarities: "all" },
     } as unknown as GameState;
     expect(selectAutoSalvageTargets(junk, NO_BOUND)).toEqual([]);
   });
@@ -3047,7 +3111,7 @@ describe("PRODUCIBLE_EQUIPMENT_RARITIES tracks what the game can actually mint (
     // And the selector still acts on it: a constellar spare is taken by a constellar rule even
     // though the console no longer offers that checkbox on a fresh rule.
     const pieces = [autoPiece({ id: "eq-c", rarity: "constellar" }), autoPiece({ id: "eq-r", rarity: "radiant" })];
-    const state = autoState(pieces, { maxQuality: null, duplicates: false, rarities: read });
+    const state = autoState(pieces, { qualities: [], duplicates: false, rarities: read });
     expect([...selectedIds(selectAutoSalvageTargets(state, NO_BOUND))]).toEqual(["eq-c"]);
   });
 
@@ -3076,7 +3140,7 @@ describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salva
         autoPiece({ id: "eq-fav", quality: 0, rarity: "radiant" }),
         autoPiece({ id: "eq-open", quality: 0, rarity: "radiant" }),
       ],
-      { maxQuality: 5, duplicates: true, rarities: raritySelection([...EQUIPMENT_RARITY_LADDER]) }
+      { qualities: [0, 1, 2, 3, 4, 5], rarities: raritySelection([...EQUIPMENT_RARITY_LADDER]) }
     );
     // Control: with nothing favorited, both are taken.
     expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual(["eq-fav", "eq-open"]);
@@ -3118,7 +3182,7 @@ describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salva
   });
 
   it("the favorite flag is the only thing that changes: an unpinned piece is selected again", () => {
-    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 });
+    const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { qualities: [0, 1, 2, 3, 4, 5] });
     const pinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)) };
     expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
     const unpinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: false } : e)) };
@@ -3136,7 +3200,7 @@ describe("⚠️ selectAutoSalvageTargets: the GRACE PERIOD (0.13.3.1)", () => {
   // A state whose clock reads `now`, holding one spare whose grace window started at `startedAt`.
   function graceState(now: number, startedAt: number | undefined, graceSeconds?: number): GameState {
     const base = autoState([autoPiece({ id: "eq-new", quality: 0 })], {
-      maxQuality: 5,
+      qualities: [0, 1, 2, 3, 4, 5],
       ...(graceSeconds === undefined ? {} : { graceSeconds }),
     });
     return {
@@ -3187,7 +3251,7 @@ describe("⚠️ selectAutoSalvageTargets: the GRACE PERIOD (0.13.3.1)", () => {
   it("a grace length the save does not carry falls back to the 60-minute default, never to 0", () => {
     const noLength = {
       ...graceState(10_000, 10_000 - 600),
-      autoSalvage: { enabled: true, maxQuality: 5, duplicates: false, keepPerVariety: 1, rarities: AUTO_SALVAGE_RARITIES_NONE },
+      autoSalvage: { enabled: true, qualities: [0, 1, 2, 3, 4, 5], duplicates: false, keepPerVariety: 1, rarities: AUTO_SALVAGE_RARITIES_NONE },
     } as unknown as GameState;
     // Still inside the DEFAULT window, so still protected. A 0 fallback would have taken it.
     expect(selectAutoSalvageTargets(noLength, NO_BOUND)).toEqual([]);
@@ -3282,7 +3346,7 @@ describe("autoSalvageGraceRemainingSeconds: the shared grace math (0.13.3.1)", (
 describe("⚠️ a ZERO grace period: the rules take a fresh piece, and the OTHER protections still hold", () => {
   // One spare, minted at THIS instant, with the rules wide open and the grace switched off.
   function zeroGraceState(pieces: EquipmentInstance[]): GameState {
-    const base = autoState(pieces, { maxQuality: 5, graceSeconds: 0 });
+    const base = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5], graceSeconds: 0 });
     return {
       ...base,
       gameTimeSeconds: 10_000,
@@ -3399,7 +3463,7 @@ describe("⚠️ UNINSTALLING a system starts its auto-salvage grace window (0.1
   function installedState(extra: EquipmentInstance[] = []): GameState {
     const base = autoState(
       [autoPiece({ id: "eq-worn", quality: 0, fittedToShipId: "ship-1" }), ...extra],
-      { maxQuality: 5 }
+      { qualities: [0, 1, 2, 3, 4, 5] }
     );
     return {
       ...base,
@@ -3516,7 +3580,7 @@ describe("⚠️ UNINSTALLING a system starts its auto-salvage grace window (0.1
 
   it("a CONFIRM-ON quality tier is still protected after uninstalling, window or no window", () => {
     const base = autoState([autoPiece({ id: "eq-q2", quality: 2, fittedToShipId: "ship-1" })], {
-      maxQuality: 5,
+      qualities: [0, 1, 2, 3, 4, 5],
       graceSeconds: 0,
     });
     const guarded: GameState = { ...base, gameTimeSeconds: NOW, salvageConfirmQualities: [2] };
@@ -3592,7 +3656,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       autoPiece({ id: "eq-fresh", quality: 2 }),
       autoPiece({ id: "eq-queued", quality: 2 }),
     ];
-    const base = autoState(pieces, { maxQuality: 5 });
+    const base = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5] });
     const state: GameState = {
       ...base,
       gameTimeSeconds: 10_000,
@@ -3642,7 +3706,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     // auto-salvage is ever pointed at, a favorite must be exempt. A HULL has no saved favorite
     // flag at all (ship favorites are a per-device localStorage view preference the tick cannot
     // read), so the only offline-honest answer for a hull is "treat it as protected".
-    const state = autoState([autoPiece({ id: "eq-a" })], { maxQuality: 5 });
+    const state = autoState([autoPiece({ id: "eq-a" })], { qualities: [0, 1, 2, 3, 4, 5] });
     expect(autoSalvageProtectionForTarget(state, { kind: "ship", shipId: "ship-1" })).toBe("favorited");
   });
 
@@ -3664,7 +3728,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
 
   it("an unreadable confirm preference protects EVERY piece, through the seam as well", () => {
     const broken = {
-      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { maxQuality: 5 }),
+      ...autoState([autoPiece({ id: "eq-a", quality: 0 })], { qualities: [0, 1, 2, 3, 4, 5] }),
       salvageConfirmQualities: undefined,
     } as unknown as GameState;
     expect(autoSalvageProtectionForTarget(broken, { kind: "equipment", instanceId: "eq-a" })).toBe("confirmTier");
@@ -3677,14 +3741,14 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     const piece = autoPiece({ id: "eq-baseline", blueprintKey: null });
     const target = { kind: "equipment", instanceId: "eq-baseline" } as const;
     const unreached = autoState([piece], { rarities: raritySelection(["stellar"]) });
-    const reached = autoState([piece], { maxQuality: 0 });
+    const reached = autoState([piece], { qualities: [0] });
     expect(autoSalvageProtectionForTarget(unreached, target)).toBe("baseline");
     expect(autoSalvageProtectionForTarget(reached, target)).toBeNull();
   });
 
   it("the context is derived once and answers many pieces (the selector's hot path)", () => {
     // The shape the tick uses: one context, many subjects, no per-piece reservation derivation.
-    const base = autoState([autoPiece({ id: "eq-a" }), autoPiece({ id: "eq-b" })], { maxQuality: 5 });
+    const base = autoState([autoPiece({ id: "eq-a" }), autoPiece({ id: "eq-b" })], { qualities: [0, 1, 2, 3, 4, 5] });
     const state: GameState = {
       ...base,
       equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)),
@@ -3733,8 +3797,8 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
     // shape that happens to answer the same way for the wrong reason.
     const ruleSets: Partial<GameState["autoSalvage"]>[] = [
       {},
-      { maxQuality: 0 },
-      { maxQuality: 5 },
+      { qualities: [0] },
+      { qualities: [0, 1, 2, 3, 4, 5] },
       { duplicates: true },
       { rarities: raritySelection(["standard"]) },
       { rarities: raritySelection(["stellar"]) },
@@ -3757,9 +3821,9 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
     expect(autoSalvageRulesReachBaseline(rules({}), piece)).toBe(false);
     // The QUALITY rule. `null` is off; 0 is a REAL setting and must reach a Q0 baseline, which is
     // the null-versus-0 trap the rest of this feature is careful about.
-    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: null }), piece)).toBe(false);
-    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: 0 }), piece)).toBe(true);
-    expect(autoSalvageRulesReachBaseline(rules({ maxQuality: 5 }), piece)).toBe(true);
+    expect(autoSalvageRulesReachBaseline(rules({ qualities: [] }), piece)).toBe(false);
+    expect(autoSalvageRulesReachBaseline(rules({ qualities: [0] }), piece)).toBe(true);
+    expect(autoSalvageRulesReachBaseline(rules({ qualities: [0, 1, 2, 3, 4, 5] }), piece)).toBe(true);
     // The RARITY rule, per band: the baseline's own band reaches it, another band does not.
     expect(autoSalvageRulesReachBaseline(rules({ rarities: raritySelection(["standard"]) }), piece)).toBe(true);
     expect(autoSalvageRulesReachBaseline(rules({ rarities: raritySelection(["stellar"]) }), piece)).toBe(false);
@@ -3777,7 +3841,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   it("⚠️ the QUALITY rule at Q0 takes a spare baseline, including the only one left", () => {
     // The setting the user will actually use to clear their bay. It is deliberately allowed to
     // take the last copy: maxQuality is the rule that means "this tier is worthless to me".
-    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 0 });
+    const state = autoState([baselinePiece("eq-baseline")], { qualities: [0] });
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-baseline"]);
   });
 
@@ -3826,7 +3890,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   // the baseline reason is definitely NOT the thing doing the protecting. That is the only way
   // these cases prove what they claim.
   it("⚠️ a FAVORITED baseline survives however wide the rules are set", () => {
-    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const state = autoState([baselinePiece("eq-baseline")], { qualities: [0, 1, 2, 3, 4, 5] });
     const pinned: GameState = {
       ...state,
       equipment: state.equipment.map((e) => (e.id === "eq-baseline" ? { ...e, favorite: true } : e)),
@@ -3840,7 +3904,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   it("⚠️ a baseline still inside its GRACE WINDOW survives (the just-uninstalled case)", () => {
     // The case a player actually meets: they took the baseline off a ship a moment ago, and every
     // uninstall route stamps what it pools. A stamped baseline is inside its window like any piece.
-    const state = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const state = autoState([baselinePiece("eq-baseline")], { qualities: [0, 1, 2, 3, 4, 5] });
     const fresh: GameState = {
       ...state,
       gameTimeSeconds: 10_000,
@@ -3858,7 +3922,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   it("a real UNINSTALL leaves the pooled baseline inside its grace window", () => {
     // Not a hand-stamped fixture: the actual uninstall route, so the stamp being written to a
     // BASELINE (and not only to crafted gear) is what is under test.
-    const base = autoState([], { maxQuality: 5, duplicates: true });
+    const base = autoState([], { qualities: [0, 1, 2, 3, 4, 5] });
     const start: GameState = { ...base, gameTimeSeconds: 10_000 };
     // freshState fits ship-1 with four baselines; take one off through the live route.
     const fittedBaseline = start.equipment.find(
@@ -3874,7 +3938,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   });
 
   it("an INSTALLED baseline is never a candidate, whatever the rules say", () => {
-    const state = autoState([], { maxQuality: 5, duplicates: true });
+    const state = autoState([], { qualities: [0, 1, 2, 3, 4, 5] });
     // freshState's own four ship-1 baselines are installed, and every one of them must be safe.
     const installedBaselines = state.equipment.filter(
       (e) => e.fittedToShipId !== null && isStandardIssueBaseline(e)
@@ -3890,7 +3954,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
     // The shipped default asks about every quality tier, and a baseline is always Q0, so a player
     // who has not opted Q0 out of confirmation cannot lose a baseline to the rules at all. This is
     // the interlock, not the baseline reason, and it must not have been weakened by this change.
-    const base = autoState([baselinePiece("eq-baseline")], { maxQuality: 5, duplicates: true });
+    const base = autoState([baselinePiece("eq-baseline")], { qualities: [0, 1, 2, 3, 4, 5] });
     const guarded: GameState = { ...base, salvageConfirmQualities: [0] };
     expect(selectAutoSalvageTargets(guarded, NO_BOUND)).toEqual([]);
     expect(autoSalvageProtectionForTarget(guarded, { kind: "equipment", instanceId: "eq-baseline" })).toBe(
@@ -3899,7 +3963,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
   });
 
   it("a QUEUED baseline is not queued a second time", () => {
-    const base = autoState([baselinePiece("eq-baseline")], { maxQuality: 0 });
+    const base = autoState([baselinePiece("eq-baseline")], { qualities: [0] });
     const state: GameState = {
       ...base,
       processQueue: [
@@ -3925,7 +3989,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
       // Both of the band-naming rules, because either one alone leaves the player in the
       // configuration the warning is about.
       expect(
-        autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: true, maxQuality: 0 }), false)
+        autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: true, qualities: [0] }), false)
       ).toBe(true);
       expect(
         autoSalvageDuplicatesOffWarnsAboutBaselines(
@@ -3938,13 +4002,13 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
     it("does NOT fire when switching Duplicates ON", () => {
       // Switching it on can only ever narrow what happens to baselines (it adds a keeper), so
       // there is nothing to warn about and a dialog there would train the player to dismiss them.
-      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, maxQuality: 0 }), true)).toBe(
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, qualities: [0] }), true)).toBe(
         false
       );
     });
 
     it("does NOT fire when Duplicates is ALREADY off (a repeated write is not a transition)", () => {
-      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, maxQuality: 0 }), false)).toBe(
+      expect(autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ duplicates: false, qualities: [0] }), false)).toBe(
         false
       );
     });
@@ -3970,7 +4034,7 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
       // or not by accident of the order the player clicks things in.
       for (const enabled of [true, false]) {
         expect(
-          autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ enabled, duplicates: true, maxQuality: 0 }), false)
+          autoSalvageDuplicatesOffWarnsAboutBaselines(rulesWith({ enabled, duplicates: true, qualities: [0] }), false)
         ).toBe(true);
       }
     });
@@ -3981,16 +4045,16 @@ describe("selectAutoSalvageTargets: DISABLED rules do nothing (0.13.3 Unit 5.1)"
   const pieces = [autoPiece({ id: "eq-a", quality: 0 }), autoPiece({ id: "eq-b", quality: 0 })];
 
   it("the master switch off selects nothing, however the individual rules are set", () => {
-    const state = autoState(pieces, { enabled: false, duplicates: true, maxQuality: 5 });
+    const state = autoState(pieces, { enabled: false, duplicates: true, qualities: [0, 1, 2, 3, 4, 5] });
     expect(selectAutoSalvageTargets(state, NO_BOUND)).toEqual([]);
   });
 
   it("enabled but with BOTH rules off selects nothing", () => {
-    expect(selectAutoSalvageTargets(autoState(pieces, { maxQuality: null, duplicates: false }), NO_BOUND)).toEqual([]);
+    expect(selectAutoSalvageTargets(autoState(pieces, { qualities: [], duplicates: false }), NO_BOUND)).toEqual([]);
   });
 
   it("a zero or negative limit selects nothing (the caller has no room)", () => {
-    const state = autoState(pieces, { maxQuality: 5 });
+    const state = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5] });
     expect(selectAutoSalvageTargets(state, 0)).toEqual([]);
     expect(selectAutoSalvageTargets(state, -3)).toEqual([]);
   });
@@ -4006,8 +4070,8 @@ describe("selectAutoSalvageTargets: DETERMINISTIC order and the per-call BOUND (
       autoPiece({ id: "eq-3", quality: 0 }),
       autoPiece({ id: "eq-4", quality: 0 }),
     ];
-    const forward = autoState(pieces, { maxQuality: 5 });
-    const reversed = autoState([...pieces].reverse(), { maxQuality: 5 });
+    const forward = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5] });
+    const reversed = autoState([...pieces].reverse(), { qualities: [0, 1, 2, 3, 4, 5] });
     expect(selectedIds(selectAutoSalvageTargets(forward, NO_BOUND))).toEqual(["eq-1", "eq-2", "eq-3", "eq-4"]);
     expect(selectedIds(selectAutoSalvageTargets(reversed, NO_BOUND))).toEqual(
       selectedIds(selectAutoSalvageTargets(forward, NO_BOUND))
@@ -4018,14 +4082,14 @@ describe("selectAutoSalvageTargets: DETERMINISTIC order and the per-call BOUND (
     const pieces = Array.from({ length: 50 }, (_, i) =>
       autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: 0 })
     );
-    const state = autoState(pieces, { maxQuality: 5 });
+    const state = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5] });
     expect(selectedIds(selectAutoSalvageTargets(state, 3))).toEqual(["eq-000", "eq-001", "eq-002"]);
     // Same call, same answer. Idempotent because nothing here is stateful.
     expect(selectedIds(selectAutoSalvageTargets(state, 3))).toEqual(["eq-000", "eq-001", "eq-002"]);
   });
 
   it("is PURE: it does not mutate the state it is handed", () => {
-    const state = autoState([autoPiece({ id: "eq-b" }), autoPiece({ id: "eq-a" })], { maxQuality: 5 });
+    const state = autoState([autoPiece({ id: "eq-b" }), autoPiece({ id: "eq-a" })], { qualities: [0, 1, 2, 3, 4, 5] });
     const before = state.equipment.map((e) => e.id);
     selectAutoSalvageTargets(state, NO_BOUND);
     expect(state.equipment.map((e) => e.id)).toEqual(before); // the sort took a copy
@@ -4041,7 +4105,7 @@ describe("autoSalvageOrders: the TICK pass, its BUDGET and its DEPTH interaction
     const pieces = Array.from({ length: 40 }, (_, i) =>
       autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: 0 })
     );
-    const base = autoState(pieces, { maxQuality: 5, ...rules });
+    const base = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5], ...rules });
     return { ...base, unlockedHomeworldTalents: [...base.unlockedHomeworldTalents, ...talents] };
   }
 
@@ -4166,7 +4230,7 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     const pieces = Array.from({ length: 12 }, (_, i) =>
       autoPiece({ id: `eq-${String(i).padStart(3, "0")}`, quality: i % 3, iLevel: 10 + i })
     );
-    const base = autoState(pieces, { maxQuality: 1, duplicates: true });
+    const base = autoState(pieces, { qualities: [0, 1], duplicates: true });
     return {
       ...base,
       unlockedHomeworldTalents: [
@@ -4278,7 +4342,14 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
       const base = autoParityState();
       return {
         ...base,
-        autoSalvage: { ...base.autoSalvage, ...rules },
+        // ⚠️ 0.13.5: `duplicates` is switched OFF here, and that is the fix rather than a
+        // weakening. These cases assert that ALL THREE baselines are taken; the shared parity base
+        // turns duplicates on, which under the old UNION could only add selections but now NARROWS.
+        // The three baselines share a variety key ("baseline::slot"), so with duplicates on the
+        // best of them would be KEPT and the case would be asserting something that is no longer
+        // true. The quality axis alone (tiers 0 and 1, and every baseline is Q0) reaches all three,
+        // which is exactly the condition these tests exist to exercise.
+        autoSalvage: { ...base.autoSalvage, duplicates: false, ...rules },
         equipment: [
           ...base.equipment,
           ...BASELINE_IDS.map((id) => autoPiece({ id, blueprintKey: null, quality: 0 })),
@@ -4315,7 +4386,7 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     // stellar rarity band, no quality rule, no duplicates) leaves all three standing, on both
     // paths. This is what proves the CONDITION is doing the work rather than the protection
     // having been deleted.
-    const unreachedRules = { maxQuality: null, duplicates: false, rarities: raritySelection(["stellar"]) };
+    const unreachedRules = { qualities: [], duplicates: false, rarities: raritySelection(["stellar"]) };
     const jumpedSafe = tick(SPAN, baselineState(unreachedRules), mulberry32(SEED));
     let steppedSafe = baselineState(unreachedRules);
     const safeRng = mulberry32(SEED);
@@ -4403,7 +4474,13 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
       return {
         ...base,
         gameTimeSeconds: 50_000,
-        autoSalvage: { ...base.autoSalvage, graceSeconds },
+        // ⚠️ 0.13.5: duplicates OFF, for the same reason as the baseline parity fixture above. This
+        // case is about the GRACE window protecting a just-uninstalled piece, and its control step
+        // needs "the rules want eq-hull" to be unconditionally true. With duplicates now NARROWING,
+        // eq-hull competes in its variety's ranking and can end up the KEEPER on a tie-break, which
+        // would make the control flaky for a reason that has nothing to do with what is under test.
+        // The quality axis alone (tiers 0 and 1; eq-hull is Q0) wants it outright.
+        autoSalvage: { ...base.autoSalvage, duplicates: false, graceSeconds },
         ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
         // A Q0 crafted system bolted to the doomed hull. Q0 is inside the fixture's maxQuality 1,
         // so the moment it lands in the pool the rules WANT it: the control below proves that.
@@ -4776,7 +4853,7 @@ describe("autoSalvageOrders: the player's whole queue stays free, and the rules 
     const pieces = Array.from({ length: 40 }, (_, i) =>
       autoPiece({ id: `bp-${String(i).padStart(3, "0")}`, quality: 0 })
     );
-    const base = autoState(pieces, { maxQuality: 5 });
+    const base = autoState(pieces, { qualities: [0, 1, 2, 3, 4, 5] });
     return { ...base, unlockedHomeworldTalents: [...base.unlockedHomeworldTalents, ...talents] };
   }
 

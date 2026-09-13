@@ -1,14 +1,33 @@
-# SESSION HANDOFF, 2026-09-11
+# SESSION HANDOFF, updated 2026-09-12
 
 ## Where things stand
 
 | | ref | what |
 |---|---|---|
-| **PROD** `main` | `9054a32` | **0.13.4 "Infrastructure", LIVE**, plus three bug fixes shipped today |
-| **PREVIEW** `staging` | `02bfc84` | **0.13.5 Phase 1**, ready for QA |
-| **BRANCH** | `feat/presentation-0.13.5` | same as staging |
+| **PROD** `main` | `9054a32` | **0.13.4 "Infrastructure", LIVE** |
+| **PREVIEW** `staging` | `84691e7` | **0.13.5 Phases 1 + 2**, mid-QA |
+| **BRANCH** | `feat/presentation-0.13.5` | ahead of staging by docs commits only |
 
-**Next action: the user QAs 0.13.5 Phase 1** using `docs/plans/2026-09-11-presentation-0.13.5-phase1-qa.md`. Nothing is blocked on me.
+**Next action: the user is QA-ing 0.13.5** with `docs/plans/2026-09-11-presentation-0.13.5-phase1-qa.md`.
+Sections A, B, C, F, G and H are done or in progress; D (accessibility) is being re-run after two
+fixes. Nothing is blocked on me.
+
+### What QA has turned up so far, and what it cost
+
+⚠️ **Every bug the user found this round was a feature that passed all four gates while not reaching
+the screen.** That is the pattern worth carrying forward: `check`, the suite, parity and `build`
+cannot see a pixel, so a presentation release needs tests that parse the shipped CSS. Three now do
+(`contrast.test.ts`, `uiScale.test.ts`), each written after a bug the gates missed.
+
+| Item | What was wrong | Fix |
+|---|---|---|
+| A3, disabled text | The token was tuned against the CYAN accent (5.23, a pass) and called worst-case. Cyan is nearly the BRIGHTEST of six. Red measured **2.94**, blue 3.12, gray 3.53, so half the themes still failed AA behind a green test. | Alpha 0.6 -> 0.85, clears all six. `contrast.test.ts` now sweeps every accent parsed from `app.css`. **User has accepted the result.** |
+| D3, text size | `--ui-scale` existed and the control wrote it, but **253 of 258 font sizes were hardcoded px**, which cannot see a CSS variable. | All 258 swept: 208 to scale tokens (exactly neutral), 50 off-scale to `calc(Npx * var(--ui-scale))`. ✅ **User confirmed working across the board.** |
+| D5, reduced motion | Reduced motion has TWO entry points (OS media query, in-game toggle) and only the OS path carried the progress-fill exception. The toggle hit a blanket rule collapsing every animation to 0.001ms, which for a `forwards` progress animation pins the bar at 100%. | `animation-name: none` on the attribute path too. Awaiting the user's re-test. |
+| Confirmation levels | Shipped the WRONG FEATURE: three buttons instead of the dropdown-plus-checkboxes model that was already written in `SUGGESTIONS.md`. The design doc compressed the record; the build followed the design doc. | Rebuilt to the record. Design doc §1.4a has the account. |
+
+⚠️ **NO REFRESH PROMPT IS NEEDED for the text-size control.** The user asked for one on the premise
+that a refresh was required; that requirement was the bug, and the sweep removed it. Confirmed live.
 
 ---
 
@@ -31,9 +50,9 @@ User decision: no split. *"It's all UX/UI work, so it all goes together quite we
 
 | Phase | Status |
 |---|---|
-| **1. Foundations** | ✅ **BUILT, awaiting QA** |
+| **1. Foundations** | ✅ **BUILT + mid-QA**, including the remainder (Save Data out of Visual, the Salvage Bay deep link) |
 | **2. Icon registry + pack seam** | ✅ **BUILT** |
-| 3. Mockups (mobile review, then desktop) | not started |
+| 3. Mockups (mobile review, then desktop) | ⚠️ **FOUR BRIEFS WRITTEN, all blocked on mockups.** See the design doc: 1 header redesign, 2 options information architecture (+ revision 2), 3 collapsible header, 4 collapsible Recently Completed rows. |
 | 4. Two faces (separate view layers, desktop treatment, force-mobile) | not started |
 | 5. Sweeps (icons, tooltips, Ops tidy, help buttons, colon style) | not started |
 | 6. Extras | ⚠️ **F5 ENGINE DONE, PARKED on `feat/f5-standard-issue-slots`.** Tick-bar pulse not started. |

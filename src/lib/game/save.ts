@@ -4,6 +4,7 @@
 
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
+import { QUALITY_TIERS } from "./inventory";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
@@ -39,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 47;
+export const SAVE_VERSION = 48;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2012,7 +2013,70 @@ const MIGRATIONS: Record<number, Migration> = {
     craftOrders: state.craftOrders ?? [],
     nextCraftOrderId: state.nextCraftOrderId ?? 1,
   }),
-  // --- v46 -> v47: EVERY SLOT SHIPS FILLED (F5) -----------------------------------------
+
+  // 46 -> 47 (0.13.5): AUTO-SALVAGE `maxQuality: number | null` BECOMES `qualities: number[]`,
+  // and the rules stop UNIONING and start NARROWING. See AutoSalvageRules in model.ts.
+  //
+  // ⚠️ THIS IS THE ONLY MIGRATION IN THIS PROJECT THAT CAN CHANGE WHAT GETS DESTROYED, so the
+  // conversion is written to preserve each player's EFFECTIVE rule rather than just its fields.
+  //
+  // The old model selected independently and merged. The new one filters, and an axis with nothing
+  // ticked does not narrow. So a player who used ONE axis keeps exactly their old behaviour only if
+  // the OTHER axis is filled in as "all", which is what this does:
+  //
+  //   quality <= 2, no rarity      -> tiers 0,1,2 + ALL rarities   == everything Q0-Q2      ✅ same
+  //   no quality, rarity {radiant} -> ALL tiers + radiant          == every radiant piece    ✅ same
+  //   duplicates only              -> ALL tiers + ALL rarities     == every duplicate        ✅ same
+  //   quality <= 2 AND {radiant}   -> tiers 0,1,2 + radiant        ⚠️ NARROWER than the union
+  //
+  // ⚠️ THE LAST ROW IS THE ONLY BEHAVIOUR CHANGE, AND IT ERRS TOWARD KEEPING. The old union took
+  // everything at Q0-Q2 PLUS every radiant at any quality; the new chain takes only radiant pieces
+  // at Q0-Q2. A rule that takes LESS can never destroy something it would previously have spared,
+  // which is the only direction this project permits a migration to move.
+  //
+  // ⚠️ AND THE EMPTY CASE IS NOT FILLED IN. A player with NO rule at all (the fresh default:
+  // maxQuality null, no bands, duplicates off) migrates to nothing ticked, NOT to everything ticked.
+  // Filling the axes there would arm a loaded gun: the moment they switched auto-salvage on, it
+  // would queue their entire spare inventory. "They had no rule" must migrate to "they have no rule".
+  46: (state: any): any => {
+    const old = state.autoSalvage;
+    if (old === undefined || old === null) return { ...state };
+    // ⚠️ IDEMPOTENCE, AND IT IS A SAFETY GUARD RATHER THAN TIDINESS. A state that ALREADY carries
+    // `qualities` has been through this step (or was written by a current build), and re-running the
+    // conversion on it would read `maxQuality` as absent, conclude the player used the rarity axis
+    // only, and overwrite their hand-picked tiers with ALL TIERS. That WIDENS what the automation
+    // destroys, which is the one direction a migration in this project may never move. Caught by
+    // save.test.ts's re-stamp case, which forces the step to run twice.
+    if (Array.isArray(old.qualities)) return { ...state };
+    const hadQuality = typeof old.maxQuality === "number";
+    const rarities = old.rarities ?? {};
+    const hadRarity = Object.keys(rarities).some((band) => rarities[band] === true);
+    const hadDuplicates = old.duplicates === true;
+    const hadAnyRule = hadQuality || hadRarity || hadDuplicates;
+
+    // Tiers 0..maxQuality, the exact set the old "at or below" threshold reached.
+    const fromThreshold = hadQuality
+      ? Array.from({ length: Math.max(0, Math.floor(old.maxQuality) + 1) }, (_, i) => i)
+      : [];
+    const allTiers = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
+    const allBands: Record<string, boolean> = {};
+    for (const band of Object.keys(AUTO_SALVAGE_RARITIES_NONE)) allBands[band] = true;
+
+    const { maxQuality: _dropped, ...rest } = old;
+    return {
+      ...state,
+      autoSalvage: {
+        ...rest,
+        qualities: hadAnyRule ? (hadQuality ? fromThreshold : allTiers) : [],
+        rarities: hadAnyRule ? (hadRarity ? rarities : allBands) : rarities,
+      },
+    };
+  },
+  // --- v47 -> v48: EVERY SLOT SHIPS FILLED (F5) -----------------------------------------
+  //
+  // (Renumbered from 46 during the 0.13.5 merge. The auto-salvage step below was already
+  // deployed as 46, so renumbering THAT one would strand every save already migrated on
+  // staging. An unreleased step is always the one that moves.)
   // (0.13.5 Phase 6. bridge.ts: defaultWeaponsForHull / defaultDroneRolesForHull.)
   //
   // ⚠️ WITHOUT THIS STEP, AN OLD HULL AND A NEW ONE OF THE SAME CLASS WOULD DIFFER INVISIBLY IN
@@ -2036,7 +2100,7 @@ const MIGRATIONS: Record<number, Migration> = {
   //
   // IDEMPOTENT by construction: a hull that already has every hardpoint filled has nothing missing,
   // so a re-run mints nothing and the state is unchanged.
-  46: (state: any): any =>
+  47: (state: any): any =>
     installMissingCombatBaselines({
       ...state,
       ships: state.ships ?? [],

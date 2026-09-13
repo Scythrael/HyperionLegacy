@@ -1,0 +1,827 @@
+<title>Hyperion Legacy 0.13.5 Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  /* ============================================================================
+     The page chrome uses the GAME's own palette on purpose: a mockup judged against
+     a different set of colours teaches you nothing about how it will look in place.
+     These are the literal token values from src/app.css (cyan theme), including the
+     0.13.5 contrast lift on --color-text-dim.
+     ============================================================================ */
+  :root {
+    --deep: #060a12;
+    --panel: #0a141e;
+    --panel-strong: rgba(103, 232, 249, 0.06);
+    --border: rgba(103, 232, 249, 0.18);
+    --border-strong: rgba(103, 232, 249, 0.4);
+    --accent: #67e8f9;
+    --accent-bright: #8ff0e0;
+    --accent-rgb: 103, 232, 249;
+    --txt: #e6f4f8;
+    --txt-2: #8fa3ad;
+    --txt-dim: #628591;
+    --amber: #fbbf24;
+    --green: #34d399;
+    --page: #080d15;
+    --ink: #dfe9ef;
+    --rule: rgba(103, 232, 249, 0.12);
+    --disp: "Saira Semi Condensed", "Arial Narrow", sans-serif;
+    --body: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 20px 120px;
+  }
+  * { box-sizing: border-box; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---- page header ---- */
+  .masthead { padding: 56px 0 28px; border-bottom: 1px solid var(--rule); margin-bottom: 44px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 14px;
+  }
+  h1 {
+    font-family: var(--disp); font-weight: 700; font-size: clamp(30px, 5vw, 46px);
+    letter-spacing: 0.01em; margin: 0 0 14px; text-wrap: balance; color: #fff;
+  }
+  .lede { max-width: 68ch; color: var(--txt-2); margin: 0; font-size: 16px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- section scaffolding ---- */
+  section { margin: 0 0 72px; scroll-margin-top: 20px; }
+  h2 {
+    font-family: var(--disp); font-weight: 600; font-size: 13px; letter-spacing: 0.2em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 6px;
+  }
+  h2 .num { color: var(--txt-dim); margin-right: 10px; font-family: var(--mono); font-size: 12px; }
+  .h2-sub {
+    font-family: var(--disp); font-size: clamp(22px, 3vw, 30px); font-weight: 600;
+    color: #fff; margin: 0 0 16px; letter-spacing: 0.01em; text-wrap: balance;
+  }
+  .intro { max-width: 70ch; color: var(--txt-2); margin: 0 0 28px; }
+  .intro strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- the annotated stage: mock on the left, notes on the right ---- */
+  .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); gap: 28px; align-items: start; }
+  @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+
+  .notes { font-size: 13.5px; color: var(--txt-2); }
+  .notes h4 {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--accent-bright); margin: 0 0 8px;
+  }
+  .notes p { margin: 0 0 14px; }
+  .notes p.warn { color: var(--ink); border-left: 2px solid var(--amber); padding-left: 11px; }
+  .notes strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- device frames ---- */
+  .frames { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .frame { background: var(--deep); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .frame-cap {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--txt-dim); padding: 8px 12px; border-bottom: 1px solid var(--rule); background: rgba(0,0,0,0.25);
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .frame-body { padding: 12px; }
+  .phone { width: 340px; flex: 0 0 340px; }
+  .desk { flex: 1 1 480px; min-width: 0; }
+  @media (max-width: 700px) { .phone { width: 100%; flex: 1 1 100%; } }
+
+  /* ============================================================================
+     GAME-SURFACE STYLES. Everything below imitates the real app's chrome.
+     ============================================================================ */
+  .g { font-family: var(--body); color: var(--txt); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 12px; position: relative;
+  }
+
+  /* header */
+  .topbar { background: var(--panel); border: 1px solid var(--border); padding: 9px 11px; }
+  .tb-row { display: flex; align-items: center; gap: 10px; }
+  .portrait {
+    width: 38px; height: 38px; flex: none; border: 1px solid var(--border-strong);
+    background: var(--panel-strong); display: grid; place-items: center;
+    font-size: 17px; border-radius: 3px;
+  }
+  .gearbtn {
+    width: 38px; height: 38px; flex: none; border: 1px solid var(--border-strong);
+    background: var(--panel-strong); color: var(--accent); display: grid; place-items: center;
+    border-radius: 3px; cursor: pointer; padding: 0;
+  }
+  .gearbtn:hover { background: rgba(var(--accent-rgb), 0.16); }
+  .gearbtn svg { width: 19px; height: 19px; }
+  .tb-name { font-family: var(--disp); font-size: 14px; font-weight: 600; letter-spacing: 0.03em; }
+  .tb-sub { font-family: var(--mono); font-size: 10px; color: var(--txt-dim); }
+  .tb-grow { flex: 1; min-width: 0; }
+
+  .minibar { height: 5px; background: rgba(255,255,255,0.06); border: 1px solid var(--border); position: relative; overflow: hidden; border-radius: 2px; }
+  .minibar > i { display: block; height: 100%; background: var(--accent); }
+  .minibar.amber > i { background: var(--amber); }
+  .minibar.tick > i { background: rgba(var(--accent-rgb), 0.45); }
+
+  .statrow { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .statlab { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; color: var(--txt-dim); width: 34px; flex: none; text-transform: uppercase; }
+  .statval { font-family: var(--mono); font-size: 10px; color: var(--txt-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 7px; }
+  .chip {
+    font-family: var(--mono); font-size: 10.5px; color: var(--txt-2);
+    background: var(--panel-strong); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 3px; font-variant-numeric: tabular-nums;
+  }
+  .chip b { color: var(--accent); font-weight: 600; }
+
+  /* HEADER RESOURCE BUTTONS (rev 2): two of them, Currency and Fuel, each opening its own
+     popup. They replace the fixed credits + fuel chips, which could only ever show two things. */
+  .hbtn {
+    font-family: var(--mono); font-size: 10.5px; color: var(--txt-2); cursor: pointer;
+    background: var(--panel-strong); border: 1px solid var(--border);
+    padding: 3px 8px; border-radius: 3px; font-variant-numeric: tabular-nums;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .hbtn:hover, .hbtn[aria-expanded="true"] { border-color: var(--border-strong); background: rgba(var(--accent-rgb), 0.13); }
+  .hbtn b { color: var(--accent); font-weight: 600; }
+  .hbtn .caret { width: 9px; height: 9px; opacity: 0.6; }
+  .popwrap { position: relative; display: inline-block; }
+  .pop {
+    display: none; position: absolute; top: calc(100% + 5px); left: 0; z-index: 20;
+    min-width: 190px; background: #0c1721; border: 1px solid var(--border-strong);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.6); padding: 8px 10px;
+  }
+  .pop.show { display: block; }
+  .pop h5 {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent-bright); margin: 0 0 7px; padding-bottom: 5px; border-bottom: 1px solid var(--rule);
+  }
+  .pop .line {
+    display: flex; justify-content: space-between; gap: 16px; font-family: var(--mono);
+    font-size: 11px; padding: 3px 0; color: var(--txt-2); font-variant-numeric: tabular-nums;
+  }
+  .pop .line b { color: var(--txt); font-weight: 500; }
+  .pop .star { color: var(--amber); }
+  .pop .foot { font-family: var(--body); font-size: 10.5px; color: var(--txt-dim); margin-top: 7px; padding-top: 6px; border-top: 1px solid var(--rule); }
+
+  .expander {
+    width: 100%; margin-top: 8px; background: none; border: none; border-top: 1px solid var(--rule);
+    color: var(--txt-dim); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.14em;
+    text-transform: uppercase; padding: 6px 0 1px; cursor: pointer; display: flex;
+    align-items: center; justify-content: center; gap: 7px;
+  }
+  .expander:hover { color: var(--accent); }
+  .expander svg { width: 11px; height: 11px; transition: transform 0.25s ease; }
+  .is-open .expander svg, .expander.is-open svg { transform: rotate(180deg); }
+  .xtra { display: none; }
+  .is-open .xtra { display: block; }
+
+  /* settings */
+  .sec-title {
+    font-family: var(--disp); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent-bright); padding-bottom: 5px; border-bottom: 1px solid var(--border);
+    margin: 0 0 10px; font-weight: 600;
+  }
+  .setrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; }
+  .setrow + .setrow { border-top: 1px solid rgba(103,232,249,0.07); }
+  .setlab { font-size: 13px; font-weight: 600; color: var(--txt); flex: 1; min-width: 0; }
+  .helpbtn {
+    width: 17px; height: 17px; flex: none; border-radius: 50%; border: 1px solid var(--border-strong);
+    background: none; color: var(--accent); font-family: var(--mono); font-size: 10px; font-weight: 600;
+    cursor: pointer; padding: 0; line-height: 1; display: grid; place-items: center;
+  }
+  .helpbtn:hover, .helpbtn[aria-expanded="true"] { background: rgba(var(--accent-rgb), 0.18); }
+  /* THE ? HELP, rev 2: a FLOATING tooltip, not a block that pushes rows down (user decision 2.4).
+     Hover opens it on a pointer device; tap opens it on touch; moving off or tapping away closes it.
+     ⚠️ It is anchored to the ROW and opens BELOW-LEFT so it never covers the control it describes,
+     which is the one real cost of floating over pushing. */
+  .setrow { position: relative; }
+  .helptext {
+    display: none; position: absolute; z-index: 30; top: calc(100% - 2px); left: 0; right: 0;
+    font-size: 12px; color: var(--txt-2); line-height: 1.5;
+    background: #0c1721; border: 1px solid var(--border-strong); border-left: 2px solid var(--accent);
+    box-shadow: 0 8px 22px rgba(0,0,0,0.6); padding: 8px 10px;
+  }
+  .helptext.show { display: block; }
+  /* ⚠️ FLIPS ABOVE THE ROW when there is not enough room below (user: "as long as the tooltip
+     doesn't appear below the visible screen"). A help bubble you have to scroll to reach is worse
+     than no help at all, because you do not know it is there. The JS measures and adds this class. */
+  .helptext.flip { top: auto; bottom: calc(100% - 2px); border-left-width: 2px; }
+  select.ui {
+    background: var(--panel-strong); color: var(--txt); border: 1px solid var(--border-strong);
+    font-family: var(--body); font-size: 12.5px; padding: 4px 7px; border-radius: 3px; min-width: 116px;
+  }
+
+  /* THE SQUARE TOGGLE */
+  .tog {
+    --h: 22px; --w: 44px;
+    width: var(--w); height: var(--h); flex: none; padding: 2px; cursor: pointer;
+    background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+    border-radius: 2px; position: relative; transition: background 0.18s ease, border-color 0.18s ease;
+  }
+  .tog > i {
+    display: block; width: calc(var(--h) - 6px); height: calc(var(--h) - 6px);
+    background: var(--txt-dim); border-radius: 1px;
+    transform: translateX(0); transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  }
+  .tog[aria-checked="true"] { background: rgba(var(--accent-rgb), 0.18); border-color: var(--border-strong); }
+  .tog[aria-checked="true"] > i {
+    transform: translateX(calc(var(--w) - var(--h)));
+    background: var(--accent);
+    box-shadow: 0 0 7px rgba(var(--accent-rgb), 0.85), 0 0 2px rgba(var(--accent-rgb), 1);
+  }
+  .tog:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sub-controls { display: none; padding: 4px 0 4px 13px; border-left: 1px solid var(--rule); margin: 2px 0 2px 3px; }
+  .sub-controls.show { display: block; }
+  .cbrow { display: flex; flex-wrap: wrap; gap: 9px; margin: 5px 0 9px; }
+  .cb { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; color: var(--txt-2); }
+  .cb input { accent-color: var(--accent); }
+  .mini-lab { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--txt-dim); }
+
+  /* completed rows */
+  .doneRow { border: 1px solid var(--border); background: var(--panel-strong); margin-bottom: 6px; }
+  .doneHead {
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px;
+    background: none; border: none; color: var(--txt); text-align: left; cursor: pointer; font: inherit;
+  }
+  .doneHead:hover { background: rgba(var(--accent-rgb), 0.05); }
+  .doneIco { font-size: 14px; flex: none; }
+  /* ⚠️ THE TIME IS A FIXED-WIDTH COLUMN (user, rev 2): "the time section is always the same size,
+     so the dot and the summary text always starts at the same points in the line." tabular-nums plus
+     a fixed width is what makes a stack of rows line up instead of ragging. */
+  .doneLine { flex: 1; min-width: 0; font-size: 12.5px; display: flex; gap: 8px; align-items: baseline; }
+  .doneLine .t {
+    font-family: var(--mono); color: var(--txt-dim); font-variant-numeric: tabular-nums;
+    width: 68px; flex: none; text-align: right;
+  }
+  .doneLine .sep { color: var(--txt-dim); flex: none; }
+  .doneLine .txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doneLine .amt { font-family: var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; }
+  .chev { width: 12px; height: 12px; flex: none; color: var(--txt-dim); transition: transform 0.25s ease; }
+  .doneRow.open .chev { transform: rotate(180deg); }
+  .doneBody { display: none; padding: 2px 10px 11px 33px; border-top: 1px solid var(--rule); }
+  .doneRow.open .doneBody { display: block; }
+  .dl { display: grid; grid-template-columns: 104px 1fr; gap: 3px 12px; font-size: 12.5px; margin-top: 9px; }
+  .dl dt { font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--txt-dim); padding-top: 2px; }
+  .dl dd { margin: 0; color: var(--txt); }
+  .goBtn {
+    margin-top: 11px; font-family: var(--disp); font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    background: rgba(var(--accent-rgb), 0.08); border: 1px solid var(--border-strong); color: var(--accent);
+    padding: 5px 11px; cursor: pointer; border-radius: 2px;
+  }
+  .goBtn:hover { background: rgba(var(--accent-rgb), 0.18); }
+
+  /* decision callouts */
+  .decide {
+    border: 1px solid rgba(251, 191, 36, 0.4); background: rgba(251, 191, 36, 0.05);
+    padding: 16px 18px; margin: 26px 0 0;
+  }
+  .decide h4 {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase;
+    color: var(--amber); margin: 0 0 9px;
+  }
+  .decide ol { margin: 0; padding-left: 19px; color: var(--txt-2); font-size: 13.5px; }
+  .decide li { margin-bottom: 7px; }
+  .decide li strong { color: var(--ink); }
+  .decide li:last-child { margin-bottom: 0; }
+
+  .hint { font-family: var(--mono); font-size: 10.5px; color: var(--txt-dim); margin: 9px 0 0; }
+  .tag {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase;
+    border: 1px solid var(--border); color: var(--accent); padding: 1px 6px; border-radius: 2px;
+  }
+  .tag.amber { border-color: rgba(251,191,36,0.45); color: var(--amber); }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 26px; color: var(--txt-dim); font-size: 13px; max-width: 70ch; }
+  footer strong { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+<div class="masthead">
+  <p class="eyebrow">Hyperion Legacy &middot; 0.13.5 &ldquo;Presentation&rdquo; &middot; approved build spec</p>
+  <h1>Approved build spec</h1>
+  <p class="lede"><strong>Revision 3: APPROVED.</strong> Every question is settled and marked ✅. This page is now the build spec rather than a proposal. Everything is interactive: open the header and its new <strong>Currency</strong> and <strong>Fuel</strong> popups, hover or tap a <span class="tag">?</span>, flip a toggle, expand a completed row.</p>
+</div>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="num">01</span> Brief 1 + 3</h2>
+  <p class="h2-sub">The header, collapsed and expanded</p>
+  <p class="intro">Compact is the default and stays close to today's. Tapping the chevron expands it. <strong>This is what dissolves the crafting-level problem:</strong> the expanded state is where a fourth or fifth readout costs nothing, because you opened it deliberately and close it again.</p>
+
+  <div class="stage">
+    <div class="frames">
+      <div class="frame phone">
+        <div class="frame-cap"><span>Mobile &middot; default</span><span class="tag">compact</span></div>
+        <div class="frame-body g">
+          <div class="topbar" id="hdrM">
+            <div class="tb-row">
+              <div class="portrait">🎖️</div>
+              <div class="tb-grow">
+                <div class="tb-name">FLEET ADMIRAL &middot; 24</div>
+                <div class="statrow">
+                  <div class="tb-grow"><div class="minibar"><i style="width:9.6%"></i></div></div>
+                  <span class="statval">9.6%</span>
+                </div>
+              </div>
+              <button class="gearbtn" aria-label="Settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+              </button>
+            </div>
+<div class="chips">
+              <div class="popwrap">
+                <button class="hbtn" data-pop="popCur" aria-expanded="false">⬢ <b>412.8K</b>
+                  <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="pop" id="popCur">
+                  <h5>Currency</h5>
+                  <div class="line"><span class="star">★ Credits</span><b>412.8K</b></div>
+                  <div class="line"><span class="star">★ Admin Points</span><b>34</b></div>
+                  <div class="line"><span>Salvage Tokens</span><b>1.02K</b></div>
+                  <div class="line"><span>Faction Standing</span><b>870</b></div>
+                  <p class="foot">★ Favourited currencies also show in the header.</p>
+                </div>
+              </div>
+              <div class="popwrap">
+                <button class="hbtn" data-pop="popFuel" aria-expanded="false">⛽ <b>1.24K</b>
+                  <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="pop" id="popFuel">
+                  <h5>Fuel</h5>
+                  <div class="line"><span class="star">★ Deuterium Fuel</span><b>1.24K</b></div>
+                  <div class="line"><span>Deuterium Ice</span><b>318</b></div>
+                  <div class="line"><span>Antimatter Cell</span><b>0</b></div>
+                  <p class="foot">Runway at current burn: 6h 12m.</p>
+                </div>
+              </div>
+            </div>
+            <div class="xtra">
+              <div class="statrow">
+                <span class="statlab">EXP</span>
+                <div class="tb-grow"><div class="minibar"><i style="width:9.6%"></i></div></div>
+                <span class="statval">4.86M / 50.7M</span>
+              </div>
+              <div class="statrow">
+                <span class="statlab">CRAFT</span>
+                <div class="tb-grow"><div class="minibar amber"><i style="width:62%"></i></div></div>
+                <span class="statval">Lv 17 &middot; 62%</span>
+              </div>
+              <div class="statrow">
+                <span class="statlab">TICK</span>
+                <div class="tb-grow"><div class="minibar tick"><i style="width:74%"></i></div></div>
+                <span class="statval">0.4s</span>
+              </div>
+            </div>
+            <button class="expander" data-toggle="hdrM">
+              <span data-lbl>More</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+          </div>
+          <p class="hint">Tap &ldquo;More&rdquo; &darr;</p>
+        </div>
+      </div>
+
+      <div class="frame desk">
+        <div class="frame-cap"><span>Desktop &middot; default</span><span class="tag">expanded by default</span></div>
+        <div class="frame-body g">
+          <div class="topbar">
+            <div class="tb-row">
+              <div class="portrait">🎖️</div>
+              <div style="flex:0 0 auto">
+                <div class="tb-name">FLEET ADMIRAL &middot; 24</div>
+                <div class="tb-sub">Hyperion Sector</div>
+              </div>
+              <div class="tb-grow" style="display:grid; grid-template-columns:1fr 1fr; gap:4px 22px; margin-left:14px">
+                <div class="statrow" style="margin:0">
+                  <span class="statlab">EXP</span>
+                  <div class="tb-grow"><div class="minibar"><i style="width:9.6%"></i></div></div>
+                  <span class="statval">4.86M / 50.7M</span>
+                </div>
+                <div class="statrow" style="margin:0">
+                  <span class="statlab">CRAFT</span>
+                  <div class="tb-grow"><div class="minibar amber"><i style="width:62%"></i></div></div>
+                  <span class="statval">Lv 17 &middot; 62%</span>
+                </div>
+                <div class="statrow" style="margin:0">
+                  <span class="statlab">TICK</span>
+                  <div class="tb-grow"><div class="minibar tick"><i style="width:74%"></i></div></div>
+                  <span class="statval">0.4s</span>
+                </div>
+<div class="statrow" style="margin:0; gap:8px">
+                  <div class="popwrap">
+                <button class="hbtn" data-pop="popCurD" aria-expanded="false">⬢ <b>412.8K</b>
+                  <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="pop" id="popCurD">
+                  <h5>Currency</h5>
+                  <div class="line"><span class="star">★ Credits</span><b>412.8K</b></div>
+                  <div class="line"><span class="star">★ Admin Points</span><b>34</b></div>
+                  <div class="line"><span>Salvage Tokens</span><b>1.02K</b></div>
+                  <div class="line"><span>Faction Standing</span><b>870</b></div>
+                  <p class="foot">★ Favourited currencies also show in the header.</p>
+                </div>
+              </div>
+              <div class="popwrap">
+                <button class="hbtn" data-pop="popFuelD" aria-expanded="false">⛽ <b>1.24K</b>
+                  <svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+                <div class="pop" id="popFuelD">
+                  <h5>Fuel</h5>
+                  <div class="line"><span class="star">★ Deuterium Fuel</span><b>1.24K</b></div>
+                  <div class="line"><span>Deuterium Ice</span><b>318</b></div>
+                  <div class="line"><span>Antimatter Cell</span><b>0</b></div>
+                  <p class="foot">Runway at current burn: 6h 12m.</p>
+                </div>
+              </div>
+                </div>
+              </div>
+              <button class="gearbtn" aria-label="Settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg>
+              </button>
+            </div>
+          </div>
+          <p class="hint">Same component, same data. Desktop simply defaults to open and lays the rows two-up.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>Why it is a chevron</h4>
+      <p class="warn">The header holds the portrait and now the gear. If the whole bar expanded on tap, those two would be swallowed by it. A dedicated chevron is the only version where all three targets can coexist.</p>
+      <h4>The gear</h4>
+      <p>A square peer control beside the portrait, not a badge on it. Same size as the portrait so it reads as an equal, not a decoration. It opens <strong>System</strong> on the <strong>Settings</strong> tab.</p>
+      <h4>Compact keeps a bar</h4>
+      <p>The EXP bar survives at 5px with the percentage beside it. A bar too short to read is decoration, so the number carries the precision and the bar carries the glance.</p>
+      <h4>Crafting level</h4>
+      <p>Amber, so it reads as a sibling of FA level rather than a duplicate of it. Expanded only on mobile; always visible on desktop.</p>
+      <h4>Currency and Fuel buttons</h4>
+      <p class="warn">Two buttons, not one. <strong>Fuel is not a currency</strong>, and there will be several of each, so one merged list would have mixed two kinds of thing under one wrong label.</p>
+      <p>Each shows its favourited total on the face and the full list in its popup. ★ marks what also appears in the header, which is the hook for the favourite-a-currency idea.</p>
+    </div>
+  </div>
+
+  <div class="decide">
+    <h4>Decisions for section 01</h4>
+    <ol>
+      <li>✅ <strong>Compact keeps the EXP bar.</strong> Settled.</li>
+      <li>✅ <strong>Expanding pushes</strong>, taking vertical space from the main pane while open. Settled.</li>
+      <li>✅ <strong>Desktop two-up stays</strong> as drawn. Settled.</li>
+      <li>✅ <strong>The state is remembered per device.</strong> Settled.</li>
+      <li>✅ <strong>The Currency and Fuel popups are approved</strong>, including choosing which entries show on the header face.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="num">02</span> Brief 2</h2>
+  <p class="h2-sub">Settings: the section layout</p>
+  <p class="intro">Your Combat Log screenshot as a spec: <strong>caps section name, the divider stays, bold labels, and real gaps between sections.</strong> Every description moves into a <span class="tag">?</span> that opens on click. Every boolean becomes the square toggle; every choice becomes a dropdown.</p>
+
+  <div class="stage">
+    <div class="frames">
+      <div class="frame desk" style="flex:1 1 520px">
+        <div class="frame-cap"><span>System &rsaquo; Settings &rsaquo; UI</span><span class="tag">sections spaced</span></div>
+        <div class="frame-body g" style="background:var(--deep)">
+
+          <div class="panel" style="margin-bottom:6px">
+            <div class="sec-title">Accessibility</div>
+            <div class="setrow">
+              <span class="setlab">Text and interface size</span>
+              <button class="helpbtn" data-help="h-size" aria-expanded="false">?</button>
+              <select class="ui"><option>100%</option><option>125%</option><option>150%</option></select>
+            </div>
+            <div class="helptext" id="h-size">Scales every piece of text and interface chrome together. Applies immediately, no reload needed.</div>
+            <div class="setrow">
+              <span class="setlab">Reduce motion</span>
+              <button class="helpbtn" data-help="h-rm" aria-expanded="false">?</button>
+              <button class="tog" role="switch" aria-checked="false"><i></i></button>
+            </div>
+            <div class="helptext" id="h-rm">Turns off the sweeping progress bars and other movement. Bars step instead. Starts matching your device's own setting.</div>
+            <div class="setrow">
+              <span class="setlab">High contrast</span>
+              <button class="helpbtn" data-help="h-hc" aria-expanded="false">?</button>
+              <button class="tog" role="switch" aria-checked="true"><i></i></button>
+            </div>
+            <div class="helptext" id="h-hc">Lifts dim and secondary text toward white and strengthens panel borders. The accent colour is deliberately left alone.</div>
+          </div>
+
+          <div class="panel" style="margin-bottom:6px">
+            <div class="sec-title">UI Theme</div>
+            <div class="setrow">
+              <span class="setlab">Theme colour</span>
+              <button class="helpbtn" data-help="h-th" aria-expanded="false">?</button>
+              <span style="width:17px;height:17px;background:#f96767;border:1px solid var(--border-strong);border-radius:3px;flex:none"></span>
+              <select class="ui"><option>Red</option><option>Cyan</option><option>Green</option></select>
+            </div>
+            <div class="helptext" id="h-th">Changes the accent colour used across the whole interface. Panels and text re-hue with it.</div>
+          </div>
+
+          <div class="panel">
+            <div class="sec-title">Combat Log</div>
+            <div class="setrow">
+              <span class="setlab">Log style</span>
+              <button class="helpbtn" data-help="h-ls" aria-expanded="false">?</button>
+              <select class="ui"><option>Default</option><option>Simplified</option></select>
+            </div>
+            <div class="helptext" id="h-ls">Simplified distils the log to plain damage reporting. Default keeps the descriptive combat prose.</div>
+            <div class="setrow">
+              <span class="setlab">Log speed</span>
+              <button class="helpbtn" data-help="h-lsp" aria-expanded="false">?</button>
+              <select class="ui"><option>Fast (1s)</option><option>Slow (5s)</option></select>
+            </div>
+            <div class="helptext" id="h-lsp">How long each round lingers before the next appears.</div>
+            <div class="setrow">
+              <span class="setlab">Damage colours</span>
+              <button class="helpbtn" data-help="h-dc" aria-expanded="false">?</button>
+              <button class="tog" role="switch" aria-checked="false"><i></i></button>
+            </div>
+            <div class="helptext" id="h-dc">Shield damage in blue and hull damage in orange, so the two read apart at a glance.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame phone">
+        <div class="frame-cap"><span>Settings &rsaquo; Gameplay</span><span class="tag amber">relocated</span></div>
+        <div class="frame-body g" style="background:var(--deep)">
+          <div class="panel">
+            <div class="sec-title">Salvage Bay</div>
+            <div class="setrow">
+              <span class="setlab">Auto-salvage</span>
+              <button class="helpbtn" data-help="h-as" aria-expanded="false">?</button>
+              <button class="tog" role="switch" aria-checked="true" data-reveal="as-sub"><i></i></button>
+            </div>
+            <div class="helptext" id="h-as">Queues matching spare gear for teardown on its own. Your rules below decide what it may take.</div>
+            <div class="sub-controls show" id="as-sub">
+              <div class="setrow" style="padding-top:2px">
+                <span class="setlab" style="font-weight:500">Quality</span>
+                <button class="helpbtn" data-help="h-q" aria-expanded="false">?</button>
+                <select class="ui"><option>Off</option><option selected>Q2 and below</option><option>Q5 and below</option></select>
+              </div>
+              <div class="helptext" id="h-q">Takes spare gear at or below this quality. &ldquo;Off&rdquo; and &ldquo;Q0 and below&rdquo; are different: Off means the rule does not run at all. Your other rules keep their values while this is off.</div>
+              <div class="mini-lab">Rarity bands</div>
+              <div class="cbrow">
+                <label class="cb"><input type="checkbox" checked> Common</label>
+                <label class="cb"><input type="checkbox" checked> Uncommon</label>
+                <label class="cb"><input type="checkbox"> Rare</label>
+              </div>
+              <div class="setrow" style="padding-top:2px">
+                <span class="setlab" style="font-weight:500">Duplicates only</span>
+                <button class="helpbtn" data-help="h-dup" aria-expanded="false">?</button>
+                <button class="tog" role="switch" aria-checked="false"><i></i></button>
+              </div>
+              <div class="helptext" id="h-dup">Only take gear you already keep a better copy of.</div>
+            </div>
+          </div>
+          <p class="hint">Toggle off &rarr; the rules hide but keep their values.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>The toggle</h4>
+      <p>Square corners, 44&times;22 with a 16px knob. Off is a dim grey knob on the left; on slides right and <strong>glows in the current theme</strong> via the accent token, so it recolours with the theme and any future skin.</p>
+      <p class="warn">It is a real <code>role="switch"</code> with <code>aria-checked</code> and a focus ring. A styled div would be a control a keyboard or screen-reader user cannot operate.</p>
+      <p class="warn">&ldquo;Greyed a bit&rdquo; uses the dim text token, <strong>not</strong> the disabled token. An off toggle is fully interactive, and the disabled token means &ldquo;you cannot use this&rdquo;.</p>
+      <h4>The ? help</h4>
+      <p>A <strong>floating tooltip</strong> now, not a block that pushes rows down. Hover opens it on a pointer; <strong>tap opens it on touch</strong> and tapping away closes it, so it is never hover-only on the platform that has no hover.</p>
+      <p class="warn">It opens BELOW-LEFT, anchored to the row, so it never covers the control it describes. That is the one real cost of floating over pushing, and placement is the fix.</p>
+      <p>The &ldquo;your values are kept when you switch a rule off&rdquo; note lives in the ? text, per your call &mdash; that is exactly what the ? is for.</p>
+      <h4>Quality: a question</h4>
+      <p class="warn">Shown as checkboxes to match the rarity row. Today it is a <strong>threshold</strong> dropdown, because &ldquo;off&rdquo; and &ldquo;Q0 and below&rdquo; are different things a checkbox cannot tell apart. Checkboxes are a save change plus migration.</p>
+    </div>
+  </div>
+
+  <div class="decide">
+    <h4>Decisions for section 02</h4>
+    <ol>
+      <li>✅ <strong>Quality stays the threshold dropdown for now</strong>, pending your rework of how quality is expressed. No save migration in 0.13.5.</li>
+      <li>✅ <strong>Glow strength is right.</strong> Settled.</li>
+      <li>✅ <strong>Tighter gaps</strong>, now 6px to match the Recently Completed rhythm. One number to change if it reads too tight in place.</li>
+      <li>✅ <strong>Floating tooltip</strong>, dismissed by moving off on desktop or tapping away on mobile. Settled.</li>
+      <li>✅ <strong>6px is right.</strong> Settled.</li>
+      <li>✅ <strong>The tooltip flips ABOVE the row</strong> when it would otherwise fall below the fold. A help bubble you have to scroll to find is worse than none, because you do not know it is there.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+  <h2><span class="num">03</span> Brief 4</h2>
+  <p class="h2-sub">Recently Completed, one line at a time</p>
+  <p class="intro">Compact by default, expanding to the labelled detail you described. <strong>The data already exists</strong> &mdash; every field below is a real <code>CompletionRow</code> property except one.</p>
+
+  <div class="stage">
+    <div class="frames">
+      <div class="frame desk">
+        <div class="frame-cap"><span>Home &rsaquo; Recently completed</span><span class="tag">expand any row</span></div>
+        <div class="frame-body g" style="background:var(--deep)">
+          <div class="doneRow" id="d1">
+            <button class="doneHead" data-done="d1">
+              <span class="doneIco">⚗️</span>
+              <span class="doneLine"><span class="t">10:09 PM</span><span class="sep">&middot;</span><span class="txt">Refined: Deuterium Fuel <span class="amt">&times; 100</span></span></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="doneBody">
+              <dl class="dl"><dt>Entry source</dt><dd>Fuel Depot</dd><dt>Action</dt><dd>100 Deuterium Fuel refined</dd><dt>Time elapsed</dt><dd>00:10</dd><dt>When</dt><dd>20h ago (11:09 PM)</dd></dl>
+              <button class="goBtn">Open Fuel Depot &rarr;</button>
+            </div>
+          </div>
+          <div class="doneRow" id="d2">
+            <button class="doneHead" data-done="d2">
+              <span class="doneIco">🛠️</span>
+              <span class="doneLine"><span class="t">9:47 PM</span><span class="sep">&middot;</span><span class="txt">Refined: Titanium Ingot <span class="amt">&times; 40</span></span></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="doneBody">
+              <dl class="dl"><dt>Entry source</dt><dd>Refinery</dd><dt>Action</dt><dd>40 runs &middot; 40 Titanium Ingots</dd><dt>Time elapsed</dt><dd>04:20</dd><dt>When</dt><dd>20h ago (9:47 PM)</dd></dl>
+              <button class="goBtn">Open Refinery &rarr;</button>
+            </div>
+          </div>
+          <div class="doneRow" id="d3">
+            <button class="doneHead" data-done="d3">
+              <span class="doneIco">🚀</span>
+              <span class="doneLine"><span class="t">9:02 PM</span><span class="sep">&middot;</span><span class="txt">Completed: Lunar Mine contract</span></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="doneBody">
+              <dl class="dl"><dt>Entry source</dt><dd>Operations &middot; Gathering</dd><dt>Action</dt><dd>Lunar Mine contract, Captain Rhodes</dd><dt>Time elapsed</dt><dd>12:00</dd><dt>When</dt><dd>21h ago (9:02 PM)</dd></dl>
+              <button class="goBtn">Open Gathering &rarr;</button>
+            </div>
+          </div>
+          <button class="expander" id="ovf" style="border-top:1px solid var(--rule); margin-top:10px; padding-bottom:0">
+            <span data-ovf>Show more history</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div id="ovfRows" style="display:none; border-top:1px solid var(--rule); padding-top:10px; margin-top:10px">
+            <div class="doneRow" id="d4">
+            <button class="doneHead" data-done="d4">
+              <span class="doneIco">♻️</span>
+              <span class="doneLine"><span class="t">8:31 PM</span><span class="sep">&middot;</span><span class="txt">Salvaged: Mk II Reactor Housing <span class="amt">&times; 1</span></span></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="doneBody">
+              <dl class="dl"><dt>Entry source</dt><dd>Salvage Bay</dd><dt>Action</dt><dd>Teardown, quality 2</dd><dt>Time elapsed</dt><dd>01:40</dd><dt>When</dt><dd>22h ago (8:31 PM)</dd></dl>
+              <button class="goBtn">Open Salvage Bay &rarr;</button>
+            </div>
+          </div>
+            <div class="doneRow" id="d5">
+            <button class="doneHead" data-done="d5">
+              <span class="doneIco">🔬</span>
+              <span class="doneLine"><span class="t">8:04 PM</span><span class="sep">&middot;</span><span class="txt">Researched: Improved Coolant</span></span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="doneBody">
+              <dl class="dl"><dt>Entry source</dt><dd>Research Lab</dd><dt>Action</dt><dd>Blueprint unlocked</dd><dt>Time elapsed</dt><dd>36:00</dd><dt>When</dt><dd>22h ago (8:04 PM)</dd></dl>
+              <button class="goBtn">Open Research &rarr;</button>
+            </div>
+          </div>
+          </div>
+          <p class="hint">Three rows take the vertical space two took before. &ldquo;Show more history&rdquo; is off by default.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <h4>The one new field</h4>
+      <p class="warn"><strong>Entry source</strong> does not exist yet. Everything else maps to a real field. Worth adding regardless: the board currently makes you infer the facility from a glyph.</p>
+      <h4>Tap already meant something</h4>
+      <p class="warn">These rows already navigate. So the chevron expands and <strong>the row keeps its jump</strong>, with a labelled button in the expanded view as well. Losing the one-tap jump would remove a feature that exists to save taps.</p>
+      <h4>The compact line</h4>
+      <p>Leads with <strong>clock time in your own timezone</strong>, in a <strong>fixed-width column</strong> so the dot and the summary start at the same x on every row. That alignment is most of why a stack of rows reads as tidy.</p>
+      <p>Format is <code>time &middot; Verb: Item &times; N</code>. The <strong>&ldquo;over mm:ss&rdquo; moved to the expanded view</strong>: duration is rarely what you scan for, and dropping it is what buys the alignment.</p>
+      <p class="warn">Age (&ldquo;20h ago&rdquo;) survives in the expanded <em>When</em> line, so the &ldquo;what did I miss&rdquo; answer is not lost, only demoted.</p>
+    </div>
+  </div>
+
+  <div class="decide">
+    <h4>Decisions for section 03</h4>
+    <ol>
+      <li>✅ <strong>Clock time, in the player's own timezone.</strong> Settled.</li>
+      <li>✅ <strong>The item and amount are on the compact line</strong>, the duration is not. Settled.</li>
+      <li>✅ <strong>Independent</strong>, open as many as you like. Settled.</li>
+      <li>✅ <strong>A &ldquo;show more history&rdquo; toggle</strong>, off by default, keeping the current limit until switched on. Built into the mock above.</li>
+      <li>✅ <strong>68px time column is right.</strong> Settled.</li>
+      <li>✅ <strong>Symmetric spacing around the history toggle</strong>: a divider and equal breathing room above AND below it once expanded, so the toggle sits between two matched gaps rather than hugging the rows beneath it.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <p><strong>Nothing here is built.</strong> These are for approval, per the standing rule that spatial layouts get a mockup first. All sixteen questions are settled, so this is the reference the build follows. What it unblocks: the platform split, the emoji sweep, the tooltip system and the per-screen tidy.</p>
+  <p><strong>Changed in revision 2:</strong> the header's fixed credits and fuel chips became a <strong>Currency button</strong> and a <strong>Fuel button</strong>, each with its own popup and a ★ marking what also shows on the header face. Section gaps tightened to 6px. The ? help became a floating tooltip. Auto-salvage quality reverted to its threshold dropdown. Completed rows gained a fixed-width time column, the <code>Verb: Item &times; N</code> format, and a &ldquo;show more history&rdquo; toggle.</p>
+  <p>Separately and still waiting: <strong>F5's route</strong>. Filling every weapon slot with a real autocannon doubles combat hull firepower and makes free gear a 100% win on the hardest patrol, which leaves crafted gear nothing to improve. My recommendation is one new weak filler mount in the weapon table. Design doc &sect;16.8 has the numbers.</p>
+</footer>
+
+</div>
+
+<script>
+  // Header expand / collapse.
+  document.querySelectorAll("[data-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var host = document.getElementById(btn.getAttribute("data-toggle"));
+      var open = host.classList.toggle("is-open");
+      var lbl = btn.querySelector("[data-lbl]");
+      if (lbl) lbl.textContent = open ? "Less" : "More";
+    });
+  });
+
+  // The ? help: HOVER on a pointer device, TAP on touch, and it floats rather than pushing.
+  // ⚠️ Tap is what keeps it usable on a phone, where hover does not exist. Closing happens on
+  // pointer-leave or on a tap anywhere else, so it never sticks around unasked.
+  function closeAllHelp(except) {
+    document.querySelectorAll(".helptext.show").forEach(function (b) {
+      if (b !== except) { b.classList.remove("show"); }
+    });
+    document.querySelectorAll("[data-help][aria-expanded='true']").forEach(function (b) {
+      if (document.getElementById(b.getAttribute("data-help")) !== except) b.setAttribute("aria-expanded", "false");
+    });
+  }
+  document.querySelectorAll("[data-help]").forEach(function (btn) {
+    var box = document.getElementById(btn.getAttribute("data-help"));
+    function open(on) {
+      closeAllHelp(on ? box : null);
+      box.classList.remove("flip");
+      box.classList.toggle("show", on);
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
+      // Measure AFTER showing (a hidden element has no height), then flip up if the bubble would
+      // run past the bottom of the viewport.
+      if (on) {
+        var r = box.getBoundingClientRect();
+        if (r.bottom > window.innerHeight - 8) box.classList.add("flip");
+      }
+    }
+    btn.addEventListener("click", function (e) { e.stopPropagation(); open(!box.classList.contains("show")); });
+    btn.addEventListener("mouseenter", function () { open(true); });
+    btn.addEventListener("focus", function () { open(true); });
+    btn.closest(".setrow").addEventListener("mouseleave", function () { open(false); });
+    btn.addEventListener("blur", function () { open(false); });
+  });
+  document.addEventListener("click", function () { closeAllHelp(null); });
+
+  // Header resource popups (Currency / Fuel).
+  document.querySelectorAll("[data-pop]").forEach(function (btn) {
+    var box = document.getElementById(btn.getAttribute("data-pop"));
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var willOpen = !box.classList.contains("show");
+      document.querySelectorAll(".pop.show").forEach(function (b) { b.classList.remove("show"); });
+      document.querySelectorAll("[data-pop]").forEach(function (b) { b.setAttribute("aria-expanded", "false"); });
+      box.classList.toggle("show", willOpen);
+      btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+  });
+  document.addEventListener("click", function () {
+    document.querySelectorAll(".pop.show").forEach(function (b) { b.classList.remove("show"); });
+    document.querySelectorAll("[data-pop]").forEach(function (b) { b.setAttribute("aria-expanded", "false"); });
+  });
+
+  // "Show more history" on the completed board.
+  (function () {
+    var btn = document.getElementById("ovf");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      var rows = document.getElementById("ovfRows");
+      var on = rows.style.display === "none";
+      rows.style.display = on ? "block" : "none";
+      btn.querySelector("[data-ovf]").textContent = on ? "Show less history" : "Show more history";
+      btn.classList.toggle("is-open", on);
+    });
+  })();
+
+  // The square toggle: a real switch, keyboard included.
+  document.querySelectorAll(".tog").forEach(function (t) {
+    function flip() {
+      var on = t.getAttribute("aria-checked") !== "true";
+      t.setAttribute("aria-checked", on ? "true" : "false");
+      var reveal = t.getAttribute("data-reveal");
+      if (reveal) document.getElementById(reveal).classList.toggle("show", on);
+    }
+    t.addEventListener("click", flip);
+    t.addEventListener("keydown", function (e) {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); flip(); }
+    });
+    t.setAttribute("tabindex", "0");
+  });
+
+  // Completed-row expansion.
+  document.querySelectorAll("[data-done]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.getElementById(btn.getAttribute("data-done")).classList.toggle("open");
+    });
+  });
+</script>

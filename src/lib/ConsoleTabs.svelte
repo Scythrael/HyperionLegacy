@@ -115,7 +115,7 @@
     border-radius: 8px;
     padding: 9px 16px;
     color: var(--color-text-secondary);
-    font-size: 13px;
+    font-size: var(--text-md);
     letter-spacing: 0.04em;
     white-space: nowrap;
     cursor: pointer;
@@ -154,7 +154,7 @@
     justify-content: center;
     border: none;
     color: var(--color-accent-bright);
-    font-size: 18px;
+    font-size: var(--text-xl);
     cursor: pointer;
     z-index: 1;
   }

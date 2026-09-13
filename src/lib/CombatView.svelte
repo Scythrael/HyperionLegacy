@@ -1342,7 +1342,15 @@
      .ss-dialog: an opaque surface so it stays legible on browsers without
      backdrop blur, and it owns its own scroll rather than growing the page). The
      host wraps this in the shared .modal-backdrop. -->
-<div class="cv-dialog" role="document" bind:this={dialogEl}>
+<!-- ⚠️ --combat-step-seconds is the COMBAT equivalent of App.svelte's --bar-step-seconds, and it is
+     a SEPARATE variable on purpose. The economy bars smooth across the economy tick; these bars
+     advance when the log reveals the next ROUND, which is a completely different cadence and one the
+     player controls directly (Options > Log speed: Fast 1s / Slow 5s). Smoothing a hull bar over the
+     economy tick would be a number picked from an unrelated clock.
+     logSpeedToMs is already the single source of truth for that mapping, so this follows a speed
+     change mid-replay with no extra wiring. Scoped to the dialog rather than documentElement because
+     nothing outside combat has this cadence. -->
+<div class="cv-dialog" role="document" bind:this={dialogEl} style="--combat-step-seconds: {logSpeedToMs(logSpeed) / 1000}s">
   <!-- Close: a window-style X pinned to the top-right CORNER of the panel (absolute,
        positioned against .cv-dialog), shown in BOTH the available and unavailable
        states. Sits above the top bar via z-index; the top bar reserves right padding
@@ -1936,7 +1944,7 @@
     flex-wrap: wrap;
   }
   .cv-topbar .ctx {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--ui-scale));
     color: var(--color-text-secondary);
   }
   .cv-topbar .ctx b {
@@ -1947,7 +1955,7 @@
   }
   .wavepill {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-warning);
     border: 1px solid rgba(251, 191, 36, 0.4);
     border-radius: 999px;
@@ -1972,7 +1980,7 @@
     border-right: 1px solid var(--color-border);
     color: var(--color-text-secondary);
     font-family: var(--font-body, inherit);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     padding: 6px 11px;
     cursor: pointer;
     letter-spacing: 0.04em;
@@ -2002,7 +2010,7 @@
     border: 1px solid var(--color-border);
     border-radius: 8px;
     color: var(--color-text-secondary);
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     line-height: 1;
     padding: 0;
     cursor: pointer;
@@ -2015,7 +2023,7 @@
   .cv-unavailable {
     padding: 28px 20px;
     color: var(--color-text-secondary);
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.6;
     text-align: center;
   }
@@ -2087,7 +2095,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 26px;
+    font-size: calc(26px * var(--ui-scale));
     border: 1px solid var(--color-border);
     background: rgba(var(--color-accent-rgb), 0.06);
     flex-shrink: 0;
@@ -2098,10 +2106,10 @@
   }
   .ship-name {
     font-family: var(--font-display);
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
   }
   .ship-class {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-secondary);
   }
   .ship.enemy .ship-class {
@@ -2114,7 +2122,7 @@
   .bar-row .bl {
     display: flex;
     justify-content: space-between;
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--ui-scale));
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2131,10 +2139,15 @@
     overflow: hidden;
     border: 1px solid var(--color-border);
   }
+  /* The main arena hull/shield gauges. ⚠️ Smoothed over --combat-step-seconds (the log's reveal
+     interval) so a hit reads as damage being DEALT across the round rather than as a bar teleporting
+     the instant the round flips. Reduced motion collapses the transition via app.css's blanket rule,
+     which makes these step, matching every other bar in the game under that setting. */
   .bar > span {
     display: block;
     height: 100%;
     border-radius: 5px;
+    transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .bar.hull > span {
     background: linear-gradient(90deg, #34d399, #67e8f9);
@@ -2160,7 +2173,7 @@
     flex-wrap: wrap;
   }
   .piprow .lab {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2175,7 +2188,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 9px;
+    font-size: var(--text-3xs);
     font-family: var(--font-mono);
     position: relative;
   }
@@ -2300,18 +2313,18 @@
     flex-shrink: 0;
   }
   .cv-tip-title {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--ui-scale));
     font-weight: 600;
     color: var(--color-text-primary);
   }
   .cv-tip-flavor {
     font-style: italic;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     color: var(--color-text-secondary);
     margin-bottom: 4px;
   }
   .cv-tip-def {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-primary);
   }
   /* The embedded equipment card (player reactor / ftl). A little top gap; the card
@@ -2329,7 +2342,7 @@
   .cv-tip-badge {
     margin-left: auto;
     flex-shrink: 0;
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 2px 6px;
@@ -2339,13 +2352,13 @@
   }
   /* Small mono-ish subtitle (role drones + mode). */
   .cv-tip-sub {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     color: var(--color-text-dim);
     margin: 2px 0 6px;
   }
   /* Section divider label (Status / Offense / Support / Defense). */
   .cv-tip-sec {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2358,7 +2371,7 @@
     display: flex;
     justify-content: space-between;
     gap: 10px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     padding: 1.5px 0;
   }
   .cv-tip-row .k {
@@ -2380,7 +2393,7 @@
   }
   /* The "no shield" footnote (drones are hull-only; hidden the day a shield field lands). */
   .cv-tip-noshield {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-dim);
     margin-top: 7px;
     border-top: 1px dashed var(--color-border);
@@ -2393,7 +2406,7 @@
     padding-top: 8px;
   }
   .extra-enemies .lab {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2406,7 +2419,7 @@
     margin-bottom: 5px;
   }
   .extra-name {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     min-width: 84px;
   }
@@ -2426,7 +2439,7 @@
     text-align: center;
   }
   .rangebox .lab {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2453,7 +2466,7 @@
   .rangelabels {
     display: flex;
     justify-content: space-between;
-    font-size: 8.5px;
+    font-size: calc(8.5px * var(--ui-scale));
     letter-spacing: 0.08em;
     color: var(--color-text-dim);
     margin-top: 4px;
@@ -2461,7 +2474,7 @@
   }
   .bandnow {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-accent-bright);
     margin-top: 8px;
   }
@@ -2469,14 +2482,14 @@
     text-align: center;
   }
   .phase .lab {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-text-dim);
   }
   .phase .val {
     font-family: var(--font-display);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-warning);
     margin-top: 3px;
     letter-spacing: 0.06em;
@@ -2503,14 +2516,14 @@
     gap: 10px;
   }
   .log-head .t {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
   }
   .log-body {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.75;
     overflow-y: auto;
     padding-right: 8px;
@@ -2556,7 +2569,7 @@
   .ln.crit::after {
     content: " CRIT";
     color: var(--color-warning);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
   }
   .ln.dot {
@@ -2596,7 +2609,7 @@
     gap: 3px;
   }
   .cvm-lab {
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2624,19 +2637,19 @@
     display: flex;
     justify-content: space-between;
     width: 120px;
-    font-size: 7.5px;
+    font-size: calc(7.5px * var(--ui-scale));
     letter-spacing: 0.06em;
     color: var(--color-text-dim);
     text-transform: uppercase;
   }
   .cvm-band {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-accent-bright);
   }
   .cvm-phase {
     font-family: var(--font-display);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-warning);
     letter-spacing: 0.05em;
   }
@@ -2646,7 +2659,7 @@
     border-bottom: 1px solid var(--color-border);
   }
   .cvm-side-lab {
-    font-size: 8.5px;
+    font-size: calc(8.5px * var(--ui-scale));
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2706,7 +2719,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 17px;
+    font-size: calc(17px * var(--ui-scale));
     border: 1px solid var(--color-border);
     background: rgba(var(--color-accent-rgb), 0.06);
   }
@@ -2718,7 +2731,7 @@
     min-width: 0;
   }
   .cvm-name {
-    font-size: 12.5px;
+    font-size: calc(12.5px * var(--ui-scale));
     color: var(--color-text-primary);
     font-weight: 600;
     display: flex;
@@ -2732,7 +2745,7 @@
     text-decoration: line-through;
   }
   .cvm-tgt {
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     color: var(--color-warning);
     border: 1px solid rgba(251, 191, 36, 0.5);
     border-radius: 4px;
@@ -2740,7 +2753,7 @@
     letter-spacing: 0.08em;
   }
   .cvm-sub {
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--ui-scale));
     color: var(--color-text-dim);
     margin-top: 1px;
   }
@@ -2759,10 +2772,12 @@
     border: 1px solid var(--color-border);
     overflow: hidden;
   }
+  /* The compact mobile gauges. Same treatment as .bar > span above; they show the same values. */
   .cvm-mbar > span {
     display: block;
     height: 100%;
     border-radius: 3px;
+    transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .cvm-mbar.hull > span {
     background: linear-gradient(90deg, #34d399, #67e8f9);
@@ -2779,7 +2794,7 @@
   .cvm-vals {
     text-align: right;
     font-family: var(--font-mono);
-    font-size: 9.5px;
+    font-size: calc(9.5px * var(--ui-scale));
     color: var(--color-text-secondary);
     line-height: 1.5;
     white-space: nowrap;
@@ -2806,7 +2821,7 @@
     margin-bottom: 0;
   }
   .cvm-dl {
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2837,7 +2852,7 @@
     flex-shrink: 0;
   }
   .cvm-none {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     color: var(--color-text-dim);
   }
 
@@ -2865,7 +2880,7 @@
     position: absolute;
     transform: translate(-50%, -50%);
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 700;
     color: var(--color-text-primary); /* NEUTRAL default (the common case) */
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
@@ -2880,20 +2895,20 @@
   }
   /* CRIT: red + larger (the two exceptional cues, together). */
   .cv-fx-layer :global(.cv-pop.crit) {
-    font-size: 18px;
+    font-size: var(--text-xl);
     color: #e24b4a;
   }
   /* KILL ("destroyed"): red, with a hair of letter-spacing so the word reads. */
   .cv-fx-layer :global(.cv-pop.kill) {
     color: #e24b4a;
-    font-size: 13px;
+    font-size: var(--text-md);
     letter-spacing: 0.06em;
   }
   /* EVADE: a subtle, quiet neutral note (kept understated per the design). */
   .cv-fx-layer :global(.cv-pop.evade) {
     color: var(--color-text-dim);
     font-weight: 600;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-style: italic;
   }
   /* Tracer: a small dot that travels attacker -> target. The family tint is set inline
@@ -2919,7 +2934,7 @@
      top, a compact legend pinned at the bottom. */
   .cv-vround {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.08em;
     color: var(--color-warning);
   }
@@ -2928,7 +2943,7 @@
     min-height: 0;
     overflow-y: auto;
     font-family: var(--font-mono);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     line-height: 1.7;
     color: var(--color-text-dim);
     padding-right: 8px;
@@ -2953,7 +2968,7 @@
     margin-top: 8px;
     padding-top: 8px;
     border-top: 1px solid var(--color-border);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.04em;
     color: var(--color-text-dim);
   }

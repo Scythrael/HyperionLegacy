@@ -53,6 +53,8 @@
   // structured topics, rendered verbatim like PATCH_NOTES (no markdown).
   import { HELP_TOPICS } from "./lib/helpTopics";
   import {
+    autoSalvageHasAnyRule,
+    normalizeAutoSalvageQualities,
     freshState,
     specCards,
     // Radial Skill Web (Task 15), the 5 homeworld-category cards shown by the
@@ -845,6 +847,17 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
+  // "confirm only when something would be lost" rule all live in the module so they are
+  // unit-testable without a DOM; this file is wiring only.
+  import {
+    CONFIRMATION_PRESETS,
+    CONFIRMATION_PRESET_ORDER,
+    presetOverwriteNeedsConfirm,
+    resolveConfirmationLevel,
+    type ConfirmationPresetId,
+    type ConfirmationSettings,
+  } from "./lib/confirmationPresets";
   // 0.13.3.1 follow-up: the per-device "warn me before Duplicates-off exposes my Standard-Issue
   // spares" preference. Same localStorage-only posture, and the same "don't show this again"
   // shape, as refineConfirmEnabled directly above: it changes whether a DIALOG appears on this
@@ -2111,6 +2124,30 @@
   // The 3 Salvage Bay sub-tabs in display order. A named const (rather than an inline
   // array literal) matching WAREHOUSE_CAT_TABS, so the tab set is data a future tab is
   // added to deliberately.
+  // Options -> Salvage Bay RULES deep link (0.13.5 Phase 1).
+  //
+  // ⚠️ A LINK RATHER THAN A SECOND COPY OF THE CONTROLS, and that is the whole design decision.
+  // The per-quality salvage confirms and the auto-salvage rules are SAVE-SIDE and already live in
+  // the bay next to the gear they act on. Mirroring them into the Gameplay tab would put two UIs on
+  // one piece of state, which is how a setting ends up disagreeing with itself depending on which
+  // screen you opened. So Gameplay POINTS at them.
+  //
+  // ⚠️ It closes the System modal first. Without that the player lands on the bay behind an overlay
+  // that is still covering it, which reads as "the button did nothing". Same reason
+  // jumpToFacilityUpgrade exists rather than a bare tab assignment: a link that saves taps has to
+  // land somewhere usable, not merely somewhere correct.
+  //
+  // "rules" and not "salvage" (which is what jumpToActivity picks): this link means "come change
+  // your rules", not "come look at your salvage", and the sub-tab is sticky `let` state, so it has
+  // to be set explicitly or a player who last left the console elsewhere lands on the wrong screen.
+  function jumpToSalvageRules(): void {
+    systemModalOpen = false;
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "salvageBay";
+    activeSalvageBaySubTab = "rules";
+  }
+
   const SALVAGE_BAY_SUBTABS: { key: SalvageBaySubTab; label: string }[] = [
     { key: "salvage", label: "Salvage" },
     { key: "rules", label: "Rules" },
@@ -2365,54 +2402,95 @@
   // One control that sets every confirmation toggle at once, so a player does not have to reason
   // about each dialog individually to get to "stop asking me" or "ask me everything".
   //
-  // ⚠️ A PRESET IS A WRITE ACTION, NOT A STORED MODE, and that distinction is the whole design.
-  // Choosing one WRITES the toggles and is then forgotten. If the preset were remembered as a
-  // mode, a player who picked "Intermediate" and then turned one confirm back on would be
-  // silently overridden whenever anything re-read the mode, which is exactly the kind of
-  // "the game changed my setting back" behaviour that destroys trust in a settings screen.
-  // It also means no new save field and no migration.
+  // ── CONFIRMATION LEVELS (0.13.5, REBUILT 2026-09-12) ──────────────────────
   //
-  // ⚠️ THE LADDER RUNS SAFE TO RISKY, and the default state of the game is the SAFE end. A new
-  // player is confirmed at every step; the presets are how an experienced one opts out. Nothing
-  // here can turn a confirm on that would not otherwise exist.
-  const CONFIRM_PRESETS = [
-    { key: "all", label: "Ask me everything" },
-    { key: "standard", label: "Standard" },
-    { key: "none", label: "Stop asking" },
-  ] as const;
-  type ConfirmPresetKey = (typeof CONFIRM_PRESETS)[number]["key"];
+  // ⚠️ THE FIRST VERSION OF THIS WAS THE WRONG FEATURE, and the reason is worth keeping: the
+  // refined interaction model was already written down in SUGGESTIONS.md (checkboxes AND a
+  // dropdown, a Custom state, a confirm only when something would be lost), the 0.13.5 design doc
+  // compressed it to "a preset is a write action, not a stored mode", and the build followed the
+  // design doc. Three buttons shipped instead. The detail was never missing, only dropped.
+  //
+  // The ladder, the Custom derivation and the confirm rule all live in lib/confirmationPresets.ts
+  // so they are unit-testable without a DOM. This block is WIRING ONLY: read the live settings into
+  // the module's shape, write the module's answers back out.
+  //
+  // ⚠️ The managed settings have TWO DIFFERENT HOMES and applying a preset must respect both:
+  // refine + baselineWarning are device-side (localStorage), salvageQualities is SAVE-side because
+  // the tick reads it. One writer per home, no mirroring.
+  $: confirmationSettings = {
+    refine: refineConfirmEnabled,
+    baselineWarning: autoSalvageBaselineWarningEnabled,
+    salvageQualities: salvageConfirmQualities,
+  } satisfies ConfirmationSettings;
 
-  // ⚠️ EXHAUSTIVE over the preset keys, so adding a preset without deciding what it does is a
-  // COMPILE ERROR rather than a button that silently does nothing. Same discipline as
-  // QUEUE_ADAPTERS and PROCESS_XP_AWARDS.
-  const CONFIRM_PRESET_VALUES: Record<ConfirmPresetKey, { refine: boolean; baselineWarning: boolean }> = {
-    // Every confirmation on. The game's own default, and the safe end of the ladder.
-    all: { refine: true, baselineWarning: true },
-    // The middle: routine, reversible actions stop asking, but the one warning about
-    // IRREVERSIBLE loss of gear your ships depend on stays. That asymmetry is the point of having
-    // a middle setting at all.
-    standard: { refine: false, baselineWarning: true },
-    // ⚠️ Everything off, INCLUDING the Standard-Issue warning. Offered because a player who has
-    // understood the system should not be nagged forever, and because the Quartermaster makes the
-    // underlying situation recoverable (a free replacement is always in stock). It would be a much
-    // harder call without that escape valve.
-    none: { refine: false, baselineWarning: false },
-  };
+  // The dropdown's displayed value, DERIVED every time rather than stored. A hand edit flips this to
+  // "custom" on its own, with no flag to keep in sync and no way for the label to go stale.
+  $: confirmationLevel = resolveConfirmationLevel(confirmationSettings);
 
-  function applyConfirmPreset(key: ConfirmPresetKey): void {
-    const values = CONFIRM_PRESET_VALUES[key];
+  // The pending preset while the overwrite dialog is open. Non-null IS the dialog's open state, so
+  // there is no second boolean that can disagree with it.
+  let pendingConfirmationPreset: ConfirmationPresetId | null = null;
+
+  // ⚠️ Cancel must put the dropdown BACK, not leave it showing a preset that was never applied.
+  // A <select> updates its own display on change before any handler runs, so the value is re-bound
+  // from `confirmationLevel` (which never moved) when the dialog closes either way. This counter
+  // forces that re-bind even when Svelte would otherwise see no change to the value it last wrote.
+  let confirmationSelectNonce = 0;
+
+  function requestConfirmationPreset(id: ConfirmationPresetId): void {
+    if (presetOverwriteNeedsConfirm(confirmationSettings, id)) {
+      pendingConfirmationPreset = id;
+      confirmationSelectNonce++;
+      return;
+    }
+    applyConfirmationPreset(id);
+  }
+
+  function applyConfirmationPreset(id: ConfirmationPresetId): void {
+    const values = CONFIRMATION_PRESETS[id].values;
     refineConfirmEnabled = values.refine;
     saveRefineConfirmEnabled(values.refine);
     autoSalvageBaselineWarningEnabled = values.baselineWarning;
     saveAutoSalvageBaselineWarningEnabled(values.baselineWarning);
+    // SAVE-side: goes through the same state write + doSave the Salvage Bay's own tier checkboxes
+    // use, so there is one writer for this field rather than a settings-screen copy of the logic.
+    state = { ...state, salvageConfirmQualities: [...values.salvageQualities] };
+    doSave();
+    pendingConfirmationPreset = null;
+    // ⚠️ NO nonce bump here, deliberately. On apply the <select> is ALREADY showing the value the
+    // player chose, and confirmationLevel derives to that same value, so there is nothing to revert.
+    // Forcing a re-create would risk rendering from a confirmationLevel that has not flushed yet.
+    // The nonce exists only for the two REVERT paths, where the browser has moved the select to a
+    // value we are refusing.
   }
 
-  type OptionsTab = "visual" | "gameplay" | "accessibility";
+  function cancelConfirmationPreset(): void {
+    pendingConfirmationPreset = null;
+    confirmationSelectNonce++;
+  }
+
+  // ⚠️ CONFIRMATIONS IS ITS OWN TAB (user, 2026-09-12: "all on its own tab for things like this").
+  // It earns one: the cluster is a preset dropdown plus a help box plus every individual checkbox,
+  // which would dominate a tab it was only a guest in. Gameplay keeps what is genuinely about what
+  // the game DOES on its own (the auto-salvage rules), and Confirmations holds what it ASKS.
+  // The SUBTABS of the Settings tab, in the user's Window / Tab / Subtab / Section vocabulary
+  // (2026-09-12). ⚠️ "Save Data" is named for WHAT IT HOLDS rather than for its category: the
+  // obvious category name would be "System", and System > Settings > System pushes the exact
+  // duplication this renaming set out to remove down one level instead of removing it. It holds one
+  // thing today, so the concrete name costs nothing and can widen to "Save & Account" when 0.14.0
+  // adds cloud handling.
+  //
+  // ⚠️ A one-item subtab is deliberate. Save Data spent this release's first pass folded into the
+  // Visual tab purely because that tab existed around it, and the result was Export sitting under
+  // the theme picker where nobody would look. A thin, correctly named home beats a fat wrong one.
+  type OptionsTab = "visual" | "gameplay" | "confirmations" | "accessibility" | "saveData";
   let activeOptionsTab: OptionsTab = "visual";
   const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
     { key: "visual", label: "Visual" },
     { key: "gameplay", label: "Gameplay" },
+    { key: "confirmations", label: "Confirmations" },
     { key: "accessibility", label: "Accessibility" },
+    { key: "saveData", label: "Save Data" },
   ];
 
   // System settings modal (0.11.2 Shell Correction, Task 3). The System program
@@ -2433,7 +2511,11 @@
   // DEV_MODE is a constant for the session, so this is a plain const, not a $: reactive.
   const systemModalTabs = [
     { key: "profile", label: "Profile" },
-    { key: "options", label: "Options" },
+    // ⚠️ LABEL "Settings", KEY still "options" (user, 2026-09-12). The key is internal sticky state
+    // and renaming it would touch every switch arm for zero player benefit; the LABEL is what the
+    // player reads. "Settings" was chosen over "Options" because the window is already called
+    // System, and System > Options > System (the old shape) repeated a word at two different levels.
+    { key: "options", label: "Settings" },
     { key: "log", label: "Log" },
     { key: "about", label: "About" },
     { key: "patchNotes", label: "Patch Notes" },
@@ -2500,6 +2582,27 @@
   // captain advances in lockstep on ONE shared cycle instead of each
   // captain owning its own independent barCycleStart/nowTick pair.
   let cycle: { barCycleStart: number; nowTick: number } = { barCycleStart: Date.now(), nowTick: Date.now() };
+
+  // ⚠️ THE COMPLETED FRAME. True for exactly the one render in which a tick finished, so the bar is
+  // SEEN reaching 100% before the next cycle starts it over.
+  //
+  // The bug it fixes (user, 2026-09-12, after D5): under reduced motion the bar stepped from about
+  // 90% straight to 0%, never showing full. That is a SAMPLING artefact, not bad maths: the poll
+  // that crosses the boundary is the SAME poll that resets barCycleStart, so the final tenth of
+  // every cycle exists for zero renders and nobody can ever see it.
+  //
+  // ⚠️ WHY THIS IS WORTH FIXING RATHER THAN CALLING IT A REDUCED-MOTION TRADE-OFF, which is what
+  // the user generously offered: the ANIMATED path already shows 100%, because its CSS sweep runs
+  // for the full duration and is declared `forwards`, independent of when the poll happens to
+  // sample. So the artefact only ever hit the players who asked for less motion. Reduced motion
+  // should mean less MOVEMENT, never less INFORMATION, and a progress bar that is never observed
+  // completing reads as broken. Leaving it would have made an accessibility setting the one place
+  // the gauge lies.
+  //
+  // ⚠️ AND IT ADDS NO MOTION. It adds one more discrete value to a sequence that is already
+  // discrete: ... 0.8, 0.9, 1.0, then the next cycle. Nothing animates, nothing eases, nothing
+  // moves continuously. What reduced motion objects to is sustained movement, not a gauge updating.
+  let barCompletedFrame = false;
 
   // Fuel-runway measurement (Wave 2, 2026-07-16), MEASURED, not modelled. Mission
   // ice output is a stochastic loot roll, so instead of modelling it we sample the
@@ -2764,6 +2867,9 @@
     // and all three of those bug classes reopen at once. Verified sound 2026-07-29.
     tickHandle = setInterval(() => {
       const now = Date.now();
+      // Consume the completed frame from the PREVIOUS poll. Cleared here, at the very top and
+      // before any early return, so a pause or a speed change cannot strand the bar at 100%.
+      barCompletedFrame = false;
 
       if (speed === 0) {
         paused = true;
@@ -2907,6 +3013,9 @@
         // shared cycle now. (Poll-lag overshoot past the boundary is discarded --
         // same as always.)
         cycle.barCycleStart = now;
+        // ⚠️ Raised in the SAME poll that resets the cycle, which is the whole point: without it
+        // the reset above is the reason the last tenth is never rendered. The next poll clears it.
+        barCompletedFrame = true;
       }
     }, 100);
 
@@ -4816,9 +4925,12 @@
   // reads as the opt-in default (disabled, no quality rule, no duplicates), never as an
   // enabled rule set, because the failure direction that costs a player their gear is the
   // one where a missing field turns a destructive automation ON.
+  // ⚠️ 0.13.5: `qualities: []` is the all-off value, and under the FILTER model that is only safe
+  // because of the all-empty guard in selectAutoSalvageTargets. An empty axis alone would
+  // otherwise mean "does not narrow", i.e. everything.
   const AUTO_SALVAGE_RULES_OFF: AutoSalvageRules = {
     enabled: false,
-    maxQuality: null,
+    qualities: [],
     duplicates: false,
     keepPerVariety: 1,
     // 0.13.3.1: no rarity band selected (the third rule OFF, same opt-in posture as the other
@@ -4888,37 +5000,30 @@
   // disagree about how many tiers exist.
   $: autoSalvageAllTiers = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
 
-  // Is ANY rule actually selected? The master switch alone does nothing: with no quality
-  // rule and no duplicates rule, an enabled feature is a no-op, and the panel has to be
-  // able to say so rather than leaving the player waiting for something that will never
-  // happen.
+  // Is ANY rule actually selected? The master switch alone does nothing: with nothing ticked on
+  // any axis, an enabled feature is a no-op, and the panel has to be able to say so rather than
+  // leaving the player waiting for something that will never happen.
   //
-  // ⚠️ `maxQuality !== null`, NEVER a truthiness test. maxQuality 0 is a REAL setting
-  // ("Q0 and below", the most useful one for clearing loot clutter) and null is the only
-  // value that means "rule off". `if (rules.maxQuality)` would silently treat the most
-  // common setting as no rule at all.
-  //
-  // 0.13.3.1: the RARITY rule counts as a rule for exactly the same reason the other two do,
-  // so a player who selects only rarity bands is not told "no rule is chosen".
-  $: autoSalvageHasRule =
-    autoSalvageRules.maxQuality !== null || autoSalvageRules.duplicates || autoSalvageRarityOn;
+  // ⚠️ 0.13.5: this is now load-bearing for SAFETY, not only for the message. Under the filter
+  // model "nothing ticked" would narrow nothing and therefore match the entire spare pool, so the
+  // engine guards on exactly this predicate before filtering. Console and engine share it.
+  $: autoSalvageHasRule = autoSalvageHasAnyRule(autoSalvageRules);
 
-  // WHICH quality tiers the selected rules can REACH, before the confirm interlock is
-  // applied. The duplicates rule is quality-blind (it ranks a variety and queues the
-  // losers whatever their tier), so it reaches every tier; the max-quality rule reaches
-  // 0..maxQuality. Selected together they union to every tier, which the duplicates arm
-  // already covers.
+  // WHICH quality tiers the selected rules can REACH, before the confirm interlock is applied.
   //
-  // 0.13.3.1: the RARITY rule is quality-blind in exactly the same way the duplicates rule is
-  // (it selects by band, whatever the piece's tier), so it too reaches every tier. Folded into
-  // the same first branch rather than given its own, because "reaches everything" is one fact
-  // however many quality-blind rules produce it.
-  $: autoSalvageReachedTiers =
-    autoSalvageRules.duplicates || autoSalvageRarityOn
-      ? autoSalvageAllTiers
-      : autoSalvageRules.maxQuality !== null
-        ? autoSalvageAllTiers.filter((tier) => tier <= (autoSalvageRules.maxQuality ?? -1))
-        : [];
+  // ⚠️ 0.13.5, AND THE LOGIC INVERTED WITH THE MODEL. Under the old UNION, a quality-blind rule
+  // (duplicates, rarity) reached EVERY tier, so having one meant "all tiers". Under the filter
+  // model the quality axis NARROWS: if the player ticked tiers, nothing outside them is reachable
+  // no matter what else is on. So the ticked set IS the answer whenever it is non-empty.
+  //
+  // With no tiers ticked, quality does not narrow, so whatever the other axes select can land on
+  // any tier: that is the "all tiers" case now, and it is reached only when some OTHER rule is on
+  // (the all-empty guard means no rules at all reaches nothing).
+  $: autoSalvageReachedTiers = !autoSalvageHasRule
+    ? []
+    : autoSalvageRules.qualities.length > 0
+      ? autoSalvageAllTiers.filter((tier) => autoSalvageRules.qualities.includes(tier))
+      : autoSalvageAllTiers;
 
   // ⚠️ THE CONFIRM INTERLOCK, AS TWO LISTS. This is the single most important thing this
   // panel says. A tier the player has asked to be CONFIRMED about can never be
@@ -4973,7 +5078,11 @@
   ): string {
     const keep = Math.max(0, rules.keepPerVariety);
     const clauses: string[] = [];
-    if (rules.maxQuality !== null) clauses.push(`at Q${rules.maxQuality} or below`);
+    // ⚠️ 0.13.5: the axes NARROW, so the sentence has to read as one filtered set rather than as a
+    // list of separate sweeps. "spares at Q0 or Q1, in these rarities (radiant)" is a single
+    // description of one pool; the old wording implied two independent selections.
+    const tiers = [...rules.qualities].sort((a, b) => a - b);
+    if (tiers.length > 0) clauses.push(`at ${tiers.map((t) => `Q${t}`).join(" or ")}`);
     // The bands are named in full, because "by rarity" without the list is not something a
     // player can check against their own pool.
     if (selectedRarities.length > 0) clauses.push(`in these rarities (${selectedRarities.join(", ")})`);
@@ -5028,14 +5137,25 @@
     state = { ...state, autoSalvage: { ...autoSalvageRules, enabled } };
     doSave();
   }
-  // maxQuality: null = the rule is OFF, a number = "this tier and below". The <select>
-  // carries string values ("off" or a tier index) because a DOM value is always a string;
-  // the parse happens here, in one place, so the null-vs-0 distinction cannot be lost to a
-  // stray Number("") or a truthiness check at a call site.
-  function doSetAutoSalvageMaxQuality(raw: string) {
-    const maxQuality = raw === "off" ? null : Number(raw);
-    if (maxQuality !== null && !Number.isFinite(maxQuality)) return; // unparseable: leave the rule alone
-    state = { ...state, autoSalvage: { ...autoSalvageRules, maxQuality } };
+  // 0.13.5: tick or untick ONE quality tier. The exact shape doToggleAutoSalvageRarity has, because
+  // the two axes are now the same kind of thing and should be edited the same way.
+  //
+  // ⚠️ Normalised on the way in, so a save carrying a tier outside the ladder (hand-edited, or
+  // predating a change to QUALITY_TIERS) is dropped rather than written back and re-saved.
+  function doToggleAutoSalvageQuality(tier: number, selected: boolean) {
+    const current = normalizeAutoSalvageQualities(autoSalvageRules.qualities);
+    const qualities = selected
+      ? normalizeAutoSalvageQualities([...current, tier])
+      : current.filter((t) => t !== tier);
+    state = { ...state, autoSalvage: { ...autoSalvageRules, qualities } };
+    doSave();
+  }
+  // Clear the whole quality axis in one action. ⚠️ Clearing means "quality does not narrow", NOT
+  // "take nothing": with rarity bands still ticked the rule keeps working on those, which is the
+  // behaviour the user specified ("if you click off on quality, it deselects Q1 and Q2 and then
+  // only eats all common/uncommon items regardless of quality").
+  function doClearAutoSalvageQualities() {
+    state = { ...state, autoSalvage: { ...autoSalvageRules, qualities: [] } };
     doSave();
   }
   // ── THE DUPLICATES RULE, AND THE STANDARD-ISSUE WARNING (0.13.3.1 follow-up) ──
@@ -7160,6 +7280,35 @@
   $: globalBarSeconds = Math.max(1, state.tickDurationSeconds / (speed || 1));
   $: globalTickProgress = Math.min(1, Math.max(0, (cycle.nowTick - cycle.barCycleStart) / 1000 / globalBarSeconds));
   $: globalTickRemaining = Math.max(0, globalBarSeconds * (1 - globalTickProgress));
+  // What the BAR draws, which is not always what the countdown reads. Separate on purpose: the
+  // completed frame belongs to the gauge, and forcing globalTickProgress itself to 1 would make the
+  // remaining-time readout blink to zero for a tenth of a second every single tick.
+  $: globalBarFill = barCompletedFrame ? 1 : globalTickProgress;
+
+  // ⚠️ ONE VARIABLE SMOOTHS EVERY PROGRESS BAR IN THE GAME, and it works because of a property of
+  // this engine rather than a styling trick: EVERY bar except the tick bar is driven by a value the
+  // ECONOMY TICK updates, and the economy tick fires on one shared cadence. So the interval between
+  // a mission bar's jumps, a craft bar's jumps and an XP bar's jumps is the same number, and that
+  // number is globalBarSeconds.
+  //
+  // Set a transition of exactly that length and each per-tick jump glides across the whole gap
+  // before the next value lands: the bar reads as filling CONTINUOUSLY while remaining driven by
+  // the real, authoritative value. It can never run ahead of the truth, which a keyframe animation
+  // (the technique the TICK bar uses) genuinely could: the tick bar can animate 0 to 100% blind
+  // because its progress IS elapsed time, whereas a craft bar's progress is state, and state can
+  // pause, change speed, or advance a hundred ticks at once on an offline return.
+  //
+  // ⚠️ REDUCED MOTION NEEDS NO SPECIAL CASE HERE, unlike the tick bar. The blanket rule in app.css
+  // collapses transition-duration to 0.001ms, so every one of these bars STEPS instead of gliding,
+  // which is exactly the behaviour the tick bar has under the same setting. The tick bar needed an
+  // exception only because it uses an ANIMATION, and a `forwards` animation collapsed to zero
+  // duration pins at its end state rather than stepping.
+  //
+  // It is written to documentElement rather than a wrapper so components outside App.svelte
+  // (CombatView, ShipSystemsPanel) inherit it without being passed anything.
+  $: if (typeof document !== "undefined") {
+    document.documentElement.style.setProperty("--bar-step-seconds", `${globalBarSeconds}s`);
+  }
   // Header redesign (2026-07-07), single source for the Fleet Admiral XP
   // ratio, consumed by both the bar-fill width (clamped to 100) and the
   // readout percentage below (unclamped, .toFixed(1)), avoids the same
@@ -8666,7 +8815,7 @@
           {#key cycle.barCycleStart}
             <div
               class="tick-bar-fill"
-              style="width:{globalTickProgress * 100}%; animation-duration:{globalBarSeconds}s"
+              style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"
             ></div>
           {/key}
         </div>
@@ -11174,26 +11323,37 @@
                   />
                   Run these rules
                 </label>
-                <!-- ⚠️ A SELECT, NOT A CHECKBOX, and deliberately. maxQuality has THREE kinds
-                     of value, not two: null means the rule is off, and 0 is a real and useful
-                     setting ("Q0 and below"). A truthy control would collapse those two into
-                     one and quietly turn the most common setting into no rule at all. The DOM
-                     hands back strings, so "off" is the explicit sentinel and the parse happens
-                     in one place (doSetAutoSalvageMaxQuality). -->
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  Quality
-                  <select
-                    class="modal-input"
-                    value={autoSalvageRules.maxQuality === null ? "off" : String(autoSalvageRules.maxQuality)}
-                    on:change={(e) => doSetAutoSalvageMaxQuality((e.target as HTMLSelectElement).value)}
-                    aria-label="Auto-salvage quality rule"
-                  >
-                    <option value="off">Off</option>
-                    {#each autoSalvageAllTiers as tier (tier)}
-                      <option value={String(tier)}>Q{tier} and below</option>
-                    {/each}
-                  </select>
-                </label>
+              </div>
+
+              <!-- ⚠️ CHECKBOXES NOW, NOT A THRESHOLD SELECT (0.13.5, user). The select carried a
+                   THREE-state value (null = off, 0 = "Q0 and below", N = "QN and below"), and that
+                   third state is what the user correctly called nonsensical: "quality being off
+                   makes no sense, because every item exists between Q0 and Q5".
+                   Under the filter model there is no third state to express. Ticking nothing means
+                   quality does not narrow, which is the same sentence the rarity row below has
+                   always used for its own empty case. Two axes, one idiom.
+                   ⚠️ The tier list is DERIVED from QUALITY_TIERS (autoSalvageAllTiers), so a seventh
+                   tier grows a seventh checkbox with no edit here. -->
+              <div class="research-cost" style="margin-top: 8px;">Quality tiers to queue</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                {#each autoSalvageAllTiers as tier (tier)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={autoSalvageRules.qualities.includes(tier)}
+                      on:change={(e) => doToggleAutoSalvageQuality(tier, (e.target as HTMLInputElement).checked)}
+                    />
+                    Q{tier}
+                  </label>
+                {/each}
+                <!-- Clear, not "off". ⚠️ The distinction is the whole point: clearing the axis means
+                     quality stops narrowing, so a rarity selection keeps working on its own. It does
+                     NOT mean the automation stops. -->
+                <button
+                  class="dev-btn"
+                  disabled={autoSalvageRules.qualities.length === 0}
+                  on:click={doClearAutoSalvageQualities}
+                >Clear</button>
               </div>
 
               <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================
@@ -13048,7 +13208,7 @@
             <div class="dev-row" style="flex-wrap: wrap; gap: 8px;">
               {#each LOGISTICS_RESERVED_GOODS as label (label)}
                 <span
-                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: 13px; opacity: 0.5;"
+                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: var(--text-md); opacity: 0.5;"
                   title="Reserved for a future update (combat)"
                 >🔒 {label}</span>
               {/each}
@@ -14590,8 +14750,9 @@
 
                   <!-- STANCE selector (segmented, default Balanced). Three .dev-btn options
                        with aria-pressed marking the active one (the same accent-border
-                       selection signal .mission-card-selectable.expanded / .theme-swatch.active
-                       use), fed to dispatchCaptainOnPatrol at dispatch time. -->
+                       selection signal .mission-card-selectable.expanded uses; the
+                       .theme-swatch.active half of this citation was REMOVED in 0.13.5 with the
+                       colour-blot theme picker), fed to dispatchCaptainOnPatrol at dispatch time. -->
                   <div class="mission-col-label" style="margin-top: 8px">Stance</div>
                   <div class="patrol-segmented" role="group" aria-label="Combat stance">
                     <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolKey, "aggressive")}>Aggressive</button>
@@ -14996,22 +15157,31 @@
                 {@render needsPromptButton(dashboardModel.needsOrders[0])}
               </div>
             {:else if dashboardModel.needsOrders.length > 1 && !needsExpanded}
-              <!-- COLLAPSED: a compact, DISPLAY-ONLY ticker (NOT a tap target) that rotates
-                   through the prompts, plus a STATIONARY "Show all" toggle that reveals the
-                   real, actionable buttons. The {#key} remount restarts the fade each change
-                   (the fade is disabled under prefers-reduced-motion by the CSS media query,
-                   matching the frozen index the ticker interval holds in that case). -->
+              <!-- COLLAPSED: a compact ticker that rotates through the prompts, plus a STATIONARY
+                   "Show all" toggle that reveals the full list.
+
+                   ⚠️ THE TICKER IS ACTIONABLE NOW (0.13.5, user). It was deliberately DISPLAY-ONLY,
+                   on the reasoning that a moving tap target invites mis-taps. The user overruled
+                   that with a better argument: "it can be useful and doesn't require expansion to
+                   be useful... If you just want to go through each thing that appears there
+                   one-by-one. Tap, set, tap, set. All green." Expansion is then for CHOOSING what to
+                   do next, and the ticker is for working through the queue without choosing. A
+                   display-only ticker made the collapsed state a advertisement for the expanded one.
+
+                   ⚠️ IT RENDERS THE SAME needsPromptButton SNIPPET the expanded list does, rather
+                   than a copy of its markup. That is what makes "the collapsed item goes to the
+                   same place as the expanded one" true BY CONSTRUCTION rather than by two call
+                   sites agreeing, which is the same discipline doneRowBody and homeRowBody already
+                   use for exactly this reason.
+
+                   The {#key} remount restarts the fade each change (disabled under reduced motion
+                   by the CSS media query, matching the frozen index the ticker interval holds). -->
               <div class="home-ticker-wrap">
                 <div class="home-ticker">
                   {#if needsTickerPrompt !== null}
                     {#key needsTickerPrompt.id}
                       <div class="home-ticker-item">
-                        <span class="home-pulse" aria-hidden="true"></span>
-                        <span class="home-ico" aria-hidden="true">{homeIconGlyph(needsTickerPrompt.icon)}</span>
-                        <span class="home-prompt-txt">
-                          <span class="home-l1">{needsTickerPrompt.label}</span>
-                          {#if needsTickerPrompt.detail !== null}<span class="home-prompt-detail">{needsTickerPrompt.detail}</span>{/if}
-                        </span>
+                        {@render needsPromptButton(needsTickerPrompt)}
                       </div>
                     {/key}
                   {/if}
@@ -15430,26 +15600,80 @@
       <Panel>
         <div class="panel-title">GAMEPLAY</div>
         <p class="setting-group-note">
-          These settings change what the game does on its own. They are stored in your save rather
-          than on this device, so they follow your fleet everywhere and keep working while the game
-          is closed.
+          What the game does on its own. These are stored in your save rather than on this device, so
+          they follow your fleet everywhere and keep working while the game is closed.
+        </p>
+        <!-- ⚠️ THE AUTO-SALVAGE RULES ARE LINKED, NOT MIRRORED. They are a rich multi-control panel
+             that already lives in the Salvage Bay beside the gear they act on, and they are
+             SAVE-side, so a second copy would be two UIs writing one piece of state: the classic way
+             a setting ends up disagreeing with itself depending on which screen you opened. The
+             record's rule for contextual help applies to settings too: LINK, never duplicate. -->
+        <p class="setting-group-note">
+          The auto-salvage rules live in the Salvage Bay, beside the gear they act on.
+        </p>
+        <div class="dev-row">
+          <button class="dev-btn" on:click={jumpToSalvageRules}>Open Salvage Bay rules</button>
+        </div>
+      </Panel>
+      {/if}
+
+      {#if activeOptionsTab === "confirmations"}
+      <Panel>
+        <div class="panel-title">CONFIRMATIONS</div>
+        <p class="setting-group-note">
+          Which actions stop and ask before they happen. Pick a level, or tick the individual ones
+          yourself: editing any of them by hand sets the level to Custom.
         </p>
 
-        <!-- ⚠️ CONFIRMATION PRESETS ARE A WRITE ACTION, NOT A STORED MODE. Choosing one SETS the
-             individual toggles below and is then forgotten. That matters: if the preset were
-             remembered as a mode, a player who picked "Intermediate" and then turned one confirm
-             back on would be silently overridden the next time anything re-read it. It also means
-             no new save field and no migration. -->
+        <!-- ⚠️ A DROPDOWN AND THE CHECKBOXES TOGETHER, NOT ONE OR THE OTHER. The dropdown is how a
+             player sets six things at once; the checkboxes are how they disagree with it. Offering
+             only the dropdown would make the preset a cage, and offering only the checkboxes would
+             make a six-dialog game a six-step chore.
+
+             The displayed value is DERIVED from the checkboxes on every render (resolveConfirmationLevel),
+             so it cannot claim a level the player has since edited away from. That stale-label bug is
+             the one the record calls out by name, and deriving makes it unrepresentable rather than
+             merely tested for. "Custom" is therefore a computed READING, not a selectable option, and
+             it is rendered disabled for exactly that reason: you reach Custom by editing, never by
+             choosing it. -->
         <SettingRow
           label="Confirmation level"
-          description="Sets every confirmation below at once. Pick the closest starting point, then adjust any individual one; your changes stick."
+          description="Sets every confirmation below at once. Your own edits always win: change any checkbox and the level becomes Custom."
         >
-          <div class="preset-row">
-            {#each CONFIRM_PRESETS as preset}
-              <button class="dev-btn" on:click={() => applyConfirmPreset(preset.key)}>{preset.label}</button>
-            {/each}
-          </div>
+          {#key confirmationSelectNonce}
+            <select
+              class="setting-select"
+              value={confirmationLevel}
+              on:change={(e) => requestConfirmationPreset((e.target as HTMLSelectElement).value as ConfirmationPresetId)}
+            >
+              {#if confirmationLevel === "custom"}
+                <option value="custom" disabled>Custom</option>
+              {/if}
+              {#each CONFIRMATION_PRESET_ORDER as id}
+                <option value={id}>{CONFIRMATION_PRESETS[id].label}</option>
+              {/each}
+            </select>
+          {/key}
         </SettingRow>
+
+        <!-- THE HELP BOX, beside the selector rather than in the manual. The record was specific
+             about that placement ("right next to the option rather than buried"), and it is the same
+             instinct as the contextual help buttons logged for a later phase: an explanation you
+             have to go and find is one most players never read. It describes the level currently
+             shown, so it answers "what did I just pick?" rather than listing all six at once. -->
+        <div class="confirm-help">
+          <div class="confirm-help-title">
+            {confirmationLevel === "custom" ? "Custom" : CONFIRMATION_PRESETS[confirmationLevel].label}
+          </div>
+          <p>
+            {#if confirmationLevel === "custom"}
+              Your own mix. Nothing will change it unless you pick a level above, and that will ask
+              first.
+            {:else}
+              {CONFIRMATION_PRESETS[confirmationLevel].blurb}
+            {/if}
+          </p>
+        </div>
 
         <SettingRow
           label="Confirm before refining"
@@ -15479,18 +15703,26 @@
           />
         </SettingRow>
 
-        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS AND THE AUTO-SALVAGE RULES ARE NOT DUPLICATED HERE,
-             deliberately. Both are rich, multi-control panels that already live in the Salvage Bay
-             next to the thing they act on, and both are SAVE-SIDE, so a second copy would be two
-             UIs writing one piece of state: the classic way a setting ends up disagreeing with
-             itself depending on which screen you opened.
-             The record's own rule for contextual help applies just as well to settings: LINK, never
-             duplicate. Relocating them properly (rather than mirroring them) is its own unit, and
-             is listed in the handoff. -->
-        <p class="setting-group-note">
-          Per-quality salvage confirmations and the auto-salvage rules live in the Salvage Bay,
-          beside the gear they act on.
-        </p>
+        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS ARE GOVERNED HERE BUT EDITED IN THE BAY, and that
+             split is deliberate rather than an omission. A preset has to write them (they are the
+             graduated setting that makes six named levels mean six different things), so they are
+             part of the managed set. But the six-tier grid already exists in the Salvage Bay next to
+             the gear, and a second grid would be two editors for one save field.
+             So: this row REPORTS what the setting currently is, the level above WRITES it, and the
+             button goes to the one place that edits it tier by tier. -->
+        <SettingRow
+          label="Confirm before salvaging"
+          description="Which quality tiers stop and ask before they are salvaged. Edited tier by tier in the Salvage Bay; a confirmation level above sets them all at once."
+        >
+          <span class="confirm-tier-summary">
+            {salvageConfirmQualities.length === 0
+              ? "No tiers"
+              : salvageConfirmQualities.length === QUALITY_TIERS
+                ? "All tiers"
+                : `${salvageConfirmQualities.length} of ${QUALITY_TIERS} tiers`}
+          </span>
+          <button class="dev-btn" on:click={jumpToSalvageRules}>Change</button>
+        </SettingRow>
       </Panel>
       {/if}
 
@@ -15653,6 +15885,27 @@
             {/each}
           </select>
         </SettingRow>
+      </Panel>
+      {/if}
+
+      {#if activeOptionsTab === "saveData"}
+      <!-- SAVE DATA, now its own SUBTAB (0.13.5, user 2026-09-12).
+           These three controls spent 0.13.5's first pass inside the VISUAL tab, which was simply
+           where they already were when the tab existed around them. They are not settings: nothing
+           here is a preference that persists a choice, they are one-shot ACTIONS on the save file,
+           and the one on the right is destructive.
+
+           The intent tabs answer "what am I trying to change?", so an action that changes nothing
+           has no honest tab to sit in. Filing it under Visual actively misled: a player looking for
+           Export would never think to look under the tab that holds the theme picker.
+
+           It first shipped BELOW the tab strip, reachable from every subtab and belonging to none,
+           which was the right call while there were only intent subtabs to choose between. Giving it
+           its own named subtab is better: a floating panel under a tab strip has no address a player
+           can be told to go to, and "Settings > Save Data" does. -->
+      <Panel>
+        <div class="panel-title">SAVE DATA</div>
+        <p class="prestige-text">One-off actions on your save file rather than settings. Export writes a copy you can keep or move to another device; Import replaces what is here with a copy.</p>
         <div class="dev-row">
           <button class="dev-btn" on:click={doExportSave}>Export Save</button>
           <!-- Label-wrapping-hidden-input is the standard way to skin a file
@@ -16289,6 +16542,40 @@
          the captain disappears (e.g. the patrol ends). -->
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Combat View" use:focusTrap={closeCombatView}>
       <CombatView {state} captain={combatViewCaptain} onClose={closeCombatView} />
+    </div>
+  {/if}
+
+  <!-- PRESET OVERWRITE CONFIRM (0.13.5).
+       ⚠️ THIS DIALOG IS NOT ITSELF A MANAGED CONFIRMATION, and that exclusion is load-bearing
+       rather than tidy. If it were in the set the presets govern, choosing "Stop asking" would
+       switch off the protection on the very control that sets "Stop asking": a recursion, and a way
+       to lose hand-tuned settings in one click forever after.
+
+       ⚠️ It also appears ONLY when the current level is Custom (presetOverwriteNeedsConfirm). Moving
+       between clean levels destroys nothing reproducible, so a dialog there would be the exact
+       nagging this whole feature exists to reduce, and it would train the player to click through
+       the one case where it matters. -->
+  {#if pendingConfirmationPreset !== null}
+    <div
+      class="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Overwrite confirmation settings"
+      use:focusTrap={cancelConfirmationPreset}
+    >
+      <Panel class="modal-dialog">
+        <div class="panel-title">OVERWRITE YOUR SETTINGS?</div>
+        <p class="modal-warning">
+          Your confirmations are set to Custom. Switching to
+          <strong>{CONFIRMATION_PRESETS[pendingConfirmationPreset].label}</strong>
+          will replace them.
+        </p>
+        <p class="modal-instruction">{CONFIRMATION_PRESETS[pendingConfirmationPreset].blurb}</p>
+        <div class="modal-row">
+          <button class="dev-btn" on:click={cancelConfirmationPreset}>Cancel</button>
+          <button class="dev-btn" on:click={() => applyConfirmationPreset(pendingConfirmationPreset!)}>Apply</button>
+        </div>
+      </Panel>
     </div>
   {/if}
 
@@ -16972,11 +17259,11 @@
   .header-left { display: flex; flex-direction: column; }
   .title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 2px;
     color: var(--color-accent-bright);
   }
-  .subtitle { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+  .subtitle { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: 2px; }
   .tab-body {
     /* Replaces the old .main rule (same class removed from the <main> tag in
        the template, <main> becomes <main class="tab-body">). This is the
@@ -17058,7 +17345,7 @@
   .top-bar-header .top-bar-portrait {
     flex: 0 0 40px;
     height: 40px;
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     border-style: solid;
     position: relative;
     padding: 0;
@@ -17074,21 +17361,21 @@
     position: absolute;
     right: -3px;
     bottom: -3px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1;
     color: var(--color-accent);
     pointer-events: none;
   }
   .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .top-bar-name { font-size: var(--text-xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
+  .top-bar-xp-label { font-size: var(--text-2xs); color: var(--color-text-secondary); flex-shrink: 0; }
   .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px, this copy sits inline, not stacked above other content */
-  .top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-xp-readout { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
+  .top-bar-tick-label { font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
   .top-bar-tick-track { flex: 1; }
-  .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-tick-readout { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   /* Currency strip (2026-07-09). A flex row of resource chips; wraps on narrow
      screens so additional currencies never overflow the top bar. margin-bottom
      matches the header block's own 8px so the tick row stays evenly spaced
@@ -17117,8 +17404,8 @@
     border-color: rgba(var(--color-accent-rgb), 0.6);
     background: rgba(var(--color-accent-rgb), 0.14);
   }
-  .currency-chip-glyph { font-size: 11px; color: var(--color-accent); line-height: 1; }
-  .currency-chip-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary); white-space: nowrap; }
+  .currency-chip-glyph { font-size: var(--text-xs); color: var(--color-accent); line-height: 1; }
+  .currency-chip-value { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-primary); white-space: nowrap; }
   /* Info tooltip: drops just below its chip, left-aligned to it. width:max-content
      keeps short labels tight while max-width wraps the flavor line. z-index sits
      above the tab body; the .top-bar itself is lifted into its own stacking layer
@@ -17143,10 +17430,10 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .currency-tooltip-title {
-    font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase;
     color: var(--color-accent); margin-bottom: 4px;
   }
-  .currency-tooltip-body { font-size: 11px; line-height: 1.4; color: var(--color-text-secondary); }
+  .currency-tooltip-body { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
   /* Warehouse storage-upgrade disabled-reason popover (2026-07-24 flicker fix).
      The wrapper is the hover region + the positioning context for the popover
      (a disabled button cannot be it, see openUpgradeReasonKey in the script).
@@ -17161,7 +17448,7 @@
      tooltips render a plain flavor string and don't use these. min-width keeps the
      production/expenditure/net columns from collapsing on the short values. */
   .fuel-tt-row { display: flex; justify-content: space-between; gap: 16px; min-width: 190px; }
-  .fuel-tt-note { font-size: 10px; color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
+  .fuel-tt-note { font-size: var(--text-2xs); color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
   .fuel-tt-sep { height: 1px; background: rgba(var(--color-accent-rgb), 0.25); margin: 5px 0; }
   /* Outer nav (Task 1, Phase 4), now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
@@ -17259,7 +17546,7 @@
     }
   }
   .nav-tab-label {
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.3px;
     text-transform: uppercase;
     line-height: 1;
@@ -17284,7 +17571,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
     padding: 10px 8px;
     color: var(--color-text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
   }
@@ -17309,7 +17596,7 @@
      tab-row CSS lives here anymore. The selected tab's page renders in place
      below the row as plain block flow (full-width on desktop). */
   .panel-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 1.5px;
     color: var(--color-accent);
     margin-bottom: 12px;
@@ -17325,7 +17612,7 @@
     max-width: 92vw;
   }
   .offline-summary-lead {
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.5;
     color: var(--color-text);
     margin: 0 0 12px;
@@ -17352,7 +17639,7 @@
     margin-top: 8px;
   }
   .offline-summary-section-title {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-accent);
@@ -17365,7 +17652,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    font-size: 13px;
+    font-size: var(--text-md);
     padding: 3px 0;
     border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   }
@@ -17378,7 +17665,7 @@
      (warehouseCategoryGlyph), sat just before the item label so the summary reads like the
      Warehouse. A hair of trailing space and line-height:1 keep it aligned with the label text. */
   .offline-summary-item-icon {
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
     line-height: 1;
     margin-right: 4px;
   }
@@ -17403,7 +17690,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 2px 10px;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   /* Combat 0.13.0 (offline recap): the muted "stopped early ..." note on its OWN line below the
      captain's XP. Dimmer + smaller than the accent value so it reads as a secondary aside, and it
@@ -17412,7 +17699,7 @@
     display: block;
     margin-top: 1px;
     color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
-    font-size: 12px;
+    font-size: var(--text-sm);
     white-space: normal;
     font-variant-numeric: normal;
   }
@@ -17449,8 +17736,6 @@
     margin: 0 0 var(--space-4) 0;
     max-width: var(--max-reading-width);
   }
-  /* The preset buttons. Wraps so three buttons plus a long label survive a narrow phone, which is
-     the same overflow class that pushed a timestamp off screen in 0.13.3.1. */
   /* The current theme's colour, shown beside the named dropdown. Purely informative (the select
      announces the value), so it is aria-hidden. */
   .theme-preview {
@@ -17461,10 +17746,37 @@
     display: inline-block;
     flex: none;
   }
-  .preset-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
+  /* THE HELP BOX beside the confirmation-level selector (0.13.5). A quiet inset rather than a
+     bordered callout: it is explanatory text that should be there when looked for and invisible when
+     not, and the panel already has a border doing the job of separating this content from the rest.
+     max-width keeps it inside the reading measure the token layer sets, so a wide desktop panel does
+     not stretch one sentence across the screen. */
+  .confirm-help {
+    background: var(--color-panel-bg-strong);
+    border-left: 2px solid var(--color-border-strong);
+    padding: var(--space-3) var(--space-4);
+    margin: 0 0 var(--space-4) 0;
+    max-width: var(--max-reading-width);
+  }
+  .confirm-help-title {
+    font-size: var(--text-2xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+    margin-bottom: var(--space-1);
+  }
+  .confirm-help p {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin: 0;
+  }
+  /* The read-only tier count beside the Change button. tabular-nums so "2 of 6" and "6 of 6" do not
+     shift the button left and right as the number changes. */
+  .confirm-tier-summary {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    font-variant-numeric: tabular-nums;
   }
   .setting-select {
     background: var(--color-panel-bg-strong);
@@ -17503,9 +17815,9 @@
     animation: tick-bar-sweep linear forwards;
     transition: width 0.1s linear;
   }
-  .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-  .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
-  .research-status { font-size: 13px; color: var(--color-success); margin: 0; }
+  .research-name { font-size: var(--text-md); font-weight: 600; margin-bottom: 6px; }
+  .research-cost { font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: 10px; }
+  .research-status { font-size: var(--text-md); color: var(--color-success); margin: 0; }
   .research-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
@@ -17523,12 +17835,19 @@
       0 4px
     );
   }
+  /* THE SHARED PROGRESS FILL: crafting, refining, missions, research, XP, crafting level. Thirty
+     call sites, which is why smoothing it here reaches almost every bar in the game at once.
+     ⚠️ The duration is --bar-step-seconds (the live tick length), NOT a fixed 0.2s. At 0.2s the bar
+     jumped, glided briefly, then sat frozen for the rest of the tick, which is the "not actually
+     filling" feel the user reported. Matching the tick length makes the glide exactly span the gap
+     between value updates, so the bar is always moving and always truthful.
+     The fallback keeps it sane before the first poll writes the variable. */
   .research-bar-fill {
     height: 100%;
     background: var(--color-accent);
-    transition: width 0.2s linear;
+    transition: width var(--bar-step-seconds, 0.2s) linear;
   }
-  .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
+  .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
   /* AVAILABLE MISSIONS grid (2026-07-15 card redesign), was a single-column
      flex stack; now a responsive grid that fits ~3 cards across on a wide
      Operations panel and collapses to 2 then 1 column as the panel narrows.
@@ -17606,9 +17925,10 @@
   /* Combat Patrols (Combat 0.13.0, Phase 9b.5d) segmented controls (Stance /
      Dispatch mode): a tight row of .dev-btn options where the SELECTED one is
      signalled with aria-pressed. The pressed style reuses the SAME accent-border +
-     accent-bright-text selection signal .mission-card-selectable.expanded and
-     .theme-swatch.active already use (no new color, theme-linked via the accent
-     tokens), so it reads as this app's existing "this option is chosen" affordance
+     accent-bright-text selection signal .mission-card-selectable.expanded already
+     uses (no new color, theme-linked via the accent tokens; this citation also named
+     .theme-swatch.active until 0.13.5 removed the colour-blot theme picker),
+     so it reads as this app's existing "this option is chosen" affordance
      rather than a new visual language. Each button flexes to share the row width. */
   .patrol-segmented { display: flex; gap: 4px; margin-top: 4px; }
   .patrol-segmented .dev-btn { flex: 1; }
@@ -17647,13 +17967,13 @@
     flex-wrap: wrap;
   }
   .battle-rating-value {
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-accent-bright);
     font-variant-numeric: tabular-nums;
   }
   .patrol-readout-note {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-style: italic;
     color: var(--color-text-secondary);
   }
@@ -17674,14 +17994,14 @@
     /* A faint wash of the band color behind the solid-color border + text. */
     background: color-mix(in srgb, var(--threat-color) 16%, transparent);
     color: var(--threat-color);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: help;
     white-space: nowrap;
     border-radius: 2px;
   }
   .threat-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  .threat-chip-icon { font-size: 13px; line-height: 1; }
+  .threat-chip-icon { font-size: var(--text-md); line-height: 1; }
   .threat-tooltip {
     position: absolute;
     bottom: calc(100% + 6px);
@@ -17720,8 +18040,8 @@
   .threat-chip-wrap:focus-within { z-index: 40; }
   .threat-chip-wrap:hover .threat-tooltip,
   .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
-  .threat-tooltip-range { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
-  .threat-tooltip-voice { font-size: 12px; font-style: italic; color: var(--color-text-secondary); }
+  .threat-tooltip-range { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
+  .threat-tooltip-voice { font-size: var(--text-sm); font-style: italic; color: var(--color-text-secondary); }
   /* Header row: portrait placeholder beside the name + exp sub-line. */
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
@@ -17730,19 +18050,19 @@
      so there's no source-order dependency. ~48px reads as two text lines tall
      (name + exp), matching the sketch's two-line picture box. The LOCKED card
      keeps the full 64px frame (it isn't inside .mission-card-header). */
-  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: 22px; }
+  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
   .mission-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   /* research-name carries a 6px bottom margin of its own; zero it here so the
      exp sub-line sits tight under the name inside the flex-gap heading column. */
   .mission-card-heading .research-name { margin-bottom: 0; }
-  .mission-xp-line { font-size: 11px; color: var(--color-text-secondary); }
+  .mission-xp-line { font-size: var(--text-xs); color: var(--color-text-secondary); }
   /* Body: two equal columns (Requirements | Rewards), matching the sketch. */
   .mission-card-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .mission-card-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   /* Column heading ("Mission Requirements:" / "Rewards"), a touch stronger
      than the body rows so each column reads as a labelled group. */
-  .mission-col-label { font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
-  .mission-req-line { font-size: 12px; color: var(--color-text-secondary); }
+  .mission-col-label { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
+  .mission-req-line { font-size: var(--text-sm); color: var(--color-text-secondary); }
   /* Portrait-frame placeholder, no ship/captain art asset exists yet (see
      the 🖼️ emoji placeholder in the template), so this is a dashed
      theme-tinted box rather than an <img>, sized to read clearly as "art
@@ -17754,7 +18074,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: calc(24px * var(--ui-scale));
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
@@ -17782,7 +18102,7 @@
     border: 1px solid rgba(248, 113, 113, 0.4);
     padding: 8px 12px;
     color: var(--color-danger);
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
     margin-top: 10px;
   }
@@ -17791,7 +18111,7 @@
     border: 1px solid var(--color-border-strong);
     padding: 8px 10px;
     color: var(--color-accent-bright);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-family: var(--font-mono);
     cursor: pointer;
   }
@@ -17811,23 +18131,22 @@
     text-decoration: none;
   }
   .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
-  .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
+  .prestige-text { font-size: var(--text-sm); color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
   /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the colour-blot
      theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
      and dead CSS that still compiles is exactly the kind of thing a later reader restores by
      accident because it looks intentional. The replacement is .theme-preview plus .setting-select.
-     ⚠️ One selector elsewhere still NAMES .theme-swatch.active in a comment, as the precedent for
-     an active-state border. That comment is now describing something that no longer exists; it is
-     left alone here because editing an unrelated rule's comment is a different concern, and it is
-     noted in the handoff instead. */
+     Two comments elsewhere cited .theme-swatch.active as the precedent for an active-state border
+     (the Stance selector's markup and .patrol-segmented's rule). Both were corrected to name only
+     the precedent that still exists, rather than left pointing at a deleted selector. */
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-  .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
+  .dev-label { font-size: var(--text-xs); color: var(--color-text-secondary); width: 78px; }
   /* A labeled sub-heading inside the Options panel, separating a settings section
      (e.g. Combat Log) from the rows above it. Kept small + accent-tinted so a future
      accessibility/theming section reads as a sibling group, not a new panel. */
   .opt-section-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -17847,7 +18166,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     color: var(--color-accent-bright);
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
   }
   .dev-btn:hover:not(:disabled):not(.active) {
@@ -17872,11 +18191,11 @@
   /* [DEV] Equipment panel only (dev-gated). Monospace readout text so the
      base -> fitted stat columns line up, and a subtle divider between per-ship
      blocks. New classes, no existing panel restyled. */
-  .dev-readout-text { font-size: 11px; color: var(--color-text-secondary); font-family: monospace; }
+  .dev-readout-text { font-size: var(--text-xs); color: var(--color-text-secondary); font-family: monospace; }
   .dev-ship-block { border-top: 1px solid rgba(var(--color-accent-rgb), 0.2); padding-top: 8px; margin-top: 8px; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
-  .log-empty { font-size: 12px; color: var(--color-text-dim); }
-  .log-entry { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .log-empty { font-size: var(--text-sm); color: var(--color-text-dim); }
+  .log-entry { font-size: var(--text-sm); color: var(--color-text-secondary); font-family: var(--font-mono); }
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -17925,7 +18244,7 @@
   .system-modal-tabs { flex-shrink: 0; }
   .system-modal-title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 1px;
     color: var(--color-accent-bright);
     text-transform: uppercase;
@@ -17938,7 +18257,7 @@
     color: var(--color-text-secondary);
     width: 30px;
     height: 30px;
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
     cursor: pointer;
     line-height: 1;
   }
@@ -17959,9 +18278,9 @@
      class sizes just this instance, like the header/mission-card instances do) and
      existing text tokens; no new palette. */
   .profile-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  .profile-portrait { flex: 0 0 48px; height: 48px; font-size: 22px; }
-  .profile-identity-name { font-size: 13px; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
-  .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
+  .profile-portrait { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
+  .profile-identity-name { font-size: var(--text-md); color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal-warning { font-size: var(--text-md); color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
   /* .modal-note: the REASSURING sibling of .modal-warning, for the "here is what
      actually happens next" line under a destructive warning. Same size, line-height
      and 10px bottom margin, differing only in color, so a modal's paragraphs share
@@ -17972,8 +18291,8 @@
      while the red warning above it had its 10px. Fixed here rather than by touching
      .research-status, which is shared across the facility consoles and would have
      moved spacing on surfaces this has nothing to do with. */
-  .modal-note { font-size: 13px; color: var(--color-success); line-height: 1.5; margin: 0 0 10px; }
-  .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
+  .modal-note { font-size: var(--text-md); color: var(--color-success); line-height: 1.5; margin: 0 0 10px; }
+  .modal-instruction { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 8px; }
   .modal-input {
     width: 100%;
     padding: 8px 10px;
@@ -17983,7 +18302,7 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   /* A native <select> otherwise renders its closed control, and especially its
      OPENED option list, with the browser's default WHITE background, which the
@@ -18074,7 +18393,7 @@
     background: var(--color-bg-mid);
     border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-md);
     letter-spacing: 1px;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -18088,7 +18407,7 @@
     align-items: center;
     justify-content: center;
     padding: 0;
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     line-height: 1;
     cursor: pointer;
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
@@ -18113,7 +18432,7 @@
      quiet to be a sheet's entire body. This is exactly the reason .modal-note itself was added
      one release earlier, and it takes the same shape rather than inventing a second one.
      Tokens only, no new palette value. */
-  .fsheet-explain { font-size: 13px; color: var(--color-text-primary); line-height: 1.5; margin: 0 0 10px; }
+  .fsheet-explain { font-size: var(--text-md); color: var(--color-text-primary); line-height: 1.5; margin: 0 0 10px; }
   /* Readonly backup textarea for the corrupt-save recovery modal (P4). Mirrors
      .modal-input's themed surface, but as a multi-row, monospace, wrapping box
      the player can select/copy from. overflow-wrap:anywhere keeps the long
@@ -18128,7 +18447,7 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
     resize: vertical;
     overflow-wrap: anywhere;
@@ -18189,16 +18508,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: var(--text-2xl);
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     background: rgba(var(--color-accent-rgb), 0.08);
     border-radius: 8px;
   }
   .roster-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .roster-card-heading .research-name { margin-bottom: 0; }
-  .roster-card-sub { font-size: 11px; color: var(--color-text-secondary); }
+  .roster-card-sub { font-size: var(--text-xs); color: var(--color-text-secondary); }
   .roster-card-lines { display: flex; flex-direction: column; gap: 4px; }
-  .roster-card-line { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .roster-card-line { font-size: var(--text-sm); color: var(--color-text-secondary); font-family: var(--font-mono); }
 
   /* Facility-card attention dot (0.13.3 Unit 4.6b), the cascade's step DOWN from the
      bottom-nav dot: the nav dot says "something in Facilities needs you", this says which
@@ -18273,12 +18592,12 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   .ship-roster-search:focus { outline: none; border-color: var(--color-accent); }
   .ship-roster-sort { display: flex; align-items: center; gap: 6px; }
-  .ship-roster-sort-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-  .ship-roster-sort-select { font-size: 13px; }
+  .ship-roster-sort-label { font-size: var(--text-xs); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ship-roster-sort-select { font-size: var(--text-md); }
   .ship-roster-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* Filter chips: full-surface tint idiom, brighter when active (the selected filter). */
   .ship-chip {
@@ -18288,7 +18607,7 @@
     border-radius: 999px;
     color: var(--color-text-secondary);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   .ship-chip:hover { border-color: var(--color-accent); }
@@ -18300,7 +18619,7 @@
 
   /* Group header (Favorites / All ships / a hull-class name). */
   .ship-roster-group-label {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -18341,10 +18660,10 @@
     text-align: left;
     cursor: pointer;
   }
-  .ship-row-glyph { flex: 0 0 auto; font-size: 18px; }
+  .ship-row-glyph { flex: 0 0 auto; font-size: var(--text-xl); }
   .ship-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ship-row-name {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text-primary);
     white-space: nowrap;
@@ -18352,18 +18671,18 @@
     text-overflow: ellipsis;
   }
   .ship-row-meta {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-secondary);
     font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .ship-row-attn { font-size: 11px; color: var(--color-warning); font-weight: 600; }
+  .ship-row-attn { font-size: var(--text-xs); color: var(--color-warning); font-weight: 600; }
   .ship-row-rating {
     flex: 0 0 auto;
     align-self: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-family: var(--font-mono);
     color: var(--color-text-secondary);
     padding: 2px 8px;
@@ -18378,7 +18697,7 @@
     border: none;
     border-left: 1px solid rgba(var(--color-accent-rgb), 0.15);
     color: var(--color-text-secondary);
-    font-size: 18px;
+    font-size: var(--text-xl);
     line-height: 1;
     cursor: pointer;
   }
@@ -18410,7 +18729,7 @@
   .materials-tier-btn {
     flex: 0 0 auto;
     padding: 5px 14px;
-    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
     background: var(--color-panel-bg);
@@ -18430,7 +18749,7 @@
   }
   /* Cap readout line above the Materials sections. */
   .materials-cap-line {
-    font-family: var(--font-mono); font-size: 10px;
+    font-family: var(--font-mono); font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     margin: 0 2px 12px;
   }
@@ -18444,12 +18763,12 @@
   .warehouse-tier:last-child { margin-bottom: 0; }
   .warehouse-tier-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 8px; }
   .warehouse-tier-label {
-    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.14em; text-transform: uppercase;
     font-weight: 700; color: var(--color-text-primary);
   }
   .warehouse-tier.locked .warehouse-tier-label { color: var(--color-text-dim); }
   .warehouse-tier-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
-  .warehouse-tier-cap { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-secondary); }
+  .warehouse-tier-cap { font-family: var(--font-mono); font-size: var(--text-3xs); color: var(--color-text-secondary); }
 
   /* the fill-tile grid. MOBILE (default) stays 4-across, the size confirmed
      perfect on-device, so mobile is deliberately left untouched. DESKTOP was
@@ -18483,15 +18802,15 @@
     background: linear-gradient(var(--wh-fillc, var(--color-accent)), color-mix(in srgb, var(--wh-fillc, var(--color-accent)) 35%, transparent));
     opacity: 0.28; z-index: 0; transition: height 0.3s;
   }
-  .warehouse-glyph { position: relative; z-index: 1; font-size: 15px; line-height: 1; }
+  .warehouse-glyph { position: relative; z-index: 1; font-size: var(--text-lg); line-height: 1; }
   .warehouse-glyph-unknown { color: var(--color-text-dim); }
   .warehouse-ct {
     position: relative; z-index: 1; font-family: var(--font-mono);
-    font-size: 9px; font-weight: 700; margin-top: 3px; color: var(--color-text-primary);
+    font-size: var(--text-3xs); font-weight: 700; margin-top: 3px; color: var(--color-text-primary);
   }
   .warehouse-pct {
     position: absolute; top: 3px; right: 4px; z-index: 1;
-    font-family: var(--font-mono); font-size: 8px; color: var(--color-text-secondary);
+    font-family: var(--font-mono); font-size: calc(8px * var(--ui-scale)); color: var(--color-text-secondary);
   }
 
   /* at-cap: the danger pulse, the visible auto-stop "expand storage" signal */
@@ -18508,15 +18827,15 @@
   }
 
   .warehouse-locked-note {
-    text-align: center; padding: 12px; font-size: 11px;
+    text-align: center; padding: 12px; font-size: var(--text-xs);
     color: var(--color-text-secondary); font-style: italic; margin: 8px 0 0;
   }
   .warehouse-locked-note b { color: var(--color-accent); font-style: normal; }
 
   /* future-content stub (empty categories + troop/consumable tabs) */
   .warehouse-stub { padding: 30px 16px; text-align: center; color: var(--color-text-secondary); }
-  .warehouse-stub-glyph { font-size: 28px; opacity: 0.55; }
-  .warehouse-stub p { font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+  .warehouse-stub-glyph { font-size: var(--text-3xl); opacity: 0.55; }
+  .warehouse-stub p { font-size: var(--text-sm); line-height: 1.55; margin: 10px 0 0; }
 
   /* ── Ship Systems bay (Equipment 0.11.0 Phase D) ─────────────────────────
      The capacity header mirrors the mockup's caphdr: label + big value on the
@@ -18534,14 +18853,14 @@
   }
   .systems-bay-cap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .systems-bay-cap-label {
-    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase;
     color: var(--color-text-secondary);
   }
-  .systems-bay-cap-val { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
-  .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: 12px; }
+  .systems-bay-cap-val { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); }
+  .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: var(--text-sm); }
   .systems-bay-upgrade { flex: 0 0 auto; }
   .systems-bay-upgrade-note {
-    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
   }
 
@@ -18557,7 +18876,7 @@
   }
   .docks-expand-btn { flex: 0 0 auto; }
   .docks-expand-note {
-    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
   }
 
@@ -18595,9 +18914,9 @@
   .systems-tile.baseline .systems-tile-dot { display: none; }
   /* The per-variety GLYPH (prominent) + the item level (small). Quality no longer
      sits on the tile face, it lives in the tooltip (matches the Phase D mockup). */
-  .systems-tile-ic { font-size: 24px; line-height: 1; }
+  .systems-tile-ic { font-size: calc(24px * var(--ui-scale)); line-height: 1; }
   .systems-tile-il {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.03em;
     color: var(--color-text-secondary);
   }
 
@@ -18617,7 +18936,7 @@
      opposite the rarity dot, so the two markers never collide. */
   .sb-tile-tag {
     position: absolute; left: 3px; bottom: 3px;
-    font-size: 8px; font-weight: 700; letter-spacing: 0.06em;
+    font-size: calc(8px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.06em;
     padding: 1px 3px;
     color: var(--color-accent);
     background: color-mix(in srgb, var(--color-accent) 18%, transparent);
@@ -18633,7 +18952,7 @@
      reads identically in every theme. pointer-events none: the tile itself is the button. */
   .sb-tile-fav {
     position: absolute; left: 4px; top: 3px;
-    font-size: 11px; line-height: 1;
+    font-size: var(--text-xs); line-height: 1;
     color: var(--color-warning);
     pointer-events: none;
   }
@@ -18658,7 +18977,7 @@
     background: rgba(248, 113, 113, 0.1);
     color: var(--color-danger);
   }
-  .systems-salvage-none { font-size: 11px; color: var(--color-text-dim); font-style: italic; }
+  .systems-salvage-none { font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic; }
 
   /* Salvaged Materials selected-item action row (0.11.0 Task C2 UI): the item name +
      hint on the left, the Salvage button (danger, a recycle is destructive) on the
@@ -18667,9 +18986,9 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
   .salvaged-action-info { min-width: 0; }
-  .salvaged-action-name { font-size: 14px; font-weight: 700; }
+  .salvaged-action-name { font-size: calc(14px * var(--ui-scale)); font-weight: 700; }
   .salvaged-action-hint {
-    font-size: 11px; color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px;
+    font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px;
   }
 
   /* tile tooltip, position:fixed so it escapes the scroll container's
@@ -18684,11 +19003,11 @@
     display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
     margin-bottom: 10px; /* match .research-cost's vertical rhythm */
   }
-  .drops-label { font-size: 12px; color: var(--color-text-secondary); }
+  .drops-label { font-size: var(--text-sm); color: var(--color-text-secondary); }
   .drop-icon {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; margin: 0;
-    font-size: 14px; line-height: 1;
+    font-size: calc(14px * var(--ui-scale)); line-height: 1;
     border-radius: 6px;
     border: 1.5px solid var(--drop-rc);
     background: var(--color-bg-mid);
@@ -18710,9 +19029,9 @@
     box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
     pointer-events: none;
   }
-  .warehouse-tt-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
-  .warehouse-tt-rarity { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
-  .warehouse-tt-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 8px; color: var(--color-text-secondary); }
+  .warehouse-tt-name { font-size: var(--text-md); font-weight: 700; color: var(--color-text-primary); }
+  .warehouse-tt-rarity { font-size: var(--text-3xs); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
+  .warehouse-tt-row { display: flex; justify-content: space-between; font-size: var(--text-xs); margin-top: 8px; color: var(--color-text-secondary); }
 
   /* Home > Statistics label/value row (0.11.2 Shell Correction, Task 2). A minimal
      two-column readout: dim label on the left, primary-color value on the right.
@@ -18727,7 +19046,7 @@
     align-items: baseline;
     gap: 16px;
     padding: 7px 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     border-bottom: 1px solid var(--color-border);
   }
   .stat-row:last-child { border-bottom: none; }
@@ -18739,9 +19058,9 @@
     background: rgba(var(--color-accent-rgb), 0.08); border: 1px solid var(--color-border);
   }
   .warehouse-tt-bar span { display: block; height: 100%; }
-  .warehouse-tt-stat { font-size: 11px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; }
-  .warehouse-tt-hint { font-size: 11px; color: var(--color-warning); margin-top: 8px; line-height: 1.5; font-style: italic; }
-  .warehouse-tt-warn { font-size: 11px; color: var(--color-danger); font-weight: 700; margin-top: 8px; }
+  .warehouse-tt-stat { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; }
+  .warehouse-tt-hint { font-size: var(--text-xs); color: var(--color-warning); margin-top: 8px; line-height: 1.5; font-style: italic; }
+  .warehouse-tt-warn { font-size: var(--text-xs); color: var(--color-danger); font-weight: 700; margin-top: 8px; }
 
   @media (prefers-reduced-motion: reduce) {
     .warehouse-tile.full { animation: none; }
@@ -18761,7 +19080,7 @@
   /* Sub-line under COMMAND HOME: the at-a-glance counts. */
   .home-dash-sub {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
     margin: 0 0 14px;
     font-variant-numeric: tabular-nums;
@@ -18773,13 +19092,13 @@
   .home-sec-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
   .home-sec-h {
     font-family: var(--font-display);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.09em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
   }
   .home-sec-count {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-dim);
     font-variant-numeric: tabular-nums;
     background: var(--color-panel-bg-strong);
@@ -18799,7 +19118,7 @@
      no nowrap), so it never forces horizontal scroll at 320px. */
   .home-queued-note {
     margin: 0 0 2px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -18840,12 +19159,12 @@
     100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 0%, transparent); }
   }
   .home-prompt-txt { flex: 1; min-width: 0; }
-  .home-prompt-detail { display: block; font-size: 10.5px; color: var(--color-warning); letter-spacing: 0.02em; margin-top: 1px; }
+  .home-prompt-detail { display: block; font-size: calc(10.5px * var(--ui-scale)); color: var(--color-warning); letter-spacing: 0.02em; margin-top: 1px; }
   /* The "Go" affordance (a styled span inside the button, NOT a nested button). */
   .home-go {
     flex: none;
     font-family: var(--font-display);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--color-bg-deep);
@@ -18874,6 +19193,11 @@
     border-radius: 8px;
     overflow: hidden;
   }
+  /* ⚠️ The ticker item now WRAPS the shared prompt button rather than duplicating its markup
+     (0.13.5). The wrapper keeps the fade; the button inside it drops its own surface, because
+     .home-ticker already paints the amber panel and a nested second one would read as a box in a
+     box. Everything else about the button (pulse, icon, text, Go arrow, hit target) is inherited
+     unchanged, which is the point of sharing it. */
   .home-ticker-item {
     display: flex;
     align-items: center;
@@ -18884,6 +19208,12 @@
        giving a soft crossfade-in without importing a Svelte transition. Killed under
        prefers-reduced-motion below. */
     animation: home-ticker-in 0.4s ease-out;
+  }
+  .home-ticker-item .home-prompt {
+    background: none;
+    border: none;
+    padding: 0;
+    width: 100%;
   }
   @keyframes home-ticker-in {
     from { opacity: 0; transform: translateY(4px); }
@@ -18907,7 +19237,7 @@
     flex: none;
     margin-left: auto;
     font-family: var(--font-display);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--color-warning);
@@ -18933,9 +19263,9 @@
     border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
     border-radius: 8px;
   }
-  .home-caughtup-check { font-size: 18px; color: var(--color-success); flex: none; }
-  .home-caughtup-title { font-family: var(--font-display); font-size: 12.5px; color: var(--color-success); }
-  .home-caughtup-sub { font-size: 10.5px; color: var(--color-text-secondary); margin-top: 2px; }
+  .home-caughtup-check { font-size: var(--text-xl); color: var(--color-success); flex: none; }
+  .home-caughtup-title { font-family: var(--font-display); font-size: calc(12.5px * var(--ui-scale)); color: var(--color-success); }
+  .home-caughtup-sub { font-size: calc(10.5px * var(--ui-scale)); color: var(--color-text-secondary); margin-top: 2px; }
 
   /* --- IN PROGRESS: compact rows in a two-column grid (mockup) --- */
   /* Two equal columns on desktop, collapsing to a single column on mobile (the
@@ -18979,13 +19309,13 @@
   .home-row-static:hover { border-color: var(--color-border); background: var(--color-panel-bg-strong); }
 
   /* Row icon (shared with prompts). */
-  .home-ico { font-size: 15px; flex: none; width: 18px; text-align: center; }
+  .home-ico { font-size: var(--text-lg); flex: none; width: 18px; text-align: center; }
 
   .home-row-body { flex: 1; min-width: 0; }
   /* Primary label ellipsizes rather than widening the cell (no horizontal scroll). */
   .home-l1 {
     display: block;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     color: var(--color-text-primary);
     font-weight: 500;
     white-space: nowrap;
@@ -19006,21 +19336,21 @@
      ROW gap is deliberately tighter than the COLUMN gap (2px vs 7px): when this wraps, the two
      lines belong to one row and should read as a block, not as two separate entries. */
   .home-l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; margin-top: 4px; }
-  .home-phase { font-size: 10px; color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
+  .home-phase { font-size: var(--text-2xs); color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
   /* The combat defeat phase reads danger-red (matches the source combat card). */
   .home-phase-danger { color: var(--color-danger); }
-  .home-meta { font-size: 10px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .home-meta { font-size: var(--text-2xs); color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* ETA pinned right, monospaced tabular for a stable clock. */
   .home-eta {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-family: var(--font-mono);
     color: var(--color-text-secondary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex: none;
   }
-  .home-chev { flex: none; color: var(--color-text-dim); font-size: 15px; }
+  .home-chev { flex: none; color: var(--color-text-dim); font-size: var(--text-lg); }
 
   /* --- RECENTLY COMPLETED (0.13.3 Unit 4.4b) ---------------------------------
      Reuses .home-row / .home-ico / .home-l1 / .home-l2 wholesale; only the
@@ -19056,14 +19386,14 @@
     border: 1px solid color-mix(in srgb, var(--done-rc) 30%, transparent);
   }
   .home-done-amt {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--color-text-secondary);
     flex: none;
   }
   .home-done-name {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--done-rc);
     min-width: 0;
     overflow: hidden;
@@ -19080,7 +19410,15 @@
     overflow: hidden;
     margin-top: 6px;
   }
-  .home-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--color-accent); }
+  /* The Home board's in-progress fills. These had NO transition at all, so they jumped once per
+     tick and sat still between. Same treatment as the shared fill above. */
+  .home-bar > i {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--color-accent);
+    transition: width var(--bar-step-seconds, 0.2s) linear;
+  }
   /* Dual hull / shield bars for a combat patrol. */
   .home-duo { display: flex; gap: 5px; margin-top: 6px; }
   .home-b { flex: 1; height: 3px; border-radius: 3px; background: var(--color-bg-deep); overflow: hidden; }
@@ -19100,10 +19438,10 @@
     border-radius: 7px;
     opacity: 0.6;
   }
-  .home-lock-ico { font-size: 12px; }
-  .home-lock-l { font-size: 10.5px; color: var(--color-text-dim); }
+  .home-lock-ico { font-size: var(--text-sm); }
+  .home-lock-l { font-size: calc(10.5px * var(--ui-scale)); color: var(--color-text-dim); }
   .home-lock-note {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     color: var(--color-text-dim);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -19154,7 +19492,7 @@
     border-radius: 50%;
     border: 1px solid var(--color-border-strong);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
     color: var(--color-text-secondary);
   }
@@ -19166,7 +19504,7 @@
 
   /* "Starts next" preview chip. */
   .cq-tag {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--color-accent);
@@ -19181,7 +19519,7 @@
   .cq-state {
     display: block;
     margin-top: 3px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.35;
     color: var(--color-text-secondary);
   }
@@ -19222,7 +19560,7 @@
      "Add to queue" reason). Same voice as the row state note, one step louder. */
   .cq-note {
     margin: 8px 0 0;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -19282,7 +19620,7 @@
   .cl-state {
     display: block;
     margin-top: 3px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.35;
     color: var(--color-text-secondary);
   }
@@ -19293,7 +19631,7 @@
      surface. */
   .cl-note {
     margin: 8px 0 0;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -19342,7 +19680,7 @@
   /* Detail lines WRAP (no ellipsis, no fixed width), so a long item label reflows at 320px
      instead of forcing the horizontal scroll the responsive rule forbids. */
   .cfg-line {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-primary);
   }

@@ -322,7 +322,7 @@
   /* The per-variety glyph, sat just before the name (identity cue mirroring the tile). */
   .et-icon {
     flex: 0 0 auto;
-    font-size: 20px;
+    font-size: calc(20px * var(--ui-scale));
     line-height: 1;
   }
   /* Name FLEXES to fill the row (flex: 1) so it reads on one line before the badge, and
@@ -332,7 +332,7 @@
     flex: 1 1 auto;
     min-width: 0;
     font-weight: 700;
-    font-size: 15px;
+    font-size: var(--text-lg);
     color: var(--et-accent);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -340,7 +340,7 @@
   }
   .et-q {
     flex: 0 0 auto;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
     background: rgba(var(--color-accent-rgb), 0.08);
     border: 1px solid var(--color-border);
@@ -355,7 +355,7 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 5px;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     color: var(--color-text-secondary);
   }
   .et-grade {
@@ -370,7 +370,7 @@
   .et-flavor {
     padding: 9px 13px;
     font-style: italic;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
     border-bottom: 1px solid var(--color-border);
     background: rgba(var(--color-accent-rgb), 0.02);
@@ -383,7 +383,7 @@
     align-items: center;
     gap: 10px;
     padding: 9px 13px;
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--color-text-primary);
     background: color-mix(in srgb, var(--et-accent) 8%, transparent);
   }
@@ -396,7 +396,7 @@
   .et-imp-cap {
     flex: 0 0 auto;
     color: var(--color-text-dim);
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
   }
 
   /* PRIMARIES */
@@ -404,7 +404,7 @@
     padding: 9px 13px;
   }
   .et-lblrow {
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -412,7 +412,7 @@
   }
   .et-prim {
     color: var(--color-success);
-    font-size: 13px;
+    font-size: var(--text-md);
     padding: 1px 0;
   }
 

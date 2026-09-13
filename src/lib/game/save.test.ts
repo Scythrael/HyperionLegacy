@@ -55,7 +55,7 @@ import { autoSalvageGraceRemainingSeconds } from "./salvage";
 // be edited again the next time a rule is added.
 const AUTO_SALVAGE_RULES_DEFAULT = {
   enabled: false,
-  maxQuality: null,
+  qualities: [],
   duplicates: false,
   keepPerVariety: 1,
   rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
@@ -4816,7 +4816,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
         { id: "q-3", facility: "salvageBay", order: { type: "salvage", target: { kind: "equipment", instanceId: "equip-9" } } },
       ],
       nextQueueId: 4,
-      autoSalvage: { enabled: true, maxQuality: 2, duplicates: true, keepPerVariety: 1, rarities: { ...AUTO_SALVAGE_RARITIES_NONE, radiant: true }, graceSeconds: 30 * 60 },
+      autoSalvage: { enabled: true, qualities: [0, 1, 2], duplicates: true, keepPerVariety: 1, rarities: { ...AUTO_SALVAGE_RARITIES_NONE, radiant: true }, graceSeconds: 30 * 60 },
       salvageConfirmQualities: [4, 5],
     };
     const reloaded: any = migrate(deserialize(serialize(withQueue, 0)) as SaveFile);
@@ -4834,7 +4834,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
       ...migrated,
       processQueue: [{ id: "q-7", facility: "refinery", order: { type: "craftLine", kind: "refine", recipeKey: "refineCommonOre", mode: { kind: "continuous" } } }],
       nextQueueId: 8,
-      autoSalvage: { enabled: true, maxQuality: 1, duplicates: false, keepPerVariety: 1, rarities: { ...AUTO_SALVAGE_RARITIES_NONE, derelict: true }, graceSeconds: 7 * 24 * 60 * 60 },
+      autoSalvage: { enabled: true, qualities: [0, 1], duplicates: false, keepPerVariety: 1, rarities: { ...AUTO_SALVAGE_RARITIES_NONE, derelict: true }, graceSeconds: 7 * 24 * 60 * 60 },
       salvageConfirmQualities: [5],
     };
     const stamped = deserialize(serialize(customized, 0)) as SaveFile;
@@ -5063,6 +5063,8 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
       gameTimeSeconds: 4321,
       equipment: [...base.equipment, spare],
       nextEquipmentId: 100,
+      // A v42 save carries the OLD threshold field. It must stay that way: this fixture's whole job
+      // is to be a genuine pre-migration shape, so modernising it here would test nothing.
       autoSalvage: { enabled: true, maxQuality: 2, duplicates: true, keepPerVariety: 1 },
       salvageConfirmQualities: [4, 5],
       processQueue: [
@@ -5085,12 +5087,32 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
 
   it("seeds the two new rule fields at their documented defaults", () => {
     const migrated: any = migrate(makeV42Save());
-    // The rarity rule arrives OFF: no band selected, so the new rule cannot start taking
-    // anything on its own.
-    expect(migrated.autoSalvage.rarities).toEqual(AUTO_SALVAGE_RARITIES_NONE);
-    expect(autoSalvageRarityRuleOn(migrated.autoSalvage.rarities)).toBe(false);
-    // The grace arrives at the 60-minute first pass.
+    // The grace arrives at the 60-minute first pass and is not touched by any later step.
     expect(migrated.autoSalvage.graceSeconds).toBe(AUTO_SALVAGE_GRACE_SECONDS_DEFAULT);
+  });
+
+  it("the v43 step seeds rarity OFF, and the LATER v46 step fills it in to preserve behaviour", () => {
+    // ⚠️ THIS CASE SPLIT IN 0.13.5 AND THE REASON IS WORTH KEEPING, because the obvious reading of
+    // the failure was "the rarity default changed" and it did not.
+    //
+    // migrate() runs EVERY step to current, so what this fixture observes is the end state, not
+    // the v43 step in isolation. v43 does still seed rarity OFF. v46 then converts the quality
+    // THRESHOLD into a SET and, because the rules changed from unioning to narrowing, fills in the
+    // axis the player left empty so their effective rule is unchanged. This save has an active
+    // quality rule (maxQuality 2), so an empty rarity axis would be wrong to leave: the panel
+    // should show them "Q0-Q2, all rarities", which is exactly what they had.
+    const migrated: any = migrate(makeV42Save());
+    expect(autoSalvageRarityRuleOn(migrated.autoSalvage.rarities)).toBe(true);
+
+    // And the seeding default itself is unchanged: a save with NO rule at all still arrives with
+    // rarity off, because v46 deliberately does not fill the axes for a player who had no rule.
+    // Filling them there would arm a loaded gun for the moment they switch the automation on.
+    const noRule = makeV42Save();
+    (noRule.state as any).autoSalvage = { enabled: false, maxQuality: null, duplicates: false, keepPerVariety: 1 };
+    const migratedNoRule: any = migrate(noRule);
+    expect(migratedNoRule.autoSalvage.rarities).toEqual(AUTO_SALVAGE_RARITIES_NONE);
+    expect(autoSalvageRarityRuleOn(migratedNoRule.autoSalvage.rarities)).toBe(false);
+    expect(migratedNoRule.autoSalvage.qualities).toEqual([]);
   });
 
   it("⚠️ PRESERVES the player's existing rules, confirm tiers, queue and pool untouched", () => {
@@ -5099,9 +5121,21 @@ describe("migrate, auto-salvage rarity + grace seed (v42 -> v43)", () => {
     // The three shipped rule fields ride through verbatim: an enabled automation stays enabled
     // and keeps its own quality rule, which is what stops the upgrade from changing behavior.
     expect(migrated.autoSalvage.enabled).toBe(true);
-    expect(migrated.autoSalvage.maxQuality).toBe(2);
+    // 0.13.5: the threshold became a SET, and "Q2 and below" is exactly tiers 0, 1 and 2. The old
+    // field is gone rather than carried alongside, so a stale reader cannot resurrect it.
+    expect(migrated.autoSalvage.qualities).toEqual([0, 1, 2]);
+    expect(migrated.autoSalvage.maxQuality).toBeUndefined();
     expect(migrated.autoSalvage.duplicates).toBe(true);
     expect(migrated.autoSalvage.keepPerVariety).toBe(1);
+    // THE PART THAT PRESERVES BEHAVIOUR RATHER THAN JUST FIELDS. This player used the quality axis
+    // only, so under the new filter model the rarity axis must be filled in as ALL bands: an empty
+    // rarity axis would not narrow, which is the same answer, but an explicitly-full one is what
+    // the panel can show them honestly. Either way the effective rule is unchanged: everything at
+    // Q0-Q2, whatever its rarity, exactly as before.
+    expect(autoSalvageRarityRuleOn(migrated.autoSalvage.rarities)).toBe(true);
+    for (const band of Object.keys(AUTO_SALVAGE_RARITIES_NONE)) {
+      expect(migrated.autoSalvage.rarities[band], `${band} should be ticked`).toBe(true);
+    }
     // The confirm interlock is untouched, which matters most: it is the guard that decides what
     // the automation may take at all.
     expect(migrated.salvageConfirmQualities).toEqual([4, 5]);
