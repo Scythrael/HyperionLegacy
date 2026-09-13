@@ -252,6 +252,9 @@ export interface CompletionRow {
   //                  "Refined" with no item and no quantity at all.
   creditsAmount: string | null;
   fuelAmount: string | null;
+  // 0.13.5: the NAMED place this happened, for the expanded row ("Entry Source: Fuel Depot").
+  // Always present, because every completion kind happens somewhere; see COMPLETION_KIND_VIEW.
+  source: string;
   jumpTarget: JumpTarget | null; // where a tap routes; null = a plain, non-navigable row
 }
 
@@ -1038,27 +1041,40 @@ export const HOME_RECENT_COMPLETIONS_LIMIT = 8;
 // patrol run is not a timed process but IS a renderable log entry. This is the one
 // process-keyed table that widens; see CompletionLogKind's note in model.ts for why
 // PROCESS_XP_AWARDS and PROCESS_COMPLETION_LOG deliberately do not.
-const COMPLETION_KIND_VIEW: Record<CompletionLogKind, { verb: string; icon: string; jumpTarget: JumpTarget | null }> = {
-  refineJob:               { verb: "Refined",     icon: "refine",     jumpTarget: "refinery" },
-  fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  jumpTarget: "fabricator" },
-  researchProject:         { verb: "Researched",  icon: "research",   jumpTarget: "research" },
-  shipBuild:               { verb: "Built",       icon: "shipBuild",  jumpTarget: "shipyard" },
-  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       jumpTarget: "fuelDepot" },
-  facilityUpgrade:         { verb: "Upgraded",    icon: "facility",   jumpTarget: "facilities" },
+// ⚠️ `source` ADDED 0.13.5: the NAMED PLACE the work happened ("Fuel Depot", "Salvage Bay").
+//
+// The board could already say WHAT finished and route you to it, but it could only IMPLY where it
+// happened, through a glyph. A player reading "Refined, Deuterium Fuel" beside a small icon has to
+// know the icon to know which facility to thank, and the expanded row the user designed asks for
+// the answer in words ("Entry Source: Fuel Depot").
+//
+// ⚠️ EVERY NAME HERE IS THE GAME'S OWN LABEL, not a new one. They are copied from FACILITY_LABELS
+// in App.svelte, so a facility renamed there and not here is a visible inconsistency rather than a
+// silent one, and nothing in this table invents a place the player has never seen.
+const COMPLETION_KIND_VIEW: Record<
+  CompletionLogKind,
+  { verb: string; icon: string; source: string; jumpTarget: JumpTarget | null }
+> = {
+  refineJob:               { verb: "Refined",     icon: "refine",     source: "Refinery",       jumpTarget: "refinery" },
+  fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  source: "Fabricator",     jumpTarget: "fabricator" },
+  researchProject:         { verb: "Researched",  icon: "research",   source: "Research Lab",   jumpTarget: "research" },
+  shipBuild:               { verb: "Built",       icon: "shipBuild",  source: "Shipyard",       jumpTarget: "shipyard" },
+  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       source: "Fuel Depot",     jumpTarget: "fuelDepot" },
+  facilityUpgrade:         { verb: "Upgraded",    icon: "facility",   source: "Facilities",     jumpTarget: "facilities" },
   // No Section-8 destination for either storage track (Stores is not a jump target), so
   // these render as plain, non-navigable rows rather than routing somewhere invented.
-  equipmentStorageUpgrade: { verb: "Expanded",    icon: "storage",    jumpTarget: null },
-  docksExpansion:          { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
+  equipmentStorageUpgrade: { verb: "Expanded",    icon: "storage",    source: "Warehouse",      jumpTarget: null },
+  docksExpansion:          { verb: "Expanded",    icon: "docks",      source: "Docks",          jumpTarget: "shipyard" },
   // 0.13.4 Phase 3: the same verb and icon as its docks sibling, because to a player both read
   // as "we have more room to dock now" and inventing a second vocabulary for the same idea
   // would be noise. The two are told apart by their SUBJECT ("Transit Berths" vs "docks"),
   // which is the field that actually differs.
-  transitBerthExpansion:   { verb: "Expanded",    icon: "docks",      jumpTarget: "shipyard" },
-  shipRepair:              { verb: "Repaired",    icon: "repair",     jumpTarget: "shipyard" },
+  transitBerthExpansion:   { verb: "Expanded",    icon: "docks",      source: "Docks",          jumpTarget: "shipyard" },
+  shipRepair:              { verb: "Repaired",    icon: "repair",     source: "Shipyard",       jumpTarget: "shipyard" },
   // 0.13.3 Unit 4.6: routes to the Salvage Bay console now that JumpTarget has a literal for
   // it. It shipped as `null` in Unit 4.4b only because the union had no Salvage Bay
   // destination at the time, not because a completed salvage has nowhere to send the player.
-  salvageJob:              { verb: "Salvaged",    icon: "salvage",    jumpTarget: "salvageBay" },
+  salvageJob:              { verb: "Salvaged",    icon: "salvage",    source: "Salvage Bay",    jumpTarget: "salvageBay" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavoured, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from
@@ -1067,7 +1083,9 @@ const COMPLETION_KIND_VIEW: Record<CompletionLogKind, { verb: string; icon: stri
   // Jumps to "combat", the union's existing literal for Battlespace, which is where a patrol is
   // dispatched and recalled, so the row sends the player to the screen that can act on it. No
   // new JumpTarget member was needed.
-  patrolRun:               { verb: "Patrolled",   icon: "patrol",     jumpTarget: "combat" },
+  // ⚠️ A patrol does not happen AT a facility, so its source names the console that dispatches
+  // and recalls it rather than inventing a location. Same principle as the jumpTarget beside it.
+  patrolRun:               { verb: "Patrolled",   icon: "patrol",     source: "Battlespace",    jumpTarget: "combat" },
 };
 
 // 0.13.4 Phase 2 Unit 2.2 (design §6.2): the EXHAUSTIVE wording table for patrol endings.
@@ -1244,6 +1262,7 @@ function rowForCompletion(entry: CompletionLogEntry, state: GameState): Completi
     id: entry.id,
     icon: view.icon,
     primaryLabel,
+    source: view.source,
     secondaryLabel: completionDetail(entry),
     atMs: entry.atMs,
     // Only honest when BOTH stamps are real; a record written without an injected clock

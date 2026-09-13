@@ -3396,6 +3396,42 @@
   // `nowMs` is a PARAMETER rather than an ambient Date.now() so the caller can pass the
   // reactive tick clock (cycle.nowTick), which is what makes the age re-render as it ages
   // instead of freezing at whatever it read on first paint.
+  // JUST the wall-clock time, in the PLAYER'S OWN timezone (0.13.5, from the approved mockup).
+  //
+  // The compact row leads with this rather than with the age. ⚠️ That is a real trade and it was
+  // made deliberately: the AGE ("7h ago") is what answers "what did I miss while I was away", which
+  // is this section's original job, and only one of the two fits on a single line. The age is not
+  // lost, it moves into the expanded row's "When" line, where it reads "7h ago (14:05)" exactly as
+  // before. So the question is demoted, never dropped.
+  //
+  // toLocaleTimeString with no locale argument uses the DEVICE's locale and timezone, which is what
+  // makes "10:09 PM" mean the player's 10:09 rather than some server's.
+  function completionClockText(atMs: number): string {
+    if (atMs <= 0) return "--:--";
+    return new Date(atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // Which completed rows are expanded. A SET of ids, not a single id, because the user asked for
+  // INDEPENDENT expansion ("open as many as you like") rather than an accordion. Reassigned rather
+  // than mutated so Svelte's reactivity sees the change, the same idiom shipFavorites uses.
+  let expandedDoneRows: Set<string> = new Set();
+  function toggleDoneRow(id: string): void {
+    const next = new Set(expandedDoneRows);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    expandedDoneRows = next;
+  }
+
+  // ⚠️ THE HISTORY CAP IS A VIEW CONCERN, NOT A MODEL ONE. buildRecentlyCompleted already returns
+  // the newest rows; this decides how many of them are SHOWN. Off by default keeps the board's
+  // current height, and the toggle reveals the rest, which is the shape the user asked for: "a
+  // toggle to allow overflow on that pane... Off by default, and keeps the current limit."
+  const DONE_ROWS_COLLAPSED = 5;
+  let showAllDoneRows = false;
+  $: visibleDoneRows = showAllDoneRows
+    ? dashboardModel.recentlyCompleted
+    : dashboardModel.recentlyCompleted.slice(0, DONE_ROWS_COLLAPSED);
+
   function completionAtText(atMs: number, nowMs: number): string {
     if (atMs <= 0) return "time not recorded";
     const clock = new Date(atMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -15062,63 +15098,62 @@
              reason homeRowBody above is one: the navigable (<button>) and the plain-record
              (<div>) variants must render an identical body. Deliberately carries NO progress
              bar, because a finished order has no progress left to show. -->
+        <!-- COMPACT completed row (0.13.5, from the approved mockup). One line:
+                 [icon]  10:09 PM  ·  Refined: Deuterium Fuel x 100
+             The DURATION moved into the expanded view. Dropping it is what buys the alignment: the
+             time sits in a FIXED-WIDTH column so the separator and the summary start at the same x
+             on every row, which the user asked for and which is most of why a stack reads as tidy. -->
         {#snippet doneRowBody(done: CompletionRow)}
           <span class="home-ico" aria-hidden="true">{homeIconGlyph(done.icon)}</span>
-          <span class="home-row-body">
-            <span class="home-l1">{done.primaryLabel}</span>
-            <span class="home-l2">
-              <!-- The run detail: "40 runs" for a folded batch, "Level 3" for an upgrade,
-                   "Nothing was consumed" for the salvage fail-safe no-op. -->
-              {#if done.secondaryLabel !== null}
-                <span class="home-phase">{done.secondaryLabel}</span>
+          <span class="done-line">
+            <span class="done-time">{completionClockText(done.atMs)}</span>
+            <span class="done-sep" aria-hidden="true">·</span>
+            <span class="done-text">
+              {done.primaryLabel}{#if done.secondaryLabel !== null}<span class="done-detail-inline"> &middot; {done.secondaryLabel}</span>{/if}
+            </span>
+          </span>
+        {/snippet}
+
+        <!-- EXPANDED completed row: the labelled readout the user specified, verbatim in shape.
+             ⚠️ Every field here already existed on CompletionRow EXCEPT `source`, which 0.13.5
+             added; the board previously made the player infer the facility from a glyph. -->
+        {#snippet doneRowDetail(done: CompletionRow)}
+          <dl class="done-dl">
+            <dt>Entry source</dt>
+            <dd>{done.source}</dd>
+            <dt>Action</dt>
+            <dd>{done.primaryLabel}{#if done.secondaryLabel !== null} &middot; {done.secondaryLabel}{/if}</dd>
+            {#if completionElapsedText(done.elapsedMs) !== null}
+              <dt>Time elapsed</dt>
+              <dd>{completionElapsedText(done.elapsedMs)}</dd>
+            {/if}
+            <dt>When</dt>
+            <!-- The AGE survives here, so "what did I miss while I was away" is still answerable
+                 even though the compact line now leads with the clock. -->
+            <dd>{completionAtText(done.atMs, cycle.nowTick)}</dd>
+          </dl>
+          {#if done.rewards.length > 0 || done.creditsAmount !== null || done.fuelAmount !== null}
+            <span class="home-done-rewards">
+              {#each done.rewards as reward (reward.itemId)}
+                <span class="home-done-reward" style="--done-rc: {warehouseRarityColor(reward.rarity)};">
+                  <span class="home-done-amt">{formatNumber(new Decimal(reward.amount))}</span>
+                  <span class="home-done-name">{reward.label}</span>
+                </span>
+              {/each}
+              {#if done.creditsAmount !== null}
+                <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
+                  <span class="home-done-amt">{formatNumber(new Decimal(done.creditsAmount))}</span>
+                  <span class="home-done-name">credits</span>
+                </span>
               {/if}
-              <!-- "7h ago (14:05)". The AGE leads because this section's whole job is
-                   answering "what did I miss while I was away" (QA finding D4); cycle.nowTick
-                   is the app's own reactive tick clock, so the age keeps counting up on the
-                   board instead of freezing at the value it read on first paint. -->
-              <span class="home-meta">{completionAtText(done.atMs, cycle.nowTick)}</span>
-              <!-- Elapsed time, through the SHARED durationReadout so it respects the
-                   player's tick-count preference like every other duration in the game. -->
-              {#if completionElapsedText(done.elapsedMs) !== null}
-                <span class="home-eta">{completionElapsedText(done.elapsedMs)}</span>
+              {#if done.fuelAmount !== null}
+                <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
+                  <span class="home-done-amt">{formatNumber(new Decimal(done.fuelAmount))}</span>
+                  <span class="home-done-name">fuel</span>
+                </span>
               {/if}
             </span>
-            {#if done.rewards.length > 0 || done.creditsAmount !== null || done.fuelAmount !== null}
-              <!-- The MANIFEST: what actually landed. Amount first (it answers "how much did
-                   I get"), then the item name in its own rarity color via the shared
-                   warehouseRarityColor, exactly as the Warehouse renders the same item.
-                   ⚠️ ZERO LINES ARE KEPT ON PURPOSE (QA finding D3): a partial recovery shows
-                   "0 Frame Segment, 1.00 Titanium Ingot" because the zero is information, not
-                   noise. A recovery that returned NOTHING AT ALL carries no manifest at all
-                   (the resolver classifies it "nothing"), so this block does not render for
-                   it and the row says so in words on the line above instead. -->
-              <span class="home-done-rewards">
-                {#each done.rewards as reward (reward.itemId)}
-                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor(reward.rarity)};">
-                    <span class="home-done-amt">{formatNumber(new Decimal(reward.amount))}</span>
-                    <span class="home-done-name">{reward.label}</span>
-                  </span>
-                {/each}
-                <!-- The two gains that are NOT inventory items and so have no item chip of
-                     their own (QA finding D5): a hull teardown's credit refund, and a fuel
-                     batch's deposit into the tank. Rendered in the same chip shape, with the
-                     neutral rarity color, so a fuel row finally reads "Refined, Fuel" with a
-                     quantity instead of a bare verb. -->
-                {#if done.creditsAmount !== null}
-                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
-                    <span class="home-done-amt">{formatNumber(new Decimal(done.creditsAmount))}</span>
-                    <span class="home-done-name">credits</span>
-                  </span>
-                {/if}
-                {#if done.fuelAmount !== null}
-                  <span class="home-done-reward" style="--done-rc: {warehouseRarityColor('common')};">
-                    <span class="home-done-amt">{formatNumber(new Decimal(done.fuelAmount))}</span>
-                    <span class="home-done-name">fuel</span>
-                  </span>
-                {/if}
-              </span>
-            {/if}
-          </span>
+          {/if}
         {/snippet}
 
         <!-- One actionable NEEDS-YOUR-ORDERS prompt as a full-width button (0.13.1, Unit 6).
@@ -15317,25 +15352,68 @@
                 <span class="home-sec-rule"></span>
               </div>
               <div class="home-prog">
-                {#each dashboardModel.recentlyCompleted as row (row.id)}
-                  {#if row.jumpTarget !== null}
-                    <button
-                      type="button"
-                      class="home-row home-row-done"
-                      on:click={() => jumpToActivityRow(row.jumpTarget)}
-                      aria-label={`View ${row.primaryLabel}`}
-                    >
-                      {@render doneRowBody(row)}
-                      <span class="home-chev" aria-hidden="true">›</span>
-                    </button>
-                  {:else}
-                    <!-- Non-navigable record row (no Section-8 destination): a plain div,
-                         no chevron, no hover, not focusable, same as IN PROGRESS. -->
-                    <div class="home-row home-row-static home-row-done">
-                      {@render doneRowBody(row)}
+                {#each visibleDoneRows as row (row.id)}
+                  <!-- ⚠️ THE CHEVRON EXPANDS, THE ROW STILL JUMPS, and they are SIBLING buttons
+                       rather than nested ones. These rows already navigated, so "tap to expand"
+                       collided with a gesture that was already assigned on exactly the rows a
+                       player most wants to tap. Losing the one-tap jump would have removed a
+                       feature that exists to save taps, so both survive: the row keeps its
+                       destination, the chevron owns expansion, and nothing is nested inside a
+                       button (which would be invalid and unreachable by keyboard). -->
+                  <div class="done-row" class:done-row-open={expandedDoneRows.has(row.id)}>
+                    <div class="done-head">
+                      {#if row.jumpTarget !== null}
+                        <button
+                          type="button"
+                          class="home-row home-row-done done-main"
+                          on:click={() => jumpToActivityRow(row.jumpTarget)}
+                          aria-label={`View ${row.primaryLabel}`}
+                        >
+                          {@render doneRowBody(row)}
+                        </button>
+                      {:else}
+                        <!-- Non-navigable record row (no Section-8 destination): a plain div,
+                             not focusable, same as IN PROGRESS. It still EXPANDS, because the
+                             detail is worth reading whether or not there is anywhere to go. -->
+                        <div class="home-row home-row-static home-row-done done-main">
+                          {@render doneRowBody(row)}
+                        </div>
+                      {/if}
+                      <button
+                        type="button"
+                        class="done-expand"
+                        aria-expanded={expandedDoneRows.has(row.id)}
+                        aria-label={`${expandedDoneRows.has(row.id) ? "Hide" : "Show"} details for ${row.primaryLabel}`}
+                        on:click={() => toggleDoneRow(row.id)}
+                      >
+                        <span class="done-chev" aria-hidden="true">⌄</span>
+                      </button>
                     </div>
-                  {/if}
+                    {#if expandedDoneRows.has(row.id)}
+                      <div class="done-detail">
+                        {@render doneRowDetail(row)}
+                      </div>
+                    {/if}
+                  </div>
                 {/each}
+                <!-- SHOW MORE HISTORY. Off by default, so the board keeps the height it has today;
+                     switching it on reveals the rest. ⚠️ Symmetric spacing: the divider and gap
+                     BELOW this control match the ones above it once expanded, which the user asked
+                     for specifically so the toggle sits between two matched gaps rather than
+                     hugging the rows beneath it. -->
+                {#if dashboardModel.recentlyCompleted.length > DONE_ROWS_COLLAPSED}
+                  <button
+                    type="button"
+                    class="done-more"
+                    class:done-more-open={showAllDoneRows}
+                    aria-expanded={showAllDoneRows}
+                    on:click={() => (showAllDoneRows = !showAllDoneRows)}
+                  >
+                    {showAllDoneRows
+                      ? "Show less history"
+                      : `Show more history (${dashboardModel.recentlyCompleted.length - DONE_ROWS_COLLAPSED} more)`}
+                  </button>
+                {/if}
               </div>
             </section>
           {/if}
@@ -18112,6 +18190,141 @@
      (.settings-section below), so each carries the shared .panel-title and its own border, and the
      separation is space rather than a line. The user kept the divider explicitly ("that must
      stay") and asked for a gap WITH it; .panel-title already draws the divider. */
+
+  /* ============================================================================
+     RECENTLY COMPLETED, compact rows (0.13.5, from the approved mockup)
+     ============================================================================ */
+  .done-row {
+    /* The 6px rhythm the settings sections were asked to match. This is the original. */
+    margin-bottom: 6px;
+  }
+  .done-head {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+  .done-main {
+    flex: 1;
+    min-width: 0;
+  }
+  /* The expansion control. Its own button beside the row, never inside it: nesting a button in a
+     button is invalid markup and leaves the inner one unreachable by keyboard. */
+  .done-expand {
+    flex: none;
+    width: 34px;
+    background: none;
+    border: none;
+    border-left: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    cursor: pointer;
+    padding: 0;
+    display: grid;
+    place-items: center;
+  }
+  .done-expand:hover {
+    color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.06);
+  }
+  .done-expand:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .done-chev {
+    display: block;
+    font-size: var(--text-md);
+    line-height: 1;
+    transition: transform 0.2s ease;
+  }
+  .done-row-open .done-chev {
+    transform: rotate(180deg);
+  }
+  /* ⚠️ THE TIME IS A FIXED-WIDTH COLUMN, which is the whole reason the rows read as tidy: the
+     separator and the summary start at the same x on EVERY row instead of ragging with the length
+     of the timestamp. tabular-nums stops the digits themselves shifting width. 68px fits "10:09 PM";
+     a 24-hour locale simply leaves a little more air. */
+  .done-line {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    font-size: var(--text-sm);
+  }
+  .done-time {
+    font-family: var(--font-mono);
+    color: var(--color-text-dim);
+    font-variant-numeric: tabular-nums;
+    width: 68px;
+    flex: none;
+    text-align: right;
+  }
+  .done-sep {
+    color: var(--color-text-dim);
+    flex: none;
+  }
+  .done-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .done-detail-inline {
+    color: var(--color-text-secondary);
+  }
+  .done-detail {
+    padding: var(--space-3) var(--space-4) var(--space-4) calc(68px + var(--space-6));
+    border-top: 1px solid var(--color-border);
+  }
+  /* The labelled readout. A real <dl>, because that is what a list of term/value pairs IS, and it
+     gives assistive tech the pairing for free. */
+  .done-dl {
+    display: grid;
+    grid-template-columns: minmax(90px, auto) 1fr;
+    gap: var(--space-1) var(--space-5);
+    margin: 0;
+    font-size: var(--text-sm);
+  }
+  .done-dl dt {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    padding-top: 2px;
+  }
+  .done-dl dd {
+    margin: 0;
+    color: var(--color-text-primary);
+  }
+  /* SHOW MORE HISTORY. ⚠️ Matched spacing above AND below once open, per the user: the toggle sits
+     between two equal gaps rather than hugging the rows it reveals. */
+  .done-more {
+    width: 100%;
+    margin-top: 10px;
+    padding: 6px 0 0;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .done-more-open {
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .done-more:hover {
+    color: var(--color-accent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .done-chev {
+      transition: none;
+    }
+  }
 
   /* THE GAP BETWEEN SETTINGS SECTIONS. 6px, chosen by the user against the Recently Completed row
      rhythm rather than picked: "similar to the spacing between each of the recently completed
