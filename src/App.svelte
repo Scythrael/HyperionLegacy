@@ -360,6 +360,7 @@
     applyAccessibility,
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
+  import Toggle from "./lib/Toggle.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
@@ -2483,13 +2484,22 @@
   // ⚠️ A one-item subtab is deliberate. Save Data spent this release's first pass folded into the
   // Visual tab purely because that tab existed around it, and the result was Export sitting under
   // the theme picker where nobody would look. A thin, correctly named home beats a fat wrong one.
-  type OptionsTab = "visual" | "gameplay" | "confirmations" | "accessibility" | "saveData";
-  let activeOptionsTab: OptionsTab = "visual";
+  // ⚠️ "UI" ABSORBS ACCESSIBILITY AS A SECTION (user, 2026-09-12). Two separate subtabs both
+  // plausibly owned "where do I change how this looks", which is the exact confusion the intent
+  // grouping exists to remove. The tab is already called Settings, so "UI Settings" would have
+  // repeated the word; "UI" covers theme, tick bar, readouts, combat log AND accessibility, because
+  // an accessibility control IS a UI setting.
+  //
+  // ⚠️ ACCESSIBILITY IS THE FIRST SECTION INSIDE IT, deliberately. Folding it in costs
+  // discoverability for the players who need it most: someone who needs a larger text size is the
+  // least able to hunt for it. Keeping it first, with a visible section header, is the mitigation.
+  // If it still reads as buried once it is on screen, promoting it back to its own subtab is cheap.
+  type OptionsTab = "ui" | "gameplay" | "confirmations" | "saveData";
+  let activeOptionsTab: OptionsTab = "ui";
   const OPTIONS_TABS: { key: OptionsTab; label: string }[] = [
-    { key: "visual", label: "Visual" },
+    { key: "ui", label: "UI" },
     { key: "gameplay", label: "Gameplay" },
     { key: "confirmations", label: "Confirmations" },
-    { key: "accessibility", label: "Accessibility" },
     { key: "saveData", label: "Save Data" },
   ];
 
@@ -15509,7 +15519,8 @@
         onSelect={(k) => (activeOptionsTab = k as OptionsTab)}
       />
 
-      {#if activeOptionsTab === "accessibility"}
+      {#if activeOptionsTab === "ui"}
+      <!-- ACCESSIBILITY: first section in the UI subtab, per the note on OPTIONS_TABS. -->
       <Panel>
         <div class="panel-title">ACCESSIBILITY</div>
         <p class="setting-group-note">
@@ -15592,6 +15603,122 @@
           disabled={true}
         >
           <input type="checkbox" checked={forceMobile} disabled />
+        </SettingRow>
+      </Panel>
+      <!-- ⚠️ ONE PANEL PER SECTION, from the approved mockup. The old shape was a single panel with
+           `.opt-section-title` rules inside it, so a divider was doing the job that white space
+           should be doing with it. The user was explicit: keep the uppercase title, keep the
+           divider ("that must stay"), and put a real gap between sections. The gap lives on
+           `.settings-section` below at 6px, matching the Recently Completed rhythm they asked it
+           to echo. -->
+      <Panel class="settings-section">
+        <div class="panel-title">UI THEME</div>
+        <SettingRow
+          label="Theme colour"
+          description="Changes the accent colour used across the whole interface. Panels and text re-hue with it."
+        >
+          <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
+          <select
+            class="setting-select"
+            value={currentTheme}
+            on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
+            aria-label="Theme colour"
+          >
+            {#each THEME_NAMES as name}
+              <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
+            {/each}
+          </select>
+        </SettingRow>
+      </Panel>
+
+      <Panel class="settings-section">
+        <div class="panel-title">TICK BAR</div>
+        <SettingRow
+          label="Show the tick bar"
+          description="The bar in the header that fills once per tick. When off, it is removed from the header entirely."
+        >
+          <Toggle
+            label="Show the tick bar"
+            checked={tickBarEnabled}
+            on:click={() => { tickBarEnabled = !tickBarEnabled; saveTickBarEnabled(tickBarEnabled); }}
+          />
+        </SettingRow>
+      </Panel>
+
+      <Panel class="settings-section">
+        <div class="panel-title">READOUTS</div>
+        <SettingRow
+          label="Show tick counts"
+          description="Shows the raw tick numbers next to the clock timers on job and upgrade readouts. When off, only the clock is shown."
+        >
+          <Toggle
+            label="Show tick counts"
+            checked={showTickCounts}
+            on:click={() => { showTickCounts = !showTickCounts; saveShowTickCounts(showTickCounts); }}
+          />
+        </SettingRow>
+      </Panel>
+
+      <!-- ⚠️ THE FOUR COMBAT-LOG CONTROLS WERE SEGMENTED BUTTON PAIRS AND ARE NOW TOGGLES AND
+           DROPDOWNS, per the user's rule: "dropdown boxes or toggles feel like the cleanest ways to
+           present options". The rule they refined it with is the interesting half, and it decides
+           which control each row gets:
+
+             a TOGGLE  is for a feature that can be OFF        (damage colours, auto-scroll)
+             a DROPDOWN is for a VALUE picked from a list,
+                        even when the list has two entries     (log style, log speed)
+
+           Log speed is Fast/Slow, which is two states, but "log speed, disabled" means nothing, so
+           it is a value and takes a dropdown. That distinction is why the rule is written down. -->
+      <Panel class="settings-section">
+        <div class="panel-title">COMBAT LOG</div>
+        <SettingRow
+          label="Log style"
+          description="Simplified distils the log to plain damage reporting (shield and hull numbers), dropping the flavour narration. Default keeps the descriptive combat prose."
+        >
+          <select
+            class="setting-select"
+            value={combatLogStyle}
+            on:change={(e) => { combatLogStyle = (e.target as HTMLSelectElement).value as CombatLogStyle; saveCombatLogStyle(combatLogStyle); }}
+            aria-label="Log style"
+          >
+            <option value="default">Default</option>
+            <option value="simplified">Simplified</option>
+          </select>
+        </SettingRow>
+        <SettingRow
+          label="Log speed"
+          description="How long each round of the combat log lingers before the next appears. Fast reveals about one round per second, Slow one every five seconds."
+        >
+          <select
+            class="setting-select"
+            value={combatLogSpeed}
+            on:change={(e) => { combatLogSpeed = (e.target as HTMLSelectElement).value as CombatLogSpeed; saveCombatLogSpeed(combatLogSpeed); }}
+            aria-label="Log speed"
+          >
+            <option value="fast">Fast (1s)</option>
+            <option value="slow">Slow (5s)</option>
+          </select>
+        </SettingRow>
+        <SettingRow
+          label="Damage colours"
+          description="Shows shield damage in blue and hull damage in orange in the Simplified log, so the two read apart at a glance."
+        >
+          <Toggle
+            label="Damage colours"
+            checked={combatDamageColors}
+            on:click={() => { combatDamageColors = !combatDamageColors; saveCombatDamageColors(combatDamageColors); }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Auto-scroll"
+          description="Keeps the newest round in view as the log streams. When off, the log holds position so you can read back without being pulled to the bottom."
+        >
+          <Toggle
+            label="Auto-scroll"
+            checked={combatAutoScroll}
+            on:click={() => { combatAutoScroll = !combatAutoScroll; saveCombatAutoScroll(combatAutoScroll); }}
+          />
         </SettingRow>
       </Panel>
       {/if}
@@ -15722,168 +15849,6 @@
                 : `${salvageConfirmQualities.length} of ${QUALITY_TIERS} tiers`}
           </span>
           <button class="dev-btn" on:click={jumpToSalvageRules}>Change</button>
-        </SettingRow>
-      </Panel>
-      {/if}
-
-      {#if activeOptionsTab === "visual"}
-      <Panel>
-        <div class="panel-title">VISUAL</div>
-        <div class="dev-row">
-          <label style="display: inline-flex; align-items: center; gap: 6px;">
-            <input
-              type="checkbox"
-              checked={tickBarEnabled}
-              on:change={(e) => {
-                tickBarEnabled = (e.target as HTMLInputElement).checked;
-                saveTickBarEnabled(tickBarEnabled);
-              }}
-            />
-            Enable Tick Bar
-          </label>
-        </div>
-        <p class="prestige-text">When enabled, the tick bar in the header fills once per tick. When disabled, it's removed from the header entirely.</p>
-        <!-- Show raw tick counts alongside the human-readable clock timers on every
-             "N remaining" / "Duration" readout. Mirrors the Enable Tick Bar row above
-             (localStorage-persisted pref, not on GameState). Default OFF. -->
-        <div class="dev-row">
-          <label style="display: inline-flex; align-items: center; gap: 6px;">
-            <input
-              type="checkbox"
-              checked={showTickCounts}
-              on:change={(e) => {
-                showTickCounts = (e.target as HTMLInputElement).checked;
-                saveShowTickCounts(showTickCounts);
-              }}
-            />
-            Show tick counts
-          </label>
-        </div>
-        <p class="prestige-text">When enabled, the raw tick numbers are shown next to the clock timers on job and upgrade readouts. When disabled, only the clock is shown.</p>
-        <!-- Phase 2 (Task D3): re-enable the refine-order confirmation popup. Mirrors
-             the Enable Tick Bar row directly above (localStorage-persisted pref, not
-             on GameState). The modal's own "Don't show this again" checkbox turns
-             this OFF; this toggle turns it back ON. -->
-
-        <!-- ⚠️ DELIBERATELY NOT HERE YET: the re-enable toggle for the auto-salvage
-             Standard-Issue warning (0.13.3.1 follow-up). That warning's "Don't show this again"
-             checkbox can currently only be switched off, with no way back, which is a gap and is
-             logged as one. It belongs in the Options > GAMEPLAY tab planned for 0.13.5
-             (SUGGESTIONS.md, "AUTOMATION RULES ALSO BELONG UNDER OPTIONS") beside the
-             auto-salvage grace-period control, which is waiting on the same tab, rather than
-             being wedged into this display-preferences list now and moved twice.
-             ⚠️ WHEN IT LANDS IT MUST READ THE SAME STORED VALUE through
-             loadAutoSalvageBaselineWarningEnabled / saveAutoSalvageBaselineWarningEnabled, the
-             way this refine row reads its own pref, and NEVER keep a second copy of the setting:
-             two stores for one preference is the drift the confirm-by-quality preference had to
-             be migrated out of localStorage to escape. -->
-
-        <!-- ============================================================
-             COMBAT LOG settings (Combat 0.13.0). The FIRST section of a growing
-             accessibility/theming options hub: future sections (high-contrast,
-             colorblind-safe palettes, pride themes) drop in as SIBLING blocks below
-             with this same "section title + segmented rows + one-line explanation"
-             pattern, no refactor needed. Each control writes its localStorage pref
-             immediately (mirrors the toggles above); the combat view reads the saved
-             value when it next opens. Segmented .dev-btn toggles match the existing
-             options styling (the theme swatches + debug segments use the same class).
-             ============================================================ -->
-        <div class="opt-section-title">Combat Log</div>
-
-        <!-- Log style: flavor narration vs plain damage reporting. -->
-        <div class="dev-row">
-          <span class="dev-label">Log style</span>
-          <button
-            class="dev-btn"
-            class:active={combatLogStyle === "default"}
-            on:click={() => { combatLogStyle = "default"; saveCombatLogStyle("default"); }}
-          >Default</button>
-          <button
-            class="dev-btn"
-            class:active={combatLogStyle === "simplified"}
-            on:click={() => { combatLogStyle = "simplified"; saveCombatLogStyle("simplified"); }}
-          >Simplified</button>
-        </div>
-        <p class="prestige-text">Simplified distills the log to plain damage reporting (shield and hull numbers), dropping the flavor narration. Default keeps the descriptive combat prose.</p>
-
-        <!-- Damage colors: tint shield vs hull damage numbers (accessibility). -->
-        <div class="dev-row">
-          <span class="dev-label">Damage colors</span>
-          <button
-            class="dev-btn"
-            class:active={combatDamageColors}
-            on:click={() => { combatDamageColors = true; saveCombatDamageColors(true); }}
-          >On</button>
-          <button
-            class="dev-btn"
-            class:active={!combatDamageColors}
-            on:click={() => { combatDamageColors = false; saveCombatDamageColors(false); }}
-          >Off</button>
-        </div>
-        <p class="prestige-text">When on, shield damage is shown in blue and hull damage in orange in the Simplified log, so the two read apart at a glance.</p>
-
-        <!-- Log speed: how fast rounds stream into the log. -->
-        <div class="dev-row">
-          <span class="dev-label">Log speed</span>
-          <button
-            class="dev-btn"
-            class:active={combatLogSpeed === "fast"}
-            on:click={() => { combatLogSpeed = "fast"; saveCombatLogSpeed("fast"); }}
-          >Fast (1s)</button>
-          <button
-            class="dev-btn"
-            class:active={combatLogSpeed === "slow"}
-            on:click={() => { combatLogSpeed = "slow"; saveCombatLogSpeed("slow"); }}
-          >Slow (5s)</button>
-        </div>
-        <p class="prestige-text">How long each round of the combat log lingers before the next appears: Fast reveals about one round per second, Slow one every five seconds.</p>
-
-        <!-- Auto-scroll: pin the log to the newest line as it streams. -->
-        <div class="dev-row">
-          <span class="dev-label">Auto-scroll</span>
-          <button
-            class="dev-btn"
-            class:active={combatAutoScroll}
-            on:click={() => { combatAutoScroll = true; saveCombatAutoScroll(true); }}
-          >On</button>
-          <button
-            class="dev-btn"
-            class:active={!combatAutoScroll}
-            on:click={() => { combatAutoScroll = false; saveCombatAutoScroll(false); }}
-          >Off</button>
-        </div>
-        <p class="prestige-text">When on, the combat log keeps the newest round in view as it streams. When off, the log holds position so you can read back without being pulled to the bottom.</p>
-
-        <!-- ⚠️ A NAMED DROPDOWN PLUS A PREVIEW SWATCH, replacing six unlabelled colour blots
-             (0.13.5 Phase 1; the record asked for "real DROPDOWNS ... instead of the little
-             color-blot theme swatches").
-
-             THE ACCESSIBILITY ARGUMENT IS STRONGER THAN THE TIDINESS ONE, and it is why this is in
-             the release that adds a colourblind-relevant options tab: a control whose ONLY
-             information is its colour is unusable to a player who cannot distinguish those colours,
-             and "cyan" versus "blue" is a pair many people genuinely cannot tell apart. The blots
-             also carried no keyboard affordance worth the name and announced only via title.
-             A real <select> gets names, keyboard navigation, screen-reader support and the
-             platform's own touch picker for free.
-
-             THE SWATCH IS KEPT BESIDE IT rather than dropped, because the colour IS the useful part
-             for everyone else: it shows what you have selected without applying it blind. So this
-             ADDS the name rather than replacing the colour. It is aria-hidden because the select
-             already announces the value; announcing it twice is noise. -->
-        <SettingRow
-          label="Theme"
-          description="Changes the accent colour used across the whole interface. Panels and text re-hue with it."
-        >
-          <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
-          <select
-            class="setting-select"
-            value={currentTheme}
-            on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
-          >
-            {#each THEME_NAMES as name}
-              <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
-            {/each}
-          </select>
         </SettingRow>
       </Panel>
       {/if}
@@ -18142,17 +18107,20 @@
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-label { font-size: var(--text-xs); color: var(--color-text-secondary); width: 78px; }
-  /* A labeled sub-heading inside the Options panel, separating a settings section
-     (e.g. Combat Log) from the rows above it. Kept small + accent-tinted so a future
-     accessibility/theming section reads as a sibling group, not a new panel. */
-  .opt-section-title {
-    font-size: var(--text-xs);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-accent-bright);
-    margin: 18px 0 8px;
-    padding-bottom: 4px;
-    border-bottom: 1px solid var(--color-border);
+  /* .opt-section-title was REMOVED in 0.13.5. It was a sub-heading INSIDE one settings panel, which
+     made a section a rule drawn across a continuous surface. Sections are their own panels now
+     (.settings-section below), so each carries the shared .panel-title and its own border, and the
+     separation is space rather than a line. The user kept the divider explicitly ("that must
+     stay") and asked for a gap WITH it; .panel-title already draws the divider. */
+
+  /* THE GAP BETWEEN SETTINGS SECTIONS. 6px, chosen by the user against the Recently Completed row
+     rhythm rather than picked: "similar to the spacing between each of the recently completed
+     lines". One number, so re-tuning it is one edit. */
+  :global(.settings-section) {
+    margin-bottom: 6px;
+  }
+  :global(.settings-section:last-of-type) {
+    margin-bottom: 0;
   }
   /* .dev-btn: the flat action-button object used across the app (the dev panel AND
      player-facing actions like Ship Systems / Assign Ship / Talents / back

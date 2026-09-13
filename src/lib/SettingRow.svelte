@@ -1,4 +1,6 @@
 <script lang="ts">
+  import HelpTip from "./HelpTip.svelte";
+
   // ============================================================================
   // SettingRow: ONE settings control, with its label and its explanation.
   // 0.13.5 Phase 1 (the options reorg).
@@ -33,20 +35,26 @@
   export let disabled: boolean = false;
 </script>
 
+<!-- ⚠️ 0.13.5, from the approved mockup: the description MOVED from a permanent paragraph under the
+     row into a `?` beside the label. A screen of twenty settings was a wall of prose, and the rows
+     could not be scanned. Nothing is explained LESS: HelpTip receives the same `description` text
+     verbatim, so this is a change of WHERE the words live, not of how many there are.
+
+     Changing it here converts every existing row at once, which is the reason SettingRow exists. -->
 <div class="setting-row" class:setting-row-disabled={disabled}>
   <div class="setting-control">
     <span class="setting-label">{label}</span>
+    <HelpTip text={description} {label} />
+    <span class="setting-spacer"></span>
     <span class="setting-widget"><slot /></span>
   </div>
-  <p class="setting-description">{description}</p>
 </div>
 
 <style>
   .setting-row {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4) 0;
+    padding: var(--space-3) 0;
     border-bottom: 1px solid var(--color-border);
   }
   /* The last row in a group carries no rule, so a group does not end with a dangling line. */
@@ -56,12 +64,18 @@
   .setting-control {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     /* ⚠️ WRAPS ON PURPOSE. A long label beside a wide control (the combat-log speed buttons, a
        theme dropdown) overflows a narrow phone otherwise, which is the exact class of bug that
        pushed a timestamp off the screen in 0.13.3.1. */
     flex-wrap: wrap;
-    gap: var(--space-3) var(--space-5);
+    gap: var(--space-3);
+  }
+  /* Pushes the control to the right edge while leaving the label and its ? together on the left.
+     A flexible spacer rather than justify-content:space-between, because the ? must sit NEXT TO the
+     label it explains, not drift to the middle of the row. */
+  .setting-spacer {
+    flex: 1 1 auto;
+    min-width: var(--space-4);
   }
   .setting-label {
     font-size: var(--text-md);
@@ -73,16 +87,7 @@
     align-items: center;
     gap: var(--space-3);
   }
-  .setting-description {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    margin: 0;
-    /* Keeps an explanation readable rather than letting it stretch across a monitor. Uses the
-       release's own reading-width token so it moves with everything else in phase 4. */
-    max-width: var(--max-reading-width);
-  }
-  .setting-row-disabled .setting-label,
-  .setting-row-disabled .setting-description {
+  .setting-row-disabled .setting-label {
     color: var(--color-text-disabled);
   }
 </style>
