@@ -791,6 +791,7 @@
   // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
   import Icon from "./lib/ui/Icon.svelte";
+  import type { IconName } from "./lib/ui/icons";
   // Whole-unit arithmetic for the batch-quantity controls (2026-09-10 fractional-quantity
   // fix). Presentation/input only, never consulted by a gate: see the module header.
   import { wholeUnitsFree, clampWholeQty } from "./lib/ui/quantity";
@@ -3407,7 +3408,41 @@
     dispatch: "👤",     // idle captain awaiting orders (the dispatch prompt)
   };
 
+  // ⚠️ THE EMOJI SWEEP, HALF DONE ON PURPOSE (0.13.5, user decision).
+  //
+  // The icon REGISTRY (ui/icons.ts) carries real stroke-SVG geometry for a named set, and the pack
+  // seam built in phase 2 lets a bought pack replace any of it. What the registry does NOT carry is
+  // a drawing for every hint this board uses: `facility`, `repair`, `extraction`, `patrol` and
+  // `dispatch` have no icon yet, and DRAWING them is new content rather than a conversion.
+  //
+  // So the rule here is: a hint with a registry icon RENDERS THE ICON, and a hint without one keeps
+  // its emoji until the art exists. That is the user's call ("sweep only what maps today"), and it
+  // is the right shape regardless: a half-swept board is honest about what is finished, whereas
+  // inventing five glyphs to finish the sweep would ship five drawings nobody approved.
+  //
+  // ⚠️ MAPPING A HINT TO A REGISTRY NAME IS NOT ALWAYS THE SAME WORD. The board's hints are verbs
+  // about work ("refine", "fabricate", "shipBuild") while the registry is named for THINGS
+  // ("refinery", "fabricator", "shipyard"), because an icon depicts the place, not the activity.
+  // That translation lives here, in one table, rather than being spread across call sites.
+  const HOME_ICON_NAME: Record<string, IconName> = {
+    refine: "refinery",
+    fabricate: "fabricator",
+    research: "research",
+    shipBuild: "shipyard",
+    fuel: "fuel",
+    storage: "warehouse",
+    docks: "docks",
+    salvage: "salvage",
+  };
+
+  // The registry icon for a hint, or null when the sweep has not reached it yet.
+  function homeIconName(hint: string): IconName | null {
+    return HOME_ICON_NAME[hint] ?? null;
+  }
+
   // Resolve an icon hint to its glyph, neutral-dot fallback for any unmapped hint.
+  // ⚠️ STILL USED, for the hints above that have no registry icon. It is not dead code and should
+  // not be deleted when the sweep finishes; it should get smaller until its table is empty.
   function homeIconGlyph(hint: string): string {
     return HOME_ICON_GLYPH[hint] ?? "•";
   }
@@ -14763,7 +14798,11 @@
              shows a real MM:SS via remainingReadout off the raw ticks the model carries; a
              patrol shows waves + hull/shield and NO fabricated countdown. -->
         {#snippet homeRowBody(row: ActivityRow)}
-          <span class="home-ico" aria-hidden="true">{homeIconGlyph(row.icon)}</span>
+          <span class="home-ico" aria-hidden="true">
+            {#if homeIconName(row.icon) !== null}
+              <Icon name={homeIconName(row.icon)!} size="1.05em" />
+            {:else}{homeIconGlyph(row.icon)}{/if}
+          </span>
           <span class="home-row-body">
             <span class="home-l1">{row.primaryLabel}</span>
             <span class="home-l2">
@@ -14811,7 +14850,11 @@
              time sits in a FIXED-WIDTH column so the separator and the summary start at the same x
              on every row, which the user asked for and which is most of why a stack reads as tidy. -->
         {#snippet doneRowBody(done: CompletionRow)}
-          <span class="home-ico" aria-hidden="true">{homeIconGlyph(done.icon)}</span>
+          <span class="home-ico" aria-hidden="true">
+            {#if homeIconName(done.icon) !== null}
+              <Icon name={homeIconName(done.icon)!} size="1.05em" />
+            {:else}{homeIconGlyph(done.icon)}{/if}
+          </span>
           <span class="done-line">
             <span class="done-time">{completionClockText(done.atMs)}</span>
             <span class="done-sep" aria-hidden="true">·</span>
@@ -14877,7 +14920,11 @@
             aria-label={`${prompt.label}. Go to setup.`}
           >
             <span class="home-pulse" aria-hidden="true"></span>
-            <span class="home-ico" aria-hidden="true">{homeIconGlyph(prompt.icon)}</span>
+            <span class="home-ico" aria-hidden="true">
+              {#if homeIconName(prompt.icon) !== null}
+                <Icon name={homeIconName(prompt.icon)!} size="1.05em" />
+              {:else}{homeIconGlyph(prompt.icon)}{/if}
+            </span>
             <span class="home-prompt-txt">
               <span class="home-l1">{prompt.label}</span>
               {#if prompt.detail !== null}<span class="home-prompt-detail">{prompt.detail}</span>{/if}
