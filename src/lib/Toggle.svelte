@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from "svelte";
   // ============================================================================
   // Toggle: the square-cornered on/off switch. 0.13.5, from the approved mockup.
   //
@@ -30,9 +31,17 @@
   // why "off" does not.
   export let disabled: boolean = false;
 
+  // ⚠️ CONTROLLED, NOT SELF-MUTATING. This DISPATCHES the new value; it does NOT flip its own
+  // `checked` prop. The first version did `checked = !checked` and bound the button's click to it
+  // internally, which was a silent bug: `on:click` on a Svelte COMPONENT is not forwarded unless
+  // the component dispatches it, so every parent handler (`on:click={...}`) never fired, the parent
+  // state never changed, and nothing saved. The knob appeared to do nothing. Now the parent owns
+  // the state and listens with `on:change`, exactly like the native checkboxes elsewhere in the app.
+  const dispatch = createEventDispatcher<{ change: boolean }>();
+
   function flip(): void {
     if (disabled) return;
-    checked = !checked;
+    dispatch("change", !checked);
   }
 
   function onKeydown(event: KeyboardEvent): void {

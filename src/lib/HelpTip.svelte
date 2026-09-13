@@ -28,17 +28,38 @@
   export let label: string;
 
   let open = false;
+  let btn: HTMLButtonElement | null = null;
   let bubble: HTMLDivElement | null = null;
-  let flip = false;
+  // Inline position, set in show(). ⚠️ FIXED positioning, not absolute-within-the-anchor.
+  let bubbleStyle = "";
 
+  // ⚠️ WHY FIXED, NOT ABSOLUTE (fixed 2026-09-13, user report). The bubble used to be
+  // position:absolute inside .help-anchor, which meant an ancestor with overflow clipping cut it
+  // off. In the Settings window it lives inside .system-modal-body { overflow-y: auto }, so a
+  // tooltip on the last row of a section was chopped by the scroll boundary and bled into the next
+  // panel. position:fixed is measured from the viewport and escapes every ancestor's overflow, so
+  // it can never be clipped by the modal. It also still flips ABOVE when there is no room below.
+  //
+  // Tradeoff accepted: a fixed bubble does not scroll with the content. That is fine here because
+  // the tooltip is transient (opens on hover/focus, closes on leave/tap-away), so it is never open
+  // long enough to detach from its row.
   async function show(): Promise<void> {
     open = true;
-    flip = false;
-    // Measure AFTER the bubble is in the DOM: a hidden element has no box to measure.
+    bubbleStyle = "";
     await svelteTick();
-    if (!bubble) return;
-    const rect = bubble.getBoundingClientRect();
-    if (rect.bottom > window.innerHeight - 8) flip = true;
+    if (!btn || !bubble) return;
+    const b = btn.getBoundingClientRect();
+    const bubbleH = bubble.offsetHeight;
+    const bubbleW = bubble.offsetWidth;
+    // Below-left of the button by default; flip above if it would run past the viewport bottom.
+    const below = b.bottom + 6;
+    const flipUp = below + bubbleH > window.innerHeight - 8;
+    const top = flipUp ? b.top - bubbleH - 6 : below;
+    // Clamp horizontally so a bubble near the right edge does not spill off-screen.
+    let left = b.left;
+    if (left + bubbleW > window.innerWidth - 8) left = window.innerWidth - 8 - bubbleW;
+    if (left < 8) left = 8;
+    bubbleStyle = `top:${Math.max(8, top)}px; left:${left}px;`;
   }
 
   function hide(): void {
@@ -61,6 +82,7 @@
   <button
     type="button"
     class="help-btn"
+    bind:this={btn}
     aria-label={`What does "${label}" do?`}
     aria-expanded={open}
     on:click={toggle}
@@ -69,7 +91,7 @@
     on:blur={hide}
   >?</button>
   {#if open}
-    <div class="help-bubble" class:help-bubble-flip={flip} bind:this={bubble} role="note">
+    <div class="help-bubble" style={bubbleStyle} bind:this={bubble} role="note">
       {text}
     </div>
   {/if}
@@ -107,13 +129,10 @@
     outline-offset: 2px;
   }
   .help-bubble {
-    position: absolute;
-    z-index: 30;
-    /* Opens BELOW-LEFT of the row rather than over it, so it never covers the control it is
-       describing. That is the one real cost of floating instead of pushing, and placement is the
-       whole of the fix. */
-    top: calc(100% + 6px);
-    left: 0;
+    /* ⚠️ FIXED, positioned from JS (see show()), so no ancestor overflow can clip it. top/left are
+       set inline. */
+    position: fixed;
+    z-index: 300;
     width: max-content;
     max-width: min(280px, 70vw);
     /* ⚠️ GENUINELY OPAQUE, via the same idiom the Ship Systems dialog uses: an accent tint layered
@@ -132,9 +151,5 @@
     color: var(--color-text-secondary);
     line-height: 1.5;
     text-align: left;
-  }
-  .help-bubble-flip {
-    top: auto;
-    bottom: calc(100% + 6px);
   }
 </style>

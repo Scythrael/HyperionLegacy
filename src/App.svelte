@@ -15381,8 +15381,10 @@
       />
 
       {#if activeOptionsTab === "ui"}
-      <!-- ACCESSIBILITY: first section in the UI subtab, per the note on OPTIONS_TABS. -->
-      <Panel>
+      <!-- ACCESSIBILITY: first section in the UI subtab, per the note on OPTIONS_TABS.
+           ⚠️ settings-section (the 6px gap) was MISSING here, so Accessibility sat flush against UI
+           Theme while every other section had a gap. It is a section like the others. -->
+      <Panel class="settings-section">
         <div class="panel-title">ACCESSIBILITY</div>
         <p class="setting-group-note">
           These settings are stored on this device, not in your save, so you can set them
@@ -15501,7 +15503,7 @@
           <Toggle
             label="Show the tick bar"
             checked={tickBarEnabled}
-            on:click={() => { tickBarEnabled = !tickBarEnabled; saveTickBarEnabled(tickBarEnabled); }}
+            on:change={(e) => { tickBarEnabled = e.detail; saveTickBarEnabled(tickBarEnabled); }}
           />
         </SettingRow>
       </Panel>
@@ -15515,7 +15517,7 @@
           <Toggle
             label="Show tick counts"
             checked={showTickCounts}
-            on:click={() => { showTickCounts = !showTickCounts; saveShowTickCounts(showTickCounts); }}
+            on:change={(e) => { showTickCounts = e.detail; saveShowTickCounts(showTickCounts); }}
           />
         </SettingRow>
       </Panel>
@@ -15568,7 +15570,7 @@
           <Toggle
             label="Damage colours"
             checked={combatDamageColors}
-            on:click={() => { combatDamageColors = !combatDamageColors; saveCombatDamageColors(combatDamageColors); }}
+            on:change={(e) => { combatDamageColors = e.detail; saveCombatDamageColors(combatDamageColors); }}
           />
         </SettingRow>
         <SettingRow
@@ -15578,7 +15580,7 @@
           <Toggle
             label="Auto-scroll"
             checked={combatAutoScroll}
-            on:click={() => { combatAutoScroll = !combatAutoScroll; saveCombatAutoScroll(combatAutoScroll); }}
+            on:change={(e) => { combatAutoScroll = e.detail; saveCombatAutoScroll(combatAutoScroll); }}
           />
         </SettingRow>
       </Panel>
@@ -17990,7 +17992,11 @@
     font-variant-numeric: tabular-nums;
   }
   .setting-select {
-    background: var(--color-panel-bg-strong);
+    /* ⚠️ SOLID dark bg, not panel-strong (which is rgba(accent, 0.06), nearly transparent). With a
+       transparent select the browser painted the native option list on WHITE, so light themed text
+       was white-on-white and unreadable. A solid token fixes both the closed control and, with the
+       option rule below, the open list. */
+    background: var(--color-bg-mid);
     border: 1px solid var(--color-border);
     color: var(--color-text-primary);
     font-family: var(--font-body);
@@ -18000,6 +18006,12 @@
     /* ⚠️ A REAL <select>, NOT A CUSTOM WIDGET. It gets keyboard navigation, screen-reader support
        and the platform's own touch picker for free, which is the whole point on an accessibility
        screen. Styling is limited to colours and type so the native behaviour is untouched. */
+  }
+  /* The native option list: some browsers ignore the select's colours for its popup, so set them
+     on the options too. Solid dark + light text, so the open dropdown reads on every theme. */
+  .setting-select option {
+    background: var(--color-bg-mid);
+    color: var(--color-text-primary);
   }
   .setting-select:focus-visible {
     outline: 2px solid var(--color-accent);

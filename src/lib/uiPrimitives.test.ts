@@ -65,6 +65,17 @@ describe("Toggle: the square on/off switch", () => {
     expect(TOGGLE).toMatch(/box-shadow:[\s\S]*var\(--color-accent-rgb\)/);
   });
 
+  it("⚠️ DISPATCHES a change event instead of self-mutating, or the parent never hears the click", () => {
+    // THE BUG THIS GUARDS. The first Toggle did `checked = !checked` internally and bound the
+    // button click to that, so `on:click` on the <Toggle> component was never forwarded, the
+    // parent's handler never ran, and clicking did nothing (no state change, no save). It must
+    // dispatch so the controlling parent updates and persists.
+    expect(TOGGLE).toMatch(/createEventDispatcher/);
+    expect(TOGGLE).toMatch(/dispatch\("change"/);
+    // ⚠️ Not asserting the ABSENCE of `checked = !checked`, because the header comment names it to
+    // explain the old bug; the dispatch check above is the real proof the fix is in place.
+  });
+
   it("carries a required accessible name", () => {
     expect(TOGGLE).toMatch(/export let label: string/);
     expect(TOGGLE).toMatch(/aria-label=\{label\}/);
@@ -90,7 +101,14 @@ describe("HelpTip: the ? explanation", () => {
     // Help you have to scroll to find is worse than none, because you do not know it is there.
     expect(HELPTIP).toMatch(/getBoundingClientRect/);
     expect(HELPTIP).toMatch(/window\.innerHeight/);
-    expect(HELPTIP).toMatch(/help-bubble-flip/);
+    expect(HELPTIP).toMatch(/flipUp/);
+  });
+
+  it("⚠️ is FIXED-positioned so an ancestor's overflow cannot clip it", () => {
+    // THE BUG THIS GUARDS. The bubble was position:absolute inside the anchor, so the Settings
+    // modal's overflow-y:auto scroll body chopped a tooltip on a section's last row. Fixed
+    // positioning is measured from the viewport and escapes every ancestor's overflow.
+    expect(HELPTIP).toMatch(/position:\s*fixed/);
   });
 
   it("measures AFTER showing, since a hidden element has no height", () => {
