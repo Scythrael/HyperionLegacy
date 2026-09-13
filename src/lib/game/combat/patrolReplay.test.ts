@@ -305,11 +305,28 @@ describe("defeat-path parity (guaranteed loss)", () => {
 // a genuine full-hull defeat, replay == live); only the seed literal moved to a still-true value.
 // ---------------------------------------------------------------------------
 describe("defeat-path parity through the PUBLIC entry (replayPatrol)", () => {
-  // masterSeed where a full-hull destroyer loses crimsonReaverSweep (see block note).
-  const DEFEAT_SEED = 47;
+  // ⚠️ MOVED TO THE WARBAND IN 0.13.5, AND THE REASON IS NOT A SEED DRIFT THIS TIME.
+  //
+  // F5 fills every hardpoint, so a destroyer carries four guns instead of two. On the SWEEP, the
+  // entry patrol, that makes it undefeatable: a 300-seed scan found ZERO seeds where a full-hull
+  // destroyer loses, where previously about one in sixty did. There is no replacement seed to find
+  // on that patrol, because the outcome this case needs no longer occurs there at all.
+  //
+  // The Warband is where a destroyer is genuinely at risk (measured ~14% win rate after the
+  // retune), so the defeat branch moves there. The ASSERTIONS below are unchanged: still a genuine
+  // full-hull defeat, still replay == live. Only the encounter moved, because the old one stopped
+  // being able to produce the thing under test.
+  const DEFEAT_PATROL = "crimsonReaverWarband";
+  const DEFEAT_SEED = 2; // first of many; 4, 5, 6, 7, 9, 10, 11, 12 and 14 also defeat.
+
+  function dispatchDefeat(): GameState {
+    const r = dispatchCaptainOnPatrol(patrolState("destroyer", DEFEAT_SEED), 1, DEFEAT_PATROL, "balanced", false);
+    expect(r.success).toBe(true);
+    return r.next;
+  }
 
   it("replayPatrol early-stops on a real full-hull defeat exactly as the live limp-home does", () => {
-    const dispatched = dispatch(patrolState("destroyer", DEFEAT_SEED), false);
+    const dispatched = dispatchDefeat();
 
     // Public path, full-hull start by contract: this seed is chosen precisely because it
     // LOSES, so the defeat branch of replayPatrol is exercised end to end.

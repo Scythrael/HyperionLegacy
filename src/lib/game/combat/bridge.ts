@@ -487,12 +487,32 @@ export function defaultWeaponsForHull(hullType: CombatHullType): WeaponId[] {
 // the same role rather than a new one. ⚠️ Repeats the LAST declared role rather than inventing a
 // role the hull was never designed around, which would be a capability change rather than filling
 // a slot. A hull with no bays and no roles pads nothing.
+// ⚠️ DRONE BAYS ARE NOT PADDED, AND THAT IS THE FINDING RATHER THAN AN OMISSION (0.13.5, F5).
+//
+// F5's ask was about WEAPONS: "if it has 3 hardpoints, it should have 3 weapons". I extended it to
+// drone bays as well, which was overreach on two counts.
+//
+// FIRST, the carrier's empty second bay is a DOCUMENTED DESIGN DECISION, not a gap. The loadout
+// table says so directly: "builtInBays 2 documents the carrier's built-in capacity; the second bay
+// starts empty". Filling it was changing a deliberate choice while believing I was fixing an
+// oversight.
+//
+// SECOND, and this is the part worth keeping: THERE IS NO SUCH THING AS A LOW-IMPACT FILLER POD.
+// Measured, not assumed. Padding the carrier's spare bay with a DEFENSE pod looked obviously safe
+// on its damage numbers (1 to 2 per volley on a 1.5s cooldown, against attack's 4 to 6 on 0.5s),
+// and the carrier STILL won the showcase patrol 100% of the time. The reason: defense drones carry
+// interceptChance 60 and reflectChance 50, so the role's real identity is SURVIVABILITY, and a
+// patrol is won by SURVIVING every wave. The role was picked by the stat being thought about and
+// not the one that decides the outcome.
+//
+// Support is no better: it heals. Every pod puts more bodies on the field that soak, intercept or
+// repair, so a drone bay cannot be filled "weakly" the way a hardpoint can. A weapon contributes
+// only damage; a pod contributes PRESENCE, and nothing dilutes presence.
+//
+// So: pad WEAPONS, leave BAYS as authored. A fresh carrier fields exactly the screen it fields
+// today.
 export function defaultDroneRolesForHull(hullType: CombatHullType): DroneRole[] {
-  const roles = COMBAT_DEFAULT_LOADOUT[hullType].droneRoles;
-  const bays = SHIP_TYPES[hullType].droneBays ?? 0;
-  if (roles.length === 0 || bays <= roles.length) return [...roles];
-  const last = roles[roles.length - 1];
-  return [...roles, ...Array<DroneRole>(bays - roles.length).fill(last)];
+  return [...COMBAT_DEFAULT_LOADOUT[hullType].droneRoles];
 }
 
 // combatHullTypeOf: narrow a ShipTypeKey (passed as a plain string) to a CombatHullType,

@@ -695,12 +695,32 @@ export const PATROLS: Record<string, PatrolDef> = {
     // trivial for an entry warship; the lone marauder is a rare step-up, not a wall.
     // FIRST-PASS + TUNABLE (S20).
     hullPool: ["raider", "raider", "raider", "raider", "marauder"],
-    // Exactly 2 waves (minWaves == maxWaves), each exactly 1 enemy (enemyCountMin ==
-    // enemyCountMax). Single-enemy waves + a short 2-wave route keep hull attrition low
-    // enough that even the destroyer (the thinnest-hulled tactician) clears it reliably.
-    // FIRST-PASS + TUNABLE (S20): a later balance pass can widen these bands for difficulty.
+    // 2-3 waves, each exactly 1 enemy (enemyCountMin == enemyCountMax). Single-enemy waves keep
+    // hull attrition low enough that the destroyer (the thinnest-hulled tactician) clears it
+    // reliably, which is this patrol's job as the entry encounter.
+    //
+    // RETUNED 0.13.5 (F5: every hardpoint now ships with a Standard-Issue weapon). Was exactly 2
+    // waves. THE SMALLEST CHANGE THAT RESTORES THE CONTRACT, and deliberately so: this is the
+    // ENTRY patrol and a heavy-handed increase would punish a new player for a change made to help
+    // them. Measured at 64 forecast samples per hull:
+    //
+    //                      pre-F5    F5 + 2 waves    F5 + 2-3 waves (shipped)
+    //   generalFreighter     62.5          98.4                98.4
+    //   prospectorHauler     76.6         100.0                98.4
+    //   prospectorRunner     62.5          62.5                57.8
+    //   prospectorMiner      62.5          62.5                57.8
+    //   destroyer            98.4         100.0               100.0
+    //
+    // ⚠️ THE ECONOMY HULLS DID NOT MOVE TOGETHER, AND THEY CANNOT BE RESTORED TOGETHER. F5's buff
+    // is UNEVEN by construction: the freighter and hauler have 2 hardpoints and carried 1 gun, so
+    // they DOUBLED their offense; the runner and miner have exactly 1 hardpoint and were already
+    // full, so they gained NOTHING. No uniform difficulty increase can put both pairs back where
+    // they were: anything that drags the freighter down to 62.5 would push the runner far below it.
+    // The contract this patrol actually owes (every economy hull strictly below the destroyer) is
+    // met, and the two hulls that gained nothing are held within ~5 points of their old numbers,
+    // which is the side worth protecting.
     minWaves: 2,
-    maxWaves: 2,
+    maxWaves: 3,
     enemyCountMin: 1,
     enemyCountMax: 1,
     transitOutTicks: 3,
@@ -737,14 +757,40 @@ export const PATROLS: Record<string, PatrolDef> = {
     // the player's anti-drone weapons) matter; the marauder is the medium gun-line threat; the two
     // raiders keep some waves lighter so the patrol is a real fight rather than an unwinnable wall.
     // FIRST-PASS + TUNABLE (S20): shift the ratio / add a hull to move the curve.
-    hullPool: ["corsairCarrier", "marauder", "raider", "raider"],
-    // 2-3 waves of 1-2 enemies each. maxWaves 3 + enemyCountMax 2 is the "up to 2 enemies a wave"
+    // RETUNED 0.13.5 (F5). Was ["corsairCarrier", "marauder", "raider", "raider"]. Dropping the
+    // second raider raises the corsair-carrier and marauder share from 1:1:2 to an even 1:1:1, so
+    // the average wave is heavier without adding a hull the fiction did not already have.
+    hullPool: ["corsairCarrier", "marauder", "raider"],
+    // RETUNED 0.13.5 (F5: every hardpoint now ships with a Standard-Issue weapon). Was 2-3 waves of
+    // 1-2 enemies. Now a fixed 3 waves of 1-3, against the evened-out pool above. Measured at 64
+    // forecast samples per hull, against the bands patrol-balance.test.ts asserts:
+    //
+    //                      pre-F5    F5 (untuned)    F5 retuned (shipped)    band
+    //   destroyer            15.6          67.2                   14.1       > 2, below battleship
+    //   battleship          ~55           100.0                   78.1       30 to 85
+    //   carrier             ~75           100.0                   60.9       40 to 85
+    //   generalFreighter      1.6          12.5                    1.6       below destroyer
+    //   prospectorHauler      4.7          23.4                    3.1       below destroyer
+    //
+    // ⚠️ WHY A FIXED 3 WAVES RATHER THAN A 3-4 BAND, which would have kept more variety: measured,
+    // 3-4 waves pushes the CARRIER to 28.1%, straight through the 40% floor the showcase band
+    // requires. The carrier is the hull this patrol exists to make interesting (it is the drone
+    // tender's natural counter), so a variant that makes it "Not Advised" defeats the encounter's
+    // purpose. Wave-count variety was the cheaper thing to spend.
+    //
+    // ⚠️ The battleship lands HIGH of its old ~55 and the carrier LOW of its old ~75, and that is
+    // the same unevenness the Sweep block above describes: the battleship gained 3 guns (3 -> 6)
+    // while the carrier gained 1 (1 -> 2), so one difficulty dial cannot return both to where they
+    // were. Both sit comfortably inside their asserted bands, which is the contract; the exact old
+    // values are not recoverable without per-hull scaling, which does not exist.
+    //
+    // The 1..3 count band keeps some waves
     // step-up the Sweep never has (it is 2 waves of exactly 1); the 1..2 count band keeps some waves
     // single-enemy so hull attrition stays survivable for the appropriate hulls. FIRST-PASS + TUNABLE.
-    minWaves: 2,
+    minWaves: 3,
     maxWaves: 3,
     enemyCountMin: 1,
-    enemyCountMax: 2,
+    enemyCountMax: 3,
     // Longer route than the Sweep (5-tick legs vs 3): a deeper raid that costs more fuel (fuel is
     // DERIVED from the transit legs, fuel.ts). rollWindowTicks 12 comfortably holds maxWaves (3).
     transitOutTicks: 5,

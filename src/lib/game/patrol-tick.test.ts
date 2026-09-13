@@ -277,7 +277,15 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
 // hull under the new loadout (it lands at 538/600, the clearest bleed of the three candidates).
 // This is a FIXTURE re-tune, not an expectation change: relaxing the assertion to allow a full
 // hull would have turned an attrition test into a test that attrition is optional.
-const ATTRITION_SEED = 2;
+// ⚠️ RE-SEEDED 0.13.5 with the patrol retune. Seed 2 produced an attrition-then-win on the old
+// Warband; the retune (3 fixed waves, up to 3 enemies, an evened-out pool) turned seed 2 into a
+// DEFEAT, which would have made the cases below assert a win that no longer happens. Seed 1 is the
+// chosen by scanning 400 seeds for one that wins WITH wear on wave 1 AND wears further on wave 2,
+// rather than picked by trial: hull 600 -> 519 after wave 1 -> 297 after wave 2. That STRICTLY
+// DECREASING progression is what makes the monotonic-wear case below non-vacuous; several
+// otherwise-valid seeds (8, 47, 65, 75) wear on wave 1 and then hold flat, which satisfies the
+// assertion while proving nothing. Others with a real decrease: 78, 104, 136, 137, 163.
+const ATTRITION_SEED = 19;
 
 describe("a patrol runs, fights its waves, and resolves", () => {
   it("wins its waves with hull attrition, then ends in SUCCESS (mission null, ship intact)", () => {

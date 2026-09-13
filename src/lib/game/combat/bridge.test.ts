@@ -164,34 +164,35 @@ describe("combat hull default loadouts", () => {
 		});
 	}
 
-	it("destroyer flies its 2 fast default weapons with hull/shield from SHIP_TYPES", () => {
+	it("destroyer fills every hardpoint, with hull/shield from SHIP_TYPES", () => {
 		const c = bridgeHull("destroyer");
 		const def = SHIP_TYPES.destroyer;
 		expect(c.hull).toBe(def.hullIntegrity);
 		expect(c.hullMax).toBe(def.hullIntegrity);
 		expect(c.shield).toBe(def.shieldCapacity);
 		expect(c.shieldRecharge).toBe(def.shieldRecharge);
-		// 2 weapons from the default loadout, no drones.
-		expect(c.weapons.length).toBe(COMBAT_DEFAULT_LOADOUT.destroyer.weapons.length);
-		expect(c.weapons.length).toBe(2);
+		// ⚠️ 0.13.5 F5: EVERY hardpoint, not just the signature list, so this is derived rather
+		// than counted. A hull whose weaponHardpoints change moves this assertion with it.
+		expect(c.weapons.length).toBe(defaultWeaponsForHull("destroyer").length);
+		expect(c.weapons.length).toBe(SHIP_TYPES.destroyer.weaponHardpoints);
 		expect(c.drones).toEqual([]);
 		// Weapon instances are fresh (unique, combatant-scoped ids; own effect arrays).
 		expect(new Set(c.weapons.map((w) => w.id)).size).toBe(c.weapons.length);
 	});
 
-	it("battleship flies its 3 heavy default weapons and out-hulls the destroyer", () => {
+	it("battleship fills every hardpoint and out-hulls the destroyer", () => {
 		const c = bridgeHull("battleship");
 		const def = SHIP_TYPES.battleship;
 		expect(c.hull).toBe(def.hullIntegrity);
-		expect(c.weapons.length).toBe(3);
+		expect(c.weapons.length).toBe(SHIP_TYPES.battleship.weaponHardpoints);
 		expect(c.drones).toEqual([]);
 		// The tank really is tankier than the striker (sanity that profiles differ).
 		expect(c.hull).toBeGreaterThan(SHIP_TYPES.destroyer.hullIntegrity);
 	});
 
-	it("carrier flies 1 weapon + a default Attack drone squadron", () => {
+	it("carrier fills every hardpoint + a default Attack drone squadron", () => {
 		const c = bridgeHull("carrier");
-		expect(c.weapons.length).toBe(1);
+		expect(c.weapons.length).toBe(SHIP_TYPES.carrier.weaponHardpoints);
 		// The carrier's real offense is the drones: one Attack squadron by default.
 		expect(c.drones.length).toBe(1);
 		expect(c.drones[0].role).toBe("attack");
@@ -540,7 +541,7 @@ describe("shipToCombatant gear fold: Standard-Issue is BEHAVIOUR-PRESERVING", ()
 		expect(c.shieldMax).toBe(stats.shieldCapacity);
 		expect(c.shieldRecharge).toBe(stats.shieldRecharge);
 		// One CombatWeapon per installed weapon piece, in the hull's default loadout order.
-		expect(c.weapons.map((w) => w.weaponType)).toEqual([...COMBAT_DEFAULT_LOADOUT.destroyer.weapons]);
+		expect(c.weapons.map((w) => w.weaponType)).toEqual(defaultWeaponsForHull("destroyer"));
 		// Standard-Issue rolls no defensive affixes, so mitigation is all zero (the regression default).
 		expect(c.shieldCoherence).toBe(0);
 		expect(c.ablativeArmor).toBe(0);

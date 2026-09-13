@@ -136,13 +136,20 @@ function sumLoot(loots: WaveLoot[]): WaveLoot {
   return { materials, credits, captainXp, fleetAdminXp };
 }
 
-// The exact loot the two winning waves (indices 0 and 1) of a masterSeed yield, hand-derived
-// from the same salt/derivation the engine uses.
-function expectedTwoWaveLoot(masterSeed: number): WaveLoot {
-  return sumLoot([
-    rollWaveLoot(DEFAULT_PATROL_LOOT_TABLE, deriveWaveSeed(masterSeed, 0, WAVE_LOOT_SEED_SALT)),
-    rollWaveLoot(DEFAULT_PATROL_LOOT_TABLE, deriveWaveSeed(masterSeed, 1, WAVE_LOOT_SEED_SALT)),
-  ]);
+// The exact loot the winning waves of a masterSeed yield, hand-derived from the same
+// salt/derivation the engine uses.
+//
+// ⚠️ THE WAVE COUNT IS PASSED IN, NOT ASSUMED TO BE TWO (0.13.5). This was
+// `expectedTwoWaveLoot`, hardcoding indices 0 and 1, which was true only while the Sweep ran
+// exactly 2 waves. The F5 retune widened it to 2-3, so a seed that rolls three waves yields loot
+// from three and the hand-derived expectation silently under-counted. Reading the count from the
+// dispatched mission is what stops this drifting again the next time a patrol is retuned.
+function expectedWaveLoot(masterSeed: number, waveCount: number): WaveLoot {
+  return sumLoot(
+    Array.from({ length: waveCount }, (_, i) =>
+      rollWaveLoot(DEFAULT_PATROL_LOOT_TABLE, deriveWaveSeed(masterSeed, i, WAVE_LOOT_SEED_SALT))
+    )
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -263,11 +270,14 @@ describe("rewards on WIN only", () => {
 describe("loot lands in the right places (exact amounts)", () => {
   it("materials -> inventory, credits -> state.credits, captain XP -> captain, FA XP -> FA track", () => {
     const dispatched = dispatch(patrolState("destroyer", 3), false);
-    const masterSeed = patrolOf(dispatched)!.masterSeed;
-    const expected = expectedTwoWaveLoot(masterSeed);
+    const mission = patrolOf(dispatched)!;
+    const masterSeed = mission.masterSeed;
+    // The mission's OWN schedule decides how many waves are fought, so the expectation follows the
+    // patrol's tuning instead of a literal.
+    const expected = expectedWaveLoot(masterSeed, mission.waveTicks.length);
 
     const done = stepped(dispatched, ROUTE_LEN + 4);
-    expect(patrolOf(done)).toBeNull(); // both waves resolved, patrol done
+    expect(patrolOf(done)).toBeNull(); // every wave resolved, patrol done
 
     // MATERIALS: every expected item id landed at exactly its summed qty (delta from the
     // at-dispatch total, so a nonzero starting stock would not fool the assertion).
@@ -277,14 +287,21 @@ describe("loot lands in the right places (exact amounts)", () => {
     }
     // CREDITS: dispatch credits + the summed bounty (Dispatch Once => no relaunch fuel spend).
     expect(done.credits.toString()).toBe(dispatched.credits.plus(expected.credits).toString());
-    // CAPTAIN XP: exactly the summed per-wave captain XP (2 waves * 20 = 40, below
-    // xpForNextLevel(1)=300 so no level-up here; the level-up path is covered separately).
+    // CAPTAIN XP: exactly the summed per-wave captain XP, 20 per wave, still below
+    // xpForNextLevel(1)=300 so no level-up here; the level-up path is covered separately.
+    //
+    // ⚠️ 0.13.5: the total is now derived from the mission's OWN wave count rather than pinned at
+    // 40. The literal was a fair pin while the Sweep ran exactly 2 waves; the F5 retune made it
+    // 2-3, so a pinned 40 fails on any seed that rolls three. The PER-WAVE rate is what was
+    // actually worth pinning, and it is pinned here, so a change to the reward itself is still a
+    // deliberate edit while a change to the patrol's schedule is not a test failure.
+    const waveCount = mission.waveTicks.length;
     expect(done.captains[0].xp.equals(expected.captainXp)).toBe(true);
-    expect(expected.captainXp).toBe(40); // pins the first-pass amount so a retune is a deliberate edit
-    expect(done.captains[0].level).toBe(1); // no level-up at 40 XP
-    // FA XP: exactly the summed per-wave FA XP (2 * 10 = 20, below xpForNextFleetAdminLevel(1)).
+    expect(expected.captainXp).toBe(20 * waveCount);
+    expect(done.captains[0].level).toBe(1); // still short of a level-up
+    // FA XP: exactly the summed per-wave FA XP, 10 per wave, below xpForNextFleetAdminLevel(1).
     expect(done.fleetAdminXp.equals(expected.fleetAdminXp)).toBe(true);
-    expect(expected.fleetAdminXp).toBe(20);
+    expect(expected.fleetAdminXp).toBe(10 * waveCount);
     expect(done.fleetAdminLevel).toBe(1);
     // LIFETIME STATS record the SAME reward at the SAME exact amounts (mirrors extraction):
     // itemsGathered per material, creditsEarned = bounty, captain/FA XP awarded = the gross sums.
@@ -305,12 +322,21 @@ describe("loot lands in the right places (exact amounts)", () => {
       ...dispatched,
       captains: [{ ...cap, xp: new Decimal(290), level: 1, statPoints: 0 }],
     };
+    const waveCount = patrolOf(primed)!.waveTicks.length;
     const done = stepped(primed, ROUTE_LEN + 4);
     const after = done.captains[0];
-    // 290 + 40 (two waves) = 330; crosses 300 once => level 2, 30 carried, +1 stat point.
+    // ⚠️ 0.13.5: the carried remainder is DERIVED from the wave count, not pinned at 30. The Sweep
+    // now runs 2-3 waves, so the awarded XP is 20 per wave and 290 + that crosses 300 by a
+    // different margin depending on the seed's schedule. What this case is actually about is the
+    // LEVEL-UP MACHINERY running on patrol XP (one crossing, correct carry, one stat point), and
+    // all three of those still hold exactly.
+    const carried = 290 + 20 * waveCount - 300;
     expect(after.level).toBe(2);
-    expect(after.xp.equals(30)).toBe(true);
+    expect(after.xp.equals(carried)).toBe(true);
     expect(after.statPoints).toBe(1);
+    // The premise still has to hold, or the case would pass vacuously on a schedule that never
+    // crossed the threshold at all.
+    expect(290 + 20 * waveCount).toBeGreaterThan(300);
   });
 });
 
