@@ -15105,7 +15105,7 @@
                 <span class="home-sec-count">{dashboardModel.recentlyCompleted.length}</span>
                 <span class="home-sec-rule"></span>
               </div>
-              <div class="home-prog">
+              <div class="home-prog home-prog-done">
                 {#each visibleDoneRows as row (row.id)}
                   <!-- ⚠️ THE CHEVRON EXPANDS, THE ROW STILL JUMPS, and they are SIBLING buttons
                        rather than nested ones. These rows already navigated, so "tap to expand"
@@ -18412,14 +18412,28 @@
   /* ============================================================================
      RECENTLY COMPLETED, compact rows (0.13.5, from the approved mockup)
      ============================================================================ */
+  /* ⚠️ THE BORDER BELONGS TO THE OUTER ROW, NOT THE INNER BUTTON (fixed 2026-09-13).
+     Shipped the other way round: .home-row carried the border and the chevron sat beside it as a
+     sibling, so the chevron rendered OUTSIDE the panel it expands, which is what the user saw. The
+     container owns the frame; the button and the chevron are both INSIDE it. */
   .done-row {
     /* The 6px rhythm the settings sections were asked to match. This is the original. */
     margin-bottom: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-panel-bg-strong);
+    /* ⚠️ Own stacking context, so an expanded row's detail cannot paint over its neighbour. */
+    position: relative;
   }
   .done-head {
     display: flex;
     align-items: stretch;
     gap: 0;
+  }
+  /* The inner button drops its own frame and background: the container has them now, and two
+     nested borders is exactly the "lines that should not be there" the user reported. */
+  .done-row .home-row {
+    border: none;
+    background: none;
   }
   .done-main {
     flex: 1;
@@ -18489,8 +18503,12 @@
   .done-detail-inline {
     color: var(--color-text-secondary);
   }
+  /* ⚠️ The detail sits INSIDE the row's frame now (the border moved to .done-row above), so this
+     only needs its own separating rule and padding. The old left indent lined the labels up under
+     the summary text, which on a phone read as a stray vertical line hanging off the row; a plain
+     even padding is what the mockup actually showed. */
   .done-detail {
-    padding: var(--space-3) var(--space-4) var(--space-4) calc(68px + var(--space-6));
+    padding: var(--space-3) var(--space-4) var(--space-4);
     border-top: 1px solid var(--color-border);
   }
   /* The labelled readout. A real <dl>, because that is what a list of term/value pairs IS, and it
@@ -19677,6 +19695,20 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 7px;
   }
+  /* ⚠️ THE COMPLETED GRID NEEDS TWO THINGS THE IN-PROGRESS GRID DOES NOT (fixed 2026-09-13).
+     Its rows EXPAND, and a CSS grid stretches every cell in a row to the tallest one by default,
+     so opening a row on the left grew the untouched row on its right to match. `align-items:
+     start` lets each cell keep its own height, which is what the user asked for: only the one
+     being opened should grow.
+
+     And "show more history" was landing in ONE CELL, so on desktop it sat under half the board.
+     Spanning every column makes it a footer for the section rather than an entry in it. */
+  .home-prog-done {
+    align-items: start;
+  }
+  .home-prog-done > .done-more {
+    grid-column: 1 / -1;
+  }
   /* Mobile: one column. 560px matches the app's other narrow-layout breakpoints
      (see UpdateBanner), so a phone (~375px) always gets the single-column stack. */
   @media (max-width: 560px) {
@@ -19691,7 +19723,9 @@
     padding: 9px 11px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    /* SQUARE (user, 2026-09-13). Every other surface in this console is square; the rounded
+       corner here was the one place the board disagreed with itself. */
+    border-radius: 0;
     font: inherit;
     color: inherit;
     text-align: left;
@@ -19758,10 +19792,12 @@
      running one at a glance without a second row shape.
      Tints are color-mix on the theme tokens (locked design system: no new -rgb
      triplet tokens), so both themes re-hue automatically. */
-  .home-row-done { border-left: 2px solid color-mix(in srgb, var(--color-success) 55%, transparent); }
+  /* ⚠️ THE GREEN LEFT ACCENT WAS REMOVED (user, 2026-09-13). It marked a row as "finished", but the
+     section is already titled RECENTLY COMPLETED, so the stripe restated the heading on every row
+     and added a second accent colour to a board that otherwise speaks in one. */
   /* The green edge is the row's IDENTITY, so it survives hover (both .home-row:hover and
      .home-row-static:hover reset border-color on all four sides). */
-  .home-row-done:hover { border-left-color: color-mix(in srgb, var(--color-success) 55%, transparent); }
+
   /* The manifest: reward chips wrap onto as many lines as they need, so a long
      salvage recovery never forces horizontal scroll at 320px. */
   .home-done-rewards {
