@@ -463,6 +463,91 @@ splitting the presentation, which is the standing rule for this release.
 
 ---
 
+## PHASE 3 BRIEF 4: COLLAPSIBLE RECENTLY-COMPLETED ROWS (user idea, 2026-09-12)
+
+⚠️ **THE HOME DASHBOARD'S RECENTLY COMPLETED SECTION, not System > Log.** The user clarified this
+explicitly, and the distinction decides everything below: the System log is a list of plain strings
+with no structure to expand into, while these rows are already structured records. Same words, two
+completely different amounts of work.
+
+**The idea:** a compact ONE-LINE default that expands on tap.
+
+```
+COMPACT     10:09 PM: 100 fuel refined over 00:10
+
+EXPANDED    Entry Source:  Fuel Depot
+            Action:        100 fuel refined
+            Time Elapsed:  00:10
+            When:          20h ago (11:09 PM)
+```
+
+The user's stated reason: *"it would cut the amount of space the log takes up by a lot, but allows
+the user to tap/click and read into it more if needed."*
+
+### ⚠️ FINDING: THE DATA IS ALREADY THERE. THIS IS PRESENTATION ONLY.
+
+`CompletionRow` (homeDashboard.ts) already carries every field the expanded view asks for, as
+structured data rather than a formatted string:
+
+| Expanded label | Existing field |
+|---|---|
+| Action | `primaryLabel` ("Refined, Titanium Ingot") plus `secondaryLabel` ("40 runs", "Level 3") |
+| Time Elapsed | `elapsedMs`, rendered through the shared `durationReadout` so it already honours the tick-count preference |
+| When | `atMs`, rendered by `completionAtText` against the live clock, so the age keeps counting up rather than freezing at first paint |
+| (the manifest) | `rewards`, `creditsAmount`, `fuelAmount`, each already rarity-coloured |
+| **Entry Source** | ⚠️ **THE ONE GAP.** There is no source field. `icon` implies it and `primaryLabel` often contains it, but "Fuel Depot" as a NAMED value does not exist yet. |
+
+So the build is a row component plus one new resolver field, not a data-model change. **Entry Source
+is worth adding on its own merits** regardless of this brief: the board currently makes the player
+infer which facility did something from a glyph.
+
+### ⚠️ THE REAL DESIGN PROBLEM: TAP ALREADY MEANS SOMETHING
+
+`CompletionRow.jumpTarget` exists, and a row with one renders as a `<button>` that NAVIGATES to the
+facility. A row without one renders as a plain `<div>`. So "tap to expand" collides with a gesture
+that is already assigned, on exactly the rows a player is most likely to tap.
+
+Three ways out, to be settled at the mockup rather than in code:
+
+| Option | How it reads |
+|---|---|
+| **A chevron expands, the row still navigates** (recommended) | Matches brief 3's answer to the same question about the header, and keeps the existing behaviour intact. The affordance is visible, which is the standing preference. |
+| **Tap expands, a button inside the expanded view navigates** | The expanded view has room for a real labelled "Open Fuel Depot" control, which is clearer than an invisible whole-row target. But it costs an extra tap to reach a facility, and that jump exists to SAVE taps. |
+| **Tap expands, drop the jump** | Simplest, and loses a feature that was deliberately added. Not recommended. |
+
+⚠️ Whichever wins, **the plain-record rows (`jumpTarget: null`) and the navigable ones must expand
+the same way.** They share `doneRowBody` today precisely so the two variants cannot drift, and that
+property is worth keeping.
+
+### THE PATTERN IS NOW REPEATING, WHICH IS AN ARGUMENT FOR BUILDING IT ONCE
+
+This is the SECOND compact-by-default, expand-for-detail request in a day (brief 3, the collapsible
+header), and the Ships roster already does something adjacent. That is a sign it should be one
+interaction the player learns once, not three similar ones:
+
+- the same chevron affordance and placement,
+- the same animation (and the same reduced-motion behaviour: after the D5 bug, any new expand must
+  be checked against BOTH reduced-motion entry points, not just the OS one),
+- the same persistence answer (per-device, localStorage, per the release's storage rule),
+- ⚠️ and the same decision about whether expanding pushes content down or overlays it. On a scrolling
+  list of rows, pushing is the honest behaviour; an overlay would cover the neighbouring rows the
+  player is scanning.
+
+### What the mockup must answer
+
+1. The compact line's exact content. The user's example leads with a clock time ("10:09 PM: 100 fuel
+   refined over 00:10"), while the current row leads with AGE ("7h ago") because a QA finding
+   established that this section's job is answering "what did I miss while I was away". ⚠️ **Those two
+   orderings serve different questions and the compact line only has room for one.** Worth deciding
+   deliberately rather than inheriting either.
+2. Whether the reward manifest survives into the compact line, or is expansion-only. It is the most
+   space-hungry part and also the part players most want at a glance.
+3. How many rows the section shows once they are one line each. Compacting buys room for MORE
+   history, which may be the larger win: the current limit was chosen against tall rows.
+4. Whether expanding one row collapses the others (accordion) or they stack independently.
+
+---
+
 ## PHASES 2 TO 6
 
 Designed after phase 1 lands, so the mockups (phase 3) can react to what the token layer actually looks like on screen rather than to a description of it. The scope document holds their contents and ordering.
