@@ -123,6 +123,65 @@ npm run build                 # the production bundle compiles
 
 ---
 
+## ✅ MOCKUPS APPROVED (user, 2026-09-12). THE BUILD SPEC IS `2026-09-12-presentation-0.13.5-approved-mockup.html`.
+
+Three revisions, sixteen questions, all settled. **The interactive mockup in this folder is the
+reference the build follows**; the briefs below explain WHY each thing is the way it is, but where
+the two ever differ, the mockup wins. Artifact copy: https://claude.ai/code/artifact/ac3f2583-fcbd-4229-b696-0eb9ef816a70
+
+### The settled decisions, in one place
+
+**HEADER (briefs 1 + 3)**
+- Compact is the default and **keeps the EXP bar** (a short bar plus the number, not numbers alone).
+- Expanding **PUSHES**, taking vertical space from the main pane while open. Not an overlay.
+- A **chevron** expands it, not tap-anywhere: the bar holds the portrait and the gear, and
+  tap-anywhere would swallow both.
+- **Desktop defaults to expanded** with the rows two-up. Same component, different default.
+- The state is **remembered per device** (localStorage, per the release's storage rule).
+- ⭐ **The credits and fuel chips become a CURRENCY BUTTON and a FUEL BUTTON**, each with its own
+  popup (user, revision 2). ⚠️ Two buttons rather than one merged list, because **fuel is not a
+  currency** and there will be several of each; one list would file two kinds of thing under one
+  wrong label. Each button's face shows the favourited total; ★ in the popup marks what appears on
+  the face, which is the hook the favourite-a-currency idea plugs into with no extra structure.
+- The **gear** is a square peer control beside the portrait, same size, opening System on Settings.
+- **Crafting level** is amber, so it reads as a sibling of FA level rather than a duplicate.
+
+**SETTINGS (brief 2)**
+- Section layout: caps title, **the divider stays**, bold labels, **6px gaps** between sections
+  (matching the Recently Completed rhythm).
+- Every description moves into a **`?` floating tooltip**: hover on a pointer, **tap on touch**,
+  dismissed by moving off or tapping away. ⚠️ It opens **below-left, anchored to the row**, so it
+  never covers the control it describes, and it **FLIPS ABOVE** when it would otherwise fall below
+  the fold (user: "as long as the tooltip doesn't appear below the visible screen"). A help bubble
+  you have to scroll to find is worse than none, because you do not know it is there.
+- Control vocabulary: **toggle for a feature that can be OFF, dropdown for a value picked from a
+  list** (even a two-item list), checkboxes for a set.
+- The **square toggle**: 44x22, squared corners, knob glowing in the accent token. ⚠️ A real
+  `role="switch"` with `aria-checked`, keyboard activation and a focus ring. ⚠️ Its OFF state uses
+  the **dim** text token, never `--color-text-disabled`: an off toggle is fully interactive, and
+  that token means "you cannot use this".
+- **Auto-salvage quality stays a THRESHOLD dropdown** for 0.13.5 (user), pending their rework of how
+  quality is expressed. No save migration this release. Its `?` carries both the "off is not the
+  same as Q0 and below" explanation and the "your values are kept when a rule is switched off" note.
+- Progressive disclosure **must not reset hidden values**.
+
+**RECENTLY COMPLETED (brief 4)**
+- Compact one-liner: `time · Verb: Item × N`. **Clock time in the player's own timezone**, in a
+  **fixed-width 68px column** so the dot and summary start at the same x on every row.
+- **Duration moves to the expanded view.** Dropping "over mm:ss" is what buys the alignment.
+- ⚠️ **Age survives in the expanded "When" line** ("20h ago (11:09 PM)"), so the "what did I miss
+  while away" answer is demoted rather than lost.
+- Expanded view is a labelled list: Entry source / Action / Time elapsed / When, plus a labelled
+  jump button. ⚠️ **Entry source is the ONE new field**; everything else is an existing
+  `CompletionRow` property.
+- **A chevron expands and the row KEEPS its jump.** Losing the one-tap jump would remove a feature
+  that exists to save taps.
+- Rows expand **independently**, not as an accordion.
+- **A "show more history" toggle**, off by default, keeping the current limit until switched on,
+  with **symmetric divider and spacing above AND below it** once expanded.
+
+---
+
 ## PHASE 3 BRIEF: THE HEADER REDESIGN (added 2026-09-12, user)
 
 Phase 3 is the mockup phase, and this is its first concrete subject. Recorded now, while the
