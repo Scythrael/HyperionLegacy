@@ -15118,22 +15118,31 @@
                 {@render needsPromptButton(dashboardModel.needsOrders[0])}
               </div>
             {:else if dashboardModel.needsOrders.length > 1 && !needsExpanded}
-              <!-- COLLAPSED: a compact, DISPLAY-ONLY ticker (NOT a tap target) that rotates
-                   through the prompts, plus a STATIONARY "Show all" toggle that reveals the
-                   real, actionable buttons. The {#key} remount restarts the fade each change
-                   (the fade is disabled under prefers-reduced-motion by the CSS media query,
-                   matching the frozen index the ticker interval holds in that case). -->
+              <!-- COLLAPSED: a compact ticker that rotates through the prompts, plus a STATIONARY
+                   "Show all" toggle that reveals the full list.
+
+                   ⚠️ THE TICKER IS ACTIONABLE NOW (0.13.5, user). It was deliberately DISPLAY-ONLY,
+                   on the reasoning that a moving tap target invites mis-taps. The user overruled
+                   that with a better argument: "it can be useful and doesn't require expansion to
+                   be useful... If you just want to go through each thing that appears there
+                   one-by-one. Tap, set, tap, set. All green." Expansion is then for CHOOSING what to
+                   do next, and the ticker is for working through the queue without choosing. A
+                   display-only ticker made the collapsed state a advertisement for the expanded one.
+
+                   ⚠️ IT RENDERS THE SAME needsPromptButton SNIPPET the expanded list does, rather
+                   than a copy of its markup. That is what makes "the collapsed item goes to the
+                   same place as the expanded one" true BY CONSTRUCTION rather than by two call
+                   sites agreeing, which is the same discipline doneRowBody and homeRowBody already
+                   use for exactly this reason.
+
+                   The {#key} remount restarts the fade each change (disabled under reduced motion
+                   by the CSS media query, matching the frozen index the ticker interval holds). -->
               <div class="home-ticker-wrap">
                 <div class="home-ticker">
                   {#if needsTickerPrompt !== null}
                     {#key needsTickerPrompt.id}
                       <div class="home-ticker-item">
-                        <span class="home-pulse" aria-hidden="true"></span>
-                        <span class="home-ico" aria-hidden="true">{homeIconGlyph(needsTickerPrompt.icon)}</span>
-                        <span class="home-prompt-txt">
-                          <span class="home-l1">{needsTickerPrompt.label}</span>
-                          {#if needsTickerPrompt.detail !== null}<span class="home-prompt-detail">{needsTickerPrompt.detail}</span>{/if}
-                        </span>
+                        {@render needsPromptButton(needsTickerPrompt)}
                       </div>
                     {/key}
                   {/if}
@@ -19141,6 +19150,11 @@
     border-radius: 8px;
     overflow: hidden;
   }
+  /* ⚠️ The ticker item now WRAPS the shared prompt button rather than duplicating its markup
+     (0.13.5). The wrapper keeps the fade; the button inside it drops its own surface, because
+     .home-ticker already paints the amber panel and a nested second one would read as a box in a
+     box. Everything else about the button (pulse, icon, text, Go arrow, hit target) is inherited
+     unchanged, which is the point of sharing it. */
   .home-ticker-item {
     display: flex;
     align-items: center;
@@ -19151,6 +19165,12 @@
        giving a soft crossfade-in without importing a Svelte transition. Killed under
        prefers-reduced-motion below. */
     animation: home-ticker-in 0.4s ease-out;
+  }
+  .home-ticker-item .home-prompt {
+    background: none;
+    border: none;
+    padding: 0;
+    width: 100%;
   }
   @keyframes home-ticker-in {
     from { opacity: 0; transform: translateY(4px); }

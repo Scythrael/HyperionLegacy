@@ -47,6 +47,7 @@ import {
   ITEMS,
   BLUEPRINTS,
   SHIP_TYPES,
+  type ShipSpec,
   FACILITIES,
   FACTIONS,
   MISSIONS,
@@ -324,6 +325,38 @@ export interface HomeDashboardModel {
 // shieldCapacity), and assignedCaptainId on the ship is the single source of truth for
 // assignment (model.ts ShipInstance note). Returns null if no ship is assigned (the
 // bars then read 0, mirroring App.svelte:8107-8110's 0-max guard).
+// ---------------------------------------------------------------------------
+// WHERE AN IDLE CAPTAIN'S TAP LANDS (0.13.5, user)
+// ---------------------------------------------------------------------------
+
+// Where tapping an idle captain takes you, decided by the SHIP they are flying.
+//
+// ⚠️ EXHAUSTIVE over ShipSpec, so adding a hull specialisation without deciding where its idle
+// captains route is a COMPILE ERROR rather than a tap that silently goes somewhere wrong. Same
+// discipline as QUEUE_ADAPTERS, PROCESS_XP_AWARDS and ICON_SEMANTICS.
+//
+// ⚠️ EXPLORER IS A REAL, DELIBERATE PLACEHOLDER, not an oversight. The spec already exists in the
+// data model, but exploration MISSIONS do not ship until 0.15.0, so there is no exploration
+// destination to name. Pointing it at a JumpTarget that does not exist would break the nav; adding
+// an "exploration" member to the JumpTarget union with nowhere to land would be worse, because that
+// union's members are promises that a destination exists. So the placeholder lives HERE, in the
+// mapping, where it is one line to change when 0.15.0 lands and where this comment is sitting right
+// next to the line that has to change.
+const IDLE_JUMP_BY_SPEC: Record<ShipSpec, JumpTarget> = {
+  // Prospector hulls exist to gather. Their captains belong on the gathering board.
+  prospector: "gathering",
+  // A general hull can take gathering work, which is the primary income path and therefore the
+  // most useful default for a hull with no specialisation.
+  general: "gathering",
+  // Tactician hulls patrol. ⚠️ This is the arm the old single prompt got wrong: an idle Destroyer
+  // used to be sent to the gathering board whenever ANY other idle captain could gather.
+  tactician: "combat",
+  // ⚠️ 0.15.0: becomes "exploration" when exploration missions ship. Until then an explorer hull
+  // can still take gathering work, so this lands somewhere useful rather than nowhere.
+  explorer: "gathering",
+};
+
+
 function shipForCaptain(state: GameState, captainId: number): ShipInstance | null {
   return state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
 }
@@ -747,30 +780,48 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // combat-only hull), so a freighter never pays the patrol scan.
   const missionKeys = Object.keys(MISSIONS) as MissionKey[];
   const patrolKeys = Object.keys(PATROLS) as PatrolKey[];
-  let dispatchableCaptains = 0;
-  let anyGathering = false; // any idle captain that can start a GATHERING mission
+  const idleCaptains: { captainId: number; captainLabel: string; shipLabel: string | null; spec: ShipSpec }[] = [];
   for (const captain of state.captains) {
     const canGather = missionKeys.some((k) => canDispatch(state, captain.id, k).ok);
     const canPatrol = canGather
       ? false
       : patrolKeys.some((k) => canDispatchPatrol(state, captain.id, k).ok);
-    if (canGather || canPatrol) {
-      dispatchableCaptains += 1;
-      if (canGather) anyGathering = true;
-    }
+    if (!canGather && !canPatrol) continue;
+    // ⚠️ The SHIP's spec, not the captain's. A captain has no type of their own; what they can
+    // usefully be sent to do is a property of the hull they are flying. A captain with no ship
+    // cannot be dispatched at all, so the gate above has already excluded them, but the fallback
+    // keeps this total rather than throwing on a state that should be unreachable.
+    const ship = shipForCaptain(state, captain.id);
+    idleCaptains.push({
+      captainId: captain.id,
+      captainLabel: captain.label,
+      shipLabel: ship === null ? null : shipDisplayName(ship),
+      spec: ship === null ? "general" : (SHIP_TYPES[ship.typeKey]?.spec ?? "general"),
+    });
   }
-  if (dispatchableCaptains > 0) {
+
+  // ⚠️ ONE PROMPT PER CAPTAIN (0.13.5, user). NOT one for the fleet, and NOT one per ship spec.
+  //
+  // Two things were wrong with the single aggregate it replaces. It routed EVERY idle captain to one
+  // destination, chosen by "does any idle captain have a gathering mission available, else combat",
+  // so an idle Destroyer beside an idle Hauler sent you to the gathering board for both and the
+  // Destroyer's tap landed on a screen it cannot be dispatched from. And it collapsed N pieces of
+  // outstanding work into one line, so clearing it told you nothing about what was left.
+  //
+  // ⚠️ I FIRST BUILT THIS GROUPED BY SHIP SPEC, to keep the NEEDS YOUR ORDERS counter small. The
+  // user chose individual, and the workflow they described is why it is the right call: tap, set,
+  // tap, set, all green. Each prompt is a unit of work you clear and watch disappear. A fleet with
+  // ten idle captains genuinely HAS ten things needing orders, so a counter reading ten is honest;
+  // grouping would have hidden the count to protect a number that was never the point.
+  for (const entry of idleCaptains) {
     prompts.push({
-      id: "idle-captain",
+      id: `idle-captain-${entry.captainId}`,
       icon: "dispatch",
-      label:
-        dispatchableCaptains === 1
-          ? "A captain is awaiting orders"
-          : `${dispatchableCaptains} captains are awaiting orders`,
-      detail: null,
-      // Route to gathering when ANY idle captain can gather (the primary income path); fall
-      // to combat only when no idle captain can gather but at least one can patrol.
-      jumpTarget: anyGathering ? "gathering" : "combat",
+      // The CAPTAIN by name, because the prompt is now about one person and their ship. That is
+      // also what makes the tap-set-tap-set loop legible: you can see which one you just cleared.
+      label: `${entry.captainLabel} is awaiting orders`,
+      detail: entry.shipLabel,
+      jumpTarget: IDLE_JUMP_BY_SPEC[entry.spec],
     });
   }
 

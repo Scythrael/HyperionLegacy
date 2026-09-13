@@ -126,6 +126,21 @@ respec, captain-aboard salvage) are excluded because they have no toggle at all:
 "Stop asking" would mean BUILDING a way to skip them, which is new behaviour rather than a reorg.
 **Tell me if you want either group built out** and they are a data addition plus a gate each.
 
+## I. Home board: idle captains and the ticker (added 2026-09-12)
+
+| # | Step | Expected |
+|---|---|---|
+| ✅ I1 | Leave two or more captains idle, flying DIFFERENT hull types (at least one combat hull). | **NEEDS YOUR ORDERS shows one prompt per captain**, named after them, with their ship on the detail line. Previously it was a single "3 captains are awaiting orders" line. |
+| ✅ I2 | Tap the prompt for a captain flying a **combat hull**. | Lands on **Operations > Combat**. ⚠️ Previously an idle Destroyer was sent to the gathering board whenever any *other* idle captain could gather, which is a screen it cannot be dispatched from. |
+| ✅ I3 | Tap the prompt for a captain flying a **prospector or freighter hull**. | Lands on **Operations > Gathering**. |
+| I4 | With several prompts, leave the board COLLAPSED and **tap the rotating ticker item**. | ⚠️ **It is a tap target now.** It goes to the same place the expanded row would, because it renders the same button. Previously the ticker was display-only and you had to expand first. |
+| I5 | Work the loop: tap the ticker, give that captain orders, come back. | The prompt is gone and the counter has dropped by one. Tap, set, tap, set, all green. |
+| I6 | Expand the list with several idle captains. | Each captain is their own row; no aggregate line remains. |
+
+⚠️ **An explorer hull routes to Gathering today.** Exploration missions do not exist until 0.15.0, so
+there is no exploration destination to point at. The arm EXISTS in the mapping (adding the real
+target is one line), which is the placeholder bucket you asked for.
+
 ## E. Your judgement, not pass/fail
 
 | # | Question |

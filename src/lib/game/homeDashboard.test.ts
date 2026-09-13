@@ -319,13 +319,84 @@ function promptById(model: ReturnType<typeof buildHomeDashboard>, id: string) {
 describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
   it("surfaces the captain-dispatch prompt for a fresh admiral (idle captain + full tank), not caught up", () => {
     // freshState: captain 1 is idle, flies the seeded General Freighter, and the tank is
-    // full, so a gathering mission is dispatchable. That one actionable slot must produce
-    // the aggregate captain prompt routed to gathering, and the board is NOT caught up.
+    // full, so a gathering mission is dispatchable.
+    // ⚠️ 0.13.5: the prompt id carries the CAPTAIN ID now ("idle-captain-1"), because every
+    // dispatchable idle captain gets their own prompt rather than being pooled into one
+    // fleet-wide line. A General Freighter is spec "general", which routes to gathering.
     const model = buildHomeDashboard(freshState());
-    const captain = promptById(model, "idle-captain");
+    const captain = promptById(model, "idle-captain-1");
     expect(captain).toBeDefined();
     expect(captain!.jumpTarget).toBe("gathering");
     expect(model.allCaughtUp).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // 0.13.5: an idle captain's tap is routed by the SHIP THEY FLY.
+  //
+  // ⚠️ THE BUG THIS REPLACES, stated so nobody "simplifies" it back: the old single prompt chose
+  // ONE destination for the whole fleet, "gathering if ANY idle captain can gather, else combat".
+  // So an idle Destroyer alongside an idle Hauler sent you to the gathering board for both, and
+  // the Destroyer's tap landed on a screen it cannot be dispatched from.
+  // -------------------------------------------------------------------------
+  describe("idle captains are INDIVIDUAL prompts routed by their ship's spec", () => {
+    it("gives each dispatchable idle captain their OWN prompt, named after them", () => {
+      // ⚠️ The workflow this serves (user): tap, set, tap, set, all green. Each prompt is one unit
+      // of work that disappears when cleared, which an aggregate cannot express.
+      const model = buildHomeDashboard(freshState());
+      const idle = model.needsOrders.filter((p) => p.id.startsWith("idle-captain-"));
+      expect(idle.length).toBe(1);
+      expect(idle[0].id).toBe("idle-captain-1");
+      expect(idle[0].label).toContain("awaiting orders");
+      // The captain's own name leads, so you can see which one you just cleared.
+      expect(idle[0].label).toContain(freshState().captains[0].label);
+    });
+
+    it("⚠️ a tactician hull's captain routes to COMBAT while a freighter's routes to GATHERING", () => {
+      // THE EXACT BUG THIS REPLACES. The old single prompt picked ONE destination for the whole
+      // fleet ("gathering if ANY idle captain can gather, else combat"), so this mixed fleet sent
+      // you to the gathering board for both and the Destroyer's tap landed on a screen it cannot
+      // be dispatched from.
+      const base = freshState();
+      const mixed = {
+        ...base,
+        ships: [
+          ...base.ships,
+          { ...base.ships[0], id: "ship-destroyer", typeKey: "destroyer" as const, assignedCaptainId: 2 },
+        ],
+        captains: [...base.captains, { ...base.captains[0], id: 2, label: "Second" }],
+      };
+      const model = buildHomeDashboard(mixed);
+      const byId = (id: string) => model.needsOrders.find((p) => p.id === id);
+      expect(byId("idle-captain-2")?.jumpTarget, "the tactician hull").toBe("combat");
+      expect(byId("idle-captain-1")?.jumpTarget, "the freighter").toBe("gathering");
+    });
+
+    it("carries the SHIP as the prompt's detail line, so the routing is explicable", () => {
+      const model = buildHomeDashboard(freshState());
+      const idle = model.needsOrders.find((p) => p.id === "idle-captain-1");
+      expect(idle?.detail).not.toBeNull();
+    });
+
+    it("⚠️ every ship spec has a destination, so a new hull type cannot route nowhere", () => {
+      // The mapping is an exhaustive Record over ShipSpec, so a missing arm is a compile error.
+      // This asserts the RUNTIME half: each spec resolves to a target the nav actually knows.
+      // ⚠️ explorer is a deliberate 0.15.0 placeholder pointing at gathering, NOT an oversight:
+      // exploration missions do not exist yet, so there is no exploration destination to name.
+      const base = freshState();
+      for (const [typeKey, expected] of [
+        ["generalFreighter", "gathering"],
+        ["prospectorHauler", "gathering"],
+        ["destroyer", "combat"],
+      ] as const) {
+        const st = {
+          ...base,
+          ships: [{ ...base.ships[0], typeKey, assignedCaptainId: 1 }],
+        };
+        const model = buildHomeDashboard(st);
+        const idle = model.needsOrders.find((p) => p.id === "idle-captain-1");
+        expect(idle?.jumpTarget, `${typeKey} should route to ${expected}`).toBe(expected);
+      }
+    });
   });
 
   it("produces NO prompt anywhere and reports caught up when nothing is actionable", () => {
