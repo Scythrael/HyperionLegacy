@@ -20148,6 +20148,11 @@
        ARE these classes; scoping it to Facilities would mean forking the fill into a second
        class whose only difference is respecting an accessibility setting. */
     .research-bar-fill,
+    /* 0.13.5 header rebuild: the EXP and CRAFT header bars are the same kind of width-animating
+       progress fill (their width slides over one tick as XP/craft accrues), so they belong here
+       too, or the rebuilt header would animate against the stated preference the rest of this rule
+       just fixed. The header TICK bar uses .tick-bar-fill and is already covered below. */
+    .tb-bar > i,
     /* ⚠️ 0.13.5: the ANIMATION is disabled too, not just the transition. With it off, the inline
        width from the polled progress applies, which is the pre-0.13.5 behaviour: a bar that steps
        rather than sweeps. That is genuinely less motion, which is the point of this query, and it
