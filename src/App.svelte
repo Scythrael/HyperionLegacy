@@ -53,6 +53,8 @@
   // structured topics, rendered verbatim like PATCH_NOTES (no markdown).
   import { HELP_TOPICS } from "./lib/helpTopics";
   import {
+    autoSalvageHasAnyRule,
+    normalizeAutoSalvageQualities,
     freshState,
     specCards,
     // Radial Skill Web (Task 15), the 5 homeworld-category cards shown by the
@@ -4923,9 +4925,12 @@
   // reads as the opt-in default (disabled, no quality rule, no duplicates), never as an
   // enabled rule set, because the failure direction that costs a player their gear is the
   // one where a missing field turns a destructive automation ON.
+  // ⚠️ 0.13.5: `qualities: []` is the all-off value, and under the FILTER model that is only safe
+  // because of the all-empty guard in selectAutoSalvageTargets. An empty axis alone would
+  // otherwise mean "does not narrow", i.e. everything.
   const AUTO_SALVAGE_RULES_OFF: AutoSalvageRules = {
     enabled: false,
-    maxQuality: null,
+    qualities: [],
     duplicates: false,
     keepPerVariety: 1,
     // 0.13.3.1: no rarity band selected (the third rule OFF, same opt-in posture as the other
@@ -4995,37 +5000,30 @@
   // disagree about how many tiers exist.
   $: autoSalvageAllTiers = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
 
-  // Is ANY rule actually selected? The master switch alone does nothing: with no quality
-  // rule and no duplicates rule, an enabled feature is a no-op, and the panel has to be
-  // able to say so rather than leaving the player waiting for something that will never
-  // happen.
+  // Is ANY rule actually selected? The master switch alone does nothing: with nothing ticked on
+  // any axis, an enabled feature is a no-op, and the panel has to be able to say so rather than
+  // leaving the player waiting for something that will never happen.
   //
-  // ⚠️ `maxQuality !== null`, NEVER a truthiness test. maxQuality 0 is a REAL setting
-  // ("Q0 and below", the most useful one for clearing loot clutter) and null is the only
-  // value that means "rule off". `if (rules.maxQuality)` would silently treat the most
-  // common setting as no rule at all.
-  //
-  // 0.13.3.1: the RARITY rule counts as a rule for exactly the same reason the other two do,
-  // so a player who selects only rarity bands is not told "no rule is chosen".
-  $: autoSalvageHasRule =
-    autoSalvageRules.maxQuality !== null || autoSalvageRules.duplicates || autoSalvageRarityOn;
+  // ⚠️ 0.13.5: this is now load-bearing for SAFETY, not only for the message. Under the filter
+  // model "nothing ticked" would narrow nothing and therefore match the entire spare pool, so the
+  // engine guards on exactly this predicate before filtering. Console and engine share it.
+  $: autoSalvageHasRule = autoSalvageHasAnyRule(autoSalvageRules);
 
-  // WHICH quality tiers the selected rules can REACH, before the confirm interlock is
-  // applied. The duplicates rule is quality-blind (it ranks a variety and queues the
-  // losers whatever their tier), so it reaches every tier; the max-quality rule reaches
-  // 0..maxQuality. Selected together they union to every tier, which the duplicates arm
-  // already covers.
+  // WHICH quality tiers the selected rules can REACH, before the confirm interlock is applied.
   //
-  // 0.13.3.1: the RARITY rule is quality-blind in exactly the same way the duplicates rule is
-  // (it selects by band, whatever the piece's tier), so it too reaches every tier. Folded into
-  // the same first branch rather than given its own, because "reaches everything" is one fact
-  // however many quality-blind rules produce it.
-  $: autoSalvageReachedTiers =
-    autoSalvageRules.duplicates || autoSalvageRarityOn
-      ? autoSalvageAllTiers
-      : autoSalvageRules.maxQuality !== null
-        ? autoSalvageAllTiers.filter((tier) => tier <= (autoSalvageRules.maxQuality ?? -1))
-        : [];
+  // ⚠️ 0.13.5, AND THE LOGIC INVERTED WITH THE MODEL. Under the old UNION, a quality-blind rule
+  // (duplicates, rarity) reached EVERY tier, so having one meant "all tiers". Under the filter
+  // model the quality axis NARROWS: if the player ticked tiers, nothing outside them is reachable
+  // no matter what else is on. So the ticked set IS the answer whenever it is non-empty.
+  //
+  // With no tiers ticked, quality does not narrow, so whatever the other axes select can land on
+  // any tier: that is the "all tiers" case now, and it is reached only when some OTHER rule is on
+  // (the all-empty guard means no rules at all reaches nothing).
+  $: autoSalvageReachedTiers = !autoSalvageHasRule
+    ? []
+    : autoSalvageRules.qualities.length > 0
+      ? autoSalvageAllTiers.filter((tier) => autoSalvageRules.qualities.includes(tier))
+      : autoSalvageAllTiers;
 
   // ⚠️ THE CONFIRM INTERLOCK, AS TWO LISTS. This is the single most important thing this
   // panel says. A tier the player has asked to be CONFIRMED about can never be
@@ -5080,7 +5078,11 @@
   ): string {
     const keep = Math.max(0, rules.keepPerVariety);
     const clauses: string[] = [];
-    if (rules.maxQuality !== null) clauses.push(`at Q${rules.maxQuality} or below`);
+    // ⚠️ 0.13.5: the axes NARROW, so the sentence has to read as one filtered set rather than as a
+    // list of separate sweeps. "spares at Q0 or Q1, in these rarities (radiant)" is a single
+    // description of one pool; the old wording implied two independent selections.
+    const tiers = [...rules.qualities].sort((a, b) => a - b);
+    if (tiers.length > 0) clauses.push(`at ${tiers.map((t) => `Q${t}`).join(" or ")}`);
     // The bands are named in full, because "by rarity" without the list is not something a
     // player can check against their own pool.
     if (selectedRarities.length > 0) clauses.push(`in these rarities (${selectedRarities.join(", ")})`);
@@ -5135,14 +5137,25 @@
     state = { ...state, autoSalvage: { ...autoSalvageRules, enabled } };
     doSave();
   }
-  // maxQuality: null = the rule is OFF, a number = "this tier and below". The <select>
-  // carries string values ("off" or a tier index) because a DOM value is always a string;
-  // the parse happens here, in one place, so the null-vs-0 distinction cannot be lost to a
-  // stray Number("") or a truthiness check at a call site.
-  function doSetAutoSalvageMaxQuality(raw: string) {
-    const maxQuality = raw === "off" ? null : Number(raw);
-    if (maxQuality !== null && !Number.isFinite(maxQuality)) return; // unparseable: leave the rule alone
-    state = { ...state, autoSalvage: { ...autoSalvageRules, maxQuality } };
+  // 0.13.5: tick or untick ONE quality tier. The exact shape doToggleAutoSalvageRarity has, because
+  // the two axes are now the same kind of thing and should be edited the same way.
+  //
+  // ⚠️ Normalised on the way in, so a save carrying a tier outside the ladder (hand-edited, or
+  // predating a change to QUALITY_TIERS) is dropped rather than written back and re-saved.
+  function doToggleAutoSalvageQuality(tier: number, selected: boolean) {
+    const current = normalizeAutoSalvageQualities(autoSalvageRules.qualities);
+    const qualities = selected
+      ? normalizeAutoSalvageQualities([...current, tier])
+      : current.filter((t) => t !== tier);
+    state = { ...state, autoSalvage: { ...autoSalvageRules, qualities } };
+    doSave();
+  }
+  // Clear the whole quality axis in one action. ⚠️ Clearing means "quality does not narrow", NOT
+  // "take nothing": with rarity bands still ticked the rule keeps working on those, which is the
+  // behaviour the user specified ("if you click off on quality, it deselects Q1 and Q2 and then
+  // only eats all common/uncommon items regardless of quality").
+  function doClearAutoSalvageQualities() {
+    state = { ...state, autoSalvage: { ...autoSalvageRules, qualities: [] } };
     doSave();
   }
   // ── THE DUPLICATES RULE, AND THE STANDARD-ISSUE WARNING (0.13.3.1 follow-up) ──
@@ -11310,26 +11323,37 @@
                   />
                   Run these rules
                 </label>
-                <!-- ⚠️ A SELECT, NOT A CHECKBOX, and deliberately. maxQuality has THREE kinds
-                     of value, not two: null means the rule is off, and 0 is a real and useful
-                     setting ("Q0 and below"). A truthy control would collapse those two into
-                     one and quietly turn the most common setting into no rule at all. The DOM
-                     hands back strings, so "off" is the explicit sentinel and the parse happens
-                     in one place (doSetAutoSalvageMaxQuality). -->
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  Quality
-                  <select
-                    class="modal-input"
-                    value={autoSalvageRules.maxQuality === null ? "off" : String(autoSalvageRules.maxQuality)}
-                    on:change={(e) => doSetAutoSalvageMaxQuality((e.target as HTMLSelectElement).value)}
-                    aria-label="Auto-salvage quality rule"
-                  >
-                    <option value="off">Off</option>
-                    {#each autoSalvageAllTiers as tier (tier)}
-                      <option value={String(tier)}>Q{tier} and below</option>
-                    {/each}
-                  </select>
-                </label>
+              </div>
+
+              <!-- ⚠️ CHECKBOXES NOW, NOT A THRESHOLD SELECT (0.13.5, user). The select carried a
+                   THREE-state value (null = off, 0 = "Q0 and below", N = "QN and below"), and that
+                   third state is what the user correctly called nonsensical: "quality being off
+                   makes no sense, because every item exists between Q0 and Q5".
+                   Under the filter model there is no third state to express. Ticking nothing means
+                   quality does not narrow, which is the same sentence the rarity row below has
+                   always used for its own empty case. Two axes, one idiom.
+                   ⚠️ The tier list is DERIVED from QUALITY_TIERS (autoSalvageAllTiers), so a seventh
+                   tier grows a seventh checkbox with no edit here. -->
+              <div class="research-cost" style="margin-top: 8px;">Quality tiers to queue</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                {#each autoSalvageAllTiers as tier (tier)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={autoSalvageRules.qualities.includes(tier)}
+                      on:change={(e) => doToggleAutoSalvageQuality(tier, (e.target as HTMLInputElement).checked)}
+                    />
+                    Q{tier}
+                  </label>
+                {/each}
+                <!-- Clear, not "off". ⚠️ The distinction is the whole point: clearing the axis means
+                     quality stops narrowing, so a rarity selection keeps working on its own. It does
+                     NOT mean the automation stops. -->
+                <button
+                  class="dev-btn"
+                  disabled={autoSalvageRules.qualities.length === 0}
+                  on:click={doClearAutoSalvageQualities}
+                >Clear</button>
               </div>
 
               <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================

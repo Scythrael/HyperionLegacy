@@ -3937,7 +3937,7 @@ function terminalState(pool = 6, bayLevel = 0): GameState {
     salvageConfirmQualities: [],
     autoSalvage: {
       enabled: true,
-      maxQuality: 5,
+      qualities: [0, 1, 2, 3, 4, 5],
       duplicates: true,
       keepPerVariety: 0,
       rarities: { ...AUTO_SALVAGE_RARITIES_NONE },

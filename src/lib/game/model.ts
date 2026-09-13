@@ -3576,14 +3576,34 @@ export interface SalvageIdleWatch {
 //
 // No Decimal here either (two booleans, a nullable plain number, a plain number), so
 // this field needs no hydration branch for the same reason QueuedJob does not.
+// ⚠️ 0.13.5: THE RULES ARE FILTERS THAT NARROW, NOT SELECTORS THAT UNION. Read this before
+// changing anything here, because the two models destroy different sets of items.
+//
+// Until 0.13.5 each rule SELECTED independently and the results were merged, so "quality <= 2"
+// and "radiant" together took everything at Q0-Q2 PLUS every radiant piece at any quality. The
+// user found the model confusing for a reason that turned out to be exactly right: with quality
+// expressed as a SET rather than a threshold, an independent quality rule means ticking Q5 alone
+// would queue every Q5 item in the fleet regardless of rarity, which is the shape of mistake that
+// eats somebody's best gear.
+//
+// The model now: start from every spare, then apply each axis that HAS a selection.
+//   qualities empty -> quality does not narrow   (rarity alone still works, as before)
+//   rarities empty  -> rarity does not narrow    (quality alone still works, as before)
+//   both selected   -> only pieces matching BOTH
+//   nothing selected anywhere -> ⚠️ NOTHING is taken. See selectAutoSalvageTargets: "no filters"
+//   must never mean "everything", and that guard is the single most important line in the file.
 export interface AutoSalvageRules {
   enabled: boolean;          // master switch, default false (opt in, never on by surprise)
-  maxQuality: number | null; // auto-queue spares at or below this quality tier; null = rule off
-  duplicates: boolean;       // auto-queue duplicates beyond keepPerVariety
+  // 0.13.5: the QUALITY tiers this rule may take, as a SET. Replaces `maxQuality: number | null`.
+  // ⚠️ An empty array means "quality does not narrow", NOT "take everything": the all-empty guard
+  // in selectAutoSalvageTargets is what stops that. A set rather than a threshold because the
+  // player asked to pick tiers individually, and because "off" as a third state on a threshold was
+  // genuinely confusing next to a rarity row that expresses off as "nothing ticked".
+  qualities: number[];
+  duplicates: boolean;       // narrow further to duplicates beyond keepPerVariety
   keepPerVariety: number;    // how many of a variety to KEEP; fixed at 1 this release, not yet player-editable
-  // 0.13.3.1 Feature 1: the PER-RARITY selection, a third selecting rule alongside
-  // maxQuality and duplicates (they UNION, see selectAutoSalvageTargets). The rule is OFF
-  // when no band is selected, exactly as maxQuality null means off. See
+  // 0.13.3.1 Feature 1: the PER-RARITY selection. Unchanged in shape; what changed in 0.13.5 is
+  // that it now NARROWS alongside `qualities` instead of selecting independently of it. See
   // AutoSalvageRaritySelection below for why this is a per-band record and not a threshold.
   rarities: AutoSalvageRaritySelection;
   // 0.13.3.1 Feature 3: how long a piece that was just CRAFTED or just UNINSTALLED is exempt
@@ -3679,6 +3699,49 @@ export function normalizeAutoSalvageRarities(raw: unknown): AutoSalvageRaritySel
 // engine and the console so they can never disagree about what "off" means.
 export function autoSalvageRarityRuleOn(selection: AutoSalvageRaritySelection): boolean {
   return EQUIPMENT_RARITY_LADDER.some((band) => selection[band]);
+}
+
+// ----------------------------------------------------------------------------
+// The QUALITY selection (0.13.5)
+// ----------------------------------------------------------------------------
+
+// Every quality tier, derived from the canonical QUALITY_TIERS ceiling rather than a [0..5]
+// literal, for the same reason salvageConfirmPreference derives it: a seventh tier must not
+// silently arrive missing from the picker.
+export const ALL_AUTO_SALVAGE_QUALITIES: number[] = Array.from({ length: QUALITY_TIERS }, (_, i) => i);
+
+// Read a saved quality selection defensively.
+//
+// ⚠️ UNREADABLE ALWAYS MEANS EMPTY, and empty means "this axis does not narrow", never "take
+// everything": a save written before 0.13.5, a hand-edited one, or one carrying a tier outside the
+// ladder must not be able to widen what gets destroyed. Same posture as normalizeAutoSalvageRarities.
+export function normalizeAutoSalvageQualities(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<number>();
+  for (const value of raw) {
+    if (typeof value !== "number" || !Number.isInteger(value)) continue;
+    if (value < 0 || value >= QUALITY_TIERS) continue;
+    seen.add(value);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+// Does the quality axis narrow anything? Mirrors autoSalvageRarityRuleOn exactly, so the two
+// axes are reasoned about the same way at every call site.
+export function autoSalvageQualityRuleOn(qualities: number[]): boolean {
+  return qualities.length > 0;
+}
+
+// ⚠️ THE GUARD THAT STOPS "NO FILTERS" MEANING "EVERYTHING". True when the player has ticked
+// nothing on any axis, in which case the automation must take NOTHING even though it is switched
+// on. Under the old union model this fell out for free (no rule selected, so nothing was added);
+// under a filter model it has to be stated, because an unfiltered set is the whole pool.
+export function autoSalvageHasAnyRule(rules: AutoSalvageRules): boolean {
+  return (
+    autoSalvageQualityRuleOn(normalizeAutoSalvageQualities(rules.qualities)) ||
+    autoSalvageRarityRuleOn(normalizeAutoSalvageRarities(rules.rarities)) ||
+    rules.duplicates === true
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -8525,7 +8588,7 @@ export function freshState(): GameState {
     // and a migrated save stay indistinguishable in shape.
     autoSalvage: {
       enabled: false,
-      maxQuality: null,
+      qualities: [],
       duplicates: false,
       keepPerVariety: 1,
       // SPREAD, not the shared const reference: freshState hands out a state per call (dozens

@@ -78,6 +78,9 @@ import type {
   AutoSalvageRules,
 } from "./model";
 import {
+  autoSalvageHasAnyRule,
+  normalizeAutoSalvageQualities,
+  autoSalvageQualityRuleOn,
   BLUEPRINTS,
   ITEMS,
   SALVAGE_LOOT_POOLS,
@@ -774,25 +777,31 @@ const STANDARD_ISSUE_SHAPE: Pick<EquipmentInstance, "quality" | "rarity"> = {
 
 // Does this rule set reach a piece with these (quality, rarity) coordinates?
 //
-// ONE CLAUSE PER SELECTING RULE, each matching that rule's own test in selectAutoSalvageTargets
-// so the two can never disagree about what "reached" means:
-//   maxQuality  identical to the rule's test (null = off; 0 is a real setting, never falsy-tested)
-//   rarity      identical to the rule's test, read through the ENGINE'S normalizer so an absent
-//               or malformed selection reads as "no band selected" and therefore as NOT reached
-//   duplicates  BROADER than the rule on purpose. The duplicates rule ranks a variety and selects
-//               everything past the keeper, so whether a GIVEN piece is selected depends on its
-//               group, which this function cannot see. Answering "reached" for the whole rule is
-//               the safe direction for the seam: it can only make the `baseline` reason report
-//               LESS often (the keeper reads as unprotected while still never being selected),
-//               never make a piece eligible that no rule selects.
+// ⚠️ 0.13.5: A FILTER CHAIN, NOT A UNION OF CLAUSES. This mirrors selectAutoSalvageTargets exactly,
+// which is the only thing that keeps the console's warning honest about what the engine will do.
+//   qualities   an EMPTY set does not narrow, so quality alone being unticked no longer means
+//               "unreached"; a non-empty set reaches only the ticked tiers.
+//   rarities    same, read through the ENGINE'S normalizer so an absent or malformed selection
+//               reads as "no band ticked" and therefore as "does not narrow".
+//   duplicates  ⚠️ deliberately NOT narrowed here, and it is the one asymmetry. The duplicates rule
+//               ranks a variety and takes everything past the keeper, so whether a GIVEN piece is
+//               taken depends on its group, which this function cannot see. Ignoring it answers
+//               "reached" for the widest set the rules could touch, which is the SAFE direction for
+//               a warning: it can warn slightly too often, never too rarely.
+//
+// ⚠️ AND THE ALL-EMPTY GUARD COMES FIRST. With nothing ticked anywhere, an unfiltered chain would
+// report EVERY piece as reached, which is the exact inversion this model has to be defended against.
 export function autoSalvageRulesReachBaseline(
   rules: AutoSalvageRules | undefined,
   piece: Pick<EquipmentInstance, "quality" | "rarity">
 ): boolean {
   if (rules === undefined) return false; // no rules at all: nothing reaches anything
-  if (rules.maxQuality !== null && piece.quality <= rules.maxQuality) return true;
-  if (normalizeAutoSalvageRarities(rules.rarities)[piece.rarity] === true) return true;
-  return rules.duplicates === true;
+  if (!autoSalvageHasAnyRule(rules)) return false; // nothing ticked anywhere: nothing is reached
+  const qualities = normalizeAutoSalvageQualities(rules.qualities);
+  if (autoSalvageQualityRuleOn(qualities) && !qualities.includes(piece.quality)) return false;
+  const rarities = normalizeAutoSalvageRarities(rules.rarities);
+  if (autoSalvageRarityRuleOn(rarities) && rarities[piece.rarity] !== true) return false;
+  return true;
 }
 
 // The same question asked of the CONFIGURATION alone: could these rules reach a Standard-Issue
@@ -1312,73 +1321,86 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
   const candidates = [...pool].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   // --- 2. THE RULES ---------------------------------------------------------
-  // Selected as a Set of instance ids, so the two rules UNION cleanly: a piece both rules
-  // point at is selected once, not twice.
+  //
+  // ⚠️ 0.13.5: THE RULES NARROW A SET. THEY NO LONGER EACH SELECT INTO ONE.
+  //
+  // Until 0.13.5 quality, rarity and duplicates each added pieces independently and the results
+  // were unioned, so "quality <= 2" and "radiant" together took everything at Q0-Q2 PLUS every
+  // radiant piece at any quality. The user found that model confusing, and once quality became a
+  // SET rather than a threshold it became dangerous as well: under a union, ticking Q5 alone would
+  // queue every Q5 item in the fleet regardless of rarity, which is the shape of mistake that eats
+  // somebody's best gear.
+  //
+  // Now: start from every spare, then apply each axis that HAS a selection.
+  //   qualities empty -> quality does not narrow  (so rarity alone still works exactly as before)
+  //   rarities empty  -> rarity does not narrow   (so quality alone still works exactly as before)
+  //   both ticked     -> only pieces matching BOTH
+  //   duplicates      -> narrows further to the copies past each variety's keep quota
   const selected = new Set<string>();
 
-  // RULE A, MAX QUALITY. "Auto-queue spares at or below this quality tier." null = the
-  // rule is off (which is NOT the same as 0: maxQuality 0 means "Q0 and below", a real
-  // and useful setting). This rule is deliberately allowed to select the ONLY copy of a
-  // variety: the player said the tier is worthless to them, and that is the whole point.
-  if (rules.maxQuality !== null) {
-    for (const piece of candidates) {
-      if (piece.quality <= rules.maxQuality) selected.add(piece.id);
-    }
-  }
+  // ⚠️⚠️ THE GUARD, AND IT IS THE MOST IMPORTANT LINE IN THIS FUNCTION. With nothing ticked on any
+  // axis, a filter chain narrows nothing and would therefore select THE ENTIRE SPARE POOL. Under
+  // the old union model this case fell out for free (no rule selected anything, so nothing was
+  // added); a filter model has to say it out loud. "No filters" must mean NOTHING, never
+  // EVERYTHING, and getting this backwards would destroy a player's whole inventory in one tick.
+  if (!autoSalvageHasAnyRule(rules)) return [];
 
-  // RULE C, RARITY (0.13.3.1 Feature 1). "Auto-queue spares in THESE rarity bands", one
-  // checkbox per band, unioned with the other two rules exactly as they union with each other.
-  // No band selected = the rule is off, the same meaning maxQuality null carries.
-  //
-  // ⚠️ PER-BAND, NEVER A THRESHOLD, and the reason is in the data: rarityIndex is not a
-  // straight ladder (luminous and constellar BOTH return 5, parallel legendary FLAVORS at one
-  // power tier), so an "at or below" rule would sweep BOTH the moment a player picked EITHER
-  // and destroy a band they never selected. See AutoSalvageRaritySelection in model.ts.
-  //
-  // The selection is NORMALIZED off the save rather than read raw, so a save written before
-  // this release, a hand-edited one, or one predating a newly added band all read as "that
-  // band is not selected" instead of throwing or selecting by accident. A piece carrying a
-  // rarity string outside the union (only reachable by hand-editing) finds no entry and is
-  // likewise not selected: unreadable always means keep.
+  const qualities = normalizeAutoSalvageQualities(rules.qualities);
   const rarities = normalizeAutoSalvageRarities(rules.rarities);
-  if (autoSalvageRarityRuleOn(rarities)) {
-    for (const piece of candidates) {
-      if (rarities[piece.rarity] === true) selected.add(piece.id);
-    }
-  }
-
-  // RULE B, DUPLICATES. Same blueprint + same slot, KEEP THE BEST, auto-queue the rest
-  // (locked user decision). keepPerVariety is fixed at 1 this release and not yet
-  // player-editable, but it is read from the rules rather than hardcoded so 5.2 (or a
-  // later release) can expose it with no engine change.
+  const qualityNarrows = autoSalvageQualityRuleOn(qualities);
+  // ⚠️ PER-BAND, NEVER A THRESHOLD, and the reason is in the data: rarityIndex is not a straight
+  // ladder (luminous and constellar BOTH return 5, parallel legendary FLAVORS at one power tier),
+  // so an "at or below" rule would sweep BOTH the moment a player picked EITHER and destroy a band
+  // they never selected. See AutoSalvageRaritySelection in model.ts.
   //
-  // ⚠️ GROUPED OVER THE SPARE POOL ONLY. An INSTALLED piece does not count toward its
-  // variety's keep quota, because the rules never touch installed gear. Counting it would
-  // silently make the rule far more aggressive than the plain-language summary promises
-  // ("keeping the best 1 of each type"): a player with one installed Capacitor Bank would
-  // find EVERY spare Capacitor Bank queued, including their upgrade-in-waiting.
+  // The selection is NORMALIZED off the save rather than read raw, so a save written before this
+  // release, a hand-edited one, or one predating a newly added band all read as "that band is not
+  // ticked". A piece carrying a rarity string outside the union (only reachable by hand-editing)
+  // finds no entry and is likewise not matched: unreadable always means keep.
+  const rarityNarrows = autoSalvageRarityRuleOn(rarities);
+
+  // The pieces the AXES allow. Duplicates then narrows this further, rather than adding to it.
+  const passesAxes = candidates.filter(
+    (piece) =>
+      (!qualityNarrows || qualities.includes(piece.quality)) &&
+      (!rarityNarrows || rarities[piece.rarity] === true)
+  );
+
   if (rules.duplicates) {
+    // DUPLICATES. Same blueprint + same slot, KEEP THE BEST, queue the rest (locked user decision).
+    // keepPerVariety is fixed at 1 this release and not yet player-editable, but it is read from
+    // the rules rather than hardcoded so a later release can expose it with no engine change.
+    //
+    // ⚠️ GROUPED OVER THE AXIS-FILTERED POOL, NOT THE WHOLE SPARE POOL, which is the change that
+    // follows from duplicates being a FILTER rather than a selector: "duplicates, of the things I
+    // said I wanted" rather than "duplicates, plus the things I said I wanted".
+    //
+    // ⚠️ STILL GROUPED OVER SPARES ONLY. An INSTALLED piece does not count toward its variety's
+    // keep quota, because the rules never touch installed gear. Counting it would silently make the
+    // rule far more aggressive than the plain-language summary promises ("keeping the best 1 of
+    // each type"): a player with one installed Capacitor Bank would find EVERY spare Capacitor Bank
+    // queued, including their upgrade-in-waiting.
     const keep = Math.max(0, rules.keepPerVariety);
-    // Group in candidate order, so each group's member list is itself deterministic.
     const groups = new Map<string, EquipmentInstance[]>();
-    for (const piece of candidates) {
+    for (const piece of passesAxes) {
       const key = autoSalvageDuplicateKey(piece);
       const group = groups.get(key);
       if (group === undefined) groups.set(key, [piece]);
       else group.push(piece);
     }
     // ⚠️ Iterating a Map is safe here ONLY because insertion order is itself derived from
-    // `candidates` (which is sorted), and because the per-group result does not depend on
-    // the order the groups are visited: each group is ranked independently. The final
-    // output is re-ordered by `candidates` below regardless, so group visit order cannot
-    // leak into the answer.
+    // `candidates` (which is sorted), and because the per-group result does not depend on the order
+    // the groups are visited: each group is ranked independently. The final output is re-ordered by
+    // `candidates` below regardless, so group visit order cannot leak into the answer.
     for (const group of groups.values()) {
       if (group.length <= keep) continue; // nothing beyond the keep quota
-      // Rank a COPY (sort mutates) by the total order, best first, and select everything
-      // past the keep quota.
+      // Rank a COPY (sort mutates) by the total order, best first, and take everything past the
+      // keep quota.
       const ranked = [...group].sort((a, b) => (autoSalvageIsBetter(a, b) ? -1 : 1));
       for (const piece of ranked.slice(keep)) selected.add(piece.id);
     }
+  } else {
+    for (const piece of passesAxes) selected.add(piece.id);
   }
 
   if (selected.size === 0) return [];
