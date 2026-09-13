@@ -8736,19 +8736,23 @@
   <Starfield />
   <div class="frame">
     <div class="top-bar">
-      <div class="top-bar-header">
-        <!-- Header portrait, now the System settings entry point (0.11.2 Shell
-             Correction, Task 3). A real <button> so Enter/Space activation and
-             focus come for free (no manual keydown handler needed); it keeps the
-             SAME .mission-portrait-frame/.top-bar-portrait classes (only its
-             border switches dashed->solid, scoped to the header instance below),
-             so the header's look is unchanged.
+      <!-- ============================================================================
+           THE HEADER (rebuilt 2026-09-13 to the approved mockup:
+           docs/plans/2026-09-12-presentation-0.13.5-approved-mockup.html, section 01).
 
-             ⚠️ 0.13.5: THE GEAR BADGE WAS REMOVED FROM THIS BUTTON. It used to carry a small ⚙ to
-             mark the portrait as the settings entry point; there is now a real gear button beside
-             it, and leaving both would put two gears in the header pointing at different places.
-             The portrait opens the admiral menu on its default tab, the gear opens it on Settings,
-             and each icon now promises exactly one thing. -->
+           ⚠️ WHAT THE FIRST BUILD GOT WRONG, so it is not repeated: it bolted the collapse, gear
+           and craft/tick rows onto the OLD full-width header, so every bar stretched edge-to-edge
+           across a monitor and the currencies stayed as per-item chips. This version matches the
+           mockup: an identity block, a CONTAINED stats area (bars capped, never full-bleed), and
+           TWO resource buttons (Currency, Fuel) that each open a popup, replacing the chip strip.
+
+           ⚠️ ONE RESPONSIVE COMPONENT, NOT TWO VIEW LAYERS. The platform split (separate mobile and
+           desktop view files) is deferred; this is a single component that reflows by width. The
+           show/hide of the compact-vs-full readouts rides headerExpanded, which resolveHeaderExpanded
+           defaults to false on a phone and true on a desktop, so the two platforms differ by DATA
+           (one boolean) rather than by forked markup. The two-up desktop grid is a media query. -->
+      <div class="top-bar-header">
+        <!-- Portrait: opens the admiral menu on its default tab. -->
         <button
           type="button"
           class="mission-portrait-frame top-bar-portrait"
@@ -8757,120 +8761,108 @@
         >
           🖼️
         </button>
-        <div class="top-bar-info">
+
+        <!-- Identity: name, plus the COMPACT exp bar shown only while collapsed (the number carries
+             the precision, the short bar the glance). When expanded, the full readouts move into
+             the stats area and this compact line steps aside. -->
+        <div class="tb-identity">
           <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
-          <!-- COMPACT: the bar survives, shortened, with the PERCENTAGE beside it. A bar too short
-               to read is decoration, so the number carries the precision and the bar carries the
-               glance. The full "4.86M / 50.7M" readout moves into the expanded rows below. -->
-          <div class="top-bar-xp-row">
-            <span class="top-bar-xp-label">Exp:</span>
-            <div class="research-bar-track top-bar-xp-track">
-              <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
+          {#if !headerExpanded}
+            <div class="tb-statrow tb-statrow-compact">
+              <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
+              <span class="tb-statval">{(fleetAdminXpRatio * 100).toFixed(1)}%</span>
             </div>
-            {#if headerExpanded}
-              <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
-            {:else}
-              <span class="top-bar-xp-readout">{(fleetAdminXpRatio * 100).toFixed(1)}%</span>
-            {/if}
-          </div>
+          {/if}
         </div>
-        <!-- ⚠️ A SQUARE GEAR BUTTON, PEER TO THE PORTRAIT, NOT A BADGE ON IT (0.13.5, approved
-             mockup brief 1). The gear already existed as .portrait-gear-badge drawn ON the
-             portrait, which sharpens the problem rather than dissolving it: a badge sitting on an
-             avatar reads as decoration, and the avatar reads as "your profile", not "settings".
-             Giving it its own hit target at the same size makes it an equal.
 
-             It opens the System window ON the Settings tab, while the portrait opens it on its
-             default tab: one window, two doors, each landing where its icon promises. -->
-        <button
-          type="button"
-          class="top-bar-gear"
-          aria-label="Open settings"
-          on:click={() => { activeSystemSubTab = "options"; openSystemModal(); }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-            <circle cx="12" cy="12" r="3.2" />
-            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
-          </svg>
-        </button>
-      </div>
-
-      <!-- Currency strip (2026-07-09), fleet-wide resource readout in the top
-           bar, sitting between the Fleet Admiral identity block above and the
-           tick timer below. Data-driven: it renders one tappable chip per
-           CURRENCY_META entry (see the script block), so adding a future
-           currency (admin points, etc.) is a data edit, not markup surgery.
-           Each chip shows an info tooltip (that currency's name + flavor text)
-           on hover/focus/tap. Values come from currencyValues (reactive, Decimal-aware
-           formatNumber) so the readout tracks state every tick. -->
-      <div class="top-bar-currencies">
-        {#each CURRENCY_META as c (c.key)}
-          <div class="currency-chip-wrap">
-            <button
-              type="button"
-              class="currency-chip"
-              class:open={openCurrencyKey === c.key}
-              aria-label={`${c.label}: ${currencyValues[c.key] ?? ""}`}
-              aria-describedby={openCurrencyKey === c.key ? `currency-tooltip-${c.key}` : undefined}
-              on:pointerenter={(e) => hoverEnterCurrency(e, c.key)}
-              on:pointerleave={(e) => hoverLeaveCurrency(e, c.key)}
-              on:focus={() => showCurrency(c.key)}
-              on:blur={() => hideCurrency(c.key)}
-              on:click={() => showCurrency(c.key)}
-            >
-              <span class="currency-chip-glyph" aria-hidden="true">{c.glyph}</span>
-              <span class="currency-chip-value">{currencyValues[c.key] ?? ""}</span>
-            </button>
-            {#if openCurrencyKey === c.key}
-              <!--
-                Info tooltip: absolutely positioned below its own chip. No portal
-                needed (unlike RadialWeb's node tooltip) because the top bar is
-                not inside a backdrop-filter/transform containing block, so a
-                normal absolute popover isn't clipped or mis-anchored. role=
-                "tooltip" + a matching id (the chip's aria-describedby points
-                here while open) tie chip + tooltip together for a11y.
-              -->
-              <div class="currency-tooltip" id={`currency-tooltip-${c.key}`} role="tooltip">
-                <div class="currency-tooltip-title">{c.label}</div>
-                <div class="currency-tooltip-body">{c.description}</div>
+        <!-- STATS: EXP / CRAFT / TICK. Shown when the header is expanded (the same flag that is
+             true-by-default on desktop and false-on-mobile). On desktop this is a two-up grid; on
+             mobile it stacks. ⚠️ CRAFT is AMBER so it reads as a sibling track to FA level, not a
+             second copy of it. Bars are width-capped in CSS so they never stretch full-bleed. -->
+        {#if headerExpanded}
+          <div class="tb-stats">
+            <div class="tb-statrow">
+              <span class="tb-statlab">EXP</span>
+              <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
+              <span class="tb-statval">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+            </div>
+            <div class="tb-statrow">
+              <span class="tb-statlab">CRAFT</span>
+              <span class="tb-barwrap"><span class="tb-bar tb-bar-amber"><i style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></i></span></span>
+              <span class="tb-statval">Lv {craftingLevelView.level} · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
+            </div>
+            {#if tickBarEnabled}
+              <div class="tb-statrow">
+                <span class="tb-statlab">TICK</span>
+                <span class="tb-barwrap">
+                  <span class="tb-bar">
+                    {#key cycle.barCycleStart}
+                      <div class="tick-bar-fill" style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"></div>
+                    {/key}
+                  </span>
+                </span>
+                <span class="tb-statval">{globalTickRemaining.toFixed(1)}s</span>
               </div>
             {/if}
           </div>
-        {/each}
+        {/if}
 
-        <!-- Fuel chip (Fuel Economy v2 F4, design §5), a fuel indicator sitting
-             beside the credits chip so tank level is visible AT A GLANCE. It is NOT a
-             spendable currency (so it is deliberately NOT a CURRENCY_META entry, whose
-             tooltip is a static flavor string); instead it MIRRORS the currency chip's
-             markup + CSS + the full mouse-hover/tap/outside-tap mobile idiom, sharing
-             the SAME openCurrencyKey token (key "fuel") so handleCurrencyOutsidePointer /
-             handleCurrencyKeydown / hoverEnter/LeaveCurrency drive it verbatim, the
-             ONLY difference is a richer, reactive tooltip body (production vs
-             expenditure vs net) computed in the script block above. -->
-        <div class="currency-chip-wrap">
-          <button
-            type="button"
-            class="currency-chip"
-            class:open={openCurrencyKey === "fuel"}
-            aria-label={`Fuel: ${formatNumber(state.fuel)} of ${formatNumber(fuelCapValue)}`}
-            aria-describedby={openCurrencyKey === "fuel" ? "currency-tooltip-fuel" : undefined}
-            on:pointerenter={(e) => hoverEnterCurrency(e, "fuel")}
-            on:pointerleave={(e) => hoverLeaveCurrency(e, "fuel")}
-            on:focus={() => showCurrency("fuel")}
-            on:blur={() => hideCurrency("fuel")}
-            on:click={() => showCurrency("fuel")}
-          >
-            <span class="currency-chip-glyph" aria-hidden="true">⛽</span>
-            <span class="currency-chip-value">{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)}</span>
-          </button>
-          {#if openCurrencyKey === "fuel"}
-            <!-- Fuel tooltip: same absolute-below-chip popover as the currency tooltip
-                 (reuses .currency-tooltip / -title / -body). Body shows the fuel-
-                 sufficiency breakdown: refining PRODUCTION (+ its ice cost), mission
-                 EXPENDITURE, and the NET with a clear green/red sufficient/deficit line. -->
-            <div class="currency-tooltip" id="currency-tooltip-fuel" role="tooltip">
-              <div class="currency-tooltip-title">Fuel</div>
-              <div class="currency-tooltip-body">
+        <!-- ⚠️ TWO RESOURCE BUTTONS, Currency and Fuel, each opening its own popup (approved mockup,
+             rev 2). This replaces the old strip of one-chip-per-currency. Two buttons rather than
+             one merged list because FUEL IS NOT A CURRENCY, and there will be several of each; one
+             list would file two kinds of thing under one label. Reuses the existing openCurrencyKey
+             open/close machinery, now keyed "currency" and "fuel". -->
+        <div class="tb-resources">
+          <div class="tb-pop-wrap">
+            <button
+              type="button"
+              class="tb-hbtn"
+              class:open={openCurrencyKey === "currency"}
+              aria-label={`Currency: ${currencyValues[CURRENCY_META[0].key] ?? ""} ${CURRENCY_META[0].label}`}
+              aria-describedby={openCurrencyKey === "currency" ? "tb-pop-currency" : undefined}
+              on:pointerenter={(e) => hoverEnterCurrency(e, "currency")}
+              on:pointerleave={(e) => hoverLeaveCurrency(e, "currency")}
+              on:focus={() => showCurrency("currency")}
+              on:blur={() => hideCurrency("currency")}
+              on:click={() => showCurrency("currency")}
+            >
+              <span class="tb-hbtn-glyph" aria-hidden="true">{CURRENCY_META[0].glyph}</span>
+              <b>{currencyValues[CURRENCY_META[0].key] ?? ""}</b>
+              <span class="tb-hbtn-caret" aria-hidden="true">⌄</span>
+            </button>
+            {#if openCurrencyKey === "currency"}
+              <div class="tb-pop" id="tb-pop-currency" role="tooltip">
+                <div class="tb-pop-title">Currency</div>
+                {#each CURRENCY_META as c (c.key)}
+                  <div class="tb-pop-line">
+                    <span class="tb-pop-name">{c.glyph} {c.label}</span>
+                    <b>{currencyValues[c.key] ?? ""}</b>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <div class="tb-pop-wrap">
+            <button
+              type="button"
+              class="tb-hbtn"
+              class:open={openCurrencyKey === "fuel"}
+              aria-label={`Fuel: ${formatNumber(state.fuel)} of ${formatNumber(fuelCapValue)}`}
+              aria-describedby={openCurrencyKey === "fuel" ? "tb-pop-fuel" : undefined}
+              on:pointerenter={(e) => hoverEnterCurrency(e, "fuel")}
+              on:pointerleave={(e) => hoverLeaveCurrency(e, "fuel")}
+              on:focus={() => showCurrency("fuel")}
+              on:blur={() => hideCurrency("fuel")}
+              on:click={() => showCurrency("fuel")}
+            >
+              <span class="tb-hbtn-glyph" aria-hidden="true">⛽</span>
+              <b>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)}</b>
+              <span class="tb-hbtn-caret" aria-hidden="true">⌄</span>
+            </button>
+            {#if openCurrencyKey === "fuel"}
+              <div class="tb-pop" id="tb-pop-fuel" role="tooltip">
+                <div class="tb-pop-title">Fuel</div>
                 <div class="fuel-tt-row">
                   <span>In tank</span>
                   <span>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</span>
@@ -8890,10 +8882,6 @@
                   <span>Net</span>
                   <span>{fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))}/min</span>
                 </div>
-                <!-- Net status "why" line. Ordered so the ROOT reason wins: a
-                     topped-off tank first (refining is throttled, but that's fine),
-                     then out-of-ice (the net-display fix: refinery makes 0, so Net
-                     is a pure drain), then the normal fuel-positive / draining split. -->
                 <div class="fuel-tt-note">
                   {#if fuelTankFull}
                     Idle, tank full (topped off).
@@ -8905,98 +8893,38 @@
                     Draining, shortfalls auto-buy fuel with credits (+2-tick delay).
                   {/if}
                 </div>
-                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
-                     fuel-empty. null=warming up ("measuring…"); sustainable=never
-                     drains (∞, success green); finite=time left (warning, or danger
-                     when under a minute); guarded-null=unknown ("--"). -->
                 <div class="fuel-tt-sep"></div>
                 {#if fuelRunway === null}
-                  <div class="fuel-tt-row">
-                    <span>Fuel runway</span>
-                    <span>measuring…</span>
-                  </div>
+                  <div class="fuel-tt-row"><span>Fuel runway</span><span>measuring…</span></div>
                 {:else if fuelRunway.sustainable}
-                  <div class="fuel-tt-row" style="color: var(--color-success); font-weight: 600;">
-                    <span>Fuel runway</span>
-                    <span>∞ self-sustaining</span>
-                  </div>
+                  <div class="fuel-tt-row" style="color: var(--color-success); font-weight: 600;"><span>Fuel runway</span><span>∞ self-sustaining</span></div>
                 {:else if fuelRunway.runwayTicks !== null}
-                  <div
-                    class="fuel-tt-row"
-                    style="color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'}; font-weight: 600;"
-                  >
-                    <span>Fuel runway</span>
-                    <span>{formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left</span>
-                  </div>
+                  <div class="fuel-tt-row" style="color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'}; font-weight: 600;"><span>Fuel runway</span><span>{formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left</span></div>
                 {:else}
-                  <div class="fuel-tt-row">
-                    <span>Fuel runway</span>
-                    <span>--</span>
-                  </div>
+                  <div class="fuel-tt-row"><span>Fuel runway</span><span>--</span></div>
                 {/if}
               </div>
-            </div>
-          {/if}
-        </div>
-      </div>
-
-      <!-- ⚠️ EXPANDED-ONLY ROWS. This is what the collapsible header buys: a readout here costs
-           nothing, because the player opened the panel deliberately and closes it again. The
-           crafting level lives here for exactly that reason (see toggleHeader's note).
-
-           ⚠️ CRAFTING LEVEL IS AMBER, NOT ACCENT. It must read as a SIBLING of Fleet Admiral level
-           rather than a duplicate of it: two identical accent bars stacked would look like one
-           stat rendered twice. Amber is already the board's "this is a different track" colour. -->
-      {#if headerExpanded}
-        <div class="top-bar-tick-row">
-          <span class="top-bar-tick-label">CRAFT:</span>
-          <div class="research-bar-track top-bar-tick-track">
-            <div class="research-bar-fill top-bar-craft-fill" style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></div>
+            {/if}
           </div>
-          <span class="top-bar-tick-readout">Lv {craftingLevelView.level} · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
         </div>
-      {/if}
 
-      {#if tickBarEnabled && headerExpanded}
-      <div class="top-bar-tick-row">
-        <span class="top-bar-tick-label">TICK:</span>
-        <div class="tick-bar-track top-bar-tick-track">
-          <!-- ⚠️ 0.13.5: THE FILL IS DRIVEN BY A CSS ANIMATION, NOT BY THE POLLED VALUE, and that
-               is the fix for the "tick bar stops at ~80%" bug (external UX review point 1, live on
-               prod since before 0.13.2).
-
-               ROOT CAUSE, which is a SAMPLING artefact rather than bad arithmetic: the fill read
-               (nowTick - barCycleStart), and BOTH are updated inside the same 100ms poll. On the
-               poll where progress crosses 1, the economy runs and barCycleStart is reset to `now`,
-               so that poll renders 0. The highest value ever SAMPLED is therefore the poll before
-               the boundary, which on a 1000ms cycle is ~90%, and poll drift drags it toward 80%.
-               The bar was mathematically incapable of showing its own last tenth.
-
-               The {#key} is what restarts the animation: barCycleStart changes exactly once per
-               cycle, so keying on it gives one clean 0-to-100% run per tick, reaching 100%.
-
-               ⚠️ IT ALSO FIXES HALF OF REVIEW POINT 2 ("too bright and fast, constantly pulling my
-               attention"). A bar stepping at 10fps is WHY it read as jittery; a continuous
-               animation is calmer at the same speed. The other half, brightness, is the dimmed
-               fill colour in the CSS.
-
-               The inline width stays as the REDUCED-MOTION fallback: the media query below turns
-               the animation off, and the polled width then applies, which is exactly today's
-               behaviour and is genuinely less motion. -->
-          {#key cycle.barCycleStart}
-            <div
-              class="tick-bar-fill"
-              style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"
-            ></div>
-          {/key}
-        </div>
-        <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
+        <!-- Gear: opens the System window ON the Settings tab (the portrait opens its default tab). -->
+        <button
+          type="button"
+          class="top-bar-gear"
+          aria-label="Open settings"
+          on:click={() => { activeSystemSubTab = "options"; openSystemModal(); }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
+          </svg>
+        </button>
       </div>
-      {/if}
 
-      <!-- ⚠️ A CHEVRON, NOT TAP-ANYWHERE (approved mockup brief 3). The header holds the portrait
-           and now the gear; if the whole bar expanded on tap, both would be swallowed by it. A
-           dedicated control is the only version where all three targets coexist. -->
+      <!-- More / Less. ⚠️ A CHEVRON, not tap-anywhere: the bar holds the portrait, gear and two
+           resource buttons, and a whole-bar tap target would swallow them. Hidden on desktop via
+           CSS, where the header is expanded by default and the two-up grid already fits. -->
       <button
         type="button"
         class="top-bar-expander"
@@ -17541,14 +17469,28 @@
     position: relative;
     z-index: 20;
   }
-  /* Header redesign (2026-07-07, mid-plan addition unrelated to the loot/
-     talent rework, portrait placeholder + inline XP bar + one-line tick
-     bar, per the user's own ASCII mockup). Replaces the old stacked
-     .top-bar-row/.research-bar-track/.tick-bar-track/.tick-bar-readout
-     layout (each on its own full-width line) with: a left-hand portrait next
-     to the name+XP-bar row, then a single full-width tick-bar row below.
-     .top-bar-header lays out the portrait + info column side by side. */
-  .top-bar-header { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+  /* Header layout (0.13.5 rebuild to the approved mockup). ONE responsive component,
+     reordered per breakpoint with flex `order` rather than forked into two view files
+     (the platform split is deferred). DOM order is portrait, identity, stats, resources,
+     gear. Phone: WRAP, and float the gear up onto row one beside the identity, dropping
+     the resource buttons and the stat grid onto their own full-width rows. Desktop: one
+     nowrap line, natural order, with the stats as a two-up grid (see the media query). */
+  .top-bar-header { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 4px; }
+  .top-bar-header .top-bar-portrait { order: 1; }
+  .tb-identity { order: 2; }
+  .top-bar-header .top-bar-gear { order: 3; align-self: center; }
+  .tb-resources { order: 4; flex: 1 1 100%; }
+  .tb-stats { order: 5; flex: 1 1 100%; }
+  /* ≥769px = the desktop breakpoint (mirrors COMPACT_DEFAULT_MAX_WIDTH=768 in
+     headerPreference.ts, where the header also defaults to expanded). One line, stats as a
+     two-up grid: EXP | CRAFT on row one, TICK below. Bars stay capped by .tb-barwrap. */
+  @media (min-width: 769px) {
+    .top-bar-header { flex-wrap: nowrap; gap: 12px; margin-bottom: 0; }
+    .tb-identity { flex: 0 0 auto; max-width: 240px; }
+    .tb-stats { order: 3; flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 22px; }
+    .tb-resources { order: 4; flex: 0 0 auto; }
+    .top-bar-header .top-bar-gear { order: 5; }
+  }
   /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
      class (0,1,0), this reliably overrides .mission-portrait-frame's own
      flex/height/font-size regardless of where either rule sits in this
@@ -17579,46 +17521,68 @@
   /* .portrait-gear-badge was REMOVED in 0.13.5: the gear is its own button now
      (.top-bar-gear), and two gears in one header pointing at different destinations is worse
      than none. */
-  .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  /* ── Header identity + stats (0.13.5 rebuild to the approved mockup) ──────────
+     .top-bar-header is a flex row that WRAPS on a phone and does NOT on desktop; the
+     children carry `order` so mobile floats the gear up beside the identity and drops
+     the resource buttons and the stat grid onto their own rows, while desktop keeps the
+     natural order in one line (see the media query at the foot of this block). ⚠️ Every
+     bar is width-capped through .tb-barwrap, so nothing stretches edge-to-edge across a
+     monitor: that full-bleed stretch was the entire complaint about the first build. */
+  .tb-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .top-bar-name { font-size: var(--text-xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-xp-label { font-size: var(--text-2xs); color: var(--color-text-secondary); flex-shrink: 0; }
-  .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px, this copy sits inline, not stacked above other content */
-  .top-bar-xp-readout { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
-  .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-tick-label { font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
-  .top-bar-tick-track { flex: 1; }
-  .top-bar-tick-readout { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
-  /* Currency strip (2026-07-09). A flex row of resource chips; wraps on narrow
-     screens so additional currencies never overflow the top bar. margin-bottom
-     matches the header block's own 8px so the tick row stays evenly spaced
-     whether or not this strip is present. */
-  .top-bar-currencies { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
-  /* Positioning context for the absolutely-placed info tooltip below. */
-  .currency-chip-wrap { position: relative; display: inline-flex; }
-  /* One resource readout: accent glyph + mono value, boxed in a faint accent-
-     tinted pill so it reads as a distinct HUD element, not body text. It's a
-     real <button> (tap opens its info tooltip), so the rule also resets the UA
-     button look back to the pill styling. */
-  .currency-chip {
+  .tb-stats { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .tb-statrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .tb-statrow-compact { margin-top: 1px; }
+  .tb-statlab { flex: 0 0 auto; width: 40px; font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .tb-barwrap { flex: 1 1 auto; min-width: 0; max-width: 220px; }
+  .tb-statrow-compact .tb-barwrap { max-width: 140px; }
+  /* The frame. Its inner <i> (EXP, CRAFT) OR .tick-bar-fill (TICK) is the moving part. */
+  .tb-bar { position: relative; display: block; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 3px; transition: width var(--bar-step-seconds, 0.25s) linear; }
+  .tb-statval { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
+  /* ── Header resource buttons (0.13.5): Currency + Fuel, each opening a popup ────
+     Replaces the old one-chip-per-currency strip. Two <button>s in .tb-resources; each
+     is wrapped in a .tb-pop-wrap that is the positioning context for its .tb-pop popover.
+     ⚠️ The popover is position:absolute inside the header (which IS a stacking layer via
+     .top-bar's own z-index), NOT portaled: it belongs to a control that is always in the
+     document flow, unlike the settings HelpTip that had to escape a transformed modal. */
+  .tb-resources { display: flex; align-items: center; gap: 8px; }
+  .tb-pop-wrap { position: relative; display: inline-flex; }
+  .tb-hbtn {
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 2px 8px;
+    padding: 4px 9px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     border-radius: 4px;
     background: rgba(var(--color-accent-rgb), 0.08);
     font: inherit;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent; /* suppress the grey Android tap flash */
+    -webkit-tap-highlight-color: transparent;
   }
-  /* Hover (desktop) and open (any input) share the brighter accent treatment so
-     the chip visibly responds whether or not its tooltip is currently showing. */
-  .currency-chip:hover,
-  .currency-chip.open {
-    border-color: rgba(var(--color-accent-rgb), 0.6);
-    background: rgba(var(--color-accent-rgb), 0.14);
+  .tb-hbtn:hover,
+  .tb-hbtn.open { border-color: rgba(var(--color-accent-rgb), 0.6); background: rgba(var(--color-accent-rgb), 0.14); }
+  .tb-hbtn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .tb-hbtn-glyph { font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
+  .tb-hbtn b { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
+  .tb-hbtn-caret { font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1; margin-left: 1px; }
+  /* The popover. Same OPAQUE idiom as the currency/fuel tooltips it replaces (a faint
+     accent wash over a solid --color-bg-mid), so no busy tab content bleeds through. */
+  .tb-pop {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 5;
+    width: max-content;
+    max-width: 260px;
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: 6px;
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
-  .currency-chip-glyph { font-size: var(--text-xs); color: var(--color-accent); line-height: 1; }
-  .currency-chip-value { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-primary); white-space: nowrap; }
+  .tb-pop-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 5px; }
+  .tb-pop-line { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; font-size: var(--text-xs); }
+  .tb-pop-line .tb-pop-name { color: var(--color-text-secondary); }
+  .tb-pop-line b { font-family: var(--font-mono); color: var(--color-text-primary); }
   /* Info tooltip: drops just below its chip, left-aligned to it. width:max-content
      keeps short labels tight while max-width wraps the flavor line. z-index sits
      above the tab body; the .top-bar itself is lifted into its own stacking layer
@@ -17642,10 +17606,7 @@
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
-  .currency-tooltip-title {
-    font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase;
-    color: var(--color-accent); margin-bottom: 4px;
-  }
+
   .currency-tooltip-body { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
   /* Warehouse storage-upgrade disabled-reason popover (2026-07-24 flicker fix).
      The wrapper is the hover region + the positioning context for the popover
@@ -17924,22 +17885,6 @@
   /* The .resource-grid / .resource-grid-3 / .resource-card / .resource-label /
      .resource-value(.locked) family was REMOVED in Phase 4, Task F5, its only
      user was the retired "HOME PLANET" 3-material Overview panel. */
-  .tick-bar-track {
-    height: 10px;
-    background: var(--color-panel-bg-strong);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
-    overflow: hidden;
-    clip-path: polygon(
-      4px 0,
-      calc(100% - 4px) 0,
-      100% 4px,
-      100% calc(100% - 4px),
-      calc(100% - 4px) 100%,
-      4px 100%,
-      0 calc(100% - 4px),
-      0 4px
-    );
-  }
   /* 0.13.5 Phase 1: the options screens. Deliberately few rules, because SettingRow owns the row
      layout and everything here reads a token rather than a literal, making these screens the first
      real consumer of the type scale. */
@@ -18406,7 +18351,7 @@
 
   /* Crafting level. ⚠️ Amber, so it reads as a SIBLING track to Fleet Admiral level rather than a
      second copy of it: two identical accent bars stacked look like one stat rendered twice. */
-  .top-bar-craft-fill {
+  .tb-bar-amber > i {
     background: var(--color-warning);
   }
 
