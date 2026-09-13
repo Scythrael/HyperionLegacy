@@ -1,33 +1,52 @@
-# SESSION HANDOFF, updated 2026-09-12
+# SESSION HANDOFF, updated 2026-09-13
 
 ## Where things stand
 
 | | ref | what |
 |---|---|---|
-| **PROD** `main` | `9054a32` | **0.13.4 "Infrastructure", LIVE** |
-| **PREVIEW** `staging` | `84691e7` | **0.13.5 Phases 1 + 2**, mid-QA |
-| **BRANCH** | `feat/presentation-0.13.5` | ahead of staging by docs commits only |
+| **PROD** `main` | `9054a32` | 0.13.4 "Infrastructure", LIVE |
+| **PREVIEW** `staging` | head of the branch | **0.13.5 "Presentation", FEATURE-COMPLETE, awaiting QA** |
+| **BRANCH** | `feat/presentation-0.13.5` | same as staging |
 
-**Next action: the user is QA-ing 0.13.5** with `docs/plans/2026-09-11-presentation-0.13.5-phase1-qa.md`.
-Sections A, B, C, F, G and H are done or in progress; D (accessibility) is being re-run after two
-fixes. Nothing is blocked on me.
+⚠️ **APP_VERSION 0.13.5. SAVE_VERSION 46 -> 48** (auto-salvage rule shape at 47, F5 slot fill at 48).
+A migrated save cannot go back to prod, which is why the QA sheet opens by telling the user to export.
 
-### What QA has turned up so far, and what it cost
+**Next action, in this order:**
+1. The user reads `docs/plans/2026-09-13-icon-gap-list.md` and approves (or skips) five icons.
+2. The user runs `docs/plans/2026-09-13-presentation-0.13.5-qa.md`.
 
-⚠️ **Every bug the user found this round was a feature that passed all four gates while not reaching
-the screen.** That is the pattern worth carrying forward: `check`, the suite, parity and `build`
-cannot see a pixel, so a presentation release needs tests that parse the shipped CSS. Three now do
-(`contrast.test.ts`, `uiScale.test.ts`), each written after a bug the gates missed.
+### What shipped in 0.13.5
 
-| Item | What was wrong | Fix |
-|---|---|---|
-| A3, disabled text | The token was tuned against the CYAN accent (5.23, a pass) and called worst-case. Cyan is nearly the BRIGHTEST of six. Red measured **2.94**, blue 3.12, gray 3.53, so half the themes still failed AA behind a green test. | Alpha 0.6 -> 0.85, clears all six. `contrast.test.ts` now sweeps every accent parsed from `app.css`. **User has accepted the result.** |
-| D3, text size | `--ui-scale` existed and the control wrote it, but **253 of 258 font sizes were hardcoded px**, which cannot see a CSS variable. | All 258 swept: 208 to scale tokens (exactly neutral), 50 off-scale to `calc(Npx * var(--ui-scale))`. ✅ **User confirmed working across the board.** |
-| D5, reduced motion | Reduced motion has TWO entry points (OS media query, in-game toggle) and only the OS path carried the progress-fill exception. The toggle hit a blanket rule collapsing every animation to 0.001ms, which for a `forwards` progress animation pins the bar at 100%. | `animation-name: none` on the attribute path too. Awaiting the user's re-test. |
-| Confirmation levels | Shipped the WRONG FEATURE: three buttons instead of the dropdown-plus-checkboxes model that was already written in `SUGGESTIONS.md`. The design doc compressed the record; the build followed the design doc. | Rebuilt to the record. Design doc §1.4a has the account. |
+Token layer + type scale + WCAG AA contrast on all six themes; the text-size control reaching all
+258 font sizes; tick-bar 100% fix; smooth fill on EVERY progress bar (economy on the tick cadence,
+combat on the log cadence) with reduced motion stepping all of them; options reorganised into UI /
+Gameplay / Confirmations / Save Data with Accessibility folded in first; sections as spaced panels;
+descriptions moved behind `?` tooltips; `Toggle.svelte` and `HelpTip.svelte` primitives; confirmation
+LEVELS with a derived Custom state; auto-salvage rules MOVED into Settings and reshaped from a union
+into a filter chain; collapsible header with a real gear button and crafting level; Recently
+Completed as expandable one-liners; per-captain idle prompts routed by hull; F5 (every hardpoint
+armed) with the patrol retune; a combat-log fix; eight glyphs swept onto the icon registry.
 
-⚠️ **NO REFRESH PROMPT IS NEEDED for the text-size control.** The user asked for one on the premise
-that a refresh was required; that requirement was the bug, and the sweep removed it. Confirmed live.
+### ⚠️ Deliberately NOT in this release
+
+- **The platform split.** The approved mockup covers the HEADER's desktop treatment, not the whole
+  app's, and building the rest without a mockup is what the standing rule forbids. The header's
+  compact-on-phone / expanded-on-desktop default is the first real instance of the pattern.
+- **Five icons** (facility, repair, extraction, patrol, dispatch) await approval; drawing them
+  unasked would be inventing content.
+- **Captain portraits**, deliberately kept out of the icon work: a portrait is an IDENTITY that
+  varies per captain and later per race, not a shared glyph, so it wants a slot on the captain model
+  rather than a name in the icon registry.
+
+### ⚠️ The rule that was added this session, and why
+
+`feedback_decisions_are_the_users`: **propose freely, decide never.** I invented a "filler mount"
+weapon as my preferred route for F5, treated the user's answer to a GOAL question as approval of my
+ROUTE, and built a game entity they had never agreed to. Their caveat ("rebalance missions
+appropriately") was in the same message and my route was designed to avoid it. **The diagnostic: if
+my plan removes the need for something the user asked for, I changed the goal rather than solved
+it.** Their own objection was sharper than mine: a dummy weapon is a bandaid that makes the step up
+to a real gun enormous, so it would have reintroduced the same runaway-power problem later.
 
 ---
 
