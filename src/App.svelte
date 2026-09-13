@@ -2305,14 +2305,15 @@
   function hoverLeaveCurrency(e: PointerEvent, key: string) {
     if (e.pointerType === "mouse") hideCurrency(key);
   }
-  // Touch/click dismissal: hide on any pointer-down that isn't on a currency
-  // chip or its tooltip. pointerdown fires for mouse AND touch per the RadialWeb
-  // mobile lesson; .closest(".currency-chip-wrap") keeps a tap on the chip
-  // itself from self-dismissing (that tap's on:click does the showing).
+  // Touch/click dismissal: hide on any pointer-down that isn't on a header resource
+  // button (Currency / Fuel) or inside its popup. pointerdown fires for mouse AND
+  // touch per the RadialWeb mobile lesson; .closest(".tb-pop-wrap") matches BOTH the
+  // button and the .tb-pop it wraps, so neither a re-tap of the button (that tap's
+  // on:click does the showing) nor a tap inside the popup self-dismisses.
   function handleCurrencyOutsidePointer(e: PointerEvent) {
     if (openCurrencyKey === null) return;
     const target = e.target as Element | null;
-    if (target && target.closest(".currency-chip-wrap")) return;
+    if (target && target.closest(".tb-pop-wrap")) return;
     openCurrencyKey = null;
   }
   function handleCurrencyKeydown(e: KeyboardEvent) {
@@ -8145,8 +8146,8 @@
   $: activeFuelRefineJobs = state.activeProcesses.filter((p) => p.kind === "fuelRefineJob");
 </script>
 
-<!-- Window-level tooltip dismissal. Currency info-tooltip (2026-07-09): close an
-     open chip tooltip on Escape or on any pointer-down outside a currency chip.
+<!-- Window-level tooltip dismissal. Header resource popups (Currency / Fuel): close an
+     open popup on Escape or on any pointer-down outside its .tb-pop-wrap.
      Warehouse fill-tile tooltip (Phase 2): same tap-outside dismissal, outside a
      .warehouse-tile. Svelte fires BOTH on:pointerdown handlers for one event.
      See handleCurrencyOutsidePointer / handleWarehouseOutsidePointer /
