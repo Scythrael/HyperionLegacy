@@ -848,6 +848,7 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
+  import { loadHeaderExpanded, saveHeaderExpanded, resolveHeaderExpanded } from "./lib/headerPreference";
   // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
   // "confirm only when something would be lost" rule all live in the module so they are
   // unit-testable without a DOM; this file is wiring only.
@@ -2233,11 +2234,24 @@
       description:
         "The Admiralty's base currency, earned from captain mission payouts and spent on nearly everything: trading commodities, retraining talents, and the day-to-day business of running a fleet. Every credit is a favor called in, a cargo sold, a risk that paid off.",
     },
+    {
+      key: "adminPoints",
+      glyph: "✦",
+      label: "Admin Points",
+      description:
+        "Authority rather than money. Earned as your Fleet Admiral rank rises and spent in the Homeworld tree, where each point is a standing order that changes how the whole fleet operates.",
+    },
   ];
   // Live formatted values, keyed by currency id. Kept separate from the static
   // CURRENCY_META so this reactive block only recomputes the numbers each tick.
   // Adding a currency: add its key here alongside its CURRENCY_META entry.
-  $: currencyValues = { credits: formatNumber(state.credits) } as Record<string, string>;
+  // ⚠️ adminPoints is a plain NUMBER while credits is a Decimal, so each takes the formatting it
+  // actually needs. Passing a raw number to the Decimal-aware formatNumber would be a type lie that
+  // happens to work today and stops working the moment the number gets large.
+  $: currencyValues = {
+    credits: formatNumber(state.credits),
+    adminPoints: String(state.adminPoints),
+  } as Record<string, string>;
   // Key of the currency whose info tooltip is showing, or null. This behaves
   // like a standard tooltip, NOT a click-to-toggle: it SHOWS on mouse hover
   // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
@@ -2245,6 +2259,22 @@
   // are driven by SEPARATE activate/deactivate events (not one toggle) so that
   // hover, tap, and focus never fight each other, important on touch, where a
   // single tap also fires synthetic pointerenter + focus events.
+  // ⚠️ THE COLLAPSIBLE HEADER (0.13.5, approved mockup brief 3). Compact is the default on a phone
+  // and expanded on a desktop, and a remembered choice beats both. The resolve/load/save split
+  // lives in headerPreference.ts so the platform-default rule is testable without a DOM; this is
+  // wiring only.
+  //
+  // ⭐ WHY IT MATTERS BEYOND TIDINESS: it dissolves a conflict the header brief recorded. Crafting
+  // level belongs in the header (it is the same KIND of thing as Fleet Admiral level, which is
+  // already there) but a fourth row costs vertical space on EVERY screen forever, to show a number
+  // that mostly matters while crafting. The expanded state is where that row costs nothing, because
+  // the player opened it deliberately and closes it again.
+  let headerExpanded = false;
+  function toggleHeader(): void {
+    headerExpanded = !headerExpanded;
+    saveHeaderExpanded(headerExpanded);
+  }
+
   let openCurrencyKey: string | null = null;
   function showCurrency(key: string) {
     openCurrencyKey = key;
@@ -2781,6 +2811,9 @@
     forceMobile = loadForceMobile();
     applyAccessibilityNow();
     refineConfirmEnabled = loadRefineConfirmEnabled();
+    // ⚠️ Resolved on MOUNT, not at declaration: the platform default reads the viewport, which does
+    // not exist during module evaluation. A remembered choice wins; otherwise the width decides.
+    headerExpanded = resolveHeaderExpanded(loadHeaderExpanded(), window.innerWidth);
     autoSalvageBaselineWarningEnabled = loadAutoSalvageBaselineWarningEnabled();
     // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
     // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
@@ -8664,27 +8697,57 @@
              focus come for free (no manual keydown handler needed); it keeps the
              SAME .mission-portrait-frame/.top-bar-portrait classes (only its
              border switches dashed->solid, scoped to the header instance below),
-             so the header's look is unchanged apart from a small ⚙ gear badge
-             marking it as interactive. -->
+             so the header's look is unchanged.
+
+             ⚠️ 0.13.5: THE GEAR BADGE WAS REMOVED FROM THIS BUTTON. It used to carry a small ⚙ to
+             mark the portrait as the settings entry point; there is now a real gear button beside
+             it, and leaving both would put two gears in the header pointing at different places.
+             The portrait opens the admiral menu on its default tab, the gear opens it on Settings,
+             and each icon now promises exactly one thing. -->
         <button
           type="button"
           class="mission-portrait-frame top-bar-portrait"
-          aria-label="Open admiral menu and settings"
+          aria-label="Open admiral menu"
           on:click={openSystemModal}
         >
           🖼️
-          <span class="portrait-gear-badge" aria-hidden="true">⚙</span>
         </button>
         <div class="top-bar-info">
           <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
+          <!-- COMPACT: the bar survives, shortened, with the PERCENTAGE beside it. A bar too short
+               to read is decoration, so the number carries the precision and the bar carries the
+               glance. The full "4.86M / 50.7M" readout moves into the expanded rows below. -->
           <div class="top-bar-xp-row">
             <span class="top-bar-xp-label">Exp:</span>
             <div class="research-bar-track top-bar-xp-track">
               <div class="research-bar-fill" style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></div>
             </div>
-            <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+            {#if headerExpanded}
+              <span class="top-bar-xp-readout">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+            {:else}
+              <span class="top-bar-xp-readout">{(fleetAdminXpRatio * 100).toFixed(1)}%</span>
+            {/if}
           </div>
         </div>
+        <!-- ⚠️ A SQUARE GEAR BUTTON, PEER TO THE PORTRAIT, NOT A BADGE ON IT (0.13.5, approved
+             mockup brief 1). The gear already existed as .portrait-gear-badge drawn ON the
+             portrait, which sharpens the problem rather than dissolving it: a badge sitting on an
+             avatar reads as decoration, and the avatar reads as "your profile", not "settings".
+             Giving it its own hit target at the same size makes it an equal.
+
+             It opens the System window ON the Settings tab, while the portrait opens it on its
+             default tab: one window, two doors, each landing where its icon promises. -->
+        <button
+          type="button"
+          class="top-bar-gear"
+          aria-label="Open settings"
+          on:click={() => { activeSystemSubTab = "options"; openSystemModal(); }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <circle cx="12" cy="12" r="3.2" />
+            <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 9 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 4.6 9a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
+          </svg>
+        </button>
       </div>
 
       <!-- Currency strip (2026-07-09), fleet-wide resource readout in the top
@@ -8832,7 +8895,24 @@
         </div>
       </div>
 
-      {#if tickBarEnabled}
+      <!-- ⚠️ EXPANDED-ONLY ROWS. This is what the collapsible header buys: a readout here costs
+           nothing, because the player opened the panel deliberately and closes it again. The
+           crafting level lives here for exactly that reason (see toggleHeader's note).
+
+           ⚠️ CRAFTING LEVEL IS AMBER, NOT ACCENT. It must read as a SIBLING of Fleet Admiral level
+           rather than a duplicate of it: two identical accent bars stacked would look like one
+           stat rendered twice. Amber is already the board's "this is a different track" colour. -->
+      {#if headerExpanded}
+        <div class="top-bar-tick-row">
+          <span class="top-bar-tick-label">CRAFT:</span>
+          <div class="research-bar-track top-bar-tick-track">
+            <div class="research-bar-fill top-bar-craft-fill" style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></div>
+          </div>
+          <span class="top-bar-tick-readout">Lv {craftingLevelView.level} · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
+        </div>
+      {/if}
+
+      {#if tickBarEnabled && headerExpanded}
       <div class="top-bar-tick-row">
         <span class="top-bar-tick-label">TICK:</span>
         <div class="tick-bar-track top-bar-tick-track">
@@ -8868,6 +8948,21 @@
         <span class="top-bar-tick-readout">{globalTickRemaining.toFixed(1)}s</span>
       </div>
       {/if}
+
+      <!-- ⚠️ A CHEVRON, NOT TAP-ANYWHERE (approved mockup brief 3). The header holds the portrait
+           and now the gear; if the whole bar expanded on tap, both would be swallowed by it. A
+           dedicated control is the only version where all three targets coexist. -->
+      <button
+        type="button"
+        class="top-bar-expander"
+        class:top-bar-expander-open={headerExpanded}
+        aria-expanded={headerExpanded}
+        aria-label={headerExpanded ? "Show less fleet detail" : "Show more fleet detail"}
+        on:click={toggleHeader}
+      >
+        <span class="top-bar-expander-label">{headerExpanded ? "Less" : "More"}</span>
+        <span class="top-bar-expander-chev" aria-hidden="true">⌄</span>
+      </button>
     </div>
 
     <main class="tab-body">
@@ -17396,19 +17491,9 @@
     appearance: none;
     -webkit-appearance: none;
   }
-  /* Gear badge on the header portrait: a small ⚙ tucked into the bottom-right
-     corner, marking the portrait as the settings entry point. Absolute
-     positioning only; color reuses the existing --color-accent token (no new
-     palette). pointer-events:none so the whole portrait button stays one target. */
-  .portrait-gear-badge {
-    position: absolute;
-    right: -3px;
-    bottom: -3px;
-    font-size: var(--text-xs);
-    line-height: 1;
-    color: var(--color-accent);
-    pointer-events: none;
-  }
+  /* .portrait-gear-badge was REMOVED in 0.13.5: the gear is its own button now
+     (.top-bar-gear), and two gears in one header pointing at different destinations is worse
+     than none. */
   .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .top-bar-name { font-size: var(--text-xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
@@ -18190,6 +18275,85 @@
      (.settings-section below), so each carries the shared .panel-title and its own border, and the
      separation is space rather than a line. The user kept the divider explicitly ("that must
      stay") and asked for a gap WITH it; .panel-title already draws the divider. */
+
+  /* ============================================================================
+     HEADER: the gear peer-button, the expander, the crafting bar (0.13.5)
+     ============================================================================ */
+
+  /* Sized to MATCH the portrait beside it, because that equality is the entire argument: a control
+     the same size as its neighbour reads as its equal, while a badge drawn on top of one reads as
+     decoration. */
+  .top-bar-gear {
+    width: 38px;
+    height: 38px;
+    flex: none;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-panel-bg-strong);
+    color: var(--color-accent);
+    display: grid;
+    place-items: center;
+    border-radius: 3px;
+    cursor: pointer;
+    padding: 0;
+    align-self: flex-start;
+  }
+  .top-bar-gear:hover {
+    background: rgba(var(--color-accent-rgb), 0.16);
+  }
+  .top-bar-gear:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .top-bar-gear svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  /* Crafting level. ⚠️ Amber, so it reads as a SIBLING track to Fleet Admiral level rather than a
+     second copy of it: two identical accent bars stacked look like one stat rendered twice. */
+  .top-bar-craft-fill {
+    background: var(--color-warning);
+  }
+
+  .top-bar-expander {
+    width: 100%;
+    margin-top: 6px;
+    padding: 5px 0 1px;
+    background: none;
+    border: none;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-dim);
+    font-family: var(--font-mono);
+    font-size: var(--text-3xs);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+  .top-bar-expander:hover {
+    color: var(--color-accent);
+  }
+  .top-bar-expander:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .top-bar-expander-chev {
+    display: block;
+    line-height: 1;
+    font-size: var(--text-sm);
+    transition: transform 0.2s ease;
+  }
+  .top-bar-expander-open .top-bar-expander-chev {
+    transform: rotate(180deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .top-bar-expander-chev {
+      transition: none;
+    }
+  }
 
   /* ============================================================================
      RECENTLY COMPLETED, compact rows (0.13.5, from the approved mockup)
