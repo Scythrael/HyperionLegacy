@@ -104,6 +104,20 @@ describe("HelpTip: the ? explanation", () => {
     expect(HELPTIP).toMatch(/flipUp/);
   });
 
+  it("⚠️ CLOSES on hover-out (on:mouseleave), or tooltips pile up and never disappear", () => {
+    // THE BUG THIS GUARDS. The button had on:mouseenter to open but no on:mouseleave to close, so
+    // hovering across a settings screen opened a tooltip per row and none of them went away.
+    expect(HELPTIP).toMatch(/on:mouseleave=\{hide\}/);
+  });
+
+  it("⚠️ PORTALS to document.body so a transformed/scrolling ancestor cannot mis-anchor or bury it", () => {
+    // Fixed positioning alone rendered the bubble mid-screen and UNDER the modal panes, because
+    // the modal subtree became the containing block for fixed and trapped its stacking. Portaling
+    // to body escapes both.
+    expect(HELPTIP).toMatch(/use:portal/);
+    expect(HELPTIP).toMatch(/document\.body\.appendChild/);
+  });
+
   it("⚠️ is FIXED-positioned so an ancestor's overflow cannot clip it", () => {
     // THE BUG THIS GUARDS. The bubble was position:absolute inside the anchor, so the Settings
     // modal's overflow-y:auto scroll body chopped a tooltip on a section's last row. Fixed

@@ -21,6 +21,22 @@
 
   import { tick as svelteTick } from "svelte";
 
+  // ⚠️ PORTAL TO document.body (added 2026-09-13, second tooltip fix). Fixed positioning alone was
+  // not enough: inside the Settings modal the bubble still rendered mid-screen and UNDER the panes.
+  // The cause is that the modal subtree has a transformed/scrolling ancestor, which (a) becomes the
+  // containing block for `position: fixed`, so viewport coords from getBoundingClientRect land in
+  // the wrong place, and (b) traps the bubble's stacking so a high z-index cannot lift it over its
+  // own modal's panels. Moving the node to <body> removes it from that ancestor entirely: fixed is
+  // viewport-relative again, and it stacks above everything as a top-level element.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        if (node.parentNode) node.parentNode.removeChild(node);
+      },
+    };
+  }
+
   // The explanation. This is the SAME text that used to sit under the control: the point is to
   // unclutter the row, not to explain less.
   export let text: string;
@@ -87,11 +103,12 @@
     aria-expanded={open}
     on:click={toggle}
     on:mouseenter={() => void show()}
+    on:mouseleave={hide}
     on:focus={() => void show()}
     on:blur={hide}
   >?</button>
   {#if open}
-    <div class="help-bubble" style={bubbleStyle} bind:this={bubble} role="note">
+    <div class="help-bubble" use:portal style={bubbleStyle} bind:this={bubble} role="note">
       {text}
     </div>
   {/if}
@@ -132,7 +149,8 @@
     /* ⚠️ FIXED, positioned from JS (see show()), so no ancestor overflow can clip it. top/left are
        set inline. */
     position: fixed;
-    z-index: 300;
+    /* Above the modal backdrop (100) and drop-icon tooltips (110); it lives on <body> now. */
+    z-index: 1000;
     width: max-content;
     max-width: min(280px, 70vw);
     /* ⚠️ GENUINELY OPAQUE, via the same idiom the Ship Systems dialog uses: an accent tint layered
