@@ -69,7 +69,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
     padding: 6px 10px;
     color: var(--color-text-secondary);
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
     flex-shrink: 0;
     white-space: nowrap;

@@ -57,10 +57,10 @@ The token layer touches every screen's *potential* styling, so the first questio
 | # | Step | Expected |
 |---|---|---|
 | ✅ D1 | Accessibility tab. | Five settings, plus a note that they are stored on this device rather than in the save. |
-| D2 | Change **Text and interface size** to 125%. | ⚠️ **The WHOLE interface scales together**, not just one screen. Walk a few tabs and check nothing is left behind at the old size. |
-| D3 | Set it to 150%, then walk the densest screens (a queue panel, the Ships loadout board). | Honest question rather than pass/fail: **does anything break or overlap?** 1.5 is the intended ceiling and I would like your read on whether it is too high. |
+| D2 | Change **Text and interface size** to 125%. | ⚠️ **FIXED 2026-09-12, re-test needed.** It should now scale immediately with no refresh. Previously only a handful of places moved: the token existed and the control wrote it, but **253 of 258 font sizes in the app were hardcoded px that could not see it**. All 258 now scale. |
+| D3 | Set it to 150%, then walk the densest screens (a queue panel, the Ships loadout board). | Honest question rather than pass/fail: **does anything break or overlap?** 1.5 is the intended ceiling and I would like your read on whether it is too high. ⚠️ This is the first pass where the question is actually answerable, since before the fix most screens were not scaling at all. |
 | D4 | Set it back to 100%, then reload the page. | ⚠️ **The setting must still be applied after reload.** This is the half that is easy to get wrong. Try it at 125% too. |
-| ◐ D5 | Toggle **Reduce motion**. | The tick bar stops sweeping and steps instead. Other animation calms. |
+| D5 | Toggle **Reduce motion**. | ⚠️ **FIXED 2026-09-12, re-test needed.** The tick bar should now STEP (jumping forward about every tenth of a second) rather than sweeping. Previously it jumped straight to full and sat there: reduced motion has two entry points (your OS setting and this toggle) and only the OS one carried the exception that progress bars need. The in-game toggle hit a blanket rule that collapses every animation to nothing, and the bar's animation is declared to hold at its end state, so it pinned at 100%. |
 | ◐ D6 | Toggle **High contrast**. | Dim and secondary text become near-white; borders strengthen. The accent colour deliberately does NOT wash out. |
 | ◐ D7 | Toggle **Dyslexia-friendly text**. | Body text changes typeface IF you have OpenDyslexic or Comic Sans installed; headings keep the game font. ⚠️ On a device with neither installed, nothing visibly changes. That is expected, not a bug: no font file is downloaded. |
 | ◐ D8 | Look at **Always use the mobile layout**. | Present but DISABLED, with text saying it is not available yet. |

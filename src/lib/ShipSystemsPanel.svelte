@@ -1711,13 +1711,13 @@
   }
   /* Status line + Battle Rating in the embedded board header. */
   .ss-status-line {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.4px;
   }
   .ss-header-br {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-dim);
     text-transform: uppercase;
     letter-spacing: 0.4px;
@@ -1729,7 +1729,7 @@
   }
   .ss-title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 1px;
     color: var(--color-accent-bright);
     text-transform: uppercase;
@@ -1747,7 +1747,7 @@
     gap: 2px;
   }
   .ss-hull-name {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-primary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -1777,7 +1777,7 @@
   /* The inline rename input, sized to sit in place of the title text. */
   .ss-name-input {
     font-family: var(--font-body, inherit);
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-primary);
     background: var(--color-bg-inset, rgba(0, 0, 0, 0.25));
     border: 1px solid var(--color-accent);
@@ -1795,20 +1795,20 @@
   /* The hull-class subtitle shown beneath a CUSTOM name (so a renamed ship still
      states what hull it is). Matches the dim, small treatment of the captain spec. */
   .ss-hull-class {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
   .ss-captain-name {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-accent);
   }
   .ss-captain-name.ss-parked {
     color: var(--color-text-dim);
   }
   .ss-captain-spec {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
   }
   .ss-portrait {
@@ -1818,7 +1818,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 20px;
+    font-size: calc(20px * var(--ui-scale));
     background: rgba(var(--color-accent-rgb), 0.04);
   }
   .ss-close {
@@ -1828,7 +1828,7 @@
     color: var(--color-text-secondary);
     width: 30px;
     height: 30px;
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
     cursor: pointer;
     line-height: 1;
   }
@@ -1848,12 +1848,12 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 650;
     color: var(--color-danger);
   }
   .ss-repair-msg {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
     margin: 4px 0 8px;
     line-height: 1.4;
@@ -1877,18 +1877,18 @@
   }
   .ss-repair-eta {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
     white-space: nowrap;
   }
   .ss-repair-wait {
     flex: 1;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
   }
   .ss-repair-btn {
     flex: 0 0 auto;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 650;
     padding: 6px 13px;
     cursor: pointer;
@@ -1910,7 +1910,7 @@
     background: rgba(248, 113, 113, 0.1);
     border: 1px solid rgba(248, 113, 113, 0.45);
     color: var(--color-danger);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
     flex-shrink: 0;
   }
@@ -1937,7 +1937,7 @@
     background: rgba(251, 191, 36, 0.1);
     border: 1px solid rgba(251, 191, 36, 0.45);
     color: var(--color-warning);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
     flex-shrink: 0;
   }
@@ -2010,7 +2010,7 @@
   /* FUNCTION GROUP (Weapons / Defense / Ship Systems / Drone Bays). */
   .ss-group-head {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.13em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2021,7 +2021,7 @@
   }
   .ss-group-cap {
     margin-left: auto;
-    font-size: 9px;
+    font-size: var(--text-3xs);
     color: var(--color-text-dim);
     letter-spacing: 0.05em;
   }
@@ -2057,11 +2057,11 @@
     background: var(--tc, var(--color-text-dim));
   }
   .ss-tile-ic {
-    font-size: 22px;
+    font-size: var(--text-2xl);
     line-height: 1;
   }
   .ss-tile-il {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     font-weight: 700;
     letter-spacing: 0.03em;
     color: var(--color-text-secondary);
@@ -2073,7 +2073,7 @@
     background: transparent;
   }
   .ss-tile-empty .ss-tile-ic {
-    font-size: 20px;
+    font-size: calc(20px * var(--ui-scale));
     color: var(--color-text-dim);
   }
 
@@ -2106,7 +2106,7 @@
   .ss-hp-num {
     align-self: flex-start;
     font-family: var(--font-mono);
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2145,7 +2145,7 @@
     outline-offset: 2px;
   }
   .ss-hp-name {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-primary);
     text-align: center;
     line-height: 1.2;
@@ -2155,7 +2155,7 @@
     white-space: nowrap;
   }
   .ss-hp-q {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     text-transform: capitalize;
     color: var(--color-text-secondary);
   }
@@ -2205,14 +2205,14 @@
     min-width: 0;
   }
   .ss-slot-label {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .ss-slot-sub {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     text-transform: capitalize;
   }
@@ -2248,7 +2248,7 @@
   .ss-act {
     flex: 0 0 auto;
     padding: 5px 10px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 650;
     cursor: pointer;
     background: rgba(var(--color-accent-rgb), 0.12);
@@ -2332,7 +2332,7 @@
     margin: -12px 0 9px;
     z-index: 1;
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -2344,7 +2344,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: var(--text-xl);
     line-height: 1;
     cursor: pointer;
     background: rgba(var(--color-accent-rgb), 0.08);
@@ -2370,7 +2370,7 @@
   .ss-installed-tag {
     flex: 0 0 auto;
     font-family: var(--font-mono);
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.13em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -2475,7 +2475,7 @@
      neutral at zero. Reused for the tile chips AND the compare headline. */
   .ss-br-delta {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 700;
     color: var(--color-text-secondary);
     white-space: nowrap;
@@ -2488,7 +2488,7 @@
   }
   .ss-blocked-tag {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -2510,7 +2510,7 @@
   }
   .ss-compare-title {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2519,7 +2519,7 @@
   .ss-back {
     appearance: none;
     font: inherit;
-    font-size: 11px;
+    font-size: var(--text-xs);
     padding: 3px 9px;
     cursor: pointer;
     background: rgba(var(--color-accent-rgb), 0.08);
@@ -2545,13 +2545,13 @@
   }
   .ss-compare-br-vals {
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-md);
     color: var(--color-text-primary);
   }
   .ss-compare-br-tag {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -2567,7 +2567,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 2px 0;
   }
   .ss-ck {
@@ -2600,13 +2600,13 @@
     color: var(--color-danger);
   }
   .ss-cv-delta {
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
   /* The compare's commit button: full-width so it reads as the primary action of the pane. */
   .ss-install-commit {
     width: 100%;
     padding: 8px 10px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
   .ss-compare-empty {
     text-align: center;
@@ -2625,7 +2625,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--color-accent);
     margin-bottom: 6px;
@@ -2633,20 +2633,20 @@
     border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.2);
   }
   .ss-cat-glyph {
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
   }
   /* Small dim subtitle after a category name (e.g. Innate "the hull itself"). */
   .ss-cat-note {
     margin-left: auto;
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.1em;
     text-transform: uppercase;
     color: var(--color-text-dim);
     font-weight: 400;
   }
   .ss-cat-placeholder {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
     font-style: italic;
     padding: 4px 0;
@@ -2657,7 +2657,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     padding: 3px 0;
   }
   .ss-srow-sub {
@@ -2677,7 +2677,7 @@
   }
   .ss-sv small {
     color: var(--color-text-dim);
-    font-size: 10px;
+    font-size: var(--text-2xs);
   }
   .ss-sv-accent {
     color: var(--color-accent-bright);
@@ -2741,7 +2741,7 @@
 
   /* Shared small-note text. */
   .ss-note {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-secondary);
     margin: 8px 0 0;
     line-height: 1.4;
@@ -2751,7 +2751,7 @@
   }
   .ss-empty {
     padding: 20px 14px;
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
   }
 </style>

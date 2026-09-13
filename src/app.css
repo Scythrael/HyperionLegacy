@@ -286,3 +286,28 @@ button {
   transition-duration: 0.001ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ⚠️ PROGRESS FILLS ARE THE EXCEPTION, AND LEAVING THEM TO THE BLUNT RULE ABOVE IS A REAL BUG.
+   (Found by the user, 2026-09-12, QA item D5: "Reduce motion doesn't make the bar step. The bar
+   just stays full.")
+
+   The blunt rule collapses every animation to a 0.001ms duration. For decoration that is exactly
+   right: the effect finishes instantly and is never seen. But the tick bar's animation is not
+   decoration, it IS the readout, and it is declared `forwards`, so collapsing its duration runs it
+   to completion immediately and then HOLDS IT AT 100% for the rest of the tick. The player asked
+   for less motion and got a broken gauge.
+
+   Killing the animation by NAME instead lets the element fall back to its inline width, which the
+   100ms poll already keeps current: the bar STEPS rather than sweeps, which is the pre-0.13.5
+   behaviour and is genuinely less motion. animation-name is what has to be overridden, because the
+   rule above only marks the DURATION important.
+
+   ⚠️ WHY THIS LIVES HERE AND NOT ONLY IN App.svelte: reduced motion has TWO entry points, the OS
+   setting (a prefers-reduced-motion media query) and the in-game toggle (this data attribute), and
+   until now only the media-query path carried the progress-fill exception. So the feature worked
+   for a player whose OS was configured for it and broke for a player who used the setting we
+   added. Two mechanisms, one of them fixed: that gap is the bug. Both paths now carry it. */
+:root[data-reduced-motion="on"] .tick-bar-fill,
+:root[data-reduced-motion="on"] .research-bar-fill {
+  animation-name: none !important;
+}

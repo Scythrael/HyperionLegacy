@@ -314,6 +314,155 @@ instead of predicting, and the requirement was "easy to sus out based on the tab
 
 ---
 
+### ⚠️ REVISION 2 (user, 2026-09-12, after seeing the built Visual tab). SUPERSEDES the naming and tab list above.
+
+The user reviewed the recommendation above and changed one thing, then settled several of the open
+questions with their own answers. **This subsection is the current decision record; where it differs
+from anything earlier in this brief, this wins.**
+
+#### The tab name, and Accessibility
+
+> "UI Theme as a replacement for visual doesn't fit. Visual doesn't either. How about **UI Settings**.
+> Also. Perhaps if it's UI Settings, **accessibility can be folded into that with its own category**."
+
+Adopted. "UI Theme" was my suggestion and it was too narrow: the tab holds tick-bar behaviour, readout
+format and combat-log presentation, none of which is a theme. "UI Settings" covers all of it and makes
+the fold legal, because an accessibility control IS a UI setting. **UI Theme survives as a SECTION
+name inside it**, which is where it was always accurate.
+
+⚠️ **THE ONE COST, and it is worth stating before it is built: folding Accessibility into another tab
+makes it harder to find for the people who need it most.** A player who needs a bigger text size is
+the least able to hunt through a settings screen for it. The mitigation is that it keeps a visible
+uppercase section header in the scroll (not a collapsed group), and it should be the FIRST section in
+the tab rather than the last. If that still feels buried when it is on screen, promoting it back to a
+top-level tab costs nothing later.
+
+**THE RESULTING STRUCTURE:**
+
+```
+GEAR BUTTON (header)              PORTRAIT (identity + reading)
+  UI Settings                       Log        <- plus error capture, see below
+    - Accessibility (first)         Patch Notes
+    - UI Theme                      Community
+    - Tick bar                      About      <- LAST
+    - Readouts                      Debug      <- home undecided
+    - Combat Log
+  Gameplay
+  Confirmations
+  System  -> Save Data only, for now
+```
+
+#### The questions the user answered themselves
+
+**"Should Profile live on Crew > Admiral instead?" Yes, and it solves the question it was asked about.**
+Their reasoning is sound on both ends: the Admiral screen "feels pretty empty" and Profile is identity
+data that belongs beside the Admiral it describes. It also dissolves the "is splitting System into two
+pieces viable" worry entirely, because once Profile leaves there is no split to make: the gear button
+holds settings, the portrait holds reading material, and neither contains a stray copy of the other.
+⚠️ **Verify the Admiral screen's actual layout room before building**, rather than assuming empty.
+
+**"Is a System tab holding only Save Data too thin?" No, and the evidence is already in this release.**
+Save Data spent 0.13.5's first pass folded into the Visual tab purely because that tab existed around
+it, and the result was that Export lived under the theme picker where nobody would look. A thin tab
+that is obviously correct beats a fat tab that hides something. It also fills on its own schedule:
+0.14.0 brings cloud save handling, which needs exactly this home.
+
+#### Section layout: the spec, taken from the Combat Log screenshot
+
+The user pointed at the built Combat Log section as the model and asked for it everywhere. Pinned so
+the mockup starts from a spec rather than a screenshot:
+
+| Element | Decision |
+|---|---|
+| Section name | Uppercase, letter-spaced, accent-bright, slightly larger. **Keep as is.** |
+| Divider under it | **Keep.** User: "the divider is niiiice. That must stay. Helps emphasize a section." |
+| Gaps | ⚠️ **A few pixels of real space between sections**, so each reads as its own pane rather than as one continuous panel cut by rules. This is the change: today the divider is doing a job that white space should be doing with it. |
+| Option label | **Bold**, the way "Theme" already renders. |
+| Description text | ⚠️ **MOVES OUT of the row and into a `?` help affordance beside the label.** |
+| Shape | `Theme Selector [ ? ] :  [    Red    ]` |
+
+⚠️ **THE `?` MUST BE CLICK/TAP ACTIVATED, NOT HOVER-ONLY.** The user wrote "hover over/click on", and
+the click half is the load-bearing one: hover does not exist on a phone, and this game is played on
+one. A hover-only help affordance would hide every explanation in the settings screen from the primary
+platform. It also needs keyboard focus and dismissal, and it is DISPLAY-ONLY (the project's standing
+tooltip rule: tooltips never carry actions).
+
+⚠️ **NO INFORMATION IS LOST IN THE MOVE.** The tooltip text is today's description verbatim, not a
+shortened version. The point is to unclutter the row, not to explain less. Worth a check during the
+mockup: a settings screen where every explanation costs a click is cleaner to look at and slower to
+learn from. My read is that it is the right trade here **because the labels are good**, and a vague
+label plus a hidden explanation would not be.
+
+#### Control vocabulary: dropdowns and toggles, nothing else
+
+> "Anything that has an On or Off button should get the toggle primitive. Log Style should have a
+> dropdown like theme. Log speed should have the same treatment too. Basically, dropdown boxes or
+> toggles feel like the cleanest ways to present options."
+
+Adopted as a RULE rather than a list of three edits, because a rule is what stops the next setting
+inventing a fourth control:
+
+| The setting is | The control is |
+|---|---|
+| Two states (on/off) | The square toggle primitive |
+| Three or more named choices | A dropdown |
+| A set (several independent flags) | Checkboxes |
+
+That covers every option in the game today. ⚠️ It also RETIRES the segmented `.dev-btn` pairs
+(Log style, Damage colors, Log speed, Auto-scroll), which is a real simplification: those are four
+different-looking controls doing two jobs. The conversion is mechanical once `Toggle.svelte` exists,
+and it is the reason the toggle should be built first.
+
+⚠️ **The three-state trap from finding (b) applies to the dropdowns too.** Log speed is Fast/Slow
+today, which is two states, so it would be a toggle by the rule above. But the user asked for a
+dropdown, and they are right for a reason the rule misses: Fast/Slow are NAMED VALUES, not on and off.
+A toggle implies "this feature, enabled or not", and "log speed, disabled" means nothing. **Refined
+rule: a toggle is for a feature that can be OFF; a dropdown is for a value chosen from a list, even
+when the list has two entries.**
+
+---
+
+## PHASE 3 BRIEF 3: THE COLLAPSIBLE HEADER (user idea, 2026-09-12)
+
+Raised as "an idea we can noodle about", and it lands on the same mockup as brief 1, so it is recorded
+beside it rather than separately.
+
+**The idea:** the header has two states. **Compact is the default** and looks close to today's, with
+the bars truncated to sit cleanly on one line. **Tapping it expands** to a detailed view. Compact might
+keep the EXP bar, but smaller.
+
+**⚠️ WHY THIS IS A STRONGER IDEA THAN IT FIRST LOOKS, and it resolves a conflict already logged.**
+Brief 1 records a genuine tension: crafting level belongs in the header because it is the same KIND of
+thing as Fleet Admiral level, but the header already carries three rows and a fourth costs vertical
+space on EVERY screen forever, to show a number that mostly matters while crafting. The collapsible
+header dissolves that: **the expanded state is where a fourth, fifth or sixth readout costs nothing**,
+because the player opened it on purpose and closes it again. Compact keeps the phone's screen for the
+game.
+
+It also gives the two-platform split (brief 1, ask 3) a cleaner answer than "desktop gets a different
+header": desktop can simply DEFAULT to expanded, because it has the room, while mobile defaults to
+compact. Same component, same information, one different default. That is sharing the logic and
+splitting the presentation, which is the standing rule for this release.
+
+**What the mockup must answer:**
+
+1. What compact actually shows. "Bars truncated to fit in one place cleanly" is the whole design
+   problem: a progress bar that is too short stops communicating progress and becomes decoration.
+   Numbers-only ("4.86M / 50.7M") may read better small than a 40px bar does.
+2. What expanded adds that compact cannot: crafting level, FA level detail, fuel runway, ship counts.
+3. ⚠️ **Whether the state persists, and where.** It is a per-device view preference, so localStorage by
+   the release's own storage rule. But a header that reopens collapsed every session will annoy a
+   desktop player, and one that stays expanded on a phone eats the screen it was meant to save.
+   Per-platform default plus a remembered override is likely right.
+4. ⚠️ **What the tap target is, and what it is NOT.** The header holds the portrait (Profile) and will
+   hold the gear (Options). If the whole bar expands on tap, those two controls must not be swallowed
+   by it. A dedicated chevron is the safe answer; "tap anywhere on the header" is the one that
+   produces mis-taps.
+5. Whether expanding pushes the page down or overlays it. Pushing reflows every screen underneath;
+   overlaying does not, and is more forgiving of a long expanded state.
+
+---
+
 ## PHASES 2 TO 6
 
 Designed after phase 1 lands, so the mockups (phase 3) can react to what the token layer actually looks like on screen rather than to a description of it. The scope document holds their contents and ordering.

@@ -1225,7 +1225,7 @@
     border-radius: 0;
   }
   .web-node-label {
-    font-size: 11px; /* TUNABLE: label size, Checkpoint A */
+    font-size: var(--text-xs); /* TUNABLE: label size, Checkpoint A */
     font-weight: 600;
     line-height: 1.15;
     /* Long labels are simply clipped for now so a node stays square-ish; a real
@@ -1233,7 +1233,7 @@
     overflow: hidden;
   }
   .web-node-cost {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-secondary);
   }
 
@@ -1311,7 +1311,7 @@
     top: 8px;
     right: 10px;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-secondary);
     background: rgba(0, 0, 0, 0.35);
     padding: 2px 8px;
@@ -1360,7 +1360,7 @@
   }
   .web-tooltip-title {
     font-family: var(--font-body);
-    font-size: 15px; /* TUNABLE: title size, Checkpoint A */
+    font-size: var(--text-lg); /* TUNABLE: title size, Checkpoint A */
     font-weight: 600;
     color: var(--color-text-primary);
     margin: 0;
@@ -1372,7 +1372,7 @@
     background: transparent;
     border: none;
     color: var(--color-text-secondary);
-    font-size: 18px;
+    font-size: var(--text-xl);
     line-height: 1;
     padding: 2px 6px;
     cursor: pointer;
@@ -1381,14 +1381,14 @@
     color: var(--color-text-primary);
   }
   .web-tooltip-effect {
-    font-size: 13px; /* TUNABLE: effect line size, Checkpoint A */
+    font-size: var(--text-md); /* TUNABLE: effect line size, Checkpoint A */
     font-weight: 600;
     color: var(--color-success);
     margin: 0 0 8px;
     line-height: 1.35;
   }
   .web-tooltip-cost {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
     margin: 0 0 8px;
   }
@@ -1401,7 +1401,7 @@
      "you can't buy this yet" state is unmissable, matching the emphasis the
      effect line already uses. */
   .web-tooltip-requirement {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--color-text-secondary);
     margin: 0 0 8px;
   }
@@ -1410,7 +1410,7 @@
     font-weight: 600;
   }
   .web-tooltip-flavor {
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-style: italic;
     color: var(--color-text-secondary);
     margin: 0 0 12px;
@@ -1428,7 +1428,7 @@
     border: 1px solid var(--color-accent);
     color: var(--color-accent-bright);
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     cursor: pointer;
     border-radius: 0; /* square, matching the node/panel chamfer idiom */
@@ -1443,7 +1443,7 @@
   /* Owned state: a static success-tinted label instead of a Learn button. */
   .web-tooltip-owned {
     padding: 8px 16px;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-success);
   }

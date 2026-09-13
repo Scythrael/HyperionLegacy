@@ -238,12 +238,12 @@
     height: 64px; /* TUNABLE: art box height, Checkpoint B */
     border: 1px dashed rgba(var(--color-accent-rgb), 0.3);
     color: var(--color-text-dim);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-style: italic;
     text-align: center;
   }
   .card-title {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     line-height: 1.2;
   }
@@ -261,14 +261,14 @@
   .description-title {
     margin: 0 0 8px;
     font-family: var(--font-body);
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     font-weight: 600;
     color: var(--color-text-primary);
     line-height: 1.2;
   }
   .description-flavor {
     margin: 0 0 10px;
-    font-size: 13px;
+    font-size: var(--text-md);
     font-style: italic;
     color: var(--color-text-secondary);
     line-height: 1.4;
@@ -277,7 +277,7 @@
     margin: 0 0 14px;
     padding-left: 18px;
     color: var(--color-text-primary);
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.5;
   }
   .description-bullets li {
@@ -297,7 +297,7 @@
     border: 1px solid var(--color-accent);
     color: var(--color-accent-bright);
     font-family: var(--font-body);
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     cursor: pointer;
     border-radius: 0; /* square, matching the node/panel chamfer idiom */

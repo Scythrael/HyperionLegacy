@@ -13113,7 +13113,7 @@
             <div class="dev-row" style="flex-wrap: wrap; gap: 8px;">
               {#each LOGISTICS_RESERVED_GOODS as label (label)}
                 <span
-                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: 13px; opacity: 0.5;"
+                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: var(--text-md); opacity: 0.5;"
                   title="Reserved for a future update (combat)"
                 >🔒 {label}</span>
               {/each}
@@ -17151,11 +17151,11 @@
   .header-left { display: flex; flex-direction: column; }
   .title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 2px;
     color: var(--color-accent-bright);
   }
-  .subtitle { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+  .subtitle { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: 2px; }
   .tab-body {
     /* Replaces the old .main rule (same class removed from the <main> tag in
        the template, <main> becomes <main class="tab-body">). This is the
@@ -17237,7 +17237,7 @@
   .top-bar-header .top-bar-portrait {
     flex: 0 0 40px;
     height: 40px;
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     border-style: solid;
     position: relative;
     padding: 0;
@@ -17253,21 +17253,21 @@
     position: absolute;
     right: -3px;
     bottom: -3px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1;
     color: var(--color-accent);
     pointer-events: none;
   }
   .top-bar-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .top-bar-name { font-size: 11px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .top-bar-name { font-size: var(--text-xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .top-bar-xp-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-xp-label { font-size: 10px; color: var(--color-text-secondary); flex-shrink: 0; }
+  .top-bar-xp-label { font-size: var(--text-2xs); color: var(--color-text-secondary); flex-shrink: 0; }
   .top-bar-xp-track { flex: 1; margin-bottom: 0; } /* overrides .research-bar-track's own margin-bottom:6px, this copy sits inline, not stacked above other content */
-  .top-bar-xp-readout { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-xp-readout { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   .top-bar-tick-row { display: flex; align-items: center; gap: 8px; }
-  .top-bar-tick-label { font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
+  .top-bar-tick-label { font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; flex-shrink: 0; }
   .top-bar-tick-track { flex: 1; }
-  .top-bar-tick-readout { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
+  .top-bar-tick-readout { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary); white-space: nowrap; flex-shrink: 0; }
   /* Currency strip (2026-07-09). A flex row of resource chips; wraps on narrow
      screens so additional currencies never overflow the top bar. margin-bottom
      matches the header block's own 8px so the tick row stays evenly spaced
@@ -17296,8 +17296,8 @@
     border-color: rgba(var(--color-accent-rgb), 0.6);
     background: rgba(var(--color-accent-rgb), 0.14);
   }
-  .currency-chip-glyph { font-size: 11px; color: var(--color-accent); line-height: 1; }
-  .currency-chip-value { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-primary); white-space: nowrap; }
+  .currency-chip-glyph { font-size: var(--text-xs); color: var(--color-accent); line-height: 1; }
+  .currency-chip-value { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-primary); white-space: nowrap; }
   /* Info tooltip: drops just below its chip, left-aligned to it. width:max-content
      keeps short labels tight while max-width wraps the flavor line. z-index sits
      above the tab body; the .top-bar itself is lifted into its own stacking layer
@@ -17322,10 +17322,10 @@
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .currency-tooltip-title {
-    font-size: 10px; letter-spacing: 0.5px; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase;
     color: var(--color-accent); margin-bottom: 4px;
   }
-  .currency-tooltip-body { font-size: 11px; line-height: 1.4; color: var(--color-text-secondary); }
+  .currency-tooltip-body { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
   /* Warehouse storage-upgrade disabled-reason popover (2026-07-24 flicker fix).
      The wrapper is the hover region + the positioning context for the popover
      (a disabled button cannot be it, see openUpgradeReasonKey in the script).
@@ -17340,7 +17340,7 @@
      tooltips render a plain flavor string and don't use these. min-width keeps the
      production/expenditure/net columns from collapsing on the short values. */
   .fuel-tt-row { display: flex; justify-content: space-between; gap: 16px; min-width: 190px; }
-  .fuel-tt-note { font-size: 10px; color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
+  .fuel-tt-note { font-size: var(--text-2xs); color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
   .fuel-tt-sep { height: 1px; background: rgba(var(--color-accent-rgb), 0.25); margin: 5px 0; }
   /* Outer nav (Task 1, Phase 4), now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
@@ -17438,7 +17438,7 @@
     }
   }
   .nav-tab-label {
-    font-size: 8px;
+    font-size: calc(8px * var(--ui-scale));
     letter-spacing: 0.3px;
     text-transform: uppercase;
     line-height: 1;
@@ -17463,7 +17463,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
     padding: 10px 8px;
     color: var(--color-text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
     text-align: left;
   }
@@ -17488,7 +17488,7 @@
      tab-row CSS lives here anymore. The selected tab's page renders in place
      below the row as plain block flow (full-width on desktop). */
   .panel-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 1.5px;
     color: var(--color-accent);
     margin-bottom: 12px;
@@ -17504,7 +17504,7 @@
     max-width: 92vw;
   }
   .offline-summary-lead {
-    font-size: 13px;
+    font-size: var(--text-md);
     line-height: 1.5;
     color: var(--color-text);
     margin: 0 0 12px;
@@ -17531,7 +17531,7 @@
     margin-top: 8px;
   }
   .offline-summary-section-title {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-accent);
@@ -17544,7 +17544,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    font-size: 13px;
+    font-size: var(--text-md);
     padding: 3px 0;
     border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
   }
@@ -17557,7 +17557,7 @@
      (warehouseCategoryGlyph), sat just before the item label so the summary reads like the
      Warehouse. A hair of trailing space and line-height:1 keep it aligned with the label text. */
   .offline-summary-item-icon {
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
     line-height: 1;
     margin-right: 4px;
   }
@@ -17582,7 +17582,7 @@
     justify-content: space-between;
     align-items: baseline;
     gap: 2px 10px;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   /* Combat 0.13.0 (offline recap): the muted "stopped early ..." note on its OWN line below the
      captain's XP. Dimmer + smaller than the accent value so it reads as a secondary aside, and it
@@ -17591,7 +17591,7 @@
     display: block;
     margin-top: 1px;
     color: var(--color-text-secondary, rgba(255, 255, 255, 0.55));
-    font-size: 12px;
+    font-size: var(--text-sm);
     white-space: normal;
     font-variant-numeric: normal;
   }
@@ -17707,9 +17707,9 @@
     animation: tick-bar-sweep linear forwards;
     transition: width 0.1s linear;
   }
-  .research-name { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-  .research-cost { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 10px; }
-  .research-status { font-size: 13px; color: var(--color-success); margin: 0; }
+  .research-name { font-size: var(--text-md); font-weight: 600; margin-bottom: 6px; }
+  .research-cost { font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: 10px; }
+  .research-status { font-size: var(--text-md); color: var(--color-success); margin: 0; }
   .research-bar-track {
     height: 10px;
     background: var(--color-panel-bg-strong);
@@ -17732,7 +17732,7 @@
     background: var(--color-accent);
     transition: width 0.2s linear;
   }
-  .research-readout { font-size: 11px; color: var(--color-text-secondary); text-align: right; }
+  .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
   /* AVAILABLE MISSIONS grid (2026-07-15 card redesign), was a single-column
      flex stack; now a responsive grid that fits ~3 cards across on a wide
      Operations panel and collapses to 2 then 1 column as the panel narrows.
@@ -17852,13 +17852,13 @@
     flex-wrap: wrap;
   }
   .battle-rating-value {
-    font-size: 15px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--color-accent-bright);
     font-variant-numeric: tabular-nums;
   }
   .patrol-readout-note {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-style: italic;
     color: var(--color-text-secondary);
   }
@@ -17879,14 +17879,14 @@
     /* A faint wash of the band color behind the solid-color border + text. */
     background: color-mix(in srgb, var(--threat-color) 16%, transparent);
     color: var(--threat-color);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: help;
     white-space: nowrap;
     border-radius: 2px;
   }
   .threat-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  .threat-chip-icon { font-size: 13px; line-height: 1; }
+  .threat-chip-icon { font-size: var(--text-md); line-height: 1; }
   .threat-tooltip {
     position: absolute;
     bottom: calc(100% + 6px);
@@ -17925,8 +17925,8 @@
   .threat-chip-wrap:focus-within { z-index: 40; }
   .threat-chip-wrap:hover .threat-tooltip,
   .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
-  .threat-tooltip-range { font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
-  .threat-tooltip-voice { font-size: 12px; font-style: italic; color: var(--color-text-secondary); }
+  .threat-tooltip-range { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
+  .threat-tooltip-voice { font-size: var(--text-sm); font-style: italic; color: var(--color-text-secondary); }
   /* Header row: portrait placeholder beside the name + exp sub-line. */
   .mission-card-header { display: flex; gap: 12px; align-items: center; }
   /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
@@ -17935,19 +17935,19 @@
      so there's no source-order dependency. ~48px reads as two text lines tall
      (name + exp), matching the sketch's two-line picture box. The LOCKED card
      keeps the full 64px frame (it isn't inside .mission-card-header). */
-  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: 22px; }
+  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
   .mission-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   /* research-name carries a 6px bottom margin of its own; zero it here so the
      exp sub-line sits tight under the name inside the flex-gap heading column. */
   .mission-card-heading .research-name { margin-bottom: 0; }
-  .mission-xp-line { font-size: 11px; color: var(--color-text-secondary); }
+  .mission-xp-line { font-size: var(--text-xs); color: var(--color-text-secondary); }
   /* Body: two equal columns (Requirements | Rewards), matching the sketch. */
   .mission-card-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .mission-card-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   /* Column heading ("Mission Requirements:" / "Rewards"), a touch stronger
      than the body rows so each column reads as a labelled group. */
-  .mission-col-label { font-size: 11px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
-  .mission-req-line { font-size: 12px; color: var(--color-text-secondary); }
+  .mission-col-label { font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); margin-bottom: 2px; }
+  .mission-req-line { font-size: var(--text-sm); color: var(--color-text-secondary); }
   /* Portrait-frame placeholder, no ship/captain art asset exists yet (see
      the 🖼️ emoji placeholder in the template), so this is a dashed
      theme-tinted box rather than an <img>, sized to read clearly as "art
@@ -17959,7 +17959,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: calc(24px * var(--ui-scale));
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
@@ -17987,7 +17987,7 @@
     border: 1px solid rgba(248, 113, 113, 0.4);
     padding: 8px 12px;
     color: var(--color-danger);
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
     margin-top: 10px;
   }
@@ -17996,7 +17996,7 @@
     border: 1px solid var(--color-border-strong);
     padding: 8px 10px;
     color: var(--color-accent-bright);
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-family: var(--font-mono);
     cursor: pointer;
   }
@@ -18016,7 +18016,7 @@
     text-decoration: none;
   }
   .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
-  .prestige-text { font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
+  .prestige-text { font-size: var(--text-sm); color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
   /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the colour-blot
      theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
      and dead CSS that still compiles is exactly the kind of thing a later reader restores by
@@ -18026,12 +18026,12 @@
      the precedent that still exists, rather than left pointing at a deleted selector. */
   .dev-title { color: var(--color-warning) !important; }
   .dev-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
-  .dev-label { font-size: 11px; color: var(--color-text-secondary); width: 78px; }
+  .dev-label { font-size: var(--text-xs); color: var(--color-text-secondary); width: 78px; }
   /* A labeled sub-heading inside the Options panel, separating a settings section
      (e.g. Combat Log) from the rows above it. Kept small + accent-tinted so a future
      accessibility/theming section reads as a sibling group, not a new panel. */
   .opt-section-title {
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -18051,7 +18051,7 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     color: var(--color-accent-bright);
     padding: 6px 10px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     cursor: pointer;
   }
   .dev-btn:hover:not(:disabled):not(.active) {
@@ -18076,11 +18076,11 @@
   /* [DEV] Equipment panel only (dev-gated). Monospace readout text so the
      base -> fitted stat columns line up, and a subtle divider between per-ship
      blocks. New classes, no existing panel restyled. */
-  .dev-readout-text { font-size: 11px; color: var(--color-text-secondary); font-family: monospace; }
+  .dev-readout-text { font-size: var(--text-xs); color: var(--color-text-secondary); font-family: monospace; }
   .dev-ship-block { border-top: 1px solid rgba(var(--color-accent-rgb), 0.2); padding-top: 8px; margin-top: 8px; }
   .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 140px; overflow-y: auto; }
-  .log-empty { font-size: 12px; color: var(--color-text-dim); }
-  .log-entry { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .log-empty { font-size: var(--text-sm); color: var(--color-text-dim); }
+  .log-entry { font-size: var(--text-sm); color: var(--color-text-secondary); font-family: var(--font-mono); }
   .modal-backdrop {
     position: fixed;
     inset: 0;
@@ -18129,7 +18129,7 @@
   .system-modal-tabs { flex-shrink: 0; }
   .system-modal-title {
     font-family: var(--font-display);
-    font-size: 15px;
+    font-size: var(--text-lg);
     letter-spacing: 1px;
     color: var(--color-accent-bright);
     text-transform: uppercase;
@@ -18142,7 +18142,7 @@
     color: var(--color-text-secondary);
     width: 30px;
     height: 30px;
-    font-size: 14px;
+    font-size: calc(14px * var(--ui-scale));
     cursor: pointer;
     line-height: 1;
   }
@@ -18163,9 +18163,9 @@
      class sizes just this instance, like the header/mission-card instances do) and
      existing text tokens; no new palette. */
   .profile-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  .profile-portrait { flex: 0 0 48px; height: 48px; font-size: 22px; }
-  .profile-identity-name { font-size: 13px; color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
-  .modal-warning { font-size: 13px; color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
+  .profile-portrait { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
+  .profile-identity-name { font-size: var(--text-md); color: var(--color-accent); text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal-warning { font-size: var(--text-md); color: var(--color-danger); line-height: 1.5; margin: 0 0 10px; }
   /* .modal-note: the REASSURING sibling of .modal-warning, for the "here is what
      actually happens next" line under a destructive warning. Same size, line-height
      and 10px bottom margin, differing only in color, so a modal's paragraphs share
@@ -18176,8 +18176,8 @@
      while the red warning above it had its 10px. Fixed here rather than by touching
      .research-status, which is shared across the facility consoles and would have
      moved spacing on surfaces this has nothing to do with. */
-  .modal-note { font-size: 13px; color: var(--color-success); line-height: 1.5; margin: 0 0 10px; }
-  .modal-instruction { font-size: 12px; color: var(--color-text-secondary); margin: 0 0 8px; }
+  .modal-note { font-size: var(--text-md); color: var(--color-success); line-height: 1.5; margin: 0 0 10px; }
+  .modal-instruction { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 8px; }
   .modal-input {
     width: 100%;
     padding: 8px 10px;
@@ -18187,7 +18187,7 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font-family: var(--font-mono);
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   /* A native <select> otherwise renders its closed control, and especially its
      OPENED option list, with the browser's default WHITE background, which the
@@ -18278,7 +18278,7 @@
     background: var(--color-bg-mid);
     border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
     font-family: var(--font-display);
-    font-size: 13px;
+    font-size: var(--text-md);
     letter-spacing: 1px;
     text-transform: uppercase;
     color: var(--color-accent-bright);
@@ -18292,7 +18292,7 @@
     align-items: center;
     justify-content: center;
     padding: 0;
-    font-size: 16px;
+    font-size: calc(16px * var(--ui-scale));
     line-height: 1;
     cursor: pointer;
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
@@ -18317,7 +18317,7 @@
      quiet to be a sheet's entire body. This is exactly the reason .modal-note itself was added
      one release earlier, and it takes the same shape rather than inventing a second one.
      Tokens only, no new palette value. */
-  .fsheet-explain { font-size: 13px; color: var(--color-text-primary); line-height: 1.5; margin: 0 0 10px; }
+  .fsheet-explain { font-size: var(--text-md); color: var(--color-text-primary); line-height: 1.5; margin: 0 0 10px; }
   /* Readonly backup textarea for the corrupt-save recovery modal (P4). Mirrors
      .modal-input's themed surface, but as a multi-row, monospace, wrapping box
      the player can select/copy from. overflow-wrap:anywhere keeps the long
@@ -18332,7 +18332,7 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.4;
     resize: vertical;
     overflow-wrap: anywhere;
@@ -18393,16 +18393,16 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: var(--text-2xl);
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     background: rgba(var(--color-accent-rgb), 0.08);
     border-radius: 8px;
   }
   .roster-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .roster-card-heading .research-name { margin-bottom: 0; }
-  .roster-card-sub { font-size: 11px; color: var(--color-text-secondary); }
+  .roster-card-sub { font-size: var(--text-xs); color: var(--color-text-secondary); }
   .roster-card-lines { display: flex; flex-direction: column; gap: 4px; }
-  .roster-card-line { font-size: 12px; color: var(--color-text-secondary); font-family: var(--font-mono); }
+  .roster-card-line { font-size: var(--text-sm); color: var(--color-text-secondary); font-family: var(--font-mono); }
 
   /* Facility-card attention dot (0.13.3 Unit 4.6b), the cascade's step DOWN from the
      bottom-nav dot: the nav dot says "something in Facilities needs you", this says which
@@ -18477,12 +18477,12 @@
     border-radius: 8px;
     color: var(--color-text-primary);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-md);
   }
   .ship-roster-search:focus { outline: none; border-color: var(--color-accent); }
   .ship-roster-sort { display: flex; align-items: center; gap: 6px; }
-  .ship-roster-sort-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-  .ship-roster-sort-select { font-size: 13px; }
+  .ship-roster-sort-label { font-size: var(--text-xs); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ship-roster-sort-select { font-size: var(--text-md); }
   .ship-roster-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* Filter chips: full-surface tint idiom, brighter when active (the selected filter). */
   .ship-chip {
@@ -18492,7 +18492,7 @@
     border-radius: 999px;
     color: var(--color-text-secondary);
     font: inherit;
-    font-size: 12px;
+    font-size: var(--text-sm);
     cursor: pointer;
   }
   .ship-chip:hover { border-color: var(--color-accent); }
@@ -18504,7 +18504,7 @@
 
   /* Group header (Favorites / All ships / a hull-class name). */
   .ship-roster-group-label {
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -18545,10 +18545,10 @@
     text-align: left;
     cursor: pointer;
   }
-  .ship-row-glyph { flex: 0 0 auto; font-size: 18px; }
+  .ship-row-glyph { flex: 0 0 auto; font-size: var(--text-xl); }
   .ship-row-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .ship-row-name {
-    font-size: 13px;
+    font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text-primary);
     white-space: nowrap;
@@ -18556,18 +18556,18 @@
     text-overflow: ellipsis;
   }
   .ship-row-meta {
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-secondary);
     font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  .ship-row-attn { font-size: 11px; color: var(--color-warning); font-weight: 600; }
+  .ship-row-attn { font-size: var(--text-xs); color: var(--color-warning); font-weight: 600; }
   .ship-row-rating {
     flex: 0 0 auto;
     align-self: center;
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-family: var(--font-mono);
     color: var(--color-text-secondary);
     padding: 2px 8px;
@@ -18582,7 +18582,7 @@
     border: none;
     border-left: 1px solid rgba(var(--color-accent-rgb), 0.15);
     color: var(--color-text-secondary);
-    font-size: 18px;
+    font-size: var(--text-xl);
     line-height: 1;
     cursor: pointer;
   }
@@ -18614,7 +18614,7 @@
   .materials-tier-btn {
     flex: 0 0 auto;
     padding: 5px 14px;
-    font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+    font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
     background: var(--color-panel-bg);
@@ -18634,7 +18634,7 @@
   }
   /* Cap readout line above the Materials sections. */
   .materials-cap-line {
-    font-family: var(--font-mono); font-size: 10px;
+    font-family: var(--font-mono); font-size: var(--text-2xs);
     color: var(--color-text-secondary);
     margin: 0 2px 12px;
   }
@@ -18648,12 +18648,12 @@
   .warehouse-tier:last-child { margin-bottom: 0; }
   .warehouse-tier-head { display: flex; align-items: center; gap: 8px; margin: 0 2px 8px; }
   .warehouse-tier-label {
-    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.14em; text-transform: uppercase;
     font-weight: 700; color: var(--color-text-primary);
   }
   .warehouse-tier.locked .warehouse-tier-label { color: var(--color-text-dim); }
   .warehouse-tier-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--color-border), transparent); }
-  .warehouse-tier-cap { font-family: var(--font-mono); font-size: 9px; color: var(--color-text-secondary); }
+  .warehouse-tier-cap { font-family: var(--font-mono); font-size: var(--text-3xs); color: var(--color-text-secondary); }
 
   /* the fill-tile grid. MOBILE (default) stays 4-across, the size confirmed
      perfect on-device, so mobile is deliberately left untouched. DESKTOP was
@@ -18687,15 +18687,15 @@
     background: linear-gradient(var(--wh-fillc, var(--color-accent)), color-mix(in srgb, var(--wh-fillc, var(--color-accent)) 35%, transparent));
     opacity: 0.28; z-index: 0; transition: height 0.3s;
   }
-  .warehouse-glyph { position: relative; z-index: 1; font-size: 15px; line-height: 1; }
+  .warehouse-glyph { position: relative; z-index: 1; font-size: var(--text-lg); line-height: 1; }
   .warehouse-glyph-unknown { color: var(--color-text-dim); }
   .warehouse-ct {
     position: relative; z-index: 1; font-family: var(--font-mono);
-    font-size: 9px; font-weight: 700; margin-top: 3px; color: var(--color-text-primary);
+    font-size: var(--text-3xs); font-weight: 700; margin-top: 3px; color: var(--color-text-primary);
   }
   .warehouse-pct {
     position: absolute; top: 3px; right: 4px; z-index: 1;
-    font-family: var(--font-mono); font-size: 8px; color: var(--color-text-secondary);
+    font-family: var(--font-mono); font-size: calc(8px * var(--ui-scale)); color: var(--color-text-secondary);
   }
 
   /* at-cap: the danger pulse, the visible auto-stop "expand storage" signal */
@@ -18712,15 +18712,15 @@
   }
 
   .warehouse-locked-note {
-    text-align: center; padding: 12px; font-size: 11px;
+    text-align: center; padding: 12px; font-size: var(--text-xs);
     color: var(--color-text-secondary); font-style: italic; margin: 8px 0 0;
   }
   .warehouse-locked-note b { color: var(--color-accent); font-style: normal; }
 
   /* future-content stub (empty categories + troop/consumable tabs) */
   .warehouse-stub { padding: 30px 16px; text-align: center; color: var(--color-text-secondary); }
-  .warehouse-stub-glyph { font-size: 28px; opacity: 0.55; }
-  .warehouse-stub p { font-size: 12px; line-height: 1.55; margin: 10px 0 0; }
+  .warehouse-stub-glyph { font-size: var(--text-3xl); opacity: 0.55; }
+  .warehouse-stub p { font-size: var(--text-sm); line-height: 1.55; margin: 10px 0 0; }
 
   /* ── Ship Systems bay (Equipment 0.11.0 Phase D) ─────────────────────────
      The capacity header mirrors the mockup's caphdr: label + big value on the
@@ -18738,14 +18738,14 @@
   }
   .systems-bay-cap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .systems-bay-cap-label {
-    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase;
     color: var(--color-text-secondary);
   }
-  .systems-bay-cap-val { font-size: 18px; font-weight: 600; color: var(--color-text-primary); }
-  .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: 12px; }
+  .systems-bay-cap-val { font-size: var(--text-xl); font-weight: 600; color: var(--color-text-primary); }
+  .systems-bay-cap-val small { color: var(--color-text-secondary); font-weight: 400; font-size: var(--text-sm); }
   .systems-bay-upgrade { flex: 0 0 auto; }
   .systems-bay-upgrade-note {
-    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
   }
 
@@ -18761,7 +18761,7 @@
   }
   .docks-expand-btn { flex: 0 0 auto; }
   .docks-expand-note {
-    font-size: 11px; color: var(--color-text-dim); font-style: italic;
+    font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
   }
 
@@ -18799,9 +18799,9 @@
   .systems-tile.baseline .systems-tile-dot { display: none; }
   /* The per-variety GLYPH (prominent) + the item level (small). Quality no longer
      sits on the tile face, it lives in the tooltip (matches the Phase D mockup). */
-  .systems-tile-ic { font-size: 24px; line-height: 1; }
+  .systems-tile-ic { font-size: calc(24px * var(--ui-scale)); line-height: 1; }
   .systems-tile-il {
-    font-size: 10px; font-weight: 700; letter-spacing: 0.03em;
+    font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.03em;
     color: var(--color-text-secondary);
   }
 
@@ -18821,7 +18821,7 @@
      opposite the rarity dot, so the two markers never collide. */
   .sb-tile-tag {
     position: absolute; left: 3px; bottom: 3px;
-    font-size: 8px; font-weight: 700; letter-spacing: 0.06em;
+    font-size: calc(8px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.06em;
     padding: 1px 3px;
     color: var(--color-accent);
     background: color-mix(in srgb, var(--color-accent) 18%, transparent);
@@ -18837,7 +18837,7 @@
      reads identically in every theme. pointer-events none: the tile itself is the button. */
   .sb-tile-fav {
     position: absolute; left: 4px; top: 3px;
-    font-size: 11px; line-height: 1;
+    font-size: var(--text-xs); line-height: 1;
     color: var(--color-warning);
     pointer-events: none;
   }
@@ -18862,7 +18862,7 @@
     background: rgba(248, 113, 113, 0.1);
     color: var(--color-danger);
   }
-  .systems-salvage-none { font-size: 11px; color: var(--color-text-dim); font-style: italic; }
+  .systems-salvage-none { font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic; }
 
   /* Salvaged Materials selected-item action row (0.11.0 Task C2 UI): the item name +
      hint on the left, the Salvage button (danger, a recycle is destructive) on the
@@ -18871,9 +18871,9 @@
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
   .salvaged-action-info { min-width: 0; }
-  .salvaged-action-name { font-size: 14px; font-weight: 700; }
+  .salvaged-action-name { font-size: calc(14px * var(--ui-scale)); font-weight: 700; }
   .salvaged-action-hint {
-    font-size: 11px; color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px;
+    font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.45; margin-top: 3px;
   }
 
   /* tile tooltip, position:fixed so it escapes the scroll container's
@@ -18888,11 +18888,11 @@
     display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
     margin-bottom: 10px; /* match .research-cost's vertical rhythm */
   }
-  .drops-label { font-size: 12px; color: var(--color-text-secondary); }
+  .drops-label { font-size: var(--text-sm); color: var(--color-text-secondary); }
   .drop-icon {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; margin: 0;
-    font-size: 14px; line-height: 1;
+    font-size: calc(14px * var(--ui-scale)); line-height: 1;
     border-radius: 6px;
     border: 1.5px solid var(--drop-rc);
     background: var(--color-bg-mid);
@@ -18914,9 +18914,9 @@
     box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
     pointer-events: none;
   }
-  .warehouse-tt-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
-  .warehouse-tt-rarity { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
-  .warehouse-tt-row { display: flex; justify-content: space-between; font-size: 11px; margin-top: 8px; color: var(--color-text-secondary); }
+  .warehouse-tt-name { font-size: var(--text-md); font-weight: 700; color: var(--color-text-primary); }
+  .warehouse-tt-rarity { font-size: var(--text-3xs); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; margin-top: 1px; }
+  .warehouse-tt-row { display: flex; justify-content: space-between; font-size: var(--text-xs); margin-top: 8px; color: var(--color-text-secondary); }
 
   /* Home > Statistics label/value row (0.11.2 Shell Correction, Task 2). A minimal
      two-column readout: dim label on the left, primary-color value on the right.
@@ -18931,7 +18931,7 @@
     align-items: baseline;
     gap: 16px;
     padding: 7px 0;
-    font-size: 13px;
+    font-size: var(--text-md);
     border-bottom: 1px solid var(--color-border);
   }
   .stat-row:last-child { border-bottom: none; }
@@ -18943,9 +18943,9 @@
     background: rgba(var(--color-accent-rgb), 0.08); border: 1px solid var(--color-border);
   }
   .warehouse-tt-bar span { display: block; height: 100%; }
-  .warehouse-tt-stat { font-size: 11px; color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; }
-  .warehouse-tt-hint { font-size: 11px; color: var(--color-warning); margin-top: 8px; line-height: 1.5; font-style: italic; }
-  .warehouse-tt-warn { font-size: 11px; color: var(--color-danger); font-weight: 700; margin-top: 8px; }
+  .warehouse-tt-stat { font-size: var(--text-xs); color: var(--color-text-secondary); margin-top: 8px; line-height: 1.5; }
+  .warehouse-tt-hint { font-size: var(--text-xs); color: var(--color-warning); margin-top: 8px; line-height: 1.5; font-style: italic; }
+  .warehouse-tt-warn { font-size: var(--text-xs); color: var(--color-danger); font-weight: 700; margin-top: 8px; }
 
   @media (prefers-reduced-motion: reduce) {
     .warehouse-tile.full { animation: none; }
@@ -18965,7 +18965,7 @@
   /* Sub-line under COMMAND HOME: the at-a-glance counts. */
   .home-dash-sub {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
     margin: 0 0 14px;
     font-variant-numeric: tabular-nums;
@@ -18977,13 +18977,13 @@
   .home-sec-hd { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
   .home-sec-h {
     font-family: var(--font-display);
-    font-size: 11px;
+    font-size: var(--text-xs);
     letter-spacing: 0.09em;
     text-transform: uppercase;
     color: var(--color-text-secondary);
   }
   .home-sec-count {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--color-text-dim);
     font-variant-numeric: tabular-nums;
     background: var(--color-panel-bg-strong);
@@ -19003,7 +19003,7 @@
      no nowrap), so it never forces horizontal scroll at 320px. */
   .home-queued-note {
     margin: 0 0 2px;
-    font-size: 11px;
+    font-size: var(--text-xs);
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -19044,12 +19044,12 @@
     100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warning) 0%, transparent); }
   }
   .home-prompt-txt { flex: 1; min-width: 0; }
-  .home-prompt-detail { display: block; font-size: 10.5px; color: var(--color-warning); letter-spacing: 0.02em; margin-top: 1px; }
+  .home-prompt-detail { display: block; font-size: calc(10.5px * var(--ui-scale)); color: var(--color-warning); letter-spacing: 0.02em; margin-top: 1px; }
   /* The "Go" affordance (a styled span inside the button, NOT a nested button). */
   .home-go {
     flex: none;
     font-family: var(--font-display);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--color-bg-deep);
@@ -19111,7 +19111,7 @@
     flex: none;
     margin-left: auto;
     font-family: var(--font-display);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--color-warning);
@@ -19137,9 +19137,9 @@
     border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
     border-radius: 8px;
   }
-  .home-caughtup-check { font-size: 18px; color: var(--color-success); flex: none; }
-  .home-caughtup-title { font-family: var(--font-display); font-size: 12.5px; color: var(--color-success); }
-  .home-caughtup-sub { font-size: 10.5px; color: var(--color-text-secondary); margin-top: 2px; }
+  .home-caughtup-check { font-size: var(--text-xl); color: var(--color-success); flex: none; }
+  .home-caughtup-title { font-family: var(--font-display); font-size: calc(12.5px * var(--ui-scale)); color: var(--color-success); }
+  .home-caughtup-sub { font-size: calc(10.5px * var(--ui-scale)); color: var(--color-text-secondary); margin-top: 2px; }
 
   /* --- IN PROGRESS: compact rows in a two-column grid (mockup) --- */
   /* Two equal columns on desktop, collapsing to a single column on mobile (the
@@ -19183,13 +19183,13 @@
   .home-row-static:hover { border-color: var(--color-border); background: var(--color-panel-bg-strong); }
 
   /* Row icon (shared with prompts). */
-  .home-ico { font-size: 15px; flex: none; width: 18px; text-align: center; }
+  .home-ico { font-size: var(--text-lg); flex: none; width: 18px; text-align: center; }
 
   .home-row-body { flex: 1; min-width: 0; }
   /* Primary label ellipsizes rather than widening the cell (no horizontal scroll). */
   .home-l1 {
     display: block;
-    font-size: 11.5px;
+    font-size: calc(11.5px * var(--ui-scale));
     color: var(--color-text-primary);
     font-weight: 500;
     white-space: nowrap;
@@ -19210,21 +19210,21 @@
      ROW gap is deliberately tighter than the COLUMN gap (2px vs 7px): when this wraps, the two
      lines belong to one row and should read as a block, not as two separate entries. */
   .home-l2 { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 7px; margin-top: 4px; }
-  .home-phase { font-size: 10px; color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
+  .home-phase { font-size: var(--text-2xs); color: var(--color-accent); letter-spacing: 0.02em; white-space: nowrap; }
   /* The combat defeat phase reads danger-red (matches the source combat card). */
   .home-phase-danger { color: var(--color-danger); }
-  .home-meta { font-size: 10px; color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .home-meta { font-size: var(--text-2xs); color: var(--color-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
   /* ETA pinned right, monospaced tabular for a stable clock. */
   .home-eta {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-family: var(--font-mono);
     color: var(--color-text-secondary);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
     flex: none;
   }
-  .home-chev { flex: none; color: var(--color-text-dim); font-size: 15px; }
+  .home-chev { flex: none; color: var(--color-text-dim); font-size: var(--text-lg); }
 
   /* --- RECENTLY COMPLETED (0.13.3 Unit 4.4b) ---------------------------------
      Reuses .home-row / .home-ico / .home-l1 / .home-l2 wholesale; only the
@@ -19260,14 +19260,14 @@
     border: 1px solid color-mix(in srgb, var(--done-rc) 30%, transparent);
   }
   .home-done-amt {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     color: var(--color-text-secondary);
     flex: none;
   }
   .home-done-name {
-    font-size: 10px;
+    font-size: var(--text-2xs);
     color: var(--done-rc);
     min-width: 0;
     overflow: hidden;
@@ -19304,10 +19304,10 @@
     border-radius: 7px;
     opacity: 0.6;
   }
-  .home-lock-ico { font-size: 12px; }
-  .home-lock-l { font-size: 10.5px; color: var(--color-text-dim); }
+  .home-lock-ico { font-size: var(--text-sm); }
+  .home-lock-l { font-size: calc(10.5px * var(--ui-scale)); color: var(--color-text-dim); }
   .home-lock-note {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     color: var(--color-text-dim);
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -19358,7 +19358,7 @@
     border-radius: 50%;
     border: 1px solid var(--color-border-strong);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--text-2xs);
     font-variant-numeric: tabular-nums;
     color: var(--color-text-secondary);
   }
@@ -19370,7 +19370,7 @@
 
   /* "Starts next" preview chip. */
   .cq-tag {
-    font-size: 9px;
+    font-size: var(--text-3xs);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--color-accent);
@@ -19385,7 +19385,7 @@
   .cq-state {
     display: block;
     margin-top: 3px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.35;
     color: var(--color-text-secondary);
   }
@@ -19426,7 +19426,7 @@
      "Add to queue" reason). Same voice as the row state note, one step louder. */
   .cq-note {
     margin: 8px 0 0;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -19486,7 +19486,7 @@
   .cl-state {
     display: block;
     margin-top: 3px;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1.35;
     color: var(--color-text-secondary);
   }
@@ -19497,7 +19497,7 @@
      surface. */
   .cl-note {
     margin: 8px 0 0;
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-secondary);
   }
@@ -19546,7 +19546,7 @@
   /* Detail lines WRAP (no ellipsis, no fixed width), so a long item label reflows at 320px
      instead of forcing the horizontal scroll the responsive rule forbids. */
   .cfg-line {
-    font-size: 10.5px;
+    font-size: calc(10.5px * var(--ui-scale));
     line-height: 1.4;
     color: var(--color-text-primary);
   }
