@@ -2286,6 +2286,17 @@
     saveHeaderExpanded(headerExpanded);
   }
 
+  // ⚠️ Desktop gets a DIFFERENT header LAYOUT than mobile (0.13.5, approved mockup: no name, level
+  // folded onto the EXP row, bigger portrait + matching gear as bookends, EXP/CRAFT/TICK each on
+  // their own stretched row, stacked equal-width dropdowns). The visual layout lives entirely in the
+  // @media (min-width: 769px) block; this flag exists ONLY for the two structural bits CSS cannot do:
+  //   - the stat rows must ALWAYS show on desktop (headerExpanded has no collapse control there, so
+  //     a stored-collapsed pref must not blank the header), and
+  //   - the mobile compact-EXP line must be suppressed.
+  // Set on mount and kept live by a matchMedia listener so a resize across 769px reflows correctly.
+  // (Mirrors COMPACT_DEFAULT_MAX_WIDTH = 768 in headerPreference.ts.)
+  let wideHeader = false;
+
   let openCurrencyKey: string | null = null;
   function showCurrency(key: string) {
     openCurrencyKey = key;
@@ -2826,6 +2837,11 @@
     // ⚠️ Resolved on MOUNT, not at declaration: the platform default reads the viewport, which does
     // not exist during module evaluation. A remembered choice wins; otherwise the width decides.
     headerExpanded = resolveHeaderExpanded(loadHeaderExpanded(), window.innerWidth);
+    // Live desktop/mobile header switch (see `wideHeader`). One persistent listener on the root
+    // component, which never unmounts, so no teardown is needed.
+    const wideHeaderMql = window.matchMedia("(min-width: 769px)");
+    wideHeader = wideHeaderMql.matches;
+    wideHeaderMql.addEventListener("change", (e) => { wideHeader = e.matches; });
     autoSalvageBaselineWarningEnabled = loadAutoSalvageBaselineWarningEnabled();
     // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
     // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
@@ -8765,10 +8781,11 @@
 
         <!-- Identity: name, plus the COMPACT exp bar shown only while collapsed (the number carries
              the precision, the short bar the glance). When expanded, the full readouts move into
-             the stats area and this compact line steps aside. -->
+             the stats area and this compact line steps aside. ⚠️ MOBILE ONLY: the whole block is
+             display:none on desktop, where the name is dropped and the level rides the EXP row. -->
         <div class="tb-identity">
           <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
-          {#if !headerExpanded}
+          {#if !headerExpanded && !wideHeader}
             <div class="tb-statrow tb-statrow-compact">
               <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
               <span class="tb-statval">{(fleetAdminXpRatio * 100).toFixed(1)}%</span>
@@ -8776,16 +8793,18 @@
           {/if}
         </div>
 
-        <!-- STATS: EXP / CRAFT / TICK. Shown when the header is expanded (the same flag that is
-             true-by-default on desktop and false-on-mobile). On desktop this is a two-up grid; on
-             mobile it stacks. ⚠️ CRAFT is AMBER so it reads as a sibling track to FA level, not a
-             second copy of it. Bars are width-capped in CSS so they never stretch full-bleed. -->
-        {#if headerExpanded}
+        <!-- STATS: EXP / CRAFT / TICK. ⚠️ CRAFT is AMBER so it reads as a sibling track to FA level,
+             not a second copy of it. MOBILE: shown only when the header is expanded, stacked, bars
+             width-capped. DESKTOP (wideHeader): ALWAYS shown, each row on its own line with the bar
+             stretched to fill (see the media query); the FA level rides the EXP row here since the
+             name is dropped. -->
+        {#if headerExpanded || wideHeader}
           <div class="tb-stats">
             <div class="tb-statrow">
               <span class="tb-statlab">EXP</span>
               <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
-              <span class="tb-statval">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+              <span class="tb-statval tb-statval-mobile">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
+              <span class="tb-statval tb-statval-desktop"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {(fleetAdminXpRatio * 100).toFixed(1)}%</span>
             </div>
             <div class="tb-statrow">
               <span class="tb-statlab">CRAFT</span>
@@ -8808,11 +8827,11 @@
           </div>
         {/if}
 
-        <!-- ⚠️ TWO RESOURCE BUTTONS, Currency and Fuel, each opening its own popup (approved mockup,
-             rev 2). This replaces the old strip of one-chip-per-currency. Two buttons rather than
-             one merged list because FUEL IS NOT A CURRENCY, and there will be several of each; one
-             list would file two kinds of thing under one label. Reuses the existing openCurrencyKey
-             open/close machinery, now keyed "currency" and "fuel". -->
+        <!-- ⚠️ TWO RESOURCE CONTROLS. Currency opens a popup listing every currency. Fuel is NOT a
+             popup: it is a LINK to the Fuel Depot (0.13.5, user), because the depot's Overview
+             already carries the full runway/economy breakdown that used to be duplicated in a header
+             popup, so the header just shows the tank readout and sends you there (↗). On desktop
+             these two stack at equal width (see the media query); on mobile they sit side by side. -->
         <div class="tb-resources">
           <div class="tb-pop-wrap">
             <button
@@ -8844,69 +8863,16 @@
             {/if}
           </div>
 
-          <div class="tb-pop-wrap">
-            <button
-              type="button"
-              class="tb-hbtn"
-              class:open={openCurrencyKey === "fuel"}
-              aria-label={`Fuel: ${formatNumber(state.fuel)} of ${formatNumber(fuelCapValue)}`}
-              aria-describedby={openCurrencyKey === "fuel" ? "tb-pop-fuel" : undefined}
-              on:pointerenter={(e) => hoverEnterCurrency(e, "fuel")}
-              on:pointerleave={(e) => hoverLeaveCurrency(e, "fuel")}
-              on:focus={() => showCurrency("fuel")}
-              on:blur={() => hideCurrency("fuel")}
-              on:click={() => showCurrency("fuel")}
-            >
-              <span class="tb-hbtn-glyph" aria-hidden="true">⛽</span>
-              <b>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)}</b>
-              <span class="tb-hbtn-caret" aria-hidden="true">⌄</span>
-            </button>
-            {#if openCurrencyKey === "fuel"}
-              <div class="tb-pop" id="tb-pop-fuel" role="tooltip">
-                <div class="tb-pop-title">Fuel</div>
-                <div class="fuel-tt-row">
-                  <span>In tank</span>
-                  <span>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</span>
-                </div>
-                <div class="fuel-tt-sep"></div>
-                <div class="fuel-tt-row" style="color: var(--color-success);">
-                  <span>Refining (max)</span>
-                  <span>+{formatNumber(fuelProductionPerMinute)}/min</span>
-                </div>
-                <div class="fuel-tt-note">uses {formatNumber(fuelIceInputPerMinute)} Deuterium Ice/min · {fuelPipelineCount(state)} pipeline{fuelPipelineCount(state) === 1 ? "" : "s"}</div>
-                <div class="fuel-tt-row" style="color: var(--color-danger);">
-                  <span>Missions ({fuelActiveMissionCount})</span>
-                  <span>−{formatNumber(fuelExpenditurePerMinute)}/min</span>
-                </div>
-                <div class="fuel-tt-sep"></div>
-                <div class="fuel-tt-row" style="color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'}; font-weight: 600;">
-                  <span>Net</span>
-                  <span>{fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))}/min</span>
-                </div>
-                <div class="fuel-tt-note">
-                  {#if fuelTankFull}
-                    Idle, tank full (topped off).
-                  {:else if !fuelHasIce}
-                    Refinery idle, out of Deuterium Ice (mine more via Operations).
-                  {:else if fuelSufficient}
-                    Fuel-positive, refining outpaces your missions.
-                  {:else}
-                    Draining, shortfalls auto-buy fuel with credits (+2-tick delay).
-                  {/if}
-                </div>
-                <div class="fuel-tt-sep"></div>
-                {#if fuelRunway === null}
-                  <div class="fuel-tt-row"><span>Fuel runway</span><span>measuring…</span></div>
-                {:else if fuelRunway.sustainable}
-                  <div class="fuel-tt-row" style="color: var(--color-success); font-weight: 600;"><span>Fuel runway</span><span>∞ self-sustaining</span></div>
-                {:else if fuelRunway.runwayTicks !== null}
-                  <div class="fuel-tt-row" style="color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'}; font-weight: 600;"><span>Fuel runway</span><span>{formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left</span></div>
-                {:else}
-                  <div class="fuel-tt-row"><span>Fuel runway</span><span>--</span></div>
-                {/if}
-              </div>
-            {/if}
-          </div>
+          <button
+            type="button"
+            class="tb-hbtn tb-hbtn-link"
+            aria-label={`Fuel: ${formatNumber(state.fuel)} of ${formatNumber(fuelCapValue)}. Opens the Fuel Depot.`}
+            on:click={() => jumpToActivity("fuelDepot")}
+          >
+            <span class="tb-hbtn-glyph" aria-hidden="true">⛽</span>
+            <b>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)}</b>
+            <span class="tb-hbtn-caret" aria-hidden="true">↗</span>
+          </button>
         </div>
 
         <!-- Gear: opens the System window ON the Settings tab (the portrait opens its default tab). -->
@@ -17482,20 +17448,6 @@
   .top-bar-header .top-bar-gear { order: 3; align-self: center; }
   .tb-resources { order: 4; flex: 1 1 100%; }
   .tb-stats { order: 5; flex: 1 1 100%; }
-  /* ≥769px = the desktop breakpoint (mirrors COMPACT_DEFAULT_MAX_WIDTH=768 in
-     headerPreference.ts, where the header also defaults to expanded). One line, stats as a
-     two-up grid: EXP | CRAFT on row one, TICK below. Bars stay capped by .tb-barwrap. */
-  @media (min-width: 769px) {
-    .top-bar-header { flex-wrap: nowrap; gap: 12px; margin-bottom: 0; }
-    .tb-identity { flex: 0 0 auto; max-width: 240px; }
-    .tb-stats { order: 3; flex: 1 1 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 22px; }
-    .tb-resources { order: 4; flex: 0 0 auto; }
-    .top-bar-header .top-bar-gear { order: 5; }
-    /* Desktop re-anchors the popup to its button wrapper (there is room to the right),
-       instead of the mobile full-row clamp above. */
-    .tb-pop-wrap { position: relative; }
-    .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
-  }
   /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
      class (0,1,0), this reliably overrides .mission-portrait-frame's own
      flex/height/font-size regardless of where either rule sits in this
@@ -17545,6 +17497,12 @@
   .tb-bar { position: relative; display: block; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
   .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 3px; transition: width var(--bar-step-seconds, 0.25s) linear; }
   .tb-statval { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
+  /* EXP readout has two forms: mobile shows the full count, desktop folds in the level (no name
+     there). Base = mobile, so the desktop form is hidden here and swapped in by the media query. */
+  .tb-statval-desktop { display: none; }
+  .tb-lvl { color: var(--color-text-primary); font-weight: 600; }
+  /* Fuel is a link, not a dropdown: its caret is the jump arrow, tinted like the currency caret. */
+  .tb-hbtn-link { text-decoration: none; }
   /* ── Header resource buttons (0.13.5): Currency + Fuel, each opening a popup ────
      Replaces the old one-chip-per-currency strip. Two <button>s in .tb-resources; each
      is wrapped in a .tb-pop-wrap that is the positioning context for its .tb-pop popover.
@@ -17595,6 +17553,53 @@
   .tb-pop-line { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; font-size: var(--text-xs); }
   .tb-pop-line .tb-pop-name { color: var(--color-text-secondary); }
   .tb-pop-line b { font-family: var(--font-mono); color: var(--color-text-primary); }
+  /* ── Desktop header layout (0.13.5). Placed AFTER the base .tb-* rules so its overrides win
+     the cascade at equal specificity. ─────────────────────────────────────────────── */
+  /* ≥769px = the desktop breakpoint (mirrors COMPACT_DEFAULT_MAX_WIDTH=768 in headerPreference.ts).
+     The approved 0.13.5 desktop layout: a 4-column grid [ portrait | stats | dropdowns | gear ].
+     The name is dropped; the level rides the EXP row. Portrait and gear are bigger, matched-size
+     bookends, vertically centered. The stats column is a flex COLUMN of EXP/CRAFT/(TICK) rows, each
+     with its bar STRETCHED to fill (no cap), so the header uses the full monitor width instead of
+     huddling left. The two dropdowns stack at equal width. The mobile flex-wrap/order rules above
+     are all overridden here. */
+  @media (min-width: 769px) {
+    .top-bar-header {
+      display: grid;
+      grid-template-columns: auto 1fr auto auto;
+      align-items: center;
+      column-gap: 20px;
+      margin-bottom: 0;
+    }
+    /* ⚠️ EVERY item pins to grid-row 1. Setting only grid-column (auto row) made the auto-placement
+       stack portrait / stats / dropdowns into THREE separate rows (a 184px-tall header). One row,
+       vertically centered, keeps it a single compact band. */
+    .top-bar-header .top-bar-portrait { grid-column: 1; grid-row: 1; align-self: center; width: 58px; height: 58px; font-size: calc(26px * var(--ui-scale)); }
+    .tb-identity { display: none; }
+    .tb-stats { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .tb-stats .tb-statrow { gap: 10px; }
+    .tb-stats .tb-barwrap { flex: 1 1 auto; max-width: none; }
+    .tb-stats .tb-bar { height: 10px; border-radius: 5px; }
+    .tb-stats .tb-bar > i { border-radius: 5px; }
+    .tb-stats .tb-statlab { width: 46px; font-size: var(--text-2xs); }
+    .tb-stats .tb-statval { min-width: 136px; text-align: right; font-size: var(--text-xs); }
+    .tb-statval-mobile { display: none; }
+    .tb-statval-desktop { display: inline; }
+    /* Dropdowns stack at equal width; the gear sits centered beside them. */
+    .tb-resources { grid-column: 3; grid-row: 1; flex-direction: column; align-items: stretch; gap: 6px; }
+    .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { width: 168px; }
+    .tb-resources .tb-hbtn { width: 100%; justify-content: space-between; }
+    .top-bar-header .top-bar-gear { grid-column: 4; grid-row: 1; align-self: center; width: 58px; height: 58px; }
+    /* ⚠️ These two carry an extra class of specificity ON PURPOSE: their base rules
+       (.top-bar-gear svg, .top-bar-expander) are defined LATER in the sheet than this block, so a
+       bare selector would lose the equal-specificity tie to source order. The descendant prefix
+       wins regardless of where either rule sits. */
+    .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
+    /* No collapse control on desktop (stats always show), so the expander is hidden. */
+    .top-bar .top-bar-expander { display: none; }
+    /* The currency popup drops from its button (there is room); fuel has no popup now. */
+    .tb-pop-wrap { position: relative; }
+    .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
+  }
   /* Info tooltip: drops just below its chip, left-aligned to it. width:max-content
      keeps short labels tight while max-width wraps the flavor line. z-index sits
      above the tab body; the .top-bar itself is lifted into its own stacking layer
@@ -17629,13 +17634,8 @@
   /* The reason is a single short sentence; widen a touch past the currency
      default so "Need 750000 Titanium Ore (have 90)" stays on one or two lines. */
   .upgrade-reason-tooltip { max-width: 260px; }
-  /* Fuel chip tooltip rows (Fuel Economy v2 F4): a label/value two-column line, a thin
-     divider, and a dimmer sub-note line. Scoped to the fuel tooltip; the currency
-     tooltips render a plain flavor string and don't use these. min-width keeps the
-     production/expenditure/net columns from collapsing on the short values. */
-  .fuel-tt-row { display: flex; justify-content: space-between; gap: 16px; min-width: 190px; }
-  .fuel-tt-note { font-size: var(--text-2xs); color: var(--color-text-tertiary, var(--color-text-secondary)); margin: 1px 0 3px; opacity: 0.85; }
-  .fuel-tt-sep { height: 1px; background: rgba(var(--color-accent-rgb), 0.25); margin: 5px 0; }
+  /* (The .fuel-tt-* rows were removed in 0.13.5: the header fuel popup they styled is gone, the
+     fuel button now links to the Fuel Depot whose Overview already carries the full breakdown.) */
   /* Outer nav (Task 1, Phase 4), now the LAST flex child inside .frame
      (Task 1 of this plan moved it here from being the first child of the old
      <main>), so it's the bottom-most thing in the flex column, visually
