@@ -2120,7 +2120,7 @@
   // Research Lab, Fuel Depot and Shipyard all put Upgrades at the end of their rail, because
   // it is the visit a player makes rarely. Nothing moved off the other two tabs to make room
   // for it; the split above still describes them exactly.
-  type SalvageBaySubTab = "salvage" | "rules" | "upgrades";
+  type SalvageBaySubTab = "salvage" | "upgrades";
   let activeSalvageBaySubTab: SalvageBaySubTab = "salvage";
 
   // The 3 Salvage Bay sub-tabs in display order. A named const (rather than an inline
@@ -2143,16 +2143,23 @@
   // your rules", not "come look at your salvage", and the sub-tab is sticky `let` state, so it has
   // to be set explicitly or a player who last left the console elsewhere lands on the wrong screen.
   function jumpToSalvageRules(): void {
-    systemModalOpen = false;
-    activeTab = "facilities";
-    facilitiesView = "console";
-    activeFoundryFacility = "salvageBay";
-    activeSalvageBaySubTab = "rules";
+    // 0.13.5: the rules LIVE in Settings > Gameplay now, so this opens the settings window rather
+    // than a facility console. Kept as a named function (rather than inlined) because several
+    // places point at "the auto-salvage rules" and they should all land in one place.
+    activeSystemSubTab = "options";
+    activeOptionsTab = "gameplay";
+    systemModalOpen = true;
   }
 
+  // ⚠️ "Rules" LEFT THIS RAIL IN 0.13.5. The auto-salvage rules moved to Settings > Gameplay, where
+  // the player goes to change how the game behaves, rather than living inside the facility they
+  // happen to act on. They were the only SETTINGS screen hiding inside a facility console, which is
+  // why nobody could predict where to find them.
+  //
+  // ⚠️ MOVED, NOT MIRRORED. A second copy would be two UIs writing one save-side setting, which is
+  // exactly how a setting ends up disagreeing with itself depending on which screen you opened.
   const SALVAGE_BAY_SUBTABS: { key: SalvageBaySubTab; label: string }[] = [
     { key: "salvage", label: "Salvage" },
-    { key: "rules", label: "Rules" },
     { key: "upgrades", label: "Upgrades" },
   ];
 
@@ -11334,401 +11341,6 @@
             </Panel>
             {/if}
 
-            {#if activeSalvageBaySubTab === "rules"}
-            <!-- ============ TAB 2 OF 2: RULES, the settings that govern salvaging =======
-                 Confirm-before-salvaging, then AUTO-SALVAGE, in that order and adjacent,
-                 which is the whole reason they are the pair that moved: the auto-salvage
-                 eligibility readout points at the checkboxes as "just above" TWICE, and
-                 that sentence is the one that explains why the rules can look broken (a
-                 tier you asked to confirm can never be auto-salvaged, and the shipped
-                 default confirms every tier). Keeping them together keeps it literally
-                 true, so NEITHER string needed rewording.
-
-                 ⚠️ WHY THIS BLOCK IS NOT PHYSICALLY MOVED IN THE FILE. The confirm rows and
-                 the AUTO-SALVAGE panel already sat between the explainer and the queue, so
-                 guarding them where they stand produces the intended per-tab order (Salvage:
-                 explainer, queue, last salvage, both grids. Rules: confirm, auto-salvage)
-                 without relocating ~150 lines of working markup. That is why the "salvage"
-                 guard appears TWICE, once above and once below this block: two three-line
-                 guards instead of a large block move, so the diff stays reviewable and
-                 nothing can be dropped in transit. The contents below are byte-identical
-                 apart from the two "queue below" pointers noted on the AUTO-SALVAGE panel.
-                 Child indentation is deliberately left as it was for the same reason. -->
-            <Panel>
-              <!-- The confirm rows used to live inside the SALVAGE BAY explainer panel above.
-                   Split onto this tab, they need their own Panel and therefore their own
-                   title; "CONFIRM BY QUALITY" is the name the code below has always used for
-                   this block. The visible "Confirm before salvaging" row underneath is
-                   UNCHANGED and must stay word-for-word: it is the anchor the AUTO-SALVAGE
-                   panel names in <strong> tags. -->
-              <div class="panel-title">CONFIRM BY QUALITY</div>
-              <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
-                   quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
-                   confirm before salvaging an item of that quality; unchecking a
-                   tier queues it straight away. Reuses the .dev-row + inline-flex label +
-                   checkbox idiom from the System Options panel; no new styling or colors.
-                   Ship (hull) teardown always confirms regardless of these toggles. Tier
-                   labels use the Q0..Q5 convention the systems tiles already show.
-                   ⚠️ 0.13.3 Unit 4.4 REPOINTED these at the SAVE. They read
-                   salvageConfirmQualities (now derived from state.salvageConfirmQualities)
-                   and write through doToggleSalvageConfirmTier, which updates state and
-                   saves. The semantics are unchanged (checked = ask me first); what changed
-                   is that the Phase 5 auto-salvage rules, which run inside the tick and in
-                   the offline catch-up, can now SEE this preference and refuse to
-                   auto-salvage a tier the player asked to be asked about. -->
-              <!-- 0.13.3 Unit 5.2 ADDS this heading and nothing else here. The checkbox row
-                   below is unchanged, but the auto-salvage panel that follows has to be able
-                   to POINT at it by name ("Confirm before salvaging, above") when a confirmed
-                   tier is the reason the rules can take nothing. An unnamed row cannot be
-                   referred to, and "the checkboxes above" is not a fix a player can act on. -->
-              <div class="research-cost" style="margin-top: 8px;">Confirm before salvaging</div>
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
-                {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    <input
-                      type="checkbox"
-                      checked={salvageConfirmQualities.includes(tier)}
-                      on:change={(e) => doToggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
-                    />
-                    Q{tier}
-                  </label>
-                {/each}
-              </div>
-              <p class="research-status">
-                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to queue it straight away.
-              </p>
-            </Panel>
-
-            <!-- ============ AUTO-SALVAGE RULES (0.13.3, Phase 5 Unit 5.2, design §7.6) ======
-                 The console half of the Unit 5.1 rule engine, and a panel whose main job is to
-                 make ONE thing legible: a quality tier the player asked to CONFIRM can never be
-                 auto-salvaged, and the shipped default confirms EVERY tier. So a player who
-                 turns the rules on and picks a quality would see NOTHING HAPPEN until they opt
-                 a tier out of confirmation. That interlock is deliberate and safe (it is the
-                 never-silently-destroy promise, enforced in the engine), but an invisible
-                 interlock is indistinguishable from a broken feature.
-
-                 WHAT THE PANEL DOES ABOUT IT, in order of importance:
-                   1. It sits DIRECTLY UNDER the Confirm-before-salvaging checkboxes, so the fix
-                      is on the same screen as the message about it. That adjacency is the
-                      reason this panel goes here rather than at the bottom of the console, and
-                      it is why the queue panel below now starts one panel lower. (0.13.3 Unit
-                      7.0: that adjacency is now what DEFINED the Rules tab. The checkboxes and
-                      this panel moved together onto one sub-tab precisely so this point holds;
-                      the queue is no longer below them, which is the one thing on this panel
-                      the split had to reword.)
-                   2. It names the exact tiers the rules may take right now AND the exact tiers
-                      confirmation is holding back, instead of saying "some are protected".
-                   3. It shows a LIVE COUNT of the spare systems that qualify, so switching the
-                      feature on has a visible consequence BEFORE anything is destroyed. The
-                      count comes from the engine's own pure selector, so it cannot promise
-                      something the tick would not do.
-
-                 NO ENGINE CHANGE LIVES HERE. Every rule, safety filter and per-tick bound is
-                 Unit 5.1's; the three handlers only write state.autoSalvage and save. -->
-            <Panel>
-              <div class="panel-title">AUTO-SALVAGE</div>
-              <!-- 0.13.3 Unit 7.0, THE ONLY TWO STRINGS THE TAB SPLIT CHANGED (this one and
-                   the safety paragraph at the foot of this panel). Both said "the queue
-                   below", written when this panel and the queue shared one scrolling surface.
-                   The queue is on the Salvage tab now, so "below" pointed at nothing and the
-                   sentence was false the moment the rail landed. Naming the tab is the fix a
-                   player can act on. Nothing else in this panel changed: the eligibility
-                   readout's two "Confirm before salvaging just above" pointers are still
-                   literally true, because the checkboxes are the panel directly above this
-                   one on this same tab. -->
-              <p class="research-status">
-                Opt-in rules that queue spare ship systems for you. They add orders to the queue on the Salvage tab and run the same timed jobs a hand-picked salvage runs, including while the game is closed. Salvaged materials and hull teardowns stay manual.
-              </p>
-
-              <!-- THE CONTROLS. Same .dev-row + inline-flex label idiom as the confirm
-                   checkboxes above and the crafting configurator's dropdowns, so this reads as
-                   the same console rather than a third dialect. Every control carries a visible
-                   text label, so none of them is icon-only.
-
-                   ⚠️ 0.13.3.1 QA REORDER (user: "we will want to move the rarity options up near
-                   the qualities"). Duplicates has moved OUT of this row to below the rarity
-                   block, which is what actually puts the rarity checkboxes next to the quality
-                   dropdown: they were already the next thing on the panel, but Duplicates sat
-                   between them. Quality and rarity are the same KIND of rule (choose which bands
-                   may be swept) and now read as the pair they are; Duplicates is a different
-                   kind (keep the best of each variety, whatever band it is in) and follows with
-                   its own explanation. A pure move: no control was changed, added, removed or
-                   restyled, and every handler is the one it always was. -->
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  <input
-                    type="checkbox"
-                    checked={autoSalvageRules.enabled}
-                    on:change={(e) => doToggleAutoSalvage((e.target as HTMLInputElement).checked)}
-                  />
-                  Run these rules
-                </label>
-              </div>
-
-              <!-- ⚠️ CHECKBOXES NOW, NOT A THRESHOLD SELECT (0.13.5, user). The select carried a
-                   THREE-state value (null = off, 0 = "Q0 and below", N = "QN and below"), and that
-                   third state is what the user correctly called nonsensical: "quality being off
-                   makes no sense, because every item exists between Q0 and Q5".
-                   Under the filter model there is no third state to express. Ticking nothing means
-                   quality does not narrow, which is the same sentence the rarity row below has
-                   always used for its own empty case. Two axes, one idiom.
-                   ⚠️ The tier list is DERIVED from QUALITY_TIERS (autoSalvageAllTiers), so a seventh
-                   tier grows a seventh checkbox with no edit here. -->
-              <div class="research-cost" style="margin-top: 8px;">Quality tiers to queue</div>
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
-                {#each autoSalvageAllTiers as tier (tier)}
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    <input
-                      type="checkbox"
-                      checked={autoSalvageRules.qualities.includes(tier)}
-                      on:change={(e) => doToggleAutoSalvageQuality(tier, (e.target as HTMLInputElement).checked)}
-                    />
-                    Q{tier}
-                  </label>
-                {/each}
-                <!-- Clear, not "off". ⚠️ The distinction is the whole point: clearing the axis means
-                     quality stops narrowing, so a rarity selection keeps working on its own. It does
-                     NOT mean the automation stops. -->
-                <button
-                  class="dev-btn"
-                  disabled={autoSalvageRules.qualities.length === 0}
-                  on:click={doClearAutoSalvageQualities}
-                >Clear</button>
-              </div>
-
-              <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================
-                   ⚠️ ONE CHECKBOX PER BAND, NOT AN "AND BELOW" DROPDOWN, and the reason is in
-                   the data rather than in taste: rarityIndex (model.ts) is NOT a straight
-                   ladder, because luminous and constellar BOTH sit at ordinal 5 as parallel
-                   legendary FLAVORS of one power tier. An at-or-below control would therefore
-                   sweep BOTH of them the instant a player selected EITHER, destroying a band
-                   they never chose. Per-band selection cannot express that mistake.
-
-                   ⚠️ 0.13.3.1 QA: THE ROW OFFERS ONLY THE BANDS THE GAME CAN MINT TODAY (user:
-                   "those qualities are not possible in-game yet"). It renders
-                   autoSalvageRarityOptions, which is PRODUCIBLE_EQUIPMENT_RARITIES (model.ts,
-                   the restatement of rollCraftedRarity's own output set) plus any band this
-                   save has already selected, so an unoffered band that somehow got switched on
-                   stays visible and switch-off-able instead of becoming an invisible rule.
-
-                   THE UNDERLYING RULE IS UNCHANGED AND STILL TOTAL over EquipmentRarity: this
-                   narrows what is OFFERED, never what is stored or honored. The row is still
-                   ordered by EQUIPMENT_RARITY_LADDER, itself derived from the total
-                   AUTO_SALVAGE_RARITIES_NONE record, so a rarity added to the game is a compile
-                   error in model.ts and then appears here automatically the moment that file
-                   says it is producible. There is deliberately no list of band names, and no
-                   exclusion list, in this file.
-
-                   Same .dev-row + inline-flex label + checkbox idiom as the confirm-by-quality
-                   row above, which is the control this one is meant to read as a sibling of. -->
-              <div class="research-cost" style="margin-top: 8px;">Rarity bands to queue</div>
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
-                {#each autoSalvageRarityOptions as band (band)}
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    <input
-                      type="checkbox"
-                      checked={autoSalvageRarities[band]}
-                      on:change={(e) => doToggleAutoSalvageRarity(band, (e.target as HTMLInputElement).checked)}
-                    />
-                    <!-- The band's own rarity color, the SAME equipmentRarityColor the tiles and
-                         the tooltip use, so a band is recognizable here without reading it.
-                         0.13.3.1 QA: capitalized for display via equipmentRarityLabel. The KEY
-                         `band` is untouched and stays lowercase; only the text changes. -->
-                    <span style="color: {equipmentRarityColor(band)}">{equipmentRarityLabel(band)}</span>
-                  </label>
-                {/each}
-              </div>
-              <p class="research-status">
-                Checked bands are queued whatever their quality. Nothing checked means this rule is off. It adds to the other two rules rather than narrowing them: a spare is queued if any rule you switched on points at it.
-              </p>
-
-              <!-- DUPLICATES, moved here by the 0.13.3.1 QA reorder noted on the controls row
-                   above, so that quality and rarity (the two band-selecting rules) are adjacent.
-                   The control is byte-identical to the one that used to sit in that row: same
-                   .dev-row wrapper, same inline-flex label, same handler. Its explanation, which
-                   used to sit further down past the grace period, travelled with it, because
-                   "duplicates" on its own does not say WHICH copy survives and that is the only
-                   question a player actually has about this rule. keepPerVariety is READ from
-                   the rules rather than hardcoded, even though it is fixed at 1 this release, so
-                   the sentence stays true the day it becomes adjustable. -->
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  <!-- 0.13.3.1 follow-up: the handler now takes the ELEMENT as well as the value,
-                       because switching this OFF can open a confirmation and a cancelled
-                       confirmation has to put this one-way `checked` attribute back by hand. See
-                       doToggleAutoSalvageDuplicates. Switching it ON is never gated. -->
-                  <input
-                    type="checkbox"
-                    checked={autoSalvageRules.duplicates}
-                    on:change={(e) =>
-                      doToggleAutoSalvageDuplicates(
-                        (e.target as HTMLInputElement).checked,
-                        e.target as HTMLInputElement
-                      )}
-                  />
-                  Duplicates
-                </label>
-              </div>
-              <p class="research-status">
-                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now. Standard-Issue systems are ranked as their own variety per slot, so this rule reaches them too.
-              </p>
-
-              <!-- ============ THE GRACE PERIOD (0.13.3.1 Feature 3) ============
-                   A spare that was just crafted, or that you just uninstalled from a ship, is
-                   left alone for this long. Measured in GAME time, so it keeps running down
-                   while the game is closed, exactly as the rules themselves do.
-
-                   ⚠️ THE UNINSTALL HALF IS NOT COSMETIC. The rules never touch INSTALLED gear,
-                   so without this window a piece went from permanently protected to fully
-                   eligible the instant it came off a ship: swap a reactor for a better one and
-                   the old one could be queued before you went to put it back. Favoriting would
-                   stop that, but a destructive default must not depend on having opted in.
-                   Every sentence on this control therefore names BOTH causes.
-
-                   ⚠️ THIS CONTROL'S FINAL HOME IS Options > Gameplay (0.13.5, SUGGESTIONS.md
-                   "AUTOMATION RULES ALSO BELONG UNDER OPTIONS"). That tab does not exist yet, so
-                   it sits here beside the rules it governs. When the Gameplay tab lands, that
-                   control must be a SECOND VIEW of this same saved value, never a copy.
-
-                   The options come from AUTO_SALVAGE_GRACE_OPTIONS, so adding "12 hours" is a
-                   one-line data change in model.ts and needs no edit here. -->
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px;">
-                <label style="display: inline-flex; align-items: center; gap: 6px;">
-                  Leave just-crafted and just-uninstalled systems alone for
-                  <select
-                    class="modal-input"
-                    value={String(autoSalvageGraceSeconds)}
-                    on:change={(e) => doSetAutoSalvageGrace((e.target as HTMLSelectElement).value)}
-                    aria-label="Auto-salvage grace period for newly crafted and newly uninstalled systems"
-                  >
-                    {#each AUTO_SALVAGE_GRACE_OPTIONS as opt (opt.seconds)}
-                      <option value={String(opt.seconds)}>{opt.label}</option>
-                    {/each}
-                  </select>
-                </label>
-              </div>
-              <!-- ⚠️ TWO PARAGRAPHS, AND WHICH ONE SHOWS IS THE WHOLE FEATURE.
-                   With a grace length chosen, the explanation below is the shipped one, unchanged.
-                   With "No grace period" chosen, that sentence would read "skipped for No grace
-                   period of game time", which is both broken prose and the OPPOSITE of what is
-                   happening, so the branch replaces it with the warning rather than patching the
-                   wording. The warning is PERSISTENT (it stays for as long as the setting is
-                   active) and not a confirm dialog: this is a setting, not an act, so the risk is
-                   ongoing rather than momentary and a dialog the player dismisses once would stop
-                   telling them about a state that has not stopped. It uses the panel's existing
-                   .cq-note-warn treatment, the same one the dead-end eligibility states use, so
-                   there is no new idiom to learn or maintain.
-                   It also names the protections that DO still hold, because those six reasons are
-                   independent filters in the engine (AutoSalvageProtection, salvage.ts) and the
-                   grace is only one of them: a player switching this on is trusting the other
-                   five, and the panel should say so rather than leave them to hope. -->
-              {#if autoSalvageGraceOff}
-                <p class="cq-note cq-note-warn">
-                  <strong>No grace period.</strong>
-                  {#if autoSalvageRules.enabled}
-                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules is queued for salvage immediately, with no window in which to look at it and keep it.
-                  {:else}
-                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules will be queued for salvage immediately the moment you switch these rules on, with no window in which to look at it and keep it.
-                  {/if}
-                  Every other protection still holds: an installed system, a favorited system, one already queued, and any quality tier set to ask you first are all still safe. A Standard-Issue system is safe only while your rules do not reach it. To get the window back, pick a length above.
-                </p>
-              {:else}
-                <p class="research-status">
-                  A system you just crafted, or just uninstalled from a ship, is skipped by these rules for {autoSalvageGraceLabel} of game time. So a good roll is never swept away before you see it, and a system you took off to try something else is still there when you go to put it back. Installing it protects it outright, and favoriting it protects it for good.
-                </p>
-              {/if}
-
-              <!-- The duplicates rule's semantics used to be explained here, three paragraphs
-                   away from the checkbox that switches it on. The 0.13.3.1 QA reorder moved the
-                   checkbox and this explanation up together, directly under the rarity row. -->
-
-              <!-- The plain-language summary of the CURRENT rule selection (design §7.6:
-                   "a plain language summary of what it will do"). -->
-              <p class="research-status">{autoSalvageSummary(autoSalvageRules, autoSalvageSelectedRarities)}</p>
-
-              <!-- ⚠️ THE ELIGIBILITY READOUT: the interlock, made legible. Four states, and each
-                   one names its own fix rather than leaving the player to infer it. The two
-                   dead-end states (no rule chosen, every reached tier confirmed) use the WARN
-                   note treatment, because in both of them the feature will do nothing at all and
-                   the player deserves to be told that in the loudest voice this console has. -->
-              {#if !autoSalvageHasRule}
-                <p class="cq-note" class:cq-note-warn={autoSalvageRules.enabled}>
-                  {#if autoSalvageRules.enabled}
-                    <!-- ⚠️ THIS LIST MUST NAME EVERY SELECTING RULE. It said "a quality tier,
-                         Duplicates, or both" and went stale the moment 0.13.3.1 added RARITY
-                         as a third rule, telling the player only two of the three ways out of
-                         a state whose entire purpose is explaining how to leave it. If a
-                         fourth rule is ever added, this sentence and its sibling below are
-                         the first two things that must change. -->
-                    Auto-salvage is on but no rule is chosen, so nothing will be queued. Pick a quality tier, choose one or more rarity bands, switch on Duplicates, or any combination.
-                  {:else}
-                    Switched off, and no rule is chosen yet. Pick a quality tier, choose one or more rarity bands, or switch on Duplicates, then turn these rules on.
-                  {/if}
-                </p>
-              {:else if autoSalvageEligibleTiers.length === 0}
-                <p class="cq-note cq-note-warn">
-                  {autoSalvageStatusLead} Nothing can be auto-salvaged right now: every quality tier these rules reach ({autoSalvageTierList(autoSalvageHeldTiers)}) is set to ask you first under
-                  <strong>Confirm before salvaging</strong> just above, and auto-salvage never answers a confirmation for you. Uncheck a tier there to let the rules take it.
-                </p>
-              {:else}
-                <p class="cq-note">
-                  {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}{" "}
-                    Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: uncheck a tier under <strong>Confirm before salvaging</strong> just above to include it.
-                  {/if}
-                  {autoSalvageCountText(autoSalvageMatchCount, autoSalvageRules.enabled)}
-                </p>
-              {/if}
-
-              <!-- THE SAFETY GUARANTEES, stated because this is a destructive automation and a
-                   player has to be able to trust it before they switch it on. Each clause is a
-                   filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
-              <!-- 0.13.3.1: the list gained its fifth and sixth clauses (favorited, and the
-                   grace window), which are the two new protections. Every clause here is a
-                   reason that genuinely exists in the engine's AutoSalvageProtection union
-                   (salvage.ts), not a reassurance, and the union is what makes that checkable. -->
-              <!-- ⚠️ THE SIXTH CLAUSE IS CONDITIONAL, because the player can now switch that one
-                   protection off. Every clause here is a promise about the engine's behavior, so
-                   "never take one you have only just crafted or only just uninstalled" must
-                   disappear the moment the grace is 0 rather than sit here contradicting the
-                   warning above it. The other five are unconditional in the engine and stay
-                   unconditional here. It names BOTH causes because one window covers both (see
-                   startAutoSalvageGrace, model.ts): naming only the craft would be a promise the
-                   engine keeps more of than the sentence admits, which is its own kind of wrong. -->
-              <p class="research-status">
-                It will never touch an installed system, never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, {#if autoSalvageGraceOff}and never take a system you have favorited.{:else}never take a system you have favorited, and never take one you have only just crafted or only just uninstalled.{/if} It only adds orders to the Auto-Salvage Terminal, shown under the salvage queue on the Salvage tab, and turning these rules off clears everything still waiting there.
-              </p>
-              <!-- ⚠️ THE STANDARD-ISSUE CLAUSE WAS A GUARANTEE AND IS NOW A CONDITION (0.13.3.1
-                   follow-up). It used to sit in the sentence above reading "never destroy a
-                   Standard-Issue baseline (those yield nothing, so removing one stays a deliberate
-                   manual choice)", which stopped being true the moment the `baseline` protection
-                   became conditional on the rules reaching the piece. A withdrawn guarantee left
-                   standing in prose is worse than one never made, so it is restated here as what
-                   it actually is: a default that the player's own rules can lift.
-                   It deliberately does NOT say that leaving Duplicates on keeps the player safe.
-                   Duplicates keeps one spare per VARIETY, not one per SHIP, and it is unioned with
-                   the other rules rather than limiting them, so it is not a safety net. -->
-              <p class="research-status">
-                <strong>Standard-Issue systems.</strong> The spare Standard-Issue gear your ships come with is left alone unless a rule you switched on reaches it, which the quality rule does at Q0 and the rarity rule does in the Standard band. When a rule does reach it, it is queued like any other spare and recovers nothing. Uninstalling a system leaves that slot empty, so a ship whose replacement has not been installed yet cannot fly until you install something else. Installing, favoriting, the grace window and your confirm-before-salvaging tiers all protect a Standard-Issue system exactly as they protect a crafted one.
-              </p>
-              <!-- ⚠️ REPLACES THE HEADROOM PARAGRAPHS (Auto-Salvage Terminal, 2026-09-11).
-                   What stood here was a two-branch explanation of AUTO_SALVAGE_MANUAL_HEADROOM:
-                   at depth 2+ the rules left the player one queue slot, and at depth 1 they
-                   honestly admitted they could take the only one. BOTH branches described
-                   auto-salvage and the player COMPETING for one queue, and they no longer do:
-                   the rules write to the Terminal's own unbounded queue and cannot reach the
-                   player's at any depth. The constant is gone from the engine, so the sentence
-                   that explained it had to go from the console: an unconditional, stronger
-                   promise replaces a conditional, weaker one. The depth-1 player, who used to
-                   be the one told the guarantee did not apply to them, is the one this helps
-                   most. Queue depth is still named because it is still what bounds the PLAYER'S
-                   own orders, and a player reading this panel should not conclude it has
-                   stopped mattering. -->
-              <p class="research-status">
-                These rules run on the Auto-Salvage Terminal, a separate bay with its own waiting list, so they never use your queue depth ({salvageBayQueue.depthTotal} at the Salvage Bay) and never take a salvage bay your own orders need. The Terminal will borrow one of your salvage bays if it has been sitting idle, and your orders take it straight back as soon as the borrowed teardown finishes.
-              </p>
-            </Panel>
-            {/if}
 
             {#if activeSalvageBaySubTab === "salvage"}
             <!-- Back on TAB 1 (see the guard above the SALVAGE BAY explainer). Everything from
@@ -15903,17 +15515,412 @@
           What the game does on its own. These are stored in your save rather than on this device, so
           they follow your fleet everywhere and keep working while the game is closed.
         </p>
-        <!-- ⚠️ THE AUTO-SALVAGE RULES ARE LINKED, NOT MIRRORED. They are a rich multi-control panel
-             that already lives in the Salvage Bay beside the gear they act on, and they are
-             SAVE-side, so a second copy would be two UIs writing one piece of state: the classic way
-             a setting ends up disagreeing with itself depending on which screen you opened. The
-             record's rule for contextual help applies to settings too: LINK, never duplicate. -->
-        <p class="setting-group-note">
-          The auto-salvage rules live in the Salvage Bay, beside the gear they act on.
-        </p>
-        <div class="dev-row">
-          <button class="dev-btn" on:click={jumpToSalvageRules}>Open Salvage Bay rules</button>
-        </div>
+      </Panel>
+
+      <!-- ⚠️ THE AUTO-SALVAGE RULES, MOVED HERE FROM THE SALVAGE BAY (0.13.5, user).
+           They were the only SETTINGS screen living inside a facility console, which is why nobody
+           could predict where to find them: you changed how the game behaves from inside the place
+           it happens to act on. 0.13.5's first pass LINKED to them from here, which was a stopgap;
+           the user asked for the real move, and this is it.
+
+           ⚠️ MOVED, NOT MIRRORED, and the distinction is the reason the link existed first: these
+           are SAVE-side settings, so a second copy would be two UIs writing one piece of state,
+           which is how a setting ends up disagreeing with itself depending on which screen you
+           opened last. The Salvage Bay's Rules subtab is GONE, not duplicated. -->
+      <Panel class="settings-section">
+            <!-- ============ TAB 2 OF 2: RULES, the settings that govern salvaging =======
+                 Confirm-before-salvaging, then AUTO-SALVAGE, in that order and adjacent,
+                 which is the whole reason they are the pair that moved: the auto-salvage
+                 eligibility readout points at the checkboxes as "just above" TWICE, and
+                 that sentence is the one that explains why the rules can look broken (a
+                 tier you asked to confirm can never be auto-salvaged, and the shipped
+                 default confirms every tier). Keeping them together keeps it literally
+                 true, so NEITHER string needed rewording.
+
+                 ⚠️ WHY THIS BLOCK IS NOT PHYSICALLY MOVED IN THE FILE. The confirm rows and
+                 the AUTO-SALVAGE panel already sat between the explainer and the queue, so
+                 guarding them where they stand produces the intended per-tab order (Salvage:
+                 explainer, queue, last salvage, both grids. Rules: confirm, auto-salvage)
+                 without relocating ~150 lines of working markup. That is why the "salvage"
+                 guard appears TWICE, once above and once below this block: two three-line
+                 guards instead of a large block move, so the diff stays reviewable and
+                 nothing can be dropped in transit. The contents below are byte-identical
+                 apart from the two "queue below" pointers noted on the AUTO-SALVAGE panel.
+                 Child indentation is deliberately left as it was for the same reason. -->
+            <Panel>
+              <!-- The confirm rows used to live inside the SALVAGE BAY explainer panel above.
+                   Split onto this tab, they need their own Panel and therefore their own
+                   title; "CONFIRM BY QUALITY" is the name the code below has always used for
+                   this block. The visible "Confirm before salvaging" row underneath is
+                   UNCHANGED and must stay word-for-word: it is the anchor the AUTO-SALVAGE
+                   panel names in <strong> tags. -->
+              <div class="panel-title">CONFIRM BY QUALITY</div>
+              <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
+                   quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
+                   confirm before salvaging an item of that quality; unchecking a
+                   tier queues it straight away. Reuses the .dev-row + inline-flex label +
+                   checkbox idiom from the System Options panel; no new styling or colors.
+                   Ship (hull) teardown always confirms regardless of these toggles. Tier
+                   labels use the Q0..Q5 convention the systems tiles already show.
+                   ⚠️ 0.13.3 Unit 4.4 REPOINTED these at the SAVE. They read
+                   salvageConfirmQualities (now derived from state.salvageConfirmQualities)
+                   and write through doToggleSalvageConfirmTier, which updates state and
+                   saves. The semantics are unchanged (checked = ask me first); what changed
+                   is that the Phase 5 auto-salvage rules, which run inside the tick and in
+                   the offline catch-up, can now SEE this preference and refuse to
+                   auto-salvage a tier the player asked to be asked about. -->
+              <!-- 0.13.3 Unit 5.2 ADDS this heading and nothing else here. The checkbox row
+                   below is unchanged, but the auto-salvage panel that follows has to be able
+                   to POINT at it by name ("Confirm before salvaging, above") when a confirmed
+                   tier is the reason the rules can take nothing. An unnamed row cannot be
+                   referred to, and "the checkboxes above" is not a fix a player can act on. -->
+              <div class="research-cost" style="margin-top: 8px;">Confirm before salvaging</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
+                {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={salvageConfirmQualities.includes(tier)}
+                      on:change={(e) => doToggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
+                    />
+                    Q{tier}
+                  </label>
+                {/each}
+              </div>
+              <p class="research-status">
+                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to queue it straight away.
+              </p>
+            </Panel>
+
+            <!-- ============ AUTO-SALVAGE RULES (0.13.3, Phase 5 Unit 5.2, design §7.6) ======
+                 The console half of the Unit 5.1 rule engine, and a panel whose main job is to
+                 make ONE thing legible: a quality tier the player asked to CONFIRM can never be
+                 auto-salvaged, and the shipped default confirms EVERY tier. So a player who
+                 turns the rules on and picks a quality would see NOTHING HAPPEN until they opt
+                 a tier out of confirmation. That interlock is deliberate and safe (it is the
+                 never-silently-destroy promise, enforced in the engine), but an invisible
+                 interlock is indistinguishable from a broken feature.
+
+                 WHAT THE PANEL DOES ABOUT IT, in order of importance:
+                   1. It sits DIRECTLY UNDER the Confirm-before-salvaging checkboxes, so the fix
+                      is on the same screen as the message about it. That adjacency is the
+                      reason this panel goes here rather than at the bottom of the console, and
+                      it is why the queue panel below now starts one panel lower. (0.13.3 Unit
+                      7.0: that adjacency is now what DEFINED the Rules tab. The checkboxes and
+                      this panel moved together onto one sub-tab precisely so this point holds;
+                      the queue is no longer below them, which is the one thing on this panel
+                      the split had to reword.)
+                   2. It names the exact tiers the rules may take right now AND the exact tiers
+                      confirmation is holding back, instead of saying "some are protected".
+                   3. It shows a LIVE COUNT of the spare systems that qualify, so switching the
+                      feature on has a visible consequence BEFORE anything is destroyed. The
+                      count comes from the engine's own pure selector, so it cannot promise
+                      something the tick would not do.
+
+                 NO ENGINE CHANGE LIVES HERE. Every rule, safety filter and per-tick bound is
+                 Unit 5.1's; the three handlers only write state.autoSalvage and save. -->
+            <Panel>
+              <div class="panel-title">AUTO-SALVAGE</div>
+              <!-- 0.13.3 Unit 7.0, THE ONLY TWO STRINGS THE TAB SPLIT CHANGED (this one and
+                   the safety paragraph at the foot of this panel). Both said "the queue
+                   below", written when this panel and the queue shared one scrolling surface.
+                   The queue is on the Salvage tab now, so "below" pointed at nothing and the
+                   sentence was false the moment the rail landed. Naming the tab is the fix a
+                   player can act on. Nothing else in this panel changed: the eligibility
+                   readout's two "Confirm before salvaging just above" pointers are still
+                   literally true, because the checkboxes are the panel directly above this
+                   one on this same tab. -->
+              <p class="research-status">
+                Opt-in rules that queue spare ship systems for you. They add orders to the queue on the Salvage tab and run the same timed jobs a hand-picked salvage runs, including while the game is closed. Salvaged materials and hull teardowns stay manual.
+              </p>
+
+              <!-- THE CONTROLS. Same .dev-row + inline-flex label idiom as the confirm
+                   checkboxes above and the crafting configurator's dropdowns, so this reads as
+                   the same console rather than a third dialect. Every control carries a visible
+                   text label, so none of them is icon-only.
+
+                   ⚠️ 0.13.3.1 QA REORDER (user: "we will want to move the rarity options up near
+                   the qualities"). Duplicates has moved OUT of this row to below the rarity
+                   block, which is what actually puts the rarity checkboxes next to the quality
+                   dropdown: they were already the next thing on the panel, but Duplicates sat
+                   between them. Quality and rarity are the same KIND of rule (choose which bands
+                   may be swept) and now read as the pair they are; Duplicates is a different
+                   kind (keep the best of each variety, whatever band it is in) and follows with
+                   its own explanation. A pure move: no control was changed, added, removed or
+                   restyled, and every handler is the one it always was. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <input
+                    type="checkbox"
+                    checked={autoSalvageRules.enabled}
+                    on:change={(e) => doToggleAutoSalvage((e.target as HTMLInputElement).checked)}
+                  />
+                  Run these rules
+                </label>
+              </div>
+
+              <!-- ⚠️ CHECKBOXES NOW, NOT A THRESHOLD SELECT (0.13.5, user). The select carried a
+                   THREE-state value (null = off, 0 = "Q0 and below", N = "QN and below"), and that
+                   third state is what the user correctly called nonsensical: "quality being off
+                   makes no sense, because every item exists between Q0 and Q5".
+                   Under the filter model there is no third state to express. Ticking nothing means
+                   quality does not narrow, which is the same sentence the rarity row below has
+                   always used for its own empty case. Two axes, one idiom.
+                   ⚠️ The tier list is DERIVED from QUALITY_TIERS (autoSalvageAllTiers), so a seventh
+                   tier grows a seventh checkbox with no edit here. -->
+              <div class="research-cost" style="margin-top: 8px;">Quality tiers to queue</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                {#each autoSalvageAllTiers as tier (tier)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={autoSalvageRules.qualities.includes(tier)}
+                      on:change={(e) => doToggleAutoSalvageQuality(tier, (e.target as HTMLInputElement).checked)}
+                    />
+                    Q{tier}
+                  </label>
+                {/each}
+                <!-- Clear, not "off". ⚠️ The distinction is the whole point: clearing the axis means
+                     quality stops narrowing, so a rarity selection keeps working on its own. It does
+                     NOT mean the automation stops. -->
+                <button
+                  class="dev-btn"
+                  disabled={autoSalvageRules.qualities.length === 0}
+                  on:click={doClearAutoSalvageQualities}
+                >Clear</button>
+              </div>
+
+              <!-- ============ THE RARITY RULE (0.13.3.1 Feature 1) =======================
+                   ⚠️ ONE CHECKBOX PER BAND, NOT AN "AND BELOW" DROPDOWN, and the reason is in
+                   the data rather than in taste: rarityIndex (model.ts) is NOT a straight
+                   ladder, because luminous and constellar BOTH sit at ordinal 5 as parallel
+                   legendary FLAVORS of one power tier. An at-or-below control would therefore
+                   sweep BOTH of them the instant a player selected EITHER, destroying a band
+                   they never chose. Per-band selection cannot express that mistake.
+
+                   ⚠️ 0.13.3.1 QA: THE ROW OFFERS ONLY THE BANDS THE GAME CAN MINT TODAY (user:
+                   "those qualities are not possible in-game yet"). It renders
+                   autoSalvageRarityOptions, which is PRODUCIBLE_EQUIPMENT_RARITIES (model.ts,
+                   the restatement of rollCraftedRarity's own output set) plus any band this
+                   save has already selected, so an unoffered band that somehow got switched on
+                   stays visible and switch-off-able instead of becoming an invisible rule.
+
+                   THE UNDERLYING RULE IS UNCHANGED AND STILL TOTAL over EquipmentRarity: this
+                   narrows what is OFFERED, never what is stored or honored. The row is still
+                   ordered by EQUIPMENT_RARITY_LADDER, itself derived from the total
+                   AUTO_SALVAGE_RARITIES_NONE record, so a rarity added to the game is a compile
+                   error in model.ts and then appears here automatically the moment that file
+                   says it is producible. There is deliberately no list of band names, and no
+                   exclusion list, in this file.
+
+                   Same .dev-row + inline-flex label + checkbox idiom as the confirm-by-quality
+                   row above, which is the control this one is meant to read as a sibling of. -->
+              <div class="research-cost" style="margin-top: 8px;">Rarity bands to queue</div>
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
+                {#each autoSalvageRarityOptions as band (band)}
+                  <label style="display: inline-flex; align-items: center; gap: 6px;">
+                    <input
+                      type="checkbox"
+                      checked={autoSalvageRarities[band]}
+                      on:change={(e) => doToggleAutoSalvageRarity(band, (e.target as HTMLInputElement).checked)}
+                    />
+                    <!-- The band's own rarity color, the SAME equipmentRarityColor the tiles and
+                         the tooltip use, so a band is recognizable here without reading it.
+                         0.13.3.1 QA: capitalized for display via equipmentRarityLabel. The KEY
+                         `band` is untouched and stays lowercase; only the text changes. -->
+                    <span style="color: {equipmentRarityColor(band)}">{equipmentRarityLabel(band)}</span>
+                  </label>
+                {/each}
+              </div>
+              <p class="research-status">
+                Checked bands are queued whatever their quality. Nothing checked means this rule is off. It adds to the other two rules rather than narrowing them: a spare is queued if any rule you switched on points at it.
+              </p>
+
+              <!-- DUPLICATES, moved here by the 0.13.3.1 QA reorder noted on the controls row
+                   above, so that quality and rarity (the two band-selecting rules) are adjacent.
+                   The control is byte-identical to the one that used to sit in that row: same
+                   .dev-row wrapper, same inline-flex label, same handler. Its explanation, which
+                   used to sit further down past the grace period, travelled with it, because
+                   "duplicates" on its own does not say WHICH copy survives and that is the only
+                   question a player actually has about this rule. keepPerVariety is READ from
+                   the rules rather than hardcoded, even though it is fixed at 1 this release, so
+                   the sentence stays true the day it becomes adjustable. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  <!-- 0.13.3.1 follow-up: the handler now takes the ELEMENT as well as the value,
+                       because switching this OFF can open a confirmation and a cancelled
+                       confirmation has to put this one-way `checked` attribute back by hand. See
+                       doToggleAutoSalvageDuplicates. Switching it ON is never gated. -->
+                  <input
+                    type="checkbox"
+                    checked={autoSalvageRules.duplicates}
+                    on:change={(e) =>
+                      doToggleAutoSalvageDuplicates(
+                        (e.target as HTMLInputElement).checked,
+                        e.target as HTMLInputElement
+                      )}
+                  />
+                  Duplicates
+                </label>
+              </div>
+              <p class="research-status">
+                Duplicates means more than one spare from the same blueprint in the same slot: it keeps the best of each (by item level, then quality, then rarity) and queues the rest. Keeping the best {autoSalvageRules.keepPerVariety} of each is fixed for now. Standard-Issue systems are ranked as their own variety per slot, so this rule reaches them too.
+              </p>
+
+              <!-- ============ THE GRACE PERIOD (0.13.3.1 Feature 3) ============
+                   A spare that was just crafted, or that you just uninstalled from a ship, is
+                   left alone for this long. Measured in GAME time, so it keeps running down
+                   while the game is closed, exactly as the rules themselves do.
+
+                   ⚠️ THE UNINSTALL HALF IS NOT COSMETIC. The rules never touch INSTALLED gear,
+                   so without this window a piece went from permanently protected to fully
+                   eligible the instant it came off a ship: swap a reactor for a better one and
+                   the old one could be queued before you went to put it back. Favoriting would
+                   stop that, but a destructive default must not depend on having opted in.
+                   Every sentence on this control therefore names BOTH causes.
+
+                   ⚠️ THIS CONTROL'S FINAL HOME IS Options > Gameplay (0.13.5, SUGGESTIONS.md
+                   "AUTOMATION RULES ALSO BELONG UNDER OPTIONS"). That tab does not exist yet, so
+                   it sits here beside the rules it governs. When the Gameplay tab lands, that
+                   control must be a SECOND VIEW of this same saved value, never a copy.
+
+                   The options come from AUTO_SALVAGE_GRACE_OPTIONS, so adding "12 hours" is a
+                   one-line data change in model.ts and needs no edit here. -->
+              <div class="dev-row" style="flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 8px;">
+                <label style="display: inline-flex; align-items: center; gap: 6px;">
+                  Leave just-crafted and just-uninstalled systems alone for
+                  <select
+                    class="modal-input"
+                    value={String(autoSalvageGraceSeconds)}
+                    on:change={(e) => doSetAutoSalvageGrace((e.target as HTMLSelectElement).value)}
+                    aria-label="Auto-salvage grace period for newly crafted and newly uninstalled systems"
+                  >
+                    {#each AUTO_SALVAGE_GRACE_OPTIONS as opt (opt.seconds)}
+                      <option value={String(opt.seconds)}>{opt.label}</option>
+                    {/each}
+                  </select>
+                </label>
+              </div>
+              <!-- ⚠️ TWO PARAGRAPHS, AND WHICH ONE SHOWS IS THE WHOLE FEATURE.
+                   With a grace length chosen, the explanation below is the shipped one, unchanged.
+                   With "No grace period" chosen, that sentence would read "skipped for No grace
+                   period of game time", which is both broken prose and the OPPOSITE of what is
+                   happening, so the branch replaces it with the warning rather than patching the
+                   wording. The warning is PERSISTENT (it stays for as long as the setting is
+                   active) and not a confirm dialog: this is a setting, not an act, so the risk is
+                   ongoing rather than momentary and a dialog the player dismisses once would stop
+                   telling them about a state that has not stopped. It uses the panel's existing
+                   .cq-note-warn treatment, the same one the dead-end eligibility states use, so
+                   there is no new idiom to learn or maintain.
+                   It also names the protections that DO still hold, because those six reasons are
+                   independent filters in the engine (AutoSalvageProtection, salvage.ts) and the
+                   grace is only one of them: a player switching this on is trusting the other
+                   five, and the panel should say so rather than leave them to hope. -->
+              {#if autoSalvageGraceOff}
+                <p class="cq-note cq-note-warn">
+                  <strong>No grace period.</strong>
+                  {#if autoSalvageRules.enabled}
+                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules is queued for salvage immediately, with no window in which to look at it and keep it.
+                  {:else}
+                    Anything you craft, uninstall from a ship, or otherwise obtain that matches these rules will be queued for salvage immediately the moment you switch these rules on, with no window in which to look at it and keep it.
+                  {/if}
+                  Every other protection still holds: an installed system, a favorited system, one already queued, and any quality tier set to ask you first are all still safe. A Standard-Issue system is safe only while your rules do not reach it. To get the window back, pick a length above.
+                </p>
+              {:else}
+                <p class="research-status">
+                  A system you just crafted, or just uninstalled from a ship, is skipped by these rules for {autoSalvageGraceLabel} of game time. So a good roll is never swept away before you see it, and a system you took off to try something else is still there when you go to put it back. Installing it protects it outright, and favoriting it protects it for good.
+                </p>
+              {/if}
+
+              <!-- The duplicates rule's semantics used to be explained here, three paragraphs
+                   away from the checkbox that switches it on. The 0.13.3.1 QA reorder moved the
+                   checkbox and this explanation up together, directly under the rarity row. -->
+
+              <!-- The plain-language summary of the CURRENT rule selection (design §7.6:
+                   "a plain language summary of what it will do"). -->
+              <p class="research-status">{autoSalvageSummary(autoSalvageRules, autoSalvageSelectedRarities)}</p>
+
+              <!-- ⚠️ THE ELIGIBILITY READOUT: the interlock, made legible. Four states, and each
+                   one names its own fix rather than leaving the player to infer it. The two
+                   dead-end states (no rule chosen, every reached tier confirmed) use the WARN
+                   note treatment, because in both of them the feature will do nothing at all and
+                   the player deserves to be told that in the loudest voice this console has. -->
+              {#if !autoSalvageHasRule}
+                <p class="cq-note" class:cq-note-warn={autoSalvageRules.enabled}>
+                  {#if autoSalvageRules.enabled}
+                    <!-- ⚠️ THIS LIST MUST NAME EVERY SELECTING RULE. It said "a quality tier,
+                         Duplicates, or both" and went stale the moment 0.13.3.1 added RARITY
+                         as a third rule, telling the player only two of the three ways out of
+                         a state whose entire purpose is explaining how to leave it. If a
+                         fourth rule is ever added, this sentence and its sibling below are
+                         the first two things that must change. -->
+                    Auto-salvage is on but no rule is chosen, so nothing will be queued. Pick a quality tier, choose one or more rarity bands, switch on Duplicates, or any combination.
+                  {:else}
+                    Switched off, and no rule is chosen yet. Pick a quality tier, choose one or more rarity bands, or switch on Duplicates, then turn these rules on.
+                  {/if}
+                </p>
+              {:else if autoSalvageEligibleTiers.length === 0}
+                <p class="cq-note cq-note-warn">
+                  {autoSalvageStatusLead} Nothing can be auto-salvaged right now: every quality tier these rules reach ({autoSalvageTierList(autoSalvageHeldTiers)}) is set to ask you first under
+                  <strong>Confirm before salvaging</strong> just above, and auto-salvage never answers a confirmation for you. Uncheck a tier there to let the rules take it.
+                </p>
+              {:else}
+                <p class="cq-note">
+                  {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}{" "}
+                    Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: uncheck a tier under <strong>Confirm before salvaging</strong> just above to include it.
+                  {/if}
+                  {autoSalvageCountText(autoSalvageMatchCount, autoSalvageRules.enabled)}
+                </p>
+              {/if}
+
+              <!-- THE SAFETY GUARANTEES, stated because this is a destructive automation and a
+                   player has to be able to trust it before they switch it on. Each clause is a
+                   filter that genuinely exists in Unit 5.1's selector, not a reassurance. -->
+              <!-- 0.13.3.1: the list gained its fifth and sixth clauses (favorited, and the
+                   grace window), which are the two new protections. Every clause here is a
+                   reason that genuinely exists in the engine's AutoSalvageProtection union
+                   (salvage.ts), not a reassurance, and the union is what makes that checkable. -->
+              <!-- ⚠️ THE SIXTH CLAUSE IS CONDITIONAL, because the player can now switch that one
+                   protection off. Every clause here is a promise about the engine's behavior, so
+                   "never take one you have only just crafted or only just uninstalled" must
+                   disappear the moment the grace is 0 rather than sit here contradicting the
+                   warning above it. The other five are unconditional in the engine and stay
+                   unconditional here. It names BOTH causes because one window covers both (see
+                   startAutoSalvageGrace, model.ts): naming only the craft would be a promise the
+                   engine keeps more of than the sentence admits, which is its own kind of wrong. -->
+              <p class="research-status">
+                It will never touch an installed system, never re-queue something already queued or being broken down, never take a quality tier you asked to confirm, {#if autoSalvageGraceOff}and never take a system you have favorited.{:else}never take a system you have favorited, and never take one you have only just crafted or only just uninstalled.{/if} It only adds orders to the Auto-Salvage Terminal, shown under the salvage queue on the Salvage tab, and turning these rules off clears everything still waiting there.
+              </p>
+              <!-- ⚠️ THE STANDARD-ISSUE CLAUSE WAS A GUARANTEE AND IS NOW A CONDITION (0.13.3.1
+                   follow-up). It used to sit in the sentence above reading "never destroy a
+                   Standard-Issue baseline (those yield nothing, so removing one stays a deliberate
+                   manual choice)", which stopped being true the moment the `baseline` protection
+                   became conditional on the rules reaching the piece. A withdrawn guarantee left
+                   standing in prose is worse than one never made, so it is restated here as what
+                   it actually is: a default that the player's own rules can lift.
+                   It deliberately does NOT say that leaving Duplicates on keeps the player safe.
+                   Duplicates keeps one spare per VARIETY, not one per SHIP, and it is unioned with
+                   the other rules rather than limiting them, so it is not a safety net. -->
+              <p class="research-status">
+                <strong>Standard-Issue systems.</strong> The spare Standard-Issue gear your ships come with is left alone unless a rule you switched on reaches it, which the quality rule does at Q0 and the rarity rule does in the Standard band. When a rule does reach it, it is queued like any other spare and recovers nothing. Uninstalling a system leaves that slot empty, so a ship whose replacement has not been installed yet cannot fly until you install something else. Installing, favoriting, the grace window and your confirm-before-salvaging tiers all protect a Standard-Issue system exactly as they protect a crafted one.
+              </p>
+              <!-- ⚠️ REPLACES THE HEADROOM PARAGRAPHS (Auto-Salvage Terminal, 2026-09-11).
+                   What stood here was a two-branch explanation of AUTO_SALVAGE_MANUAL_HEADROOM:
+                   at depth 2+ the rules left the player one queue slot, and at depth 1 they
+                   honestly admitted they could take the only one. BOTH branches described
+                   auto-salvage and the player COMPETING for one queue, and they no longer do:
+                   the rules write to the Terminal's own unbounded queue and cannot reach the
+                   player's at any depth. The constant is gone from the engine, so the sentence
+                   that explained it had to go from the console: an unconditional, stronger
+                   promise replaces a conditional, weaker one. The depth-1 player, who used to
+                   be the one told the guarantee did not apply to them, is the one this helps
+                   most. Queue depth is still named because it is still what bounds the PLAYER'S
+                   own orders, and a player reading this panel should not conclude it has
+                   stopped mattering. -->
+              <p class="research-status">
+                These rules run on the Auto-Salvage Terminal, a separate bay with its own waiting list, so they never use your queue depth ({salvageBayQueue.depthTotal} at the Salvage Bay) and never take a salvage bay your own orders need. The Terminal will borrow one of your salvage bays if it has been sitting idle, and your orders take it straight back as soon as the borrowed teardown finishes.
+              </p>
+            </Panel>
       </Panel>
       {/if}
 
