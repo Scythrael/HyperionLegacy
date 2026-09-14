@@ -1921,7 +1921,10 @@
   // Approximate tooltip footprint, used only to keep it on-screen (clamp +
   // flip-above). A slight over-estimate is fine, it just biases toward
   // flipping above / nudging left a touch early, never clips.
-  const WAREHOUSE_TOOLTIP_W = 220;
+  // Clamp bounds for the fixed-positioned item tooltip. WIDTH matches the CSS: the desktop cap
+  // (.warehouse-tooltip max-width) here, widened to 92vw on a phone in showWarehouseTooltip so the
+  // card is kept on-screen at its actual mobile size rather than the old ~60% one.
+  const WAREHOUSE_TOOLTIP_W = 320;
   const WAREHOUSE_TOOLTIP_H = 190;
 
   // Position the tooltip from the hovered tile's on-screen rect: below it by
@@ -1934,7 +1937,10 @@
     const target = event.currentTarget as HTMLElement | null;
     if (!target) return;
     const rect = target.getBoundingClientRect();
-    let x = Math.min(window.innerWidth - WAREHOUSE_TOOLTIP_W - 8, rect.left);
+    // Mobile widens the card to 92vw (see the .warehouse-tooltip media query), so reserve that here
+    // rather than the desktop cap; the 560px breakpoint matches the CSS.
+    const ttW = window.innerWidth <= 560 ? window.innerWidth * 0.92 : WAREHOUSE_TOOLTIP_W;
+    let x = Math.min(window.innerWidth - ttW - 8, rect.left);
     x = Math.max(8, x);
     let y = rect.bottom + 8;
     if (y + WAREHOUSE_TOOLTIP_H > window.innerHeight) {
@@ -15210,11 +15216,11 @@
           label="Reduce motion"
           description="Turns off the animated tick bar sweep and other movement. This starts matching your device's own reduced-motion setting, and changing it here overrides that either way."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="Reduce motion"
             checked={reducedMotion}
             on:change={(e) => {
-              reducedMotion = (e.target as HTMLInputElement).checked;
+              reducedMotion = e.detail;
               saveReducedMotion(reducedMotion);
               applyAccessibilityNow();
             }}
@@ -15225,11 +15231,11 @@
           label="High contrast"
           description="Raises text and border contrast beyond the standard. The normal palette already meets WCAG AA on every theme; this is a further step for anyone who needs it."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="High contrast"
             checked={highContrast}
             on:change={(e) => {
-              highContrast = (e.target as HTMLInputElement).checked;
+              highContrast = e.detail;
               saveHighContrast(highContrast);
               applyAccessibilityNow();
             }}
@@ -15240,11 +15246,11 @@
           label="Dyslexia-friendly text"
           description="Switches body text to a more legible typeface if you have one installed. Headings keep the game's own font."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="Dyslexia-friendly text"
             checked={dyslexiaFont}
             on:change={(e) => {
-              dyslexiaFont = (e.target as HTMLInputElement).checked;
+              dyslexiaFont = e.detail;
               saveDyslexiaFont(dyslexiaFont);
               applyAccessibilityNow();
             }}
@@ -15254,24 +15260,23 @@
         <!-- Colour-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
              theme accent and layers safety onto the meaning-bearing colours (state + rarity), using
              the Okabe-Ito universal set (distinguishable across the common deficiency types at once).
-             ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today — the same widget
-             as the High-contrast / Dyslexia rows above it, and it never wraps a wide <select> onto a
-             second line on a phone. The extension seam is the [data-palette] axis (app.css) plus the
-             COLORBLIND_PALETTES list (accessibilityPreference.ts), NOT this control: when more
-             palettes exist (tritanopia / Pride), this graduates to a select. -->
+             ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today — the same Toggle
+             switch as the High-contrast / Dyslexia rows above it, and it never wraps a wide <select>
+             onto a second line on a phone. The extension seam is the [data-palette] axis (app.css)
+             plus the COLORBLIND_PALETTES list (accessibilityPreference.ts), NOT this control: when
+             more palettes exist (tritanopia / Pride), this graduates to a select. -->
         <SettingRow
           label="Colour-blind palette"
           description="Remaps the status colours (success / warning / danger) and the rarity ladder to a colour-blind-safe set. Your theme's accent colour is unchanged. Rarity always shows its name too, so tiers stay clear."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="Colour-blind palette"
             checked={colorBlindPalette === "cbsafe"}
             on:change={(e) => {
-              colorBlindPalette = (e.target as HTMLInputElement).checked ? "cbsafe" : "off";
+              colorBlindPalette = e.detail ? "cbsafe" : "off";
               saveColorBlindPalette(colorBlindPalette);
               applyAccessibilityNow();
             }}
-            aria-label="Colour-blind palette"
           />
         </SettingRow>
 
@@ -19329,7 +19334,10 @@
     /* Surface (bg/border/shadow/radius/padding) comes from .info-pop now, so this warehouse fill-tile
        tooltip matches the other info tooltips instead of its old solid-bg + deep-shadow one-off.
        Keeps only positioning: fixed, JS-placed via inline left/top, and non-interactive. */
-    position: fixed; z-index: 110; width: 210px;
+    /* ⚠️ CONTENT-SIZED, not a fixed 210px. The old fixed width capped the card at ~60% of a phone
+       and truncated longer item names; max-content lets it grow to what it holds, up to the cap
+       (raised to 92vw on mobile below) so a long name can use most of the screen there. */
+    position: fixed; z-index: 110; width: max-content; max-width: 320px;
     pointer-events: none;
   }
   .warehouse-tt-name { font-size: var(--text-md); font-weight: 700; color: var(--color-text-primary); }
@@ -19601,6 +19609,10 @@
      (see UpdateBanner), so a phone (~375px) always gets the single-column stack. */
   @media (max-width: 560px) {
     .home-prog { grid-template-columns: 1fr; }
+    /* Item tooltips widen to most of the screen on a phone (user, 2026-09-14): the desktop caps
+       (~320px) sit at ~60% of a phone and clip longer item names. They stay content-sized, so a
+       short card is still small — this only lifts the ceiling so a long name can use the width. */
+    .warehouse-tooltip, .frow-tip-card, .systems-popover { max-width: 92vw; }
   }
   .home-row {
     display: flex;

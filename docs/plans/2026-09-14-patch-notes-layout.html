@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Patch Notes Layout — 0.13.5</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --bg:#0a0d13; --panel:rgba(20,26,36,0.6); --line:rgba(103,232,249,0.16);
+    --line-soft:rgba(120,150,180,0.12);
+    --ink:#e7edf5; --ink-2:#aeb9c8; --ink-dim:#7a8698;
+    --accent:#67e8f9; --amber:#fbbf24; --good:#34d399; --corner:2px;
+    --disp:"Orbitron","Space Grotesk",sans-serif;
+    --body:"Space Grotesk","Inter",sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1100px 520px at 85% -8%, rgba(103,232,249,0.05), transparent 60%),
+      var(--bg);
+    color:var(--ink);font-family:var(--body);line-height:1.55;padding:30px 20px 90px;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:760px;margin:0 auto}
+  .doc-tag{font-family:var(--mono);font-size:0.68rem;letter-spacing:0.24em;text-transform:uppercase;
+    color:var(--ink-dim);margin:0 0 22px}
+
+  /* ---- version banner ---- */
+  .banner{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+    padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:6px}
+  .banner .ver{font-family:var(--disp);font-weight:700;font-size:2.6rem;line-height:0.9;
+    color:var(--ink);letter-spacing:0.01em}
+  .banner .ver .num{color:var(--accent)}
+  .banner .name{font-family:var(--disp);font-weight:500;font-size:1rem;letter-spacing:0.32em;
+    text-transform:uppercase;color:var(--ink-2);padding-bottom:4px}
+  .banner .meta{margin-left:auto;text-align:right;font-family:var(--mono);font-size:0.72rem;
+    color:var(--ink-dim);line-height:1.7;padding-bottom:3px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:0.62rem;letter-spacing:0.08em;
+    text-transform:uppercase;color:var(--good);border:1px solid rgba(52,211,153,0.4);
+    border-radius:var(--corner);padding:2px 7px}
+  .lede{color:var(--ink-2);font-size:0.98rem;margin:16px 0 30px;max-width:64ch}
+
+  /* ---- big feature block ---- */
+  .feat{margin:0 0 30px}
+  .feat > h2{font-family:var(--disp);font-weight:700;font-size:1.18rem;letter-spacing:0.04em;
+    text-transform:uppercase;color:var(--ink);margin:0 0 3px;display:flex;align-items:center;gap:10px}
+  .feat > h2 .new{font-family:var(--mono);font-size:0.58rem;font-weight:600;letter-spacing:0.12em;
+    color:#04222a;background:var(--accent);border-radius:var(--corner);padding:2px 6px;transform:translateY(-1px)}
+  .feat .rule{height:2px;background:linear-gradient(90deg,var(--accent),transparent 70%);margin:0 0 11px;border-radius:2px}
+  .feat .sub{color:var(--ink-dim);font-size:0.9rem;margin:0 0 10px}
+
+  /* ---- category bucket ---- */
+  .cat{margin:34px 0 0}
+  .cat > h3{font-family:var(--disp);font-weight:500;font-size:0.82rem;letter-spacing:0.2em;
+    text-transform:uppercase;color:var(--ink-2);margin:0 0 12px;padding-bottom:8px;
+    border-bottom:1px solid var(--line-soft)}
+
+  ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  li{position:relative;padding-left:18px;color:var(--ink);font-size:0.94rem}
+  li::before{content:"";position:absolute;left:2px;top:0.62em;width:5px;height:5px;
+    background:var(--accent);border-radius:var(--corner)}
+  .cat.fixes li::before{background:var(--good)}
+  .cat.balance li::before{background:var(--amber)}
+  li b{font-weight:600}
+  li .k{font-family:var(--mono);font-size:0.85em;color:var(--accent)}
+
+  .savenote{margin-top:36px;padding:12px 14px;border:1px solid var(--line-soft);border-radius:var(--corner);
+    background:var(--panel);color:var(--ink-2);font-size:0.9rem}
+  .savenote b{color:var(--ink)}
+
+  .note-strip{margin:28px 0 0;font-size:0.8rem;color:var(--ink-dim);border-left:2px solid var(--line);
+    padding-left:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="doc-tag">Layout proposal · Blizzard-style · applies 0.13.5 →</p>
+
+  <div class="banner">
+    <div class="ver">PATCH <span class="num">0.13.5</span></div>
+    <div class="name">Presentation</div>
+    <div class="meta">Draft · 2026&#8209;09<br><span class="chip">Save-safe · 46→48</span></div>
+  </div>
+  <p class="lede">A top-to-bottom interface pass: interface scaling and contrast, a reorganized Settings screen,
+    one unified item tooltip, redesigned Facilities / Captains / Operations consoles, and a new color-blind palette.
+    No economy changes — your save migrates automatically and carries over untouched.</p>
+
+  <!-- ============ BIG FEATURES ============ -->
+  <section class="feat">
+    <h2>Accessibility &amp; Scaling <span class="new">New</span></h2>
+    <div class="rule"></div>
+    <p class="sub">The interface can be tuned to how you read it.</p>
+    <ul>
+      <li><b>Interface scaling.</b> One setting scales the entire UI together, from 0.9× to 1.5×.</li>
+      <li><b>Contrast.</b> Dim and disabled text was re-measured against WCAG AA on all six themes and raised where it fell short.</li>
+      <li><b>Color-blind palette.</b> An opt-in Okabe-Ito palette remaps the status colors (success / warning / danger) and the rarity ladder; your theme's accent is unchanged.</li>
+      <li>Reduce motion, high contrast, and a dyslexia-friendly font live in <span class="k">Settings › UI › Accessibility</span>.</li>
+    </ul>
+  </section>
+
+  <section class="feat">
+    <h2>Settings, Reorganized</h2>
+    <div class="rule"></div>
+    <p class="sub">Options are grouped by what you're trying to change.</p>
+    <ul>
+      <li>Four sections — <b>UI, Gameplay, Confirmations, Save Data</b> — each its own panel.</li>
+      <li>Every explanation moved behind a tap / hover <b>?</b> instead of standing text under each row.</li>
+      <li>On/off settings became switches; anything that picks from a list became a dropdown.</li>
+      <li><b>Confirmation levels.</b> One dropdown sets every prompt at once (Ask everything → Stop asking). Edit any checkbox by hand and the level reads <b>Custom</b>; switching away from Custom asks before overwriting your edits.</li>
+    </ul>
+  </section>
+
+  <section class="feat">
+    <h2>The Item Tooltip, Unified</h2>
+    <div class="rule"></div>
+    <p class="sub">One tooltip for everything you can inspect.</p>
+    <ul>
+      <li>Materials, gear, ships, ship systems, and in-progress crafts share a single tooltip: stats above the divider, flavor below.</li>
+      <li>Reflects rarity and quality. Weapons show full combat stats — damage range, projectiles, accuracy, fire rate, range, family.</li>
+      <li>In-progress crafts show the stat ranges and the affixes you can still roll into.</li>
+      <li>It now appears everywhere an item does: system tiles, the warehouse, salvage, combat, and tappable drop-table item names.</li>
+    </ul>
+  </section>
+
+  <section class="feat">
+    <h2>Consoles Redesigned</h2>
+    <div class="rule"></div>
+    <p class="sub">Facilities, Captains, and Operations read like the Home board.</p>
+    <ul>
+      <li>Facilities and Captains are full-width panes with aligned status and progress rows.</li>
+      <li>Consoles use a single-row header: <b>back · name · sub-tabs</b>.</li>
+      <li><b>Captains:</b> rename in-frame (no popup), a fleshed-out Overview, and Talents / Ship / Equipment tabs.</li>
+      <li><b>Operations:</b> gathering and combat missions condensed into rows with More info + Assign / Dispatch; combat setup moved into a Dispatch popup with threat and stance explainers.</li>
+    </ul>
+  </section>
+
+  <section class="feat">
+    <h2>Auto-Salvage, Clearer &amp; Safer</h2>
+    <div class="rule"></div>
+    <p class="sub">The rules moved to where you change how the game behaves.</p>
+    <ul>
+      <li>Rules moved from the Salvage Bay to <span class="k">Settings › Gameplay</span>, behind a master toggle.</li>
+      <li>Quality tiers and rarity bands are each multi-selects, and they narrow each other — only gear matching both is taken.</li>
+      <li>With nothing selected, nothing is ever taken.</li>
+      <li>Confirm-before-salvaging moved to the Confirmations tab.</li>
+    </ul>
+  </section>
+
+  <section class="feat">
+    <h2>The Header</h2>
+    <div class="rule"></div>
+    <p class="sub">Rebuilt and unified across phone and desktop.</p>
+    <ul>
+      <li>FA EXP, CRAFT, and TICK share one aligned stat block — your crafting level now sits beside your Fleet Admiral level.</li>
+      <li>Settings has its own gear button; the portrait opens your menu.</li>
+      <li>Tap currency for a full breakdown; tap fuel to jump to the Fuel Depot.</li>
+    </ul>
+  </section>
+
+  <!-- ============ CATEGORY BUCKETS ============ -->
+  <section class="cat">
+    <h3>Additional Improvements</h3>
+    <ul>
+      <li>Squared corners across the interface for one consistent shape.</li>
+      <li>Every progress bar fills smoothly instead of once per tick, combat replays included.</li>
+      <li>Recently Completed is one line per item, expandable for detail.</li>
+      <li>Idle-captain prompts route to the board that captain's ship can actually be dispatched from.</li>
+      <li>Mission dispatch timers show the ship-effective time, formatted as seconds / minutes / hours / days.</li>
+      <li>Specialty equipment (e.g. the Prospecting Rig) is gated by hull class only, not by captain specialization.</li>
+    </ul>
+  </section>
+
+  <section class="cat fixes">
+    <h3>Bug Fixes</h3>
+    <ul>
+      <li>Reduce motion now makes every bar step, and the tick bar reaches 100% instead of vanishing at 90%.</li>
+      <li>The Settings <b>?</b> help opens on the first tap on touch.</li>
+      <li>The Home in-progress row for refining / fabrication shows the whole order's remaining time, not a single item's.</li>
+      <li>Dispatch time no longer under-reports the true extraction time on prospecting missions.</li>
+    </ul>
+  </section>
+
+  <section class="cat balance">
+    <h3>Balance</h3>
+    <ul>
+      <li>Every newly built ship launches with a Standard-Issue weapon in every hardpoint — no empty slots.</li>
+      <li>The Crimson-Reaver patrols were retuned to hold their prior difficulty after that change.</li>
+      <li>Existing ships are unchanged; the Quartermaster issues free Standard-Issue weapons to fill any slot.</li>
+    </ul>
+  </section>
+
+  <div class="savenote"><b>Save compatibility.</b> Your save migrates automatically (schema 46 → 48) and carries over untouched.</div>
+
+  <p class="note-strip">Format notes: marquee features get a header + one-line lead + bullets; smaller changes fall under
+    the flat category buckets (Improvements / Bug Fixes / Balance, tinted by bullet color). Tone is matter-of-fact.
+    This same structure renders in-app (System › Patch Notes) and on the Landing page; older versions keep their
+    existing prose.</p>
+</div>
+</body>
+</html>
