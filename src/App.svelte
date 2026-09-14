@@ -16163,12 +16163,15 @@
             <div class="research-cost">Bonus Roll: {(effectiveBonusRollChance * 100).toFixed(1)}% chance/tick for a second independent roll (Lucky Strike)</div>
           {/if}
 
+          <!-- Time shown via formatDuration (the app's human formatter: ~45s under a minute, then
+               ~28m / ~1h 5m / ~2d 3h), not raw seconds — "1692.0s" is hard to read (user 2026-09-14).
+               The tick COUNT stays for the tick-counting player; a 0-tick phase reads "(-)". -->
           <div class="panel-title">TIMING</div>
-          <div class="research-cost">Transit out: {transitOutTicks} ticks ({(transitOutTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
-          <div class="research-cost">Extracting: {extractingTicks} ticks ({(extractingTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
-          <div class="research-cost">Transit back: {transitBackTicks} ticks ({(transitBackTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
-          <div class="research-cost">Unloading: {unloadTicks} ticks ({(unloadTicks * state.tickDurationSeconds).toFixed(1)}s)</div>
-          <div class="research-cost"><strong>Total: {totalTicks} ticks ({(totalTicks * state.tickDurationSeconds).toFixed(1)}s)</strong></div>
+          <div class="research-cost">Transit out: {transitOutTicks} ticks ({formatDuration(transitOutTicks, state.tickDurationSeconds)})</div>
+          <div class="research-cost">Extracting: {extractingTicks} ticks ({formatDuration(extractingTicks, state.tickDurationSeconds)})</div>
+          <div class="research-cost">Transit back: {transitBackTicks} ticks ({formatDuration(transitBackTicks, state.tickDurationSeconds)})</div>
+          <div class="research-cost">Unloading: {unloadTicks} ticks ({formatDuration(unloadTicks, state.tickDurationSeconds)})</div>
+          <div class="research-cost"><strong>Total: {totalTicks} ticks ({formatDuration(totalTicks, state.tickDurationSeconds)})</strong></div>
 
           <!-- Mission Rework (Task 8 UI): the AUTHORITATIVE round-trip fuel cost for
                THIS selected captain's hull (the list card's figure uses the fleet's
