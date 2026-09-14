@@ -94,8 +94,10 @@
   .ctabs-wrap {
     position: relative;
     flex-shrink: 0;
-    padding-bottom: 12px;
-    margin-bottom: 4px;
+    /* Gap below the tab row before content, HALVED (user 2026-09-13, "presents more cleanly"):
+       was 12 + 4 = 16px, now 6 + 2 = 8px. */
+    padding-bottom: 6px;
+    margin-bottom: 2px;
   }
   /* The scroll viewport. Scrollbar hidden across engines; the edge slices are the
      scroll affordance instead. */
