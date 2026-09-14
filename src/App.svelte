@@ -2316,24 +2316,42 @@
   function handleCurrencyKeydown(e: KeyboardEvent) {
     if (e.key !== "Escape") return;
     if (openCurrencyKey !== null) openCurrencyKey = null;
-    if (openFacilityTip !== null) openFacilityTip = null;
+    if (facilityTip !== null) facilityTip = null;
   }
 
   // ---- Facility-pane ⓘ subject tooltip (0.13.5 hover-detail) ---------------
-  // Which facility-pane row's ⓘ tooltip is open, keyed "<facilityKey>:action" / ":upgrade". Desktop
-  // reveals on CSS :hover (no JS); this state is the TAP path (touch) + keyboard, and the tap-away /
-  // Escape dismissal. The ⓘ click stops propagation so it never triggers the pane's open-console
-  // button underneath it.
-  let openFacilityTip: string | null = null;
-  function toggleFacilityTip(e: Event, key: string) {
+  // ⚠️ FIXED-POSITIONED, JS-placed (same overflow-proof idiom as the warehouse fill-tile tooltip),
+  // NOT an absolute child. A CSS :hover tooltip inside the pane <button> (itself inside the
+  // overflow scroll area) was getting clipped and never appeared. A single fixed element placed at
+  // the ⓘ's rect escapes every ancestor's overflow. Mouse: pointerenter shows / pointerleave hides
+  // (guarded to pointerType "mouse" so a touch tap does not instantly re-hide what it just opened).
+  // Touch: tap toggles, tap-away / Escape dismisses. pointer-events:none on the tip so it never
+  // captures the hover. The ⓘ click stops propagation so it never opens the console underneath.
+  let facilityTip: { title: string; line: string; upgrade: boolean; x: number; y: number } | null = null;
+  function showFacilityTip(el: HTMLElement, tip: { title: string; line: string }, upgrade: boolean) {
+    const r = el.getBoundingClientRect();
+    facilityTip = {
+      title: tip.title, line: tip.line, upgrade,
+      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 240)),
+      y: r.bottom + 6,
+    };
+  }
+  function hoverFacilityTip(e: PointerEvent, tip: { title: string; line: string } | undefined, upgrade: boolean) {
+    if (tip && e.pointerType === "mouse") showFacilityTip(e.currentTarget as HTMLElement, tip, upgrade);
+  }
+  function leaveFacilityTip(e: PointerEvent) {
+    if (e.pointerType === "mouse") facilityTip = null;
+  }
+  function tapFacilityTip(e: Event, tip: { title: string; line: string } | undefined, upgrade: boolean) {
     e.stopPropagation();
-    openFacilityTip = openFacilityTip === key ? null : key;
+    if (facilityTip || !tip) facilityTip = null;
+    else showFacilityTip(e.currentTarget as HTMLElement, tip, upgrade);
   }
   function handleFacilityTipOutside(e: PointerEvent) {
-    if (openFacilityTip === null) return;
+    if (facilityTip === null) return;
     const target = e.target as Element | null;
-    if (target && target.closest(".frow-info-wrap")) return;
-    openFacilityTip = null;
+    if (target && target.closest(".frow-info")) return;
+    facilityTip = null;
   }
   // -------------------------------------------------------------------------
 
@@ -8329,6 +8347,21 @@
   on:keydown={handleCurrencyKeydown}
 />
 
+<!-- Facility-pane ⓘ subject tooltip: ONE fixed-positioned element (placed at the ⓘ's rect by
+     showFacilityTip), so it escapes the pane button + scroll-area overflow that was clipping the
+     old absolute version. pointer-events:none so it never captures the hover. -->
+{#if facilityTip}
+  <div
+    class="frow-tip info-pop"
+    class:up={facilityTip.upgrade}
+    style="left: {facilityTip.x}px; top: {facilityTip.y}px;"
+    role="tooltip"
+  >
+    <span class="frow-tip-title">{facilityTip.title}</span>
+    {#if facilityTip.line}<span class="frow-tip-line">{facilityTip.line}</span>{/if}
+  </div>
+{/if}
+
 <!-- SHARED facility-upgrade Build button (2026-07-24 flicker fix, DRY). This is the
      ONE place the tick-stable disabled-reason popover lives; every facility Build
      button renders through it, so the mechanism (hover wrapper, popover, positioning,
@@ -9061,22 +9094,26 @@
                UPGRADE) or a single idle status line, and a Manage affordance. The whole pane is the
                button that opens the console (same behaviour the cards had). Bars align across panes
                because every row rides one shared column grid (see .fprow). -->
-          {#snippet facilityRow(row: FacilityRow, tipKey: string)}
+          {#snippet facilityRow(row: FacilityRow)}
             <span class="fprow">
               <span class="fprow-lbl" class:up={row.upgrade}>
-                {row.label}{#if row.tip}<span class="frow-info-wrap">
+                <span class="fprow-lbl-text">{row.label}</span>{#if row.tip}
                   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
                   <!-- ⚠️ A plain <span>, NOT a <button>: this ⓘ lives INSIDE the pane's <button>, and a
                        button-in-button is invalid. The subject NAME is already inline (the accessible
-                       content); this ⓘ is a supplementary visual detail-reveal, shown on hover
-                       (desktop, CSS) or tap (openFacilityTip). stopPropagation keeps a tap from
-                       opening the console. Hence the justified a11y-ignore above. -->
-                  <span class="frow-info" class:up={row.upgrade} aria-hidden="true" on:click={(e) => toggleFacilityTip(e, tipKey)}>i</span>
-                  <span class="frow-tip info-pop" class:open={openFacilityTip === tipKey} class:up={row.upgrade} role="tooltip">
-                    <span class="frow-tip-title">{row.tip.title}</span>
-                    {#if row.tip.line}<span class="frow-tip-line">{row.tip.line}</span>{/if}
-                  </span>
-                </span>{/if}
+                       content); this ⓘ is a supplementary visual detail-reveal. It shows a FIXED-
+                       positioned tooltip (rendered once at page level, see facilityTip) on hover
+                       (mouse) or tap; stopPropagation keeps a tap from opening the console. Hence the
+                       justified a11y-ignore above. -->
+                  <span
+                    class="frow-info"
+                    class:up={row.upgrade}
+                    aria-hidden="true"
+                    on:pointerenter={(e) => hoverFacilityTip(e, row.tip, !!row.upgrade)}
+                    on:pointerleave={leaveFacilityTip}
+                    on:click={(e) => tapFacilityTip(e, row.tip, !!row.upgrade)}
+                  >i</span>
+                {/if}
               </span>
               <span class="fprow-track" class:up={row.upgrade}><i style="width:{Math.min(100, row.fraction * 100)}%"></i></span>
               <span class="fprow-pct">{row.pctText}</span>
@@ -9098,8 +9135,8 @@
                 </span>
               </span>
               <span class="fpane-mid">
-                {#if p.action}{@render facilityRow(p.action, p.key + ":action")}{/if}
-                {#if p.upgrade}{@render facilityRow(p.upgrade, p.key + ":upgrade")}{/if}
+                {#if p.action}{@render facilityRow(p.action)}{/if}
+                {#if p.upgrade}{@render facilityRow(p.upgrade)}{/if}
                 {#if !p.action}<span class="fpane-idle">{p.idle}</span>{/if}
               </span>
               <span class="fpane-cta" aria-hidden="true">Manage</span>
@@ -18615,8 +18652,11 @@
   .fpane-sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); }
   .fpane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   /* Shared row grid = the alignment fix: label | bar | percent, identical on every row + pane. */
-  .fprow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
-  .fprow-lbl { font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fprow { display: grid; grid-template-columns: 168px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
+  /* ⚠️ The label cell is a flex row [truncating text · ⓘ]: the TEXT ellipsizes, but the ⓘ is a
+     flex:0 0 auto sibling so it is NEVER clipped by the truncation (the bug that hid it entirely). */
+  .fprow-lbl { display: inline-flex; align-items: center; gap: 5px; min-width: 0; font-size: var(--text-2xs); color: var(--color-text-secondary); }
+  .fprow-lbl-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fprow-lbl.up { color: var(--color-warning); }
   .fprow-track { position: relative; height: 6px; border-radius: var(--corner); background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
   .fprow-track > i { display: block; height: 100%; background: var(--color-accent); }
@@ -18626,13 +18666,13 @@
   .fpane-cta { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); white-space: nowrap; text-align: right; }
   /* ── The ⓘ subject-detail affordance on action/upgrade rows (0.13.5 hover-detail). SQUARE (user).
      Reveals a small .info-pop tooltip ABOVE it on hover (desktop) or tap (.open). */
-  .frow-info-wrap { position: relative; display: inline-flex; }
-  .frow-info { width: 14px; height: 14px; flex: 0 0 auto; margin-left: 5px; display: inline-grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-3xs); line-height: 1; cursor: help; -webkit-tap-highlight-color: transparent; }
+  .frow-info { flex: 0 0 auto; width: 14px; height: 14px; margin-left: 5px; display: inline-grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-3xs); line-height: 1; cursor: help; -webkit-tap-highlight-color: transparent; }
   .frow-info.up { border-color: rgba(var(--color-warning-rgb), 0.5); color: var(--color-warning); }
   .frow-info:hover { background: rgba(var(--color-accent-rgb), 0.14); }
-  .frow-tip { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 6; width: max-content; max-width: 240px; flex-direction: column; gap: 3px; }
+  /* The tooltip is a FIXED, page-level element (positioned inline from JS); .info-pop gives its
+     surface. pointer-events:none so it never steals the hover from the ⓘ. */
+  .frow-tip { position: fixed; z-index: 110; display: flex; flex-direction: column; gap: 3px; width: max-content; max-width: 240px; pointer-events: none; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
-  .frow-info-wrap:hover .frow-tip, .frow-tip.open { display: flex; }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }
   .frow-tip-line { font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.4; }
@@ -18641,7 +18681,7 @@
   @media (max-width: 768px) {
     .fpane { grid-template-columns: 120px minmax(0, 1fr); gap: 10px; }
     .fpane-cta { display: none; }
-    .fprow { grid-template-columns: 76px minmax(0, 1fr) 40px; gap: 7px; }
+    .fprow { grid-template-columns: 118px minmax(0, 1fr) 40px; gap: 7px; }
   }
   .roster-card {
     display: flex;
