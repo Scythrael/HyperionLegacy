@@ -16100,10 +16100,24 @@
           {@const rareChanceMult = captainRareChanceMult(selectedCaptain)}
           {@const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + uncommonChanceMult))}
           {@const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + rareChanceMult))}
-          {@const transitOutTicks = missionDef.transitOutTicks}
-          {@const extractingTicks = requiredTicksForPhase("extracting", missionDef)}
-          {@const transitBackTicks = missionDef.transitBackTicks}
-          {@const unloadTicks = missionDef.unloadTicks}
+          <!-- ⚠️ TIMING uses the SHIP-EFFECTIVE mission def, not the raw one (dispatch-preview fix
+               2026-09-14, user). requiredTicksForPhase("extracting") is ceil(cargoCapacity /
+               extractionRatePerTick), and the engine (+ the in-progress card) advance against the
+               SHIP'S FOLDED cargo hold, not the mission's baseline hold. Reading the raw def here
+               showed the baseline 90-tick extract for a ship whose radiant/Q5 hold actually takes
+               ~28 minutes, so the popup badly UNDER-reported the real time. effectiveMissionDef swaps
+               in the ship's cargoCapacity (and speed-scaled transit), exactly as the in-progress card
+               does; a ship-less captain falls back to the raw def (the engine's own no-modifier path).
+               DROP RATES above stay on the raw missionDef (loot table + drop chances are mission-
+               intrinsic, not ship-scaled). -->
+          {@const popupShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
+          {@const timingDef = popupShip !== null
+            ? effectiveMissionDef(missionDef, shipDerivedStats(popupShip, equippedFor(state, popupShip.id)))
+            : missionDef}
+          {@const transitOutTicks = timingDef.transitOutTicks}
+          {@const extractingTicks = requiredTicksForPhase("extracting", timingDef)}
+          {@const transitBackTicks = timingDef.transitBackTicks}
+          {@const unloadTicks = timingDef.unloadTicks}
           {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
           {@const bonusRollChance = captainBonusRollChance(selectedCaptain)}
           {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
