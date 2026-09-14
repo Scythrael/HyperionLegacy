@@ -17434,10 +17434,16 @@
   .top-bar-header .top-bar-gear svg { width: 21px; height: 21px; }
 
   /* STATS stack. Bars stretch (barwrap flex:1, no cap). CRAFT amber lives at .tb-bar-amber > i. */
-  .tb-stats { grid-area: stats; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-  .tb-statrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .tb-statlab { flex: 0 0 42px; font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .tb-barwrap { flex: 1 1 auto; min-width: 0; }
+  /* ⚠️ ONE GRID for all stat rows, so every bar is the SAME width. Each .tb-statrow is display:
+     contents, so its label / bar / value drop into these three shared columns: the bar column is
+     1fr (identical on every row) and the label + value columns auto-size to their widest content
+     across all rows. That forces the bars to line up exactly WITHOUT hardcoding a width, and it
+     re-balances on its own as XP grows into k/M/B/T (the values just widen their shared column,
+     every bar shortening together instead of unevenly). */
+  .tb-stats { grid-area: stats; display: grid; grid-template-columns: auto 1fr auto; align-items: center; column-gap: 8px; row-gap: 6px; min-width: 0; }
+  .tb-statrow { display: contents; }
+  .tb-statlab { font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .tb-barwrap { min-width: 0; }
   .tb-bar { position: relative; display: block; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
   .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 5px; transition: width var(--bar-step-seconds, 0.25s) linear; }
   .tb-statval { flex: 0 0 auto; min-width: 78px; text-align: right; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
@@ -17498,11 +17504,9 @@
       row-gap: 0;
     }
     .top-bar-header .top-bar-portrait { width: 58px; height: 58px; font-size: calc(26px * var(--ui-scale)); }
-    .tb-stats { gap: 8px; }
-    .tb-stats .tb-statrow { gap: 10px; }
+    .tb-stats { column-gap: 10px; row-gap: 8px; }
     .tb-stats .tb-bar { height: 10px; }
-    .tb-stats .tb-statlab { flex-basis: 46px; }
-    .tb-stats .tb-statval { min-width: 136px; font-size: var(--text-xs); }
+    .tb-stats .tb-statval { font-size: var(--text-xs); }
     .tb-resources { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
     .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { flex: none; width: 168px; }
     .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
