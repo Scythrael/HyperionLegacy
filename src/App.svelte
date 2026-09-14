@@ -30,7 +30,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -2327,22 +2327,26 @@
   // (guarded to pointerType "mouse" so a touch tap does not instantly re-hide what it just opened).
   // Touch: tap toggles, tap-away / Escape dismisses. pointer-events:none on the tip so it never
   // captures the hover. The ⓘ click stops propagation so it never opens the console underneath.
-  let facilityTip: { title: string; line: string; upgrade: boolean; x: number; y: number } | null = null;
-  function showFacilityTip(el: HTMLElement, tip: { title: string; line: string }, upgrade: boolean) {
+  let facilityTip: { tip: FacilityTip; upgrade: boolean; x: number; y: number; anchorTop: number } | null = null;
+  function showFacilityTip(el: HTMLElement, tip: FacilityTip, upgrade: boolean) {
     const r = el.getBoundingClientRect();
+    // Clamp x for the widest surface (the ItemTooltip card ~ up to 320px). y sits just below the
+    // ⓘ; anchorTop is kept so clampFacilityTipCard can flip the card ABOVE the row if the card
+    // would overflow the bottom of the viewport.
     facilityTip = {
-      title: tip.title, line: tip.line, upgrade,
-      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 240)),
+      tip, upgrade,
+      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
       y: r.bottom + 6,
+      anchorTop: r.top,
     };
   }
-  function hoverFacilityTip(e: PointerEvent, tip: { title: string; line: string } | undefined, upgrade: boolean) {
+  function hoverFacilityTip(e: PointerEvent, tip: FacilityTip | undefined, upgrade: boolean) {
     if (tip && e.pointerType === "mouse") showFacilityTip(e.currentTarget as HTMLElement, tip, upgrade);
   }
   function leaveFacilityTip(e: PointerEvent) {
     if (e.pointerType === "mouse") facilityTip = null;
   }
-  function tapFacilityTip(e: Event, tip: { title: string; line: string } | undefined, upgrade: boolean) {
+  function tapFacilityTip(e: Event, tip: FacilityTip | undefined, upgrade: boolean) {
     e.stopPropagation();
     if (facilityTip || !tip) facilityTip = null;
     else showFacilityTip(e.currentTarget as HTMLElement, tip, upgrade);
@@ -2352,6 +2356,23 @@
     const target = e.target as Element | null;
     if (target && target.closest(".frow-info")) return;
     facilityTip = null;
+  }
+  // The ItemTooltip card can be tall; after it renders, if it overflows the viewport bottom, flip
+  // it to sit ABOVE the anchor row instead (and nudge left if it overflows the right edge). A Svelte
+  // action so it runs on mount + whenever the tip changes. The one-line info-pop never needs this.
+  function clampFacilityTipCard(node: HTMLElement, _tip: typeof facilityTip) {
+    const reposition = () => {
+      if (facilityTip === null) return;
+      const r = node.getBoundingClientRect();
+      if (r.bottom > window.innerHeight - 8) {
+        node.style.top = `${Math.max(8, facilityTip.anchorTop - r.height - 6)}px`;
+      }
+      if (r.right > window.innerWidth - 8) {
+        node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+      }
+    };
+    reposition();
+    return { update: reposition };
   }
   // -------------------------------------------------------------------------
 
@@ -8186,7 +8207,13 @@
   //    lays every row on one shared column grid. Reuses the SAME per-facility reactives the old
   //    cards read (level, active jobs, *UpgradeInFlight, queues, statuses), so a pane and its
   //    console can never disagree; progress fractions come straight off the in-flight TimedProcesses.
-  type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean; tip?: { title: string; line: string } };
+  // The ⓘ detail-reveal payload for a facility row. An "item" tip opens the generalized
+  // ItemTooltip (material / craft-in-progress / ship); an "info" tip is the light one-liner
+  // used for upgrades and research (no rolled/finished item to show a stats card for).
+  type FacilityTip =
+    | { kind: "item"; title: string; subject: ItemTooltipSubject }
+    | { kind: "info"; title: string; line: string };
+  type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean; tip?: FacilityTip };
   type FacilityPaneVM = {
     key: FoundryFacilityKey; glyph: string; label: string; sub: string;
     attention: boolean; action: FacilityRow | null; upgrade: FacilityRow | null; idle: string | null;
@@ -8206,13 +8233,38 @@
   // What the ⓘ hover reveals about a job's SUBJECT: the product name + a one-line descriptor, from
   // the SAME item/blueprint/hull data the console labels read. Null for a job with no named product
   // (fuel top-up, salvage) -> that row shows its verb only, no ⓘ.
-  function facilitySubjectTip(job: TimedProcess | null): { name: string; line: string } | null {
+  function facilitySubjectTip(job: TimedProcess | null): { name: string; tip: FacilityTip } | null {
     if (!job) return null;
     const e = job.effect;
-    if (e.type === "addItem") { const it = ITEMS[e.itemId]; return { name: it?.label ?? e.itemId, line: it?.flavor ?? "" }; }
-    if (e.type === "addEquipment") { const bp = BLUEPRINTS[e.blueprintKey]; return { name: bp?.label ?? e.blueprintKey, line: "" }; }
-    if (e.type === "unlockBlueprint") { const bp = BLUEPRINTS[e.key]; return { name: bp?.label ?? e.key, line: "" }; }
-    if (e.type === "addShip") { const s = SHIP_TYPES[e.typeKey]; return { name: s?.label ?? e.typeKey, line: "" }; }
+    if (e.type === "addItem") {
+      const name = ITEMS[e.itemId]?.label ?? e.itemId;
+      return { name, tip: { kind: "item", title: name, subject: { kind: "material", itemId: e.itemId } } };
+    }
+    if (e.type === "addEquipment") {
+      // A crafted ship system / weapon / drone pod: the ⓘ shows the ROLL PREVIEW (ranges +
+      // rarity/quality/affix options), computed with the SAME iLevel inputs the mint uses
+      // (state.craftingLevel + the FA-talent bonus), so the preview equals the eventual roll space.
+      const name = (BLUEPRINTS[e.blueprintKey]?.label ?? e.blueprintKey).replace(/\s+Blueprint$/, "");
+      return {
+        name,
+        tip: {
+          kind: "item",
+          title: name,
+          subject: { kind: "craft", blueprintKey: e.blueprintKey, craftingLevel: state.craftingLevel, faTalentBonus: craftingTalentILevelBonus },
+        },
+      };
+    }
+    if (e.type === "unlockBlueprint") {
+      // Research unlocks a blueprint (no item instance is minted), so the ⓘ is the light info
+      // one-liner: the blueprint's name + its flavor, not a stats card.
+      const bp = BLUEPRINTS[e.key];
+      const name = (bp?.label ?? e.key).replace(/\s+Blueprint$/, "");
+      return { name, tip: { kind: "info", title: name, line: bp?.flavor ?? "" } };
+    }
+    if (e.type === "addShip") {
+      const name = SHIP_TYPES[e.typeKey]?.label ?? e.typeKey;
+      return { name, tip: { kind: "item", title: name, subject: { kind: "ship", typeKey: e.typeKey } } };
+    }
     return null;
   }
   // ACTION row: "<verb> · <subject>" inline (readable at a glance), carrying the subject's tip for
@@ -8224,14 +8276,14 @@
     return {
       label: subj ? `${verb} · ${subj.name}` : verb,
       fraction: f, pctText: facilityPct(f),
-      tip: subj ? { title: subj.name, line: subj.line } : undefined,
+      tip: subj ? subj.tip : undefined,
     };
   }
   // UPGRADE row: amber "Upgrade" with a tip naming the facility whose upgrade is running.
   function facilityUpgrade(p: TimedProcess | null | undefined, facilityLabel: string): FacilityRow | null {
     if (!p) return null;
     const f = procFrac(p);
-    return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true, tip: { title: `${facilityLabel} upgrade`, line: "" } };
+    return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true, tip: { kind: "info", title: `${facilityLabel} upgrade`, line: "" } };
   }
   function fpane(
     key: FoundryFacilityKey, glyph: string, label: string, sub: string,
@@ -8351,15 +8403,28 @@
      showFacilityTip), so it escapes the pane button + scroll-area overflow that was clipping the
      old absolute version. pointer-events:none so it never captures the hover. -->
 {#if facilityTip}
-  <div
-    class="frow-tip info-pop"
-    class:up={facilityTip.upgrade}
-    style="left: {facilityTip.x}px; top: {facilityTip.y}px;"
-    role="tooltip"
-  >
-    <span class="frow-tip-title">{facilityTip.title}</span>
-    {#if facilityTip.line}<span class="frow-tip-line">{facilityTip.line}</span>{/if}
-  </div>
+  {#if facilityTip.tip.kind === "item"}
+    <!-- The generalized ItemTooltip (material / craft-in-progress / ship). clampFacilityTipCard
+         flips it above the row / nudges it in if the card would overflow the viewport. -->
+    <div
+      class="frow-tip-card"
+      style="left: {facilityTip.x}px; top: {facilityTip.y}px;"
+      role="tooltip"
+      use:clampFacilityTipCard={facilityTip}
+    >
+      <EquipmentTooltip subject={facilityTip.tip.subject} />
+    </div>
+  {:else}
+    <div
+      class="frow-tip info-pop"
+      class:up={facilityTip.upgrade}
+      style="left: {facilityTip.x}px; top: {facilityTip.y}px;"
+      role="tooltip"
+    >
+      <span class="frow-tip-title">{facilityTip.tip.title}</span>
+      {#if facilityTip.tip.line}<span class="frow-tip-line">{facilityTip.tip.line}</span>{/if}
+    </div>
+  {/if}
 {/if}
 
 <!-- SHARED facility-upgrade Build button (2026-07-24 flicker fix, DRY). This is the
@@ -18672,6 +18737,9 @@
   /* The tooltip is a FIXED, page-level element (positioned inline from JS); .info-pop gives its
      surface. pointer-events:none so it never steals the hover from the ⓘ. */
   .frow-tip { position: fixed; z-index: 110; display: flex; flex-direction: column; gap: 3px; width: max-content; max-width: 240px; pointer-events: none; }
+  /* The item-card variant of the facility ⓘ tooltip: hosts the generalized ItemTooltip. Same
+     fixed / overflow-proof placement as .frow-tip, sized to the card (which caps its own width). */
+  .frow-tip-card { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }

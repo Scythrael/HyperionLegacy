@@ -30,14 +30,20 @@
 
 import {
   EQUIPMENT_SLOTS,
+  PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
+  type BlueprintDef,
   type EquipmentInstance,
   type EquipmentRarity,
   type EquipmentAscension,
   type EquipmentSlotType,
   type EquipmentVarietyDef,
 } from "./model";
+// QUALITY_TIERS (=6, rungs 0..5) is the single source for the quality ceiling; previewCraftOutcome
+// reports the quality RANGE a craft can roll, so it reads this rather than hardcoding 5. inventory.ts
+// does not import itemgen, so this adds no cycle.
+import { QUALITY_TIERS } from "./inventory";
 // Combat 1.0 (Unit 1.2): the weapon roster templates + id union. generateWeapon (below) mints a
 // crafted weapon by rolling power lines off a base WEAPON_DEF. This is a safe one-way import:
 // combat/weapons imports only combat/types + combat/statusEffects, never itemgen, so no cycle.
@@ -466,8 +472,11 @@ export function generateEquipment(a: {
 // weapon carries; the affix pool adds more yield or accuracy. Weapons have no EQUIPMENT_SLOTS
 // variety, so the shared affix picker runs against a NEUTRAL variety (every stat keeps its raw
 // pool weight). FIRST-PASS TUNABLE (the balance pass owns the numbers).
-const WEAPON_IMPLICIT_STAT = "weaponYield";
-const WEAPON_AFFIX_POOL: { stat: string; weight: number }[] = [
+// Exported (0.13.5 tooltip rework) so previewCraftOutcome can enumerate a crafted weapon's
+// signature line + affix pool from the SAME table generateWeapon rolls against, rather than a
+// second hand-kept copy that could drift from the real roll.
+export const WEAPON_IMPLICIT_STAT = "weaponYield";
+export const WEAPON_AFFIX_POOL: { stat: string; weight: number }[] = [
   { stat: "weaponYield", weight: 4 },
   { stat: "weaponAccuracy", weight: 3 },
 ];
@@ -570,8 +579,10 @@ export function generateWeapon(a: {
 // shared affix picker runs against a NEUTRAL variety (every stat keeps its raw pool weight), the
 // same neutral-variety treatment generateWeapon uses. FIRST-PASS TUNABLE (the balance pass owns
 // the numbers). Weights mirror the weapon pool (signature stat heavier than accuracy).
-const DRONE_POD_IMPLICIT_STAT = "droneHp";
-const DRONE_POD_AFFIX_POOL: { stat: string; weight: number }[] = [
+// Exported (0.13.5 tooltip rework), same reasoning as the weapon pool above: previewCraftOutcome
+// reads this ONE table so the in-progress tooltip's affix list cannot drift from generateDronePod.
+export const DRONE_POD_IMPLICIT_STAT = "droneHp";
+export const DRONE_POD_AFFIX_POOL: { stat: string; weight: number }[] = [
   { stat: "droneHp", weight: 4 },
   { stat: "droneAccuracy", weight: 3 },
 ];
@@ -644,5 +655,170 @@ export function generateDronePod(a: {
     durabilityMax,
     durability: durabilityMax, // fresh pod starts at full durability
     fittedToShipId: null, // spare in the pool until the install path (Unit 2.1b+) assigns it
+  };
+}
+
+// ============================================================================
+// 0.13.5 tooltip rework: previewCraftOutcome
+// ----------------------------------------------------------------------------
+// The PRE-ROLL side of the roll engine, for the in-progress-craft tooltip. Given a
+// blueprint that mints an EquipmentInstance (equipment / weapon / drone-pod output) and
+// the crafter's level, it returns what the finished piece CAN roll into WITHOUT rolling:
+//   - iLevel        : DETERMINISTIC (computeItemLevel, already clamped to the tier cap).
+//   - quality range : 0 .. QUALITY_TIERS-1 (every craft can roll the whole quality ladder).
+//   - rarities      : the producible band set (PRODUCIBLE_EQUIPMENT_RARITIES), ladder order.
+//   - implicit[]    : each signature (implicit) stat's magnitude RANGE across the roll space.
+//   - affix pool    : the stats a rolled affix can land on (weight-ordered, variety-biased),
+//                     and how many affixes roll (count range).
+//
+// WHY this can be honest (not a guess): the roll is decomposed into PURE functions
+// (computeBudget / budgetShares / affixCount / craftedDefensiveImplicit), and each is
+// documented MONOTONIC non-decreasing in quality and rarity. So a stat's minimum is its
+// value at (quality 0, lowest producible rarity) and its maximum at (top quality, highest
+// producible rarity), computed by calling the SAME primitives the mint calls, never a
+// second copy of the numbers. iLevel MIRRORS the mint site (tick.ts resolveProcesses): the
+// caller passes the same craftingLevel + faTalentBonus (craftingItemLevelBonus(state)) the
+// mint reads, so the previewed iLevel equals the minted one. achievementBoost is reserved 0
+// there and defaults to 0 here.
+//
+// Returns null for a blueprint that mints NO instance (unlockOnly / a material recipe): those
+// get the material/blueprint tooltip, not a roll preview.
+//
+// PURE: reads only static tables, draws no persistent rng (affixCount's augmented branch is
+// probed with the two fixed extremes to bound the count).
+// ============================================================================
+
+export interface CraftStatRange {
+  stat: string; // stat-vocabulary key (the tooltip maps it to a display label)
+  min: number; // magnitude at (quality 0, lowest producible rarity)
+  max: number; // magnitude at (top quality, highest producible rarity)
+}
+
+export interface CraftPreview {
+  outputKind: "equipment" | "weapon" | "drone";
+  slotType: EquipmentSlotType;
+  varietyKey: string | null; // equipment: the minted variety; weapon/drone: null (no variety)
+  iLevel: number; // deterministic, already clamped to the blueprint's tier cap
+  qualityMin: number;
+  qualityMax: number;
+  rarities: readonly EquipmentRarity[]; // producible bands, ladder order (low -> high)
+  implicit: CraftStatRange[]; // the signature line(s), always present on the finished piece
+  affixCountMin: number;
+  affixCountMax: number;
+  affixPool: string[]; // stats a rolled affix can land on, weight-ordered (variety-biased)
+}
+
+// One implicit line's magnitude at a specific (quality, rarityIdx), mirroring the branch
+// generateEquipment/Weapon/DronePod uses: the three defensive lines ride their floored curves,
+// every other implicit rides the shared budget split (implicitShare / implicitCount). Monotonic
+// in quality and rarity, so min/max fall at the roll-space corners.
+function previewImplicitMagnitude(
+  slotType: EquipmentSlotType,
+  stat: string,
+  iLevel: number,
+  quality: number,
+  rarityIdx: number,
+  implicitCount: number,
+): number {
+  if (slotType === "hullPlating" && stat === "hullStrength") {
+    return craftedDefensiveImplicit(CRAFTED_DEFENSE_HULL_BASE, CRAFTED_DEFENSE_HULL_PER_LEVEL, iLevel, quality, rarityIdx);
+  }
+  if (slotType === "shieldEmitters" && stat === "shieldCapacity") {
+    return craftedDefensiveImplicit(CRAFTED_DEFENSE_CAP_BASE, CRAFTED_DEFENSE_CAP_PER_LEVEL, iLevel, quality, rarityIdx);
+  }
+  if (slotType === "shieldEmitters" && stat === "shieldRecharge") {
+    return craftedDefensiveImplicit(CRAFTED_DEFENSE_RECHARGE_BASE, CRAFTED_DEFENSE_RECHARGE_PER_LEVEL, iLevel, quality, rarityIdx);
+  }
+  const { implicitShare } = budgetShares(computeBudget(iLevel, quality, rarityIdx));
+  return Math.round(implicitShare / implicitCount);
+}
+
+export function previewCraftOutcome(
+  blueprint: BlueprintDef,
+  opts: { craftingLevel: number; faTalentBonus?: number; achievementBoost?: number },
+): CraftPreview | null {
+  // Resolve which minter this blueprint feeds and its slot/variety identity + roll tables.
+  let outputKind: CraftPreview["outputKind"];
+  let slotType: EquipmentSlotType;
+  let varietyKey: string | null;
+  let implicitStatKeys: string[];
+  let affixPoolTable: { stat: string; weight: number }[];
+
+  if (blueprint.equipmentOutput !== undefined) {
+    const eqOut = blueprint.equipmentOutput;
+    const slotDef = EQUIPMENT_SLOTS[eqOut.slotType];
+    if (slotDef === undefined) return null; // reserved slot with no live definition
+    outputKind = "equipment";
+    slotType = eqOut.slotType;
+    varietyKey = eqOut.varietyKey;
+    implicitStatKeys = slotDef.implicitStats;
+    affixPoolTable = slotDef.affixPool;
+  } else if (blueprint.weaponOutput !== undefined) {
+    outputKind = "weapon";
+    slotType = "weapon";
+    varietyKey = null;
+    implicitStatKeys = [WEAPON_IMPLICIT_STAT];
+    affixPoolTable = WEAPON_AFFIX_POOL;
+  } else if (blueprint.droneOutput !== undefined) {
+    outputKind = "drone";
+    slotType = "droneBay";
+    varietyKey = null;
+    implicitStatKeys = [DRONE_POD_IMPLICIT_STAT];
+    affixPoolTable = DRONE_POD_AFFIX_POOL;
+  } else {
+    // unlockOnly / a plain material recipe: no instance is minted, so there is nothing to preview.
+    return null;
+  }
+
+  const iLevel = computeItemLevel({
+    craftingLevel: opts.craftingLevel,
+    achievementBoost: opts.achievementBoost ?? 0,
+    faTalentBonus: opts.faTalentBonus ?? 0,
+    itemTierCap: blueprint.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
+  });
+
+  const rarities = PRODUCIBLE_EQUIPMENT_RARITIES;
+  const loIdx = rarityIndex(rarities[0]); // lowest producible band (standard)
+  const hiIdx = rarityIndex(rarities[rarities.length - 1]); // highest producible band (radiant)
+  const qualityMin = 0;
+  const qualityMax = QUALITY_TIERS - 1;
+
+  // Implicit ranges: min at the low corner (q0, lowest rarity), max at the high corner. Both
+  // corners computed with the mint's own primitives, so the range is exact, not modeled.
+  const implicitCount = implicitStatKeys.length;
+  const implicit: CraftStatRange[] = implicitStatKeys.map((stat) => ({
+    stat,
+    min: previewImplicitMagnitude(slotType, stat, iLevel, qualityMin, loIdx, implicitCount),
+    max: previewImplicitMagnitude(slotType, stat, iLevel, qualityMax, hiIdx, implicitCount),
+  }));
+
+  // Affix COUNT range across the producible bands, using the REAL affixCount with its two rng
+  // extremes (augmented is the only band that draws: rng>=0.25 -> 2, rng<0.25 -> 3).
+  let affixCountMin = Infinity;
+  let affixCountMax = 0;
+  for (const r of rarities) {
+    affixCountMin = Math.min(affixCountMin, affixCount(r, () => 0.5));
+    affixCountMax = Math.max(affixCountMax, affixCount(r, () => 0));
+  }
+
+  // Affix POOL for display: the slot's own affix table order (authored weight-descending, the
+  // signature stat first). We deliberately do NOT re-sort by (weight * variety bias): that true
+  // pick-likelihood order is correct for the ROLL but reads oddly in a reference list (a variety
+  // that biases DOWN its secondary stats can float an unlisted low-weight stat above them), so the
+  // stable authored order is the clearer "these are the stats it can roll" hint.
+  const affixPool = affixPoolTable.map((e) => e.stat);
+
+  return {
+    outputKind,
+    slotType,
+    varietyKey,
+    iLevel,
+    qualityMin,
+    qualityMax,
+    rarities,
+    implicit,
+    affixCountMin,
+    affixCountMax,
+    affixPool,
   };
 }

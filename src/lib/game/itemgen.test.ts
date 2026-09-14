@@ -49,8 +49,14 @@ import {
   generateDronePod,
   DRONE_POD_BASE_POWER_DRAW,
   DRONE_POD_BASE_DURABILITY,
+  // 0.13.5 tooltip rework: the PRE-roll preview + the now-exported weapon/drone roll tables.
+  previewCraftOutcome,
+  WEAPON_IMPLICIT_STAT,
+  DRONE_POD_IMPLICIT_STAT,
 } from "./itemgen";
 import { WEAPON_DEFS } from "./combat/weapons";
+import { BLUEPRINTS, PRODUCIBLE_EQUIPMENT_RARITIES } from "./model";
+import { QUALITY_TIERS } from "./inventory";
 
 // --- Deterministic rng helpers (test-local; NOT part of itemgen) --------------
 
@@ -927,5 +933,141 @@ describe("generateDronePod: crafted-drone-pod minting (Combat 1.0 Unit 2.1a)", (
     const snapshot = { ...args };
     generateDronePod(args);
     expect(args).toEqual(snapshot);
+  });
+});
+
+// ============================================================================
+// 0.13.5 tooltip rework: previewCraftOutcome
+// ----------------------------------------------------------------------------
+// The pre-roll preview must report exactly what the finished piece CAN roll into,
+// derived from the SAME primitives the mint uses. The load-bearing test is the
+// ANTI-DRIFT pair: the preview's implicit min/max must equal what generateEquipment
+// actually mints at the low corner (q0, lowest rarity) and high corner (top quality,
+// highest rarity). If the roll math ever changes, that pair fails until the preview
+// (which reuses the same functions) is re-derived, so the two can never silently drift.
+// ============================================================================
+describe("previewCraftOutcome", () => {
+  const CRAFTING_LEVEL = 5; // tier-1 cap is 20, so a level-5 crafter yields iLevel 5 (uncapped)
+
+  it("mirrors computeItemLevel for iLevel and clamps to the blueprint tier cap", () => {
+    const bp = BLUEPRINTS["prospectorHoldBp"];
+    const p = previewCraftOutcome(bp, { craftingLevel: CRAFTING_LEVEL })!;
+    expect(p).not.toBeNull();
+    expect(p.iLevel).toBe(
+      computeItemLevel({
+        craftingLevel: CRAFTING_LEVEL,
+        achievementBoost: 0,
+        faTalentBonus: 0,
+        itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
+      }),
+    );
+    // Way past the tier-1 ceiling -> clamped to the cap, never above it.
+    const capped = previewCraftOutcome(bp, { craftingLevel: 999 })!;
+    expect(capped.iLevel).toBe(bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER);
+  });
+
+  it("reports the producible rarity set, the full quality ladder, and a 2-3 affix count", () => {
+    const p = previewCraftOutcome(BLUEPRINTS["prospectorHoldBp"], { craftingLevel: CRAFTING_LEVEL })!;
+    expect(p.rarities).toEqual(PRODUCIBLE_EQUIPMENT_RARITIES);
+    expect(p.qualityMin).toBe(0);
+    expect(p.qualityMax).toBe(QUALITY_TIERS - 1);
+    expect(p.affixCountMin).toBe(2); // standard/augmented low
+    expect(p.affixCountMax).toBe(3); // augmented high / stellar / radiant
+  });
+
+  it("resolves the cargo-bay identity, signature stat, and weight-ordered affix pool", () => {
+    const p = previewCraftOutcome(BLUEPRINTS["prospectorHoldBp"], { craftingLevel: CRAFTING_LEVEL })!;
+    expect(p.outputKind).toBe("equipment");
+    expect(p.slotType).toBe("cargoBay");
+    expect(p.varietyKey).toBe("prospectorHold");
+    // Signature line is cargoCapacity, and it rolls a real, strictly-increasing range.
+    expect(p.implicit).toHaveLength(1);
+    expect(p.implicit[0].stat).toBe("cargoCapacity");
+    expect(p.implicit[0].min).toBeGreaterThan(0);
+    expect(p.implicit[0].max).toBeGreaterThan(p.implicit[0].min);
+    // Pool holds the four cargo affixes; cargoCapacity leads (weight 5 * variety bias 0.75 is top).
+    expect(p.affixPool).toEqual(["cargoCapacity", "massReduction", "engineEfficiency", "extractionYieldMult"]);
+  });
+
+  it("ANTI-DRIFT: implicit min/max equal what generateEquipment mints at the roll-space corners", () => {
+    const bp = BLUEPRINTS["prospectorHoldBp"];
+    const p = previewCraftOutcome(bp, { craftingLevel: CRAFTING_LEVEL })!;
+    // Low corner: quality 0, lowest producible rarity (standard). Implicit magnitude is
+    // budget-derived and rng-independent, so any rng reproduces it.
+    const low = generateEquipment({
+      slotType: "cargoBay",
+      varietyKey: "prospectorHold",
+      blueprintKey: "prospectorHoldBp",
+      iLevel: p.iLevel,
+      quality: p.qualityMin,
+      rarity: p.rarities[0],
+      ascension: "none",
+      rng: seqRng([0.5]),
+      allocateId: idAllocator(),
+    });
+    expect(low.implicitStats.cargoCapacity).toBe(p.implicit[0].min);
+    // High corner: top quality, highest producible rarity (radiant).
+    const high = generateEquipment({
+      slotType: "cargoBay",
+      varietyKey: "prospectorHold",
+      blueprintKey: "prospectorHoldBp",
+      iLevel: p.iLevel,
+      quality: p.qualityMax,
+      rarity: p.rarities[p.rarities.length - 1],
+      ascension: "none",
+      rng: seqRng([0.5]),
+      allocateId: idAllocator(),
+    });
+    expect(high.implicitStats.cargoCapacity).toBe(p.implicit[0].max);
+  });
+
+  it("ANTI-DRIFT: defensive implicit min/max equal the minted floored curve (shield emitter)", () => {
+    const bp = BLUEPRINTS["balancedEmitterBp"]; // shieldEmitters slot, floored defensive implicits
+    const p = previewCraftOutcome(bp, { craftingLevel: CRAFTING_LEVEL })!;
+    expect(p.slotType).toBe("shieldEmitters");
+    const capLine = p.implicit.find((l) => l.stat === "shieldCapacity")!;
+    expect(capLine).toBeDefined();
+    const low = generateEquipment({
+      slotType: "shieldEmitters",
+      varietyKey: "balancedEmitter",
+      blueprintKey: "balancedEmitterBp",
+      iLevel: p.iLevel,
+      quality: p.qualityMin,
+      rarity: p.rarities[0],
+      ascension: "none",
+      rng: seqRng([0.5]),
+      allocateId: idAllocator(),
+    });
+    expect(low.implicitStats.shieldCapacity).toBe(capLine.min);
+  });
+
+  it("covers the weapon and drone minters (signature line + pool)", () => {
+    const w = previewCraftOutcome(BLUEPRINTS["railgunBp"], { craftingLevel: CRAFTING_LEVEL })!;
+    expect(w.outputKind).toBe("weapon");
+    expect(w.slotType).toBe("weapon");
+    expect(w.varietyKey).toBeNull();
+    expect(w.implicit.map((l) => l.stat)).toEqual([WEAPON_IMPLICIT_STAT]);
+    expect(w.affixPool).toEqual(["weaponYield", "weaponAccuracy"]);
+
+    const d = previewCraftOutcome(BLUEPRINTS["attackDronePodBp"], { craftingLevel: CRAFTING_LEVEL })!;
+    expect(d.outputKind).toBe("drone");
+    expect(d.slotType).toBe("droneBay");
+    expect(d.implicit.map((l) => l.stat)).toEqual([DRONE_POD_IMPLICIT_STAT]);
+    expect(d.affixPool).toEqual(["droneHp", "droneAccuracy"]);
+  });
+
+  it("returns null for a blueprint that mints no instance", () => {
+    const noOutput = { key: "x", label: "X", tier: 1, researchDurationTicks: 1, researchCreditCost: 1, craftDurationTicks: 1, recipe: { inputs: {} } } as (typeof BLUEPRINTS)[string];
+    expect(previewCraftOutcome(noOutput, { craftingLevel: CRAFTING_LEVEL })).toBeNull();
+  });
+
+  it("the faTalentBonus addend raises iLevel exactly like the mint (still capped)", () => {
+    const bp = BLUEPRINTS["prospectorHoldBp"];
+    const base = previewCraftOutcome(bp, { craftingLevel: 5, faTalentBonus: 0 })!;
+    const boosted = previewCraftOutcome(bp, { craftingLevel: 5, faTalentBonus: 3 })!;
+    expect(boosted.iLevel).toBe(base.iLevel + 3);
+    // But the cap still wins over the bonus.
+    const capped = previewCraftOutcome(bp, { craftingLevel: 19, faTalentBonus: 10 })!;
+    expect(capped.iLevel).toBe(bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER);
   });
 });

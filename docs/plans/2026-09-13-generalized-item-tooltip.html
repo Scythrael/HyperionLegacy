@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Generalized item tooltip</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120;
+    --color-accent: #67e8f9; --color-accent-rgb: 103,232,249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251,191,36; --color-success: #34d399;
+    --color-border: rgba(103,232,249,0.14); --color-border-strong: rgba(103,232,249,0.3);
+    --corner: 2px; --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* equipment rarity ramp — real colors from EquipmentTooltip.equipmentRarityColor() */
+    --q-refined: #67e8f9;             /* material category tint (neutral accent) */
+    --q-common: #a9b7c8;              /* standard */
+    --q-augmented: #34d399; --q-stellar: #4fa3f2; --q-radiant: #a020f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 22px 72px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 24px; max-width: 80ch; }
+  .grid { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+  .case { width: 270px; }
+  .case-h { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-text-dim); margin: 0 0 8px; }
+
+  /* THE TOOLTIP (one structure, flexes by type). Surface = the shared info idiom. */
+  .itt { border: 1px solid rgba(var(--color-accent-rgb),0.4); border-radius: var(--corner); background: linear-gradient(rgba(var(--color-accent-rgb),0.06), rgba(var(--color-accent-rgb),0.06)), var(--color-bg-mid); box-shadow: 0 6px 20px rgba(0,0,0,0.45); padding: 10px 12px; width: 100%; }
+  /* HEADER: name + a type/rarity chip. Accent left-tint by rarity when the item HAS one. */
+  .itt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+  .itt-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+  .itt-chip { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; padding: 1px 6px; border-radius: var(--corner); border: 1px solid currentColor; white-space: nowrap; }
+  .itt-sub { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin-top: 1px; }
+  /* STATS block (above the divider). Label/value rows. */
+  .itt-stats { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+  .itt-stat { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; }
+  .itt-stat .k { color: var(--color-text-secondary); }
+  .itt-stat .v { font-family: var(--font-mono); color: var(--color-text-primary); }
+  .itt-stat .v.range { color: var(--color-accent); }
+  .itt-note { font-size: 11px; color: var(--color-warning); margin-top: 5px; }
+  .itt-stat .imp { color: var(--color-text-dim); font-size: 10px; font-style: italic; }
+  /* IN-PROGRESS roll-preview block: possible rarities / quality / affix pool. */
+  .itt-rolls { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; padding-top: 7px; border-top: 1px dashed rgba(var(--color-accent-rgb),0.16); }
+  .itt-roll-row { display: flex; gap: 10px; align-items: baseline; font-size: 11px; }
+  .itt-roll-row .rk { flex: 0 0 52px; color: var(--color-text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--font-mono); font-size: 10px; }
+  .itt-roll-row .rv { color: var(--color-text-secondary); }
+  .itt-roll-row .rv.mono { font-family: var(--font-mono); }
+  .itt-roll-row .rt { font-family: var(--font-mono); font-size: 10px; margin-right: 3px; }
+  .itt-pool { display: flex; flex-wrap: wrap; gap: 4px; margin: 1px 0 0 62px; }
+  .pchip { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-secondary); padding: 0 5px; border: 1px solid var(--color-border); border-radius: var(--corner); background: rgba(var(--color-accent-rgb),0.05); }
+  /* DIVIDER, then flavor (secondary, below). */
+  .itt-div { height: 1px; background: rgba(var(--color-accent-rgb),0.22); margin: 9px 0 8px; }
+  .itt-flavor { font-size: 12px; color: var(--color-text-secondary); font-style: italic; line-height: 1.45; }
+
+  .note { margin: 20px 0 0; font-size: 13px; color: var(--color-text-secondary); max-width: 82ch; }
+  .note b { color: var(--color-text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Generalized item tooltip — one structure, flexes by type</h1>
+  <p class="lede">Header (name + a rarity/type chip) → a STATS block specific to the item → a divider → the flavor, secondary, underneath. Same skeleton for every item; each type fills the stats block with what it actually has, and shows rarity/quality only where the item has one.</p>
+
+  <div class="grid">
+    <div class="case">
+      <div class="case-h">refined material</div>
+      <div class="itt">
+        <div class="itt-head"><span class="itt-name">Titanium Ingot</span><span class="itt-chip" style="color: var(--q-refined);">Refined</span></div>
+        <div class="itt-sub">Metal · Ores & Metals</div>
+        <div class="itt-stats">
+          <div class="itt-stat"><span class="k">Refined from</span><span class="v">Common Ore · 20 → 1</span></div>
+          <div class="itt-stat"><span class="k">Used in</span><span class="v">Hull &amp; component builds</span></div>
+        </div>
+        <div class="itt-div"></div>
+        <div class="itt-flavor">Workhorse structural metal, milled from common asteroid ore.</div>
+      </div>
+      <p class="case-h" style="margin-top:8px;">deterministic · no rarity roll</p>
+    </div>
+
+    <div class="case" style="width: 300px;">
+      <div class="case-h">ship system · being crafted</div>
+      <div class="itt">
+        <div class="itt-head"><span class="itt-name">Prospector Hold</span><span class="itt-chip" style="color: var(--color-text-dim);">In progress</span></div>
+        <div class="itt-sub">Cargo module · iLevel 7</div>
+        <div class="itt-stats">
+          <div class="itt-stat"><span class="k">Cargo <span class="imp">(signature)</span></span><span class="v range">+8 … +20</span></div>
+        </div>
+        <div class="itt-rolls">
+          <div class="itt-roll-row"><span class="rk">Rarity</span><span class="rv"><span class="rt" style="color:var(--q-common)">Standard</span> <span class="rt" style="color:var(--q-augmented)">Augmented</span> <span class="rt" style="color:var(--q-stellar)">Stellar</span> <span class="rt" style="color:var(--q-radiant)">Radiant</span></span></div>
+          <div class="itt-roll-row"><span class="rk">Quality</span><span class="rv mono">Q0 – Q5</span></div>
+          <div class="itt-roll-row"><span class="rk">Affixes</span><span class="rv mono">2 – 3 of:</span></div>
+          <div class="itt-pool"><span class="pchip">Cargo</span><span class="pchip">Mass ↓</span><span class="pchip">Engine eff.</span><span class="pchip">Yield</span></div>
+        </div>
+        <div class="itt-div"></div>
+        <div class="itt-flavor">A cavernous prospector's hold, all volume and light bracing, built to swallow a survey haul.</div>
+      </div>
+      <p class="case-h" style="margin-top:8px;">in-progress · what it can roll into</p>
+    </div>
+
+    <div class="case">
+      <div class="case-h">ship system · finished (inventory)</div>
+      <div class="itt">
+        <div class="itt-head"><span class="itt-name">Prospector Hold</span><span class="itt-chip" style="color: var(--q-radiant);">Radiant · Q5</span></div>
+        <div class="itt-sub">Cargo module · iLevel 38</div>
+        <div class="itt-stats">
+          <div class="itt-stat"><span class="k">Cargo</span><span class="v">+41</span></div>
+        </div>
+        <div class="itt-div"></div>
+        <div class="itt-flavor">An extended hold favored by prospectors hauling raw ore.</div>
+      </div>
+      <p class="case-h" style="margin-top:8px;">rolled · real rarity/quality/stats</p>
+    </div>
+
+    <div class="case">
+      <div class="case-h">ship (hull)</div>
+      <div class="itt">
+        <div class="itt-head"><span class="itt-name">General Freighter</span><span class="itt-chip" style="color: var(--color-text-secondary);">Hull</span></div>
+        <div class="itt-sub">Starter · balanced</div>
+        <div class="itt-stats">
+          <div class="itt-stat"><span class="k">Cargo</span><span class="v">100</span></div>
+          <div class="itt-stat"><span class="k">Fuel capacity</span><span class="v">200</span></div>
+          <div class="itt-stat"><span class="k">Engine eff.</span><span class="v">baseline</span></div>
+          <div class="itt-stat"><span class="k">Hardpoints</span><span class="v">2</span></div>
+        </div>
+        <div class="itt-div"></div>
+        <div class="itt-flavor">A no-frills hauler. Every captain's starter and emergency fallback.</div>
+      </div>
+      <p class="case-h" style="margin-top:8px;">deterministic hull stats</p>
+    </div>
+  </div>
+
+  <p class="note"><b>The one skeleton</b> — header (name + chip) · stats · divider · flavor — reads consistently everywhere an item appears. The chip is what flexes: a rarity (<span style="color:var(--q-radiant)">Radiant · Q5</span>) for finished gear, a neutral type ("Refined", "Hull") for deterministic items, or "Rolling…" mid-craft where the stats show as ranges with a note. <b>Question for you:</b> should this become the ONE item tooltip everywhere (generalizing today's EquipmentTooltip for finished gear too), or just the facility/in-progress subjects for now with EquipmentTooltip left as-is where finished gear shows? Values here are illustrative; I'll wire them to the real ITEMS/BLUEPRINTS/SHIP_TYPES + roll-range data.</p>
+</div>
+</body>
+</html>
