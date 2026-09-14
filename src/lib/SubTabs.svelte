@@ -32,7 +32,7 @@
   .sub-tabs {
     display: flex;
     gap: 2px;
-    margin-bottom: 14px;
+    margin-bottom: 8px; /* was 14px; condensed to the 8px rhythm (user 2026-09-13, tighter spacing). */
     flex-wrap: nowrap;
     /* This row lives as a flex item inside .tab-scroll-area, a flex COLUMN. The
        overflow-x:auto below makes this element a SCROLL CONTAINER, and a scroll

@@ -18798,7 +18798,7 @@
   /* Captain console back-to-grid row: the back button beside the captain name
      as the detail heading (identity). Keeping the name here lets the leveling /
      talents panels stay VERBATIM while the page still names who you are on. */
-  .roster-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+  .roster-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
   .roster-detail-name { margin-bottom: 0; }
 
   /* ============================================================
