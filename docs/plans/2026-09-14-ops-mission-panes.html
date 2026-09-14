@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ops mission panes</title>
+<style>
+  :root {
+    --bg-deep: #060a12; --bg-mid: #0a1120; --panel: rgba(103,232,249,0.05);
+    --accent: #67e8f9; --accent-rgb: 103,232,249; --accent-bright: #a5f3fc;
+    --txt: #e6f4f8; --txt-2: #8fa3ad; --txt-dim: #628591;
+    --border: rgba(103,232,249,0.14); --border-strong: rgba(103,232,249,0.30);
+    --corner: 2px; --warn: #fbbf24; --warn-rgb: 251,191,36; --success: #34d399; --danger: #f97362;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --threat-low: #34d399; --threat-mid: #fbbf24; --threat-high: #f97362;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 72px; background: var(--bg-deep); color: var(--txt); font-family: var(--sans); line-height: 1.5; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 21px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--txt-2); font-size: 14px; margin: 0 0 20px; max-width: 78ch; }
+  .label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-dim); margin: 24px 0 9px; }
+  .stack { display: flex; flex-direction: column; gap: 9px; }
+
+  /* mission PANE — facilities/captains row idiom: id | glance mid | actions */
+  .mpane { display: grid; grid-template-columns: 210px minmax(0,1fr) auto; align-items: center; gap: 15px; border: 1px solid var(--border-strong); background: var(--panel); border-radius: var(--corner); padding: 11px 14px; }
+  .mpane.warnedge { border-color: rgba(var(--warn-rgb),0.45); }
+  .mpane-id { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .mpane-glyph { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; border: 1px solid var(--border-strong); border-radius: var(--corner); background: rgba(var(--accent-rgb),0.05); font-size: 20px; }
+  .mpane-name { font-size: 13.5px; font-weight: 600; color: var(--txt); }
+  .mpane-sub { font-family: var(--mono); font-size: 11px; color: var(--txt-dim); margin-top: 2px; }
+  .mpane-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .statline { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--txt-2); }
+  .statline b { color: var(--txt); font-family: var(--mono); font-weight: 500; }
+  .statline .bad { color: var(--danger); }
+  .mpane-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .btn { font-family: var(--sans); font-size: 12px; padding: 6px 12px; border-radius: var(--corner); border: 1px solid var(--border-strong); background: rgba(var(--accent-rgb),0.06); color: var(--txt); cursor: pointer; white-space: nowrap; }
+  .btn.ghost { background: none; color: var(--txt-dim); }
+  .btn.go { background: rgba(var(--accent-rgb),0.16); color: var(--accent-bright); border-color: var(--accent); font-weight: 600; }
+  .btn.go:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* threat chip */
+  .threat { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; padding: 1px 8px; border-radius: var(--corner); border: 1px solid currentColor; }
+  .threat .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .warnline { font-size: 11px; color: var(--warn); margin-top: 2px; }
+
+  /* more-info reveal */
+  .reveal { margin: -2px 0 0; border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--corner) var(--corner); background: rgba(0,0,0,0.2); padding: 11px 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+  .reveal .sec-h { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-dim); }
+  .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; } .kv .k { color: var(--txt-2); } .kv .v { font-family: var(--mono); color: var(--txt); }
+  .flavor { grid-column: 1 / -1; font-size: 12px; font-style: italic; color: var(--txt-2); }
+
+  /* dispatch popup */
+  .pop { max-width: 380px; border: 1px solid var(--border-strong); background: linear-gradient(rgba(var(--accent-rgb),0.05),rgba(var(--accent-rgb),0.05)), var(--bg-mid); border-radius: var(--corner); box-shadow: 0 10px 30px rgba(0,0,0,0.6); padding: 15px; }
+  .pop-h { font-size: 15px; font-weight: 600; margin-bottom: 3px; } .pop-sub { font-family: var(--mono); font-size: 11px; color: var(--txt-dim); margin-bottom: 12px; }
+  .pop-row { padding: 9px 0; border-top: 1px solid var(--border); } .pop-row:first-of-type { border-top: none; }
+  .pop-lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--txt-dim); margin-bottom: 6px; }
+  .seg { display: inline-flex; gap: 4px; } .seg .btn { padding: 4px 10px; } .seg .btn.on { background: rgba(var(--accent-rgb),0.16); color: var(--accent-bright); border-color: var(--accent); }
+  .pick { width: 100%; text-align: left; }
+
+  .qs { margin: 20px 0 0; padding: 13px 15px; border: 1px solid var(--border); border-left: 2px solid var(--accent); border-radius: var(--corner); background: rgba(var(--accent-rgb),0.04); }
+  .qs h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-bright); }
+  .qs ol { margin: 0; padding-left: 20px; } .qs li { font-size: 13px; color: var(--txt-2); margin: 5px 0; } .qs li b { color: var(--txt); }
+  .note { margin: 16px 0 0; font-size: 13px; color: var(--txt-2); max-width: 80ch; } .note b { color: var(--txt); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Operations missions → panes</h1>
+  <p class="lede">The facilities/captains row idiom for missions: a long row with the glance info + a <b>More info</b> reveal and an <b>Assign / Dispatch</b> button. Gathering is a straight reflow (it already worked this way). Combat gets condensed — the ~12-element inline stack collapses to a glance row, with the dispatch <i>config</i> (captain · stance · mode · threat) moved into a Dispatch popup, mirroring how gathering's Assign already works.</p>
+
+  <div class="label">— gathering mission (straight reflow, same info) —</div>
+  <div class="stack">
+    <div class="mpane">
+      <div class="mpane-id"><span class="mpane-glyph">🚀</span><div><div class="mpane-name">Lunar Mine Contract</div><div class="mpane-sub">Tier I · 4.0/tick XP</div></div></div>
+      <div class="mpane-mid">
+        <div class="statline"><span>Needs <b>Lv 1</b></span><span>Cargo <b>90</b></span><span>Fuel <b>12</b></span></div>
+        <div class="statline">Rewards <b>💠 ×3</b> <b>⛏ ×2</b> · Credits/cycle · Captain + FA XP</div>
+      </div>
+      <div class="mpane-actions"><button class="btn ghost">ⓘ More info</button><button class="btn go">Assign</button></div>
+    </div>
+  </div>
+
+  <div class="label">— combat patrol, condensed (no captain picked yet) —</div>
+  <div class="stack">
+    <div class="mpane">
+      <div class="mpane-id"><span class="mpane-glyph">⚔️</span><div><div class="mpane-name">Nebula Watch</div><div class="mpane-sub">Crimson Wake · pirates</div></div></div>
+      <div class="mpane-mid">
+        <div class="statline"><span>Waves <b>3–5</b></span><span>Route <b>~8:00</b></span><span>Fuel <b>40</b> / tank <b>320</b></span></div>
+        <div class="statline"><span class="threat" style="color:var(--txt-dim)"><span class="dot"></span>Threat — pick a captain to assess</span></div>
+      </div>
+      <div class="mpane-actions"><button class="btn ghost">ⓘ More info</button><button class="btn go">Dispatch</button></div>
+    </div>
+  </div>
+
+  <div class="label">— combat patrol, captain selected (threat now on the row) + a fuel warning —</div>
+  <div class="stack">
+    <div class="mpane warnedge">
+      <div class="mpane-id"><span class="mpane-glyph">⚔️</span><div><div class="mpane-name">Ashfall Reaches</div><div class="mpane-sub">Ember Syndicate · pirates</div></div></div>
+      <div class="mpane-mid">
+        <div class="statline"><span>Waves <b>5–7</b></span><span>Route <b>~11:00</b></span><span>Fuel <b class="bad">80</b> / tank <b class="bad">62</b></span></div>
+        <div class="statline">
+          <span class="threat" style="color:var(--threat-high)"><span class="dot"></span>Threat: Severe</span>
+          <span style="color:var(--txt-dim); font-size:11px">Cmdr. Claudius · SS Resolute</span>
+        </div>
+        <div class="warnline">⚠ Not enough fuel for a run.</div>
+      </div>
+      <div class="mpane-actions"><button class="btn ghost">ⓘ More info</button><button class="btn go" disabled>Dispatch</button></div>
+    </div>
+  </div>
+
+  <div class="label">— "More info" reveal (opens under the row) —</div>
+  <div class="mpane" style="border-radius: var(--corner) var(--corner) 0 0;">
+    <div class="mpane-id"><span class="mpane-glyph">⚔️</span><div><div class="mpane-name">Ashfall Reaches</div><div class="mpane-sub">Ember Syndicate · pirates</div></div></div>
+    <div class="mpane-mid"><div class="statline"><span>Waves <b>5–7</b></span><span>Route <b>~11:00</b></span><span>Fuel <b>80</b></span></div></div>
+    <div class="mpane-actions"><button class="btn ghost">▲ Less</button><button class="btn go">Dispatch</button></div>
+  </div>
+  <div class="reveal">
+    <div class="flavor">"They burn what they can't carry." Raiders working the ash belt for salvage and slaves.</div>
+    <div class="sec-h">Encounter</div>
+    <div class="kv"><span class="k">Hostiles</span><span class="v">Marauder, Reaver, Ashship</span></div>
+    <div class="kv"><span class="k">Waves</span><span class="v">5–7</span></div>
+    <div class="kv"><span class="k">Route</span><span class="v">out 4t · window 3t · back 4t</span></div>
+    <div class="kv"><span class="k">Battle Rating</span><span class="v">142</span></div>
+    <div class="sec-h">Your ship (SS Resolute · Destroyer)</div>
+    <div class="kv"><span class="k">Hull</span><span class="v">500</span></div>
+    <div class="kv"><span class="k">Shield</span><span class="v">200</span></div>
+    <div class="kv"><span class="k">Hardpoints</span><span class="v">2</span></div>
+  </div>
+
+  <div class="label">— Dispatch popup (the config that used to clutter the card) —</div>
+  <div class="pop">
+    <div class="pop-h">Dispatch · Ashfall Reaches</div>
+    <div class="pop-sub">Ember Syndicate · Waves 5–7</div>
+    <div class="pop-row"><div class="pop-lbl">Captain</div><button class="btn pick">Cmdr. Claudius (Lv 12) · SS Resolute ▾</button></div>
+    <div class="pop-row"><div class="pop-lbl">Threat assessment</div>
+      <div style="display:flex; justify-content:space-between; align-items:center;"><span class="threat" style="color:var(--threat-high)"><span class="dot"></span>Severe</span><span style="font-family:var(--mono); font-size:12px; color:var(--txt-2)">Battle Rating 142</span></div>
+      <div style="font-size:11px; color:var(--txt-dim); margin-top:5px">Advisory only — you can dispatch regardless.</div>
+    </div>
+    <div class="pop-row"><div class="pop-lbl">Stance</div><div class="seg"><button class="btn">Aggressive</button><button class="btn on">Balanced</button><button class="btn">Standoff</button></div></div>
+    <div class="pop-row"><div class="pop-lbl">Dispatch mode</div><div class="seg"><button class="btn on">Once</button><button class="btn">Repeatedly</button></div></div>
+    <div class="pop-row" style="display:flex; justify-content:space-between; font-size:12px;"><span style="color:var(--txt-2)">Fuel per run</span><span style="font-family:var(--mono); color:var(--danger)">80 · tank 62</span></div>
+    <div class="pop-row" style="border:none;"><div class="warnline" style="margin:0 0 8px">⚠ Not enough fuel for a run. ⚠ No weapon installed.</div><button class="btn go" style="width:100%" disabled>Dispatch Patrol</button></div>
+  </div>
+
+  <div class="note"><b>What moves for combat:</b> the row keeps the glance signals (waves · route · fuel · threat) + the two block/weapon warnings when active; everything configurable (captain · stance · dispatch mode · battle-rating detail · ship breakdown) moves into the Dispatch popup, and the flavor/hostiles/route/ship detail into "More info." Same info, far less clutter. All handlers unchanged — <code>openPatrolPicker</code>, <code>setPatrolStance</code>, <code>setPatrolRepeat</code>, <code>doDispatchCaptainOnPatrol</code> just live in the popup instead of on the card.</div>
+
+  <div class="qs">
+    <h4>Calls before I build (combat)</h4>
+    <ol>
+      <li><b>Threat on the row</b> once a captain is selected (persisted per-patrol), and "pick a captain to assess" before that — good? Or keep threat only inside the Dispatch popup?</li>
+      <li><b>Stance + dispatch-mode into the popup</b> (as drawn), or keep them on the row since they're quick toggles?</li>
+      <li>The block/weapon <b>warnings stay on the row</b> when active (they gate the dispatch) — agreed?</li>
+      <li>Gathering: same row + <b>View Info / Assign</b> as today, just reflowed to full width — no other change, right?</li>
+    </ol>
+  </div>
+</div>
+</body>
+</html>

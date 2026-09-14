@@ -362,6 +362,7 @@
     applyAccessibility,
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
+  import HelpTip from "./lib/HelpTip.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
@@ -1082,6 +1083,13 @@
   let patrolStanceByKey: Partial<Record<PatrolKey, CombatStance>> = {};
   let patrolRepeatByKey: Partial<Record<PatrolKey, boolean>> = {};
   let patrolPickerKey: PatrolKey | null = null;
+  // OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html).
+  // expandedPatrolKey is the combat-row "More info" toggle (the patrol counterpart to
+  // expandedMissionKey, one row expanded at a time); patrolDispatchKey is which patrol's
+  // Dispatch popup is open (null = closed), mirroring missionPopupKey. Neither changes any
+  // dispatch logic; both only steer the new pane/popup placement.
+  let expandedPatrolKey: PatrolKey | null = null;
+  let patrolDispatchKey: PatrolKey | null = null;
 
   // Radial Skill Web (Task 11b), the old shared talent-tooltip mechanism
   // (openTooltipKey + the talentTooltipInfo lookup + the activeTooltipInfo
@@ -2014,7 +2022,7 @@
   // or leaving Operations entirely (activeTab) should return every card to its
   // compact summary. Same idiom as the warehouse-tooltip reset above; referencing
   // both vars re-runs this on either change (the initial null -> null is harmless).
-  $: activeOperationsTab, activeTab, (expandedMissionKey = null);
+  $: activeOperationsTab, activeTab, (expandedMissionKey = null), (expandedPatrolKey = null), (patrolDispatchKey = null);
 
   // The Refinery's three sub-tabs: Overview (level + refine slots + active jobs +
   // one-shot Start Refine Job), Orders (Phase 2 Task D4, the batch/continuous
@@ -3957,6 +3965,20 @@
     const { [patrolKey]: _cleared, ...rest } = patrolCaptainByKey;
     patrolCaptainByKey = rest;
     doSave();
+  }
+
+  // Dispatch-popup wrappers (0.13.5 mission-pane redesign). closePatrolDispatch just closes
+  // the popup; doDispatchPatrolFromPopup runs the SAME doDispatchCaptainOnPatrol (every gate
+  // unchanged, the button is disabled unless the gate is ok) then closes the popup. On a
+  // successful dispatch doDispatchCaptainOnPatrol already clears this patrol's captain
+  // selection, so closing is all that is left to do here.
+  function closePatrolDispatch() {
+    patrolDispatchKey = null;
+  }
+  function doDispatchPatrolFromPopup() {
+    if (patrolDispatchKey === null) return;
+    doDispatchCaptainOnPatrol(patrolDispatchKey);
+    patrolDispatchKey = null;
   }
 
   // Maps a canDispatchPatrol PatrolDispatchBlockReason to a short player-facing string,
@@ -14067,174 +14089,125 @@
                    guaranteed an extraction mission for every listed captain. -->
 
               <div class="panel-title">AVAILABLE MISSIONS</div>
-              <div class="mission-list">
+              <!-- OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html):
+                   the AVAILABLE MISSIONS card grid became a vertical stack of full-width ROWS
+                   (the facilities/captains .fpane/.cpane idiom, here .mpane). This is a straight
+                   REFLOW: the exact same missionUnlocked gate, drop-icon tooltip handlers,
+                   expandedMissionKey "View Info" expand, and openMissionPopup Assign flow, only
+                   relaid out. Nothing about dispatch behavior changed. -->
+              <div class="mission-panes">
                 {#each tierIMissions as [missionKey, missionDef]}
-                  <!-- Mission Rework (Task 8 UI): each mission card now shows its
-                       dispatch REQUIREMENTS (captain level / cargo, where the mission
-                       declares them) + its round-trip FUEL cost, and LOCKED missions
-                       (unlockLevel above the Mission Control level) render dimmed with
-                       an unlock hint instead of an openable button, matching the
-                       game's consistent "show locked content" idiom (locked captain
-                       slots, locked facilities, Battlespace). The player sees what's
-                       coming AND what it will require. missionUnlocked is the SAME gate
-                       canDispatch uses, so this can't disagree with the dispatch path.
-                       Fuel cost uses the representative captain's hull (same idiom as
-                       the exp/tick line); the popup shows the selected captain's exact
-                       cost. -->
                   {@const unlocked = missionUnlocked(state, missionKey)}
                   {@const fuelCost = representativeShip
                     ? fuelNeeded(missionDef, SHIP_TYPES[representativeShip.typeKey])
                     : null}
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
-                       lootTable, so a hardcoded ore label would misreport Salvage/
-                       Forage/Lunar Mine). Read the real common/uncommon/rare item keys
-                       here and label them via ITEMS, Local Asteroid still shows
-                       Titanium/Polysilicate/Iridium, but the others show their own
-                       triads. Same `?.label ?? key` fallback the rest of the file uses. -->
+                       lootTable), read the real item keys so drops read per-mission. -->
                   {@const loot = missionDef.lootTable}
                   {#if unlocked}
                     {@const expanded = expandedMissionKey === missionKey}
-                    <!-- Available mission card. 0.12.0 "Console" nav (CN5b): now a
-                         DIV, not a <button>, so it can host real child buttons (the
-                         "View Info"/"Summary" toggle + "Assign") without nesting a
-                         button in a button. Dispatch is an explicit "Assign" .dev-btn
-                         calling openMissionPopup (the SAME dispatch flow, unchanged),
-                         no longer a whole-card click. "View Info" swaps the compact
-                         two-column summary for a rich in-place detail block (same
-                         card, content swapped, not a modal), tracked by
-                         expandedMissionKey (one card expanded at a time). -->
-                    <div class="mission-card mission-card-selectable" class:expanded>
-                      <!-- Card redesign (2026-07-15): HEADER = portrait placeholder +
-                           name, with the captain-XP/tick readout tucked under the name so
-                           the dispatch value survives the body's restructure into
-                           Requirements / Rewards columns below. No mission-art asset
-                           exists yet, so the portrait stays a dashed placeholder (🚀). -->
-                      <div class="mission-card-header">
-                        <div class="mission-portrait-frame" aria-hidden="true">🚀</div>
-                        <div class="mission-card-heading">
-                          <div class="research-name">{missionDef.label}</div>
-                          <!-- Mission Rework (Task 2): each mission's captain-XP rate, via the
-                               shared xpPerTick helper (NOT raw BASE_XP_PER_TICK) so this readout
-                               tracks the exact rate the tick engine accrues. Passed the fleet's
-                               representative captain (state.captains[0], always seeded) since the
-                               rate is captain-independent today; when the XP-mult seam activates
-                               this card should switch to the popup's selected captain.
-                               Value/formula UNCHANGED by the redesign, only its position moved
-                               from a body text row to this header sub-line. -->
-                          <div class="mission-xp-line">{xpPerTick(missionKey, state.captains[0])}/tick XP</div>
+                    <div class="mpane-wrap">
+                      <div class="mpane">
+                        <div class="mpane-id">
+                          <span class="mpane-glyph" aria-hidden="true">🚀</span>
+                          <div class="mpane-idcol">
+                            <div class="mpane-name">{missionDef.label}</div>
+                            <!-- Captain-XP/tick via the shared xpPerTick helper, tucked under
+                                 the name (same value/formula, only its position moved). -->
+                            <div class="mpane-sub">Tier {missionDef.tier} &middot; {xpPerTick(missionKey, state.captains[0])}/tick XP</div>
+                          </div>
+                        </div>
+                        <!-- GLANCE mid: compact Requirements + Rewards. The full Drop Table /
+                             Requirements / Rewards detail is one tap away in "More info". -->
+                        <div class="mpane-mid">
+                          <div class="statline">
+                            <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
+                            <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
+                            <span>Fuel <b>{fuelCost !== null ? formatNumber(fuelCost) : "--"}</b></span>
+                          </div>
+                          <div class="statline">
+                            <span>Rewards</span>
+                            <!-- Drops icon row, the SAME shared builder + Warehouse-style tooltip
+                                 handlers the card used; base (captain-agnostic) chances, the popup
+                                 applies the selected captain's modifiers. -->
+                            <span class="drops-row">
+                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                                {@const dropItem = ITEMS[drop.key]}
+                                {#if dropItem}
+                                  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
+                                  <span
+                                    class="drop-icon"
+                                    role="img"
+                                    style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
+                                    aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
+                                    on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                    on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                                    on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                  >{warehouseCategoryGlyph(dropItem.category)}</span>
+                                {/if}
+                              {/each}
+                            </span>
+                            <span><b>{formatNumber(missionDef.creditsPerCycle)}</b>/cyc</span>
+                          </div>
+                        </div>
+                        <!-- Actions: "More info" toggles the in-place expandedMissionKey reveal;
+                             "Assign" opens the unchanged openMissionPopup dispatch flow. -->
+                        <div class="mpane-actions">
+                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
+                          <button class="buy-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
                         </div>
                       </div>
                       {#if expanded}
-                        <!-- RICH DETAIL (CN5b in-place swap), ONLY MissionDef data.
-                             MissionDef has NO flavor/description field, so no flavor
-                             line is shown (reported to the coordinator as unavailable).
-                             Drop chances are the mission's BASE per-tick odds via
-                             missionDropTiers, the SAME helper the summary drop icons
-                             use, so the two cannot disagree; common is the guaranteed
-                             per-tick floor (1 - uncommon - rare). -->
-                        <div class="mission-detail">
-                          <div class="mission-detail-section">
-                            <div class="mission-col-label">Drop Table</div>
-                            {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
-                              {@const dItem = ITEMS[drop.key]}
-                              {#if dItem}
-                                <div class="mission-req-line">
-                                  <span style="color: {warehouseRarityColor(dItem.rarity)}">{dItem.label}</span> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
-                                </div>
-                              {/if}
-                            {/each}
-                          </div>
-                          <div class="mission-detail-section">
-                            <div class="mission-col-label">Requirements</div>
-                            <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
-                            <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                            <div class="mission-req-line">Fuel / dispatch: {fuelCost !== null ? formatNumber(fuelCost) : "None"}</div>
-                          </div>
-                          <div class="mission-detail-section">
-                            <div class="mission-col-label">Rewards</div>
-                            <div class="mission-req-line">Credits / cycle: {formatNumber(missionDef.creditsPerCycle)}</div>
-                            <div class="mission-req-line">Captain XP / tick: {xpPerTick(missionKey, state.captains[0])}</div>
-                            <div class="mission-req-line">Fleet Admiral XP / tick: {missionDef.fleetAdminXpPerTick}</div>
+                        <!-- MORE INFO reveal (the existing expandedMissionKey detail, verbatim),
+                             opened under the row. ONLY MissionDef data; base per-tick odds via
+                             missionDropTiers, the SAME helper the glance icons use. -->
+                        <div class="mpane-reveal">
+                          <div class="mission-detail">
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Drop Table</div>
+                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                                {@const dItem = ITEMS[drop.key]}
+                                {#if dItem}
+                                  <div class="mission-req-line">
+                                    <span style="color: {warehouseRarityColor(dItem.rarity)}">{dItem.label}</span> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
+                                  </div>
+                                {/if}
+                              {/each}
+                            </div>
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Requirements</div>
+                              <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
+                              <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
+                              <div class="mission-req-line">Fuel / dispatch: {fuelCost !== null ? formatNumber(fuelCost) : "None"}</div>
+                            </div>
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Rewards</div>
+                              <div class="mission-req-line">Credits / cycle: {formatNumber(missionDef.creditsPerCycle)}</div>
+                              <div class="mission-req-line">Captain XP / tick: {xpPerTick(missionKey, state.captains[0])}</div>
+                              <div class="mission-req-line">Fleet Admiral XP / tick: {missionDef.fleetAdminXpPerTick}</div>
+                            </div>
                           </div>
                         </div>
-                      {:else}
-                      <!-- BODY = two columns. LEFT lists this mission's dispatch GATE
-                           requirements; RIGHT is the rarity-colored Rewards drops row. -->
-                      <div class="mission-card-columns">
-                        <div class="mission-card-col">
-                          <div class="mission-col-label">Mission Requirements:</div>
-                          <!-- Level gate (Task 7 requiresCaptainLevel), defaults to 1,
-                               the baseline captain level, when the mission declares none. -->
-                          <div class="mission-req-line">Level: {missionDef.requiresCaptainLevel ?? 1}</div>
-                          <!-- Cargo gate (Task 7 requiresCargoCapacity), "--" = the mission
-                               has no cargo-capacity requirement (ore runs omit it). -->
-                          <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</div>
-                          <!-- Round-trip FUEL cost (Task 8), 0 for the free local run;
-                               "--" only if the representative captain somehow has no hull
-                               (never in production). Same figure/formula as before, just
-                               relabeled "Fuel Capacity" and moved into this column. -->
-                          <div class="mission-req-line">Fuel Capacity: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
-                        </div>
-                        <div class="mission-card-col">
-                          <div class="mission-col-label">Rewards</div>
-                          <!-- Drops icon row (2026-07-15), REPLACES the old three per-tier
-                               text lines. One rarity-colored icon per tier that actually
-                               drops (missionDropTiers filters out uncommon/rare when their
-                               chance is 0, so Local Deuterium Skim shows a single icon).
-                               Hover/tap an icon for its Warehouse-style tooltip (name /
-                               held / cap / this mission's drop chance / flavor). These icons
-                               are SPANS, not buttons (CN5b kept them spans even though the
-                               card became a div): the compact summary stays icons-only, and
-                               the same drops are reachable as focusable buttons in the
-                               dispatch popup, so no keyboard interaction is lost. Chances
-                               passed are the mission's BASE chances (this card is captain-
-                               agnostic; the popup applies the selected captain's modifiers). -->
-                          <div class="drops-row">
-                            {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
-                              {@const dropItem = ITEMS[drop.key]}
-                              {#if dropItem}
-                                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
-                                <span
-                                  class="drop-icon"
-                                  role="img"
-                                  style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                                  aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
-                                  on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                  on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
-                                  on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                >{warehouseCategoryGlyph(dropItem.category)}</span>
-                              {/if}
-                            {/each}
-                          </div>
-                        </div>
-                      </div>
                       {/if}
-
-                      <!-- Action row (CN5b): "View Info" / "Summary" toggles the
-                           in-place detail swap; "Assign" opens the captain-selection
-                           dispatch popup (openMissionPopup, the unchanged dispatch
-                           flow). Both are .dev-btn and stay available whether the card
-                           shows its summary or its detail. -->
-                      <div class="mission-card-actions">
-                        <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Summary" : "View Info"}</button>
-                        <button class="dev-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
-                      </div>
                     </div>
                   {:else}
-                    <!-- LOCKED mission, non-openable, dimmed, with the unlock hint +
-                         a requirements preview so the player can plan toward it. -->
-                    <div class="mission-card mission-card-locked" title="Unlock via Mission Control (Operations)">
-                      <div class="mission-portrait-frame" aria-hidden="true">🔒</div>
-                      <div class="mission-card-body">
-                        <div class="research-name">🔒 {missionDef.label}</div>
-                        <div class="research-cost">Locked, unlock via Mission Control (Operations tab)</div>
-                        {#if missionDef.requiresCaptainLevel !== undefined}
-                          <div class="research-cost">Will require captain level {missionDef.requiresCaptainLevel}</div>
-                        {/if}
-                        {#if missionDef.requiresCargoCapacity !== undefined}
-                          <div class="research-cost">Will require cargo capacity {missionDef.requiresCargoCapacity}</div>
-                        {/if}
-                        <div class="research-cost">Fuel / trip: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
+                    <!-- LOCKED mission row: dashed + dimmed, the same "show locked content"
+                         convention, with the will-require preview so the player can plan. -->
+                    <div class="mpane locked" title="Unlock via Mission Control (Operations)">
+                      <div class="mpane-id">
+                        <span class="mpane-glyph" aria-hidden="true">🔒</span>
+                        <div class="mpane-idcol">
+                          <div class="mpane-name">{missionDef.label}</div>
+                          <div class="mpane-sub">Locked &middot; Mission Control</div>
+                        </div>
+                      </div>
+                      <div class="mpane-mid">
+                        <div class="statline"><span>Unlock via Mission Control (Operations tab)</span></div>
+                        <div class="statline">
+                          {#if missionDef.requiresCaptainLevel !== undefined}<span>Needs <b>Lv {missionDef.requiresCaptainLevel}</b></span>{/if}
+                          {#if missionDef.requiresCargoCapacity !== undefined}<span>Cargo <b>{formatNumber(missionDef.requiresCargoCapacity)}</b></span>{/if}
+                          <span>Fuel <b>{fuelCost !== null ? formatNumber(fuelCost) : "--"}</b></span>
+                        </div>
                       </div>
                     </div>
                   {/if}
@@ -14270,8 +14243,16 @@
 
 
             <div class="panel-title">AVAILABLE PATROLS</div>
-            <div class="mission-list">
-              <!-- One dispatch card per PATROLS entry (one starter patrol today; the loop
+            <!-- OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html):
+                 the ~12-element inline patrol card was condensed to a full-width ROW (.mpane) + a
+                 "More info" reveal + a Dispatch popup. The row keeps the glance signals (waves ·
+                 route · fuel · threat) and the block/weapon advisories that gate dispatch; the
+                 encounter/route/ship detail moved to the reveal; and everything CONFIGURABLE
+                 (captain · stance · dispatch mode · rating/threat) moved into the Dispatch popup.
+                 Every handler is unchanged (openPatrolPicker / setPatrolStance / setPatrolRepeat /
+                 doDispatchCaptainOnPatrol / canDispatchPatrol) — only their placement moved. -->
+            <div class="mission-panes">
+              <!-- One dispatch row per PATROLS entry (one starter patrol today; the loop
                    grows automatically as patrols are authored). The cast mirrors the
                    Gathering tab's Object.entries(MISSIONS) idiom so the loop vars are
                    typed (PatrolKey + PatrolDef) rather than string/any. -->
@@ -14313,162 +14294,107 @@
                      forecast is null unless a combat hull is assigned. -->
                 {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
                 {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
-                <div class="mission-card">
-                  <div class="research-name">{def.label}</div>
-                  {#if faction}
-                    <div class="research-cost" style="font-style: italic">{faction.flavor}</div>
-                  {/if}
-
-                  <!-- Static patrol facts (all from the PatrolDef): the wave-count band,
-                       the hostile hull pool summary, and the round-trip route length. -->
-                  <div class="mission-card-columns">
-                    <div class="mission-card-col">
-                      <div class="mission-col-label">Combat Waves</div>
-                      <div class="mission-req-line">{wavesLabel}</div>
+                {@const expanded = expandedPatrolKey === patrolKey}
+                {@const fuelShort = fuelCost !== null && state.fuel.lt(Math.ceil(fuelCost))}
+                {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
+                <div class="mpane-wrap">
+                  <!-- ROW: id (⚔️ + patrol label + faction sub) · glance mid · actions. warnedge
+                       when the row carries an active block/advisory (mirrors .fpane.attn). -->
+                  <div class="mpane" class:warnedge={advisoryActive}>
+                    <div class="mpane-id">
+                      <span class="mpane-glyph" aria-hidden="true">⚔️</span>
+                      <div class="mpane-idcol">
+                        <div class="mpane-name">{def.label}</div>
+                        {#if faction}<div class="mpane-sub">{faction.name}</div>{/if}
+                      </div>
                     </div>
-                    <div class="mission-card-col">
-                      <div class="mission-col-label">Hostiles</div>
-                      <div class="mission-req-line">{hostiles}</div>
+                    <div class="mpane-mid">
+                      <!-- GLANCE line: waves · full route (transit out + window + back) · fuel per
+                           run vs tank (fuel colored danger when the tank is short of a run). -->
+                      <div class="statline">
+                        <span>Waves <b>{wavesLabel}</b></span>
+                        <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
+                        {#if fuelCost !== null}
+                          <span>Fuel <b class:bad={fuelShort}>{formatNumber(Math.ceil(fuelCost))}</b> / tank <b class:bad={fuelShort}>{formatNumber(state.fuel)}</b></span>
+                        {:else}
+                          <span>Tank <b>{formatNumber(state.fuel)}</b></span>
+                        {/if}
+                      </div>
+                      <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
+                           is selected (and a forecast exists), else a dim "pick a captain" prompt.
+                           The chip name is capped + ellipsized on the row (see .mpane .threat-chip*)
+                           so a long label like "Guaranteed Victory" cannot grow the row; the full
+                           advisory stays in the tap tooltip. -->
+                      <div class="statline">
+                        {#if selectedCaptainId !== null}
+                          {#if forecast !== null}
+                            <span class="threat-chip-wrap">
+                              <button
+                                type="button"
+                                class="threat-chip"
+                                style="--threat-color: {forecast.assessment.colorHex}"
+                                aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
+                              >
+                                <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
+                                <span class="threat-chip-name">{forecast.assessment.name}</span>
+                              </button>
+                              <span class="threat-tooltip info-pop" role="tooltip">
+                                <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
+                                <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
+                              </span>
+                            </span>
+                          {/if}
+                          {#if selectedCaptain !== null}
+                            <span class="mpane-cap">{selectedCaptain.label}{#if selectedShipDef} &middot; {selectedShipDef.label}{/if}</span>
+                          {/if}
+                        {:else}
+                          <span class="threat-chip-placeholder">Threat &mdash; pick a captain to assess</span>
+                        {/if}
+                      </div>
+                      <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
+                           gate/qualify dispatch. Same canDispatchPatrol reasons as before. -->
+                      {#if gate !== null && !gate.ok}
+                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+                      {/if}
+                      {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
+                        <div class="mpane-warn">⚠ No weapon installed. You won't be able to return fire.</div>
+                      {/if}
                     </div>
-                    <div class="mission-card-col">
-                      <div class="mission-col-label">Route</div>
-                      <!-- FULL route length = transit out + the wave-eligible window +
-                           transit back (the engine's routeLength, tick.ts), NOT just the
-                           two transit legs: the ship is out for the whole window while
-                           waves roll, so the transit-only figure understated the real
-                           duration by more than half. Fixed at 14 for the starter patrol. -->
-                      <div class="mission-req-line">{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</div>
+                    <div class="mpane-actions">
+                      <button class="dev-btn" on:click={() => (expandedPatrolKey = expanded ? null : patrolKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
+                      <button class="buy-btn" on:click={() => (patrolDispatchKey = patrolKey)}>Dispatch</button>
                     </div>
                   </div>
-
-                  <!-- CAPTAIN selector. Reuses the captain-picker MODAL (openPatrolPicker
-                       sets patrolPickerKey; the modal near the mission popup lists idle
-                       captains and calls selectPatrolCaptain). The button shows the chosen
-                       captain, or a prompt when none is picked, exactly like the mission
-                       popup's first step, just surfaced on the card instead of inside it. -->
-                  <div class="mission-col-label">Captain</div>
-                  <button class="dev-btn" on:click={() => openPatrolPicker(patrolKey)}>
-                    {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){:else}Select a captain{/if}
-                  </button>
-
-                  <!-- Assigned ship, READ-ONLY. You pick the captain; their assigned hull
-                       comes with them (reassign at the Drydock). Shows the hull's combat
-                       stats. Every hull is combat-capable now (an economy hull carries a
-                       weak Standard-Issue set), so this reads "Dispatchable" plainly rather
-                       than labelling a freighter a "Combat hull"; a true combat hull is
-                       still far stronger, but the dispatch gate below is what actually
-                       blocks (missing gear / fuel / repair), not the hull class. -->
-                  {#if selectedCaptain !== null}
-                    <div class="mission-col-label" style="margin-top: 8px">Ship (from the captain)</div>
-                    {#if selectedShipDef !== null}
-                      <div class="mission-req-line">
-                        {selectedShipDef.label}: hull {formatNumber(selectedShipDefense ? selectedShipDefense.hullMax : selectedShipDef.hullIntegrity)}
-                        &middot; shield {formatNumber(selectedShipDefense ? selectedShipDefense.shieldMax : selectedShipDef.shieldCapacity)}
-                        &middot; {selectedShipDef.weaponHardpoints} hardpoints
+                  {#if expanded}
+                    <!-- MORE INFO reveal: the detail that used to clutter the card — faction flavor,
+                         hostile hull names, the route breakdown, the Battle Rating scalar, and the
+                         player ship's folded hull/shield/hardpoints (foldedPlayerDefense). -->
+                    <div class="mpane-reveal">
+                      <div class="mission-detail">
+                        {#if faction}<div class="mission-req-line" style="font-style: italic">{faction.flavor}</div>{/if}
+                        <div class="mission-card-columns">
+                          <div class="mission-card-col">
+                            <div class="mission-col-label">Encounter</div>
+                            <div class="mission-req-line">Hostiles: {hostiles}</div>
+                            <div class="mission-req-line">Waves: {wavesLabel}</div>
+                            <div class="mission-req-line">Route: out {def.transitOutTicks}t &middot; window {def.rollWindowTicks}t &middot; back {def.transitBackTicks}t</div>
+                            {#if forecast !== null}<div class="mission-req-line">Battle Rating: {formatNumber(forecast.rating)}</div>{/if}
+                          </div>
+                          <div class="mission-card-col">
+                            {#if selectedShipDef !== null && selectedShipDefense !== null}
+                              <div class="mission-col-label">Your ship ({selectedShipDef.label})</div>
+                              <div class="mission-req-line">Hull: {formatNumber(selectedShipDefense.hullMax)}</div>
+                              <div class="mission-req-line">Shield: {formatNumber(selectedShipDefense.shieldMax)}</div>
+                              <div class="mission-req-line">Hardpoints: {selectedShipDef.weaponHardpoints}</div>
+                            {:else}
+                              <div class="mission-col-label">Your ship</div>
+                              <div class="mission-req-line">Select a captain to see the ship breakdown.</div>
+                            {/if}
+                          </div>
+                        </div>
                       </div>
-                      <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">
-                        {#if isCombatHull}Dispatchable{:else}Unknown hull class{/if}
-                      </div>
-                    {:else}
-                      <div class="mission-req-line" style="color: var(--color-danger)">No ship assigned</div>
-                    {/if}
-                  {/if}
-
-                  <!-- ADVISORY readouts (Combat 1.0, Unit 2.4): the ship's Battle Rating
-                       (a "how geared am I" scalar) and the Threat Assessment band for THIS
-                       patrol (a seeded forecast vs the patrol's enemies, shown as a named
-                       colored chip, never a raw win %). Both advisory: the note + the always-
-                       enabled Dispatch button below make clear you can dispatch regardless.
-                       Only shown for a combat hull (forecast is null otherwise). -->
-                  {#if forecast !== null}
-                    <div class="patrol-readouts">
-                      <div class="patrol-readout-row">
-                        <span class="mission-col-label" style="margin: 0">Battle Rating</span>
-                        <span class="battle-rating-value">{formatNumber(forecast.rating)}</span>
-                      </div>
-                      <div class="patrol-readout-row">
-                        <span class="mission-col-label" style="margin: 0">Threat Assessment</span>
-                        <span class="threat-chip-wrap">
-                          <!-- A real <button> (natively focusable, no tabindex) so the
-                               tooltip opens on hover AND on tap/focus without the a11y
-                               noninteractive-tabindex warning. type="button" => never
-                               submits; it takes no click action, it only discloses the
-                               tooltip. aria-label folds the whole advisory for readers. -->
-                          <button
-                            type="button"
-                            class="threat-chip"
-                            style="--threat-color: {forecast.assessment.colorHex}"
-                            aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
-                          >
-                            <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
-                            <span class="threat-chip-name">{forecast.assessment.name}</span>
-                          </button>
-                          <span class="threat-tooltip info-pop" role="tooltip">
-                            <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
-                            <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
-                          </span>
-                        </span>
-                      </div>
-                      <div class="patrol-readout-note">Advisory only. You can dispatch regardless.</div>
                     </div>
                   {/if}
-
-                  <!-- STANCE selector (segmented, default Balanced). Three .dev-btn options
-                       with aria-pressed marking the active one (the same accent-border
-                       selection signal .mission-card-selectable.expanded uses; the
-                       .theme-swatch.active half of this citation was REMOVED in 0.13.5 with the
-                       colour-blot theme picker), fed to dispatchCaptainOnPatrol at dispatch time. -->
-                  <div class="mission-col-label" style="margin-top: 8px">Stance</div>
-                  <div class="patrol-segmented" role="group" aria-label="Combat stance">
-                    <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolKey, "aggressive")}>Aggressive</button>
-                    <button class="dev-btn" aria-pressed={stance === "balanced"} on:click={() => setPatrolStance(patrolKey, "balanced")}>Balanced</button>
-                    <button class="dev-btn" aria-pressed={stance === "standoff"} on:click={() => setPatrolStance(patrolKey, "standoff")}>Standoff</button>
-                  </div>
-
-                  <!-- DISPATCH MODE (segmented): once vs auto-relaunch. -->
-                  <div class="mission-col-label" style="margin-top: 8px">Dispatch mode</div>
-                  <div class="patrol-segmented" role="group" aria-label="Dispatch mode">
-                    <button class="dev-btn" aria-pressed={!repeat} on:click={() => setPatrolRepeat(patrolKey, false)}>Dispatch Once</button>
-                    <button class="dev-btn" aria-pressed={repeat} on:click={() => setPatrolRepeat(patrolKey, true)}>Dispatch Repeatedly</button>
-                  </div>
-
-                  <!-- Fuel per run: the authoritative round-trip cost for the selected
-                       captain's hull (the same figure dispatch spends), plus the shared
-                       tank level. The cost needs a hull, so it is priced only once a
-                       captain is chosen; before that only the tank level is shown. -->
-                  <div class="research-cost" style="margin-top: 10px">
-                    {#if fuelCost !== null}
-                      Fuel per run: {formatNumber(Math.ceil(fuelCost))} &middot; In tank: {formatNumber(state.fuel)}
-                    {:else}
-                      In tank: {formatNumber(state.fuel)} (select a captain to price the run)
-                    {/if}
-                  </div>
-
-                  <!-- Block reason (danger color), the same disabled-button + reason-text
-                       idiom the mission popup uses. Shows the specific canDispatchPatrol
-                       reason (notCombatHull / needsRepair / fuel gates / busy / no captain). -->
-                  {#if gate !== null && !gate.ok}
-                    <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
-                  {/if}
-
-                  <!-- Weapon ADVISORY (Combat-defense rework, Unit 3, design S5 "inform, don't
-                       forbid"): a PERSISTENT, non-blocking note (not a confirm dialog, user call)
-                       shown when the dispatchable ship carries NO weapon. canDispatchPatrol flags
-                       gate.noWeaponAdvisory on its ok result; dispatch stays ENABLED (the button
-                       reads gate.ok, which is true here). Warning color, distinct from the danger
-                       block-reason above: this is a bad-but-allowed choice, not a refusal. -->
-                  {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
-                    <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
-                  {/if}
-
-                  <button
-                    class="buy-btn patrol-dispatch-btn"
-                    disabled={gate === null || !gate.ok}
-                    title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason) : undefined}
-                    on:click={() => doDispatchCaptainOnPatrol(patrolKey)}
-                  >
-                    Dispatch Patrol
-                  </button>
                 </div>
               {/each}
             </div>
@@ -16267,6 +16193,147 @@
     </div>
   {/if}
 
+  {#if patrolDispatchKey !== null}
+    <!-- Combat Patrol DISPATCH popup (0.13.5 mission-pane redesign,
+         docs/plans/2026-09-14-ops-mission-panes.html). Holds the dispatch CONFIG that used
+         to clutter the patrol card: the captain picker (reuses the existing openPatrolPicker
+         modal, which stacks ABOVE this popup because it renders later in the DOM), the
+         read-only derived ship, the Battle Rating + Threat assessment (the existing
+         .patrol-readouts block), the Stance + Dispatch-mode segmented controls, fuel-per-run
+         vs tank, the block/weapon advisories, and the "Dispatch Patrol" button. Every
+         per-patrol record + gate is read VERBATIM the same way the row does (patrolCaptainByKey
+         / StanceByKey / RepeatByKey / canDispatchPatrol / patrolFuelCost / patrolForecastFor),
+         so the popup can never disagree with the backend. Reuses the .modal-backdrop /
+         Panel.modal-dialog / focusTrap idiom the other Operations modals use. -->
+    {@const def = PATROLS[patrolDispatchKey]}
+    {@const faction = FACTIONS[def.factionId]}
+    {@const wavesLabel = def.minWaves === def.maxWaves ? `${def.minWaves}` : `${def.minWaves} - ${def.maxWaves}`}
+    {@const selectedCaptainId = patrolCaptainByKey[patrolDispatchKey] ?? null}
+    {@const selectedCaptain = selectedCaptainId !== null ? state.captains.find((c) => c.id === selectedCaptainId) ?? null : null}
+    {@const selectedShip = selectedCaptain !== null ? state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null : null}
+    {@const selectedShipDef = selectedShip ? SHIP_TYPES[selectedShip.typeKey] : null}
+    {@const isCombatHull = selectedShip ? combatHullTypeOf(selectedShip.typeKey) !== null : false}
+    {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
+    {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolDispatchKey) : null}
+    {@const fuelCost = selectedShip ? patrolFuelCost(patrolDispatchKey, selectedShip) : null}
+    {@const stance = patrolStanceByKey[patrolDispatchKey] ?? "balanced"}
+    {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
+    {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
+    {@const forecast = patrolForecastFor(state, patrolDispatchKey, def, selectedShip, hullType, stance)}
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Dispatch patrol" use:focusTrap={closePatrolDispatch}>
+      <Panel class="modal-dialog">
+        <div class="panel-title">DISPATCH &middot; {def.label.toUpperCase()}</div>
+        {#if faction}<p class="modal-instruction">{faction.name} &middot; Waves {wavesLabel}</p>{/if}
+
+        <!-- Captain picker: reuses the existing openPatrolPicker flow (its modal stacks over
+             this popup). selectPatrolCaptain records the pick under this patrol's key. -->
+        <div class="mission-col-label">Captain</div>
+        <button class="dev-btn" on:click={() => openPatrolPicker(patrolDispatchKey!)}>
+          {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){#if selectedShipDef} &middot; {selectedShipDef.label}{/if} ▾{:else}Select a captain ▾{/if}
+        </button>
+
+        <!-- Read-only Ship (from the captain), folded stats via foldedPlayerDefense. -->
+        {#if selectedCaptain !== null}
+          {#if selectedShipDef !== null}
+            <div class="mission-col-label" style="margin-top: 8px">Ship (from the captain)</div>
+            <div class="mission-req-line">
+              {selectedShipDef.label}: hull {formatNumber(selectedShipDefense ? selectedShipDefense.hullMax : selectedShipDef.hullIntegrity)}
+              &middot; shield {formatNumber(selectedShipDefense ? selectedShipDefense.shieldMax : selectedShipDef.shieldCapacity)}
+              &middot; {selectedShipDef.weaponHardpoints} hardpoints
+            </div>
+            <div class="mission-req-line" style="color: {isCombatHull ? 'var(--color-success)' : 'var(--color-danger)'}">
+              {#if isCombatHull}Dispatchable{:else}Unknown hull class{/if}
+            </div>
+          {:else}
+            <div class="mission-req-line" style="color: var(--color-danger)">No ship assigned</div>
+          {/if}
+        {/if}
+
+        <!-- Battle Rating + Threat assessment (the existing advisory block). The Threat label
+             carries a HelpTip ? explaining the reading is a FUZZY advisory; the chip keeps its
+             own existing tap tooltip too. -->
+        {#if forecast !== null}
+          <div class="patrol-readouts">
+            <div class="patrol-readout-row">
+              <span class="mission-col-label" style="margin: 0">Battle Rating</span>
+              <span class="battle-rating-value">{formatNumber(forecast.rating)}</span>
+            </div>
+            <div class="patrol-readout-row">
+              <span class="mpane-poplbl">
+                <span class="mission-col-label" style="margin: 0">Threat assessment</span>
+                <HelpTip label="Threat assessment" text="A fuzzy advisory from a seeded simulation of this patrol — an estimate, not a promise. It can read high or low; treat it as guidance, and know you can dispatch regardless of what it shows." />
+              </span>
+              <span class="threat-chip-wrap">
+                <button
+                  type="button"
+                  class="threat-chip"
+                  style="--threat-color: {forecast.assessment.colorHex}"
+                  aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
+                >
+                  <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
+                  <span class="threat-chip-name">{forecast.assessment.name}</span>
+                </button>
+                <span class="threat-tooltip info-pop" role="tooltip">
+                  <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
+                  <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
+                </span>
+              </span>
+            </div>
+            <div class="patrol-readout-note">Advisory only. You can dispatch regardless.</div>
+          </div>
+        {/if}
+
+        <!-- Stance segmented (setPatrolStance), with a HelpTip ? for the three stances. -->
+        <div class="mpane-poplbl" style="margin-top: 8px">
+          <span class="mission-col-label" style="margin: 0">Stance</span>
+          <HelpTip label="Stance" text="Aggressive presses the attack — faster, bloodier fights at higher risk to your hull. Balanced trades evenly. Standoff keeps range to spare the hull, accepting a slower, more cautious engagement." />
+        </div>
+        <div class="patrol-segmented" role="group" aria-label="Combat stance">
+          <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolDispatchKey!, "aggressive")}>Aggressive</button>
+          <button class="dev-btn" aria-pressed={stance === "balanced"} on:click={() => setPatrolStance(patrolDispatchKey!, "balanced")}>Balanced</button>
+          <button class="dev-btn" aria-pressed={stance === "standoff"} on:click={() => setPatrolStance(patrolDispatchKey!, "standoff")}>Standoff</button>
+        </div>
+
+        <!-- Dispatch mode segmented (setPatrolRepeat): once vs auto-relaunch. -->
+        <div class="mission-col-label" style="margin-top: 8px">Dispatch mode</div>
+        <div class="patrol-segmented" role="group" aria-label="Dispatch mode">
+          <button class="dev-btn" aria-pressed={!repeat} on:click={() => setPatrolRepeat(patrolDispatchKey!, false)}>Dispatch Once</button>
+          <button class="dev-btn" aria-pressed={repeat} on:click={() => setPatrolRepeat(patrolDispatchKey!, true)}>Dispatch Repeatedly</button>
+        </div>
+
+        <div class="research-cost" style="margin-top: 10px">
+          {#if fuelCost !== null}
+            Fuel per run: {formatNumber(Math.ceil(fuelCost))} &middot; In tank: {formatNumber(state.fuel)}
+          {:else}
+            In tank: {formatNumber(state.fuel)} (select a captain to price the run)
+          {/if}
+        </div>
+
+        {#if gate !== null && !gate.ok}
+          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+        {/if}
+        {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
+          <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
+        {/if}
+
+        <div class="modal-row">
+          <button class="dev-btn" on:click={closePatrolDispatch}>Cancel</button>
+          <!-- Dispatch gated on canDispatchPatrol (the same gate the row reads); disabled +
+               reason-titled when blocked. doDispatchPatrolFromPopup runs the unchanged
+               doDispatchCaptainOnPatrol then closes the popup. -->
+          <button
+            class="buy-btn"
+            disabled={gate === null || !gate.ok}
+            title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason) : undefined}
+            on:click={doDispatchPatrolFromPopup}
+          >
+            Dispatch Patrol
+          </button>
+        </div>
+      </Panel>
+    </div>
+  {/if}
+
   {#if patrolPickerKey !== null}
     <!-- Combat Patrols captain picker (Combat 0.13.0, Phase 9b.5d). The patrol
          counterpart to the mission popup's first step, REUSING the exact
@@ -17712,18 +17779,66 @@
     transition: width var(--bar-step-seconds, 0.2s) linear;
   }
   .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
-  /* AVAILABLE MISSIONS grid (2026-07-15 card redesign), was a single-column
-     flex stack; now a responsive grid that fits ~3 cards across on a wide
-     Operations panel and collapses to 2 then 1 column as the panel narrows.
-     auto-fill + minmax(260px, 1fr) does the responsive reflow with NO media
-     queries: each track is >= 260px, so the browser packs as many equal
-     columns as fit and stretches them to fill the row. The IN PROGRESS cards
-     above are NOT inside .mission-list, so they keep their full-width stack. */
-  .mission-list {
+  /* OPERATIONS MISSION PANES (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html). The
+     Gathering + Combat AVAILABLE lists render as a vertical stack of full-width ROWS — the
+     facilities/captains .fpane/.cpane idiom — instead of the old .mission-list card grid.
+     One .mpane = id block | glance mid | actions, on a fixed 3-column grid; an optional
+     "More info" reveal (.mpane-reveal) opens attached under the row. All tokens (--corner /
+     --text-* / --color-* / --ui-scale), no raw-px font-size, so it repaints on every theme
+     switch like the panes it mirrors. */
+  .mission-panes { display: flex; flex-direction: column; gap: 8px; }
+  /* One mission = a row + its optional reveal, stacked with NO gap so the reveal reads as
+     attached to its row; the .mission-panes gap separates whole missions. */
+  .mpane-wrap { display: flex; flex-direction: column; }
+  .mpane {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 10px;
-    align-items: start; /* cards size to their own content, not the tallest sibling */
+    grid-template-columns: 210px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-panel-bg-strong);
+    border-radius: var(--corner);
+    padding: 11px 14px;
+  }
+  /* Amber edge when a combat row carries an active block/advisory (mirrors .fpane.attn). */
+  .mpane.warnedge { border-color: rgba(var(--color-warning-rgb), 0.55); }
+  /* Locked gathering row: dashed + dimmed, the same "show locked content" convention the
+     locked tabs / .cpane.locked use. */
+  .mpane.locked { opacity: 0.55; border-style: dashed; }
+  .mpane-id { display: flex; align-items: center; gap: 11px; min-width: 0; }
+  .mpane-glyph { width: 40px; height: 40px; flex: 0 0 40px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); font-size: calc(20px * var(--ui-scale)); }
+  .mpane-idcol { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .mpane-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mpane-sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .mpane-mid { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  /* Glance stat line: a wrapping row of "label <b>value</b>" chips. flex-wrap is what lets a
+     long threat chip drop to its own line instead of pushing the row taller / off its edge. */
+  .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .statline b { color: var(--color-text-primary); font-family: var(--font-mono); font-weight: 500; }
+  .statline b.bad { color: var(--color-danger); }
+  .mpane-cap { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .threat-chip-placeholder { font-size: var(--text-xs); color: var(--color-text-dim); }
+  .mpane-warn { font-size: var(--text-xs); color: var(--color-warning); }
+  .mpane-warn.danger { color: var(--color-danger); }
+  .mpane-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  /* ⚠️ LONG THREAT LABELS on the ROW: names like "Guaranteed Victory" are long. Cap the chip
+     name + ellipsize it so the chip can never grow the row taller or push the other stats into
+     a new panel; the full advisory stays in the chip's tap tooltip. */
+  .mpane .threat-chip { max-width: 190px; }
+  .mpane .threat-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* The reveal opens attached under the row (no top gap/border); it hosts the app's existing
+     .mission-detail idiom. */
+  .mpane-reveal { border: 1px solid var(--color-border); border-top: none; border-radius: 0 0 var(--corner) var(--corner); background: rgba(0, 0, 0, 0.2); padding: 11px 14px; }
+  /* Label + HelpTip ? inline, used by the Dispatch popup (Stance / Threat assessment). */
+  .mpane-poplbl { display: inline-flex; align-items: center; gap: 6px; }
+  /* Mobile: the 210px id column cannot share a phone row with the mid + actions, so the pane
+     stacks (id / mid / actions) and the actions become a side-by-side button row. */
+  @media (max-width: 768px) {
+    .mpane { grid-template-columns: 1fr; gap: 9px; }
+    .mpane-actions { flex-direction: row; }
+    .mpane-actions .dev-btn,
+    .mpane-actions .buy-btn { flex: 1; }
   }
   .mission-card {
     padding: 12px;
@@ -17732,57 +17847,18 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
   .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
-  /* Selectable mission card (2026-07-07 Fleet Operations Mission UI, Task 6)
-    , an actual <button>, unlike the plain .mission-card div above (that one
-     is a static in-progress readout, this one opens the captain-selection
-     popup on click), so it resets button-default text-align/font/color via
-     `text-align:left; color:inherit; font:inherit;` before laying out its own
-     flat/thin-border look. Theme-aware via --color-accent-rgb/--color-accent
-     only (no hardcoded hex), confirmed against app.css's 6
-     [data-theme="..."] blocks, which all redefine these same custom
-     properties, so this card (and its portrait-frame placeholder below)
-     repaint correctly on every theme switch, same as every other themed
-     element in this file. */
-  /* Card redesign (2026-07-15): the selectable card is now a VERTICAL stack
-     (header row on top, then the two-column body) instead of the old
-     portrait-left / body-right single row. Its own inner .mission-card-header
-     re-creates the portrait+name row, so the portrait still sits beside the
-     name, only the exp/requirements/rewards moved into the columns below. */
-  .mission-card-selectable {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    text-align: left;
-    width: 100%;
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    padding: 12px;
-    cursor: pointer;
-    color: inherit;
-    font: inherit;
-  }
-  .mission-card-selectable:hover {
-    border-color: var(--color-accent);
-  }
-  /* Expanded "View Info" card (0.12.0 "Console" nav, CN5b): a persistent accent
-     border marks which card is showing its detail, reusing the same accent token
-     the :hover state uses (no new color). */
-  .mission-card-selectable.expanded {
-    border-color: var(--color-accent);
-  }
-  /* View Info detail block (CN5b): a stacked column of labelled sections (Drop
-     Table / Requirements / Rewards) that replaces the compact two-column summary
-     in place. Single-column stack reads cleanly at any card width, so it needs no
-     media query (the .mission-list grid already reflows the cards). */
+  /* (0.13.5 mission-pane redesign: .mission-card-selectable + :hover + .expanded and
+     .mission-card-actions were REMOVED with the Gathering AVAILABLE card grid, which became
+     the full-width .mpane rows above. Their behavior — the accent-border selection signal and
+     the View Info / Assign action row — lives on .mpane / .mpane-actions now. Deleted rather
+     than left behind: svelte-check flags unused selectors.) */
+  /* View Info / More info detail block: a stacked column of labelled sections (Drop Table /
+     Requirements / Rewards for gathering; Encounter / ship for combat), hosted in the
+     .mpane-reveal that opens under a row. Single-column stack reads cleanly at any width. */
   .mission-detail { display: flex; flex-direction: column; gap: 10px; }
   .mission-detail-section { display: flex; flex-direction: column; gap: 4px; }
-  /* Action row (CN5b): the View Info / Summary toggle + Assign, side by side,
-     wrapping to a second line on a very narrow card. SHARED by the extraction mission
-     cards; left UNTOUCHED (the patrol action row's vertical centering lives on its own
-     .patrol-card-actions class below, so the extraction row is provably unchanged). */
-  .mission-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  /* Patrol in-progress action row (Combat 0.13.0, Phase 9b.5d): same base layout as
-     .mission-card-actions but vertically centers its items, because the row mixes a
+  /* Patrol in-progress action row (Combat 0.13.0, Phase 9b.5d): a flex row that vertically
+     centers its items, because the row mixes a
      button with the recalled-text paragraph (which would otherwise top-align against the
      taller button). Patrol-only, so the shared extraction rule stays untouched. */
   .patrol-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -17801,10 +17877,9 @@
     color: var(--color-accent-bright);
     background: rgba(var(--color-accent-rgb), 0.16);
   }
-  /* Patrol Dispatch button: full-width primary action, reusing .buy-btn's themed
-     accent look (same object the shop/dispatch primary actions use); only the
-     full-width block layout + top spacing are added here. */
-  .patrol-dispatch-btn { width: 100%; margin-top: 10px; }
+  /* (0.13.5 mission-pane redesign: .patrol-dispatch-btn was REMOVED — the patrol Dispatch
+     action moved into the Dispatch popup's .modal-row as a plain .buy-btn beside Cancel, so
+     the full-width one-off is no longer used. Deleted so svelte-check sees no dead selector.) */
 
   /* Combat 1.0 (Unit 2.4) ADVISORY readouts: Battle Rating scalar + Threat Assessment
      band chip. The surrounding chrome uses THEME tokens; only the chip's accent (the
@@ -17897,21 +17972,11 @@
   .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
   .threat-tooltip-range { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
   .threat-tooltip-voice { font-size: var(--text-sm); font-style: italic; color: var(--color-text-secondary); }
-  /* Header row: portrait placeholder beside the name + exp sub-line. */
-  .mission-card-header { display: flex; gap: 12px; align-items: center; }
-  /* Descendant selector (specificity 0,2,0) shrinks the shared portrait for
-     the card header WITHOUT touching .mission-portrait-frame's border/bg/
-     centering, the SAME idiom .top-bar-header .top-bar-portrait uses above,
-     so there's no source-order dependency. ~48px reads as two text lines tall
-     (name + exp), matching the sketch's two-line picture box. The LOCKED card
-     keeps the full 64px frame (it isn't inside .mission-card-header). */
-  .mission-card-header .mission-portrait-frame { flex: 0 0 48px; height: 48px; font-size: var(--text-2xl); }
-  .mission-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  /* research-name carries a 6px bottom margin of its own; zero it here so the
-     exp sub-line sits tight under the name inside the flex-gap heading column. */
-  .mission-card-heading .research-name { margin-bottom: 0; }
-  .mission-xp-line { font-size: var(--text-xs); color: var(--color-text-secondary); }
-  /* Body: two equal columns (Requirements | Rewards), matching the sketch. */
+  /* (0.13.5 mission-pane redesign: .mission-card-header, its descendant portrait rule,
+     .mission-card-heading, .mission-card-heading .research-name, and .mission-xp-line were
+     REMOVED with the Gathering AVAILABLE card. The row's id block is .mpane-id / .mpane-glyph
+     / .mpane-name / .mpane-sub now. Deleted so svelte-check sees no dead selector.) */
+  /* Two equal columns, used by the combat "More info" reveal (Encounter | ship breakdown). */
   .mission-card-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .mission-card-col { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   /* Column heading ("Mission Requirements:" / "Rewards"), a touch stronger
@@ -17933,19 +17998,9 @@
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.03);
   }
-  .mission-card-body { flex: 1; min-width: 0; }
-  /* Locked mission card (Mission Rework Task 8), reuses .mission-card's box +
-     borrows the .mission-card-selectable portrait+body flex ROW layout, but is a
-     static (non-button) dimmed div: the game's consistent "show locked content"
-     signal (cf. .module-card.locked's opacity dim, the ConsoleTabs .ctab.locked).
-     No hover/cursor affordance since it isn't clickable. */
-  .mission-card-locked {
-    display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    text-align: left;
-    opacity: 0.6;
-  }
+  /* (0.13.5 mission-pane redesign: .mission-card-body and .mission-card-locked were REMOVED
+     with the Gathering AVAILABLE card. A locked mission is a dashed/dimmed .mpane.locked row
+     now. Deleted so svelte-check sees no dead selector.) */
   /* No existing non-dev-panel "danger" button style to reuse, .dev-btn.danger
      is scoped to the amber dev-panel look, and .prestige-btn's warning color
      is for a different semantic (fleet prestige), not "cancel an in-progress
