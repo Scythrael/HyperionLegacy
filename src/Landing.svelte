@@ -12,25 +12,31 @@
   //   calls navigate("/game/hl/play") to boot the game without a full page reload.
   import Panel from "./lib/Panel.svelte";
   import Starfield from "./lib/Starfield.svelte";
-  import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
+  import { APP_VERSION, PATCH_NOTES, isStructuredNote, type PatchNote } from "./lib/patchNotes";
 
   export let navigate: (to: string) => void;
 
-  // Show only the newest 2-3 releases as a "what's new" strip. PATCH_NOTES is
-  // newest-first, so slicing the head gives the most recent entries. Summaries
-  // in the source are long-form; the strip trims them to a readable teaser so
-  // the landing stays scannable (full text still lives in the in-game tab).
+  // Show only the newest 2-3 releases as a "what's new" strip that links to the
+  // full patch-notes page. PATCH_NOTES is newest-first, so slicing the head gives
+  // the most recent entries. A structured entry teases on its lede; a legacy
+  // prose entry teases on its summary. Both are trimmed so the landing stays
+  // scannable (the full notes live on the patch-notes page and the in-game tab).
   const NEWS_TEASER_MAX = 180;
+  function teaserFor(note: PatchNote): string {
+    const text = isStructuredNote(note) ? (note.lede ?? note.name ?? "") : note.summary;
+    return text.length > NEWS_TEASER_MAX ? text.slice(0, NEWS_TEASER_MAX).trimEnd() + "…" : text;
+  }
   const latestNotes = PATCH_NOTES.slice(0, 3).map((note) => ({
     version: note.version,
-    teaser:
-      note.summary.length > NEWS_TEASER_MAX
-        ? note.summary.slice(0, NEWS_TEASER_MAX).trimEnd() + "…"
-        : note.summary,
+    teaser: teaserFor(note),
   }));
 
   function handlePlay() {
     navigate("/game/hl/play");
+  }
+
+  function openPatchNotes() {
+    navigate("/game/hl/patch-notes");
   }
 </script>
 
@@ -85,15 +91,16 @@
     <section class="news">
       <div class="news-head">
         <h2 class="news-title">Latest Updates</h2>
-        <span class="news-version">v{APP_VERSION}</span>
+        <button class="news-all" on:click={openPatchNotes}>All patch notes &rarr;</button>
       </div>
 
+      <!-- Each card links to the full patch-notes page; the header link does too. -->
       <div class="news-grid">
         {#each latestNotes as note}
-          <Panel class="news-card">
-            <div class="news-card-version">{note.version}</div>
-            <p class="news-card-teaser">{note.teaser}</p>
-          </Panel>
+          <button class="news-card" on:click={openPatchNotes} aria-label={`Read patch notes, version ${note.version}`}>
+            <span class="news-card-version">{note.version}</span>
+            <span class="news-card-teaser">{note.teaser}</span>
+          </button>
         {/each}
       </div>
     </section>
@@ -263,10 +270,19 @@
     margin: 0;
     color: var(--color-text-primary);
   }
-  .news-version {
+  .news-all {
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     color: var(--color-accent);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 0;
+    transition: opacity 0.12s ease;
+  }
+  .news-all:hover {
+    opacity: 0.75;
+    text-decoration: underline;
   }
 
   .news-grid {
@@ -274,13 +290,26 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 14px;
   }
-  /* :global, .news-card is passed to Panel.svelte, which renders it on a
-     child <section>; the class lands outside this component's scope, so the
-     scoped selector wouldn't reach it without :global. */
-  .news-grid :global(.news-card) {
+  /* Each card is a button that opens the full patch-notes page, styled to read
+     as a panel (Panel.svelte can't be a button host, so this is a plain button). */
+  .news-card {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    text-align: left;
+    padding: 16px;
+    background: var(--color-panel-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    cursor: pointer;
+    font-family: inherit;
+    transition:
+      border-color 0.12s ease,
+      transform 0.12s ease;
+  }
+  .news-card:hover {
+    border-color: var(--color-border-strong);
+    transform: translateY(-2px);
   }
   .news-card-version {
     font-family: var(--font-mono);
@@ -289,7 +318,6 @@
     color: var(--color-accent);
   }
   .news-card-teaser {
-    margin: 0;
     font-size: 0.9rem;
     line-height: 1.5;
     color: var(--color-text-secondary);

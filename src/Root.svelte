@@ -18,19 +18,22 @@
   import { onMount, onDestroy } from "svelte";
   import App from "./App.svelte";
   import Landing from "./Landing.svelte";
+  import PatchNotesPage from "./PatchNotesPage.svelte";
   import UpdateBanner from "./UpdateBanner.svelte";
   import SavePersistWarning from "./SavePersistWarning.svelte";
   import { startUpdatePolling } from "./lib/updateDetector";
 
   const LANDING_ROUTE = "/game/hl";
   const GAME_ROUTE = "/game/hl/play";
+  const NOTES_ROUTE = "/game/hl/patch-notes";
 
-  type View = "game" | "landing";
+  type View = "game" | "landing" | "notes";
 
   // Map any pathname -> {what to render, its canonical url}. Trailing slashes tolerated.
   function resolve(pathname: string): { view: View; canonical: string } {
     const p = pathname.replace(/\/+$/, "") || "/";
     if (p === GAME_ROUTE || p === "/play") return { view: "game", canonical: GAME_ROUTE };
+    if (p === NOTES_ROUTE) return { view: "notes", canonical: NOTES_ROUTE };
     // /game/hl, and (until the real studio site exists) "/", "/game", anything else.
     return { view: "landing", canonical: LANDING_ROUTE };
   }
@@ -93,6 +96,11 @@
          navigate() lives on for Landing's Play button (passed as a prop below). -->
     <App />
   </div>
+{:else if view === "notes"}
+  <!-- The public patch-notes page. Same normal-flow banner as the landing; the
+       page scrolls beneath it. -->
+  <UpdateBanner />
+  <PatchNotesPage {navigate} />
 {:else}
   <!-- On the landing page the banner is a normal-flow strip at the very top; the
        page scrolls beneath it as usual. -->

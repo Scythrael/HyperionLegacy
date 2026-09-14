@@ -49,6 +49,7 @@
   // Player-facing release marker + patch-note history. Extracted from this
   // file so src/Landing.svelte can render the same news strip from one source.
   import { APP_VERSION, PATCH_NOTES } from "./lib/patchNotes";
+  import PatchNotesEntry from "./lib/PatchNotesEntry.svelte";
   // Help program's core-systems manual (0.11.2 UI Restructure, Task 14). Static
   // structured topics, rendered verbatim like PATCH_NOTES (no markdown).
   import { HELP_TOPICS } from "./lib/helpTopics";
@@ -16023,14 +16024,17 @@
       {/if}
 
       {#if activeSystemSubTab === "patchNotes"}
+      <!-- In-game: the CURRENT version's notes (what changed in the build you are
+           playing), rendered by the SAME PatchNotesEntry component the site uses,
+           plus a link to the full patch-notes page on the site for the whole
+           history. Opens in a new tab so it never interrupts the running game. -->
       <Panel>
         <div class="panel-title">PATCH NOTES</div>
-        <div class="log-list">
-          {#each PATCH_NOTES as note}
-            <div class="log-entry">
-              <strong>{note.version}</strong>: {note.summary}
-            </div>
-          {/each}
+        <PatchNotesEntry entry={PATCH_NOTES[0]} />
+        <div style="margin-top: 16px;">
+          <a class="buy-btn" href="/game/hl/patch-notes" target="_blank" rel="noopener noreferrer">
+            View all patch notes &rarr;
+          </a>
         </div>
       </Panel>
       {/if}
