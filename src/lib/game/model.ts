@@ -1488,9 +1488,12 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // Refinery-Feed: budget into material quality, feeding the refining chain.
       { key: "refineryFeedRig", label: "Refinery-Feed Rig", favorsSpec: "prospector", statRatios: { materialQualityChance: 0.65, extractionYieldMult: 0.25, sensors: 0.1 } },
     ],
-    // Gated: the Prospecting Rig only fits a prospecting captain on a Prospector
-    // hull (both checked by the later fitting task).
-    equipRequirement: { captainSpec: "prospector", hullSpec: "prospector" },
+    // Gated by HULL CLASS only: the Prospecting Rig fits any captain flying a Prospector-class
+    // hull. ⚠️ The captainSpec gate was DROPPED (2026-09-14, user): specialty gear installs on the
+    // SHIP, so a tactical/science captain flying a prospector hauler can still fit a mining rig.
+    // The hullSpec gate stays (the rig's extraction stats only make sense on a mining hull). The
+    // captainSpec / captainSpecParked fit-reasons remain defined for a future spec-gated slot.
+    equipRequirement: { hullSpec: "prospector" },
   },
   // COMBAT 1.0 (Unit 1.1): the two DEFENSIVE combat slots, activated from the reserved
   // EquipmentSlotType members (shieldEmitters / hullPlating). Singleton slots (one each

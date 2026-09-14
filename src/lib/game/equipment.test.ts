@@ -366,7 +366,8 @@ describe("drone-bay MULTI slot capacity (Combat 1.0, Unit 2.2)", () => {
 });
 
 describe("equipRequirement gate", () => {
-  // A specUtility (Prospecting Rig) piece: requires captainSpec prospector + hullSpec prospector.
+  // A specUtility (Prospecting Rig) piece: gated by hullSpec prospector ONLY (the captainSpec gate
+  // was dropped 2026-09-14 — specialty gear installs on the ship, not the captain).
   const rig = () => makeEquip({ id: "equip-1", slotType: "specUtility", fittedToShipId: null });
 
   it("a Prospecting Rig CANNOT fit a non-Prospector hull", () => {
@@ -375,21 +376,24 @@ describe("equipRequirement gate", () => {
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "hullSpec" });
   });
 
-  it("a Prospecting Rig CANNOT fit with a non-prospector captain", () => {
-    // Prospector hull, but the captain chose the tactical branch -> captain gate fails.
+  it("a Prospecting Rig CAN fit with a non-prospector captain (captainSpec gate dropped 2026-09-14)", () => {
+    // Prospector hull + a tactical-branch captain: the rig installs on the SHIP, so the captain's
+    // spec no longer gates it. Only the hull class matters now, and this is a prospector hull.
     const state = withCaptainSpec(withHull(withEquipment(freshState(), rig()), "prospectorMiner"), "tactical");
-    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpec" });
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
   });
 
-  it("a Prospecting Rig CANNOT fit when the captain has chosen no spec yet", () => {
-    // Prospector hull, captain spec still null.
+  it("a Prospecting Rig CAN fit when the captain has chosen no spec yet (only the hull gates)", () => {
+    // Prospector hull, captain spec still null: fits, because only the hull class gates the rig.
     const state = withHull(withEquipment(freshState(), rig()), "prospectorMiner"); // seeded captain spec is null
-    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpec" });
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
   });
 
-  it("a Prospecting Rig CANNOT fit a parked Prospector hull (captainSpec required but no captain)", () => {
+  it("a Prospecting Rig CAN fit a parked Prospector hull (no captain requirement any more)", () => {
+    // With the captainSpec gate dropped there is no captain requirement, so a parked prospector
+    // hull takes the rig exactly like a universal slot would (hullSpec passes, no captain needed).
     const state = parked(withHull(withEquipment(freshState(), rig()), "prospectorMiner"));
-    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "captainSpecParked" });
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
   });
 
   it("a Prospecting Rig CAN fit a prospecting captain on a Prospector hull", () => {

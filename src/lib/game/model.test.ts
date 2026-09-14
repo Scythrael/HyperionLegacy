@@ -1718,13 +1718,14 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     }
   });
 
-  it("specUtility gates to a prospecting captain flying a prospector hull", () => {
-    // The Spec Utility Slot's one shipping family (the Prospecting Rig) is gated:
-    // both captainSpec and hullSpec must be "prospector" this patch.
+  it("specUtility gates by HULL class only (captainSpec gate dropped 2026-09-14)", () => {
+    // The Spec Utility Slot's one shipping family (the Prospecting Rig) is gated by hullSpec
+    // "prospector" ONLY. The captainSpec gate was dropped (user): specialty gear installs on the
+    // SHIP, so any captain flying a prospector-class hull can fit it.
     const req = EQUIPMENT_SLOTS.specUtility.equipRequirement;
     expect(req).toBeDefined();
-    expect(req?.captainSpec).toBe("prospector");
     expect(req?.hullSpec).toBe("prospector");
+    expect(req?.captainSpec).toBeUndefined();
   });
 
   // Combat 1.0 (Unit 1.1): pin the two defensive combat slots' signature content AND the
