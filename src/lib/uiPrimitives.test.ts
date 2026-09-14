@@ -86,9 +86,19 @@ describe("HelpTip: the ? explanation", () => {
   it("⚠️ opens on TAP as well as hover, because hover does not exist on a phone", () => {
     // The load-bearing case in this file. A hover-only help affordance hides every explanation in
     // the settings screen from the primary platform, and it would still look perfect to anyone
-    // testing with a mouse.
+    // testing with a mouse. Tap opens via on:click={toggle}; hover opens via on:pointerenter.
     expect(HELPTIP).toMatch(/on:click=\{toggle\}/);
-    expect(HELPTIP).toMatch(/on:mouseenter/);
+    expect(HELPTIP).toMatch(/on:pointerenter=\{hoverShow\}/);
+  });
+
+  it("⚠️ opens on the FIRST tap (touch), not the second", () => {
+    // THE BUG THIS GUARDS (user report 2026-09-13). A touch tap also focuses the button, so the old
+    // on:focus={show} opened the bubble and the SAME tap's on:click={toggle} closed it again -> the
+    // first tap flashed nothing. The fix is the warehouse-tooltip idiom: hover is gated to a real
+    // mouse pointer, and focus-to-show only fires for keyboard focus, so a tap is driven SOLELY by
+    // the click toggle. Both gates must stay, or the two-tap bug returns.
+    expect(HELPTIP).toMatch(/pointerType === "mouse"/);
+    expect(HELPTIP).toMatch(/matches\(":focus-visible"\)/);
   });
 
   it("is reachable and dismissable by keyboard", () => {
@@ -104,10 +114,11 @@ describe("HelpTip: the ? explanation", () => {
     expect(HELPTIP).toMatch(/flipUp/);
   });
 
-  it("⚠️ CLOSES on hover-out (on:mouseleave), or tooltips pile up and never disappear", () => {
-    // THE BUG THIS GUARDS. The button had on:mouseenter to open but no on:mouseleave to close, so
-    // hovering across a settings screen opened a tooltip per row and none of them went away.
-    expect(HELPTIP).toMatch(/on:mouseleave=\{hide\}/);
+  it("⚠️ CLOSES on hover-out (on:pointerleave), or tooltips pile up and never disappear", () => {
+    // THE BUG THIS GUARDS. The button opens on hover but must also close on hover-out, or hovering
+    // across a settings screen opens a tooltip per row and none go away. hoverHide is the mouse-gated
+    // pointerleave handler (a touch pointerleave is ignored, same as hoverShow).
+    expect(HELPTIP).toMatch(/on:pointerleave=\{hoverHide\}/);
   });
 
   it("⚠️ PORTALS to document.body so a transformed/scrolling ancestor cannot mis-anchor or bury it", () => {

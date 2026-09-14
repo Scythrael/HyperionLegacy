@@ -2317,6 +2317,7 @@
     if (e.key !== "Escape") return;
     if (openCurrencyKey !== null) openCurrencyKey = null;
     if (facilityTip !== null) facilityTip = null;
+    if (selectedSystemPos !== null) { selectedSystemId = null; selectedSystemPos = null; }
   }
 
   // ---- Facility-pane ⓘ subject tooltip (0.13.5 hover-detail) ---------------
@@ -4633,9 +4634,66 @@
   $: selectedIsBaseline = selectedSystem !== null && selectedSystem.blueprintKey === null;
 
   // Toggle a tile's selection (clicking the open tile closes it), matching the
-  // slot-select toggle idiom ShipSystemsPanel uses.
+  // slot-select toggle idiom ShipSystemsPanel uses. Used by the SALVAGE BAY tab, whose
+  // selected panel stays INLINE (it hosts the Salvage/Favorite controls), so it clears any
+  // floating position the browse-only bay may have set.
   function selectSystemTile(instanceId: string) {
     selectedSystemId = selectedSystemId === instanceId ? null : instanceId;
+    selectedSystemPos = null;
+  }
+
+  // ── Browse-only Systems Bay: FLOAT the selected card at the tile (0.13.5, user) ──
+  // The Logistics "Systems Bay" tab is browse-only (no actions), so instead of unhiding a panel
+  // below the grid it pops the EquipmentTooltip card up AT the tapped tile, the same placement the
+  // warehouse tile tooltip uses (below the tile, clamped; clampSystemsPopover flips it above if it
+  // would overflow). The SALVAGE BAY tab keeps its inline panel (user's call: it has controls).
+  // Shares selectedSystemId with the inline path, so the two stay "linked" as before; only the
+  // presentation differs, driven by whether selectedSystemPos is set.
+  let selectedSystemPos: { x: number; y: number; anchorTop: number } | null = null;
+  function selectSystemTileFloating(instanceId: string, event: MouseEvent) {
+    if (selectedSystemId === instanceId) {
+      selectedSystemId = null;
+      selectedSystemPos = null;
+      return;
+    }
+    selectedSystemId = instanceId;
+    const el = event.currentTarget as HTMLElement | null;
+    if (el === null) {
+      selectedSystemPos = null;
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    selectedSystemPos = {
+      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
+      y: r.bottom + 8,
+      anchorTop: r.top,
+    };
+  }
+  // Tap-away dismissal for the floating browse-only card (mirrors handleWarehouseOutsidePointer):
+  // only active while a floating card is shown; a tap on a tile (its own toggle) or on the card
+  // itself does not self-dismiss.
+  function handleSystemsPopoverOutside(event: PointerEvent) {
+    if (selectedSystemPos === null) return;
+    const target = event.target as Element | null;
+    if (target && target.closest(".systems-tile, .systems-popover")) return;
+    selectedSystemId = null;
+    selectedSystemPos = null;
+  }
+  // Flip the floating card above the tile / nudge it in if it would overflow the viewport (measured
+  // after render, like clampFacilityTipCard). Only the browse-only floating card uses this.
+  function clampSystemsPopover(node: HTMLElement, _pos: typeof selectedSystemPos) {
+    const reposition = () => {
+      if (selectedSystemPos === null) return;
+      const r = node.getBoundingClientRect();
+      if (r.bottom > window.innerHeight - 8) {
+        node.style.top = `${Math.max(8, selectedSystemPos.anchorTop - r.height - 6)}px`;
+      }
+      if (r.right > window.innerWidth - 8) {
+        node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+      }
+    };
+    reposition();
+    return { update: reposition };
   }
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
@@ -8396,6 +8454,7 @@
   on:pointerdown={handleCurrencyOutsidePointer}
   on:pointerdown={handleWarehouseOutsidePointer}
   on:pointerdown={handleFacilityTipOutside}
+  on:pointerdown={handleSystemsPopoverOutside}
   on:keydown={handleCurrencyKeydown}
 />
 
@@ -12728,7 +12787,7 @@
                         class:selected={selectedSystemId === piece.id}
                         style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
                         title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                        on:click={() => selectSystemTile(piece.id)}
+                        on:click={(e) => selectSystemTileFloating(piece.id, e)}
                       >
                         <span class="systems-tile-dot"></span>
                         <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
@@ -12741,17 +12800,22 @@
             {/if}
           </Panel>
 
-          <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
-               inline (not a floating layer) so it is scroll-safe on device.
-               BROWSE-ONLY here: this tab shows a spare system's stats but hosts
-               NO Salvage action. Breaking a spare system down lives in the
-               Salvage tab, so no action children are passed to EquipmentTooltip
-               here. -->
-          {#if selectedSystem}
+          <!-- SELECTED SYSTEM (browse-only): the reusable rarity-bordered card, now FLOATED at the
+               tapped tile (0.13.5, user) instead of unhiding a panel below the grid, the same
+               placement the warehouse tile tooltip uses. This tab hosts NO Salvage action (breaking
+               a spare down lives in the Salvage Bay tab, which keeps its INLINE panel), so the card
+               carries no action children and is safe to present as a pointer-events-none floating
+               layer. clampSystemsPopover flips it above the tile if it would overflow the bottom. -->
+          {#if selectedSystem && selectedSystemPos}
             {@const sys = selectedSystem}
-            <Panel>
+            <div
+              class="systems-popover"
+              style="left: {selectedSystemPos.x}px; top: {selectedSystemPos.y}px;"
+              use:clampSystemsPopover={selectedSystemPos}
+              role="note"
+            >
               <EquipmentTooltip piece={sys} />
-            </Panel>
+            </div>
           {/if}
 
           <!-- RESERVED product families (0.12.0 Console, CN3a). The old locked
@@ -18740,6 +18804,10 @@
   /* The item-card variant of the facility ⓘ tooltip: hosts the generalized ItemTooltip. Same
      fixed / overflow-proof placement as .frow-tip, sized to the card (which caps its own width). */
   .frow-tip-card { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
+  /* Browse-only Systems Bay floating card (0.13.5): the selected spare's EquipmentTooltip, floated
+     at the tapped tile instead of unhidden below the grid. Fixed + overflow-proof like .frow-tip-card;
+     pointer-events:none because it is display-only here (salvage lives in the Salvage Bay tab). */
+  .systems-popover { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }

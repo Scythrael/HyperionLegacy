@@ -88,6 +88,24 @@
     if (open) hide();
     else void show();
   }
+
+  // ⚠️ TOUCH TWO-TAP FIX (2026-09-13, user report: "have to tap twice to get it to appear").
+  // A touch tap ALSO focuses the button, so the old on:focus={show} opened the bubble and then the
+  // SAME tap's on:click={toggle} saw it open and closed it again -> the first tap flashed nothing.
+  // The fix is the one the warehouse tile tooltip already uses: drive HOVER off pointer events
+  // gated to pointerType "mouse" (a touch pointerenter is ignored), and only show on focus when it
+  // is KEYBOARD focus (:focus-visible, which browsers suppress for pointer/touch). Touch is then
+  // driven solely by the on:click toggle -> one tap opens.
+  function hoverShow(event: PointerEvent): void {
+    if (event.pointerType === "mouse") void show();
+  }
+  function hoverHide(event: PointerEvent): void {
+    if (event.pointerType === "mouse") hide();
+  }
+  function focusShow(event: FocusEvent): void {
+    const el = event.currentTarget as HTMLElement | null;
+    if (el && el.matches(":focus-visible")) void show();
+  }
 </script>
 
 <!-- The document listener is what makes "tap anywhere else to dismiss" work on touch, where there
@@ -102,9 +120,9 @@
     aria-label={`What does "${label}" do?`}
     aria-expanded={open}
     on:click={toggle}
-    on:mouseenter={() => void show()}
-    on:mouseleave={hide}
-    on:focus={() => void show()}
+    on:pointerenter={hoverShow}
+    on:pointerleave={hoverHide}
+    on:focus={focusShow}
     on:blur={hide}
   >?</button>
   {#if open}
