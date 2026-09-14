@@ -2002,7 +2002,7 @@
     // Spare BOTH trigger kinds: a warehouse tile (its own on:click toggles) and a
     // mission drop icon (.drop-icon, added 2026-07-15), a tap landing on either
     // must not self-dismiss here before that element's toggle runs.
-    if (target && target.closest(".warehouse-tile, .drop-icon")) return;
+    if (target && target.closest(".warehouse-tile, .drop-icon, .drop-name-btn")) return;
     warehouseTooltip = null;
   }
 
@@ -14169,7 +14169,21 @@
                                 {@const dItem = ITEMS[drop.key]}
                                 {#if dItem}
                                   <div class="mission-req-line">
-                                    <span style="color: {warehouseRarityColor(dItem.rarity)}">{dItem.label}</span> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
+                                    <!-- The fully-typed item NAME is TAPPABLE (0.13.5, user): it pops the SAME item
+                                         tooltip the compact glance icon does, so a player can confirm the item from
+                                         EITHER surface as naming grows. A real <button> (the reveal sits OUTSIDE the
+                                         pane, no button nesting) for keyboard + AT; hover / focus / tap all drive the
+                                         shared warehouse tooltip, fed this drop's own per-tick chance. -->
+                                    <button
+                                      type="button"
+                                      class="drop-name-btn"
+                                      style="color: {warehouseRarityColor(dItem.rarity)}"
+                                      on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                      on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                                      on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                      on:blur={hideWarehouseTooltip}
+                                      on:click={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                    >{dItem.label}</button> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
                                   </div>
                                 {/if}
                               {/each}
@@ -19252,6 +19266,16 @@
     margin-bottom: 10px; /* match .research-cost's vertical rhythm */
   }
   .drops-label { font-size: var(--text-sm); color: var(--color-text-secondary); }
+  /* Tappable item NAME in the expanded Drop Table (0.13.5): an inline, chrome-less button that
+     reads as text but signals it is interactive (dotted underline), popping the same item tooltip
+     the compact drop icon does. Colour comes from an inline rarity style. */
+  .drop-name-btn {
+    background: none; border: none; padding: 0; margin: 0;
+    font: inherit; cursor: pointer;
+    text-decoration: underline dotted; text-underline-offset: 2px;
+  }
+  .drop-name-btn:hover { text-decoration: underline; }
+  .drop-name-btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; text-decoration: underline; }
   .drop-icon {
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; margin: 0;
