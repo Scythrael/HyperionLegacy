@@ -2117,10 +2117,10 @@
   // empty states name the tiles as "below"; the selected-system note tells the player to
   // remove an order "from the queue above". Splitting the queue away from the tiles would
   // break all three to save 244px, so the queue stays where those sentences say it is.
-  // The confirm checkboxes stay on the SAME tab as, and directly above, AUTO-SALVAGE for
-  // exactly the same reason: that panel points at them as "just above" twice, and it is
-  // the panel's single most important sentence (the confirm interlock is why the rules
-  // can appear to do nothing). Both readings stay literally true.
+  // The confirm-by-quality control moved to the CONFIRMATIONS tab in 0.13.5 (user); the auto-salvage
+  // eligibility readout now names it "on the Confirmations tab" rather than "just above". The confirm
+  // interlock (a confirmed tier can never be auto-salvaged, which is why the rules can appear to do
+  // nothing) is unchanged; only where the control lives, and the pointer text, changed.
   //
   // DEFAULTS TO "salvage": the action, and the destination every deep link into this
   // console means (an in-flight or just-completed salvage row, see jumpTo's salvageBay
@@ -5145,6 +5145,12 @@
       ? [...current.filter((t) => t !== tier), tier]
       : current.filter((t) => t !== tier);
     state = { ...state, salvageConfirmQualities: next };
+    doSave();
+  }
+  // Clear all confirm-by-quality tiers (the multi-select's "Clear"): nothing prompts, so every
+  // quality queues straight away. A deliberately LESS-safe state, but the player's to choose.
+  function doClearSalvageConfirmQualities() {
+    state = { ...state, salvageConfirmQualities: [] };
     doSave();
   }
 
@@ -15459,69 +15465,11 @@
            which is how a setting ends up disagreeing with itself depending on which screen you
            opened last. The Salvage Bay's Rules subtab is GONE, not duplicated. -->
       <Panel class="settings-section">
-            <!-- ============ TAB 2 OF 2: RULES, the settings that govern salvaging =======
-                 Confirm-before-salvaging, then AUTO-SALVAGE, in that order and adjacent,
-                 which is the whole reason they are the pair that moved: the auto-salvage
-                 eligibility readout points at the checkboxes as "just above" TWICE, and
-                 that sentence is the one that explains why the rules can look broken (a
-                 tier you asked to confirm can never be auto-salvaged, and the shipped
-                 default confirms every tier). Keeping them together keeps it literally
-                 true, so NEITHER string needed rewording.
-
-                 ⚠️ WHY THIS BLOCK IS NOT PHYSICALLY MOVED IN THE FILE. The confirm rows and
-                 the AUTO-SALVAGE panel already sat between the explainer and the queue, so
-                 guarding them where they stand produces the intended per-tab order (Salvage:
-                 explainer, queue, last salvage, both grids. Rules: confirm, auto-salvage)
-                 without relocating ~150 lines of working markup. That is why the "salvage"
-                 guard appears TWICE, once above and once below this block: two three-line
-                 guards instead of a large block move, so the diff stays reviewable and
-                 nothing can be dropped in transit. The contents below are byte-identical
-                 apart from the two "queue below" pointers noted on the AUTO-SALVAGE panel.
-                 Child indentation is deliberately left as it was for the same reason. -->
-            <Panel>
-              <!-- The confirm rows used to live inside the SALVAGE BAY explainer panel above.
-                   Split onto this tab, they need their own Panel and therefore their own
-                   title; "CONFIRM BY QUALITY" is the name the code below has always used for
-                   this block. The visible "Confirm before salvaging" row underneath is
-                   UNCHANGED and must stay word-for-word: it is the anchor the AUTO-SALVAGE
-                   panel names in <strong> tags. -->
-              <div class="panel-title">CONFIRM BY QUALITY</div>
-              <!-- CONFIRM-BY-QUALITY options (0.11.2 Task 13b): one checkbox per
-                   quality tier (0..QUALITY_TIERS-1). A CHECKED tier requires a
-                   confirm before salvaging an item of that quality; unchecking a
-                   tier queues it straight away. Reuses the .dev-row + inline-flex label +
-                   checkbox idiom from the System Options panel; no new styling or colors.
-                   Ship (hull) teardown always confirms regardless of these toggles. Tier
-                   labels use the Q0..Q5 convention the systems tiles already show.
-                   ⚠️ 0.13.3 Unit 4.4 REPOINTED these at the SAVE. They read
-                   salvageConfirmQualities (now derived from state.salvageConfirmQualities)
-                   and write through doToggleSalvageConfirmTier, which updates state and
-                   saves. The semantics are unchanged (checked = ask me first); what changed
-                   is that the Phase 5 auto-salvage rules, which run inside the tick and in
-                   the offline catch-up, can now SEE this preference and refuse to
-                   auto-salvage a tier the player asked to be asked about. -->
-              <!-- 0.13.3 Unit 5.2 ADDS this heading and nothing else here. The checkbox row
-                   below is unchanged, but the auto-salvage panel that follows has to be able
-                   to POINT at it by name ("Confirm before salvaging, above") when a confirmed
-                   tier is the reason the rules can take nothing. An unnamed row cannot be
-                   referred to, and "the checkboxes above" is not a fix a player can act on. -->
-              <div class="research-cost" style="margin-top: 8px;">Confirm before salvaging</div>
-              <div class="dev-row" style="flex-wrap: wrap; gap: 12px;">
-                {#each Array.from({ length: QUALITY_TIERS }, (_, i) => i) as tier (tier)}
-                  <label style="display: inline-flex; align-items: center; gap: 6px;">
-                    <input
-                      type="checkbox"
-                      checked={salvageConfirmQualities.includes(tier)}
-                      on:change={(e) => doToggleSalvageConfirmTier(tier, (e.target as HTMLInputElement).checked)}
-                    />
-                    Q{tier}
-                  </label>
-                {/each}
-              </div>
-              <p class="research-status">
-                Salvaging an item of a checked quality asks for confirmation first. Uncheck a tier to queue it straight away.
-              </p>
-            </Panel>
+            <!-- 0.13.5 (user): CONFIRM-BY-QUALITY moved OUT of here to the CONFIRMATIONS tab — it is a
+                 confirmation setting (the manual-salvage "are you sure?" gate), not a salvage RULE, so
+                 it belongs with the other confirmations. This section now holds only the auto-salvage
+                 rules. The auto-salvage eligibility readout points at it as "on the Confirmations tab"
+                 rather than "just above" (updated in the readout strings below). -->
 
             <!-- ============ AUTO-SALVAGE RULES (0.13.3, Phase 5 Unit 5.2, design §7.6) ======
                  The console half of the Unit 5.1 rule engine, and a panel whose main job is to
@@ -15559,8 +15507,8 @@
                    they live in state). Per-control explanations moved into the `?` bubbles; the
                    general "what it does + safety guarantees" live in the master `?`; the LIVE
                    eligibility readout + summary stay inline (per the user's call) because they are
-                   dynamic feedback, not static explanation. The CONFIRM BY QUALITY panel above is
-                   the "just above" the readout points at (unchanged), so the interlock stays true. -->
+                   dynamic feedback, not static explanation. The confirm-by-quality control lives on
+                   the CONFIRMATIONS tab now (0.13.5, user), so the readout points there, not "just above". -->
               <SettingRow
                 label="Auto-salvage"
                 description="Queues matching spare ship systems for teardown on its own, adding orders to the Auto-Salvage Terminal on the Salvage tab; they run the same timed jobs, including while the game is closed. Your rules below decide what it may take: a spare is taken only if it matches EVERY rule you switch on. It never touches an installed or favorited system, one already queued or being broken down, a quality tier you set to confirm first, or (with a grace period set) one you just crafted or uninstalled. Salvaged materials and hull teardowns stay manual. Standard-Issue systems are left alone unless a rule reaches them (Quality at Q0, Rarity in the Standard band); when reached they are queued like any spare and recover nothing, and uninstalling one leaves its slot empty until you install a replacement."
@@ -15671,12 +15619,12 @@
               {:else if autoSalvageEligibleTiers.length === 0}
                 <p class="cq-note cq-note-warn">
                   {autoSalvageStatusLead} Nothing can be auto-salvaged right now: every quality tier these rules reach ({autoSalvageTierList(autoSalvageHeldTiers)}) is set to ask you first under
-                  <strong>Confirm before salvaging</strong> just above, and auto-salvage never answers a confirmation for you. Uncheck a tier there to let the rules take it.
+                  <strong>Confirm before salvaging</strong> on the Confirmations tab, and auto-salvage never answers a confirmation for you. Deselect a tier there to let the rules take it.
                 </p>
               {:else}
                 <p class="cq-note">
                   {autoSalvageStatusLead} These rules can take {autoSalvageTierList(autoSalvageEligibleTiers)} right now.{#if autoSalvageHeldTiers.length > 0}{" "}
-                    Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: uncheck a tier under <strong>Confirm before salvaging</strong> just above to include it.
+                    Confirmation is holding back {autoSalvageTierList(autoSalvageHeldTiers)}: deselect a tier under <strong>Confirm before salvaging</strong> on the Confirmations tab to include it.
                   {/if}
                   {autoSalvageCountText(autoSalvageMatchCount, autoSalvageRules.enabled)}
                 </p>
@@ -15773,25 +15721,29 @@
           />
         </SettingRow>
 
-        <!-- ⚠️ THE PER-QUALITY SALVAGE CONFIRMS ARE GOVERNED HERE BUT EDITED IN THE BAY, and that
-             split is deliberate rather than an omission. A preset has to write them (they are the
-             graduated setting that makes six named levels mean six different things), so they are
-             part of the managed set. But the six-tier grid already exists in the Salvage Bay next to
-             the gear, and a second grid would be two editors for one save field.
-             So: this row REPORTS what the setting currently is, the level above WRITES it, and the
-             button goes to the one place that edits it tier by tier. -->
+        <!-- CONFIRM BEFORE SALVAGING (0.13.5, user moved its EDITOR here). Which quality tiers stop
+             and ask before a MANUAL salvage. It is part of the confirmation-LEVEL preset above (the
+             level writes all tiers at once; editing tiers here flips the level to Custom), so it is
+             the one graduated setting in the managed set. It USED to be a read-only reporter + a
+             "Change" button that jumped to a tier grid in the Salvage Bay; the user moved that grid
+             here, so this row now edits it DIRECTLY, tier by tier, and the jump is gone (one editor,
+             one save field). ⚠️ The label stays "Confirm before salvaging" WORD-FOR-WORD: the
+             auto-salvage eligibility readout (Gameplay tab) names it in <strong> tags and points
+             here. A selected tier is also what protects that quality from auto-salvage (auto never
+             answers a confirmation). Same save + handler (salvageConfirmQualities /
+             doToggleSalvageConfirmTier) the bay grid used. -->
         <SettingRow
           label="Confirm before salvaging"
-          description="Which quality tiers stop and ask before they are salvaged. Edited tier by tier in the Salvage Bay; a confirmation level above sets them all at once."
+          description="Which quality tiers stop and ask before a manual salvage — a safety prompt before a destructive action. Deselect a tier to salvage it straight away with no prompt. Ship (hull) teardowns always confirm regardless. A selected tier is also safe from auto-salvage. The confirmation level above sets all tiers at once; editing here makes the level Custom."
         >
-          <span class="confirm-tier-summary">
-            {salvageConfirmQualities.length === 0
-              ? "No tiers"
-              : salvageConfirmQualities.length === QUALITY_TIERS
-                ? "All tiers"
-                : `${salvageConfirmQualities.length} of ${QUALITY_TIERS} tiers`}
-          </span>
-          <button class="dev-btn" on:click={jumpToSalvageRules}>Change</button>
+          <MultiSelect
+            label="Quality tiers that confirm before salvaging"
+            summaryEmpty="None (no prompt)"
+            options={Array.from({ length: QUALITY_TIERS }, (_, i) => ({ value: String(i), label: `Q${i}` }))}
+            selected={salvageConfirmQualities.map((t) => String(t))}
+            on:toggle={(e) => doToggleSalvageConfirmTier(Number(e.detail.value), e.detail.selected)}
+            on:clear={doClearSalvageConfirmQualities}
+          />
         </SettingRow>
       </Panel>
       {/if}
@@ -17680,13 +17632,6 @@
     color: var(--color-text-secondary);
     line-height: 1.5;
     margin: 0;
-  }
-  /* The read-only tier count beside the Change button. tabular-nums so "2 of 6" and "6 of 6" do not
-     shift the button left and right as the number changes. */
-  .confirm-tier-summary {
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-    font-variant-numeric: tabular-nums;
   }
   .setting-select {
     /* ⚠️ SOLID dark bg, not panel-strong (which is rgba(accent, 0.06), nearly transparent). With a
