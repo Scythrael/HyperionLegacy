@@ -22,6 +22,15 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - ⚠️ **NOT scaffolded now, on purpose** (the multi-fuel system isn't designed yet, and building the registry ahead of the model would guess at it). Header fuel currently shows the single tank readout and ↗ links to the Fuel Depot (which carries the full runway/economy breakdown). The data-driven fuel popup gets built WITH the multi-fuel feature, against the real model. User chose "keep the link" for now (2026-09-13).
   - Open design questions for when it's picked up: does each fuel type get its own tank/cap or share one? does the refinery produce all types or one per pipeline? how does a mission know which fuel its hull burns? (rank -> fuel-type mapping). None decided.
 
+- **⭐ AUTOMATED FUEL GATHERING + AUTO-REFINERY — retire "a ship on fuel duty" (user, 2026-09-14). FUTURE, post-0.13.5, NEEDS A BRAINSTORM before design.** Core pain: "having to have a ship on fuel duty sucks" — a captain/ship permanently assigned to mine Deuterium Ice is bad UX. Rough vision (undetermined, user thinking out loud):
+  - A SYSTEM that AUTO-gathers Deuterium Ice and brings it back for processing, so fuel sustains itself without a dedicated ship on rotation.
+  - Gated behind MISSION unlocks: a ONE-TIME setup mission (e.g. "Setting up automated refinery") that on completion grants X Deuterium Ice AND unlocks the ability to UPGRADE an automatic-refinery facility; FUTURE missions raise the auto amount (e.g. per drone run). So the manual grind gives way to an upgradable automatic supply.
+  - Likely RETIRE the manual prospecting-for-ice mission (or relegate ice-gathering to these auto systems) once automation exists, for balance.
+  - Future unlocks could add AUTO-MINING of a particular fuel VOLATILE (ties directly to the MULTIPLE FUEL TYPES entry above) — roughly 1-3 SITES the player can upgrade for auto-gathering.
+  - HOUSING: maybe the Refinery facility, or a NEW auto-refinery facility (possibly CREATED by an explorer/exploration mission). Undetermined. Also floated: is this a PROSPECTING mechanic? "Not sure how to make this work in a good way" — user flagged it needs brainstorming.
+  - Broader idea embedded: "certain missions should have AUTOMATIC EXECUTION after a point" (a general auto-run-missions concept), of which auto-ice is the first instance.
+  - TIMING: gameplay system, NOT 0.13.5 (presentation). Candidate for the EXPLORATION release (0.14.0) or later; the explorer-mission-creates-a-facility angle points at exploration. Ties to [[project_fleet_admiral_online_strategy]] roadmap. When picked up: brainstorm the shape first (where it lives, prospecting-vs-facility, balance, the mission ladder), then design/mock.
+
 - **NEXT (0.11.0) is DESIGNED (user 2026-07-17).** The equipment feature grew, during brainstorm, into a
   full ship-equipment + combat + crew + exploration vision. It is captured in two docs:
   `docs/plans/2026-07-17-ship-equipment-combat-epic-design.md` (the whole vocabulary) and
