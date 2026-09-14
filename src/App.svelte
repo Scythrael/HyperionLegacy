@@ -849,6 +849,7 @@
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
+  import { loadShowExperienceValues, saveShowExperienceValues } from "./lib/experienceReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
   // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
   // "confirm only when something would be lost" rule all live in the module so they are
@@ -963,6 +964,12 @@
   // migration. Loaded in onMount alongside tickBarEnabled; default FALSE
   // (players see just the clock; tick counts are an opt-in power-user detail).
   let showTickCounts = false;
+  // Whether the header EXP + CRAFT readouts show the raw current/total XP and a decimal percent
+  // instead of just the whole-number percent. Persisted in localStorage (loadShowExperienceValues),
+  // same device-preference pattern as showTickCounts; default FALSE. Off, "99%" is enough; on, you
+  // can watch small per-job gains that the rounded percent hides (a level-7 refine is well under a
+  // percent, so it looks stuck otherwise, the exact report that prompted this).
+  let showExperienceValues = false;
   // Phase 2 (Task D3): whether the "are you sure you wish to refine this item?"
   // confirmation modal is shown before starting a refine order. Persisted in
   // localStorage (loadRefineConfirmEnabled), NOT on GameState, exactly like
@@ -2802,6 +2809,7 @@
     initIconPack();
     tickBarEnabled = loadTickBarEnabled();
     showTickCounts = loadShowTickCounts();
+    showExperienceValues = loadShowExperienceValues();
     // 0.13.5: load the accessibility settings and APPLY them immediately. Applying on load is the
     // half that is easy to forget and impossible to notice while developing (you toggle a setting,
     // it works, you never reopen the app with it already on).
@@ -8767,12 +8775,12 @@
           <div class="tb-statrow">
             <span class="tb-statlab">EXP</span>
             <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
-            <span class="tb-statval"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {(fleetAdminXpRatio * 100).toFixed(1)}%</span>
+            <span class="tb-statval"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {#if showExperienceValues}{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} ({(fleetAdminXpRatio * 100).toFixed(1)}%){:else}{(fleetAdminXpRatio * 100).toFixed(0)}%{/if}</span>
           </div>
           <div class="tb-statrow">
             <span class="tb-statlab">CRAFT</span>
             <span class="tb-barwrap"><span class="tb-bar tb-bar-amber"><i style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></i></span></span>
-            <span class="tb-statval"><span class="tb-lvl">Lv {craftingLevelView.level}</span> · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
+            <span class="tb-statval"><span class="tb-lvl">Lv {craftingLevelView.level}</span> · {#if showExperienceValues}{formatNumber(craftingLevelView.xpIntoLevel)} / {formatNumber(craftingLevelView.xpForNextLevel)} ({(craftingLevelView.fraction * 100).toFixed(1)}%){:else}{(craftingLevelView.fraction * 100).toFixed(0)}%{/if}</span>
           </div>
           {#if tickBarEnabled}
             <div class="tb-statrow">
@@ -15358,6 +15366,16 @@
             label="Show tick counts"
             checked={showTickCounts}
             on:change={(e) => { showTickCounts = e.detail; saveShowTickCounts(showTickCounts); }}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Show experience values"
+          description="Shows the exact current / total XP and a decimal percent on the header's EXP and Craft bars, instead of just the whole-number percent. Useful for seeing small gains from a single job, which a rounded percent hides."
+        >
+          <Toggle
+            label="Show experience values"
+            checked={showExperienceValues}
+            on:change={(e) => { showExperienceValues = e.detail; saveShowExperienceValues(showExperienceValues); }}
           />
         </SettingRow>
       </Panel>
