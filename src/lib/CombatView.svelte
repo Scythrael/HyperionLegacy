@@ -1925,7 +1925,7 @@
       radial-gradient(900px 500px at 50% -10%, rgba(var(--color-accent-rgb), 0.06), transparent 60%),
       var(--color-bg-deep);
     border: 1px solid var(--color-border);
-    border-radius: 14px;
+    border-radius: var(--corner);
     overflow: hidden;
     color: var(--color-text-primary);
   }
@@ -1958,7 +1958,7 @@
     font-size: var(--text-xs);
     color: var(--color-warning);
     border: 1px solid rgba(251, 191, 36, 0.4);
-    border-radius: 999px;
+    border-radius: var(--corner);
     padding: 2px 9px;
     margin-left: 8px;
     white-space: nowrap;
@@ -1971,7 +1971,7 @@
   .mode {
     display: flex;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--corner);
     overflow: hidden;
   }
   .mode button {
@@ -2008,7 +2008,7 @@
     justify-content: center;
     background: transparent;
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--corner);
     color: var(--color-text-secondary);
     font-size: calc(16px * var(--ui-scale));
     line-height: 1;
@@ -2075,7 +2075,7 @@
   }
   .ship {
     border: 1px solid var(--color-border);
-    border-radius: 11px;
+    border-radius: var(--corner);
     padding: 12px;
     background: var(--color-bg-deep);
   }
@@ -2091,7 +2091,7 @@
   .portrait {
     width: 46px;
     height: 46px;
-    border-radius: 9px;
+    border-radius: var(--corner);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2134,7 +2134,7 @@
   }
   .bar {
     height: 9px;
-    border-radius: 5px;
+    border-radius: var(--corner);
     background: rgba(255, 255, 255, 0.06);
     overflow: hidden;
     border: 1px solid var(--color-border);
@@ -2146,7 +2146,7 @@
   .bar > span {
     display: block;
     height: 100%;
-    border-radius: 5px;
+    border-radius: var(--corner);
     transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .bar.hull > span {
@@ -2183,7 +2183,7 @@
   .pip {
     width: 15px;
     height: 15px;
-    border-radius: 3px;
+    border-radius: var(--corner);
     border: 1px solid var(--color-border);
     display: inline-flex;
     align-items: center;
@@ -2282,7 +2282,7 @@
     max-height: calc(100vh - 16px);
     overflow-y: auto;
     pointer-events: auto;
-    border-radius: 8px;
+    border-radius: var(--corner);
     background: var(--color-bg-deep);
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
   }
@@ -2294,7 +2294,7 @@
     box-sizing: border-box;
     padding: 9px 11px;
     border: 1px solid var(--color-border-strong, var(--color-border));
-    border-radius: 8px;
+    border-radius: var(--corner);
     background: var(--color-bg-deep);
     text-align: left;
     /* The mobile chips normalize to a small line-height; reset so the card text is
@@ -2346,7 +2346,7 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     padding: 2px 6px;
-    border-radius: 5px;
+    border-radius: var(--corner);
     color: var(--cv-role, var(--color-accent-bright));
     background: color-mix(in srgb, var(--cv-role, var(--color-accent-bright)) 20%, transparent);
   }
@@ -2448,7 +2448,7 @@
   .rangetrack {
     position: relative;
     height: 6px;
-    border-radius: 4px;
+    border-radius: var(--corner);
     background: linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.22));
     border: 1px solid var(--color-border);
   }
@@ -2618,7 +2618,7 @@
     position: relative;
     width: 120px;
     height: 6px;
-    border-radius: 4px;
+    border-radius: var(--corner);
     background: linear-gradient(90deg, rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.24));
     border: 1px solid var(--color-border);
   }
@@ -2715,7 +2715,7 @@
   .cvm-ico {
     width: 30px;
     height: 30px;
-    border-radius: 7px;
+    border-radius: var(--corner);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2748,7 +2748,7 @@
     font-size: calc(8px * var(--ui-scale));
     color: var(--color-warning);
     border: 1px solid rgba(251, 191, 36, 0.5);
-    border-radius: 4px;
+    border-radius: var(--corner);
     padding: 0 4px;
     letter-spacing: 0.08em;
   }
@@ -2767,7 +2767,7 @@
   .cvm-mbar {
     position: relative;
     height: 6px;
-    border-radius: 3px;
+    border-radius: var(--corner);
     background: rgba(255, 255, 255, 0.06);
     border: 1px solid var(--color-border);
     overflow: hidden;
@@ -2776,7 +2776,7 @@
   .cvm-mbar > span {
     display: block;
     height: 100%;
-    border-radius: 3px;
+    border-radius: var(--corner);
     transition: width var(--combat-step-seconds, 0.3s) linear;
   }
   .cvm-mbar.hull > span {

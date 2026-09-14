@@ -80,7 +80,7 @@
     cursor: pointer;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--color-border);
-    border-radius: 2px;
+    border-radius: var(--corner);
     transition:
       background 0.18s ease,
       border-color 0.18s ease;
@@ -89,7 +89,7 @@
     display: block;
     width: calc(var(--toggle-h) - 6px);
     height: calc(var(--toggle-h) - 6px);
-    border-radius: 1px;
+    border-radius: var(--corner);
     /* OFF: the DIM text token. Readable, clearly inactive, and NOT the disabled token. */
     background: var(--color-text-dim);
     transform: translateX(0);

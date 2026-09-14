@@ -12847,7 +12847,7 @@
             <div class="dev-row" style="flex-wrap: wrap; gap: 8px;">
               {#each LOGISTICS_RESERVED_GOODS as label (label)}
                 <span
-                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: var(--text-md); opacity: 0.5;"
+                  style="display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: var(--corner); border: 1px solid rgba(var(--color-accent-rgb), 0.2); background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary); font-size: var(--text-md); opacity: 0.5;"
                   title="Reserved for a future update (combat)"
                 >🔒 {label}</span>
               {/each}
@@ -17444,8 +17444,8 @@
   .tb-statrow { display: contents; }
   .tb-statlab { font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
   .tb-barwrap { min-width: 0; }
-  .tb-bar { position: relative; display: block; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
-  .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 5px; transition: width var(--bar-step-seconds, 0.25s) linear; }
+  .tb-bar { position: relative; display: block; height: 9px; border-radius: var(--corner); background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: var(--corner); transition: width var(--bar-step-seconds, 0.25s) linear; }
   .tb-statval { flex: 0 0 auto; min-width: 78px; text-align: right; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
   .tb-lvl { color: var(--color-text-primary); font-weight: 600; }
   .tb-hbtn-link { text-decoration: none; }
@@ -17465,7 +17465,7 @@
     display: inline-flex; align-items: center; gap: 6px;
     padding: 6px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    border-radius: 4px;
+    border-radius: var(--corner);
     background: rgba(var(--color-accent-rgb), 0.08);
     font: inherit;
     cursor: pointer;
@@ -17485,7 +17485,7 @@
     width: auto; max-width: none;
     padding: 8px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    border-radius: 6px;
+    border-radius: var(--corner);
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
@@ -17527,7 +17527,7 @@
     max-width: 240px;
     padding: 8px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    border-radius: 6px;
+    border-radius: var(--corner);
     /* OPAQUE background (2026-07-09 fix). The panels' --color-panel-bg-strong is
        only 6% alpha, it reads as solid ONLY because panels add
        backdrop-filter: blur(). This tooltip has no blur, so that variable let
@@ -17621,7 +17621,7 @@
     right: -5px;
     width: 7px;
     height: 7px;
-    border-radius: 99px;
+    border-radius: var(--corner);
     background: var(--color-warning);
     box-shadow:
       0 0 0 2px var(--color-panel-bg-strong),
@@ -17825,7 +17825,7 @@
   .theme-preview {
     width: 18px;
     height: 18px;
-    border-radius: 4px;
+    border-radius: var(--corner);
     border: 1px solid var(--color-border-strong);
     display: inline-block;
     flex: none;
@@ -17873,7 +17873,7 @@
     font-family: var(--font-body);
     font-size: var(--text-sm);
     padding: var(--space-2) var(--space-3);
-    border-radius: 4px;
+    border-radius: var(--corner);
     /* ⚠️ A REAL <select>, NOT A CUSTOM WIDGET. It gets keyboard navigation, screen-reader support
        and the platform's own touch picker for free, which is the whole point on an accessibility
        screen. Styling is limited to colours and type so the native behaviour is untouched. */
@@ -17957,7 +17957,7 @@
   }
   .mission-card {
     padding: 12px;
-    border-radius: 10px;
+    border-radius: var(--corner);
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.12);
   }
@@ -18092,7 +18092,7 @@
     font-weight: 600;
     cursor: help;
     white-space: nowrap;
-    border-radius: 2px;
+    border-radius: var(--corner);
   }
   .threat-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   .threat-chip-icon { font-size: var(--text-md); line-height: 1; }
@@ -18258,7 +18258,7 @@
     color: var(--color-accent);
     display: grid;
     place-items: center;
-    border-radius: 3px;
+    border-radius: var(--corner);
     cursor: pointer;
     padding: 0;
     align-self: flex-start;
@@ -18591,7 +18591,7 @@
     margin-bottom: 14px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border-strong);
-    border-radius: 8px;
+    border-radius: var(--corner);
     color: var(--color-text-primary);
     font-family: var(--font-mono);
     font-size: var(--text-md);
@@ -18652,7 +18652,7 @@
     padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
     background: var(--color-bg-mid);
     border: 1px solid var(--color-border-strong);
-    border-radius: 16px 16px 0 0; /* rounded top edge reads as a sheet lifting from the edge */
+    border-radius: var(--corner) var(--corner) 0 0; /* rounded top edge reads as a sheet lifting from the edge */
     box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
     color: var(--color-text-primary);
   }
@@ -18665,7 +18665,7 @@
     .fsheet {
       max-width: 460px;
       max-height: 85vh;
-      border-radius: 14px;
+      border-radius: var(--corner);
       box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
     }
   }
@@ -18704,7 +18704,7 @@
     cursor: pointer;
     background: color-mix(in srgb, var(--color-accent) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
-    border-radius: 7px;
+    border-radius: var(--corner);
     color: var(--color-text-secondary);
   }
   .fsheet-close:hover {
@@ -18736,7 +18736,7 @@
     margin-bottom: 14px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border-strong);
-    border-radius: 8px;
+    border-radius: var(--corner);
     color: var(--color-text-primary);
     font-family: var(--font-mono);
     font-size: var(--text-sm);
@@ -18780,7 +18780,7 @@
     width: 100%;
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 10px;
+    border-radius: var(--corner);
     padding: 12px;
     cursor: pointer;
     color: inherit;
@@ -18803,7 +18803,7 @@
     font-size: var(--text-2xl);
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     background: rgba(var(--color-accent-rgb), 0.08);
-    border-radius: 8px;
+    border-radius: var(--corner);
   }
   .roster-card-heading { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .roster-card-heading .research-name { margin-bottom: 0; }
@@ -18838,7 +18838,7 @@
     right: -10px; /* x offset from the name's right edge */
     width: 7px;
     height: 7px;
-    border-radius: 99px;
+    border-radius: var(--corner);
     background: var(--color-warning);
     box-shadow:
       0 0 0 2px var(--color-panel-bg-strong),
@@ -18881,7 +18881,7 @@
     padding: 7px 10px;
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
     border: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    border-radius: 8px;
+    border-radius: var(--corner);
     color: var(--color-text-primary);
     font: inherit;
     font-size: var(--text-md);
@@ -18896,7 +18896,7 @@
     padding: 6px 12px;
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
     border: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    border-radius: 999px;
+    border-radius: var(--corner);
     color: var(--color-text-secondary);
     font: inherit;
     font-size: var(--text-sm);
@@ -18928,7 +18928,7 @@
     gap: 6px;
     background: linear-gradient(rgba(var(--color-accent-rgb), 0.06), rgba(var(--color-accent-rgb), 0.06)), var(--color-bg-mid);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 10px;
+    border-radius: var(--corner);
     overflow: hidden; /* keep the child buttons' corners inside the rounded row */
   }
   .ship-row:hover { border-color: var(--color-accent); }
@@ -18979,7 +18979,7 @@
     color: var(--color-text-secondary);
     padding: 2px 8px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.25);
-    border-radius: 999px;
+    border-radius: var(--corner);
   }
   /* ★ favorite toggle: a slim full-height control at the row's trailing edge. */
   .ship-fav {
@@ -19026,7 +19026,7 @@
     color: var(--color-text-secondary);
     background: var(--color-panel-bg);
     border: 1px solid var(--color-border);
-    border-radius: 4px;
+    border-radius: var(--corner);
     cursor: pointer;
   }
   .materials-tier-btn:hover { border-color: var(--color-border-strong); color: var(--color-text-primary); }
@@ -19300,7 +19300,7 @@
     display: inline-flex; align-items: center; justify-content: center;
     width: 26px; height: 26px; padding: 0; margin: 0;
     font-size: calc(14px * var(--ui-scale)); line-height: 1;
-    border-radius: 6px;
+    border-radius: var(--corner);
     border: 1.5px solid var(--drop-rc);
     background: var(--color-bg-mid);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25) inset;
@@ -19317,7 +19317,7 @@
     position: fixed; z-index: 110; width: 210px;
     background: var(--color-bg-mid);
     border: 1px solid var(--color-border-strong);
-    border-radius: 8px; padding: 11px;
+    border-radius: var(--corner); padding: 11px;
     box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
     pointer-events: none;
   }
@@ -19346,7 +19346,7 @@
   .stat-row-value { color: var(--color-text-primary); font-family: var(--font-mono); font-weight: 600; }
   .warehouse-tt-v { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-primary); }
   .warehouse-tt-bar {
-    height: 6px; border-radius: 3px; overflow: hidden; margin-top: 7px;
+    height: 6px; border-radius: var(--corner); overflow: hidden; margin-top: 7px;
     background: rgba(var(--color-accent-rgb), 0.08); border: 1px solid var(--color-border);
   }
   .warehouse-tt-bar span { display: block; height: 100%; }
@@ -19395,7 +19395,7 @@
     font-variant-numeric: tabular-nums;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    border-radius: 20px;
+    border-radius: var(--corner);
     padding: 1px 7px;
   }
   /* The QUEUED companion chip (0.13.3 Unit 4.6). Same pill as .home-sec-count so the two
@@ -19427,7 +19427,7 @@
     padding: 9px 11px;
     background: color-mix(in srgb, var(--color-warning) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
-    border-radius: 8px;
+    border-radius: var(--corner);
     /* Button reset: inherit type, left-align, real pointer. */
     font: inherit;
     color: inherit;
@@ -19440,7 +19440,7 @@
   .home-pulse {
     width: 8px;
     height: 8px;
-    border-radius: 99px;
+    border-radius: var(--corner);
     background: var(--color-warning);
     flex: none;
     animation: home-pulse 2.4s ease-out infinite;
@@ -19461,7 +19461,7 @@
     text-transform: uppercase;
     color: var(--color-bg-deep);
     background: var(--color-warning);
-    border-radius: 6px;
+    border-radius: var(--corner);
     padding: 6px 11px;
     white-space: nowrap;
     font-weight: 600;
@@ -19482,7 +19482,7 @@
     padding: 9px 11px;
     background: color-mix(in srgb, var(--color-warning) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
-    border-radius: 8px;
+    border-radius: var(--corner);
     overflow: hidden;
   }
   /* ⚠️ The ticker item now WRAPS the shared prompt button rather than duplicating its markup
@@ -19517,7 +19517,7 @@
   .home-dot {
     width: 6px;
     height: 6px;
-    border-radius: 99px;
+    border-radius: var(--corner);
     background: color-mix(in srgb, var(--color-warning) 25%, transparent);
     flex: none;
     transition: background 0.2s;
@@ -19535,7 +19535,7 @@
     color: var(--color-warning);
     background: transparent;
     border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
-    border-radius: 6px;
+    border-radius: var(--corner);
     padding: 5px 10px;
     cursor: pointer;
     white-space: nowrap;
@@ -19553,7 +19553,7 @@
     padding: 10px 12px;
     background: color-mix(in srgb, var(--color-success) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
-    border-radius: 8px;
+    border-radius: var(--corner);
   }
   .home-caughtup-check { font-size: var(--text-xl); color: var(--color-success); flex: none; }
   .home-caughtup-title { font-family: var(--font-display); font-size: calc(12.5px * var(--ui-scale)); color: var(--color-success); }
@@ -19691,7 +19691,7 @@
     gap: 4px;
     max-width: 100%;
     padding: 1px 6px;
-    border-radius: 999px;
+    border-radius: var(--corner);
     /* --done-rc is the item's own rarity color, set inline per chip from the
        shared warehouseRarityColor. */
     background: color-mix(in srgb, var(--done-rc) 12%, transparent);
@@ -19717,7 +19717,7 @@
   .home-bar {
     display: block;
     height: 3px;
-    border-radius: 3px;
+    border-radius: var(--corner);
     background: var(--color-bg-deep);
     overflow: hidden;
     margin-top: 6px;
@@ -19727,13 +19727,13 @@
   .home-bar > i {
     display: block;
     height: 100%;
-    border-radius: 3px;
+    border-radius: var(--corner);
     background: var(--color-accent);
     transition: width var(--bar-step-seconds, 0.2s) linear;
   }
   /* Dual hull / shield bars for a combat patrol. */
   .home-duo { display: flex; gap: 5px; margin-top: 6px; }
-  .home-b { flex: 1; height: 3px; border-radius: 3px; background: var(--color-bg-deep); overflow: hidden; }
+  .home-b { flex: 1; height: 3px; border-radius: var(--corner); background: var(--color-bg-deep); overflow: hidden; }
   .home-b > i { display: block; height: 100%; }
   .home-b-hull > i { background: var(--color-warning); }
   .home-b-shield > i { background: var(--color-accent); }
@@ -19747,7 +19747,7 @@
     padding: 7px 10px;
     background: var(--color-panel-bg-strong);
     border: 1px dashed var(--color-border-strong);
-    border-radius: 7px;
+    border-radius: var(--corner);
     opacity: 0.6;
   }
   .home-lock-ico { font-size: var(--text-sm); }
@@ -19758,7 +19758,7 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: var(--corner);
     padding: 0 6px;
   }
 
@@ -19784,7 +19784,7 @@
     padding: 8px 9px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--corner);
   }
   /* The row a freed line would take next. A quiet accent wash, NOT the amber "needs you"
      treatment: this is a preview of something about to happen on its own, not a prompt. */
@@ -19821,7 +19821,7 @@
     text-transform: uppercase;
     color: var(--color-accent);
     border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
-    border-radius: 12px;
+    border-radius: var(--corner);
     padding: 0 6px;
     white-space: nowrap;
   }
@@ -19848,7 +19848,7 @@
     padding: 0;
     background: var(--color-panel-bg);
     border: 1px solid var(--color-border);
-    border-radius: 6px;
+    border-radius: var(--corner);
     color: var(--color-text-secondary);
     cursor: pointer;
     transition: border-color 0.15s, color 0.15s, background 0.15s;
@@ -19880,7 +19880,7 @@
     color: var(--color-warning);
     background: color-mix(in srgb, var(--color-warning) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-warning) 28%, transparent);
-    border-radius: 7px;
+    border-radius: var(--corner);
     padding: 7px 9px;
   }
   /* The depth pill turns amber when a respec left the facility over capacity. */
@@ -19917,7 +19917,7 @@
     padding: 8px 9px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--corner);
   }
   /* A tier that has reached its hard ceiling. A quiet SUCCESS wash, not the amber "needs you"
      treatment and not a danger one: hitting the cap is a destination reached, and the design
@@ -19953,7 +19953,7 @@
     color: var(--color-success);
     background: color-mix(in srgb, var(--color-success) 8%, transparent);
     border: 1px solid color-mix(in srgb, var(--color-success) 28%, transparent);
-    border-radius: 7px;
+    border-radius: var(--corner);
     padding: 7px 9px;
   }
 
@@ -19987,7 +19987,7 @@
     padding: 8px 9px;
     background: var(--color-panel-bg-strong);
     border: 1px solid var(--color-border);
-    border-radius: 8px;
+    border-radius: var(--corner);
   }
   /* Detail lines WRAP (no ellipsis, no fixed width), so a long item label reflows at 320px
      instead of forcing the horizontal scroll the responsive rule forbids. */

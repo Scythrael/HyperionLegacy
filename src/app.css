@@ -4,6 +4,13 @@
      renders default UA surfaces (scrollbars, form controls) dark and reinforces the dark mobile
      chrome / nav-bar tint set by the theme-color meta in index.html. */
   color-scheme: dark;
+  /* ⚠️ SQUARED UI (user 2026-09-13, "I like the squared look more"). ONE corner radius for
+     the whole app: buttons, tabs, dropdowns, panels/modules, tiles and progress bars all point
+     here, so the whole thing squares (or re-rounds) from a single value. 2px keeps a hair of
+     softening so small controls do not read as a rendering glitch (same call the Toggle made);
+     set to 0 for fully sharp. True circles (border-radius:50% dots, avatars, the ? button) are
+     intentionally NOT routed here. */
+  --corner: 2px;
   --color-bg-deep: #060a12;
   --color-bg-mid: #0a1120;
   --color-panel-bg: rgba(20, 40, 60, 0.32);
@@ -232,7 +239,7 @@ button {
 }
 
 ::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: var(--corner); }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }

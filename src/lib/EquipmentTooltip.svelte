@@ -344,7 +344,7 @@
     font-weight: 700;
     background: rgba(var(--color-accent-rgb), 0.08);
     border: 1px solid var(--color-border);
-    border-radius: 5px;
+    border-radius: var(--corner);
     padding: 1px 7px;
     color: var(--color-text-secondary);
   }

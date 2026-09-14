@@ -112,7 +112,7 @@
     flex: 0 0 auto;
     background: rgba(var(--color-accent-rgb), 0.06);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
-    border-radius: 8px;
+    border-radius: var(--corner);
     padding: 9px 16px;
     color: var(--color-text-secondary);
     font-size: var(--text-md);

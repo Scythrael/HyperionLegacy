@@ -169,7 +169,7 @@
     gap: 6px;
     font-family: inherit;
     font-size: 13px;
-    border-radius: 6px;
+    border-radius: var(--corner);
     padding: 7px 14px;
     cursor: pointer;
     white-space: nowrap;

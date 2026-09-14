@@ -1348,7 +1348,7 @@
     padding: 16px 18px; /* TUNABLE: tooltip padding, Checkpoint A */
     background: var(--color-panel-bg-strong);
     border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    border-radius: 8px;
+    border-radius: var(--corner);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
   }
   .web-tooltip-header {
