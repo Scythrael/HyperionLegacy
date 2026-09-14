@@ -27,6 +27,8 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - **Ops OVERVIEW headers → home-dashboard header treatment.** Section headers ("Gathering", etc.) switch to the home-dashboard header FONT, with DIVIDERS beside the header, plus a **squared COUNT BADGE** (e.g. a square "3") showing how many ships are dispatched on that mission type.
   - **Combat Patrols selection screen** — same header treatment (home-dashboard font + dividers + squared count badge).
 
+- **AMERICAN ENGLISH SWEEP → 0.13.6 (user, 2026-09-14).** Convert British spellings to American in ALL user-facing UI text + code identifiers/comments where reasonable: colour→color (incl. "Colour-blind palette" label + the `--color-*` tokens are already US, but "Colour"/"colour" in labels/descriptions/comments), harbour→harbor, -ise→-ize, etc. ⚠️ Do it as ONE deliberate sweep (grep `colour`/`harbour`/`-ise` case-insensitively across src + docs), not piecemeal, so nothing is half-converted. User: "the letter U is too expensive for us American folk." (Claude's own prose is already switched to US English as of this message.)
+
 - **TUTORIAL should explain "FA EXP" (user, 2026-09-13).** The header EXP bar is now labelled **FA EXP** (Fleet Admiral experience) to distinguish it from crafting XP. When the tutorial exists, have it briefly explain what FA EXP is (fleet-admiral level / account progression) vs CRAFT (crafting level). One line; no code owed until the tutorial is built.
 
 - **0.13.5 NITPICK-PHASE ADDITIONS (user, 2026-09-13), all pulled INTO 0.13.5:**

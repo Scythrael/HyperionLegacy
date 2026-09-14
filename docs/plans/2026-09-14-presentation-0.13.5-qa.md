@@ -61,7 +61,7 @@
 | E7 | Keyboard: Tab to a toggle, Space, Enter. | Both activate; focus ring visible. |
 | E8 | Log style / Log speed. | Dropdowns, not button pairs. |
 | E9 | Force-mobile ON on desktop. | Desktop renders the mobile layout. |
-| E10 | **Colour-blind palette** → **Colour-blind safe**. | Status colours (success/warning/danger) + the rarity ladder shift to the Okabe-Ito safe set immediately, no reload; your **theme accent is unchanged**. Check a fuel-OK/short row, a threat chip, and a rarity chip row read distinctly. Setting persists across reload. |
+| E10 | Toggle **Colour-blind palette** on. | It's a toggle (one row: label + ? + switch, no wrap), matching the High-contrast/Dyslexia rows. On: status colours (success/warning/danger) + the rarity ladder shift to the Okabe-Ito safe set immediately, no reload; your **theme accent is unchanged**. Check a fuel-OK/short row, a threat chip, and a rarity chip row read distinctly. Setting persists across reload. |
 | ✅ E11 | (palette plumbing) | One writer stamps `data-palette`; "off" stamps `off` (no override); rarity/semantics are token-driven so the palette remaps them from one place. |
 
 ## F. Confirmation levels + Confirm-by-quality (moved here)

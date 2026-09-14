@@ -15252,27 +15252,27 @@
         </SettingRow>
 
         <!-- Colour-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
-             theme accent and layers safety onto the meaning-bearing colours (state + rarity). The
-             "safe" option is the Okabe-Ito universal set (distinguishable across the common
-             deficiency types at once). More palettes slot in as more [data-palette] blocks — this
-             select is the seam the skin system extends. -->
+             theme accent and layers safety onto the meaning-bearing colours (state + rarity), using
+             the Okabe-Ito universal set (distinguishable across the common deficiency types at once).
+             ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today — the same widget
+             as the High-contrast / Dyslexia rows above it, and it never wraps a wide <select> onto a
+             second line on a phone. The extension seam is the [data-palette] axis (app.css) plus the
+             COLORBLIND_PALETTES list (accessibilityPreference.ts), NOT this control: when more
+             palettes exist (tritanopia / Pride), this graduates to a select. -->
         <SettingRow
           label="Colour-blind palette"
           description="Remaps the status colours (success / warning / danger) and the rarity ladder to a colour-blind-safe set. Your theme's accent colour is unchanged. Rarity always shows its name too, so tiers stay clear."
         >
-          <select
-            class="setting-select"
-            value={colorBlindPalette}
+          <input
+            type="checkbox"
+            checked={colorBlindPalette === "cbsafe"}
             on:change={(e) => {
-              colorBlindPalette = (e.target as HTMLSelectElement).value as ColorBlindPalette;
+              colorBlindPalette = (e.target as HTMLInputElement).checked ? "cbsafe" : "off";
               saveColorBlindPalette(colorBlindPalette);
               applyAccessibilityNow();
             }}
             aria-label="Colour-blind palette"
-          >
-            <option value="off">Off</option>
-            <option value="cbsafe">Colour-blind safe</option>
-          </select>
+          />
         </SettingRow>
 
         <!-- ⚠️ RENDERED DISABLED RATHER THAN HIDDEN, and the description says why. The separate
