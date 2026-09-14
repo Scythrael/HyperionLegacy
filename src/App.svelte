@@ -8199,7 +8199,7 @@
          tick-independent, so the per-tick reason text updates in place without the
          popover resetting. Reuses the currency-tooltip look (opaque, bordered, shadow). -->
     {#if !check.ok && check.reason && openUpgradeReasonKey === key}
-      <div class="currency-tooltip upgrade-reason-tooltip" role="tooltip">
+      <div class="info-pop currency-tooltip upgrade-reason-tooltip" role="tooltip">
         <div class="currency-tooltip-body">{check.reason}</div>
       </div>
     {/if}
@@ -8819,7 +8819,7 @@
               <span class="tb-hbtn-caret" aria-hidden="true">⌄</span>
             </button>
             {#if openCurrencyKey === "currency"}
-              <div class="tb-pop" id="tb-pop-currency" role="tooltip">
+              <div class="tb-pop info-pop" id="tb-pop-currency" role="tooltip">
                 <div class="tb-pop-title">Currency</div>
                 {#each CURRENCY_META as c (c.key)}
                   <div class="tb-pop-line">
@@ -14403,7 +14403,7 @@
                             <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
                             <span class="threat-chip-name">{forecast.assessment.name}</span>
                           </button>
-                          <span class="threat-tooltip" role="tooltip">
+                          <span class="threat-tooltip info-pop" role="tooltip">
                             <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
                             <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
                           </span>
@@ -17198,7 +17198,7 @@
              "/ 1e1000". Live mission drops are all warehoused materials with a
              real cap, so in practice the held / cap form always renders. -->
         {@const tipDropUncapped = tipDropCap.gte(new Decimal("1e99"))}
-        <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
+        <div class="warehouse-tooltip info-pop" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
           <div class="warehouse-tt-name" style="color: {warehouseRarityColor(tip.rarity)}">{tip.label}</div>
           <div class="warehouse-tt-rarity" style="color: {warehouseRarityColor(tip.rarity)}">{tip.rarity}</div>
           <!-- Held / cap (0.12.0 "Console" nav, CN5b): the player's current stock
@@ -17221,7 +17221,7 @@
         {@const tipCap = tierCap(state, tip.tier)}
         {@const tipAtCap = tipDiscovered && materialAtCap(state, tipId)}
         {@const tipPct = warehouseFillPct(tipCount, tipCap)}
-        <div class="warehouse-tooltip" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
+        <div class="warehouse-tooltip info-pop" style="left: {warehouseTooltip.x}px; top: {warehouseTooltip.y}px;" role="tooltip">
           {#if !tipDiscovered}
             <div class="warehouse-tt-name" style="color: var(--color-text-secondary)">❓ Undiscovered</div>
             <div class="warehouse-tt-hint">Hint: {tip.unlockHint}</div>
@@ -17477,17 +17477,26 @@
   .tb-hbtn-glyph { flex: 0 0 auto; font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
   .tb-hbtn b { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
   .tb-hbtn-caret { flex: 0 0 auto; margin-left: auto; padding-left: 6px; font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1; }
+  /* ⚠️ THE ONE INFO-TOOLTIP SURFACE (0.13.5 tooltip standardization, user: "info tooltips should
+     all look one way"). Shared by the currency popup, the warehouse build-reason popover, the combat
+     threat tooltip and the warehouse fill-tile tooltip. Only the SURFACE is shared (opaque
+     accent-wash over an opaque bg-mid base, 1px accent border, squared corner, drop shadow, base
+     padding); each surface keeps its OWN positioning + inner content. HELP (?) bubbles and ITEM
+     (EquipmentTooltip) cards are deliberately their own distinct looks, per the 3-template split. */
+  .info-pop {
+    padding: 8px 10px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+  /* .tb-pop is now POSITIONING ONLY; its surface comes from .info-pop (both classes on the element). */
   .tb-pop {
     position: absolute;
     top: calc(100% + 6px);
     left: 8px; right: 8px;
     z-index: 5;
     width: auto; max-width: none;
-    padding: 8px 10px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    border-radius: var(--corner);
-    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
   .tb-pop-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 5px; }
   .tb-pop-line { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; font-size: var(--text-xs); }
@@ -17518,6 +17527,7 @@
      keeps short labels tight while max-width wraps the flavor line. z-index sits
      above the tab body; the .top-bar itself is lifted into its own stacking layer
      (see .top-bar's position/z-index) so this popover always overlays content. */
+  /* Warehouse build-reason popover: POSITIONING ONLY now; its surface comes from .info-pop. */
   .currency-tooltip {
     position: absolute;
     top: calc(100% + 6px);
@@ -17525,17 +17535,6 @@
     z-index: 5;
     width: max-content;
     max-width: 240px;
-    padding: 8px 10px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    border-radius: var(--corner);
-    /* OPAQUE background (2026-07-09 fix). The panels' --color-panel-bg-strong is
-       only 6% alpha, it reads as solid ONLY because panels add
-       backdrop-filter: blur(). This tooltip has no blur, so that variable let
-       the busy tab content behind bleed straight through and made the text
-       unreadable. Layer a faint themed accent wash over an OPAQUE dark base so
-       it fully occludes content yet still matches the console tint. */
-    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   }
 
   .currency-tooltip-body { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
@@ -18107,20 +18106,11 @@
     z-index: 60;
     width: max-content;
     max-width: 240px;
-    padding: 8px 10px;
+    /* Surface (bg/border/shadow/padding/radius) comes from .info-pop now; this keeps only the
+       positioning + the hover-reveal (display:none until the wrap is hovered/focused). */
     display: none;
     flex-direction: column;
     gap: 4px;
-    /* OPAQUE background: the SAME 2026-07-09 fix already applied to .currency-tooltip.
-       The shared --color-panel-bg is only 32% opaque (right for a large panel over the
-       starfield, wrong for a tooltip): a see-through tooltip lets the card content behind
-       it bleed through and scramble the text, which is the REAL cause of the "tooltip
-       overlap" reports on mobile, not z-index or position (both were already correct).
-       Layer a faint themed accent wash over an OPAQUE dark base so it fully occludes
-       content yet still matches the console tint. Matches .currency-tooltip exactly. */
-    background: linear-gradient(rgba(var(--color-accent-rgb), 0.08), rgba(var(--color-accent-rgb), 0.08)), var(--color-bg-mid);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
     text-align: left;
     white-space: normal;
   }
@@ -19314,11 +19304,10 @@
     /* z-index 110 clears the .modal-backdrop (z-index 100) so a drop-icon tooltip
        raised from INSIDE the dispatch popup renders above the modal. The warehouse
        tile tooltip is never shown while a modal is open, so this is safe for it. */
+    /* Surface (bg/border/shadow/radius/padding) comes from .info-pop now, so this warehouse fill-tile
+       tooltip matches the other info tooltips instead of its old solid-bg + deep-shadow one-off.
+       Keeps only positioning: fixed, JS-placed via inline left/top, and non-interactive. */
     position: fixed; z-index: 110; width: 210px;
-    background: var(--color-bg-mid);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--corner); padding: 11px;
-    box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
     pointer-events: none;
   }
   .warehouse-tt-name { font-size: var(--text-md); font-weight: 700; color: var(--color-text-primary); }
