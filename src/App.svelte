@@ -2314,7 +2314,26 @@
     openCurrencyKey = null;
   }
   function handleCurrencyKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" && openCurrencyKey !== null) openCurrencyKey = null;
+    if (e.key !== "Escape") return;
+    if (openCurrencyKey !== null) openCurrencyKey = null;
+    if (openFacilityTip !== null) openFacilityTip = null;
+  }
+
+  // ---- Facility-pane ⓘ subject tooltip (0.13.5 hover-detail) ---------------
+  // Which facility-pane row's ⓘ tooltip is open, keyed "<facilityKey>:action" / ":upgrade". Desktop
+  // reveals on CSS :hover (no JS); this state is the TAP path (touch) + keyboard, and the tap-away /
+  // Escape dismissal. The ⓘ click stops propagation so it never triggers the pane's open-console
+  // button underneath it.
+  let openFacilityTip: string | null = null;
+  function toggleFacilityTip(e: Event, key: string) {
+    e.stopPropagation();
+    openFacilityTip = openFacilityTip === key ? null : key;
+  }
+  function handleFacilityTipOutside(e: PointerEvent) {
+    if (openFacilityTip === null) return;
+    const target = e.target as Element | null;
+    if (target && target.closest(".frow-info-wrap")) return;
+    openFacilityTip = null;
   }
   // -------------------------------------------------------------------------
 
@@ -8149,7 +8168,7 @@
   //    lays every row on one shared column grid. Reuses the SAME per-facility reactives the old
   //    cards read (level, active jobs, *UpgradeInFlight, queues, statuses), so a pane and its
   //    console can never disagree; progress fractions come straight off the in-flight TimedProcesses.
-  type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean };
+  type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean; tip?: { title: string; line: string } };
   type FacilityPaneVM = {
     key: FoundryFacilityKey; glyph: string; label: string; sub: string;
     attention: boolean; action: FacilityRow | null; upgrade: FacilityRow | null; idle: string | null;
@@ -8166,15 +8185,35 @@
     if (jobs.length === 0) return null;
     return jobs.reduce((a, b) => (b.remainingTicks < a.remainingTicks ? b : a));
   }
-  function facilityAction(label: string, job: TimedProcess | null): FacilityRow | null {
+  // What the ⓘ hover reveals about a job's SUBJECT: the product name + a one-line descriptor, from
+  // the SAME item/blueprint/hull data the console labels read. Null for a job with no named product
+  // (fuel top-up, salvage) -> that row shows its verb only, no ⓘ.
+  function facilitySubjectTip(job: TimedProcess | null): { name: string; line: string } | null {
+    if (!job) return null;
+    const e = job.effect;
+    if (e.type === "addItem") { const it = ITEMS[e.itemId]; return { name: it?.label ?? e.itemId, line: it?.flavor ?? "" }; }
+    if (e.type === "addEquipment") { const bp = BLUEPRINTS[e.blueprintKey]; return { name: bp?.label ?? e.blueprintKey, line: "" }; }
+    if (e.type === "unlockBlueprint") { const bp = BLUEPRINTS[e.key]; return { name: bp?.label ?? e.key, line: "" }; }
+    if (e.type === "addShip") { const s = SHIP_TYPES[e.typeKey]; return { name: s?.label ?? e.typeKey, line: "" }; }
+    return null;
+  }
+  // ACTION row: "<verb> · <subject>" inline (readable at a glance), carrying the subject's tip for
+  // the ⓘ. Falls back to the bare verb (no ⓘ) when there is no named subject.
+  function facilityAction(verb: string, job: TimedProcess | null): FacilityRow | null {
     if (!job) return null;
     const f = procFrac(job);
-    return { label, fraction: f, pctText: facilityPct(f) };
+    const subj = facilitySubjectTip(job);
+    return {
+      label: subj ? `${verb} · ${subj.name}` : verb,
+      fraction: f, pctText: facilityPct(f),
+      tip: subj ? { title: subj.name, line: subj.line } : undefined,
+    };
   }
-  function facilityUpgrade(p: TimedProcess | null | undefined): FacilityRow | null {
+  // UPGRADE row: amber "Upgrade" with a tip naming the facility whose upgrade is running.
+  function facilityUpgrade(p: TimedProcess | null | undefined, facilityLabel: string): FacilityRow | null {
     if (!p) return null;
     const f = procFrac(p);
-    return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true };
+    return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true, tip: { title: `${facilityLabel} upgrade`, line: "" } };
   }
   function fpane(
     key: FoundryFacilityKey, glyph: string, label: string, sub: string,
@@ -8184,36 +8223,36 @@
   }
   $: facilityPanes = [
     fpane("refinery", "⚗️", FACILITY_LABELS.refinery, `Level ${refineryLevel}`,
-      facilityAction(`Refining · ${activeRefineJobs.length}/${refinerySlots}`, repJob(activeRefineJobs)),
-      facilityUpgrade(refineryUpgradeInFlight),
+      facilityAction("Refining", repJob(activeRefineJobs)),
+      facilityUpgrade(refineryUpgradeInFlight, FACILITY_LABELS.refinery),
       refinerySlots === 0 ? "Not built"
         : activeRefineJobs.length === 0 ? `Idle · ${refinerySlots} slot${refinerySlots === 1 ? "" : "s"} free${cardQueuedSuffix(refineryQueue)}` : null,
       facilityAttention.has("refinery")),
     fpane("fabricator", "🔧", FACILITY_LABELS.fabricator, `Level ${fabricatorLevel}`,
-      facilityAction(`Crafting · ${activeFabricateJobs.length}/${fabricateSlots}`, repJob(activeFabricateJobs)),
-      facilityUpgrade(fabricatorUpgradeInFlight),
+      facilityAction("Crafting", repJob(activeFabricateJobs)),
+      facilityUpgrade(fabricatorUpgradeInFlight, FACILITY_LABELS.fabricator),
       fabricateSlots === 0 ? "Not built"
         : activeFabricateJobs.length === 0 ? `Idle · ${fabricateSlots} slot${fabricateSlots === 1 ? "" : "s"} free${cardQueuedSuffix(fabricatorQueue)}` : null,
       facilityAttention.has("fabricator")),
     fpane("research", "🔬", FACILITY_LABELS.research, `Level ${researchLevel}`,
-      facilityAction(`Researching · ${activeResearchProjects.length}/${researchSlots}`, repJob(activeResearchProjects)),
-      facilityUpgrade(researchUpgradeInFlight),
+      facilityAction("Researching", repJob(activeResearchProjects)),
+      facilityUpgrade(researchUpgradeInFlight, FACILITY_LABELS.research),
       researchSlots === 0 ? "Not built"
         : activeResearchProjects.length === 0 ? `Idle · ${researchSlots} slot${researchSlots === 1 ? "" : "s"} free${cardQueuedSuffix(researchQueue)}` : null,
       facilityAttention.has("research")),
     fpane("fuelStorage", "⛽", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
       facilityAction("Topping up", repJob(activeFuelRefineJobs)),
-      facilityUpgrade(fuelStorageUpgradeInFlight),
+      facilityUpgrade(fuelStorageUpgradeInFlight, FACILITY_LABELS.fuelStorage),
       activeFuelRefineJobs.length > 0 ? null : fuelFillPct >= 100 ? "Tank full" : `Fuel ${Math.round(fuelFillPct)}%`,
       facilityAttention.has("fuelStorage")),
     fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
-      facilityAction("Building a hull", activeShipBuild ?? null),
-      facilityUpgrade(shipyardUpgradeInFlight),
+      facilityAction("Building", activeShipBuild ?? null),
+      facilityUpgrade(shipyardUpgradeInFlight, FACILITY_LABELS.shipyard),
       !shipyardFounded ? "Not founded" : activeShipBuild ? null : `Idle${cardQueuedSuffix(shipyardQueue)}`,
       facilityAttention.has("shipyard")),
     fpane("salvageBay", "♻️", FACILITY_LABELS.salvageBay, "Recycling bay",
-      facilityAction(`Salvaging · ${bayJobsInFlight.length}`, repJob(bayJobsInFlight)),
-      facilityUpgrade(salvageBayUpgradeInFlight),
+      facilityAction("Salvaging", repJob(bayJobsInFlight)),
+      facilityUpgrade(salvageBayUpgradeInFlight, FACILITY_LABELS.salvageBay),
       bayJobsInFlight.length > 0 ? null : `${spareEquipmentCount(state)} spare system${spareEquipmentCount(state) === 1 ? "" : "s"} to salvage`,
       facilityAttention.has("salvageBay")),
     fpane("warehouse", "📦", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
@@ -8286,6 +8325,7 @@
 <svelte:window
   on:pointerdown={handleCurrencyOutsidePointer}
   on:pointerdown={handleWarehouseOutsidePointer}
+  on:pointerdown={handleFacilityTipOutside}
   on:keydown={handleCurrencyKeydown}
 />
 
@@ -9021,9 +9061,23 @@
                UPGRADE) or a single idle status line, and a Manage affordance. The whole pane is the
                button that opens the console (same behaviour the cards had). Bars align across panes
                because every row rides one shared column grid (see .fprow). -->
-          {#snippet facilityRow(row: FacilityRow)}
+          {#snippet facilityRow(row: FacilityRow, tipKey: string)}
             <span class="fprow">
-              <span class="fprow-lbl" class:up={row.upgrade}>{row.label}</span>
+              <span class="fprow-lbl" class:up={row.upgrade}>
+                {row.label}{#if row.tip}<span class="frow-info-wrap">
+                  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+                  <!-- ⚠️ A plain <span>, NOT a <button>: this ⓘ lives INSIDE the pane's <button>, and a
+                       button-in-button is invalid. The subject NAME is already inline (the accessible
+                       content); this ⓘ is a supplementary visual detail-reveal, shown on hover
+                       (desktop, CSS) or tap (openFacilityTip). stopPropagation keeps a tap from
+                       opening the console. Hence the justified a11y-ignore above. -->
+                  <span class="frow-info" class:up={row.upgrade} aria-hidden="true" on:click={(e) => toggleFacilityTip(e, tipKey)}>i</span>
+                  <span class="frow-tip info-pop" class:open={openFacilityTip === tipKey} class:up={row.upgrade} role="tooltip">
+                    <span class="frow-tip-title">{row.tip.title}</span>
+                    {#if row.tip.line}<span class="frow-tip-line">{row.tip.line}</span>{/if}
+                  </span>
+                </span>{/if}
+              </span>
               <span class="fprow-track" class:up={row.upgrade}><i style="width:{Math.min(100, row.fraction * 100)}%"></i></span>
               <span class="fprow-pct">{row.pctText}</span>
             </span>
@@ -9044,8 +9098,8 @@
                 </span>
               </span>
               <span class="fpane-mid">
-                {#if p.action}{@render facilityRow(p.action)}{/if}
-                {#if p.upgrade}{@render facilityRow(p.upgrade)}{/if}
+                {#if p.action}{@render facilityRow(p.action, p.key + ":action")}{/if}
+                {#if p.upgrade}{@render facilityRow(p.upgrade, p.key + ":upgrade")}{/if}
                 {#if !p.action}<span class="fpane-idle">{p.idle}</span>{/if}
               </span>
               <span class="fpane-cta" aria-hidden="true">Manage</span>
@@ -18570,6 +18624,18 @@
   .fprow-pct { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); text-align: right; }
   .fpane-idle { font-size: var(--text-xs); color: var(--color-text-secondary); }
   .fpane-cta { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); white-space: nowrap; text-align: right; }
+  /* ── The ⓘ subject-detail affordance on action/upgrade rows (0.13.5 hover-detail). SQUARE (user).
+     Reveals a small .info-pop tooltip ABOVE it on hover (desktop) or tap (.open). */
+  .frow-info-wrap { position: relative; display: inline-flex; }
+  .frow-info { width: 14px; height: 14px; flex: 0 0 auto; margin-left: 5px; display: inline-grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-family: var(--font-mono); font-size: var(--text-3xs); line-height: 1; cursor: help; -webkit-tap-highlight-color: transparent; }
+  .frow-info.up { border-color: rgba(var(--color-warning-rgb), 0.5); color: var(--color-warning); }
+  .frow-info:hover { background: rgba(var(--color-accent-rgb), 0.14); }
+  .frow-tip { display: none; position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 6; width: max-content; max-width: 240px; flex-direction: column; gap: 3px; }
+  .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
+  .frow-info-wrap:hover .frow-tip, .frow-tip.open { display: flex; }
+  .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
+  .frow-tip.up .frow-tip-title { color: var(--color-warning); }
+  .frow-tip-line { font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.4; }
   /* Mobile: shrink the fixed id + hide the Manage label (whole pane still opens the console), so the
      bars keep meaningful width on a phone while staying aligned (id stays fixed, just smaller). */
   @media (max-width: 768px) {

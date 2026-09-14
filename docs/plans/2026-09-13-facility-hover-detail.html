@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Facility hover-detail</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120;
+    --color-panel-bg-strong: rgba(103,232,249,0.06);
+    --color-accent: #67e8f9; --color-accent-rgb: 103,232,249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-warning: #fbbf24; --color-warning-rgb: 251,191,36;
+    --color-border: rgba(103,232,249,0.14); --color-border-strong: rgba(103,232,249,0.3);
+    --corner: 2px; --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 22px 80px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 26px; max-width: 76ch; }
+  .label { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin: 22px 0 8px; }
+
+  .fpane { display: grid; grid-template-columns: 172px minmax(0,1fr) 78px; align-items: center; gap: 16px; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 10px 14px; }
+  .fpane-id { display: flex; align-items: center; gap: 10px; }
+  .fpane-glyph { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(103,232,249,0.05); font-size: 16px; }
+  .fpane-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); }
+  .fpane-sub { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); }
+  .fpane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .fprow { display: grid; grid-template-columns: 150px minmax(0,1fr) 44px; align-items: center; gap: 9px; }
+  .fprow-lbl { font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 5px; }
+  .fprow-lbl .subj { color: var(--color-text-primary); }
+  .fprow-lbl.up { color: var(--color-warning); }
+  /* the ⓘ hover affordance */
+  .subj-info { flex: 0 0 auto; width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--color-border-strong); color: var(--color-accent); font-size: 9px; font-family: var(--font-mono); display: grid; place-items: center; cursor: help; line-height: 1; }
+  .subj-info.up { border-color: rgba(var(--color-warning-rgb),0.5); color: var(--color-warning); }
+  .track { position: relative; height: 6px; border-radius: var(--corner); background: rgba(255,255,255,0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .track > i { display: block; height: 100%; background: var(--color-accent); }
+  .track.up > i { background: var(--color-warning); }
+  .pct { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); text-align: right; }
+  .fpane-cta { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); text-align: right; }
+
+  /* the INFO tooltip (same .info-pop surface the currency/warehouse tooltips use) */
+  .stage { position: relative; }
+  .info-pop { position: absolute; z-index: 5; width: max-content; max-width: 260px; padding: 8px 10px; border: 1px solid rgba(var(--color-accent-rgb),0.4); border-radius: var(--corner); background: linear-gradient(rgba(var(--color-accent-rgb),0.08), rgba(var(--color-accent-rgb),0.08)), var(--color-bg-mid); box-shadow: 0 6px 20px rgba(0,0,0,0.45); }
+  .info-pop.up { border-color: rgba(var(--color-warning-rgb),0.45); }
+  .info-pop-title { font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 4px; }
+  .info-pop.up .info-pop-title { color: var(--color-warning); }
+  .info-pop-line { font-size: 12px; color: var(--color-text-secondary); }
+
+  .note { margin: 18px 0 0; font-size: 13px; color: var(--color-text-secondary); max-width: 80ch; }
+  .note b { color: var(--color-text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Facility pane — hover-detail on the action / upgrade rows</h1>
+  <p class="lede">The subject name sits inline in the row (readable without hovering), and a small ⓘ reveals a one-line INFO tooltip about it. No stats card mid-craft (an in-progress item has no rolled stats yet) — just what it is / what it does.</p>
+
+  <div class="label">— action row hovered (what's being refined) —</div>
+  <div class="stage">
+    <div class="fpane">
+      <div class="fpane-id"><span class="fpane-glyph">⚗️</span><div><div class="fpane-name">Refinery</div><div class="fpane-sub">Level 4</div></div></div>
+      <div class="fpane-mid">
+        <div class="fprow"><span class="fprow-lbl">Refining · <span class="subj">Titanium Ingot</span> <span class="subj-info">i</span></span><span class="track"><i style="width:60%"></i></span><span class="pct">60%</span></div>
+        <div class="fprow"><span class="fprow-lbl up">Upgrade <span class="subj-info up">i</span></span><span class="track up"><i style="width:40%"></i></span><span class="pct">40%</span></div>
+      </div>
+      <span class="fpane-cta">Manage</span>
+    </div>
+    <div class="info-pop" style="left: 150px; top: 44px;">
+      <div class="info-pop-title">Titanium Ingot</div>
+      <div class="info-pop-line">Refined from Common Ore · 20 → 1</div>
+    </div>
+  </div>
+
+  <div class="label">— upgrade row hovered (what's being built) —</div>
+  <div class="stage">
+    <div class="fpane">
+      <div class="fpane-id"><span class="fpane-glyph">⚗️</span><div><div class="fpane-name">Refinery</div><div class="fpane-sub">Level 4</div></div></div>
+      <div class="fpane-mid">
+        <div class="fprow"><span class="fprow-lbl">Refining · <span class="subj">Titanium Ingot</span> <span class="subj-info">i</span></span><span class="track"><i style="width:60%"></i></span><span class="pct">60%</span></div>
+        <div class="fprow"><span class="fprow-lbl up">Upgrade <span class="subj-info up">i</span></span><span class="track up"><i style="width:40%"></i></span><span class="pct">40%</span></div>
+      </div>
+      <span class="fpane-cta">Manage</span>
+    </div>
+    <div class="info-pop up" style="left: 150px; top: 66px;">
+      <div class="info-pop-title">Refinery → Level 5</div>
+      <div class="info-pop-line">+1 refine slot (3 → 4)</div>
+    </div>
+  </div>
+
+  <p class="note"><b>Trigger:</b> the ⓘ (hover on desktop, tap on mobile; a tap elsewhere dismisses). It sits right after the label, so the row stays readable and the tooltip is opt-in. <b>Surface:</b> the shared <code>.info-pop</code> from the tooltip-standardization pass, tinted amber for upgrades to match the row. The tooltip floats and clamps to the viewport (the shared floatingTip positioner), so it never clips inside the panes list. Since my dev sandbox has no running jobs, I'll wire this against the same subject logic the consoles already use and you'll confirm it on your loaded save.</p>
+</div>
+</body>
+</html>
