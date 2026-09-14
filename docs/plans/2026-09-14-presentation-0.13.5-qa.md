@@ -47,7 +47,7 @@
 | D4 | With Show-values ON, compare the three stat **bars**. | All equal width (shared grid); a wide value doesn't make bars uneven. |
 | D5 | Tap the **currency** readout. | Popup lists every currency (Credits, Admin Points, …). On mobile it stays on-screen (doesn't run off the edge). |
 | D6 | Tap the **fuel** readout. | Jumps to the Fuel Depot (its Overview carries the runway/economy breakdown) — it's a link now, not a popup. |
-| D7 | Tap the **portrait** / the **gear**. | Portrait → System (default tab); gear → System on Settings. Two doors. |
+| D7 | Tap the **portrait** / the **gear**. | Both open the System window (gear forces the Settings tab; portrait opens it on the last-viewed tab) — effectively two doors into Settings today, which is fine. ⚠️ 0.13.6 SEPARATES them: Profile moves from System to **Crew › Admiral**, so portrait → Crew › Admiral and gear → Settings. |
 
 ## E. Settings shell + accessibility
 | # | Step | Expected |
