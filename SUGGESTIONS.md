@@ -4,6 +4,11 @@ Ideas raised during development that aren't being built right now. Captured here
 past the conversation they were mentioned in (Ops-style "write it down so you don't relitigate it" —
 see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future features).
 
+- **⭐ MULTIPLE FUEL TYPES, tied to ship ranking (user, 2026-09-13).** "Probably every 2 rankings of ship will require new fuel, but the top rank of ship requires its own specialized fuel." Today fuel is a SINGLE scalar (`state.fuel: Decimal`, one stockpile spent per dispatch; Deuterium Ice is a material refined INTO it, not a second fuel). So the header fuel control does NOT auto-scale to more fuel types as-is.
+  - **The pattern to follow is already in the game: currencies.** The header currency popup loops over a `CURRENCY_META` list, so a new currency appears automatically. When fuel types are added, mirror that: fuel becomes a KEYED collection (a `FUEL_META` registry + per-type amounts), dispatch/refining consume the right type per ship, and the header fuel control becomes a data-driven popup listing every fuel type + amount — new fuels (and the top-rank specialized fuel) then show up for free.
+  - ⚠️ **NOT scaffolded now, on purpose** (the multi-fuel system isn't designed yet, and building the registry ahead of the model would guess at it). Header fuel currently shows the single tank readout and ↗ links to the Fuel Depot (which carries the full runway/economy breakdown). The data-driven fuel popup gets built WITH the multi-fuel feature, against the real model. User chose "keep the link" for now (2026-09-13).
+  - Open design questions for when it's picked up: does each fuel type get its own tank/cap or share one? does the refinery produce all types or one per pipeline? how does a mission know which fuel its hull burns? (rank -> fuel-type mapping). None decided.
+
 - **NEXT (0.11.0) is DESIGNED (user 2026-07-17).** The equipment feature grew, during brainstorm, into a
   full ship-equipment + combat + crew + exploration vision. It is captured in two docs:
   `docs/plans/2026-07-17-ship-equipment-combat-epic-design.md` (the whole vocabulary) and
