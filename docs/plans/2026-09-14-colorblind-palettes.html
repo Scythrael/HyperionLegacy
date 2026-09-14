@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Colour-blind palettes — Hyperion Legacy</title>
+<style>
+  :root{
+    --bg:#0a0d13; --panel:rgba(22,28,38,0.72); --panel-2:rgba(30,38,50,0.6);
+    --line:rgba(120,150,180,0.16); --line-strong:rgba(120,150,180,0.34);
+    --ink:#e7edf5; --ink-2:#a7b4c4; --ink-dim:#748196;
+    --accent:#67e8f9; --corner:2px;
+    --mono:"SFMono-Regular",ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,monospace;
+    --ui:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:
+      radial-gradient(1200px 600px at 80% -10%, rgba(103,232,249,0.06), transparent 60%),
+      var(--bg);
+    color:var(--ink);font-family:var(--ui);line-height:1.5;
+    padding:28px 20px 80px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:1.5rem;letter-spacing:0.2px;margin:0 0 4px;font-weight:650;text-wrap:balance}
+  .sub{color:var(--ink-2);margin:0 0 6px;max-width:66ch}
+  .eyebrow{font-family:var(--mono);font-size:0.7rem;letter-spacing:0.22em;text-transform:uppercase;
+    color:var(--accent);opacity:0.85;margin:0 0 20px}
+  h2{font-size:1.02rem;margin:34px 0 4px;font-weight:620;display:flex;align-items:baseline;gap:10px}
+  h2 .n{font-family:var(--mono);font-size:0.72rem;color:var(--accent);opacity:0.7}
+  .note{color:var(--ink-dim);font-size:0.86rem;margin:2px 0 16px;max-width:74ch}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--corner);
+    padding:16px 18px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px}
+  @media(max-width:720px){.cols{grid-template-columns:1fr}}
+  .colhead{font-family:var(--mono);font-size:0.72rem;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--ink-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+  .tag{font-family:var(--mono);font-size:0.62rem;letter-spacing:0.1em;padding:2px 6px;border-radius:var(--corner);
+    border:1px solid var(--line-strong);color:var(--ink-dim)}
+  .tag.sim{color:#ffb4a0;border-color:rgba(255,140,110,0.4)}
+  .tag.ok{color:#8fe6c6;border-color:rgba(80,200,160,0.4)}
+  /* swatch grid */
+  .roles{display:flex;flex-direction:column;gap:7px}
+  .role{display:grid;grid-template-columns:118px 1fr 1fr;gap:10px;align-items:center}
+  .role .lbl{font-family:var(--mono);font-size:0.74rem;color:var(--ink-2)}
+  .sw{height:30px;border-radius:var(--corner);border:1px solid rgba(255,255,255,0.08);
+    display:flex;align-items:center;padding:0 9px;font-family:var(--mono);font-size:0.66rem;
+    color:rgba(0,0,0,0.72);font-weight:600}
+  .sw.dark{color:rgba(255,255,255,0.9)}
+  .deuter{filter:url(#deuteranopia)}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:0.8rem;color:var(--ink-2);margin-top:14px}
+  .legend b{color:var(--ink)}
+  /* sample pane */
+  .demo{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.demo{grid-template-columns:1fr}}
+  .mini{border:1px solid var(--line);border-radius:var(--corner);padding:13px 14px;background:var(--panel-2)}
+  .mini h3{margin:0 0 10px;font-size:0.82rem;font-family:var(--mono);letter-spacing:0.1em;
+    text-transform:uppercase;color:var(--ink-2);font-weight:500}
+  .statline{display:flex;align-items:center;gap:8px;font-size:0.84rem;margin:6px 0}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .bar{height:8px;border-radius:var(--corner);background:rgba(255,255,255,0.08);overflow:hidden;margin:10px 0 4px}
+  .bar>i{display:block;height:100%}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .chip{font-family:var(--mono);font-size:0.66rem;padding:3px 8px;border-radius:var(--corner);
+    border:1px solid currentColor;background:rgba(255,255,255,0.02)}
+  .btn{display:inline-block;margin-top:12px;font-size:0.8rem;padding:7px 14px;border-radius:var(--corner);
+    border:1px solid;font-family:var(--mono);letter-spacing:0.04em}
+  ul.tight{margin:8px 0 0;padding-left:18px;color:var(--ink-2);font-size:0.88rem}
+  ul.tight li{margin:5px 0}
+  ul.tight b{color:var(--ink)}
+  .foot{margin-top:8px;color:var(--ink-dim);font-size:0.82rem}
+  code{font-family:var(--mono);font-size:0.82em;color:var(--accent);background:rgba(103,232,249,0.08);
+    padding:1px 5px;border-radius:var(--corner)}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="deuteranopia">
+    <feColorMatrix type="matrix" values="
+      0.625 0.375 0     0 0
+      0.70  0.30  0     0 0
+      0     0.30  0.70  0 0
+      0     0     0     1 0"/>
+  </filter>
+</svg>
+
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · Accessibility · Palette proposal</p>
+  <h1>Colour-blind palettes</h1>
+  <p class="sub">The game encodes state and rarity in colour: <b>success / warning / danger</b> and a 7-tier
+    rarity ladder. Under red-green colour-blindness (~8% of men) several of those hues converge. This proposes a
+    colour-blind-safe palette on the <b>Okabe-Ito</b> basis, and shows every role under a deuteranopia simulation
+    so you can judge it on your screen.</p>
+  <p class="note">Every block on this page marked <span class="tag sim">DEUTERANOPIA SIM</span> is filtered live to
+    approximate how a red-green-colour-blind viewer sees it. Compare the SIM columns — that's where "current" fails
+    and "safe" holds.</p>
+
+  <!-- SECTION 1 -->
+  <h2><span class="n">01</span> Semantic state colours</h2>
+  <p class="note">The load-bearing case: <b>success</b> (green) and <b>danger</b> (red) must never be confusable —
+    they mean opposite things on the same row (fuel OK vs fuel short, victory vs defeat).</p>
+  <div class="panel">
+    <div class="cols">
+      <div>
+        <div class="colhead">Current <span class="tag">as shipped</span></div>
+        <div class="roles" id="sem-cur"></div>
+      </div>
+      <div>
+        <div class="colhead">Current <span class="tag sim">deuteranopia sim</span></div>
+        <div class="roles deuter" id="sem-cur-sim"></div>
+      </div>
+    </div>
+    <div class="cols" style="margin-top:16px">
+      <div>
+        <div class="colhead">Colour-blind safe <span class="tag ok">Okabe-Ito</span></div>
+        <div class="roles" id="sem-safe"></div>
+      </div>
+      <div>
+        <div class="colhead">Safe <span class="tag sim">deuteranopia sim</span></div>
+        <div class="roles deuter" id="sem-safe-sim"></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span>👀 In the two SIM columns: <b>current</b> success+danger collapse toward the same muddy tone; the
+        <b>safe</b> pair (bluish-green / vermillion) stays clearly two colours.</span>
+    </div>
+  </div>
+
+  <!-- SECTION 2 -->
+  <h2><span class="n">02</span> Rarity ladder (7 tiers)</h2>
+  <p class="note">Rarity always carries a text label too, so colour is a reinforcement here, not the sole signal —
+    but the ladder should still read as seven distinct steps.</p>
+  <div class="panel">
+    <div class="cols">
+      <div>
+        <div class="colhead">Current <span class="tag sim">deuteranopia sim</span></div>
+        <div class="roles deuter" id="rar-cur-sim"></div>
+      </div>
+      <div>
+        <div class="colhead">Colour-blind safe <span class="tag sim">deuteranopia sim</span></div>
+        <div class="roles deuter" id="rar-safe-sim"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3 -->
+  <h2><span class="n">03</span> On a real panel</h2>
+  <p class="note">The same mini status panel — a mission row with fuel state, a hull bar, and a rarity chip row —
+    rendered in each palette (shown under the deuteranopia sim).</p>
+  <div class="demo">
+    <div class="mini deuter" id="demo-cur"></div>
+    <div class="mini deuter" id="demo-safe"></div>
+  </div>
+
+  <!-- SECTION 4 -->
+  <h2><span class="n">04</span> How it's built — and why it seeds the skin system</h2>
+  <div class="panel">
+    <ul class="tight">
+      <li><b>Today the theme blocks only swap the accent.</b> <code>[data-theme]</code> overrides
+        <code>--color-accent</code> (+ borders / muted text / starfield) but NOT
+        <code>--color-success/warning/danger</code> or the rarity ladder — so a colour-blind option has to make
+        those <b>palette-driven</b>.</li>
+      <li><b>That groundwork IS the bucketized palette layer</b> your skin system needs. Once semantic + rarity
+        colours are tokens a palette can override, every future palette — colour-blind, and later the
+        <b>Pride / Trans / gradient</b> sets — slots in as one more registry entry. Build once, right.</li>
+      <li><b>A few palettes, as registry entries:</b> <b>Deuteranopia/Protanopia-safe</b> (the Okabe-Ito set shown
+        here — one palette covers both red-green types) and a <b>Tritanopia-safe</b> variant (blue-yellow), added
+        the same way. More can follow without a rework.</li>
+      <li><b>Where they live:</b> Settings › UI › Accessibility (a palette selector), sitting alongside the theme
+        picker rather than replacing it.</li>
+      <li><b>Rarity backstop:</b> rarity keeps its text label, so even the untouched hardcoded tiers
+        (stellar/radiant/constellar) stay legible; remapping them to the safe set is a bonus, not a blocker.</li>
+    </ul>
+    <p class="foot">Okabe-Ito safe values — accent <code>#56B4E9</code>, success <code>#009E73</code>,
+      warning <code>#E69F00</code>, danger <code>#D55E00</code>; rarity: augmented <code>#009E73</code>,
+      stellar <code>#56B4E9</code>, radiant <code>#CC79A7</code>, luminous <code>#E69F00</code>,
+      constellar <code>#F0E442</code>.</p>
+  </div>
+</div>
+
+<script>
+  const isDark = c => {
+    const h = c.replace('#',''); if(h.length<6) return false;
+    const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);
+    return (0.299*r+0.587*g+0.114*b) < 130;
+  };
+  const sw = (name,hex) => {
+    const d=document.createElement('div');
+    d.className='sw'+(isDark(hex)?' dark':'');
+    d.style.background=hex; d.textContent=hex;
+    const wrap=document.createElement('div');
+    const row=document.createElement('div'); row.className='role';
+    const l=document.createElement('div'); l.className='lbl'; l.textContent=name;
+    // single-swatch rows (used where the label is external)
+    row.appendChild(l); row.appendChild(d);
+    row.style.gridTemplateColumns='118px 1fr';
+    return row;
+  };
+  const fill = (id,rows)=>{const el=document.getElementById(id); rows.forEach(([n,h])=>el.appendChild(sw(n,h)));};
+
+  const semCur=[['success',"#34d399"],['warning',"#fbbf24"],['danger',"#f87171"]];
+  const semSafe=[['success',"#009E73"],['warning',"#E69F00"],['danger',"#D55E00"]];
+  fill('sem-cur',semCur); fill('sem-cur-sim',semCur); fill('sem-safe',semSafe); fill('sem-safe-sim',semSafe);
+
+  const rarCur=[['derelict',"#6b7280"],['standard',"#a9b7c8"],['augmented',"#34d399"],['stellar',"#4fa3f2"],
+    ['radiant',"#a020f0"],['luminous',"#fbbf24"],['constellar',"#f472b6"]];
+  const rarSafe=[['derelict',"#6b7280"],['standard',"#a9b7c8"],['augmented',"#009E73"],['stellar',"#56B4E9"],
+    ['radiant',"#CC79A7"],['luminous',"#E69F00"],['constellar',"#F0E442"]];
+  fill('rar-cur-sim',rarCur); fill('rar-safe-sim',rarSafe);
+
+  const pane = (id,pal)=>{
+    const el=document.getElementById(id);
+    el.innerHTML=`
+      <h3>Patrol · Kestrel</h3>
+      <div class="statline"><span class="dot" style="background:${pal.success}"></span>Fuel OK — 3 tanks</div>
+      <div class="statline"><span class="dot" style="background:${pal.warning}"></span>Threat: contested</div>
+      <div class="statline"><span class="dot" style="background:${pal.danger}"></span>No weapon in slot 2</div>
+      <div class="bar"><i style="width:64%;background:${pal.accent}"></i></div>
+      <div style="font-size:0.72rem;color:var(--ink-dim);font-family:var(--mono)">HULL 64%</div>
+      <div class="chips">
+        <span class="chip" style="color:${pal.augmented}">augmented</span>
+        <span class="chip" style="color:${pal.stellar}">stellar</span>
+        <span class="chip" style="color:${pal.radiant}">radiant</span>
+        <span class="chip" style="color:${pal.luminous}">luminous</span>
+        <span class="chip" style="color:${pal.constellar}">constellar</span>
+      </div>
+      <a class="btn" style="color:${pal.accent};border-color:${pal.accent}">Dispatch</a>`;
+  };
+  pane('demo-cur',{accent:"#67e8f9",success:"#34d399",warning:"#fbbf24",danger:"#f87171",
+    augmented:"#34d399",stellar:"#4fa3f2",radiant:"#a020f0",luminous:"#fbbf24",constellar:"#f472b6"});
+  pane('demo-safe',{accent:"#56B4E9",success:"#009E73",warning:"#E69F00",danger:"#D55E00",
+    augmented:"#009E73",stellar:"#56B4E9",radiant:"#CC79A7",luminous:"#E69F00",constellar:"#F0E442"});
+</script>
+</body>
+</html>

@@ -24,6 +24,7 @@ const REDUCED_MOTION_KEY = "fleet_admiral_reduced_motion";
 const HIGH_CONTRAST_KEY = "fleet_admiral_high_contrast";
 const DYSLEXIA_FONT_KEY = "fleet_admiral_dyslexia_font";
 const FORCE_MOBILE_KEY = "fleet_admiral_force_mobile";
+const COLORBLIND_PALETTE_KEY = "fleet_admiral_colorblind_palette";
 
 // ---------------------------------------------------------------------------
 // UI SCALE
@@ -125,6 +126,37 @@ export function saveForceMobile(value: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
+// COLOUR-BLIND PALETTE
+// ---------------------------------------------------------------------------
+
+// A colour-blind-safe palette, opted into as a SEPARATE axis from the six themes (a player keeps
+// their preferred theme accent and layers safety onto the meaning-bearing colours). It overrides
+// only the SEMANTIC tokens (success/warning/danger) and the rarity ladder — the colours that encode
+// state and tier — not the chrome accent, which carries no state-vs-state meaning.
+//
+// ⚠️ "cbsafe" IS THE OKABE-ITO UNIVERSAL PALETTE, deliberately ONE entry rather than one per
+// deficiency type: that set is engineered to stay distinguishable across deuteranopia, protanopia
+// AND tritanopia at once. The [data-palette] axis is the bucketized seam the skin system builds on
+// (see SUGGESTIONS: bucketized layouts / Pride palettes) — another palette is one more app.css
+// block plus one entry in this list, nothing more.
+export const COLORBLIND_PALETTES = ["off", "cbsafe"] as const;
+export type ColorBlindPalette = (typeof COLORBLIND_PALETTES)[number];
+export const COLORBLIND_PALETTE_DEFAULT: ColorBlindPalette = "off";
+
+export function loadColorBlindPalette(): ColorBlindPalette {
+  const raw = safeGetItem(COLORBLIND_PALETTE_KEY);
+  // A hand-edited or unknown value falls back to "off" rather than stamping an attribute no CSS
+  // block matches (which would read as "on but doing nothing").
+  return (COLORBLIND_PALETTES as readonly string[]).includes(raw ?? "")
+    ? (raw as ColorBlindPalette)
+    : COLORBLIND_PALETTE_DEFAULT;
+}
+
+export function saveColorBlindPalette(value: ColorBlindPalette): void {
+  safeSetItem(COLORBLIND_PALETTE_KEY, value);
+}
+
+// ---------------------------------------------------------------------------
 // APPLYING THEM
 // ---------------------------------------------------------------------------
 
@@ -142,6 +174,7 @@ export function applyAccessibility(settings: {
   highContrast: boolean;
   dyslexiaFont: boolean;
   reducedMotion: boolean;
+  colorBlindPalette: ColorBlindPalette;
 }): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
@@ -149,4 +182,7 @@ export function applyAccessibility(settings: {
   root.dataset.highContrast = settings.highContrast ? "on" : "off";
   root.dataset.dyslexiaFont = settings.dyslexiaFont ? "on" : "off";
   root.dataset.reducedMotion = settings.reducedMotion ? "on" : "off";
+  // "off" stamps data-palette="off", which no [data-palette="cbsafe"] block matches — so the
+  // default palette applies with zero override. Same single-writer discipline as the flags above.
+  root.dataset.palette = settings.colorBlindPalette;
 }

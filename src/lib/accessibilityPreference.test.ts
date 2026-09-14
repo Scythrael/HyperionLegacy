@@ -22,6 +22,9 @@ import {
   saveDyslexiaFont,
   loadForceMobile,
   saveForceMobile,
+  loadColorBlindPalette,
+  saveColorBlindPalette,
+  COLORBLIND_PALETTE_DEFAULT,
   applyAccessibility,
 } from "./accessibilityPreference";
 
@@ -124,6 +127,26 @@ describe("reduced motion defers to the operating system until overridden", () =>
   });
 });
 
+describe("colour-blind palette", () => {
+  it("defaults to off when nothing is stored", () => {
+    expect(loadColorBlindPalette()).toBe(COLORBLIND_PALETTE_DEFAULT);
+    expect(loadColorBlindPalette()).toBe("off");
+  });
+
+  it("round-trips a valid palette", () => {
+    saveColorBlindPalette("cbsafe");
+    expect(loadColorBlindPalette()).toBe("cbsafe");
+  });
+
+  it("falls back to off on a hand-edited or unknown value", () => {
+    // A stray value must not stamp a data-palette that no CSS block matches (which would read as
+    // "a palette is selected" while doing nothing).
+    const store = installStorage();
+    store["fleet_admiral_colorblind_palette"] = "protanope-deluxe";
+    expect(loadColorBlindPalette()).toBe("off");
+  });
+});
+
 describe("applyAccessibility is the ONE writer, and it writes everything", () => {
   it("sets the scale variable and every mode attribute in a single call", () => {
     const root: { style: Record<string, string>; dataset: Record<string, string> } = {
@@ -135,7 +158,7 @@ describe("applyAccessibility is the ONE writer, and it writes everything", () =>
     };
     vi.stubGlobal("document", { documentElement: root });
 
-    applyAccessibility({ uiScale: 1.25, highContrast: true, dyslexiaFont: false, reducedMotion: true });
+    applyAccessibility({ uiScale: 1.25, highContrast: true, dyslexiaFont: false, reducedMotion: true, colorBlindPalette: "cbsafe" });
 
     // ⚠️ --ui-scale is the hook EVERY type step is a calc() against, so this one property is what
     // rescales the entire interface. If it is not written, the whole feature is inert.
@@ -143,6 +166,9 @@ describe("applyAccessibility is the ONE writer, and it writes everything", () =>
     expect(root.dataset.highContrast).toBe("on");
     expect(root.dataset.dyslexiaFont).toBe("off");
     expect(root.dataset.reducedMotion).toBe("on");
+    // The colour-blind palette is stamped by the SAME single writer: data-palette carries the value,
+    // and the [data-palette="cbsafe"] block in app.css is what remaps the semantic + rarity tokens.
+    expect(root.dataset.palette).toBe("cbsafe");
   });
 
   it("writes 'off' explicitly rather than removing the attribute", () => {
@@ -155,14 +181,16 @@ describe("applyAccessibility is the ONE writer, and it writes everything", () =>
     };
     (root.style as never as { setProperty: (k: string, v: string) => void }).setProperty = () => {};
     vi.stubGlobal("document", { documentElement: root });
-    applyAccessibility({ uiScale: 1, highContrast: false, dyslexiaFont: false, reducedMotion: false });
+    applyAccessibility({ uiScale: 1, highContrast: false, dyslexiaFont: false, reducedMotion: false, colorBlindPalette: "off" });
     expect(root.dataset.highContrast).toBe("off");
     expect(root.dataset.dyslexiaFont).toBe("off");
     expect(root.dataset.reducedMotion).toBe("off");
+    // "off" is stamped explicitly (not removed), same as the flags: the DOM always states the palette.
+    expect(root.dataset.palette).toBe("off");
   });
 
   it("is a no-op without a document rather than throwing", () => {
     vi.stubGlobal("document", undefined);
-    expect(() => applyAccessibility({ uiScale: 1, highContrast: false, dyslexiaFont: false, reducedMotion: false })).not.toThrow();
+    expect(() => applyAccessibility({ uiScale: 1, highContrast: false, dyslexiaFont: false, reducedMotion: false, colorBlindPalette: "off" })).not.toThrow();
   });
 });

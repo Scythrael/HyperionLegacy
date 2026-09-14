@@ -64,25 +64,26 @@
     return rows;
   }
 
+  // Rarity -> CSS token. Returns var(--rarity-*) (defined in app.css :root) rather than raw hex, so a
+  // colour-blind or future skin palette can remap the whole ladder from ONE place. The DEFAULT values
+  // behind these tokens are unchanged — this is where the single source of truth now lives (app.css),
+  // and every usage feeds the result straight into an inline style, so a var() reference resolves.
   export function equipmentRarityColor(rarity: EquipmentRarity): string {
     switch (rarity) {
       case "derelict":
-        return "#6b7280"; // slate: below-standard junk tier
+        return "var(--rarity-derelict)"; // slate: below-standard junk tier
       case "standard":
-        return "#a9b7c8"; // silver: the baseline / crafted floor
+        return "var(--rarity-standard)"; // silver: the baseline / crafted floor
       case "augmented":
-        return "var(--color-success)"; // green (stable :root token)
+        return "var(--rarity-augmented)"; // green (tracks --color-success)
       case "stellar":
-        return "#4fa3f2"; // blue (matches the item-rarity "rare" hue)
+        return "var(--rarity-stellar)"; // blue (matches the item-rarity "rare" hue)
       case "radiant":
-        // Purple (epic-tier hue). Deepened to #a020f0 (user, 2026-09-13): the prior
-        // #a855f7 read slightly pink on some screens; this is an unmistakable, more
-        // saturated violet. Single source of truth, so every rarity surface follows.
-        return "#a020f0";
+        return "var(--rarity-radiant)"; // violet (epic-tier hue)
       case "luminous":
-        return "var(--color-warning)"; // amber (stable :root token): legendary-class
+        return "var(--rarity-luminous)"; // amber (tracks --color-warning): legendary-class
       case "constellar":
-        return "#f472b6"; // rose: the PARALLEL legendary flavor (shares the tier, distinct color)
+        return "var(--rarity-constellar)"; // rose: the PARALLEL legendary flavor (shares the tier, distinct color)
     }
   }
 
@@ -92,15 +93,15 @@
   export function itemRarityColor(rarity: ItemRarity): string {
     switch (rarity) {
       case "common":
-        return "#a9b7c8"; // silver
+        return "var(--rarity-standard)"; // silver
       case "uncommon":
-        return "var(--color-success)"; // green
+        return "var(--rarity-augmented)"; // green
       case "rare":
-        return "#4fa3f2"; // blue
+        return "var(--rarity-stellar)"; // blue
       case "epic":
-        return "#a020f0"; // purple (matches radiant)
+        return "var(--rarity-radiant)"; // purple (matches radiant)
       case "legendary":
-        return "var(--color-warning)"; // amber
+        return "var(--rarity-luminous)"; // amber
     }
   }
 

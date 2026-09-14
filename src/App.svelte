@@ -359,6 +359,10 @@
     saveDyslexiaFont,
     loadForceMobile,
     saveForceMobile,
+    loadColorBlindPalette,
+    saveColorBlindPalette,
+    COLORBLIND_PALETTE_DEFAULT,
+    type ColorBlindPalette,
     applyAccessibility,
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
@@ -2488,13 +2492,16 @@
   let highContrast = false;
   let dyslexiaFont = false;
   let forceMobile = false;
+  // Colour-blind palette: a separate axis from the theme (see accessibilityPreference.ts). "off" or
+  // the Okabe-Ito "cbsafe" set, which remaps the meaning-bearing semantic + rarity colours only.
+  let colorBlindPalette: ColorBlindPalette = COLORBLIND_PALETTE_DEFAULT;
 
   // ⚠️ ONE PATH FOR EVERY CHANGE. Each control calls this rather than writing the document itself,
   // so "persist it" and "apply it" cannot drift apart. The classic bug this avoids is a setting
   // that applies when toggled but not when the game is reopened; here both go through the same
   // two lines.
   function applyAccessibilityNow(): void {
-    applyAccessibility({ uiScale, highContrast, dyslexiaFont, reducedMotion });
+    applyAccessibility({ uiScale, highContrast, dyslexiaFont, reducedMotion, colorBlindPalette });
   }
 
   // ============================================================================
@@ -2880,6 +2887,7 @@
     highContrast = loadHighContrast();
     dyslexiaFont = loadDyslexiaFont();
     forceMobile = loadForceMobile();
+    colorBlindPalette = loadColorBlindPalette();
     applyAccessibilityNow();
     refineConfirmEnabled = loadRefineConfirmEnabled();
     // ⚠️ Resolved on MOUNT, not at declaration: the platform default reads the viewport, which does
@@ -15241,6 +15249,30 @@
               applyAccessibilityNow();
             }}
           />
+        </SettingRow>
+
+        <!-- Colour-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
+             theme accent and layers safety onto the meaning-bearing colours (state + rarity). The
+             "safe" option is the Okabe-Ito universal set (distinguishable across the common
+             deficiency types at once). More palettes slot in as more [data-palette] blocks — this
+             select is the seam the skin system extends. -->
+        <SettingRow
+          label="Colour-blind palette"
+          description="Remaps the status colours (success / warning / danger) and the rarity ladder to a colour-blind-safe set. Your theme's accent colour is unchanged. Rarity always shows its name too, so tiers stay clear."
+        >
+          <select
+            class="setting-select"
+            value={colorBlindPalette}
+            on:change={(e) => {
+              colorBlindPalette = (e.target as HTMLSelectElement).value as ColorBlindPalette;
+              saveColorBlindPalette(colorBlindPalette);
+              applyAccessibilityNow();
+            }}
+            aria-label="Colour-blind palette"
+          >
+            <option value="off">Off</option>
+            <option value="cbsafe">Colour-blind safe</option>
+          </select>
         </SettingRow>
 
         <!-- ⚠️ RENDERED DISABLED RATHER THAN HIDDEN, and the description says why. The separate

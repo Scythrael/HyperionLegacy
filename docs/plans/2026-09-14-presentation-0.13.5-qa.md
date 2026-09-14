@@ -61,6 +61,8 @@
 | E7 | Keyboard: Tab to a toggle, Space, Enter. | Both activate; focus ring visible. |
 | E8 | Log style / Log speed. | Dropdowns, not button pairs. |
 | E9 | Force-mobile ON on desktop. | Desktop renders the mobile layout. |
+| E10 | **Colour-blind palette** → **Colour-blind safe**. | Status colours (success/warning/danger) + the rarity ladder shift to the Okabe-Ito safe set immediately, no reload; your **theme accent is unchanged**. Check a fuel-OK/short row, a threat chip, and a rarity chip row read distinctly. Setting persists across reload. |
+| ✅ E11 | (palette plumbing) | One writer stamps `data-palette`; "off" stamps `off` (no override); rarity/semantics are token-driven so the palette remaps them from one place. |
 
 ## F. Confirmation levels + Confirm-by-quality (moved here)
 | # | Step | Expected |
@@ -150,10 +152,10 @@
 - **#6 Separate mobile/desktop VIEW LAYERS** — NOT built. The app is responsive (one component set + breakpoints + Force-mobile), not two view layers. The header's compact/expanded default was the first instance; the full split was always the big architectural item, deferred.
 - **#11b Full emoji→SVG icon SWEEP** — PARTIAL. Registry done + Home glyphs swept; ~5 glyphs await your art approval.
 
-⚠️ **Please confirm (I could not find these, so flag peel-or-complete):**
-- **#8 Colour-blind palettes** — I see scale / reduced-motion / high-contrast / dyslexia-font, but no dedicated colour-blind palette option. Peel to 0.13.6, or add before ship?
-- **Action-modal standardisation (bottom-sheet shared component)** — confirm whether the bottom-sheet-on-mobile / centred-on-desktop pattern was extracted into a shared component and applied, or peel.
-- **Contextual-help `?` deep-linking into helpTopics + accessible labels on every icon-only tile** — HelpTip exists and is used widely; confirm the deep-link + full label sweep are done, or peel.
+✅ **Resolved (user decisions, 2026-09-14):**
+- **#8 Colour-blind palettes** — **BUILT this session** (row E10). Okabe-Ito safe palette, semantic + rarity tokens made palette-driven — also the seed for the future skin/Pride-palette system.
+- **Action-modal standardisation** — **peeled to 0.13.6**; when done it must be mocked + approved per modal population (not a blind sweep).
+- **Contextual-help deep-linking** — **deferred to 0.15.0** (the help-center rework owns it); build help into new systems as they ship. Accessible-labels sweep → 0.13.6.
 
 ## What I can't test
 - **Anything visual**, real **devices** (touch on the new switches/popups/panes), and **your specific save's** migration (why A1 says export first).
