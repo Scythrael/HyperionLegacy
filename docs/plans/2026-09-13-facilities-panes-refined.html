@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Facilities panes — aligned</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12;
+    --color-bg-mid: #0a1120;
+    --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-accent: #67e8f9;
+    --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8;
+    --color-text-secondary: #8fa3ad;
+    --color-text-dim: #628591;
+    --color-warning: #fbbf24;
+    --color-warning-rgb: 251, 191, 36;
+    --color-success: #34d399;
+    --color-border: rgba(103, 232, 249, 0.14);
+    --color-border-strong: rgba(103, 232, 249, 0.3);
+    --corner: 2px;
+    --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 22px 64px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 22px; max-width: 78ch; }
+  .frame-label { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin: 20px 0 6px; }
+
+  .btn { font-family: var(--font-sans); font-size: 12px; font-weight: 600; color: var(--color-bg-deep); background: var(--color-accent); border: none; border-radius: var(--corner); padding: 6px 0; cursor: pointer; width: 100%; }
+  .btn.ghost { color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); }
+  .ic { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(103,232,249,0.05); font-size: 16px; }
+  .name { font-size: 13px; font-weight: 600; letter-spacing: 0.3px; color: var(--color-text-primary); white-space: nowrap; }
+  .lvl { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); }
+
+  .panes { display: flex; flex-direction: column; gap: 8px; }
+  /* ⚠️ FIXED id + cta columns so the middle (status/bars) starts and ends at the SAME x on every
+     pane -> bars and "what's happening" text line up across all rows. */
+  .pane { display: grid; grid-template-columns: 168px minmax(0, 1fr) 96px; align-items: center; gap: 16px; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 10px 14px; }
+  .pane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
+  .pane-id { display: flex; align-items: center; gap: 10px; }
+  .pane-id .stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .pane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+  /* Each progress row shares one sub-grid: label | bar | percent -> labels, bars, percents all
+     align, within a pane and across panes. */
+  .prow { display: grid; grid-template-columns: 74px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
+  .prow .lbl { font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prow .lbl.up { color: var(--color-warning); }
+  .track { height: 6px; border-radius: var(--corner); background: rgba(255,255,255,0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .track > i { display: block; height: 100%; background: var(--color-accent); }
+  .track.up > i { background: var(--color-warning); }
+  .prow .pct { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); text-align: right; }
+  /* Idle / static status: a single line starting at the SAME x as the row labels. */
+  .idle { font-size: 12px; color: var(--color-text-secondary); }
+  .idle.good { color: var(--color-success); }
+
+  .note { margin: 16px 0 0; font-size: 13px; color: var(--color-text-secondary); max-width: 80ch; }
+  .note b { color: var(--color-text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Facilities panes — aligned, with action + upgrade rows</h1>
+  <p class="lede">Every pane on one fixed grid, so the status text and bars start/end at the same x on every row. Progress rows appear only when something's running: a job shows an action row, an upgrade shows a (amber) "Upgrade" row, both show both, idle shows a single line. Refinery below is doing both; Salvage Bay is upgrade-only; most are idle.</p>
+
+  <div class="frame-label">— facilities list —</div>
+  <div class="panes">
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⚗️</span><div class="stack"><span class="name">Refinery</span><span class="lvl">Lv 3</span></div></div>
+      <div class="pane-mid">
+        <div class="prow"><span class="lbl">Refining</span><span class="track"><i style="width:60%"></i></span><span class="pct">60%</span></div>
+        <div class="prow"><span class="lbl up">Upgrade</span><span class="track up"><i style="width:40%"></i></span><span class="pct">40%</span></div>
+      </div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🔬</span><div class="stack"><span class="name">Research Lab</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid">
+        <div class="prow"><span class="lbl">Sprint Drive</span><span class="track"><i style="width:30%"></i></span><span class="pct">30%</span></div>
+      </div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🛠️</span><div class="stack"><span class="name">Shipyard</span><span class="lvl">Lv 2</span></div></div>
+      <div class="pane-mid">
+        <div class="prow"><span class="lbl">Destroyer</span><span class="track"><i style="width:80%"></i></span><span class="pct">80%</span></div>
+      </div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🔧</span><div class="stack"><span class="name">Fabricator</span><span class="lvl">Lv 2</span></div></div>
+      <div class="pane-mid"><span class="idle">Idle · queue empty</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⛽</span><div class="stack"><span class="name">Fuel Depot</span><span class="lvl">Lv 4</span></div></div>
+      <div class="pane-mid"><span class="idle good">∞ self-sustaining · +600/min</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">📦</span><div class="stack"><span class="name">Warehouse</span><span class="lvl">Lv 3</span></div></div>
+      <div class="pane-mid">
+        <div class="prow"><span class="lbl">Storage</span><span class="track"><i style="width:72%"></i></span><span class="pct">72%</span></div>
+      </div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⚓</span><div class="stack"><span class="name">Docks</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid"><span class="idle">6 / 8 berths used</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+
+    <div class="pane attn">
+      <div class="pane-id"><span class="ic">♻️</span><div class="stack"><span class="name">Salvage Bay</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid">
+        <div class="prow"><span class="lbl up">Upgrade</span><span class="track up"><i style="width:25%"></i></span><span class="pct">25%</span></div>
+      </div>
+      <button class="btn ghost">Manage</button>
+    </div>
+  </div>
+
+  <p class="note"><b>Alignment:</b> the id block (168px) and the button (96px) are fixed-width, so every bar starts and ends at the same x. <b>Clutter:</b> avoided by only drawing a row when it's live — note how idle facilities are a single line, while the Refinery (job + upgrade) is the only two-row one. On mobile the same panes stack; if a phone is too narrow for the fixed button column, the button drops to its own line under the pane (I'll wire that in the build).</p>
+</div>
+</body>
+</html>

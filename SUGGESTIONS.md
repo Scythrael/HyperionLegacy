@@ -4,6 +4,8 @@ Ideas raised during development that aren't being built right now. Captured here
 past the conversation they were mentioned in (Ops-style "write it down so you don't relitigate it" —
 see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future features).
 
+- **TUTORIAL should explain "FA EXP" (user, 2026-09-13).** The header EXP bar is now labelled **FA EXP** (Fleet Admiral experience) to distinguish it from crafting XP. When the tutorial exists, have it briefly explain what FA EXP is (fleet-admiral level / account progression) vs CRAFT (crafting level). One line; no code owed until the tutorial is built.
+
 - **0.13.5 NITPICK-PHASE ADDITIONS (user, 2026-09-13), all pulled INTO 0.13.5:**
   - ✅ **SQUARED UI** — done (`e901aea`): one `--corner` token (2px) drives every rectangular radius; true circles left round.
   - ⏳ **UNIFORM TILES** — the captain-selection, facility, etc. tiles should all be the SAME uniform size (and squared, which the token already did). This is a layout-normalization pass, not just radius: audit the tile types, pick one size, apply. Design-first (mockup) before building.

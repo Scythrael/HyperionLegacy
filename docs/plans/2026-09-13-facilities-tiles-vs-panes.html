@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Facilities — tiles vs panes</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12;
+    --color-bg-mid: #0a1120;
+    --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-accent: #67e8f9;
+    --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8;
+    --color-text-secondary: #8fa3ad;
+    --color-text-dim: #628591;
+    --color-warning: #fbbf24;
+    --color-warning-rgb: 251, 191, 36;
+    --color-success: #34d399;
+    --color-border: rgba(103, 232, 249, 0.14);
+    --color-border-strong: rgba(103, 232, 249, 0.3);
+    --corner: 2px;
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 22px 64px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 26px; max-width: 76ch; }
+  .section-label { display: flex; align-items: baseline; gap: 10px; margin: 30px 0 12px; }
+  .tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 2px 7px; }
+  .section-name { font-size: 15px; font-weight: 600; }
+  .section-sub { color: var(--color-text-secondary); font-size: 13px; }
+
+  .btn { font-family: var(--font-sans); font-size: 12px; font-weight: 600; color: var(--color-bg-deep); background: var(--color-accent); border: none; border-radius: var(--corner); padding: 6px 12px; cursor: pointer; white-space: nowrap; }
+  .btn.ghost { color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); }
+  .lvl { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-dim); }
+  .ic { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(103,232,249,0.05); font-size: 15px; }
+  .name { font-size: 13px; font-weight: 600; letter-spacing: 0.3px; color: var(--color-text-primary); }
+  .status { font-size: 12px; color: var(--color-text-secondary); }
+  .status.warn { color: var(--color-warning); }
+  .status.good { color: var(--color-success); }
+  .track { height: 6px; border-radius: var(--corner); background: rgba(255,255,255,0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .track > i { display: block; height: 100%; background: var(--color-accent); }
+
+  /* ── TILE GRID ─────────────────────────────────────────── */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(216px, 1fr)); gap: 10px; }
+  .tile { border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 12px; display: flex; flex-direction: column; gap: 8px; min-height: 128px; }
+  .tile.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
+  .tile-head { display: flex; align-items: center; gap: 9px; }
+  .tile-head .name { flex: 1 1 auto; min-width: 0; }
+  .tile-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 6px; }
+  .tile .btn { width: 100%; text-align: center; }
+
+  /* ── FULL-WIDTH PANES ──────────────────────────────────── */
+  .panes { display: flex; flex-direction: column; gap: 8px; }
+  .pane { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 16px; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 11px 14px; }
+  .pane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
+  .pane-id { display: flex; align-items: center; gap: 10px; }
+  .pane-id .stack { display: flex; flex-direction: column; gap: 1px; }
+  .pane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .pane-mid .status { display: flex; justify-content: space-between; gap: 12px; }
+  .pane-mid .rt { font-family: var(--font-mono); color: var(--color-text-dim); }
+
+  .note { margin: 14px 0 0; font-size: 13px; color: var(--color-text-secondary); max-width: 80ch; }
+  .note b { color: var(--color-text-primary); font-weight: 600; }
+  .legend { margin: 30px 0 0; padding-top: 14px; border-top: 1px solid var(--color-border); font-size: 12px; color: var(--color-text-secondary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Facilities — tiles vs full-width panes</h1>
+  <p class="lede">Same eight facilities, same real state, two layouts. Squared corners + the amber "needs you" accent are already in. Amber-bordered = an upgrade is ready.</p>
+
+  <!-- TILES -->
+  <div class="section-label"><span class="tag">A</span><span class="section-name">Tile grid</span><span class="section-sub">compact, scan many at once</span></div>
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-head"><span class="ic">⚗️</span><span class="name">Refinery</span><span class="lvl">Lv 3</span></div>
+      <div class="tile-body"><span class="status good">Refining · 2 lines</span><span class="track"><i style="width:60%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">🔧</span><span class="name">Fabricator</span><span class="lvl">Lv 2</span></div>
+      <div class="tile-body"><span class="status">Idle</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">🔬</span><span class="name">Research Lab</span><span class="lvl">Lv 1</span></div>
+      <div class="tile-body"><span class="status">Researching · Sprint Drive</span><span class="track"><i style="width:30%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">⛽</span><span class="name">Fuel Depot</span><span class="lvl">Lv 4</span></div>
+      <div class="tile-body"><span class="status good">∞ self-sustaining</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">🛠️</span><span class="name">Shipyard</span><span class="lvl">Lv 2</span></div>
+      <div class="tile-body"><span class="status">Building · Destroyer</span><span class="track"><i style="width:80%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">⚓</span><span class="name">Docks</span><span class="lvl">Lv 1</span></div>
+      <div class="tile-body"><span class="status">6 / 8 berths</span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile">
+      <div class="tile-head"><span class="ic">📦</span><span class="name">Warehouse</span><span class="lvl">Lv 3</span></div>
+      <div class="tile-body"><span class="status">Storage 72%</span><span class="track"><i style="width:72%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="tile attn">
+      <div class="tile-head"><span class="ic">♻️</span><span class="name">Salvage Bay</span><span class="lvl">Lv 1</span></div>
+      <div class="tile-body"><span class="status warn">Upgrade ready</span></div>
+      <button class="btn">Upgrade</button>
+    </div>
+  </div>
+
+  <!-- PANES -->
+  <div class="section-label"><span class="tag">B</span><span class="section-name">Full-width panes</span><span class="section-sub">richer at-a-glance state, matches the Home board rows</span></div>
+  <div class="panes">
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⚗️</span><div class="stack"><span class="name">Refinery</span><span class="lvl">Lv 3</span></div></div>
+      <div class="pane-mid"><div class="status"><span class="good">Refining · 2 lines active</span><span class="rt">00:42</span></div><span class="track"><i style="width:60%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🔧</span><div class="stack"><span class="name">Fabricator</span><span class="lvl">Lv 2</span></div></div>
+      <div class="pane-mid"><div class="status"><span>Idle · queue empty</span></div></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🔬</span><div class="stack"><span class="name">Research Lab</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid"><div class="status"><span>Researching · Sprint Drive</span><span class="rt">03:18</span></div><span class="track"><i style="width:30%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⛽</span><div class="stack"><span class="name">Fuel Depot</span><span class="lvl">Lv 4</span></div></div>
+      <div class="pane-mid"><div class="status"><span class="good">∞ self-sustaining · +600/min</span></div></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">🛠️</span><div class="stack"><span class="name">Shipyard</span><span class="lvl">Lv 2</span></div></div>
+      <div class="pane-mid"><div class="status"><span>Building · Destroyer hull</span><span class="rt">01:05</span></div><span class="track"><i style="width:80%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">⚓</span><div class="stack"><span class="name">Docks</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid"><div class="status"><span>6 / 8 berths used</span></div></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane">
+      <div class="pane-id"><span class="ic">📦</span><div class="stack"><span class="name">Warehouse</span><span class="lvl">Lv 3</span></div></div>
+      <div class="pane-mid"><div class="status"><span>Storage used</span><span class="rt">72%</span></div><span class="track"><i style="width:72%"></i></span></div>
+      <button class="btn ghost">Manage</button>
+    </div>
+    <div class="pane attn">
+      <div class="pane-id"><span class="ic">♻️</span><div class="stack"><span class="name">Salvage Bay</span><span class="lvl">Lv 1</span></div></div>
+      <div class="pane-mid"><div class="status"><span class="warn">Upgrade ready · +1 slot</span></div></div>
+      <button class="btn">Upgrade</button>
+    </div>
+  </div>
+
+  <p class="note"><b>The trade:</b> tiles fit more on one screen and scan fast, but the live state (progress bar, rate, ETA) is cramped. Panes give each facility room for its status + a real progress bar + ETA and read consistently with the Home board rows — at the cost of more scrolling and a taller list. Icons are placeholders (the real SVG set lands with the icon pass).</p>
+  <p class="legend">Amber border = needs you (upgrade ready). Same squared corners and accent as the live app.</p>
+</div>
+</body>
+</html>

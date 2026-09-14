@@ -8773,7 +8773,7 @@
              with its setting. Bars stretch to fill (CSS). -->
         <div class="tb-stats">
           <div class="tb-statrow">
-            <span class="tb-statlab">EXP</span>
+            <span class="tb-statlab">FA EXP</span>
             <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
             <span class="tb-statval"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {#if showExperienceValues}{formatNumber(state.fleetAdminXp)} / {formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} ({(fleetAdminXpRatio * 100).toFixed(1)}%){:else}{(fleetAdminXpRatio * 100).toFixed(0)}%{/if}</span>
           </div>
