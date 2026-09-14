@@ -18807,7 +18807,11 @@
      the strip scrolls (via SubTabs' carets) rather than wrapping to a second row. Desktop pushes the
      strip right with margin-left:auto; mobile lets it shrink (min-width:0) so the inner strip
      scrolls instead of overflowing. */
-  .fconsole-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-width: 0; flex-wrap: nowrap; }
+  /* margin-bottom nets the header->first-panel gap to 8px (matching the header->tabs rhythm): the
+     parent .tab-scroll-area is a flex column with gap:14px (the panel-to-panel rhythm), which also
+     applies between this header and the first panel; -6px offsets that 14 down to 8 without touching
+     the panel rhythm. */
+  .fconsole-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: -6px; min-width: 0; flex-wrap: nowrap; }
   .fconsole-back { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-size: var(--text-md); line-height: 1; cursor: pointer; padding: 0; }
   .fconsole-back:hover { background: rgba(var(--color-accent-rgb), 0.12); }
   .fconsole-back:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
