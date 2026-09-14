@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mobile header — bars on top</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12;
+    --color-bg-mid: #0a1120;
+    --color-panel-bg-strong: rgba(103, 232, 249, 0.06);
+    --color-accent: #67e8f9;
+    --color-accent-rgb: 103, 232, 249;
+    --color-text-primary: #e6f4f8;
+    --color-text-secondary: #8fa3ad;
+    --color-text-dim: #628591;
+    --color-warning: #fbbf24;
+    --color-border: rgba(103, 232, 249, 0.14);
+    --color-border-strong: rgba(103, 232, 249, 0.3);
+    --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 24px 64px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.3px; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 28px; max-width: 72ch; }
+  .row { display: flex; gap: 34px; flex-wrap: wrap; }
+  .case { margin: 0 0 20px; }
+  .case-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px; }
+  .case-tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent); border: 1px solid var(--color-border-strong); border-radius: 3px; padding: 2px 7px; }
+  .case-name { font-size: 15px; font-weight: 600; }
+
+  /* Phone frame so the mobile bar reads at a mobile width. */
+  .phone { width: 360px; border: 1px solid rgba(103,232,249,0.22); border-radius: 20px; padding: 10px; background: #04070d; }
+  .notch { width: 90px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.14); margin: 2px auto 10px; }
+
+  .bar { background: var(--color-bg-mid); border: 1px solid var(--color-border-strong); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35); padding: 10px 12px; border-radius: 8px; }
+
+  .portrait { width: 46px; height: 46px; border-radius: 4px; border: 1px solid var(--color-border-strong); background: rgba(103,232,249,0.05); display: grid; place-items: center; font-size: 21px; }
+  .gear { width: 46px; height: 46px; border-radius: 4px; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); color: var(--color-accent); display: grid; place-items: center; font-size: 21px; }
+
+  .top { display: flex; align-items: center; gap: 10px; }
+  .stats { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+  .stat { display: flex; align-items: center; gap: 8px; }
+  .statlab { flex: 0 0 42px; font-size: 10px; letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .bar-track { position: relative; flex: 1 1 auto; height: 9px; border-radius: 5px; background: rgba(255,255,255,0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .bar-track > i { position: absolute; inset: 0 auto 0 0; height: 100%; border-radius: 5px; background: var(--color-accent); }
+  .bar-track.amber > i { background: var(--color-warning); }
+  .bar-track.tick > i { background: rgba(103,232,249,0.45); }
+  .statval { flex: 0 0 auto; min-width: 72px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-secondary); white-space: nowrap; }
+  .statval .lvl { color: var(--color-text-primary); font-weight: 600; }
+
+  /* Row 2: currency + fuel, each half. */
+  .resources { display: flex; gap: 8px; margin-top: 9px; }
+  .chip { flex: 1 1 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border: 1px solid var(--color-border-strong); border-radius: 4px; background: rgba(103,232,249,0.08); white-space: nowrap; }
+  .chip .glyph { color: var(--color-accent); font-size: 13px; }
+  .chip b { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--color-text-primary); }
+  .chip .caret, .chip .link { color: var(--color-text-dim); font-size: 11px; }
+
+  .legend { margin: 22px 0 0; padding-top: 16px; border-top: 1px solid var(--color-border); font-size: 12px; color: var(--color-text-secondary); }
+  .legend b { color: var(--color-text-primary); font-weight: 600; }
+  .ask { margin: 18px 0 0; font-size: 13px; color: var(--color-text-secondary); }
+  .ask b { color: var(--color-text-primary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mobile header — same treatment as desktop</h1>
+  <p class="lede">Bars move to the top (always shown, no more expand/collapse), the name is dropped and the level rides the EXP row, portrait and gear bookend the bar stack. Currency and fuel sit on the row underneath, each taking half the width. Tick shows/hides under craft with the setting, exactly as now.</p>
+
+  <div class="row">
+    <div class="case">
+      <div class="case-head"><span class="case-tag">tick off</span><span class="case-name">Tick disabled</span></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="bar">
+          <div class="top">
+            <div class="portrait" title="Opens the System menu">🖼️</div>
+            <div class="stats">
+              <div class="stat"><span class="statlab">EXP</span><span class="bar-track"><i style="width:10%"></i></span><span class="statval"><span class="lvl">Lv 1</span> · 0.0%</span></div>
+              <div class="stat"><span class="statlab">Craft</span><span class="bar-track amber"><i style="width:4%"></i></span><span class="statval"><span class="lvl">Lv 1</span> · 0%</span></div>
+            </div>
+            <div class="gear">⚙</div>
+          </div>
+          <div class="resources">
+            <span class="chip"><span><span class="glyph">◈</span> <b>0</b></span><span class="caret">⌄</span></span>
+            <span class="chip"><span><span class="glyph">⛽</span> <b>500 / 500</b></span><span class="link">↗</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="case">
+      <div class="case-head"><span class="case-tag">tick on</span><span class="case-name">Tick enabled</span></div>
+      <div class="phone">
+        <div class="notch"></div>
+        <div class="bar">
+          <div class="top">
+            <div class="portrait" title="Opens the System menu">🖼️</div>
+            <div class="stats">
+              <div class="stat"><span class="statlab">EXP</span><span class="bar-track"><i style="width:10%"></i></span><span class="statval"><span class="lvl">Lv 1</span> · 0.0%</span></div>
+              <div class="stat"><span class="statlab">Craft</span><span class="bar-track amber"><i style="width:4%"></i></span><span class="statval"><span class="lvl">Lv 1</span> · 0%</span></div>
+              <div class="stat"><span class="statlab">Tick</span><span class="bar-track tick"><i style="width:55%"></i></span><span class="statval">0.9s</span></div>
+            </div>
+            <div class="gear">⚙</div>
+          </div>
+          <div class="resources">
+            <span class="chip"><span><span class="glyph">◈</span> <b>0</b></span><span class="caret">⌄</span></span>
+            <span class="chip"><span><span class="glyph">⛽</span> <b>500 / 500</b></span><span class="link">↗</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend"><b>◈</b> credits (tap = popup) &nbsp; <b>⛽</b> fuel (↗ opens Fuel Depot) &nbsp; · &nbsp; portrait → System menu</div>
+  <p class="ask"><b>Confirm and I'll build it.</b> One thing this drops: the mobile More/Less collapse (the bars are always up top now). Say if you'd rather keep a way to collapse them.</p>
+</div>
+</body>
+</html>

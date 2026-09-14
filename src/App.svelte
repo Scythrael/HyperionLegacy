@@ -850,7 +850,6 @@
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadRefineConfirmEnabled, saveRefineConfirmEnabled } from "./lib/refineConfirmPreference";
-  import { loadHeaderExpanded, saveHeaderExpanded, resolveHeaderExpanded } from "./lib/headerPreference";
   // 0.13.5: the confirmation-level ladder. The rungs, the Custom derivation and the
   // "confirm only when something would be lost" rule all live in the module so they are
   // unit-testable without a DOM; this file is wiring only.
@@ -2270,32 +2269,11 @@
   // are driven by SEPARATE activate/deactivate events (not one toggle) so that
   // hover, tap, and focus never fight each other, important on touch, where a
   // single tap also fires synthetic pointerenter + focus events.
-  // ⚠️ THE COLLAPSIBLE HEADER (0.13.5, approved mockup brief 3). Compact is the default on a phone
-  // and expanded on a desktop, and a remembered choice beats both. The resolve/load/save split
-  // lives in headerPreference.ts so the platform-default rule is testable without a DOM; this is
-  // wiring only.
-  //
-  // ⭐ WHY IT MATTERS BEYOND TIDINESS: it dissolves a conflict the header brief recorded. Crafting
-  // level belongs in the header (it is the same KIND of thing as Fleet Admiral level, which is
-  // already there) but a fourth row costs vertical space on EVERY screen forever, to show a number
-  // that mostly matters while crafting. The expanded state is where that row costs nothing, because
-  // the player opened it deliberately and closes it again.
-  let headerExpanded = false;
-  function toggleHeader(): void {
-    headerExpanded = !headerExpanded;
-    saveHeaderExpanded(headerExpanded);
-  }
-
-  // ⚠️ Desktop gets a DIFFERENT header LAYOUT than mobile (0.13.5, approved mockup: no name, level
-  // folded onto the EXP row, bigger portrait + matching gear as bookends, EXP/CRAFT/TICK each on
-  // their own stretched row, stacked equal-width dropdowns). The visual layout lives entirely in the
-  // @media (min-width: 769px) block; this flag exists ONLY for the two structural bits CSS cannot do:
-  //   - the stat rows must ALWAYS show on desktop (headerExpanded has no collapse control there, so
-  //     a stored-collapsed pref must not blank the header), and
-  //   - the mobile compact-EXP line must be suppressed.
-  // Set on mount and kept live by a matchMedia listener so a resize across 769px reflows correctly.
-  // (Mirrors COMPACT_DEFAULT_MAX_WIDTH = 768 in headerPreference.ts.)
-  let wideHeader = false;
+  // ⚠️ THE HEADER IS NO LONGER COLLAPSIBLE (0.13.5, user 2026-09-13). The unified layout dropped the
+  // name row, so the only thing that changes the header's height is the tick row toggling with its
+  // own setting; a More/Less control just cost space. The old headerExpanded / wideHeader state and
+  // headerPreference.ts went with it. Mobile vs desktop is now a pure-CSS layout difference (the
+  // @media block), so no JS viewport flag is needed either.
 
   let openCurrencyKey: string | null = null;
   function showCurrency(key: string) {
@@ -2836,12 +2814,6 @@
     refineConfirmEnabled = loadRefineConfirmEnabled();
     // ⚠️ Resolved on MOUNT, not at declaration: the platform default reads the viewport, which does
     // not exist during module evaluation. A remembered choice wins; otherwise the width decides.
-    headerExpanded = resolveHeaderExpanded(loadHeaderExpanded(), window.innerWidth);
-    // Live desktop/mobile header switch (see `wideHeader`). One persistent listener on the root
-    // component, which never unmounts, so no teardown is needed.
-    const wideHeaderMql = window.matchMedia("(min-width: 769px)");
-    wideHeader = wideHeaderMql.matches;
-    wideHeaderMql.addEventListener("change", (e) => { wideHeader = e.matches; });
     autoSalvageBaselineWarningEnabled = loadAutoSalvageBaselineWarningEnabled();
     // (No salvage-confirm load here as of 0.13.3 Unit 4.4: the per-quality confirm
     // preference is a SAVED field now (state.salvageConfirmQualities), so it arrives with
@@ -8768,8 +8740,16 @@
            show/hide of the compact-vs-full readouts rides headerExpanded, which resolveHeaderExpanded
            defaults to false on a phone and true on a desktop, so the two platforms differ by DATA
            (one boolean) rather than by forked markup. The two-up desktop grid is a media query. -->
+      <!-- ============================================================================
+           THE HEADER (0.13.5, unified layout). Mobile and desktop now share ONE structure and
+           differ only in CSS layout (the @media block): no name row, the FA level rides the EXP
+           readout, a portrait + matching gear bookend the stat stack, and EXP/CRAFT/(TICK) are
+           always shown. The old More/Less collapse is GONE (user, 2026-09-13): with the name row
+           removed, the tick row is the only thing that changes height, so a collapse control just
+           cost space. DESKTOP: one row, currency+fuel stacked at equal width to the right of the
+           bars. MOBILE: portrait+bars+gear on row one, currency+fuel each half of the row beneath. -->
       <div class="top-bar-header">
-        <!-- Portrait: opens the admiral menu on its default tab. -->
+        <!-- Portrait: opens the System menu (Profile still lives there; not split out yet). -->
         <button
           type="button"
           class="mission-portrait-frame top-bar-portrait"
@@ -8779,59 +8759,39 @@
           🖼️
         </button>
 
-        <!-- Identity: name, plus the COMPACT exp bar shown only while collapsed (the number carries
-             the precision, the short bar the glance). When expanded, the full readouts move into
-             the stats area and this compact line steps aside. ⚠️ MOBILE ONLY: the whole block is
-             display:none on desktop, where the name is dropped and the level rides the EXP row. -->
-        <div class="tb-identity">
-          <div class="top-bar-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
-          {#if !headerExpanded && !wideHeader}
-            <div class="tb-statrow tb-statrow-compact">
-              <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
-              <span class="tb-statval">{(fleetAdminXpRatio * 100).toFixed(1)}%</span>
+        <!-- STATS: EXP / CRAFT / (TICK), the header's spine on both platforms. ⚠️ CRAFT is AMBER so
+             it reads as a sibling track to FA level, not a second copy of it. The FA level rides the
+             EXP readout since the name row is gone. TICK is the only row that appears/disappears,
+             with its setting. Bars stretch to fill (CSS). -->
+        <div class="tb-stats">
+          <div class="tb-statrow">
+            <span class="tb-statlab">EXP</span>
+            <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
+            <span class="tb-statval"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {(fleetAdminXpRatio * 100).toFixed(1)}%</span>
+          </div>
+          <div class="tb-statrow">
+            <span class="tb-statlab">CRAFT</span>
+            <span class="tb-barwrap"><span class="tb-bar tb-bar-amber"><i style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></i></span></span>
+            <span class="tb-statval"><span class="tb-lvl">Lv {craftingLevelView.level}</span> · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
+          </div>
+          {#if tickBarEnabled}
+            <div class="tb-statrow">
+              <span class="tb-statlab">TICK</span>
+              <span class="tb-barwrap">
+                <span class="tb-bar">
+                  {#key cycle.barCycleStart}
+                    <div class="tick-bar-fill" style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"></div>
+                  {/key}
+                </span>
+              </span>
+              <span class="tb-statval">{globalTickRemaining.toFixed(1)}s</span>
             </div>
           {/if}
         </div>
 
-        <!-- STATS: EXP / CRAFT / TICK. ⚠️ CRAFT is AMBER so it reads as a sibling track to FA level,
-             not a second copy of it. MOBILE: shown only when the header is expanded, stacked, bars
-             width-capped. DESKTOP (wideHeader): ALWAYS shown, each row on its own line with the bar
-             stretched to fill (see the media query); the FA level rides the EXP row here since the
-             name is dropped. -->
-        {#if headerExpanded || wideHeader}
-          <div class="tb-stats">
-            <div class="tb-statrow">
-              <span class="tb-statlab">EXP</span>
-              <span class="tb-barwrap"><span class="tb-bar"><i style="width:{Math.min(100, fleetAdminXpRatio * 100)}%"></i></span></span>
-              <span class="tb-statval tb-statval-mobile">{formatNumber(state.fleetAdminXp)}/{formatNumber(xpForNextFleetAdminLevel(state.fleetAdminLevel))} [{(fleetAdminXpRatio * 100).toFixed(1)}%]</span>
-              <span class="tb-statval tb-statval-desktop"><span class="tb-lvl">Lv {state.fleetAdminLevel}</span> · {(fleetAdminXpRatio * 100).toFixed(1)}%</span>
-            </div>
-            <div class="tb-statrow">
-              <span class="tb-statlab">CRAFT</span>
-              <span class="tb-barwrap"><span class="tb-bar tb-bar-amber"><i style="width:{Math.min(100, craftingLevelView.fraction * 100)}%"></i></span></span>
-              <span class="tb-statval">Lv {craftingLevelView.level} · {(craftingLevelView.fraction * 100).toFixed(0)}%</span>
-            </div>
-            {#if tickBarEnabled}
-              <div class="tb-statrow">
-                <span class="tb-statlab">TICK</span>
-                <span class="tb-barwrap">
-                  <span class="tb-bar">
-                    {#key cycle.barCycleStart}
-                      <div class="tick-bar-fill" style="width:{globalBarFill * 100}%; animation-duration:{globalBarSeconds}s"></div>
-                    {/key}
-                  </span>
-                </span>
-                <span class="tb-statval">{globalTickRemaining.toFixed(1)}s</span>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- ⚠️ TWO RESOURCE CONTROLS. Currency opens a popup listing every currency. Fuel is NOT a
-             popup: it is a LINK to the Fuel Depot (0.13.5, user), because the depot's Overview
-             already carries the full runway/economy breakdown that used to be duplicated in a header
-             popup, so the header just shows the tank readout and sends you there (↗). On desktop
-             these two stack at equal width (see the media query); on mobile they sit side by side. -->
+        <!-- RESOURCES: currency (popup listing every currency) + fuel (a LINK to the Fuel Depot,
+             whose Overview carries the full runway/economy breakdown). Desktop stacks them at equal
+             width to the right of the bars; mobile drops them onto their own row, each taking half. -->
         <div class="tb-resources">
           <div class="tb-pop-wrap">
             <button
@@ -8888,21 +8848,6 @@
           </svg>
         </button>
       </div>
-
-      <!-- More / Less. ⚠️ A CHEVRON, not tap-anywhere: the bar holds the portrait, gear and two
-           resource buttons, and a whole-bar tap target would swallow them. Hidden on desktop via
-           CSS, where the header is expanded by default and the two-up grid already fits. -->
-      <button
-        type="button"
-        class="top-bar-expander"
-        class:top-bar-expander-open={headerExpanded}
-        aria-expanded={headerExpanded}
-        aria-label={headerExpanded ? "Show less fleet detail" : "Show more fleet detail"}
-        on:click={toggleHeader}
-      >
-        <span class="top-bar-expander-label">{headerExpanded ? "Less" : "More"}</span>
-        <span class="top-bar-expander-chev" aria-hidden="true">⌄</span>
-      </button>
     </div>
 
     <main class="tab-body">
@@ -17436,38 +17381,30 @@
     position: relative;
     z-index: 20;
   }
-  /* Header layout (0.13.5 rebuild to the approved mockup). ONE responsive component,
-     reordered per breakpoint with flex `order` rather than forked into two view files
-     (the platform split is deferred). DOM order is portrait, identity, stats, resources,
-     gear. Phone: WRAP, and float the gear up onto row one beside the identity, dropping
-     the resource buttons and the stat grid onto their own full-width rows. Desktop: one
-     nowrap line, natural order, with the stats as a two-up grid (see the media query). */
-  .top-bar-header { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 4px; }
-  .top-bar-header .top-bar-portrait { order: 1; }
-  .tb-identity { order: 2; }
-  .top-bar-header .top-bar-gear { order: 3; align-self: center; }
-  .tb-resources { order: 4; flex: 1 1 100%; }
-  .tb-stats { order: 5; flex: 1 1 100%; }
-  /* Descendant selector (specificity 0,2,0) rather than a bare .top-bar-portrait
-     class (0,1,0), this reliably overrides .mission-portrait-frame's own
-     flex/height/font-size regardless of where either rule sits in this
-     stylesheet, so there's no source-order dependency to accidentally break
-     by moving/reordering rules later. Only overrides what needs shrinking for
-     the header's smaller footprint; .mission-portrait-frame's border,
-     background, and flex-centering apply untouched since this rule doesn't
-     redeclare them. */
-  /* The header portrait became a <button> (0.11.2 Shell Correction, Task 3): it
-     opens the System settings modal. This same descendant-selector rule (which
-     already sizes the header instance) also carries the button-chrome reset, the
-     dashed->solid border switch, and position:relative for the gear badge, ALL
-     scoped to the header instance ONLY, so the shared .mission-portrait-frame
-     class (used by the mission cards) is never restyled. border-style:solid keeps
-     .mission-portrait-frame's own 1px width + accent-tinted color, only trading
-     the decorative dash for a solid edge that reads as an interactive control. */
+  /* ── Header layout (0.13.5 unified). Mobile and desktop share ONE structure; only the CSS layout
+     differs, via grid-template-areas. No name row and no collapse control: EXP/CRAFT/(TICK) bars are
+     the spine, portrait + gear bookend them, currency + fuel are the two resource controls.
+     MOBILE (base): 3-column grid, [portrait | stats | gear] on row one, the two resource controls on
+     their own row beneath, each half. DESKTOP (@media): one row, resources stacked at equal width to
+     the right of the bars. Bars STRETCH to fill on both platforms. */
+  .top-bar-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "portrait stats gear"
+      "resources resources resources";
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 9px;
+  }
+  /* Portrait is a <button> opening the System modal. Descendant selector (0,2,0) so it overrides the
+     shared .mission-portrait-frame chrome (border/bg/centering kept) for the header instance ONLY:
+     trades the decorative dash for a solid edge and sizes it for the bar. */
   .top-bar-header .top-bar-portrait {
-    flex: 0 0 40px;
-    height: 40px;
-    font-size: calc(16px * var(--ui-scale));
+    grid-area: portrait;
+    width: 46px;
+    height: 46px;
+    font-size: calc(20px * var(--ui-scale));
     border-style: solid;
     position: relative;
     padding: 0;
@@ -17475,50 +17412,34 @@
     appearance: none;
     -webkit-appearance: none;
   }
-  /* .portrait-gear-badge was REMOVED in 0.13.5: the gear is its own button now
-     (.top-bar-gear), and two gears in one header pointing at different destinations is worse
-     than none. */
-  /* ── Header identity + stats (0.13.5 rebuild to the approved mockup) ──────────
-     .top-bar-header is a flex row that WRAPS on a phone and does NOT on desktop; the
-     children carry `order` so mobile floats the gear up beside the identity and drops
-     the resource buttons and the stat grid onto their own rows, while desktop keeps the
-     natural order in one line (see the media query at the foot of this block). ⚠️ Every
-     bar is width-capped through .tb-barwrap, so nothing stretches edge-to-edge across a
-     monitor: that full-bleed stretch was the entire complaint about the first build. */
-  .tb-identity { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-  .top-bar-name { font-size: var(--text-xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .tb-stats { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .top-bar-header .top-bar-gear { grid-area: gear; align-self: center; width: 46px; height: 46px; }
+  .top-bar-header .top-bar-gear svg { width: 21px; height: 21px; }
+
+  /* STATS stack. Bars stretch (barwrap flex:1, no cap). CRAFT amber lives at .tb-bar-amber > i. */
+  .tb-stats { grid-area: stats; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
   .tb-statrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .tb-statrow-compact { margin-top: 1px; }
-  .tb-statlab { flex: 0 0 auto; width: 40px; font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
-  .tb-barwrap { flex: 1 1 auto; min-width: 0; max-width: 220px; }
-  .tb-statrow-compact .tb-barwrap { max-width: 140px; }
-  /* The frame. Its inner <i> (EXP, CRAFT) OR .tick-bar-fill (TICK) is the moving part. */
-  .tb-bar { position: relative; display: block; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
-  .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 3px; transition: width var(--bar-step-seconds, 0.25s) linear; }
-  .tb-statval { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
-  /* EXP readout has two forms: mobile shows the full count, desktop folds in the level (no name
-     there). Base = mobile, so the desktop form is hidden here and swapped in by the media query. */
-  .tb-statval-desktop { display: none; }
+  .tb-statlab { flex: 0 0 42px; font-size: var(--text-2xs); letter-spacing: 0.5px; color: var(--color-accent); text-transform: uppercase; }
+  .tb-barwrap { flex: 1 1 auto; min-width: 0; }
+  .tb-bar { position: relative; display: block; height: 9px; border-radius: 5px; background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: 5px; transition: width var(--bar-step-seconds, 0.25s) linear; }
+  .tb-statval { flex: 0 0 auto; min-width: 78px; text-align: right; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
   .tb-lvl { color: var(--color-text-primary); font-weight: 600; }
-  /* Fuel is a link, not a dropdown: its caret is the jump arrow, tinted like the currency caret. */
   .tb-hbtn-link { text-decoration: none; }
-  /* ── Header resource buttons (0.13.5): Currency + Fuel, each opening a popup ────
-     Replaces the old one-chip-per-currency strip. Two <button>s in .tb-resources; each
-     is wrapped in a .tb-pop-wrap that is the positioning context for its .tb-pop popover.
-     ⚠️ The popover is position:absolute inside the header (which IS a stacking layer via
-     .top-bar's own z-index), NOT portaled: it belongs to a control that is always in the
-     document flow, unlike the settings HelpTip that had to escape a transformed modal. */
-  /* ⚠️ position:relative here (not on .tb-pop-wrap) so that on MOBILE the popup anchors to the
-     FULL-WIDTH resource ROW, not to its narrow button. A right:0 popup hung off the button ran
-     off the LEFT screen edge (the Fuel button sits mid-row), which is the off-screen bug the user
-     reported. Anchoring to the row lets left/right clamp it to the viewport. Desktop re-anchors it
-     to the button wrapper in the min-width query below, where there is room. */
-  .tb-resources { display: flex; align-items: center; gap: 8px; position: relative; }
-  .tb-pop-wrap { position: static; display: inline-flex; }
+
+  /* RESOURCES: currency (popup) + fuel (link). ⚠️ position:relative HERE (not on .tb-pop-wrap) so on
+     MOBILE the currency popup anchors to the FULL-WIDTH resource row and left/right-clamps to the
+     viewport (a right:0 popup off the narrow half-button ran off-screen). Desktop re-anchors it to
+     the button in the @media block. The caret is pushed right with margin-left:auto so the glyph and
+     value stay grouped on the left. */
+  /* MOBILE: a 1fr 1fr grid so currency and fuel are EXACTLY half each regardless of content width
+     (flex deferred to the fuel button's wider text and split them unevenly). */
+  .tb-resources { grid-area: resources; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: relative; }
+  .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { min-width: 0; }
+  .tb-pop-wrap { position: static; display: flex; }
   .tb-hbtn {
+    flex: 1 1 auto;
     display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 9px;
+    padding: 6px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     border-radius: 4px;
     background: rgba(var(--color-accent-rgb), 0.08);
@@ -17529,20 +17450,15 @@
   .tb-hbtn:hover,
   .tb-hbtn.open { border-color: rgba(var(--color-accent-rgb), 0.6); background: rgba(var(--color-accent-rgb), 0.14); }
   .tb-hbtn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  .tb-hbtn-glyph { font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
+  .tb-hbtn-glyph { flex: 0 0 auto; font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
   .tb-hbtn b { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
-  .tb-hbtn-caret { font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1; margin-left: 1px; }
-  /* The popover. Same OPAQUE idiom as the currency/fuel tooltips it replaces (a faint
-     accent wash over a solid --color-bg-mid), so no busy tab content bleeds through. */
+  .tb-hbtn-caret { flex: 0 0 auto; margin-left: auto; padding-left: 6px; font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1; }
   .tb-pop {
     position: absolute;
     top: calc(100% + 6px);
-    /* MOBILE: pinned to both edges of the resource row so it can never leave the viewport. */
-    left: 8px;
-    right: 8px;
+    left: 8px; right: 8px;
     z-index: 5;
-    width: auto;
-    max-width: none;
+    width: auto; max-width: none;
     padding: 8px 10px;
     border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: 6px;
@@ -17553,50 +17469,26 @@
   .tb-pop-line { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; font-size: var(--text-xs); }
   .tb-pop-line .tb-pop-name { color: var(--color-text-secondary); }
   .tb-pop-line b { font-family: var(--font-mono); color: var(--color-text-primary); }
-  /* ── Desktop header layout (0.13.5). Placed AFTER the base .tb-* rules so its overrides win
-     the cascade at equal specificity. ─────────────────────────────────────────────── */
-  /* ≥769px = the desktop breakpoint (mirrors COMPACT_DEFAULT_MAX_WIDTH=768 in headerPreference.ts).
-     The approved 0.13.5 desktop layout: a 4-column grid [ portrait | stats | dropdowns | gear ].
-     The name is dropped; the level rides the EXP row. Portrait and gear are bigger, matched-size
-     bookends, vertically centered. The stats column is a flex COLUMN of EXP/CRAFT/(TICK) rows, each
-     with its bar STRETCHED to fill (no cap), so the header uses the full monitor width instead of
-     huddling left. The two dropdowns stack at equal width. The mobile flex-wrap/order rules above
-     are all overridden here. */
+
+  /* ── Desktop (≥769px). One row via grid-areas: portrait | stats | resources | gear. Bigger
+     bookends; resources stack at equal width; the currency popup re-anchors to its own button. ── */
   @media (min-width: 769px) {
     .top-bar-header {
-      display: grid;
       grid-template-columns: auto 1fr auto auto;
-      align-items: center;
+      grid-template-areas: "portrait stats resources gear";
       column-gap: 20px;
-      margin-bottom: 0;
+      row-gap: 0;
     }
-    /* ⚠️ EVERY item pins to grid-row 1. Setting only grid-column (auto row) made the auto-placement
-       stack portrait / stats / dropdowns into THREE separate rows (a 184px-tall header). One row,
-       vertically centered, keeps it a single compact band. */
-    .top-bar-header .top-bar-portrait { grid-column: 1; grid-row: 1; align-self: center; width: 58px; height: 58px; font-size: calc(26px * var(--ui-scale)); }
-    .tb-identity { display: none; }
-    .tb-stats { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .top-bar-header .top-bar-portrait { width: 58px; height: 58px; font-size: calc(26px * var(--ui-scale)); }
+    .tb-stats { gap: 8px; }
     .tb-stats .tb-statrow { gap: 10px; }
-    .tb-stats .tb-barwrap { flex: 1 1 auto; max-width: none; }
-    .tb-stats .tb-bar { height: 10px; border-radius: 5px; }
-    .tb-stats .tb-bar > i { border-radius: 5px; }
-    .tb-stats .tb-statlab { width: 46px; font-size: var(--text-2xs); }
-    .tb-stats .tb-statval { min-width: 136px; text-align: right; font-size: var(--text-xs); }
-    .tb-statval-mobile { display: none; }
-    .tb-statval-desktop { display: inline; }
-    /* Dropdowns stack at equal width; the gear sits centered beside them. */
-    .tb-resources { grid-column: 3; grid-row: 1; flex-direction: column; align-items: stretch; gap: 6px; }
-    .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { width: 168px; }
-    .tb-resources .tb-hbtn { width: 100%; justify-content: space-between; }
-    .top-bar-header .top-bar-gear { grid-column: 4; grid-row: 1; align-self: center; width: 58px; height: 58px; }
-    /* ⚠️ These two carry an extra class of specificity ON PURPOSE: their base rules
-       (.top-bar-gear svg, .top-bar-expander) are defined LATER in the sheet than this block, so a
-       bare selector would lose the equal-specificity tie to source order. The descendant prefix
-       wins regardless of where either rule sits. */
+    .tb-stats .tb-bar { height: 10px; }
+    .tb-stats .tb-statlab { flex-basis: 46px; }
+    .tb-stats .tb-statval { min-width: 136px; font-size: var(--text-xs); }
+    .tb-resources { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+    .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { flex: none; width: 168px; }
+    .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
     .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
-    /* No collapse control on desktop (stats always show), so the expander is hidden. */
-    .top-bar .top-bar-expander { display: none; }
-    /* The currency popup drops from its button (there is room); fuel has no popup now. */
     .tb-pop-wrap { position: relative; }
     .tb-pop { left: auto; right: 0; width: max-content; max-width: 260px; }
   }
@@ -18367,45 +18259,8 @@
     background: var(--color-warning);
   }
 
-  .top-bar-expander {
-    width: 100%;
-    margin-top: 6px;
-    padding: 5px 0 1px;
-    background: none;
-    border: none;
-    border-top: 1px solid var(--color-border);
-    color: var(--color-text-dim);
-    font-family: var(--font-mono);
-    font-size: var(--text-3xs);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-  }
-  .top-bar-expander:hover {
-    color: var(--color-accent);
-  }
-  .top-bar-expander:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: -2px;
-  }
-  .top-bar-expander-chev {
-    display: block;
-    line-height: 1;
-    font-size: var(--text-sm);
-    transition: transform 0.2s ease;
-  }
-  .top-bar-expander-open .top-bar-expander-chev {
-    transform: rotate(180deg);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .top-bar-expander-chev {
-      transition: none;
-    }
-  }
+  /* (The .top-bar-expander / More-Less control was removed in 0.13.5: the unified header has no
+     collapse, so its CSS went with the markup.) */
 
   /* ============================================================================
      RECENTLY COMPLETED, compact rows (0.13.5, from the approved mockup)
