@@ -25,6 +25,44 @@
   import type { EquipmentRarity, EquipmentInstance, ItemRarity, ShipTypeKey } from "./game/model";
   import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES } from "./game/model";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
+  // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
+  // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
+  // reuse the SAME pure fold combat uses (weaponInstanceFromGear) so the tooltip's numbers equal
+  // what the ship actually fires, and read the base template for the pre-roll craft preview.
+  import { WEAPON_DEFS } from "./game/combat/weapons";
+  import { weaponInstanceFromGear } from "./game/combat/bridge";
+  import type { CombatWeapon, WeaponFamily } from "./game/combat/types";
+
+  // Family display names + the range-band + fire-rate readouts, so a weapon card reads its identity.
+  const WEAPON_FAMILY_LABEL: Record<WeaponFamily, string> = {
+    kinetic: "Kinetic",
+    particle: "Particle",
+    ew: "Electronic Warfare",
+  };
+  function weaponFamilyLabel(f: WeaponFamily): string {
+    return WEAPON_FAMILY_LABEL[f] ?? f;
+  }
+  // range is a scalar on the 1D axis (weapons.ts RANGE_LONG/MEDIUM/SHORT anchors 300/200/100).
+  function rangeBand(range: number): string {
+    return range >= 250 ? "Long" : range >= 150 ? "Medium" : "Short";
+  }
+  // cooldownDeciSec is tenths of a second (10 = 1.0s); shots/sec = 10 / cooldownDeciSec.
+  function fireRate(cooldownDeciSec: number): string {
+    return `${(10 / cooldownDeciSec).toFixed(2)}/s`;
+  }
+  // The combat-stat rows for a weapon, given its effective CombatWeapon (folded instance for a
+  // finished piece, or the base template for a pre-roll preview). Damage is the per-shot range.
+  function weaponCombatRows(w: CombatWeapon): { label: string; value: string }[] {
+    const rows: { label: string; value: string }[] = [
+      { label: "Damage", value: w.yieldMin === w.yieldMax ? `${w.yieldMin}` : `${w.yieldMin}–${w.yieldMax}` },
+    ];
+    if (w.projectileCount > 1) rows.push({ label: "Projectiles", value: `×${w.projectileCount}` });
+    rows.push({ label: "Accuracy", value: `${w.accuracy}%` });
+    rows.push({ label: "Fire rate", value: fireRate(w.cooldownDeciSec) });
+    rows.push({ label: "Range", value: rangeBand(w.range) });
+    rows.push({ label: "Family", value: weaponFamilyLabel(w.family) });
+    return rows;
+  }
 
   export function equipmentRarityColor(rarity: EquipmentRarity): string {
     switch (rarity) {
@@ -275,6 +313,7 @@
         chipColor: string;
         iLevel: number;
         slotLabel: string;
+        weaponCombat: { label: string; value: string }[] | null;
         implicit: [string, number][];
         primaries: [string, number][];
         flavor: string | null;
@@ -311,6 +350,10 @@
         chipColor: string;
         slotLabel: string;
         preview: CraftPreview | null;
+        // For a WEAPON craft: the base def's fixed combat stats (family / projectiles / fire rate /
+        // range / base damage), which are known pre-roll. The rolled weaponYield (shown as the
+        // signature range) adds to the base damage; base damage is shown so the range reads in context.
+        weaponBase: { label: string; value: string }[] | null;
         flavor: string | null;
       }
     | null;
@@ -334,6 +377,12 @@
         chipColor: accent,
         iLevel: p.iLevel,
         slotLabel: slotLabelFor(p.slotType),
+        // A weapon's DAMAGE and other combat stats live on its base def, folded with the rolled
+        // yield/accuracy by the SAME function combat uses, so the card shows what the ship fires.
+        weaponCombat:
+          p.slotType === "weapon" && p.weaponType !== undefined
+            ? weaponCombatRows(weaponInstanceFromGear(p, p.id))
+            : null,
         implicit: Object.entries(p.implicitStats),
         primaries: Object.entries(p.rolledStats),
         flavor: equipmentFlavor(p),
@@ -382,6 +431,14 @@
     // craft
     const bp = BLUEPRINTS[resolved.blueprintKey];
     const preview = craftPreviewFor(resolved.blueprintKey, resolved.craftingLevel, resolved.faTalentBonus ?? 0);
+    // A weapon craft's fixed combat stats come straight from the base def (no roll needed for
+    // family / projectiles / fire rate / range / base damage). The rolled weaponYield adds to the
+    // base damage and is shown separately as the signature range.
+    const weaponType = bp?.weaponOutput?.weaponType;
+    const weaponBase =
+      weaponType !== undefined && WEAPON_DEFS[weaponType] !== undefined
+        ? weaponCombatRows(WEAPON_DEFS[weaponType])
+        : null;
     return {
       kind: "craft",
       accent: ACCENT,
@@ -391,6 +448,7 @@
       chipColor: DIM,
       slotLabel: preview ? slotLabelFor(preview.slotType) : "",
       preview,
+      weaponBase,
       flavor: bp?.flavor ?? null,
     };
   })();
@@ -428,6 +486,18 @@
 
     <!-- STATS block (above the divider) — varies by kind. -->
     {#if view.kind === "equipment"}
+      <!-- WEAPON COMBAT stats (damage range / accuracy / fire rate / range / family). These come
+           from the weapon's base def folded with the rolled yield/accuracy, NOT the raw rolled
+           lines below, so a weapon card shows what it actually fires. Shown first (the result), with
+           the rolled signature/affix lines below as the "what rolled" detail. -->
+      {#if view.weaponCombat}
+        <div class="et-sec">
+          <div class="et-lblrow">Combat</div>
+          {#each view.weaponCombat as row (row.label)}
+            <div class="et-statrow"><span class="et-k">{row.label}</span><span class="et-v">{row.value}</span></div>
+          {/each}
+        </div>
+      {/if}
       <div class="et-imp">
         <div class="et-imp-stats">
           {#each view.implicit as [key, value] (key)}
@@ -455,6 +525,17 @@
         <div class="et-detail">{view.detail}</div>
       {/if}
     {:else if view.kind === "craft"}
+      <!-- WEAPON base combat stats (fixed, known pre-roll): family / projectiles / fire rate /
+           range / base damage. The rolled weaponYield (the signature range below) adds to the base
+           damage, so both read together. Non-weapon crafts have no base block. -->
+      {#if view.weaponBase}
+        <div class="et-sec">
+          <div class="et-lblrow">Base combat</div>
+          {#each view.weaponBase as row (row.label)}
+            <div class="et-statrow"><span class="et-k">{row.label}</span><span class="et-v">{row.value}</span></div>
+          {/each}
+        </div>
+      {/if}
       {#if view.preview}
         {@const p = view.preview}
         <div class="et-stats">
