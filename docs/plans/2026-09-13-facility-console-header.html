@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Console header — one row</title>
+<style>
+  :root {
+    --color-bg-deep: #060a12; --color-bg-mid: #0a1120;
+    --color-panel-bg-strong: rgba(103,232,249,0.06);
+    --color-accent: #67e8f9; --color-accent-rgb: 103,232,249;
+    --color-text-primary: #e6f4f8; --color-text-secondary: #8fa3ad; --color-text-dim: #628591;
+    --color-border: rgba(103,232,249,0.14); --color-border-strong: rgba(103,232,249,0.3);
+    --corner: 2px; --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 30px 22px 64px; background: var(--color-bg-deep); color: var(--color-text-primary); font-family: var(--font-sans); line-height: 1.5; }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--color-text-secondary); font-size: 14px; margin: 0 0 22px; max-width: 78ch; }
+  .tag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-accent); border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 2px 7px; }
+  .label { display: flex; align-items: baseline; gap: 10px; margin: 26px 0 8px; }
+  .label .t { font-size: 15px; font-weight: 600; }
+  .label .s { color: var(--color-text-secondary); font-size: 13px; }
+
+  .backarrow { font-family: var(--font-sans); font-size: 15px; line-height: 1; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); width: 30px; height: 30px; display: grid; place-items: center; cursor: pointer; flex: 0 0 auto; }
+  .backtext { font-family: var(--font-sans); font-size: 12px; color: var(--color-accent); background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); padding: 6px 12px; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
+  .fname { font-size: 15px; font-weight: 600; color: var(--color-text-primary); letter-spacing: 0.3px; white-space: nowrap; flex: 0 0 auto; }
+  .tabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { font-size: 13px; padding: 6px 12px; border-radius: var(--corner); border: 1px solid transparent; color: var(--color-text-secondary); background: rgba(255,255,255,0.02); white-space: nowrap; flex: 0 0 auto; }
+  .tab.on { color: var(--color-accent); border-color: var(--color-border-strong); background: rgba(var(--color-accent-rgb),0.10); }
+  .tab.lock { color: var(--color-text-dim); }
+
+  .hdr { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .hdr .tabs { margin-left: auto; min-width: 0; }  /* desktop: pushed right; mobile: shrinks + scrolls */
+
+  .panel { margin-top: 8px; border: 1px solid var(--color-border-strong); background: var(--color-panel-bg-strong); border-radius: var(--corner); padding: 12px 14px; }
+  .panel .pt { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); }
+  .panel .pl { font-size: 13px; color: var(--color-text-secondary); margin-top: 5px; }
+
+  .viewport { border: 1px dashed rgba(103,232,249,0.22); border-radius: 8px; padding: 12px 14px; }
+  .vlabel { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-dim); margin: 0 0 8px; }
+  .phone { width: 360px; border: 1px solid rgba(103,232,249,0.22); border-radius: 18px; padding: 12px 10px; background: #04070d; }
+  .fade { position: relative; }
+  .fade::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 26px; background: linear-gradient(to right, transparent, #04070d); pointer-events: none; }
+
+  .row-cmp { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+  .note { margin: 12px 0 0; font-size: 13px; color: var(--color-text-secondary); max-width: 82ch; }
+  .note b { color: var(--color-text-primary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Console header — one row, shrunk back control</h1>
+  <p class="lede">One row on both platforms. The back control shrinks to reclaim space: an arrow-only button, or a short "Back". Sub-tabs push right on desktop; on mobile they take what's left and scroll if a facility has more tabs than fit (the fade on the right shows there's more).</p>
+
+  <div class="label"><span class="tag">back control</span><span class="t">width comparison</span></div>
+  <div class="row-cmp">
+    <button class="backarrow" title="Back">←</button>
+    <button class="backtext">Back</button>
+    <button class="backtext">← Facilities</button>
+    <span class="note" style="margin:0;">arrow (30px) · "Back" · today's "← Facilities" (widest)</span>
+  </div>
+
+  <div class="label"><span class="tag">desktop</span><span class="t">one row · arrow back</span></div>
+  <div class="viewport">
+    <div class="vlabel">— desktop —</div>
+    <div class="hdr">
+      <button class="backarrow" title="Back">←</button>
+      <span class="fname">Refinery</span>
+      <div class="tabs"><span class="tab on">Overview</span><span class="tab">Production</span><span class="tab">Upgrades</span><span class="tab lock">🔒 Coming Soon</span></div>
+    </div>
+    <div class="panel"><div class="pt">Refinery</div><div class="pl">Level 4 · Refine slots 1 / 3 in use</div></div>
+  </div>
+
+  <div class="label"><span class="tag">mobile</span><span class="t">one row · arrow back · tabs scroll</span></div>
+  <div class="phone">
+    <div class="fade">
+      <div class="hdr">
+        <button class="backarrow" title="Back">←</button>
+        <span class="fname">Refinery</span>
+        <div class="tabs"><span class="tab on">Overview</span><span class="tab">Production</span><span class="tab">Upgrades</span><span class="tab lock">🔒 Coming Soon</span></div>
+      </div>
+    </div>
+    <div class="panel"><div class="pt">Refinery</div><div class="pl">Level 4 · 1 / 3 refining</div></div>
+  </div>
+
+  <div class="label"><span class="tag">mobile</span><span class="t">shorter name fits without scroll</span></div>
+  <div class="phone">
+    <div class="hdr">
+      <button class="backarrow" title="Back">←</button>
+      <span class="fname">Docks</span>
+      <div class="tabs"><span class="tab on">Overview</span><span class="tab">Upgrades</span></div>
+    </div>
+    <div class="panel"><div class="pt">Docks</div><div class="pl">1 / 8 berths used</div></div>
+  </div>
+
+  <p class="note"><b>My pick: the arrow.</b> It buys the most room, and a left-pointing arrow at the top-left is a universally understood "back". The only cost is it drops the word "Facilities" — but the sub-tabs + panel already tell you where you are. If you'd rather keep a word, "Back" is the compromise (a bit wider, still far tighter than "← Facilities"). Tabs scroll on mobile only when a facility genuinely has too many to fit (Refinery's four); most fit outright (see Docks).</p>
+</div>
+</body>
+</html>
