@@ -1337,3 +1337,127 @@ describe("a docking bay expansion reads as a capacity, not a raw key", () => {
     expect(row!.secondaryLabel).toBe("3 bays");
   });
 });
+
+// ============================================================================
+// WHOLE-ORDER ETA ON A RUNNING CRAFT ROW (0.13.5, user report)
+//
+// "A player who queued ~2000 refines (~7 hours) saw a few seconds on the Home board, not
+// ~7h." A refine/fabricate PROCESS is one iteration of a possibly much larger queued order,
+// so process.remainingTicks is the seconds left on THIS unit. craftQueue.ts already knows the
+// ORDER total (CraftQueueRunningRow.etaTicks), and rowForProcess now reads it via the running
+// line's id (= process.lineId). The bar keeps ticking per-item; only the ETA + a new count
+// sub-line change. A line with no finite total (continuous) or a process with no backing line
+// falls back to the per-item ticks, exactly as before.
+//
+// States are built BY HAND, one running craft LINE plus the in-flight process that carries its
+// lineId, so the test drives the pure derivation directly and the etaTicks arithmetic is a
+// literal (ceil((remaining + 1) * durationTicks / lanesAttached), lanes 1 for an unattached line).
+// ============================================================================
+describe("buildHomeDashboard: a running refine/fabricate row reports the WHOLE ORDER's ETA", () => {
+  it("overrides a refine row's ticks with the order total and adds a 'N to refine' sub-line", () => {
+    // A batch of 10 refines: one iteration in flight (the process), nine not yet started
+    // (line.remaining). The order total is (9 + 1) * 10 = 100 ticks at one lane, NOT the 5
+    // ticks left on the current unit.
+    const state: GameState = {
+      ...freshState(),
+      refineLines: [
+        { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 9, mode: { kind: "batch", remaining: 9 } },
+      ],
+      activeProcesses: [
+        {
+          id: "p-refine",
+          kind: "refineJob",
+          lineId: "craft-1",
+          remainingTicks: 5,
+          durationTicks: 10,
+          effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(10) },
+        },
+      ],
+    };
+    const row = rowById(buildHomeDashboard(state).inProgress, "p-refine");
+    // The ORDER total, not the per-item 5 left. Both fields carry it: durationTicks only
+    // feeds the power-user "N / total" prefix, so setting both to etaTicks is safe.
+    expect(row.remainingTicks).toBe(100);
+    expect(row.durationTicks).toBe(100);
+    // remaining (9 not started) + 1 in flight = the order's total unit count.
+    expect(row.secondaryLabel).toBe("10 to refine");
+    // ⚠️ The bar is UNTOUCHED: it keeps ticking per-item off the process ticks, so it still
+    // moves each iteration while the ETA speaks for the whole order.
+    expect(row.progress).toBeCloseTo(0.5, 10); // (10 - 5) / 10
+  });
+
+  it("overrides a fabricate row the same way with a 'N to fabricate' sub-line", () => {
+    // A batch of 3 fabricates: 2 not started + 1 in flight, order total (2 + 1) * 6 = 18 ticks.
+    const state: GameState = {
+      ...freshState(),
+      fabricateLines: [
+        { id: "craft-2", kind: "fabricate", recipeKey: "frameSegmentBp", remaining: 2, mode: { kind: "batch", remaining: 2 } },
+      ],
+      activeProcesses: [
+        {
+          id: "p-fabricate",
+          kind: "fabricateJob",
+          lineId: "craft-2",
+          remainingTicks: 3,
+          durationTicks: 6,
+          effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) },
+        },
+      ],
+    };
+    const row = rowById(buildHomeDashboard(state).inProgress, "p-fabricate");
+    expect(row.remainingTicks).toBe(18);
+    expect(row.durationTicks).toBe(18);
+    expect(row.secondaryLabel).toBe("3 to fabricate");
+    expect(row.progress).toBeCloseTo(0.5, 10); // (6 - 3) / 6
+  });
+
+  it("leaves a CONTINUOUS line's row per-item, with no count sub-line", () => {
+    // A "runs until cancelled" order has no finite total, so there is nothing to sum: the row
+    // keeps the in-flight iteration's own ticks and adds no sub-line.
+    const state: GameState = {
+      ...freshState(),
+      refineLines: [
+        { id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 0, mode: { kind: "continuous" } },
+      ],
+      activeProcesses: [
+        {
+          id: "p-refine",
+          kind: "refineJob",
+          lineId: "craft-1",
+          remainingTicks: 5,
+          durationTicks: 10,
+          effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(10) },
+        },
+      ],
+    };
+    const row = rowById(buildHomeDashboard(state).inProgress, "p-refine");
+    expect(row.remainingTicks).toBe(5);
+    expect(row.durationTicks).toBe(10);
+    expect(row.secondaryLabel).toBeNull();
+  });
+
+  it("leaves a craft process with NO backing queue line per-item (a legacy single job)", () => {
+    // The lineId points at a line that is not in the queue (an old save, or a job that never
+    // came from the Material Lines model), so there is no running row to read a total from and
+    // the row degrades to the per-item ticks it always showed. This is the same path the
+    // top-of-file 'oneOfEveryProcess' fixture exercises, where the refineJob carries no lineId.
+    const state: GameState = {
+      ...freshState(),
+      refineLines: [], // nothing running: the lineId below resolves to no running row
+      activeProcesses: [
+        {
+          id: "p-refine",
+          kind: "refineJob",
+          lineId: "craft-gone",
+          remainingTicks: 5,
+          durationTicks: 10,
+          effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(10) },
+        },
+      ],
+    };
+    const row = rowById(buildHomeDashboard(state).inProgress, "p-refine");
+    expect(row.remainingTicks).toBe(5);
+    expect(row.durationTicks).toBe(10);
+    expect(row.secondaryLabel).toBeNull();
+  });
+});

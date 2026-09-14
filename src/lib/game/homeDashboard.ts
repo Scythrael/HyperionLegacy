@@ -97,6 +97,9 @@ import {
   // stored ids without the instance.
   equipmentInstanceLabel,
   type CraftQueueView,
+  // 0.13.5 whole-order ETA: a running craft LINE's row carries the order-level total remaining
+  // (etaTicks) that a single in-flight process cannot know on its own. See rowForProcess.
+  type CraftQueueRunningRow,
 } from "./craftQueue";
 // Same reason as the model imports above: the ship's INSTALLED gear feeds shipDerivedStats.
 import { equippedFor } from "./equipment";
@@ -559,20 +562,65 @@ function labelForProcess(
 // Build the ActivityRow for one generic TimedProcess. Progress is elapsed / duration,
 // guarded against a 0 duration (reads as complete, mirroring every source bar, e.g.
 // App.svelte:5159). The raw remaining/duration ticks ride along for the UI's ETA.
-function rowForProcess(process: TimedProcess, state: GameState): ActivityRow {
+//
+// `craftRunByLine` (0.13.5) maps a refine/fabricate LINE id to the queue's own running row,
+// so a craft process can report the WHOLE ORDER's remaining time rather than the few seconds
+// left on its single in-flight iteration. See the whole-order block below.
+function rowForProcess(
+  process: TimedProcess,
+  state: GameState,
+  craftRunByLine: Map<string, CraftQueueRunningRow>,
+): ActivityRow {
   const { icon, primaryLabel, jumpTarget } = labelForProcess(process, state);
   const progress = process.durationTicks > 0
     ? (process.durationTicks - process.remainingTicks) / process.durationTicks
     : 1;
+
+  // The PER-ITEM defaults: this iteration's own ticks, no count sub-line. Every non-craft
+  // row keeps these, and a craft row falls back to them when there is no queue line behind
+  // it (a legacy single job, a continuous line, or nothing in flight to measure a rate from).
+  let remainingTicks = process.remainingTicks;
+  let durationTicks = process.durationTicks;
+  let secondaryLabel: string | null = null;
+
+  // ⚠️ WHOLE-ORDER ETA (0.13.5, user report). A refine/fabricate PROCESS is one iteration of a
+  // possibly much larger queued order: 2000 refines is 2000 iterations run one at a time, so
+  // process.remainingTicks is the seconds left on THIS unit, not the ~7 hours left on the
+  // order. Showing the per-item value made the board claim an order was seconds from done and
+  // then immediately start another, over and over, which reads as broken.
+  //
+  // The queue module already computes the order-level total as CraftQueueRunningRow.etaTicks
+  // (ceil((remaining + 1) * durationTicks / lanesAttached), lane-adjusted; see craftQueue.ts),
+  // so the board READS THAT rather than minting a second, disagreeing estimate. A running
+  // refine/fabricate process carries process.lineId equal to that running row's id, which is
+  // the craft LINE id the map is keyed by. remaining counts iterations NOT yet started, so
+  // remaining + 1 (adding the in-flight one) is the order's total unit count, matching how
+  // craftQueue.ts derives etaTicks.
+  //
+  // Left to the per-item default when the line is CONTINUOUS (a "runs until cancelled" order
+  // has no finite total), when there is NO etaTicks (nothing in flight to extrapolate from),
+  // or when there is no backing line at all. The progress bar is deliberately untouched: it
+  // keeps ticking per-item off process ticks above, so the bar still moves each iteration
+  // while the ETA readout speaks for the whole order.
+  const runningRow =
+    (process.kind === "refineJob" || process.kind === "fabricateJob") && process.lineId !== undefined
+      ? craftRunByLine.get(process.lineId)
+      : undefined;
+  if (runningRow !== undefined && !runningRow.continuous && runningRow.etaTicks !== null) {
+    remainingTicks = runningRow.etaTicks;
+    durationTicks = runningRow.etaTicks;
+    secondaryLabel = `${runningRow.remaining + 1} to ${process.kind === "refineJob" ? "refine" : "fabricate"}`;
+  }
+
   return {
     id: process.id,
     icon,
     primaryLabel,
-    secondaryLabel: null,
+    secondaryLabel,
     kind: "timed-job",
     progress,
-    remainingTicks: process.remainingTicks,
-    durationTicks: process.durationTicks,
+    remainingTicks,
+    durationTicks,
     jumpTarget,
     combat: null,
   };
@@ -1314,8 +1362,13 @@ function summariseQueue(view: CraftQueueView): QueuedFacilitySummary {
 // Every queue-capable facility's waiting work, in the engine's own QUEUE_FACILITY_ORDER
 // (buildAllCraftQueues iterates that tuple), so the board lists facilities in the order the
 // promotion pass actually walks them.
-function buildQueuedWork(state: GameState): QueuedWorkSummary {
-  const byFacility = buildAllCraftQueues(state).map(summariseQueue);
+//
+// ⚠️ TAKES THE ALREADY-BUILT VIEWS (0.13.5), not `state`. buildHomeDashboard now needs those
+// same views for the in-progress rows' whole-order ETA, so it builds them ONCE and hands them
+// here rather than paying for a second buildAllCraftQueues pass. summariseQueue reads only
+// fields the views already computed, so nothing is re-derived.
+function buildQueuedWork(views: CraftQueueView[]): QueuedWorkSummary {
+  const byFacility = views.map(summariseQueue);
   return {
     total: byFacility.reduce((n, s) => n + s.queued, 0),
     byFacility,
@@ -1341,12 +1394,31 @@ function buildQueuedWork(state: GameState): QueuedWorkSummary {
 // each captain currently on a mission (patrol or extraction). Idle captains (mission ==
 // null) contribute NO row (App.svelte's lists filter them out the same way).
 export function buildHomeDashboard(state: GameState): HomeDashboardModel {
+  // 0.13.5: build every facility's queue view ONCE, up front. TWO consumers read it now: the
+  // queuedWork summary (buildQueuedWork below) and the whole-order ETA the in-progress
+  // refine/fabricate rows report (rowForProcess). buildAllCraftQueues already produced exactly
+  // these views for queuedWork; hoisting the call above the in-progress loop lets both share
+  // the one pass rather than building the refinery + fabricator views a second time.
+  const craftQueues = buildAllCraftQueues(state);
+
+  // Index the refinery + fabricator RUNNING rows by their craft LINE id (CraftQueueRunningRow.id),
+  // which is exactly what a running refineJob/fabricateJob process carries as process.lineId.
+  // Only these two facilities run line-backed craft orders whose iterations queue up one behind
+  // the next; every other facility's running rows key on a PROCESS id (a salvage/research/build
+  // job is one indivisible unit of work) and so can never collide with a lineId lookup.
+  const craftRunByLine = new Map<string, CraftQueueRunningRow>();
+  for (const view of craftQueues) {
+    if (view.facility === "refinery" || view.facility === "fabricator") {
+      for (const row of view.running) craftRunByLine.set(row.id, row);
+    }
+  }
+
   const inProgress: ActivityRow[] = [];
 
   // 1. Every timed job (refine / fabricate / research / ship build / fuel / facility +
   //    storage + docks upgrades / repair), enumerated generically off the one array.
   for (const process of state.activeProcesses) {
-    inProgress.push(rowForProcess(process, state));
+    inProgress.push(rowForProcess(process, state, craftRunByLine));
   }
 
   // 2. Every captain mission, split into its two arms. extractionMissionOf narrows the
@@ -1366,8 +1438,9 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
 
   // Unit 4.6: what is WAITING to start, counted per facility. Derived BEFORE needsOrders
   // because the prompts depend on it: a bay the queue is about to fill is not a bay that
-  // needs orders (see queueWouldFillEveryFreeBay). One pass serves both.
-  const queuedWork = buildQueuedWork(state);
+  // needs orders (see queueWouldFillEveryFreeBay). Folded from the SAME craftQueues built at
+  // the top, so the whole board still pays for exactly one buildAllCraftQueues pass.
+  const queuedWork = buildQueuedWork(craftQueues);
 
   // Unit 2: the idle-and-actionable prompts. allCaughtUp is exactly "no prompts anywhere"
   // (design Section 7 outcome 3): every bay is busy or has nothing available, so the UI
