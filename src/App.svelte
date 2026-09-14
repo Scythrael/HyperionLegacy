@@ -8229,6 +8229,52 @@
       `${quartermasterAvailableCount} of ${REQUISITION_ENTRIES.length} Standard-Issue patterns available`,
       facilityAttention.has("quartermaster")),
   ];
+
+  // ── SHARED FACILITY-CONSOLE SUB-TABS (0.13.5, user: one-row console header). The console renders
+  //    ONE SubTabs in its header (beside the ← back arrow + facility name) instead of a separate
+  //    sub-tab bar per facility. This maps the active facility to its tab config; the content blocks
+  //    below no longer render their own SubTabs. `null` = a facility with no sub-tabs (Docks,
+  //    Quartermaster). Same arrays/handlers the per-facility bars used, moved here.
+  type ConsoleTabsVM = { tabs: { key: string; label: string; locked?: boolean }[]; active: string; onSelect: (key: string) => void };
+  $: consoleTabs = ((): ConsoleTabsVM | null => {
+    switch (activeFoundryFacility) {
+      case "refinery":
+        return { tabs: [
+          { key: "overview", label: "Overview" },
+          { key: "orders", label: "Production" },
+          { key: "upgrades", label: "Upgrades" },
+          { key: "refineryLocked1", label: "Coming Soon!", locked: true },
+        ], active: activeRefinerySubTab, onSelect: (key) => (activeRefinerySubTab = key as RefinerySubTab) };
+      case "fabricator":
+        return { tabs: [
+          { key: "overview", label: "Overview" },
+          { key: "craft", label: "Craft" },
+          { key: "upgrades", label: "Upgrades" },
+        ], active: activeFabricatorSubTab, onSelect: (key) => (activeFabricatorSubTab = key as FabricatorSubTab) };
+      case "research":
+        return { tabs: [
+          { key: "overview", label: "Overview" },
+          { key: "research", label: "Research" },
+          { key: "upgrades", label: "Upgrades" },
+        ], active: activeResearchSubTab, onSelect: (key) => (activeResearchSubTab = key as ResearchSubTab) };
+      case "fuelStorage":
+        return { tabs: [
+          { key: "overview", label: "Overview" },
+          { key: "upgrades", label: "Upgrades" },
+        ], active: activeFuelStorageSubTab, onSelect: (key) => (activeFuelStorageSubTab = key as FuelStorageSubTab) };
+      case "warehouse":
+        return { tabs: WAREHOUSE_CAT_TABS, active: activeWarehouseCat, onSelect: (key) => (activeWarehouseCat = key as WarehouseCat) };
+      case "salvageBay":
+        return { tabs: SALVAGE_BAY_SUBTABS, active: activeSalvageBaySubTab, onSelect: (key) => (activeSalvageBaySubTab = key as SalvageBaySubTab) };
+      case "shipyard":
+        return { tabs: [
+          { key: "build", label: "Build" },
+          { key: "upgrades", label: "Upgrades" },
+        ], active: activeShipyardSubTab, onSelect: (key) => (activeShipyardSubTab = key as ShipyardSubTab) };
+      default:
+        return null;
+    }
+  })();
 </script>
 
 <!-- Window-level tooltip dismissal. Header resource popups (Currency / Fuel): close an
@@ -9017,26 +9063,27 @@
                branch below is UNCHANGED from the old rail, only its surrounding nav
                moved from a left rail to this dashboard/back-row model, the SAME
                back-row idiom the captain + ship consoles use. -->
-          <div class="roster-back-row">
+          <!-- One-row console header (0.13.5, user): a ← back ARROW + the facility name + the active
+               facility's sub-tabs, ALL on one line. The sub-tabs render ONCE here (from consoleTabs)
+               instead of a separate bar inside each facility block. Desktop pushes the tab strip
+               right; mobile lets it shrink + scroll (SubTabs' own carets). Docks/Quartermaster have
+               no sub-tabs, so consoleTabs is null and only the arrow + name show. -->
+          <div class="fconsole-hdr">
             <button
-              class="dev-btn"
+              class="fconsole-back"
+              aria-label="Back to Facilities"
               on:click={() => (facilitiesView = "dashboard")}
             >
-              ← Facilities
+              <span aria-hidden="true">←</span>
             </button>
-            <div class="research-name roster-detail-name">{FACILITY_LABELS[activeFoundryFacility]}</div>
+            <div class="research-name roster-detail-name fconsole-name">{FACILITY_LABELS[activeFoundryFacility]}</div>
+            {#if consoleTabs}
+              <div class="fconsole-tabs">
+                <SubTabs tabs={consoleTabs.tabs} active={consoleTabs.active} onSelect={consoleTabs.onSelect} />
+              </div>
+            {/if}
           </div>
           {#if activeFoundryFacility === "refinery"}
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "orders", label: "Production" },
-                { key: "upgrades", label: "Upgrades" },
-                { key: "refineryLocked1", label: "Coming Soon!", locked: true },
-              ]}
-              active={activeRefinerySubTab}
-              onSelect={(key) => (activeRefinerySubTab = key as RefinerySubTab)}
-            />
 
             {#if activeRefinerySubTab === "overview"}
               <!-- OVERVIEW, refinery level, slot usage, and any in-flight refine
@@ -9446,15 +9493,6 @@
                  fabricator / BLUEPRINTS / ITEMS), so the UI can't drift from what the backend
                  enforces. Reuses the research/refine progress-bar idiom + the .mission-card /
                  .buy-btn / .dev-btn / .research-* classes (no new markup style). -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "craft", label: "Craft" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeFabricatorSubTab}
-              onSelect={(key) => (activeFabricatorSubTab = key as FabricatorSubTab)}
-            />
 
             {#if activeFabricatorSubTab === "overview"}
               <!-- OVERVIEW, fabricator level, craft-slot usage, any in-flight craft
@@ -10088,15 +10126,6 @@
                  can't drift from what the backend enforces. Reuses the refine/upgrade
                  progress-bar idiom + the .mission-card / .buy-btn / .research-* classes
                  (no new markup style). -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "research", label: "Research" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeResearchSubTab}
-              onSelect={(key) => (activeResearchSubTab = key as ResearchSubTab)}
-            />
 
             {#if activeResearchSubTab === "overview"}
               <!-- OVERVIEW, lab level, slot usage, any in-flight research projects
@@ -10451,14 +10480,6 @@
                  (the mixed storage/processing track). Since F2/F3 made refining +
                  auto-buy automatic, the Overview now LEADS with the sufficiency readout
                  and the manual buy is a secondary override, not the primary action. -->
-            <SubTabs
-              tabs={[
-                { key: "overview", label: "Overview" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeFuelStorageSubTab}
-              onSelect={(key) => (activeFuelStorageSubTab = key as FuelStorageSubTab)}
-            />
 
             {#if activeFuelStorageSubTab === "overview"}
               <Panel>
@@ -10745,11 +10766,6 @@
                  upgrade actions/gates read the SAME tick.ts backend fns the Refinery
                  uses (tierCap / materialAtCap / canBuildFacilityUpgrade /
                  startFacilityUpgrade). -->
-            <SubTabs
-              tabs={WAREHOUSE_CAT_TABS}
-              active={activeWarehouseCat}
-              onSelect={(key) => (activeWarehouseCat = key as WarehouseCat)}
-            />
 
             {#if activeWarehouseCat === "overview"}
               <!-- OVERVIEW, at-a-glance warehouse state (design §3.1): T1 level +
@@ -10938,11 +10954,6 @@
                  Research, Fuel Depot, Warehouse and Shipyard consoles use, driven by the
                  SALVAGE_BAY_SUBTABS const the way the Warehouse is driven by
                  WAREHOUSE_CAT_TABS. No new pattern, no new component, no engine change. -->
-            <SubTabs
-              tabs={SALVAGE_BAY_SUBTABS}
-              active={activeSalvageBaySubTab}
-              onSelect={(key) => (activeSalvageBaySubTab = key as SalvageBaySubTab)}
-            />
 
             {#if activeSalvageBaySubTab === "salvage"}
             <!-- ============ TAB 1 OF 2: SALVAGE, the act ============================
@@ -11780,14 +11791,6 @@
                  .mission-card / .buy-btn / .research-* classes (no new markup style). NOTE:
                  the Shipyard only BUILDS, assigning a hull to a captain stays at the Docks
                  (Sector Space > Starbase), which is SEPARATE and unchanged. -->
-            <SubTabs
-              tabs={[
-                { key: "build", label: "Build" },
-                { key: "upgrades", label: "Upgrades" },
-              ]}
-              active={activeShipyardSubTab}
-              onSelect={(key) => (activeShipyardSubTab = key as ShipyardSubTab)}
-            />
 
             {#if activeShipyardSubTab === "build"}
               <!-- BUILD QUEUE (Shipyard queue UI, 2026-09-04), the flat ORDERED list of waiting
@@ -18800,6 +18803,28 @@
      talents panels stay VERBATIM while the page still names who you are on. */
   .roster-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
   .roster-detail-name { margin-bottom: 0; }
+  /* ── One-row facility console header (0.13.5): [← back arrow] [name] [sub-tab strip]. NOWRAP so
+     the strip scrolls (via SubTabs' carets) rather than wrapping to a second row. Desktop pushes the
+     strip right with margin-left:auto; mobile lets it shrink (min-width:0) so the inner strip
+     scrolls instead of overflowing. */
+  .fconsole-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; min-width: 0; flex-wrap: nowrap; }
+  .fconsole-back { flex: 0 0 auto; width: 30px; height: 30px; display: grid; place-items: center; background: transparent; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); font-size: var(--text-md); line-height: 1; cursor: pointer; padding: 0; }
+  .fconsole-back:hover { background: rgba(var(--color-accent-rgb), 0.12); }
+  .fconsole-back:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .fconsole-name { flex: 0 0 auto; white-space: nowrap; }
+  /* MOBILE (base): the tab area FILLS the space left after the arrow + name and SHRINKS below its
+     content (min-width:0), so the inner SubTabs scroller scrolls + its carets engage instead of the
+     header overflowing the viewport. DESKTOP re-pins it to content width, pushed right. */
+  .fconsole-tabs { flex: 1 1 0; min-width: 0; display: flex; }
+  @media (min-width: 769px) {
+    .fconsole-tabs { flex: 0 1 auto; margin-left: auto; }
+  }
+  /* The header owns the gap below itself, so the embedded strip must not add its own. ⚠️ flex-shrink
+     is forced back to 1 here: SubTabs sets the wrap to flex-shrink:0 to stop it collapsing
+     VERTICALLY in the scroll-column context, but in this horizontal header that would stop it
+     shrinking HORIZONTALLY, so the strip overflows instead of its inner scroller scrolling. Different
+     axis, so re-enabling shrink here is safe. Descendant-prefixed to win the specificity tie. */
+  .fconsole-hdr .fconsole-tabs :global(.sub-tabs-wrap) { margin-bottom: 0; min-width: 0; flex-shrink: 1; }
 
   /* ============================================================
      Warehouse fill-tile catalog (Phase 2, Group C)
