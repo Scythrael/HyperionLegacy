@@ -363,6 +363,7 @@
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
   import Toggle from "./lib/Toggle.svelte";
+  import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
   import { generateEquipment } from "./lib/game/itemgen";
   // [DEV] combat-gear mint (Debug tab only): the dev-only helper that mints a REAL
@@ -5376,7 +5377,8 @@
     doSave();
   }
   // 0.13.5: tick or untick ONE quality tier. The exact shape doToggleAutoSalvageRarity has, because
-  // the two axes are now the same kind of thing and should be edited the same way.
+  // the two axes are now the same kind of thing and should be edited the same way. Presented in the
+  // multi-select dropdown, but the per-tier write is unchanged.
   //
   // ⚠️ Normalised on the way in, so a save carrying a tier outside the ladder (hand-edited, or
   // predating a change to QUALITY_TIERS) is dropped rather than written back and re-saved.
@@ -5388,10 +5390,9 @@
     state = { ...state, autoSalvage: { ...autoSalvageRules, qualities } };
     doSave();
   }
-  // Clear the whole quality axis in one action. ⚠️ Clearing means "quality does not narrow", NOT
-  // "take nothing": with rarity bands still ticked the rule keeps working on those, which is the
-  // behaviour the user specified ("if you click off on quality, it deselects Q1 and Q2 and then
-  // only eats all common/uncommon items regardless of quality").
+  // Clear the whole quality axis in one action (the "Clear" affordance in the multi-select).
+  // ⚠️ Clearing means "quality does not narrow", NOT "take nothing": with rarity bands still ticked
+  // the rule keeps working on those.
   function doClearAutoSalvageQualities() {
     state = { ...state, autoSalvage: { ...autoSalvageRules, qualities: [] } };
     doSave();
@@ -5461,6 +5462,12 @@
       [band]: selected,
     };
     state = { ...state, autoSalvage: { ...autoSalvageRules, rarities } };
+    doSave();
+  }
+  // Clear the whole rarity axis (the multi-select's "Clear"): all bands off = "rarity does not
+  // narrow" (other rules still apply), the rarity analogue of doClearAutoSalvageQualities.
+  function doClearAutoSalvageRarities() {
+    state = { ...state, autoSalvage: { ...autoSalvageRules, rarities: { ...AUTO_SALVAGE_RARITIES_NONE } } };
     doSave();
   }
   // 0.13.3.1: set the post-craft grace length. The <select> carries seconds as strings (a DOM
@@ -15556,7 +15563,7 @@
                    the "just above" the readout points at (unchanged), so the interlock stays true. -->
               <SettingRow
                 label="Auto-salvage"
-                description="Queues matching spare ship systems for teardown on its own, adding orders to the Auto-Salvage Terminal on the Salvage tab; they run the same timed jobs, including while the game is closed. Your rules below decide what it may take: a spare is taken only if it matches EVERY rule you switch on. It never touches an installed or favorited system, one already queued or being broken down, a quality tier you set to confirm first, or (with a grace period set) one you just crafted or uninstalled. Salvaged materials and hull teardowns stay manual."
+                description="Queues matching spare ship systems for teardown on its own, adding orders to the Auto-Salvage Terminal on the Salvage tab; they run the same timed jobs, including while the game is closed. Your rules below decide what it may take: a spare is taken only if it matches EVERY rule you switch on. It never touches an installed or favorited system, one already queued or being broken down, a quality tier you set to confirm first, or (with a grace period set) one you just crafted or uninstalled. Salvaged materials and hull teardowns stay manual. Standard-Issue systems are left alone unless a rule reaches them (Quality at Q0, Rarity in the Standard band); when reached they are queued like any spare and recover nothing, and uninstalling one leaves its slot empty until you install a replacement."
               >
                 <Toggle
                   label="Auto-salvage"
@@ -15575,23 +15582,14 @@
                   label="Quality tiers to queue"
                   description="Takes spare gear whose quality tier is ticked. Nothing ticked means quality does not narrow the selection (your rarity and duplicate rules still apply). Standard-Issue systems rank at Q0, so ticking Q0 reaches them."
                 >
-                  <span style="display: inline-flex; flex-wrap: wrap; gap: 12px; align-items: center;">
-                    {#each autoSalvageAllTiers as tier (tier)}
-                      <label style="display: inline-flex; align-items: center; gap: 6px;">
-                        <input
-                          type="checkbox"
-                          checked={autoSalvageRules.qualities.includes(tier)}
-                          on:change={(e) => doToggleAutoSalvageQuality(tier, (e.target as HTMLInputElement).checked)}
-                        />
-                        Q{tier}
-                      </label>
-                    {/each}
-                    <button
-                      class="dev-btn"
-                      disabled={autoSalvageRules.qualities.length === 0}
-                      on:click={doClearAutoSalvageQualities}
-                    >Clear</button>
-                  </span>
+                  <MultiSelect
+                    label="Quality tiers to queue"
+                    summaryEmpty="Any quality"
+                    options={autoSalvageAllTiers.map((t) => ({ value: String(t), label: `Q${t}` }))}
+                    selected={autoSalvageRules.qualities.map((t) => String(t))}
+                    on:toggle={(e) => doToggleAutoSalvageQuality(Number(e.detail.value), e.detail.selected)}
+                    on:clear={doClearAutoSalvageQualities}
+                  />
                 </SettingRow>
 
                 <!-- RARITY: one checkbox per band (NOT an "and below" control): the legendary bands
@@ -15602,18 +15600,14 @@
                   label="Rarity bands to queue"
                   description="Takes spare gear in the ticked rarity bands. Nothing ticked means rarity does not narrow (your other rules still apply). One checkbox per band because the legendary bands share a power tier and an 'at or below' control would sweep a band you never chose. Standard-Issue systems are in the Standard band."
                 >
-                  <span style="display: inline-flex; flex-wrap: wrap; gap: 12px; align-items: center;">
-                    {#each autoSalvageRarityOptions as band (band)}
-                      <label style="display: inline-flex; align-items: center; gap: 6px;">
-                        <input
-                          type="checkbox"
-                          checked={autoSalvageRarities[band]}
-                          on:change={(e) => doToggleAutoSalvageRarity(band, (e.target as HTMLInputElement).checked)}
-                        />
-                        <span style="color: {equipmentRarityColor(band)}">{equipmentRarityLabel(band)}</span>
-                      </label>
-                    {/each}
-                  </span>
+                  <MultiSelect
+                    label="Rarity bands to queue"
+                    summaryEmpty="Any rarity"
+                    options={autoSalvageRarityOptions.map((b) => ({ value: b, label: equipmentRarityLabel(b), color: equipmentRarityColor(b) }))}
+                    selected={autoSalvageRarityOptions.filter((b) => autoSalvageRarities[b])}
+                    on:toggle={(e) => doToggleAutoSalvageRarity(e.detail.value as EquipmentRarity, e.detail.selected)}
+                    on:clear={doClearAutoSalvageRarities}
+                  />
                 </SettingRow>
 
                 <!-- DUPLICATES: now a Toggle. The old native checkbox needed its ELEMENT captured to
@@ -15688,13 +15682,6 @@
                 </p>
               {/if}
 
-              <!-- One guarantee kept inline (per the user's call) because it is a real GOTCHA, not
-                   reassurance: uninstalling leaves a slot EMPTY, so a ship can't fly until a
-                   replacement is installed. The general safety guarantees + the Terminal/queue note
-                   moved into the master `?` above, per the "explanations behind ?" reskin. -->
-              <p class="research-status">
-                <strong>Standard-Issue systems.</strong> Left alone unless a rule you switch on reaches them (the quality rule at Q0, the rarity rule in the Standard band). When reached they are queued like any other spare and recover nothing, and uninstalling one leaves its slot empty, so a ship whose replacement is not installed yet cannot fly until you install something.
-              </p>
             {/if}
             </Panel>
       </Panel>

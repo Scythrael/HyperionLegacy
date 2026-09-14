@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Auto-salvage multi-selects</title>
+<style>
+  :root {
+    --bg-deep: #060a12; --bg-mid: #0a1120; --panel: rgba(103,232,249,0.05);
+    --accent: #67e8f9; --accent-rgb: 103,232,249; --accent-bright: #a5f3fc;
+    --txt: #e6f4f8; --txt-2: #8fa3ad; --txt-dim: #628591;
+    --border: rgba(103,232,249,0.16); --border-strong: rgba(103,232,249,0.32);
+    --corner: 2px; --warn: #fbbf24;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* rarity ramp (real equipmentRarityColor) */
+    --q-standard: #a9b7c8; --q-augmented: #34d399; --q-stellar: #4fa3f2; --q-radiant: #a020f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 20px 70px; background: var(--bg-deep); color: var(--txt); font-family: var(--sans); line-height: 1.5; }
+  .wrap { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 4px; }
+  .lede { color: var(--txt-2); font-size: 14px; margin: 0 0 26px; max-width: 80ch; }
+  .cols { display: flex; gap: 26px; flex-wrap: wrap; align-items: flex-start; }
+  .col { flex: 1 1 340px; min-width: 300px; }
+  .col-h { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--txt-dim); margin: 0 0 10px; }
+
+  /* a settings panel + rows, matching the app idiom */
+  .panel { border: 1px solid var(--border); background: var(--bg-mid); border-radius: var(--corner); padding: 13px 15px; }
+  .panel-title { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent-bright); margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: none; }
+  .lab { font-size: 13px; font-weight: 600; color: var(--txt); }
+  .help { width: 16px; height: 16px; flex: none; border: 1px solid var(--border-strong); border-radius: var(--corner); color: var(--accent); font-family: var(--mono); font-size: 10px; display: grid; place-items: center; }
+  .spacer { flex: 1 1 auto; }
+
+  /* THE MULTI-SELECT (closed) — the trigger button. Squared, shows the current picks. */
+  .ms { position: relative; }
+  .ms-btn { display: inline-flex; align-items: center; gap: 8px; min-width: 148px; max-width: 220px; padding: 5px 9px; background: rgba(255,255,255,0.04); border: 1px solid var(--border-strong); border-radius: var(--corner); color: var(--txt); font-family: var(--sans); font-size: 12px; cursor: pointer; }
+  .ms-btn:hover { border-color: var(--accent); }
+  .ms-summary { flex: 1 1 auto; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ms-summary.empty { color: var(--txt-dim); }
+  .ms-caret { flex: none; color: var(--accent); font-size: 10px; }
+  /* count pill when many are picked */
+  .ms-count { font-family: var(--mono); font-size: 10px; color: var(--accent-bright); background: rgba(var(--accent-rgb),0.12); border: 1px solid var(--border); border-radius: var(--corner); padding: 0 5px; }
+
+  /* THE MULTI-SELECT (open) — the checklist popover, floating below the trigger. */
+  .ms-pop { position: absolute; z-index: 5; top: calc(100% + 5px); right: 0; min-width: 180px; background: linear-gradient(rgba(var(--accent-rgb),0.06), rgba(var(--accent-rgb),0.06)), var(--bg-mid); border: 1px solid var(--border-strong); border-radius: var(--corner); box-shadow: 0 8px 24px rgba(0,0,0,0.5); padding: 5px; }
+  .ms-opt { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--corner); cursor: pointer; font-size: 12.5px; color: var(--txt); }
+  .ms-opt:hover { background: rgba(var(--accent-rgb),0.09); }
+  .ms-box { width: 15px; height: 15px; flex: none; border: 1px solid var(--border-strong); border-radius: var(--corner); display: grid; place-items: center; color: var(--bg-deep); font-size: 11px; font-weight: 700; }
+  .ms-opt.on .ms-box { background: var(--accent); border-color: var(--accent); }
+  .ms-swatch { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .ms-clear { width: 100%; margin-top: 4px; padding-top: 6px; border-top: 1px solid var(--border); background: none; border-left: none; border-right: none; border-bottom: none; color: var(--txt-dim); font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; text-align: center; cursor: pointer; }
+  .ms-clear:hover { color: var(--accent); }
+
+  .note { margin: 20px 0 0; font-size: 13px; color: var(--txt-2); max-width: 82ch; }
+  .note b { color: var(--txt); font-weight: 600; }
+  .stack { display: flex; flex-direction: column; gap: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Auto-salvage — Quality &amp; Rarity as multi-selects</h1>
+  <p class="lede">Both are one compact control: a squared trigger showing your current picks, opening a checklist you tick in any combination (arbitrary, not just "and below"). Reads distinct from the Confirm-by-quality checkboxes, and keeps the whole rule row scannable. Toggle + Grace unchanged.</p>
+
+  <div class="cols">
+    <div class="col">
+      <div class="col-h">closed — a few picked</div>
+      <div class="panel">
+        <div class="panel-title">Salvage Bay</div>
+        <div class="row"><span class="lab">Auto-salvage</span><span class="help">?</span><span class="spacer"></span>
+          <span style="width:44px;height:22px;background:rgba(var(--accent-rgb),0.18);border:1px solid var(--border-strong);border-radius:var(--corner);display:inline-flex;padding:2px;justify-content:flex-end"><span style="width:16px;height:16px;background:var(--accent);border-radius:var(--corner);box-shadow:0 0 7px rgba(var(--accent-rgb),0.85)"></span></span>
+        </div>
+        <div class="row"><span class="lab">Quality tiers</span><span class="help">?</span><span class="spacer"></span>
+          <span class="ms"><button class="ms-btn"><span class="ms-summary">Q0, Q1, Q2</span><span class="ms-caret">▾</span></button></span>
+        </div>
+        <div class="row"><span class="lab">Rarity bands</span><span class="help">?</span><span class="spacer"></span>
+          <span class="ms"><button class="ms-btn"><span class="ms-summary">Standard, Augmented</span><span class="ms-caret">▾</span></button></span>
+        </div>
+        <div class="row"><span class="lab">Duplicates only</span><span class="help">?</span><span class="spacer"></span>
+          <span style="width:44px;height:22px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:var(--corner);display:inline-flex;padding:2px"><span style="width:16px;height:16px;background:var(--txt-dim);border-radius:var(--corner)"></span></span>
+        </div>
+        <div class="row"><span class="lab">Grace period</span><span class="help">?</span><span class="spacer"></span>
+          <span class="ms-btn" style="cursor:default"><span class="ms-summary">1 hour</span><span class="ms-caret">▾</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="col-h">open — the checklist (Quality)</div>
+      <div class="stack">
+        <div class="panel">
+          <div class="row"><span class="lab">Quality tiers</span><span class="help">?</span><span class="spacer"></span>
+            <span class="ms">
+              <button class="ms-btn" style="border-color:var(--accent)"><span class="ms-summary">Q0, Q1, Q2</span><span class="ms-caret">▴</span></button>
+              <span class="ms-pop">
+                <span class="ms-opt on"><span class="ms-box">✓</span> Q0</span>
+                <span class="ms-opt on"><span class="ms-box">✓</span> Q1</span>
+                <span class="ms-opt on"><span class="ms-box">✓</span> Q2</span>
+                <span class="ms-opt"><span class="ms-box"></span> Q3</span>
+                <span class="ms-opt"><span class="ms-box"></span> Q4</span>
+                <span class="ms-opt"><span class="ms-box"></span> Q5</span>
+                <button class="ms-clear">Clear</button>
+              </span>
+            </span>
+          </div>
+        </div>
+        <div class="col-h" style="margin:2px 0 0">open — the checklist (Rarity, colour-coded)</div>
+        <div class="panel">
+          <div class="row"><span class="lab">Rarity bands</span><span class="help">?</span><span class="spacer"></span>
+            <span class="ms">
+              <button class="ms-btn" style="border-color:var(--accent)"><span class="ms-summary">Standard, Augmented</span><span class="ms-caret">▴</span></button>
+              <span class="ms-pop">
+                <span class="ms-opt on"><span class="ms-box">✓</span><span class="ms-swatch" style="background:var(--q-standard)"></span> Standard</span>
+                <span class="ms-opt on"><span class="ms-box">✓</span><span class="ms-swatch" style="background:var(--q-augmented)"></span> Augmented</span>
+                <span class="ms-opt"><span class="ms-box"></span><span class="ms-swatch" style="background:var(--q-stellar)"></span> Stellar</span>
+                <span class="ms-opt"><span class="ms-box"></span><span class="ms-swatch" style="background:var(--q-radiant)"></span> Radiant</span>
+                <button class="ms-clear">Clear</button>
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+      <p class="col-h" style="margin-top:14px">empty state (nothing ticked)</p>
+      <div class="panel">
+        <div class="row"><span class="lab">Quality tiers</span><span class="help">?</span><span class="spacer"></span>
+          <span class="ms"><button class="ms-btn"><span class="ms-summary empty">Any quality</span><span class="ms-caret">▾</span></button></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="note"><b>The control:</b> a squared trigger showing the picks (a middot/comma list, or a "3 of 6" count if it gets long), opening a floating checklist you tick in any combination; a <b>Clear</b> at the foot; closes on outside-tap / Escape. It writes the same per-item toggle the checkboxes did, so no logic or save changes. Empty reads <b>"Any quality" / "Any rarity"</b> (the axis doesn't narrow). Rarity rows carry the band's real colour. <b>Reusable:</b> one component drives both Quality and Rarity (and it's there for any future multi-select). Confirm the look/interaction and I'll build it as a primitive and wire both axes to it.</p>
+</div>
+</body>
+</html>
