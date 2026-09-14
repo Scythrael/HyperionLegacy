@@ -284,6 +284,7 @@
     type CompletionLogEntry,
     type CompletionRewardItem,
     type CaptainState,
+    type TimedProcess,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -8140,6 +8141,94 @@
   // as activeRefineJobs. Drives the Fuel Depot Overview's per-batch progress bars; when
   // empty the depot is idle (tank full or Deuterium Ice out).
   $: activeFuelRefineJobs = state.activeProcesses.filter((p) => p.kind === "fuelRefineJob");
+
+  // ── FACILITY PANES (0.13.5 facilities redesign, approved refined-B mockup). Normalizes every
+  //    facility into ONE pane shape so a single {#snippet facilityPane} renders them all: an id
+  //    block, up to two LIVE progress rows (the current ACTION and an in-flight UPGRADE), plus a
+  //    single idle status line when nothing is running. Bars align across panes because the snippet
+  //    lays every row on one shared column grid. Reuses the SAME per-facility reactives the old
+  //    cards read (level, active jobs, *UpgradeInFlight, queues, statuses), so a pane and its
+  //    console can never disagree; progress fractions come straight off the in-flight TimedProcesses.
+  type FacilityRow = { label: string; fraction: number; pctText: string; upgrade?: boolean };
+  type FacilityPaneVM = {
+    key: FoundryFacilityKey; glyph: string; label: string; sub: string;
+    attention: boolean; action: FacilityRow | null; upgrade: FacilityRow | null; idle: string | null;
+  };
+  function procFrac(p: TimedProcess | null | undefined): number {
+    if (!p) return 0;
+    if (p.durationTicks <= 0) return 1;
+    return Math.min(1, Math.max(0, (p.durationTicks - p.remainingTicks) / p.durationTicks));
+  }
+  const facilityPct = (f: number): string => `${Math.round(f * 100)}%`;
+  // Representative job for a multi-slot facility: the one SOONEST to finish (least remaining), so a
+  // single bar tracks the most imminent completion rather than an arbitrary slot.
+  function repJob(jobs: TimedProcess[]): TimedProcess | null {
+    if (jobs.length === 0) return null;
+    return jobs.reduce((a, b) => (b.remainingTicks < a.remainingTicks ? b : a));
+  }
+  function facilityAction(label: string, job: TimedProcess | null): FacilityRow | null {
+    if (!job) return null;
+    const f = procFrac(job);
+    return { label, fraction: f, pctText: facilityPct(f) };
+  }
+  function facilityUpgrade(p: TimedProcess | null | undefined): FacilityRow | null {
+    if (!p) return null;
+    const f = procFrac(p);
+    return { label: "Upgrade", fraction: f, pctText: facilityPct(f), upgrade: true };
+  }
+  function fpane(
+    key: FoundryFacilityKey, glyph: string, label: string, sub: string,
+    action: FacilityRow | null, upgrade: FacilityRow | null, idle: string | null, attention: boolean,
+  ): FacilityPaneVM {
+    return { key, glyph, label, sub, attention, action, upgrade, idle };
+  }
+  $: facilityPanes = [
+    fpane("refinery", "⚗️", FACILITY_LABELS.refinery, `Level ${refineryLevel}`,
+      facilityAction(`Refining · ${activeRefineJobs.length}/${refinerySlots}`, repJob(activeRefineJobs)),
+      facilityUpgrade(refineryUpgradeInFlight),
+      refinerySlots === 0 ? "Not built"
+        : activeRefineJobs.length === 0 ? `Idle · ${refinerySlots} slot${refinerySlots === 1 ? "" : "s"} free${cardQueuedSuffix(refineryQueue)}` : null,
+      facilityAttention.has("refinery")),
+    fpane("fabricator", "🔧", FACILITY_LABELS.fabricator, `Level ${fabricatorLevel}`,
+      facilityAction(`Crafting · ${activeFabricateJobs.length}/${fabricateSlots}`, repJob(activeFabricateJobs)),
+      facilityUpgrade(fabricatorUpgradeInFlight),
+      fabricateSlots === 0 ? "Not built"
+        : activeFabricateJobs.length === 0 ? `Idle · ${fabricateSlots} slot${fabricateSlots === 1 ? "" : "s"} free${cardQueuedSuffix(fabricatorQueue)}` : null,
+      facilityAttention.has("fabricator")),
+    fpane("research", "🔬", FACILITY_LABELS.research, `Level ${researchLevel}`,
+      facilityAction(`Researching · ${activeResearchProjects.length}/${researchSlots}`, repJob(activeResearchProjects)),
+      facilityUpgrade(researchUpgradeInFlight),
+      researchSlots === 0 ? "Not built"
+        : activeResearchProjects.length === 0 ? `Idle · ${researchSlots} slot${researchSlots === 1 ? "" : "s"} free${cardQueuedSuffix(researchQueue)}` : null,
+      facilityAttention.has("research")),
+    fpane("fuelStorage", "⛽", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
+      facilityAction("Topping up", repJob(activeFuelRefineJobs)),
+      facilityUpgrade(fuelStorageUpgradeInFlight),
+      activeFuelRefineJobs.length > 0 ? null : fuelFillPct >= 100 ? "Tank full" : `Fuel ${Math.round(fuelFillPct)}%`,
+      facilityAttention.has("fuelStorage")),
+    fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
+      facilityAction("Building a hull", activeShipBuild ?? null),
+      facilityUpgrade(shipyardUpgradeInFlight),
+      !shipyardFounded ? "Not founded" : activeShipBuild ? null : `Idle${cardQueuedSuffix(shipyardQueue)}`,
+      facilityAttention.has("shipyard")),
+    fpane("salvageBay", "♻️", FACILITY_LABELS.salvageBay, "Recycling bay",
+      facilityAction(`Salvaging · ${bayJobsInFlight.length}`, repJob(bayJobsInFlight)),
+      facilityUpgrade(salvageBayUpgradeInFlight),
+      bayJobsInFlight.length > 0 ? null : `${spareEquipmentCount(state)} spare system${spareEquipmentCount(state) === 1 ? "" : "s"} to salvage`,
+      facilityAttention.has("salvageBay")),
+    fpane("warehouse", "📦", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
+      null, null,
+      warehouseItemsAtCap.length === 0 ? "No items at cap" : `${warehouseItemsAtCap.length} item${warehouseItemsAtCap.length === 1 ? "" : "s"} at cap`,
+      facilityAttention.has("warehouse")),
+    fpane("docks", "🚉", FACILITY_LABELS.docks, "Ship storage",
+      null, null,
+      `${state.ships.length} / ${state.shipStorageCapacity} berths used`,
+      facilityAttention.has("docks")),
+    fpane("quartermaster", "📦", FACILITY_LABELS.quartermaster, "Supply counter",
+      null, null,
+      `${quartermasterAvailableCount} of ${REQUISITION_ENTRIES.length} Standard-Issue patterns available`,
+      facilityAttention.has("quartermaster")),
+  ];
 </script>
 
 <!-- Window-level tooltip dismissal. Header resource popups (Currency / Fuel): close an
@@ -8879,371 +8968,47 @@
            cards on the dashboard + the last two branches of the console chain. -->
       <div class="tab-scroll-area">
         {#if facilitiesView === "dashboard"}
-          <!-- FACILITIES DASHBOARD. The SAME responsive card grid the Captain
-               Roster + Ships console use (.roster-grid: auto-fill, fills the
-               desktop width with more cards per row, collapses to one column on
-               mobile, NO media query). Each card is a button that opens the
-               building's console. Level + status come from EXISTING $: derivations
-               only (NO new state invented); each card names its source inline. -->
-          <div class="roster-grid">
-            <!-- Refinery card. Level = refineryLevel; status = live refine slots in
-                 use vs total (activeRefineJobs / refinerySlots), the SAME figures
-                 the Refinery Overview shows. Slots 0 = not built yet. -->
+          <!-- FACILITIES DASHBOARD (0.13.5 refined-B redesign). The old per-facility cards became
+               full-width PANES, all rendered by ONE {#snippet facilityPane} off the normalized
+               `facilityPanes` model (script). Each pane: an id block (icon + name + level/descriptor),
+               a middle area with up to two live progress rows (the current ACTION and an in-flight
+               UPGRADE) or a single idle status line, and a Manage affordance. The whole pane is the
+               button that opens the console (same behaviour the cards had). Bars align across panes
+               because every row rides one shared column grid (see .fprow). -->
+          {#snippet facilityRow(row: FacilityRow)}
+            <span class="fprow">
+              <span class="fprow-lbl" class:up={row.upgrade}>{row.label}</span>
+              <span class="fprow-track" class:up={row.upgrade}><i style="width:{Math.min(100, row.fraction * 100)}%"></i></span>
+              <span class="fprow-pct">{row.pctText}</span>
+            </span>
+          {/snippet}
+          {#snippet facilityPane(p: FacilityPaneVM)}
             <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "refinery";
-                facilitiesView = "console";
-              }}
+              class="fpane"
+              class:attn={p.attention}
+              on:click={() => { activeFoundryFacility = p.key; facilitiesView = "console"; }}
             >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">⚗️</div>
-                <!-- Attention dot (0.13.3 Unit 4.6b), the same markup on all eight cards:
-                     a shrink-to-fit wrap around the NAME so the dot anchors to the name's
-                     top-right, the aria-hidden dot itself, and a visually-hidden
-                     "(needs attention)" that EXTENDS the card's accessible name (an
-                     aria-label would have replaced the level + live status line instead).
-                     facilityAttention comes from the one dashboardModel, so this dot agrees
-                     with the Facilities nav dot and the Home prompt by construction. -->
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.refinery}</div>
-                    {#if facilityAttention.has("refinery")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {refineryLevel}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <!-- 0.13.3 Unit 4.6: the three existing states are UNCHANGED; a queued
-                     tail (cardQueuedSuffix, off the same refineryQueue the console binds
-                     to) is appended when orders are waiting. "Not built" takes no tail:
-                     a facility that does not exist cannot hold a queue. -->
-                <div class="roster-card-line">
-                  {#if refinerySlots === 0}
-                    Status: Not built
-                  {:else if activeRefineJobs.length === 0}
-                    Status: Idle, {refinerySlots} slot{refinerySlots === 1 ? "" : "s"} free{cardQueuedSuffix(refineryQueue)}
-                  {:else}
-                    Status: {activeRefineJobs.length} / {refinerySlots} slots refining{cardQueuedSuffix(refineryQueue)}
-                  {/if}
-                </div>
-              </div>
+              <span class="fpane-id">
+                <span class="fpane-glyph" aria-hidden="true">{p.glyph}</span>
+                <span class="fpane-stack">
+                  <span class="fpane-name">
+                    {p.label}{#if p.attention}<span class="roster-card-attention-dot" aria-hidden="true"></span><span class="sr-only"> (needs attention)</span>{/if}
+                  </span>
+                  <span class="fpane-sub">{p.sub}</span>
+                </span>
+              </span>
+              <span class="fpane-mid">
+                {#if p.action}{@render facilityRow(p.action)}{/if}
+                {#if p.upgrade}{@render facilityRow(p.upgrade)}{/if}
+                {#if !p.action}<span class="fpane-idle">{p.idle}</span>{/if}
+              </span>
+              <span class="fpane-cta" aria-hidden="true">Manage</span>
             </button>
-
-            <!-- Fabricator card. Level = fabricatorLevel; status = live craft slots
-                 in use vs total (activeFabricateJobs / fabricateSlots). -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "fabricator";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">🔧</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.fabricator}</div>
-                    {#if facilityAttention.has("fabricator")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {fabricatorLevel}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <!-- 0.13.3 Unit 4.6: same queued tail as the Refinery card, off
-                     fabricatorQueue. Existing three states unchanged. -->
-                <div class="roster-card-line">
-                  {#if fabricateSlots === 0}
-                    Status: Not built
-                  {:else if activeFabricateJobs.length === 0}
-                    Status: Idle, {fabricateSlots} slot{fabricateSlots === 1 ? "" : "s"} free{cardQueuedSuffix(fabricatorQueue)}
-                  {:else}
-                    Status: {activeFabricateJobs.length} / {fabricateSlots} slots crafting{cardQueuedSuffix(fabricatorQueue)}
-                  {/if}
-                </div>
-              </div>
-            </button>
-
-            <!-- Research Lab card. Level = researchLevel; status = live research
-                 slots in use vs total (activeResearchProjects / researchSlots). -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "research";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">🔬</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.research}</div>
-                    {#if facilityAttention.has("research")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {researchLevel}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <!-- Research Lab queue UI (2026-09-04): the SAME queued tail Unit 4.6 gave the
-                     Refinery and Fabricator cards, off the same researchQueue this console
-                     binds to, so a card and its console can never disagree about the depth.
-                     The three existing states are unchanged and the tail is a pure suffix that
-                     renders only when orders are waiting. "Not built" takes no tail, for the
-                     reason the Refinery card records: a facility that does not exist cannot
-                     hold a queue. -->
-                <div class="roster-card-line">
-                  {#if researchSlots === 0}
-                    Status: Not built
-                  {:else if activeResearchProjects.length === 0}
-                    Status: Idle, {researchSlots} slot{researchSlots === 1 ? "" : "s"} free{cardQueuedSuffix(researchQueue)}
-                  {:else}
-                    Status: {activeResearchProjects.length} / {researchSlots} projects running{cardQueuedSuffix(researchQueue)}
-                  {/if}
-                </div>
-              </div>
-            </button>
-
-            <!-- Fuel Depot card. Level = fuelStorageLevel; status = live refine
-                 batches (activeFuelRefineJobs = topping up) + tank fill %
-                 (fuelFillPct), the SAME figures the Fuel Depot Overview shows. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "fuelStorage";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">⛽</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.fuelStorage}</div>
-                    {#if facilityAttention.has("fuelStorage")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {fuelStorageLevel}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  {#if activeFuelRefineJobs.length > 0}
-                    Status: Topping up
-                  {:else if fuelFillPct >= 100}
-                    Status: Tank full
-                  {:else}
-                    Status: Idle
-                  {/if}
-                </div>
-                <div class="roster-card-line">Fuel: {Math.round(fuelFillPct)}%</div>
-              </div>
-            </button>
-
-            <!-- Warehouse card. Level = warehouseT1Level; status = how many
-                 discovered items are AT cap (warehouseItemsAtCap), the auto-stop
-                 "expand storage" set the Warehouse Overview surfaces. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "warehouse";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">📦</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.warehouse}</div>
-                    {#if facilityAttention.has("warehouse")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {warehouseT1Level}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  {#if warehouseItemsAtCap.length === 0}
-                    Status: No items at cap
-                  {:else}
-                    Status: {warehouseItemsAtCap.length} item{warehouseItemsAtCap.length === 1 ? "" : "s"} at cap
-                  {/if}
-                </div>
-              </div>
-            </button>
-
-            <!-- Salvage Bay card. The LIVE status reuses spareEquipmentCount(state), the
-                 SAME spare crafted-systems count the Ship Equipment bay header shows, which
-                 is exactly the pool salvageable here (every spare in the bay).
-
-                 ⚠️ THE SUBTITLE STAYS "Recycling bay" AND IS NOT A "Level N" READOUT,
-                 which is a deliberate hold rather than an oversight (Salvage Lanes,
-                 2026-09-04). The bay DID gain a level track in that change, and every other
-                 levelled card here prints "Level N", so consistency argues for the swap. It
-                 was not made because this pass ran under a zero-visible-string-removals gate
-                 and the swap would delete "Recycling bay" outright. The level is printed on
-                 the bay's own Upgrades sub-tab, which is where every sibling facility's level
-                 is also printed, so nothing is unreachable. Swapping it is a one-line change
-                 whenever the owner wants the cards uniform. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "salvageBay";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">♻️</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.salvageBay}</div>
-                    {#if facilityAttention.has("salvageBay")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Recycling bay</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  Status: {spareEquipmentCount(state)} spare system{spareEquipmentCount(state) === 1 ? "" : "s"} to salvage
-                </div>
-                <!-- 0.13.3 Unit 4.6: the bay's LIVE work, on its own line. The status line
-                     above describes the salvageable POOL and is preserved verbatim; this one
-                     says whether the bay is actually running or holding orders, which it
-                     could not do before the bay became a timed, queued facility. Second-line
-                     treatment mirrors the Fuel Depot card's "Fuel: N%". -->
-                <div class="roster-card-line">Bay: {salvageBayCardStatus(salvageBayQueue)}</div>
-              </div>
-            </button>
-
-            <!-- Shipyard card (folded in from the retired Drydock tab, CN4b).
-                 Level = shipyardLevel (0 = not founded); live status = whether a
-                 hull is building (activeShipBuild, the SAME in-flight process the
-                 Shipyard Build pane shows) vs idle. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "shipyard";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">🛠️</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.shipyard}</div>
-                    {#if facilityAttention.has("shipyard")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Level {shipyardLevel}</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <!-- Shipyard queue UI (2026-09-04): the SAME queued tail Unit 4.6 gave the
-                     Refinery and Fabricator cards and the Research unit gave the lab, off the
-                     same shipyardQueue this console binds to, so a card and its console can
-                     never disagree about the depth. The three existing states are unchanged and
-                     the tail is a pure suffix that renders only when orders are waiting. "Not
-                     founded" takes no tail, for the reason the Refinery card records: a facility
-                     that does not exist cannot hold a queue. -->
-                <div class="roster-card-line">
-                  {#if !shipyardFounded}
-                    Status: Not founded
-                  {:else if activeShipBuild}
-                    Status: Building a hull{cardQueuedSuffix(shipyardQueue)}
-                  {:else}
-                    Status: Idle{cardQueuedSuffix(shipyardQueue)}
-                  {/if}
-                </div>
-              </div>
-            </button>
-
-            <!-- Docks card (folded in from the retired Drydock tab, CN4b). No
-                 build/upgrade LEVEL; live status = ship-storage berths used vs cap
-                 (state.ships.length / state.shipStorageCapacity), the SAME figures
-                 the Docks capacity readout shows. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "docks";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">🚉</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.docks}</div>
-                    {#if facilityAttention.has("docks")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Ship storage</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  Status: {state.ships.length} / {state.shipStorageCapacity} berths used
-                </div>
-              </div>
-            </button>
-
-            <!-- Quartermaster card (0.13.3.1). Same card treatment as its eight siblings,
-                 including the attention-dot markup, which can never light today and should
-                 not: see quartermasterAvailableCount's comment for why a service counter is
-                 structurally incapable of "needing your orders".
-
-                 NO "Level N" SUBTITLE, and that is the DOCKS treatment rather than an
-                 omission. The Docks card reads "Ship storage" because the Docks has no build
-                 or upgrade level; the Quartermaster has none either (no FACILITIES entry, no
-                 state.facilities key, nothing to buy), so printing a level would be printing
-                 a zero that never moves. Every card here that DOES have a level prints it.
-
-                 The live status reuses quartermasterAvailableCount, which runs the SAME
-                 canRequisition gate the rows run, so the card cannot disagree with the
-                 console it opens. -->
-            <button
-              class="roster-card"
-              on:click={() => {
-                activeFoundryFacility = "quartermaster";
-                facilitiesView = "console";
-              }}
-            >
-              <div class="roster-card-head">
-                <div class="roster-card-glyph" aria-hidden="true">📦</div>
-                <div class="roster-card-heading">
-                  <div class="roster-card-name-wrap">
-                    <div class="research-name">{FACILITY_LABELS.quartermaster}</div>
-                    {#if facilityAttention.has("quartermaster")}
-                      <span class="roster-card-attention-dot" aria-hidden="true"></span>
-                      <span class="sr-only"> (needs attention)</span>
-                    {/if}
-                  </div>
-                  <div class="roster-card-sub">Supply counter</div>
-                </div>
-              </div>
-              <div class="roster-card-lines">
-                <div class="roster-card-line">
-                  Status: {quartermasterAvailableCount} of {REQUISITION_ENTRIES.length} Standard-Issue patterns available
-                </div>
-              </div>
-            </button>
+          {/snippet}
+          <div class="facility-panes">
+            {#each facilityPanes as p (p.key)}
+              {@render facilityPane(p)}
+            {/each}
           </div>
         {:else}
           <!-- BUILDING CONSOLE. A back-to-dashboard control + the selected
@@ -18762,6 +18527,53 @@
     gap: 10px;
     align-items: start; /* cards size to their own content, not the tallest sibling */
   }
+  /* ── FACILITY PANES (0.13.5 refined-B). Full-width rows on a FIXED column grid so the status text
+     and progress bars start/end at the same x on EVERY pane (id + Manage columns are fixed; only the
+     middle flexes). One pane = the button that opens the console. Squared corners + amber "needs you"
+     via the shared tokens. */
+  .facility-panes { display: flex; flex-direction: column; gap: 8px; }
+  .fpane {
+    display: grid;
+    grid-template-columns: 172px minmax(0, 1fr) 78px;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-panel-bg-strong);
+    border-radius: var(--corner);
+    padding: 10px 14px;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .fpane.attn { border-color: rgba(var(--color-warning-rgb), 0.55); }
+  .fpane:hover { border-color: rgba(var(--color-accent-rgb), 0.6); }
+  .fpane:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .fpane-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .fpane-glyph { width: 32px; height: 32px; flex: 0 0 32px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); background: rgba(var(--color-accent-rgb), 0.05); font-size: calc(16px * var(--ui-scale)); }
+  .fpane-stack { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .fpane-name { position: relative; font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fpane-sub { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .fpane-mid { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  /* Shared row grid = the alignment fix: label | bar | percent, identical on every row + pane. */
+  .fprow { display: grid; grid-template-columns: 96px minmax(0, 1fr) 44px; align-items: center; gap: 9px; }
+  .fprow-lbl { font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fprow-lbl.up { color: var(--color-warning); }
+  .fprow-track { position: relative; height: 6px; border-radius: var(--corner); background: rgba(255, 255, 255, 0.07); border: 1px solid var(--color-border); overflow: hidden; }
+  .fprow-track > i { display: block; height: 100%; background: var(--color-accent); }
+  .fprow-track.up > i { background: var(--color-warning); }
+  .fprow-pct { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); text-align: right; }
+  .fpane-idle { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .fpane-cta { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent); white-space: nowrap; text-align: right; }
+  /* Mobile: shrink the fixed id + hide the Manage label (whole pane still opens the console), so the
+     bars keep meaningful width on a phone while staying aligned (id stays fixed, just smaller). */
+  @media (max-width: 768px) {
+    .fpane { grid-template-columns: 120px minmax(0, 1fr); gap: 10px; }
+    .fpane-cta { display: none; }
+    .fprow { grid-template-columns: 76px minmax(0, 1fr) 40px; gap: 7px; }
+  }
   .roster-card {
     display: flex;
     flex-direction: column;
@@ -18817,11 +18629,8 @@
      offset (more negative = higher) and `right` the x offset (more negative = further right
      of the name). Both stay inside the card's 12px padding, so nothing can overflow the card
      or force horizontal scroll at 320px. */
-  .roster-card-name-wrap {
-    position: relative;
-    align-self: flex-start;
-    max-width: 100%;
-  }
+  /* (.roster-card-name-wrap was removed in 0.13.5: the facility cards that used it became .fpane
+     panes, which anchor the attention dot on .fpane-name instead.) */
   .roster-card-attention-dot {
     position: absolute;
     top: -1px;    /* y offset from the name's top edge */
