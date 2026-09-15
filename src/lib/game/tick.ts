@@ -7278,7 +7278,11 @@ function lineJobSpec(state: GameState, line: CraftLine): CraftLineJobSpec | null
     durationTicks: bp.craftDurationTicks,
     jobKind: "fabricateJob",
     effect: isEquipment
-      ? { type: "addEquipment", blueprintKey: line.recipeKey }
+      // ITEM LIFECYCLE 0.13.6: a finished equipment/weapon/drone craft now deposits a stackable
+      // BLANK (addBlank), NOT a rolled instance. The roll is deferred to the INSPECT action
+      // (inspectBlank). addEquipment is retired from the PRODUCING side here; it still has an apply
+      // branch for any job left in flight across the 48->49 migration.
+      ? { type: "addBlank", blueprintKey: line.recipeKey }
       : { type: "addItem", itemId: outputItemId, amount: outputAmount },
     isEquipment,
   };
@@ -9596,7 +9600,9 @@ export function startFabricateJob(
   // rejected unlock-only, so bp is material, equipment, or weapon here).
   const effect: ProcessEffect =
     blueprintMintsEquipmentInstance(bp)
-      ? { type: "addEquipment", blueprintKey }
+      // ITEM LIFECYCLE 0.13.6: deposit a stackable BLANK, not a rolled instance (see the line-path
+      // twin above). The roll is deferred to inspectBlank.
+      ? { type: "addBlank", blueprintKey }
       : { type: "addItem", itemId: bp.recipe.outputItem ?? "", amount: new Decimal(bp.recipe.outputQty ?? 1) };
 
   return startProcess(state, "fabricateJob", inputs, bp.craftDurationTicks, effect);

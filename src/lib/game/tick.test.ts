@@ -4913,40 +4913,22 @@ describe("shipBuild completion installs the combat baseline on every hull (Comba
 });
 
 describe("Fabricator mints real equipment (Task 19)", () => {
-  it("a completed EQUIPMENT fabricate mints ONE EquipmentInstance (right slot/blueprint), NO stackable output", () => {
+  it("a completed EQUIPMENT fabricate deposits ONE stackable blank, NOT an instance (the roll is deferred to inspect)", () => {
     // prospectorHoldBp: frameSegment×2 + titaniumIngot×3 -> cargoBay/prospectorHold, 150 ticks.
     const state = equipLineState("prospectorHoldBp", 1);
     let s = state;
     const rng = mulberry32Task19(42); // ONE persistent stream across all ticks
     for (let i = 0; i < 160; i++) s = economyTick(s, 1, rng); // > 150-tick duration -> completes
 
-    // freshState (via equipLineState) now SEEDS ship-1 with four fitted Standard-Issue
-    // baselines (Task 20), so the pool holds those four PLUS the one fabricated SPARE.
-    // The fabricated piece is the ONLY spare (the baselines are all fitted to ship-1),
-    // so select it by fittedToShipId === null. Its id is "equip-5" (the four baselines
-    // took equip-1..4, so freshState's nextEquipmentId started at 5).
-    expect(s.equipment.length).toBe(5); // 4 Standard-Issue baselines + 1 fabricated spare
-    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
-    expect(spares.length).toBe(1);
-    const piece = spares[0];
-    expect(piece.id).toBe("equip-5");
-    expect(piece.slotType).toBe("cargoBay"); // prospectorHoldBp.equipmentOutput.slotType
-    expect(piece.blueprintKey).toBe("prospectorHoldBp"); // variety is carried by the blueprintKey
-    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
-    expect(piece.ascension).toBe("none");
-    // Seeded rolls land in their documented ranges.
-    expect(piece.quality).toBeGreaterThanOrEqual(0);
-    expect(piece.quality).toBeLessThanOrEqual(5);
-    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
-    // iLevel from craftingLevel (1) clamped by tier-1 cap (20) -> 1; a real budget was spent,
-    // so the slot's implicit signature line(s) are present and durability was rolled.
-    expect(Object.keys(piece.implicitStats).length).toBeGreaterThan(0);
-    expect(piece.durabilityMax).toBeGreaterThan(0);
-
-    // The id source advanced past the fabricated piece (5 -> 6). An equipment blueprint has
-    // no recipe.outputItem, so NO stackable was granted, only the inputs were consumed.
-    expect(s.nextEquipmentId).toBe(6);
-    // Inputs were consumed by the craft.
+    // ITEM LIFECYCLE 0.13.6: a finished equipment craft now DEPOSITS A BLANK keyed by blueprint; it
+    // mints NO EquipmentInstance at completion (the roll happens at INSPECT, see inspectBlank.test.ts).
+    // The pool still holds ONLY the four fitted Standard-Issue baselines, and the id source is
+    // untouched because nothing was minted.
+    expect(s.blanks["prospectorHoldBp"].toString()).toBe("1");
+    expect(s.equipment.length).toBe(4); // the four fitted baselines, no crafted spare
+    expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
+    expect(s.nextEquipmentId).toBe(5); // untouched: no mint at completion
+    // Inputs were still consumed by the craft.
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
     expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
   });
@@ -4968,11 +4950,10 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     expect(s.nextEquipmentId).toBe(5); // id source untouched by a material craft (still freshState's post-seed 5)
   });
 
-  it("⚠️ offline==live PARITY: an equipment craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
-    // Path A: ONE offline catch-up call (tick internally loops economyTick(_,1) per whole tick).
-    // Path B: hand-stepped economyTick, one tick at a time (the live poll shape). Each path gets
-    // its OWN fresh seeded rng over the SAME seed, so both replay the identical draw sequence; the
-    // whole point is that the minted instance is byte-for-byte identical regardless of chunking.
+  it("⚠️ offline==live PARITY: an equipment craft deposits the SAME blank whether jumped or stepped", () => {
+    // The craft no longer ROLLS at completion (the roll moved to inspect), so completion draws no
+    // rng at all and both chunkings must land the identical blank + an untouched pool. This is the
+    // parity contract SIMPLIFIED: with no draw at completion, offline==live is structural.
     const SPAN = 200; // > the 150-tick craft duration (1 tick == 1 second at freshState)
     const SEED = 123;
 
@@ -4981,25 +4962,12 @@ describe("Fabricator mints real equipment (Task 19)", () => {
     const liveRng = mulberry32Task19(SEED);
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
-    // Both paths hold the four seeded Standard-Issue baselines (Task 20) PLUS the one
-    // fabricated spare, and advanced the id source identically (post-seed 5 -> 6).
-    expect(jumped.equipment.length).toBe(5);
-    expect(stepped.equipment.length).toBe(5);
-    expect(jumped.nextEquipmentId).toBe(6);
-    expect(stepped.nextEquipmentId).toBe(6);
-
-    // The fabricated piece is the ONLY spare on each path (baselines are all fitted).
-    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
-    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
-
-    // THE PARITY ASSERTION: the minted EquipmentInstance is deep-equal (bit-identical) across the
-    // two chunkings, id, rarity, quality, every stat line, mass/powerDraw/durability, all of it.
-    expect(jumpedSpare).toEqual(steppedSpare);
-
-    // NON-VACUITY: it is a real, well-formed piece (not two empty pools trivially matching).
-    expect(jumpedSpare.id).toBe("equip-5");
-    expect(jumpedSpare.slotType).toBe("cargoBay");
-    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
+    expect(jumped.blanks["prospectorHoldBp"].toString()).toBe("1");
+    expect(stepped.blanks["prospectorHoldBp"].toString()).toBe("1");
+    expect(jumped.equipment.length).toBe(4); // no mint: only the four fitted baselines
+    expect(stepped.equipment.length).toBe(4);
+    expect(jumped.nextEquipmentId).toBe(5); // id source untouched on both paths
+    expect(stepped.nextEquipmentId).toBe(5);
   });
 });
 
@@ -5016,40 +4984,24 @@ describe("Fabricator mints real equipment (Task 19)", () => {
 // branch end-to-end and proves it upholds the offline==live invariant for a weapon craft.
 // ============================================================================
 describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
-  it("a completed WEAPON fabricate mints ONE weapon EquipmentInstance (slotType weapon, right weaponType/blueprint), NO stackable output", () => {
+  it("a completed WEAPON fabricate deposits ONE stackable blank, NOT an instance (roll deferred to inspect)", () => {
     // autocannonBp: titaniumIngot×3 + frameSegment×1 -> weapon/autocannon, 120 ticks (tier 1).
     const state = equipLineState("autocannonBp", 1);
     let s = state;
     const rng = mulberry32Task19(42);
     for (let i = 0; i < 130; i++) s = economyTick(s, 1, rng); // > 120-tick duration -> completes
 
-    // The four fitted Standard-Issue baselines (equip-1..4) PLUS the one fabricated weapon spare.
-    expect(s.equipment.length).toBe(5);
-    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
-    expect(spares.length).toBe(1);
-    const piece = spares[0];
-    expect(piece.id).toBe("equip-5"); // baselines took equip-1..4, so the weapon is equip-5
-    expect(piece.slotType).toBe("weapon"); // the weapon slot, not an economy slot
-    expect(piece.weaponType).toBe("autocannon"); // autocannonBp.weaponOutput.weaponType
-    expect(piece.blueprintKey).toBe("autocannonBp");
-    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
-    expect(piece.ascension).toBe("none");
-    // Seeded rolls land in their documented ranges, and a real budget was spent, so the signature
-    // weaponYield implicit line is present and a durability ceiling was rolled.
-    expect(piece.quality).toBeGreaterThanOrEqual(0);
-    expect(piece.quality).toBeLessThanOrEqual(5);
-    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
-    expect(piece.implicitStats.weaponYield).toBeGreaterThan(0);
-    expect(piece.durabilityMax).toBeGreaterThan(0);
-
-    // The id source advanced past the fabricated weapon (5 -> 6), and NO stackable was granted
-    // (a weapon blueprint carries no recipe.outputItem); only the inputs were consumed.
-    expect(s.nextEquipmentId).toBe(6);
+    // ITEM LIFECYCLE 0.13.6: a weapon craft deposits a blank keyed by blueprint; no instance minted
+    // at completion (the roll is at INSPECT). Pool holds only the four fitted baselines, id untouched.
+    expect(s.blanks["autocannonBp"].toString()).toBe("1");
+    expect(s.equipment.length).toBe(4);
+    expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
+    expect(s.nextEquipmentId).toBe(5);
     expect(itemTotal(s.inventory, "titaniumIngot").toString()).toBe("0");
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
   });
 
-  it("⚠️ offline==live PARITY: a weapon craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
+  it("⚠️ offline==live PARITY: a weapon craft deposits the SAME blank whether jumped or stepped", () => {
     const SPAN = 160; // > the 120-tick autocannon craft duration
     const SEED = 123;
 
@@ -5058,22 +5010,12 @@ describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
     const liveRng = mulberry32Task19(SEED);
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
-    expect(jumped.equipment.length).toBe(5);
-    expect(stepped.equipment.length).toBe(5);
-    expect(jumped.nextEquipmentId).toBe(6);
-    expect(stepped.nextEquipmentId).toBe(6);
-
-    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
-    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
-
-    // THE PARITY ASSERTION: the minted weapon instance is deep-equal across the two chunkings.
-    expect(jumpedSpare).toEqual(steppedSpare);
-
-    // NON-VACUITY: a real, well-formed weapon (not two empty pools trivially matching).
-    expect(jumpedSpare.id).toBe("equip-5");
-    expect(jumpedSpare.slotType).toBe("weapon");
-    expect(jumpedSpare.weaponType).toBe("autocannon");
-    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
+    expect(jumped.blanks["autocannonBp"].toString()).toBe("1");
+    expect(stepped.blanks["autocannonBp"].toString()).toBe("1");
+    expect(jumped.equipment.length).toBe(4);
+    expect(stepped.equipment.length).toBe(4);
+    expect(jumped.nextEquipmentId).toBe(5);
+    expect(stepped.nextEquipmentId).toBe(5);
   });
 });
 
@@ -5090,41 +5032,25 @@ describe("Fabricator mints real weapons (Combat 1.0, Unit 1.2b)", () => {
 // the offline==live invariant for a drone craft.
 // ============================================================================
 describe("Fabricator mints real drone pods (Combat 1.0, Unit 2.1b)", () => {
-  it("a completed DRONE fabricate mints ONE drone-pod EquipmentInstance (slotType droneBay, right role/blueprint), NO stackable output", () => {
+  it("a completed DRONE fabricate deposits ONE stackable blank, NOT an instance (roll deferred to inspect)", () => {
     // attackDronePodBp: polysilicateWafer×3 + powerCoupling×2 + frameSegment×1 -> droneBay/attack, 160 ticks (tier 1).
     const state = equipLineState("attackDronePodBp", 1);
     let s = state;
     const rng = mulberry32Task19(42);
     for (let i = 0; i < 170; i++) s = economyTick(s, 1, rng); // > 160-tick duration -> completes
 
-    // The four fitted Standard-Issue baselines (equip-1..4) PLUS the one fabricated pod spare.
-    expect(s.equipment.length).toBe(5);
-    const spares = s.equipment.filter((e) => e.fittedToShipId === null);
-    expect(spares.length).toBe(1);
-    const piece = spares[0];
-    expect(piece.id).toBe("equip-5"); // baselines took equip-1..4, so the pod is equip-5
-    expect(piece.slotType).toBe("droneBay"); // the drone-bay slot, not an economy/weapon slot
-    expect(piece.droneRole).toBe("attack"); // attackDronePodBp.droneOutput.role
-    expect(piece.blueprintKey).toBe("attackDronePodBp");
-    expect(piece.fittedToShipId).toBeNull(); // spare in the pool
-    expect(piece.ascension).toBe("none");
-    // Seeded rolls land in their documented ranges, and a real budget was spent, so the signature
-    // droneHp implicit line is present and a durability ceiling was rolled.
-    expect(piece.quality).toBeGreaterThanOrEqual(0);
-    expect(piece.quality).toBeLessThanOrEqual(5);
-    expect(CRAFTABLE_RARITIES).toContain(piece.rarity);
-    expect(piece.implicitStats.droneHp).toBeGreaterThan(0);
-    expect(piece.durabilityMax).toBeGreaterThan(0);
-
-    // The id source advanced past the fabricated pod (5 -> 6), and NO stackable was granted
-    // (a drone blueprint carries no recipe.outputItem); only the inputs were consumed.
-    expect(s.nextEquipmentId).toBe(6);
+    // ITEM LIFECYCLE 0.13.6: a drone craft deposits a blank keyed by blueprint; no instance minted
+    // at completion (the roll is at INSPECT). Pool holds only the four fitted baselines, id untouched.
+    expect(s.blanks["attackDronePodBp"].toString()).toBe("1");
+    expect(s.equipment.length).toBe(4);
+    expect(s.equipment.filter((e) => e.fittedToShipId === null).length).toBe(0);
+    expect(s.nextEquipmentId).toBe(5);
     expect(itemTotal(s.inventory, "polysilicateWafer").toString()).toBe("0");
     expect(itemTotal(s.inventory, "powerCoupling").toString()).toBe("0");
     expect(itemTotal(s.inventory, "frameSegment").toString()).toBe("0");
   });
 
-  it("⚠️ offline==live PARITY: a drone craft completing during tick(span) is BIT-IDENTICAL to stepped economyTick", () => {
+  it("⚠️ offline==live PARITY: a drone craft deposits the SAME blank whether jumped or stepped", () => {
     const SPAN = 200; // > the 160-tick attack-drone-pod craft duration
     const SEED = 123;
 
@@ -5133,21 +5059,11 @@ describe("Fabricator mints real drone pods (Combat 1.0, Unit 2.1b)", () => {
     const liveRng = mulberry32Task19(SEED);
     for (let i = 0; i < SPAN; i++) stepped = economyTick(stepped, 1, liveRng);
 
-    expect(jumped.equipment.length).toBe(5);
-    expect(stepped.equipment.length).toBe(5);
-    expect(jumped.nextEquipmentId).toBe(6);
-    expect(stepped.nextEquipmentId).toBe(6);
-
-    const jumpedSpare = jumped.equipment.find((e) => e.fittedToShipId === null)!;
-    const steppedSpare = stepped.equipment.find((e) => e.fittedToShipId === null)!;
-
-    // THE PARITY ASSERTION: the minted pod instance is deep-equal across the two chunkings.
-    expect(jumpedSpare).toEqual(steppedSpare);
-
-    // NON-VACUITY: a real, well-formed drone pod (not two empty pools trivially matching).
-    expect(jumpedSpare.id).toBe("equip-5");
-    expect(jumpedSpare.slotType).toBe("droneBay");
-    expect(jumpedSpare.droneRole).toBe("attack");
-    expect(CRAFTABLE_RARITIES).toContain(jumpedSpare.rarity);
+    expect(jumped.blanks["attackDronePodBp"].toString()).toBe("1");
+    expect(stepped.blanks["attackDronePodBp"].toString()).toBe("1");
+    expect(jumped.equipment.length).toBe(4);
+    expect(stepped.equipment.length).toBe(4);
+    expect(jumped.nextEquipmentId).toBe(5);
+    expect(stepped.nextEquipmentId).toBe(5);
   });
 });
