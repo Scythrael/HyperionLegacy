@@ -2399,6 +2399,16 @@ export type ProcessEffect =
   // plain string), so hydrateDecimals (save.ts) skips it via its `"amount" in effect` guard
   // and it round-trips through JSON as {type,blueprintKey} strings.
   | { type: "addEquipment"; blueprintKey: string }
+  // ITEM LIFECYCLE 0.13.6: a completed fabricate of an equipment/weapon/drone blueprint now
+  // deposits a stackable BLANK (an uninspected craft) keyed by blueprintKey, +1 per completion,
+  // instead of rolling an EquipmentInstance. The ROLL is deferred to the INSPECT player action
+  // (inspectBlank, tick.ts), which is what moves crafting off the tick's threaded rng and onto the
+  // per-inspect inspectSeed. `addEquipment` ABOVE IS KEPT DELIBERATELY so a craft already IN FLIGHT
+  // across the 48->49 migration still completes into an instance the old way; only NEW fabricate
+  // jobs carry `addBlank`. Carries NO Decimal (a plain blueprintKey; the +1 is applied at
+  // completion), so hydrateDecimals skips it via its `"amount" in effect` guard, exactly like
+  // addEquipment/addShip/unlockBlueprint.
+  | { type: "addBlank"; blueprintKey: string }
   // Equipment 0.11.0 (Task B2, Storage/Salvage): a completed EQUIPMENT-STORAGE upgrade
   // process bumps state.equipmentStorageLevel by ONE, so equipmentStorageCap derives the
   // NEXT rung's higher cap on read. This is the equipment-storage twin of facilityLevelUp:

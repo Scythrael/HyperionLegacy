@@ -111,6 +111,7 @@ import {
   // FACILITIES.salvageBay through the same named constant its sibling helpers use.
   SALVAGE_BAY_FACILITY_KEY,
   BLUEPRINTS,
+  type BlueprintDef, // ITEM LIFECYCLE 0.13.6: mintCraftedPiece's blueprint arg type
   blueprintKind,
   blueprintMintsEquipmentInstance,
   blueprintUnlocked,
@@ -269,6 +270,10 @@ import { rollWaveLoot, type PatrolLootTable } from "./combat/patrolLoot";
 // EquipmentInstance from an INJECTED seeded rng (so the mint is offline==live reproducible), and
 // EQUIPMENT_ILEVEL_CAP_PER_TIER is the first-pass per-tier level ceiling the mint feeds in.
 import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
+// ITEM LIFECYCLE 0.13.6: the seeded PRNG for the INSPECT roll. inspectBlank rolls off a stream
+// seeded from the save's inspectSeed + the blueprint key (NOT the fleet's threaded tick rng), so
+// the roll is a pure function of the save (reload-identical, server-reverifiable later).
+import { makeRng } from "./combat/rng";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
 // process. Replaces the flat `CRAFTING_XP_PER_DURATION_TICK * durationTicks` lump that
 // paid bulk refining exactly as well per unit time as top-tier fabrication.
@@ -1277,6 +1282,12 @@ function completionYieldFor(
       // missing mints nothing (the resolver's documented corrupt-save guard), and claiming
       // a system was produced there would be a lie in the one readout that must be trusted.
       return { ...empty, reward: mintedPieces > 0 ? "systems" : "nothing", pieces: mintedPieces, subjectKey: effect.blueprintKey };
+    case "addBlank":
+      // ITEM LIFECYCLE 0.13.6: a completed fabricate deposited a stackable BLANK (uninspected), not
+      // a rolled instance. Reported as a "systems" completion with the blueprint as subject so the
+      // Recently-Completed board still names the craft; the blank-vs-instance distinction in the
+      // log wording is a small follow-up. Always one blank per completion.
+      return { ...empty, reward: "systems", pieces: 1, subjectKey: effect.blueprintKey };
     case "facilityLevelUp":
       // Read off the ALREADY-BUMPED accumulator, so this is the level the player now has.
       return { ...empty, reward: "level", subjectKey: effect.facility, level: levels.facilities[effect.facility]?.level ?? 0 };
@@ -10102,6 +10113,136 @@ function resolveSalvageEffect(
 // WEIGHTS the same duration by what was produced (design section 6.1). Still an integer
 // function of durationTicks alone, so the closed-form property is untouched; only the
 // numbers moved. See the completion site below for which gate decides what.
+// ============================================================================
+// ITEM LIFECYCLE 0.13.6: the crafted-piece mint, EXTRACTED so a legacy in-flight `addEquipment`
+// completion (resolveProcesses, below) and the new INSPECT action (inspectBlank) mint IDENTICALLY.
+// It draws the rng in the FIXED order rollQuality #1 -> rollCraftedRarity #2 -> generate*'s internal
+// affix picks #3.., so the roll DISTRIBUTION is unchanged from the pre-0.13.6 completion mint; the
+// ONLY thing a caller varies is the rng SOURCE (the tick's threaded stream for a legacy completion;
+// a per-inspect seeded stream for inspect). Returns the grace-stamped instance, or null for a
+// corrupt blueprint with no output shape.
+//
+// ⚠️ DRAW COUNT MATCHES THE ORIGINAL EXACTLY: a corrupt (shapeless) blueprint draws NOTHING and
+// returns null (the shape check precedes the draws), and a valid blueprint draws quality + rarity +
+// the matched generator's affixes, so the offline==live parity contract the completion branch relied
+// on is preserved when that branch is rewritten to call this.
+// ============================================================================
+function mintCraftedPiece(args: {
+  bp: BlueprintDef;
+  blueprintKey: string;
+  rng: () => number;
+  craftingLevel: number;
+  faTalentBonus: number;
+  gameTimeSeconds: number;
+  allocateId: () => string;
+}): EquipmentInstance | null {
+  const { bp, blueprintKey, rng, craftingLevel, faTalentBonus, gameTimeSeconds, allocateId } = args;
+  // Shape FIRST, before any draw: a corrupt/hand-edited blueprint with no output shape must draw
+  // NOTHING and no-op, exactly as the original completion branch did (parity).
+  const hasShape =
+    bp.equipmentOutput !== undefined || bp.weaponOutput !== undefined || bp.droneOutput !== undefined;
+  if (!hasShape) return null;
+  const quality = rollQuality(rng); // draw #1
+  const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
+  const iLevel = computeItemLevel({
+    craftingLevel,
+    achievementBoost: 0, // RESERVED (design section 6.5): no achievement system yet
+    faTalentBonus,
+    itemTierCap: bp.tier * EQUIPMENT_ILEVEL_CAP_PER_TIER,
+  });
+  if (bp.equipmentOutput !== undefined) {
+    const minted = generateEquipment({
+      slotType: bp.equipmentOutput.slotType,
+      varietyKey: bp.equipmentOutput.varietyKey,
+      blueprintKey,
+      iLevel,
+      quality,
+      rarity,
+      ascension: "none",
+      rng, // draws #3.. (affixes)
+      allocateId,
+    });
+    return startAutoSalvageGrace(minted, gameTimeSeconds);
+  }
+  if (bp.weaponOutput !== undefined) {
+    const minted = generateWeapon({
+      weaponType: bp.weaponOutput.weaponType,
+      blueprintKey,
+      iLevel,
+      quality,
+      rarity,
+      ascension: "none",
+      rng,
+      allocateId,
+    });
+    return startAutoSalvageGrace(minted, gameTimeSeconds);
+  }
+  // droneOutput (the only remaining shape, guaranteed by hasShape above).
+  const minted = generateDronePod({
+    droneRole: bp.droneOutput!.role,
+    blueprintKey,
+    iLevel,
+    quality,
+    rarity,
+    ascension: "none",
+    rng,
+    allocateId,
+  });
+  return startAutoSalvageGrace(minted, gameTimeSeconds);
+}
+
+// Derive a per-inspect rng seed from the rolling inspectSeed AND the blueprint key. Mixing the key
+// in is what closes the "reload and inspect a DIFFERENT blank to redirect the roll" hole (design
+// section 2a): a given blank at a given seed always rolls the same result, so switching which blank
+// you open first cannot launder the seed toward a preferred item, it can only ADVANCE the seed at
+// the cost of consuming a blank. A small FNV-style mix; any stable derivation works since makeRng
+// only needs a number.
+function inspectRollSeed(seed: number, blueprintKey: string): number {
+  let h = seed | 0;
+  for (let i = 0; i < blueprintKey.length; i++) {
+    h = Math.imul(h ^ blueprintKey.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// ITEM LIFECYCLE 0.13.6: the INSPECT player action. Consumes ONE blank of `blueprintKey`, rolls it
+// into a real EquipmentInstance, and appends it to the rolled pool (state.equipment). PURE: returns
+// a NEW state, or the SAME reference when there is nothing to inspect (no blank, or a corrupt key).
+//
+// Deterministic + reload-proof: the rng is seeded from the save's inspectSeed AND the blueprintKey
+// (inspectRollSeed), and inspectSeed advances by ONE only on a COMMITTED inspect, so a reload BEFORE
+// inspecting re-rolls the SAME result. Crafting level is read HERE (at inspect), the locked design's
+// "read at inspect", and the grace window starts HERE, the design's "grace moves to instantiation".
+export function inspectBlank(state: GameState, blueprintKey: string): GameState {
+  const held = state.blanks[blueprintKey] ?? new Decimal(0);
+  if (held.lt(1)) return state; // no blank of this type: no-op
+  const bp = BLUEPRINTS[blueprintKey];
+  if (bp === undefined) return state; // corrupt key: no-op (leave the blank)
+  const rngObj = makeRng(inspectRollSeed(state.inspectSeed, blueprintKey));
+  const mintedId = state.nextEquipmentId;
+  const minted = mintCraftedPiece({
+    bp,
+    blueprintKey,
+    rng: () => rngObj.next(), // adapt the seeded PRNG to the () => number the mint draws
+    craftingLevel: state.craftingLevel,
+    faTalentBonus: craftingItemLevelBonus(state),
+    gameTimeSeconds: state.gameTimeSeconds,
+    allocateId: () => `equip-${mintedId}`,
+  });
+  if (minted === null) return state; // corrupt output shape: no-op, do not consume the blank
+  const remaining = held.minus(1);
+  const blanks = { ...state.blanks };
+  if (remaining.lte(0)) delete blanks[blueprintKey];
+  else blanks[blueprintKey] = remaining;
+  return {
+    ...state,
+    equipment: [...state.equipment, minted],
+    nextEquipmentId: mintedId + 1,
+    blanks,
+    inspectSeed: state.inspectSeed + 1, // advance ONLY on a committed inspect
+  };
+}
+
 export function resolveProcesses(
   state: GameState,
   ticksElapsed: number,
@@ -10177,6 +10318,10 @@ export function resolveProcesses(
   // value-identical (only the addEquipment / addShip branches below re-clone / increment).
   let equipment = state.equipment;
   let nextEquipmentId = state.nextEquipmentId;
+  // ITEM LIFECYCLE 0.13.6: the blank store, threaded like `equipment` so a completing fabricate
+  // that carries `addBlank` can deposit +1 blank. Value-identical to state.blanks when no blank
+  // craft completed this call (seeded from it, only the addBlank branch re-clones it).
+  let blanks = state.blanks;
   // Equipment 0.11.0 (Task B2): the spare-storage LEVEL, bumped by a completing
   // equipmentStorageUpgrade process (the equipmentStorageLevelUp branch below). Seeded
   // from the incoming state, so a call that completes no storage upgrade returns it
@@ -10562,6 +10707,14 @@ export function resolveProcesses(
       // key: mint NOTHING and draw NOTHING, then drop the job. Mirrors lineJobSpec's "unknown recipe
       // -> inert" guard; it can only arise from a tampered save, never a real play path, so parity is
       // unaffected, both paths see the identical corrupt state and both no-op.)
+    } else if (process.effect.type === "addBlank") {
+      // ITEM LIFECYCLE 0.13.6: a completed fabricate deposits ONE stackable blank keyed by its
+      // blueprint. NO rng and NO instance: the roll is deferred to the INSPECT action (inspectBlank).
+      // Because this draws NOTHING from the tick's threaded stream, it cannot perturb the offline==
+      // live parity draw order (the opposite of the addEquipment branch, which rolled here). Clones
+      // the blank store once, the same value-identical-when-untouched discipline as `equipment`.
+      const blankKey = process.effect.blueprintKey;
+      blanks = { ...blanks, [blankKey]: (blanks[blankKey] ?? new Decimal(0)).plus(1) };
     } else if (process.effect.type === "equipmentStorageLevelUp") {
       // Equipment 0.11.0 (Task B2): a completed equipment-storage upgrade bumps the
       // spare-storage LEVEL by 1, so equipmentStorageCap (model.ts) derives the NEXT
@@ -10751,6 +10904,10 @@ export function resolveProcesses(
       // defensively-seeded [] / 1, which is the correct grow-on-demand result.
       equipment,
       nextEquipmentId,
+      // ITEM LIFECYCLE 0.13.6: the blank store, +1 per completing addBlank fabricate this call;
+      // value-identical to state.blanks when no blank craft completed (only the addBlank branch
+      // re-clones it).
+      blanks,
       // Equipment 0.11.0 (Task B2): the spare-storage level, raised by any completing
       // equipmentStorageUpgrade this call. Value-identical to state.equipmentStorageLevel
       // when no storage upgrade completed (seeded from it, only the equipmentStorageLevelUp
