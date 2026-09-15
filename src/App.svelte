@@ -2071,7 +2071,7 @@
   // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
   // Upgrades (the fabricator's tier/slot track). Same independent typed-union + let-state
   // discipline as ResearchSubTab above; defaults to Overview, matching the others.
-  type FabricatorSubTab = "overview" | "craft" | "upgrades";
+  type FabricatorSubTab = "overview" | "craft" | "inspect" | "upgrades";
   let activeFabricatorSubTab: FabricatorSubTab = "overview";
 
   // Shipyard (Task S5 UI): the Shipyard's TWO-tab axis, Build (the founded-vs-unfounded
@@ -8493,6 +8493,7 @@
         return { tabs: [
           { key: "overview", label: "Overview" },
           { key: "craft", label: "Craft" },
+          { key: "inspect", label: "Inspect" }, // ITEM LIFECYCLE 0.13.6: open blanks into rolled systems
           { key: "upgrades", label: "Upgrades" },
         ], active: activeFabricatorSubTab, onSelect: (key) => (activeFabricatorSubTab = key as FabricatorSubTab) };
       case "research":
@@ -10314,6 +10315,35 @@
               {#if fabricatorBuilt}
                 {@render craftOrderQueuePanel(fabricatorQueue, fabricatorContinuous)}
               {/if}
+            {/if}
+
+            {#if activeFabricatorSubTab === "inspect"}
+              <!-- INSPECT (ITEM LIFECYCLE 0.13.6). Crafting deposits stackable BLANKS (uninspected
+                   crafts); inspecting one rolls it into a real system that lands in the spare bay
+                   (Logistics > Ship Equipment). This is the deliberate "open your team's work" step,
+                   so it lives beside Craft, not buried in a storage tab. blankRows + doInspectBlank
+                   are shared with the game logic (inspectBlank, tick.ts). Bulk opening is a follow-up
+                   (it must respect the spare-bay cap, so it is not a naive "inspect all"). -->
+              <Panel>
+                <div class="panel-title">INSPECT BLANKS</div>
+                <p class="research-status">
+                  Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. The rolled system lands in your spare bay under Logistics &rsaquo; Ship Equipment.
+                </p>
+                {#if blankRows.length === 0}
+                  <div class="warehouse-stub">
+                    <div class="warehouse-stub-glyph">🔬</div>
+                    <p>No blanks to inspect. Craft ship systems, weapons or drone pods on the Craft tab and they arrive here as blanks.</p>
+                  </div>
+                {:else}
+                  {#each blankRows as row (row.key)}
+                    <div style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--color-border);">
+                      <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">{row.label}</span>
+                      <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">×{row.count.toString()}</span>
+                      <button class="buy-btn" on:click={() => doInspectBlank(row.key)}>Inspect</button>
+                    </div>
+                  {/each}
+                {/if}
+              </Panel>
             {/if}
 
             {#if activeFabricatorSubTab === "upgrades"}
@@ -12815,23 +12845,6 @@
           {@const bayCap = equipmentStorageCap(state)}
           {@const baySpare = spareEquipmentCount(state)}
           {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
-          <!-- ITEM LIFECYCLE 0.13.6: BLANKS. Uninspected crafts, stacked by blueprint. Crafting
-               deposits a blank here; Inspect rolls one into a real system, which lands in the spare
-               bay below. Only shown when at least one blank is held. -->
-          {#if blankRows.length > 0}
-          <Panel>
-            <div class="panel-title">BLANKS</div>
-            <p class="research-status">Uninspected crafts, stacked by type. Inspect one to roll it into a system, which lands in your spare bay below.</p>
-            {#each blankRows as row (row.key)}
-              <div style="display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid var(--color-border);">
-                <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">{row.label}</span>
-                <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">×{row.count.toString()}</span>
-                <button class="buy-btn" on:click={() => doInspectBlank(row.key)}>Inspect</button>
-              </div>
-            {/each}
-          </Panel>
-          {/if}
-
           <Panel>
             <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
                  (disabled + reasoned exactly like the warehouse-tier Build
