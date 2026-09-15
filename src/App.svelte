@@ -749,6 +749,8 @@
     // queue panel reads the borrowed count so a player whose order is waiting can see WHY.
     salvageLaneUsage,
     type SalvageJobProcess,
+    // ITEM LIFECYCLE 0.13.6: the INSPECT action, consumes one blank and mints the rolled instance.
+    inspectBlank,
   } from "./lib/game/tick";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
   // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
@@ -5761,6 +5763,26 @@
     pushLog("Systems Bay expansion started.");
     doSave();
   }
+
+  // ITEM LIFECYCLE 0.13.6: INSPECT one blank of a blueprint. inspectBlank consumes a blank, rolls
+  // the piece and appends it to the spare pool; it is a same-ref no-op when there is no blank, so
+  // bail without a spurious log/save in that case.
+  function doInspectBlank(blueprintKey: string) {
+    const next = inspectBlank(state, blueprintKey);
+    if (next === state) return;
+    state = next;
+    const label = BLUEPRINTS[blueprintKey]?.label ?? "system";
+    pushLog(`Inspected a ${label}. The rolled system is in your spare bay.`);
+    doSave();
+  }
+
+  // The blank-bay rows for the Ship Equipment tab: positive counts only, each resolved to its
+  // blueprint label, sorted by name. Derived, so a completing craft (which grows state.blanks) or
+  // an inspect (which shrinks it) re-renders the list automatically.
+  $: blankRows = Object.entries(state.blanks)
+    .filter(([, count]) => count.gt(0))
+    .map(([key, count]) => ({ key, count, label: BLUEPRINTS[key]?.label ?? key }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   // Start the next Docks expansion rung. startDocksExpansion returns { next, started }
   // (like startEquipmentStorageUpgrade); on any failed gate it is a same-ref no-op, so
@@ -12793,6 +12815,23 @@
           {@const bayCap = equipmentStorageCap(state)}
           {@const baySpare = spareEquipmentCount(state)}
           {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
+          <!-- ITEM LIFECYCLE 0.13.6: BLANKS. Uninspected crafts, stacked by blueprint. Crafting
+               deposits a blank here; Inspect rolls one into a real system, which lands in the spare
+               bay below. Only shown when at least one blank is held. -->
+          {#if blankRows.length > 0}
+          <Panel>
+            <div class="panel-title">BLANKS</div>
+            <p class="research-status">Uninspected crafts, stacked by type. Inspect one to roll it into a system, which lands in your spare bay below.</p>
+            {#each blankRows as row (row.key)}
+              <div style="display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid var(--color-border);">
+                <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">{row.label}</span>
+                <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">×{row.count.toString()}</span>
+                <button class="buy-btn" on:click={() => doInspectBlank(row.key)}>Inspect</button>
+              </div>
+            {/each}
+          </Panel>
+          {/if}
+
           <Panel>
             <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
                  (disabled + reasoned exactly like the warehouse-tier Build
