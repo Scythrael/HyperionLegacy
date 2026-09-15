@@ -77,6 +77,26 @@ A completionist display of your finest work, graded. Not storage. Likely the fut
 
 ⚠️ This is large; the user has said it "earns its own release." Expect it to fill 0.13.6, and be willing to split a phase into a point release if scope demands.
 
+## 7a. Phase 1 build state + the flip's turnkey implementation
+
+**✅ Increment 1 (DONE, gated, committed local on `feat/item-lifecycle-0.13.6`):** the dormant foundation. `GameState.blanks: Record<string, Decimal>` + `GameState.inspectSeed: number`, freshState seeds, `save.ts` SAVE_VERSION 48->49 + `MIGRATIONS[48]` backfill + `hydrateDecimals` revives blank counts. Changes no behavior. 2751 tests green.
+
+**⏭ Increment 2 (NEXT, the craft->blank + inspect FLIP). PARITY-CRITICAL, do as a focused pass.** Every seam is located:
+
+- **Craft stops rolling.** `startFabricateLine`/fabricate effect selection at `tick.ts:9586-9589` currently picks `{type:"addEquipment", blueprintKey}` for `blueprintMintsEquipmentInstance(bp)`. Change that to a NEW effect `{type:"addBlank", blueprintKey}`.
+- **New `ProcessEffect` `addBlank`.** It is an exhaustive union, so the compiler will force handling in every switch: `completionYieldFor` (tick.ts ~1264, add a "blanks"/subject case), the apply switch (below), and any policy/reward Record. That is the content-driven safety net working as intended.
+- **Apply handler for `addBlank`:** increment `state.blanks[blueprintKey]` by 1. **Draws NO rng.** This is the key parity consequence: equipment completions no longer draw from the tick's threaded stream, which SIMPLIFIES parity (fewer draws) but CHANGES the post-state of any offline==live fixture that crafted equipment (now a blank, not an instance). Update those fixtures.
+- **Relocate the mint into `inspectBlank(state, blueprintKey)`.** Move the mint logic verbatim from the `addEquipment` apply branch (`tick.ts:10400-10560`, the equipment/weapon/drone trichotomy) into a new player-action function. Changes from the original:
+  - **rng source:** NOT the tick's threaded rng. Build `const rng = makeRng(inspectRollSeed(state.inspectSeed, blueprintKey))` where `makeRng` is `src/lib/game/combat/rng.ts:151` and `inspectRollSeed` hashes `inspectSeed` together with the `blueprintKey`. Deriving from BOTH the seed AND the item type is what closes the "reload and inspect a DIFFERENT blank to redirect the roll" hole (design section 2a): a given blank at a given seed always rolls the same thing, and switching which blank you open first cannot launder the seed toward a better item.
+  - **draw order UNCHANGED:** `rollQuality(rng)` #1, `rollCraftedRarity(rng)` #2, then `generate{Equipment,Weapon,DronePod}(..., rng)` #3.., so the roll DISTRIBUTION is identical to today, only the rng SOURCE moved.
+  - **crafting level read AT INSPECT** (`state.craftingLevel` at inspect time), per the locked design.
+  - **grace stamp stays** (`startAutoSalvageGrace(minted, state.gameTimeSeconds)`), now firing at inspect = the design's "grace moves to instantiation."
+  - consume 1 blank, push the instance to `state.equipment`, advance `nextEquipmentId`, and advance `inspectSeed` by 1 (only on a committed inspect, so a reload before inspecting re-rolls identically).
+- **Auto-salvage:** it scans `state.equipment` spares, and blanks live in `state.blanks`, so blanks are already outside its reach (verify, likely a no-op) = the "auto-salvage shrinks to the rolled pool" outcome for free.
+- **UI (App.svelte):** a Blanks view in the Ship Systems warehouse (list `state.blanks` keyed by blueprint, name via `BLUEPRINTS[key]`, count) + an Inspect action per blank that dispatches `inspectBlank`; the rolled instance then appears in the existing Ship Systems (rolled-pool) tab.
+- **TEST STRATEGY (wide, delicate):** (a) every crafting-completion test asserting an `EquipmentInstance` appears on fabricate completion flips to asserting `blanks[key]` incremented and NO instance; (b) new tests: `inspectBlank` mints + consumes a blank + advances the seed; reload-determinism (same seed -> same roll); redirect-proof (re-inspecting the same blank after a seed-preserving reload is identical; a different blueprint differs); grace stamped at inspect; (c) the offline==live parity fixtures that crafted equipment get their expected post-state updated to blanks. The itemgen anti-drift tests are UNAFFECTED (`generate*` unchanged).
+- ⚠️ Keep it LOCAL until the UI lands (a blank with no inspect UI is a non-functional craft); push to staging only once craft->blank->inspect->gear works end to end.
+
 ## 8. Deferred / open
 
 - **Donation** to a future reputation system: named only, not this release.
