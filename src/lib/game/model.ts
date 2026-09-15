@@ -4490,6 +4490,20 @@ export interface GameState {
   // (the discovery-on-first-acquire wiring is a later task). A string[] (not a
   // Set) so it serializes cleanly through the JSON save format.
   discovered: string[];
+  // ITEM LIFECYCLE 0.13.6 (DORMANT this increment; landed early so the save shape moves ONCE at
+  // the start of the release, the same posture as transitBerthLevel above). A BLANK is an
+  // uninspected craft: crafting will deposit a stackable, fungible blank keyed by its BLUEPRINT
+  // key (every blank of a blueprint is identical because it is not rolled yet), and INSPECT will
+  // consume one to mint a rolled EquipmentInstance. Decimal counts, since the player will bank
+  // millions, riding the same hydration machinery as `inventory`. NOTHING writes or reads this
+  // yet; the craft->blank flip + inspect are the next increment. save.ts hydrates each count and
+  // MIGRATIONS[48] backfills {} onto older saves.
+  blanks: Record<string, Decimal>;
+  // The rolling INSPECT seed (DORMANT this increment). It advances by one per inspect so a reload
+  // re-rolls identically (closing the save-scum hole) while blanks stay fungible; the roll derives
+  // from this seed AND the item type. A plain number and a pure function of the save, so a server
+  // can later RECOMPUTE and verify the roll. freshState seeds 0; MIGRATIONS[48] backfills 0.
+  inspectSeed: number;
   unlockedHomeworldTalents: HomeworldTalentKey[]; // fleet-wide purchased Homeworld Talent keys, see buyHomeworldTalent (tick.ts)
   fleetAdminXp: Decimal; // Fleet Admiral leveling, see applyFleetAdminXp (tick.ts)
   fleetAdminLevel: number; // starts at 1
@@ -8491,6 +8505,9 @@ export function freshState(): GameState {
     // No itemId has been seen on a brand-new save, the ❓ -> reveal set starts
     // empty (discovery wiring lands in a later task).
     discovered: [],
+    // Item Lifecycle 0.13.6 (dormant): no blanks banked, seed at 0. See GameState.
+    blanks: {},
+    inspectSeed: 0,
     unlockedHomeworldTalents: [],
     fleetAdminXp: new Decimal(0),
     fleetAdminLevel: 1,

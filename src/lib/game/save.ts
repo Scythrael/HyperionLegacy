@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 48;
+export const SAVE_VERSION = 49;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -227,6 +227,11 @@ function hydrateDecimals(state: any): GameState {
         : p
     ),
     inventory: hydrateInventoryBuckets(state.inventory),
+    // Item Lifecycle 0.13.6: blank counts are Decimals keyed by blueprint (a flat count per key,
+    // not quality-bucketed), so they round-trip through JSON as strings and must be revived like
+    // any Decimal map. `?? {}` covers a pre-v49 save that reaches here before MIGRATIONS[48] (it
+    // will not, migrate runs first, but hydration stays fail-open on a partial/hostile save).
+    blanks: hydrateDecimalMap(state.blanks ?? {}),
     // lifetimeStats' 3 scalar sums are Decimal-typed (Progression Pacing
     // Rework), so, exactly like credits/fleetAdminXp above, they round-trip
     // through JSON as plain strings (Decimal.toJSON()) and MUST be converted
@@ -2107,6 +2112,16 @@ const MIGRATIONS: Record<number, Migration> = {
       equipment: state.equipment ?? [],
       nextEquipmentId: state.nextEquipmentId ?? 1,
     }),
+  // --- v48 -> v49: ITEM LIFECYCLE 0.13.6 dormant fields (blanks + inspect seed) ---------------
+  // Additive shape move landed at the START of the release so the later increments (craft->blank,
+  // inspect) need no second migration. Backfills an empty blank store and a zero inspect seed;
+  // nothing reads either yet, so this changes no behavior. (hydrateDecimals revives the blank
+  // counts back into live Decimals on every load, exactly like `inventory`.)
+  48: (state: any): any => ({
+    ...state,
+    blanks: state.blanks ?? {},
+    inspectSeed: state.inspectSeed ?? 0,
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
