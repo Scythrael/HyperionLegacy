@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Armory UI Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root{
+    --bg:#0a0d13; --panel:rgba(20,26,36,0.66); --panel-2:rgba(28,36,48,0.55);
+    --line:rgba(120,150,180,0.16); --line-strong:rgba(103,232,249,0.34);
+    --ink:#e7edf5; --ink-2:#aeb9c8; --ink-dim:#7a8698;
+    --accent:#67e8f9; --good:#34d399; --amber:#fbbf24; --violet:#a020f0; --corner:2px;
+    --disp:"Orbitron",sans-serif; --body:"Space Grotesk","Inter",sans-serif; --mono:"JetBrains Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1100px 520px at 82% -10%,rgba(103,232,249,0.05),transparent 60%),var(--bg);
+    color:var(--ink);font-family:var(--body);line-height:1.5;padding:26px 18px 70px}
+  .wrap{max-width:1060px;margin:0 auto}
+  .tag{font-family:var(--mono);font-size:0.68rem;letter-spacing:0.22em;text-transform:uppercase;color:var(--ink-dim);margin:0 0 6px}
+  h1{font-family:var(--disp);font-weight:700;font-size:1.5rem;margin:0 0 4px;letter-spacing:0.02em}
+  .lede{color:var(--ink-2);max-width:74ch;margin:0 0 22px;font-size:0.95rem}
+  h2{font-family:var(--disp);font-weight:500;font-size:0.82rem;letter-spacing:0.2em;text-transform:uppercase;color:var(--accent);margin:26px 0 10px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--corner);padding:15px 16px}
+
+  /* roster */
+  .roster-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+  .roster-head .tt{font-family:var(--disp);font-weight:700;font-size:1.05rem;letter-spacing:0.06em}
+  .roster-head .ct{font-family:var(--mono);font-size:0.8rem;color:var(--ink-2)}
+  .roster-head .new{margin-left:auto;font-family:var(--mono);font-size:0.74rem;color:#04222a;background:var(--accent);
+    border:none;border-radius:var(--corner);padding:6px 12px;cursor:pointer}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  @media(max-width:720px){.grid{grid-template-columns:1fr 1fr}}
+  @media(max-width:480px){.grid{grid-template-columns:1fr}}
+  .lo{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--corner);padding:11px 12px;
+    display:flex;flex-direction:column;gap:6px;cursor:pointer;position:relative}
+  .lo.sel{border-color:var(--line-strong);box-shadow:0 0 0 1px var(--line-strong)}
+  .lo.empty{border-style:dashed;color:var(--ink-dim);align-items:center;justify-content:center;min-height:96px;
+    font-family:var(--mono);font-size:0.8rem;cursor:pointer}
+  .lo-top{display:flex;align-items:center;gap:8px}
+  .lo-hull{font-size:1.05rem}
+  .lo-name{font-weight:600;font-size:0.92rem;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lo-type{font-family:var(--mono);font-size:0.6rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-dim)}
+  .lo-status{font-family:var(--mono);font-size:0.72rem}
+  .lo-status.out{color:var(--good)}
+  .lo-status.free{color:var(--ink-dim)}
+  .lo-br{font-family:var(--mono);font-size:0.72rem;color:var(--ink-2)}
+  .lo-badges{position:absolute;top:8px;right:9px;display:flex;gap:4px;font-size:0.7rem}
+  .lo-badges .lk{color:var(--amber)}
+  .lo-badges .fv{color:var(--amber)}
+
+  /* editor */
+  .ed-head{display:flex;align-items:center;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:12px}
+  .ed-back{font-family:var(--mono);font-size:0.78rem;color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);
+    border-radius:var(--corner);padding:5px 10px;cursor:pointer}
+  .ed-name{font-family:var(--disp);font-weight:600;font-size:1rem}
+  .ed-chip{font-family:var(--mono);font-size:0.62rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--accent);
+    border:1px solid var(--line-strong);border-radius:var(--corner);padding:2px 7px}
+  .ed-out{margin-left:auto;font-family:var(--mono);font-size:0.72rem;color:var(--good)}
+  .slotgroup{margin:0 0 14px}
+  .slotgroup h3{font-family:var(--mono);font-size:0.66rem;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-2);
+    margin:0 0 7px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .slot{display:flex;align-items:center;gap:10px;padding:6px 0}
+  .slot-ic{width:26px;height:26px;border-radius:var(--corner);border:1px solid var(--sc,var(--line));display:flex;
+    align-items:center;justify-content:center;font-size:0.85rem;flex:none;color:var(--sc,var(--ink-2))}
+  .slot-lab{font-family:var(--mono);font-size:0.68rem;color:var(--ink-dim);width:104px;flex:none}
+  .slot-fill{flex:1 1 auto;min-width:0}
+  .slot-item{font-size:0.85rem;color:var(--ink)}
+  .slot-item .r{font-family:var(--mono);font-size:0.62rem;text-transform:uppercase;letter-spacing:0.06em}
+  .slot-empty{font-size:0.82rem;color:var(--ink-dim);font-style:italic}
+  .slot-act{font-family:var(--mono);font-size:0.7rem;color:var(--accent);background:none;border:1px solid var(--line);
+    border-radius:var(--corner);padding:4px 9px;cursor:pointer}
+  .ed-actions{display:flex;gap:8px;margin-top:6px;padding-top:12px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .btn{font-family:var(--mono);font-size:0.76rem;border-radius:var(--corner);padding:7px 13px;cursor:pointer;border:1px solid}
+  .btn.primary{color:#04222a;background:var(--accent);border-color:var(--accent)}
+  .btn.ghost{color:var(--ink-2);background:var(--panel-2);border-color:var(--line)}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}}
+
+  ul.notes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+  ul.notes li{position:relative;padding-left:16px;color:var(--ink-2);font-size:0.9rem}
+  ul.notes li::before{content:"";position:absolute;left:2px;top:0.6em;width:5px;height:5px;background:var(--accent);border-radius:var(--corner)}
+  ul.notes b{color:var(--ink)}
+  .q{margin-top:8px;color:var(--ink-dim);font-size:0.82rem;border-left:2px solid var(--line-strong);padding-left:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="tag">Hyperion Legacy · 0.13.6 · Armory UI mock</p>
+  <h1>The Armory</h1>
+  <p class="lede">Loadouts are saved ship equipment sets. You build a loadout from your rolled systems, then CHECK IT OUT to a ship to equip it. A committed system lives in its loadout, not the warehouse. This mock shows the two surfaces: the loadout roster, and a loadout open for editing.</p>
+
+  <div class="cols">
+    <!-- ROSTER -->
+    <section class="panel">
+      <div class="roster-head">
+        <span class="tt">LOADOUTS</span>
+        <span class="ct">4 / 25 used</span>
+        <button class="new">+ New loadout</button>
+      </div>
+      <div class="grid">
+        <div class="lo sel">
+          <div class="lo-badges"><span class="lk">🔒</span></div>
+          <div class="lo-top"><span class="lo-hull">🚀</span><span class="lo-name">Reaper Standard</span></div>
+          <span class="lo-type">Destroyer</span>
+          <span class="lo-status out">Checked out · Kestrel</span>
+          <span class="lo-br">BR 3140</span>
+        </div>
+        <div class="lo">
+          <div class="lo-top"><span class="lo-hull">🚀</span><span class="lo-name">Deep Survey</span></div>
+          <span class="lo-type">Prospector</span>
+          <span class="lo-status free">Available</span>
+          <span class="lo-br">BR 1210</span>
+        </div>
+        <div class="lo">
+          <div class="lo-badges"><span class="fv">★</span></div>
+          <div class="lo-top"><span class="lo-hull">🚀</span><span class="lo-name">Carrier Screen</span></div>
+          <span class="lo-type">Carrier</span>
+          <span class="lo-status free">Available</span>
+          <span class="lo-br">BR 4025</span>
+        </div>
+        <div class="lo">
+          <div class="lo-top"><span class="lo-hull">🚀</span><span class="lo-name">Tier X attempt</span></div>
+          <span class="lo-type">Universal</span>
+          <span class="lo-status free">Available</span>
+          <span class="lo-br">BR 2680</span>
+        </div>
+        <div class="lo empty">+ New loadout</div>
+        <div class="lo empty">+ New loadout</div>
+      </div>
+    </section>
+
+    <!-- EDITOR -->
+    <section class="panel">
+      <div class="ed-head">
+        <button class="ed-back">&larr;</button>
+        <span class="ed-name">Reaper Standard</span>
+        <span class="ed-chip">Destroyer</span>
+        <span class="ed-out">Kestrel</span>
+      </div>
+
+      <div class="slotgroup">
+        <h3>Offense</h3>
+        <div class="slot">
+          <span class="slot-ic" style="--sc:var(--violet)">✦</span>
+          <span class="slot-lab">Hardpoint 1</span>
+          <span class="slot-fill"><span class="slot-item">Radiant Autocannon <span class="r" style="color:var(--violet)">Radiant · Q4</span></span></span>
+          <button class="slot-act">Swap</button>
+        </div>
+        <div class="slot">
+          <span class="slot-ic" style="--sc:var(--good)">✦</span>
+          <span class="slot-lab">Hardpoint 2</span>
+          <span class="slot-fill"><span class="slot-item">Augmented Railgun <span class="r" style="color:var(--good)">Augmented · Q2</span></span></span>
+          <button class="slot-act">Swap</button>
+        </div>
+        <div class="slot">
+          <span class="slot-ic">✦</span>
+          <span class="slot-lab">Hardpoint 3</span>
+          <span class="slot-fill"><span class="slot-empty">Empty</span></span>
+          <button class="slot-act">Install</button>
+        </div>
+      </div>
+
+      <div class="slotgroup">
+        <h3>Defense</h3>
+        <div class="slot">
+          <span class="slot-ic" style="--sc:#4fa3f2">◈</span>
+          <span class="slot-lab">Shield</span>
+          <span class="slot-fill"><span class="slot-item">Stellar Emitter <span class="r" style="color:#4fa3f2">Stellar · Q3</span></span></span>
+          <button class="slot-act">Swap</button>
+        </div>
+        <div class="slot">
+          <span class="slot-ic">▤</span>
+          <span class="slot-lab">Hull Plating</span>
+          <span class="slot-fill"><span class="slot-empty">Empty</span></span>
+          <button class="slot-act">Install</button>
+        </div>
+      </div>
+
+      <div class="slotgroup">
+        <h3>Systems</h3>
+        <div class="slot">
+          <span class="slot-ic">▣</span>
+          <span class="slot-lab">Reactor Core</span>
+          <span class="slot-fill"><span class="slot-item">Standard-Issue Core <span class="r" style="color:#a9b7c8">Standard</span></span></span>
+          <button class="slot-act">Swap</button>
+        </div>
+        <div class="slot">
+          <span class="slot-ic">▸</span>
+          <span class="slot-lab">FTL Drive</span>
+          <span class="slot-fill"><span class="slot-empty">Empty</span></span>
+          <button class="slot-act">Install</button>
+        </div>
+      </div>
+
+      <div class="ed-actions">
+        <button class="btn primary">Check out to a ship</button>
+        <button class="btn ghost">Rename</button>
+        <button class="btn ghost">Clear loadout</button>
+      </div>
+    </section>
+  </div>
+
+  <h2>How it works (annotations)</h2>
+  <div class="panel">
+    <ul class="notes">
+      <li><b>25 loadouts, flat.</b> Spend them on any ship type you like; more come from talents. The count is derived, never hardcoded.</li>
+      <li><b>Each loadout is pinned to a ship type</b> when created (the chip). That sets exactly which slots it has, so you can never over-arm a hull, an unfilled hardpoint just stays Empty.</li>
+      <li><b>Install pulls from your rolled systems.</b> Install / Swap opens a picker of compatible rolled-pool systems; committing one moves it INTO the loadout (out of the warehouse). Clearing a loadout returns its systems to the pool.</li>
+      <li><b>Check out to a ship = equip that ship.</b> A loadout is checked out to at most one ship at a time; that ship flies what the loadout holds. A "Universal" loadout is spec-agnostic, for challenge runs.</li>
+      <li><b>Favorite (★) and Lock (🔒)</b> ride the systems, set on the rolled pool: favorite sorts to the top, lock prevents salvage / sell / destroy. A locked loadout's systems are protected too.</li>
+      <li><b>No separate storage bin.</b> Committed systems are visible by browsing loadouts; the loadouts ARE the storage.</li>
+    </ul>
+    <p class="q">Open questions this mock is meant to settle: (1) Is this the right home, the Armory as its own facility, or folded into the existing Ship Systems panel? (2) Does today's per-ship install screen become "edit the ship's checked-out loadout," or stay as a separate direct-install path? (3) The check-out picker: pick the ship from the loadout (shown), or check out from the ship's side too? Tell me what feels right and I will adjust before building.</p>
+  </div>
+</div>
+</body>
+</html>
