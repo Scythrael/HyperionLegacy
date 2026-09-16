@@ -15665,7 +15665,7 @@
           description="Not available yet. Once the desktop layout ships, this will let you keep the compact mobile view on a wide screen."
           disabled={true}
         >
-          <input type="checkbox" checked={forceMobile} disabled />
+          <Toggle label="Always use the mobile layout" checked={forceMobile} disabled />
         </SettingRow>
       </Panel>
       <!-- ⚠️ ONE PANEL PER SECTION, from the approved mockup. The old shape was a single panel with
@@ -16048,11 +16048,11 @@
           label="Confirm before refining"
           description="Shows a confirmation before starting a refine order. Ticking 'Don't show this again' in that popup turns this off."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="Confirm before refining"
             checked={refineConfirmEnabled}
             on:change={(e) => {
-              refineConfirmEnabled = (e.target as HTMLInputElement).checked;
+              refineConfirmEnabled = e.detail;
               saveRefineConfirmEnabled(refineConfirmEnabled);
             }}
           />
@@ -16062,11 +16062,11 @@
           label="Warn before auto-salvage can take Standard-Issue gear"
           description="Shows a one-time warning when your auto-salvage rules are widened far enough to include the Standard-Issue systems your ships came with."
         >
-          <input
-            type="checkbox"
+          <Toggle
+            label="Warn before auto-salvage can take Standard-Issue gear"
             checked={autoSalvageBaselineWarningEnabled}
             on:change={(e) => {
-              autoSalvageBaselineWarningEnabled = (e.target as HTMLInputElement).checked;
+              autoSalvageBaselineWarningEnabled = e.detail;
               saveAutoSalvageBaselineWarningEnabled(autoSalvageBaselineWarningEnabled);
             }}
           />
