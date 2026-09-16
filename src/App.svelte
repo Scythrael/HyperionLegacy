@@ -823,7 +823,7 @@
   // Phase 9b.5d) prices a PATROL round trip from its two transit legs + the flying
   // hull's engine efficiency, the SAME figure canDispatchPatrol / dispatchCaptainOnPatrol
   // spend, so the patrol card's "fuel per run" can never mislead about the real cost.
-  import { fuelNeeded, fuelForRoundTrip } from "./lib/game/fuel";
+  import { fuelNeeded, fuelForRoundTrip, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./lib/game/fuel";
   // Combat 0.13.0, Phase 1, Task 1.6: MAX_CAPTAIN_NAME backs the Rename input's
   // maxlength attribute (the input can't exceed the same ceiling renameCaptain
   // enforces) and the "Max N characters" error copy. Imported from captainName.ts
@@ -14511,9 +14511,11 @@
               <div class="mission-panes">
                 {#each tierIMissions as [missionKey, missionDef]}
                   {@const unlocked = missionUnlocked(state, missionKey)}
-                  {@const fuelCost = representativeShip
-                    ? fuelNeeded(missionDef, SHIP_TYPES[representativeShip.typeKey])
-                    : null}
+                  <!-- 0.13.6 fuel-to-reach: show the trip DISTANCE in lightyears (mission-intrinsic)
+                       and the representative hull's REACH, instead of a fuel cost. LY numbers are
+                       first-pass tunable (0.16.0 balance). -->
+                  {@const distanceLy = distanceLightYears(missionDef)}
+                  {@const shipRangeLy = representativeShip ? rangeLightYears(SHIP_TYPES[representativeShip.typeKey]) : null}
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                        lootTable), read the real item keys so drops read per-mission. -->
                   {@const loot = missionDef.lootTable}
@@ -14536,7 +14538,7 @@
                           <div class="statline">
                             <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
                             <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
-                            <span>Fuel <b>{fuelCost !== null ? formatNumber(fuelCost) : "--"}</b></span>
+                            <span>Distance <b>{formatNumber(Math.round(distanceLy))} ly</b></span>
                           </div>
                           <div class="statline">
                             <span>Rewards</span>
@@ -14605,7 +14607,7 @@
                               <div class="mission-col-label">Requirements</div>
                               <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
                               <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Fuel / dispatch: {fuelCost !== null ? formatNumber(fuelCost) : "None"}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} ly{#if shipRangeLy !== null} &middot; hull reach {formatNumber(Math.round(shipRangeLy))} ly{/if}</div>
                             </div>
                             <div class="mission-detail-section">
                               <div class="mission-col-label">Rewards</div>
@@ -14633,7 +14635,7 @@
                         <div class="statline">
                           {#if missionDef.requiresCaptainLevel !== undefined}<span>Needs <b>Lv {missionDef.requiresCaptainLevel}</b></span>{/if}
                           {#if missionDef.requiresCargoCapacity !== undefined}<span>Cargo <b>{formatNumber(missionDef.requiresCargoCapacity)}</b></span>{/if}
-                          <span>Fuel <b>{fuelCost !== null ? formatNumber(fuelCost) : "--"}</b></span>
+                          <span>Distance <b>{formatNumber(Math.round(distanceLy))} ly</b></span>
                         </div>
                       </div>
                     </div>
@@ -14710,7 +14712,8 @@
                      captain is picked; the Dispatch button + reason text below read it, so
                      the card can never disagree with what the backend would allow. -->
                 {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolKey) : null}
-                {@const fuelCost = selectedShip ? patrolFuelCost(patrolKey, selectedShip) : null}
+                {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
+                {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
                 {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
                 {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
                 <!-- Combat 1.0 (Unit 2.4): the combat hull class (null for a non-combat
@@ -14722,7 +14725,7 @@
                 {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
                 {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
                 {@const expanded = expandedPatrolKey === patrolKey}
-                {@const fuelShort = fuelCost !== null && state.fuel.lt(Math.ceil(fuelCost))}
+                {@const outOfReach = patrolReachLy !== null && patrolReachLy < patrolDistanceLy}
                 {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
                 <div class="mpane-wrap">
                   <!-- ROW: id (⚔️ + patrol label + faction sub) · glance mid · actions. warnedge
@@ -14741,11 +14744,7 @@
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
-                        {#if fuelCost !== null}
-                          <span>Fuel <b class:bad={fuelShort}>{formatNumber(Math.ceil(fuelCost))}</b> / tank <b class:bad={fuelShort}>{formatNumber(state.fuel)}</b></span>
-                        {:else}
-                          <span>Tank <b>{formatNumber(state.fuel)}</b></span>
-                        {/if}
+                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} ly</b>{#if patrolReachLy !== null} / reach <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} ly</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
                            is selected (and a forecast exists), else a dim "pick a captain" prompt.
@@ -16610,10 +16609,15 @@
                reason is surfaced here in danger color AND on the Dispatch button's
                title (the button is disabled below). -->
           {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
-          {@const fuelCost = selectedShip ? fuelNeeded(missionDef, SHIP_TYPES[selectedShip.typeKey]) : null}
-          <div class="panel-title">FUEL</div>
-          <div class="research-cost">Round-trip fuel: {fuelCost !== null ? formatNumber(fuelCost) : "--"}</div>
-          <div class="research-cost">In tank: {formatNumber(state.fuel)} / {formatNumber(fuelCap(state))}</div>
+          {@const distanceLy = distanceLightYears(missionDef)}
+          {@const shipRangeLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
+          <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the hull's
+               reach covers the trip distance (the canDispatch gate); flag red when it does not. -->
+          <div class="panel-title">RANGE</div>
+          <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} ly</div>
+          <div class="research-cost" style={shipRangeLy !== null && shipRangeLy < distanceLy ? "color: var(--color-danger)" : ""}>
+            Hull reach: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} ly` : "--"}
+          </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
             <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
           {/if}
@@ -16662,7 +16666,8 @@
     {@const isCombatHull = selectedShip ? combatHullTypeOf(selectedShip.typeKey) !== null : false}
     {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
     {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolDispatchKey) : null}
-    {@const fuelCost = selectedShip ? patrolFuelCost(patrolDispatchKey, selectedShip) : null}
+    {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
+    {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
     {@const stance = patrolStanceByKey[patrolDispatchKey] ?? "balanced"}
     {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
     {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
@@ -16749,10 +16754,10 @@
         </div>
 
         <div class="research-cost" style="margin-top: 10px">
-          {#if fuelCost !== null}
-            Fuel per run: {formatNumber(Math.ceil(fuelCost))} &middot; In tank: {formatNumber(state.fuel)}
+          {#if patrolReachLy !== null}
+            Distance: {formatNumber(Math.round(patrolDistanceLy))} ly &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} ly</span>
           {:else}
-            In tank: {formatNumber(state.fuel)} (select a captain to price the run)
+            Distance: {formatNumber(Math.round(patrolDistanceLy))} ly (select a captain to check reach)
           {/if}
         </div>
 
