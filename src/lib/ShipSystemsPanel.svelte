@@ -48,6 +48,7 @@
   // ============================================================================
 
   import { onMount, onDestroy, tick } from "svelte";
+  import ActionModal from "./ActionModal.svelte";
   import type {
     GameState,
     EquipmentInstance,
@@ -84,7 +85,6 @@
   import { formatNumber } from "./game/format";
   // Shared modal a11y action (0.13.2 QA): traps Tab focus inside the install modal, closes it on
   // Escape, and restores focus to the opener on close. Same action the app's other modals use.
-  import { focusTrap } from "./focusTrap";
   // The SAME reusable rarity-bordered card the Warehouse Ship Systems bay uses, plus
   // its module-exported single-source helpers (rarity color + variety glyph). Reused
   // here so a tile + its tooltip read the piece's identity in EXACTLY the format the
@@ -984,14 +984,6 @@
   // the backdrop is viewport-fixed. Scoped styles survive the move (Svelte keeps the hash class on
   // the node), and Svelte still drives its reactivity + events by node reference. node.remove() on
   // destroy is safe whether Svelte already detached it or not.
-  function portal(node: HTMLElement) {
-    document.body.appendChild(node);
-    return {
-      destroy() {
-        node.remove();
-      },
-    };
-  }
 
   // A short label for a spare in the picker list + its info button aria-label. Weapons
   // and drone pods carry no economy "variety" label in EQUIPMENT_SLOTS, so they resolve
@@ -1396,19 +1388,11 @@
                instead of scroll-jumping to an inline section. Backdrop click (self only), Escape
                (the shared focusTrap action), and the header close button all dismiss it; focus is
                trapped inside while it is open. -->
-          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss; keyboard users dismiss with Escape (the focusTrap on the dialog panel below) or the header close button, and every real control lives inside the panel. -->
-          <div class="ss-modal-backdrop" use:portal on:click|self={closePicker}>
-          <div
-            class="ss-picker"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Install ${pickerLabel}`}
-            use:focusTrap={closePicker}
-          >
-            <div class="ss-picker-head">
-              <span>Install &middot; {pickerLabel}</span>
-              <button class="ss-picker-close" on:click={closePicker} aria-label="Close install">&times;</button>
-            </div>
+          <!-- 0.13.6: the install flow now uses the shared ActionModal shell (backdrop, portal,
+               centered/bottom-sheet, sticky head + X, focus-trap). The body (installed banner +
+               master-detail flow) is unchanged; the ss-flow container query resolves against
+               ActionModal's dialog (container-type: inline-size), same width as the old .ss-picker. -->
+          <ActionModal title={`Install · ${pickerLabel}`} ariaLabel={`Install ${pickerLabel}`} onClose={closePicker}>
             {#if shipDamaged}
               <p class="ss-note ss-note-dim">Repair the ship before installing new ship systems.</p>
             {:else if pickerSpares.length === 0}
@@ -1525,8 +1509,7 @@
                 </div>
               </div>
             {/if}
-          </div>
-          </div>
+          </ActionModal>
         {:else}
           <p class="ss-note ss-note-dim ss-picker-hint">Use a slot's Install or Swap button to change its system. Hover a tile for its details.</p>
         {/if}
@@ -2285,84 +2268,6 @@
      decision responds to the panel's OWN width (not the viewport): the left fit-col is only
      ~half the board on desktop, so a viewport media query would wrongly go side-by-side while
      the actual space is narrow. container-type: inline-size makes the query measure this box. */
-  /* INSTALL MODAL (0.13.2 QA fix): the install flow reveals as a popup over a dimmed board
-     instead of an inline scroll-to section. MOBILE (default) = a bottom sheet (thumb-reachable,
-     slides up); DESKTOP (>= 700px) = a centered popup. The panel KEEPS container-type:inline-size
-     so the master-detail flow's own container query still drives list-vs-side-by-side off the
-     PANEL width (the mobile sheet is narrow -> drill list/compare; the desktop popup is wider ->
-     side by side). position:fixed escapes the panel's scroll ancestor (verified: no transformed
-     ancestor in the chain) to cover the viewport. */
-  .ss-modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 1000;
-    display: flex;
-    align-items: flex-end; /* mobile: sheet anchored to the bottom */
-    justify-content: center;
-    background: rgba(4, 6, 10, 0.66);
-  }
-  .ss-picker {
-    width: 100%;
-    max-height: 88vh;
-    overflow-y: auto;
-    padding: 12px;
-    /* Clear the mobile browser's bottom chrome / gesture bar so the sheet's last row is not
-       tucked behind it (0.13.2 QA); 0 on desktop, so the centered popup is unaffected. */
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
-    background: var(--color-bg-mid);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
-    border-radius: var(--corner) var(--corner) 0 0; /* rounded top edge for the sheet */
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
-    container-type: inline-size;
-  }
-  @media (min-width: 700px) {
-    .ss-modal-backdrop {
-      align-items: center;
-      padding: 24px;
-    }
-    .ss-picker {
-      max-width: 540px;
-      max-height: 85vh;
-      border-radius: var(--corner);
-      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
-    }
-  }
-  .ss-picker-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    /* Sticky so the title + close X stay reachable while the modal body scrolls. */
-    position: sticky;
-    top: -12px; /* cancel the panel's 12px top padding so it pins flush to the panel top */
-    background: var(--color-bg-mid);
-    padding: 12px 0 9px;
-    margin: -12px 0 9px;
-    z-index: 1;
-    font-family: var(--font-mono);
-    font-size: var(--text-2xs);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-accent-bright);
-  }
-  .ss-picker-close {
-    margin-left: auto;
-    width: 28px;
-    height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: var(--text-xl);
-    line-height: 1;
-    cursor: pointer;
-    background: rgba(var(--color-accent-rgb), 0.08);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
-    color: var(--color-text-secondary);
-    border-radius: var(--corner);
-  }
-  .ss-picker-close:hover {
-    color: var(--color-text-primary);
-    border-color: var(--color-accent);
-  }
   /* INSTALLED BANNER (0.13.2 Unit 5): pins the currently-equipped piece at the top of the
      flow. Full-surface accent tint (never a left-edge stripe), tile + label like a slot row. */
   .ss-installed {
