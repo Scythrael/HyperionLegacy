@@ -11453,33 +11453,17 @@
                  swap the order they name the grids in, so the first thing they mention is
                  the first thing the player meets scrolling down. -->
 
+            <!-- 0.13.6 green-text pass: the three explanatory paragraphs were consolidated into ONE
+                 `?` help tooltip on the title (the load-bearing queue / last-salvage / grids below
+                 stay visible). salvageBayCapacityPhrase is interpolated so the lane count stays live. -->
             <Panel>
-              <div class="panel-title">SALVAGE BAY</div>
-              <p class="research-status">
-                Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first.
-              </p>
-              <!-- 0.13.3 Unit 4.4: the second sentence the explainer now owes the player,
-                   because the ACTION changed shape. Salvaging used to happen the instant you
-                   pressed the button; it is now a timed job that runs in this bay and keeps
-                   running while the game is closed. Saying so here is what stops the
-                   countdown from reading as a bug the first time it appears. The permanence
-                   warning above is untouched: what changed is WHEN it happens, not WHETHER
-                   it is permanent.
-                   ⚠️ Salvage Lanes (2026-09-04): this sentence used to end "one at a time",
-                   which was true only while the bay could never have more than one lane. It
-                   now names the LIVE lane count through salvageBayCapacityPhrase, because a
-                   player who has bought a lane on the Upgrades tab must not read the console
-                   telling them their purchase changed nothing. -->
-              <p class="research-status">
-                Salvaging is a job the bay runs over time ({salvageBayCapacityPhrase}), and anything beyond that waits in the queue. Queued orders keep their target reserved and continue while you are away.
-              </p>
-              <!-- ⚠️ The Auto-Salvage Terminal (2026-09-11). The explainer owes the player one
-                   more sentence, because the bay now has TWO pipelines and only one of them is
-                   theirs. Saying so here is what stops the Terminal's own section further down
-                   from reading as a duplicate of the salvage queue. -->
-              <p class="research-status">
-                Auto-salvage runs on its own separate bay, the Auto-Salvage Terminal, so it never takes a salvage bay your own orders need. It may borrow a salvage bay that has been sitting idle, and gives it straight back: your orders always come first.
-              </p>
+              <div class="panel-title">
+                SALVAGE BAY
+                <HelpTip
+                  label="How the Salvage Bay works"
+                  text={`Break spare ship systems and salvaged materials down for recovered parts and loot. Salvage permanently destroys the item; checked quality tiers ask for confirmation first. It runs as a timed job in the bay (${salvageBayCapacityPhrase}); anything beyond that waits in the queue, keeping its target reserved and continuing while you are away. Auto-salvage uses its own separate Auto-Salvage Terminal, so it never takes a bay your own orders need: it only borrows an idle bay and gives it straight back, and your orders always come first.`}
+                />
+              </div>
             </Panel>
             {/if}
 
@@ -12610,12 +12594,15 @@
                      same shipyardBayCount the engine gates repairs on, so this readout and the
                      engine cannot disagree, and a player deciding whether to buy a berth does
                      not have to count rungs to work out what they already have. -->
+                <!-- 0.13.6 green-text pass: the explanatory paragraph moved into a `?` tooltip on the
+                     load-bearing Bays readout (the count stays visible; the "how it works" is one tap away). -->
                 <div class="research-cost">
                   Bays: {shipyardBays} building or repairing at once
+                  <HelpTip
+                    label="How Shipyard bays work"
+                    text="A bay holds one hull, and builds and repairs share the same bays. One bay is always held back for repairs, so a damaged hull can always find somewhere to go. This is separate from queue depth, which is how many build orders may wait behind them and comes from Homeworld Talents > Fleet Logistics (Standing Orders)."
+                  />
                 </div>
-                <p class="research-status">
-                  A bay holds one hull, and builds and repairs share the same bays. One bay is always held back for repairs, so a damaged hull can always find somewhere to go. This is separate from queue depth, which is how many build orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
-                </p>
 
                 {#if shipyardMaxed}
                   <p class="research-status">Fully upgraded.</p>
@@ -16085,7 +16072,7 @@
              doToggleSalvageConfirmTier) the bay grid used. -->
         <SettingRow
           label="Confirm before salvaging"
-          description="Which quality tiers stop and ask before a manual salvage — a safety prompt before a destructive action. Deselect a tier to salvage it straight away with no prompt. Ship (hull) teardowns always confirm regardless. A selected tier is also safe from auto-salvage. The confirmation level above sets all tiers at once; editing here makes the level Custom."
+          description="Which quality tiers stop and ask before a manual salvage: a safety prompt before a destructive action. Deselect a tier to salvage it straight away with no prompt. Ship (hull) teardowns always confirm regardless. A selected tier is also safe from auto-salvage. The confirmation level above sets all tiers at once; editing here makes the level Custom."
         >
           <MultiSelect
             label="Quality tiers that confirm before salvaging"
@@ -16713,7 +16700,7 @@
             <div class="patrol-readout-row">
               <span class="mpane-poplbl">
                 <span class="mission-col-label" style="margin: 0">Threat assessment</span>
-                <HelpTip label="Threat assessment" text="A fuzzy advisory from a seeded simulation of this patrol — an estimate, not a promise. It can read high or low; treat it as guidance, and know you can dispatch regardless of what it shows." />
+                <HelpTip label="Threat assessment" text="A fuzzy advisory from a seeded simulation of this patrol: an estimate, not a promise. It can read high or low; treat it as guidance, and know you can dispatch regardless of what it shows." />
               </span>
               <span class="threat-chip-wrap">
                 <button
@@ -16738,7 +16725,7 @@
         <!-- Stance segmented (setPatrolStance), with a HelpTip ? for the three stances. -->
         <div class="mpane-poplbl" style="margin-top: 8px">
           <span class="mission-col-label" style="margin: 0">Stance</span>
-          <HelpTip label="Stance" text="Aggressive presses the attack — faster, bloodier fights at higher risk to your hull. Balanced trades evenly. Standoff keeps range to spare the hull, accepting a slower, more cautious engagement." />
+          <HelpTip label="Stance" text="Aggressive presses the attack: faster, bloodier fights at higher risk to your hull. Balanced trades evenly. Standoff keeps range to spare the hull, accepting a slower, more cautious engagement." />
         </div>
         <div class="patrol-segmented" role="group" aria-label="Combat stance">
           <button class="dev-btn" aria-pressed={stance === "aggressive"} on:click={() => setPatrolStance(patrolDispatchKey!, "aggressive")}>Aggressive</button>
