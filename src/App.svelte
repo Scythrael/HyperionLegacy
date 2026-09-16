@@ -758,6 +758,8 @@
     loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
     checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
   } from "./lib/game/armory";
+  // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4): the completionist record, pure over GameState.
+  import { archivableBlueprints, archiveCompletion, archiveItem, itemScore, maxItemScore } from "./lib/game/archive";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
   // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
   // which is what keeps a queued row's "would this start?" answer identical to the one the
@@ -1352,7 +1354,7 @@
   // stored) rather than the Salvage Bay's "seeded at level 0" posture, because the bay has
   // lanes to sell and this has nothing to sell. See quartermaster.ts for why it ships in the
   // same release that made Standard-Issue baselines auto-salvageable.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory";
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory" | "archive";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -1380,6 +1382,7 @@
     docks: "Docks",
     quartermaster: "Quartermaster",
     armory: "Armory",
+    archive: "Archive",
   };
 
   // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
@@ -5871,6 +5874,31 @@
     doSave();
   }
 
+  // ── ITEM LIFECYCLE 0.13.6: the Archive (completion record) ─────────────────
+  $: archiveCompletionVM = archiveCompletion(state);
+  // One row per craftable item: its enshrined score, its max, and the best matching free SPARE you
+  // hold (highest-scoring), which drives the one-click "Enshrine best" action. Sorted by label.
+  $: archiveRows = archivableBlueprints().map(({ key, bp }) => {
+    const spares = state.equipment.filter(
+      (e) => e.blueprintKey === key && e.fittedToShipId === null && e.committedToLoadoutId === undefined
+    );
+    let bestSpare: (typeof spares)[number] | null = null;
+    for (const sp of spares) if (bestSpare === null || itemScore(sp) > itemScore(bestSpare)) bestSpare = sp;
+    return {
+      key,
+      label: BLUEPRINTS[key]?.label ?? key,
+      archived: state.archive[key] ?? 0,
+      max: maxItemScore(bp),
+      bestSpare,
+      bestSpareScore: bestSpare ? itemScore(bestSpare) : 0,
+    };
+  }).sort((a, b) => a.label.localeCompare(b.label));
+
+  function doArchiveItem(instanceId: string) {
+    const next = archiveItem(state, instanceId);
+    if (next !== state) { state = next; doSave(); }
+  }
+
   // Start the next Docks expansion rung. startDocksExpansion returns { next, started }
   // (like startEquipmentStorageUpgrade); on any failed gate it is a same-ref no-op, so
   // we destructure `started` and bail without a spurious log.
@@ -8565,6 +8593,11 @@
       null, null,
       `${state.loadouts.length} / ${loadoutCap(state)} loadouts`,
       facilityAttention.has("armory")),
+    // ITEM LIFECYCLE 0.13.6: the Archive (completion record), a service facility like the Armory.
+    fpane("archive", "🏛️", FACILITY_LABELS.archive, "Completion record",
+      null, null,
+      `${archiveCompletionVM.pct.toFixed(1)}% complete`,
+      facilityAttention.has("archive")),
   ];
 
   // ── SHARED FACILITY-CONSOLE SUB-TABS (0.13.5, user: one-row console header). The console renders
@@ -12989,6 +13022,42 @@
                 {/each}
               </Panel>
             {/if}
+          {:else if activeFoundryFacility === "archive"}
+            <!-- ITEM LIFECYCLE 0.13.6: the Archive console. The completionist record of this
+                 miniature empire: enshrine your best-crafted version of each item for a score and
+                 an overall completion percentage. Enshrining CONSUMES the spare and keeps only the
+                 score (archive.ts), so a better craft later simply raises it. -->
+            <Panel>
+              <div class="panel-title">THE ARCHIVE</div>
+              <p class="research-status">
+                A permanent record of the finest systems you have crafted. Enshrine a spare to keep its score forever. A better roll later raises the mark. Enshrining consumes the item.
+              </p>
+              <div style="display:flex; align-items:baseline; gap:10px; margin:12px 0 4px;">
+                <span style="font-family:var(--font-display); font-size:var(--text-2xl); color:var(--color-text-primary);">{archiveCompletionVM.pct.toFixed(1)}%</span>
+                <span style="font-family:var(--font-mono); color:var(--color-text-dim);">{formatNumber(archiveCompletionVM.total)} / {formatNumber(archiveCompletionVM.max)}</span>
+              </div>
+              <div class="research-bar-track">
+                <div class="research-bar-fill" style="width:{Math.min(100, archiveCompletionVM.pct)}%"></div>
+              </div>
+              <div style="margin-top:14px;">
+                {#each archiveRows as row (row.key)}
+                  <div class="home-row" style="align-items:center;">
+                    <span style="flex:1 1 auto; min-width:0;">
+                      <span style="font-weight:600; color:var(--color-text-primary);">{row.label}</span>
+                      <span style="font-family:var(--font-mono); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'}; margin-left:8px;">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
+                    </span>
+                    {#if row.bestSpare}
+                      {@const bs = row.bestSpare}
+                      <button class="buy-btn" style="margin-left:8px;" on:click={() => doArchiveItem(bs.id)}>
+                        Enshrine best (<span style="color:{equipmentRarityColor(bs.rarity)};">{bs.rarity} · Q{bs.quality}</span>{#if itemScore(bs) > row.archived} · +{formatNumber(itemScore(bs) - row.archived)}{/if})
+                      </button>
+                    {:else}
+                      <span style="font-family:var(--font-mono); color:var(--color-text-dim); margin-left:8px;">No spare</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </Panel>
           {/if}
         {/if}
       </div>

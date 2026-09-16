@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 50;
+export const SAVE_VERSION = 51;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2131,6 +2131,14 @@ const MIGRATIONS: Record<number, Migration> = {
     ...state,
     loadouts: state.loadouts ?? [],
     nextLoadoutId: state.nextLoadoutId ?? 1,
+  }),
+  // --- v50 -> v51: ITEM LIFECYCLE 0.13.6 Archive dormant field ---------------------------------
+  // Additive shape move for Phase 4. Backfills an empty archive (blueprint key -> best score). The
+  // scores are plain numbers (no Decimals), so hydrateDecimals needs no change. Dormant until the
+  // Archive build wires slotting.
+  50: (state: any): any => ({
+    ...state,
+    archive: state.archive ?? {},
   }),
 };
 

@@ -4697,6 +4697,12 @@ export interface GameState {
   // MIGRATIONS backfills [] + 1 onto older saves. No Decimals inside, so hydrateDecimals is untouched.
   loadouts: Loadout[];
   nextLoadoutId: number;
+  // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4; DORMANT until the Archive build). The completionist
+  // record: for each CRAFTABLE-equipment blueprint key, the BEST score ever enshrined (a plain
+  // number, not a live instance, slotting CONSUMES the item and keeps only the score). Empty on a
+  // fresh save; MIGRATIONS backfills {}. Score = (rarityIndex+1) x (quality+1) x iLevel x 10; the
+  // denominator for completion % is the item's absolute tier ceiling (see archive.ts). No Decimals.
+  archive: Record<string, number>;
   // The crafting skill track that later tasks use to gate/boost equipment
   // crafting. craftingLevel is 1-based (starts at 1, parallels fleetAdminLevel;
   // level 0 is unused). craftingXp is the accumulator toward the next level,
@@ -8660,6 +8666,8 @@ export function freshState(): GameState {
     // Item Lifecycle 0.13.6 (Armory, dormant): no loadouts on a fresh save; id source at 1.
     loadouts: [],
     nextLoadoutId: 1,
+    // Item Lifecycle 0.13.6 (Archive, dormant): nothing enshrined on a fresh save.
+    archive: {},
     craftingLevel: 1,
     craftingXp: new Decimal(0),
     // Equipment 0.11.0 Task B1: a new save starts at the base equipment-storage cap,
