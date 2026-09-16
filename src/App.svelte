@@ -752,6 +752,12 @@
     // ITEM LIFECYCLE 0.13.6: the INSPECT action, consumes one blank and mints the rolled instance.
     inspectBlank,
   } from "./lib/game/tick";
+  // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
+  import {
+    loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
+    loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
+    checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
+  } from "./lib/game/armory";
   // Crafting 0.13.3 (Phase 4 Unit 4.2): the PURE queue view model. Every queue readout on a
   // console binds to buildCraftQueue's output and NOTHING is re-derived in the template,
   // which is what keeps a queued row's "would this start?" answer identical to the one the
@@ -1346,7 +1352,7 @@
   // stored) rather than the Salvage Bay's "seeded at level 0" posture, because the bay has
   // lanes to sell and this has nothing to sell. See quartermaster.ts for why it ships in the
   // same release that made Standard-Issue baselines auto-salvageable.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster";
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -1373,6 +1379,7 @@
     shipyard: "Shipyard",
     docks: "Docks",
     quartermaster: "Quartermaster",
+    armory: "Armory",
   };
 
   // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
@@ -5784,6 +5791,86 @@
     .map(([key, count]) => ({ key, count, label: BLUEPRINTS[key]?.label ?? key }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
+  // ── ITEM LIFECYCLE 0.13.6: the Armory (loadout bay) ────────────────────────
+  // A DRILL-IN console: the roster shows when selectedLoadoutId is null; opening a loadout shows the
+  // editor. Every action wraps a pure armory.ts fn (state = next; doSave), the same pattern as the
+  // rest of this file. armory.ts is the single source of truth, the UI never re-derives its rules.
+  let selectedLoadoutId: string | null = null;
+  let armoryNewShipType = ""; // the ship-type picker value for "New loadout" (a SHIP_TYPES key)
+  let armoryInstallSlotKey: string | null = null; // which editor slot's install picker is open
+
+  $: selectedLoadout = state.loadouts.find((l) => l.id === selectedLoadoutId) ?? null;
+  $: armorySlotDefs = selectedLoadout ? loadoutSlotDefsForShipType(selectedLoadout.shipTypeKey) : [];
+  // Free spares (rolled pool) compatible with the slot whose install picker is open.
+  $: armoryInstallCandidates = (() => {
+    if (selectedLoadout === null || armoryInstallSlotKey === null) return [];
+    const slot = armorySlotDefs.find((d) => d.key === armoryInstallSlotKey);
+    if (slot === undefined) return [];
+    return state.equipment.filter(
+      (e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === slot.slotType
+    );
+  })();
+  // Ships this loadout can check out to: matching type + no loadout already checked out to them.
+  // (On-mission ships are still listed; checkOutLoadout refuses and the handler explains why.)
+  $: armoryCheckoutShips = selectedLoadout === null ? [] : state.ships.filter(
+    (s) => s.typeKey === selectedLoadout!.shipTypeKey && !state.loadouts.some((l) => l.checkedOutToShipId === s.id)
+  );
+  // The ship-type options for a new loadout (every player hull type, labeled).
+  const ARMORY_SHIP_TYPE_OPTIONS = Object.entries(SHIP_TYPES)
+    .map(([key, def]) => ({ key, label: (def as { label?: string }).label ?? key }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  function loadoutInstance(id: string | null) {
+    return id === null || id === undefined ? null : (state.equipment.find((e) => e.id === id) ?? null);
+  }
+
+  function doCreateLoadout() {
+    if (!armoryNewShipType) return;
+    const { next, loadoutId } = createLoadout(state, armoryNewShipType as Parameters<typeof createLoadout>[1]);
+    if (loadoutId === null) return;
+    state = next;
+    selectedLoadoutId = loadoutId; // drill straight into the new loadout to build it
+    armoryNewShipType = "";
+    doSave();
+  }
+  function doRenameLoadout(id: string, name: string) {
+    const next = renameLoadout(state, id, name);
+    if (next !== state) { state = next; doSave(); }
+  }
+  function doDeleteLoadout(id: string) {
+    const next = deleteLoadout(state, id);
+    if (next === state) return;
+    if (selectedLoadoutId === id) selectedLoadoutId = null;
+    state = next;
+    doSave();
+  }
+  function doArmoryInstall(slotKey: string, instId: string) {
+    if (selectedLoadoutId === null) return;
+    const next = installIntoLoadout(state, selectedLoadoutId, slotKey, instId);
+    if (next === state) return;
+    state = next;
+    armoryInstallSlotKey = null;
+    doSave();
+  }
+  function doArmoryUninstall(slotKey: string) {
+    if (selectedLoadoutId === null) return;
+    const next = uninstallFromLoadout(state, selectedLoadoutId, slotKey);
+    if (next !== state) { state = next; doSave(); }
+  }
+  function doArmoryCheckOut(shipId: string) {
+    if (selectedLoadoutId === null) return;
+    const next = checkOutLoadout(state, selectedLoadoutId, shipId);
+    if (next === state) { pushLog("Cannot check that loadout out to that ship right now (wrong type, already equipped, or on a mission)."); return; }
+    state = next;
+    doSave();
+  }
+  function doArmoryCheckIn(id: string) {
+    const next = checkInLoadout(state, id);
+    if (next === state) { pushLog("Cannot check that loadout in while its ship is on a mission."); return; }
+    state = next;
+    doSave();
+  }
+
   // Start the next Docks expansion rung. startDocksExpansion returns { next, started }
   // (like startEquipmentStorageUpgrade); on any failed gate it is a same-ref no-op, so
   // we destructure `started` and bail without a spurious log.
@@ -8472,6 +8559,12 @@
       null, null,
       `${quartermasterAvailableCount} of ${REQUISITION_ENTRIES.length} Standard-Issue patterns available`,
       facilityAttention.has("quartermaster")),
+    // ITEM LIFECYCLE 0.13.6: the Armory (loadout bay). Like the Quartermaster it is a SERVICE
+    // facility, no FACILITIES entry, no founding, no level; loadout count comes from talents.
+    fpane("armory", "🗄️", FACILITY_LABELS.armory, "Loadout bay",
+      null, null,
+      `${state.loadouts.length} / ${loadoutCap(state)} loadouts`,
+      facilityAttention.has("armory")),
   ];
 
   // ── SHARED FACILITY-CONSOLE SUB-TABS (0.13.5, user: one-row console header). The console renders
@@ -12782,6 +12875,120 @@
                   </p>
                 </Panel>
               {/if}
+          {:else if activeFoundryFacility === "armory"}
+            <!-- ITEM LIFECYCLE 0.13.6: the Armory console. Drill-in: the loadout ROSTER when
+                 selectedLoadout is null, else the loadout EDITOR. All actions wrap armory.ts fns
+                 (see the approved mock docs/plans/2026-09-15-armory-ui-mock.html). -->
+            {#if selectedLoadout === null}
+              <Panel>
+                <div class="panel-title">ARMORY · LOADOUTS</div>
+                <p class="research-status">
+                  Build a loadout from your rolled systems, then check it out to a ship to equip it. A checked-out loadout locks that ship's own install screen; edit it here instead.
+                </p>
+                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:10px 0;">
+                  <select class="setting-select" bind:value={armoryNewShipType} aria-label="New loadout ship type">
+                    <option value="">New loadout for…</option>
+                    {#each ARMORY_SHIP_TYPE_OPTIONS as opt (opt.key)}
+                      <option value={opt.key}>{opt.label}</option>
+                    {/each}
+                  </select>
+                  <button class="buy-btn" disabled={!armoryNewShipType || !canCreateLoadout(state)} on:click={doCreateLoadout}>Create</button>
+                  <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">{state.loadouts.length} / {loadoutCap(state)}</span>
+                </div>
+                {#if state.loadouts.length === 0}
+                  <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
+                {:else}
+                  {#each state.loadouts as lo (lo.id)}
+                    {@const coShip = lo.checkedOutToShipId ? state.ships.find((s) => s.id === lo.checkedOutToShipId) : null}
+                    <button class="home-row" style="width:100%; text-align:left; cursor:pointer;" on:click={() => (selectedLoadoutId = lo.id)}>
+                      <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">
+                        <span style="font-weight:600;">{lo.name}</span>
+                        <span style="font-family:var(--font-mono); color:var(--color-text-dim); text-transform:uppercase; letter-spacing:0.06em; margin-left:8px;">{SHIP_TYPES[lo.shipTypeKey]?.label ?? lo.shipTypeKey}</span>
+                      </span>
+                      <span style="font-family:var(--font-mono); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `Checked out · ${coShip?.name ?? "a ship"}` : "Available"}</span>
+                    </button>
+                  {/each}
+                {/if}
+              </Panel>
+            {:else}
+              {@const lockedOut = selectedLoadout.checkedOutToShipId !== null}
+              <Panel>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                  <button class="buy-btn" on:click={() => { selectedLoadoutId = null; armoryInstallSlotKey = null; }}>← Loadouts</button>
+                  <input
+                    class="modal-input" style="margin:0; width:auto; flex:1 1 160px;"
+                    value={selectedLoadout.name}
+                    on:change={(e) => doRenameLoadout(selectedLoadout.id, (e.target as HTMLInputElement).value)}
+                    aria-label="Loadout name"
+                  />
+                  <span class="ss-tile-r" style="font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--color-accent);">{SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? selectedLoadout.shipTypeKey}</span>
+                </div>
+
+                <!-- Check-out / check-in -->
+                {#if lockedOut}
+                  {@const coShip = state.ships.find((s) => s.id === selectedLoadout.checkedOutToShipId)}
+                  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                    <span style="color:var(--color-success); font-family:var(--font-mono);">Checked out to {coShip?.name ?? "a ship"}</span>
+                    <button class="buy-btn" on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
+                    <span style="color:var(--color-text-dim);">Check in to edit this loadout.</span>
+                  </div>
+                {:else}
+                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                    {#if armoryCheckoutShips.length === 0}
+                      <span style="color:var(--color-text-dim);">No available {SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? "matching"} ship to check out to.</span>
+                    {:else}
+                      {#each armoryCheckoutShips as s (s.id)}
+                        <button class="buy-btn" on:click={() => doArmoryCheckOut(s.id)}>Check out → {s.name ?? s.id}</button>
+                      {/each}
+                    {/if}
+                    <button class="buy-btn" style="margin-left:auto;" on:click={() => doDeleteLoadout(selectedLoadout.id)}>Delete loadout</button>
+                  </div>
+                {/if}
+
+                <!-- Slots, grouped -->
+                {#each ["offense", "defense", "systems"] as grp (grp)}
+                  {@const groupSlots = armorySlotDefs.filter((d) => d.group === grp)}
+                  {#if groupSlots.length > 0}
+                    <div class="warehouse-tier-head" style="margin-top:8px;">
+                      <span class="warehouse-tier-label">{grp === "offense" ? "Offense" : grp === "defense" ? "Defense" : "Systems"}</span>
+                      <span class="warehouse-tier-line"></span>
+                    </div>
+                    {#each groupSlots as def (def.key)}
+                      {@const inst = loadoutInstance(selectedLoadout.slots[def.key])}
+                      <div style="display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid var(--color-border);">
+                        <span style="font-family:var(--font-mono); color:var(--color-text-dim); width:120px; flex:none;">{def.label}</span>
+                        <span style="flex:1 1 auto; min-width:0;">
+                          {#if inst}
+                            <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {inst.rarity} · Q{inst.quality}</span>
+                          {:else}
+                            <span style="color:var(--color-text-dim); font-style:italic;">Empty</span>
+                          {/if}
+                        </span>
+                        {#if !lockedOut}
+                          {#if inst}
+                            <button class="buy-btn" on:click={() => doArmoryUninstall(def.key)}>Remove</button>
+                          {/if}
+                          <button class="buy-btn" on:click={() => (armoryInstallSlotKey = armoryInstallSlotKey === def.key ? null : def.key)}>{inst ? "Swap" : "Install"}</button>
+                        {/if}
+                      </div>
+                      {#if !lockedOut && armoryInstallSlotKey === def.key}
+                        <div style="padding:4px 0 8px 120px;">
+                          {#if armoryInstallCandidates.length === 0}
+                            <span style="color:var(--color-text-dim);">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</span>
+                          {:else}
+                            {#each armoryInstallCandidates as cand (cand.id)}
+                              <button class="buy-btn" style="margin:2px 4px 2px 0;" on:click={() => doArmoryInstall(def.key, cand.id)}>
+                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>
+                              </button>
+                            {/each}
+                          {/if}
+                        </div>
+                      {/if}
+                    {/each}
+                  {/if}
+                {/each}
+              </Panel>
+            {/if}
           {/if}
         {/if}
       </div>
