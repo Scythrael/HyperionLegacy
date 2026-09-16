@@ -11,6 +11,10 @@
 // render / install time (a later increment), so create does not need to enumerate slots.
 import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType } from "./model";
 import { SHIP_TYPES } from "./model";
+// The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
+// its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
+// user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
+import { onMissionLock } from "./equipment";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -170,5 +174,50 @@ export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKe
   const nextSlots = { ...loadout.slots };
   delete nextSlots[slotKey];
   const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, slots: nextSlots } : l));
+  return { ...state, equipment, loadouts };
+}
+
+// ---------------------------------------------------------------------------
+// CHECK OUT / CHECK IN (equip a ship from a loadout)
+// ---------------------------------------------------------------------------
+
+// Check a loadout OUT to a ship: the ship flies that set, and its own install screen locks (edit the
+// loadout in the Armory instead). Refused (same-ref no-op) unless: the loadout + ship exist; the
+// loadout is pinned to the ship's type; the loadout is not already checked out; the ship has no OTHER
+// loadout checked out; and the ship is not on a mission (the no-mid-mission-swap guard). On checkout,
+// the ship's prior MANUAL gear (fitted but uncommitted, including Standard-Issue baselines) returns to
+// the spare pool, and the loadout's committed systems become fitted to the ship so equippedFor() reads
+// the loadout's set unchanged. Atomic: all of that lands in the one new state.
+export function checkOutLoadout(state: GameState, loadoutId: string, shipId: string): GameState {
+  const loadout = state.loadouts.find((l) => l.id === loadoutId);
+  if (loadout === undefined || loadout.checkedOutToShipId !== null) return state;
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (ship === undefined || ship.typeKey !== loadout.shipTypeKey) return state; // type must match the pin
+  if (state.loadouts.some((l) => l.checkedOutToShipId === shipId)) return state; // ship already loadout-driven
+  if (!onMissionLock(state, shipId).ok) return state; // no mid-mission swap
+  const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
+  const equipment = state.equipment.map((e) => {
+    if (committedIds.has(e.id)) return { ...e, fittedToShipId: shipId }; // the loadout's set -> onto the ship
+    if (e.fittedToShipId === shipId && e.committedToLoadoutId === undefined) return { ...e, fittedToShipId: null }; // prior manual gear -> pool
+    return e;
+  });
+  const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: shipId } : l));
+  return { ...state, equipment, loadouts };
+}
+
+// Check a loadout back IN (un-equip it from its ship). The ship's slots go empty (uninstall restores
+// nothing, per the allow-empty rule); the loadout's systems stay committed to the loadout, just no
+// longer fitted. Refused while the ship is on a mission. Same-ref no-op if the loadout is missing or
+// already available.
+export function checkInLoadout(state: GameState, loadoutId: string): GameState {
+  const loadout = state.loadouts.find((l) => l.id === loadoutId);
+  if (loadout === undefined || loadout.checkedOutToShipId === null) return state;
+  if (!onMissionLock(state, loadout.checkedOutToShipId).ok) return state; // no mid-mission un-equip
+  const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
+  const equipment =
+    committedIds.size === 0
+      ? state.equipment
+      : state.equipment.map((e) => (committedIds.has(e.id) ? { ...e, fittedToShipId: null } : e));
+  const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: null } : l));
   return { ...state, equipment, loadouts };
 }

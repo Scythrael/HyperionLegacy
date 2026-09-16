@@ -4,6 +4,7 @@ import { freshState, SHIP_TYPES } from "./model";
 import {
   createLoadout, renameLoadout, deleteLoadout, loadoutCap, canCreateLoadout,
   loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
+  checkOutLoadout, checkInLoadout,
 } from "./armory";
 
 describe("armory: loadout create / rename / delete (Item Lifecycle 0.13.6)", () => {
@@ -135,5 +136,57 @@ describe("armory: slot derivation + install / uninstall (Item Lifecycle 0.13.6)"
     expect(swapped.loadouts[0].slots.weapon0).toBe("equip-wpn2");
     expect(swapped.equipment.find((e) => e.id === "equip-wpn2")!.committedToLoadoutId).toBe("loadout-1");
     expect(swapped.equipment.find((e) => e.id === "equip-wpn")!.committedToLoadoutId).toBeUndefined();
+  });
+});
+
+describe("armory: check out / check in (Item Lifecycle 0.13.6)", () => {
+  // A parked destroyer ship, a destroyer loadout holding one committed weapon, and one piece of
+  // prior MANUAL gear fitted to that ship.
+  function checkoutState(): any {
+    const base = freshState();
+    const ship = { ...base.ships[0], id: "ship-d", typeKey: "destroyer", assignedCaptainId: null };
+    const committed = { ...base.equipment[0], id: "equip-committed", slotType: "weapon", fittedToShipId: null, committedToLoadoutId: "loadout-1" };
+    const manual = { ...base.equipment[0], id: "equip-manual", slotType: "cargoBay", fittedToShipId: "ship-d", committedToLoadoutId: undefined };
+    return {
+      ...base,
+      ships: [ship, ...base.ships.slice(1)],
+      equipment: [...base.equipment, committed, manual],
+      loadouts: [{ id: "loadout-1", name: "L", shipTypeKey: "destroyer", slots: { weapon0: "equip-committed" }, checkedOutToShipId: null }],
+      nextLoadoutId: 2,
+    };
+  }
+
+  it("checkOutLoadout fits the loadout's set, returns prior manual gear to the pool, and marks the ship", () => {
+    const after = checkOutLoadout(checkoutState(), "loadout-1", "ship-d");
+    expect(after.loadouts[0].checkedOutToShipId).toBe("ship-d");
+    expect(after.equipment.find((e) => e.id === "equip-committed")!.fittedToShipId).toBe("ship-d");
+    expect(after.equipment.find((e) => e.id === "equip-manual")!.fittedToShipId).toBeNull();
+  });
+
+  it("checkOutLoadout refuses a ship-type mismatch", () => {
+    const s = checkoutState();
+    const wrong = { ...s, loadouts: [{ ...s.loadouts[0], shipTypeKey: "carrier" }] };
+    expect(checkOutLoadout(wrong, "loadout-1", "ship-d")).toBe(wrong);
+  });
+
+  it("checkOutLoadout refuses when the ship already has a loadout checked out", () => {
+    const s = checkoutState();
+    const busy = { ...s, loadouts: [s.loadouts[0], { id: "loadout-2", name: "X", shipTypeKey: "destroyer", slots: {}, checkedOutToShipId: "ship-d" }] };
+    expect(checkOutLoadout(busy, "loadout-1", "ship-d")).toBe(busy);
+  });
+
+  it("checkOutLoadout refuses while the ship is on a mission", () => {
+    const s = checkoutState();
+    const cap = { ...s.captains[0], id: "cap-1", mission: { anything: true } };
+    const onMission = { ...s, captains: [cap, ...s.captains.slice(1)], ships: [{ ...s.ships[0], assignedCaptainId: "cap-1" }, ...s.ships.slice(1)] };
+    expect(checkOutLoadout(onMission, "loadout-1", "ship-d")).toBe(onMission);
+  });
+
+  it("checkInLoadout un-fits the set (ship empty) and clears the ship binding, keeping gear committed", () => {
+    const out = checkOutLoadout(checkoutState(), "loadout-1", "ship-d");
+    const back = checkInLoadout(out, "loadout-1");
+    expect(back.loadouts[0].checkedOutToShipId).toBeNull();
+    expect(back.equipment.find((e) => e.id === "equip-committed")!.fittedToShipId).toBeNull();
+    expect(back.equipment.find((e) => e.id === "equip-committed")!.committedToLoadoutId).toBe("loadout-1");
   });
 });
