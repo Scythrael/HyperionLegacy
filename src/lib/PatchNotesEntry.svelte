@@ -11,6 +11,31 @@
   import { isStructuredNote, type PatchNote } from "./patchNotes";
 
   export let entry: PatchNote;
+
+  // 0.13.6 polish: legacy entries (0.13.4 and earlier) were one wall of prose. Their
+  // summaries already carry ALL-CAPS "SECTION LABEL:" markers, so we split on those into a
+  // lead paragraph + sub-headed sections for readability. This changes only the RENDERING,
+  // never a word: the headings and bodies are exact slices of the original string, and if
+  // no marker is found we fall back to the untouched single paragraph. The label pattern is
+  // an uppercase phrase (letters/digits with spaces, commas, ampersands, apostrophes,
+  // hyphens) of at least two characters, ending in a colon, matching only the intentional
+  // section markers the legacy summaries use (verified against patchNotes.ts).
+  type LegacySection = { heading: string; body: string };
+  function parseLegacy(summary: string): { intro: string; sections: LegacySection[] } {
+    const re = /([A-Z][A-Z0-9]+(?:[ ,&'-]+[A-Z0-9]+)*):/g;
+    const marks: { label: string; start: number; end: number }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(summary)) !== null) {
+      marks.push({ label: m[1], start: m.index, end: m.index + m[0].length });
+    }
+    if (marks.length === 0) return { intro: summary, sections: [] };
+    const intro = summary.slice(0, marks[0].start).trim();
+    const sections = marks.map((mk, i) => ({
+      heading: mk.label,
+      body: summary.slice(mk.end, i + 1 < marks.length ? marks[i + 1].start : summary.length).trim(),
+    }));
+    return { intro, sections };
+  }
 </script>
 
 <article class="pn-entry">
@@ -56,7 +81,18 @@
     {/if}
   {:else}
     <header class="pn-banner"><span class="pn-ver">{entry.version}</span></header>
-    <p class="pn-legacy">{entry.summary}</p>
+    {@const parsed = parseLegacy(entry.summary)}
+    {#if parsed.sections.length === 0}
+      <p class="pn-legacy">{entry.summary}</p>
+    {:else}
+      {#if parsed.intro}<p class="pn-legacy pn-legacy-lede">{parsed.intro}</p>{/if}
+      {#each parsed.sections as s}
+        <section class="pn-legacy-sec">
+          <h4 class="pn-legacy-h">{s.heading}</h4>
+          {#if s.body}<p class="pn-legacy">{s.body}</p>{/if}
+        </section>
+      {/each}
+    {/if}
   {/if}
 </article>
 
@@ -204,6 +240,30 @@
     font-size: 0.95rem;
     line-height: 1.6;
     margin: 14px 0 0;
+  }
+  /* 0.13.6: legacy entries split on their own ALL-CAPS section markers. The lead paragraph
+     reads like the structured lede; each section gets a quiet uppercase sub-head so an old
+     wall of prose scans like the new layout without a word being changed. */
+  .pn-legacy-lede {
+    color: var(--color-text-secondary);
+    margin: 14px 0 22px;
+  }
+  .pn-legacy-sec {
+    margin: 0 0 20px;
+  }
+  .pn-legacy-h {
+    font-family: var(--font-display);
+    font-weight: 500;
+    font-size: 0.8rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    margin: 0 0 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .pn-legacy-sec .pn-legacy {
+    margin: 0;
   }
 
   @media (max-width: 560px) {
