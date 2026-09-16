@@ -55,14 +55,29 @@ Fuel stops being an inventory you manage and becomes a **derived range stat, "re
 - This is a net **deletion** of complexity: the tank, the refinery pipelines, the ice grind, credit
   auto-buy, and the shared-tank threading in `economyTick` all go away.
 
+### A.2b Why fuel exists at all (design intent) [LOCKED, user 2026-09-16]
+The user reached the same conclusion the fuel/deuterium map did (fuel-as-a-grindable-resource feels
+bad), and settled the "should fuel even exist" question by REVAMPING rather than removing it: **"If
+you build a system, and then find it feels so bad you have to gently bypass it to make it feel
+remotely good, you have a problem with that system."** So the auto-mining idea is dropped, and fuel
+survives ONLY as a stat. Its job: **make the right ships get used for the right actions early on,
+then let the player choose their own path as the account matures.** Concretely, it is a soft gate on
+REACH: send a combat captain on a long-distance mission and the ship makes it halfway and everyone
+dies, so early on you fly explorers to explore and warships to fight; later, higher-tier hulls and
+propulsion systems buy enough range to blur those lines by choice. Refuel is INSTANT and free at
+home; there is no refining, no mining, no stockpile. This is a firm reversal of any "rip fuel out"
+option and confirms fuel STAYS (as reach).
+
 ### A.3 What makes it a system and not a level-check [PROPOSED]
-Reach must trade against everything else through a shared **power/mass budget**. A bigger fuel
-capacity or a hotter engine costs mass and power that competes with weapons, shields, cargo, and
-sensors. A long-range explorer is therefore a **specialist** that gives up teeth and hold space. The
-"approaching c costs exponentially more" idea becomes the budget's diminishing-returns curve: pushing
-speed or reach past a cruise equilibrium costs sharply more, with a soft ceiling that conventional
-drives cannot brute-force. That ceiling is a clean late-game / prestige hook (ties to the First Cause
-/ Dimensional Traversal north-star: the way past the wall is new drive tech or something beyond it).
+Reach must trade against everything else through a shared **power grid / mass budget**. A bigger fuel
+capacity or a hotter engine costs power and mass that competes with weapons, shields, cargo, and
+sensors (see the archetypes in B.4, which are defined by exactly this tradeoff). The relativity lore
+makes the curve: **E=mc^2 still applies, but by this era humanity has learned to LESSEN the m value**,
+so reaching FTL no longer needs infinite energy. What remains is that pushing velocity up costs power
+EXPONENTIALLY, so a hull tuned for distance is balancing velocity against stamina to go further than
+anything else. The "approaching c costs exponentially more" curve gives conventional drives a soft
+ceiling they cannot brute-force, a clean late-game / prestige hook (ties to the First Cause /
+Dimensional Traversal north-star: the way past the wall is new drive tech or something beyond it).
 
 ### A.4 Deuterium's new role [PROPOSED]
 Deuterium becomes the **crafting input for reach**: the fusion fuel you mine to build high-capacity
@@ -127,12 +142,27 @@ The reactor's output is huge; the interesting part is where it goes. Two shapes:
   when you outfit it or assign the survey, then it runs itself.
 PROPOSED lean: the preset version, to protect the peace pillar. User's call.
 
-### B.4 The roster axis [OPEN]
-The explorer only reads as a set of *choices* if there is an opposite pole to contrast it against (an
-agile, hard-hitting, short-legged warship). Already-logged hull buckets to draw from (SUGGESTIONS
-~664): Tactician — Destroyer (glass cannon) / Battleship (tank) / Carrier; Explorer — Cruiser
-(long-haul + diplomacy) / Survey vessel / Medical transport (crew-landing), with Explorer/science
-hulls carrying MORE module slots as their identity. OPEN: lock the poles and where the explorer sits.
+### B.4 The roster axis: a shared POWER GRID [LOCKED archetypes, user 2026-09-16]
+Every hull is defined by how it divides ONE power grid across weapons / shields / drive-and-range /
+cargo. That single tradeoff is what makes fuel-as-reach a real choice and gives each class its feel.
+The archetypes the user locked (lore-justified; specifics of the lore withheld but the mechanics are
+firm):
+- **Destroyer** — the anti-capital striker. Diverts so much of the grid to WEAPONS that little is
+  left for anything else, so it takes a cut to SHIELD capacity + recharge relative to a battleship.
+  A well-equipped destroyer is what you bring to take a battleship down.
+- **Battleship** — a tanky behemoth: heavy shields/hull, decent (not spike) firepower. Takes a
+  powerful, well-equipped force to bring down. The tank pole.
+- **Explorer** — power-RICH by design (the survey/long-range hull). Because unexplored worlds sit so
+  far out that an ordinary ship runs out of energy before arriving, an explorer spends huge power to
+  balance velocity against stamina, giving it (1) by far the longest RANGE and (2) the strongest
+  SHIELDS in the fleet when that reserve is redirected to them. Also better-than-normal CARGO (long
+  trips need supplies). Weapons are terrible; it can take a serious beating, but once the shields
+  fall the hull is papier-mache. See B.1/B.2 (this is the glass-tank fantasy, now grid-justified).
+
+The explorer's tradeoffs only READ as choices because the destroyer/battleship poles exist to
+contrast it. Broader roster buckets still to place (SUGGESTIONS ~664): Carrier; Explorer sub-types
+(Cruiser / Survey / Medical transport, the crew-landing hull); with Explorer/science hulls carrying
+MORE module slots as identity. OPEN: the full roster list + exact stat numbers (a tuning pass).
 
 ---
 
@@ -287,10 +317,10 @@ Exploration, given it improves the current game too?
 ## Open decisions to resolve before build (index)
 
 - A.5 Reconcile multi-fuel-types with fuel-to-reach (consumables vs drive tiers).
-- A.6 Do we do a minimal fuel chore-kill in 0.13.6, or wait for 0.14.0?
-- A.7 Round-trip vs stranding; refuel instant vs turnaround; maneuverability real axis vs flavor.
+- A.6 RESOLVED (user, 2026-09-16 + earlier): fuel-to-reach ships WITH 0.14.0 Exploration, not a 0.13.6 stopgap; the 0.13.6 deuterium-mining item is dropped (fuel is no longer mined). [Confirm if "included here after all" ever means pull it into 0.13.6; default is 0.14.0.]
+- A.7 Round-trip vs stranding; refuel instant vs turnaround (INSTANT confirmed by user 2026-09-16); maneuverability real axis vs flavor.
 - B.3 Power allocation: active reroute vs build-time/per-mission preset (PROPOSED: preset).
-- B.4 Lock the roster axis poles and where the explorer sits.
+- B.4 Archetype poles LOCKED (destroyer/battleship/explorer power-grid tradeoffs, user 2026-09-16); OPEN only: the full roster list + exact stat tuning.
 - C.1 Final Senior Staff roster + whether caps differ by hull.
 - C.5 The crew persistence shape (PROPOSED: aggregate rollups + notable roster + lazy seed generation).
 - D Offline interaction model for active away missions.
