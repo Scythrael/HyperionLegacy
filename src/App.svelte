@@ -12963,15 +12963,21 @@
                 <p class="research-status">
                   Build a loadout from your rolled systems, then check it out to a ship to equip it. A checked-out loadout locks that ship's own install screen; edit it here instead.
                 </p>
-                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:10px 0;">
-                  <select class="setting-select" bind:value={armoryNewShipType} aria-label="New loadout ship type">
-                    <option value="">New loadout for…</option>
-                    {#each ARMORY_SHIP_TYPE_OPTIONS as opt (opt.key)}
-                      <option value={opt.key}>{opt.label}</option>
-                    {/each}
-                  </select>
-                  <button class="buy-btn" disabled={!armoryNewShipType || !canCreateLoadout(state)} on:click={doCreateLoadout}>Create</button>
-                  <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">{state.loadouts.length} / {loadoutCap(state)}</span>
+                <!-- 0.13.6: the "create a loadout" control is a self-contained FORM (the ship-type
+                     picker moved off the loose header row into it), so choosing a hull type reads
+                     as the first step of building a loadout rather than a stray dropdown. -->
+                <div class="armory-create-form">
+                  <div class="armory-create-title">Create a loadout</div>
+                  <div class="armory-create-row">
+                    <select class="setting-select" bind:value={armoryNewShipType} aria-label="New loadout ship type">
+                      <option value="">Choose a ship type…</option>
+                      {#each ARMORY_SHIP_TYPE_OPTIONS as opt (opt.key)}
+                        <option value={opt.key}>{opt.label}</option>
+                      {/each}
+                    </select>
+                    <button class="buy-btn" disabled={!armoryNewShipType || !canCreateLoadout(state)} on:click={doCreateLoadout}>Create</button>
+                  </div>
+                  <div class="armory-create-count">{state.loadouts.length} / {loadoutCap(state)} loadouts</div>
                 </div>
                 {#if state.loadouts.length === 0}
                   <div class="warehouse-stub"><div class="warehouse-stub-glyph">🗄️</div><p>No loadouts yet. Pick a ship type above and create one.</p></div>
@@ -13056,7 +13062,7 @@
                           {:else}
                             {#each armoryInstallCandidates as cand (cand.id)}
                               <button class="buy-btn" style="margin:2px 4px 2px 0;" on:click={() => doArmoryInstall(def.key, cand.id)}>
-                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>
+                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}
                               </button>
                             {/each}
                           {/if}
@@ -19563,6 +19569,33 @@
   .upgrade-inflight-line {
     display: inline-flex; align-items: center; gap: 6px;
     font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
+  }
+
+  /* 0.13.6: the Armory "create a loadout" form (the ship-type picker + Create, framed as a
+     step rather than a loose header row). */
+  .armory-create-form {
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    background: var(--color-panel-bg);
+    padding: 10px 12px;
+    margin: 10px 0 14px;
+  }
+  .armory-create-title {
+    font-family: var(--font-display);
+    font-size: var(--text-xs);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
+  }
+  .armory-create-row {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  }
+  .armory-create-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    color: var(--color-text-dim);
+    margin-top: 8px;
   }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
