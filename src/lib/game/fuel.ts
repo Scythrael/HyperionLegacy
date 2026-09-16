@@ -90,3 +90,48 @@ export function fuelForRoundTrip(
 ): number {
   return ((transitOutTicks + transitBackTicks) * FUEL_PER_TICK) / (1 + ship.engineEfficiency);
 }
+
+// ============================================================================
+// 0.13.6 FUEL-TO-REACH (build plan: docs/plans/2026-09-16-fuel-to-reach-0.13.6-plan.md).
+//
+// Fuel stops being a depleting resource and becomes a RANGE stat measured in LIGHTYEARS. There is no
+// stockpile, no refining, no mining, and refuel is instant and free. The ONLY fuel constraint is
+// REACH: a ship's range must cover a mission's round-trip distance, or it cannot be dispatched
+// (send a combat hull too far and it would run dry halfway).
+//
+// PARITY / NO-ELEVATION GUARANTEE: canReach is defined so it is algebraically identical to the old
+// gate `fuelCapacity >= fuelNeeded`, just relabelled into lightyears. DISTANCE is mission-intrinsic
+// (round-trip transit x LY_PER_TICK); RANGE folds the ship's engine efficiency
+// (fuelCapacity x (1+eff) x LY_PER_TICK). Since
+//   range >= distance  <=>  fuelCapacity*(1+eff) >= roundTripTransitTicks  <=>  fuelCapacity >= fuelNeeded
+// (FUEL_PER_TICK is 1), NO ship/mission pairing changes eligibility: this is a display relabel plus
+// the removal of the per-trip COST, not a rebalance. fuel-to-reach.test.ts pins that equivalence
+// across every SHIP_TYPES x MISSIONS pair so a future edit cannot silently drift the gate.
+//
+// LY_PER_TICK is a FIRST-PASS TUNABLE constant (0.16.0 balance): it only scales the displayed
+// lightyear numbers (it cancels out of the gate), chosen so local runs read as a few ly and
+// cross-system runs as tens. The extreme long-distance missions that "test the limits" arrive with
+// 0.14.0 exploration content.
+// ============================================================================
+export const LY_PER_TICK = 0.5;
+
+// The round-trip distance of a mission, in lightyears. A pure property of the MISSION (its transit
+// legs), independent of which hull flies it.
+export function distanceLightYears(mission: MissionDef): number {
+  return roundTripTransitTicks(mission) * LY_PER_TICK;
+}
+
+// How far a hull can travel on a full tank, in lightyears. A pure property of the SHIP: its fuel
+// capacity scaled by engine efficiency (a more efficient engine reaches further on the same tank).
+// Takes the same ShipTypeDef shape as fuelNeeded; callers overlaying a folded engineEfficiency pass
+// the already-clamped value (see fuelNeeded's note on the ENGINE_EFF_FLOOR clamp).
+export function rangeLightYears(ship: ShipTypeDef): number {
+  return ship.fuelCapacity * (1 + ship.engineEfficiency) * LY_PER_TICK;
+}
+
+// The reach gate: can this hull complete this mission's round trip? Equivalent to the pre-0.13.6
+// `fuelCapacity >= fuelNeeded` capacity check (see the header), so it never changes which missions a
+// hull is eligible for; it only drops the depleting per-trip cost that used to sit alongside it.
+export function canReach(mission: MissionDef, ship: ShipTypeDef): boolean {
+  return rangeLightYears(ship) >= distanceLightYears(mission);
+}

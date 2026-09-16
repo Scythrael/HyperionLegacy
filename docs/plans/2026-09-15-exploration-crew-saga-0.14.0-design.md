@@ -97,11 +97,15 @@ fuel-to-reach:
   auto-mining-facility and explorer-mission-creates-a-facility angles can survive as deuterium
   *crafting-material* sourcing instead. OPEN below (A.6).
 
-### A.6 The 0.13.6 question [OPEN]
-Do we ship a **minimal chore-kill in 0.13.6** (make refueling free/passive so the grind stops now)
-and land the full reach model in 0.14.0, or **wait** and let 0.14.0's rework be the fix? Earlier lean
-was "minimal now, full model in 0.14.0," but since fuel-to-reach is now the Exploration spine, doing
-a throwaway 0.13.6 stopgap may be wasted motion. User's call.
+### A.6 Timing: fuel-to-reach ships in 0.13.6 [RESOLVED, user 2026-09-16]
+**Pulled INTO 0.13.6** (reversing the earlier "wait for exploration"). Reason: the fuel-duty captain
+is a live pain point now (colleagues who play HL: "fine at best," and "annoying that one of my
+captains has to stay there and is a far lower level as a result"). So the propulsion REWORK (fuel
+becomes reach, instant free refuel, no mining/refining/stockpile) lands in 0.13.6 using the EXISTING
+hull stats. What STAYS in 0.14.0: the new explorer/warship HULLS and the archetype power-grid TUNING
+(B.4) and the deuterium-as-reactor-crafting-input economy (A.4). So 0.13.6 = the mechanic; 0.14.0 =
+the content and tuning that lean on it. See the dedicated 0.13.6 build plan (to be written once the
+peripheral decisions in "0.13.6 scope decisions" below are set).
 
 ### A.7 Open knobs [OPEN]
 - **Round-trip vs stranding:** can a ship reach a place it cannot return from (one-way / colony
