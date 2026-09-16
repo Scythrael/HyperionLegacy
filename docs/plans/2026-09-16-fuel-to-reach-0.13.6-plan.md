@@ -45,6 +45,23 @@ Keep the existing reachability gate algebra; relabel it into lightyears and dele
    state on the dispatch gate. Remove the Fuel Depot console + runway readouts. (Needs devpreview.)
 5. **Help / copy sweep.** Update any HELP topic + tooltip that describes fuel-as-a-resource.
 
+## STATUS (2026-09-16, on staging)
+- ✅ Step 1: lightyear reach model (parity-proven gate equivalence). `cc831b8`
+- ✅ Step 2: fuel depletion economy removed; dispatch gates on reach; parity held. `165cd5c`
+- ✅ Step 3a: dead fuel surfaces HIDDEN (header tank readout, Fuel Depot dashboard card, the
+  "Local Deuterium Skim" mission). `6ecf91f`
+- ✅ Step 3b: mission + patrol cards / dispatch popups show trip DISTANCE + hull REACH in
+  lightyears (out-of-reach flagged), replacing the fuel-cost readouts. `92504a6`
+- ⏳ DEFERRED to the content/balance patch (the "fleshing out" pass): the DEEP removal of the
+  now-vestigial `state.fuel` field + the Fuel Depot (`fuelStorage`) facility + Deuterium Ice + the
+  skim mission + `processFuelPipelines` / `fuelRefineJob` / `buyFuel`, plus the save migration.
+  These are inert + hidden (no player-facing path), so a FRESH save sees a clean fuel-to-reach; the
+  ~30-file save-migration removal was deliberately NOT done at the tail of this cycle. `LY_PER_TICK`
+  and per-hull reach numbers are first-pass tunable, also for that pass.
+- ⚠️ NEEDS a devpreview visual pass (no local preview for this project): header reflow without the
+  fuel chip, cards showing ly distance/reach, no Fuel Depot card, no skim mission, a fresh game
+  still dispatches shortOreRun.
+
 ## Risks / notes
 - PARITY is the crux (offline == live). Step 1's equivalence keeps eligibility identical; step 2's
   deletions must not change WHICH missions run, only remove the per-trip cost. Lean on
