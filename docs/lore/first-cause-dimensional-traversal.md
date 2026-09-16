@@ -61,6 +61,15 @@ original full prose lived in an ephemeral scratchpad and is gone; this is the re
 - Ties to the prestige/scaling architecture in SUGGESTIONS (additive-within-prestige,
   multiplicative-at-prestige) and the Safety-Interlocks endgame risk axis.
 
+## Threat escalation: LEVIATHANS (user, 2026-09-16, a colleague's idea)
+The First Cause / DBDs (name TBD) do not only field normal-sized troops. As the situation grows
+progressively worse, they deploy **Kaiju / Leviathan-scale entities** as part of what they throw at
+you: a visceral signal that the threat is massive and escalating. In gameplay these appear as random
+boss encounters during exploration surveying (a cascading, prepared-only, escape-if-you-must away-team
+fight); the full mechanic lives in the Exploration saga doc, Part D.1 (Away-Team combat). Lore-wise,
+the Leviathans are one of the antagonist's escalation FORMS, sitting alongside the 5 escalating Modes
+already recorded in memory [[project_fleet_admiral_first_cause_dt]].
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.

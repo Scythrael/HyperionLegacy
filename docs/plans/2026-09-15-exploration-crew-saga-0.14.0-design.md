@@ -270,6 +270,26 @@ going in. Consolidates the logged **Away Missions** entry (SUGGESTIONS ~941) and
 - The away team is a **party selector separate from ship-crew stations** (no impact on ship ops), per
   the Flagship Science-mode description (SUGGESTIONS ~119).
 
+### D.1 LEVIATHAN boss encounters (user, 2026-09-16, a colleague's idea) [deep-future]
+An escalation hook that makes the First Cause threat feel massive. The DBDs (antagonist, name TBD)
+do not only field normal-sized troops; as things grow worse they throw **Kaiju / Leviathan-scale
+entities** at you. In gameplay these surface as **random boss encounters during exploration
+surveying**:
+- **Trigger:** once you have reached the far, unexplored planets and are mapping one to 100% over
+  time (your survey + security GROUND TEAMS working the surface), a huge boss-type DBD can appear at
+  random. The away team CLOSEST to the attack is pulled into the fight, so which team faces it is a
+  random draw.
+- **A prepared-only fight:** the Leviathan will utterly destroy an under-powered team. And it is a
+  **CASCADING** threat: the more it kills, the STRONGER it gets. So if you have not leveled your teams
+  in a BALANCED way, a bad-luck sequence of which team gets pulled in next can snowball until even
+  your single strongest team is wiped. This is a direct incentive against neglecting any one team.
+- **The out:** you cannot always win. The escape is to **beam everyone back to the ship and evade
+  capture** (a flee/extraction path, not a guaranteed kill). Losing here is survivable if you disengage
+  in time; the stakes are capture/loss, and it ties to the "escape, the admiral never dies" stance.
+- Reuses the shared turn-based away-team engine + the crew/team power axis; a special boss variant of
+  it. Ties to the First Cause lore ([[docs/lore/first-cause-dimensional-traversal.md]]: Leviathans are
+  a threat FORM the antagonist deploys as it escalates).
+
 ---
 
 ## Part E — Exploration content, discovery-gated Research, facilities
