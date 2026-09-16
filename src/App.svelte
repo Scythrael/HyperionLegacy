@@ -16922,27 +16922,18 @@
        nagging this whole feature exists to reduce, and it would train the player to click through
        the one case where it matters. -->
   {#if pendingConfirmationPreset !== null}
-    <div
-      class="modal-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Overwrite confirmation settings"
-      use:focusTrap={cancelConfirmationPreset}
-    >
-      <Panel class="modal-dialog">
-        <div class="panel-title">OVERWRITE YOUR SETTINGS?</div>
-        <p class="modal-warning">
-          Your confirmations are set to Custom. Switching to
-          <strong>{CONFIRMATION_PRESETS[pendingConfirmationPreset].label}</strong>
-          will replace them.
-        </p>
-        <p class="modal-instruction">{CONFIRMATION_PRESETS[pendingConfirmationPreset].blurb}</p>
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelConfirmationPreset}>Cancel</button>
-          <button class="dev-btn" on:click={() => applyConfirmationPreset(pendingConfirmationPreset!)}>Apply</button>
-        </div>
-      </Panel>
-    </div>
+    <ActionModal title="Overwrite your settings?" ariaLabel="Overwrite confirmation settings" onClose={cancelConfirmationPreset}>
+      <p class="modal-warning">
+        Your confirmations are set to Custom. Switching to
+        <strong>{CONFIRMATION_PRESETS[pendingConfirmationPreset].label}</strong>
+        will replace them.
+      </p>
+      <p class="modal-instruction">{CONFIRMATION_PRESETS[pendingConfirmationPreset].blurb}</p>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelConfirmationPreset}>Cancel</button>
+        <button class="dev-btn" on:click={() => applyConfirmationPreset(pendingConfirmationPreset!)}>Apply</button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if deleteModalOpen}
