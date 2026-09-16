@@ -529,7 +529,7 @@
   // --- Derived: graph depth from the hub (pulse direction source) ------------
   // depthFromHub maps each node key in THIS branch to its BFS distance from the
   // branch's hub node (the def with isHub === true): hub = 0, the hub's direct
-  // neighbours = 1, their neighbours = 2, and so on. It is the single source of
+  // neighbors = 1, their neighbors = 2, and so on. It is the single source of
   // truth for "which end of an edge is closer to the hub", which the edge
   // derivation uses to orient every elbow shallow→deep so any pulse flows
   // OUTWARD from the hub (hub-side start → far end).
@@ -654,7 +654,7 @@
   //       - "dormant" (NOT both owned, one or both endpoints unlearned): a DIM,
   //         DARK line, low opacity, no glow, no pulse, just enough to show the
   //         connection topology.
-  //     (This INVERTS the earlier owned↔learnable pulse behaviour: only a
+  //     (This INVERTS the earlier owned↔learnable pulse behavior: only a
   //     fully-learned link now lights up.)
   //
   // Coordinates carried through are the RAW web-space (x, y) of each endpoint --
@@ -665,7 +665,7 @@
   // Reactive on visibleNodes, ownedSet AND depthFromHub (all read directly, so
   // Svelte tracks each): visibleNodes covers visible/branch/table changes,
   // ownedSet drives the powered/dormant class, and depthFromHub drives the
-  // shallow→deep ordering. Learning a node thus both re-reveals neighbours and
+  // shallow→deep ordering. Learning a node thus both re-reveals neighbors and
   // re-classifies its edges (dormant→powered) on the next tick.
   $: visibleEdges = (() => {
     // A fast membership set of visible keys so the neighbor scan is O(1) per
@@ -1201,7 +1201,7 @@
        the node's EDGE, not pierce into its center. Two things make this reliable:
        (1) an explicit z-index above the connectors (which get z-index:0), belt-
        and-suspenders on top of the DOM order (nodes already follow the SVG), and
-       (2) an OPAQUE background, --color-bg-deep is a solid theme colour, NOT the
+       (2) an OPAQUE background, --color-bg-deep is a solid theme color, NOT the
        translucent --color-panel-bg-strong (6% alpha) used before, which would let
        the link bleed through the node body. */
     z-index: 1;
@@ -1326,7 +1326,7 @@
      position:fixed backdrop is truly viewport-fixed even inside a future Panel's
      backdrop-filter, the known trap this whole overlay is portaled to avoid.
      The scrim's rgba(0,0,0,...) is a deliberate neutral black, the ONE literal
-     colour here (matching the existing backdrops); everything else is theme
+     color here (matching the existing backdrops); everything else is theme
      vars so the 6 themes reskin the card. */
   .web-tooltip-backdrop {
     position: fixed;
@@ -1397,7 +1397,7 @@
      informational context, the same idiom as the cost line. The `.unmet`
      modifier is the ONLY visual escalation: it recolors to --color-danger, the
      app's existing cross-theme-stable red semantic token (app.css; constant
-     across all 6 themes), NOT a new colour. Weight bumps to 600 so the red
+     across all 6 themes), NOT a new color. Weight bumps to 600 so the red
      "you can't buy this yet" state is unmissable, matching the emphasis the
      effect line already uses. */
   .web-tooltip-requirement {

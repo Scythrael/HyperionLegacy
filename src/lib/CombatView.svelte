@@ -968,7 +968,7 @@
   // is deliberately NOT color-coded here (the Simplified log already conveys it); pop
   // color means "something notable happened", not "which pool was hit".
   // ==========================================================================
-  // Tracer tint per weapon family (design P12c). particle green, kinetic grey, ew (and
+  // Tracer tint per weapon family (design P12c). particle green, kinetic gray, ew (and
   // any family not listed, the "thermal/other" bucket) warm orange. Mirrors the swatch
   // colors in the Visual legend markup below.
   const TRACER_TINT: Record<string, string> = {
@@ -1858,7 +1858,7 @@
           {/if}
         </div>
         <!-- LEGEND: -N normal, crit / kill in red, tracer tint = weapon family. The swatch
-             colors mirror TRACER_TINT in the script (particle green / kinetic grey / ew +
+             colors mirror TRACER_TINT in the script (particle green / kinetic gray / ew +
              other orange). -->
         <div class="cv-vlegend">
           <span class="cv-vl-item"><b class="cv-vl-num">-N</b> damage</span>

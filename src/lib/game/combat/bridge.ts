@@ -146,7 +146,7 @@ function statOf(piece: EquipmentInstance, key: string): number {
 // defensive affixes (shieldCoherence / ablativeArmor / kineticDampening) that a slot
 // carries ONLY as an optional rolled affix, never as a signature implicit. A
 // Standard-Issue piece rolls none, so every one of these reads 0 (the pre-1.4
-// hardcoded value), which is what keeps the Standard-Issue fold behaviour-preserving.
+// hardcoded value), which is what keeps the Standard-Issue fold behavior-preserving.
 function affixOf(piece: EquipmentInstance | undefined, key: string): number {
 	return piece ? (piece.rolledStats[key] ?? 0) : 0;
 }
@@ -180,7 +180,7 @@ function sumFamilyResist(gear: EquipmentInstance[], prefix: string): FamilyResis
 //   quality           <- piece.quality
 //   durability(Max)   <- the piece (its ceiling is already quality-scaled at mint)
 //
-// BEHAVIOUR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a
+// BEHAVIOR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a
 // Standard-Issue weapon (weaponYield 0, weaponAccuracy 0, quality 0, durability ==
 // durabilityMax == the template base) reconstructs BYTE-IDENTICALLY to
 // makeWeaponInstance(weaponType, instanceId): every rolled delta is 0 and every carried
@@ -230,7 +230,7 @@ export function weaponInstanceFromGear(
 // quality pod fields a bigger screen, monotonically, the drone analogue of a weapon's
 // quality raising its durability ceiling.
 //
-// BEHAVIOUR-PRESERVING FLOOR (load-bearing): a Standard-Issue pod is quality 0, so this
+// BEHAVIOR-PRESERVING FLOOR (load-bearing): a Standard-Issue pod is quality 0, so this
 // returns tier 0 and makeSquadron(role, undefined, 0) is the carrier's CURRENT default
 // squadron. The quality->tier curve above 0 is FIRST-PASS TUNABLE (the balance pass owns
 // it); only the quality-0 == tier-0 floor is a hard contract. Clamped + floored so a
@@ -244,7 +244,7 @@ export function tierFromPod(pod: EquipmentInstance): number {
 // EquipmentInstance (Combat 1.0 Unit 2.3a, design 9/S8). The DRONE analogue of
 // weaponInstanceFromGear.
 //
-// The base per-drone behaviour (family / accuracy / yield / range / evasion / cooldown +
+// The base per-drone behavior (family / accuracy / yield / range / evasion / cooldown +
 // the 7b defensive fields) comes from makeSquadron(pod.droneRole, undefined, tierFromPod(pod)),
 // i.e. the drone ROLE_TEMPLATE[role] scaled by the pod's hangar tier; the pod's ROLLED lines
 // then modify that base:
@@ -252,7 +252,7 @@ export function tierFromPod(pod: EquipmentInstance): number {
 //                                                               drone's hpMax/hp, kept full at spawn)
 //   accuracy      += rolled droneAccuracy affix               (raises the squadron's hit chance)
 //
-// BEHAVIOUR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a Standard-Issue
+// BEHAVIOR-PRESERVING FLOOR (the load-bearing invariant, proven by a unit test): a Standard-Issue
 // pod (droneRole "attack", implicit droneHp 0, no affixes, quality 0) reconstructs BYTE-IDENTICALLY
 // to makeSquadron("attack", undefined, 0), the carrier's current default squadron: tier 0 (quality
 // 0), every rolled delta 0, so nothing is added and the fold is a no-op. This is why lighting up
@@ -264,9 +264,9 @@ export function tierFromPod(pod: EquipmentInstance): number {
 // from installed pods. So a CRAFTED pod's squadron (bigger screen, +droneHp) is reconstructed here
 // but discarded in a real patrol until Unit 2.3b rewires the dispatch seed + carry-state to use
 // squadronFromPod-from-installed-pods. It is invisible for Standard-Issue (defaultDronesForHull ==
-// squadronFromPod(the Standard-Issue pod)), which is exactly why 2.3a stays behaviour-preserving.
+// squadronFromPod(the Standard-Issue pod)), which is exactly why 2.3a stays behavior-preserving.
 // Once 2.3b lands, installing a crafted defense/support pod reaches the field and the DORMANT
-// defense/support/reflect/smart-reflect behaviours fire automatically (makeSquadron already carries
+// defense/support/reflect/smart-reflect behaviors fire automatically (makeSquadron already carries
 // the deflect/reflect fields and resolveBattle already reads them, so no SIM code changes, only the
 // dispatch seed).
 //
@@ -559,7 +559,7 @@ export function defaultDronesForHull(hullType: CombatHullType, idPrefix: string)
 // installed gear (equippedFor) and the SAME idPrefix, so the two carry byte-identical drones across
 // every wave (the structural-parity contract, mirroring how buildPatrolPlayerCombatant is shared).
 //
-// BYTE-IDENTITY FLOOR (why swapping this in for defaultDronesForHull is behaviour-preserving): each
+// BYTE-IDENTITY FLOOR (why swapping this in for defaultDronesForHull is behavior-preserving): each
 // squadron's id sub-format is `${idPrefix}-${role}${index}`, the EXACT format defaultDronesForHull
 // produces. A Standard-Issue carrier carries exactly ONE droneBay pod (its attack pod, quality 0),
 // which squadronFromPod reconstructs BYTE-IDENTICALLY to makeSquadron("attack", undefined, 0) at the
@@ -663,8 +663,8 @@ export interface ShipToCombatantArgs {
 	// order), the shield pool + recharge (each MULTIPLIED by the hull's shield effectiveness) + coherence
 	// from the fitted shieldEmitters piece, the hull pool (innateHullArmor + plating.hullStrength) + armor
 	// + dampening from the fitted hullPlating piece, and the resist maps summed across all gear. When ABSENT (enemies,
-	// the durability seed, tests), the EXACT pre-1.4 hull-default behaviour is preserved.
-	// A Standard-Issue set folds BYTE-IDENTICALLY to the absent path (behaviour-preserving).
+	// the durability seed, tests), the EXACT pre-1.4 hull-default behavior is preserved.
+	// A Standard-Issue set folds BYTE-IDENTICALLY to the absent path (behavior-preserving).
 	// The caller (live tick loop + display replay) MUST derive this array the SAME way from
 	// the SAME source (equippedFor) so the two paths' combatants stay byte-identical.
 	installedGear?: EquipmentInstance[];
@@ -700,9 +700,9 @@ export interface ShipToCombatantArgs {
 //    A STANDARD-ISSUE set folds BYTE-IDENTICALLY to path B (innateHullArmor + SI_PLATING_HP
 //    == hullIntegrity, SI_EMITTER_CAP * shieldCapacity/REF_SHIELD_CAPACITY == the hull's shieldCapacity,
 //    recharge likewise, each weapon reconstructs to makeWeaponInstance, each drone pod reconstructs
-//    to the hull's default squadron): combat OUTCOMES do not change (behaviour-preserving).
+//    to the hull's default squadron): combat OUTCOMES do not change (behavior-preserving).
 //
-// B) installedGear ABSENT (enemies, the durability seed, tests). The EXACT pre-1.4 behaviour:
+// B) installedGear ABSENT (enemies, the durability seed, tests). The EXACT pre-1.4 behavior:
 //      hull, hullMax      <- stats.hullIntegrity
 //      shield, shieldMax  <- stats.shieldCapacity
 //      shieldRecharge     <- stats.shieldRecharge
@@ -818,7 +818,7 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 	// format the hull-default path below uses, so a Standard-Issue carrier (one attack pod) folds to a
 	// squadron BYTE-IDENTICAL to the default (squadronFromPod at quality 0 == makeSquadron(role, ...,
 	// 0)); a non-carrier has 0 bays -> 0 pods -> no drones. A crafted defense/support pod lights up its
-	// dormant behaviours automatically (resolveBattle already reads those squadron fields). ABSENT path
+	// dormant behaviors automatically (resolveBattle already reads those squadron fields). ABSENT path
 	// (enemies / durability seed / tests): an explicit `drones` wins, else the hull default's squadrons
 	// minted fresh (makeSquadron -> independent per-battle drone instances, tier 0), else none.
 	const drones: DroneSquadron[] = gear

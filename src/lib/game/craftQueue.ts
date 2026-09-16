@@ -543,7 +543,7 @@ function runningRowsFor(state: GameState, facility: QueueFacilityKey): CraftQueu
 // so it must hold exactly the jobs occupying a general lane, which is:
 //   every MANUAL job, plus
 //   every AUTO job BEYOND the Terminal's own lanes, which is what "borrowing" means.
-// Listing all in-flight jobs (the shipped behaviour, correct while there was one pool) would
+// Listing all in-flight jobs (the shipped behavior, correct while there was one pool) would
 // make the ratio read "2 / 1 in use" the first time the automation ran. Listing only manual
 // jobs would be worse: a borrowed lane would be invisible, and a player whose own order sat
 // waiting would have nothing on screen explaining why, which is the exact visibility failure
@@ -804,7 +804,7 @@ export function buildCraftQueue(state: GameState, facility: QueueFacilityKey): C
       canStart: gate.ok,
       blockReason: gate.ok ? null : gate.reason,
       // Position-based on purpose, and equivalent to moveQueuedOrder's own scan:
-      // that function swaps with the nearest SAME-FACILITY neighbour, and `waiting`
+      // that function swaps with the nearest SAME-FACILITY neighbor, and `waiting`
       // is that same per-facility filter, so first/last here is exactly where the
       // move becomes a no-op. The controls are therefore disabled precisely when the
       // action would do nothing.

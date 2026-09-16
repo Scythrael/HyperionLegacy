@@ -2512,8 +2512,8 @@
   let highContrast = false;
   let dyslexiaFont = false;
   let forceMobile = false;
-  // Colour-blind palette: a separate axis from the theme (see accessibilityPreference.ts). "off" or
-  // the Okabe-Ito "cbsafe" set, which remaps the meaning-bearing semantic + rarity colours only.
+  // Color-blind palette: a separate axis from the theme (see accessibilityPreference.ts). "off" or
+  // the Okabe-Ito "cbsafe" set, which remaps the meaning-bearing semantic + rarity colors only.
   let colorBlindPalette: ColorBlindPalette = COLORBLIND_PALETTE_DEFAULT;
 
   // ⚠️ ONE PATH FOR EVERY CHANGE. Each control calls this rather than writing the document itself,
@@ -5964,7 +5964,7 @@
   // engine never made.
   //
   // ⚠️ IT IS A FORM VALUE, SO IT CAN HOLD ANYTHING. `bind:value` on a number <input> hands
-  // back NaN for a blank field and honours a pasted fraction or negative, so nothing may trust
+  // back NaN for a blank field and honors a pasted fraction or negative, so nothing may trust
   // it raw. Every consumer runs it through salvageQtyFor below, and doQueueSalvage normalizes
   // once more at the writer, which is the same belt-and-braces the craft configurator uses.
   let salvageQty = 1;
@@ -7738,7 +7738,7 @@
   //
   // ⚠️ REDUCED MOTION NEEDS NO SPECIAL CASE HERE, unlike the tick bar. The blanket rule in app.css
   // collapses transition-duration to 0.001ms, so every one of these bars STEPS instead of gliding,
-  // which is exactly the behaviour the tick bar has under the same setting. The tick bar needed an
+  // which is exactly the behavior the tick bar has under the same setting. The tick bar needed an
   // exception only because it uses an ANIMATION, and a `forwards` animation collapsed to zero
   // duration pins at its end state rather than stepping.
   //
@@ -9457,7 +9457,7 @@
                `facilityPanes` model (script). Each pane: an id block (icon + name + level/descriptor),
                a middle area with up to two live progress rows (the current ACTION and an in-flight
                UPGRADE) or a single idle status line, and a Manage affordance. The whole pane is the
-               button that opens the console (same behaviour the cards had). Bars align across panes
+               button that opens the console (same behavior the cards had). Bars align across panes
                because every row rides one shared column grid (see .fprow). -->
           {#snippet facilityRow(row: FacilityRow)}
             <span class="fprow">
@@ -11773,7 +11773,7 @@
                    every gate on this panel uses selFreeUnits; selFree stays intact above it so
                    the fraction is never silently rounded INTO existence, only out of an order.
                    Under one whole unit free, selFreeUnits is 0 and the control is disabled with
-                   its reason stated, instead of the pre-2026-09-10 behaviour of offering an
+                   its reason stated, instead of the pre-2026-09-10 behavior of offering an
                    order of 1 that exceedsFreeSalvageUnits refused with only a log line. -->
               {@const selFreeUnits = wholeUnitsFree(selFree)}
               <!-- The number the buttons will actually queue: the raw form value floored and
@@ -12385,7 +12385,7 @@
                          THAT IS DELIBERATE, NOT AN OVERSIGHT. startShipBuild commits the whole BOM
                          AND the credits at the moment the build starts, so there is nothing a
                          cancel could hand back without inventing a refund rule the engine does not
-                         have. Adding a cancel button here is a BEHAVIOUR change and a data-loss
+                         have. Adding a cancel button here is a BEHAVIOR change and a data-loss
                          hazard, never a polish item. Unit 6.4 added none, and only put the
                          decorative facility glyph on the title.
 
@@ -15632,8 +15632,8 @@
           />
         </SettingRow>
 
-        <!-- Colour-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
-             theme accent and layers safety onto the meaning-bearing colours (state + rarity), using
+        <!-- Color-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
+             theme accent and layers safety onto the meaning-bearing colors (state + rarity), using
              the Okabe-Ito universal set (distinguishable across the common deficiency types at once).
              ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today — the same Toggle
              switch as the High-contrast / Dyslexia rows above it, and it never wraps a wide <select>
@@ -15641,11 +15641,11 @@
              plus the COLORBLIND_PALETTES list (accessibilityPreference.ts), NOT this control: when
              more palettes exist (tritanopia / Pride), this graduates to a select. -->
         <SettingRow
-          label="Colour-blind palette"
-          description="Remaps the status colours (success / warning / danger) and the rarity ladder to a colour-blind-safe set. Your theme's accent colour is unchanged. Rarity always shows its name too, so tiers stay clear."
+          label="Color-blind palette"
+          description="Remaps the status colors (success / warning / danger) and the rarity ladder to a color-blind-safe set. Your theme's accent color is unchanged. Rarity always shows its name too, so tiers stay clear."
         >
           <Toggle
-            label="Colour-blind palette"
+            label="Color-blind palette"
             checked={colorBlindPalette === "cbsafe"}
             on:change={(e) => {
               colorBlindPalette = e.detail ? "cbsafe" : "off";
@@ -15677,15 +15677,15 @@
       <Panel class="settings-section">
         <div class="panel-title">UI THEME</div>
         <SettingRow
-          label="Theme colour"
-          description="Changes the accent colour used across the whole interface. Panels and text re-hue with it."
+          label="Theme color"
+          description="Changes the accent color used across the whole interface. Panels and text re-hue with it."
         >
           <span class="theme-preview" style="background:{THEME_PREVIEW_COLORS[currentTheme]}" aria-hidden="true"></span>
           <select
             class="setting-select"
             value={currentTheme}
             on:change={(e) => setTheme((e.target as HTMLSelectElement).value as ThemeName)}
-            aria-label="Theme colour"
+            aria-label="Theme color"
           >
             {#each THEME_NAMES as name}
               <option value={name}>{name.charAt(0).toUpperCase() + name.slice(1)}</option>
@@ -15737,7 +15737,7 @@
            present options". The rule they refined it with is the interesting half, and it decides
            which control each row gets:
 
-             a TOGGLE  is for a feature that can be OFF        (damage colours, auto-scroll)
+             a TOGGLE  is for a feature that can be OFF        (damage colors, auto-scroll)
              a DROPDOWN is for a VALUE picked from a list,
                         even when the list has two entries     (log style, log speed)
 
@@ -15747,7 +15747,7 @@
         <div class="panel-title">COMBAT LOG</div>
         <SettingRow
           label="Log style"
-          description="Simplified distils the log to plain damage reporting (shield and hull numbers), dropping the flavour narration. Default keeps the descriptive combat prose."
+          description="Simplified distils the log to plain damage reporting (shield and hull numbers), dropping the flavor narration. Default keeps the descriptive combat prose."
         >
           <select
             class="setting-select"
@@ -15774,11 +15774,11 @@
           </select>
         </SettingRow>
         <SettingRow
-          label="Damage colours"
+          label="Damage colors"
           description="Shows shield damage in blue and hull damage in orange in the Simplified log, so the two read apart at a glance."
         >
           <Toggle
-            label="Damage colours"
+            label="Damage colors"
             checked={combatDamageColors}
             on:change={(e) => { combatDamageColors = e.detail; saveCombatDamageColors(combatDamageColors); }}
           />
@@ -18110,7 +18110,7 @@
     margin: 0 0 var(--space-4) 0;
     max-width: var(--max-reading-width);
   }
-  /* The current theme's colour, shown beside the named dropdown. Purely informative (the select
+  /* The current theme's color, shown beside the named dropdown. Purely informative (the select
      announces the value), so it is aria-hidden. */
   .theme-preview {
     width: 18px;
@@ -18159,9 +18159,9 @@
     border-radius: var(--corner);
     /* ⚠️ A REAL <select>, NOT A CUSTOM WIDGET. It gets keyboard navigation, screen-reader support
        and the platform's own touch picker for free, which is the whole point on an accessibility
-       screen. Styling is limited to colours and type so the native behaviour is untouched. */
+       screen. Styling is limited to colors and type so the native behavior is untouched. */
   }
-  /* The native option list: some browsers ignore the select's colours for its popup, so set them
+  /* The native option list: some browsers ignore the select's colors for its popup, so set them
      on the options too. Solid dark + light text, so the open dropdown reads on every theme. */
   .setting-select option {
     background: var(--color-bg-mid);
@@ -18313,7 +18313,7 @@
      signalled with aria-pressed. The pressed style reuses the SAME accent-border +
      accent-bright-text selection signal .mission-card-selectable.expanded already
      uses (no new color, theme-linked via the accent tokens; this citation also named
-     .theme-swatch.active until 0.13.5 removed the colour-blot theme picker),
+     .theme-swatch.active until 0.13.5 removed the color-blot theme picker),
      so it reads as this app's existing "this option is chosen" affordance
      rather than a new visual language. Each button flexes to share the row width. */
   .patrol-segmented { display: flex; gap: 4px; margin-top: 4px; }
@@ -18488,7 +18488,7 @@
   }
   .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
   .prestige-text { font-size: var(--text-sm); color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
-  /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the colour-blot
+  /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the color-blot
      theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
      and dead CSS that still compiles is exactly the kind of thing a later reader restores by
      accident because it looks intentional. The replacement is .theme-preview plus .setting-select.
@@ -18509,7 +18509,7 @@
      ============================================================================ */
 
   /* Sized to MATCH the portrait beside it, because that equality is the entire argument: a control
-     the same size as its neighbour reads as its equal, while a badge drawn on top of one reads as
+     the same size as its neighbor reads as its equal, while a badge drawn on top of one reads as
      decoration. */
   .top-bar-gear {
     width: 38px;
@@ -18558,7 +18558,7 @@
     margin-bottom: 6px;
     border: 1px solid var(--color-border);
     background: var(--color-panel-bg-strong);
-    /* ⚠️ Own stacking context, so an expanded row's detail cannot paint over its neighbour. */
+    /* ⚠️ Own stacking context, so an expanded row's detail cannot paint over its neighbor. */
     position: relative;
   }
   .done-head {
@@ -19691,7 +19691,7 @@
   .drops-label { font-size: var(--text-sm); color: var(--color-text-secondary); }
   /* Tappable item NAME in the expanded Drop Table (0.13.5): an inline, chrome-less button that
      reads as text but signals it is interactive (dotted underline), popping the same item tooltip
-     the compact drop icon does. Colour comes from an inline rarity style. */
+     the compact drop icon does. Color comes from an inline rarity style. */
   .drop-name-btn {
     background: none; border: none; padding: 0; margin: 0;
     font: inherit; cursor: pointer;
@@ -20080,7 +20080,7 @@
      triplet tokens), so both themes re-hue automatically. */
   /* ⚠️ THE GREEN LEFT ACCENT WAS REMOVED (user, 2026-09-13). It marked a row as "finished", but the
      section is already titled RECENTLY COMPLETED, so the stripe restated the heading on every row
-     and added a second accent colour to a board that otherwise speaks in one. */
+     and added a second accent color to a board that otherwise speaks in one. */
   /* The green edge is the row's IDENTITY, so it survives hover (both .home-row:hover and
      .home-row-static:hover reset border-color on all four sides). */
 
@@ -20451,7 +20451,7 @@
        just fixed. The header TICK bar uses .tick-bar-fill and is already covered below. */
     .tb-bar > i,
     /* ⚠️ 0.13.5: the ANIMATION is disabled too, not just the transition. With it off, the inline
-       width from the polled progress applies, which is the pre-0.13.5 behaviour: a bar that steps
+       width from the polled progress applies, which is the pre-0.13.5 behavior: a bar that steps
        rather than sweeps. That is genuinely less motion, which is the point of this query, and it
        is why the inline width is kept on the element rather than removed. */
     .tick-bar-fill { transition: none; animation: none; }

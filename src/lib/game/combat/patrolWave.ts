@@ -69,7 +69,7 @@ export function buildPatrolPlayerCombatant(args: {
   // Between-wave CARRY-STATE (Phase 12b Unit B2): the player ship's per-system DURABILITY,
   // so wear ACCUMULATES across the cycle's waves (a weapon worn in wave 1 opens wave 2 already
   // worn). OPTIONAL: absent => leave the fresh full-durability build untouched (the pre-B2
-  // behaviour, and the safe default for a hand-built fixture or a not-yet-fought first wave).
+  // behavior, and the safe default for a hand-built fixture or a not-yet-fought first wave).
   // Applied by OVERRIDING each fresh system's current durability, CLAMPED to that system's
   // fresh max (so a stale/hand-edited carry can never exceed the ceiling or go negative).
   carrySystemDurability?: PatrolSystemDurability;

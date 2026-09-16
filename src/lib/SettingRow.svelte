@@ -20,7 +20,7 @@
   // select, or a row of buttons all fit without this file learning about any of them. Generalising
   // it further would be inventing requirements: there is one settings screen.
   //
-  // Every size and colour here reads a TOKEN (0.13.5's type scale), so this component is the first
+  // Every size and color here reads a TOKEN (0.13.5's type scale), so this component is the first
   // real consumer of the token layer and proves the scale works before phase 5 converts the rest.
   // ============================================================================
 

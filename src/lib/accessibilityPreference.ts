@@ -78,7 +78,7 @@ function saveFlag(key: string, value: boolean): void {
 // the whole point of the media query existing. The stored value is an OVERRIDE of that default in
 // either direction, so someone can opt back into motion on a machine where the OS flag is on.
 //
-// The app's CSS already honours `prefers-reduced-motion` independently (the tick bar's sweep is
+// The app's CSS already honors `prefers-reduced-motion` independently (the tick bar's sweep is
 // disabled under it), so this toggle makes the same reduction available to someone whose OS is not
 // configured for it, rather than duplicating the query.
 export function loadReducedMotion(): boolean {
@@ -126,12 +126,12 @@ export function saveForceMobile(value: boolean): void {
 }
 
 // ---------------------------------------------------------------------------
-// COLOUR-BLIND PALETTE
+// COLOR-BLIND PALETTE
 // ---------------------------------------------------------------------------
 
-// A colour-blind-safe palette, opted into as a SEPARATE axis from the six themes (a player keeps
-// their preferred theme accent and layers safety onto the meaning-bearing colours). It overrides
-// only the SEMANTIC tokens (success/warning/danger) and the rarity ladder — the colours that encode
+// A color-blind-safe palette, opted into as a SEPARATE axis from the six themes (a player keeps
+// their preferred theme accent and layers safety onto the meaning-bearing colors). It overrides
+// only the SEMANTIC tokens (success/warning/danger) and the rarity ladder — the colors that encode
 // state and tier — not the chrome accent, which carries no state-vs-state meaning.
 //
 // ⚠️ "cbsafe" IS THE OKABE-ITO UNIVERSAL PALETTE, deliberately ONE entry rather than one per

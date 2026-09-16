@@ -38,7 +38,7 @@
 // WHAT IS ACTUALLY TRUE, and the distinction is WHICH FUNCTION IS CALLED, not which slot:
 //   unfitEquipmentInstance  ALLOW-EMPTY for EVERY slot, combat and economy alike. This is
 //                           the route the Ships loadout board calls, so it is the ONLY
-//                           uninstall behaviour a player can reach. The piece returns to the
+//                           uninstall behavior a player can reach. The piece returns to the
 //                           spare pool and the slot is left empty.
 //   unfitEquipment          still mints a Standard-Issue replacement so the slot is never
 //                           empty. Slot-targeted, and NOT reachable from the loadout board.

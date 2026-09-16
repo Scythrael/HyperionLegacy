@@ -65,7 +65,7 @@
   }
 
   // Rarity -> CSS token. Returns var(--rarity-*) (defined in app.css :root) rather than raw hex, so a
-  // colour-blind or future skin palette can remap the whole ladder from ONE place. The DEFAULT values
+  // color-blind or future skin palette can remap the whole ladder from ONE place. The DEFAULT values
   // behind these tokens are unchanged — this is where the single source of truth now lives (app.css),
   // and every usage feeds the result straight into an inline style, so a var() reference resolves.
   export function equipmentRarityColor(rarity: EquipmentRarity): string {

@@ -5,7 +5,7 @@
   //
   // ONE renderer, two hosts: the in-game System > Patch Notes tab and the public
   // patch-notes page on the site both mount this, so the two can never drift.
-  // Every colour and font reads an app.css theme token, so it matches whichever
+  // Every color and font reads an app.css theme token, so it matches whichever
   // surface (and theme) it renders in. No markdown is processed here: a bullet's
   // emphasis is the STRUCTURED `lead`, never markup in a string.
   import { isStructuredNote, type PatchNote } from "./patchNotes";

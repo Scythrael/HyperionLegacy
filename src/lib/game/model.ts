@@ -4134,7 +4134,7 @@ export const SALVAGE_TICKS_PER_QUALITY = 2;
 // defeats that, because the first tuning pass that wanted rarity to matter on a salvaged
 // system would have to come back here, change a type, change a call site, and re-argue
 // the parity case under balance pressure. So both arms get their room in the same
-// behaviour-neutral motion, and the follow-up is purely numbers.
+// behavior-neutral motion, and the follow-up is purely numbers.
 //
 // SAME SHAPE AS THE MATERIAL ARM: the NUMERIC axes (iLevel, quality) stay ADDITIVE, where
 // a coefficient means literally "this many ticks per point", and only the CATEGORICAL
@@ -5519,7 +5519,7 @@ export interface BlueprintDef {
   // exactly one of these two families:
   //   (1) MATERIAL blueprint (the original R1 shape): `equipmentOutput` is ABSENT.
   //       The Fabricator crafts a STACKABLE item, `recipe.outputItem` x `outputQty`
-  //       (frameSegment, powerCoupling, structuralAssembly). Behaviour unchanged.
+  //       (frameSegment, powerCoupling, structuralAssembly). Behavior unchanged.
   //   (2) EQUIPMENT blueprint (this task): `equipmentOutput` is PRESENT. The
   //       Fabricator (a LATER task, Task 19) mints a non-stacking EquipmentInstance
   //       of `{ slotType, varietyKey }` instead of a stackable, rolling its stats at
@@ -6449,7 +6449,7 @@ export function seedStandardIssueForShip(
 // fires when a player DELIBERATELY strips a required slot (reachable once the install UI lands
 // in a later unit).
 //
-// ⚠️ BEHAVIOUR-PRESERVING PER-HULL magnitudes (Combat 1.0 Unit 1.4, REVISED from the Unit 1.3
+// ⚠️ BEHAVIOR-PRESERVING PER-HULL magnitudes (Combat 1.0 Unit 1.4, REVISED from the Unit 1.3
 // first-pass placeholders). The Standard-Issue combat set is authored to reproduce each hull's
 // CURRENT (pre-gear) combat profile EXACTLY, so a Standard-Issue-geared ship folds to a combatant
 // byte-identical to the old hull-default combatant and combat outcomes do not move (the Unit 1.4
@@ -6469,7 +6469,7 @@ export const COMBAT_STANDARD_ISSUE_WEAPON_YIELD = 0; // no bonus: base WEAPON_DE
 // The weapon baseline's durability ceiling. Mirrors combat/weapons.ts BASE_WEAPON_DURABILITY (100)
 // at quality 0. A small DELIBERATE duplication (a literal, not a runtime import of the value) so
 // model.ts keeps its "never import combat internals at runtime" discipline (see the type-only combat
-// imports at the top of this file). It is behaviour-neutral: the Unit 1.4 bridge reconstruction reads
+// imports at the top of this file). It is behavior-neutral: the Unit 1.4 bridge reconstruction reads
 // this durabilityMax and a Standard-Issue weapon (durability == durabilityMax == 100) reconstructs
 // byte-identically to makeWeaponInstance (whose template durability is also 100).
 export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // == combat/weapons.ts BASE_WEAPON_DURABILITY
@@ -6479,13 +6479,13 @@ export const COMBAT_STANDARD_ISSUE_WEAPON_DURABILITY = 100; // == combat/weapons
 // ROLE_TEMPLATE[role], which the Unit 2.3a bridge (squadronFromPod) reconstructs; the baseline pod
 // only OCCUPIES a bay so a carrier fields its default squadron. droneHp is the pod's SIGNATURE line
 // (the drone analogue of weaponYield, see itemgen.generateDronePod), so a 0 signature is the
-// behaviour-preserving floor: squadronFromPod(a Standard-Issue attack pod) reconstructs
+// behavior-preserving floor: squadronFromPod(a Standard-Issue attack pod) reconstructs
 // BYTE-IDENTICALLY to makeSquadron("attack", undefined, 0), the carrier's current default squadron.
 export const COMBAT_STANDARD_ISSUE_DRONE_HP = 0; // no bonus: base ROLE_TEMPLATE carries the real stats
 
 // The drone-pod baseline's durability ceiling. Mirrors itemgen.ts DRONE_POD_BASE_DURABILITY (100) at
 // quality 0, a small DELIBERATE literal duplication (not a runtime import) so model.ts keeps its
-// "never import combat/itemgen internals at runtime" discipline. Behaviour-neutral: a DroneSquadron
+// "never import combat/itemgen internals at runtime" discipline. Behavior-neutral: a DroneSquadron
 // carries NO durability field, so a pod's durability never enters squadronFromPod's reconstruction
 // (unlike a weapon, whose durability the bridge DOES read); it exists only so the pod is a well-formed
 // wearable item like every other combat baseline.
@@ -6930,7 +6930,7 @@ export const SHIP_DOCKS_RUNGS: ShipDocksRung[] = buildShipDocksRungs();
 //
 // ⚠️ IT IS ALSO A PARITY CONSTRAINT, NOT ONLY A BALANCE ONE. The base must be at least the
 // largest number of simultaneously returning extraction ships in any existing parity
-// fixture, or those fixtures change behaviour and the 101 baseline moves. The mission
+// fixture, or those fixtures change behavior and the 101 baseline moves. The mission
 // fixtures use at most TWO mission captains at once, so 2 sits exactly on the boundary.
 // That is safe but TIGHT. If a fixture ever moves, RAISE THE BASE TO 3; never re-baseline
 // the parity count and never edit the fixture.

@@ -1383,7 +1383,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // (from MIGRATIONS[33]) but NO drone pod yet, so without this step a migrated carrier would fold to
   // ZERO drones (a regression from its default attack squadron). This step APPENDS the free
   // Standard-Issue attack drone pod to every EXISTING carrier missing one (droneBays > 0), so a
-  // migrated carrier fields the SAME one attack squadron it did before (behaviour-preserving).
+  // migrated carrier fields the SAME one attack squadron it did before (behavior-preserving).
   // Destroyers/battleships (no bays) and economy hulls are untouched.
   //
   // - Delegates to the SAME SHARED installMissingCombatBaselines (tick.ts) a fresh build uses, which
@@ -1895,7 +1895,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // saves that must end up in the new shape; extending an earlier step would skip every one
   // of them (the argument MIGRATIONS[40], [41] and [42] each recorded for themselves).
   //
-  // IT IS A BEHAVIOURAL NO-OP ON ITS OWN, like MIGRATIONS[41]: every reader of the new array
+  // IT IS A BEHAVIORAL NO-OP ON ITS OWN, like MIGRATIONS[41]: every reader of the new array
   // carries `?? []`, so an unmigrated save would behave identically. The migration is about
   // SHAPE, so that a migrated save and a fresh save stay indistinguishable and a LATER
   // migration has one shape to handle rather than two.
@@ -2026,7 +2026,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // conversion is written to preserve each player's EFFECTIVE rule rather than just its fields.
   //
   // The old model selected independently and merged. The new one filters, and an axis with nothing
-  // ticked does not narrow. So a player who used ONE axis keeps exactly their old behaviour only if
+  // ticked does not narrow. So a player who used ONE axis keeps exactly their old behavior only if
   // the OTHER axis is filled in as "all", which is what this does:
   //
   //   quality <= 2, no rarity      -> tiers 0,1,2 + ALL rarities   == everything Q0-Q2      ✅ same
@@ -2034,7 +2034,7 @@ const MIGRATIONS: Record<number, Migration> = {
   //   duplicates only              -> ALL tiers + ALL rarities     == every duplicate        ✅ same
   //   quality <= 2 AND {radiant}   -> tiers 0,1,2 + radiant        ⚠️ NARROWER than the union
   //
-  // ⚠️ THE LAST ROW IS THE ONLY BEHAVIOUR CHANGE, AND IT ERRS TOWARD KEEPING. The old union took
+  // ⚠️ THE LAST ROW IS THE ONLY BEHAVIOR CHANGE, AND IT ERRS TOWARD KEEPING. The old union took
   // everything at Q0-Q2 PLUS every radiant at any quality; the new chain takes only radiant pieces
   // at Q0-Q2. A rule that takes LESS can never destroy something it would previously have spared,
   // which is the only direction this project permits a migration to move.

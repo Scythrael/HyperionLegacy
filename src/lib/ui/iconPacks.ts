@@ -4,7 +4,7 @@
 //
 // ⚠️ THIS IS AN ARCHITECTURE TASK, NOT A COSMETIC ONE, AND THE ORDERING IS THE POINT.
 //
-// The user's stated long-term plan is PAID COSMETIC PACKS: a pack bundles a colour theme, a layout
+// The user's stated long-term plan is PAID COSMETIC PACKS: a pack bundles a color theme, a layout
 // skin, a custom ICON SET and lighting effects, and sells as one unit. That makes the icon layer a
 // PRODUCT SURFACE rather than decoration, and it changes what "done" means for the emoji-to-SVG
 // sweep. The record is explicit: "do the registry and pack-readiness design BEFORE the sweep, or

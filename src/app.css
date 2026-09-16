@@ -33,11 +33,11 @@
      10-13px, nowhere near the 18.66px the large-text exemption starts at), so 4.03 was a
      real failure rather than a technicality.
      #628591 is the MINIMUM lift that clears it: hue and saturation are untouched, only
-     lightness moves (L 0.437 -> 0.477), so the token still reads as the same dim grey-blue
+     lightness moves (L 0.437 -> 0.477), so the token still reads as the same dim gray-blue
      and no theme re-tuning is needed. It now measures 4.67 on panel and 4.98 on the deep
      background. Every other text token already passed comfortably (secondary 7.08, accent
      12.80, danger 6.71, success 9.65, warning 11.12, primary 16.49), so this was the ONLY
-     colour that needed touching. */
+     color that needed touching. */
   --color-text-dim: #628591;
   /* Disabled control text. ⚠️ 0.13.5: disabled labels were drawn as the accent at 0.4 alpha,
      which resolves to 3.01:1 and fails AA outright (UX review point 3, "disabled contrast").
@@ -47,7 +47,7 @@
      ⚠️ RAISED 0.6 -> 0.85 (user, 2026-09-12: "still hard to read the text of"), and that
      report found a REAL HOLE rather than a matter of taste. 0.6 was chosen by measuring the
      CYAN accent alone, where it gives 5.23. But this is one alpha over SIX different accent
-     colours, and cyan is nearly the BRIGHTEST of them. Measured on the panel background:
+     colors, and cyan is nearly the BRIGHTEST of them. Measured on the panel background:
 
        alpha 0.60   cyan 5.23   green 5.56   white 6.03   gray 3.53   blue 3.12   red 2.94
        alpha 0.85   cyan 9.44   green 10.22  white 11.14  gray 5.88   blue 5.05   red 4.84
@@ -66,8 +66,8 @@
   --color-danger: #f87171;
   --color-success: #34d399;
 
-  /* Rarity ladder tokens (0.13.5). The SINGLE source of truth for every rarity hue, so a colour-
-     blind palette — or a future skin — can remap the tier colours from ONE place. equipmentRarityColor
+  /* Rarity ladder tokens (0.13.5). The SINGLE source of truth for every rarity hue, so a color-
+     blind palette — or a future skin — can remap the tier colors from ONE place. equipmentRarityColor
      and itemRarityColor (EquipmentTooltip.svelte) return var(--rarity-*) against these. augmented and
      luminous intentionally TRACK the semantic success/warning tokens (those tiers share that meaning),
      so any palette that shifts success/warning shifts those tiers with it, for free. */
@@ -295,11 +295,11 @@ button {
   --font-body: "OpenDyslexic", "Comic Sans MS", "Verdana", sans-serif;
 }
 
-/* COLOUR-BLIND-SAFE PALETTE (0.13.5). Opt-in via Settings › UI › Accessibility; applyAccessibility
-   stamps data-palette. A SEPARATE axis from [data-theme]: it remaps only the MEANING-bearing colours
+/* COLOR-BLIND-SAFE PALETTE (0.13.5). Opt-in via Settings › UI › Accessibility; applyAccessibility
+   stamps data-palette. A SEPARATE axis from [data-theme]: it remaps only the MEANING-bearing colors
    — semantic state and the rarity ladder — and leaves the theme's chrome accent alone (the accent
-   carries no state-vs-state meaning, so a colour-blind player keeps their preferred theme colour).
-   ⚠️ Values are the Okabe-Ito colour-blind-safe set, engineered to stay distinguishable across
+   carries no state-vs-state meaning, so a color-blind player keeps their preferred theme color).
+   ⚠️ Values are the Okabe-Ito color-blind-safe set, engineered to stay distinguishable across
    deuteranopia, protanopia AND tritanopia at once — which is why this is ONE universal palette, not
    one per deficiency type. This block is the bucketized palette SEAM the skin system and future
    Pride/gradient palettes extend: another palette is another block here plus one entry in
@@ -339,7 +339,7 @@ button {
 
    Killing the animation by NAME instead lets the element fall back to its inline width, which the
    100ms poll already keeps current: the bar STEPS rather than sweeps, which is the pre-0.13.5
-   behaviour and is genuinely less motion. animation-name is what has to be overridden, because the
+   behavior and is genuinely less motion. animation-name is what has to be overridden, because the
    rule above only marks the DURATION important.
 
    ⚠️ WHY THIS LIVES HERE AND NOT ONLY IN App.svelte: reduced motion has TWO entry points, the OS

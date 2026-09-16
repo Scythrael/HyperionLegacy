@@ -5,20 +5,20 @@
   //
   // ⚠️ A REAL `role="switch"`, NOT A STYLED DIV, AND THAT IS NOT NEGOTIABLE. A div with a click
   // handler is invisible to a screen reader and unreachable from a keyboard, so it is a control a
-  // whole class of players cannot operate at all. This is the same defect the colour-blot theme
+  // whole class of players cannot operate at all. This is the same defect the color-blot theme
   // picker had, and 0.13.5 exists partly to fix that one; shipping its replacement with the same
   // hole would be absurd. It is a <button> (so it is focusable and Enter/Space already activate it)
   // carrying aria-checked, plus an explicit Space handler because a button would otherwise scroll
   // the page on Space.
   //
   // ⚠️ THE OFF STATE USES THE *DIM* TOKEN, NEVER --color-text-disabled. The user asked for off to be
-  // "greyed out a bit", and the obvious token is the wrong one: an OFF toggle is fully interactive,
+  // "grayed out a bit", and the obvious token is the wrong one: an OFF toggle is fully interactive,
   // while --color-text-disabled means "you cannot use this". Borrowing it would tell a player the
   // control is unavailable and, worse, would reintroduce the exact contrast problem this release
   // measured and fixed (that token sits at the AA floor precisely because nothing needs to read it
   // carefully; a knob the player is about to click does).
   //
-  // The ON glow is theme-linked through --color-accent-rgb, so it recolours with the player's theme
+  // The ON glow is theme-linked through --color-accent-rgb, so it recolors with the player's theme
   // and with any future skin, rather than being a literal that only looks right on cyan.
   // ============================================================================
 
@@ -46,7 +46,7 @@
 
   function onKeydown(event: KeyboardEvent): void {
     // Enter already activates a <button>. Space scrolls the page unless it is claimed here, which
-    // is the one keyboard behaviour a native checkbox gives free and a button does not.
+    // is the one keyboard behavior a native checkbox gives free and a button does not.
     if (event.key === " ") {
       event.preventDefault();
       flip();

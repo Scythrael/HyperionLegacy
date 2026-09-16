@@ -1863,7 +1863,7 @@ export function resolveBattle(
 				// flag mid-salvo: a PARTICLE shot reflected by the target's drone screen bounces
 				// back and can KILL this attacker (self), and an earlier weapon in this same
 				// salvo can kill the target. Once either is dead we STOP the salvo: a reflect-
-				// killed attacker fires no further shots (honouring the tick-death comment at the
+				// killed attacker fires no further shots (honoring the tick-death comment at the
 				// top of the loop), and a corpse absorbs no more of this turn's salvo. We do NOT
 				// re-select a target here (the once-per-turn selection policy is unchanged): all
 				// remaining weapons share this one dead target, so `break` ends the salvo. Reads

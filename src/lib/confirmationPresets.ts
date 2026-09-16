@@ -48,7 +48,7 @@ export const ALL_QUALITY_TIERS: number[] = Array.from({ length: QUALITY_TIERS },
 //
 // ⚠️ The unconditional destructive confirms (Delete Save, respec, captain-aboard ship salvage) are
 // deliberately NOT in this set. They have no toggle at all today, so putting them under "All Off"
-// would mean BUILDING a way to skip them, which is new behaviour rather than a settings reorg.
+// would mean BUILDING a way to skip them, which is new behavior rather than a settings reorg.
 // Logged instead of smuggled in.
 export interface ConfirmationSettings {
   // Confirm before starting a refine. Device-side (refineConfirmPreference): a dialog gate the

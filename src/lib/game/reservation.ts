@@ -79,7 +79,7 @@ export type QueuedSalvageOrder = Extract<QueuedOrder, { type: "salvage" }>;
 //
 // ⚠️ THE TWO UNIQUE ARMS ALWAYS ANSWER 1, WHATEVER THE FIELD SAYS. An EquipmentInstance and
 // a ShipInstance are each ONE distinct object named by ONE id; a count against them is not a
-// quantity but a category error, and honouring one would reserve units that do not exist and
+// quantity but a category error, and honoring one would reserve units that do not exist and
 // leave dead entries in the queue that no player action could clear. Clamping here (rather
 // than refusing at enqueue) means a hand-edited save, an older order, or a future caller that
 // forgets, all land on the same safe reading instead of on a refusal the player cannot act on.

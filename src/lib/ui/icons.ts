@@ -78,7 +78,7 @@ export const ICON_PATHS = {
   // --- Materials and goods (Warehouse, recipe rows, salvage results) ---
 
   // Ore: a faceted raw rock with a seam. Sized to fill the grid like its
-  // neighbours; a squat rock reads as a smaller icon at the same nominal size.
+  // neighbors; a squat rock reads as a smaller icon at the same nominal size.
   ore: ["M7 20l-3.5-7L8 6h8l4.5 7-3.5 7z", "M8 6l4 7 4-7", "M12 13v7"],
   // Ingot: two stacked trapezoid bars, the refined counterpart to ore. They
   // share the y=14 edge on purpose, which is what makes them read as stacked.

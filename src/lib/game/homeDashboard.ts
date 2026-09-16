@@ -1124,7 +1124,7 @@ const COMPLETION_KIND_VIEW: Record<
   // destination at the time, not because a completed salvage has nowhere to send the player.
   salvageJob:              { verb: "Salvaged",    icon: "salvage",    source: "Salvage Bay",    jumpTarget: "salvageBay" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
-  // rather than outcome-flavoured, because one row has to cover a clean finish, a recall, a
+  // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from
   // PATROL_END_REASON_VIEW, so the verb never has to lie about how it went.
   //

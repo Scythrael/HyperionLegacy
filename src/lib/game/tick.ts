@@ -1723,7 +1723,7 @@ export function tickCaptainMission(
   //
   // ⚠️ THE DEFAULT Infinity IS WHAT KEEPS EVERY EXISTING CALL SITE AND TEST BYTE-IDENTICAL.
   // Omitting this argument means "berths are never contended", which is exactly the
-  // pre-0.13.4 behaviour, so the 101 parity baseline cannot move because of this parameter's
+  // pre-0.13.4 behavior, so the 101 parity baseline cannot move because of this parameter's
   // existence. Only economyTick passes a real number.
   //
   // ⚠️ IT IS A BUDGET FOR THE WHOLE economyTick CALL, NOT A LIVE READ, and that is the parity
@@ -4523,7 +4523,7 @@ function combatStandardIssueSpecFor(typeKey: string): CombatStandardIssueSpec {
 // installMissingCombatBaselines: fill every COMBAT hull in the fleet that is missing its required
 // combat slots with a freshly-minted, fitted Standard-Issue combat set (its FULL default weapon
 // loadout + shield emitter + hull plating + its default drone pods), threading nextEquipmentId
-// forward. Combat 1.0 (Unit 1.3, REVISED Unit 1.4 for the full loadout + behaviour-preserving
+// forward. Combat 1.0 (Unit 1.3, REVISED Unit 1.4 for the full loadout + behavior-preserving
 // per-hull magnitudes, and Unit 2.3a to also seed a carrier's Standard-Issue attack drone pod).
 //
 // THE shared "give combat hulls their baseline" fold (Omega 4, DRY): the v33->v34 save migration
@@ -4549,7 +4549,7 @@ export function installMissingCombatBaselines(state: GameState): GameState {
     const hull = combatHullTypeOf(ship.typeKey);
     if (hull === null) continue; // economy hull: no combat slots to fill
     const fitted = equipment.filter((e) => e.fittedToShipId === ship.id);
-    const spec = combatStandardIssueSpecFor(ship.typeKey); // per-hull loadout + magnitudes (behaviour-preserving)
+    const spec = combatStandardIssueSpecFor(ship.typeKey); // per-hull loadout + magnitudes (behavior-preserving)
     // The required combat pieces, in the deterministic mint order the fresh-build seeder uses (every
     // weapon in loadout order, then shieldEmitters, then hullPlating), each carrying the per-hull
     // signature magnitude generateCombatStandardIssue needs. Mint + fit ONLY the slots this hull is
@@ -5716,7 +5716,7 @@ export function refineSlotCount(state: GameState): number {
 //
 // VALUES BY LEVEL with today's track:
 //   level 0..3 -> the EMPTY PRODUCT, 1.0 (baseline speed, byte-identical to the
-//                 pre-fix behaviour at every level below 4)
+//                 pre-fix behavior at every level below 4)
 //   level 4    -> 1.5 (the one speed rung)
 // The `i < upgrades.length` guard is the sibling helpers' belt-and-suspenders bound.
 export function refineSpeedMult(state: GameState): number {
@@ -5752,7 +5752,7 @@ export function refineSpeedMult(state: GameState): number {
 //     can never over-deliver. And ceil of any positive number is already >= 1, which
 //     structurally rules out the 0-tick job: a 0-tick refine job would either complete
 //     instantly (minting free output every tick) or never count down at all, depending on
-//     the countdown's boundary, and neither is a real behaviour. The Math.max(1, ...)
+//     the countdown's boundary, and neither is a real behavior. The Math.max(1, ...)
 //     below is belt-and-suspenders on top of that, not the actual guard.
 //   - The non-finite / `base <= 0` arms return the base UNCHANGED rather than clamping to
 //     1, so a hypothetical zero-duration recipe stays zero-duration (this function scales
@@ -6208,7 +6208,7 @@ export function hasFreeAutoSalvageLane(state: GameState): boolean {
 //                completes, and auto-salvage is slower to soak up idle capacity.
 //   LOWER it  -> idle general lanes are put to work sooner, at the cost of the player having
 //                to be quicker to claim their own bay after a job ends.
-// At 0 it degenerates to "auto takes any free lane immediately", which is the behaviour this
+// At 0 it degenerates to "auto takes any free lane immediately", which is the behavior this
 // constant exists to prevent; do not set it there.
 //
 // ⚠️ GAME SECONDS, NEVER Date.now(). The comparison happens inside the tick, so it happens
@@ -6235,7 +6235,7 @@ export const AUTO_SALVAGE_BORROW_IDLE_SECONDS = 10;
 // exact drift class this module avoids everywhere else.
 //
 // So the window is written on the COUNT, and restarted whenever the count CHANGES in either
-// direction. That is behaviourally equivalent to per-lane tracking in every case that matters
+// direction. That is behaviorally equivalent to per-lane tracking in every case that matters
 // and is CONSERVATIVE (in the player's favour) in the rest:
 //   a job completes, freeing a lane  -> the count rises, the window restarts. This is the
 //                                       race case, and it is handled exactly right: the
@@ -7535,7 +7535,7 @@ export function processFabricateLines(state: GameState): GameState {
   const lines = state.fabricateLines ?? [];
   if (lines.length === 0) return state; // no lines -> same-reference no-op
   // 0.13.4 Phase 5: same join-then-step order as processRefineLines. The two engines deliberately
-  // stay symmetrical; a divergence between them is how one facility quietly gains a behaviour the
+  // stay symmetrical; a divergence between them is how one facility quietly gains a behavior the
   // other lacks.
   const joined = joinFreeLanesToRunningOrders(state, lines, "fabricate");
   const { next, lines: nextLines } = runCraftLines({ ...state, nextCraftLineId: joined.nextCraftLineId }, joined.lines);
@@ -8959,7 +8959,7 @@ export function withQueuedOrderReleased(state: GameState, jobId: string): GameSt
 // Moves ONE waiting order up or down within ITS OWN facility's queue.
 //
 // The array is flat across facilities but the array INDEX is the queue order, so a
-// reorder has to swap the entry with its nearest SAME-FACILITY neighbour rather than
+// reorder has to swap the entry with its nearest SAME-FACILITY neighbor rather than
 // with whatever happens to sit beside it (build plan assumption 14). Interleaved
 // entries belonging to other facilities are stepped over and left exactly where they
 // are, so moving a Refinery order can never perturb the Fabricator's queue order.
@@ -8972,24 +8972,24 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
   if (index < 0) return state; // unknown id -> same-ref no-op
 
   // Walk outward from the entry until another entry of the SAME facility is found. The
-  // scan (rather than index +/- 1) is the whole point: with a flat array the neighbour
+  // scan (rather than index +/- 1) is the whole point: with a flat array the neighbor
   // that matters can be several positions away behind other facilities' entries.
   const facility = queue[index].facility;
   const step = direction === "up" ? -1 : 1;
-  let neighbour = -1;
+  let neighbor = -1;
   for (let i = index + step; i >= 0 && i < queue.length; i += step) {
     if (queue[i].facility === facility) {
-      neighbour = i;
+      neighbor = i;
       break;
     }
   }
-  if (neighbour < 0) return state; // already at this facility's boundary -> same-ref no-op
+  if (neighbor < 0) return state; // already at this facility's boundary -> same-ref no-op
 
   // Swap the two positions only. Everything between them keeps its index, which is what
   // guarantees other facilities' relative order survives untouched.
   const next = [...queue];
-  next[index] = queue[neighbour];
-  next[neighbour] = queue[index];
+  next[index] = queue[neighbor];
+  next[neighbor] = queue[index];
   return { ...state, processQueue: next };
 }
 
@@ -9029,7 +9029,7 @@ export function moveQueuedOrder(state: GameState, id: string, direction: "up" | 
 // The guarantee that replaced it is stronger and is structural rather than arithmetic: the
 // automation writes to state.autoSalvageQueue and CANNOT reach state.processQueue at all.
 //
-// ⚠️ WHAT CHANGED FOR AN EXISTING SAVE, stated plainly because it is a real behaviour change:
+// ⚠️ WHAT CHANGED FOR AN EXISTING SAVE, stated plainly because it is a real behavior change:
 // a player at queue depth 1 with the rules on used to see auto-salvage take their only
 // Salvage Bay slot, and had to remove that order to queue their own. They now have their slot
 // permanently, and auto-salvage runs beside it on the Terminal. Strictly better, and nothing
@@ -10539,7 +10539,7 @@ export function resolveProcesses(
       // crewed. Threaded off the ALREADY-advanced nextEquipmentId (economy seed first, combat seed
       // second) so every minted id stays unique + monotonic across builds and crafts in one resolve.
       // A non-combat hull resolves to an empty loadout spec and mints nothing (clean no-op). The
-      // shared combatStandardIssueSpecFor resolves the FULL loadout + behaviour-preserving per-hull
+      // shared combatStandardIssueSpecFor resolves the FULL loadout + behavior-preserving per-hull
       // magnitudes (Unit 1.4) from the SAME tables the migration + captain-grant paths use.
       const seededCombat = seedCombatStandardIssueForShip(
         minted.id,

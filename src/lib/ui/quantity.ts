@@ -62,7 +62,7 @@ export function wholeUnitsFree(free: number): number {
 // whole and clamped into 1..maxWhole, or 0 when nothing is queueable at all.
 //
 // `raw` is an unsubmitted form value and may be anything: bind:value on a number
-// <input> hands back NaN for a blank field and honours a pasted fraction or a
+// <input> hands back NaN for a blank field and honors a pasted fraction or a
 // negative. Non-finite raw falls back to 1, the smallest real order, which is
 // what an empty field should mean while the player is still typing.
 //
