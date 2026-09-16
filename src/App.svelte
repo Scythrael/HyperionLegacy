@@ -2478,7 +2478,8 @@
   // this out-of-the-way spot, per the user's own request, since the level/
   // XP/tick bar and the bottom nav ARE the header/footer now. Defaults to
   // Options since theme/save actions are the most commonly checked view.
-  type SystemSubTab = "profile" | "options" | "log" | "debug" | "about" | "patchNotes" | "community";
+  // 0.13.6 D7: "profile" removed from this union (Profile relocated to Crew > Admiral).
+  type SystemSubTab = "options" | "log" | "debug" | "about" | "patchNotes" | "community";
   let activeSystemSubTab: SystemSubTab = "options";
 
   // ============================================================================
@@ -2636,8 +2637,8 @@
   // driven by a top <SubTabs> bar inside the modal instead of the old left rail.
   let systemModalOpen = false;
 
-  // The modal's top-tab list, in display order. "profile" is the new first view
-  // (Task 3); the remaining keys map to the byte-for-byte-moved settings content
+  // The modal's top-tab list, in display order. Settings is the first view (0.13.6 D7 removed the
+  // former "profile" first tab, now at Crew > Admiral); the keys map to the settings content
   // blocks. "community" (Task 4) is the last player-visible tab. The Debug tab is
   // DEV-only and sits genuinely LAST via the spread, which injects its entry ONLY
   // when DEV_MODE is true (the exact `...(DEV_MODE ? [...] : [])` idiom the retired
@@ -2646,7 +2647,8 @@
   // dev-only tool after the user-facing tabs keeps the player tab strip clean.
   // DEV_MODE is a constant for the session, so this is a plain const, not a $: reactive.
   const systemModalTabs = [
-    { key: "profile", label: "Profile" },
+    // 0.13.6 D7: "Profile" was REMOVED from this modal and relocated to Crew > Admiral. The gear
+    // now opens the modal on Settings; the header portrait goes to the Admiral page instead.
     // ⚠️ LABEL "Settings", KEY still "options" (user, 2026-09-12). The key is internal sticky state
     // and renaming it would touch every switch arm for zero player benefit; the LABEL is what the
     // player reads. "Settings" was chosen over "Options" because the window is already called
@@ -2660,12 +2662,11 @@
   ];
 
   // openSystemModal / closeSystemModal / selectSystemSubTab / onSystemBackdropClick
-  // Task 3 (0.11.2 Shell Correction). The header portrait is the entry point: a
-  // click opens the settings modal on the Profile view. It can be closed by the
-  // header ✕ button, by Escape (handled by the shared focusTrap action, same as
-  // every other modal), or by clicking the backdrop outside the dialog surface.
+  // Task 3 (0.11.2 Shell Correction); 0.13.6 D7: the header GEAR is now the entry point and the
+  // modal opens on Settings (Profile moved to Crew > Admiral). It can be closed by the header ✕
+  // button, by Escape (shared focusTrap action), or by clicking the backdrop outside the dialog.
   function openSystemModal(): void {
-    activeSystemSubTab = "profile";
+    activeSystemSubTab = "options";
     systemModalOpen = true;
   }
   function closeSystemModal(): void {
@@ -9327,12 +9328,13 @@
            cost space. DESKTOP: one row, currency+fuel stacked at equal width to the right of the
            bars. MOBILE: portrait+bars+gear on row one, currency+fuel each half of the row beneath. -->
       <div class="top-bar-header">
-        <!-- Portrait: opens the System menu (Profile still lives there; not split out yet). -->
+        <!-- Portrait (0.13.6 D7): jumps to Crew > Admiral, where Profile now lives. A separate
+             destination from the gear, which opens Settings. -->
         <button
           type="button"
           class="mission-portrait-frame top-bar-portrait"
-          aria-label="Open admiral menu"
-          on:click={openSystemModal}
+          aria-label="Open admiral profile"
+          on:click={() => { activeTab = "personnel"; activePersonnelTab = "admiral"; }}
         >
           🖼️
         </button>
@@ -9413,12 +9415,13 @@
           </button>
         </div>
 
-        <!-- Gear: opens the System window ON the Settings tab (the portrait opens its default tab). -->
+        <!-- Gear: opens the System window on Settings (0.13.6 D7: now the ONLY door to the System
+             modal; the portrait went to Crew > Admiral). openSystemModal defaults to Settings. -->
         <button
           type="button"
           class="top-bar-gear"
           aria-label="Open settings"
-          on:click={() => { activeSystemSubTab = "options"; openSystemModal(); }}
+          on:click={openSystemModal}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
             <circle cx="12" cy="12" r="3.2" />
@@ -13714,6 +13717,26 @@
              area whose live "Prestige" button opens the FA prestige tree in a
              modal. This replaced the old Admiral stub and re-homed the retired
              Homeworld tab's ADMINISTRATION tree (see the Prestige modal below). -->
+        <!-- PROFILE (0.13.6 D7): relocated here from the System menu. The header PORTRAIT now
+             lands on this page (Crew > Admiral); the header GEAR opens Settings. Identity glyph +
+             the inert Name / Portrait change controls (real profile editing is a later feature),
+             the same markup the System modal's Profile view carried. -->
+        <Panel>
+          <div class="panel-title">PROFILE</div>
+          <div class="profile-identity">
+            <div class="mission-portrait-frame profile-portrait" aria-hidden="true">🖼️</div>
+            <div class="profile-identity-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
+          </div>
+          <div class="stat-row">
+            <span class="stat-row-label">Name</span>
+            <button class="dev-btn" disabled title="Coming soon">Change</button>
+          </div>
+          <div class="stat-row">
+            <span class="stat-row-label">Portrait</span>
+            <button class="dev-btn" disabled title="Coming soon">Change</button>
+          </div>
+        </Panel>
+
         <!-- FA OVERVIEW. fleetAdminXpRatio is the SAME reactive the header XP bar
              uses (declared once via $:), so this bar and the header stay in lock
              step. Admin Points is the prestige currency the tree spends; Credits
@@ -15513,31 +15536,8 @@
             <SubTabs tabs={systemModalTabs} active={activeSystemSubTab} onSelect={selectSystemSubTab} />
           </div>
           <div class="system-modal-body">
-      {#if activeSystemSubTab === "profile"}
-      <!-- Profile view (0.11.2 Shell Correction, Task 3, NEW). Shows the same
-           portrait glyph + "Fleet Admiral · Level N" identity the header already
-           carries, then two PLACEHOLDER rows (Name / Portrait). Their "Change"
-           controls are deliberately inert this patch: a disabled button with a
-           "Coming soon" title, no handler and no new state (real profile editing
-           is a later feature). Reuses the Task 2 .stat-row idiom for the rows and
-           the existing .dev-btn for the controls, adding no new layout vocabulary. -->
-      <Panel>
-        <div class="panel-title">PROFILE</div>
-        <div class="profile-identity">
-          <div class="mission-portrait-frame profile-portrait" aria-hidden="true">🖼️</div>
-          <div class="profile-identity-name">Fleet Admiral · Level {state.fleetAdminLevel}</div>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">Name</span>
-          <button class="dev-btn" disabled title="Coming soon">Change</button>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">Portrait</span>
-          <button class="dev-btn" disabled title="Coming soon">Change</button>
-        </div>
-      </Panel>
-      {/if}
-
+      <!-- 0.13.6 D7: the Profile view was relocated to Crew > Admiral (see the PROFILE panel
+           there). The System modal now opens on Settings. -->
       {#if activeSystemSubTab === "options"}
       <!-- ⚠️ OPTIONS IS NOW GROUPED BY INTENT (0.13.5 Phase 1). The rail below splits the settings
            into VISUAL (how it looks), GAMEPLAY (what it does without asking) and ACCESSIBILITY
