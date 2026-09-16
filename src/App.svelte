@@ -16985,23 +16985,17 @@
          other root-level modal in this file demonstrates it. Re-parenting to <body> would buy
          nothing and add a DOM move on every open. -->
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: the backdrop is a presentation dimmer whose only job is click-to-dismiss. Keyboard users dismiss with Escape (the focusTrap on the dialog below) or the header ✕, and every real control lives inside the dialog, so nothing is reachable only by clicking the dimmer. -->
-    <div class="fsheet-backdrop" on:click|self={cancelLineStart}>
-      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm craft" use:focusTrap={cancelLineStart}>
-        <div class="fsheet-head">
-          <span>CONFIRM CRAFT</span>
-          <button class="fsheet-close" on:click={cancelLineStart} aria-label="Close without starting the line">&times;</button>
-        </div>
-        <p class="modal-warning">Start this production line? Its materials will be reserved, you can cancel the line to refund the remainder.</p>
-        <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
-          <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
-          Don't show this again
-        </label>
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
-          <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
-        </div>
-      </div>
-    </div>
+    <ActionModal title="Confirm craft" onClose={cancelLineStart}>
+      <p class="modal-warning">Start this production line? Its materials will be reserved, you can cancel the line to refund the remainder.</p>
+      <label class="modal-row" style="justify-content: flex-start; gap: 6px; margin-bottom: 4px;">
+        <input type="checkbox" bind:checked={refineConfirmDontShowAgain} />
+        Don't show this again
+      </label>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelLineStart}>Cancel</button>
+        <button class="dev-btn" on:click={confirmLineStart}>Confirm</button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if autoSalvageBaselineWarnOpen}
@@ -17027,12 +17021,7 @@
          rules rather than limiting them. The wording therefore states what is true about the
          configuration being entered and makes no promise about the one being left. -->
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the craft confirm's backdrop, a presentation dimmer whose click-to-dismiss is a convenience. Escape and the header close both dismiss from the keyboard, and both cancel safely. -->
-    <div class="fsheet-backdrop" on:click|self={cancelAutoSalvageDuplicatesOff}>
-      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm auto-salvage rule change" use:focusTrap={cancelAutoSalvageDuplicatesOff}>
-        <div class="fsheet-head">
-          <span>INCLUDE STANDARD-ISSUE?</span>
-          <button class="fsheet-close" on:click={cancelAutoSalvageDuplicatesOff} aria-label="Close without changing the rule">&times;</button>
-        </div>
+    <ActionModal title="Include Standard-Issue?" ariaLabel="Confirm auto-salvage rule change" onClose={cancelAutoSalvageDuplicatesOff}>
         <p class="modal-warning">
           With Duplicates switched off, these rules will include the <strong>Standard-Issue systems your ships come with</strong>, down to the last spare.
         </p>
@@ -17054,12 +17043,11 @@
           <input type="checkbox" bind:checked={autoSalvageBaselineWarnDontShowAgain} />
           Don't show this again
         </label>
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={cancelAutoSalvageDuplicatesOff}>Cancel</button>
           <button class="dev-btn danger" on:click={confirmAutoSalvageDuplicatesOff}>Switch off anyway</button>
-        </div>
-      </div>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if salvageConfirm !== null}
@@ -17093,12 +17081,7 @@
     {@const scId = salvageConfirm.id}
     {@const scIsBaseline = salvageConfirm.kind === "system" && state.equipment.find((e) => e.id === scId)?.blueprintKey === null}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the craft confirm's backdrop, a presentation dimmer whose click-to-dismiss is a convenience. Escape and the header ✕ both close from the keyboard and both cancel safely. -->
-    <div class="fsheet-backdrop" on:click|self={cancelSalvageConfirm}>
-      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Confirm salvage" use:focusTrap={cancelSalvageConfirm}>
-        <div class="fsheet-head">
-          <span>CONFIRM SALVAGE</span>
-          <button class="fsheet-close" on:click={cancelSalvageConfirm} aria-label="Close without salvaging">&times;</button>
-        </div>
+    <ActionModal title="Confirm salvage" onClose={cancelSalvageConfirm}>
         <p class="modal-warning">
           {#if scIsBaseline}
             Permanently discard <strong>{salvageConfirm.name}</strong>? This removes the Standard-Issue system for nothing (it has no materials to recover) and can't be undone.
@@ -17139,14 +17122,13 @@
             {/if}
           </p>
         {/if}
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={cancelSalvageConfirm}>Cancel</button>
           <button class="dev-btn danger" on:click={confirmSalvage}>
             {#if salvageConfirm.kind === "ship"}Salvage{:else}Add to queue{/if}
           </button>
-        </div>
-      </div>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if queueFullNotice !== null}
@@ -17178,12 +17160,7 @@
          the Got it button all call closeQueueFullNotice and all mean the same thing. -->
     {@const queueFullFacility = queueFullNotice}
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions, INTENTIONAL: same reasoning as the two confirm sheets above, the backdrop is a presentation dimmer whose click-to-dismiss is a convenience. Escape (the focusTrap below) and the header ✕ both close it from the keyboard, and the only control lives inside the dialog. -->
-    <div class="fsheet-backdrop" on:click|self={closeQueueFullNotice}>
-      <div class="fsheet" role="dialog" aria-modal="true" aria-label="Queue full" use:focusTrap={closeQueueFullNotice}>
-        <div class="fsheet-head">
-          <span>QUEUE FULL</span>
-          <button class="fsheet-close" on:click={closeQueueFullNotice} aria-label="Close">&times;</button>
-        </div>
+    <ActionModal title="Queue full" onClose={closeQueueFullNotice}>
         <!-- The message. Both remedies, no depth NUMBER in the prose: depth is derived from
              talents on read and a respec can shrink it, so a baked-in figure would eventually
              be a lie. -->
@@ -17203,11 +17180,10 @@
              Admiral modal), so the popup SAYS where to go rather than inventing a second
              navigation path in a bug fix. Cancelling a queued job is done in the ORDER QUEUE
              panel on the console already behind this sheet. -->
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closeQueueFullNotice}>Got it</button>
-        </div>
-      </div>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if homeworldRespecModalOpen}
@@ -18876,85 +18852,6 @@
      tint here is color-mix on a theme token, so it composites against whatever is behind it
      in either theme. The dimmer itself is a flat rgba black, matching .ss-modal-backdrop
      rather than inventing a second dimmer value; it is a neutral scrim, not a themed tint. */
-  .fsheet-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 100; /* the same layer .modal-backdrop occupies, so stacking is unchanged */
-    display: flex;
-    align-items: flex-end; /* phone: the sheet is anchored to the bottom edge */
-    justify-content: center;
-    background: rgba(4, 6, 10, 0.66);
-  }
-  .fsheet {
-    width: 100%;
-    max-height: 88vh;
-    overflow-y: auto;
-    padding: 14px; /* the confirm dialogs' Panel inset, so the moved content keeps its breathing room */
-    /* Clear the mobile browser's bottom chrome / gesture bar so the Confirm row is not tucked
-       behind it (the 0.13.2 QA fix); resolves to the plain padding on a desktop. */
-    padding-bottom: max(14px, env(safe-area-inset-bottom, 0px));
-    background: var(--color-bg-mid);
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--corner) var(--corner) 0 0; /* rounded top edge reads as a sheet lifting from the edge */
-    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.6);
-    color: var(--color-text-primary);
-  }
-  /* From 700px the sheet becomes a centered popup, the 0.13.2 breakpoint. */
-  @media (min-width: 700px) {
-    .fsheet-backdrop {
-      align-items: center;
-      padding: 24px;
-    }
-    .fsheet {
-      max-width: 460px;
-      max-height: 85vh;
-      border-radius: var(--corner);
-      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
-    }
-  }
-  /* Sticky header so the title and the ✕ stay reachable while a long body scrolls (the
-     salvage confirm can carry three stacked paragraphs on a hull teardown). The negative
-     offsets cancel the panel's own 14px top padding so it pins flush to the panel top,
-     the same trick .ss-picker-head uses. */
-  .fsheet-head {
-    position: sticky;
-    top: -14px;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 14px 0 9px;
-    margin: -14px 0 9px;
-    background: var(--color-bg-mid);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
-    font-family: var(--font-display);
-    font-size: var(--text-md);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--color-accent-bright);
-  }
-  .fsheet-close {
-    margin-left: auto;
-    flex: 0 0 auto;
-    width: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    font-size: calc(16px * var(--ui-scale));
-    line-height: 1;
-    cursor: pointer;
-    background: color-mix(in srgb, var(--color-accent) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
-    border-radius: var(--corner);
-    color: var(--color-text-secondary);
-  }
-  .fsheet-close:hover {
-    color: var(--color-text-primary);
-    border-color: var(--color-accent);
-  }
-  .fsheet-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   /* .fsheet-explain: the NEUTRAL sibling of .modal-warning and .modal-note, for a sheet whose
      body is an EXPLANATION rather than a caution or a reassurance. Identical size, line-height
      and 10px bottom margin, so a sheet's paragraphs share one rhythm whichever of the three it
