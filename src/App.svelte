@@ -368,6 +368,7 @@
   } from "./lib/accessibilityPreference";
   import SettingRow from "./lib/SettingRow.svelte";
   import HelpTip from "./lib/HelpTip.svelte";
+  import ActionModal from "./lib/ActionModal.svelte";
   import Toggle from "./lib/Toggle.svelte";
   import MultiSelect from "./lib/MultiSelect.svelte";
   import { initIconPack } from "./lib/ui/iconPacks";
@@ -16945,18 +16946,15 @@
   {/if}
 
   {#if deleteModalOpen}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete save confirmation" use:focusTrap={cancelDelete}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">DELETE SAVE</div>
-        <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
-        <p class="modal-instruction">Type <strong>DELETE</strong> to confirm.</p>
-        <input class="modal-input" type="text" bind:value={deleteConfirmText} aria-label="Type DELETE to confirm" />
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
-          <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
-        </div>
-      </Panel>
-    </div>
+    <ActionModal title="Delete save" ariaLabel="Delete save confirmation" onClose={cancelDelete}>
+      <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
+      <p class="modal-instruction">Type <strong>DELETE</strong> to confirm.</p>
+      <input class="modal-input" type="text" bind:value={deleteConfirmText} aria-label="Type DELETE to confirm" />
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelDelete}>Cancel</button>
+        <button class="dev-btn danger" disabled={deleteConfirmText !== "DELETE"} on:click={confirmDelete}>Delete</button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if refineConfirmModalOpen}
@@ -17222,25 +17220,22 @@
          (disabled below RESPEC_COST_CREDITS) is already a deliberate,
          gated action, so a plain Cancel/Confirm pair is enough friction
          here, on top of the cost + irreversibility warning text below. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Reset homeworld talents" use:focusTrap={cancelHomeworldRespec}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">RESET HOMEWORLD TALENTS</div>
-        <p class="modal-warning">
-          This will refund every talent's Admiralty Points (except unlocked captain slots, which stay
-          permanently unlocked) and cost {RESPEC_COST_CREDITS} Credits. This can't be undone.
-        </p>
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelHomeworldRespec}>Cancel</button>
-          <button
-            class="dev-btn danger"
-            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-            on:click={doRespecHomeworldTalents}
-          >
-            Confirm
-          </button>
-        </div>
-      </Panel>
-    </div>
+    <ActionModal title="Reset homeworld talents" onClose={cancelHomeworldRespec}>
+      <p class="modal-warning">
+        This will refund every talent's Admiralty Points (except unlocked captain slots, which stay
+        permanently unlocked) and cost {RESPEC_COST_CREDITS} Credits. This can't be undone.
+      </p>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelHomeworldRespec}>Cancel</button>
+        <button
+          class="dev-btn danger"
+          disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+          on:click={doRespecHomeworldTalents}
+        >
+          Confirm
+        </button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if captainRespecModalOpen}
@@ -17260,25 +17255,22 @@
          refunds talent points AND frees up a new free spec pick, the
          confirmed "changing an established spec costs exactly one respec"
          design. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Reset captain talents" use:focusTrap={cancelCaptainRespec}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">RESET CAPTAIN TALENTS, {activeCaptain.label}</div>
-        <p class="modal-warning">
-          This will clear this captain's specialization and refund every Captain Talent's Stat Points they spent,
-          and cost {RESPEC_COST_CREDITS} Credits. You'll choose a new specialization afterward. This can't be undone.
-        </p>
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelCaptainRespec}>Cancel</button>
-          <button
-            class="dev-btn danger"
-            disabled={state.credits.lt(RESPEC_COST_CREDITS)}
-            on:click={() => doRespecCaptainTalents(null)}
-          >
-            Confirm
-          </button>
-        </div>
-      </Panel>
-    </div>
+    <ActionModal title={`Reset captain talents · ${activeCaptain.label}`} ariaLabel="Reset captain talents" onClose={cancelCaptainRespec}>
+      <p class="modal-warning">
+        This will clear this captain's specialization and refund every Captain Talent's Stat Points they spent,
+        and cost {RESPEC_COST_CREDITS} Credits. You'll choose a new specialization afterward. This can't be undone.
+      </p>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelCaptainRespec}>Cancel</button>
+        <button
+          class="dev-btn danger"
+          disabled={state.credits.lt(RESPEC_COST_CREDITS)}
+          on:click={() => doRespecCaptainTalents(null)}
+        >
+          Confirm
+        </button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if importModalOpen}
@@ -17294,19 +17286,16 @@
          rejected file) renders as a second .modal-warning line WITHOUT
          closing the modal, so the user can immediately pick a different
          file from the same still-open dialog. -->
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Import save confirmation" use:focusTrap={cancelImport}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">IMPORT SAVE</div>
-        <p class="modal-warning">This will REPLACE your current save. This can't be undone.</p>
-        {#if importError}
-          <p class="modal-warning">{importError}</p>
-        {/if}
-        <div class="modal-row">
-          <button class="dev-btn" on:click={cancelImport}>Cancel</button>
-          <button class="dev-btn danger" on:click={confirmImport}>Import</button>
-        </div>
-      </Panel>
-    </div>
+    <ActionModal title="Import save" ariaLabel="Import save confirmation" onClose={cancelImport}>
+      <p class="modal-warning">This will REPLACE your current save. This can't be undone.</p>
+      {#if importError}
+        <p class="modal-warning">{importError}</p>
+      {/if}
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={cancelImport}>Cancel</button>
+        <button class="dev-btn danger" on:click={confirmImport}>Import</button>
+      </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if saveCorruptModalOpen}
