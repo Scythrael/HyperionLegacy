@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Action Modal Standardization Mock</title>
+<style>
+  :root {
+    --bg-deep: #0a1016;
+    --bg: #0e1621;
+    --panel: #14202c;
+    --panel-strong: #182835;
+    --border: rgba(103, 232, 249, 0.18);
+    --border-strong: rgba(103, 232, 249, 0.4);
+    --accent: #67e8f9;
+    --accent-rgb: 103, 232, 249;
+    --text: #dce8ee;
+    --text-2: #8fa3ad;
+    --text-dim: #61808c;
+    --success: #67f9a8;
+    --danger: #f96767;
+    --warning: #f9c667;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --corner: 8px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background:
+      radial-gradient(1200px 700px at 20% -10%, #12202e 0%, transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, #101b28 0%, transparent 55%),
+      var(--bg-deep);
+    color: var(--text); font-family: var(--sans); line-height: 1.5;
+    padding: 28px 18px 60px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: 0.02em; }
+  h1 .accent { color: var(--accent); }
+  .lede { color: var(--text-2); margin: 0 0 8px; max-width: 70ch; }
+  .rule-note { color: var(--text-dim); font-size: 0.85rem; margin: 0 0 26px; max-width: 78ch; }
+  .rule-note b { color: var(--warning); }
+  h2 { font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-2); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin: 34px 0 18px; }
+
+  /* ===== The stage: a fake "app" surface the modals sit over ===== */
+  .stage {
+    position: relative; border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%); min-height: 300px;
+  }
+  .stage-chrome { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; opacity: 0.5; }
+  .stage-chrome .dot { width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); }
+  .stage-chrome .bars { flex: 1; display: grid; gap: 6px; }
+  .stage-chrome .bars i { display: block; height: 8px; border-radius: 4px; background: var(--panel-strong); }
+  .stage-chrome .bars i:first-child { width: 60%; }
+  .stage-body { padding: 18px 16px; display: grid; gap: 10px; opacity: 0.4; }
+  .stage-body i { display: block; height: 44px; border-radius: 8px; background: var(--panel); border: 1px solid var(--border); }
+
+  .backdrop { position: absolute; inset: 0; background: rgba(4, 8, 12, 0.72); backdrop-filter: blur(1px); display: flex; }
+
+  /* ===== THE STANDARD SHELL ===== */
+  .amodal {
+    background: var(--panel); border: 1px solid var(--border-strong);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.55); display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .amodal-head {
+    position: sticky; top: 0; display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .amodal-title { flex: 1; font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text); }
+  .amodal-x { width: 30px; height: 30px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-2); font-size: 15px; cursor: pointer; flex: 0 0 auto; }
+  .amodal-body { padding: 16px; overflow-y: auto; display: grid; gap: 12px; }
+  .amodal-foot {
+    position: sticky; bottom: 0; display: flex; gap: 10px; justify-content: flex-end;
+    padding: 12px 16px; border-top: 1px solid var(--border); background: var(--panel);
+  }
+
+  /* Desktop = centered card. */
+  .center .amodal { margin: auto; width: min(440px, 92%); max-height: 82%; border-radius: 12px; }
+  /* Mobile = bottom sheet. */
+  .sheet { align-items: flex-end; }
+  .sheet .amodal { width: 100%; max-height: 78%; border-radius: 16px 16px 0 0; border-bottom: none; }
+  .sheet .amodal-head::before { content: ""; position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 40px; height: 4px; border-radius: 3px; background: var(--border-strong); }
+  .sheet .amodal-head { padding-top: 18px; }
+
+  /* ===== example modal contents ===== */
+  .btn { font-family: var(--sans); font-size: 0.85rem; padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border-strong); background: rgba(var(--accent-rgb), 0.08); color: var(--accent); cursor: pointer; }
+  .btn.primary { background: var(--accent); color: #06121a; border-color: var(--accent); font-weight: 600; }
+  .btn.ghost { background: transparent; color: var(--text-2); border-color: var(--border); }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #180606; font-weight: 600; }
+  .row { display: flex; gap: 10px; align-items: center; }
+  .stat { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 6px 0; border-bottom: 1px dashed var(--border); }
+  .stat .k { color: var(--text-2); }
+  .stat .up { color: var(--success); font-family: var(--mono); }
+  .stat .down { color: var(--danger); font-family: var(--mono); }
+  .stat .v { font-family: var(--mono); }
+  .p { color: var(--text-2); font-size: 0.9rem; margin: 0; }
+  .warn { color: var(--warning); font-size: 0.9rem; margin: 0; }
+  .pick { display: flex; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+  .pick.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .pick .av { width: 34px; height: 34px; border-radius: 6px; background: var(--panel-strong); border: 1px solid var(--border); flex: 0 0 auto; }
+  .pick .nm { flex: 1; }
+  .pick .nm b { display: block; }
+  .pick .nm span { color: var(--text-dim); font-size: 0.8rem; }
+  .chk { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 0.85rem; margin-top: 4px; }
+  .chk i { width: 16px; height: 16px; border: 1px solid var(--border-strong); border-radius: 4px; display: inline-block; }
+  .tag { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--border-strong); border-radius: 4px; padding: 2px 6px; }
+
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 780px) { .cols { grid-template-columns: 1fr; } }
+  .caption { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 8px; }
+
+  .anno { list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 6px; }
+  .anno li { color: var(--text-2); font-size: 0.88rem; padding-left: 20px; position: relative; }
+  .anno li::before { content: ""; position: absolute; left: 4px; top: 0.6em; width: 6px; height: 6px; border-radius: 2px; background: var(--accent); }
+  .anno li b { color: var(--text); }
+  .excl { color: var(--warning); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Action Modal <span class="accent">Standardization</span></h1>
+  <p class="lede">One shared shell for every ACTION modal in the game: centered card on desktop, bottom sheet on mobile, always with a backdrop, a sticky header carrying the title + close, a scrolling body, and a sticky action footer. Approve the shell here; then it gets extracted into one component and every action modal is migrated to it (carefully, keeping each one's theme + reading correct).</p>
+  <p class="rule-note"><b>Scope:</b> install flow, confirm dialogs, and pickers migrate to this shell. <b>Excluded:</b> the Options gear popup (its own thing, standing exclusion). Focus is trapped inside (Escape + the header X + a backdrop tap all close). Extracted from the 0.13.2 install-flow modal, which is the reference implementation.</p>
+
+  <h2>The shell &middot; desktop (centered) vs mobile (bottom sheet)</h2>
+  <div class="cols">
+    <div>
+      <p class="caption">Desktop &middot; centered card</p>
+      <div class="stage">
+        <div class="stage-chrome"><div class="dot"></div><div class="bars"><i></i><i></i></div></div>
+        <div class="stage-body"><i></i><i></i><i></i></div>
+        <div class="backdrop center">
+          <div class="amodal">
+            <div class="amodal-head"><div class="amodal-title">Install &middot; Cargo Bay</div><button class="amodal-x">&times;</button></div>
+            <div class="amodal-body">
+              <div class="row"><span class="tag">Augmented &middot; Q3</span><span style="color:var(--text-2);font-size:0.85rem;">Prospector Hold</span></div>
+              <p class="caption" style="margin:0;">Net change on install</p>
+              <div class="stat"><span class="k">Cargo capacity</span><span class="up">1200 &rarr; 1692 &nbsp;(+492)</span></div>
+              <div class="stat"><span class="k">Mass</span><span class="down">+38</span></div>
+              <div class="stat"><span class="k">Engine efficiency</span><span class="down">0.15 &rarr; 0.11</span></div>
+              <p class="p">Replaces the system currently in this slot; the removed one returns to the Systems Bay.</p>
+            </div>
+            <div class="amodal-foot"><button class="btn ghost">Cancel</button><button class="btn primary">Install</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <p class="caption">Mobile &middot; bottom sheet</p>
+      <div class="stage" style="max-width:360px;">
+        <div class="stage-chrome"><div class="dot"></div><div class="bars"><i></i><i></i></div></div>
+        <div class="stage-body"><i></i><i></i></div>
+        <div class="backdrop sheet">
+          <div class="amodal">
+            <div class="amodal-head"><div class="amodal-title">Install &middot; Cargo Bay</div><button class="amodal-x">&times;</button></div>
+            <div class="amodal-body">
+              <div class="row"><span class="tag">Augmented &middot; Q3</span><span style="color:var(--text-2);font-size:0.85rem;">Prospector Hold</span></div>
+              <div class="stat"><span class="k">Cargo capacity</span><span class="up">+492</span></div>
+              <div class="stat"><span class="k">Mass</span><span class="down">+38</span></div>
+              <p class="p">Removed system returns to the Systems Bay.</p>
+            </div>
+            <div class="amodal-foot"><button class="btn ghost">Cancel</button><button class="btn primary">Install</button></div>
+          </div>
+        </div>
+      </div>
+      <p class="caption" style="margin-top:8px;">Same shell: a drag-handle + rounded top, flush to the bottom edge.</p>
+    </div>
+  </div>
+
+  <h2>Same shell, other action types</h2>
+  <div class="cols">
+    <div>
+      <p class="caption">Confirm &middot; destructive</p>
+      <div class="stage" style="min-height:230px;">
+        <div class="stage-body"><i></i></div>
+        <div class="backdrop center">
+          <div class="amodal">
+            <div class="amodal-head"><div class="amodal-title">Salvage this system?</div><button class="amodal-x">&times;</button></div>
+            <div class="amodal-body">
+              <p class="warn">This permanently destroys the Radiant Reactor Core (Q5). This cannot be undone.</p>
+              <p class="p">You will recover roughly 30-40% of its build materials.</p>
+              <label class="chk"><i></i> Don't ask again for Radiant items</label>
+            </div>
+            <div class="amodal-foot"><button class="btn ghost">Cancel</button><button class="btn danger">Salvage</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <p class="caption">Picker &middot; select one</p>
+      <div class="stage" style="min-height:230px;">
+        <div class="stage-body"><i></i></div>
+        <div class="backdrop center">
+          <div class="amodal">
+            <div class="amodal-head"><div class="amodal-title">Assign a captain</div><button class="amodal-x">&times;</button></div>
+            <div class="amodal-body">
+              <div class="pick sel"><div class="av"></div><div class="nm"><b>Captain Vex</b><span>Lv 12 &middot; Prospector</span></div><span class="tag">Selected</span></div>
+              <div class="pick"><div class="av"></div><div class="nm"><b>Cmdr. Ravenscar</b><span>Lv 9 &middot; Tactician</span></div></div>
+              <div class="pick"><div class="av"></div><div class="nm"><b>Lt. Okonkwo</b><span>Lv 7 &middot; Prospector</span></div></div>
+            </div>
+            <div class="amodal-foot"><button class="btn ghost">Cancel</button><button class="btn primary">Assign</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>What the shared component standardizes</h2>
+  <ul class="anno">
+    <li><b>Backdrop</b> that dims the app and closes on tap (outside the dialog).</li>
+    <li><b>Placement:</b> centered card on desktop, bottom sheet flush to the bottom on mobile (drag-handle affordance), from one breakpoint, not per-modal CSS.</li>
+    <li><b>Sticky header:</b> uppercase mono title on the left, a close X on the right, always reachable even when the body scrolls.</li>
+    <li><b>Scrolling body</b> with consistent padding + gap, so long content (compare tables, long pick lists) scrolls inside the sheet, never the page.</li>
+    <li><b>Sticky footer</b> for actions: a ghost Cancel on the left of the primary action; destructive actions use the danger color.</li>
+    <li><b>Focus trap + Escape close</b> baked in (the shared focusTrap action), so every migrated modal traps + restores focus identically.</li>
+    <li class="excl"><b>Excluded by rule:</b> the Options gear popup keeps its own treatment.</li>
+  </ul>
+  <p class="rule-note" style="margin-top:22px;">If the shell reads right, the plan is: extract this into one <code>ActionModal</code> component (props: title, close handler, optional footer slot), then migrate each action modal (install, confirms, pickers) onto it one at a time, gating each, so any single migration is easy to review + revert.</p>
+</div>
+</body>
+</html>
