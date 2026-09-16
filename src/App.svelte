@@ -7825,6 +7825,24 @@
       p.effect.facility === "refinery"
   );
 
+  // 0.13.6 polish: the set of facility keys with an in-flight level-up. The
+  // facilityUpgradeButton snippet reads this to REPLACE its disabled Build button with a
+  // clean "Upgrade already in progress" line while a rung builds (instead of a disabled
+  // button whose text crowded the progress bar). One reactive covers all facility panels
+  // (refinery/fabricator/research/fuelStorage/salvageBay/shipyard/missionControl + every
+  // warehouse tier), keyed by the same facility key the snippet already receives.
+  $: facilityUpgradesInFlight = new Set(
+    state.activeProcesses.flatMap((p) =>
+      p.kind === "facilityUpgrade" && p.effect.type === "facilityLevelUp" ? [p.effect.facility] : []
+    )
+  );
+  // The same swap for the three INLINE upgrade buttons that do not route through the snippet
+  // (they carry their own persistent reason note): Systems Bay, Docks, and Docking Bays.
+  // Each is its own TimedProcessKind, so a plain kind check answers "is a rung building".
+  $: equipmentStorageUpgradeInFlight = state.activeProcesses.some((p) => p.kind === "equipmentStorageUpgrade");
+  $: docksExpansionInFlight = state.activeProcesses.some((p) => p.kind === "docksExpansion");
+  $: transitBerthExpansionInFlight = state.activeProcesses.some((p) => p.kind === "transitBerthExpansion");
+
   // ---- Warehouse reactive derivations (Phase 2, Group C) ----------------------
   // NOTE (0.11.2 Task 9): the old flat-catalog tier-group builder
   // (warehouseTierGroups / warehouseGroups / WAREHOUSE_CAT_CATEGORIES) was
@@ -8713,33 +8731,42 @@
   onBuild: () => void,
   wrapStyle: string = ""
 )}
-  <!-- The hover region sits on this WRAPPER, NOT the button: a disabled <button>
-       does not fire pointer events, so the wrapper is what catches the hover. The
-       native `title` was removed on purpose, it was the flicker source. -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <!-- Intentional: this is a MOUSE-CONVENIENCE popover that only duplicates the
-       shortfall already shown in the always-visible readiness rows above each
-       button, so keyboard/screen-reader users lose nothing by it being hover-only.
-       There is no accessible role for a bare hover-reveal container, and the button
-       it wraps is (correctly) disabled, hence not a valid handler host. -->
-  <div
-    class="upgrade-reason-wrap"
-    style={wrapStyle}
-    on:mouseenter={() => showUpgradeReason(key)}
-    on:mouseleave={() => hideUpgradeReason(key)}
-  >
-    <button class="buy-btn" disabled={!check.ok} on:click={onBuild}>
-      {label}
-    </button>
-    <!-- Custom disabled-reason popover. Its open-state (openUpgradeReasonKey) is
-         tick-independent, so the per-tick reason text updates in place without the
-         popover resetting. Reuses the currency-tooltip look (opaque, bordered, shadow). -->
-    {#if !check.ok && check.reason && openUpgradeReasonKey === key}
-      <div class="info-pop currency-tooltip upgrade-reason-tooltip" role="tooltip">
-        <div class="currency-tooltip-body">{check.reason}</div>
-      </div>
-    {/if}
-  </div>
+  <!-- 0.13.6 polish: while a rung for this facility builds, swap the disabled Build button
+       for a clean status line. The button text used to crowd/clip the progress bar the
+       panel renders just below; no info is lost (the in-flight block names the upgrade). -->
+  {#if facilityUpgradesInFlight.has(key)}
+    <div class="upgrade-inflight-line" style={wrapStyle}>
+      <Icon name="clock" size={12} /> Upgrade already in progress
+    </div>
+  {:else}
+    <!-- The hover region sits on this WRAPPER, NOT the button: a disabled <button>
+         does not fire pointer events, so the wrapper is what catches the hover. The
+         native `title` was removed on purpose, it was the flicker source. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- Intentional: this is a MOUSE-CONVENIENCE popover that only duplicates the
+         shortfall already shown in the always-visible readiness rows above each
+         button, so keyboard/screen-reader users lose nothing by it being hover-only.
+         There is no accessible role for a bare hover-reveal container, and the button
+         it wraps is (correctly) disabled, hence not a valid handler host. -->
+    <div
+      class="upgrade-reason-wrap"
+      style={wrapStyle}
+      on:mouseenter={() => showUpgradeReason(key)}
+      on:mouseleave={() => hideUpgradeReason(key)}
+    >
+      <button class="buy-btn" disabled={!check.ok} on:click={onBuild}>
+        {label}
+      </button>
+      <!-- Custom disabled-reason popover. Its open-state (openUpgradeReasonKey) is
+           tick-independent, so the per-tick reason text updates in place without the
+           popover resetting. Reuses the currency-tooltip look (opaque, bordered, shadow). -->
+      {#if !check.ok && check.reason && openUpgradeReasonKey === key}
+        <div class="info-pop currency-tooltip upgrade-reason-tooltip" role="tooltip">
+          <div class="currency-tooltip-body">{check.reason}</div>
+        </div>
+      {/if}
+    </div>
+  {/if}
 {/snippet}
 
 <!-- ================= THE ORDER QUEUE PANEL (Crafting 0.13.3) =================
@@ -12754,15 +12781,19 @@
                        plain text node that updates in place without flicker, so this
                        button needs no hover popover (unlike the facility Build buttons,
                        which have no persistent note and use facilityUpgradeButton). -->
-                  <button
-                    class="buy-btn docks-expand-btn"
-                    disabled={!docksCheck.ok}
-                    on:click={doExpandDocks}
-                  >
-                    Expand Docks
-                  </button>
+                  {#if docksExpansionInFlight}
+                    <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
+                  {:else}
+                    <button
+                      class="buy-btn docks-expand-btn"
+                      disabled={!docksCheck.ok}
+                      on:click={doExpandDocks}
+                    >
+                      Expand Docks
+                    </button>
+                  {/if}
                 </div>
-                {#if !docksCheck.ok}
+                {#if !docksExpansionInFlight && !docksCheck.ok}
                   <div class="docks-expand-note">{docksCheck.reason}</div>
                 {/if}
                 <!-- ⚠️ TRANSIT BERTHS (0.13.4 Phase 4 Unit 4.2): A SECOND, INDEPENDENT CAPACITY.
@@ -12791,15 +12822,19 @@
                   <div class="research-cost">
                     Docking bays: {transitBerthsOccupied(state)} / {transitBerthCount(state)} in use
                   </div>
-                  <button
-                    class="buy-btn docks-expand-btn"
-                    disabled={!berthCheck.ok}
-                    on:click={doExpandTransitBerths}
-                  >
-                    Add Docking Bay
-                  </button>
+                  {#if transitBerthExpansionInFlight}
+                    <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
+                  {:else}
+                    <button
+                      class="buy-btn docks-expand-btn"
+                      disabled={!berthCheck.ok}
+                      on:click={doExpandTransitBerths}
+                    >
+                      Add Docking Bay
+                    </button>
+                  {/if}
                 </div>
-                {#if !berthCheck.ok}
+                {#if !transitBerthExpansionInFlight && !berthCheck.ok}
                   <div class="docks-expand-note">{berthCheck.reason}</div>
                 {/if}
                 <p class="research-status">
@@ -13135,15 +13170,19 @@
                    text node that updates in place without flicker, so this button needs
                    no hover popover (unlike the facility Build buttons, which have no
                    persistent note and use facilityUpgradeButton). -->
-              <button
-                class="buy-btn systems-bay-upgrade"
-                disabled={!upgradeCheck.ok}
-                on:click={doUpgradeEquipmentBay}
-              >
-                Upgrade Bay
-              </button>
+              {#if equipmentStorageUpgradeInFlight}
+                <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
+              {:else}
+                <button
+                  class="buy-btn systems-bay-upgrade"
+                  disabled={!upgradeCheck.ok}
+                  on:click={doUpgradeEquipmentBay}
+                >
+                  Upgrade Bay
+                </button>
+              {/if}
             </div>
-            {#if !upgradeCheck.ok}
+            {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
               <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
             {/if}
 
@@ -19509,6 +19548,14 @@
   .docks-expand-note {
     font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
+  }
+
+  /* 0.13.6 polish: the "Upgrade already in progress" status line that replaces a disabled
+     upgrade button while a rung builds (facility snippet + the inline Docks/Systems-Bay
+     buttons). A calm status readout, not an error note: dim, with the clock icon. */
+  .upgrade-inflight-line {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
   }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
