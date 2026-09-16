@@ -188,6 +188,28 @@
   --color-text-dim: #6c7e9c; /* 0.13.5 contrast lift: was #5a6a85, 3.39:1 against the panel, now 4.51:1 */
   --color-starfield: #c2d6f5;
 }
+[data-theme="purple"] {
+  --color-accent: #a678f9;
+  --color-accent-bright: #c4a0fd;
+  --color-accent-rgb: 166, 120, 249;
+  --color-border: rgba(166, 120, 249, 0.18);
+  --color-border-strong: rgba(166, 120, 249, 0.4);
+  --color-panel-bg: rgba(40, 28, 60, 0.32);
+  --color-text-secondary: #9c8fad;
+  --color-text-dim: #9080a6; /* lifted to clear WCAG AA 4.5:1 on the purple panel (contrast.test.ts) */
+  --color-starfield: #d8c2f5;
+}
+[data-theme="pink"] {
+  --color-accent: #f978c4;
+  --color-accent-bright: #fda0d8;
+  --color-accent-rgb: 249, 120, 196;
+  --color-border: rgba(249, 120, 196, 0.18);
+  --color-border-strong: rgba(249, 120, 196, 0.4);
+  --color-panel-bg: rgba(58, 28, 48, 0.32);
+  --color-text-secondary: #ad8fa0;
+  --color-text-dim: #94768a; /* first-pass; aim ~4.5:1 against the panel, verify on devpreview */
+  --color-starfield: #f5cee6;
+}
 [data-theme="red"] {
   --color-accent: #f96767;
   --color-accent-bright: #fd8f8f;

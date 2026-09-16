@@ -142,9 +142,9 @@ describe("every text colour clears WCAG AA, in every theme", () => {
   };
 
   it("declares an accent for every theme, so the disabled check below cannot be vacuous", () => {
-    // Non-vacuity guard, the same shape as the dim-text one: if this stops finding seven
-    // declarations (:root plus the six themes) the sweep below is silently measuring less.
-    expect(accentDeclarations().length).toBe(7);
+    // Non-vacuity guard, the same shape as the dim-text one: if this stops finding nine
+    // declarations (:root plus the eight themes) the sweep below is silently measuring less.
+    expect(accentDeclarations().length).toBe(9);
   });
 
   it("the disabled-text token clears AA on EVERY theme's accent", () => {
