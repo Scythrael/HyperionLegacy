@@ -190,3 +190,56 @@ describe("armory: check out / check in (Item Lifecycle 0.13.6)", () => {
     expect(back.equipment.find((e) => e.id === "equip-committed")!.committedToLoadoutId).toBe("loadout-1");
   });
 });
+
+// 0.13.6 bug-sweep regressions: any route that returns a system to the FREE spare pool must
+// restart its auto-salvage grace window, so a long-committed (or long-installed) system is never
+// queued for destruction the instant it is freed. Committed gear that STAYS committed keeps its
+// protection and does not need a fresh window.
+describe("armory: freeing gear restarts the auto-salvage grace window (0.13.6 regressions)", () => {
+  const NOW = 5000;
+
+  it("checkOutLoadout restarts grace on the ship's displaced MANUAL gear", () => {
+    const base = freshState();
+    const ship = { ...base.ships[0], id: "ship-d", typeKey: "destroyer", assignedCaptainId: null };
+    const manual: any = { ...base.equipment[0], id: "equip-manual", slotType: "cargoBay", fittedToShipId: "ship-d", committedToLoadoutId: undefined, graceStartedAtGameSeconds: 0 };
+    const s: any = {
+      ...base, gameTimeSeconds: NOW,
+      ships: [ship, ...base.ships.slice(1)],
+      equipment: [...base.equipment, manual],
+      loadouts: [{ id: "loadout-1", name: "L", shipTypeKey: "destroyer", slots: {}, checkedOutToShipId: null }],
+      nextLoadoutId: 2,
+    };
+    const after = checkOutLoadout(s, "loadout-1", "ship-d");
+    const m = after.equipment.find((e: any) => e.id === "equip-manual")!;
+    expect(m.fittedToShipId).toBeNull();
+    expect(m.graceStartedAtGameSeconds).toBe(NOW); // restarted, not left stale at 0
+  });
+
+  it("uninstallFromLoadout frees the piece and restarts its grace window", () => {
+    const base = freshState();
+    const committed: any = { ...base.equipment[0], id: "equip-c", slotType: "weapon", fittedToShipId: null, committedToLoadoutId: "loadout-1", graceStartedAtGameSeconds: 0 };
+    const s: any = {
+      ...base, gameTimeSeconds: NOW,
+      equipment: [...base.equipment, committed],
+      loadouts: [{ id: "loadout-1", name: "L", shipTypeKey: "destroyer", slots: { weapon0: "equip-c" }, checkedOutToShipId: null }],
+      nextLoadoutId: 2,
+    };
+    const c = uninstallFromLoadout(s, "loadout-1", "weapon0").equipment.find((e: any) => e.id === "equip-c")!;
+    expect(c.committedToLoadoutId).toBeUndefined();
+    expect(c.graceStartedAtGameSeconds).toBe(NOW);
+  });
+
+  it("deleteLoadout frees committed gear and restarts its grace window", () => {
+    const base = freshState();
+    const committed: any = { ...base.equipment[0], id: "equip-c", fittedToShipId: null, committedToLoadoutId: "loadout-1", graceStartedAtGameSeconds: 0 };
+    const s: any = {
+      ...base, gameTimeSeconds: NOW,
+      equipment: [...base.equipment, committed],
+      loadouts: [{ id: "loadout-1", name: "L", shipTypeKey: "destroyer", slots: { cargoBay: "equip-c" }, checkedOutToShipId: null }],
+      nextLoadoutId: 2,
+    };
+    const c = deleteLoadout(s, "loadout-1").equipment.find((e: any) => e.id === "equip-c")!;
+    expect(c.committedToLoadoutId).toBeUndefined();
+    expect(c.graceStartedAtGameSeconds).toBe(NOW);
+  });
+});

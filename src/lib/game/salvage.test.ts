@@ -4994,3 +4994,38 @@ describe("offline==live parity for a BATCH salvage (tick(span) == looping econom
     expect(salvageFingerprint(split)).toEqual(salvageFingerprint(tick(SPAN, batchSpanState(), mulberry32(SEED))));
   });
 });
+
+// ============================================================================
+// 0.13.6 ITEM-LIFECYCLE regressions: loadout-committed gear is protected.
+// ============================================================================
+describe("loadout-committed gear is not auto-salvaged and survives a ship scrap (0.13.6)", () => {
+  it("selectAutoSalvageTargets never picks a loadout-committed piece, even when its quality is targeted", () => {
+    const committed = { ...autoPiece({ id: "eq-committed", quality: 0 }), committedToLoadoutId: "loadout-9" } as EquipmentInstance;
+    const loose = autoPiece({ id: "eq-loose", quality: 0 });
+    const state = autoState([committed, loose], { qualities: [0] });
+    // Only the free spare is selected; the committed piece is in use (part of a saved set).
+    expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-loose"]);
+  });
+
+  it("salvageShip on a hull with a checked-out loadout releases the loadout and preserves its committed gear", () => {
+    const base = shipSalvageState();
+    const committed = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 3, id: "lo-1" });
+    const state: GameState = {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+      equipment: [...base.equipment, { ...committed, fittedToShipId: "ship-1", committedToLoadoutId: "loadout-1" }],
+      loadouts: [{ id: "loadout-1", name: "L", shipTypeKey: base.ships[0].typeKey, slots: { cargoBay: "lo-1" }, checkedOutToShipId: "ship-1" }],
+      nextLoadoutId: 2,
+    };
+    const result = salvageShip(state, "ship-1", () => 0.5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Loadout released, never left pointing at the destroyed hull.
+    expect(result.next.loadouts[0].checkedOutToShipId).toBeNull();
+    // Its committed gear survives: unfitted, STILL committed (not destroyed, not loosed to a free spare).
+    const lo = result.next.equipment.find((e) => e.id === "lo-1");
+    expect(lo).toBeDefined();
+    expect(lo?.fittedToShipId).toBeNull();
+    expect(lo?.committedToLoadoutId).toBe("loadout-1");
+  });
+});

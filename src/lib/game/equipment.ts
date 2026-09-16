@@ -192,6 +192,12 @@ export type EquipFitBlockReason =
   // every read, so it appears the moment the order is queued and disappears the moment the
   // order is cancelled, with no ledger to unwind. Cancel the salvage to install the piece.
   | "queuedForSalvage"
+  // 0.13.6 (item lifecycle): the piece is COMMITTED to an Armory loadout, so it is not a free
+  // spare and cannot be hand-installed on a ship. It belongs to a set edited in the Armory; a
+  // ship equips it only by checking that loadout out. Guards against a committed piece ending up
+  // both fitted to a hull AND committed to a loadout (which checkout/checkin would then move
+  // silently). Uninstall it from the loadout in the Armory to free it.
+  | "committedToLoadout"
   | "noShip"
   | "onMission"
   | "hullSpec"
@@ -328,6 +334,15 @@ export function canFitEquipment(
   // of entries), not over the whole equipment pool.
   if (salvageReservedInstanceIds(state).has(instanceId)) {
     return { ok: false, reason: "queuedForSalvage" };
+  }
+
+  // --- Loadout-commitment guard (0.13.6 item lifecycle). A piece committed to an Armory loadout
+  // is not a free spare: it is part of a saved set and reaches a ship only via checkOutLoadout.
+  // Hand-installing it would leave it fitted AND committed, so a later checkout/checkin would move
+  // it off this hull without warning. A pure property of the piece (like the salvage reservation
+  // above), so it is checked before any ship lookup. Uninstall from the loadout to free it.
+  if (instance.committedToLoadoutId !== undefined) {
+    return { ok: false, reason: "committedToLoadout" };
   }
 
   // --- Ship existence + on-mission lock (shared with unfitEquipment). This also

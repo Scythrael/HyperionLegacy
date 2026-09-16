@@ -430,7 +430,7 @@
 
   $: mountedWeapons = combatReadout ? combatReadout.mountedWeapons : [];
   $: hardpointCap = combatReadout ? combatReadout.hardpointCap : 0;
-  $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "weapon");
+  $: spareWeapons = equipmentPool.filter((e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === "weapon");
 
   // Combat-gear readiness (combat-defense rework, Unit 3/6, design S5 "inform, don't forbid"):
   //   - The REACTOR is the ONLY hard dispatch block. A ship with an empty reactorCore slot has no
@@ -448,7 +448,7 @@
   $: mountedPods = combatReadout ? combatReadout.mountedPods : [];
   $: droneBayCap = combatReadout ? combatReadout.droneBayCap : 0;
   $: hasDroneBays = droneBayCap > 0;
-  $: sparePods = equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === "droneBay");
+  $: sparePods = equipmentPool.filter((e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === "droneBay");
 
   // The ship's advisory Battle Rating: build the SAME player Combatant the dispatch
   // card + sim build (installed gear folded in) and score it. Null only if the hull
@@ -486,7 +486,7 @@
   $: pickerActive = selectedSlot !== null || selectedHardpoint !== null || selectedBay !== null;
   $: pickerSpares =
     selectedSlot !== null
-      ? equipmentPool.filter((e) => e.fittedToShipId === null && e.slotType === selectedSlot)
+      ? equipmentPool.filter((e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === selectedSlot)
       : selectedHardpoint !== null
         ? spareWeapons
         : selectedBay !== null
@@ -683,6 +683,8 @@
       // Actionable on purpose (cancel the order), because it is fully reversible.
       case "queuedForSalvage":
         return "queued for salvage (cancel the salvage order to install it)";
+      case "committedToLoadout":
+        return "committed to an Armory loadout (uninstall it there, or check that loadout out)";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":

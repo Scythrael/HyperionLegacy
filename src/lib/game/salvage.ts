@@ -625,15 +625,29 @@ export function salvageShip(
   // salvageJob inside the offline catch-up stamps the identical value the same teardown stamps
   // live. It is a pure read of state and draws no rng, so the documented draw order below is
   // untouched.
+  // 0.13.6 (item lifecycle): if a loadout is checked out to this hull, scrapping it AUTO-CHECKS-IN
+  // that loadout (below) rather than refusing or corrupting it. Its committed gear must return to
+  // the Armory as committed-but-unfitted (fittedToShipId null, committedToLoadoutId KEPT), NOT be
+  // discarded and NOT be grace-stamped as a loose spare (committed gear is never auto-salvaged).
+  // Everything else on the hull behaves as before.
+  const checkedOutLoadout = state.loadouts.find((l) => l.checkedOutToShipId === shipId);
   const equipment = state.equipment
-    // Drop ONLY this hull's genuine Standard-Issue floors.
-    .filter((e) => !(e.fittedToShipId === shipId && isStandardIssueBaseline(e)))
-    // Recover EVERY other piece on this hull (crafted AND dev/valuable) to the spare pool.
+    // Drop ONLY this hull's genuine Standard-Issue floors that are NOT part of a loadout (a
+    // committed baseline is part of a saved set and is preserved like any committed piece).
+    .filter((e) => !(e.fittedToShipId === shipId && isStandardIssueBaseline(e) && e.committedToLoadoutId === undefined))
+    // Recover every surviving piece on this hull to the pool, grace restarted (see the note
+    // above). A loadout-COMMITTED piece keeps its committedToLoadoutId (via ...e), so it returns
+    // to the Armory as committed-but-unfitted and auto-salvage still skips it (the stamp only
+    // matters if it is later uninstalled from the loadout); a MANUAL piece becomes a free spare.
     .map((e) =>
-      e.fittedToShipId === shipId && !isStandardIssueBaseline(e)
+      e.fittedToShipId === shipId
         ? startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds)
         : e
     );
+  // Release the checked-out loadout back to "available" so it never points at a destroyed hull.
+  const loadouts = checkedOutLoadout
+    ? state.loadouts.map((l) => (l.id === checkedOutLoadout.id ? { ...l, checkedOutToShipId: null } : l))
+    : state.loadouts;
 
   // --- Unassign the captain --------------------------------------------------
   // The ship->captain link (ShipInstance.assignedCaptainId) is the ONLY link between a hull
@@ -677,7 +691,7 @@ export function salvageShip(
   const ships = state.ships.filter((s) => s.id !== shipId);
   return {
     ok: true,
-    next: { ...state, ships, equipment, inventory, credits },
+    next: { ...state, ships, equipment, inventory, credits, loadouts },
     recovered,
     creditsRecovered,
   };
@@ -1295,6 +1309,11 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
       // SPARE only. fittedToShipId is the single source of truth for where a piece lives;
       // an installed piece is in use and is never a candidate.
       piece.fittedToShipId === null &&
+      // 0.13.6 (item lifecycle): gear COMMITTED to an Armory loadout is in use too (it belongs
+      // to a saved set), exactly like an installed piece, so it is never an auto-salvage
+      // candidate. Without this, auto-salvage would silently destroy a loadout's committed gear
+      // once its grace lapsed and leave the loadout slot pointing at a deleted id.
+      piece.committedToLoadoutId === undefined &&
       // ⚠️ STANDARD-ISSUE BASELINES ARE NO LONGER FILTERED OUT HERE (0.13.3.1 follow-up), and
       // removing this line is the change, not an oversight. They are now POOLED IN with every
       // other spare so the ordinary rules can see them, and whether one may actually be taken is

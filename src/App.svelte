@@ -4430,6 +4430,8 @@
       // Actionable on purpose (cancel the order), because it is fully reversible.
       case "queuedForSalvage":
         return "queued for salvage (cancel the salvage order to install it)";
+      case "committedToLoadout":
+        return "committed to an Armory loadout (uninstall it there to free it)";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":
@@ -4651,7 +4653,12 @@
 
   // The spare pool, guarded like ShipSystemsPanel's render-boundary `?? []` (a
   // partially-migrated state should degrade to an empty bay, not white-screen).
-  $: baySpareSystems = (state.equipment ?? []).filter((e) => e.fittedToShipId === null);
+  // 0.13.6: a piece committed to an Armory loadout is NOT a free spare (it belongs to a set
+  // edited in the Armory), so it is excluded from the Salvage Bay just like an installed piece.
+  // Salvaging it here would strand the loadout's slot on a deleted id.
+  $: baySpareSystems = (state.equipment ?? []).filter(
+    (e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined
+  );
 
   // The spare pool grouped by slot type, in BAY_SLOT_ORDER; empty groups dropped
   // so a slot with no spare systems shows no header. Each group carries the slot's

@@ -10,7 +10,7 @@
 // empty slot is simply absent. The slot SET a loadout offers is derived from its ship type at
 // render / install time (a later increment), so create does not need to enumerate slots.
 import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType } from "./model";
-import { SHIP_TYPES } from "./model";
+import { SHIP_TYPES, startAutoSalvageGrace } from "./model";
 // The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
@@ -82,7 +82,11 @@ export function deleteLoadout(state: GameState, loadoutId: string): GameState {
     committedIds.size === 0
       ? state.equipment
       : state.equipment.map((e) =>
-          committedIds.has(e.id) ? { ...e, committedToLoadoutId: undefined } : e
+          // committed -> free spare: clear the marker AND restart the auto-salvage grace window,
+          // so a long-committed system is not queued for destruction the instant it is freed.
+          committedIds.has(e.id)
+            ? startAutoSalvageGrace({ ...e, committedToLoadoutId: undefined }, state.gameTimeSeconds)
+            : e
         );
   return {
     ...state,
@@ -152,7 +156,9 @@ export function installIntoLoadout(
   const prevId = loadout.slots[slotKey] ?? null;
   const equipment = state.equipment.map((e) => {
     if (e.id === instanceId) return { ...e, committedToLoadoutId: loadoutId };
-    if (prevId !== null && e.id === prevId) return { ...e, committedToLoadoutId: undefined };
+    // The swapped-out system returns to the free pool: clear the marker + restart its grace.
+    if (prevId !== null && e.id === prevId)
+      return startAutoSalvageGrace({ ...e, committedToLoadoutId: undefined }, state.gameTimeSeconds);
     return e;
   });
   const loadouts = state.loadouts.map((l) =>
@@ -169,7 +175,10 @@ export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKe
   const instanceId = loadout.slots[slotKey];
   if (instanceId === undefined || instanceId === null) return state;
   const equipment = state.equipment.map((e) =>
-    e.id === instanceId ? { ...e, committedToLoadoutId: undefined } : e
+    // committed -> free spare: clear the marker + restart the auto-salvage grace window.
+    e.id === instanceId
+      ? startAutoSalvageGrace({ ...e, committedToLoadoutId: undefined }, state.gameTimeSeconds)
+      : e
   );
   const nextSlots = { ...loadout.slots };
   delete nextSlots[slotKey];
@@ -198,7 +207,11 @@ export function checkOutLoadout(state: GameState, loadoutId: string, shipId: str
   const committedIds = new Set(Object.values(loadout.slots).filter((v): v is string => v !== null));
   const equipment = state.equipment.map((e) => {
     if (committedIds.has(e.id)) return { ...e, fittedToShipId: shipId }; // the loadout's set -> onto the ship
-    if (e.fittedToShipId === shipId && e.committedToLoadoutId === undefined) return { ...e, fittedToShipId: null }; // prior manual gear -> pool
+    // Prior MANUAL gear -> back to the spare pool, with its auto-salvage grace window RESTARTED
+    // (0.13.6 fix). Otherwise a long-expired grace stamp would let auto-salvage queue the just-
+    // displaced system on the next tick, the same swap-and-lose gap every uninstall route closes.
+    if (e.fittedToShipId === shipId && e.committedToLoadoutId === undefined)
+      return startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds);
     return e;
   });
   const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: shipId } : l));

@@ -311,6 +311,15 @@ describe("canFitEquipment opens the combat slots (Combat 1.0, Unit 1.8a)", () =>
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "slotNotInstallable" });
   });
 
+  // 0.13.6 (item lifecycle): a piece COMMITTED to an Armory loadout is not a free spare and cannot
+  // be hand-installed on a ship (it would end up fitted AND committed, which checkout/checkin would
+  // then move silently). Reachable via the ship install picker before the fix.
+  it("rejects a loadout-committed piece with committedToLoadout", () => {
+    const piece = { ...makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null }), committedToLoadoutId: "loadout-1" } as EquipmentInstance;
+    const state = withEquipment(freshState(), piece);
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "committedToLoadout" });
+  });
+
   it("still ALLOWS an economy slot (the guard only blocks reserved/unknown slots)", () => {
     const piece = makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null });
     const state = withEquipment(freshState(), piece);
