@@ -35,6 +35,32 @@ ENDS one of the campaigns**, revealed only after everything has already been los
 - Ties into the prestige/scaling architecture (multiplicative-at-prestige) and the meta-achievement
   tier (DT-spanning milestones) already logged in SUGGESTIONS.
 
+## Dimensional Traversal: the scaling + per-dimension system (from the 2026-08-21 design pass)
+
+Ported here from memory [[project_fleet_admiral_first_cause_dt]] into the git-durable doc (the
+original full prose lived in an ephemeral scratchpad and is gone; this is the recorded substance).
+⚠️ If detail is missing versus what was originally typed, the user should flag it and we re-add it.
+
+- **DT is the prestige BACKBONE and the STORY spine, not a number faucet.** A Torment-tier ladder,
+  DT I..X.
+- **Scaling difficulty:** number inflation is COSMETIC (both sides balloon, enemies ~x2 / player
+  ~x1.75 per tier) with a small controlled NET delta (~10-25% harder per tier) that is the REAL
+  difficulty. The design UNIT is WIN RATE (a fresh destroyer ~100% at DT0 -> ~85% at DT1), measurable
+  with the existing combat-1.0 harness (resolvePatrolWaves / forecast / patrol-balance).
+- **Each dimension is UNIQUE (the "new hazards / changes as you go from dimension to dimension"):**
+  every DT is its own dimension with SYMMETRIC world-modifiers grounded in real physics (fine-tuned
+  constants + matter/antimatter Big-Bang seeding). Each grants a prestige-tree point plus a powerful
+  buff (buffs-as-VERBS, e.g. "5% duplicate-on-craft"), and GATES future systems (the 2.0 dreadnought /
+  "FA operations" unlock around DT V).
+- **Dimension-Shifted gear = the endgame loot chase** (a flat base +% is just seasoning).
+- **Architecture:** ONE type-aware CENTRALIZED scaling seam (magnitudes vs probabilities scale
+  differently, so +5% crit does not warp the crit meta); ADDITIVE so DT0 is today's game
+  byte-identical (existing saves + the combat debut untouched until the first transit). Derived
+  readouts (Battle Rating, Threat Assessment) are the HONESTY layer so cosmetic big numbers never mask
+  the true net delta.
+- Ties to the prestige/scaling architecture in SUGGESTIONS (additive-within-prestige,
+  multiplicative-at-prestige) and the Safety-Interlocks endgame risk axis.
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.
