@@ -242,6 +242,15 @@ named individuals**, and generate the anonymous rank-and-file **lazily from a se
 "1,017 crew" is a seed and a number until the manifest is opened). This preserves the fantasy at a
 fraction of the weight and must be decided before the data model is drawn.
 
+### C.6 Captain identity [LOCKED to 0.14.0, user 2026-09-16] (detail in SUGGESTIONS "CAPTAIN IDENTITY")
+A cohesive captain-identity set rides with the Crew work in 0.14.0, detailed in the SUGGESTIONS
+"CAPTAIN IDENTITY" + "ACHIEVEMENTS: THREE TIERS" entries. In brief: structured names (first /
+callsign / last + an earned RANK prefix, e.g. `Captain Chad "What BodyCAM" Thundercock`); per-captain
+color-coding as a PORTRAIT BORDER (color now, pattern + special effects as later achievement-unlock
+cosmetics; the full-UI tint was rejected); and EARNED, captain-BOUND medals/ranks/surname unlocks
+driven by the new PERSONNEL achievement tier (medals: SVG ribbon/bar, display decoupled from an
+equippable bonus, hover shows name + flavor). All non-transferable between captains.
+
 ---
 
 ## Part D — Away-Team combat (exploration's combat model)
