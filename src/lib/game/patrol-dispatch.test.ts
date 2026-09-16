@@ -103,11 +103,8 @@ describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
     expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "noShip" });
   });
 
-  it("blocks with fuelEmpty when the tank is short AND the shortfall is unaffordable", () => {
-    const base = stateWithHull("destroyer");
-    const state = { ...base, fuel: new Decimal(0), credits: new Decimal(0) };
-    expect(canDispatchPatrol(state, 1, PATROL_KEY)).toEqual({ ok: false, reason: "fuelEmpty" });
-  });
+  // 0.13.6 fuel-to-reach: the fuelEmpty RESOURCE block is gone (fuel does not deplete; refuel is
+  // instant). Only the RANGE gate (fuelCapacity vs the trip) remains, tested via canDispatch.
 
   // Combat-defense rework (Unit 3, design S5 "Blockers by realism"): the ONLY hard combat-gear block
   // is a reactor (no power = physically cannot fly). A combat hull is born with the Standard-Issue set
@@ -161,7 +158,7 @@ describe("canDispatchPatrol gates (Combat 0.13.0 §S14)", () => {
 });
 
 describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
-  it("seeds a correct PatrolMissionState, spends fuel, and increments nextPatrolSeed", () => {
+  it("seeds a correct PatrolMissionState and increments nextPatrolSeed (0.13.6: spends no fuel)", () => {
     const state = stateWithHull("destroyer");
     const seedBefore = state.nextPatrolSeed;
     const fuelBefore = state.fuel;
@@ -188,9 +185,9 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
     // The wave schedule is the deterministic plan for THIS master seed (wave-plan-now).
     expect(mission.waveTicks).toEqual(planWaveSchedule(seedBefore, patrolWaveParams(PATROLS[PATROL_KEY])));
 
-    // Counter advanced (never reused); fuel drawn from the tank; no credits spent (tank covered it).
+    // Counter advanced (never reused). 0.13.6 fuel-to-reach: dispatch spends NO fuel or credits.
     expect(result.next.nextPatrolSeed).toBe(seedBefore + 1);
-    expect(result.next.fuel.lt(fuelBefore)).toBe(true);
+    expect(result.next.fuel.equals(fuelBefore)).toBe(true);
     expect(result.next.credits.equals(state.credits)).toBe(true);
   });
 

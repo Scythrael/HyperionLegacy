@@ -5,8 +5,10 @@
 // capacity gate (fuelCapacity >= fuelNeeded) relabelled, so pulling fuel-to-reach in changes NO
 // ship/mission eligibility. If a future edit drifts the gate, this fails.
 import { describe, it, expect } from "vitest";
-import { SHIP_TYPES, MISSIONS } from "./model";
+import Decimal from "break_infinity.js";
+import { SHIP_TYPES, MISSIONS, freshState } from "./model";
 import { fuelNeeded, canReach, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./fuel";
+import { dispatchCaptainOnMission, economyTick } from "./tick";
 
 describe("fuel-to-reach: the lightyear gate equals the old capacity gate (parity)", () => {
   it("canReach(mission, ship) === (fuelCapacity >= fuelNeeded) for EVERY ship x mission", () => {
@@ -41,5 +43,21 @@ describe("fuel-to-reach: the lightyear gate equals the old capacity gate (parity
     const localRun = { transitOutTicks: 0, transitBackTicks: 0 } as (typeof MISSIONS)[keyof typeof MISSIONS];
     expect(distanceLightYears(localRun)).toBe(0);
     expect(canReach(localRun, small)).toBe(true);
+  });
+});
+
+describe("fuel-to-reach: fuel no longer depletes and never fuel-stops a captain", () => {
+  it("dispatch + 500 economy ticks on a near-empty tank leave fuel unchanged and never fuel-stop", () => {
+    // A tiny tank would have hard-stopped the captain on fuel in the old economy. Now fuel is a
+    // range stat only: it never drains and never idles a captain, so the tank is untouched and no
+    // captain ever carries a "fuel" stop reason.
+    let state = freshState();
+    state = { ...state, fuel: new Decimal(1) }; // near-empty: irrelevant to the reach gate
+    const dispatched = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    expect(dispatched.success).toBe(true); // reach (capacity) covers it regardless of the tank
+    state = dispatched.next;
+    for (let i = 0; i < 500; i++) state = economyTick(state, 1, () => 0.5);
+    expect(state.fuel.eq(1)).toBe(true); // the tank never drained (instant free refuel)
+    expect(state.captains.every((c) => c.lastStopReason !== "fuel")).toBe(true); // never fuel-stopped
   });
 });

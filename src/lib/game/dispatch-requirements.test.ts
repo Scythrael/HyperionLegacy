@@ -149,67 +149,36 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
     }
   });
 
-  it("fuelEmpty, hull can range it but the shared tank is too low (RESOURCE)", () => {
-    const state = freshState();
-    state.fuel = new Decimal(0); // drain the (now full-by-default) starting tank to isolate the RESOURCE gate
-    expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "fuelEmpty" });
-  });
+  // 0.13.6 fuel-to-reach: the fuelEmpty RESOURCE gate is GONE. Fuel does not deplete and there is no
+  // shared tank to run low, so a "tank too low" block cannot happen; only the RANGE gate above remains.
 });
 
-describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed + fuel deduction intact)", () => {
-  it("on a CLEAN dispatch: success, no reason, and the Task-5 fuel deduction still fires", () => {
+describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed; no fuel spend)", () => {
+  it("on a CLEAN dispatch: success, no reason, and 0.13.6 spends NO fuel/credits (instant refuel)", () => {
     const state = freshState();
-    state.fuel = new Decimal(100);
+    const startFuel = state.fuel;
+    const startCredits = state.credits;
     const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(true);
     expect(reason).toBeUndefined();
     expect((next.captains[0].mission as CaptainMissionState)?.missionKey).toBe("shortOreRun");
-    expect(next.fuel.eq(100 - FREIGHTER_SHORT_RUN_FUEL)).toBe(true); // 50 spent at dispatch
+    // Fuel-to-reach: dispatch no longer deducts fuel or auto-buys, so both ride through unchanged.
+    expect(next.fuel.eq(startFuel)).toBe(true);
+    expect(next.credits.eq(startCredits)).toBe(true);
   });
 
   it("on a BLOCK: success false, same state ref, and the canDispatch reason is surfaced", () => {
-    const state = freshState();
-    state.fuel = new Decimal(0); // empty the default-full tank -> fuelEmpty is the block reason under test
-    const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
+    // A still-live block reason (busy) stands in for the retired fuelEmpty case: dispatch a captain
+    // who is ALREADY on a mission and confirm the reason is surfaced + the state is a same-ref no-op.
+    const dispatched = dispatchCaptainOnMission(freshState(), 1, "shortOreRun").next;
+    const { next, success, reason } = dispatchCaptainOnMission(dispatched, 1, "shortOreRun");
     expect(success).toBe(false);
-    expect(next).toBe(state); // same-ref no-op preserved
-    expect(reason).toBe("fuelEmpty");
-    expect(next.captains[0].mission).toBe(null);
+    expect(next).toBe(dispatched); // same-ref no-op preserved
+    expect(reason).toBe("busy");
   });
 
-  // fix (1-ULP negative fuel from Decimal/number netting, 2026-08-27): the dispatch fuel
-  // netting is `state.fuel.plus(shortfall).minus(need)`, where `shortfall` is a PLAIN JS
-  // NUMBER (need - fuel.toNumber()). On a short tank that mixes number + Decimal arithmetic and
-  // can leave a tiny NEGATIVE residue (~ -1e-13) instead of an exact 0. Decimal.max(0, ...) now
-  // floors it. This fixture (a fractional `need` via a specific engineEfficiency + a short tank)
-  // genuinely triggers the residue, proven NON-VACUOUS by the raw-netting assertion below.
-  it("floors the short-tank fuel netting at 0 (no 1-ULP negative)", () => {
-    const state = freshState();
-    state.fuel = new Decimal(13); // SHORT (need is ~45.4 below), so the auto-buy netting path runs
-    state.credits = new Decimal(100_000); // plenty to auto-buy the affordable shortfall
-    // A fractional need is what exposes the number/Decimal mismatch. need = 50 / (1 + eff);
-    // this eff makes need = 45.44570419936485, which nets -1e-13 against a 13-fuel tank.
-    const TRIGGER_EFF = 0.10021400000000001;
-    const original = SHIP_TYPES.generalFreighter.engineEfficiency;
-    try {
-      SHIP_TYPES.generalFreighter.engineEfficiency = TRIGGER_EFF;
-      const need = fuelNeeded(MISSIONS.shortOreRun, SHIP_TYPES.generalFreighter);
-      // NON-VACUITY GUARD: replicate the exact PRE-floor netting and confirm it really is
-      // negative for this fixture. If a constant retune ever makes this non-negative, THIS
-      // assertion fails loudly so the fixture is refreshed rather than silently going vacuous.
-      const rawNetting = new Decimal(13).plus(need - 13).minus(need);
-      expect(rawNetting.lt(0)).toBe(true); // the bug this test guards genuinely reproduces here
-      expect(rawNetting.gte(new Decimal("-1e-9"))).toBe(true); // and it is a 1-ULP residue, not a real deficit
-
-      const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
-      expect(success).toBe(true);
-      // The floor: the tank lands at EXACTLY 0, never the raw sub-zero residue.
-      expect(next.fuel.gte(0)).toBe(true);
-      expect(next.fuel.eq(0)).toBe(true);
-    } finally {
-      SHIP_TYPES.generalFreighter.engineEfficiency = original; // restore the shared table
-    }
-  });
+  // 0.13.6 fuel-to-reach: the short-tank auto-buy netting (and its 1-ULP floor guard) is gone -
+  // dispatch spends no fuel, so there is no netting to floor. Test retired with the mechanic.
 
   it("surfaces the `locked` reason (Task-6 unlock gate still fires via canDispatch)", () => {
     // USER REVISION: no mission is locked at the level-1 seed, so drop missionControl

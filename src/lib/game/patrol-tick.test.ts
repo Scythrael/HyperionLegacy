@@ -208,9 +208,12 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
       let state = twoPatrolCaptains(seedBase, hullA, hullB);
       state = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "balanced", true).next;
       state = dispatchCaptainOnPatrol(state, 2, PATROL_KEY, "balanced", true).next;
-      const fuelAtDispatch = state.fuel;
+      // 0.13.6 fuel-to-reach: fuel no longer depletes, so the old "fuel dropped => relaunch fired"
+      // non-vacuity proxy is gone. Snapshot the just-dispatched captains instead; after 60 ticks of
+      // interleaving relaunches the captains' mission state must have moved (proves the run was not vacuous).
+      const dispatchedCaptains = state.captains;
       const N = 60; // >> ROUTE_LEN (14): both captains cycle multiple routes, interleaving relaunches
-      return { b: big(state, N), s: stepped(state, N), fuelAtDispatch };
+      return { b: big(state, N), s: stepped(state, N), dispatchedCaptains };
     }
 
     // THE BUG-CATCHING CASES. carrier+carrier and battleship+battleship at these seeds all
@@ -226,7 +229,8 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
     ];
     for (const [seedBase, hullA, hullB] of guardCases) {
       it(`big == stepped trajectory, ${hullA}+${hullB} (seedBase=${seedBase}) [failed pre-fix]`, () => {
-        const { b, s, fuelAtDispatch } = runPair(seedBase, hullA, hullB);
+        const { b, s, dispatchedCaptains } = runPair(seedBase, hullA, hullB);
+        expect(s.captains).not.toEqual(dispatchedCaptains); // relaunch actually fired (not vacuous)
         expect(b.captains).toEqual(s.captains); // exact carry-state incl. drones, waves, hull/shield
         expect(b.ships).toEqual(s.ships); // exact ship damaged flags
         expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed); // relaunch never touches the fleet counter
@@ -238,7 +242,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
         // and is flagged to the controller separately. The TRAJECTORY asserts above are exact.
         expect(b.fuel.toNumber()).toBeCloseTo(s.fuel.toNumber(), 6);
         expect(b.credits.toNumber()).toBeCloseTo(s.credits.toNumber(), 6);
-        expect(s.fuel.lt(fuelAtDispatch)).toBe(true); // relaunch actually fired (not vacuous)
       });
     }
 
@@ -249,13 +252,13 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
     // cannot, complementing the trajectory guard.
     for (const seedBase of [3, 5, 7]) {
       it(`big == stepped, FULL byte-exact state, two destroyers (seedBase=${seedBase})`, () => {
-        const { b, s, fuelAtDispatch } = runPair(seedBase, "destroyer", "destroyer");
+        const { b, s, dispatchedCaptains } = runPair(seedBase, "destroyer", "destroyer");
+        expect(s.captains).not.toEqual(dispatchedCaptains); // relaunch fired (not vacuous)
         expect(b.captains).toEqual(s.captains);
         expect(b.ships).toEqual(s.ships);
         expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
         expect(b.fuel.toString()).toBe(s.fuel.toString());
         expect(b.credits.toString()).toBe(s.credits.toString());
-        expect(s.fuel.lt(fuelAtDispatch)).toBe(true); // relaunch fired
       });
     }
   });

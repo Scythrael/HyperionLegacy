@@ -3362,7 +3362,13 @@ export function economyTick(
   // captain). totalFuelSpent is the sum subtracted from the Decimal tank once, below.
   // With no mission captains (or a fuel-rich tank) both stay at their seed / 0, so a
   // call lands byte-identical to before this task.
-  let fuelBudgetRemaining = state.fuel.toNumber();
+  // 0.13.6 fuel-to-reach: fuel is no longer a depleting resource. Seeding the shared budget to
+  // INFINITY makes every per-cycle "spend from the tank" branch always succeed, so no captain ever
+  // auto-buys, hits the "truly broke" fuel-stop, or takes a refuel penalty; and the tank deduction
+  // below is dropped, so state.fuel never changes. The reach gate (canDispatch) is the only fuel
+  // constraint now. (The dead fuel-spend accounting + the state.fuel field itself are removed in the
+  // step-3 facility/migration pass; neutralizing here keeps this step small and parity-safe.)
+  let fuelBudgetRemaining = Number.POSITIVE_INFINITY;
   let totalFuelSpent = 0;
   // Fuel Economy v2 (F3): the SHARED credit balance available for AUTO-BUYING fuel shortfalls,
   // threaded through the per-captain map exactly like fuelBudgetRemaining above so two captains
@@ -3831,13 +3837,12 @@ export function economyTick(
     // Fuel Economy v2 (F3): earnings (creditsDelta) are ADDED and auto-buy fuel spend
     // (totalCreditsSpentOnFuel) is SUBTRACTED, both exact Decimal ops. Order is irrelevant
     // (addition then subtraction of exact operands); a call with no auto-buy subtracts 0.
+    // 0.13.6 fuel-to-reach: totalCreditsSpentOnFuel is now always 0 (auto-buy is gone; the
+    // Infinity fuel budget above means no captain ever auto-buys), so this is credits + earnings.
     credits: state.credits.plus(creditsDelta).minus(totalCreditsSpentOnFuel),
-    // Mission Rework (Task 5): subtract the total auto-repeat fuel spent this call from
-    // the shared Decimal tank, ONCE (totalFuelSpent is a plain number; .minus accepts
-    // it). Guaranteed >= 0: each captain's spend was gated on fuelBudgetRemaining, which
-    // began at state.fuel.toNumber(), so the sum never exceeds the tank. 0 when no cycle
-    // repeated (or a fuel-rich/no-mission call) -> state.fuel rides through unchanged.
-    fuel: state.fuel.minus(totalFuelSpent),
+    // 0.13.6 fuel-to-reach: the shared fuel tank is NO LONGER drained (refuel is instant + free).
+    // state.fuel rides through unchanged via ...state; the field itself is retired in the step-3
+    // migration. (The old `fuel: state.fuel.minus(totalFuelSpent)` deduction was removed here.)
     // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
     // The old homePlanet.storage field is GONE (removed in Task 7, fully
     // replaced by `inventory`), so there is nothing for `...state` to carry
@@ -4259,22 +4264,13 @@ export function canDispatch(
   // engineEfficiency (overlaid on the static ShipTypeDef, as economyTick does) so the
   // dispatch estimate matches the loop's per-cycle burn exactly.
   const need = fuelNeeded(mission, { ...shipDef, engineEfficiency: stats.engineEfficiency });
-  // RANGE: the hull physically cannot carry enough fuel for the round trip. A HULL-
-  // capability check (independent of how much fuel is in the shared tank). Task 13:
-  // read the FOLDED fuelCapacity so a fitted fuel tank extends range. Forward-defensive:
-  // no current hull+mission combo trips it, but it honors the dispatch contract.
+  // REACH (0.13.6 fuel-to-reach): fuel is a RANGE stat, not a depleting resource. The ONLY fuel
+  // gate is whether the hull's fuel capacity covers the round trip (its reach). This is the exact
+  // pre-0.13.6 `fuelCapacity < need` capacity check (need = fuelNeeded with the folded efficiency),
+  // equivalent to canReach (fuel.ts) but kept in fuel-unit form here to preserve byte-identical
+  // eligibility. The old fuelEmpty RESOURCE gate + credit auto-buy are GONE: refuel is instant and
+  // free, so a short tank can no longer block or charge for a dispatch.
   if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
-  // RESOURCE (Fuel Economy v2 F3): a short tank NO LONGER hard-blocks dispatch by itself --
-  // dispatchCaptainOnMission AUTO-BUYS the shortfall from credits (paying a +2-tick refuel
-  // penalty) and flies anyway. So `fuelEmpty` now fires ONLY when the tank is short AND the
-  // shortfall is UNAFFORDABLE (the "truly broke" floor). An affordable-shortfall dispatch
-  // passes this gate. shortfall/cost as plain numbers (fuel is human-scale, and state.fuel <
-  // need here so .toNumber() is exact); credits compared as Decimal (.lt), it's the balance.
-  if (state.fuel.lt(need)) {
-    const shortfall = need - state.fuel.toNumber();
-    const cost = shortfall * FUEL_CREDITS_PER_UNIT;
-    if (state.credits.lt(cost)) return { ok: false, reason: "fuelEmpty" };
-  }
 
   return { ok: true };
 }
@@ -4302,28 +4298,9 @@ export function dispatchCaptainOnMission(
   // verified. We recompute them here (rather than threading them out of canDispatch) to
   // keep canDispatch a clean boolean predicate.
   const idx = state.captains.findIndex((c) => c.id === captainId);
-  const ship = state.ships.find((s) => s.assignedCaptainId === captainId)!;
-  // Equipment 0.11.0 (Task 14): price the first cycle's spend from the SAME folded
-  // engineEfficiency canDispatch and economyTick use, so the dispatch estimate, the
-  // actual spend here, and every subsequent loop cycle all burn the identical figure.
-  // No gear fitted -> fold is an identity -> byte-identical to the pre-equipment spend.
-  const dispatchStats = shipDerivedStats(ship, equippedFor(state, ship.id));
-  const need = fuelNeeded(MISSIONS[missionKey], {
-    ...SHIP_TYPES[ship.typeKey],
-    engineEfficiency: dispatchStats.engineEfficiency,
-  });
-
-  // Fuel Economy v2 (F3): the first cycle's fuel-spend, mirroring the auto-repeat rule. If the
-  // tank covers `need`, spend straight from it (no penalty). If the tank is SHORT, canDispatch's
-  // fuelEmpty gate has ALREADY guaranteed the shortfall is affordable, so AUTO-BUY exactly the
-  // shortfall from credits and stamp the +2-tick refuel penalty on this first cycle. shortfall/
-  // cost are plain numbers (fuel is human-scale, and state.fuel < need here so .toNumber() is
-  // exact); the tank + credits are updated with exact Decimal ops.
-  const short = state.fuel.lt(need);
-  const shortfall = short ? need - state.fuel.toNumber() : 0;
-  const cost = shortfall * FUEL_CREDITS_PER_UNIT;
-  const refuelDelayTicks = short ? REFUEL_PENALTY_TICKS : 0;
-
+  // 0.13.6 fuel-to-reach: no first-cycle fuel spend and no auto-buy. Fuel is a range stat gated at
+  // dispatch (canDispatch's reach check); refuel is instant and free, so the tank is never drained
+  // and refuelDelayTicks is always 0.
   const captains = [...state.captains];
   captains[idx] = {
     ...captains[idx],
@@ -4334,27 +4311,14 @@ export function dispatchCaptainOnMission(
       phaseProgressTicks: 0,
       cargo: emptyLootTotals(),
       recalled: false,
-      refuelDelayTicks,
+      refuelDelayTicks: 0,
     },
     // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh dispatch, so a
-    // captain re-dispatched after a prior fuel/cargo/defeat stop never shows the old reason.
+    // captain re-dispatched after a prior cargo/defeat stop never shows the old reason.
     lastStopReason: undefined,
   };
-  // Tank: buy the shortfall (if any) INTO it, then spend the full round trip, so it nets to
-  // (fuel + shortfall - need), i.e. 0 on a short tank or (fuel - need) on a covered one. Credits:
-  // drop by the auto-buy cost (0 when the tank covered it, so .minus(0) is a value no-op). Both
-  // guaranteed >= 0 by canDispatch (fuelCapacity + fuelEmpty gates passed).
-  // 1-ULP FLOOR (fix: negative fuel from Decimal/number netting, 2026-08-27): `shortfall` is a
-  // plain JS number (need - state.fuel.toNumber()), so on a short tank the netting mixes a
-  // number with Decimal fuel/need and can leave a tiny NEGATIVE residue (~ -1e-15) instead of an
-  // exact 0. Decimal.max(0, ...) floors it so the tank can never round to a sub-zero balance.
   return {
-    next: {
-      ...state,
-      captains,
-      fuel: Decimal.max(0, state.fuel.plus(shortfall).minus(need)),
-      credits: state.credits.minus(cost),
-    },
+    next: { ...state, captains },
     success: true,
   };
 }
@@ -4734,19 +4698,10 @@ export function canDispatchPatrol(
     ...shipDef,
     engineEfficiency: stats.engineEfficiency,
   });
-  // RANGE: the hull physically cannot carry enough fuel for the round trip (independent of
-  // how much is in the shared tank). Forward-defensive, mirrors canDispatch's fuelCapacity.
+  // REACH (0.13.6 fuel-to-reach): the ONLY fuel gate is whether the hull's fuel capacity covers
+  // the round trip (its reach) - the exact pre-0.13.6 capacity check. The fuelEmpty RESOURCE gate +
+  // credit auto-buy are GONE: refuel is instant and free.
   if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
-  // RESOURCE (mirror of canDispatch/Fuel Economy v2 F3): a short tank does NOT hard-block,
-  // dispatchCaptainOnPatrol AUTO-BUYS the shortfall from credits and flies. So fuelEmpty
-  // fires ONLY when the tank is short AND the shortfall is UNAFFORDABLE (the "truly broke"
-  // floor). shortfall/cost as plain numbers (fuel is human-scale, and state.fuel < need here
-  // so .toNumber() is exact); credits compared as Decimal.
-  if (state.fuel.lt(need)) {
-    const shortfall = need - state.fuel.toNumber();
-    const cost = shortfall * FUEL_CREDITS_PER_UNIT;
-    if (state.credits.lt(cost)) return { ok: false, reason: "fuelEmpty" };
-  }
 
   // Dispatchable. Carry the weapon advisory (only present when true) so the card can persistently
   // warn a weaponless dispatch without ever blocking it. Omitted (undefined) when a weapon IS
@@ -4786,20 +4741,8 @@ export function dispatchCaptainOnPatrol(
   // below) AND seeds the patrol's drone carry-state from the installed droneBay pods (Unit 2.3b), so
   // both read the identical fitted set (no chance of a second equippedFor call drifting).
   const installedGear = equippedFor(state, ship.id);
-  // Price the first cycle's fuel from the SAME folded engineEfficiency the gate + 9b.5b use.
-  const dispatchStats = shipDerivedStats(ship, installedGear);
-  const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
-    ...shipDef,
-    engineEfficiency: dispatchStats.engineEfficiency,
-  });
-  // Fuel spend, mirroring dispatchCaptainOnMission: if the tank covers `need`, spend
-  // straight from it; if SHORT, canDispatchPatrol's fuelEmpty gate has already guaranteed
-  // the shortfall is affordable, so AUTO-BUY exactly the shortfall from credits. (Patrols
-  // have no ordersReceived refuel-penalty concept, so no penalty tick is stamped, that
-  // extraction mechanic does not apply to the patrol phase model.)
-  const short = state.fuel.lt(need);
-  const shortfall = short ? need - state.fuel.toNumber() : 0;
-  const cost = shortfall * FUEL_CREDITS_PER_UNIT;
+  // 0.13.6 fuel-to-reach: no fuel spend and no auto-buy on patrol dispatch. Reach is gated at the
+  // dispatch check (canDispatchPatrol); refuel is instant and free, so the tank is never drained.
 
   // The persisted master seed for this patrol, taken from the never-reused counter; the
   // counter increments below so the next patrol gets a distinct seed.
@@ -4816,19 +4759,12 @@ export function dispatchCaptainOnPatrol(
   // mirroring dispatchCaptainOnMission, so a captain re-dispatched after a prior fuel/cargo/
   // defeat stop never shows the old reason.
   captains[idx] = { ...captains[idx], mission, lastStopReason: undefined };
-  // Tank + credits: buy the shortfall (if any) INTO the tank, then spend the full round
-  // trip (nets to 0 on a short tank, fuel-need on a covered one); drop credits by the
-  // auto-buy cost (0 when the tank covered it). Both guaranteed >= 0 by the passed gate.
-  // nextPatrolSeed increments so this master seed is never reused.
-  // 1-ULP FLOOR (fix: negative fuel from Decimal/number netting, 2026-08-27): same as
-  // dispatchCaptainOnMission, `shortfall` is a plain JS number so the short-tank netting can
-  // leave a tiny negative residue; Decimal.max(0, ...) floors the tank at 0.
+  // nextPatrolSeed increments so this master seed is never reused. No fuel/credits spend
+  // (0.13.6 fuel-to-reach: instant free refuel).
   return {
     next: {
       ...state,
       captains,
-      fuel: Decimal.max(0, state.fuel.plus(shortfall).minus(need)),
-      credits: state.credits.minus(cost),
       nextPatrolSeed: state.nextPatrolSeed + 1,
     },
     success: true,

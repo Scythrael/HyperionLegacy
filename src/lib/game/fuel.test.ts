@@ -216,17 +216,9 @@ describe("buyFuel", () => {
 const FREIGHTER_SHORT_RUN_FUEL = 50; // fuelNeeded(shortOreRun, generalFreighter) at FUEL_PER_TICK 1
 const SHORT_RUN_CYCLE_TICKS = 149;
 
-describe("dispatch fuel gate + spend (dispatchCaptainOnMission)", () => {
-  it("BLOCKS dispatch (RESOURCE gate) when state.fuel < fuelNeeded, leaving state unchanged", () => {
-    const state = freshState();
-    state.fuel = new Decimal(0); // empty the default-full tank, this test isolates the RESOURCE (empty-tank) block
-    const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
-    expect(success).toBe(false); // 0 fuel can't cover the round trip
-    expect(next).toBe(state); // same-ref no-op on failure (dispatch's own convention)
-    expect(next.captains[0].mission).toBe(null); // captain stayed idle
-    expect(next.fuel.eq(0)).toBe(true); // no fuel spent on a blocked dispatch
-  });
-
+describe("dispatch fuel gate: REACH only (dispatchCaptainOnMission)", () => {
+  // 0.13.6 fuel-to-reach: the RESOURCE (empty-tank) block and the fuel DEDUCTION are gone. The only
+  // fuel gate is RANGE (the hull's capacity vs the trip), tested below; dispatch spends no fuel.
   it("BLOCKS dispatch (RANGE gate) when the hull's fuelCapacity < fuelNeeded, even with a full tank", () => {
     // No real hull+mission combo trips the range gate today (every tank covers every
     // trip), so this exercises the forward-defensive branch by temporarily shrinking
@@ -248,106 +240,13 @@ describe("dispatch fuel gate + spend (dispatchCaptainOnMission)", () => {
     }
   });
 
-  it("DEDUCTS fuelNeeded from the tank and dispatches on a successful gate pass", () => {
+  it("dispatches on a REACH pass and spends NO fuel (instant free refuel)", () => {
     const state = freshState();
-    state.fuel = new Decimal(100); // covers the 50-fuel round trip with margin
+    const startFuel = state.fuel;
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(true);
     expect((next.captains[0].mission as CaptainMissionState)?.missionKey).toBe("shortOreRun"); // dispatched
-    expect(next.fuel.eq(100 - FREIGHTER_SHORT_RUN_FUEL)).toBe(true); // 50 spent at dispatch
+    expect(next.fuel.eq(startFuel)).toBe(true); // no fuel deducted at dispatch (fuel-to-reach)
   });
 });
 
-describe("auto-repeat broke-stop (economyTick)", () => {
-  it("HARD-STOPS the auto-repeat (mission -> null) when the tank is short AND the fleet is broke", () => {
-    // Tank sized for the dispatch only (5) -> 0 after dispatch; credits 0 (freshState).
-    // At the FIRST cycle boundary the tank is 0 and credits (at the start of that tick,
-    // before this cycle's reward is banked) are 0 -> the shortfall is unaffordable ->
-    // broke-stop. rng ()=>0 wins rare every tick so NO Deuterium Ice is produced and the
-    // Fuel Depot cannot refill the tank, isolating the pure broke-stop.
-    let state = freshState();
-    state.fuel = new Decimal(FREIGHTER_SHORT_RUN_FUEL); // 50 -> 0 after dispatch
-    const dispatched = dispatchCaptainOnMission(state, 1, "shortOreRun");
-    expect(dispatched.success).toBe(true);
-    state = dispatched.next; // fuel now 0, cycle 1 running
-    // Step one full cycle + a margin, one economyTick(_,1) at a time.
-    for (let i = 0; i < SHORT_RUN_CYCLE_TICKS + 5; i++) {
-      state = economyTick(state, 1, () => 0);
-    }
-    expect(state.fuel.eq(0)).toBe(true); // tank drained, broke -> never refuelled
-    expect(state.captains[0].mission).toBe(null); // broke-stop idled the captain
-    // Cycle 1's reward IS still banked (30 credits) even though the auto-repeat stopped.
-    expect(state.credits.eq(30)).toBe(true);
-  });
-
-  it("a fuel-RICH fleet is unaffected: the mission keeps repeating and never idles on fuel", () => {
-    // A huge tank never forces an auto-buy, so behavior is exactly the pre-fuel mission
-    // engine: after 500 ticks the captain is still on a mission (mid cycle 4), not
-    // idled. This is the anti-regression guarantee (enough fuel => unchanged).
-    let state = freshState();
-    state.fuel = new Decimal(1_000_000_000);
-    const dispatched = dispatchCaptainOnMission(state, 1, "shortOreRun");
-    expect(dispatched.success).toBe(true);
-    state = dispatched.next;
-    for (let i = 0; i < 500; i++) {
-      state = economyTick(state, 1, () => 0);
-    }
-    expect(state.captains[0].mission).not.toBe(null); // still running, fuel never gated it
-    // dispatch (1) + repeats at ticks 149/298/447 (3) = 4 round trips paid, 50 fuel each.
-    expect(state.fuel.eq(1_000_000_000 - FREIGHTER_SHORT_RUN_FUEL * 4)).toBe(true);
-  });
-});
-
-describe("⚠️ offline==live PARITY for a broke-stop run (mid-span hard-stop)", () => {
-  // A parity proof for the BROKE-STOP floor (F3). A tank sized for the dispatch only, a
-  // broke fleet, and rng ()=>0 (rare loot, so NO ice -> the refinery can't refill): at the
-  // FIRST cycle boundary the tank is 0 and credits are 0 -> hard-stop. OFFLINE (one
-  // tick(bigSpan)) must be bit-identical to LIVE (bigSpan hand-rolled economyTick(_,1)
-  // calls) for fuel, captain mission state, delivered inventory, and credits. (The auto-buy
-  // + penalty + refining parity is proven separately in fuel-consumption-v2.test.ts.)
-  //
-  // Fuel math (Freighter, 50/cycle): start 50 -> dispatch -50 -> 0 (cycle 1). At the cycle-1
-  // boundary (tick 149) the tank is 0 and credits are 0 (cycle 1's 30cr reward is banked at
-  // the END of that tick, so it can't fund the boundary's own auto-buy) -> hard-stop. bigSpan
-  // 300 runs PAST the stop so the idle span is exercised on both paths too.
-  const BIG_SPAN = 300;
-
-  // Build a freshly-dispatched, broke, fuel-starved state (called once per path so neither
-  // path mutates the other's input).
-  const makeDispatched = () => {
-    const s = freshState(); // credits 0
-    s.fuel = new Decimal(FREIGHTER_SHORT_RUN_FUEL); // 50 -> 0 after dispatch
-    const { next, success } = dispatchCaptainOnMission(s, 1, "shortOreRun");
-    expect(success).toBe(true); // 50 >= 50, dispatch pays the first cycle -> fuel 0
-    return next;
-  };
-
-  it("tick(bigSpan) == looping economyTick(_,1) across the broke-stop mid-span", () => {
-    const offline = tick(BIG_SPAN, makeDispatched(), () => 0);
-
-    let live = makeDispatched();
-    for (let i = 0; i < BIG_SPAN; i++) {
-      live = economyTick(live, 1, () => 0);
-    }
-
-    // NON-VACUOUS: prove the broke-stop actually fired mid-span (mission idled, tank 0).
-    expect(offline.captains[0].mission).toBe(null);
-    expect(live.captains[0].mission).toBe(null);
-    expect(offline.fuel.eq(0)).toBe(true);
-
-    // BIT-IDENTICAL offline vs live across every fuel-affected field.
-    expect(offline.fuel.equals(live.fuel)).toBe(true);
-    expect(offline.credits.equals(live.credits)).toBe(true);
-    // Exactly ONE cycle completed before the broke-stop -> 30 credits banked (start 0).
-    expect(offline.credits.eq(30)).toBe(true);
-    // rng ()=>0 wins the rare tier every extraction tick (0 < rareChance 0.001), so all
-    // loot lands in rareMaterial: 90 rolls/cycle x 1 delivered cycle = 90.
-    const offRare = itemTotal(offline.inventory, "rareMaterial");
-    const liveRare = itemTotal(live.inventory, "rareMaterial");
-    expect(offRare.equals(liveRare)).toBe(true);
-    expect(offRare.eq(90)).toBe(true); // non-vacuous: 1 cycle's worth actually delivered
-    // Captain XP + level must also match across the two paths (whole-tick accrual).
-    expect(offline.captains[0].xp.equals(live.captains[0].xp)).toBe(true);
-    expect(offline.captains[0].level).toBe(live.captains[0].level);
-  });
-});
