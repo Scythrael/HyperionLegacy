@@ -9,7 +9,7 @@
 // A loadout's `slots` records only FILLED slots (slot key -> committed EquipmentInstance id); an
 // empty slot is simply absent. The slot SET a loadout offers is derived from its ship type at
 // render / install time (a later increment), so create does not need to enumerate slots.
-import type { GameState, Loadout, ShipTypeKey } from "./model";
+import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType } from "./model";
 import { SHIP_TYPES } from "./model";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
@@ -85,4 +85,90 @@ export function deleteLoadout(state: GameState, loadoutId: string): GameState {
     loadouts: state.loadouts.filter((l) => l.id !== loadoutId),
     equipment,
   };
+}
+
+// ---------------------------------------------------------------------------
+// SLOT-SET DERIVATION + install / uninstall
+// ---------------------------------------------------------------------------
+
+// A loadout's slot, DERIVED from its pinned ship type. Mirrors ShipSystemsPanel's own enumeration
+// EXACTLY (weapon x weaponHardpoints [Offense]; shieldEmitters + hullPlating + droneBay x droneBays
+// [Defense]; cargoBay/ftlDrive/reactorCore always + specUtility only on a prospector-spec hull
+// [Systems]) so a loadout never offers a slot a real hull of that type would not have.
+export type LoadoutSlotDef = {
+  key: string; // stable key in Loadout.slots ("cargoBay", "weapon0", "droneBay1", ...)
+  slotType: EquipmentSlotType;
+  index: number | null; // 0-based index for a MULTI slot (weapon / droneBay); null for a singleton
+  group: "offense" | "defense" | "systems";
+  label: string;
+};
+
+export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlotDef[] {
+  const def = SHIP_TYPES[shipTypeKey];
+  const defs: LoadoutSlotDef[] = [];
+  const hardpoints = def?.weaponHardpoints ?? 0;
+  for (let i = 0; i < hardpoints; i++) {
+    defs.push({ key: `weapon${i}`, slotType: "weapon", index: i, group: "offense", label: `Hardpoint ${i + 1}` });
+  }
+  defs.push({ key: "shieldEmitters", slotType: "shieldEmitters", index: null, group: "defense", label: "Shield Emitter" });
+  defs.push({ key: "hullPlating", slotType: "hullPlating", index: null, group: "defense", label: "Hull Plating" });
+  const bays = def?.droneBays ?? 0;
+  for (let i = 0; i < bays; i++) {
+    defs.push({ key: `droneBay${i}`, slotType: "droneBay", index: i, group: "defense", label: `Drone Bay ${i + 1}` });
+  }
+  defs.push({ key: "cargoBay", slotType: "cargoBay", index: null, group: "systems", label: "Cargo Bay" });
+  defs.push({ key: "ftlDrive", slotType: "ftlDrive", index: null, group: "systems", label: "FTL Drive" });
+  defs.push({ key: "reactorCore", slotType: "reactorCore", index: null, group: "systems", label: "Reactor Core" });
+  if (def?.spec === "prospector") {
+    defs.push({ key: "specUtility", slotType: "specUtility", index: null, group: "systems", label: "Spec Utility" });
+  }
+  return defs;
+}
+
+// Install a spare rolled system into a loadout slot. Refused (same-ref no-op) unless: the loadout
+// exists and is NOT checked out (editing a live-equipped loadout is a later increment, gated on the
+// ship's mission state to close the mid-mission-swap loophole); the slot key is a real slot for the
+// loadout's ship type; the instance is a free SPARE (fittedToShipId null and not already committed);
+// and its slotType matches the slot. Swapping a filled slot returns the previous system to the spare
+// pool. Atomic: the committed marker moves in the SAME new state the loadout slot is written in.
+export function installIntoLoadout(
+  state: GameState,
+  loadoutId: string,
+  slotKey: string,
+  instanceId: string
+): GameState {
+  const loadout = state.loadouts.find((l) => l.id === loadoutId);
+  if (loadout === undefined || loadout.checkedOutToShipId !== null) return state;
+  const slotDef = loadoutSlotDefsForShipType(loadout.shipTypeKey).find((d) => d.key === slotKey);
+  if (slotDef === undefined) return state;
+  const inst = state.equipment.find((e) => e.id === instanceId);
+  if (inst === undefined) return state;
+  if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined) return state; // not a free spare
+  if (inst.slotType !== slotDef.slotType) return state; // wrong kind of system for this slot
+  const prevId = loadout.slots[slotKey] ?? null;
+  const equipment = state.equipment.map((e) => {
+    if (e.id === instanceId) return { ...e, committedToLoadoutId: loadoutId };
+    if (prevId !== null && e.id === prevId) return { ...e, committedToLoadoutId: undefined };
+    return e;
+  });
+  const loadouts = state.loadouts.map((l) =>
+    l.id === loadoutId ? { ...l, slots: { ...l.slots, [slotKey]: instanceId } } : l
+  );
+  return { ...state, equipment, loadouts };
+}
+
+// Uninstall the system in a loadout slot, returning it to the spare pool. Refused while the loadout is
+// checked out (same as install). Same-ref no-op if the loadout is missing or the slot is already empty.
+export function uninstallFromLoadout(state: GameState, loadoutId: string, slotKey: string): GameState {
+  const loadout = state.loadouts.find((l) => l.id === loadoutId);
+  if (loadout === undefined || loadout.checkedOutToShipId !== null) return state;
+  const instanceId = loadout.slots[slotKey];
+  if (instanceId === undefined || instanceId === null) return state;
+  const equipment = state.equipment.map((e) =>
+    e.id === instanceId ? { ...e, committedToLoadoutId: undefined } : e
+  );
+  const nextSlots = { ...loadout.slots };
+  delete nextSlots[slotKey];
+  const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, slots: nextSlots } : l));
+  return { ...state, equipment, loadouts };
 }
