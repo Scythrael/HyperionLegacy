@@ -7920,8 +7920,11 @@
   // Which missions are currently dispatchable vs still locked (derived from the
   // facility level via missionUnlocked, the SAME gate canDispatch uses). Drives
   // Mission Control's Overview "unlocked / locked" lists.
-  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => missionUnlocked(state, k));
-  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => !missionUnlocked(state, k));
+  // 0.13.6 fuel-to-reach: the "localFuelRun" (Local Deuterium Skim) bootstrap mission is HIDDEN
+  // everywhere in the UI (fuel is no longer mined; shortOreRun is the level-1 starter). It stays in
+  // MISSIONS as a vestigial entry for the content-patch cleanup, but is filtered out of every list.
+  $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && missionUnlocked(state, k));
+  $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && !missionUnlocked(state, k));
 
   // --- Fuel Storage facility ---
   // The live tank cap (fuelCap derives it from the fuelStorage level) + the tank's
@@ -8586,11 +8589,9 @@
       researchSlots === 0 ? "Not built"
         : activeResearchProjects.length === 0 ? `Idle · ${researchSlots} slot${researchSlots === 1 ? "" : "s"} free${cardQueuedSuffix(researchQueue)}` : null,
       facilityAttention.has("research")),
-    fpane("fuelStorage", "⛽", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
-      facilityAction("Topping up", repJob(activeFuelRefineJobs)),
-      facilityUpgrade(fuelStorageUpgradeInFlight, FACILITY_LABELS.fuelStorage),
-      activeFuelRefineJobs.length > 0 ? null : fuelFillPct >= 100 ? "Tank full" : `Fuel ${Math.round(fuelFillPct)}%`,
-      facilityAttention.has("fuelStorage")),
+    // 0.13.6 fuel-to-reach: the Fuel Depot dashboard card is hidden (fuel is no longer a refined
+    // resource). The facility + its console remain in the model (vestigial) for the content-patch
+    // cleanup, but there is no longer a nav path to it.
     fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
       facilityAction("Building", activeShipBuild ?? null),
       facilityUpgrade(shipyardUpgradeInFlight, FACILITY_LABELS.shipyard),
@@ -9403,16 +9404,10 @@
             {/if}
           </div>
 
-          <button
-            type="button"
-            class="tb-hbtn tb-hbtn-link"
-            aria-label={`Fuel: ${formatNumber(state.fuel)} of ${formatNumber(fuelCapValue)}. Opens the Fuel Depot.`}
-            on:click={() => jumpToActivity("fuelDepot")}
-          >
-            <span class="tb-hbtn-glyph" aria-hidden="true">⛽</span>
-            <b>{formatNumber(state.fuel)} / {formatNumber(fuelCapValue)}</b>
-            <span class="tb-hbtn-caret" aria-hidden="true">↗</span>
-          </button>
+          <!-- 0.13.6 fuel-to-reach: the global fuel tank readout was removed. Fuel is no longer a
+               managed resource (instant free refuel); a ship's REACH is a per-hull property shown on
+               the ship + dispatch surfaces, not a fleet-wide tank in the header. -->
+
         </div>
 
         <!-- Gear: opens the System window on Settings (0.13.6 D7: now the ONLY door to the System
@@ -14499,7 +14494,7 @@
                    captains display below (progress bar, phase label,
                    cargo-so-far, Recall button) is otherwise byte-identical to
                    what this replaced, only its position in the markup moved. -->
-              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.tier === "I")}
+              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === "I")}
               <!-- Combat 0.13.0 (9b.5a): extractionMissionOf narrows the mission union to
                    the extraction arm; this IN PROGRESS list is extraction-only, so a
                    patrolling captain is excluded from `embarked` (its mission is not an
@@ -17745,17 +17740,16 @@
   .tb-bar > i { position: absolute; inset: 0 auto 0 0; display: block; height: 100%; background: var(--color-accent); border-radius: var(--corner); transition: width var(--bar-step-seconds, 0.25s) linear; }
   .tb-statval { flex: 0 0 auto; min-width: 78px; text-align: right; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-secondary); white-space: nowrap; }
   .tb-lvl { color: var(--color-text-primary); font-weight: 600; }
-  .tb-hbtn-link { text-decoration: none; }
 
-  /* RESOURCES: currency (popup) + fuel (link). ⚠️ position:relative HERE (not on .tb-pop-wrap) so on
+  /* RESOURCES: currency (popup). ⚠️ position:relative HERE (not on .tb-pop-wrap) so on
      MOBILE the currency popup anchors to the FULL-WIDTH resource row and left/right-clamps to the
      viewport (a right:0 popup off the narrow half-button ran off-screen). Desktop re-anchors it to
      the button in the @media block. The caret is pushed right with margin-left:auto so the glyph and
      value stay grouped on the left. */
-  /* MOBILE: a 1fr 1fr grid so currency and fuel are EXACTLY half each regardless of content width
-     (flex deferred to the fuel button's wider text and split them unevenly). */
-  .tb-resources { grid-area: resources; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: relative; }
-  .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { min-width: 0; }
+  /* MOBILE: 0.13.6 fuel-to-reach removed the fuel button, so the resources area now holds only the
+     currency control (a single full-width column). */
+  .tb-resources { grid-area: resources; display: grid; grid-template-columns: 1fr; gap: 8px; position: relative; }
+  .tb-resources > .tb-pop-wrap { min-width: 0; }
   .tb-pop-wrap { position: static; display: flex; }
   .tb-hbtn {
     flex: 1 1 auto;
@@ -17814,7 +17808,7 @@
     .tb-stats .tb-bar { height: 10px; }
     .tb-stats .tb-statval { font-size: var(--text-xs); }
     .tb-resources { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-    .tb-resources > .tb-pop-wrap, .tb-resources > .tb-hbtn { flex: none; width: 168px; }
+    .tb-resources > .tb-pop-wrap { flex: none; width: 168px; }
     .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
     .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
     .tb-pop-wrap { position: relative; }
