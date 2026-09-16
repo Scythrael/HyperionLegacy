@@ -46,6 +46,20 @@ The facility that holds committed gear, as **loadouts**. A loadout is a full shi
 - **Away-team (crew) loadouts** follow the same shape later, pinned to a crew type instead of a ship type. (Crew is 0.15.0; log the parallel now.)
 - ⚠️ **Checked-out slot when a ship is SALVAGED:** the slot releases and its gear returns to the Rolled Pool. **HARD INVARIANT: the release is atomic** so the gear can neither be lost nor duplicated (the user's explicit condition). Never leave an orphaned binding, never drop gear silently (the never-silently-delete rule).
 
+### 4b. Equip flow + UI + data model (CONFIRMED 2026-09-15)
+
+- ✅ **EQUIP FLOW: manual + loadout, mutually exclusive per ship (user, 2026-09-15).**
+  - **Manual direct-install STAYS.** A ship with no loadout works exactly like today (the per-ship Ship Systems panel, `fittedToShipId` install/swap piecemeal), for players who do not want loadouts.
+  - **Check out a loadout and the ship flies that set, LOCKED on the ship.** A checked-out loadout's items belong together as a set, so the ship's own install screen is locked (no piecemeal editing there); to change it you go to the ARMORY and edit the loadout (or check out a different one, or un-check-out to return to manual).
+  - ⚠️ **The lock also closes a mid-mission gear-swap loophole** (user's rationale): a locked set cannot be shuffled around during a mission, heading off a class of future balance exploits. (Manual-install may still want its own mid-mission guard; separate concern, note it.)
+  - So a ship is in exactly ONE mode at a time: MANUAL (editable on the ship) or LOADOUT-DRIVEN (locked on the ship, edited in the Armory). No confusing coexistence.
+- ✅ **UI: the Armory is its OWN new FACILITY** (user, 2026-09-15; mock approved: `docs/plans/2026-09-15-armory-ui-mock.html`), built with the established facility patterns (full-width panes, one-row console header + sub-tabs). Surfaces: the loadout ROSTER (full-width loadout panes: pinned ship type + name + checked-out/available status + a BR/summary + favorite/lock) and the loadout EDITOR (slots grouped Offense / Defense / Systems, Install/Swap from the rolled pool, "Check out to a ship").
+- **DATA MODEL (for the build):**
+  - `GameState.loadouts: Loadout[]`, `Loadout = { id: string; name: string; shipTypeKey: ShipTypeKey; slots: Record<string, string | null>; checkedOutToShipId: string | null }` (slots map a slot key to a committed EquipmentInstance id, or null for an empty slot), plus `nextLoadoutId: number`.
+  - `EquipmentInstance` gains `committedToLoadoutId?: string`: a system committed into a loadout carries it, which EXCLUDES it from the free spare pool and the manual-install picker (the spare pool = `fittedToShipId` null AND no `committedToLoadoutId`). This is the third fitment state alongside spare (null) and manually-fitted (a shipId).
+  - **Checkout sets `fittedToShipId` = the ship** on the loadout's committed items, so the combat/stats reader `equippedFor(state, shipId)` keeps working UNCHANGED; the loadout's `checkedOutToShipId` marks the ship as loadout-driven (its install screen locks off that back-reference). Un-checkout clears `fittedToShipId` back to null (the item stays `committedToLoadoutId`).
+  - ⚠️ OPEN MECHANICS NUANCES to resolve at build time (they do NOT block the data foundation): (1) checking out a loadout to a ship that had MANUAL gear returns that manual gear to the spare pool; (2) un-checkout leaves the ship's slots EMPTY (per [[project_fleet_admiral_equipment_allow_empty]], uninstall auto-restores nothing); (3) a loadout checks out to at most one ship, and only to a ship of its pinned type.
+
 ### 4a. Favorite and Lock (two separate controls, Rolled Pool)
 
 - **FAVORITE** is organizational only: moves the item to the TOP of the ship-systems warehouse, shows a star icon (SVG graphic soon).

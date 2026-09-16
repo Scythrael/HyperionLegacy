@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 49;
+export const SAVE_VERSION = 50;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2121,6 +2121,16 @@ const MIGRATIONS: Record<number, Migration> = {
     ...state,
     blanks: state.blanks ?? {},
     inspectSeed: state.inspectSeed ?? 0,
+  }),
+  // --- v49 -> v50: ITEM LIFECYCLE 0.13.6 Armory dormant fields (loadouts + id source) -----------
+  // Additive shape move for Phase 3. Backfills an empty loadout store + a 1 id source; nothing reads
+  // them yet (the Armory build wires them), so this changes no behavior. No Decimals inside a
+  // Loadout, so hydrateDecimals needs no change. EquipmentInstance.committedToLoadoutId is optional,
+  // absent-is-spare, so existing instances need no backfill.
+  49: (state: any): any => ({
+    ...state,
+    loadouts: state.loadouts ?? [],
+    nextLoadoutId: state.nextLoadoutId ?? 1,
   }),
 };
 

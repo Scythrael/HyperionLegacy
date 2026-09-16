@@ -1230,6 +1230,13 @@ export interface EquipmentInstance {
   durabilityMax: number;
   durability: number;                     // never drops this patch; combat drives loss in 0.12.0
   fittedToShipId: string | null;          // null = spare in the pool. THE fitment authority (mirrors ShipInstance.assignedCaptainId)
+  // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD
+  // fitment state: a system COMMITTED into a loadout carries the loadout's id here, which excludes it
+  // from the free spare pool AND the manual-install picker (spare = fittedToShipId null AND no
+  // committedToLoadoutId). When its loadout is checked out to a ship, checkout ALSO sets
+  // fittedToShipId to that ship, so equippedFor() keeps reading a ship's gear unchanged. Absent on
+  // every existing instance (optional, so no migration needed on the instances themselves).
+  committedToLoadoutId?: string;
   integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
@@ -4471,6 +4478,19 @@ export function salvageDurationTicks(spec: SalvageDurationSpec): number {
   }
 }
 
+// ITEM LIFECYCLE 0.13.6 (Armory, Phase 3). A LOADOUT is a saved ship-equipment set, pinned to a
+// ship TYPE (which fixes its slots, so it can never be over-armed). `slots` maps a slot key to the
+// committed EquipmentInstance id it holds, or null for an empty slot. `checkedOutToShipId` is the
+// back-reference to the ship currently flying this set (at most one); a checked-out loadout locks
+// that ship's own install screen (edit it here in the Armory instead). DORMANT until the Armory build.
+export interface Loadout {
+  id: string; // "loadout-N", allocated from GameState.nextLoadoutId
+  name: string;
+  shipTypeKey: ShipTypeKey;
+  slots: Record<string, string | null>; // slot key -> committed EquipmentInstance id, or null (empty)
+  checkedOutToShipId: string | null; // the ship flying this set, or null (available)
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -4671,6 +4691,12 @@ export interface GameState {
   // mirrors nextShipId ("ship-N") / nextProcessId ("proc-N") / nextCraftLineId
   // ("craft-N"). freshState seeds 1 so the first minted id is "equip-1".
   nextEquipmentId: number;
+  // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build). The loadout store + its
+  // monotonic id source. A loadout is a saved, ship-type-pinned equipment set (see the Loadout
+  // interface); checking one out to a ship equips + locks that ship. Empty on a fresh save;
+  // MIGRATIONS backfills [] + 1 onto older saves. No Decimals inside, so hydrateDecimals is untouched.
+  loadouts: Loadout[];
+  nextLoadoutId: number;
   // The crafting skill track that later tasks use to gate/boost equipment
   // crafting. craftingLevel is 1-based (starts at 1, parallels fleetAdminLevel;
   // level 0 is unused). craftingXp is the accumulator toward the next level,
@@ -8631,6 +8657,9 @@ export function freshState(): GameState {
     // with 0 xp.
     equipment: seededShip1.pieces,
     nextEquipmentId: seededShip1.nextId,
+    // Item Lifecycle 0.13.6 (Armory, dormant): no loadouts on a fresh save; id source at 1.
+    loadouts: [],
+    nextLoadoutId: 1,
     craftingLevel: 1,
     craftingXp: new Decimal(0),
     // Equipment 0.11.0 Task B1: a new save starts at the base equipment-storage cap,
