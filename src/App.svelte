@@ -1560,13 +1560,19 @@
   // (shipDerivedStats) and reports its hold + reach (both gear-dependent) + a damaged flag. The
   // hull label is prefixed by the caller only when the ship also has a custom name.
   function shipPickerStats(ship: GameState["ships"][number]): string {
-    const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+    const gear = equippedFor(state, ship.id);
+    const stats = shipDerivedStats(ship, gear);
     const reachLy = rangeLightYears({
       ...SHIP_TYPES[ship.typeKey],
       fuelCapacity: stats.fuelCapacity,
       engineEfficiency: stats.engineEfficiency,
     });
-    const parts = [`Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} ly`];
+    // Battle Rating via the SAME shipToCombatant + battleRating path the roster + install panel use,
+    // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
+    // all three hull roles (warship / hauler / explorer).
+    const hullType = combatHullTypeOf(ship.typeKey);
+    const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
+    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} ly`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");
   }
@@ -16877,7 +16883,7 @@
               <!-- Renamable Ships: label the pick by custom name when set (with the
                    hull class in parens), so two same-type parked hulls are distinct. -->
               <button class="dev-btn ship-pick-opt" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>
-                <span class="ship-pick-name">{ship.name ?? SHIP_TYPES[ship.typeKey].label}</span>
+                <span class="ship-pick-name">{#if shipFavorites.has(ship.id)}<span class="ship-pick-fav" aria-label="Favorited">★</span>{/if}{ship.name ?? SHIP_TYPES[ship.typeKey].label}</span>
                 <span class="ship-pick-sub">{ship.name ? `${SHIP_TYPES[ship.typeKey].label} · ` : ""}{shipPickerStats(ship)}</span>
               </button>
             {/each}
@@ -18892,6 +18898,7 @@
     line-height: 1.3;
   }
   .ship-pick-name { font-weight: 600; color: var(--color-text-primary); }
+  .ship-pick-fav { color: var(--color-warning); margin-right: 5px; }
   .ship-pick-sub {
     font-family: var(--font-mono);
     font-size: var(--text-2xs);
