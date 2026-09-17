@@ -16488,10 +16488,7 @@
     {@const missionDef = MISSIONS[missionPopupKey]}
     {@const selectedCaptain = missionPopupCaptainId !== null ? state.captains.find((c) => c.id === missionPopupCaptainId) ?? null : null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Select a captain for this mission" use:focusTrap={closeMissionPopup}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">{missionDef.label.toUpperCase()}</div>
-
+    <ActionModal title={missionDef.label} ariaLabel="Select a captain for this mission" onClose={closeMissionPopup}>
         {#if selectedCaptain === null}
           <p class="modal-instruction">Select a captain to preview mission stats.</p>
           {#if idleCaptains.length === 0}
@@ -16611,11 +16608,11 @@
           {/if}
         {/if}
 
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closeMissionPopup}>Cancel</button>
           {#if selectedCaptain !== null}
             <!-- Dispatch gated on canDispatch (Task 7). Disabled + reason-titled when
-                 blocked; the same reason shows in the FUEL section above. -->
+                 blocked; the same reason shows in the RANGE section above. -->
             <button
               class="dev-btn"
               disabled={missionPopupGate !== null && !missionPopupGate.ok}
@@ -16627,9 +16624,8 @@
               Dispatch
             </button>
           {/if}
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if patrolDispatchKey !== null}
@@ -16660,9 +16656,7 @@
     {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
     {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
     {@const forecast = patrolForecastFor(state, patrolDispatchKey, def, selectedShip, hullType, stance)}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Dispatch patrol" use:focusTrap={closePatrolDispatch}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">DISPATCH &middot; {def.label.toUpperCase()}</div>
+    <ActionModal title={`Dispatch · ${def.label}`} ariaLabel="Dispatch patrol" onClose={closePatrolDispatch}>
         {#if faction}<p class="modal-instruction">{faction.name} &middot; Waves {wavesLabel}</p>{/if}
 
         <!-- Captain picker: reuses the existing openPatrolPicker flow (its modal stacks over
@@ -16756,7 +16750,7 @@
           <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
         {/if}
 
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closePatrolDispatch}>Cancel</button>
           <!-- Dispatch gated on canDispatchPatrol (the same gate the row reads); disabled +
                reason-titled when blocked. doDispatchPatrolFromPopup runs the unchanged
@@ -16769,9 +16763,8 @@
           >
             Dispatch Patrol
           </button>
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if patrolPickerKey !== null}
@@ -16786,9 +16779,7 @@
          assigned hull, no ship picker), so this modal is captain-selection only. -->
     {@const pickerPatrol = PATROLS[patrolPickerKey]}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Select a captain for this patrol" use:focusTrap={closePatrolPicker}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">{pickerPatrol.label.toUpperCase()}</div>
+    <ActionModal title={pickerPatrol.label} ariaLabel="Select a captain for this patrol" onClose={closePatrolPicker}>
         <p class="modal-instruction">Select a captain to fly this patrol. Their assigned ship comes with them.</p>
         {#if idleCaptains.length === 0}
           <p class="prestige-text">No idle captains available, recall one first.</p>
@@ -16803,11 +16794,10 @@
             {/each}
           </div>
         {/if}
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closePatrolPicker}>Cancel</button>
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if assignPickerShipId !== null}
@@ -16823,9 +16813,7 @@
          case a captain got dispatched between opening and rendering. -->
     {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Assign hull to captain" use:focusTrap={closeShipPickers}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">ASSIGN HULL{pickerShip ? `, ${SHIP_TYPES[pickerShip.typeKey].label.toUpperCase()}` : ""}</div>
+    <ActionModal title={`Assign hull${pickerShip ? ` · ${SHIP_TYPES[pickerShip.typeKey].label}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
           <p class="prestige-text">No idle captains available, recall one first.</p>
@@ -16841,11 +16829,10 @@
             {/each}
           </div>
         {/if}
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closeShipPickers}>Cancel</button>
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   {#if swapPickerCaptainId !== null}
@@ -16860,9 +16847,7 @@
          the Assign picker above, just listing ships. -->
     {@const swapCaptain = state.captains.find((c) => c.id === swapPickerCaptainId) ?? null}
     {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Swap hull for captain" use:focusTrap={closeShipPickers}>
-      <Panel class="modal-dialog">
-        <div class="panel-title">SWAP HULL{swapCaptain ? `, ${swapCaptain.label.toUpperCase()}` : ""}</div>
+    <ActionModal title={`Swap hull${swapCaptain ? ` · ${swapCaptain.label}` : ""}`} ariaLabel="Swap hull for captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Choose a parked ship for this captain. Their current hull parks.</p>
         {#if parkedShips.length === 0}
           <p class="prestige-text">No parked ships available, buy or free one first.</p>
@@ -16879,11 +16864,10 @@
             {/each}
           </div>
         {/if}
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={closeShipPickers}>Cancel</button>
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   <!-- Radial Skill Web (Task 11b), the shared talent-tooltip overlay that
@@ -17297,9 +17281,7 @@
          of the diff is non-empty, so the modal is never padded with empty rows.
          Copy is sentence case throughout (no ALL CAPS, no exclamation marks). -->
     {@const sum = offlineSummary}
-    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="While you were away" use:focusTrap={dismissOfflineSummary}>
-      <Panel class="modal-dialog offline-summary-dialog">
-        <div class="panel-title">While you were away</div>
+    <ActionModal title="While you were away" ariaLabel="While you were away" onClose={dismissOfflineSummary}>
 
         <!-- Time away: formatDuration renders a real-seconds span by passing a
              seconds-per-tick of 1 (ticks * 1 = the seconds we already hold), reusing
@@ -17406,11 +17388,10 @@
           {/if}
         </div>
 
-        <div class="modal-row">
+        <svelte:fragment slot="footer">
           <button class="dev-btn" on:click={dismissOfflineSummary}>Continue</button>
-        </div>
-      </Panel>
-    </div>
+        </svelte:fragment>
+    </ActionModal>
   {/if}
 
   <!-- Warehouse tile tooltip (Phase 2, Group C), a SINGLE fleet-positioned
@@ -17945,10 +17926,6 @@
      list scrolls INTERNALLY (offline-summary-scroll) so a long materials haul stays
      inside the modal instead of pushing the Continue button off-screen. All sizing is
      relative + max-width bound so it reads on mobile (narrow) and desktop alike. */
-  :global(.offline-summary-dialog) {
-    width: min(440px, 92vw);
-    max-width: 92vw;
-  }
   .offline-summary-lead {
     font-size: var(--text-md);
     line-height: 1.5;
