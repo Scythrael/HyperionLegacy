@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.5";
+export const APP_VERSION = "0.13.6";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,107 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.6",
+    // NAME IS A PLACEHOLDER (draft, 2026-09-16): confirm or change. The patch spans the crafting
+    // item-lifecycle (blanks -> inspect -> loadouts -> archive) and the fuel-to-reach rework.
+    name: "Item Lifecycle",
+    lede: "The life of a crafted system, start to finish: crafting now produces blanks you inspect and roll, an Armory to build loadouts, and an Archive to enshrine your finest work. Fuel stops being a chore and becomes a ship's reach in lightyears. Plus a Quartermaster sell counter, a customizable currencies band, unified action windows, and a presentation polish pass. Your save migrates automatically and carries over.",
+    features: [
+      {
+        title: "Craft, Inspect, Roll",
+        lead: "Crafting no longer decides an item's stats the moment you build it.",
+        isNew: true,
+        bullets: [
+          { lead: "Crafting produces blanks.", text: "Every craft now yields a blank: identical, stackable, and unrolled. A run of the same recipe stacks instead of scattering rolled items across your bay." },
+          { lead: "Inspect to roll.", text: "A new Inspect tab at the Fabricator opens a blank, rolling it into a real system with its own quality, rarity, and stats. The rolled system lands in your spare bay under Logistics, Ship Equipment." },
+          { text: "The moment of the roll moved from build time to inspect time, so a long crafting session is now a stack of blanks to open when you choose, not a pile of finished gear to sort." },
+        ],
+      },
+      {
+        title: "The Armory",
+        lead: "Build a loadout once, then hand it to any hull.",
+        isNew: true,
+        bullets: [
+          { lead: "Loadouts.", text: "Assemble a loadout from your rolled systems in the Armory, then check it out to a ship to equip the whole set in one step." },
+          { lead: "One source of truth.", text: "A checked-out loadout locks that ship's own install screen; you edit the loadout in the Armory instead, and every ship running it updates together. Check it back in to free the ship." },
+          { text: "Create, rename, and delete loadouts. Gear reserved to a loadout is protected from salvage and scrap so a plan can never be dismantled out from under you." },
+        ],
+      },
+      {
+        title: "The Archive",
+        lead: "A permanent record of the finest systems you have crafted.",
+        isNew: true,
+        bullets: [
+          { lead: "Enshrine your best.", text: "Enshrine a spare system to keep its score forever and raise your overall completion percentage. A better roll later simply raises the mark." },
+          { text: "Enshrining consumes the item: the Archive keeps the score, not the object. It is the home for how complete your collection is." },
+        ],
+      },
+      {
+        title: "Fuel Becomes Reach",
+        lead: "Fuel is no longer a resource you mine, refine, or babysit.",
+        isNew: true,
+        bullets: [
+          { lead: "Every ship has a reach.", text: "A hull's reach is measured in lightyears, and refueling is instant and free. No captain has to sit on fuel duty and fall behind ever again." },
+          { lead: "Distance and reach, shown plainly.", text: "Mission and patrol cards, and the dispatch windows, show a trip's distance and the selected hull's reach in lightyears; a run beyond a hull's reach is flagged before you send it." },
+          { lead: "Retired with it.", text: "The header fuel readout, the Fuel Depot dashboard card, and the Local Deuterium Skim run are gone. Any captain still assigned to that skim run is recalled to idle when your save loads, ready for new orders." },
+        ],
+      },
+      {
+        title: "The Quartermaster Sells",
+        lead: "Recoup credits for stock a change has retired.",
+        bullets: [
+          { text: "The Quartermaster's Sell counter is open. Retired stock, starting with the Deuterium Ice the fuel change left behind, can be sold for credits at any time, in whatever quantity you set." },
+        ],
+      },
+      {
+        title: "The Currencies Band",
+        lead: "Choose what the header shows you.",
+        bullets: [
+          { text: "The header currencies now sit in a soft-glowing band that splits evenly between them, each with its own tooltip." },
+          { text: "Pick which currencies appear (up to four) in Settings, Visual, Header Currencies. The band is compact on mobile and full-width on desktop." },
+        ],
+      },
+      {
+        title: "Action Windows, Unified",
+        lead: "Every action window now looks and behaves one way.",
+        bullets: [
+          { text: "Installing systems, confirmations, the ship and system pickers, and the while-you-were-away summary all share one shell: a bottom sheet on phones, a centered card on desktop, with a consistent header, scroll, and footer." },
+        ],
+      },
+      {
+        title: "Presentation Polish",
+        lead: "A cleaner read across the consoles.",
+        bullets: [
+          { lead: "Explainers behind a tap.", text: "Facility how-it-works text moved into ? tooltips across more consoles (Salvage Bay, Shipyard, Armory, Archive, Docks, the Fabricator's blanks, the Quartermaster), keeping the live status and controls in view." },
+          { lead: "The ship detail is one clean row.", text: "Back, name, and the Assign and Salvage actions sit on a single header row." },
+          { lead: "A clearer ship picker.", text: "Ship options show Battle Rating, Holds, and Range plus a favorite star, so an unnamed hull is easy to tell apart at a glance." },
+          { lead: "Two new themes.", text: "Purple and Pink join the accent-color options." },
+          { lead: "Header controls split.", text: "The portrait now opens Crew, Admiral (where your profile lives) and the gear opens Settings." },
+          { text: "Spacing tightened on the Materials tab and the Operations and Combat section headers." },
+        ],
+      },
+    ],
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { text: "Gear committed to a loadout can no longer be lost to salvage, scrap, or an uninstall elsewhere." },
+          { text: "Facility upgrade panels show a clean \"in progress\" line instead of a clipped button while an upgrade runs." },
+          { text: "Older patch-notes entries render as proper sections instead of one run-on block." },
+        ],
+      },
+      {
+        title: "Additional Improvements",
+        bullets: [
+          { text: "The remaining Settings checkboxes became sliding toggles, matching the rest of the screen." },
+          { text: "A pass toward consistent American English across the interface." },
+        ],
+      },
+    ],
+    save: "Your save migrates automatically and carries over: every ship, system, upgrade, and setting is preserved. The save format advances to version 52 across this release (blanks, loadouts, the Archive, and recalling captains off the retired skim run).",
+  },
   {
     version: "0.13.5",
     name: "Presentation",
