@@ -68,7 +68,7 @@ export const PATCH_NOTES: PatchNote[] = [
     // NAME IS A PLACEHOLDER (draft, 2026-09-16): confirm or change. The patch spans the crafting
     // item-lifecycle (blanks -> inspect -> loadouts -> archive) and the fuel-to-reach rework.
     name: "Item Lifecycle",
-    lede: "We followed a crafted system through its whole life this release. It starts as a blank on the bench, gets rolled at the Inspect table, joins a loadout in the new Armory, and, if it is your best work, earns a place in the Archive. While we were at it, we finally put fuel out of its misery: it is a ship's reach in lightyears now, not a chore. Rounding it out: a Quartermaster you can sell to, a currencies band you get to arrange, action windows that all behave the same way, and a polish pass across the consoles. Your save migrates automatically and carries over.",
+    lede: "We followed a crafted system through its whole life this release. It starts as a blank on the bench, gets rolled at the Inspect table, joins a loadout in the new Armory, and, if it is your best work, earns a place in the Archive. While we were at it, we finally put fuel out of its misery: it is a ship's reach in lightyears now, not a chore. Rounding it out: a Quartermaster you can sell to, spares you can favorite and lock, a currencies band you get to arrange, action windows that all behave the same way, and a polish pass across the consoles. Your save migrates automatically and carries over.",
     features: [
       {
         title: "Craft, Inspect, Roll",
@@ -110,6 +110,16 @@ export const PATCH_NOTES: PatchNote[] = [
         ],
       },
       {
+        title: "Favorite and Lock",
+        lead: "Two ways to keep a spare in view, and one way to keep it safe.",
+        isNew: true,
+        bullets: [
+          { lead: "Favorite pins it.", text: "Star a spare and it sorts to the top of its group in the spare bays, so your keepers are the first thing you see in a bay of dozens." },
+          { lead: "Lock protects it.", text: "Lock a spare and nothing can take it: not auto-salvage, not a manual salvage, not an install, not a loadout. Unlock it the moment you want to use or scrap it." },
+          { text: "Any spare you had favorited before this update is locked automatically, so everything you marked to keep stays exactly as protected as it was." },
+        ],
+      },
+      {
         title: "The Quartermaster Sells",
         lead: "Nothing you earned should turn into dead weight.",
         bullets: [
@@ -138,7 +148,7 @@ export const PATCH_NOTES: PatchNote[] = [
           { lead: "Explainers behind a tap.", text: "Facility how-it-works text moved into ? tooltips across more consoles (Salvage Bay, Shipyard, Armory, Archive, Docks, the Fabricator's blanks, the Quartermaster), keeping the live status and controls in view." },
           { lead: "The ship detail is one clean row.", text: "Back, name, and the Assign and Salvage actions sit on a single header row." },
           { lead: "A clearer ship picker.", text: "Ship options show Battle Rating, Holds, and Range plus a favorite star, so an unnamed hull is easy to tell apart at a glance." },
-          { lead: "Two new themes.", text: "Purple and Pink join the accent-color options." },
+          { lead: "Four new themes.", text: "Purple, Pink, Chartreuse, and Vermilion join the accent-color options." },
           { lead: "Header controls split.", text: "The portrait now opens Crew, Admiral (where your profile lives) and the gear opens Settings." },
           { text: "Spacing tightened on the Materials tab and the Operations and Combat section headers." },
         ],
@@ -162,7 +172,7 @@ export const PATCH_NOTES: PatchNote[] = [
         ],
       },
     ],
-    save: "Your save migrates automatically and carries over: every ship, system, upgrade, and setting is preserved. The save format advances to version 52 across this release (blanks, loadouts, the Archive, and recalling captains off the retired skim run).",
+    save: "Your save migrates automatically and carries over: every ship, system, upgrade, and setting is preserved. The save format advances to version 53 across this release (blanks, loadouts, the Archive, recalling captains off the retired skim run, and locking anything you had favorited).",
   },
   {
     version: "0.13.5",
