@@ -872,6 +872,8 @@
   // even when localStorage is unreachable. See src/lib/savePersist.ts.
   import { savePersistFailed, registerLiveSaveExporter } from "./lib/savePersist";
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
+  // Header currencies band (0.13.6): the player's chosen currencies + order, a display preference.
+  import { loadCurrencyDisplay, saveCurrencyDisplay, MAX_HEADER_CURRENCIES } from "./lib/currencyDisplayPreference";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadShowExperienceValues, saveShowExperienceValues } from "./lib/experienceReadoutPreference";
@@ -2324,6 +2326,35 @@
     credits: formatNumber(state.credits),
     adminPoints: String(state.adminPoints),
   } as Record<string, string>;
+
+  // ── HEADER CURRENCIES BAND (0.13.6) ───────────────────────────────────────
+  // Which currencies the player has chosen to show in the header band, and in what order.
+  // null = never set -> default to all (up to the cap), preserving the pre-preference header.
+  let currencyDisplaySel: string[] | null = loadCurrencyDisplay();
+  // The EFFECTIVE keys the band renders: the stored selection (filtered to keys that still exist,
+  // capped), or, when never set, every currency up to the cap. An explicit [] stays [] (the player
+  // deliberately cleared the band, which shows a placeholder rather than nothing).
+  $: effectiveCurrencyKeys = (currencyDisplaySel ?? CURRENCY_META.map((c) => c.key))
+    .filter((k) => CURRENCY_META.some((c) => c.key === k))
+    .slice(0, MAX_HEADER_CURRENCIES);
+  $: displayedCurrencies = effectiveCurrencyKeys
+    .map((k) => CURRENCY_META.find((c) => c.key === k))
+    .filter((c): c is CurrencyDescriptor => c !== undefined);
+  // Toggle one currency in/out of the band (the Options selector). Materializes the default into an
+  // explicit array on first edit, enforces the cap, and preserves CURRENCY_META order so the band
+  // never reshuffles by pick order.
+  function toggleCurrencyDisplay(key: string) {
+    const chosen = new Set(effectiveCurrencyKeys);
+    if (chosen.has(key)) {
+      chosen.delete(key);
+    } else {
+      if (chosen.size >= MAX_HEADER_CURRENCIES) return; // at the cap; the toggle is disabled too
+      chosen.add(key);
+    }
+    const next = CURRENCY_META.map((c) => c.key).filter((k) => chosen.has(k));
+    currencyDisplaySel = next;
+    saveCurrencyDisplay(next);
+  }
   // Key of the currency whose info tooltip is showing, or null. This behaves
   // like a standard tooltip, NOT a click-to-toggle: it SHOWS on mouse hover
   // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
@@ -9455,44 +9486,46 @@
           {/if}
         </div>
 
-        <!-- RESOURCES: currency (popup listing every currency) + fuel (a LINK to the Fuel Depot,
-             whose Overview carries the full runway/economy breakdown). Desktop stacks them at equal
-             width to the right of the bars; mobile drops them onto their own row, each taking half. -->
-        <div class="tb-resources">
-          <div class="tb-pop-wrap">
-            <button
-              type="button"
-              class="tb-hbtn"
-              class:open={openCurrencyKey === "currency"}
-              aria-label={`Currency: ${currencyValues[CURRENCY_META[0].key] ?? ""} ${CURRENCY_META[0].label}`}
-              aria-describedby={openCurrencyKey === "currency" ? "tb-pop-currency" : undefined}
-              on:pointerenter={(e) => hoverEnterCurrency(e, "currency")}
-              on:pointerleave={(e) => hoverLeaveCurrency(e, "currency")}
-              on:focus={() => showCurrency("currency")}
-              on:blur={() => hideCurrency("currency")}
-              on:click={() => showCurrency("currency")}
-            >
-              <span class="tb-hbtn-glyph" aria-hidden="true">{CURRENCY_META[0].glyph}</span>
-              <b>{currencyValues[CURRENCY_META[0].key] ?? ""}</b>
-              <span class="tb-hbtn-caret" aria-hidden="true">⌄</span>
-            </button>
-            {#if openCurrencyKey === "currency"}
-              <div class="tb-pop info-pop" id="tb-pop-currency" role="tooltip">
-                <div class="tb-pop-title">Currency</div>
-                {#each CURRENCY_META as c (c.key)}
-                  <div class="tb-pop-line">
-                    <span class="tb-pop-name">{c.glyph} {c.label}</span>
-                    <b>{currencyValues[c.key] ?? ""}</b>
+        <!-- CURRENCIES BAND (0.13.6, Variant C, approved mock docs/plans/2026-09-16-currency-display-mock.html).
+             Its own full-width row beneath the header (the grid's "resources" area) on BOTH platforms,
+             a soft-glowing band whose selected currencies split the width evenly as pills. Which
+             currencies show (and their order) is the player's choice in Options > Visual, capped at
+             MAX_HEADER_CURRENCIES; unset = show all. Each pill keeps its own info tooltip (the
+             restored "what is this + flavor" popover), driven by the key-generic openCurrencyKey infra.
+             Only credits + adminPoints exist today, so the band shows up to two now and auto-grows as
+             currencies are added (it renders CURRENCY_META, no markup edit per currency). -->
+        <div class="cur-band">
+          {#if displayedCurrencies.length === 0}
+            <!-- The player deliberately cleared every currency: a calm placeholder, not a blank band. -->
+            <span class="cur-empty">Pick currencies in Options &rsaquo; Visual</span>
+          {:else}
+            {#each displayedCurrencies as c (c.key)}
+              <div class="tb-pop-wrap cur-pill-wrap">
+                <button
+                  type="button"
+                  class="cur-pill"
+                  class:open={openCurrencyKey === c.key}
+                  aria-label={`${c.label}: ${currencyValues[c.key] ?? ""}`}
+                  aria-describedby={openCurrencyKey === c.key ? `tb-pop-${c.key}` : undefined}
+                  on:pointerenter={(e) => hoverEnterCurrency(e, c.key)}
+                  on:pointerleave={(e) => hoverLeaveCurrency(e, c.key)}
+                  on:focus={() => showCurrency(c.key)}
+                  on:blur={() => hideCurrency(c.key)}
+                  on:click={() => showCurrency(c.key)}
+                >
+                  <span class="cur-pill-glyph" aria-hidden="true">{c.glyph}</span>
+                  <b class="cur-pill-val">{currencyValues[c.key] ?? ""}</b>
+                  <span class="cur-pill-name">{c.label}</span>
+                </button>
+                {#if openCurrencyKey === c.key}
+                  <div class="tb-pop info-pop" id={`tb-pop-${c.key}`} role="tooltip">
+                    <div class="tb-pop-title">{c.glyph} {c.label}</div>
+                    <div class="cur-pop-desc">{c.description}</div>
                   </div>
-                {/each}
+                {/if}
               </div>
-            {/if}
-          </div>
-
-          <!-- 0.13.6 fuel-to-reach: the global fuel tank readout was removed. Fuel is no longer a
-               managed resource (instant free refuel); a ship's REACH is a per-hull property shown on
-               the ship + dispatch surfaces, not a fleet-wide tank in the header. -->
-
+            {/each}
+          {/if}
         </div>
 
         <!-- Gear: opens the System window on Settings (0.13.6 D7: now the ONLY door to the System
@@ -15884,6 +15917,28 @@
         </SettingRow>
       </Panel>
 
+      <!-- HEADER CURRENCIES (0.13.6): pick which currencies fill the header band (Variant C), up to
+           MAX_HEADER_CURRENCIES, split evenly. Data-driven off CURRENCY_META, so a new currency
+           appears here automatically. A cosmetic display choice, so it lives under Visual beside the
+           theme picker. -->
+      <Panel class="settings-section">
+        <div class="panel-title">HEADER CURRENCIES</div>
+        <p class="cq-note">
+          Choose which currencies fill the header band, up to {MAX_HEADER_CURRENCIES}. They split the band evenly, each with its own tooltip. More options will appear here as new currencies are added.
+        </p>
+        {#each CURRENCY_META as c (c.key)}
+          {@const shown = effectiveCurrencyKeys.includes(c.key)}
+          <SettingRow label={c.label} description={c.description}>
+            <Toggle
+              label={`Show ${c.label} in the header band`}
+              checked={shown}
+              disabled={!shown && effectiveCurrencyKeys.length >= MAX_HEADER_CURRENCIES}
+              on:change={() => toggleCurrencyDisplay(c.key)}
+            />
+          </SettingRow>
+        {/each}
+      </Panel>
+
       <Panel class="settings-section">
         <div class="panel-title">TICK BAR</div>
         <SettingRow
@@ -17882,26 +17937,47 @@
      value stay grouped on the left. */
   /* MOBILE: 0.13.6 fuel-to-reach removed the fuel button, so the resources area now holds only the
      currency control (a single full-width column). */
-  .tb-resources { grid-area: resources; display: grid; grid-template-columns: 1fr; gap: 8px; position: relative; }
-  .tb-resources > .tb-pop-wrap { min-width: 0; }
-  .tb-pop-wrap { position: static; display: flex; }
-  .tb-hbtn {
+  /* CURRENCIES BAND (0.13.6, Variant C). Full-width row (grid "resources" area) on both platforms,
+     pills splitting the width evenly, over a soft accent glow. The glow lives IN the band background
+     (a radial gradient composited over bg-mid) rather than a separate overflow-clipped layer, so the
+     per-pill info popover (an absolutely-positioned child) is never clipped. Theme-safe: the glow is
+     the accent token, so it re-hues with the theme. */
+  .cur-band {
+    grid-area: resources;
+    position: relative;
+    display: flex;
+    gap: 6px;
+    padding: 7px 8px 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+    background:
+      radial-gradient(120% 130% at 50% 165%, rgba(var(--color-accent-rgb), 0.16), transparent 70%),
+      var(--color-bg-mid);
+  }
+  .cur-band > .cur-pill-wrap { flex: 1 1 0; min-width: 0; }
+  .cur-empty { flex: 1 1 auto; text-align: center; padding: 6px; font-size: var(--text-2xs); color: var(--color-text-dim); }
+  /* One currency pill. min-width:0 lets a long value ellipsis instead of forcing the band wide. */
+  .cur-pill {
     flex: 1 1 auto;
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 10px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 9px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
     border-radius: var(--corner);
     background: rgba(var(--color-accent-rgb), 0.08);
-    font: inherit;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 0 12px rgba(var(--color-accent-rgb), 0.10);
+    cursor: default;
+    transition: border-color 0.15s;
   }
-  .tb-hbtn:hover,
-  .tb-hbtn.open { border-color: rgba(var(--color-accent-rgb), 0.6); background: rgba(var(--color-accent-rgb), 0.14); }
-  .tb-hbtn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  .tb-hbtn-glyph { flex: 0 0 auto; font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
-  .tb-hbtn b { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
-  .tb-hbtn-caret { flex: 0 0 auto; margin-left: auto; padding-left: 6px; font-size: var(--text-2xs); color: var(--color-text-dim); line-height: 1; }
+  .cur-pill.open { border-color: var(--color-accent); }
+  .cur-pill-glyph { flex: 0 0 auto; font-size: var(--text-sm); color: var(--color-accent); line-height: 1; }
+  .cur-pill-val { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 700; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* Name tag: HIDDEN on mobile (compact band, the tooltip carries the name), shown on desktop. */
+  .cur-pill-name { display: none; }
+  .cur-pop-desc { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
+  .tb-pop-wrap { position: static; display: flex; }
   /* ⚠️ THE ONE INFO-TOOLTIP SURFACE (0.13.5 tooltip standardization, user: "info tooltips should
      all look one way"). Shared by the currency popup, the warehouse build-reason popover, the combat
      threat tooltip and the warehouse fill-tile tooltip. Only the SURFACE is shared (opaque
@@ -17924,25 +18000,29 @@
     width: auto; max-width: none;
   }
   .tb-pop-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); margin-bottom: 5px; }
-  .tb-pop-line { display: flex; justify-content: space-between; gap: 18px; padding: 2px 0; font-size: var(--text-xs); }
-  .tb-pop-line .tb-pop-name { color: var(--color-text-secondary); }
-  .tb-pop-line b { font-family: var(--font-mono); color: var(--color-text-primary); }
 
   /* ── Desktop (≥769px). One row via grid-areas: portrait | stats | resources | gear. Bigger
      bookends; resources stack at equal width; the currency popup re-anchors to its own button. ── */
   @media (min-width: 769px) {
+    /* 0.13.6: the currencies band is full-width on desktop too ("a band for both", user), so the
+       header keeps the TWO-ROW grid (identity/stats/gear, then the band spanning all columns)
+       rather than tucking currencies inline. */
     .top-bar-header {
-      grid-template-columns: auto 1fr auto auto;
-      grid-template-areas: "portrait stats resources gear";
+      grid-template-columns: auto 1fr auto;
+      grid-template-areas:
+        "portrait stats gear"
+        "resources resources resources";
       column-gap: 20px;
-      row-gap: 0;
+      row-gap: 9px;
     }
     .top-bar-header .top-bar-portrait { width: 58px; height: 58px; font-size: calc(26px * var(--ui-scale)); }
     .tb-stats { column-gap: 10px; row-gap: 8px; }
     .tb-stats .tb-bar { height: 10px; }
     .tb-stats .tb-statval { font-size: var(--text-xs); }
-    .tb-resources { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
-    .tb-resources > .tb-pop-wrap { flex: none; width: 168px; }
+    /* Roomier band on desktop: bigger pills, and the name tag is shown (mobile hides it). */
+    .cur-band { gap: 8px; padding: 8px 10px 9px; }
+    .cur-pill { padding: 7px 12px; gap: 8px; }
+    .cur-pill-name { display: inline; margin-left: auto; font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--color-text-dim); white-space: nowrap; }
     .top-bar-header .top-bar-gear { width: 58px; height: 58px; }
     .top-bar-header .top-bar-gear svg { width: 26px; height: 26px; }
     .tb-pop-wrap { position: relative; }
