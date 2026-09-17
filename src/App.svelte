@@ -13573,27 +13573,32 @@
         {@const shipsReturnCaptain = shipsReturnCaptainId === null
           ? null
           : state.captains.find((c) => c.id === shipsReturnCaptainId) ?? null}
-        <div class="roster-back-row">
+        <!-- One-row console header (0.13.6 spacing pass): the ship detail now uses the SAME
+             .fconsole-hdr treatment as the facility + captain consoles (compact arrow-only back
+             button + name on one clean row), instead of the older wrappy .roster-back-row with a
+             full-width .dev-btn. -->
+        <div class="fconsole-hdr">
           <!-- Back to the roster. 0.13.2 Unit 7 (a11y): use:focusOnMount lands keyboard focus
                HERE when the drill-down opens (the row button that opened it has unmounted, so
                without this focus would fall to <body>). On Back we record the hull id in
                pendingFocusShipId so the grid can return focus to the row we came from.
                0.13.3 Unit 0.1: the click body moved into returnFromShipPage(), which keeps that
                roster behavior verbatim but ALSO honors a captain origin (reached via the captain
-               page's Ship Systems shortcut) by returning to that captain instead. The label
-               NAMES the actual destination: a control reading "Ships" that lands the player on
-               a captain console would be a worse papercut than the one this unit fixes. -->
+               page's Ship Systems shortcut) by returning to that captain instead. The destination
+               NAMES itself in the aria-label (arrow-only visual matches the other consoles): a
+               control that lands the player on a captain console must still say so to a screen
+               reader, the same reason the old visible label named it. -->
           <button
-            class="dev-btn"
+            class="fconsole-back"
             aria-label={shipsReturnCaptain === null
               ? "Back to ships roster"
               : `Back to ${shipsReturnCaptain.label}`}
             use:focusOnMount
             on:click={returnFromShipPage}
           >
-            ← {shipsReturnCaptain === null ? "Ships" : shipsReturnCaptain.label}
+            <span aria-hidden="true">←</span>
           </button>
-          <div class="research-name roster-detail-name">{def?.label ?? ship.typeKey}</div>
+          <div class="research-name roster-detail-name fconsole-name">{def?.label ?? ship.typeKey}</div>
         </div>
 
         <!-- SHIP ACTIONS (0.12.0 Console Phase 2; 0.13.2 Unit 4). Cross-perspective
@@ -14453,13 +14458,24 @@
           <p class="prestige-text">No missions in progress. Dispatch a captain from the Gathering or Combat Patrols tab.</p>
         {/if}
         {#if gatheringCaptains.length > 0}
-          <div class="panel-title">Gathering</div>
+          <!-- 0.13.6 spacing pass: section headers on Ops/Combat now use the shared home-sec-hd
+               treatment (the same label + count + hairline rule the Home dashboard and the queue
+               panels use), instead of a bare accent .panel-title. -->
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Gathering</span>
+            <span class="home-sec-count">{gatheringCaptains.length}</span>
+            <span class="home-sec-rule"></span>
+          </div>
           {#each gatheringCaptains as captain (captain.id)}
             {@render extractionInProgressCard(captain)}
           {/each}
         {/if}
         {#if patrolCaptains.length > 0}
-          <div class="panel-title">Combat Patrols</div>
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Combat Patrols</span>
+            <span class="home-sec-count">{patrolCaptains.length}</span>
+            <span class="home-sec-rule"></span>
+          </div>
           {#each patrolCaptains as captain (captain.id)}
             {@render patrolInProgressCard(captain)}
           {/each}
@@ -14511,7 +14527,10 @@
                    extraction run). The `!` inside the each is safe because the filter
                    guaranteed an extraction mission for every listed captain. -->
 
-              <div class="panel-title">AVAILABLE MISSIONS</div>
+              <div class="home-sec-hd">
+                <span class="home-sec-h">Available Missions</span>
+                <span class="home-sec-rule"></span>
+              </div>
               <!-- OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html):
                    the AVAILABLE MISSIONS card grid became a vertical stack of full-width ROWS
                    (the facilities/captains .fpane/.cpane idiom, here .mpane). This is a straight
@@ -14681,7 +14700,10 @@
       <div class="tab-scroll-area">
 
 
-            <div class="panel-title">AVAILABLE PATROLS</div>
+            <div class="home-sec-hd">
+              <span class="home-sec-h">Available Patrols</span>
+              <span class="home-sec-rule"></span>
+            </div>
             <!-- OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html):
                  the ~12-element inline patrol card was condensed to a full-width ROW (.mpane) + a
                  "More info" reveal + a Dispatch popup. The row keeps the glance signals (waves ·
@@ -19251,7 +19273,6 @@
   /* Captain console back-to-grid row: the back button beside the captain name
      as the detail heading (identity). Keeping the name here lets the leveling /
      talents panels stay VERBATIM while the page still names who you are on. */
-  .roster-back-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
   .roster-detail-name { margin-bottom: 0; }
   /* ── One-row facility console header (0.13.5): [← back arrow] [name] [sub-tab strip]. NOWRAP so
      the strip scrolls (via SubTabs' carets) rather than wrapping to a second row. Desktop pushes the
@@ -19293,8 +19314,12 @@
   /* Materials tab tier selector (0.11.2 Task 9): a small segmented pill row
      that picks which storage tier's stock the sections below display. Opaque
      backgrounds only (Brave disables backdrop-filter), reusing theme tokens. */
+  /* 0.13.6 spacing pass: the tier selector is a DIRECT flex child of .tab-scroll-area (gap:14px),
+     so its own margin-bottom stacked on top of that gap and opened a ~24px trough before the Panel
+     below, looser than the 14px panel-to-panel rhythm every other Logistics tab has. Drop the
+     margin and let the flex gap alone govern the spacing. */
   .materials-tier-select {
-    display: flex; gap: 6px; margin: 0 0 10px;
+    display: flex; gap: 6px; margin: 0;
   }
   .materials-tier-btn {
     flex: 0 0 auto;
