@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quartermaster Sell Tab</title>
+<style>
+  :root {
+    --bg-deep:#0a1016; --bg:#0e1621; --panel:#14202c; --panel-2:#182835;
+    --border:rgba(103,232,249,0.18); --border-strong:rgba(103,232,249,0.4);
+    --accent:#67e8f9; --accent-rgb:103,232,249; --text:#dce8ee; --text-2:#8fa3ad; --text-dim:#61808c;
+    --gold:#f5c46b; --gold-rgb:245,196,107;
+    --retire:#c98bd6; --retire-rgb:201,139,214;
+    --mono:ui-monospace,Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --corner:8px;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:radial-gradient(1200px 700px at 20% -10%,#12202e,transparent 60%),var(--bg-deep); color:var(--text); font-family:var(--sans); padding:26px 18px 70px; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:1.5rem; margin:0 0 4px; } h1 .accent { color:var(--accent); }
+  .lede { color:var(--text-2); margin:0 0 6px; max-width:78ch; }
+  .note { color:var(--text-dim); font-size:0.85rem; margin:0 0 24px; max-width:82ch; }
+  h2 { font-family:var(--mono); font-size:0.76rem; letter-spacing:0.2em; text-transform:uppercase; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:8px; margin:36px 0 6px; }
+  .sub { color:var(--text-2); font-size:0.9rem; margin:0 0 16px; max-width:80ch; }
+  .cap { font-family:var(--mono); font-size:0.68rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-dim); margin:16px 0 8px; }
+
+  /* ---- console frame ---- */
+  .console { border:1px solid var(--border); border-radius:12px; overflow:hidden; background:linear-gradient(180deg,var(--bg),var(--bg-deep)); }
+  .qm-hdr { display:flex; align-items:center; gap:10px; padding:11px 13px; border-bottom:1px solid var(--border); }
+  .qm-back { width:30px; height:30px; border-radius:8px; border:1px solid var(--border-strong); background:transparent; color:var(--accent); display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .qm-name { font-family:var(--mono); font-size:0.9rem; color:var(--text); }
+  .tabs { display:flex; gap:6px; margin-left:auto; flex-wrap:wrap; }
+  .tab { font-family:var(--mono); font-size:0.62rem; letter-spacing:0.12em; text-transform:uppercase; padding:6px 11px; border-radius:7px; border:1px solid var(--border); background:transparent; color:var(--text-2); }
+  .tab.on { background:rgba(var(--accent-rgb),0.12); border-color:var(--border-strong); color:var(--accent); }
+  .tab.lock { color:var(--text-dim); border-style:dashed; }
+  .tab.lock small { opacity:0.7; }
+
+  .body { padding:14px 13px 16px; }
+
+  /* ---- wallet bar ---- */
+  .wallet { display:flex; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:rgba(var(--gold-rgb),0.05); margin-bottom:14px; }
+  .wallet .lbl { font-family:var(--mono); font-size:0.6rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--text-dim); }
+  .wallet .bal { font-family:var(--mono); font-weight:700; font-size:1.05rem; color:var(--gold); }
+  .wallet .bal .u { font-size:0.66rem; color:var(--text-dim); font-weight:400; margin-left:3px; letter-spacing:0.1em; }
+  .wallet .hint { margin-left:auto; color:var(--text-dim); font-size:0.78rem; max-width:34ch; text-align:right; }
+
+  /* ---- category shelf (the warehouse-tier idiom) ---- */
+  .shelf-hd { display:flex; align-items:center; gap:8px; margin:16px 2px 9px; }
+  .shelf-hd:first-child { margin-top:2px; }
+  .shelf-h { font-family:var(--mono); font-size:0.62rem; letter-spacing:0.14em; text-transform:uppercase; font-weight:700; color:var(--text); }
+  .shelf-rule { flex:1; height:1px; background:var(--border); }
+  .shelf-cnt { font-family:var(--mono); font-size:0.6rem; color:var(--text-dim); }
+
+  /* ---- one sellable item row ---- */
+  .row { display:flex; align-items:center; gap:12px; padding:11px 12px; border:1px solid var(--border); border-radius:10px; background:var(--panel); margin-bottom:8px; }
+  .row .ic { width:38px; height:38px; border-radius:8px; background:var(--panel-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:19px; flex:0 0 auto; }
+  .row .id { min-width:0; flex:1 1 auto; }
+  .row .nm { display:flex; align-items:center; gap:8px; }
+  .row .nm b { font-weight:600; color:var(--text); }
+  .row .meta { font-family:var(--mono); font-size:0.72rem; color:var(--text-2); margin-top:3px; }
+  .row .meta .price { color:var(--gold); }
+  .pill-tag { font-family:var(--mono); font-size:0.54rem; letter-spacing:0.1em; text-transform:uppercase; padding:2px 7px; border-radius:20px; border:1px solid rgba(var(--retire-rgb),0.5); color:var(--retire); background:rgba(var(--retire-rgb),0.08); }
+
+  /* qty control + total + sell */
+  .sell-ct { display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+  .stepper { display:flex; align-items:center; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .stepper button { width:28px; height:30px; background:var(--panel-2); border:none; color:var(--text-2); font-size:15px; }
+  .stepper input { width:64px; height:30px; background:transparent; border:none; border-left:1px solid var(--border); border-right:1px solid var(--border); color:var(--text); font-family:var(--mono); font-size:0.82rem; text-align:center; }
+  .maxb { font-family:var(--mono); font-size:0.6rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--accent); background:transparent; border:1px solid var(--border); border-radius:7px; height:30px; padding:0 9px; }
+  .row-total { font-family:var(--mono); font-weight:700; color:var(--gold); min-width:74px; text-align:right; }
+  .sellb { font-family:var(--mono); font-size:0.68rem; letter-spacing:0.1em; text-transform:uppercase; color:#08131a; background:var(--accent); border:1px solid var(--border-strong); border-radius:8px; height:32px; padding:0 14px; font-weight:700; }
+  .sellb.ghost { background:transparent; color:var(--accent); }
+
+  /* empty / future notes */
+  .stub { border:1px dashed var(--border); border-radius:10px; padding:16px; color:var(--text-dim); font-size:0.86rem; text-align:center; }
+  .future { border:1px dashed var(--border); border-radius:10px; padding:12px 13px; background:rgba(var(--accent-rgb),0.03); }
+  .future .fl { font-family:var(--mono); font-size:0.58rem; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-dim); margin-bottom:10px; }
+  .future .row { opacity:0.72; }
+
+  /* footer bulk bar */
+  .bulk { display:flex; align-items:center; gap:12px; margin-top:12px; padding:11px 12px; border:1px solid var(--border-strong); border-radius:10px; background:rgba(var(--gold-rgb),0.06); }
+  .bulk .t { font-family:var(--mono); font-size:0.8rem; color:var(--text-2); }
+  .bulk .t b { color:var(--gold); }
+  .bulk .spacer { flex:1; }
+
+  .flex2 { display:grid; grid-template-columns:1fr 1fr; gap:22px; align-items:start; }
+  @media (max-width:900px){ .flex2 { grid-template-columns:1fr; } }
+
+  /* ---- mobile frame ---- */
+  .phone { width:370px; max-width:100%; border:1px solid var(--border); border-radius:16px; overflow:hidden; background:linear-gradient(180deg,var(--bg),var(--bg-deep)); }
+  .phone .qm-hdr { padding:10px 11px; }
+  .phone .tabs { gap:5px; }
+  .phone .body { padding:12px 11px 14px; }
+  .phone .row { flex-wrap:wrap; }
+  .phone .sell-ct { width:100%; margin-top:9px; }
+  .phone .sell-ct .row-total { flex:1 1 auto; }
+
+  .verdict { color:var(--text-2); font-size:0.88rem; margin:6px 0 0; max-width:84ch; }
+  .verdict b { color:var(--accent); }
+  ul.pts { color:var(--text-2); font-size:0.88rem; max-width:84ch; padding-left:20px; }
+  ul.pts li { margin:5px 0; }
+  ul.pts b { color:var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Quartermaster &middot; <span class="accent">Sell</span> tab</h1>
+  <p class="lede">The reserved Sell sub-tab, made real. It is built to SCALE to "sell pretty much anything you want" later, but in 0.13.6 only DEPRECATED stock is flagged sellable, so today the shelf holds one line: Deuterium Ice, orphaned by the fuel-to-reach change. Value is derived from what the item was worth (1 ice = 2 fuel &times; 20 cr = <b style="color:var(--gold)">40 cr/unit</b>).</p>
+  <p class="note">Requisition stays a fixed floor-dispenser (same baseline for every ship / ground crew, nothing to expand). Sell is the growable catalog. Purchase and a later Donation counter sit as honest locked markers. Below: the live 0.13.6 state, the empty state, how it scales later, and mobile.</p>
+
+  <!-- ============ LIVE 0.13.6 STATE ============ -->
+  <h2>0.13.6 &middot; live state (deprecated stock only)</h2>
+  <p class="sub">One category shelf, one row. The retired tag explains WHY it is sellable now; the row carries a quantity stepper (sell some) plus Max (sell all of it), a live row total, and a Sell button. The wallet bar shows credits and updates as you sell.</p>
+  <div class="console">
+    <div class="qm-hdr">
+      <div class="qm-back">&larr;</div>
+      <div class="qm-name">QUARTERMASTER</div>
+      <div class="tabs">
+        <div class="tab">Requisition</div>
+        <div class="tab on">Sell</div>
+        <div class="tab lock">Purchase <small>&#128274;</small></div>
+        <div class="tab lock">Donate <small>&#128274; later</small></div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="wallet">
+        <span class="lbl">Wallet</span>
+        <span class="bal">1,240,880<span class="u">cr</span></span>
+        <span class="hint">Sell surplus and deprecated stock for credits, at any time.</span>
+      </div>
+
+      <div class="shelf-hd">
+        <span class="shelf-h">Volatiles</span>
+        <span class="shelf-rule"></span>
+        <span class="shelf-cnt">1 item</span>
+      </div>
+
+      <div class="row">
+        <div class="ic">&#10052;&#65039;</div>
+        <div class="id">
+          <div class="nm"><b>Deuterium Ice</b> <span class="pill-tag">Retired</span></div>
+          <div class="meta">owned 1,240 &middot; <span class="price">40 cr</span> each</div>
+        </div>
+        <div class="sell-ct">
+          <div class="stepper"><button>&minus;</button><input value="1,240" /><button>+</button></div>
+          <button class="maxb">Max</button>
+          <span class="row-total">49,600</span>
+          <button class="sellb">Sell</button>
+        </div>
+      </div>
+
+      <div class="bulk">
+        <span class="t">Sell everything on this shelf for <b>49,600 cr</b></span>
+        <span class="spacer"></span>
+        <button class="sellb ghost">Sell all deprecated</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ EMPTY STATE ============ -->
+  <h2>Empty state (nothing sellable on hand)</h2>
+  <p class="sub">A player who already cleared their ice, or has none, sees a calm stub rather than a blank tab.</p>
+  <div class="console">
+    <div class="qm-hdr">
+      <div class="qm-back">&larr;</div>
+      <div class="qm-name">QUARTERMASTER</div>
+      <div class="tabs">
+        <div class="tab">Requisition</div>
+        <div class="tab on">Sell</div>
+        <div class="tab lock">Purchase <small>&#128274;</small></div>
+        <div class="tab lock">Donate <small>&#128274; later</small></div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="wallet">
+        <span class="lbl">Wallet</span>
+        <span class="bal">1,290,480<span class="u">cr</span></span>
+        <span class="hint">Sell surplus and deprecated stock for credits, at any time.</span>
+      </div>
+      <div class="stub">Nothing to sell right now. Retired stock and surplus you can part with will appear here.</div>
+    </div>
+  </div>
+
+  <!-- ============ SCALES LATER ============ -->
+  <h2>How it scales (LATER, once more goods are flagged sellable)</h2>
+  <p class="sub">Same row, more shelves. Because it is just "every item whose def carries a sell value, grouped by category," the exact same layout holds whether there is one line or forty. This panel is illustrative of the future, NOT 0.13.6 scope, widening what is sellable reopens the sell-side price/economy balance pass, which stays deferred.</p>
+  <div class="future">
+    <div class="fl">Preview: a future save with several sellable goods</div>
+    <div class="shelf-hd" style="margin-top:0;"><span class="shelf-h">Volatiles</span><span class="shelf-rule"></span><span class="shelf-cnt">1 item</span></div>
+    <div class="row">
+      <div class="ic">&#10052;&#65039;</div>
+      <div class="id"><div class="nm"><b>Deuterium Ice</b> <span class="pill-tag">Retired</span></div><div class="meta">owned 1,240 &middot; <span class="price">40 cr</span> each</div></div>
+      <div class="sell-ct"><div class="stepper"><button>&minus;</button><input value="1,240" /><button>+</button></div><button class="maxb">Max</button><span class="row-total">49,600</span><button class="sellb">Sell</button></div>
+    </div>
+    <div class="shelf-hd"><span class="shelf-h">Ores &amp; Metals</span><span class="shelf-rule"></span><span class="shelf-cnt">2 items</span></div>
+    <div class="row">
+      <div class="ic">&#129704;</div>
+      <div class="id"><div class="nm"><b>Titanium Ore</b></div><div class="meta">owned 8,900 &middot; <span class="price">6 cr</span> each</div></div>
+      <div class="sell-ct"><div class="stepper"><button>&minus;</button><input value="2,000" /><button>+</button></div><button class="maxb">Max</button><span class="row-total">12,000</span><button class="sellb">Sell</button></div>
+    </div>
+    <div class="row">
+      <div class="ic">&#128142;</div>
+      <div class="id"><div class="nm"><b>Rare Isotopes</b></div><div class="meta">owned 210 &middot; <span class="price">55 cr</span> each</div></div>
+      <div class="sell-ct"><div class="stepper"><button>&minus;</button><input value="50" /><button>+</button></div><button class="maxb">Max</button><span class="row-total">2,750</span><button class="sellb">Sell</button></div>
+    </div>
+    <div class="shelf-hd"><span class="shelf-h">Ship Systems (spare)</span><span class="shelf-rule"></span><span class="shelf-cnt">1 item</span></div>
+    <div class="row">
+      <div class="ic">&#128268;</div>
+      <div class="id"><div class="nm"><b>Standard-Issue Cargo Bay</b></div><div class="meta">owned 3 &middot; <span class="price">15 cr</span> each</div></div>
+      <div class="sell-ct"><div class="stepper"><button>&minus;</button><input value="3" /><button>+</button></div><button class="maxb">Max</button><span class="row-total">45</span><button class="sellb">Sell</button></div>
+    </div>
+  </div>
+
+  <!-- ============ MOBILE ============ -->
+  <h2>Mobile</h2>
+  <p class="sub">The row wraps: name + owned + unit price on top, the qty control / total / Sell drop to a full-width second line so nothing gets cramped at 370px.</p>
+  <div class="phone">
+    <div class="qm-hdr">
+      <div class="qm-back">&larr;</div>
+      <div class="qm-name" style="font-size:0.8rem;">QUARTERMASTER</div>
+      <div class="tabs"><div class="tab" style="font-size:0.56rem;">Req.</div><div class="tab on" style="font-size:0.56rem;">Sell</div><div class="tab lock" style="font-size:0.56rem;">Buy&#128274;</div></div>
+    </div>
+    <div class="body">
+      <div class="wallet"><span class="lbl">Wallet</span><span class="bal" style="font-size:0.95rem;">1,240,880<span class="u">cr</span></span></div>
+      <div class="shelf-hd" style="margin-top:2px;"><span class="shelf-h">Volatiles</span><span class="shelf-rule"></span><span class="shelf-cnt">1</span></div>
+      <div class="row">
+        <div class="ic">&#10052;&#65039;</div>
+        <div class="id"><div class="nm"><b>Deuterium Ice</b> <span class="pill-tag">Retired</span></div><div class="meta">owned 1,240 &middot; <span class="price">40 cr</span> each</div></div>
+        <div class="sell-ct">
+          <div class="stepper"><button>&minus;</button><input value="1,240" /><button>+</button></div>
+          <button class="maxb">Max</button>
+          <span class="row-total">49,600</span>
+          <button class="sellb">Sell</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MY READ ============ -->
+  <h2>What I would build for 0.13.6</h2>
+  <ul class="pts">
+    <li><b>Data:</b> an optional <code>sellValue</code> (credits/unit) on the item def. An item is sellable iff it has one. Only Deuterium Ice gets it now (= 40, derived + documented), so the shelf is deprecated-only.</li>
+    <li><b>Row interaction:</b> a quantity stepper + Max (sell some or all of one item), a live row total, per-row Sell, and a shelf-level "Sell all deprecated" convenience. Confirm reuses the existing Quartermaster confirm preset.</li>
+    <li><b>Layout:</b> the Warehouse category-shelf idiom you already have (category header + rule, item rows), so it scales to many goods with zero rework, only their defs need a <code>sellValue</code> to appear.</li>
+    <li><b>Deferred (later):</b> widening "sellable" to non-deprecated goods, real price tuning, Purchase, and the Donation counter, each its own decision. This mock shows those as locked / preview so the seam is visible without committing scope.</li>
+  </ul>
+  <p class="verdict">Open questions for you: (1) the <b>Retired</b> tag, keep it as the "why can I sell this" cue, or drop it? (2) the <b>"Sell all deprecated"</b> bulk button, want it in 0.13.6 or hold it? (3) stepper vs a plain "Sell all" only (no partial amounts) for the first cut. None block the build; say the word and I start on migration + model + engine while you sit with the visual.</p>
+</div>
+</body>
+</html>

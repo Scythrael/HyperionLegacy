@@ -335,6 +335,12 @@
     freeSpareBaselinesFor,
     requisitionBlockText,
     requisitionStandardIssue,
+    // Sell counter (0.13.6): the derived sellable-stock shelf + the sell transform. Only items
+    // carrying an ItemDef.sellValue are sellable; sellItem hard-refuses everything else.
+    sellableInventory,
+    sellItem,
+    sellBlockText,
+    type SellableEntry,
   } from "./lib/game/quartermaster";
   // 0.13.4 Phase 4: the transit-berth read model. The console reads the SAME module the engine
   // does, so the two can never disagree about how many berths exist or who is waiting.
@@ -5970,6 +5976,62 @@
     }
     state = next;
     pushLog(`Requisitioned a Standard-Issue ${label}. It is in your spare systems, ready to install.`);
+    doSave();
+  }
+
+  // ── QUARTERMASTER SELL (0.13.6) ───────────────────────────────────────────
+  // Per-item, unsubmitted quantity for the Sell rows (a form value, never on GameState, exactly
+  // like salvageQty above). An absent entry defaults to the whole amount held, so one click sells
+  // all of a stack; the player can dial it down with the stepper or type a partial amount.
+  let sellQty: Record<string, number> = {};
+
+  // The sellable shelf, grouped into the SAME ordered sections the Warehouse Materials tab uses,
+  // with an "Other Goods" catch-all so a future non-material sellable still appears rather than
+  // silently vanishing. sellableInventory only lists items the player holds that carry a sellValue,
+  // so today this is exactly one line (Deuterium Ice, deprecated by fuel-to-reach). Reads state, so
+  // it re-derives as stock is sold.
+  $: sellSections = (() => {
+    const bySection = new Map<string, SellableEntry[]>();
+    const labelFor = (e: SellableEntry): string => {
+      for (const s of MATERIALS_SECTIONS) {
+        if (itemInMaterialsSection(ITEMS[e.itemId], s.key)) return s.label;
+      }
+      return "Other Goods";
+    };
+    for (const e of sellableInventory(state)) {
+      const label = labelFor(e);
+      if (!bySection.has(label)) bySection.set(label, []);
+      bySection.get(label)!.push(e);
+    }
+    return [...bySection.entries()].map(([label, items]) => ({ label, items }));
+  })();
+
+  // The quantity a Sell row will submit: the form value made whole and clamped to 1..owned, or 0
+  // when a sub-unit stock leaves nothing sellable (the Sell button disables on that 0). Mirrors
+  // salvageQtyFor exactly.
+  function sellQtyFor(itemId: string, owned: number): number {
+    return clampWholeQty(sellQty[itemId] ?? owned, owned);
+  }
+
+  // Stepper: nudge the row quantity by delta, clamped, defaulting from the full owned amount.
+  function sellStepQty(itemId: string, delta: number, owned: number) {
+    sellQty[itemId] = clampWholeQty((sellQty[itemId] ?? owned) + delta, owned);
+    sellQty = sellQty;
+  }
+
+  function doSell(itemId: string, label: string, owned: number) {
+    const qty = sellQtyFor(itemId, owned);
+    if (qty <= 0) return;
+    const result = sellItem(state, itemId, new Decimal(qty));
+    if (!result.ok) {
+      pushLog(`Cannot sell ${label}: ${sellBlockText(result.reason)}`);
+      return;
+    }
+    state = result.next;
+    pushLog(`Sold ${formatNumber(new Decimal(qty))} ${label} for ${formatNumber(result.credited)} credits.`);
+    // Drop the form entry so the row re-defaults to the new (reduced) owned amount.
+    delete sellQty[itemId];
+    sellQty = sellQty;
     doSave();
   }
 
@@ -12889,17 +12951,16 @@
               <SubTabs
                 tabs={[
                   { key: "requisition", label: "Requisition" },
+                  { key: "sell", label: "Sell" },
                   { key: "purchase", label: "Coming Soon!", locked: true },
-                  { key: "sell", label: "Coming Soon!", locked: true },
                 ]}
                 active={activeQuartermasterSubTab}
                 onSelect={(key) => (activeQuartermasterSubTab = key as QuartermasterSubTab)}
               />
 
-              <!-- Only "requisition" is reachable: SubTabs renders a locked tab natively
-                   `disabled`, so onSelect can never set the other two. They therefore get NO
-                   content branch, exactly as the Refinery's locked rail slot and Logistics'
-                   locked Crew Equipment tab do: the locked tab IS the placeholder. -->
+              <!-- "requisition" and "sell" are reachable; "purchase" stays a locked "Coming Soon!"
+                   rail slot with NO content branch (the locked tab IS the placeholder, exactly as the
+                   Refinery's locked rail slot and Logistics' locked Crew Equipment tab do). -->
               {#if activeQuartermasterSubTab === "requisition"}
                 <Panel>
                   <div class="panel-title">REQUISITION</div>
@@ -12956,6 +13017,97 @@
                   <p class="cq-note">
                     The counter issues one spare of each pattern at a time. Install it and the counter will issue another.
                   </p>
+                </Panel>
+              {/if}
+
+              {#if activeQuartermasterSubTab === "sell"}
+                <!-- SELL (0.13.6). The reserved Sell counter, made real. Built to SCALE to many
+                     goods (grouped shelves, the shared home-sec-hd section header idiom), but in
+                     0.13.6 only DEPRECATED stock carries a sellValue, so today the shelf holds one
+                     line: Deuterium Ice, orphaned by fuel-to-reach. The GUARD is in the engine, not
+                     here: sellableInventory lists only items with a sellValue, and sellItem refuses
+                     anything else, so a locked / non-sellable good can never be sold even as the
+                     catalogue grows. See docs/plans/2026-09-16-quartermaster-sell-mock.html. -->
+                <Panel>
+                  <div class="panel-title">SELL</div>
+                  <div class="qm-wallet">
+                    <span class="qm-wallet-label">Wallet</span>
+                    <span class="qm-wallet-bal">{formatNumber(state.credits)} <small>cr</small></span>
+                    <span class="qm-wallet-hint">Sell surplus and retired stock for credits, whenever you like.</span>
+                  </div>
+
+                  {#if sellSections.length === 0}
+                    <div class="warehouse-stub">
+                      <div class="warehouse-stub-glyph">🪙</div>
+                      <p>Nothing to sell right now. Retired stock and surplus you can part with will appear here.</p>
+                    </div>
+                  {:else}
+                    {#each sellSections as section (section.label)}
+                      <!-- Category shelf header: the shared Home/Ships section-header idiom (label +
+                           count pill + rule), the same treatment the Warehouse queue panels use. -->
+                      <div class="home-sec-hd qm-sell-shelf">
+                        <span class="home-sec-h">{section.label}</span>
+                        <span class="home-sec-count">{section.items.length}</span>
+                        <span class="home-sec-rule"></span>
+                      </div>
+                      <div class="cq-list">
+                        {#each section.items as entry (entry.itemId)}
+                          {@const ownedWhole = wholeUnitsFree(entry.owned.toNumber())}
+                          {@const qty = sellQtyFor(entry.itemId, ownedWhole)}
+                          <div class="cq-row">
+                            <div class="cq-body">
+                              <span class="home-l1">
+                                {entry.label}
+                                <!-- The "why can I sell this" cue: everything sellable in 0.13.6 is
+                                     retired stock, so the tag is unconditional for now. -->
+                                <span class="qm-retire-tag">Retired</span>
+                              </span>
+                              <span class="home-l2">
+                                <span class="home-meta">owned {formatNumber(entry.owned)}</span>
+                                <span class="home-meta qm-unit-price">{entry.unitValue} cr each</span>
+                              </span>
+                              <span class="cq-state">Sells for {formatNumber(new Decimal(qty).times(entry.unitValue))} credits.</span>
+                            </div>
+                            <div class="cq-ctl qm-sell-ctl">
+                              <!-- Quantity: a -/+ stepper flanking an editable box (defaults to the
+                                   full amount held), then Sell. clampWholeQty keeps the box whole and
+                                   inside 1..owned wherever the value comes from. -->
+                              <div class="qm-stepper">
+                                <button
+                                  type="button"
+                                  aria-label="Decrease quantity"
+                                  disabled={qty <= 1}
+                                  on:click={() => sellStepQty(entry.itemId, -1, ownedWhole)}
+                                >&minus;</button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max={ownedWhole}
+                                  step="1"
+                                  aria-label={`Quantity of ${entry.label} to sell`}
+                                  value={qty}
+                                  on:input={(e) => { sellQty[entry.itemId] = clampWholeQty(e.currentTarget.valueAsNumber, ownedWhole); sellQty = sellQty; }}
+                                />
+                                <button
+                                  type="button"
+                                  aria-label="Increase quantity"
+                                  disabled={qty >= ownedWhole}
+                                  on:click={() => sellStepQty(entry.itemId, 1, ownedWhole)}
+                                >+</button>
+                              </div>
+                              <button
+                                class="buy-btn"
+                                disabled={qty <= 0}
+                                on:click={() => doSell(entry.itemId, entry.label, ownedWhole)}
+                              >
+                                Sell
+                              </button>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    {/each}
+                  {/if}
                 </Panel>
               {/if}
           {:else if activeFoundryFacility === "armory"}
@@ -20206,6 +20358,43 @@
 
   /* Controls. flex: none so they keep their tap size while the body absorbs the squeeze. */
   .cq-ctl { flex: none; display: flex; align-items: center; gap: 4px; }
+
+  /* ── Quartermaster SELL tab (0.13.6). Theme-safe: every colour is a token, so the wallet /
+     price accents re-hue with the theme rather than clashing on purple / pink. ── */
+  .qm-wallet {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 12px; margin-bottom: 4px;
+    border: 1px solid var(--color-border); border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.05);
+  }
+  .qm-wallet-label { font-size: var(--text-2xs); letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-text-dim); }
+  .qm-wallet-bal { font-family: var(--font-mono); font-weight: 700; font-size: var(--text-lg); color: var(--color-accent-bright); }
+  .qm-wallet-bal small { font-size: var(--text-2xs); font-weight: 400; color: var(--color-text-dim); letter-spacing: 0.08em; margin-left: 2px; }
+  .qm-wallet-hint { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-dim); max-width: 34ch; text-align: right; }
+  .qm-sell-shelf { margin-top: 14px; }
+  .qm-retire-tag {
+    font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 1px 7px; border-radius: 20px;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-panel-bg);
+    margin-left: 6px; vertical-align: middle;
+  }
+  .qm-unit-price { color: var(--color-accent); }
+  .qm-sell-ctl { gap: 8px; }
+  .qm-stepper { display: flex; align-items: center; border: 1px solid var(--color-border); border-radius: var(--corner); overflow: hidden; }
+  .qm-stepper button {
+    width: 28px; height: 30px; padding: 0; flex: 0 0 auto;
+    background: var(--color-panel-bg); border: none; color: var(--color-text-secondary);
+    font-size: var(--text-md); line-height: 1; cursor: pointer;
+  }
+  .qm-stepper button:disabled { opacity: 0.4; cursor: default; }
+  .qm-stepper input {
+    width: 68px; height: 30px; text-align: center;
+    background: transparent; color: var(--color-text-primary);
+    border: none; border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border);
+    font-family: var(--font-mono); font-size: var(--text-sm);
+  }
   .cq-btn {
     display: inline-flex;
     align-items: center;

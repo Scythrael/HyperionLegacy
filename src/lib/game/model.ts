@@ -4950,6 +4950,12 @@ export interface ItemDef {
   // FORWARD (not populated this pass): only shipModule/shipSystem items ever
   // carry equip stats; every Phase 1 seed leaves this undefined.
   equipStats?: Record<string, number>;
+  // SELLABLE (0.13.6): credits per unit at the Quartermaster's Sell counter. An item is
+  // sellable IFF this is defined; canSell rejects everything else, so a locked / non-sellable
+  // good can never be sold even as the catalogue grows. Only DEPRECATED stock carries it for now
+  // (Deuterium Ice, orphaned by fuel-to-reach); widening it to live goods is a later, balance-
+  // gated decision. The value is DERIVED from the item's prior worth (see deuteriumIce).
+  sellValue?: number;
 }
 
 // Launch item registry, REAL entries only, same "no placeholders" discipline as
@@ -5025,6 +5031,11 @@ export const ITEMS: Record<string, ItemDef> = {
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
     unlockHint: "Skimmed from the Local Deuterium Skim run, refine it into fuel at the Fuel Depot.",
     flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
+    // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
+    // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
+    // worth: the Fuel Depot refined 50 ice -> 100 fuel (FUEL_REFINE_INPUT / FUEL_REFINE_OUTPUT) and
+    // fuel was 20 cr/unit (FUEL_CREDITS_PER_UNIT), so 1 ice = 2 fuel = 40 cr. TUNABLE.
+    sellValue: 40,
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
   // ITEM-MERGE (0.11.0 Task A1): the duplicate `refinedMaterial` ("Refined Material")

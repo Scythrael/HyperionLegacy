@@ -55,10 +55,12 @@
 //   requisitionStandardIssue the mutator
 // ============================================================================
 
-import type { EquipmentInstance, EquipmentSlotType, GameState } from "./model";
+import Decimal from "break_infinity.js";
+import type { EquipmentInstance, EquipmentSlotType, GameState, ItemCategory, RawSubCategory } from "./model";
 import {
   DEFAULT_EQUIPMENT_VARIETY,
   EQUIPMENT_SLOTS,
+  ITEMS,
   SI_EMITTER_CAP,
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
@@ -67,6 +69,7 @@ import {
   isStandardIssueBaseline,
   startAutoSalvageGrace,
 } from "./model";
+import { itemTotal, removeItemLowestFirst } from "./inventory";
 // The weapon / drone id unions. Imported for their TYPES and for the two floor ids the
 // catalogue names. quartermaster.ts is a leaf CONSUMER (nothing in model.ts or combat/
 // imports it), so importing combat values here is safe and does not touch the repo-wide
@@ -478,3 +481,113 @@ export function requisitionBlockText(reason: RequisitionBlockReason): string {
 // this catalogue must cover. Named here so a reader of the Quartermaster can see WHERE the
 // economy rows come from without chasing it into model.ts.
 export const ECONOMY_FLOOR_SLOTS: readonly string[] = Object.keys(DEFAULT_EQUIPMENT_VARIETY);
+
+// ============================================================================
+// THE SELL COUNTER (0.13.6). The Quartermaster's reserved Sell sub-tab, made real.
+//
+// SCOPE, DELIBERATELY NARROW (mirrors Requisition's posture and the header note above):
+//   - An item is SELLABLE iff its ItemDef carries a `sellValue` (credits/unit). Nothing
+//     else can be sold, EVER: canSell returns notSellable for any item without one, and
+//     sellItem refuses to write. That hard guard is the whole safety story, so a locked or
+//     simply-not-sellable good can never be liquidated even as the catalogue grows.
+//   - Only DEPRECATED stock carries a sellValue today (Deuterium Ice, orphaned by
+//     fuel-to-reach). Widening "sellable" to live goods reopens the sell-side price /
+//     economy balance pass the file header flags, and stays a later decision.
+//
+// PURE + IMMUTABLE, same posture as requisition: sellItem is a PLAYER ACTION resolved in
+// its own transform, never a tick branch, so it does not touch the offline==live parity gate.
+// Affordability (owned >= qty) is gated in canSell BEFORE removeItemLowestFirst runs, exactly
+// the contract inventory.ts documents for its consume helpers.
+// ============================================================================
+
+// One sellable line the console renders: an item the player OWNS that carries a sellValue.
+export interface SellableEntry {
+  itemId: string;
+  label: string;
+  category: ItemCategory;
+  subCategory?: RawSubCategory;
+  owned: Decimal;    // total held across quality buckets
+  unitValue: number; // credits per unit (ItemDef.sellValue)
+}
+
+// Typed refusal, mirroring RequisitionBlockReason. `notSellable` is the load-bearing guard.
+export type SellBlockReason =
+  | "notSellable"    // the item has no sellValue: it can never be sold
+  | "noneRequested"  // qty <= 0
+  | "insufficient";  // qty exceeds the amount on hand
+
+// The DERIVED, ordered list of sellable lines the player currently holds (owned > 0). Stable
+// order: by category, then by the item's registry order, so the shelf does not reshuffle as
+// stock changes. An item with a sellValue but 0 on hand is omitted (nothing to sell).
+export function sellableInventory(state: GameState): SellableEntry[] {
+  const out: SellableEntry[] = [];
+  for (const [itemId, def] of Object.entries(ITEMS)) {
+    if (def.sellValue === undefined) continue; // not sellable: never appears here
+    const owned = itemTotal(state.inventory, itemId);
+    if (owned.lte(0)) continue; // hold none: nothing to sell
+    out.push({
+      itemId,
+      label: def.label,
+      category: def.category,
+      subCategory: def.subCategory,
+      owned,
+      unitValue: def.sellValue,
+    });
+  }
+  return out;
+}
+
+// The gate. Pure predicate + typed reason. qty is a Decimal (unit count) so a huge stockpile
+// sold in one go never loses precision. The notSellable branch is checked FIRST so a
+// non-sellable / locked item is refused regardless of qty or holdings.
+export function canSell(
+  state: GameState,
+  itemId: string,
+  qty: Decimal,
+): { ok: true } | { ok: false; reason: SellBlockReason } {
+  const def = ITEMS[itemId];
+  if (def === undefined || def.sellValue === undefined) {
+    return { ok: false, reason: "notSellable" };
+  }
+  if (qty.lte(0)) return { ok: false, reason: "noneRequested" };
+  if (qty.gt(itemTotal(state.inventory, itemId))) {
+    return { ok: false, reason: "insufficient" };
+  }
+  return { ok: true };
+}
+
+export type SellResult =
+  | { ok: true; next: GameState; unitsSold: Decimal; credited: Decimal }
+  | { ok: false; reason: SellBlockReason };
+
+// Sell `qty` units of `itemId` for qty * sellValue credits. Removes the units lowest-quality
+// first (the documented consume policy; raw stock is all quality 0 today so it just drains the
+// one bucket) and adds the credits to the balance. Returns a NEW GameState; the input is never
+// mutated. On any refusal it writes nothing and returns the typed reason.
+export function sellItem(state: GameState, itemId: string, qty: Decimal): SellResult {
+  const gate = canSell(state, itemId, qty);
+  if (!gate.ok) return { ok: false, reason: gate.reason };
+
+  // canSell proved the item is sellable, so sellValue is defined here.
+  const unitValue = ITEMS[itemId].sellValue as number;
+  const credited = qty.times(unitValue);
+  const inventory = removeItemLowestFirst(state.inventory, itemId, qty);
+  const credits = state.credits.plus(credited);
+  return {
+    ok: true,
+    next: { ...state, inventory, credits },
+    unitsSold: qty,
+    credited,
+  };
+}
+
+export function sellBlockText(reason: SellBlockReason): string {
+  switch (reason) {
+    case "notSellable":
+      return "This item cannot be sold.";
+    case "noneRequested":
+      return "Enter how many to sell.";
+    case "insufficient":
+      return "You do not hold that many to sell.";
+  }
+}

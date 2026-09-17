@@ -52,12 +52,23 @@ Keep the existing reachability gate algebra; relabel it into lightyears and dele
   "Local Deuterium Skim" mission). `6ecf91f`
 - ✅ Step 3b: mission + patrol cards / dispatch popups show trip DISTANCE + hull REACH in
   lightyears (out-of-reach flagged), replacing the fuel-cost readouts. `92504a6`
+- ✅ Step 3c: existing-save cleanup + deprecated-stock recourse (2026-09-16). Two user-requested
+  follow-ups now that fuel-to-reach orphaned the skim + its ice:
+  - CAPTAIN RECALL migration (save.ts v51 -> v52): any captain still assigned to `localFuelRun` is
+    recalled (mission -> null, left idle) on load, so existing saves stop grinding the retired run.
+  - QUARTERMASTER SELL counter: the reserved Sell sub-tab made real (deprecated-only slice). An item
+    is sellable iff its `ItemDef` carries a `sellValue`; only Deuterium Ice is flagged (= 40 cr/unit,
+    derived: 50 ice -> 100 fuel x 20 cr/fuel). Engine in quartermaster.ts (`sellableInventory` /
+    `canSell` / `sellItem`, hard notSellable guard), UI mirrors the mock
+    (`docs/plans/2026-09-16-quartermaster-sell-mock.html`): grouped shelves, -/+ stepper + editable
+    box + Sell, wallet readout. Tests: quartermaster-sell.test.ts + a v51->v52 migration test.
 - ⏳ DEFERRED to the content/balance patch (the "fleshing out" pass): the DEEP removal of the
-  now-vestigial `state.fuel` field + the Fuel Depot (`fuelStorage`) facility + Deuterium Ice + the
-  skim mission + `processFuelPipelines` / `fuelRefineJob` / `buyFuel`, plus the save migration.
-  These are inert + hidden (no player-facing path), so a FRESH save sees a clean fuel-to-reach; the
-  ~30-file save-migration removal was deliberately NOT done at the tail of this cycle. `LY_PER_TICK`
-  and per-hull reach numbers are first-pass tunable, also for that pass.
+  now-vestigial `state.fuel` field + the Fuel Depot (`fuelStorage`) facility + Deuterium Ice itself +
+  the skim mission + `processFuelPipelines` / `fuelRefineJob` / `buyFuel`. Deuterium Ice now has a
+  player-facing exit (sell it), so its inventory data + `sellValue` stay until that removal pass; the
+  ~30-file field removal was still not done this cycle. `LY_PER_TICK` and per-hull reach numbers are
+  first-pass tunable, also for that pass. Widening "sellable" beyond deprecated stock is its own
+  balance-gated decision (see SUGGESTIONS' Quartermaster full-tab-vision entry).
 - ⚠️ NEEDS a devpreview visual pass (no local preview for this project): header reflow without the
   fuel chip, cards showing ly distance/reach, no Fuel Depot card, no skim mission, a fresh game
   still dispatches shortOreRun.

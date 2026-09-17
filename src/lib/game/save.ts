@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 51;
+export const SAVE_VERSION = 52;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2139,6 +2139,21 @@ const MIGRATIONS: Record<number, Migration> = {
   50: (state: any): any => ({
     ...state,
     archive: state.archive ?? {},
+  }),
+  // v51 -> v52 (0.13.6, fuel-to-reach): the Local Deuterium Skim mission (localFuelRun) is
+  // RETIRED, but existing saves may have captains still assigned to it, grinding a run the player
+  // can no longer see or dispatch (and falling behind in level as a result, the exact pain point
+  // fuel-to-reach set out to remove). Recall any such captain: mission -> null, left idle on their
+  // ship for the player to redirect. Only extraction missions carry `missionKey`; patrols carry
+  // `patrolKey`, so this leaves patrolling captains untouched. Idempotent (after it runs, no
+  // captain is on localFuelRun), a one-time cleanup.
+  51: (state: any): any => ({
+    ...state,
+    captains: (state.captains ?? []).map((c: any) =>
+      c?.mission != null && c.mission.missionKey === "localFuelRun"
+        ? { ...c, mission: null }
+        : c,
+    ),
   }),
 };
 

@@ -70,6 +70,18 @@ fight); the full mechanic lives in the Exploration saga doc, Part D.1 (Away-Team
 the Leviathans are one of the antagonist's escalation FORMS, sitting alongside the 5 escalating Modes
 already recorded in memory [[project_fleet_admiral_first_cause_dt]].
 
+## The protagonist's callsign: "Scythrael" (user, 2026-09-16)
+The player character (the Fleet Admiral, the player's avatar) carried the fighter-pilot callsign
+**"Scythrael"** in his days before captaincy. The user flags it as "an important part of the overall
+storyline," so treat it as load-bearing story canon, not flavor. The breadcrumb dropped with it:
+"a thousand years in his hidey hole makes him a dull boy" — a deliberate *The Shining* allusion (all
+work and no play), implying this character PERSISTS across the ~1,000-year gap to the far-future
+story (the same era the ultra-rare **magic crew member** drip foreshadows, see SUGGESTIONS), holed up
+and changed by the isolation. The user stopped there on purpose ("that's all I might just say for
+now"), so DO NOT extrapolate the reveal (e.g. whether Scythrael becomes the First Cause or otherwise);
+just hold the thread: callsign Scythrael + a millennium in hiding + emerges altered. Ties to the
+Captain Identity system (callsigns are a real field there) and the far-future story bible.
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.
