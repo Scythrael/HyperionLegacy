@@ -1555,6 +1555,22 @@
     favorites: shipFavorites,
   });
 
+  // 0.13.6 (user): a compact distinguishing stat line for a ship in the swap picker, so two
+  // UNNAMED same-type hulls can be told apart by what they carry. Folds the ship's fitted gear
+  // (shipDerivedStats) and reports its hold + reach (both gear-dependent) + a damaged flag. The
+  // hull label is prefixed by the caller only when the ship also has a custom name.
+  function shipPickerStats(ship: GameState["ships"][number]): string {
+    const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+    const reachLy = rangeLightYears({
+      ...SHIP_TYPES[ship.typeKey],
+      fuelCapacity: stats.fuelCapacity,
+      engineEfficiency: stats.engineEfficiency,
+    });
+    const parts = [`Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} ly`];
+    if (ship.damaged) parts.push("Damaged");
+    return parts.join(" · ");
+  }
+
   // Human labels for a ship's activity status (the roster row's meta line). A tiny map
   // rather than an inline {#if} chain per row, so the row markup stays compact.
   const SHIP_STATUS_LABEL: Record<ShipStatus, string> = {
@@ -16860,7 +16876,10 @@
                    picker above. -->
               <!-- Renamable Ships: label the pick by custom name when set (with the
                    hull class in parens), so two same-type parked hulls are distinct. -->
-              <button class="dev-btn" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>{ship.name ? `${ship.name} (${SHIP_TYPES[ship.typeKey].label})` : SHIP_TYPES[ship.typeKey].label}</button>
+              <button class="dev-btn ship-pick-opt" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>
+                <span class="ship-pick-name">{ship.name ?? SHIP_TYPES[ship.typeKey].label}</span>
+                <span class="ship-pick-sub">{ship.name ? `${SHIP_TYPES[ship.typeKey].label} · ` : ""}{shipPickerStats(ship)}</span>
+              </button>
             {/each}
           </div>
         {/if}
@@ -18861,6 +18880,24 @@
      flat-cornered from the 2026-07-07 button-style pass), this class only
      supplies the container's flex/gap, no new button style needed. */
   .modal-captain-list { display: flex; flex-direction: column; gap: 2px; margin: 10px 0; }
+  /* 0.13.6: a two-line picker option so an unnamed ship shows its distinguishing stats under the
+     name/hull, left-aligned rather than the default centered single-line .dev-btn. */
+  .ship-pick-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    text-align: left;
+    padding: 8px 12px;
+    line-height: 1.3;
+  }
+  .ship-pick-name { font-weight: 600; color: var(--color-text-primary); }
+  .ship-pick-sub {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    letter-spacing: 0.04em;
+  }
   /* (0.12.0 Console, CN4b: the .ship-list / .ship-card / .ship-badge / .ship-stats
      / .ship-modules / .ship-assign-btn rules were REMOVED with the Docks per-hull
      list. That list folded into the Logistics > Ships console (CN3b), which uses
