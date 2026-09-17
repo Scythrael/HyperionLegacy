@@ -874,6 +874,8 @@
   import { loadTheme, saveTheme, THEME_NAMES, THEME_PREVIEW_COLORS, type ThemeName } from "./lib/theme";
   // Header currencies band (0.13.6): the player's chosen currencies + order, a display preference.
   import { loadCurrencyDisplay, saveCurrencyDisplay, MAX_HEADER_CURRENCIES } from "./lib/currencyDisplayPreference";
+  // Inspect-reveal (0.13.6): whether inspecting a blank pops the rolled system before it files away.
+  import { loadInspectReveal, saveInspectReveal } from "./lib/inspectRevealPreference";
   import { loadTickBarEnabled, saveTickBarEnabled } from "./lib/tickBarPreference";
   import { loadShowTickCounts, saveShowTickCounts } from "./lib/tickReadoutPreference";
   import { loadShowExperienceValues, saveShowExperienceValues } from "./lib/experienceReadoutPreference";
@@ -5845,13 +5847,24 @@
   // ITEM LIFECYCLE 0.13.6: INSPECT one blank of a blueprint. inspectBlank consumes a blank, rolls
   // the piece and appends it to the spare pool; it is a same-ref no-op when there is no blank, so
   // bail without a spurious log/save in that case.
+  // Inspect-reveal (0.13.6): show the rolled system after an inspect, unless the player has turned
+  // reveals off to mass-roll. inspectRevealPiece drives the reveal modal; null = closed.
+  let inspectRevealEnabled = loadInspectReveal();
+  let inspectRevealPiece: EquipmentInstance | null = null;
+
   function doInspectBlank(blueprintKey: string) {
+    // The minted piece takes the id `equip-${nextEquipmentId}` (see inspectBlank), captured BEFORE
+    // the call so the rolled system can be found in the new spare pool to reveal it.
+    const mintedId = state.nextEquipmentId;
     const next = inspectBlank(state, blueprintKey);
     if (next === state) return;
     state = next;
     const label = BLUEPRINTS[blueprintKey]?.label ?? "system";
     pushLog(`Inspected a ${label}. The rolled system is in your spare bay.`);
     doSave();
+    if (inspectRevealEnabled) {
+      inspectRevealPiece = next.equipment.find((e) => e.id === `equip-${mintedId}`) ?? null;
+    }
   }
 
   // The blank-bay rows for the Ship Equipment tab: positive counts only, each resolved to its
@@ -5908,6 +5921,10 @@
     const next = renameLoadout(state, id, name);
     if (next !== state) { state = next; doSave(); }
   }
+  // 0.13.6: deleting a loadout is destructive (the set is gone), so it routes through a confirm.
+  // Holds the loadout id awaiting confirmation, or null. (A checked-out loadout can't be deleted at
+  // all: deleteLoadout refuses it, so this path is only reachable for an available one.)
+  let loadoutDeletePending: string | null = null;
   function doDeleteLoadout(id: string) {
     const next = deleteLoadout(state, id);
     if (next === state) return;
@@ -13207,7 +13224,7 @@
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
                   <button class="buy-btn" on:click={() => { selectedLoadoutId = null; armoryInstallSlotKey = null; }}>← Loadouts</button>
                   <input
-                    class="modal-input" style="margin:0; width:auto; flex:1 1 160px;"
+                    class="modal-input" style="margin:0; width:auto; flex:1 1 160px; font-size: var(--text-sm);"
                     value={selectedLoadout.name}
                     on:change={(e) => doRenameLoadout(selectedLoadout.id, (e.target as HTMLInputElement).value)}
                     aria-label="Loadout name"
@@ -13229,10 +13246,10 @@
                       <span style="color:var(--color-text-dim);">No available {SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? "matching"} ship to check out to.</span>
                     {:else}
                       {#each armoryCheckoutShips as s (s.id)}
-                        <button class="buy-btn" on:click={() => doArmoryCheckOut(s.id)}>Check out → {s.name ?? s.id}</button>
+                        <button class="buy-btn" on:click={() => doArmoryCheckOut(s.id)}>Check out → {s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</button>
                       {/each}
                     {/if}
-                    <button class="buy-btn" style="margin-left:auto;" on:click={() => doDeleteLoadout(selectedLoadout.id)}>Delete loadout</button>
+                    <button class="buy-btn" style="margin-left:auto;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>
                 {/if}
 
@@ -13892,11 +13909,16 @@
             : assignedCaptain.mission.kind === "extraction"
               ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
               : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+        <!-- 0.13.6: if an Armory loadout is checked out to this hull, its install screen is
+             read-only (edited in the Armory). Resolve it once so the panel can lock + name it. -->
+        {@const shipLoadout = state.loadouts.find((l) => l.checkedOutToShipId === ship.id) ?? null}
         <ShipSystemsPanel
           embedded
           {state}
           shipId={ship.id}
           statusLabel={shipStatusLabel}
+          loadoutLocked={shipLoadout !== null}
+          loadoutName={shipLoadout?.name ?? ""}
           onInstall={installSystem}
           onUninstall={uninstallSystem}
           onRepair={repairShipNow}
@@ -15994,6 +16016,22 @@
         </SettingRow>
       </Panel>
 
+      <!-- INSPECTION (0.13.6): the re-enable path for the inspect-reveal popup, which can also be
+           turned off from the reveal itself. A device-side display preference, so it lives in UI. -->
+      <Panel class="settings-section">
+        <div class="panel-title">INSPECTION</div>
+        <SettingRow
+          label="Reveal each roll"
+          description="When you inspect a blank, show the rolled system before it files into your spare bay. Turn it off to mass-roll a stack without the popup (the roll still lands in your bay, and the event log still notes it)."
+        >
+          <Toggle
+            label="Reveal each inspection roll"
+            checked={inspectRevealEnabled}
+            on:change={(e) => { inspectRevealEnabled = e.detail; saveInspectReveal(inspectRevealEnabled); }}
+          />
+        </SettingRow>
+      </Panel>
+
       <!-- ⚠️ THE FOUR COMBAT-LOG CONTROLS WERE SEGMENTED BUTTON PAIRS AND ARE NOW TOGGLES AND
            DROPDOWNS, per the user's rule: "dropdown boxes or toggles feel like the cleanest ways to
            present options". The rule they refined it with is the interesting half, and it decides
@@ -17197,6 +17235,42 @@
     </ActionModal>
   {/if}
 
+  {#if inspectRevealPiece !== null}
+    <!-- Inspect-reveal (0.13.6, user): inspecting a blank shows the rolled system before it files into
+         the spare bay, so the roll lands as a reveal rather than a silent log line. The unified item
+         tooltip renders the result (stats + flavor). The footer opt-out turns reveals off for
+         mass-rolling; it can be turned back on in Settings > UI. -->
+    <ActionModal title="You rolled" ariaLabel="Inspection result" onClose={() => (inspectRevealPiece = null)}>
+      <div class="inspect-reveal-body">
+        <EquipmentTooltip piece={inspectRevealPiece} />
+      </div>
+      <svelte:fragment slot="footer">
+        <label class="inspect-reveal-optout">
+          <input
+            type="checkbox"
+            checked={!inspectRevealEnabled}
+            on:change={(e) => { inspectRevealEnabled = !e.currentTarget.checked; saveInspectReveal(inspectRevealEnabled); }}
+          />
+          Don't reveal future rolls
+        </label>
+        <button class="dev-btn" on:click={() => (inspectRevealPiece = null)}>Continue</button>
+      </svelte:fragment>
+    </ActionModal>
+  {/if}
+
+  {#if loadoutDeletePending !== null}
+    {@const delLo = state.loadouts.find((l) => l.id === loadoutDeletePending)}
+    <ActionModal title="Delete loadout" ariaLabel="Delete loadout confirmation" onClose={() => (loadoutDeletePending = null)}>
+      <p class="modal-warning">
+        Delete the <strong>{delLo?.name ?? "loadout"}</strong> loadout? Its saved slot arrangement is gone for good. The systems it holds return to your spare bay, so nothing is destroyed.
+      </p>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={() => (loadoutDeletePending = null)}>Cancel</button>
+        <button class="dev-btn danger" on:click={() => { doDeleteLoadout(loadoutDeletePending!); loadoutDeletePending = null; }}>Delete loadout</button>
+      </svelte:fragment>
+    </ActionModal>
+  {/if}
+
   {#if deleteModalOpen}
     <ActionModal title="Delete save" ariaLabel="Delete save confirmation" onClose={cancelDelete}>
       <p class="modal-warning">This will permanently erase your progress. This can't be undone.</p>
@@ -17994,6 +18068,11 @@
   /* Name tag: HIDDEN on mobile (compact band, the tooltip carries the name), shown on desktop. */
   .cur-pill-name { display: none; }
   .cur-pop-desc { font-size: var(--text-xs); line-height: 1.4; color: var(--color-text-secondary); }
+  /* Inspect-reveal modal (0.13.6): center the rolled item's card; the opt-out sits on the left of
+     the footer (the footer is justify-content:flex-end, so margin-right:auto pushes it away from the
+     Continue button). */
+  .inspect-reveal-body { display: flex; justify-content: center; }
+  .inspect-reveal-optout { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--color-text-secondary); cursor: pointer; }
   .tb-pop-wrap { position: static; display: flex; }
   /* ⚠️ THE ONE INFO-TOOLTIP SURFACE (0.13.5 tooltip standardization, user: "info tooltips should
      all look one way"). Shared by the currency popup, the warehouse build-reason popover, the combat

@@ -133,6 +133,12 @@
   // wording the roster uses, so it is passed in rather than re-derived here (one source of
   // truth for the label, no drift). Empty string hides the row.
   export let statusLabel = "";
+  // 0.13.6: when a checked-out Armory loadout drives this ship, its install screen is READ-ONLY
+  // (edit the set in the Armory instead). The host passes whether a loadout is checked out here +
+  // its name for the banner. The engine also refuses committed-piece uninstalls (defense in depth),
+  // but this locks the controls so the player is not left mashing a button that only logs a refusal.
+  export let loadoutLocked = false;
+  export let loadoutName = "";
 
   // --- Slot metadata ----------------------------------------------------------
   // The installable SINGLETON slots, grouped by function to match the mockup. Each
@@ -467,6 +473,10 @@
   // Shipyard bay is free; we surface that process's live progress + ETA, or explain
   // the wait when every bay is busy.
   $: shipDamaged = ship?.damaged === true;
+  // Either a damaged hull OR a checked-out loadout makes the board read-only. Every install /
+  // uninstall / swap control and its click guard keys off this, so the two lock reasons behave
+  // identically; each keeps its own explanatory banner.
+  $: editsBlocked = shipDamaged || loadoutLocked;
   $: repairProcess =
     ship
       ? state.activeProcesses.find(
@@ -794,7 +804,7 @@
   // measured + positioned + shown, so it never flashes at the wrong spot. Blocked
   // while the ship is damaged (tiles are locked then).
   async function openTip(piece: EquipmentInstance, el: HTMLElement, pinned: boolean): Promise<void> {
-    if (shipDamaged) return;
+    if (editsBlocked) return;
     // A fresh open (hover swap, click-pin, or picker open) supersedes any pending
     // grace-delay hide, so a stale timer can never close the tooltip we just opened.
     cancelTipHide();
@@ -934,7 +944,7 @@
   // Enter/Space (which fires this same click) pins like a tap. Locked while damaged, matching
   // every other action on a damaged hull.
   function clickInfo(e: MouseEvent, piece: EquipmentInstance): void {
-    if (shipDamaged) return;
+    if (editsBlocked) return;
     void openTip(piece, e.currentTarget as HTMLElement, true);
   }
 
@@ -1100,6 +1110,17 @@
       </div>
     {/if}
 
+    <!-- LOADOUT-LOCK BANNER (0.13.6): a checked-out Armory loadout drives this ship, so its install
+         screen is read-only. Names the loadout (so the ship's own overview tells you which one it
+         runs) and points to where to edit it. Every install / uninstall / swap control is disabled
+         via editsBlocked; the engine also refuses committed-piece uninstalls. -->
+    {#if loadoutLocked}
+      <div class="ss-advisory" role="status">
+        <span class="ss-advisory-dot" aria-hidden="true"></span>
+        <span><strong>Running the {loadoutName || "checked-out"} loadout.</strong> This ship's systems are managed in the Armory. Check the loadout in there to edit or uninstall them.</span>
+      </div>
+    {/if}
+
     <!-- READINESS BANNERS (combat-defense rework, design S5 "inform, don't forbid"): the
          ONLY hard dispatch block is an empty reactor (no power = cannot fly), so a stripped
          reactorCore shows a red blocker. A missing weapon is a non-blocking ADVISORY (the ship
@@ -1137,7 +1158,7 @@
           <div class="ss-hp-grid">
             {#each Array.from({ length: hardpointCap }) as _, hpIndex (hpIndex)}
               {@const weapon = mountedWeapons[hpIndex] ?? null}
-              <div class="ss-hp" class:sel={selectedHardpoint === hpIndex} class:locked={shipDamaged}>
+              <div class="ss-hp" class:sel={selectedHardpoint === hpIndex} class:locked={editsBlocked}>
                 <div class="ss-hp-num">HP {hpIndex + 1}</div>
                 {#if weapon}
                   <!-- INFO trigger (display-only tooltip): hover previews, tap pins on touch. -->
@@ -1167,12 +1188,12 @@
                   <div class="ss-slot-actions">
                     <button
                       class="ss-act ss-act-swap"
-                      disabled={shipDamaged}
+                      disabled={editsBlocked}
                       on:click={() => selectHardpoint(hpIndex)}
                     >Swap</button>
                     <button
                       class="ss-act ss-act-uninstall"
-                      disabled={onMission || shipDamaged}
+                      disabled={onMission || editsBlocked}
                       title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
                       on:click={() => handleUninstall(weapon.id)}
                     >Uninstall</button>
@@ -1191,7 +1212,7 @@
                   <div class="ss-slot-actions">
                     <button
                       class="ss-act ss-act-install"
-                      disabled={shipDamaged}
+                      disabled={editsBlocked}
                       on:click={() => selectHardpoint(hpIndex)}
                     >Install</button>
                   </div>
@@ -1207,7 +1228,7 @@
           <div class="ss-rows">
             {#each DEFENSE_SLOTS as meta (meta.slotType)}
               {@const fitted = fittedBySlot[meta.slotType]}
-              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={shipDamaged}>
+              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={editsBlocked}>
                 {#if fitted}
                   <button
                     type="button"
@@ -1230,10 +1251,10 @@
                     </span>
                   </button>
                   <div class="ss-slot-actions">
-                    <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Swap</button>
+                    <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Swap</button>
                     <button
                       class="ss-act ss-act-uninstall"
-                      disabled={onMission || shipDamaged}
+                      disabled={onMission || editsBlocked}
                       title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
                       on:click={() => handleUninstall(fitted.id)}
                     >Uninstall</button>
@@ -1247,7 +1268,7 @@
                     </span>
                   </div>
                   <div class="ss-slot-actions">
-                    <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Install</button>
+                    <button class="ss-act ss-act-install" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Install</button>
                   </div>
                 {/if}
               </div>
@@ -1264,7 +1285,7 @@
           <div class="ss-rows">
             {#each visibleSystemSlots as meta (meta.slotType)}
               {@const fitted = fittedBySlot[meta.slotType]}
-              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={shipDamaged}>
+              <div class="ss-slot" class:sel={selectedSlot === meta.slotType} class:locked={editsBlocked}>
                 {#if fitted}
                   <button
                     type="button"
@@ -1287,10 +1308,10 @@
                     </span>
                   </button>
                   <div class="ss-slot-actions">
-                    <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Swap</button>
+                    <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Swap</button>
                     <button
                       class="ss-act ss-act-uninstall"
-                      disabled={onMission || shipDamaged}
+                      disabled={onMission || editsBlocked}
                       title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
                       on:click={() => handleUninstall(fitted.id)}
                     >Uninstall</button>
@@ -1304,7 +1325,7 @@
                     </span>
                   </div>
                   <div class="ss-slot-actions">
-                    <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectSlot(meta.slotType)}>Install</button>
+                    <button class="ss-act ss-act-install" disabled={editsBlocked} on:click={() => selectSlot(meta.slotType)}>Install</button>
                   </div>
                 {/if}
               </div>
@@ -1322,7 +1343,7 @@
             <div class="ss-hp-grid">
               {#each Array.from({ length: droneBayCap }) as _, bayIndex (bayIndex)}
                 {@const pod = mountedPods[bayIndex] ?? null}
-                <div class="ss-hp" class:sel={selectedBay === bayIndex} class:locked={shipDamaged}>
+                <div class="ss-hp" class:sel={selectedBay === bayIndex} class:locked={editsBlocked}>
                   <div class="ss-hp-num">Bay {bayIndex + 1}</div>
                   {#if pod}
                     <button
@@ -1345,10 +1366,10 @@
                       <span class="ss-hp-q">{pod.rarity}</span>
                     </button>
                     <div class="ss-slot-actions">
-                      <button class="ss-act ss-act-swap" disabled={shipDamaged} on:click={() => selectBay(bayIndex)}>Swap</button>
+                      <button class="ss-act ss-act-swap" disabled={editsBlocked} on:click={() => selectBay(bayIndex)}>Swap</button>
                       <button
                         class="ss-act ss-act-uninstall"
-                        disabled={onMission || shipDamaged}
+                        disabled={onMission || editsBlocked}
                         title={onMission ? "Recall the captain first, installation is locked on mission" : undefined}
                         on:click={() => handleUninstall(pod.id)}
                       >Uninstall</button>
@@ -1359,7 +1380,7 @@
                       <span class="ss-hp-name">Empty</span>
                     </div>
                     <div class="ss-slot-actions">
-                      <button class="ss-act ss-act-install" disabled={shipDamaged} on:click={() => selectBay(bayIndex)}>Install</button>
+                      <button class="ss-act ss-act-install" disabled={editsBlocked} on:click={() => selectBay(bayIndex)}>Install</button>
                     </div>
                   {/if}
                 </div>

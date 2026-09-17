@@ -652,6 +652,16 @@ export function unfitEquipmentInstance(
     );
   }
 
+  // 0.13.6: a piece installed BY a checked-out Armory loadout carries committedToLoadoutId. The
+  // ship's own install screen must not tear it off (that would strand the loadout thinking it is
+  // still fully checked out while a slot has silently gone empty). Edit it in the Armory instead,
+  // or check the loadout back in. Mirrors the "committedToLoadout" fit-block reason on install.
+  if (occupant.committedToLoadoutId !== undefined) {
+    throw new Error(
+      `unfitEquipmentInstance blocked: committedToLoadout (${occupant.committedToLoadoutId})`
+    );
+  }
+
   // Evict the targeted piece to the spare pool, leaving the slot (or, for a weapon, that one
   // hardpoint) EMPTY. UNIFORM for every slot and every piece (see the header): the pooled piece,
   // baseline or crafted, is a re-installable spare, so nothing the player uninstalls is ever lost.
