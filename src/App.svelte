@@ -13056,8 +13056,12 @@
                           {@const qty = sellQtyFor(entry.itemId, ownedWhole)}
                           <div class="cq-row">
                             <div class="cq-body">
-                              <span class="home-l1">
-                                {entry.label}
+                              <!-- Name + tag on one line, but the tag must NOT sit inside .home-l1:
+                                   that shared class is nowrap + ellipsis, so a nested tag gets clipped
+                                   to "Retire..." on a narrow row (mobile). Flex row instead: the name
+                                   truncates, the tag never shrinks. -->
+                              <span class="qm-name-line">
+                                <span class="home-l1">{entry.label}</span>
                                 <!-- The "why can I sell this" cue: everything sellable in 0.13.6 is
                                      retired stock, so the tag is unconditional for now. -->
                                 <span class="qm-retire-tag">Retired</span>
@@ -20372,13 +20376,17 @@
   .qm-wallet-bal small { font-size: var(--text-2xs); font-weight: 400; color: var(--color-text-dim); letter-spacing: 0.08em; margin-left: 2px; }
   .qm-wallet-hint { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-dim); max-width: 34ch; text-align: right; }
   .qm-sell-shelf { margin-top: 14px; }
+  /* Name + tag row: the name (.home-l1, nowrap+ellipsis) shrinks and truncates if ever needed; the
+     tag never shrinks, so it can no longer be clipped to "Retire..." on a narrow mobile row. */
+  .qm-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .qm-name-line .home-l1 { flex: 0 1 auto; }
   .qm-retire-tag {
+    flex: 0 0 auto;
     font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.08em; text-transform: uppercase;
     padding: 1px 7px; border-radius: 20px;
     color: var(--color-text-secondary);
     border: 1px solid var(--color-border-strong);
     background: var(--color-panel-bg);
-    margin-left: 6px; vertical-align: middle;
   }
   .qm-unit-price { color: var(--color-accent); }
   .qm-sell-ctl { gap: 8px; }
