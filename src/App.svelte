@@ -10601,10 +10601,14 @@
                    are shared with the game logic (inspectBlank, tick.ts). Bulk opening is a follow-up
                    (it must respect the spare-bay cap, so it is not a naive "inspect all"). -->
               <Panel>
-                <div class="panel-title">INSPECT BLANKS</div>
-                <p class="research-status">
-                  Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. The rolled system lands in your spare bay under Logistics &rsaquo; Ship Equipment.
-                </p>
+                <!-- 0.13.6 green-text pass: the explainer paragraph tucked into a `?` on the title. -->
+                <div class="panel-title">
+                  INSPECT BLANKS
+                  <HelpTip
+                    label="How blanks work"
+                    text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. The rolled system lands in your spare bay under Logistics > Ship Equipment."
+                  />
+                </div>
                 {#if blankRows.length === 0}
                   <div class="warehouse-stub">
                     <div class="warehouse-stub-glyph">🔬</div>
@@ -12260,21 +12264,24 @@
                    own derivation and one way through the queue view model, so they cannot
                    disagree; a player deciding whether to buy a bay should not have to change
                    tabs to see how many they already have. -->
+              <!-- 0.13.6 green-text pass: the "how bays work" paragraph moved into a `?` on the
+                   load-bearing Salvage bays readout (matching the Shipyard bays treatment); the live
+                   count + the "+1 Terminal bay" note stay visible. -->
               <div class="research-cost">
                 Salvage bays: {salvageBaySlots} running at once
+                <HelpTip
+                  label="How salvage bays work"
+                  text="A bay is one teardown running at a time, so three bays chew three orders at once. These are YOUR bays: the Auto-Salvage Terminal has its own separate bay that this track does not change, and auto-salvage can never take one of yours (it only borrows one that has been sitting idle, and gives it back). This is separate from queue depth, which is how many orders may wait behind them and comes from Homeworld Talents > Fleet Logistics (Standing Orders)."
+                />
               </div>
               <!-- ⚠️ THIS TRACK BUYS THE PLAYER'S OWN BAYS, NOT THE TERMINAL'S (Auto-Salvage
-                   Terminal, 2026-09-11). The number above is salvageSlotCount, which is the
-                   GENERAL lane count and is exactly what this track raises, so it is unchanged.
-                   What had to be added is the sentence saying the Terminal is a separate bay
-                   and is not included in it, or a player counting bays on the Salvage tab (where
-                   the Terminal's own readout sits) would find a number this tab does not show. -->
+                   Terminal, 2026-09-11). salvageSlotCount is the GENERAL lane count this track raises;
+                   the Terminal's separate bay is called out so a player counting bays on the Salvage
+                   tab (where the Terminal's own readout sits) is not surprised by a number this tab
+                   does not show. -->
               <div class="research-cost">
                 Plus 1 Auto-Salvage Terminal bay, not bought here
               </div>
-              <p class="research-status">
-                A bay is one teardown running at a time, so three bays chew three orders at once. These are YOUR bays: the Auto-Salvage Terminal has its own separate bay that this track does not change, and auto-salvage can never take one of yours (it only borrows one that has been sitting idle, and gives it back). This is also separate from queue depth, which is how many orders may wait behind them and comes from Homeworld Talents → Fleet Logistics (Standing Orders).
-              </p>
 
               {#if salvageBayMaxed}
                 <p class="research-status">Fully upgraded.</p>
@@ -12876,7 +12883,14 @@
                    would invent a fourth placement rule on the quietest console in the
                    tab, which is a new opinion rather than a continuation. -->
               <Panel>
-                <div class="panel-title">DOCKS</div>
+                <!-- 0.13.6 green-text pass: the berth explainer tucked into a `?` on the title. -->
+                <div class="panel-title">
+                  DOCKS
+                  <HelpTip
+                    label="How docking berths work"
+                    text="Returning ships need a free transit berth to dock and unload. With every berth busy, the next ship waits at the end of its return leg and takes the first one that frees."
+                  />
+                </div>
                 <!-- Berth capacity + the "Expand Docks" action (Fleet Management,
                      Docks Expansion). The button is disabled + reasoned exactly like
                      the Systems-Bay "Upgrade Bay" button / the facility Build buttons,
@@ -12947,11 +12961,6 @@
                 {#if !transitBerthExpansionInFlight && !berthCheck.ok}
                   <div class="docks-expand-note">{berthCheck.reason}</div>
                 {/if}
-                <p class="research-status">
-                  Returning ships need a free transit berth to dock and unload. With every berth
-                  busy, the next ship waits at the end of its return leg and takes the first one
-                  that frees.
-                </p>
                 <!-- Where per-hull management went. The list/assign/salvage that
                      used to render here now live in Logistics > Ships (the ITEM
                      perspective); this pointer keeps the player oriented after the
@@ -12996,16 +13005,16 @@
                    Refinery's locked rail slot and Logistics' locked Crew Equipment tab do). -->
               {#if activeQuartermasterSubTab === "requisition"}
                 <Panel>
-                  <div class="panel-title">REQUISITION</div>
-                  <p class="research-status">
-                    Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen.
-                  </p>
-                  <!-- The honest statement of what a baseline IS, so nobody comes here
-                       expecting gear. No numbers: the magnitudes are tunable data, and a
-                       number printed here would let a retune turn this into a lie. -->
-                  <p class="cq-note">
-                    A Standard-Issue piece is the floor, not an upgrade: it fills a slot so the ship can fly, and it is always the weakest version of that system. Crafted systems are the real gains.
-                  </p>
+                  <!-- 0.13.6 green-text pass: the intro + the "floor, not an upgrade" clarification
+                       (no numbers, deliberately: the magnitudes are tunable data) collapse into ONE
+                       `?` on the title. The rows + the one-at-a-time note below stay visible. -->
+                  <div class="panel-title">
+                    REQUISITION
+                    <HelpTip
+                      label="How Requisition works"
+                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen. A Standard-Issue piece is the floor, not an upgrade: it fills a slot so the ship can fly, and it is always the weakest version of that system. Crafted systems are the real gains."
+                    />
+                  </div>
 
                   <div class="cq-list">
                     {#each REQUISITION_ENTRIES as entry (entry.slotType)}
@@ -13153,10 +13162,14 @@
                  (see the approved mock docs/plans/2026-09-15-armory-ui-mock.html). -->
             {#if selectedLoadout === null}
               <Panel>
-                <div class="panel-title">ARMORY · LOADOUTS</div>
-                <p class="research-status">
-                  Build a loadout from your rolled systems, then check it out to a ship to equip it. A checked-out loadout locks that ship's own install screen; edit it here instead.
-                </p>
+                <!-- 0.13.6 green-text pass: the explainer paragraph tucked into a `?` on the title. -->
+                <div class="panel-title">
+                  ARMORY · LOADOUTS
+                  <HelpTip
+                    label="How the Armory works"
+                    text="Build a loadout from your rolled systems, then check it out to a ship to equip it. A checked-out loadout locks that ship's own install screen; edit it here instead."
+                  />
+                </div>
                 <!-- 0.13.6: the "create a loadout" control is a self-contained FORM (the ship-type
                      picker moved off the loose header row into it), so choosing a hull type reads
                      as the first step of building a loadout rather than a stray dropdown. -->
@@ -13273,10 +13286,14 @@
                  an overall completion percentage. Enshrining CONSUMES the spare and keeps only the
                  score (archive.ts), so a better craft later simply raises it. -->
             <Panel>
-              <div class="panel-title">THE ARCHIVE</div>
-              <p class="research-status">
-                A permanent record of the finest systems you have crafted. Enshrine a spare to keep its score forever. A better roll later raises the mark. Enshrining consumes the item.
-              </p>
+              <!-- 0.13.6 green-text pass: the explainer paragraph tucked into a `?` on the title. -->
+              <div class="panel-title">
+                THE ARCHIVE
+                <HelpTip
+                  label="How the Archive works"
+                  text="A permanent record of the finest systems you have crafted. Enshrine a spare to keep its score forever. A better roll later raises the mark. Enshrining consumes the item."
+                />
+              </div>
               <div style="display:flex; align-items:baseline; gap:10px; margin:12px 0 4px;">
                 <span style="font-family:var(--font-display); font-size:var(--text-2xl); color:var(--color-text-primary);">{archiveCompletionVM.pct.toFixed(1)}%</span>
                 <span style="font-family:var(--font-mono); color:var(--color-text-dim);">{formatNumber(archiveCompletionVM.total)} / {formatNumber(archiveCompletionVM.max)}</span>
