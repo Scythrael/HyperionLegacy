@@ -73,7 +73,10 @@ already recorded in memory [[project_fleet_admiral_first_cause_dt]].
 ## The protagonist's callsign: "Scythrael" (user, 2026-09-16)
 The player character (the Fleet Admiral, the player's avatar) carried the fighter-pilot callsign
 **"Scythrael"** in his days before captaincy. The user flags it as "an important part of the overall
-storyline," so treat it as load-bearing story canon, not flavor. The breadcrumb dropped with it:
+storyline," so treat it as load-bearing story canon, not flavor. ⚠️ THE NAME ITSELF IS TENTATIVE
+(user, 2026-09-16): "Scythrael" is the user's own gaming handle and they may swap it for the
+character; it is the ROLE that is fixed (protagonist's pre-captaincy callsign, storyline-critical),
+not this exact string. Confirm the final name before baking it into any content. The breadcrumb dropped with it:
 "a thousand years in his hidey hole makes him a dull boy" — a deliberate *The Shining* allusion (all
 work and no play), implying this character PERSISTS across the ~1,000-year gap to the far-future
 story (the same era the ultra-rare **magic crew member** drip foreshadows, see SUGGESTIONS), holed up
