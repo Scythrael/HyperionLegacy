@@ -2416,7 +2416,6 @@
     if (e.key !== "Escape") return;
     if (openCurrencyKey !== null) openCurrencyKey = null;
     if (facilityTip !== null) facilityTip = null;
-    if (selectedSystemPos !== null) { selectedSystemId = null; selectedSystemPos = null; }
   }
 
   // ---- Facility-pane ⓘ subject tooltip (0.13.5 hover-detail) ---------------
@@ -4740,10 +4739,16 @@
   // The spare pool grouped by slot type, in BAY_SLOT_ORDER; empty groups dropped
   // so a slot with no spare systems shows no header. Each group carries the slot's
   // display label (single source: EQUIPMENT_SLOTS) for its section heading.
+  // 0.13.6 Favorite/Lock split: FAVORITE is a DISPLAY-ORDER pin (nothing more), so
+  // favorited spares sort to the top of their group here, in both surfaces that read
+  // this (Salvage Bay + Logistics > Ship Equipment). Array.prototype.sort is stable, so
+  // pieces that share a favorite state keep their original pool order.
   $: baySystemGroups = BAY_SLOT_ORDER.map((slot) => ({
     slot,
     label: EQUIPMENT_SLOTS[slot]?.label ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
-    pieces: baySpareSystems.filter((p) => p.slotType === slot),
+    pieces: baySpareSystems
+      .filter((p) => p.slotType === slot)
+      .sort((a, b) => (b.favorite === true ? 1 : 0) - (a.favorite === true ? 1 : 0)),
   })).filter((g) => g.pieces.length > 0);
 
   // The resolved selected piece (or null). Reactive on the pool, so if the
@@ -4761,66 +4766,12 @@
   $: selectedIsBaseline = selectedSystem !== null && selectedSystem.blueprintKey === null;
 
   // Toggle a tile's selection (clicking the open tile closes it), matching the
-  // slot-select toggle idiom ShipSystemsPanel uses. Used by the SALVAGE BAY tab, whose
-  // selected panel stays INLINE (it hosts the Salvage/Favorite controls), so it clears any
-  // floating position the browse-only bay may have set.
+  // slot-select toggle idiom ShipSystemsPanel uses. Shared by BOTH spare-bay surfaces since
+  // the 0.13.6 Favorite/Lock split: the Salvage Bay (whose selected panel hosts Salvage + the
+  // Favorite/Lock toggles) and Logistics > Ship Equipment (whose selected panel hosts the
+  // Favorite/Lock toggles). Both render the selected card INLINE below the grid.
   function selectSystemTile(instanceId: string) {
     selectedSystemId = selectedSystemId === instanceId ? null : instanceId;
-    selectedSystemPos = null;
-  }
-
-  // ── Browse-only Systems Bay: FLOAT the selected card at the tile (0.13.5, user) ──
-  // The Logistics "Systems Bay" tab is browse-only (no actions), so instead of unhiding a panel
-  // below the grid it pops the EquipmentTooltip card up AT the tapped tile, the same placement the
-  // warehouse tile tooltip uses (below the tile, clamped; clampSystemsPopover flips it above if it
-  // would overflow). The SALVAGE BAY tab keeps its inline panel (user's call: it has controls).
-  // Shares selectedSystemId with the inline path, so the two stay "linked" as before; only the
-  // presentation differs, driven by whether selectedSystemPos is set.
-  let selectedSystemPos: { x: number; y: number; anchorTop: number } | null = null;
-  function selectSystemTileFloating(instanceId: string, event: MouseEvent) {
-    if (selectedSystemId === instanceId) {
-      selectedSystemId = null;
-      selectedSystemPos = null;
-      return;
-    }
-    selectedSystemId = instanceId;
-    const el = event.currentTarget as HTMLElement | null;
-    if (el === null) {
-      selectedSystemPos = null;
-      return;
-    }
-    const r = el.getBoundingClientRect();
-    selectedSystemPos = {
-      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
-      y: r.bottom + 8,
-      anchorTop: r.top,
-    };
-  }
-  // Tap-away dismissal for the floating browse-only card (mirrors handleWarehouseOutsidePointer):
-  // only active while a floating card is shown; a tap on a tile (its own toggle) or on the card
-  // itself does not self-dismiss.
-  function handleSystemsPopoverOutside(event: PointerEvent) {
-    if (selectedSystemPos === null) return;
-    const target = event.target as Element | null;
-    if (target && target.closest(".systems-tile, .systems-popover")) return;
-    selectedSystemId = null;
-    selectedSystemPos = null;
-  }
-  // Flip the floating card above the tile / nudge it in if it would overflow the viewport (measured
-  // after render, like clampFacilityTipCard). Only the browse-only floating card uses this.
-  function clampSystemsPopover(node: HTMLElement, _pos: typeof selectedSystemPos) {
-    const reposition = () => {
-      if (selectedSystemPos === null) return;
-      const r = node.getBoundingClientRect();
-      if (r.bottom > window.innerHeight - 8) {
-        node.style.top = `${Math.max(8, selectedSystemPos.anchorTop - r.height - 6)}px`;
-      }
-      if (r.right > window.innerWidth - 8) {
-        node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
-      }
-    };
-    reposition();
-    return { update: reposition };
   }
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
@@ -5623,17 +5574,12 @@
   }
 
   // ── FAVORITING A SPARE (0.13.3.1 Feature 2) ───────────────────────────────
-  // Pin (or unpin) ONE equipment instance. A favorited piece is PERMANENTLY exempt from the
-  // auto-salvage rules (the `favorited` protection reason, salvage.ts) and is NOT exempt from a
-  // hand-clicked salvage: the player may always scrap their own favorite deliberately, which is
-  // why the Salvage button beside this toggle is untouched.
-  //
-  // ⚠️ IT WRITES GAME STATE, NEVER localStorage, and that is the whole point of the feature.
-  // src/lib/shipFavoritesPreference.ts keeps SHIP favorites per device because they are a view
-  // preference; this is not one. The rules run inside the tick, including the offline catch-up,
-  // which can read the SAVE and nothing else, so a localStorage favorite would be invisible
-  // offline and the rules would destroy favorited gear while the player was away. Same argument
-  // as doToggleSalvageConfirmTier and the three auto-salvage writers above.
+  // Pin (or unpin) ONE equipment instance as a FAVORITE. Since the 0.13.6 Favorite/Lock split
+  // this is a DISPLAY-ORDER pin and nothing more: a favorite sorts to the top of its group in the
+  // spare bays (baySystemGroups) and protects against NOTHING. The protection that used to ride
+  // on this flag now lives on `locked` (doToggleEquipmentLock below). Favorite is still written to
+  // the SAVE rather than localStorage so the two flags live together on the instance and a future
+  // sort that spanned the offline resolver would see it; it is cheap and keeps the pair coherent.
   //
   // Rebuilds the equipment array immutably (never mutates the instance), both because state is
   // treated as immutable everywhere in this file and because a mutation would not re-run the
@@ -5641,6 +5587,25 @@
   function doToggleEquipmentFavorite(instanceId: string, favorite: boolean) {
     const equipment = state.equipment.map((piece) =>
       piece.id === instanceId ? { ...piece, favorite } : piece
+    );
+    state = { ...state, equipment };
+    doSave();
+  }
+
+  // Lock (or unlock) ONE equipment instance. LOCK is the single protection since the 0.13.6
+  // Favorite/Lock split: a locked piece cannot be auto-salvaged (the `locked` protection reason,
+  // salvage.ts), manually salvaged (salvageEquipment refuses it), installed on a ship
+  // (canFitEquipment), or committed to an Armory loadout (installIntoLoadout). Unlike favorite it
+  // does NOT change display order.
+  //
+  // ⚠️ IT WRITES GAME STATE, NEVER localStorage, and that is the whole point of the protection.
+  // The auto-salvage rules run inside the tick, including the offline catch-up, which can read the
+  // SAVE and nothing else, so a localStorage lock would be invisible offline and the rules would
+  // destroy a locked piece while the player was away. Same argument as doToggleSalvageConfirmTier
+  // and the auto-salvage writers above. Immutable rebuild for the same reason as favorite.
+  function doToggleEquipmentLock(instanceId: string, locked: boolean) {
+    const equipment = state.equipment.map((piece) =>
+      piece.id === instanceId ? { ...piece, locked } : piece
     );
     state = { ...state, equipment };
     doSave();
@@ -8834,7 +8799,6 @@
   on:pointerdown={handleCurrencyOutsidePointer}
   on:pointerdown={handleWarehouseOutsidePointer}
   on:pointerdown={handleFacilityTipOutside}
-  on:pointerdown={handleSystemsPopoverOutside}
   on:keydown={handleCurrencyKeydown}
 />
 
@@ -12121,21 +12085,26 @@
                             ? `${baseTitle} · being salvaged now`
                             : salvageState === "queued"
                               ? `${baseTitle} · queued for salvage`
-                              : piece.favorite === true
-                                ? `${baseTitle} · favorited, never auto-salvaged`
-                                : baseTitle}
+                              : piece.locked === true
+                                ? `${baseTitle} · locked, safe from salvage`
+                                : piece.favorite === true
+                                  ? `${baseTitle} · favorited`
+                                  : baseTitle}
                           on:click={() => selectSystemTile(piece.id)}
                         >
                           <span class="systems-tile-dot"></span>
                           <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
                           <span class="systems-tile-il">iL {piece.iLevel}</span>
-                          <!-- 0.13.3.1 Feature 2: the favorite MARKER, an indicator and not a
-                               control. The tile is itself a <button> (clicking it selects the
-                               piece), and nesting an interactive element inside a button is
-                               invalid HTML and unreachable for a keyboard, so the TOGGLE lives
-                               in the selected-spare panel below where it has room for a label.
-                               The marker is what makes a pinned piece findable at a glance in a
-                               grid of dozens. -->
+                          <!-- 0.13.3.1 Feature 2 / 0.13.6 split: the at-a-glance MARKERS, indicators
+                               and not controls. The tile is itself a <button> (clicking it selects
+                               the piece), and nesting an interactive element inside a button is
+                               invalid HTML and unreachable for a keyboard, so the TOGGLES live in
+                               the selected-spare panel below where they have room for labels. A
+                               piece can be both favorited (amber star, sorted to the top) and locked
+                               (padlock, safe from salvage), so both markers can show at once. -->
+                          {#if piece.locked === true}
+                            <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+                          {/if}
                           {#if piece.favorite === true}
                             <span class="sb-tile-fav" aria-hidden="true">★</span>
                           {/if}
@@ -12208,34 +12177,34 @@
                        `salvageState !== "free"` (already running, already queued) stays a hard
                        disable: those are about THIS piece and the note beside it already says so,
                        and the engine would refuse the click anyway. -->
+                  <!-- 0.13.6 Favorite/Lock split: the Salvage button is now gated by LOCK. A
+                       locked piece cannot be salvaged (the engine refuses it with reason "locked",
+                       equipment/salvage guards), so the control is disabled and the note below says
+                       to unlock it first. This does NOT strand gear: the Lock toggle is right here,
+                       one tap unlocks, then it salvages, so the escape valve for a full pool stays
+                       open. The queue-full popup path is preserved for an unlocked piece. -->
                   <button
                     class="buy-btn systems-salvage-btn"
-                    disabled={salvageState !== "free" || (queueBlocked !== null && !queueCtl.queueFullOnly)}
+                    disabled={sys.locked === true || salvageState !== "free" || (queueBlocked !== null && !queueCtl.queueFullOnly)}
                     on:click={() => queueCtl.queueFullOnly
                       ? openQueueFullNotice("salvageBay")
                       : requestSalvage("system", sys.id, systemSalvageName(sys))}
                   >
                     {selectedIsBaseline ? "Destroy" : "Salvage"}
                   </button>
-                  <!-- ============ THE FAVORITE TOGGLE (0.13.3.1 Feature 2) ==================
-                       ⚠️ IT DOES NOT GATE THE SALVAGE BUTTON ABOVE, deliberately. A favorite is
-                       protection from the AUTOMATION, not a lock: the player may always scrap
-                       their own pinned piece by hand, and the confirm dialog they already chose
-                       for that quality tier is the right place for a second thought. Making this
-                       disable manual salvage would turn a convenience into a way to strand gear
-                       in a full pool, which is the softlock shape this whole facility exists to
-                       prevent.
-
-                       Shown for EVERY spare including a Standard-Issue baseline. A baseline is
-                       already exempt from the rules (the `baseline` protection reason), so
-                       pinning one changes nothing, but hiding the control on one kind of tile
-                       would make the toggle look broken rather than redundant.
-
-                       The button carries a visible text label, never a bare star, so it is not
-                       an icon-only control; the star is the state, the words are the action. -->
-                  <!-- NOT the .systems-salvage-btn danger variant: that red is the app's
-                       convention for a destructive control, and pinning a piece is the opposite
-                       of destructive. Its own amber variant, matching the star. -->
+                  <!-- ============ THE FAVORITE + LOCK TOGGLES (0.13.6 split) ==================
+                       Two distinct controls, both shown for EVERY spare (a Standard-Issue baseline
+                       included, so the pair never looks broken on one kind of tile):
+                         FAVORITE (amber star) is a DISPLAY-ORDER pin and nothing else: it sorts the
+                           piece to the top of its group (baySystemGroups) so a keeper is easy to
+                           find in a grid of dozens. It protects against nothing.
+                         LOCK (the protection) exempts the piece from EVERYTHING: auto-salvage,
+                           manual salvage, install, and loadout commit, until it is unlocked.
+                       Each carries a visible text label, never a bare glyph, so neither is an
+                       icon-only control: the glyph is the state, the words are the action. -->
+                  <!-- NOT the .systems-salvage-btn danger red: that red is the app's convention for
+                       a destructive control, and pinning or locking a piece is the opposite of
+                       destructive. The favorite keeps its amber star variant; lock reuses it. -->
                   <button
                     class="buy-btn systems-fav-btn"
                     class:systems-fav-btn-on={sys.favorite === true}
@@ -12244,6 +12213,17 @@
                   >
                     {sys.favorite === true ? "★ Favorited" : "☆ Favorite"}
                   </button>
+                  <button
+                    class="buy-btn systems-fav-btn"
+                    class:systems-fav-btn-on={sys.locked === true}
+                    on:click={() => doToggleEquipmentLock(sys.id, sys.locked !== true)}
+                    aria-pressed={sys.locked === true}
+                  >
+                    {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
+                  </button>
+                  {#if sys.locked === true}
+                    <span class="systems-salvage-none">Locked, so nothing can salvage it. Unlock it to salvage.</span>
+                  {/if}
                   {#if selectedIsBaseline}
                     <span class="systems-salvage-none">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
                   {/if}
@@ -12267,7 +12247,7 @@
                         Auto-salvage: {AUTO_SALVAGE_PROTECTION_TEXT[protection]}{#if graceLeft !== null}{" "}({graceLeft}){/if}
                       </span>
                     {:else if autoSalvageHasRule}
-                      <span class="systems-salvage-none">Auto-salvage may queue this spare. Favorite it to keep it.</span>
+                      <span class="systems-salvage-none">Auto-salvage may queue this spare. Lock it to keep it.</span>
                     {/if}
                   {/if}
                 </EquipmentTooltip>
@@ -13471,18 +13451,29 @@
                   <div class="warehouse-grid">
                     {#each group.pieces as piece (piece.id)}
                       {@const isBaseline = piece.blueprintKey === null}
+                      {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
                       <button
                         type="button"
                         class="systems-tile"
                         class:baseline={isBaseline}
                         class:selected={selectedSystemId === piece.id}
                         style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
-                        title={isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
-                        on:click={(e) => selectSystemTileFloating(piece.id, e)}
+                        title={piece.locked === true
+                          ? `${baseTitle} · locked, safe from salvage`
+                          : piece.favorite === true
+                            ? `${baseTitle} · favorited`
+                            : baseTitle}
+                        on:click={() => selectSystemTile(piece.id)}
                       >
                         <span class="systems-tile-dot"></span>
                         <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
                         <span class="systems-tile-il">iL {piece.iLevel}</span>
+                        {#if piece.locked === true}
+                          <span class="sb-tile-lock" aria-hidden="true">🔒</span>
+                        {/if}
+                        {#if piece.favorite === true}
+                          <span class="sb-tile-fav" aria-hidden="true">★</span>
+                        {/if}
                       </button>
                     {/each}
                   </div>
@@ -13491,22 +13482,42 @@
             {/if}
           </Panel>
 
-          <!-- SELECTED SYSTEM (browse-only): the reusable rarity-bordered card, now FLOATED at the
-               tapped tile (0.13.5, user) instead of unhiding a panel below the grid, the same
-               placement the warehouse tile tooltip uses. This tab hosts NO Salvage action (breaking
-               a spare down lives in the Salvage Bay tab, which keeps its INLINE panel), so the card
-               carries no action children and is safe to present as a pointer-events-none floating
-               layer. clampSystemsPopover flips it above the tile if it would overflow the bottom. -->
-          {#if selectedSystem && selectedSystemPos}
+          <!-- SELECTED SYSTEM (0.13.6 Favorite/Lock split): an INLINE rarity-bordered card below
+               the grid, replacing the old browse-only floating popover. The floating card was
+               action-free (pointer-events none) because this tab hosted nothing to do to a spare;
+               now it hosts the two management controls that DON'T belong in the Salvage Bay's
+               salvage flow, so it needs a real, focusable panel. Salvage itself still lives ONLY in
+               the Salvage Bay tab (a spare is broken down there, deliberately). The two toggles:
+                 FAVORITE (amber star) sorts the piece to the top of its group. Display only.
+                 LOCK (padlock) protects it from auto-salvage, manual salvage, install and loadout
+                   commit until unlocked.
+               Both shown for every spare (a Standard-Issue baseline included), each with a text
+               label so neither is an icon-only control. -->
+          {#if selectedSystem}
             {@const sys = selectedSystem}
-            <div
-              class="systems-popover"
-              style="left: {selectedSystemPos.x}px; top: {selectedSystemPos.y}px;"
-              use:clampSystemsPopover={selectedSystemPos}
-              role="note"
-            >
-              <EquipmentTooltip piece={sys} />
-            </div>
+            <Panel>
+              <EquipmentTooltip piece={sys}>
+                <button
+                  class="buy-btn systems-fav-btn"
+                  class:systems-fav-btn-on={sys.favorite === true}
+                  on:click={() => doToggleEquipmentFavorite(sys.id, sys.favorite !== true)}
+                  aria-pressed={sys.favorite === true}
+                >
+                  {sys.favorite === true ? "★ Favorited" : "☆ Favorite"}
+                </button>
+                <button
+                  class="buy-btn systems-fav-btn"
+                  class:systems-fav-btn-on={sys.locked === true}
+                  on:click={() => doToggleEquipmentLock(sys.id, sys.locked !== true)}
+                  aria-pressed={sys.locked === true}
+                >
+                  {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
+                </button>
+                <span class="systems-salvage-none">
+                  {#if sys.locked === true}Locked: safe from auto-salvage, manual salvage, install and loadout commit. Break it down in the Salvage Bay after unlocking.{:else}Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage lives in the Salvage Bay.{/if}
+                </span>
+              </EquipmentTooltip>
+            </Panel>
           {/if}
 
           <!-- RESERVED product families (0.12.0 Console, CN3a). The old locked
@@ -19433,10 +19444,6 @@
   /* The item-card variant of the facility ⓘ tooltip: hosts the generalized ItemTooltip. Same
      fixed / overflow-proof placement as .frow-tip, sized to the card (which caps its own width). */
   .frow-tip-card { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
-  /* Browse-only Systems Bay floating card (0.13.5): the selected spare's EquipmentTooltip, floated
-     at the tapped tile instead of unhidden below the grid. Fixed + overflow-proof like .frow-tip-card;
-     pointer-events:none because it is display-only here (salvage lives in the Salvage Bay tab). */
-  .systems-popover { position: fixed; z-index: 110; width: max-content; max-width: 320px; pointer-events: none; }
   .frow-tip.up { border-color: rgba(var(--color-warning-rgb), 0.45); }
   .frow-tip-title { font-size: var(--text-2xs); letter-spacing: 0.5px; text-transform: uppercase; color: var(--color-accent); }
   .frow-tip.up .frow-tip-title { color: var(--color-warning); }
@@ -19965,6 +19972,15 @@
     color: var(--color-warning);
     pointer-events: none;
   }
+  /* LOCK MARKER on a spare tile (0.13.6 split): the padlock that shows a piece is safe from
+     salvage. Bottom-RIGHT, the remaining free corner (favorite owns top-left, the rarity dot
+     top-right, the reserved SALV/QUE tag bottom-left), so no two markers collide. A locked piece
+     may also be favorited, so both can show at once. pointer-events none: the tile is the button. */
+  .sb-tile-lock {
+    position: absolute; right: 4px; bottom: 3px;
+    font-size: var(--text-xs); line-height: 1;
+    pointer-events: none;
+  }
   /* The favorite TOGGLE in the tooltip action slot. Amber (matching the star), not the danger
      red of .systems-salvage-btn beside it: one is protection, the other is destruction, and the
      two controls sit next to each other so they must not read alike. The -on variant fills in
@@ -20322,7 +20338,7 @@
     /* Item tooltips widen to most of the screen on a phone (user, 2026-09-14): the desktop caps
        (~320px) sit at ~60% of a phone and clip longer item names. They stay content-sized, so a
        short card is still small — this only lifts the ceiling so a long name can use the width. */
-    .warehouse-tooltip, .frow-tip-card, .systems-popover { max-width: 92vw; }
+    .warehouse-tooltip, .frow-tip-card { max-width: 92vw; }
   }
   .home-row {
     display: flex;
