@@ -695,6 +695,8 @@
         return "queued for salvage (cancel the salvage order to install it)";
       case "committedToLoadout":
         return "committed to an Armory loadout (uninstall it there, or check that loadout out)";
+      case "locked":
+        return "locked (unlock it in Ship Equipment first)";
       case "hardpointsFull":
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":

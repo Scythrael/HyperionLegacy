@@ -1262,6 +1262,15 @@ export interface EquipmentInstance {
   // favorited, which is the truth for every piece that existed before this release, so the
   // v42 -> v43 migration deliberately does not backfill it.
   favorite?: boolean;
+  // LOCKED (0.13.6 favorite/lock split): the player's "hands off this exact piece". Distinct from
+  // `favorite` (which now affects DISPLAY ORDER only, pinning a spare to the top of its group so it
+  // can be found in a pool of thousands). `locked` is the PROTECTION flag: a locked spare is never
+  // auto-salvaged, cannot be manually salvaged, and cannot be installed or committed to a loadout
+  // until it is unlocked. Splitting the two means you can pin an item AND keep it protected without
+  // one forcing the other. OPTIONAL + ADDITIVE: absent means NOT locked; the v52 -> v53 migration
+  // backfills locked = the OLD favorite (which used to be the auto-salvage protection), so existing
+  // favorited spares keep their protection rather than silently becoming salvageable.
+  locked?: boolean;
   // WHEN THIS PIECE'S AUTO-SALVAGE GRACE WINDOW LAST STARTED, on the fleet's own GAME CLOCK
   // (state.gameTimeSeconds), which is what the grace period (salvage.ts, AUTO_SALVAGE_GRACE_*)
   // measures against.

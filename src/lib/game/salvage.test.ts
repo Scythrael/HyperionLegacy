@@ -280,6 +280,19 @@ describe("salvageEquipment: rejects non-salvageable targets as a same-ref no-op 
     expect(result.next.equipment.find((e) => e.id === "fit-1")).toBeDefined();
   });
 
+  it("REFUSES a LOCKED spare from MANUAL salvage (0.13.6 favorite/lock split)", () => {
+    const locked: EquipmentInstance = {
+      ...makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 2, id: "lock-1" }),
+      locked: true,
+    };
+    const state = stateWith([locked]);
+    const result = salvageEquipment(state, "lock-1", () => 0.5);
+    expect("reason" in result).toBe(true);
+    if ("reason" in result) expect(result.reason).toBe("locked");
+    expect(result.next).toBe(state); // unchanged: a locked piece survives a manual salvage attempt
+    expect(result.next.equipment.find((e) => e.id === "lock-1")).toBeDefined();
+  });
+
   it("REFUSES a recipe-less NON-baseline spare (dev-shaped radiant, blueprintKey null) instead of destroying/crashing (AUDIT-2)", () => {
     // A dev-granted radiant spare is blueprintKey null but NOT a standard-rarity floor. The old
     // `blueprintKey===null -> destroy` silently deleted it; the naive one-line fix would crash the
@@ -3147,7 +3160,7 @@ describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salva
     // Pin one: it survives, the other does not.
     const pinned: GameState = {
       ...base,
-      equipment: base.equipment.map((e) => (e.id === "eq-fav" ? { ...e, favorite: true } : e)),
+      equipment: base.equipment.map((e) => (e.id === "eq-fav" ? { ...e, locked: true } : e)),
     };
     expect(selectedIds(selectAutoSalvageTargets(pinned, NO_BOUND))).toEqual(["eq-open"]);
   });
@@ -3167,25 +3180,25 @@ describe("⚠️ selectAutoSalvageTargets: a FAVORITED spare is NEVER auto-salva
     expect([...selectedIds(selectAutoSalvageTargets(base, NO_BOUND))].sort()).toEqual(["eq-mid", "eq-worst"]);
     const pinned: GameState = {
       ...base,
-      equipment: base.equipment.map((e) => (e.id === "eq-best" ? { ...e, favorite: true } : e)),
+      equipment: base.equipment.map((e) => (e.id === "eq-best" ? { ...e, locked: true } : e)),
     };
     // Unchanged: the favorite was already the keeper, so pinning it selects no more and no less.
     expect([...selectedIds(selectAutoSalvageTargets(pinned, NO_BOUND))].sort()).toEqual(["eq-mid", "eq-worst"]);
   });
 
-  it("MANUAL salvage of a favorite is still allowed (the flag protects against the AUTOMATION only)", () => {
+  it("MANUAL salvage of a FAVORITE is still allowed (favorite is display-only; only LOCK protects)", () => {
     const base = stateWith([makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 0, id: "eq-1" })]);
-    const pinned: GameState = { ...base, equipment: [{ ...base.equipment[0], favorite: true }] };
-    const result = salvageEquipment(pinned, "eq-1", () => 0.5);
+    const favorited: GameState = { ...base, equipment: [{ ...base.equipment[0], favorite: true }] };
+    const result = salvageEquipment(favorited, "eq-1", () => 0.5);
     expect(result.ok).toBe(true);
     expect(result.next.equipment.some((e) => e.id === "eq-1")).toBe(false);
   });
 
   it("the favorite flag is the only thing that changes: an unpinned piece is selected again", () => {
     const base = autoState([autoPiece({ id: "eq-a", quality: 0 })], { qualities: [0, 1, 2, 3, 4, 5] });
-    const pinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)) };
+    const pinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, locked: true } : e)) };
     expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
-    const unpinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: false } : e)) };
+    const unpinned: GameState = { ...base, equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, locked: false } : e)) };
     expect(selectedIds(selectAutoSalvageTargets(unpinned, NO_BOUND))).toEqual(["eq-a"]);
   });
 });
@@ -3373,9 +3386,9 @@ describe("⚠️ a ZERO grace period: the rules take a fresh piece, and the OTHE
   it("⚠️ a FAVORITED fresh piece is still safe at zero grace", () => {
     // The protection a player leans on hardest once the window is gone: pinning a good roll.
     const state = zeroGraceState([autoPiece({ id: "eq-fav", quality: 0 })]);
-    const pinned: GameState = { ...state, equipment: state.equipment.map((e) => ({ ...e, favorite: true })) };
+    const pinned: GameState = { ...state, equipment: state.equipment.map((e) => ({ ...e, locked: true })) };
     expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
-    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-fav" })).toBe("favorited");
+    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-fav" })).toBe("locked");
   });
 
   it("⚠️ a CONFIRM-ON quality tier is still safe at zero grace", () => {
@@ -3571,10 +3584,10 @@ describe("⚠️ UNINSTALLING a system starts its auto-salvage grace window (0.1
     const pinned: GameState = {
       ...base,
       autoSalvage: { ...base.autoSalvage, graceSeconds: 0 },
-      equipment: base.equipment.map((e) => (e.id === "eq-worn" ? { ...e, favorite: true } : e)),
+      equipment: base.equipment.map((e) => (e.id === "eq-worn" ? { ...e, locked: true } : e)),
     };
     const after = unfitEquipmentInstance(pinned, "ship-1", "eq-worn");
-    expect(reasonFor(after, "eq-worn")).toBe("favorited");
+    expect(reasonFor(after, "eq-worn")).toBe("locked");
     expect(selectAutoSalvageTargets(after, NO_BOUND)).toEqual([]);
   });
 
@@ -3663,7 +3676,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       salvageConfirmQualities: [3], // Q3 asks first; the fixtures above are Q2 unless stated
       equipment: base.equipment.map((e) =>
         e.id === "eq-fav"
-          ? { ...e, favorite: true }
+          ? { ...e, locked: true }
           : e.id === "eq-fresh"
             ? { ...e, graceStartedAtGameSeconds: 10_000 - 60 }
             : e
@@ -3679,7 +3692,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     const reasonFor = (id: string) => autoSalvageProtectionForTarget(state, { kind: "equipment", instanceId: id });
     expect(reasonFor("eq-installed")).toBe("installed");
     expect(reasonFor("eq-queued")).toBe("reserved");
-    expect(reasonFor("eq-fav")).toBe("favorited");
+    expect(reasonFor("eq-fav")).toBe("locked");
     expect(reasonFor("eq-fresh")).toBe("graceWindow");
     expect(reasonFor("eq-plain")).toBeNull(); // nothing protects it: the rules may take it
     // The confirm interlock, on a piece whose tier IS set to ask first.
@@ -3707,7 +3720,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     // flag at all (ship favorites are a per-device localStorage view preference the tick cannot
     // read), so the only offline-honest answer for a hull is "treat it as protected".
     const state = autoState([autoPiece({ id: "eq-a" })], { qualities: [0, 1, 2, 3, 4, 5] });
-    expect(autoSalvageProtectionForTarget(state, { kind: "ship", shipId: "ship-1" })).toBe("favorited");
+    expect(autoSalvageProtectionForTarget(state, { kind: "ship", shipId: "ship-1" })).toBe("locked");
   });
 
   it("the reason ORDER is declared and covers the whole union exactly once", () => {
@@ -3719,7 +3732,7 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
       "installed",
       "reserved",
       "confirmTier",
-      "favorited",
+      "locked",
       "graceWindow",
     ];
     expect(AUTO_SALVAGE_PROTECTION_ORDER).toEqual(expected);
@@ -3751,12 +3764,12 @@ describe("autoSalvageProtection: WHY a target is off limits, as a named reason (
     const base = autoState([autoPiece({ id: "eq-a" }), autoPiece({ id: "eq-b" })], { qualities: [0, 1, 2, 3, 4, 5] });
     const state: GameState = {
       ...base,
-      equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, favorite: true } : e)),
+      equipment: base.equipment.map((e) => (e.id === "eq-a" ? { ...e, locked: true } : e)),
     };
     const ctx = autoSalvageProtectionContext(state);
     const pieceA = state.equipment.find((e) => e.id === "eq-a") as EquipmentInstance;
     const pieceB = state.equipment.find((e) => e.id === "eq-b") as EquipmentInstance;
-    expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceA))).toBe("favorited");
+    expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceA))).toBe("locked");
     expect(autoSalvageProtection(ctx, autoSalvageSubjectForPiece(pieceB))).toBeNull();
   });
 });
@@ -3893,10 +3906,10 @@ describe("Standard-Issue baselines: the CONDITIONAL protection (0.13.3.1 follow-
     const state = autoState([baselinePiece("eq-baseline")], { qualities: [0, 1, 2, 3, 4, 5] });
     const pinned: GameState = {
       ...state,
-      equipment: state.equipment.map((e) => (e.id === "eq-baseline" ? { ...e, favorite: true } : e)),
+      equipment: state.equipment.map((e) => (e.id === "eq-baseline" ? { ...e, locked: true } : e)),
     };
     expect(selectAutoSalvageTargets(pinned, NO_BOUND)).toEqual([]);
-    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-baseline" })).toBe("favorited");
+    expect(autoSalvageProtectionForTarget(pinned, { kind: "equipment", instanceId: "eq-baseline" })).toBe("locked");
     // The control: the same baseline UNPINNED is taken, so the flag is the cause.
     expect(selectedIds(selectAutoSalvageTargets(state, NO_BOUND))).toEqual(["eq-baseline"]);
   });
@@ -4280,19 +4293,19 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
   });
 
   // --- 0.13.3.1: the TWO NEW PROTECTIONS, PROVEN OFFLINE -------------------------------
-  // ⚠️ THIS IS THE CASE THE WHOLE "FAVORITES MUST LIVE IN THE SAVE" ARGUMENT EXISTS FOR. A
-  // favorite kept in localStorage would be invisible to the offline resolver, so the rules
-  // would spare a pinned piece while the player watched and destroy it while they were away.
-  // Running the SAME span both ways and requiring the pinned piece to survive BOTH is what
+  // ⚠️ THIS IS THE CASE THE WHOLE "THE LOCK FLAG MUST LIVE IN THE SAVE" ARGUMENT EXISTS FOR. A
+  // lock kept in localStorage would be invisible to the offline resolver, so the rules
+  // would spare a locked piece while the player watched and destroy it while they were away.
+  // Running the SAME span both ways and requiring the locked piece to survive BOTH is what
   // makes that promise checkable rather than asserted.
-  it("⚠️ parity: a FAVORITED spare survives the whole span offline AND live, and is byte-identical", () => {
+  it("⚠️ parity: a LOCKED spare survives the whole span offline AND live, and is byte-identical", () => {
     function pinnedState(): GameState {
       const base = autoParityState();
       // Pin the piece the rules would certainly take: eq-000 is a Q0 (inside maxQuality 1) and
       // the WORST of its variety by iLevel (so the duplicates rule wants it too).
       return {
         ...base,
-        equipment: base.equipment.map((e) => (e.id === "eq-000" ? { ...e, favorite: true } : e)),
+        equipment: base.equipment.map((e) => (e.id === "eq-000" ? { ...e, locked: true } : e)),
       };
     }
     const jumped = tick(SPAN, pinnedState(), mulberry32(SEED));
@@ -4304,7 +4317,7 @@ describe("âš ï¸ offline==live parity for AUTO-SALVAGE rules (0.13.3 Unit 
     for (const [label, run] of [["offline", jumped], ["live", stepped]] as const) {
       const survivor = run.equipment.find((e) => e.id === "eq-000");
       expect(survivor, `eq-000 must survive the ${label} run`).toBeDefined();
-      expect(survivor?.favorite).toBe(true);
+      expect(survivor?.locked).toBe(true);
       expect(
         run.processQueue.some(
           (j) => j.order.type === "salvage" && j.order.target.kind === "equipment" && j.order.target.instanceId === "eq-000"

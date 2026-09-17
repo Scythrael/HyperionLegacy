@@ -120,6 +120,12 @@ describe("armory: slot derivation + install / uninstall (Item Lifecycle 0.13.6)"
     expect(installIntoLoadout(co, "loadout-1", "weapon0", "equip-wpn")).toBe(co); // checked out
   });
 
+  it("installIntoLoadout refuses a LOCKED spare (0.13.6 favorite/lock split)", () => {
+    const s = stateWithSpareWeapon();
+    const locked = { ...s, equipment: s.equipment.map((e: any) => (e.id === "equip-wpn" ? { ...e, locked: true } : e)) };
+    expect(installIntoLoadout(locked, "loadout-1", "weapon0", "equip-wpn")).toBe(locked); // locked, same ref
+  });
+
   it("install then uninstall returns the system to the spare pool", () => {
     const installed = installIntoLoadout(stateWithSpareWeapon(), "loadout-1", "weapon0", "equip-wpn");
     const after = uninstallFromLoadout(installed, "loadout-1", "weapon0");

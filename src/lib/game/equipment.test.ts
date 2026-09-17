@@ -287,6 +287,12 @@ describe("on-mission lock", () => {
     const idleState = withEquipment(freshState(), piece); // seeded captain has mission null
     expect(canFitEquipment(idleState, "ship-1", "equip-1")).toEqual({ ok: true });
   });
+
+  it("REFUSES fitting a LOCKED spare until it is unlocked (0.13.6 favorite/lock split)", () => {
+    const locked = { ...makeEquip({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null }), locked: true };
+    const state = parked(withEquipment(freshState(), locked)); // parked, so onMission is not the blocker
+    expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "locked" });
+  });
 });
 
 // ----------------------------------------------------------------------------

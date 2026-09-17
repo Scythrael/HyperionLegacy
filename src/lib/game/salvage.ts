@@ -235,6 +235,9 @@ export interface SalvageRoll {
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
+  // LOCKED (0.13.6 favorite/lock split): the player locked this exact piece. Unlike the old favorite
+  // (auto-salvage only), a lock also refuses MANUAL salvage: unlock it first.
+  | "locked"
   // A recipe-less NON-baseline spare (blueprintKey null but not a standard-rarity floor, e.g. a
   // dev-granted radiant item): no recipe to refund and not a declutterable baseline, so it is
   // refused rather than destroyed for nothing. Dev-only reachable in a shipped build.
@@ -286,6 +289,12 @@ export function salvageEquipment(
   // Fitted piece: it lives in a live slot, not the spare pool. It must be unfit first.
   if (piece.fittedToShipId !== null) {
     return { ok: false, next: state, reason: "fitted" };
+  }
+  // LOCKED (0.13.6): the player's hands-off flag refuses MANUAL salvage too (not just the
+  // automation). Unlock it first. This is the whole point of Lock: a great roll cannot be lost to a
+  // stray tap in a pool of thousands.
+  if (piece.locked === true) {
+    return { ok: false, next: state, reason: "locked" };
   }
   // Spare Standard-Issue baseline (blueprintKey null): free + craft-less, so there is no recipe
   // to refund. Rather than block it, DESTROY it as a pure DECLUTTER (user decision 2026-07-21,
@@ -920,7 +929,7 @@ export type AutoSalvageProtection =
   | "installed"   // fitted to a ship: in use, never a candidate
   | "reserved"    // already queued or in flight for salvage: never double-queued
   | "confirmTier" // the player asked to be ASKED about this quality tier
-  | "favorited"    // the player pinned this exact item (0.13.3.1 Feature 2)
+  | "locked"      // the player LOCKED this exact piece (0.13.6 favorite/lock split): hands off
   // ⚠️ "graceWindow", NOT "craftGrace". It was called craftGrace when only a MINT started the
   // window; it now also starts on UNINSTALL, so a name saying "craft" would be wrong for every
   // piece a player just took off a ship. The engine reason and the player-facing sentence both
@@ -1057,25 +1066,21 @@ const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtect
     return ctx.protectedQualities.has(subject.piece.quality);
   },
 
-  // ⚠️ FAVORITED: THE PLAYER'S EXPLICIT "NEVER TAKE THIS" (0.13.3.1 Feature 2), and the ONE
-  // reason that is answered for every arm rather than only for gear, because the requirement
-  // is type-agnostic: whatever auto-salvage is ever pointed at, a favorite is exempt.
-  //   equipment  the SAVED flag on the instance (EquipmentInstance.favorite). Saved, not
+  // ⚠️ LOCKED: THE PLAYER'S EXPLICIT "HANDS OFF THIS EXACT PIECE" (0.13.6 favorite/lock split; was
+  // the `favorite` flag before the split). Type-agnostic, answered for every arm:
+  //   equipment  the SAVED flag on the instance (EquipmentInstance.locked). Saved, not
   //              localStorage, precisely so the offline catch-up can see it.
   //   ship       PROTECTED, unconditionally. Ship favorites are a per-device VIEW preference
   //              in localStorage (shipFavoritesPreference.ts), which the tick cannot read at
   //              all, so the only offline-honest answer for a hull is "treat it as protected".
-  //              Inert today (hulls are never auto-selected); a future arm that tears hulls
-  //              down must first move that flag into the save, and this line is the reminder.
-  //   material   NOT protected: a fungible stack has no per-unit identity to pin, so there is
-  //              no favorite flag to read. Inert today (materials are never auto-selected).
-  //              When material favoriting exists, THIS is the single line that wires it in.
-  // This deliberately does NOT gate MANUAL salvage: the player may always salvage their own
-  // favorite by hand (the Salvage Bay button is unchanged). It protects against the AUTOMATION.
-  favorited: (_ctx, subject) => {
+  //              Inert today (hulls are never auto-selected).
+  //   material   NOT protected: a fungible stack has no per-unit identity to pin. Inert today.
+  // ⚠️ UNLIKE the old favorite (auto-salvage only), LOCK also gates MANUAL salvage (see
+  // salvageEquipment) and install / loadout-commit: a locked piece is fully hands-off until unlocked.
+  locked: (_ctx, subject) => {
     switch (subject.target.kind) {
       case "equipment":
-        return subject.piece?.favorite === true;
+        return subject.piece?.locked === true;
       case "ship":
         return true;
       case "material":

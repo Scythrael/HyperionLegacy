@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 52;
+export const SAVE_VERSION = 53;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2153,6 +2153,17 @@ const MIGRATIONS: Record<number, Migration> = {
       c?.mission != null && c.mission.missionKey === "localFuelRun"
         ? { ...c, mission: null }
         : c,
+    ),
+  }),
+  // v52 -> v53 (0.13.6, favorite/lock split): `favorite` USED TO BE the auto-salvage protection flag.
+  // The split repurposes `favorite` to DISPLAY ORDER only and introduces `locked` as the protection
+  // flag. Backfill locked = the old favorite on every equipment instance so a spare the player pinned
+  // to keep it safe stays protected (and stays favorited/pinned). Idempotent + shape-preserving. A
+  // piece that was never favorited gets no locked flag (absent = not locked).
+  52: (state: any): any => ({
+    ...state,
+    equipment: (state.equipment ?? []).map((e: any) =>
+      e?.favorite === true ? { ...e, locked: true } : e,
     ),
   }),
 };

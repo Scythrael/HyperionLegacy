@@ -198,6 +198,10 @@ export type EquipFitBlockReason =
   // both fitted to a hull AND committed to a loadout (which checkout/checkin would then move
   // silently). Uninstall it from the loadout in the Armory to free it.
   | "committedToLoadout"
+  // 0.13.6 (favorite/lock split): the piece is LOCKED (the player's hands-off flag). A locked spare
+  // cannot be installed or committed until it is unlocked, so a saved best-in-slot cannot be
+  // consumed by a stray tap. Unlock it in the Ship Equipment bay.
+  | "locked"
   | "noShip"
   | "onMission"
   | "hullSpec"
@@ -343,6 +347,13 @@ export function canFitEquipment(
   // above), so it is checked before any ship lookup. Uninstall from the loadout to free it.
   if (instance.committedToLoadoutId !== undefined) {
     return { ok: false, reason: "committedToLoadout" };
+  }
+
+  // --- Lock guard (0.13.6 favorite/lock split). A LOCKED spare is hands-off: it cannot be installed
+  // (or committed to a loadout) until the player unlocks it, so a deliberately-kept piece is never
+  // consumed by accident. A pure property of the piece, checked before any ship lookup.
+  if (instance.locked === true) {
+    return { ok: false, reason: "locked" };
   }
 
   // --- Ship existence + on-mission lock (shared with unfitEquipment). This also

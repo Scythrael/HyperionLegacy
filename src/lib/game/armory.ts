@@ -151,7 +151,9 @@ export function installIntoLoadout(
   if (slotDef === undefined) return state;
   const inst = state.equipment.find((e) => e.id === instanceId);
   if (inst === undefined) return state;
-  if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined) return state; // not a free spare
+  // Not a free spare (fitted / already committed), OR LOCKED (0.13.6 favorite/lock split: a locked
+  // piece is hands-off until unlocked, so it cannot be committed to a loadout either).
+  if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined || inst.locked === true) return state;
   if (inst.slotType !== slotDef.slotType) return state; // wrong kind of system for this slot
   const prevId = loadout.slots[slotKey] ?? null;
   const equipment = state.equipment.map((e) => {
