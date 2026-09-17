@@ -2357,6 +2357,18 @@
     currencyDisplaySel = next;
     saveCurrencyDisplay(next);
   }
+
+  // Deep-link from the collapsed (empty) currencies band straight to its selector: open Settings on
+  // the UI tab and scroll the Header Currencies panel into view, so a player who has hidden every
+  // currency is one tap from turning them back on. Mirrors jumpToSalvageRules (Settings deep-link),
+  // plus a scroll because the panel sits below Accessibility + UI Theme rather than at the top.
+  async function openCurrencySettings(): Promise<void> {
+    activeSystemSubTab = "options";
+    activeOptionsTab = "ui";
+    systemModalOpen = true;
+    await svelteTick(); // let the modal + its UI tab render before scrolling to the panel
+    document.getElementById("opt-header-currencies")?.scrollIntoView({ block: "center" });
+  }
   // Key of the currency whose info tooltip is showing, or null. This behaves
   // like a standard tooltip, NOT a click-to-toggle: it SHOWS on mouse hover
   // (desktop), tap (touch), or keyboard focus, and HIDES when the mouse leaves,
@@ -9511,10 +9523,19 @@
              restored "what is this + flavor" popover), driven by the key-generic openCurrencyKey infra.
              Only credits + adminPoints exist today, so the band shows up to two now and auto-grows as
              currencies are added (it renders CURRENCY_META, no markup edit per currency). -->
-        <div class="cur-band">
+        <div class="cur-band" class:cur-band-empty={displayedCurrencies.length === 0}>
           {#if displayedCurrencies.length === 0}
-            <!-- The player deliberately cleared every currency: a calm placeholder, not a blank band. -->
-            <span class="cur-empty">Pick currencies in Options &rsaquo; Visual</span>
+            <!-- The player deliberately cleared every currency: the band COLLAPSES to a slim down-
+                 chevron button that deep-links to the currency selector (Settings > UI). -->
+            <button
+              type="button"
+              class="cur-collapsed"
+              aria-label="Choose currencies to show in the header"
+              title="Choose currencies to show"
+              on:click={openCurrencySettings}
+            >
+              <span aria-hidden="true">&#9662;</span>
+            </button>
           {:else}
             {#each displayedCurrencies as c (c.key)}
               <div class="tb-pop-wrap cur-pill-wrap">
@@ -15961,7 +15982,7 @@
            appears here automatically. A cosmetic display choice, so it lives under Visual beside the
            theme picker. -->
       <Panel class="settings-section">
-        <div class="panel-title">HEADER CURRENCIES</div>
+        <div class="panel-title" id="opt-header-currencies">HEADER CURRENCIES</div>
         <p class="cq-note">
           Choose which currencies fill the header band, up to {MAX_HEADER_CURRENCIES}. They split the band evenly, each with its own tooltip. More options will appear here as new currencies are added.
         </p>
@@ -18046,7 +18067,16 @@
       var(--color-bg-mid);
   }
   .cur-band > .cur-pill-wrap { flex: 1 1 0; min-width: 0; }
-  .cur-empty { flex: 1 1 auto; text-align: center; padding: 6px; font-size: var(--text-2xs); color: var(--color-text-dim); }
+  /* Empty state: the band collapses to a slim, unobtrusive strip holding just the chevron button. */
+  .cur-band-empty { padding: 1px; background: none; border-color: transparent; justify-content: center; }
+  .cur-collapsed {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 18px; padding: 0;
+    border: 1px solid var(--color-border); border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.06); color: var(--color-text-secondary);
+    font-size: var(--text-sm); line-height: 1; cursor: pointer;
+  }
+  .cur-collapsed:hover { border-color: var(--color-border-strong); color: var(--color-text-primary); }
   /* One currency pill. min-width:0 lets a long value ellipsis instead of forcing the band wide. */
   .cur-pill {
     flex: 1 1 auto;
