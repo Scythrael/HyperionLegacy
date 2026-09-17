@@ -68,11 +68,11 @@ export const PATCH_NOTES: PatchNote[] = [
     // NAME IS A PLACEHOLDER (draft, 2026-09-16): confirm or change. The patch spans the crafting
     // item-lifecycle (blanks -> inspect -> loadouts -> archive) and the fuel-to-reach rework.
     name: "Item Lifecycle",
-    lede: "The life of a crafted system, start to finish: crafting now produces blanks you inspect and roll, an Armory to build loadouts, and an Archive to enshrine your finest work. Fuel stops being a chore and becomes a ship's reach in lightyears. Plus a Quartermaster sell counter, a customizable currencies band, unified action windows, and a presentation polish pass. Your save migrates automatically and carries over.",
+    lede: "We followed a crafted system through its whole life this release. It starts as a blank on the bench, gets rolled at the Inspect table, joins a loadout in the new Armory, and, if it is your best work, earns a place in the Archive. While we were at it, we finally put fuel out of its misery: it is a ship's reach in lightyears now, not a chore. Rounding it out: a Quartermaster you can sell to, a currencies band you get to arrange, action windows that all behave the same way, and a polish pass across the consoles. Your save migrates automatically and carries over.",
     features: [
       {
         title: "Craft, Inspect, Roll",
-        lead: "Crafting no longer decides an item's stats the moment you build it.",
+        lead: "Crafting used to roll the dice the instant you built something. Now you do, when you are ready.",
         isNew: true,
         bullets: [
           { lead: "Crafting produces blanks.", text: "Every craft now yields a blank: identical, stackable, and unrolled. A run of the same recipe stacks instead of scattering rolled items across your bay." },
@@ -104,14 +104,14 @@ export const PATCH_NOTES: PatchNote[] = [
         lead: "Fuel is no longer a resource you mine, refine, or babysit.",
         isNew: true,
         bullets: [
-          { lead: "Every ship has a reach.", text: "A hull's reach is measured in lightyears, and refueling is instant and free. No captain has to sit on fuel duty and fall behind ever again." },
+          { lead: "Every ship has a reach.", text: "A hull's reach is measured in lightyears, and refueling is instant and free. No more parking a good captain on fuel duty and watching the rest of the fleet level right past them." },
           { lead: "Distance and reach, shown plainly.", text: "Mission and patrol cards, and the dispatch windows, show a trip's distance and the selected hull's reach in lightyears; a run beyond a hull's reach is flagged before you send it." },
           { lead: "Retired with it.", text: "The header fuel readout, the Fuel Depot dashboard card, and the Local Deuterium Skim run are gone. Any captain still assigned to that skim run is recalled to idle when your save loads, ready for new orders." },
         ],
       },
       {
         title: "The Quartermaster Sells",
-        lead: "Recoup credits for stock a change has retired.",
+        lead: "Nothing you earned should turn into dead weight.",
         bullets: [
           { text: "The Quartermaster's Sell counter is open. Retired stock, starting with the Deuterium Ice the fuel change left behind, can be sold for credits at any time, in whatever quantity you set." },
         ],
