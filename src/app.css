@@ -210,6 +210,28 @@
   --color-text-dim: #94768a; /* first-pass; aim ~4.5:1 against the panel, verify on devpreview */
   --color-starfield: #f5cee6;
 }
+[data-theme="chartreuse"] {
+  --color-accent: #a3e635;
+  --color-accent-bright: #c0f062;
+  --color-accent-rgb: 163, 230, 53;
+  --color-border: rgba(163, 230, 53, 0.18);
+  --color-border-strong: rgba(163, 230, 53, 0.4);
+  --color-panel-bg: rgba(38, 48, 16, 0.32);
+  --color-text-secondary: #a4ad8c;
+  --color-text-dim: #96a07c; /* first-pass; aim ~4.5:1 against the panel, verify on devpreview */
+  --color-starfield: #d9f5a8;
+}
+[data-theme="vermilion"] {
+  --color-accent: #f9683c;
+  --color-accent-bright: #fd8f68;
+  --color-accent-rgb: 249, 104, 60;
+  --color-border: rgba(249, 104, 60, 0.18);
+  --color-border-strong: rgba(249, 104, 60, 0.4);
+  --color-panel-bg: rgba(56, 30, 20, 0.32);
+  --color-text-secondary: #ad9488;
+  --color-text-dim: #947a6c; /* first-pass; aim ~4.5:1 against the panel, verify on devpreview */
+  --color-starfield: #f9cbb0;
+}
 [data-theme="red"] {
   --color-accent: #f96767;
   --color-accent-bright: #fd8f8f;

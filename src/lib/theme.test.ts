@@ -9,7 +9,7 @@ describe("isValidTheme", () => {
   });
 
   it("rejects an unknown theme name", () => {
-    expect(isValidTheme("chartreuse")).toBe(false);
+    expect(isValidTheme("turquoise")).toBe(false);
   });
 
   it("rejects null", () => {

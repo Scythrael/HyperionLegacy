@@ -5,7 +5,7 @@
 // full store degrades to "no persistence" (the default theme) instead of throwing.
 import { safeGetItem, safeSetItem } from "./safeStorage";
 
-export const THEME_NAMES = ["cyan", "green", "blue", "purple", "pink", "red", "white", "gray"] as const;
+export const THEME_NAMES = ["cyan", "green", "chartreuse", "blue", "purple", "pink", "red", "vermilion", "white", "gray"] as const;
 export type ThemeName = (typeof THEME_NAMES)[number];
 
 export const DEFAULT_THEME: ThemeName = "cyan";
@@ -20,10 +20,12 @@ const THEME_KEY = "fleet_admiral_theme";
 export const THEME_PREVIEW_COLORS: Record<ThemeName, string> = {
   cyan: "#67e8f9",
   green: "#67f9a8",
+  chartreuse: "#a3e635",
   blue: "#6798f9",
   purple: "#a678f9",
   pink: "#f978c4",
   red: "#f96767",
+  vermilion: "#f9683c",
   white: "#e8e8f0",
   gray: "#a0a8b0",
 };
