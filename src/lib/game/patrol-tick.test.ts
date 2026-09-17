@@ -454,15 +454,19 @@ describe("repeat-dispatch vs dispatch-once on SUCCESS", () => {
 // Recall ends the patrol without relaunch.
 // ---------------------------------------------------------------------------
 describe("recall", () => {
-  it("a recalled (repeat) patrol finishes its route then ENDS, never relaunching", () => {
+  it("a recalled (repeat) patrol flies its transit-back home then ENDS, never relaunching (0.13.6)", () => {
     const dispatched = dispatch(patrolState("destroyer", 3), true); // would normally relaunch
     const seedAtDispatch = dispatched.nextPatrolSeed;
     const recalled = recallCaptain(dispatched, 1);
     expect(recalled.success).toBe(true);
+    // 0.13.6: recall repositions an outbound patrol onto a fresh transit-back (the full return leg),
+    // so it flies HOME rather than finishing the whole route. It still ends (no relaunch) on arrival.
+    const m = recalled.next.captains[0].mission as PatrolMissionState;
+    expect(m.phase).toBe("transitBack");
 
     const after = stepped(recalled.next, ROUTE_LEN + 4);
-    expect(patrolOf(after)).toBeNull(); // ended at cycle end (recall honored), not relaunched
-    expect(after.ships[0].damaged).toBeUndefined(); // a clean win, not a defeat
+    expect(patrolOf(after)).toBeNull(); // ended on arrival (recall honored), not relaunched
+    expect(after.ships[0].damaged).toBeUndefined(); // a clean return, not a defeat
     expect(after.nextPatrolSeed).toBe(seedAtDispatch); // no relaunch => no seed consumed
   });
 });

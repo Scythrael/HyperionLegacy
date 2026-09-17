@@ -298,7 +298,7 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
 });
 
 describe("recallCaptain on a patrol (Combat 0.13.0 §S14)", () => {
-  it("flags recalled on the patrol arm without disturbing its other fields", () => {
+  it("flags recalled AND turns an outbound patrol onto a full transit-back (0.13.6), leaving identity fields", () => {
     const state = stateWithHull("destroyer");
     const dispatched = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "standoff", false).next;
     const recalled = recallCaptain(dispatched, 1);
@@ -306,6 +306,10 @@ describe("recallCaptain on a patrol (Combat 0.13.0 §S14)", () => {
     const mission = recalled.next.captains[0].mission as PatrolMissionState;
     expect(mission.kind).toBe("patrol");
     expect(mission.recalled).toBe(true);
+    // 0.13.6: recall breaks off and repositions to a fresh transit-back (the full return leg).
+    const def = PATROLS[PATROL_KEY];
+    expect(mission.phase).toBe("transitBack");
+    expect(mission.progressTicks).toBe(def.transitOutTicks + def.rollWindowTicks);
     expect(mission.stance).toBe("standoff"); // untouched
     expect(mission.masterSeed).toBe((dispatched.captains[0].mission as PatrolMissionState).masterSeed);
   });

@@ -4790,8 +4790,31 @@ export function recallCaptain(state: GameState, captainId: number): { next: Game
   const mission = state.captains[idx].mission;
   if (mission === null) return { next: state, success: false };
 
+  // 0.13.6 (user 2026-09-17): recall means BREAK OFF NOW and fly the FULL return leg home, not
+  // "finish the current cycle/route first". So when the ship is still outbound / on-site / mid-fight,
+  // reposition it onto a fresh transit-back FROM THE START (the full return duration): an extraction
+  // stops gathering and flies home to unload what it has; a patrol stops fighting and flies home. If it
+  // is ALREADY heading home (transitBack) or limping from a defeat, leave its progress alone. Then flag
+  // `recalled` so the tick ends the run (no relaunch) when it arrives. This matters most for the
+  // long-haul: an exploration ship recalled hours out flies the full hours-long trip back, deliberately
+  // (recall is a real commitment, never a free teleport home). PURE: recall is a PLAYER action, not a
+  // tick, so the deterministic fly-home ticks that follow keep the offline==live parity gate intact.
+  let recalledMission: CaptainMissionState | PatrolMissionState;
+  if (mission.kind === "extraction") {
+    const outbound = mission.phase === "ordersReceived" || mission.phase === "transitOut" || mission.phase === "extracting";
+    recalledMission = outbound
+      ? { ...mission, recalled: true, phase: "transitBack", phaseProgressTicks: 0 }
+      : { ...mission, recalled: true };
+  } else {
+    // A patrol's transit-back begins transitOutTicks + rollWindowTicks into the route.
+    const def = PATROLS[mission.patrolKey];
+    const outbound = mission.phase === "transitOut" || mission.phase === "engaging";
+    recalledMission = outbound
+      ? { ...mission, recalled: true, phase: "transitBack", progressTicks: def.transitOutTicks + def.rollWindowTicks }
+      : { ...mission, recalled: true };
+  }
   const captains = [...state.captains];
-  captains[idx] = { ...captains[idx], mission: { ...mission, recalled: true } };
+  captains[idx] = { ...captains[idx], mission: recalledMission };
   return { next: { ...state, captains }, success: true };
 }
 

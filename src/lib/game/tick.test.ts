@@ -2042,7 +2042,7 @@ describe("dispatchCaptainOnMission", () => {
 });
 
 describe("recallCaptain", () => {
-  it("sets recalled: true on the EXISTING mission object without resetting phase/progress/cargo", () => {
+  it("turns an OUTBOUND extraction around onto a full transit-back, breaking off but keeping cargo (0.13.6)", () => {
     const state = freshState();
     state.captains[0].mission = {
       kind: "extraction",
@@ -2055,14 +2055,32 @@ describe("recallCaptain", () => {
 
     const { next, success } = recallCaptain(state, 1);
     expect(success).toBe(true);
-    // Per-field checks (not one .toEqual()), cargo's values are real Decimal instances.
-    expect((next.captains[0].mission as CaptainMissionState).missionKey).toBe("shortOreRun");
-    expect((next.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
-    expect((next.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBe(4.5);
-    expect((next.captains[0].mission as CaptainMissionState).cargo.commonOre.equals(40)).toBe(true);
-    expect((next.captains[0].mission as CaptainMissionState).cargo.uncommonMaterial.equals(5)).toBe(true);
-    expect((next.captains[0].mission as CaptainMissionState).cargo.rareMaterial.equals(0)).toBe(true);
-    expect((next.captains[0].mission as CaptainMissionState).recalled).toBe(true); // only this field flips
+    const m = next.captains[0].mission as CaptainMissionState;
+    expect(m.missionKey).toBe("shortOreRun");
+    // Recall stops gathering and flies the FULL return leg home (fresh transit-back), rather than
+    // finishing the extract first. The cargo gathered so far is carried home to unload.
+    expect(m.phase).toBe("transitBack");
+    expect(m.phaseProgressTicks).toBe(0);
+    expect(m.cargo.commonOre.equals(40)).toBe(true);
+    expect(m.cargo.uncommonMaterial.equals(5)).toBe(true);
+    expect(m.cargo.rareMaterial.equals(0)).toBe(true);
+    expect(m.recalled).toBe(true);
+  });
+
+  it("leaves an ALREADY-homebound extraction's progress alone (only flips recalled)", () => {
+    const state = freshState();
+    state.captains[0].mission = {
+      kind: "extraction",
+      missionKey: "shortOreRun",
+      phase: "transitBack",
+      phaseProgressTicks: 1.5,
+      cargo: { commonOre: new Decimal(40), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
+      recalled: false,
+    };
+    const m = recallCaptain(state, 1).next.captains[0].mission as CaptainMissionState;
+    expect(m.phase).toBe("transitBack"); // already heading home: not restarted
+    expect(m.phaseProgressTicks).toBe(1.5);
+    expect(m.recalled).toBe(true);
   });
 
   it("fails if the captain has no active mission (same state reference, unchanged)", () => {
