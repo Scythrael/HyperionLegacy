@@ -177,6 +177,100 @@ definition yet (`model.ts` ~1361), and a captain system with a talent tree alrea
 (`CaptainState`, `CaptainTalentDef`). Senior Staff generalizes the captain concept onto `bridge`; the
 complement is what `quarters` was reserved for.
 
+### C.0 THE THREE PIECES: refined model (user + colleague back-and-forth, 2026-09-17) [expands C.1/C.2/C.4]
+The system resolves into THREE pieces, all attached to a SHIP: **Senior Staff**, **Ground Crews**, and
+**Crew Complement**. Structure: **two equip slots** (Senior Staff + Ground Crews) plus a THIRD piece
+(Crew Complement) that runs in **two modes** ("because some micromanage, and others do not care that
+much"). This REFINES the earlier two-tier framing: Ground Crews is a NEW, distinct middle piece. The
+`bridge` = Senior Staff / `quarters` = Complement mapping still holds; Ground Crews needs its own home
+(OPEN: a reserved slot vs a new one).
+
+**(1) SENIOR STAFF** [refines C.1]
+- Each ship has crew SEATS: Executive, Pilot, Operations, Science, Tactical, Medical, Engineering, etc.
+- Fill each seat from a ROSTER of candidate officers that REFRESHES once per real hour.
+- Each officer: randomly generated NAME, randomly generated RACE, and auto-rolls a random set of TWO
+  bonuses that can affect anything from space combat to ground-crew cohesion.
+- All start at ENSIGN. Completing missions with them aboard, plus certain "achievements", fulfills
+  PROMOTION requirements; the player then bestows a promotion, up to COMMANDER. Promoting an officer
+  RANKS UP their skills (the two bonuses get stronger).
+- You CAN FIRE officers you dislike (frees the seat). You then wait on refreshes, and some skills roll
+  far rarer than others, so chasing a good roll is part of the loop.
+- OPEN: the full seat list + whether seats/caps differ by hull; the promotion/achievement gates; the
+  bonus catalog + roll rarity; the race list (ties the inclusive name/race/gender generator).
+
+**(2) GROUND CREWS** (name tentative) [NEW piece]
+- Squads you send down/over, with a few LOADOUTS for different tasks. Obtained like Senior Staff (an
+  hourly-refresh roster; fireable). THREE team types to start:
+  - **Boarding Party:** beam a specialized squad onto an enemy ship to cause internal damage, disrupt
+    ship systems, and CAPTURE PRISONERS you bring back to the homeworld. May ship as a PLACEHOLDER
+    first (user still deciding whether to actively implement it in 0.14.0).
+  - **Science Team:** one of the TWO teams that drop to a planet during exploration while the ship
+    stays in orbit. Runs the surveys, archaeology (digging up relics), etc. that raise a planet toward
+    100% exploration.
+  - **Security Team** (name pending): the SECOND planet-drop team. Handles the RPG RANDOM BATTLES
+    exploration throws up (wildlife, pirate bands, hostile locals). Turn-based, resolved AUTOMATICALLY
+    but steered by a **GAMBIT system (FFXII-style)**: per-member rules like "at <=X% health, do Y" or
+    "if a crewmember has <ailment>, use <skill/item>" (a medic set to prioritize healing, etc.). This
+    is the concrete owner of the Away-Team combat in Part D. ⚠️ DISTINCT from the crew complement's
+    SECURITY BRANCH (piece 3): this Ground-Crews Security Team fights on PLANETS; the complement's
+    security-branch crew handle INTERNAL ship security (the C.4 hook), see piece 3.
+- ⚠️ EQUIPMENT IS ONLY FOR GROUND CREWS (user, 2026-09-17): **Senior Staff carry NO equipment.** Each
+  ground-crew team has **Armor, Weaponry, and Tool** slots. TOOLS are accessory-like utility items that
+  work BOTH IN and OUT of combat, which is WHY Science gets twice as many (4): its heavy out-of-combat
+  survey/archaeology workload leans on tools. Combat-leaning tools (Security) skew to enemy
+  DEBUFFS/DISRUPTIONS applied to PEOPLE: reduce an enemy's combat effectiveness, or a grenade that
+  STUNS or POISONS a target (the ground-battle analogue of the Boarding Party's ship-system
+  disruptions). ⚠️ TOOLS TUNE TO CONTEXT (user, 2026-09-17): SCIENCE tools can be kitted to the
+  PLANET/ENVIRONMENT TYPE (e.g. on a flora-heavy planet, tools that improve performance on that planet
+  type), so which tools you bring depends on the destination. COMBAT tools split three ways: pure
+  in-battle effects (stun for X turns, poison, etc.), and ENCOUNTER-RATE levers that either PREVENT
+  battles or INCREASE their likelihood (a two-way random-encounter dial: dodge fights when weak, farm
+  them when strong). Per-team slot layout given so far: **Science Team = 1 weapon + 4 tools**;
+  **Security Team = 2 weapons (one long-range + one short-range) + 2 tools**; **Boarding Party = TBD**.
+  Armor is per team (count unspecified, likely 1). New craftable/lootable item classes (ties the item
+  lifecycle + Armory patterns).
+- EXPLORATION LOOP this implies (long-haul): base exploration ships take a STUPIDLY long time to
+  arrive. ONBOARDING (user, 2026-09-17): ease players in with a short "dip your toes" TEST mission and
+  a moderate SURVEY mission first, THEN the first real long-haul. That first long-haul is balanced so
+  an AVERAGE exploration ship's transit-out is EXACTLY ~**6 HOURS IRL** just to REACH the planet;
+  higher-difficulty later missions reach **DAYS** in transit. Recall RE-RUNS that same transit home
+  (the trip back is just as long), so recalling an exploration captain is a massive commitment you
+  almost never want, which is the whole point of the confirmed full-return-leg recall behavior. On
+  arrival the system UNLOCKS a series of missions/surveys; completing them grows the planet to 100%
+  exploration, then the ship travels home. A single exploration can tie up a ship for IRL DAYS or
+  WEEKS; the payoff is meant to be worth it. (Ties fuel-to-reach: reach gates how far you can commit.)
+
+**(3) CREW COMPLEMENT** [refines C.2], the rank-and-file, with TWO MODES:
+- **PASSIVE (default):** every X ticks the homeworld receives X crewpeople on TRANSPORTS from Earth and
+  nearby colonies. Building + actively using ships requires crewing them; passive auto-crews with a
+  RANDOM assortment (never the same crew twice), giving "decent enough" aggregate percentages with zero
+  micromanagement.
+- **ACTIVE (per-captain toggle, user 2026-09-17):** flips the WHOLE system for THAT captain. You
+  assign crew to the CAPTAIN and they auto-fill the ship's slots up to the ship's caps. A complement is
+  ROLE-SPECIFIC: a combat-tuned complement is useless on a prospector (the bonuses do not match), so
+  active mode is for carefully choosing the exact makeup for your playstyle. Toggling active/passive
+  flips EVERYTHING on/off for that one captain, not globally.
+- Crew give TINY bonuses that STACK. Complement SIZE varies by ship: prospectors ~50-200, combat
+  ~50-500, explorers well over a few THOUSAND (by type + mission). Within a complement, per-TYPE caps
+  apply (e.g. of 100: ~10 of each type, plus ~50 on the ship's primary duty).
+- ⚠️ SECURITY BRANCH (user, 2026-09-17): one of the complement's per-type crew kinds is SECURITY, and
+  those crew fulfill the INTERNAL-ship-security hook (C.4): counter-infiltration, boarding defense,
+  protecting sensitive systems on top-tier combat hulls. So C.4's security demand is met by the
+  COMPLEMENT's security-branch crew, NOT the Ground-Crews Security Team (piece 2, which fights on
+  planets). The hook still exists; it is folded into the complement rather than being its own thing.
+- WORKED EXAMPLE (prospector unload speed): a common, lowest-rank crewmember gives ~**0.05%** faster
+  homeworld unloading; 50 of them = ~2.5%. Higher rarity/rank goes up to ~**0.2%** each, so 50 = 10%.
+  Scale up: a top prospector with a 500 complement and 300 hand-picked crew all at high rank ("petty
+  master chief") + radiant quality could reach ~**75%**, turning a 100s unload into ~25s. The same
+  shape repeats across every ship operation and ship type (bigger ship = more cargo = more unload time
+  = more room for crew to cut it). ⚠️ These %/rank/rarity numbers are FIRST-PASS illustrations, not
+  balance; the curve + caps are a tuning pass. Bundle with the unload-scaling item (C.2).
+
+Cross-cutting OPEN: where Ground Crews slot (reserved vs new); whether Senior Staff + Ground Crews share
+one hourly refresh roster or separate ones; whether the Boarding Party lands in 0.14.0 or later; the
+gambit UI depth for 0.14.0; and how the per-team Armor/Weapon/Tool gear is crafted (ties the item
+lifecycle + Armory patterns).
+
 ### C.1 Senior Staff — deterministic, few, high-impact [LOCKED]
 A secondary equip layer of "chief officer" slots (Trek bridge-officer analogue), universal on every
 hull because even a destroyer needs a Science officer (cloak detection) and even an explorer needs a
@@ -227,6 +321,9 @@ produces people, people improve the homeworld, and it gives large-hold hulls a r
 the frontier.
 
 ### C.4 Security / counter-infiltration [LOCKED deferred hook]
+⚠️ REFINED 2026-09-17 (see C.0): this hook is FULFILLED BY THE CREW COMPLEMENT's security branch (piece
+3), not a separate system, and it is DISTINCT from the Ground-Crews Security Team (piece 2, which fights
+on planets). The rest of this section stands as the content-demand rationale.
 Security complement scales for two reasons: outward (boarding parties) and inward (finding
 infiltrators/saboteurs, protecting sensitive systems on top-tier combat hulls). A later
 **espionage/infiltrator content layer** is what creates demand for the larger security caps, probably
