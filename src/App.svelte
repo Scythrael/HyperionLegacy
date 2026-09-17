@@ -13575,9 +13575,11 @@
           : state.captains.find((c) => c.id === shipsReturnCaptainId) ?? null}
         <!-- One-row console header (0.13.6 spacing pass): the ship detail now uses the SAME
              .fconsole-hdr treatment as the facility + captain consoles (compact arrow-only back
-             button + name on one clean row), instead of the older wrappy .roster-back-row with a
-             full-width .dev-btn. -->
-        <div class="fconsole-hdr">
+             button + name), instead of the older wrappy .roster-back-row with a full-width .dev-btn.
+             The Assign / Salvage actions live INLINE on this row (pushed right on desktop, the same
+             way the facility console carries its sub-tab strip), so the whole header is ONE row on
+             desktop; .ship-detail-hdr lets them wrap below only when the viewport is too narrow. -->
+        <div class="fconsole-hdr ship-detail-hdr">
           <!-- Back to the roster. 0.13.2 Unit 7 (a11y): use:focusOnMount lands keyboard focus
                HERE when the drill-down opens (the row button that opened it has unmounted, so
                without this focus would fall to <body>). On Back we record the hull id in
@@ -13599,7 +13601,6 @@
             <span aria-hidden="true">←</span>
           </button>
           <div class="research-name roster-detail-name fconsole-name">{def?.label ?? ship.typeKey}</div>
-        </div>
 
         <!-- SHIP ACTIONS (0.12.0 Console Phase 2; 0.13.2 Unit 4). Cross-perspective
              affordances reached from the ITEM (the ship); each is an EXISTING flow reused
@@ -13622,7 +13623,7 @@
              below (ONE full-screen equip view, no modal-on-top), and the board's own
              header carries the ship name / class / captain / status / Battle Rating, so
              a second identity Panel would just duplicate it. -->
-        <div class="dev-row ship-detail-actions">
+        <div class="ship-detail-actions">
           {#if assignedCaptain === null}
             <button
               class="dev-btn"
@@ -13663,6 +13664,7 @@
           >
             Salvage
           </button>
+          </div>
         </div>
 
         <!-- THE LOADOUT BOARD (0.13.2 Unit 4, Layout C). The ShipSystemsPanel is now the
@@ -19287,6 +19289,17 @@
   .fconsole-back:hover { background: rgba(var(--color-accent-rgb), 0.12); }
   .fconsole-back:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
   .fconsole-name { flex: 0 0 auto; white-space: nowrap; }
+  /* Ship detail header (0.13.6): the Assign / Salvage actions sit INLINE on the .fconsole-hdr row.
+     Unlike the facility console (whose sub-tab strip scrolls), buttons cannot scroll, so this header
+     is allowed to WRAP: on a viewport too narrow to fit back + name + both buttons on one line, the
+     actions drop to a second line rather than overflow. On desktop they are pushed to the right edge
+     (margin-left:auto), the same placement the facility console gives its strip, so it reads as one
+     clean row. */
+  .ship-detail-hdr { flex-wrap: wrap; }
+  .ship-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  @media (min-width: 769px) {
+    .ship-detail-actions { margin-left: auto; }
+  }
   /* MOBILE (base): the tab area FILLS the space left after the arrow + name and SHRINKS below its
      content (min-width:0), so the inner SubTabs scroller scrolls + its carets engage instead of the
      header overflowing the viewport. DESKTOP re-pins it to content width, pushed right. */
@@ -19315,11 +19328,11 @@
      that picks which storage tier's stock the sections below display. Opaque
      backgrounds only (Brave disables backdrop-filter), reusing theme tokens. */
   /* 0.13.6 spacing pass: the tier selector is a DIRECT flex child of .tab-scroll-area (gap:14px),
-     so its own margin-bottom stacked on top of that gap and opened a ~24px trough before the Panel
-     below, looser than the 14px panel-to-panel rhythm every other Logistics tab has. Drop the
-     margin and let the flex gap alone govern the spacing. */
+     acting as a header strip above the Panel below it. Its own margin-bottom stacked on top of that
+     gap and opened a ~24px trough. Use the SAME -6px idiom as .fconsole-hdr to net the 14px flex gap
+     down to the 8px header-to-first-panel rhythm. */
   .materials-tier-select {
-    display: flex; gap: 6px; margin: 0;
+    display: flex; gap: 6px; margin: 0 0 -6px;
   }
   .materials-tier-btn {
     flex: 0 0 auto;
