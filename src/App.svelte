@@ -19138,7 +19138,10 @@
   .ship-roster-search:focus { outline: none; border-color: var(--color-accent); }
   .ship-roster-sort { display: flex; align-items: center; gap: 6px; }
   .ship-roster-sort-label { font-size: var(--text-xs); color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
-  .ship-roster-sort-select { font-size: var(--text-md); }
+  /* The sort select reuses .modal-input, which carries a stacked-form margin-bottom: 14px and
+     8px vertical padding. In this align-items: center row that stray margin offsets the control
+     and the padding mismatch makes it a hair taller than the search box, so pin both to match. */
+  .ship-roster-sort-select { font-size: var(--text-md); margin-bottom: 0; padding: 7px 10px; }
   .ship-roster-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   /* Filter chips: full-surface tint idiom, brighter when active (the selected filter). */
   .ship-chip {
