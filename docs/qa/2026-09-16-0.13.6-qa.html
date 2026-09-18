@@ -253,9 +253,11 @@ const SECTIONS = [
     { t: "Regression (bug fix): try to salvage / scrap / uninstall gear committed to a loadout, it is protected (cannot be lost).", c: false },
   ]},
   { n: "3", title: "The Archive", items: [
-    { t: "Enshrine a spare system: its score is recorded and the completion % updates.", c: false },
-    { t: "Enshrining consumes the item.", c: false },
-    { t: "Enshrine a better roll of the same item: the mark rises.", c: false },
+    { t: "Enshrine opens a PICKER (2026-09-18 change): the row button reads \"Enshrine…\" and opens a modal to choose the exact spare; it does NOT one-tap consume the best.", c: true, how: "Verified: 'Enshrine (2)…' opened a picker listing both plasma spares." },
+    { t: "You must PICK a spare: the Enshrine button is disabled until one is selected.", c: true, how: "Enshrine disabled with no selection; enabled after selecting." },
+    { t: "Enshrine a spare: its score is recorded, it is CONSUMED, and the completion % / record updates.", c: true, how: "Record went 0 -> 12.0K; the spare was consumed (count dropped 2 -> 1)." },
+    { t: "No-gain WARNING before submit: selecting a spare that can't beat the record shows an amber \"will not beat your record ... consumes it for no gain\" note and the button becomes \"Enshrine anyway\".", c: true, how: "Verified on the equal-score second spare." },
+    { t: "A better roll raises the record; an equal/worse one does not (max is kept).", c: true, how: "Second equal-score spare showed 'does not beat your record'." },
     { t: "The ? on The Archive carries the intro.", c: false },
   ]},
   { n: "4", title: "Fuel becomes Reach", items: [
@@ -305,6 +307,8 @@ const SECTIONS = [
     { t: "Logistics > Materials: spacing above the first panel matches the other tabs.", c: false },
     { t: "Ops Overview / Gathering / Combat section headers read like the Home dashboard (label + count + rule).", c: false },
     { t: "Header portrait opens Crew > Admiral (Profile); gear opens Settings.", c: false, how: "Gear → Settings used; portrait → Crew/Admiral not exercised." },
+    { t: "FIX (2026-09-18): a locked \"Coming soon\" sub-tab shows its tooltip on hover (was a disabled button that ate the hover).", c: false, how: "Code-verified (aria-disabled + click guard, CSS keys on .locked); not hovered live this pass, please confirm." },
+    { t: "FIX (2026-09-18): a warehouse tile reads its true % (e.g. 99%) and only shows 100% when actually capped (was Math.round bumping 99.6% to a non-red '100%').", c: false, how: "Code-verified (Math.floor on the non-capped branch); needs a near-full item to see live." },
   ]},
   { n: "10", title: "Themes (incl. the four new)", items: [
     { t: "Settings > Visual > Theme: switch through all themes including Purple, Pink, Chartreuse, and Vermilion.", c: false },
