@@ -56,6 +56,7 @@
     ShipDerivedStats,
   } from "./game/model";
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
+  import { LY_PER_TICK } from "./game/fuel";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
   // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
   // source of truth for the number, no drift between the input's maxlength and the
@@ -400,14 +401,19 @@
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
   // Prospecting (the two prospecting-relevant stats) and Logistics (the rest) for the
   // categorized right column, each row keeping its base -> installed delta.
-  type StatRow = { label: string; base: number; fitted: number; kind: "flat" | "pct" };
+  type StatRow = { label: string; base: number; fitted: number; kind: "flat" | "pct" | "ly" };
+  // 0.13.6 fuel-to-reach (user 2026-09-18): the old "Fuel Efficiency ×0.00" + "Fuel Capacity" rows
+  // were vestigial fuel vocabulary. Fuel is retired; what the player cares about is travel RANGE in
+  // lightyears (the same "Range" the dispatch modal + roster already use). One honest Range row
+  // replaces the two, derived the same way as rangeLightYears (fuelCapacity x (1+engineEfficiency) x
+  // LY_PER_TICK) so it agrees with the dispatch/roster readouts and moves as an FTL drive changes.
+  const shipRangeLyOf = (s: ShipDerivedStats): number => s.fuelCapacity * (1 + s.engineEfficiency) * LY_PER_TICK;
   function buildLiveRows(base: ShipDerivedStats, fit: ShipDerivedStats): StatRow[] {
     return [
       { label: "Extraction Yield", base: base.extractionYieldMult, fitted: fit.extractionYieldMult, kind: "pct" },
       { label: "Cargo Capacity", base: base.cargoCapacity, fitted: fit.cargoCapacity, kind: "flat" },
       { label: "FTL Speed", base: base.transitSpeedMult, fitted: fit.transitSpeedMult, kind: "pct" },
-      { label: "Fuel Efficiency", base: base.engineEfficiency, fitted: fit.engineEfficiency, kind: "pct" },
-      { label: "Fuel Capacity", base: base.fuelCapacity, fitted: fit.fuelCapacity, kind: "flat" },
+      { label: "Range", base: shipRangeLyOf(base), fitted: shipRangeLyOf(fit), kind: "ly" },
       { label: "Power Output", base: base.powerOutput, fitted: fit.powerOutput, kind: "flat" },
       { label: "Power Draw", base: base.powerDraw, fitted: fit.powerDraw, kind: "flat" },
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
@@ -586,7 +592,9 @@
   const ECON_LOWER_IS_BETTER = new Set<string>(["Power Draw", "Mass"]);
   function statValueText(row: StatRow, which: "base" | "fitted"): string {
     const v = which === "base" ? row.base : row.fitted;
-    return row.kind === "pct" ? "×" + v.toFixed(2) : fmtFlat(Number(v.toFixed(1)));
+    if (row.kind === "pct") return "×" + v.toFixed(2);
+    if (row.kind === "ly") return `${Math.round(v)} ly`;
+    return fmtFlat(Number(v.toFixed(1)));
   }
   $: compareRows = ((): CompareRow[] => {
     if (!installCandidate || !candidateGear) return [];
@@ -606,7 +614,9 @@
           ? null
           : r.kind === "pct"
             ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
-            : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
+            : r.kind === "ly"
+              ? `${delta > 0 ? "+" : ""}${Math.round(delta)} ly`
+              : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
         return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
       });
     }
@@ -643,7 +653,9 @@
     return `${Math.round(ratio * 100)}%`;
   }
   function fmtStatValue(row: StatRow): string {
-    return row.kind === "pct" ? "×" + row.fitted.toFixed(2) : fmtFlat(Number(row.fitted.toFixed(1)));
+    if (row.kind === "pct") return "×" + row.fitted.toFixed(2);
+    if (row.kind === "ly") return `${Math.round(row.fitted)} ly`;
+    return fmtFlat(Number(row.fitted.toFixed(1)));
   }
   // The signed base -> installed change, or null when it is effectively zero (so a row
   // simply omits the note rather than showing "+0"). Percent stats report in points.
@@ -652,6 +664,7 @@
     if (Math.abs(d) < 1e-9) return null;
     const sign = d > 0 ? "+" : "";
     if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
+    if (row.kind === "ly") return `${sign}${Math.round(d)} ly`;
     return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
   }
   // A signed Battle-Rating delta for the tiles + the compare headline, e.g. "+68 BR" /

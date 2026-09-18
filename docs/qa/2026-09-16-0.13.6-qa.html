@@ -218,7 +218,7 @@
     <h2>Findings from the automated pass (Claude, 2026-09-18)</h2>
     <ol>
       <li><b>✅ FIXED 2026-09-18 — Armory pool picker feedback on a locked spare.</b> Previously a locked spare showed as a normal candidate chip and clicking it silently did nothing. Now the locked candidate renders disabled + dimmed with a 🔒 and the title "Locked, so it cannot be committed. Unlock it in Ship Equipment first," matching the ship install picker. Verified in the preview.</li>
-      <li><b>Vestigial fuel stats still visible.</b> The ship-detail stats panel and the install compare pane still show "Fuel Capacity" and "Fuel Efficiency ×0.00". This is the known-deferred deep fuel removal (content patch), not a new regression, but it is visible next to a release that says fuel is retired.</li>
+      <li><b>✅ FIXED 2026-09-18 — vestigial fuel stats.</b> The ship-detail readout + install compare pane replaced "Fuel Capacity" and "Fuel Efficiency ×0.00" with a single honest <b>Range</b> row in lightyears (derived like the dispatch/roster range). The weapon tooltip's range stat became "Weapons Range" to disambiguate. The deep model removal of the underlying fuel fields still rides the content patch; this stops the panel showing retired fuel vocabulary.</li>
     </ol>
   </div>
 
@@ -261,9 +261,11 @@ const SECTIONS = [
     { t: "The ? on The Archive carries the intro.", c: false },
   ]},
   { n: "4", title: "Fuel becomes Reach", items: [
-    { t: "Header has no fuel readout. Facilities has no Fuel Depot card. Operations has no Local Deuterium Skim mission.", c: false, how: "Header carried no fuel readout in preview; Facilities/Ops surfaces not each re-checked. NOTE: vestigial fuel stats still show in the ship detail (finding #2)." },
-    { t: "Dispatch a mission and a patrol: the cards / dispatch windows show a trip Distance and the hull's Reach in lightyears (not a fuel cost).", c: false },
-    { t: "A mission beyond a hull's reach is flagged / blocked before dispatch; an in-reach one dispatches normally.", c: false },
+    { t: "Header has no fuel readout. Facilities has no Fuel Depot card. Operations has no Local Deuterium Skim mission.", c: false, how: "Header carried no fuel readout in preview; Facilities/Ops surfaces not each re-checked." },
+    { t: "FIX (2026-09-18): the ship-detail Exploration/Prospecting readout shows a single Range (ly) row, NOT the old \"Fuel Efficiency ×0.00\" / \"Fuel Capacity\" rows. Same in the install compare pane.", c: true, how: "Verified: readout shows 'Range 100 ly' for the freighter; no fuel rows." },
+    { t: "FIX (2026-09-18): the weapon tooltip's range stat is labelled \"Weapons Range\" (disambiguated from the hull's travel Range).", c: false, how: "Static label swap, type-checked; confirm on a weapon tooltip live." },
+    { t: "Dispatch a mission and a patrol: the cards / dispatch windows show a trip Distance and the hull's Range in lightyears (not a fuel cost).", c: false },
+    { t: "A mission beyond a hull's range is flagged / blocked before dispatch; an in-range one dispatches normally.", c: false },
     { t: 'Refuel is effectively free/instant: a captain never stalls "out of fuel", and no captain is tied to fuel duty.', c: false },
     { t: "Regression: missions still pay out, cargo still unloads, patrols still fight, offline catch-up still resolves.", c: false },
   ]},

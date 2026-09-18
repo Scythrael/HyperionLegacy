@@ -59,7 +59,7 @@
     if (w.projectileCount > 1) rows.push({ label: "Projectiles", value: `×${w.projectileCount}` });
     rows.push({ label: "Accuracy", value: `${w.accuracy}%` });
     rows.push({ label: "Fire rate", value: fireRate(w.cooldownDeciSec) });
-    rows.push({ label: "Range", value: rangeBand(w.range) });
+    rows.push({ label: "Weapons Range", value: rangeBand(w.range) });
     rows.push({ label: "Family", value: weaponFamilyLabel(w.family) });
     return rows;
   }
