@@ -4,6 +4,11 @@ Durable home for the Dimensional Traversal (DT) / First Cause narrative, the gam
 north-star (NOT for now). See memory [[project_fleet_admiral_first_cause_dt]] and the prestige/scaling
 notes in SUGGESTIONS.md. Append beats here as they are brainstormed. US English, no em dashes.
 
+> The 2.0 GAMEPLAY architecture this narrative sits on (the three-pronged Prestige -> Flagship /
+> Dreadnought -> Active Mode system, revealed to the user's co-workers 2026-09-18) is captured in
+> `docs/plans/2026-09-18-2.0-three-pronged-prestige-flagship-active-design.md`. Prestige here IS
+> System 1 of that doc; the dreadnought R&D "unlock around DT V" note below is its System 2.
+
 ## The First Traversal — a campaign-ending hopelessness cliffhanger (user, 2026-09-16)
 
 The moment DT is unlocked is NOT a triumphant upgrade screen. It is a **hopelessness cliffhanger that
