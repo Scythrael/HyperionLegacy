@@ -444,6 +444,26 @@ Exploration, given it improves the current game too?
 
 ---
 
+## Part H — Spec Utility (SUS) slot roster + modules [NEW 2026-09-18, folded into 0.14.0]
+
+The user flagged this as something that "slipped through the cracks," to address properly in 0.14.0
+since we are already finishing out equip slots (crew `bridge`/`quarters`, etc.). Full capture lives in
+SUGGESTIONS ("FINISH THE SPEC UTILITY (SUS) SLOT ITEM ROSTER + START MODULES"); summary:
+
+- **Finish the SUS-slot items.** Today `model.ts`'s `specUtility` slot ("the UNIVERSAL Spec Utility
+  Slot") ships exactly ONE family, the **Prospecting Rig** (3 varieties, gated by Prospector hull
+  class). Build out the **other 8 item types** (9 total). DESIGN INTENT: focused, specialized items,
+  each tailored to a specific mission / gameplay style / build the player is actively pursuing (drilled
+  in, NOT generalized to the slot), the way the Prospecting Rig is tuned for mining. SUS becomes the
+  "what is this hull specialized FOR" slot. OPEN: which 8 activities/roles (confirm with the user, do
+  not invent the set); hull-class-gated vs per-item; how they map to the new Explorer/crew roles here.
+- **Start modules.** Hulls already carry an INERT `moduleSlots` count (Explorer/science hulls carry
+  more as identity, Part B / the hull-buckets entry). Stand up the actual module system on top, and
+  define what a module does vs a SUS item vs installed gear. Ties to the modules/equipment/reactor
+  framework already baked inert into `ShipTypeDef`.
+
+---
+
 ## Open decisions to resolve before build (index)
 
 - A.5 Reconcile multi-fuel-types with fuel-to-reach (consumables vs drive tiers).
