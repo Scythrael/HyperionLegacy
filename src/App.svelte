@@ -13652,8 +13652,12 @@
                label so neither is an icon-only control. -->
           {#if selectedSystem}
             {@const sys = selectedSystem}
-            <Panel>
-              <EquipmentTooltip piece={sys}>
+            <!-- SELECTED SPARE as a POPUP (user 2026-09-18): tapping a tile opens a modal with the
+                 item detail + the Favorite / Lock toggles + a Cancel button, instead of an inline
+                 card. Salvage still lives only in the Salvage Bay. -->
+            <ActionModal title={systemSalvageName(sys)} ariaLabel="Spare system options" onClose={() => (selectedSystemId = null)}>
+              <EquipmentTooltip piece={sys} />
+              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
                 <button
                   class="buy-btn systems-fav-btn"
                   class:systems-fav-btn-on={sys.favorite === true}
@@ -13670,11 +13674,14 @@
                 >
                   {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
                 </button>
-                <span class="systems-salvage-none">
-                  {#if sys.locked === true}Locked: safe from auto-salvage, manual salvage, install and loadout commit. Break it down in the Salvage Bay after unlocking.{:else}Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage lives in the Salvage Bay.{/if}
-                </span>
-              </EquipmentTooltip>
-            </Panel>
+              </div>
+              <span class="systems-salvage-none" style="display:block; margin-top:8px;">
+                {#if sys.locked === true}Locked: safe from auto-salvage, manual salvage, install and loadout commit. Break it down in the Salvage Bay after unlocking.{:else}Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage lives in the Salvage Bay.{/if}
+              </span>
+              <svelte:fragment slot="footer">
+                <button class="dev-btn" on:click={() => (selectedSystemId = null)}>Cancel</button>
+              </svelte:fragment>
+            </ActionModal>
           {/if}
 
           <!-- RESERVED product families (0.12.0 Console, CN3a). The old locked

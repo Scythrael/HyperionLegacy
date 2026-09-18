@@ -286,7 +286,7 @@ const SECTIONS = [
     { t: "Regression: nothing that lacks a sell value ever appears here or can be sold.", c: false, tag: "save" },
   ]},
   { n: "6", title: "Favorite and Lock (spare bays)", note: "Two surfaces show the toggles: Logistics > Ship Equipment and Facilities > Salvage Bay. Both share the selection and both host the controls.", items: [
-    { t: "In Ship Equipment, tap a spare: an inline card opens below the grid (not a floating popover) with Favorite and Lock buttons.", c: true, how: "Desktop + mobile." },
+    { t: "In Ship Equipment, tap a spare: a POPUP opens (2026-09-18) with the item detail, Favorite and Lock buttons, and a Cancel button to close.", c: true, how: "Verified: popup with ★ Favorite / 🔒 Lock + Cancel; toggling favorite marked the tile; Cancel closed." },
     { t: 'Favorite a spare: it gains a star marker and sorts to the top of its group; button reads "★ Favorited". Un-favoriting drops it back.', c: true, how: "Favorited a bottom spare, it jumped to position 1." },
     { t: 'Lock a spare: it gains a padlock marker; button reads "🔒 Locked". A piece can show both the star and the padlock.', c: true, how: "Both markers coexisted on one tile." },
     { t: 'In the Salvage Bay, select the locked spare: the Salvage / Destroy button is disabled, with a "Locked, so nothing can salvage it. Unlock it to salvage." note.', c: true, how: "Destroy read disabled === true via the DOM." },
