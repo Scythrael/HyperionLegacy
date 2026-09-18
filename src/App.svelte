@@ -5881,6 +5881,12 @@
   $: armoryCheckoutShips = selectedLoadout === null ? [] : state.ships.filter(
     (s) => s.typeKey === selectedLoadout!.shipTypeKey && !state.loadouts.some((l) => l.checkedOutToShipId === s.id)
   );
+  // The ship picked in the check-out dropdown. Kept valid: default to the first eligible ship, and
+  // snap back to it if the current pick leaves the eligible list (e.g. it got checked out elsewhere).
+  let armoryCheckoutSelId: string | null = null;
+  $: if (armoryCheckoutShips.length > 0 && !armoryCheckoutShips.some((s) => s.id === armoryCheckoutSelId)) {
+    armoryCheckoutSelId = armoryCheckoutShips[0].id;
+  }
   // The ship-type options for a new loadout (every player hull type, labeled).
   const ARMORY_SHIP_TYPE_OPTIONS = Object.entries(SHIP_TYPES)
     .map(([key, def]) => ({ key, label: (def as { label?: string }).label ?? key }))
@@ -13345,13 +13351,19 @@
                   </div>
                   <div class="armory-caution">Check in to edit this loadout.</div>
                 {:else}
+                  <!-- Available state (user 2026-09-18): pick an eligible ship from a dropdown, then a
+                       Check out button to its right (instead of one button per ship). Delete stays at
+                       the right edge. -->
                   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                     {#if armoryCheckoutShips.length === 0}
                       <span style="color:var(--color-text-dim);">No available {SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? "matching"} ship to check out to.</span>
                     {:else}
-                      {#each armoryCheckoutShips as s (s.id)}
-                        <button class="buy-btn" on:click={() => doArmoryCheckOut(s.id)}>Check out → {s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</button>
-                      {/each}
+                      <select class="setting-select" style="flex:0 1 auto; min-width:0;" bind:value={armoryCheckoutSelId} aria-label="Ship to check out to">
+                        {#each armoryCheckoutShips as s (s.id)}
+                          <option value={s.id}>{s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</option>
+                        {/each}
+                      </select>
+                      <button class="buy-btn" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
                     {/if}
                     <button class="buy-btn" style="margin-left:auto;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>
