@@ -5938,12 +5938,18 @@
   function clampArmoryTip(node: HTMLElement, _t: typeof armoryTip) {
     const reposition = () => {
       if (armoryTip === null) return;
+      // ⚠️ RESET to the bound base position BEFORE measuring. The card node is REUSED when you tap a
+      // different item without closing, so a prior flip-up (an inline top) would otherwise stick and
+      // make the measurement decide against re-flipping for the new anchor (the switch-while-open bug,
+      // user 2026-09-18). rAF so the browser has laid the card out at the new anchor first.
+      node.style.top = `${armoryTip.y}px`;
+      node.style.left = `${armoryTip.x}px`;
       const r = node.getBoundingClientRect();
       if (r.bottom > window.innerHeight - 8) node.style.top = `${Math.max(8, armoryTip.anchorTop - r.height - 6)}px`;
       if (r.right > window.innerWidth - 8) node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
     };
-    reposition();
-    return { update: reposition };
+    requestAnimationFrame(reposition);
+    return { update: () => requestAnimationFrame(reposition) };
   }
 
   function doCreateLoadout() {
@@ -13330,11 +13336,14 @@
                 <!-- Check-out / check-in -->
                 {#if lockedOut}
                   {@const coShip = state.ships.find((s) => s.id === selectedLoadout.checkedOutToShipId)}
-                  <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                    <span style="color:var(--color-success); font-family:var(--font-mono);">Checked out to {coShip?.name ?? "a ship"}</span>
+                  <!-- Checked-out state (user polish 2026-09-18): a small "In Use: {ship}" on the left,
+                       the Check in button pushed right so it sits beneath the BR pill, and the
+                       edit-locked hint in a small yellow caution box. -->
+                  <div class="armory-locked-row">
+                    <span class="armory-inuse">In Use: {coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}</span>
                     <button class="buy-btn" on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
-                    <span style="color:var(--color-text-dim);">Check in to edit this loadout.</span>
                   </div>
+                  <div class="armory-caution">Check in to edit this loadout.</div>
                 {:else}
                   <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
                     {#if armoryCheckoutShips.length === 0}
@@ -20097,6 +20106,19 @@
     background: rgba(var(--color-accent-rgb), 0.10);
     color: var(--color-accent-bright);
     font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.02em;
+  }
+  /* Checked-out loadout header: "In Use: {ship}" left, Check in right (beneath the BR pill). */
+  .armory-locked-row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+  }
+  .armory-inuse { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-success); }
+  /* The edit-locked hint, as a small yellow caution box. */
+  .armory-caution {
+    font-size: var(--text-xs); color: var(--color-warning);
+    border: 1px solid rgba(var(--color-warning-rgb), 0.40);
+    background: rgba(var(--color-warning-rgb), 0.10);
+    border-radius: var(--corner); padding: 6px 10px; margin-bottom: 10px;
   }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
