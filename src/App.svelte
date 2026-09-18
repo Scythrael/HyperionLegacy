@@ -13290,8 +13290,18 @@
                             <span style="color:var(--color-text-dim);">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</span>
                           {:else}
                             {#each armoryInstallCandidates as cand (cand.id)}
-                              <button class="buy-btn" style="margin:2px 4px 2px 0;" on:click={() => doArmoryInstall(def.key, cand.id)}>
-                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}
+                              <!-- 0.13.6 Favorite/Lock: a LOCKED spare cannot be committed to a
+                                   loadout (installIntoLoadout refuses it). Show it here but DISABLED
+                                   with a reason, matching the ship install picker's "Blocked: locked"
+                                   rather than letting the click silently no-op. -->
+                              <button
+                                class="buy-btn"
+                                style="margin:2px 4px 2px 0;{cand.locked === true ? ' opacity:0.55;' : ''}"
+                                disabled={cand.locked === true}
+                                title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
+                                on:click={() => doArmoryInstall(def.key, cand.id)}
+                              >
+                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.locked === true}<span aria-label="Locked" style="margin-left:5px;">🔒</span>{:else if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}
                               </button>
                             {/each}
                           {/if}

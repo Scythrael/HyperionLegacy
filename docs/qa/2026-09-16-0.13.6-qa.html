@@ -217,7 +217,7 @@
   <div class="findings">
     <h2>Findings from the automated pass (Claude, 2026-09-18)</h2>
     <ol>
-      <li><b>Armory pool picker gives no feedback on a locked spare.</b> In the loadout editor a locked spare still shows as a normal candidate chip, and clicking it silently does nothing (the engine correctly refuses the commit). The ship install picker handles this well ("Blocked: locked ..."); the Armory picker should match it. Fix pending go-ahead. Not a data-safety issue: the lock holds, it is only missing feedback.</li>
+      <li><b>✅ FIXED 2026-09-18 — Armory pool picker feedback on a locked spare.</b> Previously a locked spare showed as a normal candidate chip and clicking it silently did nothing. Now the locked candidate renders disabled + dimmed with a 🔒 and the title "Locked, so it cannot be committed. Unlock it in Ship Equipment first," matching the ship install picker. Verified in the preview.</li>
       <li><b>Vestigial fuel stats still visible.</b> The ship-detail stats panel and the install compare pane still show "Fuel Capacity" and "Fuel Efficiency ×0.00". This is the known-deferred deep fuel removal (content patch), not a new regression, but it is visible next to a release that says fuel is retired.</li>
     </ol>
   </div>
@@ -279,7 +279,7 @@ const SECTIONS = [
     { t: 'In the Salvage Bay, select the locked spare: the Salvage / Destroy button is disabled, with a "Locked, so nothing can salvage it. Unlock it to salvage." note.', c: true, how: "Destroy read disabled === true via the DOM." },
     { t: "Unlock it (from either surface): Salvage / Destroy re-enables immediately.", c: true, how: "Destroy re-enabled; button flipped back to 🔓 Lock." },
     { t: 'Try to install a locked spare on a ship (Ships > a ship > Install/Swap): it is blocked with a "locked (unlock it in Ship Equipment first)" reason.', c: true, how: 'Ship install picker showed "Blocked: locked (unlock it in Ship Equipment first)".' },
-    { t: "Try to commit a locked spare to an Armory loadout: it is refused.", c: true, how: "Engine refused (slot stayed empty). BUT see finding #1: the Armory picker gives NO feedback (silent no-op), unlike the ship picker." },
+    { t: "Try to commit a locked spare to an Armory loadout: it is refused, and the picker shows it disabled with a lock reason.", c: true, how: "Locked candidate chip now renders disabled + dimmed + 🔒 with title 'Locked, so it cannot be committed...' (finding #1 fixed 2026-09-18); the unlocked twin still commits." },
     { t: "Regression: a merely favorited (not locked) spare can still be salvaged, installed, and committed normally, favorite is display-order only.", c: true, how: "Install + commit of the unlocked twin both worked." },
     { t: 'Regression: with auto-salvage rules ON, a locked spare is never queued; an unlocked one is subject to the rules as before ("Lock it to keep it." note).', c: false, how: "Unit-tested (offline==live parity); not driven live this pass." },
     { t: "The Favorite / Lock buttons and their note wrap cleanly; the tile markers are not clipped.", c: true, tag: "device", how: "Checked at 375px in the forced-mobile viewport; confirm on real hardware." },
