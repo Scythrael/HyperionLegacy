@@ -2416,6 +2416,7 @@
     if (e.key !== "Escape") return;
     if (openCurrencyKey !== null) openCurrencyKey = null;
     if (facilityTip !== null) facilityTip = null;
+    if (armoryTip !== null) armoryTip = null;
   }
 
   // ---- Facility-pane ⓘ subject tooltip (0.13.5 hover-detail) ---------------
@@ -5913,9 +5914,37 @@
     const mk = (gear: EquipmentInstance[]) => battleRating(shipToCombatant({ id: lo.id, team: "player", stats: SHIP_TYPES[lo.shipTypeKey], hullType, installedGear: gear }));
     return mk(next) - mk(cur);
   }
-  // Which slot's installed-item tooltip is open in the editor (tap the item name to toggle). Cleared
-  // when the loadout closes or a different item is tapped.
-  let armoryTipItemId: string | null = null;
+  // The Armory editor's installed-item tooltip: a REAL floating card (fixed-positioned at the tapped
+  // item name), NOT an inline div, so it overlays rather than reflowing the list. Same overflow-proof
+  // idiom as facilityTip / the warehouse tile tooltip (clampArmoryTip flips it above / nudges it in).
+  let armoryTip: { itemId: string; x: number; y: number; anchorTop: number } | null = null;
+  function toggleArmoryTip(e: Event, itemId: string) {
+    e.stopPropagation();
+    if (armoryTip && armoryTip.itemId === itemId) { armoryTip = null; return; }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    armoryTip = {
+      itemId,
+      x: Math.max(8, Math.min(r.left, window.innerWidth - 8 - 320)),
+      y: r.bottom + 6,
+      anchorTop: r.top,
+    };
+  }
+  function handleArmoryTipOutside(e: PointerEvent) {
+    if (armoryTip === null) return;
+    const target = e.target as Element | null;
+    if (target && target.closest(".armory-item-name, .frow-tip-card")) return;
+    armoryTip = null;
+  }
+  function clampArmoryTip(node: HTMLElement, _t: typeof armoryTip) {
+    const reposition = () => {
+      if (armoryTip === null) return;
+      const r = node.getBoundingClientRect();
+      if (r.bottom > window.innerHeight - 8) node.style.top = `${Math.max(8, armoryTip.anchorTop - r.height - 6)}px`;
+      if (r.right > window.innerWidth - 8) node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
+    };
+    reposition();
+    return { update: reposition };
+  }
 
   function doCreateLoadout() {
     if (!armoryNewShipType) return;
@@ -8845,12 +8874,23 @@
   on:pointerdown={handleCurrencyOutsidePointer}
   on:pointerdown={handleWarehouseOutsidePointer}
   on:pointerdown={handleFacilityTipOutside}
+  on:pointerdown={handleArmoryTipOutside}
   on:keydown={handleCurrencyKeydown}
 />
 
 <!-- Facility-pane ⓘ subject tooltip: ONE fixed-positioned element (placed at the ⓘ's rect by
      showFacilityTip), so it escapes the pane button + scroll-area overflow that was clipping the
      old absolute version. pointer-events:none so it never captures the hover. -->
+{#if armoryTip}
+  {@const armoryTipInst = loadoutInstance(armoryTip.itemId)}
+  {#if armoryTipInst}
+    <!-- The Armory editor's installed-item tooltip, floated at the tapped item name (real popover,
+         not an inline div). Same fixed-position + clamp idiom as facilityTip; pointer-events:none. -->
+    <div class="frow-tip-card" style="left: {armoryTip.x}px; top: {armoryTip.y}px;" role="tooltip" use:clampArmoryTip={armoryTip}>
+      <EquipmentTooltip piece={armoryTipInst} />
+    </div>
+  {/if}
+{/if}
 {#if facilityTip}
   {#if facilityTip.tip.kind === "item"}
     <!-- The generalized ItemTooltip (material / craft-in-progress / ship). clampFacilityTipCard
@@ -13273,18 +13313,18 @@
               {@const lockedOut = selectedLoadout.checkedOutToShipId !== null}
               <Panel>
                 <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-                  <button class="buy-btn" on:click={() => { selectedLoadoutId = null; armoryInstallSlotKey = null; }}>← Loadouts</button>
+                  <button class="buy-btn" on:click={() => { selectedLoadoutId = null; armoryInstallSlotKey = null; armoryTip = null; }}>← Loadouts</button>
                   <input
                     class="modal-input" style="margin:0; width:auto; flex:1 1 160px; font-size: var(--text-sm);"
                     value={selectedLoadout.name}
                     on:change={(e) => doRenameLoadout(selectedLoadout.id, (e.target as HTMLInputElement).value)}
                     aria-label="Loadout name"
                   />
-                  <span class="ss-tile-r" style="font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--color-accent);">{SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? selectedLoadout.shipTypeKey}</span>
+                  <span style="font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.06em; color:var(--color-accent); font-size:var(--text-xs);">{SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? selectedLoadout.shipTypeKey}</span>
                   <!-- Loadout BR (choice A, user 2026-09-18): the set's Battle Rating, computed from the
                        hull type + committed gear the same way the roster does, so you see a loadout's
-                       strength here without checking it out. -->
-                  <span class="ss-tile-r" style="font-family:var(--font-mono); color:var(--color-text-secondary);" title="Battle Rating of this loadout's committed systems">BR {formatNumber(loadoutBattleRating(selectedLoadout))}</span>
+                       strength here without checking it out. A stylish pill shoved to the right edge. -->
+                  <span class="armory-br-pill" style="margin-left:auto;" title="Battle Rating of this loadout's committed systems">BR {formatNumber(loadoutBattleRating(selectedLoadout))}</span>
                 </div>
 
                 <!-- Check-out / check-in -->
@@ -13330,8 +13370,8 @@
                             <button
                               type="button"
                               class="armory-item-name"
-                              aria-expanded={armoryTipItemId === inst.id}
-                              on:click={() => (armoryTipItemId = armoryTipItemId === inst.id ? null : inst.id)}
+                              aria-expanded={armoryTip?.itemId === inst.id}
+                              on:click={(e) => toggleArmoryTip(e, inst.id)}
                             >
                               <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {systemSalvageName(inst)}</span>
                               <span class="armory-item-sub">{inst.rarity} · Q{inst.quality}</span>
@@ -13350,9 +13390,6 @@
                           </div>
                         {/if}
                       </div>
-                      {#if inst && armoryTipItemId === inst.id}
-                        <div class="armory-tip-inline"><EquipmentTooltip piece={inst} /></div>
-                      {/if}
                       {#if !lockedOut && armoryInstallSlotKey === def.key}
                         <div style="padding:4px 0 10px 0; display:flex; flex-wrap:wrap; align-items:center;">
                           {#if armoryInstallCandidates.length === 0}
@@ -20052,7 +20089,15 @@
   .armory-item-info { color: var(--color-accent); font-size: var(--text-xs); }
   .armory-slot-empty { color: var(--color-text-dim); font-style: italic; font-size: var(--text-sm); }
   .armory-slot-actions { flex: none; display: flex; gap: 6px; align-items: center; }
-  .armory-tip-inline { padding: 2px 0 10px 0; max-width: 340px; }
+  /* The loadout BR pill in the editor header: a slim accent-tinted capsule, shoved to the right edge. */
+  .armory-br-pill {
+    display: inline-flex; align-items: center; flex: none;
+    padding: 2px 10px; border-radius: 999px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.35);
+    background: rgba(var(--color-accent-rgb), 0.10);
+    color: var(--color-accent-bright);
+    font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.02em;
+  }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
      --sys-rc (the module-exported equipmentRarityColor): a thick top border + a
