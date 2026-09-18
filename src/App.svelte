@@ -5889,6 +5889,34 @@
     return id === null || id === undefined ? null : (state.equipment.find((e) => e.id === id) ?? null);
   }
 
+  // 0.13.6 (user 2026-09-18): show a loadout's Battle Rating in the Armory, computed the SAME way the
+  // roster does (shipPickerStats) but from the loadout's ship type + its committed gear, so an
+  // available loadout reports its strength without being checked out first. A loadout's committed
+  // pieces are the free-of-ships equipment tagged to it; shipToCombatant reads them as installedGear.
+  function loadoutGear(lo: GameState["loadouts"][number]): EquipmentInstance[] {
+    return state.equipment.filter((e) => e.committedToLoadoutId === lo.id);
+  }
+  function loadoutBattleRating(lo: GameState["loadouts"][number]): number {
+    const hullType = combatHullTypeOf(lo.shipTypeKey);
+    if (!hullType) return 0;
+    return battleRating(shipToCombatant({ id: lo.id, team: "player", stats: SHIP_TYPES[lo.shipTypeKey], hullType, installedGear: loadoutGear(lo) }));
+  }
+  // The net BR change if `candidate` were installed into `slotKey` (replacing whatever is there), so
+  // the install picker can show a "+N BR" hint and the player never commits a set blind. Combat-only:
+  // an economy piece (cargo/ftl/reactor) yields 0 and the hint is simply omitted.
+  function loadoutInstallNetBR(lo: GameState["loadouts"][number], slotKey: string, candidate: EquipmentInstance): number {
+    const hullType = combatHullTypeOf(lo.shipTypeKey);
+    if (!hullType) return 0;
+    const cur = loadoutGear(lo);
+    const occupantId = lo.slots[slotKey];
+    const next = cur.filter((e) => e.id !== occupantId).concat(candidate);
+    const mk = (gear: EquipmentInstance[]) => battleRating(shipToCombatant({ id: lo.id, team: "player", stats: SHIP_TYPES[lo.shipTypeKey], hullType, installedGear: gear }));
+    return mk(next) - mk(cur);
+  }
+  // Which slot's installed-item tooltip is open in the editor (tap the item name to toggle). Cleared
+  // when the loadout closes or a different item is tapped.
+  let armoryTipItemId: string | null = null;
+
   function doCreateLoadout() {
     if (!armoryNewShipType) return;
     const { next, loadoutId } = createLoadout(state, armoryNewShipType as Parameters<typeof createLoadout>[1]);
@@ -13253,6 +13281,10 @@
                     aria-label="Loadout name"
                   />
                   <span class="ss-tile-r" style="font-family:var(--font-mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--color-accent);">{SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? selectedLoadout.shipTypeKey}</span>
+                  <!-- Loadout BR (choice A, user 2026-09-18): the set's Battle Rating, computed from the
+                       hull type + committed gear the same way the roster does, so you see a loadout's
+                       strength here without checking it out. -->
+                  <span class="ss-tile-r" style="font-family:var(--font-mono); color:var(--color-text-secondary);" title="Battle Rating of this loadout's committed systems">BR {formatNumber(loadoutBattleRating(selectedLoadout))}</span>
                 </div>
 
                 <!-- Check-out / check-in -->
@@ -13286,24 +13318,43 @@
                     </div>
                     {#each groupSlots as def (def.key)}
                       {@const inst = loadoutInstance(selectedLoadout.slots[def.key])}
-                      <div style="display:flex; align-items:center; gap:10px; padding:5px 0; border-bottom:1px solid var(--color-border);">
-                        <span style="font-family:var(--font-mono); color:var(--color-text-dim); width:120px; flex:none;">{def.label}</span>
-                        <span style="flex:1 1 auto; min-width:0;">
+                      <!-- 0.13.6 mobile pass (user 2026-09-18): a two-line slot row, so the text fits and
+                           pops on a phone. Line 1 = the slot name + colon (small). Line 2 = the installed
+                           system's NAME, a button that toggles its item tooltip so you can see what is in
+                           the setup (empty slots read "Empty"). The action buttons are unchanged and sit,
+                           vertically centred, to the right. -->
+                      <div class="armory-slot-row">
+                        <div class="armory-slot-text">
+                          <span class="armory-slot-label">{def.label}:</span>
                           {#if inst}
-                            <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {inst.rarity} · Q{inst.quality}</span>
+                            <button
+                              type="button"
+                              class="armory-item-name"
+                              aria-expanded={armoryTipItemId === inst.id}
+                              on:click={() => (armoryTipItemId = armoryTipItemId === inst.id ? null : inst.id)}
+                            >
+                              <span style="color:{equipmentRarityColor(inst.rarity)};">{equipmentIcon(inst)} {systemSalvageName(inst)}</span>
+                              <span class="armory-item-sub">{inst.rarity} · Q{inst.quality}</span>
+                              <span class="armory-item-info" aria-hidden="true">ⓘ</span>
+                            </button>
                           {:else}
-                            <span style="color:var(--color-text-dim); font-style:italic;">Empty</span>
+                            <span class="armory-slot-empty">Empty</span>
                           {/if}
-                        </span>
+                        </div>
                         {#if !lockedOut}
-                          {#if inst}
-                            <button class="buy-btn" on:click={() => doArmoryUninstall(def.key)}>Remove</button>
-                          {/if}
-                          <button class="buy-btn" on:click={() => (armoryInstallSlotKey = armoryInstallSlotKey === def.key ? null : def.key)}>{inst ? "Swap" : "Install"}</button>
+                          <div class="armory-slot-actions">
+                            {#if inst}
+                              <button class="buy-btn" on:click={() => doArmoryUninstall(def.key)}>Remove</button>
+                            {/if}
+                            <button class="buy-btn" on:click={() => (armoryInstallSlotKey = armoryInstallSlotKey === def.key ? null : def.key)}>{inst ? "Swap" : "Install"}</button>
+                          </div>
                         {/if}
                       </div>
+                      {#if inst && armoryTipItemId === inst.id}
+                        <div class="armory-tip-inline"><EquipmentTooltip piece={inst} /></div>
+                      {/if}
                       {#if !lockedOut && armoryInstallSlotKey === def.key}
-                        <div style="padding:4px 0 8px 120px;">
+                        <div style="padding:4px 0 10px 0; display:flex; flex-wrap:wrap; align-items:center;">
                           {#if armoryInstallCandidates.length === 0}
                             <span style="color:var(--color-text-dim);">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</span>
                           {:else}
@@ -13312,6 +13363,10 @@
                                    loadout (installIntoLoadout refuses it). Show it here but DISABLED
                                    with a reason, matching the ship install picker's "Blocked: locked"
                                    rather than letting the click silently no-op. -->
+                              <!-- Net-BR hint (choice A): how this candidate would change the loadout's
+                                   Battle Rating, so you never commit a set blind. Combat-only, so an
+                                   economy piece (net 0) simply omits the hint. -->
+                              {@const netBR = cand.locked === true ? 0 : loadoutInstallNetBR(selectedLoadout, def.key, cand)}
                               <button
                                 class="buy-btn"
                                 style="margin:2px 4px 2px 0;{cand.locked === true ? ' opacity:0.55;' : ''}"
@@ -13319,7 +13374,7 @@
                                 title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
                                 on:click={() => doArmoryInstall(def.key, cand.id)}
                               >
-                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.locked === true}<span aria-label="Locked" style="margin-left:5px;">🔒</span>{:else if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}
+                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.locked === true}<span aria-label="Locked" style="margin-left:5px;">🔒</span>{:else if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}{#if netBR !== 0}<span style="margin-left:6px; color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}
                               </button>
                             {/each}
                           {/if}
@@ -19973,6 +20028,31 @@
     color: var(--color-text-dim);
     margin-top: 8px;
   }
+  /* 0.13.6 Armory editor slot row (mobile pass, user 2026-09-18): the slot name + colon on line 1,
+     the installed system's tappable NAME on line 2, both small so they fit a phone; the action
+     buttons sit vertically centred on the right, unchanged. */
+  .armory-slot-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 0; border-bottom: 1px solid var(--color-border);
+  }
+  .armory-slot-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .armory-slot-label {
+    font-family: var(--font-mono); color: var(--color-text-dim);
+    font-size: var(--text-xs); letter-spacing: 0.02em;
+  }
+  /* The item name is a button (tap toggles its tooltip). Stripped to look like text + an ⓘ affordance. */
+  .armory-item-name {
+    display: inline-flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    background: none; border: none; padding: 0; margin: 0; text-align: left; cursor: pointer;
+    font-family: inherit; font-size: var(--text-sm); color: var(--color-text-primary); line-height: 1.3;
+  }
+  .armory-item-name:hover { text-decoration: underline; }
+  .armory-item-name:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 3px; }
+  .armory-item-sub { color: var(--color-text-dim); font-size: var(--text-xs); }
+  .armory-item-info { color: var(--color-accent); font-size: var(--text-xs); }
+  .armory-slot-empty { color: var(--color-text-dim); font-style: italic; font-size: var(--text-sm); }
+  .armory-slot-actions { flex: none; display: flex; gap: 6px; align-items: center; }
+  .armory-tip-inline { padding: 2px 0 10px 0; max-width: 340px; }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
      --sys-rc (the module-exported equipmentRarityColor): a thick top border + a

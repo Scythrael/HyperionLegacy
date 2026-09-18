@@ -245,7 +245,11 @@ const SECTIONS = [
   ]},
   { n: "2", title: "The Armory (loadouts)", items: [
     { t: "Create a loadout for a hull type; rename it; delete a different one.", c: false, how: "Created a General Freighter loadout in preview; rename/delete not exercised." },
-    { t: "Add rolled systems to the loadout; the slot derivation + Battle Rating read correctly.", c: false, how: "Committed a spare into a slot (via the lock test); BR read-out not verified." },
+    { t: "Add rolled systems to the loadout; the slot derivation reads correctly (the hull's real slots, grouped Offense/Defense/Systems).", c: true, how: "Committed a spare into a slot; slots + groups render per hull type." },
+    { t: "FIX (2026-09-18, choice A): the editor header shows the loadout's Battle Rating (BR N), computed from the hull + committed gear like the roster.", c: true, how: "Verified 'GENERAL FREIGHTER  BR 400'." },
+    { t: "FIX (2026-09-18, mobile): each slot is two lines (\"Slot:\" then the system NAME), text sized to fit a phone; buttons unchanged on the right.", c: true, how: "Verified at 375px." },
+    { t: "FIX (2026-09-18): tapping a slot's item NAME opens its tooltip inline (name, rarity/quality, stats, flavor); tap again to close.", c: true, how: "Verified: Cargo Bay item tooltip opened inline on tap." },
+    { t: "FIX (2026-09-18): the install picker chips show a net-BR hint (+N BR) for combat gear so you don't commit blind (economy pieces are BR-neutral, so no hint).", c: false, how: "Code-verified + type-checked; had no combat spare on hand to show a non-zero delta live." },
     { t: "Check out the loadout to a ship: the ship equips the whole set in one step.", c: false },
     { t: "The checked-out ship's own install screen is locked (edit happens in the Armory instead).", c: false },
     { t: "Check in frees the ship again.", c: false },
