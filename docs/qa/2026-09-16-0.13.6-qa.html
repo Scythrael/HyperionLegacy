@@ -245,6 +245,7 @@ const SECTIONS = [
   ]},
   { n: "2", title: "The Armory (loadouts)", items: [
     { t: "Create a loadout for a hull type; rename it; delete a different one.", c: false, how: "Created a General Freighter loadout in preview; rename/delete not exercised." },
+    { t: "POLISH (2026-09-18): each roster row is smaller text with the loadout NAME top-left, the ship type top-right, and the status (\"In use: {ship}\" / \"Available\") on the bottom line.", c: true, how: "Verified the Available state on desktop; In-use string is the same conditional slot." },
     { t: "Add rolled systems to the loadout; the slot derivation reads correctly (the hull's real slots, grouped Offense/Defense/Systems).", c: true, how: "Committed a spare into a slot; slots + groups render per hull type." },
     { t: "FIX (2026-09-18, choice A): the editor header shows the loadout's Battle Rating (BR N), computed from the hull + committed gear like the roster.", c: true, how: "Verified 'GENERAL FREIGHTER  BR 400'." },
     { t: "FIX (2026-09-18, mobile): each slot is two lines (\"Slot:\" then the system NAME), text sized to fit a phone; buttons unchanged on the right.", c: true, how: "Verified at 375px." },

@@ -13311,12 +13311,16 @@
                 {:else}
                   {#each state.loadouts as lo (lo.id)}
                     {@const coShip = lo.checkedOutToShipId ? state.ships.find((s) => s.id === lo.checkedOutToShipId) : null}
+                    <!-- Roster row (user 2026-09-18): smaller text; name top-left, ship type top-right,
+                         status ("In use: {ship}" / "Available") on the bottom line. -->
                     <button class="home-row" style="width:100%; text-align:left; cursor:pointer;" on:click={() => (selectedLoadoutId = lo.id)}>
-                      <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">
-                        <span style="font-weight:600;">{lo.name}</span>
-                        <span style="font-family:var(--font-mono); color:var(--color-text-dim); text-transform:uppercase; letter-spacing:0.06em; margin-left:8px;">{SHIP_TYPES[lo.shipTypeKey]?.label ?? lo.shipTypeKey}</span>
+                      <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:3px;">
+                        <span style="display:flex; align-items:baseline; justify-content:space-between; gap:8px; min-width:0;">
+                          <span style="font-weight:600; font-size:var(--text-sm); color:var(--color-text-primary); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{lo.name}</span>
+                          <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:var(--color-text-dim); text-transform:uppercase; letter-spacing:0.06em; flex:none;">{SHIP_TYPES[lo.shipTypeKey]?.label ?? lo.shipTypeKey}</span>
+                        </span>
+                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `In use: ${coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}` : "Available"}</span>
                       </span>
-                      <span style="font-family:var(--font-mono); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `Checked out · ${coShip?.name ?? "a ship"}` : "Available"}</span>
                     </button>
                   {/each}
                 {/if}
