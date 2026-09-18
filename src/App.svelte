@@ -13354,18 +13354,20 @@
                   <!-- Available state (user 2026-09-18): pick an eligible ship from a dropdown, then a
                        Check out button to its right (instead of one button per ship). Delete stays at
                        the right edge. -->
-                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                  <!-- One line, no wrap: the dropdown flexes to fill and both buttons (Check out +
+                       Delete loadout) stay on the same row (user 2026-09-18). -->
+                  <div style="display:flex; align-items:center; gap:8px; flex-wrap:nowrap; margin-bottom:10px;">
                     {#if armoryCheckoutShips.length === 0}
-                      <span style="color:var(--color-text-dim);">No available {SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? "matching"} ship to check out to.</span>
+                      <span style="color:var(--color-text-dim); flex:1 1 auto; min-width:0;">No available {SHIP_TYPES[selectedLoadout.shipTypeKey]?.label ?? "matching"} ship to check out to.</span>
                     {:else}
-                      <select class="setting-select" style="flex:0 1 auto; min-width:0;" bind:value={armoryCheckoutSelId} aria-label="Ship to check out to">
+                      <select class="setting-select" style="flex:1 1 0; min-width:0;" bind:value={armoryCheckoutSelId} aria-label="Ship to check out to">
                         {#each armoryCheckoutShips as s (s.id)}
                           <option value={s.id}>{s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</option>
                         {/each}
                       </select>
-                      <button class="buy-btn" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
+                      <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
                     {/if}
-                    <button class="buy-btn" style="margin-left:auto;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
+                    <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => (loadoutDeletePending = selectedLoadout.id)}>Delete loadout</button>
                   </div>
                 {/if}
 
@@ -13411,36 +13413,45 @@
                           </div>
                         {/if}
                       </div>
-                      {#if !lockedOut && armoryInstallSlotKey === def.key}
-                        <div style="padding:4px 0 10px 0; display:flex; flex-wrap:wrap; align-items:center;">
-                          {#if armoryInstallCandidates.length === 0}
-                            <span style="color:var(--color-text-dim);">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</span>
-                          {:else}
-                            {#each armoryInstallCandidates as cand (cand.id)}
-                              <!-- 0.13.6 Favorite/Lock: a LOCKED spare cannot be committed to a
-                                   loadout (installIntoLoadout refuses it). Show it here but DISABLED
-                                   with a reason, matching the ship install picker's "Blocked: locked"
-                                   rather than letting the click silently no-op. -->
-                              <!-- Net-BR hint (choice A): how this candidate would change the loadout's
-                                   Battle Rating, so you never commit a set blind. Combat-only, so an
-                                   economy piece (net 0) simply omits the hint. -->
-                              {@const netBR = cand.locked === true ? 0 : loadoutInstallNetBR(selectedLoadout, def.key, cand)}
-                              <button
-                                class="buy-btn"
-                                style="margin:2px 4px 2px 0;{cand.locked === true ? ' opacity:0.55;' : ''}"
-                                disabled={cand.locked === true}
-                                title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
-                                on:click={() => doArmoryInstall(def.key, cand.id)}
-                              >
-                                <span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {cand.rarity} · Q{cand.quality}</span>{#if cand.locked === true}<span aria-label="Locked" style="margin-left:5px;">🔒</span>{:else if cand.favorite}<span aria-label="Favorited" style="margin-left:5px; color:var(--color-warning);">★</span>{/if}{#if netBR !== 0}<span style="margin-left:6px; color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}
-                              </button>
-                            {/each}
-                          {/if}
-                        </div>
-                      {/if}
                     {/each}
                   {/if}
                 {/each}
+
+                <!-- Install / Swap PICKER as a POPUP (user 2026-09-18): tapping a slot's Install/Swap
+                     opens this modal listing the compatible spares by FULL NAME (+ rarity/quality/iL,
+                     net-BR, locked state), instead of an inline chip strip. Selecting one installs it
+                     and closes. armoryInstallSlotKey holds the open slot; armoryInstallCandidates
+                     already derives from it. -->
+                {#if armoryInstallSlotKey !== null && !lockedOut}
+                  {@const slotDef = armorySlotDefs.find((d) => d.key === armoryInstallSlotKey)}
+                  {#if slotDef}
+                    <ActionModal title={`Install · ${slotDef.label}`} ariaLabel={`Choose a ${slotDef.label} to install`} onClose={() => (armoryInstallSlotKey = null)}>
+                      {#if armoryInstallCandidates.length === 0}
+                        <p class="modal-instruction">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</p>
+                      {:else}
+                        <p class="modal-instruction">Choose a system to install into {slotDef.label}.</p>
+                        <div class="modal-captain-list">
+                          {#each armoryInstallCandidates as cand (cand.id)}
+                            {@const netBR = cand.locked === true ? 0 : loadoutInstallNetBR(selectedLoadout, armoryInstallSlotKey!, cand)}
+                            <button
+                              class="dev-btn ship-pick-opt"
+                              disabled={cand.locked === true}
+                              style={cand.locked === true ? "opacity:0.55;" : ""}
+                              title={cand.locked === true ? "Locked, so it cannot be committed. Unlock it in Ship Equipment first." : undefined}
+                              on:click={() => doArmoryInstall(armoryInstallSlotKey!, cand.id)}
+                            >
+                              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(cand.rarity)};">{equipmentIcon(cand)} {systemSalvageName(cand)}</span>{#if cand.locked === true} 🔒{:else if cand.favorite} <span style="color:var(--color-warning);">★</span>{/if}</span>
+                              <span class="ship-pick-sub">{cand.rarity} · Q{cand.quality} · iL {cand.iLevel}{#if netBR !== 0} · <span style="color:{netBR > 0 ? 'var(--color-success)' : 'var(--color-danger)'};">{netBR > 0 ? "+" : ""}{formatNumber(netBR)} BR</span>{/if}</span>
+                            </button>
+                          {/each}
+                        </div>
+                      {/if}
+                      <svelte:fragment slot="footer">
+                        <button class="dev-btn" on:click={() => (armoryInstallSlotKey = null)}>Cancel</button>
+                      </svelte:fragment>
+                    </ActionModal>
+                  {/if}
+                {/if}
               </Panel>
             {/if}
           {:else if activeFoundryFacility === "archive"}
