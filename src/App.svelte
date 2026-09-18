@@ -5945,24 +5945,42 @@
   // One row per craftable item: its enshrined score, its max, and the best matching free SPARE you
   // hold (highest-scoring), which drives the one-click "Enshrine best" action. Sorted by label.
   $: archiveRows = archivableBlueprints().map(({ key, bp }) => {
-    const spares = state.equipment.filter(
-      (e) => e.blueprintKey === key && e.fittedToShipId === null && e.committedToLoadoutId === undefined
-    );
-    let bestSpare: (typeof spares)[number] | null = null;
-    for (const sp of spares) if (bestSpare === null || itemScore(sp) > itemScore(bestSpare)) bestSpare = sp;
+    // All free crafted spares of this blueprint, sorted BEST-first (score desc) so the enshrine
+    // picker lists the strongest candidate at the top; the player still picks explicitly.
+    const spares = state.equipment
+      .filter((e) => e.blueprintKey === key && e.fittedToShipId === null && e.committedToLoadoutId === undefined)
+      .slice()
+      .sort((a, b) => itemScore(b) - itemScore(a));
+    const bestSpare = spares[0] ?? null;
     return {
       key,
       label: BLUEPRINTS[key]?.label ?? key,
       archived: state.archive[key] ?? 0,
       max: maxItemScore(bp),
+      spares,
       bestSpare,
       bestSpareScore: bestSpare ? itemScore(bestSpare) : 0,
     };
   }).sort((a, b) => a.label.localeCompare(b.label));
 
+  // 0.13.6 (Archive footgun fix, user 2026-09-18): enshrining is NO LONGER a one-tap "best" auto-pick
+  // that could silently consume a spare for zero gain. Instead a picker opens, you choose the exact
+  // spare to submit, and a no-improvement WARNING shows before you commit. archiveEnshrineKey holds the
+  // open blueprint row's key (null = closed); archiveEnshrineSelId the chosen spare instance.
+  let archiveEnshrineKey: string | null = null;
+  let archiveEnshrineSelId: string | null = null;
+  function openArchiveEnshrine(key: string) {
+    archiveEnshrineKey = key;
+    archiveEnshrineSelId = null; // force an explicit pick (user's call: "you should have to pick directly")
+  }
+  function closeArchiveEnshrine() {
+    archiveEnshrineKey = null;
+    archiveEnshrineSelId = null;
+  }
   function doArchiveItem(instanceId: string) {
     const next = archiveItem(state, instanceId);
     if (next !== state) { state = next; doSave(); }
+    closeArchiveEnshrine();
   }
 
   // Start the next Docks expansion rung. startDocksExpansion returns { next, started }
@@ -13340,10 +13358,11 @@
                       <span style="font-weight:600; color:var(--color-text-primary);">{row.label}</span>
                       <span style="font-family:var(--font-mono); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'}; margin-left:8px;">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
                     </span>
-                    {#if row.bestSpare}
-                      {@const bs = row.bestSpare}
-                      <button class="buy-btn" style="margin-left:8px;" on:click={() => doArchiveItem(bs.id)}>
-                        Enshrine best (<span style="color:{equipmentRarityColor(bs.rarity)};">{bs.rarity} · Q{bs.quality}</span>{#if itemScore(bs) > row.archived} · +{formatNumber(itemScore(bs) - row.archived)}{/if})
+                    {#if row.spares.length > 0}
+                      <!-- Opens the enshrine PICKER (choose the exact spare + see a no-gain warning
+                           before committing), not a one-tap consume. -->
+                      <button class="buy-btn" style="margin-left:8px;" on:click={() => openArchiveEnshrine(row.key)}>
+                        Enshrine{row.spares.length > 1 ? ` (${row.spares.length})` : ""}…
                       </button>
                     {:else}
                       <span style="font-family:var(--font-mono); color:var(--color-text-dim); margin-left:8px;">No spare</span>
@@ -13646,7 +13665,10 @@
                             class="warehouse-fill"
                             style="height: {atCap ? 100 : pct}%; --wh-fillc: {atCap ? 'var(--color-danger)' : 'var(--wh-rc)'};"
                           ></span>
-                          <span class="warehouse-pct">{Math.round(atCap ? 100 : pct)}%</span>
+                          <!-- Math.FLOOR, not round: a 99.6%-full item must not read "100%" (with the
+                               non-danger fill) while materialAtCap is still false and it still accepts
+                               stock. Only a genuinely capped item (atCap) shows 100%. -->
+                          <span class="warehouse-pct">{atCap ? 100 : Math.floor(pct)}%</span>
                           <span class="warehouse-glyph">{warehouseCategoryGlyph(item.category)}</span>
                           <span class="warehouse-ct">{formatNumber(count)}</span>
                         {:else}
@@ -17229,6 +17251,52 @@
           <button class="dev-btn" on:click={closeShipPickers}>Cancel</button>
         </svelte:fragment>
     </ActionModal>
+  {/if}
+
+  <!-- ARCHIVE ENSHRINE PICKER (0.13.6 footgun fix, user 2026-09-18). Enshrining CONSUMES a spare and
+       keeps max(record, score), so a one-tap "best" could silently destroy a spare for zero gain.
+       Instead: pick the exact spare, and a message spells out the gain (or the NO-gain) before you
+       commit. You may still enshrine a non-improving item on purpose ("Enshrine anyway"), you just
+       cannot do it blind. -->
+  {#if archiveEnshrineKey !== null}
+    {@const row = archiveRows.find((r) => r.key === archiveEnshrineKey) ?? null}
+    {#if row !== null}
+      {@const sel = row.spares.find((s) => s.id === archiveEnshrineSelId) ?? null}
+      {@const selScore = sel ? itemScore(sel) : 0}
+      {@const improves = sel !== null && selScore > row.archived}
+      <ActionModal title={`Enshrine · ${row.label}`} ariaLabel={`Choose a ${row.label} to enshrine`} onClose={closeArchiveEnshrine}>
+        <p class="modal-instruction">Enshrining records the item's score forever and <strong>consumes</strong> it. Your record for {row.label} is {formatNumber(row.archived)} / {formatNumber(row.max)}. Choose the spare to submit.</p>
+        <div class="modal-captain-list">
+          {#each row.spares as sp (sp.id)}
+            {@const score = itemScore(sp)}
+            <button
+              class="dev-btn ship-pick-opt"
+              style={archiveEnshrineSelId === sp.id ? "border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.14);" : ""}
+              aria-pressed={archiveEnshrineSelId === sp.id}
+              on:click={() => (archiveEnshrineSelId = sp.id)}
+            >
+              <span class="ship-pick-name"><span style="color:{equipmentRarityColor(sp.rarity)};">{sp.rarity} · Q{sp.quality}</span> · iL {sp.iLevel}</span>
+              <span class="ship-pick-sub">score {formatNumber(score)} · {score > row.archived ? `+${formatNumber(score - row.archived)} vs your record` : "does not beat your record"}</span>
+            </button>
+          {/each}
+        </div>
+        {#if sel !== null}
+          <p class="modal-instruction" style="margin-top:12px; color:{improves ? 'var(--color-success)' : 'var(--color-warning)'};">
+            {#if improves}
+              Enshrining this raises your {row.label} record by +{formatNumber(selScore - row.archived)} (to {formatNumber(selScore)}).
+            {:else}
+              ⚠️ This will not beat your record of {formatNumber(row.archived)}. Enshrining it consumes the item for no completion gain. To recover materials instead, salvage it in the Salvage Bay.
+            {/if}
+          </p>
+        {/if}
+        <svelte:fragment slot="footer">
+          <button class="dev-btn" on:click={closeArchiveEnshrine}>Cancel</button>
+          <button class="buy-btn" disabled={sel === null} on:click={() => { if (sel !== null) doArchiveItem(sel.id); }}>
+            {sel === null ? "Enshrine" : improves ? "Enshrine" : "Enshrine anyway"}
+          </button>
+        </svelte:fragment>
+      </ActionModal>
+    {/if}
   {/if}
 
   <!-- Radial Skill Web (Task 11b), the shared talent-tooltip overlay that

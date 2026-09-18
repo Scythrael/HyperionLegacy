@@ -51,7 +51,7 @@
         class="sub-tab"
         class:active={active === tab.key}
         class:locked={tab.locked}
-        disabled={tab.locked}
+        aria-disabled={tab.locked ? true : undefined}
         title={tab.locked ? "Coming soon, not yet available" : undefined}
         on:click={() => {
           if (!tab.locked) onSelect(tab.key);
@@ -134,7 +134,9 @@
     color: var(--color-accent-bright);
     border-color: var(--color-accent);
   }
-  /* Locked tabs: grayed + non-clickable (native `disabled`), still hoverable for the title tooltip. */
+  /* Locked tabs: grayed + non-clickable. Uses aria-disabled (NOT native `disabled`) + a click guard
+     so the tab stays hoverable and the "Coming soon" title tooltip actually appears (a disabled
+     control fires no hover events), matching ConsoleTabs' locked-as-div treatment. */
   .sub-tab.locked {
     opacity: 0.5;
     cursor: not-allowed;
