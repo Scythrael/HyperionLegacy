@@ -2463,6 +2463,12 @@
   function clampFacilityTipCard(node: HTMLElement, _tip: typeof facilityTip) {
     const reposition = () => {
       if (facilityTip === null) return;
+      // ⚠️ RESET to the bound base position BEFORE measuring, and measure in rAF. The card node is
+      // REUSED when you tap a different ⓘ without closing, so a prior flip-up (an inline top) would
+      // otherwise stick and make the measurement decide against re-flipping for the new anchor (the
+      // switch-while-open bug, matched to clampArmoryTip's fix, 2026-09-18).
+      node.style.top = `${facilityTip.y}px`;
+      node.style.left = `${facilityTip.x}px`;
       const r = node.getBoundingClientRect();
       if (r.bottom > window.innerHeight - 8) {
         node.style.top = `${Math.max(8, facilityTip.anchorTop - r.height - 6)}px`;
@@ -2471,8 +2477,8 @@
         node.style.left = `${Math.max(8, window.innerWidth - 8 - r.width)}px`;
       }
     };
-    reposition();
-    return { update: reposition };
+    requestAnimationFrame(reposition);
+    return { update: () => requestAnimationFrame(reposition) };
   }
   // -------------------------------------------------------------------------
 
@@ -15114,7 +15120,7 @@
                               <div class="mission-col-label">Requirements</div>
                               <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
                               <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull reach {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull range {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
                             </div>
                             <div class="mission-detail-section">
                               <div class="mission-col-label">Rewards</div>
@@ -15254,7 +15260,7 @@
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
-                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / reach <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} LY</b>{/if}</span>
+                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} LY</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
                            is selected (and a forecast exists), else a dim "pick a captain" prompt.
@@ -17161,7 +17167,7 @@
           <div class="panel-title">RANGE</div>
           <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} LY</div>
           <div class="research-cost" style={shipRangeLy !== null && shipRangeLy < distanceLy ? "color: var(--color-danger)" : ""}>
-            Hull reach: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} LY` : "--"}
+            Hull range: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} LY` : "--"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
             <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
@@ -17300,10 +17306,10 @@
 
         <div class="research-cost" style="margin-top: 20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
           {#if patrolReachLy !== null}
-            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} LY</span></span>
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull range {formatNumber(Math.round(patrolReachLy))} LY</span></span>
           {:else}
             <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY</span>
-            <HelpTip label="Reach" text="Select a captain to check whether their hull can reach this patrol." />
+            <HelpTip label="Range" text="Select a captain to check whether their hull has the range for this patrol." />
           {/if}
         </div>
 

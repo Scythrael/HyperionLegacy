@@ -275,7 +275,7 @@ const SECTIONS = [
     { t: "Header has no fuel readout. Facilities has no Fuel Depot card. Operations has no Local Deuterium Skim mission.", c: false, how: "Header carried no fuel readout in preview; Facilities/Ops surfaces not each re-checked." },
     { t: "FIX (2026-09-18): the ship-detail Exploration/Prospecting readout shows a single Range (LY) row, NOT the old \"Fuel Efficiency ×0.00\" / \"Fuel Capacity\" rows. Same in the install compare pane.", c: true, how: "Verified: readout shows 'Range 100 LY' for the freighter; no fuel rows." },
     { t: "FIX (2026-09-18): the weapon tooltip's range stat is labelled \"Weapons Range\" (disambiguated from the hull's travel Range).", c: false, how: "Static label swap, type-checked; confirm on a weapon tooltip live." },
-    { t: "Dispatch a mission and a patrol: the cards / dispatch windows show a trip Distance and the hull's Range in lightyears (not a fuel cost).", c: false },
+    { t: "Dispatch a mission and a patrol: the cards / dispatch windows show a trip Distance and the hull's Range in LY (not a fuel cost). Wording is \"range\" everywhere now (was \"hull reach\").", c: false, how: "Wording swept reach->range; verify the values on a real save." },
     { t: "A mission beyond a hull's range is flagged / blocked before dispatch; an in-range one dispatches normally.", c: false },
     { t: 'Refuel is effectively free/instant: a captain never stalls "out of fuel", and no captain is tied to fuel duty.', c: false },
     { t: "Regression: missions still pay out, cargo still unloads, patrols still fight, offline catch-up still resolves.", c: false },
