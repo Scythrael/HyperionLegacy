@@ -4500,6 +4500,12 @@ export interface Loadout {
   checkedOutToShipId: string | null; // the ship flying this set, or null (available)
 }
 
+// ITEM LIFECYCLE 0.13.6: one Archive slot's stored best. `score` is the completion figure; `rarity`
+// and `quality` (added v54) record WHAT the best enshrined roll was, so the console shows it back.
+// They are optional because a pre-v54 entry (migrated from a bare number) carries only the score
+// until the item is re-enshrined.
+export type ArchiveEntry = { score: number; rarity?: EquipmentRarity; quality?: number };
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -4706,12 +4712,15 @@ export interface GameState {
   // MIGRATIONS backfills [] + 1 onto older saves. No Decimals inside, so hydrateDecimals is untouched.
   loadouts: Loadout[];
   nextLoadoutId: number;
-  // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4; DORMANT until the Archive build). The completionist
-  // record: for each CRAFTABLE-equipment blueprint key, the BEST score ever enshrined (a plain
-  // number, not a live instance, slotting CONSUMES the item and keeps only the score). Empty on a
-  // fresh save; MIGRATIONS backfills {}. Score = (rarityIndex+1) x (quality+1) x iLevel x 10; the
-  // denominator for completion % is the item's absolute tier ceiling (see archive.ts). No Decimals.
-  archive: Record<string, number>;
+  // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4). The completionist record: for each
+  // CRAFTABLE-equipment blueprint key, the BEST enshrined result as an ArchiveEntry (the score plus,
+  // since v54, the rarity + quality of that best roll so the console can show WHAT you enshrined).
+  // Slotting CONSUMES the item and keeps only this entry, never a live instance. Empty on a fresh
+  // save; MIGRATIONS backfills {} then wraps old numeric scores into { score }. Score =
+  // (rarityIndex+1) x (quality+1) x iLevel x 10; completion %'s denominator is the item's absolute
+  // tier ceiling (see archive.ts). No Decimals. `rarity`/`quality` are optional: an entry migrated
+  // from the pre-v54 numeric form has only the score until the item is re-enshrined.
+  archive: Record<string, ArchiveEntry>;
   // The crafting skill track that later tasks use to gate/boost equipment
   // crafting. craftingLevel is 1-based (starts at 1, parallels fleetAdminLevel;
   // level 0 is unused). craftingXp is the accumulator toward the next level,

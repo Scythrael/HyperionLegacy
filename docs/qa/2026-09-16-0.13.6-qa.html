@@ -234,7 +234,7 @@ const SECTIONS = [
     { t: "Load an EXISTING save (pre-0.13.6). It migrates without error; nothing you owned is missing.", c: false, tag: "save" },
     { t: "Any captain that was running Local Deuterium Skim is now idle (recalled), not stuck on a mission you can't see.", c: false, tag: "save" },
     { t: "Anything you had favorited before 0.13.6 now shows as locked (the star protection became the lock).", c: false, tag: "save", how: "Migration is unit-tested; needs a real favorited save to see it live." },
-    { t: "Export the save, re-import it: loads clean (save format 53).", c: false, tag: "save" },
+    { t: "Export the save, re-import it: loads clean (save format 54).", c: false, tag: "save" },
     { t: "No console errors on load or while navigating the tabs.", c: true, how: "No console errors across the whole session, desktop + mobile." },
   ]},
   { n: "1", title: "Craft → Inspect → Roll (item lifecycle)", note: "Reaching a working Fabricator from a fresh sandbox means building the Foundry up from scratch. The blanks/inspect engine is unit-tested (inspectBlank.test.ts); verify the live loop on your migrated save.", items: [
@@ -267,6 +267,8 @@ const SECTIONS = [
     { t: "Enshrine a spare: its score is recorded, it is CONSUMED, and the completion % / record updates.", c: true, how: "Record went 0 -> 12.0K; the spare was consumed (count dropped 2 -> 1)." },
     { t: "No-gain WARNING before submit: selecting a spare that can't beat the record shows an amber \"will not beat your record ... consumes it for no gain\" note and the button becomes \"Enshrine anyway\".", c: true, how: "Verified on the equal-score second spare." },
     { t: "A better roll raises the record; an equal/worse one does not (max is kept).", c: true, how: "Second equal-score spare showed 'does not beat your record'." },
+    { t: "POLISH (2026-09-18): entries are smaller text with spacing, grouped under CATEGORY subheaders (Weapons / Drone Pods / Defense / Systems).", c: true, how: "Verified on desktop." },
+    { t: "POLISH (2026-09-18): an enshrined entry shows the stored RARITY + QUALITY it holds (e.g. \"radiant · Q5\"). Entries migrated from before this change show the score only until re-enshrined.", c: true, how: "Enshrined a fresh Graviton (radiant · Q5) -> the row shows 'radiant · Q5'; the pre-migration Plasma shows score only." },
     { t: "The ? on The Archive carries the intro.", c: false },
   ]},
   { n: "4", title: "Fuel becomes Reach", items: [

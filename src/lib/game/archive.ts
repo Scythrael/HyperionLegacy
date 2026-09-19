@@ -40,7 +40,7 @@ export function archiveCompletion(state: GameState): { total: number; max: numbe
   let max = 0;
   for (const { key, bp } of archivableBlueprints()) {
     max += maxItemScore(bp);
-    total += state.archive[key] ?? 0;
+    total += state.archive[key]?.score ?? 0;
   }
   return { total, max, pct: max > 0 ? (total / max) * 100 : 0 };
 }
@@ -56,10 +56,16 @@ export function archiveItem(state: GameState, instanceId: string): GameState {
   if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined) return state; // not a free spare
   const key = inst.blueprintKey;
   if (key === null || !(key in BLUEPRINTS)) return state; // baselines / unknown blueprints are not archivable
-  const best = Math.max(state.archive[key] ?? 0, itemScore(inst));
+  // Keep the BEST by score. When the new roll wins (or there is no entry yet), record its score AND
+  // its rarity/quality so the console can show what is enshrined; otherwise keep the existing entry.
+  const existing = state.archive[key];
+  const newScore = itemScore(inst);
+  const entry = existing !== undefined && existing.score >= newScore
+    ? existing
+    : { score: newScore, rarity: inst.rarity, quality: inst.quality };
   return {
     ...state,
     equipment: state.equipment.filter((e) => e.id !== instanceId), // consumed into the Archive
-    archive: { ...state.archive, [key]: best },
+    archive: { ...state.archive, [key]: entry },
   };
 }

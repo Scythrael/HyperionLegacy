@@ -172,7 +172,7 @@ export const PATCH_NOTES: PatchNote[] = [
         ],
       },
     ],
-    save: "Your save migrates automatically and carries over: every ship, system, upgrade, and setting is preserved. The save format advances to version 53 across this release (blanks, loadouts, the Archive, recalling captains off the retired skim run, and locking anything you had favorited).",
+    save: "Your save migrates automatically and carries over: every ship, system, upgrade, and setting is preserved. The save format advances to version 54 across this release (blanks, loadouts, the Archive now recording the rarity and quality you enshrined, recalling captains off the retired skim run, and locking anything you had favorited).",
   },
   {
     version: "0.13.5",

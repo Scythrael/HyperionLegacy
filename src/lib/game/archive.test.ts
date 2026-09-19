@@ -37,17 +37,21 @@ describe("archive (Item Lifecycle 0.13.6)", () => {
     return { ...base, equipment: [...base.equipment, inst] };
   }
 
-  it("archiveItem consumes the spare and records its score", () => {
+  it("archiveItem consumes the spare and records its score PLUS the rarity/quality enshrined", () => {
     const after = archiveItem(stateWithSpare(), "equip-x");
     expect(after.equipment.find((e: any) => e.id === "equip-x")).toBeUndefined(); // consumed
-    expect(after.archive.autocannonBp).toBe(itemScore({ rarity: "augmented", quality: 2, iLevel: 5 }));
+    expect(after.archive.autocannonBp).toEqual({
+      score: itemScore({ rarity: "augmented", quality: 2, iLevel: 5 }),
+      rarity: "augmented",
+      quality: 2,
+    });
   });
 
-  it("archiveItem keeps the BEST score (a worse item does not lower it, but is still consumed)", () => {
-    const s: any = { ...stateWithSpare({ rarity: "standard", quality: 0, iLevel: 1 }), archive: { autocannonBp: 9999 } };
+  it("archiveItem keeps the BEST score (a worse item does not lower it OR overwrite its rarity/quality, but is still consumed)", () => {
+    const s: any = { ...stateWithSpare({ rarity: "standard", quality: 0, iLevel: 1 }), archive: { autocannonBp: { score: 9999, rarity: "radiant", quality: 5 } } };
     const after = archiveItem(s, "equip-x");
     expect(after.equipment.find((e: any) => e.id === "equip-x")).toBeUndefined(); // still consumed
-    expect(after.archive.autocannonBp).toBe(9999); // best kept
+    expect(after.archive.autocannonBp).toEqual({ score: 9999, rarity: "radiant", quality: 5 }); // best kept, entry untouched
   });
 
   it("archiveItem refuses a baseline (no blueprintKey), a fitted, or a committed instance", () => {

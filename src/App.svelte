@@ -6021,16 +6021,40 @@
       .slice()
       .sort((a, b) => itemScore(b) - itemScore(a));
     const bestSpare = spares[0] ?? null;
+    const entry = state.archive[key];
+    // Category for the "sort by category" grouping (user 2026-09-18): weapons / drones / defense
+    // (shield + plating) / systems (the economy slots). Derived from the blueprint's output.
+    const cat = bp.weaponOutput
+      ? { order: 0, label: "Weapons" }
+      : bp.droneOutput
+        ? { order: 1, label: "Drone Pods" }
+        : bp.equipmentOutput?.slotType === "shieldEmitters" || bp.equipmentOutput?.slotType === "hullPlating"
+          ? { order: 2, label: "Defense" }
+          : { order: 3, label: "Systems" };
     return {
       key,
       label: BLUEPRINTS[key]?.label ?? key,
-      archived: state.archive[key] ?? 0,
+      archived: entry?.score ?? 0,
+      archivedRarity: entry?.rarity ?? null,
+      archivedQuality: entry?.quality ?? null,
       max: maxItemScore(bp),
+      category: cat.label,
+      categoryOrder: cat.order,
       spares,
       bestSpare,
       bestSpareScore: bestSpare ? itemScore(bestSpare) : 0,
     };
-  }).sort((a, b) => a.label.localeCompare(b.label));
+  }).sort((a, b) => a.categoryOrder - b.categoryOrder || a.label.localeCompare(b.label));
+  // Grouped by category (preserving the sorted order) so the console can print a subheader per group.
+  $: archiveGroups = (() => {
+    const groups: { category: string; rows: typeof archiveRows }[] = [];
+    for (const row of archiveRows) {
+      let g = groups[groups.length - 1];
+      if (g === undefined || g.category !== row.category) { g = { category: row.category, rows: [] }; groups.push(g); }
+      g.rows.push(row);
+    }
+    return groups;
+  })();
 
   // 0.13.6 (Archive footgun fix, user 2026-09-18): enshrining is NO LONGER a one-tap "best" auto-pick
   // that could silently consume a spare for zero gain. Instead a picker opens, you choose the exact
@@ -13480,11 +13504,23 @@
                 <div class="research-bar-fill" style="width:{Math.min(100, archiveCompletionVM.pct)}%"></div>
               </div>
               <div style="margin-top:14px;">
-                {#each archiveRows as row (row.key)}
-                  <div class="home-row" style="align-items:center;">
+                {#each archiveGroups as group (group.category)}
+                  <!-- Category subheader (sort-by-category, user 2026-09-18), reusing the warehouse
+                       tier-head idiom so it reads like the other consoles. -->
+                  <div class="warehouse-tier-head" style="margin-top:12px;">
+                    <span class="warehouse-tier-label">{group.category}</span>
+                    <span class="warehouse-tier-line"></span>
+                  </div>
+                  {#each group.rows as row (row.key)}
+                  <!-- Compact entry row (user 2026-09-18): smaller text + a little breathing room; the
+                       stored rarity/quality (if known) shows WHAT is enshrined. -->
+                  <div class="archive-row">
                     <span style="flex:1 1 auto; min-width:0;">
-                      <span style="font-weight:600; color:var(--color-text-primary);">{row.label}</span>
-                      <span style="font-family:var(--font-mono); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'}; margin-left:8px;">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
+                      <span class="archive-row-name">{row.label}</span>
+                      {#if row.archivedRarity}
+                        <span class="archive-row-tag" style="color:{equipmentRarityColor(row.archivedRarity)};">{row.archivedRarity} · Q{row.archivedQuality}</span>
+                      {/if}
+                      <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'}; margin-left:8px;">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
                     </span>
                     {#if row.spares.length > 0}
                       <!-- Opens the enshrine PICKER (choose the exact spare + see a no-gain warning
@@ -13493,9 +13529,10 @@
                         Enshrine{row.spares.length > 1 ? ` (${row.spares.length})` : ""}…
                       </button>
                     {:else}
-                      <span style="font-family:var(--font-mono); color:var(--color-text-dim); margin-left:8px;">No spare</span>
+                      <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:var(--color-text-dim); margin-left:8px;">No spare</span>
                     {/if}
                   </div>
+                  {/each}
                 {/each}
               </div>
             </Panel>
@@ -20154,6 +20191,13 @@
     background: rgba(var(--color-warning-rgb), 0.10);
     border-radius: var(--corner); padding: 6px 10px; margin-bottom: 10px;
   }
+  /* Archive entry row (user 2026-09-18): compact + a little spacing, smaller than the old .home-row. */
+  .archive-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 0; border-bottom: 1px solid var(--color-border);
+  }
+  .archive-row-name { font-weight: 600; font-size: var(--text-sm); color: var(--color-text-primary); }
+  .archive-row-tag { font-family: var(--font-mono); font-size: var(--text-xs); margin-left: 8px; }
 
   /* One system TILE, reusing the warehouse-grid layout but painted per rarity via
      --sys-rc (the module-exported equipmentRarityColor): a thick top border + a

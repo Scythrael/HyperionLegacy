@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 53;
+export const SAVE_VERSION = 54;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2164,6 +2164,19 @@ const MIGRATIONS: Record<number, Migration> = {
     ...state,
     equipment: (state.equipment ?? []).map((e: any) =>
       e?.favorite === true ? { ...e, locked: true } : e,
+    ),
+  }),
+  // v53 -> v54 (0.13.6, Archive rarity/quality): the archive value used to be a bare score number;
+  // it is now an ArchiveEntry { score, rarity?, quality? } so the console can show WHAT was
+  // enshrined. Wrap each existing numeric score into { score } (rarity/quality unknown until the item
+  // is re-enshrined). An entry already in object form is left as-is (idempotent). No Decimals.
+  53: (state: any): any => ({
+    ...state,
+    archive: Object.fromEntries(
+      Object.entries(state.archive ?? {}).map(([key, val]: [string, any]) => [
+        key,
+        typeof val === "number" ? { score: val } : val,
+      ]),
     ),
   }),
 };
