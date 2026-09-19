@@ -13497,8 +13497,8 @@
                 />
               </div>
               <div style="display:flex; align-items:baseline; gap:10px; margin:12px 0 4px;">
-                <span style="font-family:var(--font-display); font-size:var(--text-2xl); color:var(--color-text-primary);">{archiveCompletionVM.pct.toFixed(1)}%</span>
-                <span style="font-family:var(--font-mono); color:var(--color-text-dim);">{formatNumber(archiveCompletionVM.total)} / {formatNumber(archiveCompletionVM.max)}</span>
+                <span style="font-family:var(--font-display); font-size:var(--text-xl); color:var(--color-text-primary);">{archiveCompletionVM.pct.toFixed(1)}%</span>
+                <span style="font-family:var(--font-mono); font-size:var(--text-sm); color:var(--color-text-dim);">{formatNumber(archiveCompletionVM.total)} / {formatNumber(archiveCompletionVM.max)}</span>
               </div>
               <div class="research-bar-track">
                 <div class="research-bar-fill" style="width:{Math.min(100, archiveCompletionVM.pct)}%"></div>
