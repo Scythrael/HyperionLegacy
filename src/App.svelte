@@ -13254,9 +13254,13 @@
                               </span>
                               <span class="home-l2">
                                 <span class="home-meta">owned {formatNumber(entry.owned)}</span>
-                                <span class="home-meta qm-unit-price">{entry.unitValue} cr each</span>
                               </span>
-                              <span class="cq-state">Sells for {formatNumber(new Decimal(qty).times(entry.unitValue))} credits.</span>
+                              <!-- Unit price on its own line, then the running Total Value for the
+                                   chosen quantity (user 2026-09-18). CR capitalized. -->
+                              <span class="home-l2">
+                                <span class="home-meta qm-unit-price">{formatNumber(entry.unitValue)} CR each</span>
+                              </span>
+                              <span class="cq-state">Total Value: {formatNumber(new Decimal(qty).times(entry.unitValue))} CR</span>
                             </div>
                             <div class="cq-ctl qm-sell-ctl">
                               <!-- Quantity: a -/+ stepper flanking an editable box (defaults to the
