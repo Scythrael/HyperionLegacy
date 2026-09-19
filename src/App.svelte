@@ -17216,11 +17216,14 @@
         {#if faction}<p class="modal-instruction">{faction.name} &middot; Waves {wavesLabel}</p>{/if}
 
         <!-- Captain picker: reuses the existing openPatrolPicker flow (its modal stacks over
-             this popup). selectPatrolCaptain records the pick under this patrol's key. -->
-        <div class="mission-col-label">Captain</div>
-        <button class="dev-btn" on:click={() => openPatrolPicker(patrolDispatchKey!)}>
-          {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){#if selectedShipDef} &middot; {selectedShipDef.label}{/if} ▾{:else}Select a captain ▾{/if}
-        </button>
+             this popup). selectPatrolCaptain records the pick under this patrol's key. The label +
+             dropdown sit on ONE row ("Captain:" left, the dropbox to its right), user 2026-09-18. -->
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
+          <span class="mission-col-label" style="margin:0;">Captain:</span>
+          <button class="dev-btn" on:click={() => openPatrolPicker(patrolDispatchKey!)}>
+            {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){#if selectedShipDef} &middot; {selectedShipDef.label}{/if} ▾{:else}Select a captain ▾{/if}
+          </button>
+        </div>
 
         <!-- Read-only Ship (from the captain), folded stats via foldedPlayerDefense. -->
         {#if selectedCaptain !== null}
@@ -17291,11 +17294,12 @@
           <button class="dev-btn" aria-pressed={repeat} on:click={() => setPatrolRepeat(patrolDispatchKey!, true)}>Dispatch Repeatedly</button>
         </div>
 
-        <div class="research-cost" style="margin-top: 10px">
+        <div class="research-cost" style="margin-top: 20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
           {#if patrolReachLy !== null}
-            Distance: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} LY</span>
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} LY</span></span>
           {:else}
-            Distance: {formatNumber(Math.round(patrolDistanceLy))} LY (select a captain to check reach)
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY</span>
+            <HelpTip label="Reach" text="Select a captain to check whether their hull can reach this patrol." />
           {/if}
         </div>
 
