@@ -593,7 +593,7 @@
   function statValueText(row: StatRow, which: "base" | "fitted"): string {
     const v = which === "base" ? row.base : row.fitted;
     if (row.kind === "pct") return "×" + v.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(v)} ly`;
+    if (row.kind === "ly") return `${Math.round(v)} LY`;
     return fmtFlat(Number(v.toFixed(1)));
   }
   $: compareRows = ((): CompareRow[] => {
@@ -615,7 +615,7 @@
           : r.kind === "pct"
             ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
             : r.kind === "ly"
-              ? `${delta > 0 ? "+" : ""}${Math.round(delta)} ly`
+              ? `${delta > 0 ? "+" : ""}${Math.round(delta)} LY`
               : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
         return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
       });
@@ -654,7 +654,7 @@
   }
   function fmtStatValue(row: StatRow): string {
     if (row.kind === "pct") return "×" + row.fitted.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(row.fitted)} ly`;
+    if (row.kind === "ly") return `${Math.round(row.fitted)} LY`;
     return fmtFlat(Number(row.fitted.toFixed(1)));
   }
   // The signed base -> installed change, or null when it is effectively zero (so a row
@@ -664,7 +664,7 @@
     if (Math.abs(d) < 1e-9) return null;
     const sign = d > 0 ? "+" : "";
     if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
-    if (row.kind === "ly") return `${sign}${Math.round(d)} ly`;
+    if (row.kind === "ly") return `${sign}${Math.round(d)} LY`;
     return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
   }
   // A signed Battle-Rating delta for the tiles + the compare headline, e.g. "+68 BR" /

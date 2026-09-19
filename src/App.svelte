@@ -1582,7 +1582,7 @@
     // all three hull roles (warship / hauler / explorer).
     const hullType = combatHullTypeOf(ship.typeKey);
     const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
-    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} ly`];
+    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} LY`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");
   }
@@ -15041,7 +15041,7 @@
                           <div class="statline">
                             <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
                             <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
-                            <span>Distance <b>{formatNumber(Math.round(distanceLy))} ly</b></span>
+                            <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
                           </div>
                           <div class="statline">
                             <span>Rewards</span>
@@ -15110,7 +15110,7 @@
                               <div class="mission-col-label">Requirements</div>
                               <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
                               <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} ly{#if shipRangeLy !== null} &middot; hull reach {formatNumber(Math.round(shipRangeLy))} ly{/if}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull reach {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
                             </div>
                             <div class="mission-detail-section">
                               <div class="mission-col-label">Rewards</div>
@@ -15138,7 +15138,7 @@
                         <div class="statline">
                           {#if missionDef.requiresCaptainLevel !== undefined}<span>Needs <b>Lv {missionDef.requiresCaptainLevel}</b></span>{/if}
                           {#if missionDef.requiresCargoCapacity !== undefined}<span>Cargo <b>{formatNumber(missionDef.requiresCargoCapacity)}</b></span>{/if}
-                          <span>Distance <b>{formatNumber(Math.round(distanceLy))} ly</b></span>
+                          <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
                         </div>
                       </div>
                     </div>
@@ -15250,7 +15250,7 @@
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
-                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} ly</b>{#if patrolReachLy !== null} / reach <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} ly</b>{/if}</span>
+                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / reach <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} LY</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
                            is selected (and a forecast exists), else a dim "pick a captain" prompt.
@@ -17155,9 +17155,9 @@
           <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the hull's
                reach covers the trip distance (the canDispatch gate); flag red when it does not. -->
           <div class="panel-title">RANGE</div>
-          <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} ly</div>
+          <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} LY</div>
           <div class="research-cost" style={shipRangeLy !== null && shipRangeLy < distanceLy ? "color: var(--color-danger)" : ""}>
-            Hull reach: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} ly` : "--"}
+            Hull reach: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} LY` : "--"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
             <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
@@ -17293,9 +17293,9 @@
 
         <div class="research-cost" style="margin-top: 10px">
           {#if patrolReachLy !== null}
-            Distance: {formatNumber(Math.round(patrolDistanceLy))} ly &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} ly</span>
+            Distance: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull reach {formatNumber(Math.round(patrolReachLy))} LY</span>
           {:else}
-            Distance: {formatNumber(Math.round(patrolDistanceLy))} ly (select a captain to check reach)
+            Distance: {formatNumber(Math.round(patrolDistanceLy))} LY (select a captain to check reach)
           {/if}
         </div>
 
