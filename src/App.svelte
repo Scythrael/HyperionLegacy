@@ -13506,21 +13506,25 @@
               <div style="margin-top:14px;">
                 {#each archiveGroups as group (group.category)}
                   <!-- Category subheader (sort-by-category, user 2026-09-18), reusing the warehouse
-                       tier-head idiom so it reads like the other consoles. -->
-                  <div class="warehouse-tier-head" style="margin-top:12px;">
+                       tier-head idiom so it reads like the other consoles. Extra top margin (user
+                       2026-09-18) so the categories are clearly separated. -->
+                  <div class="warehouse-tier-head" style="margin-top:24px;">
                     <span class="warehouse-tier-label">{group.category}</span>
                     <span class="warehouse-tier-line"></span>
                   </div>
                   {#each group.rows as row (row.key)}
-                  <!-- Compact entry row (user 2026-09-18): smaller text + a little breathing room; the
-                       stored rarity/quality (if known) shows WHAT is enshrined. -->
+                  <!-- Two-line entry (user 2026-09-18): the item NAME on line 1; the stored rarity/
+                       quality (what you have) + the score on line 2, so each entry gets its own
+                       breathing room. -->
                   <div class="archive-row">
-                    <span style="flex:1 1 auto; min-width:0;">
+                    <span style="flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px;">
                       <span class="archive-row-name">{row.label}</span>
-                      {#if row.archivedRarity}
-                        <span class="archive-row-tag" style="color:{equipmentRarityColor(row.archivedRarity)};">{row.archivedRarity} · Q{row.archivedQuality}</span>
-                      {/if}
-                      <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'}; margin-left:8px;">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
+                      <span style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;">
+                        {#if row.archivedRarity}
+                          <span class="archive-row-tag" style="margin:0; color:{equipmentRarityColor(row.archivedRarity)};">{row.archivedRarity} · Q{row.archivedQuality}</span>
+                        {/if}
+                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{row.archived > 0 ? 'var(--color-success)' : 'var(--color-text-dim)'};">{formatNumber(row.archived)} / {formatNumber(row.max)}</span>
+                      </span>
                     </span>
                     {#if row.spares.length > 0}
                       <!-- Opens the enshrine PICKER (choose the exact spare + see a no-gain warning
