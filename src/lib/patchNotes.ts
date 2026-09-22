@@ -65,9 +65,8 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 export const PATCH_NOTES: PatchNote[] = [
   {
     version: "0.13.7",
-    // NAME IS A DRAFT (2026-09-22): confirm or change. This patch moves blanks into the
-    // Warehouse and adds the Product Inspection panel.
-    name: "Crafted Blanks",
+    // Name confirmed by the user 2026-09-22.
+    name: "Crafted Blanks Addition",
     lede: "Your unrolled crafts have a proper home now. Blanks moved out of the Fabricator into their own Crafted Blanks tab in the Warehouse, and inspecting them happens right there: one at a time, or a batch as large as your spare bay has room for. Craft a stack, inspect when you are ready, keep the rolls you like. Your save carries over untouched.",
     features: [
       {
