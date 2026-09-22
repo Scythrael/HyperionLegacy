@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 54;
+export const SAVE_VERSION = 55;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2178,6 +2178,25 @@ const MIGRATIONS: Record<number, Migration> = {
         typeof val === "number" ? { score: val } : val,
       ]),
     ),
+  }),
+  // v54 -> v55 (0.14.0 Crew, Phase 0): pure additive backfill of the DORMANT crew data model,
+  // no behavior change (mirrors the v53->v54 pattern above). Backfills the six fleet-wide crew
+  // fields with `??` and gives every existing ship a default (empty, passive) complement. Crew
+  // counts are plain integers, not Decimals, so hydrateDecimals is unchanged. Idempotent: a save
+  // already carrying these keeps them (`??` only fills an absent field), and a ship that already
+  // has a complement keeps its own. Nothing reads any of this yet.
+  54: (state: any): any => ({
+    ...state,
+    officers: state.officers ?? [],
+    nextOfficerId: state.nextOfficerId ?? 1,
+    crewPool: state.crewPool ?? [],
+    notableCrew: state.notableCrew ?? [],
+    nextNotableId: state.nextNotableId ?? 1,
+    lastTransportWindow: state.lastTransportWindow ?? 0,
+    ships: (state.ships ?? []).map((s: any) => ({
+      ...s,
+      complement: s.complement ?? { buckets: [], mode: "passive" },
+    })),
   }),
 };
 

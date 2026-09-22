@@ -1070,6 +1070,13 @@ export interface ShipInstance {
   // formula falls back to the hull's full integrity so the ship can still be repaired.
   // Cleared (back to undefined) together with `damaged` when the repair completes.
   repairDamage?: number;
+  // Crew 0.14.0 (Phase 0, DORMANT): this ship's crew population (signature buckets + the
+  // per-ship passive/active toggle). OPTIONAL + absent-is-default like `damaged`/`repairDamage`:
+  // a pre-0.14.0 save (and any ship created off a path that does not seed it) reads as undefined,
+  // and every reader defaults an absent complement to { buckets: [], mode: "passive" }. freshState
+  // seeds it on the starting hull; the v54->v55 migration backfills the same default onto existing
+  // ships. NOTHING reads or writes it yet (auto-crew + rollup are later phases).
+  complement?: ShipComplement;
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
 
@@ -4506,6 +4513,116 @@ export interface Loadout {
 // until the item is re-enshrined.
 export type ArchiveEntry = { score: number; rarity?: EquipmentRarity; quality?: number };
 
+// --- Crew 0.14.0 (Phase 0: content-free, DORMANT data model) -------------------------------
+// The crew layer's persisted shapes land here first, additive + dormant, so the save shape
+// moves ONCE at the start of the release (the same posture the 0.13.6 item-lifecycle fields
+// used). NOTHING reads or writes any of this yet: the engine seams (rollup overlay, transports,
+// auto-crew, roster refresh), the race/species + bonus CONTENT, and the seeded generator all
+// arrive in later phases. Design source: docs/plans/2026-09-22-crew-0.14.0-plan.md ("Data model").
+//
+// WHY BUCKETS, NOT PEOPLE: a crewmember's mechanically relevant identity is a finite SIGNATURE
+// (profession + rarity + rank + race + bonus); two crew with the same signature contribute
+// identically to every rollup, differing only in name/gender (pure flavor). So a complement of
+// 1,017 crew persists as a few dozen bucket rows keyed by signature, not 1,017 objects. Save
+// weight and tick cost scale with distinct buckets, not headcount.
+
+// The six complement PROFESSIONS (LOCKED with the user 2026-09-22). Each is one rollup-bucket
+// dimension with its own per-type cap. "flightDeck" is the Flight/Deck branch.
+export type CrewProfession =
+  | "security"
+  | "engineering"
+  | "science"
+  | "medical"
+  | "operations"
+  | "flightDeck";
+
+// Crew reuse the existing equipment rarity ladder (derelict..constellar), NOT a parallel ladder,
+// so a single rarity vocabulary threads the whole game.
+export type CrewRarity = EquipmentRarity;
+
+// TEMPORARY: race is a bare string this phase. The finite CREW_RACES list (which ties the
+// inclusive name/race/gender generator and the racial bonus) is Phase 0.5 CONTENT; no
+// species/race list is invented here. A later phase narrows this to that finite union.
+export type CrewRace = string;
+
+// TEMPORARY: a rolled crew bonus is identified by a bare string key this phase. The finite
+// CREW_BONUS_CATALOG it keys into is Phase 0.5 CONTENT; no bonus contents are invented here.
+export type CrewBonusId = string;
+
+// The mechanically distinct crew identity. NO name/gender: those are pure flavor, generated
+// lazily and deterministically only when a manifest view is opened, never persisted.
+export interface CrewSignature {
+  profession: CrewProfession;
+  rarity: CrewRarity;
+  rank: number; // 1..10 leveling rung; a rank-up moves counts between buckets
+  race: CrewRace;
+  bonusId: CrewBonusId;
+}
+
+// A histogram bucket: how many identical-signature crew sit together. The persisted unit of a
+// complement (and of the unassigned pool) is a list of these, not a list of people.
+export type CrewBucket = CrewSignature & { count: number };
+
+// A ship's crew population. `mode` is the per-ship (== per assigned captain) passive/active
+// toggle. `buckets` holds only populated buckets.
+export interface ShipComplement {
+  buckets: CrewBucket[];
+  mode: "passive" | "active";
+}
+
+// A "standout" the player plucked out of a bucket into a bounded, named roster. This is the ONLY
+// place a complement crewmember becomes a full object, and it is bounded by design (graduating
+// one drops its origin bucket's count by one).
+export interface NotableCrewMember {
+  id: string;
+  profession: CrewProfession;
+  rarity: CrewRarity;
+  rank: number;
+  race: CrewRace;
+  bonusId: CrewBonusId;
+  name: string;
+  gender: string;
+  favorite?: boolean;
+}
+
+// --- Senior Staff = few, named, full objects (fine to persist per-person) ---------------------
+// The 7 bridge seats (LOCKED with the user 2026-09-22). "operations" is the Operations Officer
+// (logistics/cargo/unload). There is deliberately no security OFFICER seat (internal security is
+// a complement branch) and no communications seat yet (nothing to buff).
+export type SeniorStaffSeat =
+  | "executive"
+  | "pilot"
+  | "operations"
+  | "science"
+  | "tactical"
+  | "medical"
+  | "engineering";
+
+// The promotion ladder for a Senior Staff officer (rank-up scales bonus magnitude). Ladder
+// display names are a later tuning item; these are the stable keys.
+export type OfficerRank = "ensign" | "lieutenant" | "lieutenantCommander" | "commander";
+
+// One of the two bonuses rolled onto an officer. `id` keys the (Phase 0.5) officer bonus
+// catalog; `magnitude` scales with rank.
+export interface OfficerBonus {
+  id: string;
+  magnitude: number;
+}
+
+// A named bridge officer. Flat on GameState.officers (keyed to a ship by assignedShipId + seat),
+// mirroring the equipment[] / fittedToShipId precedent rather than a per-ship sub-record.
+export interface SeniorStaffOfficer {
+  id: string;
+  seat: SeniorStaffSeat;
+  name: string;
+  race: CrewRace;
+  gender: string;
+  rank: OfficerRank;
+  bonuses: [OfficerBonus, OfficerBonus]; // exactly two rolled bonuses
+  missionsCompleted: number; // + future achievement counters that gate promotion
+  assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
+}
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -4827,6 +4944,20 @@ export interface GameState {
   // (see OpenJobBatch). Never rendered; this is engine bookkeeping that exists purely so
   // ONE entry can be emitted per ORDER rather than one per iteration.
   openJobBatches: OpenJobBatch[];
+  // --- Crew 0.14.0 (Phase 0, DORMANT) --------------------------------------------------------
+  // The crew layer's fleet-wide state, landed dormant so the save shape moves once at the start
+  // of the release. NOTHING reads or writes any of these yet (the Senior Staff engine, transports,
+  // and auto-crew are later phases). freshState seeds the clean-slate defaults below; the
+  // v54->v55 migration (save.ts) backfills the IDENTICAL defaults onto existing saves, so a fresh
+  // save and a migrated save stay indistinguishable in shape. Crew counts are plain integers, not
+  // Decimals, so hydrateDecimals needs no new branch. See CrewSignature above for why crew persist
+  // as signature buckets rather than per-person objects.
+  officers: SeniorStaffOfficer[]; // named bridge officers, keyed to a ship by assignedShipId + seat
+  nextOfficerId: number; // monotonic id source for a new officer id; never reused, mirrors nextShipId
+  crewPool: CrewBucket[]; // the UNASSIGNED complement (the transport influx target)
+  notableCrew: NotableCrewMember[]; // the bounded roster of graduated standouts
+  nextNotableId: number; // monotonic id source for a new NotableCrewMember id; never reused
+  lastTransportWindow: number; // gameTimeSeconds transport-window accumulator (offline catch-up delivers the backlog)
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -8597,7 +8728,7 @@ export function freshState(): GameState {
     // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
     // exactly one hull, the universal General Freighter. nextShipId starts at 2
     // because "ship-1" is already taken by this seeded hull.
-    ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 }],
+    ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, complement: { buckets: [], mode: "passive" } }],
     shipStorageCapacity: 8,
     // 0.13.4 Phase 0: rung LEVEL 0, so a fresh game starts on the BASE berth count that
     // Phase 3 derives (TRANSIT_BERTH_BASE = 2) and has bought nothing. Level, not count:
@@ -8747,5 +8878,16 @@ export function freshState(): GameState {
     completionLog: [],
     nextCompletionLogId: 1,
     openJobBatches: [],
+    // Crew 0.14.0 (Phase 0, DORMANT): clean-slate crew state. No officers, no pooled or notable
+    // crew, and the two id counters at 1 (first minted ids "officer-1"/"notable-1", mirroring
+    // nextShipId's "next allocatable" seeding). lastTransportWindow 0 = no transport window has
+    // elapsed yet. Existing saves reach the IDENTICAL shape via the v54->v55 migration (save.ts),
+    // so a fresh save and a migrated save stay indistinguishable in shape. Nothing reads these yet.
+    officers: [],
+    nextOfficerId: 1,
+    crewPool: [],
+    notableCrew: [],
+    nextNotableId: 1,
+    lastTransportWindow: 0,
   };
 }
