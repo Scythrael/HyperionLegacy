@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.6";
+export const APP_VERSION = "0.13.7";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,44 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.7",
+    // NAME IS A DRAFT (2026-09-22): confirm or change. This patch moves blanks into the
+    // Warehouse and adds the Product Inspection panel.
+    name: "Crafted Blanks",
+    lede: "Your unrolled crafts have a proper home now. Blanks moved out of the Fabricator into their own Crafted Blanks tab in the Warehouse, and inspecting them happens right there: one at a time, or a batch as large as your spare bay has room for. Craft a stack, inspect when you are ready, keep the rolls you like. Your save carries over untouched.",
+    features: [
+      {
+        title: "Blanks Move to the Warehouse",
+        lead: "Blanks now sit alongside the rest of your stock.",
+        isNew: true,
+        bullets: [
+          { lead: "A Crafted Blanks tab.", text: "Every blank you hold lives under Logistics, Crafted Blanks, one tile per blueprint with its count, right next to Ship Equipment and Materials." },
+          { text: "The Fabricator's separate Inspect tab is retired. Crafting still mints blanks; you inspect them in the Warehouse from now on." },
+        ],
+      },
+      {
+        title: "Product Inspection",
+        lead: "Inspect one, or as many as will fit.",
+        isNew: true,
+        bullets: [
+          { lead: "Pick a quantity.", text: "Tap a blank and inspect a single unit, or use Max to inspect as many as your Ship Equipment bay has open slots for." },
+          { lead: "The bay is the limit.", text: "When the bay is full, inspecting pauses until you clear or auto-salvage some spares. Roll a batch, keep the good ones, make room, roll again." },
+        ],
+      },
+    ],
+    categories: [
+      {
+        title: "Fixes and Improvements",
+        tone: "fixes",
+        bullets: [
+          { text: "A finished craft now reports an uninspected blank in Recently Completed, instead of naming it a system." },
+          { text: "Inspecting can never overflow your spare bay, and a blank is never consumed without producing a system, even if the bay fills partway through a batch." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched. There is no save-format change this release; blanks, spares, and everything else stay exactly as they were.",
+  },
   {
     version: "0.13.6",
     // NAME IS A PLACEHOLDER (draft, 2026-09-16): confirm or change. The patch spans the crafting

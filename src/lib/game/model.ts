@@ -3943,6 +3943,8 @@ export function freshSalvageConfirmQualities(): number[] {
 //              a salvage recovery). The amounts are in `items`.
 //   systems    non-stacking EquipmentInstances were minted (equipment / weapon / drone
 //              fabrication). The count is in `pieces`, the blueprint in `subjectKey`.
+//   blanks     a completed fabricate deposited a stackable, uninspected BLANK (subjectKey is
+//              the blueprint key); the roll is deferred to the Crafted Blanks inspect action.
 //   fuel       fuel was deposited in the tank. The amount is in `fuelAmount`.
 //   blueprint  a research project unlocked a blueprint (`subjectKey`).
 //   hull       a ship was built (`subjectKey` is the hull type key).
@@ -3955,6 +3957,7 @@ export function freshSalvageConfirmQualities(): number[] {
 export type CompletionRewardKind =
   | "materials"
   | "systems"
+  | "blanks"
   | "fuel"
   | "blueprint"
   | "hull"
@@ -7080,6 +7083,16 @@ export function spareEquipmentCount(state: GameState): number {
 // spare-crafted pool, or in salvage's case they SHRINK it).
 export function equipmentAtCap(state: GameState): boolean {
   return spareEquipmentCount(state) >= equipmentStorageCap(state);
+}
+
+// freeEquipmentSlots(state): how many MORE spare crafted systems fit before the bay is
+// full, the count of open slots the inspect UI (Crafted Blanks) bounds a mass-roll by and
+// the same gate inspectBlank / inspectBlanks enforce. The difference of the SAME two
+// readers the fabricate gate consults (cap minus current), clamped at 0 so a save that is
+// somehow over cap reports 0 free rather than a negative. equipmentAtCap(state) is exactly
+// `freeEquipmentSlots(state) === 0`.
+export function freeEquipmentSlots(state: GameState): number {
+  return Math.max(0, equipmentStorageCap(state) - spareEquipmentCount(state));
 }
 
 // The Research facility's key in GameState.facilities. R2 adds FACILITIES.research and

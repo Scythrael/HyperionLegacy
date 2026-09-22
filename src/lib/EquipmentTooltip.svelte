@@ -160,6 +160,19 @@
     return iconFor(resolveVarietyKey(piece), piece.slotType);
   }
 
+  // Crafted Blanks 0.13.7: the glyph for an UNROLLED blank, keyed off its BLUEPRINT (a blank
+  // has no rolled instance yet). Resolves the same (variety, slot) pair the minted piece would
+  // carry, so a blank tile and its inspected system share one icon. Weapon / drone blueprints
+  // roll no variety, so they fall back to the "weapon" / "droneBay" slot glyph via iconFor.
+  export function blueprintIcon(blueprintKey: string): string {
+    const bp = BLUEPRINTS[blueprintKey];
+    if (bp === undefined) return "🛰️";
+    if (bp.equipmentOutput) return iconFor(bp.equipmentOutput.varietyKey, bp.equipmentOutput.slotType);
+    if (bp.weaponOutput) return iconFor(null, "weapon");
+    if (bp.droneOutput) return iconFor(null, "droneBay");
+    return "🛰️";
+  }
+
   // The generalized subject: exactly one item, tagged by kind. `equipment` carries a rolled
   // instance; `material` an ITEMS key; `ship` a SHIP_TYPES key; `craft` a blueprint being
   // fabricated plus the crafter's level inputs (mirrors the mint, see previewCraftOutcome).

@@ -30,7 +30,7 @@
   // card, rendered inline below the Ship Systems bay grid when a tile is selected.
   // equipmentRarityColor (its module-context export) is the SINGLE rarity->color
   // source the bay TILES also read, so tile border/dot and the tooltip never drift.
-  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
+  import EquipmentTooltip, { equipmentRarityColor, equipmentIcon, blueprintIcon, type ItemTooltipSubject } from "./lib/EquipmentTooltip.svelte";
   // Radial Skill Web (Task 11b, minimal buildable integration), the pannable
   // fog-of-war talent web that REPLACES the old depth-row talent panels in
   // BOTH the Captain Talents and Homeworld Talents sub-tabs below. It owns its
@@ -111,6 +111,9 @@
     // EquipmentRarity types the rarity->tile-color loop var below.
     equipmentStorageCap,
     spareEquipmentCount,
+    // Crafted Blanks 0.13.7: open spare-bay slots (cap - spare, clamped at 0), the bound the
+    // Product Inspection panel clamps its quantity/Max to and the same gate the engine enforces.
+    freeEquipmentSlots,
     type EquipmentRarity,
     // Facility Framework + Refinery (Phase 1, Task 12 UI), the static data
     // tables the Foundry program reads. FACILITIES drives the Refinery's upgrade
@@ -758,6 +761,8 @@
     type SalvageJobProcess,
     // ITEM LIFECYCLE 0.13.6: the INSPECT action, consumes one blank and mints the rolled instance.
     inspectBlank,
+    // Crafted Blanks 0.13.7: the BULK inspect, rolls up to qty blanks bounded by free spare-bay space.
+    inspectBlanks,
   } from "./lib/game/tick";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
   import {
@@ -1422,7 +1427,7 @@
   // material CATALOG's salvaged-material tiles stay here in Materials, browse-only.
   // Defaults to "materials"; with Ships gone (0.13.2 Unit 2), Materials is now also
   // the FIRST tab, so Logistics opens on the most-used inventory view.
-  let activeLogisticsTab: "shipEquipment" | "crewEquipment" | "materials" = "materials";
+  let activeLogisticsTab: "shipEquipment" | "craftedBlanks" | "crewEquipment" | "materials" = "materials";
 
   // Ships tab inner view (0.13.2 Ships tab, Unit 2; originally 0.12.0 Console CN3b
   // as a Logistics sub-tab, relocated here verbatim). The Ships tab is NOT a nested
@@ -1616,6 +1621,9 @@
   // ConsoleTabs grays it and blocks selection.
   const LOGISTICS_TABS: { key: string; label: string; locked?: boolean }[] = [
     { key: "shipEquipment", label: "Ship Equipment" },
+    // Crafted Blanks 0.13.7: the mass-rolling loop moved out of the Fabricator's Inspect
+    // sub-tab. Sits right after Ship Equipment because inspecting fills that same bay.
+    { key: "craftedBlanks", label: "Crafted Blanks" },
     { key: "crewEquipment", label: "Crew Equipment", locked: true },
     { key: "materials", label: "Materials" },
   ];
@@ -2114,7 +2122,7 @@
   // (the tier-grouped RESEARCHED-blueprint list with per-blueprint order controls), and
   // Upgrades (the fabricator's tier/slot track). Same independent typed-union + let-state
   // discipline as ResearchSubTab above; defaults to Overview, matching the others.
-  type FabricatorSubTab = "overview" | "craft" | "inspect" | "upgrades";
+  type FabricatorSubTab = "overview" | "craft" | "upgrades";
   let activeFabricatorSubTab: FabricatorSubTab = "overview";
 
   // Shipyard (Task S5 UI): the Shipyard's TWO-tab axis, Build (the founded-vs-unfounded
@@ -5832,36 +5840,67 @@
     doSave();
   }
 
-  // ITEM LIFECYCLE 0.13.6: INSPECT one blank of a blueprint. inspectBlank consumes a blank, rolls
-  // the piece and appends it to the spare pool; it is a same-ref no-op when there is no blank, so
-  // bail without a spurious log/save in that case.
-  // Inspect-reveal (0.13.6): show the rolled system after an inspect, unless the player has turned
-  // reveals off to mass-roll. inspectRevealPiece drives the reveal modal; null = closed.
+  // ITEM LIFECYCLE 0.13.6 / Crafted Blanks 0.13.7: INSPECT blanks of a blueprint. inspectBlanks
+  // consumes up to `qty` blanks, rolling each into a spare that lands in the spare bay; it clamps to
+  // what is held AND to free spare-bay space, so it is a same-ref no-op (0 inspected) when a blank
+  // runs out or the bay is full, and we bail without a spurious log/save in that case.
+  // Inspect-reveal (0.13.6): show the rolled system after a SINGLE inspect, unless the player has
+  // turned reveals off. A bulk roll (2+) never opens the modal (that is the mass-roll path, and a
+  // modal per roll would be a storm). inspectRevealPiece drives the reveal modal; null = closed.
   let inspectRevealEnabled = loadInspectReveal();
   let inspectRevealPiece: EquipmentInstance | null = null;
 
-  function doInspectBlank(blueprintKey: string) {
-    // The minted piece takes the id `equip-${nextEquipmentId}` (see inspectBlank), captured BEFORE
-    // the call so the rolled system can be found in the new spare pool to reveal it.
+  function doInspectBlanks(blueprintKey: string, qty: number) {
+    // The FIRST minted piece takes the id `equip-${nextEquipmentId}` (see inspectBlank), captured
+    // BEFORE the call so a single roll can be found in the new spare pool to reveal it.
     const mintedId = state.nextEquipmentId;
-    const next = inspectBlank(state, blueprintKey);
-    if (next === state) return;
+    const { state: next, inspected } = inspectBlanks(state, blueprintKey, qty);
+    if (inspected === 0) return; // bay full / nothing held / nothing requested: no-op, no log
     state = next;
     const label = BLUEPRINTS[blueprintKey]?.label ?? "system";
-    pushLog(`Inspected a ${label}. The rolled system is in your spare bay.`);
+    if (inspected === 1) {
+      pushLog(`Inspected a ${label}. The rolled system is in your spare bay.`);
+    } else {
+      pushLog(`Inspected ${inspected} ${label} blanks. The rolled systems are in your spare bay.`);
+    }
     doSave();
-    if (inspectRevealEnabled) {
+    if (inspected === 1 && inspectRevealEnabled) {
       inspectRevealPiece = next.equipment.find((e) => e.id === `equip-${mintedId}`) ?? null;
     }
   }
 
-  // The blank-bay rows for the Ship Equipment tab: positive counts only, each resolved to its
-  // blueprint label, sorted by name. Derived, so a completing craft (which grows state.blanks) or
-  // an inspect (which shrinks it) re-renders the list automatically.
+  // The blank rows for the Crafted Blanks tab: positive counts only, each resolved to its blueprint
+  // label, sorted by name. Derived, so a completing craft (which grows state.blanks) or an inspect
+  // (which shrinks it) re-renders the list automatically.
   $: blankRows = Object.entries(state.blanks)
     .filter(([, count]) => count.gt(0))
     .map(([key, count]) => ({ key, count, label: BLUEPRINTS[key]?.label ?? key }))
     .sort((a, b) => a.label.localeCompare(b.label));
+
+  // ── Crafted Blanks 0.13.7: the Product Inspection panel state ──────────────
+  // selectedBlankKey = which blank tile is open (null = grid only, no panel). inspectQty = the
+  // stepper's value. The three derived readers below feed the panel: free spare-bay slots (the SAME
+  // engine reader the fabricate gate uses), the held count of the selected blank, and maxN (the roll
+  // ceiling = min(held, free)). A blank inspected to zero, or salvage freeing/filling the bay, all
+  // flow through here so the panel can never offer more than physically fits.
+  let selectedBlankKey: string | null = null;
+  let inspectQty = 1;
+  function selectBlankTile(key: string) {
+    selectedBlankKey = key;
+    inspectQty = 1; // reset the stepper each time a tile opens
+  }
+  $: blankFreeSlots = freeEquipmentSlots(state);
+  $: selectedBlankHeld = selectedBlankKey === null
+    ? 0
+    : Math.floor((state.blanks[selectedBlankKey] ?? new Decimal(0)).toNumber());
+  $: blankMaxN = Math.min(selectedBlankHeld, blankFreeSlots);
+  // The panel renders only while the open blank is still held (selectedBlankHeld > 0), so a blank
+  // inspected to zero drops its (now-gone) tile from the grid AND hides the panel, without a reactive
+  // writing selectedBlankKey (which would be a cycle: selectedBlankHeld reads selectedBlankKey).
+  // Clamp the stepper into [1, max(1, maxN)] whenever the ceiling moves (a roll consumed blanks, the
+  // bay filled, or a different tile opened). Never below 1 so the display always reads a real number;
+  // the Inspect button is disabled when maxN is 0.
+  $: if (selectedBlankKey !== null) inspectQty = Math.min(Math.max(1, inspectQty), Math.max(1, blankMaxN));
 
   // ── ITEM LIFECYCLE 0.13.6: the Armory (loadout bay) ────────────────────────
   // A DRILL-IN console: the roster shows when selectedLoadoutId is null; opening a loadout shows the
@@ -8877,7 +8916,6 @@
         return { tabs: [
           { key: "overview", label: "Overview" },
           { key: "craft", label: "Craft" },
-          { key: "inspect", label: "Inspect" }, // ITEM LIFECYCLE 0.13.6: open blanks into rolled systems
           { key: "upgrades", label: "Upgrades" },
         ], active: activeFabricatorSubTab, onSelect: (key) => (activeFabricatorSubTab = key as FabricatorSubTab) };
       case "research":
@@ -10725,39 +10763,6 @@
               {#if fabricatorBuilt}
                 {@render craftOrderQueuePanel(fabricatorQueue, fabricatorContinuous)}
               {/if}
-            {/if}
-
-            {#if activeFabricatorSubTab === "inspect"}
-              <!-- INSPECT (ITEM LIFECYCLE 0.13.6). Crafting deposits stackable BLANKS (uninspected
-                   crafts); inspecting one rolls it into a real system that lands in the spare bay
-                   (Logistics > Ship Equipment). This is the deliberate "open your team's work" step,
-                   so it lives beside Craft, not buried in a storage tab. blankRows + doInspectBlank
-                   are shared with the game logic (inspectBlank, tick.ts). Bulk opening is a follow-up
-                   (it must respect the spare-bay cap, so it is not a naive "inspect all"). -->
-              <Panel>
-                <!-- 0.13.6 green-text pass: the explainer paragraph tucked into a `?` on the title. -->
-                <div class="panel-title">
-                  INSPECT BLANKS
-                  <HelpTip
-                    label="How blanks work"
-                    text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. The rolled system lands in your spare bay under Logistics > Ship Equipment."
-                  />
-                </div>
-                {#if blankRows.length === 0}
-                  <div class="warehouse-stub">
-                    <div class="warehouse-stub-glyph">🔬</div>
-                    <p>No blanks to inspect. Craft ship systems, weapons or drone pods on the Craft tab and they arrive here as blanks.</p>
-                  </div>
-                {:else}
-                  {#each blankRows as row (row.key)}
-                    <div style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--color-border);">
-                      <span style="flex:1 1 auto; min-width:0; color:var(--color-text-primary);">{row.label}</span>
-                      <span style="font-family:var(--font-mono); color:var(--color-text-secondary);">×{row.count.toString()}</span>
-                      <button class="buy-btn" on:click={() => doInspectBlank(row.key)}>Inspect</button>
-                    </div>
-                  {/each}
-                {/if}
-              </Panel>
             {/if}
 
             {#if activeFabricatorSubTab === "upgrades"}
@@ -13465,7 +13470,7 @@
                   {#if slotDef}
                     <ActionModal title={`Install · ${slotDef.label}`} ariaLabel={`Choose a ${slotDef.label} to install`} onClose={() => (armoryInstallSlotKey = null)}>
                       {#if armoryInstallCandidates.length === 0}
-                        <p class="modal-instruction">No compatible spare systems. Inspect blanks at the Fabricator to roll some.</p>
+                        <p class="modal-instruction">No compatible spare systems. Inspect blanks under Logistics, Crafted Blanks to roll some.</p>
                       {:else}
                         <p class="modal-instruction">Choose a system to install into {slotDef.label}.</p>
                         <div class="modal-captain-list">
@@ -13592,7 +13597,7 @@
       <ConsoleTabs
         tabs={LOGISTICS_TABS}
         active={activeLogisticsTab}
-        onSelect={(key) => (activeLogisticsTab = key as "shipEquipment" | "crewEquipment" | "materials")}
+        onSelect={(key) => (activeLogisticsTab = key as "shipEquipment" | "craftedBlanks" | "crewEquipment" | "materials")}
       />
       <div class="tab-scroll-area">
 
@@ -13758,6 +13763,117 @@
               {/each}
             </div>
           </Panel>
+        {/if}
+
+        {#if activeLogisticsTab === "craftedBlanks"}
+          <!-- CRAFTED BLANKS (0.13.7). The mass-rolling loop, moved here from the Fabricator's old
+               Inspect sub-tab. Crafting deposits stackable BLANKS (identical, unrolled); tapping a
+               blank tile opens the Product Inspection panel, which rolls blanks in a chosen quantity.
+               Because each roll mints a spare into the Ship Equipment bay, inspecting is bounded by
+               FREE bay space (freeEquipmentSlots, the SAME cap the fabricate gate reads), so a
+               mass-roll can never overflow the bay. blankRows + doInspectBlanks + the selection/
+               stepper state are the game-logic seam (inspectBlanks, tick.ts). Tiles reuse the Ship
+               Equipment spare-bay tile idiom; the stepper reuses the Quartermaster .qm-stepper. -->
+          <Panel>
+            <div class="panel-title">
+              CRAFTED BLANKS
+              <HelpTip
+                label="How blanks work"
+                text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. Rolled systems land in your spare bay under Ship Equipment, so inspecting is bounded by free bay space."
+              />
+            </div>
+            {#if blankRows.length === 0}
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph">🔬</div>
+                <p>No blanks to inspect. Craft ship systems, weapons or drone pods at the Fabricator and they arrive here as blanks.</p>
+              </div>
+            {:else}
+              <div class="warehouse-tier">
+                <div class="warehouse-tier-head">
+                  <span class="warehouse-tier-label">Blanks</span>
+                  <span class="warehouse-tier-line"></span>
+                  <span class="warehouse-tier-cap">{blankRows.length} type{blankRows.length === 1 ? "" : "s"}</span>
+                </div>
+                <div class="warehouse-grid">
+                  {#each blankRows as row (row.key)}
+                    <button
+                      type="button"
+                      class="systems-tile"
+                      class:selected={selectedBlankKey === row.key}
+                      style="--sys-rc: var(--color-accent);"
+                      title={`${row.label} · ${row.count.toString()} blank${row.count.eq(1) ? "" : "s"}`}
+                      on:click={() => selectBlankTile(row.key)}
+                    >
+                      <span class="systems-tile-dot"></span>
+                      <span class="systems-tile-ic">{blueprintIcon(row.key)}</span>
+                      <span class="systems-tile-il">×{row.count.toString()}</span>
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+          </Panel>
+
+          <!-- PRODUCT INSPECTION: the inline roll panel, open when a tile is selected. Reads the
+               live blanks-held + free-bay counts and clamps the quantity to maxN = min(held, free);
+               the engine (inspectBlanks) re-enforces the same cap, so the panel is advisory only. -->
+          {#if selectedBlankKey !== null && selectedBlankHeld > 0}
+            {@const label = BLUEPRINTS[selectedBlankKey]?.label ?? selectedBlankKey}
+            <Panel>
+              <div class="panel-title">PRODUCT INSPECTION</div>
+              <div class="research-name">{blueprintIcon(selectedBlankKey)} {label}</div>
+              <div class="research-cost">Blanks held: {selectedBlankHeld}</div>
+              <div class="research-cost">Free spare-bay slots: {blankFreeSlots} / {equipmentStorageCap(state)}</div>
+              {#if blankMaxN < 1}
+                <div class="systems-bay-upgrade-note" style="margin-top: 8px;">
+                  Ship Equipment bay is full. Clear or auto-salvage spares to inspect more.
+                </div>
+                <!-- Buttons kept visible but disabled at cap, so the affordance does not vanish. -->
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                  <button class="buy-btn" disabled>Max</button>
+                  <button class="buy-btn" disabled>Inspect</button>
+                </div>
+              {:else}
+                <!-- Stepper (minus / editable box / plus) + Max + Inspect. flex-wrap lets the row
+                     stack cleanly at mobile width (~375px) with no horizontal overflow. -->
+                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px;">
+                  <div class="qm-stepper">
+                    <button
+                      type="button"
+                      aria-label="Fewer to inspect"
+                      disabled={inspectQty <= 1}
+                      on:click={() => (inspectQty = Math.max(1, inspectQty - 1))}
+                    >&minus;</button>
+                    <input
+                      type="number"
+                      min="1"
+                      max={blankMaxN}
+                      step="1"
+                      aria-label={`Quantity of ${label} to inspect`}
+                      value={inspectQty}
+                      on:input={(e) => {
+                        const v = e.currentTarget.valueAsNumber;
+                        inspectQty = Number.isFinite(v) ? Math.floor(v) : 1;
+                      }}
+                    />
+                    <button
+                      type="button"
+                      aria-label="More to inspect"
+                      disabled={inspectQty >= blankMaxN}
+                      on:click={() => (inspectQty = Math.min(blankMaxN, inspectQty + 1))}
+                    >+</button>
+                  </div>
+                  <button class="buy-btn" on:click={() => (inspectQty = blankMaxN)}>Max ({blankMaxN})</button>
+                  <button
+                    class="buy-btn"
+                    on:click={() => { if (selectedBlankKey !== null) doInspectBlanks(selectedBlankKey, inspectQty); }}
+                  >
+                    Inspect {inspectQty}
+                  </button>
+                </div>
+              {/if}
+            </Panel>
+          {/if}
         {/if}
 
         {#if activeLogisticsTab === "materials"}

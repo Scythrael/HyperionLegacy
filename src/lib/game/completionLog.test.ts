@@ -43,6 +43,9 @@ import {
   TRANSIT_BERTH_BASE,
 } from "./model";
 import { resolveProcesses, economyTick, startLine, cancelLine, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
+// 0.13.7 Crafted Blanks: the dashboard row builder, so the blank-reward wording is asserted
+// through the SAME path the Home board renders rather than by reaching into private helpers.
+import { buildHomeDashboard } from "./homeDashboard";
 // App.svelte as a RAW STRING (Vite's ?raw), for the offline-clock call-site grep in section 7.
 // Same idiom salvage.test.ts uses for its live-only source guards: ?raw keeps this a pure
 // Vite/Vitest concern with no Node type dependency, so `npm run check` stays clean.
@@ -380,6 +383,71 @@ describe("every TimedProcessKind leaves an honest record", () => {
     expect(salvaged.subjectKey).toBe(SALVAGED_MATERIAL);
     expect(salvaged.items.length).toBeGreaterThan(0);
     expect(salvaged.items.every((line) => ITEMS[line.itemId] !== undefined)).toBe(true);
+  });
+
+  // 0.13.7 Crafted Blanks: a completed equipment fabricate no longer mints a usable instance,
+  // it deposits an UNINSPECTED, stackable blank. The completion has its OWN reward kind so the
+  // classification stays honest (a blank is not a finished system) and the Recently-Completed
+  // row tells the player it is a blank rather than implying a ready-to-install piece.
+  it("classifies a fabricated BLANK as reward 'blanks', not 'systems'", () => {
+    const s: GameState = {
+      ...craftState(),
+      activeProcesses: [
+        readyProcess("p-blank", "fabricateJob", { type: "addBlank", blueprintKey: "balancedHoldBp" }),
+      ],
+    };
+    const entry = resolveProcesses(s, 1, seededRng(), T0).next.completionLog[0];
+    expect(entry.kind).toBe("fabricateJob");
+    expect(entry.reward).toBe("blanks");
+    // The blueprint is the subject, so the board still names the craft.
+    expect(entry.subjectKey).toBe("balancedHoldBp");
+    // One blank per completion, and no stackable material lines.
+    expect(entry.pieces).toBe(1);
+    expect(entry.items).toEqual([]);
+  });
+
+  it("reads the fabricated blank's row as the blueprint with an 'Uninspected blank' detail", () => {
+    const s: GameState = {
+      ...craftState(),
+      activeProcesses: [
+        readyProcess("p-blank", "fabricateJob", { type: "addBlank", blueprintKey: "balancedHoldBp" }),
+      ],
+    };
+    const out = resolveProcesses(s, 1, seededRng(), T0).next;
+    const row = buildHomeDashboard(out).recentlyCompleted[0];
+    // Subject = the blueprint label; verb comes from the fabricate KIND (shared with materials).
+    expect(row.primaryLabel).toBe("Fabricated, Balanced Hold Blueprint");
+    // The honesty lives in the detail line, since the primary line cannot say it.
+    expect(row.secondaryLabel).toBe("Uninspected blank");
+  });
+
+  it("keeps a batch's run count while still saying blanks ('N blanks')", () => {
+    // A folded batch entry (iterations > 1): the detail preserves the run count AND still
+    // reads as blanks, rather than falling through to a bare "3 runs" that drops the fact.
+    const base = craftState();
+    const s: GameState = {
+      ...base,
+      completionLog: [
+        {
+          id: "done-1",
+          kind: "fabricateJob",
+          reward: "blanks",
+          atMs: T0,
+          startedAtMs: T0 - 1000,
+          iterations: 3,
+          items: [],
+          pieces: 3,
+          subjectKey: "balancedHoldBp",
+          level: null,
+          fuelAmount: null,
+          creditsAmount: null,
+          stale: false,
+        },
+      ],
+    };
+    const row = buildHomeDashboard(s).recentlyCompleted[0];
+    expect(row.primaryLabel).toBe("Fabricated, Balanced Hold Blueprint");
+    expect(row.secondaryLabel).toBe("3 blanks");
   });
 
   it("records a STALE salvage as an honest 'nothing was consumed' entry", () => {

@@ -119,6 +119,9 @@ import {
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
   // STARTING a new equipment craft when the spare pool is full.
   equipmentAtCap,
+  // Crafted Blanks 0.13.7: open spare-bay slots, the same cap the fabricate gate reads.
+  // inspectBlank / inspectBlanks enforce it so an inspect can never overflow the bay.
+  freeEquipmentSlots,
   // Equipment 0.11.0 Task B2: the equipment-storage upgrade track. The cap-raising
   // action (canUpgradeEquipmentStorage / startEquipmentStorageUpgrade, below) reads
   // the NEXT rung's cost/duration off this to spend + start a timed upgrade process.
@@ -1284,10 +1287,11 @@ function completionYieldFor(
       return { ...empty, reward: mintedPieces > 0 ? "systems" : "nothing", pieces: mintedPieces, subjectKey: effect.blueprintKey };
     case "addBlank":
       // ITEM LIFECYCLE 0.13.6: a completed fabricate deposited a stackable BLANK (uninspected), not
-      // a rolled instance. Reported as a "systems" completion with the blueprint as subject so the
-      // Recently-Completed board still names the craft; the blank-vs-instance distinction in the
-      // log wording is a small follow-up. Always one blank per completion.
-      return { ...empty, reward: "systems", pieces: 1, subjectKey: effect.blueprintKey };
+      // a rolled instance. It has its OWN reward kind so the classification is honest (a blank is
+      // not a finished system) and the Recently-Completed row can say "blank" rather than implying a
+      // usable piece; the blueprint is the subject so the board still names the craft. Always one
+      // blank per completion.
+      return { ...empty, reward: "blanks", pieces: 1, subjectKey: effect.blueprintKey };
     case "facilityLevelUp":
       // Read off the ALREADY-BUMPED accumulator, so this is the level the player now has.
       return { ...empty, reward: "level", subjectKey: effect.facility, level: levels.facilities[effect.facility]?.level ?? 0 };
@@ -10181,6 +10185,10 @@ function inspectRollSeed(seed: number, blueprintKey: string): number {
 export function inspectBlank(state: GameState, blueprintKey: string): GameState {
   const held = state.blanks[blueprintKey] ?? new Decimal(0);
   if (held.lt(1)) return state; // no blank of this type: no-op
+  // Crafted Blanks 0.13.7: inspecting mints a spare crafted system, so it must honor the
+  // SAME spare-bay cap the fabricate gate does (this closes a 0.13.6 gap where inspecting
+  // ignored the cap and could overflow the bay). Bay full: no-op, leave the blank untouched.
+  if (freeEquipmentSlots(state) < 1) return state;
   const bp = BLUEPRINTS[blueprintKey];
   if (bp === undefined) return state; // corrupt key: no-op (leave the blank)
   const rngObj = makeRng(inspectRollSeed(state.inspectSeed, blueprintKey));
@@ -10206,6 +10214,33 @@ export function inspectBlank(state: GameState, blueprintKey: string): GameState 
     blanks,
     inspectSeed: state.inspectSeed + 1, // advance ONLY on a committed inspect
   };
+}
+
+// Crafted Blanks 0.13.7: the BULK inspect player action. Inspects up to `qty` blanks of
+// `blueprintKey` in one call, bounded by both what is held and the free spare-bay space:
+// n = min(qty, blanks held, freeEquipmentSlots). It LOOPS the single-inspect logic above,
+// so seed advancement + minting are byte-identical to inspecting one at a time n times
+// (each iteration re-reads the freshly threaded state, so the seed and free-slot count
+// track exactly). Returns { state, inspected }: the new state (or the SAME reference when
+// n === 0, matching inspectBlank's no-op convention) plus how many were actually inspected.
+export function inspectBlanks(
+  state: GameState,
+  blueprintKey: string,
+  qty: number
+): { state: GameState; inspected: number } {
+  const want = Math.floor(qty);
+  if (want < 1) return { state, inspected: 0 }; // nothing requested: same-ref no-op
+  let current = state;
+  let inspected = 0;
+  while (inspected < want) {
+    const next = inspectBlank(current, blueprintKey);
+    // inspectBlank is a same-ref no-op when a blank runs out or the bay fills, which is
+    // exactly our stop condition, so no separate held / free-slot arithmetic is needed.
+    if (next === current) break;
+    current = next;
+    inspected++;
+  }
+  return { state: current, inspected };
 }
 
 export function resolveProcesses(
