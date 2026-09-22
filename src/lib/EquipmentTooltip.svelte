@@ -258,6 +258,15 @@
   export let subject: ItemTooltipSubject | undefined = undefined;
   export let piece: EquipmentInstance | undefined = undefined;
 
+  // COLLAPSIBLE (Crafted Blanks 0.13.7 bulk-inspect reveal): when true AND the subject is an
+  // equipment instance, the header becomes a toggle that starts CLOSED (name + chip + chevron
+  // only) and expands to the full card on click, so a batch reveal is a scannable stack of
+  // accordions. Default false keeps every existing call site (single reveal, warehouse, install
+  // flow) byte-identical: always open, no chevron, header is a plain div. Non-equipment kinds
+  // ignore it entirely (they carry no such reveal).
+  export let collapsible = false;
+  let open = !collapsible;
+
   $: resolved = subject ?? (piece !== undefined ? ({ kind: "equipment", piece } as const) : null);
 
   function fmtStat(v: number): string {
@@ -466,38 +475,63 @@
       flavor: bp?.flavor ?? null,
     };
   })();
+
+  // The header only becomes an interactive accordion for an equipment card asked to be
+  // collapsible; every other kind (and every non-collapsible call) keeps the plain, always-open
+  // header. `collapsed` gates the body + sub-line so the closed state shows just the r1 header.
+  $: interactive = collapsible && view !== null && view.kind === "equipment";
+  $: collapsed = interactive && !open;
 </script>
 
 {#if view !== null}
   <!-- ONE skeleton: header (icon + name + chip) -> STATS block -> divider -> flavor.
        --et-accent drives the border + name tint from one variable. Opaque bg (no blur)
        so it reads solid on Brave. -->
-  <div class="et" style="--et-accent: {view.accent};">
-    <div class="et-hd">
+  <div class="et" class:open={collapsible && open} style="--et-accent: {view.accent};">
+    <!-- HEADER. Plain <div> for every non-collapsible card (byte-identical to before); a real
+         <button> toggle for a collapsible equipment card, so it has native keyboard + focus and
+         a rotating chevron. svelte:element keeps ONE block for both. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- The interactive case is a native <button> (real keyboard + focus); the non-interactive
+         case is a genuinely static <div> whose click handler is a deliberate no-op, so no ARIA
+         role is warranted. The lint cannot see the element is dynamic. -->
+    <svelte:element
+      this={interactive ? "button" : "div"}
+      class="et-hd"
+      type={interactive ? "button" : undefined}
+      aria-expanded={interactive ? open : undefined}
+      on:click={() => {
+        if (interactive) open = !open;
+      }}
+    >
       <div class="et-r1">
         {#if view.icon}<span class="et-icon">{view.icon}</span>{/if}
         <span class="et-name-text">{view.name}</span>
         <span class="et-q" style="color: {view.chipColor}; border-color: {view.chipColor};">{view.chip}</span>
+        {#if interactive}<span class="et-chev" aria-hidden="true">▶</span>{/if}
       </div>
-      {#if view.kind === "equipment"}
-        <div class="et-r2">
-          <span>iLevel {view.iLevel}</span>
-          <span class="et-sep">·</span>
-          <span>{view.slotLabel}</span>
-        </div>
-      {:else if view.kind === "craft"}
-        <div class="et-r2">
-          {#if view.preview}
-            <span>iLevel {view.preview.iLevel}</span>
+      {#if !collapsed}
+        {#if view.kind === "equipment"}
+          <div class="et-r2">
+            <span>iLevel {view.iLevel}</span>
             <span class="et-sep">·</span>
-          {/if}
-          <span>{view.slotLabel}</span>
-        </div>
-      {:else if view.sub}
-        <div class="et-r2"><span>{view.sub}</span></div>
+            <span>{view.slotLabel}</span>
+          </div>
+        {:else if view.kind === "craft"}
+          <div class="et-r2">
+            {#if view.preview}
+              <span>iLevel {view.preview.iLevel}</span>
+              <span class="et-sep">·</span>
+            {/if}
+            <span>{view.slotLabel}</span>
+          </div>
+        {:else if view.sub}
+          <div class="et-r2"><span>{view.sub}</span></div>
+        {/if}
       {/if}
-    </div>
+    </svelte:element>
 
+    {#if !collapsed}
     <!-- STATS block (above the divider) — varies by kind. -->
     {#if view.kind === "equipment"}
       <!-- WEAPON COMBAT stats (damage range / accuracy / fire rate / range / family). These come
@@ -599,6 +633,7 @@
         <slot />
       </div>
     {/if}
+    {/if}
   </div>
 {/if}
 
@@ -616,6 +651,35 @@
   .et-hd {
     padding: 11px 13px 10px;
     border-bottom: 1px solid var(--color-border);
+  }
+  /* Collapsible variant (bulk-inspect reveal): the header is a real button. Reset its native
+     chrome to match the plain-div header, drop the divider while closed, and restore it on open.
+     Only a <button.et-hd> matches, so every non-collapsible card is untouched. */
+  button.et-hd {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+  }
+  button.et-hd:hover {
+    background: rgba(var(--color-accent-rgb), 0.03);
+  }
+  .et.open button.et-hd {
+    border-bottom: 1px solid var(--color-border);
+  }
+  .et-chev {
+    flex: 0 0 auto;
+    color: var(--color-text-dim);
+    font-size: var(--text-2xs);
+    transition: transform 0.14s;
+  }
+  .et.open .et-chev {
+    transform: rotate(90deg);
   }
   .et-r1 {
     display: flex;

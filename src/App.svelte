@@ -764,6 +764,8 @@
     // Crafted Blanks 0.13.7: the BULK inspect, rolls up to qty blanks bounded by free spare-bay space.
     inspectBlanks,
   } from "./lib/game/tick";
+  // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
+  import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
   import {
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
@@ -5844,17 +5846,19 @@
   // consumes up to `qty` blanks, rolling each into a spare that lands in the spare bay; it clamps to
   // what is held AND to free spare-bay space, so it is a same-ref no-op (0 inspected) when a blank
   // runs out or the bay is full, and we bail without a spurious log/save in that case.
-  // Inspect-reveal (0.13.6): show the rolled system after a SINGLE inspect, unless the player has
-  // turned reveals off. A bulk roll (2+) never opens the modal (that is the mass-roll path, and a
-  // modal per roll would be a storm). inspectRevealPiece drives the reveal modal; null = closed.
+  // Inspect-reveal (0.13.6 / 0.13.7): show the rolled system(s) after an inspect, unless the player
+  // has turned reveals off. A SINGLE inspect opens the one-piece reveal (inspectRevealPiece); a BULK
+  // inspect (2+) opens the batch reveal (inspectRevealBatch), a scrolling stack of the rolled cards
+  // sorted best-first. Both are null when closed; reveals-off leaves both null (silent, as before).
   let inspectRevealEnabled = loadInspectReveal();
   let inspectRevealPiece: EquipmentInstance | null = null;
+  let inspectRevealBatch: EquipmentInstance[] | null = null;
 
   function doInspectBlanks(blueprintKey: string, qty: number) {
     // The FIRST minted piece takes the id `equip-${nextEquipmentId}` (see inspectBlank), captured
     // BEFORE the call so a single roll can be found in the new spare pool to reveal it.
     const mintedId = state.nextEquipmentId;
-    const { state: next, inspected } = inspectBlanks(state, blueprintKey, qty);
+    const { state: next, inspected, pieces } = inspectBlanks(state, blueprintKey, qty);
     if (inspected === 0) return; // bay full / nothing held / nothing requested: no-op, no log
     state = next;
     const label = BLUEPRINTS[blueprintKey]?.label ?? "system";
@@ -5864,8 +5868,13 @@
       pushLog(`Inspected ${inspected} ${label} blanks. The rolled systems are in your spare bay.`);
     }
     doSave();
-    if (inspected === 1 && inspectRevealEnabled) {
-      inspectRevealPiece = next.equipment.find((e) => e.id === `equip-${mintedId}`) ?? null;
+    if (inspectRevealEnabled) {
+      if (inspected === 1) {
+        inspectRevealPiece = next.equipment.find((e) => e.id === `equip-${mintedId}`) ?? null;
+      } else {
+        // Bulk: reveal the whole batch, ranked rarity -> quality -> iLevel (engine hands us roll order).
+        inspectRevealBatch = sortRolledPieces(pieces);
+      }
     }
   }
 
@@ -17678,6 +17687,36 @@
     </ActionModal>
   {/if}
 
+  {#if inspectRevealBatch !== null}
+    <!-- Bulk inspect-reveal (0.13.7, approved mock docs/plans/2026-09-22-inspection-results-log-mock.html):
+         a scrolling stack of the rolled systems, sorted rarity -> quality -> iLevel, each the real item
+         card in its COLLAPSIBLE form (header always shown, click to expand the rest). The list scrolls
+         inside a stable-height popup; the cards keep their natural height and never shrink. Same footer
+         opt-out as the single reveal (turn reveals off / back on in Settings > UI). -->
+    <ActionModal
+      title={`You rolled · ${inspectRevealBatch.length} systems`}
+      ariaLabel="Inspection results"
+      onClose={() => (inspectRevealBatch = null)}
+    >
+      <div class="inspect-reveal-list">
+        {#each inspectRevealBatch as p (p.id)}
+          <EquipmentTooltip piece={p} collapsible />
+        {/each}
+      </div>
+      <svelte:fragment slot="footer">
+        <label class="inspect-reveal-optout">
+          <input
+            type="checkbox"
+            checked={!inspectRevealEnabled}
+            on:change={(e) => { inspectRevealEnabled = !e.currentTarget.checked; saveInspectReveal(inspectRevealEnabled); }}
+          />
+          Don't reveal future rolls
+        </label>
+        <button class="dev-btn" on:click={() => (inspectRevealBatch = null)}>Continue</button>
+      </svelte:fragment>
+    </ActionModal>
+  {/if}
+
   {#if loadoutDeletePending !== null}
     {@const delLo = state.loadouts.find((l) => l.id === loadoutDeletePending)}
     <ActionModal title="Delete loadout" ariaLabel="Delete loadout confirmation" onClose={() => (loadoutDeletePending = null)}>
@@ -18501,6 +18540,11 @@
      the footer (the footer is justify-content:flex-end, so margin-right:auto pushes it away from the
      Continue button). */
   .inspect-reveal-body { display: flex; justify-content: center; }
+  /* Bulk inspect-reveal (0.13.7): the scrolling stack of rolled cards. THIS is the sole scroller
+     (bounded max-height + overflow-y:auto), so the modal shell stays a stable height and only the
+     list moves; the cards keep their natural height (flex-shrink:0) instead of squishing to fit. */
+  .inspect-reveal-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+  .inspect-reveal-list > :global(.et) { flex: 0 0 auto; }
   .inspect-reveal-optout { margin-right: auto; display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--color-text-secondary); cursor: pointer; }
   .tb-pop-wrap { position: static; display: flex; }
   /* ⚠️ THE ONE INFO-TOOLTIP SURFACE (0.13.5 tooltip standardization, user: "info tooltips should
@@ -21065,7 +21109,12 @@
     background: transparent; color: var(--color-text-primary);
     border: none; border-left: 1px solid var(--color-border); border-right: 1px solid var(--color-border);
     font-family: var(--font-mono); font-size: var(--text-sm);
+    /* Hide the native number-spinner so the value stays truly centered (it otherwise reserves
+       space on the right and shifts a two-digit value left of center). */
+    appearance: textfield; -moz-appearance: textfield;
   }
+  .qm-stepper input::-webkit-outer-spin-button,
+  .qm-stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .cq-btn {
     display: inline-flex;
     align-items: center;

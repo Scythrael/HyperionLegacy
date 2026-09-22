@@ -10221,26 +10221,32 @@ export function inspectBlank(state: GameState, blueprintKey: string): GameState 
 // n = min(qty, blanks held, freeEquipmentSlots). It LOOPS the single-inspect logic above,
 // so seed advancement + minting are byte-identical to inspecting one at a time n times
 // (each iteration re-reads the freshly threaded state, so the seed and free-slot count
-// track exactly). Returns { state, inspected }: the new state (or the SAME reference when
-// n === 0, matching inspectBlank's no-op convention) plus how many were actually inspected.
+// track exactly). Returns { state, inspected, pieces }: the new state (or the SAME reference
+// when n === 0, matching inspectBlank's no-op convention), how many were actually inspected, and
+// the newly minted spare pieces in roll order (the bulk inspect-reveal sorts them for display).
 export function inspectBlanks(
   state: GameState,
   blueprintKey: string,
   qty: number
-): { state: GameState; inspected: number } {
+): { state: GameState; inspected: number; pieces: EquipmentInstance[] } {
   const want = Math.floor(qty);
-  if (want < 1) return { state, inspected: 0 }; // nothing requested: same-ref no-op
+  if (want < 1) return { state, inspected: 0, pieces: [] }; // nothing requested: same-ref no-op
   let current = state;
   let inspected = 0;
+  // The newly minted spares in ROLL ORDER (pieces.length === inspected). Additive to the return,
+  // so existing { state, inspected } destructures keep working; it feeds the bulk inspect-reveal.
+  const pieces: EquipmentInstance[] = [];
   while (inspected < want) {
     const next = inspectBlank(current, blueprintKey);
     // inspectBlank is a same-ref no-op when a blank runs out or the bay fills, which is
     // exactly our stop condition, so no separate held / free-slot arithmetic is needed.
     if (next === current) break;
+    // The piece this iteration minted is the one inspectBlank just appended to the pool.
+    pieces.push(next.equipment[next.equipment.length - 1]);
     current = next;
     inspected++;
   }
-  return { state: current, inspected };
+  return { state: current, inspected, pieces };
 }
 
 export function resolveProcesses(

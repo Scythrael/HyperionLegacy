@@ -161,6 +161,35 @@ describe("inspectBlanks (Crafted Blanks 0.13.7 bulk inspect)", () => {
     expect(state.blanks[KEY]).toBeUndefined(); // all held blanks consumed
   });
 
+  it("returns the minted spares in roll order: pieces.length === inspected and they ARE the new spares", () => {
+    const before = withBlanks(4);
+    const startEquip = before.equipment.length;
+    const { state, inspected, pieces } = inspectBlanks(before, KEY, 3);
+    expect(inspected).toBe(3);
+    expect(pieces.length).toBe(3); // one piece per inspect
+    // The returned pieces are exactly the newly appended spares (roll order), by reference.
+    const minted = state.equipment.slice(startEquip);
+    expect(pieces).toEqual(minted);
+    expect(pieces.map((p) => p.id)).toEqual(minted.map((p) => p.id));
+    // Every one is a spare crafted system (not fitted, has a blueprint).
+    for (const p of pieces) {
+      expect(p.fittedToShipId).toBeNull();
+      expect(p.blueprintKey).not.toBeNull();
+    }
+  });
+
+  it("clamps pieces to what actually fit (pieces.length tracks inspected, not qty)", () => {
+    const s = withBayOccupied(EQUIPMENT_STORAGE_CAP_BASE - 2, 10); // exactly 2 free
+    const { inspected, pieces } = inspectBlanks(s, KEY, 10);
+    expect(inspected).toBe(2);
+    expect(pieces.length).toBe(2);
+  });
+
+  it("returns an empty pieces array on a no-op (bay full)", () => {
+    const s = withBayOccupied(EQUIPMENT_STORAGE_CAP_BASE, 5);
+    expect(inspectBlanks(s, KEY, 5).pieces).toEqual([]);
+  });
+
   it("is byte-identical to inspecting one at a time n times (determinism preserved)", () => {
     const bulk = inspectBlanks(withBlanks(4), KEY, 3).state;
     let singles: GameState = withBlanks(4);

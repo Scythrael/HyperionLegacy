@@ -85,6 +85,7 @@ export const PATCH_NOTES: PatchNote[] = [
         bullets: [
           { lead: "Pick a quantity.", text: "Tap a blank and inspect a single unit, or use Max to inspect as many as your Ship Equipment bay has open slots for." },
           { lead: "The bay is the limit.", text: "When the bay is full, inspecting pauses until you clear or auto-salvage some spares. Roll a batch, keep the good ones, make room, roll again." },
+          { lead: "See the whole batch.", text: "Inspecting several at once opens a scrollable results list, sorted best first by rarity then quality, where each entry expands to its full details. A single inspection still shows its one result as before." },
         ],
       },
     ],
