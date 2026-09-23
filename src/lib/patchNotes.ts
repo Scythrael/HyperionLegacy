@@ -67,15 +67,15 @@ export const PATCH_NOTES: PatchNote[] = [
     version: "0.13.7",
     // Name confirmed by the user 2026-09-22.
     name: "Crafted Blanks Addition",
-    lede: "Your unrolled crafts have a proper home now. Blanks moved out of the Fabricator into their own Crafted Blanks tab in the Warehouse, and inspecting them happens right there: one at a time, or a batch as large as your spare bay has room for. Craft a stack, inspect when you are ready, keep the rolls you like. Your save carries over untouched.",
+    lede: "Your unrolled crafts have a proper home now. Blanks moved out of the Fabricator into their own Crafted Blanks tab in Logistics, and inspecting them happens right there: one at a time, or a batch as large as your spare bay has room for. Craft a stack, inspect when you are ready, keep the rolls you like. Your save carries over untouched.",
     features: [
       {
-        title: "Blanks Move to the Warehouse",
+        title: "Blanks Move to Logistics",
         lead: "Blanks now sit alongside the rest of your stock.",
         isNew: true,
         bullets: [
           { lead: "A Crafted Blanks tab.", text: "Every blank you hold lives under Logistics, Crafted Blanks, one tile per blueprint with its count, right next to Ship Equipment and Materials." },
-          { text: "The Fabricator's separate Inspect tab is retired. Crafting still mints blanks; you inspect them in the Warehouse from now on." },
+          { text: "The Fabricator's separate Inspect tab is retired. Crafting still mints blanks; you inspect them in Logistics, Crafted Blanks from now on." },
         ],
       },
       {
