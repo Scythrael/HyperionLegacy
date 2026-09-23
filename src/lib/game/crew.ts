@@ -13,15 +13,21 @@
 // list or bucket in place. That keeps these safe to call from the tick (live and offline share
 // one path) and trivial to unit-test.
 
-import type { CrewBucket, CrewSignature } from "./model";
+import type { CrewBucket, CrewRace, CrewSignature } from "./model";
+import { getCrewBuffById } from "./crewBuffs";
+import { CREW_RACES, CREW_GENDERS } from "./crewRaces";
+import { crewRarityMultiplier } from "./crewRarity";
+import { rankMagnitudeFactor } from "./crewRank";
+import { makeRng } from "./combat/rng";
 
 // A stable, order-independent key for a signature. Two buckets share a key IFF they contribute
-// identically to every rollup (same profession, rarity, rank, race, and rolled bonus). The
+// identically to every rollup (same profession, rarity, rank, race, and BOTH rolled buffs). The
 // separator is a character that cannot appear in any of the enum/string fields we join, so the
 // key round-trips uniquely. `count` is deliberately NOT part of the key (it is the value, not the
-// identity).
+// identity). buff2Id is optional (null at low ranks); the empty string is a safe sentinel for null
+// because a real buff id is never empty, so a null-buff2 bucket never collides with a real-buff2 one.
 export function signatureKey(sig: CrewSignature): string {
-  return [sig.profession, sig.rarity, String(sig.rank), sig.race, sig.bonusId].join("|");
+  return [sig.profession, sig.rarity, String(sig.rank), sig.race, sig.buff1Id, sig.buff2Id ?? ""].join("|");
 }
 
 // Returns true when two signatures are the same bucket identity.
@@ -37,7 +43,8 @@ function signatureOf(sig: CrewSignature): CrewSignature {
     rarity: sig.rarity,
     rank: sig.rank,
     race: sig.race,
-    bonusId: sig.bonusId,
+    buff1Id: sig.buff1Id,
+    buff2Id: sig.buff2Id,
   };
 }
 
@@ -150,4 +157,58 @@ export function rollupBuckets(
     }
   }
   return out;
+}
+
+// ============================================================================
+// Phase 0.5 CONTENT: the real per-signature contribution + the inclusive name generator.
+// These wire the Phase 0.5 catalog modules (crewBuffs / crewRaces / crewRarity / crewRank) into the
+// content-agnostic primitives above. Still fully PURE and DORMANT: nothing here is wired into
+// shipDerivedStats, the tick, or the UI. A later phase applies the rollup output as a ship-stat
+// overlay (plan "Engine seams", seam 1).
+// ============================================================================
+
+// The real per-signature contribution: the { statKey: number } map ONE crewmember of this signature
+// adds to a ship. It sums the crewmember's buff1 + (if present) buff2 effects, PLUS its racial
+// per-head (complement) magnitude, each scaled MULTIPLICATIVELY by the rarity multiplier and a
+// modest rank factor. Multiplicative, never additive: a 0.20 base buff at stellar (x1.35) rolls to
+// ~0.27, not 5.20. `rollupBuckets(buckets, contributionForSignature)` multiplies this by each
+// bucket's `count` to produce the ship-level modifier map. Pure: reads only static catalogs.
+export function contributionForSignature(sig: CrewSignature): Record<string, number> {
+  const scale = crewRarityMultiplier(sig.rarity) * rankMagnitudeFactor(sig.rank);
+  const out: Record<string, number> = {};
+
+  const applyBuff = (buffId: string | null): void => {
+    if (buffId === null) return;
+    const def = getCrewBuffById(buffId);
+    if (!def) return; // unknown id contributes nothing (defensive; content is closed today)
+    out[def.statKey] = (out[def.statKey] ?? 0) + def.magnitude * scale;
+  };
+  applyBuff(sig.buff1Id);
+  applyBuff(sig.buff2Id);
+
+  // Racial per-head (complement) magnitude, scaled the same way.
+  const raceDef = CREW_RACES[sig.race];
+  if (raceDef) {
+    const rb = raceDef.racialBonus;
+    out[rb.statKey] = (out[rb.statKey] ?? 0) + rb.complement * scale;
+  }
+
+  return out;
+}
+
+// A generated, purely cosmetic crew identity (name + gender). Deterministic in (race, seed, index):
+// the same three inputs always yield the same identity, so a manifest view is stable across renders
+// without persisting anything. Uses the shared Mulberry32 PRNG seeded from a mix of `seed` and
+// `index` so distinct rows in the same manifest decorrelate. Pulls names from the race's own pools
+// (humans share one diverse pool; species use coined pools) and gender from the global set. NEVER
+// persisted; flavor only.
+export function generateCrewIdentity(race: CrewRace, seed: number, index: number): { name: string; gender: string } {
+  const raceDef = CREW_RACES[race];
+  // Mix seed + index into one uint32 so row `index` gives an independent draw off the same `seed`.
+  const mixed = (Math.imul((seed >>> 0) ^ 0x9e3779b9, 0x85ebca6b) ^ ((index + 1) >>> 0)) >>> 0;
+  const rng = makeRng(mixed);
+  const given = raceDef.names.given[rng.nextInt(raceDef.names.given.length)];
+  const family = raceDef.names.family[rng.nextInt(raceDef.names.family.length)];
+  const gender = CREW_GENDERS[rng.nextInt(CREW_GENDERS.length)];
+  return { name: `${given} ${family}`, gender };
 }

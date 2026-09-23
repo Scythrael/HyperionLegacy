@@ -4543,23 +4543,44 @@ export type CrewProfession =
 // so a single rarity vocabulary threads the whole game.
 export type CrewRarity = EquipmentRarity;
 
-// TEMPORARY: race is a bare string this phase. The finite CREW_RACES list (which ties the
-// inclusive name/race/gender generator and the racial bonus) is Phase 0.5 CONTENT; no
-// species/race list is invented here. A later phase narrows this to that finite union.
-export type CrewRace = string;
+// The crew race roster (LOCKED with the user 2026-09-22): 6 human origins + 4 allied species.
+// Each origin AND species is its own signature dimension. The finite CREW_RACES table (crewRaces.ts)
+// keys off this union for the racial bonus and the inclusive name/gender generator; the four species
+// are NEW canon (prior lore had aliens only as antagonists). Gender is cosmetic (see CREW_GENDERS),
+// not on the signature.
+export type CrewRace =
+  | "earthBorn"
+  | "martian"
+  | "belter"
+  | "outerColony"
+  | "stationBorn"
+  | "spacer"
+  | "vael"
+  | "ossir"
+  | "stheni"
+  | "draell";
 
-// TEMPORARY: a rolled crew bonus is identified by a bare string key this phase. The finite
-// CREW_BONUS_CATALOG it keys into is Phase 0.5 CONTENT; no bonus contents are invented here.
-export type CrewBonusId = string;
+// The 8-tier complement rank ladder (LOCKED). 1-4 = enlisted Crewman/Petty Officer/Chief/Master
+// Chief; 5-8 = officer track Cadet/Ensign/Lieutenant/Lieutenant Commander. Rank gates BUFF COUNT
+// (crewRank.ts buffCountForRank) and command tier, and scales magnitude modestly; it is locked at
+// generation (complement crew never level individually). Commander is Senior-Staff-only (OfficerRank).
+export type CrewRank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+// A rolled crew buff, identified by a stable string key into the Phase 0.5 buff pools
+// (CREW_PROFESSION_BUFFS + SECOND_LEVEL_EXCLUSIVE in crewBuffs.ts). buff1 is always present; buff2
+// only at higher ranks.
+export type CrewBuffId = string;
 
 // The mechanically distinct crew identity. NO name/gender: those are pure flavor, generated
-// lazily and deterministically only when a manifest view is opened, never persisted.
+// lazily and deterministically only when a manifest view is opened, never persisted. The GENERATOR
+// caps rarity at "stellar" (crewRarity.ts CREW_RARITY_CAP); the type keeps the full ladder.
 export interface CrewSignature {
   profession: CrewProfession;
   rarity: CrewRarity;
-  rank: number; // 1..10 leveling rung; a rank-up moves counts between buckets
+  rank: CrewRank;
   race: CrewRace;
-  bonusId: CrewBonusId;
+  buff1Id: CrewBuffId; // the primary rolled buff (always present)
+  buff2Id: CrewBuffId | null; // a 2nd buff at higher ranks only (profession pool OR the exclusive pool); null otherwise
 }
 
 // A histogram bucket: how many identical-signature crew sit together. The persisted unit of a
@@ -4580,9 +4601,10 @@ export interface NotableCrewMember {
   id: string;
   profession: CrewProfession;
   rarity: CrewRarity;
-  rank: number;
+  rank: CrewRank;
   race: CrewRace;
-  bonusId: CrewBonusId;
+  buff1Id: CrewBuffId; // mirrors the CrewSignature buff shape (see above)
+  buff2Id: CrewBuffId | null;
   name: string;
   gender: string;
   favorite?: boolean;
