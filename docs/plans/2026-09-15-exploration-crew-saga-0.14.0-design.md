@@ -464,6 +464,95 @@ SUGGESTIONS ("FINISH THE SPEC UTILITY (SUS) SLOT ITEM ROSTER + START MODULES"); 
 
 ---
 
+## Part I — Exploration expeditions + mission taxonomy (user brainstorm, 2026-09-23) [DESIGN CAPTURE]
+
+⚠️ Large capture of a live brainstorm; mechanics are PROPOSED unless marked LOCKED. The scope-delineation
+(what is 0.14.0-core vs later content trickle) is an OPEN the user is steering, see I.7.
+
+### I.0 Mission taxonomy expansion (each pillar gets a 2nd type; + trading; + endless mode)
+- Principle: differentiate gameplay so each pillar has DEPTH, not shallow clones. Each pillar -> ~2 types:
+  - COMBAT: (1) patrols + (2) large-scale FLEET OPERATIONS (the entire fleet).
+  - PROSPECTING: (1) gathering + (2) a 2nd type (TBD; maybe the supply-run/trading loop).
+  - EXPLORATION: (1) short local PLANETARY SURVEYS + transport/supply missions + (2) long-distance
+    EXPEDITIONS (possibly a 3rd).
+  - TRADING (NEW pillar): buy low / sell high; mechanics TBD.
+- ENDLESS MODE (considered): scales harder + grants bonuses; content for the whole game and long after.
+- BALANCING SYSTEM (meta-need): a repeatable way to balance generated content. The post-0.14.0 BALANCE PATCH
+  drops a TON of content ("will put 0.14.0 to shame"); trickle ~50% of content out over time; DT approaches 1.0.
+
+### I.1 Short/local exploration: planetary surveys + transport/supply missions [idle, like regular missions]
+- Work like regular missions (transit + do + return; transit times are a balance item).
+- Surveys of KNOWN star systems + local phenomena (mid-range: not next door, not across the galaxy).
+- Transport/supply quests, a COST-IN / REWARD-OUT economy: a SUPPLY RUN fills the cargo hold with supplies
+  (bought, or crafted from prospected items), deliver, and the return reward accounts for the cost + margin.
+  Examples: bring refugees to a planet (ties refugees->facility crews), transport prisoners to a penal
+  colony, supply drop-offs. Ties the prospecting -> crafting -> supply loop.
+
+### I.2 Long-distance EXPEDITIONS [the big, unique, SEMI-IDLE mode]
+1. TRANSIT: long (~6 HRS IRL to the first real target with a decent ship; an INAUGURAL shakedown run is
+   shorter to prove the drives). Mid-transit: a CHANCE to stop + CHART AN ANOMALY -> adds time, gives a bonus.
+2. SCANNING PHASE on arrival: % scanned per X seconds via SCANNING ARRAYS (sensor-item variants): WIDE-beam
+   (slower, wider, better odds of certain landmark types), FOCUSED-beam (faster, smaller % per pass, higher
+   odds of UNDERGROUND special PoIs), BALANCED (a mix).
+3. Scanning discovers LANDMARKS / POINTS OF INTEREST: ruins, crashed ships, rare minerals/plants, underground
+   caves, etc. (special landmarks possible).
+4. 100% scanned -> a LIST of ACTIVITIES, based on planet type + discoveries.
+5. MULTI-BODY SYSTEMS: 1-3 planets + satellites + other bodies; scan EACH area of EACH body. Bigger = longer;
+   more hazardous = harder. Different planet TYPES -> different discoveries/activities.
+6. ACTIVITIES = ground teams LAND + do a task. Most end the same way; rewards RANDOM. Certain finds need
+   certain planet types + a certain exploration BUILD for higher odds (e.g., underground civilization -> RELICS).
+7. GROUND TEAMS = 2 roles: SCIENCE (find relics) + SECURITY (protect; fight random battles). Battles
+   AUTO-resolve via gambits (Security fights, Science takes cover); WIN -> continue; LOSE -> evacuate + restart
+   the task. You always win SOMETHING; the goal is a RELIC.
+8. Task completion -> enemy drops + random-event drops + a "treasure chest" / EXPEDITIONARY FINDINGS with a
+   CHANCE of a RELIC (rarities).
+9. GROUND-TEAM CAPACITY: one task at a time per ship; higher-tier ships carry multiple ground teams ->
+   multiple simultaneous tasks.
+10. All tasks done + 100% scan of the WHOLE SYSTEM -> fly home. Back home -> everything found becomes usable.
+
+### I.3 Relics -> research -> Museum (a new Archive tab)
+- RELICS are UNIDENTIFIED when found (like crafting BLANKS): the RESEARCH facility STUDIES a relic to reveal
+  it, then you give it to the MUSEUM (a new Archive tab for rare/priceless artifacts).
+- Giving a relic grants its BONUS; a relic SET grants a set bonus; a relic's bonus GROWS as you give more
+  (per the already-logged relic system in SUGGESTIONS). Builds on the existing Archive.
+
+### I.4 Ground crews live here
+- The deferred "Ground Crews" 3rd crew piece (Boarding/Science/Security teams, per-team Armor/Weapon/Tool
+  gear, the gambit system) IS the expedition ground-team system. Science + Security are the two roles; gambit
+  auto-resolve is the battle model.
+
+### I.5 The SEMI-IDLE model [LEAD STEER, user asked for help 2026-09-23]
+- It is idle-compatible BECAUSE battles AUTO-resolve via gambits (not a live manual session). This RESOLVES
+  the Part D architectural flag ("away-team combat does not fit the offline model"): gambit-auto resolution is
+  offline-tickable + deterministic.
+- Split: ACTIVE depth = SETUP + CHOICE points (array choice, ground-team build + gambit rules, which
+  activities to run, whether to chart an anomaly). IDLE execution = transit, scanning, auto-battles, task
+  completion, all tick-resolved + offline-safe, checked in on when the player returns.
+- So 0.14.0 expeditions = SEMI-IDLE. The fully-ACTIVE dungeon-crawler play (the 2.0 three-pronged reveal's
+  exploration active mode, a Wizardry homage) is a LATER 2.0 OVERLAY on the SAME content, optional. Keeps the
+  idle/offline contract for 0.14.0 while preserving the active-play north-star for 2.0.
+
+### I.6 Sensors [LOCKED 2026-09-23]
+- Pairing: REACH = how far you can GO; SENSORS = how far/well you can SEE + ACT (two axes that pair).
+- ALL roles core (user "all of the above"): survey power (%/sec scan), foreknowledge (reveal a destination's
+  rewards/hazards/encounter-odds before committing), rare/anomaly detection (relics + Leviathan bosses flagged
+  early), frontier gating (a sensor threshold to attempt deeper regions), + a day-one cloak/threat-detection
+  hook in combat patrols (Science-officer synergy).
+- Sensors = a CRAFTABLE/ROLLABLE item on the reserved `sensor` slot (quality/rarity/iLevel), scaling with
+  rarity/quality. Explorer hulls carry high base sensors; Science officers + the Science crew division amplify
+  sensors. The scanning ARRAYS (I.2) are sensor-item variants.
+
+### I.7 ⚠️ SCOPE (open, user steering)
+This exploration vision is ENORMOUS, beyond even the crew half. The user frames content as trickling (~50%
+out over time; the balance patch bigger than 0.14.0; near-1.0 at DT). PROPOSED delineation to CONFIRM: 0.14.0
+= crew + the CORE exploration SYSTEMS (fuel-to-reach + explorer hull + sensors + short surveys/transport
+missions + the expedition loop + ground teams + relics/research/museum). ADJACENT pillars/content trickle
+across 0.14.x + the balance patch + beyond: FLEET OPERATIONS (combat 2nd type), the prospecting 2nd type, the
+TRADING pillar, ENDLESS MODE, and the flood of extra planet types/relics/mission content. OPEN: where the
+0.14.0 cut line sits (user to set).
+
+---
+
 ## Open decisions to resolve before build (index)
 
 - A.5 Reconcile multi-fuel-types with fuel-to-reach (consumables vs drive tiers).
