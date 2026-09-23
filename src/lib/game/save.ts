@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 55;
+export const SAVE_VERSION = 56;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2197,6 +2197,16 @@ const MIGRATIONS: Record<number, Migration> = {
       ...s,
       complement: s.complement ?? { buckets: [], mode: "passive" },
     })),
+  }),
+  // v55 -> v56 (0.14.0 Crew, Phase 1): pure additive backfill of the two DORMANT Senior Staff
+  // roster fields, no behavior change (mirrors the v54->v55 pattern above). Backfills the per-save
+  // roster seed and the base roster size with the SAME defaults freshState uses, so a fresh save and
+  // a migrated save stay indistinguishable in shape. Both are plain integers, not Decimals, so
+  // hydrateDecimals is unchanged. Idempotent: `??` only fills an absent field. Nothing reads either yet.
+  55: (state: any): any => ({
+    ...state,
+    seniorStaffSeed: state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED,
+    seniorStaffRosterSize: state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE,
   }),
 };
 

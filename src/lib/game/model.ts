@@ -4623,9 +4623,12 @@ export type SeniorStaffSeat =
   | "medical"
   | "engineering";
 
-// The promotion ladder for a Senior Staff officer (rank-up scales bonus magnitude). Ladder
-// display names are a later tuning item; these are the stable keys.
-export type OfficerRank = "ensign" | "lieutenant" | "lieutenantCommander" | "commander";
+// The promotion ladder for a Senior Staff officer (rank-up scales bonus magnitude), FIVE tiers
+// starting at CADET (Phase 1 refinement, user 2026-09-23; Phase 0 had four starting at ensign).
+// A freshly rolled officer starts at "cadet"; promotions climb toward "commander" (the top,
+// Senior-Staff-only rank that crowns the shared crew/officer continuum). Ladder display names
+// come from seniorStaff.ts (officerRankLabel); these are the stable keys.
+export type OfficerRank = "cadet" | "ensign" | "lieutenant" | "lieutenantCommander" | "commander";
 
 // One of the two bonuses rolled onto an officer. `id` keys the (Phase 0.5) officer bonus
 // catalog; `magnitude` scales with rank.
@@ -4647,6 +4650,19 @@ export interface SeniorStaffOfficer {
   missionsCompleted: number; // + future achievement counters that gate promotion
   assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
 }
+
+// The base size of the Senior Staff candidate roster (Phase 1; user 2026-09-23, "base 10,
+// EXPANDABLE via an upgrade"). freshState seeds seniorStaffRosterSize to this; a later upgrade
+// raises the stored value. FIRST-PASS + TUNABLE.
+export const SENIOR_STAFF_ROSTER_BASE = 10;
+
+// The default per-save roster seed a fresh save starts from, and the value the v55->v56 migration
+// backfills onto existing saves (so a fresh save and a migrated save land on the IDENTICAL shape,
+// the established crew-migration convention). A fixed nonzero constant keeps freshState fully
+// deterministic (the whole suite relies on that); it is a good PRNG mixing start (the golden-ratio
+// fractional-bits constant the combat RNG also uses). Per-save reseeding is a later option and is
+// not observable while the engine is dormant. TUNABLE.
+export const SENIOR_STAFF_DEFAULT_SEED = 0x9e3779b9;
 
 export interface GameState {
   captains: CaptainState[];
@@ -4983,6 +4999,13 @@ export interface GameState {
   notableCrew: NotableCrewMember[]; // the bounded roster of graduated standouts
   nextNotableId: number; // monotonic id source for a new NotableCrewMember id; never reused
   lastTransportWindow: number; // gameTimeSeconds transport-window accumulator (offline catch-up delivers the backlog)
+  // Senior Staff candidate roster (Phase 1). The roster is regenerated DETERMINISTICALLY from a
+  // gameTimeSeconds window index + this per-save seed (seniorStaff.ts seniorStaffCandidates), never
+  // Date.now(), so it is identical live vs offline and needs no catch-up loop. The seed is stable
+  // for the life of a save. `seniorStaffRosterSize` is the current roster size (base 10), read as a
+  // value so a later upgrade can expand it. Nothing reads either field yet (dormant).
+  seniorStaffSeed: number; // stable per-save PRNG seed for the deterministic candidate roster
+  seniorStaffRosterSize: number; // how many candidates the roster shows (base SENIOR_STAFF_ROSTER_BASE, upgradeable later)
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -8924,5 +8947,10 @@ export function freshState(): GameState {
     notableCrew: [],
     nextNotableId: 1,
     lastTransportWindow: 0,
+    // Senior Staff roster (Phase 1, DORMANT): a fixed default seed (deterministic freshState) and
+    // the base roster size. The v55->v56 migration backfills these IDENTICAL defaults onto existing
+    // saves. Nothing reads either yet.
+    seniorStaffSeed: SENIOR_STAFF_DEFAULT_SEED,
+    seniorStaffRosterSize: SENIOR_STAFF_ROSTER_BASE,
   };
 }
