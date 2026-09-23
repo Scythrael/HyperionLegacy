@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>0.13.7 QA — Crafted Blanks</title>
+<style>
+  :root {
+    --bg: #070b12;
+    --bg-2: #0d1420;
+    --panel: #111a29;
+    --panel-2: #0b1220;
+    --line: #1f2c40;
+    --line-2: #2a3a54;
+    --text: #dce6f3;
+    --dim: #8497af;
+    --faint: #5d6d86;
+    --accent: #38e0ff;
+    --accent-2: #7cf6c9;
+    --claude: #b98bff;
+    --you: #38e0ff;
+    --warn: #ffcc66;
+    --save: #ff9a6b;
+    --device: #7fb2ff;
+    --good: #6ff2b0;
+    --danger: #ff7a7a;
+    --shadow: 0 0 0 1px var(--line), 0 18px 40px -24px #000;
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 78% -10%, rgba(56,224,255,0.10), transparent 60%),
+      radial-gradient(900px 500px at 8% 8%, rgba(185,139,255,0.08), transparent 55%),
+      var(--bg);
+    color: var(--text);
+    font: 14px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: env(safe-area-inset-top, 0) 0 calc(env(safe-area-inset-bottom, 0) + 48px);
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 18px 0; }
+  a { color: var(--accent); }
+
+  /* ---- Header / progress ---- */
+  .eyebrow {
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent);
+    opacity: 0.85; margin: 0 0 6px;
+  }
+  h1 {
+    font-size: clamp(22px, 4.4vw, 34px); line-height: 1.1; margin: 0 0 4px; text-wrap: balance;
+    font-weight: 750; letter-spacing: 0.3px;
+  }
+  h1 .v { color: var(--accent); }
+  .sub { color: var(--dim); margin: 0 0 20px; font-size: 13px; }
+
+  .progress-card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: var(--shadow);
+    margin-bottom: 20px;
+  }
+  .progress-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .pct { font-size: clamp(30px, 8vw, 52px); font-weight: 800; line-height: 1; letter-spacing: -1px;
+    color: var(--accent); text-shadow: 0 0 24px rgba(56,224,255,0.45); font-variant-numeric: tabular-nums; }
+  .pct small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; letter-spacing: 0; }
+  .rowcount { color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .rowcount b { color: var(--accent-2); }
+  .bar {
+    margin-top: 16px; height: 16px; border-radius: 999px; background: #0a1220;
+    border: 1px solid var(--line-2); overflow: hidden; position: relative;
+  }
+  .bar > i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, #2bd0ff, #7cf6c9);
+    box-shadow: 0 0 18px rgba(56,224,255,0.6);
+    border-radius: 999px; transition: width .35s cubic-bezier(.2,.8,.2,1);
+  }
+  .substats { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; font-size: 12.5px; color: var(--dim); }
+  .substats .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; vertical-align: middle; }
+  .substats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .d-claude { background: var(--claude); box-shadow: 0 0 10px var(--claude); }
+  .d-you { background: var(--you); box-shadow: 0 0 10px var(--you); }
+
+  /* ---- Legend ---- */
+  .legend {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 26px; font-size: 12.5px; color: var(--dim);
+  }
+  .legend p { margin: 0 0 8px; }
+  .legend p:last-child { margin-bottom: 0; }
+  .legend b { color: var(--text); }
+  .chip {
+    display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 650;
+    letter-spacing: 0.3px; vertical-align: middle;
+  }
+  .chip.save { color: var(--save); background: rgba(255,154,107,0.12); border: 1px solid rgba(255,154,107,0.4); }
+  .chip.device { color: var(--device); background: rgba(127,178,255,0.12); border: 1px solid rgba(127,178,255,0.4); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 22px; }
+  .btn {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line-2);
+    border-radius: 8px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .toolbar .note { color: var(--faint); font-size: 12px; }
+
+  /* ---- Sections ---- */
+  section { margin-bottom: 26px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 12px; margin: 0 0 6px;
+  }
+  .sec-num {
+    font-variant-numeric: tabular-nums; font-weight: 800; color: var(--accent);
+    font-size: 13px; letter-spacing: 1px; background: rgba(56,224,255,0.08);
+    border: 1px solid rgba(56,224,255,0.3); border-radius: 7px; padding: 3px 9px; min-width: 34px; text-align: center;
+  }
+  .sec-title { font-size: 16px; font-weight: 700; letter-spacing: 0.2px; }
+  .sec-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line-2), transparent); }
+  .sec-done { font-size: 11.5px; color: var(--faint); font-variant-numeric: tabular-nums; }
+  .sec-note {
+    color: var(--dim); font-size: 12.5px; font-style: italic; margin: 0 0 10px;
+    border-left: 2px solid var(--line-2); padding: 2px 0 2px 12px;
+  }
+
+  .items { display: flex; flex-direction: column; gap: 2px; }
+  .col-head {
+    display: grid; grid-template-columns: 52px 52px 1fr; gap: 10px; align-items: center;
+    padding: 4px 12px; font-size: 10.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--faint);
+  }
+  .col-head .ch { text-align: center; }
+  .col-head .ch.claude { color: var(--claude); }
+  .col-head .ch.you { color: var(--you); }
+
+  .item {
+    display: grid; grid-template-columns: 52px 52px 1fr; gap: 10px; align-items: start;
+    padding: 10px 12px; border-radius: 10px; border: 1px solid transparent;
+  }
+  .item:nth-child(odd) { background: rgba(255,255,255,0.014); }
+  .item.done { background: rgba(124,246,201,0.05); border-color: rgba(124,246,201,0.18); }
+  .cell { display: flex; justify-content: center; padding-top: 1px; }
+
+  /* checkbox styling */
+  .cb { position: relative; width: 22px; height: 22px; }
+  .cb input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .cb .box {
+    width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--line-2);
+    display: grid; place-items: center; transition: .12s; background: #0a1220;
+  }
+  .cb .box svg { width: 13px; height: 13px; opacity: 0; transform: scale(.5); transition: .12s; }
+  .cb input:checked + .box svg { opacity: 1; transform: scale(1); }
+  .cb.claude input:checked + .box { background: rgba(185,139,255,0.18); border-color: var(--claude); }
+  .cb.claude .box svg { color: var(--claude); }
+  .cb.you input:checked + .box { background: rgba(56,224,255,0.18); border-color: var(--you); }
+  .cb.you .box svg { color: var(--you); }
+  .cb.you input:not(:disabled):hover + .box { border-color: var(--you); }
+  .cb input:disabled { cursor: default; }
+  .cb.claude.empty .box { border-style: dashed; opacity: 0.5; }
+
+  .body .t { color: var(--text); }
+  .body .t .k { color: var(--accent-2); font-weight: 600; }
+  .meta { margin-top: 5px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .how { color: var(--dim); font-size: 12px; font-style: italic; margin-top: 4px; }
+  .how::before { content: "🤖 how: "; font-style: normal; color: var(--claude); opacity: 0.8; }
+
+  /* ---- Findings ---- */
+  .findings {
+    background: linear-gradient(180deg, rgba(124,246,201,0.06), transparent);
+    border: 1px solid rgba(124,246,201,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 12px;
+  }
+  .findings h2 { margin: 0 0 6px; font-size: 15px; color: var(--good); letter-spacing: 0.3px; }
+  .findings ol { margin: 8px 0 0; padding-left: 20px; }
+  .findings li { margin-bottom: 10px; color: var(--dim); }
+  .findings li b { color: var(--text); }
+
+  .foot { margin-top: 26px; color: var(--faint); font-size: 11.5px; text-align: center; }
+
+  @media (max-width: 520px) {
+    .col-head, .item { grid-template-columns: 44px 44px 1fr; gap: 7px; }
+    .wrap { padding-left: 14px; padding-right: 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Hyperion Legacy · QA · delta</p>
+  <h1><span class="v">0.13.7</span> — Crafted Blanks</h1>
+  <p class="sub">Delta checklist for the blanks relocation + Product Inspection. Two columns per check: what Claude verified live, and your own pass.</p>
+
+  <div class="progress-card" id="progressCard">
+    <div class="progress-top">
+      <div class="pct" id="pct">0%<small id="pctlabel">ready</small></div>
+      <div class="rowcount"><b id="doneCount">0</b> / <span id="totalCount">0</span> checks complete</div>
+    </div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="substats">
+      <span><span class="dot d-claude"></span>Claude tested <b id="claudeCount">0</b></span>
+      <span><span class="dot d-you"></span>You verified <b id="youCount">0</b></span>
+      <span style="color:var(--faint)">A row counts as complete when it has at least one check in either column.</span>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p><b>How the two columns work.</b> The <b style="color:var(--claude)">Claude</b> column is pre-filled with exactly what the in-client preview could verify (hover the "how" line to see the method). The <b style="color:var(--you)">You</b> column is yours: tick it as you run your pass. Your ticks are saved in this browser.</p>
+    <p><b>Progress rule.</b> Each check is one row. A row is "complete" for the bar as soon as <b>either</b> column is ticked.</p>
+    <p>Tags: <span class="chip save">needs real save</span> the sandbox starts fresh (the Fabricator is not founded), so this needs your migrated save on devpreview. <span class="chip device">needs device</span> true mobile / touch or a visual-subjective call.</p>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" id="resetBtn">Reset my column</button>
+    <button class="btn" id="checkAllBtn">Tick all of my column</button>
+    <span class="note">Claude's column is read-only (it records what Claude actually tested).</span>
+  </div>
+
+  <div id="sections"></div>
+
+  <div class="findings">
+    <h2>Hardening and fixes folded into this patch (Claude, 2026-09-22)</h2>
+    <ol>
+      <li><b>Cap-safe, all-or-nothing inspection.</b> Following the race-condition concern, inspecting recomputes the free spare-bay space from live state before every mint and is transactional: a batch can never push the bay past its cap (verified live filling to exactly 25/25), and a roll that cannot fit never consumes its blank or burns the roll seed. Covered by 8 new unit tests (inspectBlank.test.ts): cap no-op, clamp-to-free, preserve-non-fitting-blanks, and n-bulk == n-singles determinism.</li>
+      <li><b>Honest completion-log wording.</b> A finished craft used to be classified as producing "systems" when it actually deposits an uninspected blank. A new "blanks" completion reward kind makes the Recently-Completed row read "Fabricated, {Blueprint}" with the detail "Uninspected blank" (or "N blanks" for a folded batch). Exact strings pinned by 3 new tests (completionLog.test.ts).</li>
+    </ol>
+  </div>
+
+  <p class="foot">0.13.7 delta QA · boxes persist in this browser only · engine correctness is additionally covered by 2810 passing unit tests.</p>
+</div>
+
+<script>
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+// c: Claude verified this in the preview. how: the method. tag: "save" | "device" | null.
+const SECTIONS = [
+  { n: "0", title: "Setup / smoke", items: [
+    { t: 'Header reads <span class="k">v0.13.7</span> and the patch-notes entry shows "Crafted Blanks" with its sections rendered.', c: false, how: "APP_VERSION bumped + PATCH_NOTES entry added; the preview was not re-opened after the version bump. Confirm the banner + the notes page." },
+    { t: "Load an EXISTING save (a 0.13.6 save). It loads clean, nothing is missing. There is NO save-format change this release (still version 54), so no migration runs.", c: false, tag: "save" },
+    { t: "No console errors opening Logistics or moving between its tabs.", c: true, how: "No console errors across the Crafted Blanks flow this session, desktop + mobile." },
+  ]},
+  { n: "1", title: "Crafted Blanks tab (Logistics)", items: [
+    { t: 'The Logistics rail shows a <span class="k">Crafted Blanks</span> tab, placed right after Ship Equipment and before Crew Equipment / Materials.', c: true, how: "Verified on desktop: the tab is present in that order." },
+    { t: 'With no blanks: a friendly empty state ("No blanks to inspect. Craft ship systems, weapons or drone pods at the Fabricator and they arrive here as blanks.").', c: true, how: "Verified the empty state + copy on a fresh sandbox." },
+    { t: "With blanks on hand: one tile per blueprint you hold, each showing the item icon and its blank count (x N).", c: true, how: "Seeded two blank types; both rendered as tiles with icon + xcount." },
+    { t: "The Fabricator's separate Inspect sub-tab is GONE. Crafting still mints blanks that land here.", c: false, tag: "save", how: "Inspect sub-tab removed from the code + a passing build; the Fabricator is not founded in the sandbox to view live. Confirm on your save that crafting still deposits blanks and there is no Inspect tab." },
+  ]},
+  { n: "2", title: "Product Inspection panel", items: [
+    { t: "Tap a blank tile: a Product Inspection panel opens showing the blueprint name, Blanks held, and Free spare-bay slots (X / cap).", c: true, how: "Verified: 'Prospector Hold Blueprint', Blanks held 30, Free spare-bay slots 25 / 25." },
+    { t: "The quantity stepper defaults to 1, and Max sets it to min(blanks held, free bay slots).", c: true, how: "Default 1 verified; Max set it to 25 (min of 30 held, 25 free)." },
+    { t: "The - / + buttons and the editable box change the quantity and clamp to [1, that max].", c: false, how: "Max verified; the +/- and typed-value clamp share the same reactive. Confirm by hand." },
+    { t: "Inspect 1: rolls a single system, opens the reveal modal for it, drops the blank count by one, and the spare lands in Ship Equipment.", c: false, how: "The bulk path was exercised live; the single-inspect reveal-modal path (which only fires for exactly one) was not. Confirm." },
+    { t: "Inspect a batch (via Max): mints that many spares at once with NO reveal-modal storm; the blank count drops by the amount and the Ship Equipment bay rises by it.", c: true, how: "Inspected 25 at once: no modal storm; blanks 30 -> 5; Systems Bay 0 -> 25/25." },
+    { t: "Cap: a batch fills the bay to EXACTLY the cap and never past it; when full, Free reads 0 / cap.", c: true, how: "Filled to exactly 25/25; free went to 0; never exceeded." },
+    { t: "All-or-nothing: when the bay fills partway through a batch, the blanks that did not fit stay in inventory (none consumed for nothing).", c: true, how: "25 into 25 free with 30 held -> exactly 25 rolled, 5 blanks preserved. Also unit-tested (cap-1 + hold 3 -> 1 rolled, 2 preserved; full bay -> 0 rolled, blank + seed untouched)." },
+    { t: 'Bay full: Max and Inspect disable and the panel shows "Ship Equipment bay is full. Clear or auto-salvage spares to inspect more."', c: true, how: "Verified: hint shown, Max/Inspect disabled, stepper hidden at 0 free." },
+    { t: "Clear or auto-salvage some spares, then inspecting resumes (free slots reopen).", c: false, how: "The gate reads live free slots before every mint (unit-tested). Confirm the live resume after freeing space." },
+  ]},
+  { n: "3", title: "Completion log wording", items: [
+    { t: 'A finished single craft reads "Fabricated, {Blueprint}" with the detail line "Uninspected blank" (NOT "systems").', c: false, how: "Exact strings pinned by unit tests (completionLog.test.ts). Confirm live in Recently Completed after a craft finishes." },
+    { t: 'A folded batch of crafts reads the detail as "{N} blanks".', c: false, how: "Unit-tested. Confirm live." },
+    { t: "Regression: a material fabricate or a refine still reads normally in Recently Completed (unaffected by the blanks wording).", c: false, tag: "save" },
+  ]},
+  { n: "4", title: "Mobile / responsive", items: [
+    { t: "At ~375px the Crafted Blanks tab is reachable and its tiles + the Product Inspection panel wrap with no horizontal scroll.", c: false, tag: "device", how: "The Systems Bay reflowed to a clean single column at 375px (no h-scroll); the Crafted Blanks panel itself was not screenshotted (a stuck currency tooltip covered the collapsed rail). Confirm the panel on device." },
+    { t: "The quantity stepper plus Max / Inspect stack cleanly on a phone.", c: false, tag: "device" },
+  ]},
+  { n: "5", title: "Cross-cutting regression", items: [
+    { t: "Ship Equipment and Materials tabs still render and behave; the new tab did not disturb them.", c: true, how: "Both opened and rendered normally in the same session (Ship Equipment showed 25/25 after inspecting)." },
+    { t: 'Save persists across a reload; no unexpected "not saving" banner.', c: false },
+    { t: "Crafting XP / crafting level and the craft queue are unaffected (crafting still deposits blanks).", c: false, tag: "save", how: "Unit-tested that fabricate still emits a blank; confirm the XP/queue path live on your save." },
+  ]},
+];
+
+const STORE = "hl-qa-0137-user-v1";
+let userState = {};
+try { userState = JSON.parse(localStorage.getItem(STORE) || "{}"); } catch (e) { userState = {}; }
+function save() { try { localStorage.setItem(STORE, JSON.stringify(userState)); } catch (e) {} }
+
+const CHIP = { save: '<span class="chip save">needs real save</span>', device: '<span class="chip device">needs device</span>' };
+
+function cb(kind, id, checked, disabled) {
+  const dis = disabled ? "disabled" : "";
+  const empty = (kind === "claude" && !checked) ? " empty" : "";
+  return '<span class="cb ' + kind + empty + '"><input type="checkbox" id="' + id + '" ' +
+    (checked ? "checked" : "") + " " + dis + ' aria-label="' + kind + '"><span class="box">' + TICK + "</span></span>";
+}
+
+const secWrap = document.getElementById("sections");
+SECTIONS.forEach((sec, si) => {
+  const el = document.createElement("section");
+  let html = '<div class="sec-head"><span class="sec-num">' + sec.n + '</span>' +
+    '<span class="sec-title">' + sec.title + '</span><span class="sec-line"></span>' +
+    '<span class="sec-done" id="secdone-' + si + '"></span></div>';
+  if (sec.note) html += '<p class="sec-note">' + sec.note + "</p>";
+  html += '<div class="items"><div class="col-head"><span class="ch claude">Claude</span><span class="ch you">You</span><span></span></div>';
+  sec.items.forEach((it, ii) => {
+    const uid = "u-" + si + "-" + ii;
+    const uchecked = !!userState[uid];
+    const meta = it.tag ? '<div class="meta">' + (CHIP[it.tag] || "") + "</div>" : "";
+    const how = it.how ? '<div class="how" title="' + it.how.replace(/"/g, "&quot;") + '">' + it.how + "</div>" : "";
+    html += '<div class="item" data-si="' + si + '" data-ii="' + ii + '">' +
+      '<div class="cell">' + cb("claude", "c-" + si + "-" + ii, !!it.c, true) + "</div>" +
+      '<div class="cell">' + cb("you", uid, uchecked, false) + "</div>" +
+      '<div class="body"><span class="t">' + it.t + "</span>" + meta + how + "</div></div>";
+  });
+  html += "</div>";
+  el.innerHTML = html;
+  secWrap.appendChild(el);
+});
+
+function isDone(si, ii) {
+  return !!SECTIONS[si].items[ii].c || !!userState["u-" + si + "-" + ii];
+}
+function recompute() {
+  let total = 0, done = 0, claude = 0, you = 0;
+  SECTIONS.forEach((sec, si) => {
+    let secTotal = 0, secDone = 0;
+    sec.items.forEach((it, ii) => {
+      total++; secTotal++;
+      if (it.c) claude++;
+      if (userState["u-" + si + "-" + ii]) you++;
+      if (isDone(si, ii)) { done++; secDone++; }
+    });
+    const sd = document.getElementById("secdone-" + si);
+    if (sd) sd.textContent = secDone + " / " + secTotal;
+    const secEl = secWrap.children[si];
+    sec.items.forEach((it, ii) => {
+      const row = secEl.querySelector('.item[data-si="' + si + '"][data-ii="' + ii + '"]');
+      if (row) row.classList.toggle("done", isDone(si, ii));
+    });
+  });
+  const pctVal = total ? Math.round((done / total) * 100) : 0;
+  document.getElementById("pct").firstChild.textContent = pctVal + "%";
+  document.getElementById("barFill").style.width = pctVal + "%";
+  document.getElementById("doneCount").textContent = done;
+  document.getElementById("totalCount").textContent = total;
+  document.getElementById("claudeCount").textContent = claude;
+  document.getElementById("youCount").textContent = you;
+  const label = document.getElementById("pctlabel");
+  label.textContent = pctVal >= 100 ? "launch-ready" : (pctVal >= 60 ? "closing in" : "in progress");
+}
+
+secWrap.addEventListener("change", (e) => {
+  const inp = e.target;
+  if (!inp.id || inp.id[0] !== "u") return;
+  if (inp.checked) userState[inp.id] = true; else delete userState[inp.id];
+  save(); recompute();
+});
+
+document.getElementById("resetBtn").addEventListener("click", () => {
+  userState = {}; save();
+  secWrap.querySelectorAll('input[id^="u-"]').forEach((i) => (i.checked = false));
+  recompute();
+});
+document.getElementById("checkAllBtn").addEventListener("click", () => {
+  secWrap.querySelectorAll('input[id^="u-"]').forEach((i) => { i.checked = true; userState[i.id] = true; });
+  save(); recompute();
+});
+
+recompute();
+</script>
+</body>
+</html>

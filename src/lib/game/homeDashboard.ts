@@ -1184,6 +1184,7 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
   switch (entry.reward) {
     case "blueprint":
     case "systems":
+    case "blanks":
       return BLUEPRINTS[key]?.label ?? key;
     case "hull":
       // SHIP_TYPES is keyed by the narrow ShipTypeKey union while the record stores a plain
@@ -1293,6 +1294,14 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     const routes = entry.iterations === 1 ? "1 route" : `${entry.iterations} routes`;
     const flown = entry.iterations === 0 ? "no routes completed" : routes;
     return reason !== null ? `${flown}, ${reason}` : flown;
+  }
+  // 0.13.7 Crafted Blanks: a fabricate now deposits an UNINSPECTED blank, not a usable system, and
+  // the primary line ("Fabricated, Balanced Hold") reads by process kind and cannot say so. The
+  // detail carries the honesty. A batch keeps its run count, still worded as blanks ("3 blanks"),
+  // so the count survives; a single run says the plain "Uninspected blank". Placed before the
+  // generic iterations line, which would otherwise print a bare "3 runs" and drop the "blank" fact.
+  if (entry.reward === "blanks") {
+    return entry.iterations > 1 ? `${entry.iterations} blanks` : "Uninspected blank";
   }
   if (entry.iterations > 1) return `${entry.iterations} runs`;
   return null;
