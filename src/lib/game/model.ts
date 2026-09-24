@@ -4767,6 +4767,17 @@ export type SeniorStaffSeat =
 // come from seniorStaff.ts (officerRankLabel); these are the stable keys.
 export type OfficerRank = "cadet" | "ensign" | "lieutenant" | "lieutenantCommander" | "commander";
 
+// The KIND of a Senior Staff promotion objective (Crew 0.14.0 C-1). A CLOSED union on purpose: adding
+// a new objective kind is a deliberate compile-time decision. It lives here beside OfficerRank /
+// SeniorStaffSeat so the persisted SeniorStaffOfficer.promotionCounters can key on it without a
+// circular import back into seniorStaff.ts (which owns the objective SETS + gating logic). Only
+// `missionsCompleted` is LIVE today (folded from mission cycles, crewOverlay.ts); the rest are dormant.
+export type PromotionObjectiveKind =
+  | "missionsCompleted"
+  | "shipsDestroyed"
+  | "crewHours"
+  | "personnelAchievement";
+
 // One of the two bonuses rolled onto an officer. `id` keys the (Phase 0.5) officer bonus
 // catalog; `magnitude` scales with rank.
 export interface OfficerBonus {
@@ -4784,7 +4795,13 @@ export interface SeniorStaffOfficer {
   gender: string;
   rank: OfficerRank;
   bonuses: [OfficerBonus, OfficerBonus]; // exactly two rolled bonuses
-  missionsCompleted: number; // + future achievement counters that gate promotion
+  missionsCompleted: number; // LIVE promotion counter (folded from mission cycles, crewOverlay.ts)
+  // Optional, ADDITIVE per-officer counters for the OTHER promotion objective kinds (shipsDestroyed /
+  // crewHours / personnelAchievement); missionsCompleted keeps its own dedicated field above. DORMANT:
+  // nothing increments these yet (a later wiring phase will), and officerPromotionCounter reads a
+  // missing entry as 0, so this needs NO SAVE_VERSION bump (an old save simply lacks it) -- the
+  // established optional-additive field convention (e.g. favorite / weaponType elsewhere).
+  promotionCounters?: Partial<Record<PromotionObjectiveKind, number>>;
   assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
 }
 

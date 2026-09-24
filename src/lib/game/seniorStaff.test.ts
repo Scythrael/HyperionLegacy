@@ -1,7 +1,8 @@
 // Crew 0.14.0 (Phase 1): tests for the DORMANT Senior Staff officer engine (seniorStaff.ts).
 // Covers: roster determinism (same window+seed => same candidates; window/seed changes), seat-type
 // matching enforced on assign, hire/fire/assign/unassign state transitions (pure, no input
-// mutation), the 5-rank Cadet -> Commander promotion gate logic + bonus strengthening, and cadet
+// mutation), the 5-rank Cadet -> Commander OBJECTIVE-SET promotion checklist (progress/met, all-
+// objectives gating, LIVE-vs-dormant counters, per-seat flavor) + bonus strengthening, and cadet
 // start. Nothing here exercises the tick or ship stats (the engine is not wired in yet).
 
 import { describe, it, expect } from "vitest";
@@ -11,11 +12,14 @@ import {
   SENIOR_STAFF_SEATS,
   OFFICER_RANK_ORDER,
   OFFICER_ROSTER_WINDOW_SECONDS,
-  PROMOTION_GATES,
+  PROMOTION_OBJECTIVE_SETS,
   officerRankLabel,
   officerRankMagnitudeFactor,
   nextOfficerRank,
-  canPromote,
+  officerPromotionObjectiveSet,
+  officerPromotionObjectives,
+  officerPromotionCounter,
+  canPromoteOfficer,
   promoteOfficer,
   officerRacialBonus,
   officerRosterWindowIndex,
@@ -302,43 +306,110 @@ describe("assignOfficerToShip seat-type matching", () => {
 // Promotion gates + bonus strengthening
 // ============================================================================
 
-describe("promotion gate logic (5-rank ladder)", () => {
-  it("PROMOTION_GATES pins the first-pass thresholds", () => {
-    expect(PROMOTION_GATES.cadet).toEqual({ to: "ensign", missionsRequired: 10, requiresPersonnelAchievement: false });
-    expect(PROMOTION_GATES.ensign).toEqual({ to: "lieutenant", missionsRequired: 30, requiresPersonnelAchievement: false });
-    expect(PROMOTION_GATES.lieutenant).toEqual({ to: "lieutenantCommander", missionsRequired: 75, requiresPersonnelAchievement: false });
-    expect(PROMOTION_GATES.lieutenantCommander).toEqual({ to: "commander", missionsRequired: 150, requiresPersonnelAchievement: true });
-    expect(PROMOTION_GATES.commander).toBeUndefined(); // top rank, no gate
+describe("promotion objective SETS (checklist, 5-rank ladder)", () => {
+  it("PROMOTION_OBJECTIVE_SETS exists per promotable rank with Commander having none", () => {
+    expect(PROMOTION_OBJECTIVE_SETS.cadet).toBeDefined();
+    expect(PROMOTION_OBJECTIVE_SETS.ensign).toBeDefined();
+    expect(PROMOTION_OBJECTIVE_SETS.lieutenant).toBeDefined();
+    expect(PROMOTION_OBJECTIVE_SETS.lieutenantCommander).toBeDefined();
+    expect(PROMOTION_OBJECTIVE_SETS.commander).toBeUndefined(); // top rank, no set
+
+    // each set is a MULTI-row checklist (mockup parity: >= 2 rows)
+    for (const rank of ["cadet", "ensign", "lieutenant", "lieutenantCommander"] as const) {
+      expect(PROMOTION_OBJECTIVE_SETS[rank]!.length).toBeGreaterThanOrEqual(2);
+    }
   });
 
-  it("canPromote is false below the mission threshold and true at/above it", () => {
-    expect(canPromote(officer({ rank: "cadet", missionsCompleted: 9 }))).toBe(false);
-    expect(canPromote(officer({ rank: "cadet", missionsCompleted: 10 }))).toBe(true);
-    expect(canPromote(officer({ rank: "ensign", missionsCompleted: 29 }))).toBe(false);
-    expect(canPromote(officer({ rank: "ensign", missionsCompleted: 30 }))).toBe(true);
-    expect(canPromote(officer({ rank: "lieutenant", missionsCompleted: 74 }))).toBe(false);
-    expect(canPromote(officer({ rank: "lieutenant", missionsCompleted: 75 }))).toBe(true);
+  it("preserves the old single-gate mission thresholds as the missionsCompleted objective (10/30/75/150)", () => {
+    const missionTarget = (rank: "cadet" | "ensign" | "lieutenant" | "lieutenantCommander"): number =>
+      PROMOTION_OBJECTIVE_SETS[rank]!.find((o) => o.kind === "missionsCompleted")!.target;
+    expect(missionTarget("cadet")).toBe(10);
+    expect(missionTarget("ensign")).toBe(30);
+    expect(missionTarget("lieutenant")).toBe(75);
+    expect(missionTarget("lieutenantCommander")).toBe(150);
   });
 
-  it("the top rung also needs the (stubbed) Personnel achievement", () => {
-    const ltc = officer({ rank: "lieutenantCommander", missionsCompleted: 150 });
-    // default hook is false: the achievement tier is not built yet, so the rung cannot be earned
-    expect(canPromote(ltc)).toBe(false);
-    expect(canPromote(ltc, { personnelAchievementUnlocked: false })).toBe(false);
-    // hook true: gate opens
-    expect(canPromote(ltc, { personnelAchievementUnlocked: true })).toBe(true);
-    // still needs the mission count even with the achievement
-    expect(canPromote(officer({ rank: "lieutenantCommander", missionsCompleted: 149 }), { personnelAchievementUnlocked: true })).toBe(false);
+  it("keeps the top rung's Personnel achievement requirement", () => {
+    expect(PROMOTION_OBJECTIVE_SETS.lieutenantCommander!.some((o) => o.kind === "personnelAchievement")).toBe(true);
   });
 
-  it("commander cannot be promoted further", () => {
-    expect(canPromote(officer({ rank: "commander", missionsCompleted: 9999 }), { personnelAchievementUnlocked: true })).toBe(false);
+  it("officerPromotionObjectiveSet is empty at commander (top rank)", () => {
+    expect(officerPromotionObjectiveSet(officer({ rank: "commander" }))).toEqual([]);
+  });
+
+  it("a tactical officer's set leans on shipsDestroyed (heavier target than a non-signature seat)", () => {
+    const tactical = officerPromotionObjectiveSet(officer({ rank: "ensign", seat: "tactical" }));
+    const pilot = officerPromotionObjectiveSet(officer({ rank: "ensign", seat: "pilot" }));
+    const tacticalKills = tactical.find((o) => o.kind === "shipsDestroyed")!.target;
+    const pilotKills = pilot.find((o) => o.kind === "shipsDestroyed")!.target;
+    // non-signature seat keeps the shared base
+    expect(pilotKills).toBe(PROMOTION_OBJECTIVE_SETS.ensign!.find((o) => o.kind === "shipsDestroyed")!.target);
+    // tactical (signature = shipsDestroyed) leans heavier
+    expect(tacticalKills).toBeGreaterThan(pilotKills);
+  });
+});
+
+describe("promotion progress + counters (LIVE vs dormant-stubbed)", () => {
+  it("officerPromotionCounter reads missionsCompleted LIVE and other kinds from promotionCounters (default 0)", () => {
+    const o = officer({ missionsCompleted: 12, promotionCounters: { shipsDestroyed: 3 } });
+    expect(officerPromotionCounter(o, "missionsCompleted")).toBe(12); // LIVE (folded) counter
+    expect(officerPromotionCounter(o, "shipsDestroyed")).toBe(3); // dormant per-officer counter
+    expect(officerPromotionCounter(o, "crewHours")).toBe(0); // missing entry -> 0
+    expect(officerPromotionCounter(officer({}), "shipsDestroyed")).toBe(0); // no promotionCounters at all -> 0
+  });
+
+  it("officerPromotionObjectives reports per-row current/met, the missionsCompleted row reflecting the LIVE counter", () => {
+    const o = officer({ rank: "cadet", missionsCompleted: 10, promotionCounters: { crewHours: 20 } });
+    const rows = officerPromotionObjectives(o);
+    const missions = rows.find((r) => r.objective.kind === "missionsCompleted")!;
+    const crewHours = rows.find((r) => r.objective.kind === "crewHours")!;
+    expect(missions.current).toBe(10); // the live folded counter is surfaced as-is
+    expect(missions.met).toBe(true); // 10 >= 10
+    expect(crewHours.current).toBe(20);
+    expect(crewHours.met).toBe(false); // 20 < 50
+  });
+});
+
+describe("canPromoteOfficer (checklist gating) + promoteOfficer", () => {
+  it("is true ONLY when EVERY objective in the current-rank set is met", () => {
+    // cadet set = missionsCompleted 10 + crewHours 50
+    // missions alone (the OLD single gate) is no longer enough:
+    expect(canPromoteOfficer(officer({ rank: "cadet", missionsCompleted: 10 }))).toBe(false);
+    // crewHours alone, missions short: false
+    expect(canPromoteOfficer(officer({ rank: "cadet", missionsCompleted: 9, promotionCounters: { crewHours: 50 } }))).toBe(false);
+    // both met: true
+    expect(canPromoteOfficer(officer({ rank: "cadet", missionsCompleted: 10, promotionCounters: { crewHours: 50 } }))).toBe(true);
+  });
+
+  it("the missionsCompleted objective gates off the LIVE counter", () => {
+    // crewHours satisfied via the dormant counter, promotion still hinges on the live mission count
+    expect(canPromoteOfficer(officer({ rank: "cadet", missionsCompleted: 9, promotionCounters: { crewHours: 50 } }))).toBe(false);
+    expect(canPromoteOfficer(officer({ rank: "cadet", missionsCompleted: 10, promotionCounters: { crewHours: 50 } }))).toBe(true);
+  });
+
+  it("the top rung also needs the (dormant-stubbed) Personnel achievement counter", () => {
+    // LtCommander set = missionsCompleted 150 + shipsDestroyed 50 + personnelAchievement 1
+    // missions + kills but NO achievement counter: false (the achievement system is not wired yet)
+    expect(canPromoteOfficer(officer({ rank: "lieutenantCommander", missionsCompleted: 150, promotionCounters: { shipsDestroyed: 50 } }))).toBe(false);
+    // all three met: true
+    expect(canPromoteOfficer(officer({ rank: "lieutenantCommander", missionsCompleted: 150, promotionCounters: { shipsDestroyed: 50, personnelAchievement: 1 } }))).toBe(true);
+    // achievement + kills but mission count short: false
+    expect(canPromoteOfficer(officer({ rank: "lieutenantCommander", missionsCompleted: 149, promotionCounters: { shipsDestroyed: 50, personnelAchievement: 1 } }))).toBe(false);
+  });
+
+  it("commander cannot be promoted further (empty objective set)", () => {
+    expect(
+      canPromoteOfficer(
+        officer({ rank: "commander", missionsCompleted: 9999, promotionCounters: { shipsDestroyed: 9999, crewHours: 9999, personnelAchievement: 9 } }),
+      ),
+    ).toBe(false);
   });
 
   it("promoteOfficer advances one rank and strengthens both bonuses off the catalog base", () => {
     const cadet = officer({
       rank: "cadet",
       missionsCompleted: 10,
+      promotionCounters: { crewHours: 50 }, // clear the whole cadet checklist
       bonuses: [
         { id: "pilot.transitCut", magnitude: 0.08 * officerRankMagnitudeFactor("cadet") },
         { id: "pilot.evasion", magnitude: 0.1 * officerRankMagnitudeFactor("cadet") },
@@ -355,7 +426,7 @@ describe("promotion gate logic (5-rank ladder)", () => {
     expect(cadet.rank).toBe("cadet");
   });
 
-  it("promoteOfficer is a no-op fresh copy when the gate is not met", () => {
+  it("promoteOfficer is a no-op fresh copy when the checklist is not met", () => {
     const cadet = officer({ rank: "cadet", missionsCompleted: 5 });
     const result = promoteOfficer(cadet);
     expect(result.rank).toBe("cadet");
@@ -364,27 +435,31 @@ describe("promotion gate logic (5-rank ladder)", () => {
   });
 
   it("promoteOfficer is a no-op at commander (top rank)", () => {
-    const cmdr = officer({ rank: "commander", missionsCompleted: 9999 });
-    expect(promoteOfficer(cmdr, { personnelAchievementUnlocked: true }).rank).toBe("commander");
+    const cmdr = officer({ rank: "commander", missionsCompleted: 9999, promotionCounters: { shipsDestroyed: 9999, crewHours: 9999, personnelAchievement: 9 } });
+    expect(promoteOfficer(cmdr).rank).toBe("commander");
   });
 
-  it("walks the FULL ladder cadet -> commander given the gates, strengthening at each step", () => {
-    let o = officer({ rank: "cadet", missionsCompleted: 150 });
+  it("walks the FULL ladder cadet -> commander when every rank's checklist is met, strengthening at each step", () => {
+    // counters generous enough to clear every rank's set (missions >= 150, kills/hours huge, achievement earned)
+    let o = officer({
+      rank: "cadet",
+      missionsCompleted: 150,
+      promotionCounters: { shipsDestroyed: 999, crewHours: 999, personnelAchievement: 1 },
+    });
     const startMag = o.bonuses[0].magnitude;
-    const ctx = { personnelAchievementUnlocked: true };
 
-    o = promoteOfficer(o, ctx);
+    o = promoteOfficer(o);
     expect(o.rank).toBe("ensign");
-    o = promoteOfficer(o, ctx);
+    o = promoteOfficer(o);
     expect(o.rank).toBe("lieutenant");
-    o = promoteOfficer(o, ctx);
+    o = promoteOfficer(o);
     expect(o.rank).toBe("lieutenantCommander");
-    o = promoteOfficer(o, ctx);
+    o = promoteOfficer(o);
     expect(o.rank).toBe("commander");
 
     // at the top: no further promotion
     expect(nextOfficerRank(o.rank)).toBe(null);
-    expect(canPromote(o, ctx)).toBe(false);
+    expect(canPromoteOfficer(o)).toBe(false);
     // commander magnitude is well above the starting magnitude
     expect(o.bonuses[0].magnitude).toBeGreaterThan(startMag);
     expect(o.bonuses[0].magnitude).toBeCloseTo(0.08 * officerRankMagnitudeFactor("commander"), 10);
@@ -394,6 +469,7 @@ describe("promotion gate logic (5-rank ladder)", () => {
     const o = officer({
       rank: "cadet",
       missionsCompleted: 10,
+      promotionCounters: { crewHours: 50 },
       bonuses: [
         { id: "not.a.real.bonus", magnitude: 1.0 },
         { id: "pilot.evasion", magnitude: 0.5 },

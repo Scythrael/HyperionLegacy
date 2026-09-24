@@ -27,6 +27,7 @@ import type {
   GameState,
   OfficerBonus,
   OfficerRank,
+  PromotionObjectiveKind,
   SeniorStaffOfficer,
   SeniorStaffSeat,
   CrewRace,
@@ -101,44 +102,112 @@ export function nextOfficerRank(rank: OfficerRank): OfficerRank | null {
 }
 
 // ============================================================================
-// Promotion gates (first-pass, TUNABLE)
+// Promotion objectives (first-pass, TUNABLE) -- an OBJECTIVE-SET checklist
 // ============================================================================
+//
+// Promotion (Crew 0.14.0 C-1, from the crew-UI review) is no longer a single mission-count gate: an
+// officer promotes only when it clears a SET OF OBJECTIVES for its current rank, a CHECKLIST the ship's
+// Senior Staff detail renders (the mechanic's home is on the ship, surfaced in a later UI phase). The
+// full objective catalog is a dedicated BALANCING job (docs/plans/2026-09-22-crew-0.14.0-plan.md,
+// "Senior Staff PROMOTION = objective-gated"), so 0.14.0 ships WORKING PLACEHOLDER criteria in the same
+// "first-pass, tunable" posture as the rest of crew: the mechanic is real + testable now, the real sets
+// come in balancing. PromotionObjectiveKind (model.ts) is a CLOSED union so a new kind is a compile
+// decision.
 
-// One promotion gate, keyed by the officer's CURRENT rank (the rank being promoted OUT of).
-export interface PromotionGate {
-  to: OfficerRank; // the rank this gate promotes into
-  missionsRequired: number; // missions completed with this officer aboard (missionsCompleted)
-  requiresPersonnelAchievement: boolean; // the top rung also needs a Personnel achievement (stubbed)
+// One row of an officer's promotion checklist: reach `target` of `kind`. `label` is the US-English
+// display string. FIRST-PASS + TUNABLE.
+export interface PromotionObjective {
+  kind: PromotionObjectiveKind;
+  target: number;
+  label: string;
 }
 
-// FIRST-PASS + TUNABLE promotion thresholds (user, 2026-09-23): Cadet->Ensign @10 missions,
-// Ensign->Lieutenant @30, Lieutenant->LtCommander @75, LtCommander->Commander @150 + a Personnel
-// achievement. `missionsCompleted` is incremented by the later mission-completion-tracking wiring
-// phase, so a promotion cannot actually be EARNED yet; the gate LOGIC is implemented + tested here
-// against fixtures. Keyed by current rank; "commander" has no gate (it is the top).
-export const PROMOTION_GATES: Partial<Record<OfficerRank, PromotionGate>> = {
-  cadet: { to: "ensign", missionsRequired: 10, requiresPersonnelAchievement: false },
-  ensign: { to: "lieutenant", missionsRequired: 30, requiresPersonnelAchievement: false },
-  lieutenant: { to: "lieutenantCommander", missionsRequired: 75, requiresPersonnelAchievement: false },
-  lieutenantCommander: { to: "commander", missionsRequired: 150, requiresPersonnelAchievement: true },
+// FIRST-PASS + TUNABLE promotion OBJECTIVE SETS, keyed by the officer's CURRENT rank (the rank being
+// promoted OUT of). Promoting is a CHECKLIST: EVERY objective in the set must be met (canPromoteOfficer).
+// The `missionsCompleted` rows PRESERVE the old single-gate thresholds (Cadet->Ensign @10,
+// Ensign->Lieutenant @30, Lieutenant->LtCommander @75, LtCommander->Commander @150) and the top rung
+// keeps its `personnelAchievement` requirement; the extra shipsDestroyed / crewHours rows are placeholder
+// flavor so the checklist has multiple rows like the mockup. "commander" is absent (top rank, no set).
+export const PROMOTION_OBJECTIVE_SETS: Partial<Record<OfficerRank, readonly PromotionObjective[]>> = {
+  cadet: [
+    { kind: "missionsCompleted", target: 10, label: "Complete 10 missions" },
+    { kind: "crewHours", target: 50, label: "Command 50 crew-hours" },
+  ],
+  ensign: [
+    { kind: "missionsCompleted", target: 30, label: "Complete 30 missions" },
+    { kind: "shipsDestroyed", target: 5, label: "Destroy 5 hostile ships" },
+    { kind: "crewHours", target: 200, label: "Command 200 crew-hours" },
+  ],
+  lieutenant: [
+    { kind: "missionsCompleted", target: 75, label: "Complete 75 missions" },
+    { kind: "shipsDestroyed", target: 20, label: "Destroy 20 hostile ships" },
+    { kind: "crewHours", target: 600, label: "Command 600 crew-hours" },
+  ],
+  lieutenantCommander: [
+    { kind: "missionsCompleted", target: 150, label: "Complete 150 missions" },
+    { kind: "shipsDestroyed", target: 50, label: "Destroy 50 hostile ships" },
+    { kind: "personnelAchievement", target: 1, label: "Earn a Personnel commendation" },
+  ],
 };
 
-// Context for a promotion check. `personnelAchievementUnlocked` is a FIRST-PASS HOOK for the
-// Personnel achievement tier (not built yet): it gates the top LtCommander -> Commander rung and
-// defaults to false, so that rung cannot be earned until the achievement system is wired. Tests
-// pass `true` to exercise the gated path.
-export interface PromotionContext {
-  personnelAchievementUnlocked?: boolean;
+// Per-SEAT flavor: a seat's SIGNATURE objective kind is weighted heavier for that seat, so e.g. a
+// tactical officer's checklist leans on ship kills. FIRST-PASS + TUNABLE; only `tactical` carries a
+// signature today (every other seat falls back to the shared set unchanged). A small closed map so a
+// seat with no entry is simply the shared set.
+const SEAT_SIGNATURE_OBJECTIVE: Partial<Record<SeniorStaffSeat, PromotionObjectiveKind>> = {
+  tactical: "shipsDestroyed",
+};
+
+// How much heavier a seat's signature objective target is versus the shared base. FIRST-PASS + TUNABLE.
+const SEAT_SIGNATURE_TARGET_FACTOR = 1.5;
+
+// The objective set an officer must clear to promote OUT of its CURRENT rank, with the per-seat flavor
+// applied (its signature kind's target scaled where that kind appears in the set). Empty at "commander"
+// (top rank) or an unknown rank. Pure: returns fresh objective objects only when flavor changes a
+// target, otherwise the shared rows.
+export function officerPromotionObjectiveSet(officer: SeniorStaffOfficer): readonly PromotionObjective[] {
+  const base = PROMOTION_OBJECTIVE_SETS[officer.rank];
+  if (!base) return []; // commander (or unknown rank): nothing to promote into
+  const signature = SEAT_SIGNATURE_OBJECTIVE[officer.seat];
+  if (!signature) return base;
+  return base.map((o) =>
+    o.kind === signature ? { ...o, target: Math.round(o.target * SEAT_SIGNATURE_TARGET_FACTOR) } : o,
+  );
 }
 
-// Whether an officer currently meets its next-rank gate. False at the top rank (no gate) and
-// whenever the mission count (or the stubbed achievement) is not yet satisfied. Pure.
-export function canPromote(officer: SeniorStaffOfficer, ctx: PromotionContext = {}): boolean {
-  const gate = PROMOTION_GATES[officer.rank];
-  if (!gate) return false; // already at commander (or an unknown rank): nothing to promote into
-  if (officer.missionsCompleted < gate.missionsRequired) return false;
-  if (gate.requiresPersonnelAchievement && !(ctx.personnelAchievementUnlocked ?? false)) return false;
-  return true;
+// An officer's CURRENT value for one objective kind. `missionsCompleted` is the ONE LIVE kind: it reads
+// the officer's real, folded counter (crewOverlay.foldOfficerMissionCompletions folds it from the
+// mission cycle counts). Every OTHER kind is DORMANT-STUBBED: it reads the optional additive per-officer
+// `promotionCounters` map, defaulting to 0. Incrementing those counters (shipsDestroyed / crewHours /
+// personnelAchievement) is a LATER WIRING PHASE, exactly as the old mission gate was dormant until the
+// mission-completion fold landed; we never fake an increment here. Pure.
+export function officerPromotionCounter(officer: SeniorStaffOfficer, kind: PromotionObjectiveKind): number {
+  if (kind === "missionsCompleted") return officer.missionsCompleted; // LIVE (folded)
+  return officer.promotionCounters?.[kind] ?? 0; // DORMANT until a later wiring phase increments it
+}
+
+// One checklist row's live progress: the objective, the officer's `current` value, and whether it is `met`.
+export interface PromotionObjectiveProgress {
+  objective: PromotionObjective;
+  current: number;
+  met: boolean;
+}
+
+// The officer's current-rank promotion checklist with live progress per row. Empty at commander (top
+// rank: nothing to promote into). Pure.
+export function officerPromotionObjectives(officer: SeniorStaffOfficer): PromotionObjectiveProgress[] {
+  return officerPromotionObjectiveSet(officer).map((objective) => {
+    const current = officerPromotionCounter(officer, objective.kind);
+    return { objective, current, met: current >= objective.target };
+  });
+}
+
+// Whether an officer currently meets EVERY objective in its current-rank set (the full checklist). False
+// at the top rank (empty set: no promotion) and whenever ANY objective is unmet. Pure.
+export function canPromoteOfficer(officer: SeniorStaffOfficer): boolean {
+  const rows = officerPromotionObjectives(officer);
+  if (rows.length === 0) return false; // commander (or unknown rank): nothing to promote into
+  return rows.every((r) => r.met);
 }
 
 // Recompute a bonus's magnitude at a new rank: base (catalog, Ensign-tier) * the rank factor. Falls
@@ -154,10 +223,10 @@ function strengthenBonus(bonus: OfficerBonus, fromRank: OfficerRank, toRank: Off
 }
 
 // Promote an officer one rank up, strengthening both bonuses a step. Returns a NEW officer; the
-// input is never mutated. A no-op FRESH COPY when the gate is not met (or already at the top), so
-// callers can always treat the result as the officer's current state. Pure.
-export function promoteOfficer(officer: SeniorStaffOfficer, ctx: PromotionContext = {}): SeniorStaffOfficer {
-  if (!canPromote(officer, ctx)) {
+// input is never mutated. A no-op FRESH COPY when the objective checklist is not met (or already at the
+// top), so callers can always treat the result as the officer's current state. Pure.
+export function promoteOfficer(officer: SeniorStaffOfficer): SeniorStaffOfficer {
+  if (!canPromoteOfficer(officer)) {
     return { ...officer, bonuses: [{ ...officer.bonuses[0] }, { ...officer.bonuses[1] }] };
   }
   const next = nextOfficerRank(officer.rank);
