@@ -7,7 +7,8 @@ exploration brainstorm). This plan covers the EXPLORATION half of 0.14.0; both h
 one massive patch on `feat/crew-0.14.0`, promoted only once both are done + QA'd.
 
 ## Scope (0.14.0 exploration half)
-IN (per I.7 scope lock): fuel-to-reach + explorer hull; sensors CONSUMERS (the item is already built,
+IN (per I.7 scope lock): the explorer hull + archetype power-grid tuning + deuterium-as-reach-crafting (the
+fuel-to-reach MECHANIC itself already shipped in 0.13.6); sensors CONSUMERS (the item is already built,
 dormant); BOTH exploration mission types (short/local planetary surveys + transport/supply missions AND
 long-distance semi-idle EXPEDITIONS); ground teams + away-team gambit combat; relics -> discovery-gated
 Research -> Museum; refugees -> facility crews + evacuation; the UNIVERSAL modules system (H.1, accessory
@@ -41,22 +42,29 @@ additive-neutral discipline as crew: no expedition in flight => the tick path is
 - `crewOverlay.ts` `effectiveShipStats` = the ONE seam crew folds through; exploration reads ship stats
   through it so crew (Science officer / Science division / sensors) shapes exploration by construction.
 - `ShipSpec` has `"explorer"` already; NO explorer hull in `SHIP_TYPES` yet; `commandStructure` already has
-  an explorer complement band waiting. Fuel is still per-trip (`fuelCapacity` vs `fuelNeeded`); the
-  fuel-to-reach rework is NOT built.
+  an explorer complement band waiting.
+- ⚠️ CORRECTION (verified 2026-09-24): FUEL-TO-REACH ALREADY SHIPPED IN 0.13.6 (build plan
+  `2026-09-16-fuel-to-reach-0.13.6-plan.md`, `fuel-to-reach.test.ts`). `canReach(mission, ship)` is the
+  lightyear reach gate (parity with the old `fuelCapacity >= fuelNeeded`), and FUEL NO LONGER DEPLETES / never
+  idles a captain (fuel is a range stat only). So the propulsion REWORK is DONE; the earlier E0 framing of it
+  as unbuilt was stale. The old tank/refinery/Fuel-Depot/fuel-runway code still PHYSICALLY exists but is inert
+  for dispatch (candidate cleanup, see opens). What 0.14.0 still owes on this axis is CONTENT + TUNING (A.6).
 
 ## Phased build order (each phase: pure/dormant first, gated, additive-neutral, own commit)
 
-### Phase E0 — Fuel-to-Reach rework + the Explorer hull [FOUNDATION, needs a design sub-pass]
-- Fuel becomes REACH/RANGE (Part A: "conventional FTL takes decades unless purpose-built" made mechanical):
-  distance is the gate, the explorer hull is the answer. This reworks the per-trip `fuelNeeded` consumption
-  model into a reach/range capability. ⚠️ BIG ECONOMY CHANGE + interacts with the LOCKED fuel-runway system
-  ([[project_fuel_runway_measured_locked]], measured-EMA projection): E0 must either preserve fuel-runway's
-  contract or consciously supersede it WITH THE USER. FLAG: E0 gets a short design sub-pass + user confirm
-  before build (Part A holds the reach model; verify it against the live fuel economy first).
+### Phase E0 — Explorer hull(s) + archetype power-grid tuning + deuterium-as-reach-crafting [FOUNDATION]
+- ⚠️ Fuel-to-reach ITSELF is DONE (shipped 0.13.6; see the corrected recon note above). What 0.14.0 owes here
+  is the CONTENT + TUNING that lean on the reach mechanic (design A.6), NOT the rework.
 - Add the EXPLORER hull(s): high base sensors + high crew capacity + more `moduleSlots` as identity, with the
   "glass tank" frailty pole (Part B: huge shields/sensors, frail hull). Add its contrast pole. Wire into
   `SHIP_TYPES` (spec `"explorer"`, already valid) + the explorer complement band (already in commandStructure).
-- SAVE bump likely (reach fields). Gate + parity tests.
+- Archetype POWER-GRID / mass-budget tuning (Part B.4 / A.3): reach trades against weapons/shields/cargo/
+  sensors through the shared power+mass budget, so a distance-tuned hull sacrifices elsewhere. First-pass
+  `fuelCapacity` / `engineEfficiency` / `transitSpeedMult` per hull archetype (the fuel stats are already
+  flagged FIRST-PASS TUNABLE in SHIP_TYPES).
+- DEUTERIUM's new role (A.4): the crafting INPUT for reach (build high-capacity drives / efficient engines /
+  reactor cores), not a tank top-off. Mining deuterium stays meaningful as a build material.
+- SAVE bump likely (new hulls). Gate + parity tests.
 
 ### Phase E1 — Sensors consumers + short/local exploration missions [idle tier, low risk]
 - First CONSUMER of the built sensors stat + `sensorArrays.ts`. Wire the scalar `sensors` power (survey %/sec,
@@ -138,11 +146,14 @@ main is the user's call with the pre-flight `git log main ^branch` check. 0.14.0
 exploration are BOTH done + QA'd (delta + full QA sheet, standing format).
 
 ## OPEN items for the user (before / during build)
-1. E0 fuel-to-reach: confirm the reach model (Part A) vs the LOCKED fuel-runway system — supersede or preserve?
-   (A short design sub-pass with the user before E0 builds.)
+1. Vestigial fuel-economy cleanup: fuel-to-reach (0.13.6) left the old tank / refinery pipelines / Fuel Depot /
+   fuel-runway projection PHYSICALLY present but inert for dispatch. Decide whether 0.14.0 removes them (A.2's
+   "net deletion of complexity") or leaves them, and repoint deuterium mining to the reach-crafting-input role
+   (A.4). NOT the blocker E0 once looked like: the rework already shipped. (The [[project_fuel_runway_measured_locked]]
+   memory predates fuel-to-reach; verify whether fuel-runway is now dead code before touching it.)
 2. E-SUS: NAME the 8 SUS item roles (blocked until then).
-3. Phase ORDERING: is E0 (fuel-to-reach) really first, or does the idle tier (E1) come first to de-risk? (Part
-   G proposed fuel-to-reach first; open to reorder.)
+3. Phase ORDERING: E0 (explorer hull + tuning) first, or the idle tier (E1) first to de-risk the mission-kind
+   plumbing? (Part G proposed the propulsion/hull work first; open to reorder.)
 4. Expedition tuning: transit lengths, scan rates, anomaly-chart odds, discovery/relic rarity curves, multi-
    body counts — all balancing-patch material; first-pass in each owning phase.
 5. Away-team gambit ruleset depth: how much gambit configurability in 0.14.0 vs deferred to the 2.0 active mode.
