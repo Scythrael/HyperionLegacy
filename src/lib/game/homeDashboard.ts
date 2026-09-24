@@ -57,7 +57,6 @@ import {
   // The stuck-at-00:00 fix (2026-09-11): the readout must resolve the SAME effective mission def
   // the engine advances against. See rowForExtraction.
   effectiveMissionDef,
-  shipDerivedStats,
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   extractionMissionOf,
@@ -101,8 +100,9 @@ import {
   // (etaTicks) that a single in-flight process cannot know on its own. See rowForProcess.
   type CraftQueueRunningRow,
 } from "./craftQueue";
-// Same reason as the model imports above: the ship's INSTALLED gear feeds shipDerivedStats.
-import { equippedFor } from "./equipment";
+// Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted derived-stats helper the engine uses (hull +
+// equipment fold with the ship's crew overlaid), so the readout and the engine agree on phase lengths.
+import { effectiveShipStats } from "./crewOverlay";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -658,14 +658,15 @@ function rowForExtraction(
   // the transit legs by transitSpeedMult, so a fast ship's real leg is SHORTER than the raw one and
   // the phase appears to end early.
   //
-  // Resolved through the SAME two calls economyTick makes before it hands shipStats to
-  // tickCaptainMission (equippedFor then shipDerivedStats), so the readout and the engine cannot
-  // form two opinions about how long a phase is. A ship-less captain keeps the raw def, which is
-  // the same "no modifier" fallback the engine uses.
+  // Resolved through the SAME crew-boosted derived stats economyTick hands tickCaptainMission
+  // (Crew 0.14.0 "CREW GOES LIVE": effectiveShipStats = equipment fold + the ship's crew overlaid),
+  // so the readout and the engine cannot form two opinions about how long a phase is. A ship-less
+  // captain keeps the raw def, the same "no modifier" fallback the engine uses. With no crew this is
+  // the pure equipment fold (byte-identical to before this phase).
   const rawMissionDef = MISSIONS[mission.missionKey];
   const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
   const missionDef = ship
-    ? effectiveMissionDef(rawMissionDef, shipDerivedStats(ship, equippedFor(state, ship.id)))
+    ? effectiveMissionDef(rawMissionDef, effectiveShipStats(state, ship))
     : rawMissionDef;
   const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);

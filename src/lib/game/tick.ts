@@ -44,7 +44,6 @@ import {
   REFINE_RECIPES,
   ITEMS,
   freshCaptainStack,
-  shipDerivedStats,
   // Equipment 0.11.0 (Task 20): the shared Standard-Issue seeder, so a ship minted by a
   // shipBuild completion or a captain-slot unlock is born fully fitted on every live slot
   // (never-empty invariant), the SAME helper freshState + the save migration use.
@@ -304,6 +303,11 @@ import { equippedFor, onMissionLock } from "./equipment";
 // 0.13.4 Phase 3: the transit-berth read model. The engine reads berths.ts so it and the
 // console can never disagree about how many berths exist, who holds one, or who is waiting.
 import { transitBerthsFree } from "./berths";
+// Crew 0.14.0 ("CREW GOES LIVE"): the crew -> ship-stat overlay (the ONE crew-boosted derived-stats
+// helper every consumer routes through, so live/offline/patrol/fuel all read identical crew-boosted
+// stats) + the per-tick crew engine (transports + auto-crew, run once per whole tick like the
+// process-line passes) + the officer mission-completion fold that feeds promotion gates.
+import { effectiveShipStats, resolveCrew, foldOfficerMissionCompletions } from "./crewOverlay";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -3403,6 +3407,14 @@ export function economyTick(
   // without ever calling it, so a patrol can end without a PatrolTickResult existing. Collecting
   // at this level is the only place that sees all four.
   const patrolEndings: { captainId: number; patrolKey: string; reason: PatrolEndReason; routes: number }[] = [];
+  // Crew 0.14.0 ("CREW GOES LIVE"): per-SHIP mission-cycle completions this call, the side-channel that
+  // feeds officer promotion gates. Same idiom as damagedShips/patrolEndings ("the captain map noticed
+  // something the caller folds in once"): each arm records how many cycles/routes THIS captain's ship
+  // completed (the closed-form cyclesCompleted/routesCompleted the mission loop already sums), keyed by
+  // ship id; after the map, foldOfficerMissionCompletions bumps missionsCompleted for the officers
+  // assigned to each such ship. Closed-form (a pure additive count) and per-tick safe (it changes no
+  // stat mid-span; promotion is a discrete player action, never auto-applied here).
+  const shipMissionCompletions = new Map<string, number>();
   // 0.13.4 Phase 3 Unit 3.2: the shared TRANSIT-BERTH budget for this whole call, threaded
   // exactly like fuelBudgetRemaining / creditsBudgetRemaining above it: computed ONCE from the
   // incoming state, then drawn down as each captain claims, so a later captain in this same map
@@ -3488,7 +3500,12 @@ export function economyTick(
         // player combatant reads real weapons + shield + hull + defenses. undefined when there is no
         // ship (defensive; a patrol always has one), which tickCaptainPatrol treats as the absent path.
         const patrolGear = patrolShip ? equippedFor(state, patrolShip.id) : undefined;
-        const patrolStats = patrolShip && patrolGear ? shipDerivedStats(patrolShip, patrolGear) : null;
+        // Crew 0.14.0 ("CREW GOES LIVE"): the patrol's fuel/range prices from the SAME crew-boosted
+        // derived stats economyTick's extraction arm uses (effectiveShipStats: hull + equipment fold
+        // with the ship's crew contribution overlaid). patrolGear is still resolved above for the
+        // COMBAT path (tickCaptainPatrol reads the installed weapons/shield); this only swaps the
+        // stat SOURCE. With no crew it equals the pure equipment fold (byte-identical).
+        const patrolStats = patrolShip && patrolGear ? effectiveShipStats(state, patrolShip) : null;
         const patrolFuelPerCycle =
           patrolShip && patrolStats
             ? fuelForRoundTrip(patrolDef.transitOutTicks, patrolDef.transitBackTicks, {
@@ -3546,6 +3563,18 @@ export function economyTick(
         // shared foldLifetimeStatsDelta seam the extraction arm uses (~110 lines below), so
         // combat loot/bounty/XP count toward lifetime totals exactly like extraction loot.
         lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, patrolResult.lifetimeStatsDelta);
+        // Crew 0.14.0 ("CREW GOES LIVE"): record this patrol's completed ROUTES against its ship so the
+        // officers aboard get missionsCompleted credit (promotion gates). routesCompleted lives in the
+        // patrol's lifetimeStatsDelta.missionsCompleted, keyed by patrolKey; sum its (single) value.
+        if (patrolShip) {
+          const routes = Object.values(patrolResult.lifetimeStatsDelta.missionsCompleted).reduce(
+            (sum, d) => sum + d.toNumber(),
+            0,
+          );
+          if (routes > 0) {
+            shipMissionCompletions.set(patrolShip.id, (shipMissionCompletions.get(patrolShip.id) ?? 0) + routes);
+          }
+        }
         return patrolResult.captain;
       }
       default:
@@ -3627,15 +3656,19 @@ export function economyTick(
     // stats HERE, at the single seam BOTH paths share (see the block comment at line
     // ~1434: live play calls economyTick per bar, offline catch-up steps economyTick in
     // tick()'s loop, one seam, both paths). equippedFor reads GameState.equipment (the
-    // fitment authority); shipDerivedStats(ship, pieces) applies the fold ONCE, before
-    // the closed-form machinery, so it is a per-cycle constant (fitment is locked mid-
-    // mission by the equipment.ts on-mission lock) and the one-big == many-small
-    // guarantee is preserved for the same reason effectiveMissionDef's constancy is. A
-    // ship-less captain keeps the pre-equipment null == "no modifier" fallback exactly.
-    // equippedFor reads the now-guaranteed equipment pool directly (Task 20 retired the
-    // interim fittedPieces guard); a ship-less captain keeps the "no modifier" fallback.
-    const pieces = ship ? equippedFor(state, ship.id) : [];
-    const shipStats = ship ? shipDerivedStats(ship, pieces) : null;
+    // fitment authority); the fold is applied ONCE here, before the closed-form machinery,
+    // so it is a per-cycle constant (fitment is locked mid-mission by the equipment.ts
+    // on-mission lock) and the one-big == many-small guarantee is preserved for the same
+    // reason effectiveMissionDef's constancy is. A ship-less captain keeps the pre-equipment
+    // null == "no modifier" fallback exactly.
+    // Crew 0.14.0 ("CREW GOES LIVE"): route through effectiveShipStats, the ONE crew-boosted
+    // derived-stats helper (hull + equipment fold, then the ship's crew contribution overlaid).
+    // It reads the ship's complement + assigned officers off THIS `state`. Crew mutates only
+    // BETWEEN ticks (resolveCrew runs once per whole tick, at the tail), and fitment is locked
+    // mid-mission, so the crew-boosted stats are ALSO a per-cycle constant here, preserving the
+    // closed-form guarantee identically. With no crew this equals the pure equipment fold, so a
+    // crew-free ship is byte-identical to before. A ship-less captain keeps the null fallback.
+    const shipStats = ship ? effectiveShipStats(state, ship) : null;
     // Mission Rework (Task 5): the fuel one round-trip cycle of THIS mission costs on
     // THIS hull. fuelNeeded reads the BASE mission's transit legs (see fuel.ts) and the
     // hull's engineEfficiency. Task 14: price it from the EQUIPMENT-FOLDED
@@ -3715,6 +3748,15 @@ export function economyTick(
     // identical by construction. Same per-captain side-effect shape as the
     // fleetAdminXpDelta/creditsDelta accumulation two lines above.
     lifetimeStats = foldLifetimeStatsDelta(lifetimeStats, captainLifetimeStatsDelta);
+    // Crew 0.14.0 ("CREW GOES LIVE"): record this mission's completed CYCLES against its ship so the
+    // officers aboard get missionsCompleted credit (promotion gates). cyclesCompleted lives in this
+    // captain's lifetimeStatsDelta.missionsCompleted[missionKey] (a Decimal; absent when 0).
+    if (ship) {
+      const cyc = captainLifetimeStatsDelta.missionsCompleted[missionKey];
+      if (cyc && cyc.gt(0)) {
+        shipMissionCompletions.set(ship.id, (shipMissionCompletions.get(ship.id) ?? 0) + cyc.toNumber());
+      }
+    }
     return updated;
   });
 
@@ -3834,6 +3876,10 @@ export function economyTick(
           )
         : state.ships,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
+    // Crew 0.14.0 ("CREW GOES LIVE"): credit each assigned officer with the mission cycles/routes its
+    // ship completed this call, feeding the promotion gates. A same-reference no-op when nothing
+    // completed or no officer sits a completing ship, so a save with no officers is byte-identical.
+    officers: foldOfficerMissionCompletions(state.officers, shipMissionCompletions),
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
     // applyFleetAdminXp's level-up loop below), credits has no leveling
     // curve to resolve, so the accumulated creditsDelta is applied directly
@@ -3993,7 +4039,22 @@ export function economyTick(
   // the FA pass. A same-value no-op when no producing job completed (delta 0, no backlog).
   // Living at the SAME per-tick seam as the FA fold is what keeps crafting XP identical live
   // (App.svelte per bar) and offline (tick() steps economyTick(_,1) per tick).
-  return applyCraftingXp(postFleetAdminXpState, processCraftingXpDelta);
+  const finalState = applyCraftingXp(postFleetAdminXpState, processCraftingXpDelta);
+
+  // Crew 0.14.0 ("CREW GOES LIVE"): the per-tick crew engine, run ONCE per whole tick at this single
+  // seam, exactly like promoteQueuedOrders / the process-line passes above. It (1) delivers due crew
+  // transports into the pool (a gameTimeSeconds window accumulator, so one big offline catch-up
+  // delivers the exact backlog the equivalent live ticks would) and (2) auto-crews PASSIVE ships from
+  // the pool within the command-structure caps (RNG-free, deterministic). Because tick() steps
+  // economyTick(_,1) per whole tick and App.svelte calls economyTick(_,1) per bar, offline catch-up and
+  // live play stay identical BY CONSTRUCTION. It draws NO rng (its transport generator has its own
+  // seeded PRNG), so it cannot perturb the economy's seeded loot stream, and it is a same-reference
+  // no-op when no transport window is due and the pool is empty (the universal crew-free case), so a
+  // save with no crew activity is byte-identical to before this phase. Placed AFTER the mission loop +
+  // process passes on purpose: crew delivered/assigned THIS tick affects the NEXT tick's stats (the
+  // same "promoted this tick, runs next tick" cadence promoteQueuedOrders uses), which keeps the crew
+  // stats a per-cycle constant within the mission loop and preserves parity.
+  return resolveCrew(finalState);
 }
 
 // Offline catch-up entry point, tech spec §2 (Tick Loop and Time Semantics).
@@ -4236,11 +4297,14 @@ export function canDispatch(
   if (ship.damaged) return { ok: false, reason: "needsRepair" };
   const shipDef = SHIP_TYPES[ship.typeKey];
   // Equipment 0.11.0 (Task 13/14): the EQUIPMENT-FOLDED derived stats for this hull,
-  // resolved from the SAME seam economyTick uses (equippedFor + shipDerivedStats), so
-  // the dispatch gate prices fuel and range on the very numbers the mission loop will
-  // burn against. With no gear fitted the fold is an identity, so pre-equipment dispatch
-  // behavior is byte-identical.
-  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  // resolved from the SAME seam economyTick uses, so the dispatch gate prices fuel and range
+  // on the very numbers the mission loop will burn against. With no gear fitted the fold is an
+  // identity, so pre-equipment dispatch behavior is byte-identical.
+  // Crew 0.14.0 ("CREW GOES LIVE"): effectiveShipStats folds the ship's crew contribution on top
+  // of that equipment fold, so the dispatch gate and the mission loop agree on the crew-boosted
+  // cargo/range/etc. (a crew that lifts range must not have the gate still block on the un-boosted
+  // number). With no crew this equals the pure equipment fold.
+  const stats = effectiveShipStats(state, ship);
 
   // --- Hull-capability gate (Task 7): the ship's cargoCapacity must meet
   // requiresCargoCapacity. Task 13: read the EQUIPMENT-FOLDED cargoCapacity so a fitted
@@ -4697,7 +4761,10 @@ export function canDispatchPatrol(
   // using the EQUIPMENT-FOLDED engineEfficiency (overlaid on the static ShipTypeDef, as
   // canDispatch does), so the dispatch estimate matches the loop's per-cycle burn. With no
   // gear fitted the fold is an identity. The folded fuelCapacity gates RANGE.
-  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  // Crew 0.14.0 ("CREW GOES LIVE"): effectiveShipStats folds crew on top (same as canDispatch +
+  // the patrol arm in economyTick), so the range gate reads the crew-boosted numbers the patrol
+  // loop actually burns against. With no crew it equals the pure equipment fold.
+  const stats = effectiveShipStats(state, ship);
   const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
     ...shipDef,
     engineEfficiency: stats.engineEfficiency,
@@ -9777,7 +9844,9 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
       const def = PATROLS[captain.mission.patrolKey];
       const routeTicks = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
       if (routeTicks <= 0) return sum;
-      const foldedEff = shipDerivedStats(ship, equippedFor(state, ship.id)).engineEfficiency;
+      // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted engineEfficiency the patrol arm burns
+      // (effectiveShipStats), so the top-bar burn estimate matches the real spend. No crew == pure fold.
+      const foldedEff = effectiveShipStats(state, ship).engineEfficiency;
       return (
         sum +
         fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
@@ -9802,7 +9871,10 @@ export function fuelFlowSummary(state: GameState): FuelFlowSummary {
     // it) AND the cycle LENGTH (folded transitSpeedMult) must be the folded figures, or a geared
     // ship's top-bar burn/net reads "sufficient" while the engine actually drains the tank faster.
     // Display-only: the EMA runway is measured separately and is unaffected.
-    const folded = shipDerivedStats(ship, equippedFor(state, ship.id));
+    // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted stats the extraction arm burns
+    // (effectiveShipStats), so both the per-cycle fuel COST and the cycle LENGTH match the engine.
+    // No crew == the pure equipment fold (byte-identical).
+    const folded = effectiveShipStats(state, ship);
     const cycleTicks = missionCycleTicks(baseMission, folded);
     if (cycleTicks <= 0) return sum;
     return (

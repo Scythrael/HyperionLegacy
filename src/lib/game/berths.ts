@@ -66,19 +66,21 @@ import {
   MISSIONS,
   effectiveMissionDef,
   requiredTicksForPhase,
-  shipDerivedStats,
   type GameState,
   type CaptainState,
   type MissionKey,
 } from "./model";
 // ⚠️ ONE EXTRA IMPORT BEYOND model.ts, AND IT IS DELIBERATE. isAwaitingBerth has to ask the
 // SAME question the engine asks ("has transitBack banked at its requirement?"), and the
-// requirement depends on the ship's INSTALLED gear through effectiveMissionDef, which takes
-// derived stats rather than the raw hull. Deriving it from the bare hull instead would make
-// this file disagree with tick.ts for any ship carrying an engine module, which is precisely
-// the two-definitions drift this file's header exists to prevent. equipment.ts imports only
-// model.ts and reservation.ts, so there is no cycle.
-import { equippedFor } from "./equipment";
+// requirement depends on the ship's INSTALLED gear AND its CREW through effectiveMissionDef,
+// which takes derived stats rather than the raw hull. Deriving it from the bare hull instead
+// would make this file disagree with tick.ts for any ship carrying an engine module or a crew,
+// which is precisely the two-definitions drift this file's header exists to prevent.
+// Crew 0.14.0 ("CREW GOES LIVE"): effectiveShipStats is the SAME crew-boosted derived-stats helper
+// economyTick uses (hull + equipment fold with the ship's crew overlaid), so the banked-leg check
+// tracks any crew transit boost too. crewOverlay.ts imports only model/equipment/crew leaves, so
+// there is no cycle.
+import { effectiveShipStats } from "./crewOverlay";
 
 // How many transit berths the fleet has RIGHT NOW.
 //
@@ -143,7 +145,7 @@ export function isAwaitingBerth(state: GameState, captain: CaptainState): boolea
   if (rawDef === undefined) return false;
   // The SAME resolution tickCaptainMission performs before it compares progress to the
   // requirement, so the two cannot disagree about when a leg is finished.
-  const def = effectiveMissionDef(rawDef, shipDerivedStats(ship, equippedFor(state, ship.id)));
+  const def = effectiveMissionDef(rawDef, effectiveShipStats(state, ship));
   return mission.phaseProgressTicks >= requiredTicksForPhase("transitBack", def);
 }
 

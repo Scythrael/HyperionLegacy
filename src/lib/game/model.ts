@@ -1951,6 +1951,13 @@ export interface ShipDerivedStats {
   mass: number;             // total equipped mass (0 for a bare hull); drives the Mass penalty below
   powerOutput: number;      // reactor Power Output from fitted gear (0 with no reactor fitted)
   powerDraw: number;        // total Power Draw of fitted gear (0 with no gear); must fit powerOutput in 0.12.0
+  // Crew 0.14.0 (crew goes live): a >1 multiplier that SPEEDS homeworld unload, folded on TOP of
+  // shipDerivedStats by the crew overlay (crewOverlay.ts applyCrewOverlay / effectiveShipStats)
+  // from a ship's crew "unloadSpeed" contribution. shipDerivedStats itself NEVER sets it (it stays
+  // pure + crew-free), so a bare shipDerivedStats() call leaves it undefined, which effectiveMissionDef
+  // reads as the neutral 1 (byte-identical unload timing). ⚠️ OPTIONAL on purpose: adding it must not
+  // force every existing ShipDerivedStats literal/toEqual fixture to carry it.
+  unloadSpeedMult?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -2216,11 +2223,21 @@ export function shipDerivedStats(
 // extractionRatePerTick is 1 for today's missions, any integer ship cargo still
 // divides evenly, no partial-final-tick path is introduced.
 export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): MissionDef {
+  // Crew 0.14.0 (crew goes live): the ship's crew OPERATIONS/"unloadSpeed" contribution (folded onto
+  // ShipDerivedStats.unloadSpeedMult by the crew overlay; undefined for a bare shipDerivedStats() call)
+  // SPEEDS homeworld unload by dividing unloadTicks by the multiplier, clamped to a 1-tick floor.
+  // With NO crew, unloadSpeedMult is undefined -> exactly 1, so this branch keeps base.unloadTicks
+  // BYTE-IDENTICAL (no ceil/floor rounding applied at all), which is what keeps every crew-free
+  // fixture unchanged. ⚠️ THIS IS THE ONLY unloadTicks scaling here: the separate "unloadTicks scales
+  // by cargoCapacity" balance change is a LATER phase and is deliberately NOT applied in this phase.
+  const unloadMult = ship.unloadSpeedMult ?? 1;
+  const unloadTicks = unloadMult === 1 ? base.unloadTicks : Math.max(1, Math.ceil(base.unloadTicks / unloadMult));
   return {
     ...base,
     transitOutTicks: Math.ceil(base.transitOutTicks / ship.transitSpeedMult),
     transitBackTicks: Math.ceil(base.transitBackTicks / ship.transitSpeedMult),
     cargoCapacity: ship.cargoCapacity,
+    unloadTicks,
   };
 }
 
