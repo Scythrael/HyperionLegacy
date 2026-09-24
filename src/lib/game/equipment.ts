@@ -124,13 +124,21 @@ const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotT
   "hullPlating",
   "droneBay",
 ]);
-// CREW_MODULE_SLOTS (Crew 0.14.0 Phase 1b): the two crew-module slots. Player-installable, ALLOW-EMPTY
-// SINGLETONS (one bridge + one quarters per hull; uninstall leaves the slot bare, no Standard-Issue
-// baseline). Kept as their own set so their allow-empty singleton posture is explicit and a future
-// crew slot is a one-line add. They are NOT never-empty (absent from ECONOMY_INSTALLABLE_SLOTS) and
-// NOT multi (absent from MULTI_SLOT_TYPES), so fitEquipment's singleton-swap path handles them and
+// CATALOG_SINGLETON_SLOTS: the slots whose per-variety EFFECT is catalog-resolved (not read off the
+// budgeted stat lines) and which are player-installable, ALLOW-EMPTY SINGLETONS (one per hull;
+// uninstall leaves the slot bare, no Standard-Issue baseline). Members:
+//   - Crew 0.14.0 (Phase 1b): bridge + quarters crew modules (effect from crewModules.ts).
+//   - 0.14.0 sensors (DORMANT): sensor arrays (effect from sensorArrays.ts; no consumer yet, but the
+//     item is installable so a player can build/hold/equip it ahead of the exploration system).
+// Kept as their own set so their allow-empty singleton posture is explicit and a future catalog slot
+// is a one-line add. They are NOT never-empty (absent from ECONOMY_INSTALLABLE_SLOTS) and NOT multi
+// (absent from MULTI_SLOT_TYPES), so fitEquipment's singleton-swap path handles them and
 // unfitEquipmentInstance leaves them empty, exactly like the (optional) drone-bay combat slot.
-const CREW_MODULE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["bridge", "quarters"]);
+const CATALOG_SINGLETON_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>([
+  "bridge",
+  "quarters",
+  "sensor",
+]);
 const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
 
 // ----------------------------------------------------------------------------
@@ -187,11 +195,12 @@ export function captainBranchToShipSpec(branch: CaptainTalentBranch): ShipSpec {
 //                        captain to satisfy it), a distinct, clearer reason than captainSpec
 export type EquipFitBlockReason =
   | "noInstance"
-  // A still-reserved/unknown slot (thrusters/sensor/propellantTanks, none generated yet) has no
-  // install support and is rejected generically. Crew 0.14.0 (Phase 1b) OPENED bridge + quarters to
-  // player install (allow-empty crew-module singletons). Combat 1.0 (Unit 1.8a) REMOVED the
-  // former "combatSlotNotInstallable" member: the three combat slots (weapon / shieldEmitters /
-  // hullPlating) are now player-installable, so that reason is no longer produced.
+  // A still-reserved/unknown slot (thrusters/propellantTanks, none generated yet) has no install
+  // support and is rejected generically. Crew 0.14.0 (Phase 1b) OPENED bridge + quarters to player
+  // install (allow-empty crew-module singletons); 0.14.0 sensors OPENED the sensor slot (an
+  // allow-empty singleton array, installable though its exploration consumer is dormant). Combat 1.0
+  // (Unit 1.8a) REMOVED the former "combatSlotNotInstallable" member: the three combat slots (weapon /
+  // shieldEmitters / hullPlating) are now player-installable, so that reason is no longer produced.
   | "slotNotInstallable"
   // Crafting 0.13.3 (Phase 2 Unit 2.1): the piece is RESERVED by a queued (later: in-flight)
   // salvage order, so installing it would hand the same instance to two consumers. Salvage is
@@ -321,17 +330,19 @@ export function canFitEquipment(
   const instance = state.equipment.find((e) => e.id === instanceId);
   if (!instance) return { ok: false, reason: "noInstance" };
 
-  // --- Installable-slot guard: the FOUR economy slots AND the three combat slots (weapon /
-  // shieldEmitters / hullPlating) are player-installable. Combat 1.0 (Unit 1.8a) OPENED the combat
-  // slots here (Unit 1.3 rejected them while only the auto-installed baseline existed). A
-  // reserved/unknown slot (bridge/quarters/etc., none generated yet) is still rejected generically.
-  // Checked early (a pure property of the piece, more fundamental than any ship/mission state) so a
-  // bad install is refused before any ship lookup. Without this, a reserved slot (no EQUIPMENT_SLOTS
-  // entry, no combat handling) would fall through to {ok:true}.
+  // --- Installable-slot guard: the FOUR economy slots, the three combat slots (weapon /
+  // shieldEmitters / hullPlating), and the catalog singleton slots (bridge / quarters crew modules +
+  // the sensor array) are player-installable. Combat 1.0 (Unit 1.8a) OPENED the combat slots here
+  // (Unit 1.3 rejected them while only the auto-installed baseline existed); Crew 0.14.0 opened
+  // bridge/quarters; 0.14.0 sensors opened the sensor slot (installable now though its exploration
+  // consumer is dormant). A still-reserved/unknown slot (thrusters / propellantTanks, none generated
+  // yet) is still rejected generically. Checked early (a pure property of the piece, more fundamental
+  // than any ship/mission state) so a bad install is refused before any ship lookup. Without this, a
+  // reserved slot (no EQUIPMENT_SLOTS entry, no combat handling) would fall through to {ok:true}.
   if (
     !ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) &&
     !COMBAT_SLOT_TYPES.has(instance.slotType) &&
-    !CREW_MODULE_SLOTS.has(instance.slotType)
+    !CATALOG_SINGLETON_SLOTS.has(instance.slotType)
   ) {
     return { ok: false, reason: "slotNotInstallable" };
   }

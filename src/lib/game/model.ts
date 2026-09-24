@@ -1221,15 +1221,19 @@ export interface EquipmentInstance {
   // reconstructs the DroneSquadron from the two. This is the DRONE analogue of weaponType. Absent
   // on every non-pod piece. Optional + additive, so no save migration.
   droneRole?: DroneRole;
-  // Crew 0.14.0 (Phase 1b): for a crafted CREW MODULE (slotType "bridge" or "quarters"), which
-  // module VARIANT it is (a QUARTERS_MODULES / BRIDGE_MODULES id, crewModules.ts). This is the
-  // module analogue of weaponType / droneRole: the slot's generic variety machinery does NOT
-  // persist which variety a piece rolled, but a module's EFFECT (division focus / capacity /
-  // officer amplification) is resolved from its variant, so the variant MUST live on the instance.
-  // Set by the generation path (generateEquipment stamps it from the rolled varietyKey for these two
-  // slots). The crew overlay reads it via crewModules.ts to resolve the module's effect, scaled by
-  // this piece's rarity/quality per the CAPACITY PRINCIPLE. Absent on every non-module piece.
-  // Optional + additive (like weaponType / droneRole / favorite), so no save migration.
+  // Crew modules AND sensor arrays: any slot whose per-variety EFFECT is catalog-resolved (rather
+  // than read off the budgeted stat lines) persists its rolled variety here.
+  //   - Crew 0.14.0 (Phase 1b): a CREW MODULE (slotType "bridge" or "quarters") stores a
+  //     QUARTERS_MODULES / BRIDGE_MODULES id (crewModules.ts); the crew overlay resolves its
+  //     effect (division focus / capacity / officer amplification) from that catalog.
+  //   - 0.14.0 sensors (DORMANT): a SENSOR ARRAY (slotType "sensor") stores a SENSOR_ARRAYS id
+  //     (sensorArrays.ts); exploration will later resolve the array's scan-behavior params from it.
+  // This is the analogue of weaponType / droneRole: the slot's generic variety machinery does NOT
+  // persist which variety a piece rolled, but the piece's real effect is resolved from its variant,
+  // so the variant MUST live on the instance. Set by the generation path (generateEquipment stamps
+  // it from the rolled varietyKey for these slots), scaled by this piece's rarity/quality per the
+  // catalog's effect scale. Absent on every other piece. Optional + additive (like weaponType /
+  // droneRole / favorite), so no save migration.
   moduleVariant?: string;
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
@@ -1646,6 +1650,40 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "quartersUtilitarian", label: "Utilitarian Quarters", statRatios: {} },
       { key: "quartersEfficient", label: "Efficient Quarters", statRatios: {} },
       { key: "quartersElite", label: "Elite Quarters", statRatios: {} },
+    ],
+  },
+  // 0.14.0 SENSORS (DORMANT): the SENSOR slot, activated from the reserved `sensor` EquipmentSlotType
+  // member. A craftable/rollable, ALLOW-EMPTY singleton (one per hull; NO Standard-Issue baseline, so
+  // deliberately absent from DEFAULT_EQUIPMENT_VARIETY and never auto-seeded, exactly like the crew-module
+  // and defensive-combat slots). It mints through the shared generation path so a sensor is a well-formed,
+  // budgeted piece of gear (physicals, durability, iLevel).
+  //
+  // ⚠️ DORMANT / NO CONSUMER THIS PATCH. Exploration (the scan/survey system that CONSUMES sensors) is not
+  // built yet, so nothing reads a fitted sensor. The signature stat is `sensors`, which (like
+  // materialQualityChance) is LIVE vocabulary but deliberately NOT folded by equipmentStatMods (its fold
+  // switch skips it via the default case). So installing a sensor contributes to the `sensors` stat total
+  // WITHOUT changing shipDerivedStats at all: the economy fold is byte-identical, and only the future
+  // exploration consumer will react. massReduction is the one secondary affix, and because the slot's base
+  // mass is 0 (SLOT_BASE_PHYSICALS) a rolled massReduction is consumed into the piece's own (0-floored)
+  // mass by generateEquipment and removed from rolledStats, so it too folds to nothing.
+  //
+  // The three varieties are the SCANNING ARRAYS (design I.2): WIDE-beam / FOCUSED-beam / BALANCED. Each
+  // variety `key` IS a SENSOR_ARRAYS catalog id (sensorArrays.ts); the generation path stamps it onto the
+  // instance as moduleVariant, exactly like a crew module, and exploration will later resolve the array's
+  // scan-behavior params from the catalog. statRatios are empty because an array's per-variety behavior is
+  // catalog-driven, not budget-biased (the scalar sensor ROLES ride the `sensors` power stat instead).
+  sensor: {
+    slotType: "sensor",
+    label: "Sensor Array",
+    implicitStats: ["sensors"],
+    affixPool: [
+      { stat: "sensors", weight: 5 },     // signature affix: most likely to roll
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      { key: "sensorWideBeam", label: "Wide-Beam Array", statRatios: {} },
+      { key: "sensorFocusedBeam", label: "Focused-Beam Array", statRatios: {} },
+      { key: "sensorBalanced", label: "Balanced Array", statRatios: {} },
     ],
   },
 };
@@ -6587,7 +6625,7 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // of this file). itemgen.ts re-exports it, so generateEquipment and itemgen.test.ts are
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
-  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters",
+  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters" | "sensor",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
@@ -6603,6 +6641,14 @@ export const SLOT_BASE_PHYSICALS: Record<
   // this patch, does not feed shipDerivedStats). FIRST-PASS TUNABLE.
   bridge: { mass: 0, powerDraw: 0, durability: 110 },
   quarters: { mass: 0, powerDraw: 0, durability: 110 },
+  // 0.14.0 SENSORS (DORMANT): base physicals for the sensor slot. mass 0 + powerDraw 0 by deliberate
+  // design (ECONOMY-NEUTRAL, same rationale as the crew modules): in this dormant patch a sensor item
+  // must not stealth-drag transit speed / fuel through the equipment mass fold, nor draw against the
+  // reactor budget, so even a crafted sensor folds to ZERO in shipDerivedStats (its `sensors` line is
+  // unfolded, mass 0 drags nothing). Real sensor power-draw / reactor-allocation is an EXPLORATION +
+  // balance follow-on, tuned when the consumer lands, NOT here. durability is a sensible reserved base
+  // (never lost this patch, does not feed shipDerivedStats). FIRST-PASS TUNABLE.
+  sensor: { mass: 0, powerDraw: 0, durability: 100 },
   // Combat 1.0 (Unit 1.1): base physicals for the two defensive combat slots. A shield emitter
   // draws real power (an active deflector); hull plating is heavy + passive (0 draw) with the
   // highest base durability (it is armor). FIRST-PASS TUNABLE. Read only when a combat piece is

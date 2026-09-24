@@ -1691,9 +1691,9 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     "crewEfficiency",
   ]);
 
-  it("holds the four economy slots, the two Combat 1.0 defensive slots, and the two crew-module slots", () => {
+  it("holds the four economy slots, the two Combat 1.0 defensive slots, the two crew-module slots, and the sensor slot", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters"].sort(),
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters", "sensor"].sort(),
     );
   });
 
@@ -1701,8 +1701,9 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     for (const [key, slot] of Object.entries(EQUIPMENT_SLOTS)) {
       // The table key and the slotType field must agree (no copy-paste drift).
       expect(slot.slotType).toBe(key);
-      // Per-slot variety count: 3 for every gear slot, but the quarters crew-module slot carries the
-      // 9 crew-quarters variants (6 division-focused + 3 general, Crew 0.14.0 Phase 1b).
+      // Per-slot variety count: 3 for every gear slot (including the 3 sensor scanning arrays, 0.14.0),
+      // but the quarters crew-module slot carries the 9 crew-quarters variants (6 division-focused +
+      // 3 general, Crew 0.14.0 Phase 1b).
       expect(slot.varieties.length).toBe(key === "quarters" ? 9 : 3);
       // Both stat lists must be present (a slot with no signature or no roll pool
       // is a data error, not a valid launch state).

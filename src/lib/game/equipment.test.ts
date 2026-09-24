@@ -317,10 +317,12 @@ describe("canFitEquipment opens the combat slots (Combat 1.0, Unit 1.8a)", () =>
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "slotNotInstallable" });
   });
 
-  // Crew 0.14.0 (Phase 1b): the two crew-module slots are now player-installable, allow-empty
-  // singletons. A spare bridge/quarters module fits any hull (no equipRequirement gate).
-  for (const slotType of ["bridge", "quarters"] as const) {
-    it(`ALLOWS a spare crew-module ${slotType} piece on any hull`, () => {
+  // Crew 0.14.0 (Phase 1b) + 0.14.0 sensors: the two crew-module slots AND the sensor slot are now
+  // player-installable, allow-empty singletons. A spare bridge/quarters module or sensor array fits
+  // any hull (no equipRequirement gate). (The sensor is installable though its exploration consumer
+  // is dormant.)
+  for (const slotType of ["bridge", "quarters", "sensor"] as const) {
+    it(`ALLOWS a spare catalog-singleton ${slotType} piece on any hull`, () => {
       const piece = makeEquip({ id: "equip-1", slotType: slotType as EquipmentSlotType, fittedToShipId: null });
       const state = withEquipment(freshState(), piece);
       expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });

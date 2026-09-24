@@ -444,13 +444,16 @@ export function generateEquipment(a: {
     durability: durabilityMax, // fresh piece starts at full durability
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
   };
-  // Crew 0.14.0 (Phase 1b): a CREW MODULE (bridge / quarters slot) persists WHICH module variant it
-  // rolled, so the crew overlay can resolve its catalog effect. The generic variety machinery does
-  // not store the variety, so stamp it here from the rolled varietyKey (which IS a QUARTERS_MODULES /
-  // BRIDGE_MODULES id for these slots). Absent on every other slot (module analogue of weaponType /
-  // droneRole). Full Fabricator-blueprint + salvage-precursor sourcing for modules is a LATER
-  // follow-on; today a module mints through this same shared generation path.
-  if (a.slotType === "bridge" || a.slotType === "quarters") {
+  // A slot whose per-variety EFFECT is catalog-resolved persists WHICH variety it rolled, so the
+  // consumer can look the effect up (the generic variety machinery does not store the variety).
+  //   - Crew 0.14.0 (Phase 1b): a CREW MODULE (bridge / quarters) stores a QUARTERS_MODULES /
+  //     BRIDGE_MODULES id; the crew overlay resolves its effect from crewModules.ts.
+  //   - 0.14.0 sensors (DORMANT): a SENSOR ARRAY (sensor) stores a SENSOR_ARRAYS id; exploration
+  //     will later resolve the array's scan-behavior params from sensorArrays.ts.
+  // The rolled varietyKey IS the catalog id for these slots. Absent on every other slot (analogue of
+  // weaponType / droneRole). Full Fabricator-blueprint + salvage-precursor sourcing is a LATER
+  // follow-on; today these mint through this same shared generation path.
+  if (a.slotType === "bridge" || a.slotType === "quarters" || a.slotType === "sensor") {
     piece.moduleVariant = a.varietyKey;
   }
   return piece;
