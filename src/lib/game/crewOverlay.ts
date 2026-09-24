@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer } from "./model";
+import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -36,6 +36,14 @@ import { officerRacialBonus } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { crewTransportsDue, deliverDueTransports } from "./transports";
 import { autoCrewShip } from "./autoCrew";
+import {
+  installedQuartersModule,
+  installedBridgeModule,
+  quartersProfessionMultiplier,
+  bridgeOfficerMultiplier,
+  quartersCapacityBonus,
+  hullSpecOf,
+} from "./crewModules";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -132,16 +140,42 @@ export function shipCrewContribution(state: GameState, ship: ShipInstance): Reco
     out[key] = (out[key] ?? 0) + value;
   };
 
-  // --- Complement: the bucket rollup is already keyed by the crew.* vocabulary.
+  // --- Crew MODULES (Phase 1b): the installed quarters/bridge modules AMPLIFY the crew stack. Both
+  // are null for the universal no-module case, which is what keeps this function byte-identical to the
+  // pre-module path: quartersMod null -> the rollup uses the SAME contributionForSignature reference
+  // (identical iteration + accumulation order, so no float drift), and bridgeMod null -> the officer
+  // multiplier is exactly 1 (x * 1 === x). A module's effect scales with its own rarity/quality
+  // (crewModules.ts), per the capacity principle (capacity handled separately in resolveCrew).
+  const quartersMod = installedQuartersModule(state, ship);
+  const bridgeMod = installedBridgeModule(state, ship);
+
+  // --- Complement: the bucket rollup is already keyed by the crew.* vocabulary. A quarters module
+  // scales each bucket's contribution by its division's effectiveness multiplier (division-focused
+  // boosts its own division at the others' cost; general boosts every division uniformly). With NO
+  // module we pass contributionForSignature UNCHANGED, so the rollup is byte-identical to before.
   const complement = ship.complement;
   if (complement && complement.buckets.length > 0) {
-    const rollup = rollupBuckets(complement.buckets, contributionForSignature);
+    const contrib = quartersMod
+      ? (sig: CrewSignature): Record<string, number> => {
+          const mult = quartersProfessionMultiplier(quartersMod, sig.profession);
+          const base = contributionForSignature(sig);
+          if (mult === 1) return base; // no change for this division: keep the base map
+          const scaled: Record<string, number> = {};
+          for (const k of Object.keys(base)) scaled[k] = base[k] * mult;
+          return scaled;
+        }
+      : contributionForSignature;
+    const rollup = rollupBuckets(complement.buckets, contrib);
     for (const key of Object.keys(rollup)) add(key, rollup[key]);
   }
 
   // --- Senior Staff officers assigned to THIS ship (assignedShipId is the assignment authority).
+  const hullSpec = hullSpecOf(ship);
   for (const officer of state.officers) {
     if (officer.assignedShipId !== ship.id) continue;
+    // A BRIDGE module amplifies this officer's whole output (both bonuses + the racial). 1 with no
+    // bridge module, so the multiply is a no-op and the pre-module numbers are preserved exactly.
+    const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
     // Each of the two rolled bonuses. ⚠️ officer.bonuses[i].magnitude is ALREADY rank-scaled: the
     // generator/promotion bake officerRankMagnitudeFactor(rank) into the stored magnitude (seniorStaff.ts
     // rollCandidate/strengthenBonus), so it is used AS-IS here. Re-multiplying by the rank factor would
@@ -152,11 +186,11 @@ export function shipCrewContribution(state: GameState, ship: ShipInstance): Reco
       if (!def) continue; // unknown id contributes nothing (defensive; content is closed today)
       const crewKey = OFFICER_STATKEY_TO_CREW[def.statKey];
       if (!crewKey) continue; // no crew.* consumer yet -> dormant
-      add(crewKey, bonus.magnitude);
+      add(crewKey, bonus.magnitude * officerMult);
     }
     // The officer's strong racial (crew.* keyed already, seniorStaff magnitude).
     const racial = officerRacialBonus(officer);
-    add(racial.statKey, racial.magnitude);
+    add(racial.statKey, racial.magnitude * officerMult);
   }
 
   return out;
@@ -241,7 +275,11 @@ export function resolveCrew(state: GameState): GameState {
     const mode = ship.complement?.mode ?? "passive";
     if (mode !== "passive") return ship; // active mode: player-curated, untouched this phase
     const before = totalCrew(ship.complement?.buckets ?? []);
-    const staffed = autoCrewShip(pool, ship.typeKey, ship.complement);
+    // Phase 1b: a quarters module raises the hull's LOCKED base cap by its capacity bonus (fixed for
+    // every module except Efficient, which scales with rarity/quality). autoCrewShip already threads
+    // bonusCapacity through complementTotalCap / remainingCapacityForSignature, so passing it here is
+    // all the auto-crew filler needs to fill the extra berths. 0 with no module (byte-identical fill).
+    const staffed = autoCrewShip(pool, ship.typeKey, ship.complement, quartersCapacityBonus(state, ship));
     pool = staffed.pool;
     // autoCrewShip only ADDS crew, so a rise in headcount is the exact "crew moved in" signal. When
     // nothing moved, keep the original ship reference (avoids needless ref churn every tick).

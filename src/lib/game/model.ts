@@ -1221,6 +1221,16 @@ export interface EquipmentInstance {
   // reconstructs the DroneSquadron from the two. This is the DRONE analogue of weaponType. Absent
   // on every non-pod piece. Optional + additive, so no save migration.
   droneRole?: DroneRole;
+  // Crew 0.14.0 (Phase 1b): for a crafted CREW MODULE (slotType "bridge" or "quarters"), which
+  // module VARIANT it is (a QUARTERS_MODULES / BRIDGE_MODULES id, crewModules.ts). This is the
+  // module analogue of weaponType / droneRole: the slot's generic variety machinery does NOT
+  // persist which variety a piece rolled, but a module's EFFECT (division focus / capacity /
+  // officer amplification) is resolved from its variant, so the variant MUST live on the instance.
+  // Set by the generation path (generateEquipment stamps it from the rolled varietyKey for these two
+  // slots). The crew overlay reads it via crewModules.ts to resolve the module's effect, scaled by
+  // this piece's rarity/quality per the CAPACITY PRINCIPLE. Absent on every non-module piece.
+  // Optional + additive (like weaponType / droneRole / favorite), so no save migration.
+  moduleVariant?: string;
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
   quality: number;                        // 0..5 quality rung within the rarity band
@@ -1577,6 +1587,67 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "compositePlating", label: "Composite Plating", statRatios: { hullStrength: 0.4, ablativeArmor: 0.3, kineticDampening: 0.3 } },
     ],
   },
+  // CREW 0.14.0 (Phase 1b): the two CREW-MODULE slots, activated from the reserved bridge/quarters
+  // EquipmentSlotType members. These are craftable/rollable, ALLOW-EMPTY singletons (one bridge +
+  // one quarters per hull; NO Standard-Issue baseline, so they are deliberately absent from
+  // DEFAULT_EQUIPMENT_VARIETY and never auto-seeded, exactly like the two defensive combat slots).
+  //
+  // ⚠️ THE MODULE'S CREW EFFECT DOES NOT LIVE IN THESE STAT LINES. A module amplifies the crew stack
+  // (quarters -> complement capacity + division/per-head effectiveness; bridge -> Senior Staff officer
+  // output), and that effect is resolved from the QUARTERS_MODULES / BRIDGE_MODULES catalogs
+  // (crewModules.ts) keyed by the piece's persisted `moduleVariant`, SCALED by rarity/quality per the
+  // CAPACITY PRINCIPLE (only the Efficient quarters module scales its CAPACITY; every other module's
+  // capacity is fixed). The crew overlay reads the catalog, NEVER these budget-derived lines, because a
+  // budget line scales with rarity/quality for ALL modules, which would both double-count and violate
+  // the capacity principle. The implicitStats / affixPool below exist only so a module is a well-formed,
+  // budgeted piece of gear (physicals, durability, iLevel) that mints through the shared generation
+  // path; crewStations / crewEfficiency are the honest signature keys for these slots (both are in
+  // LIVE_STAT_KEYS but, like sensors / materialQualityChance, are NOT folded by equipmentStatMods, so
+  // installing a module leaves shipDerivedStats byte-identical and only the crew overlay reacts). Each
+  // variety's `key` IS a module-catalog id (the generation path stamps it onto the instance as
+  // moduleVariant); statRatios are empty because a module's power is catalog-driven, not budget-biased.
+  //
+  // BRIDGE = the Senior Staff amplifier. 3 first-pass variants (Balanced / Focused / Flag Command).
+  bridge: {
+    slotType: "bridge",
+    label: "Bridge Module",
+    implicitStats: ["crewEfficiency"],
+    affixPool: [
+      { stat: "crewEfficiency", weight: 5 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      { key: "bridgeBalancedCommand", label: "Balanced Command", statRatios: {} },
+      { key: "bridgeFocusedCommand", label: "Focused Command", statRatios: {} },
+      { key: "bridgeFlagCommand", label: "Flag Command", statRatios: {} },
+    ],
+  },
+  // QUARTERS = the Complement amplifier + capacity. 9 variants: 6 DIVISION-focused (one per
+  // complement profession) + 3 GENERAL (Utilitarian / Efficient / Elite). crewStations (crew
+  // capacity) is the signature; crewEfficiency (per-head comfort) is a secondary affix.
+  quarters: {
+    slotType: "quarters",
+    label: "Crew Quarters Module",
+    implicitStats: ["crewStations"],
+    affixPool: [
+      { stat: "crewStations", weight: 5 },
+      { stat: "crewEfficiency", weight: 2 },
+      { stat: "massReduction", weight: 1 },
+    ],
+    varieties: [
+      // 6 DIVISION-focused (variety key == QUARTERS_MODULES id).
+      { key: "quartersSecurityWing", label: "Security Quarters", statRatios: {} },
+      { key: "quartersEngineeringWing", label: "Engineering Quarters", statRatios: {} },
+      { key: "quartersScienceWing", label: "Science Quarters", statRatios: {} },
+      { key: "quartersMedicalWing", label: "Medical Quarters", statRatios: {} },
+      { key: "quartersOperationsWing", label: "Operations Quarters", statRatios: {} },
+      { key: "quartersFlightDeckWing", label: "Flight-Deck Quarters", statRatios: {} },
+      // 3 GENERAL.
+      { key: "quartersUtilitarian", label: "Utilitarian Quarters", statRatios: {} },
+      { key: "quartersEfficient", label: "Efficient Quarters", statRatios: {} },
+      { key: "quartersElite", label: "Elite Quarters", statRatios: {} },
+    ],
+  },
 };
 
 // ============================================================================
@@ -1620,6 +1691,16 @@ export const LIVE_STAT_KEYS = [
   "hullStrength",
   "ablativeArmor",
   "kineticDampening",
+  // Crew 0.14.0 (Phase 1b): the two CREW-MODULE signature keys, activated from the reserved
+  // vocabulary when the bridge + quarters slots were defined. crewStations (quarters signature =
+  // crew capacity) + crewEfficiency (quarters affix + bridge signature = crew comfort / officer
+  // output). LIVE means "a slot references them" (the drift guard fences that); like
+  // sensors / materialQualityChance they are NOT folded by equipmentStatMods, because a crew
+  // module's real effect is catalog-driven (crewModules.ts), scaled per the capacity principle,
+  // not read off these budget lines. Installing a module therefore leaves shipDerivedStats
+  // byte-identical; only the crew overlay reacts.
+  "crewStations",
+  "crewEfficiency",
 ] as const;
 
 // RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
@@ -1631,10 +1712,11 @@ export const LIVE_STAT_KEYS = [
 // enumeration, not the grouping.
 export const RESERVED_STAT_KEYS = [
   // Logistics / crew / sensor:
+  // (crewStations + crewEfficiency MOVED to LIVE_STAT_KEYS in Crew 0.14.0 Phase 1b when the bridge +
+  // quarters crew-module slots were activated, exactly as the six defensive gear stats moved to LIVE
+  // in Combat 1.0 Unit 1.1.)
   "colonistCapacity",
   "droneCapacity",
-  "crewStations",
-  "crewEfficiency",
   "shortRangeSensors",
   "longRangeSensors",
   "sensorEfficiency",
@@ -6505,13 +6587,22 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // of this file). itemgen.ts re-exports it, so generateEquipment and itemgen.test.ts are
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
-  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating",
+  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
   ftlDrive: { mass: 8, powerDraw: 4, durability: 100 },
   reactorCore: { mass: 12, powerDraw: 1, durability: 120 },
   specUtility: { mass: 6, powerDraw: 2, durability: 90 },
+  // Crew 0.14.0 (Phase 1b): base physicals for the two crew-module slots. mass 0 + powerDraw 0 by
+  // deliberate design (ECONOMY-NEUTRAL, mirroring the Standard-Issue / combat-baseline posture):
+  // a crew module amplifies the CREW stack, it must not stealth-drag transit speed / fuel through
+  // the equipment mass fold or draw against the reactor budget. So even a crafted module folds to
+  // ZERO in shipDerivedStats (its crewStations / crewEfficiency lines are unfolded, mass 0 drags
+  // nothing), and ONLY the crew overlay reacts. durability is a sensible reserved base (never lost
+  // this patch, does not feed shipDerivedStats). FIRST-PASS TUNABLE.
+  bridge: { mass: 0, powerDraw: 0, durability: 110 },
+  quarters: { mass: 0, powerDraw: 0, durability: 110 },
   // Combat 1.0 (Unit 1.1): base physicals for the two defensive combat slots. A shield emitter
   // draws real power (an active deflector); hull plating is heavy + passive (0 draw) with the
   // highest base durability (it is armor). FIRST-PASS TUNABLE. Read only when a combat piece is

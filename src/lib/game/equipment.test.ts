@@ -311,11 +311,21 @@ describe("canFitEquipment opens the combat slots (Combat 1.0, Unit 1.8a)", () =>
     });
   }
 
-  it("rejects a reserved/unknown slot (bridge) with slotNotInstallable", () => {
-    const piece = makeEquip({ id: "equip-1", slotType: "bridge" as EquipmentSlotType, fittedToShipId: null });
+  it("rejects a still-reserved/unknown slot (thrusters) with slotNotInstallable", () => {
+    const piece = makeEquip({ id: "equip-1", slotType: "thrusters" as EquipmentSlotType, fittedToShipId: null });
     const state = withEquipment(freshState(), piece);
     expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: false, reason: "slotNotInstallable" });
   });
+
+  // Crew 0.14.0 (Phase 1b): the two crew-module slots are now player-installable, allow-empty
+  // singletons. A spare bridge/quarters module fits any hull (no equipRequirement gate).
+  for (const slotType of ["bridge", "quarters"] as const) {
+    it(`ALLOWS a spare crew-module ${slotType} piece on any hull`, () => {
+      const piece = makeEquip({ id: "equip-1", slotType: slotType as EquipmentSlotType, fittedToShipId: null });
+      const state = withEquipment(freshState(), piece);
+      expect(canFitEquipment(state, "ship-1", "equip-1")).toEqual({ ok: true });
+    });
+  }
 
   // 0.13.6 (item lifecycle): a piece COMMITTED to an Armory loadout is not a free spare and cannot
   // be hand-installed on a ship (it would end up fitted AND committed, which checkout/checkin would

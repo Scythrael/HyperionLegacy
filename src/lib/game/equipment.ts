@@ -124,6 +124,13 @@ const COMBAT_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotT
   "hullPlating",
   "droneBay",
 ]);
+// CREW_MODULE_SLOTS (Crew 0.14.0 Phase 1b): the two crew-module slots. Player-installable, ALLOW-EMPTY
+// SINGLETONS (one bridge + one quarters per hull; uninstall leaves the slot bare, no Standard-Issue
+// baseline). Kept as their own set so their allow-empty singleton posture is explicit and a future
+// crew slot is a one-line add. They are NOT never-empty (absent from ECONOMY_INSTALLABLE_SLOTS) and
+// NOT multi (absent from MULTI_SLOT_TYPES), so fitEquipment's singleton-swap path handles them and
+// unfitEquipmentInstance leaves them empty, exactly like the (optional) drone-bay combat slot.
+const CREW_MODULE_SLOTS: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["bridge", "quarters"]);
 const MULTI_SLOT_TYPES: ReadonlySet<EquipmentSlotType> = new Set<EquipmentSlotType>(["weapon", "droneBay"]);
 
 // ----------------------------------------------------------------------------
@@ -180,8 +187,9 @@ export function captainBranchToShipSpec(branch: CaptainTalentBranch): ShipSpec {
 //                        captain to satisfy it), a distinct, clearer reason than captainSpec
 export type EquipFitBlockReason =
   | "noInstance"
-  // A reserved/unknown slot (bridge/quarters/thrusters/sensor/propellantTanks, none generated yet)
-  // has no install support at all and is rejected generically. Combat 1.0 (Unit 1.8a) REMOVED the
+  // A still-reserved/unknown slot (thrusters/sensor/propellantTanks, none generated yet) has no
+  // install support and is rejected generically. Crew 0.14.0 (Phase 1b) OPENED bridge + quarters to
+  // player install (allow-empty crew-module singletons). Combat 1.0 (Unit 1.8a) REMOVED the
   // former "combatSlotNotInstallable" member: the three combat slots (weapon / shieldEmitters /
   // hullPlating) are now player-installable, so that reason is no longer produced.
   | "slotNotInstallable"
@@ -320,7 +328,11 @@ export function canFitEquipment(
   // Checked early (a pure property of the piece, more fundamental than any ship/mission state) so a
   // bad install is refused before any ship lookup. Without this, a reserved slot (no EQUIPMENT_SLOTS
   // entry, no combat handling) would fall through to {ok:true}.
-  if (!ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) && !COMBAT_SLOT_TYPES.has(instance.slotType)) {
+  if (
+    !ECONOMY_INSTALLABLE_SLOTS.has(instance.slotType) &&
+    !COMBAT_SLOT_TYPES.has(instance.slotType) &&
+    !CREW_MODULE_SLOTS.has(instance.slotType)
+  ) {
     return { ok: false, reason: "slotNotInstallable" };
   }
 

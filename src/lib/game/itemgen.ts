@@ -425,7 +425,7 @@ export function generateEquipment(a: {
   const durabilityMax = Math.round(basePhysicals.durability * (1 + a.quality * QUALITY_DURABILITY_BONUS));
 
   // --- Assemble the instance -------------------------------------------------
-  return {
+  const piece: EquipmentInstance = {
     id: a.allocateId(),
     slotType: a.slotType,
     rarity: a.rarity,
@@ -444,6 +444,16 @@ export function generateEquipment(a: {
     durability: durabilityMax, // fresh piece starts at full durability
     fittedToShipId: null, // spare in the pool until a later fitting task assigns it
   };
+  // Crew 0.14.0 (Phase 1b): a CREW MODULE (bridge / quarters slot) persists WHICH module variant it
+  // rolled, so the crew overlay can resolve its catalog effect. The generic variety machinery does
+  // not store the variety, so stamp it here from the rolled varietyKey (which IS a QUARTERS_MODULES /
+  // BRIDGE_MODULES id for these slots). Absent on every other slot (module analogue of weaponType /
+  // droneRole). Full Fabricator-blueprint + salvage-precursor sourcing for modules is a LATER
+  // follow-on; today a module mints through this same shared generation path.
+  if (a.slotType === "bridge" || a.slotType === "quarters") {
+    piece.moduleVariant = a.varietyKey;
+  }
+  return piece;
 }
 
 // ============================================================================

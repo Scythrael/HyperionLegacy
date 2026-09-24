@@ -1686,20 +1686,24 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     "hullStrength",
     "ablativeArmor",
     "kineticDampening",
+    // Crew 0.14.0 (Phase 1b) crew-module keys (bridge + quarters):
+    "crewStations",
+    "crewEfficiency",
   ]);
 
-  it("holds the four economy slots plus the two Combat 1.0 defensive slots", () => {
+  it("holds the four economy slots, the two Combat 1.0 defensive slots, and the two crew-module slots", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"].sort(),
+      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters"].sort(),
     );
   });
 
-  it("every slot has exactly 3 varieties, non-empty implicit + affix stats, all in the allow-set", () => {
+  it("every slot has its expected variety count, non-empty implicit + affix stats, all in the allow-set", () => {
     for (const [key, slot] of Object.entries(EQUIPMENT_SLOTS)) {
       // The table key and the slotType field must agree (no copy-paste drift).
       expect(slot.slotType).toBe(key);
-      // Exactly three varieties per slot (the design's fixed per-slot count).
-      expect(slot.varieties).toHaveLength(3);
+      // Per-slot variety count: 3 for every gear slot, but the quarters crew-module slot carries the
+      // 9 crew-quarters variants (6 division-focused + 3 general, Crew 0.14.0 Phase 1b).
+      expect(slot.varieties.length).toBe(key === "quarters" ? 9 : 3);
       // Both stat lists must be present (a slot with no signature or no roll pool
       // is a data error, not a valid launch state).
       expect(slot.implicitStats.length).toBeGreaterThan(0);
@@ -2380,7 +2384,7 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     }
   });
 
-  it("LIVE_STAT_KEYS holds exactly the 16 live keys (10 economy + 6 Combat 1.0 defensive)", () => {
+  it("LIVE_STAT_KEYS holds exactly the 18 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module)", () => {
     // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
     // change (the slot table draws only from this set).
     expect([...LIVE_STAT_KEYS].sort()).toEqual(
@@ -2402,6 +2406,9 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
         "hullStrength",
         "ablativeArmor",
         "kineticDampening",
+        // Crew 0.14.0 (Phase 1b) crew-module keys (bridge + quarters):
+        "crewStations",
+        "crewEfficiency",
       ].sort(),
     );
   });
