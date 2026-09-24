@@ -1907,3 +1907,13 @@ see KNOWN_ISSUES.md for actual bugs/gaps; this file is for not-yet-scoped future
   - ✅ **INTERACTION MODEL, refined by the user (2026-09-11):** individual checkboxes AND a preset dropdown, side by side. Editing any checkbox flips the dropdown to **Custom**. Changing the dropdown raises a confirmation asking whether to overwrite the current settings with that preset; **Apply** overwrites, **Cancel** reverts the dropdown to what it was.
   - ⭐ **ONLY CONFIRM WHEN SOMETHING WOULD ACTUALLY BE LOST.** If the selector currently reads an UNMODIFIED preset, switching to another preset destroys nothing, so the dialog is pure friction and is exactly the nagging this whole feature exists to reduce. Confirm only when the current state is **Custom**, where hand-tuned settings really would be overwritten. That also keeps the dialog meaningful on the occasions it does appear, instead of training players to click through it.
   - ⚠️ **THE PRESET CONFIRM IS NOT ITSELF A MANAGED DIALOG.** It is a control-level guard on the settings screen and must not appear in the list the presets govern. Otherwise "All Off" switches off the protection on the very control that sets "All Off", which is both a recursion and a way to lose custom settings in one click.
+
+## BALANCE PASS — quality (Q1–Q5) production mechanism [confirmed with user 2026-09-24]
+Quality rungs Q1–Q5 are currently UNREACHABLE: nothing in the game (no stat, no crafting mechanism) raises a
+crafted item's quality above Q0, so every crafted/enshrined item is Q0 in practice. This is KNOWN + EXPECTED,
+not a bug (observed via the Archive reading ~13.9% with a full radiant set: rarity index 4/5 x quality 0 →
+1/6 quality factor). The Archive treats quality as a ~6x-per-item completion lever, so quality is the single
+biggest untapped completion axis. FIX OWNED BY THE BALANCE PASS (~0.16.0): wire up quality-boosting
+mechanics (crafting levels / iLevel-quality interplay / gear or facility stats that push quality). Until then
+the Archive's quality dimension stays dark by design, and a true 100% archive also awaits the legendary
+luminous/constellar rarity band (also not produced yet). Both are content/balance headroom, not defects.
