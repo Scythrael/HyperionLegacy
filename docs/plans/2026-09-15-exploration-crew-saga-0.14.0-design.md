@@ -462,6 +462,35 @@ SUGGESTIONS ("FINISH THE SPEC UTILITY (SUS) SLOT ITEM ROSTER + START MODULES"); 
   define what a module does vs a SUS item vs installed gear. Ties to the modules/equipment/reactor
   framework already baked inert into `ShipTypeDef`.
 
+### H.1 Universal modules, design [LOCKED, user 2026-09-23]
+- **What they are:** the ACCESSORY layer. In RPG terms: weapons = weapons, ship systems = armor, MODULES =
+  accessories. UNIVERSAL (fit any hull's generic `moduleSlots`; explorer/science hulls carry more as
+  identity). The build-PERSONALITY layer, not function. DISTINCT from the SUS slot (SUS = function-specialized
+  "what a hull is specialized FOR"; that roster still needs the 8 roles NAMED by the user, per the bullet
+  above).
+- **In 0.14.0 (user: "always planned for 0.14.0").** So the 0.14.0 core = crew + exploration (both types) +
+  the modules system.
+- **Categories:** Passive (always-on modifiers) · Proc (chance-triggered: on-hit / per-tick /
+  on-mission-complete; idle-friendly, auto-fires) · Conditional (strong effect gated on a state) · Active
+  (idle-safe: AUTO-cast in combat via a gambit-like rule; MANUAL activation reserved for the 2.0 active mode)
+  · Set/synergy (combo bonuses).
+- **The draw = UNIQUE OPTIONS:** modules provide special effects (especially PROCS + actives) you cannot get
+  anywhere else. That is their differentiator, NOT downsides.
+- **NO baked-in downsides on baseline modules (user, 2026-09-23):** modules are mostly upside. The
+  positive/negative tradeoff idea is SPUN OFF into a separate future system (see H.2).
+- **Sourcing = BOTH craftable AND salvage-exclusive:**
+  - Some modules are CRAFTABLE (quality/rarity/iLevel, like other gear).
+  - EXCLUSIVE modules come from a SALVAGE loop: certain salvage yields a PRECURSOR item you must REPAIR;
+    repairing it gives a CHANCE at an EXCLUSIVE module obtainable ONLY from that specific salvage precursor
+    (not craftable anywhere). Extends the existing salvage system (cf. the Damaged Reactor Housing precedent).
+    New loop: salvage -> precursor item -> repair -> chance at an exclusive module.
+
+### H.2 CHAOTIC GEAR [FUTURE idea, NOT 0.14.0 (user, 2026-09-23)]
+A separate future gameplay tweak, distinct from baseline modules: Fallout-perk-style "chaotic gear" that
+grants a BIG bonus AND a BIG debuff, both MASSIVE in magnitude, potentially gameplay-changing and
+spec-making-or-breaking. This is where the positive/negative tradeoff lives, pulled OUT of baseline modules.
+Table for a future release; brainstorm depth later.
+
 ---
 
 ## Part I — Exploration expeditions + mission taxonomy (user brainstorm, 2026-09-23) [DESIGN CAPTURE]
