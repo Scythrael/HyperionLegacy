@@ -542,14 +542,18 @@ SUGGESTIONS ("FINISH THE SPEC UTILITY (SUS) SLOT ITEM ROSTER + START MODULES"); 
   rarity/quality. Explorer hulls carry high base sensors; Science officers + the Science crew division amplify
   sensors. The scanning ARRAYS (I.2) are sensor-item variants.
 
-### I.7 ⚠️ SCOPE (open, user steering)
-This exploration vision is ENORMOUS, beyond even the crew half. The user frames content as trickling (~50%
-out over time; the balance patch bigger than 0.14.0; near-1.0 at DT). PROPOSED delineation to CONFIRM: 0.14.0
-= crew + the CORE exploration SYSTEMS (fuel-to-reach + explorer hull + sensors + short surveys/transport
-missions + the expedition loop + ground teams + relics/research/museum). ADJACENT pillars/content trickle
-across 0.14.x + the balance patch + beyond: FLEET OPERATIONS (combat 2nd type), the prospecting 2nd type, the
-TRADING pillar, ENDLESS MODE, and the flood of extra planet types/relics/mission content. OPEN: where the
-0.14.0 cut line sits (user to set).
+### I.7 SCOPE + ROADMAP [RESOLVED, user 2026-09-23]
+- **0.14.0 cut line:** crew + the CORE exploration SYSTEMS + **BOTH exploration mission types** (short local
+  planetary surveys/transport missions AND long-distance expeditions), plus relics/research/museum, sensors,
+  fuel-to-reach, the explorer hull, and ground teams. Both exploration types are IN 0.14.0.
+- **Deferred to 0.14.x** (foundations built in 0.14.0, content/pillars added after): the TRADING pillar,
+  FLEET OPERATIONS (the combat 2nd type; the existing Battlespace placeholder now has a home), ENDLESS MODE,
+  the prospecting 2nd type, and ONLINE functionality.
+- **ROADMAP (user 2026-09-23; supersedes older roadmap lines):** 0.14.0 = crew + exploration (both types);
+  **0.14.x** = trading / fleet-ops / endless mode / prospecting-2nd / online functionality (smaller patches
+  on the 0.14.0 foundations); **0.15.0** = tutorial + storytelling; **0.15.x** = more online functionality;
+  **0.16.0** = the balancing + content push (~50% of what is available between dimensional traversals, the
+  content flood); DT / ~1.0 further out.
 
 ---
 
