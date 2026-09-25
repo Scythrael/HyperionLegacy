@@ -21,6 +21,10 @@
   // the fit logic + doSave live in exactly one place. Distinct from the retained
   // DEV_MODE equipment harness (System > Debug), which stays for testing.
   import ShipSystemsPanel from "./lib/ShipSystemsPanel.svelte";
+  // Crew 0.14.0 (phase 4a): the Senior Staff management pane, the ship-detail page's new
+  // "Senior Staff" sub-tab (sibling to the Loadout board). Mirrors ShipSystemsPanel's posture:
+  // reads live state, routes every side effect back to the do* handlers below.
+  import SeniorStaffPanel from "./lib/SeniorStaffPanel.svelte";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -327,6 +331,18 @@
     unfitEquipmentInstance,
     type EquipFitBlockReason,
   } from "./lib/game/equipment";
+  // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
+  // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
+  // returns a single officer, so its handler splices the result back into state.officers.
+  import {
+    hireOfficer,
+    fireOfficer,
+    assignOfficerToShip,
+    unassignOfficer,
+    promoteOfficer,
+    officerRankLabel,
+  } from "./lib/game/seniorStaff";
+  import type { SeniorStaffSeat } from "./lib/game/model";
   // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
   // DERIVED row list (built from the total REQUISITION_CATALOGUE Record over
   // EquipmentSlotType), so this console renders whatever slots have a Standard-Issue floor
@@ -1446,6 +1462,13 @@
   // is null while on the grid; a card tap sets it AND flips the view to "ship".
   let shipsView: "grid" | "ship" = "grid";
   let selectedShipId: string | null = null;
+  // Crew 0.14.0 (phase 4a): the ship-detail page now carries a SubTabs strip. This tracks the
+  // active sub-tab of the OPEN ship: "loadout" (the ShipSystemsPanel, unchanged), "seniorStaff"
+  // (the SeniorStaffPanel), or "complement" (a LOCKED coming-soon tab this phase). NOT persisted
+  // (pure navigation UI, no SAVE_VERSION bump); it defaults back to "loadout" whenever the page
+  // switches to a different hull (see the reset beside the vanished-hull guard) so opening any
+  // ship lands on its loadout board as before.
+  let activeShipDetailTab: "loadout" | "seniorStaff" | "complement" = "loadout";
   // 0.13.2 Unit 7 (a11y focus management): a ONE-SHOT marker naming the roster row focus
   // should return to when the drill-down closes back to the grid. Set to the ship id at the
   // moment Back is pressed; the matching row's focusOnMount action consumes it (moving focus
@@ -4718,6 +4741,82 @@
         : `[${previousDisplay}] Renamed to: ${after?.name}.`,
     );
     doSave();
+  }
+
+  // ── Senior Staff (Crew 0.14.0 phase 4a) ────────────────────────────────────
+  // The SeniorStaffPanel's Hire / Assign / Reassign / Dismiss / Promote controls route here.
+  // Every handler follows the canonical do* flow: call the PURE seniorStaff.ts engine fn,
+  // reassign `state`, pushLog, doSave. The engine fns are refuse-by-returning-the-same-state
+  // (no throws), so a no-op leaves state === next and we simply skip the log/save on it.
+
+  // HIRE a candidate off the roster AND seat it in one action: hireOfficer copies the
+  // candidate into state.officers with a real officer id, then assignOfficerToShip drops it
+  // into this ship's matching seat. The newest officer (highest nextOfficerId slot) is the one
+  // hireOfficer just appended, so we assign THAT id (the candidate id is re-issued on hire).
+  function doHireOfficerToSeat(candidateId: string, seat: SeniorStaffSeat) {
+    if (selectedShipId === null) return;
+    const hiredState = hireOfficer(state, candidateId);
+    if (hiredState === state) {
+      pushLog("Cannot hire officer: candidate no longer on the roster.");
+      return;
+    }
+    // hireOfficer appends the new officer, so it is the last entry; grab it before assigning.
+    const hired = hiredState.officers[hiredState.officers.length - 1];
+    const next = assignOfficerToShip(hiredState, hired.id, selectedShipId);
+    state = next;
+    doSave();
+    pushLog(`Hired ${hired.name} (${officerRankLabel(hired.rank)}) to the ${seat} seat.`);
+  }
+
+  // ASSIGN an already-hired, unassigned officer into the selected ship's matching seat.
+  function doAssignOfficer(officerId: string, shipId: string) {
+    const officer = state.officers.find((o) => o.id === officerId);
+    const next = assignOfficerToShip(state, officerId, shipId);
+    if (next === state) {
+      pushLog("Cannot assign officer: that seat is already filled.");
+      return;
+    }
+    state = next;
+    doSave();
+    pushLog(`Assigned ${officer?.name ?? officerId} to ${devShipLabel(shipId)}.`);
+  }
+
+  // UNASSIGN an officer from its ship (the panel's "Reassign" control frees the seat; the
+  // officer stays hired and can be assigned to any ship's matching seat afterward).
+  function doUnassignOfficer(officerId: string) {
+    const officer = state.officers.find((o) => o.id === officerId);
+    const next = unassignOfficer(state, officerId);
+    if (next === state) return; // unknown id: no change
+    state = next;
+    doSave();
+    pushLog(`Reassigned ${officer?.name ?? officerId} off their bridge seat.`);
+  }
+
+  // DISMISS (fire) a hired officer for good (confirmed in the panel's ActionModal).
+  function doFireOfficer(officerId: string) {
+    const officer = state.officers.find((o) => o.id === officerId);
+    const next = fireOfficer(state, officerId);
+    if (next === state) return; // unknown id: no change
+    state = next;
+    doSave();
+    pushLog(`Dismissed ${officer?.name ?? officerId} from the fleet.`);
+  }
+
+  // PROMOTE an officer one rank. promoteOfficer takes + returns a single officer (a no-op
+  // FRESH COPY when the objective checklist is unmet or already at the top), so we splice the
+  // returned officer back into state.officers. We skip the save/log when the rank did not
+  // actually change (defensive: the panel already disables the button unless canPromoteOfficer).
+  function doPromoteOfficer(officerId: string) {
+    const officer = state.officers.find((o) => o.id === officerId);
+    if (!officer) return;
+    const promoted = promoteOfficer(officer);
+    if (promoted.rank === officer.rank) return; // gate unmet / top rank: nothing changed
+    state = {
+      ...state,
+      officers: state.officers.map((o) => (o.id === officerId ? promoted : o)),
+    };
+    doSave();
+    pushLog(`Promoted ${promoted.name} to ${officerRankLabel(promoted.rank)}.`);
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -14099,6 +14198,9 @@
                     on:click={() => {
                       selectedShipId = row.id;
                       shipsView = "ship";
+                      // Crew 0.14.0 (phase 4a): open every hull on its Loadout board, not
+                      // whichever detail sub-tab the last-opened hull was left on.
+                      activeShipDetailTab = "loadout";
                       // 0.13.3 Unit 0.1: this is the ROSTER entry point, so there is no
                       // captain to return to. Clearing here (rather than trusting the exit to
                       // have consumed it) means the marker can never survive into a board the
@@ -14269,6 +14371,23 @@
           </div>
         </div>
 
+        <!-- SHIP-DETAIL SUB-TABS (Crew 0.14.0 phase 4a; user decision). The flat ship-detail
+             page gains a SubTabs strip splitting the body into Loadout / Senior Staff /
+             Complement. It sits directly under the header row, above whichever body pane the
+             active tab selects. "Complement" is LOCKED (coming-soon) this phase; SubTabs'
+             locked support grays it + shows the "Coming soon" tooltip + refuses selection, so
+             activeShipDetailTab only ever moves between "loadout" and "seniorStaff" from here. -->
+        <SubTabs
+          tabs={[
+            { key: "loadout", label: "Loadout" },
+            { key: "seniorStaff", label: "Senior Staff" },
+            { key: "complement", label: "Complement", locked: true },
+          ]}
+          active={activeShipDetailTab}
+          onSelect={(k) => (activeShipDetailTab = k as "loadout" | "seniorStaff" | "complement")}
+        />
+
+        {#if activeShipDetailTab === "loadout"}
         <!-- THE LOADOUT BOARD (0.13.2 Unit 4, Layout C). The ShipSystemsPanel is now the
              ship-detail page's PRIMARY content, rendered INLINE (embedded) instead of as a
              modal-on-top: tapping a roster row opens ONE full-screen equip view. The panel
@@ -14304,6 +14423,22 @@
           onRename={handleRenameShip}
           onClose={returnFromShipPage}
         />
+        {:else if activeShipDetailTab === "seniorStaff"}
+        <!-- SENIOR STAFF (Crew 0.14.0 phase 4a). The named-officer management pane for this
+             hull's 7 typed bridge seats: hire off the deterministic candidate roster, assign
+             already-hired officers, review a seated officer's rank ladder + provided stats +
+             objective-gated promotion checklist, and reassign / dismiss. All side effects
+             route to the do* handlers below (pure seniorStaff.ts engine + doSave + pushLog). -->
+        <SeniorStaffPanel
+          {state}
+          shipId={ship.id}
+          onHire={doHireOfficerToSeat}
+          onAssign={doAssignOfficer}
+          onReassign={doUnassignOfficer}
+          onDismiss={doFireOfficer}
+          onPromote={doPromoteOfficer}
+        />
+        {/if}
         {/if}
         {/if}
       </div>
@@ -14860,6 +14995,8 @@
                     shipsReturnTo = { captainId: activeCaptain.id };
                     selectedShipId = shipTabShip.id;
                     shipsView = "ship";
+                    // Crew 0.14.0 (phase 4a): the captain shortcut opens the Loadout board.
+                    activeShipDetailTab = "loadout";
                     activeTab = "ships";
                   }
                 }}
