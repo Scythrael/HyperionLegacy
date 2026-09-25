@@ -53,6 +53,9 @@
   // Flip this ship's complement.mode: "passive" (auto-crew fills on the tick) or "active"
   // (player-curated). The host runs doSetComplementMode (state = next; doSave()).
   export let onSetMode: (shipId: string, mode: "passive" | "active") => void;
+  // Toggle a notable crew member's `favorite` curation flag (host: toggleNotableFavorite + doSave).
+  // Cosmetic: it drives sorting/pinning affordances + the roster builder, nothing mechanical.
+  export let onToggleFavorite: (notableId: string) => void;
 
   // --- Static display metadata ------------------------------------------------
   // Division display labels (US English), keyed by CrewProfession.
@@ -340,7 +343,18 @@
         <div class="comp-nstrip">
           {#each shipNotables as n (n.id)}
             <div class="comp-ncard">
-              <div class="comp-nc-name">{n.name}{#if n.favorite}<span class="comp-nc-fav" aria-hidden="true"> ★</span>{/if}</div>
+              <div class="comp-nc-name">
+                <span class="comp-nc-nm">{n.name}</span>
+                <button
+                  type="button"
+                  class="comp-nc-fav"
+                  class:on={n.favorite}
+                  aria-label="Toggle favorite"
+                  aria-pressed={n.favorite === true}
+                  title={n.favorite ? "Favorited" : "Favorite this crew member"}
+                  on:click={() => onToggleFavorite(n.id)}
+                >{n.favorite ? "★" : "☆"}</button>
+              </div>
               <div class="comp-nc-sub">
                 {CREW_RANKS[n.rank].label} · {DIVISION_LABEL[n.profession]} · {raceLabel(n.race)}
               </div>
@@ -660,10 +674,35 @@
     border-radius: var(--corner);
   }
   .comp-nc-name {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
     font-size: var(--text-sm);
     color: var(--color-text-primary);
   }
+  .comp-nc-nm {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .comp-nc-fav {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    padding: 0;
+    line-height: 1;
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .comp-nc-fav.on {
+    color: var(--color-warning, #fbbf24);
+  }
+  .comp-nc-fav:hover,
+  .comp-nc-fav:focus-visible {
     color: var(--color-warning, #fbbf24);
   }
   .comp-nc-sub {

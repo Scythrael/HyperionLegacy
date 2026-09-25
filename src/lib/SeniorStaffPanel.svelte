@@ -62,6 +62,9 @@
   // Promote an officer one rank (host: promoteOfficer + splice back). Only offered when the
   // objective checklist is fully met (canPromoteOfficer); the button is disabled otherwise.
   export let onPromote: (officerId: string) => void;
+  // Toggle a seated officer's `favorite` curation flag (host: toggleOfficerFavorite + doSave).
+  // Cosmetic: it drives sorting/pinning affordances + the roster builder, nothing mechanical.
+  export let onToggleFavorite: (officerId: string) => void;
 
   // --- Local UI state ---------------------------------------------------------
   // The seat currently drilled into (its detail is shown). null = the seat grid (the
@@ -231,8 +234,19 @@
         <!-- OFFICER DOSSIER -->
         <div class="sstaff-dossier">
           <div class="sstaff-officer-hdr">
-            <span class="sstaff-officer-name">{officer.name}</span>
-            <span class="sstaff-officer-sub">{officerRankLabel(officer.rank)} · {raceLabel(officer)}</span>
+            <div class="sstaff-officer-idn">
+              <span class="sstaff-officer-name">{officer.name}</span>
+              <span class="sstaff-officer-sub">{officerRankLabel(officer.rank)} · {raceLabel(officer)}</span>
+            </div>
+            <button
+              type="button"
+              class="sstaff-fav"
+              class:on={officer.favorite}
+              aria-label="Toggle favorite"
+              aria-pressed={officer.favorite === true}
+              title={officer.favorite ? "Favorited" : "Favorite this officer"}
+              on:click={() => onToggleFavorite(officer.id)}
+            >{officer.favorite ? "★" : "☆"}</button>
           </div>
 
           <!-- RANK LADDER (Cadet -> Commander) -->
@@ -524,9 +538,34 @@
 
   .sstaff-officer-hdr {
     display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .sstaff-officer-idn {
+    display: flex;
     flex-direction: column;
     gap: 2px;
-    margin-bottom: 10px;
+    min-width: 0;
+  }
+  .sstaff-fav {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    line-height: 1;
+    font-size: var(--text-lg);
+    color: var(--color-text-dim);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sstaff-fav.on {
+    color: var(--color-warning, #fbbf24);
+  }
+  .sstaff-fav:hover,
+  .sstaff-fav:focus-visible {
+    color: var(--color-warning, #fbbf24);
   }
   .sstaff-officer-name {
     font-size: var(--text-lg);

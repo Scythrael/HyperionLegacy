@@ -230,6 +230,19 @@ export function moveNotableDown(state: GameState, rosterId: string, notableId: s
   return reorderNotable(state, rosterId, i, i + 1);
 }
 
+// Flip a notable crew member's optional `favorite` curation flag (an absent value reads as false, so
+// the first toggle sets it true). SAME-REF NO-OP when the id is unknown, so a caller can skip the
+// save/log on state === next. Operates on the notable RECORD (state.notableCrew), the officer-favorite
+// counterpart to seniorStaff.ts's toggleOfficerFavorite; it does NOT touch any roster's pins. Pure
+// UI/curation flag (nothing mechanical reads it). Returns a NEW state; the input is never mutated.
+export function toggleNotableFavorite(state: GameState, notableId: string): GameState {
+  if (!state.notableCrew.some((n) => n.id === notableId)) return state; // unknown: same-ref no-op
+  return {
+    ...state,
+    notableCrew: state.notableCrew.map((n) => (n.id === notableId ? { ...n, favorite: !n.favorite } : n)),
+  };
+}
+
 // ============================================================================
 // applyRoster: land a roster's people on a ship (the one side-effectful action)
 // ============================================================================

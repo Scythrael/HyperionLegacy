@@ -28,6 +28,7 @@ import {
   fireOfficer,
   assignOfficerToShip,
   unassignOfficer,
+  toggleOfficerFavorite,
   officerInSeat,
 } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
@@ -497,5 +498,31 @@ describe("officerRacialBonus", () => {
   it("uses each race's own racial (earth-born vs martian differ)", () => {
     expect(officerRacialBonus(officer({ race: "earthBorn" })).statKey).toBe("crew.crewEffectiveness");
     expect(officerRacialBonus(officer({ race: "martian" })).statKey).toBe("crew.powerEfficiency");
+  });
+});
+
+// ============================================================================
+// Favoriting (Crew 0.14.0 GL): toggleOfficerFavorite
+// ============================================================================
+
+describe("toggleOfficerFavorite", () => {
+  it("flips an officer's favorite on then off (absent reads as false)", () => {
+    const s0 = stateWith({ officers: [officer({ id: "officer-1" })] });
+    expect(s0.officers[0].favorite).toBeUndefined();
+
+    const s1 = toggleOfficerFavorite(s0, "officer-1");
+    expect(s1).not.toBe(s0); // fresh state
+    expect(s1.officers[0].favorite).toBe(true);
+
+    const s2 = toggleOfficerFavorite(s1, "officer-1");
+    expect(s2.officers[0].favorite).toBe(false);
+
+    // Pure: the input state/officer is never mutated.
+    expect(s0.officers[0].favorite).toBeUndefined();
+  });
+
+  it("is a same-ref no-op on an unknown officer id", () => {
+    const s0 = stateWith({ officers: [officer({ id: "officer-1" })] });
+    expect(toggleOfficerFavorite(s0, "officer-404")).toBe(s0);
   });
 });

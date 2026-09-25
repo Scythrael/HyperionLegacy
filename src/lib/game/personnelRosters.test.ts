@@ -32,6 +32,7 @@ import {
   moveNotableUp,
   moveNotableDown,
   applyRoster,
+  toggleNotableFavorite,
 } from "./personnelRosters";
 import { createLoadout } from "./armory";
 import { divisionCap, countInDivision } from "./commandStructure";
@@ -407,5 +408,31 @@ describe("additive-neutrality: a populated roster does not change what the tick 
     // And the tick left the roster fields themselves untouched.
     expect(a.personnelRosters).toEqual(withRoster.personnelRosters);
     expect(a.nextRosterId).toBe(withRoster.nextRosterId);
+  });
+});
+
+// ============================================================================
+// Favoriting (Crew 0.14.0 GL): toggleNotableFavorite
+// ============================================================================
+
+describe("toggleNotableFavorite", () => {
+  it("flips a notable's favorite on then off (absent reads as false)", () => {
+    const s0 = stateWith({ notableCrew: [notable({ id: "notable-1" })] });
+    expect(s0.notableCrew[0].favorite).toBeUndefined();
+
+    const s1 = toggleNotableFavorite(s0, "notable-1");
+    expect(s1).not.toBe(s0); // fresh state
+    expect(s1.notableCrew[0].favorite).toBe(true);
+
+    const s2 = toggleNotableFavorite(s1, "notable-1");
+    expect(s2.notableCrew[0].favorite).toBe(false);
+
+    // Pure: the input state/notable is never mutated.
+    expect(s0.notableCrew[0].favorite).toBeUndefined();
+  });
+
+  it("is a same-ref no-op on an unknown notable id", () => {
+    const s0 = stateWith({ notableCrew: [notable({ id: "notable-1" })] });
+    expect(toggleNotableFavorite(s0, "notable-404")).toBe(s0);
   });
 });

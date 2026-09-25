@@ -81,6 +81,11 @@
   export let onReorderNotable: (rosterId: string, notableId: string, dir: "up" | "down") => void;
   // Apply the roster's people to a ship (host: applyRoster).
   export let onApplyRoster: (rosterId: string, shipId: string) => void;
+  // Toggle a bridge officer's / notable crew member's `favorite` curation flag (host:
+  // toggleOfficerFavorite / toggleNotableFavorite + doSave). Cosmetic: nothing mechanical reads it;
+  // it curates the sort/pin affordances the builder surfaces.
+  export let onToggleOfficerFavorite: (officerId: string) => void;
+  export let onToggleNotableFavorite: (notableId: string) => void;
 
   // --- Local UI state ---------------------------------------------------------
   // The selected saved roster's id (null = nothing selected / build a new one).
@@ -411,7 +416,17 @@
             <div class="pr-seat">
               <span class="pr-seat-name">
                 {SEAT_LABEL[seat]}
-                {#if assigned?.favorite}<span class="pr-star on" aria-label="Favorited officer">★</span>{/if}
+                {#if assigned}
+                  <button
+                    type="button"
+                    class="pr-star"
+                    class:on={assigned.favorite}
+                    aria-label="Toggle favorite"
+                    aria-pressed={assigned.favorite === true}
+                    title={assigned.favorite ? "Favorited" : "Favorite this officer"}
+                    on:click={() => onToggleOfficerFavorite(assigned.id)}
+                  >{assigned.favorite ? "★" : "☆"}</button>
+                {/if}
               </span>
               <select
                 value={assignedId}
@@ -441,7 +456,15 @@
                 <span class="pr-posn">#{i + 1}</span>
                 <span class="pr-pin">
                   <span class="pr-pin-name">
-                    {n.name}{#if n.favorite}<span class="pr-star on" aria-label="Favorited"> ★</span>{/if}
+                    {n.name}<button
+                      type="button"
+                      class="pr-star"
+                      class:on={n.favorite}
+                      aria-label="Toggle favorite"
+                      aria-pressed={n.favorite === true}
+                      title={n.favorite ? "Favorited" : "Favorite this crew member"}
+                      on:click={() => onToggleNotableFavorite(n.id)}
+                    >{n.favorite ? "★" : "☆"}</button>
                   </span>
                   <span class="pr-pin-sub">{CREW_RANKS[n.rank].label} · {raceLabel(n.race)}</span>
                 </span>
@@ -474,7 +497,15 @@
             <div class="pr-pool-rows">
               {#each notablePool as n (n.id)}
                 <div class="pr-pcrew">
-                  {#if n.favorite}<span class="pr-star on" aria-hidden="true">★</span>{/if}
+                  <button
+                    type="button"
+                    class="pr-star"
+                    class:on={n.favorite}
+                    aria-label="Toggle favorite"
+                    aria-pressed={n.favorite === true}
+                    title={n.favorite ? "Favorited" : "Favorite this crew member"}
+                    on:click={() => onToggleNotableFavorite(n.id)}
+                  >{n.favorite ? "★" : "☆"}</button>
                   <span class="pr-pin">
                     <span class="pr-pin-name">{n.name}</span>
                     <span class="pr-pin-sub">{CREW_RANKS[n.rank].label} · {raceLabel(n.race)}</span>
@@ -896,10 +927,21 @@
   }
 
   .pr-star {
+    flex: 0 0 auto;
+    background: none;
+    border: none;
+    padding: 0 2px;
+    line-height: 1;
     color: var(--color-text-dim);
     font-size: var(--text-xs);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
   }
   .pr-star.on {
+    color: var(--color-warning, #fbbf24);
+  }
+  .pr-star:hover,
+  .pr-star:focus-visible {
     color: var(--color-warning, #fbbf24);
   }
 

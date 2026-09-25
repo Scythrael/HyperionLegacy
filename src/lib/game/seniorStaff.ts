@@ -406,6 +406,18 @@ export function unassignOfficer(state: GameState, officerId: string): GameState 
   };
 }
 
+// Flip an officer's optional `favorite` curation flag (an absent value reads as false, so the first
+// toggle sets it true). SAME-REF NO-OP when the id is unknown, so a caller can skip the save/log on
+// state === next. Pure UI/curation flag: nothing mechanical reads it (it drives sorting/pinning
+// affordances + the roster builder). Returns a NEW state; the input is never mutated.
+export function toggleOfficerFavorite(state: GameState, officerId: string): GameState {
+  if (!state.officers.some((o) => o.id === officerId)) return state; // unknown: same-ref no-op
+  return {
+    ...state,
+    officers: state.officers.map((o) => (o.id === officerId ? { ...o, favorite: !o.favorite } : o)),
+  };
+}
+
 // The officer sitting a given seat on a given ship, or undefined. Because seats are typed and one
 // per hull, at most one officer matches. Pure read.
 export function officerInSeat(

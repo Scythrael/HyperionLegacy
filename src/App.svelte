@@ -354,6 +354,7 @@
     assignOfficerToShip,
     unassignOfficer,
     promoteOfficer,
+    toggleOfficerFavorite,
     officerRankLabel,
   } from "./lib/game/seniorStaff";
   import type { SeniorStaffSeat } from "./lib/game/model";
@@ -389,6 +390,7 @@
     moveNotableUp,
     moveNotableDown,
     applyRoster,
+    toggleNotableFavorite,
     type RosterPatch,
   } from "./lib/game/personnelRosters";
   // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
@@ -4876,6 +4878,24 @@
     };
     doSave();
     pushLog(`Promoted ${promoted.name} to ${officerRankLabel(promoted.rank)}.`);
+  }
+
+  // ── Crew favoriting (Crew 0.14.0 GL) ───────────────────────────────────────
+  // Flip a bridge officer's / notable crew member's `favorite` curation flag. Pure engine fn +
+  // state reassign + doSave; no pushLog (a cosmetic curation toggle, not a fleet event). The engine
+  // fns are same-ref no-ops on an unknown id, so we skip the save on state === next. Nothing
+  // mechanical reads `favorite`; it drives sorting/pinning affordances + the roster builder.
+  function doToggleOfficerFavorite(officerId: string) {
+    const next = toggleOfficerFavorite(state, officerId);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+  function doToggleNotableFavorite(notableId: string) {
+    const next = toggleNotableFavorite(state, notableId);
+    if (next === state) return;
+    state = next;
+    doSave();
   }
 
   // ── Complement (Crew 0.14.0 phase 4b) ──────────────────────────────────────
@@ -13976,6 +13996,8 @@
               onUnpinNotable={doUnpinNotable}
               onReorderNotable={doReorderNotable}
               onApplyRoster={doApplyRoster}
+              onToggleOfficerFavorite={doToggleOfficerFavorite}
+              onToggleNotableFavorite={doToggleNotableFavorite}
             />
           {/if}
         {/if}
@@ -14749,6 +14771,7 @@
           onReassign={doUnassignOfficer}
           onDismiss={doFireOfficer}
           onPromote={doPromoteOfficer}
+          onToggleFavorite={doToggleOfficerFavorite}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:
@@ -14757,7 +14780,12 @@
              behind a hue-by-utilization fill, crewmen shown uncapped as "N+"), and the assigned
              Notable Crew strip. Pure read/present; the only side effect, the Auto-crew toggle,
              routes to doSetComplementMode (flips ship.complement.mode + doSave). -->
-        <ComplementPanel {state} shipId={ship.id} onSetMode={doSetComplementMode} />
+        <ComplementPanel
+          {state}
+          shipId={ship.id}
+          onSetMode={doSetComplementMode}
+          onToggleFavorite={doToggleNotableFavorite}
+        />
         {/if}
         {/if}
         {/if}
