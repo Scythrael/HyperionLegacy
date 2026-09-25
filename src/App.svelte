@@ -25,6 +25,7 @@
   // "Senior Staff" sub-tab (sibling to the Loadout board). Mirrors ShipSystemsPanel's posture:
   // reads live state, routes every side effect back to the do* handlers below.
   import SeniorStaffPanel from "./lib/SeniorStaffPanel.svelte";
+  import ComplementPanel from "./lib/ComplementPanel.svelte";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -4817,6 +4818,25 @@
     };
     doSave();
     pushLog(`Promoted ${promoted.name} to ${officerRankLabel(promoted.rank)}.`);
+  }
+
+  // ── Complement (Crew 0.14.0 phase 4b) ──────────────────────────────────────
+  // The ComplementPanel's Auto-crew toggle routes here. It flips ONE ship's complement.mode
+  // between "passive" (auto-crew fills top-rank-down on the tick) and "active" (player-curated).
+  // A fresh ship may have no complement yet; we materialize an empty one so the mode is set. The
+  // toggle is display-only for the tick until the crew-goes-live overlay reads this flag; setting
+  // it is a pure state + doSave, no engine call needed.
+  function doSetComplementMode(shipId: string, mode: "passive" | "active") {
+    const ship = state.ships.find((s) => s.id === shipId);
+    if (!ship) return;
+    const base = ship.complement ?? { buckets: [], mode: "passive" as const };
+    if (base.mode === mode) return; // no change: skip save + log
+    state = {
+      ...state,
+      ships: state.ships.map((s) => (s.id === shipId ? { ...s, complement: { ...base, mode } } : s)),
+    };
+    doSave();
+    pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -14374,14 +14394,12 @@
         <!-- SHIP-DETAIL SUB-TABS (Crew 0.14.0 phase 4a; user decision). The flat ship-detail
              page gains a SubTabs strip splitting the body into Loadout / Senior Staff /
              Complement. It sits directly under the header row, above whichever body pane the
-             active tab selects. "Complement" is LOCKED (coming-soon) this phase; SubTabs'
-             locked support grays it + shows the "Coming soon" tooltip + refuses selection, so
-             activeShipDetailTab only ever moves between "loadout" and "seniorStaff" from here. -->
+             active tab selects. All three are LIVE as of phase 4b (Complement unlocked). -->
         <SubTabs
           tabs={[
             { key: "loadout", label: "Loadout" },
             { key: "seniorStaff", label: "Senior Staff" },
-            { key: "complement", label: "Complement", locked: true },
+            { key: "complement", label: "Complement" },
           ]}
           active={activeShipDetailTab}
           onSelect={(k) => (activeShipDetailTab = k as "loadout" | "seniorStaff" | "complement")}
@@ -14438,6 +14456,14 @@
           onDismiss={doFireOfficer}
           onPromote={doPromoteOfficer}
         />
+        {:else if activeShipDetailTab === "complement"}
+        <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:
+             the capacity header (used / total berths + the quarters-module contribution) with an
+             Auto-crew toggle, the six per-division double-layer clamped rank charts (gray cap
+             behind a hue-by-utilization fill, crewmen shown uncapped as "N+"), and the assigned
+             Notable Crew strip. Pure read/present; the only side effect, the Auto-crew toggle,
+             routes to doSetComplementMode (flips ship.complement.mode + doSave). -->
+        <ComplementPanel {state} shipId={ship.id} onSetMode={doSetComplementMode} />
         {/if}
         {/if}
         {/if}
