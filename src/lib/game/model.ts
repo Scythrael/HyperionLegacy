@@ -2337,21 +2337,43 @@ export function shipDerivedStats(
   };
 }
 
+// Crew 0.14.0 (Phase 5, "cargo scales unload"): a mission's UNLOAD phase now scales with the
+// HULL's cargo hold, so a big hauler spends longer unloading than a small runner, which is what
+// makes Operations crew (unloadSpeed) meaningful on the biggest holds (a bigger hold -> longer
+// unload -> more for the crew divide to shorten). ⚠️ FIRST-PASS TUNABLE: balance owns the final
+// numbers. UNLOAD_REFERENCE_CARGO is calibrated to the baseline General Freighter's cargoCapacity
+// (SHIP_TYPES.generalFreighter, 90) so that starter hull's unload stays at its base unloadTicks by
+// construction (minimal disruption): only bigger / smaller holds diverge from base.unloadTicks.
+// UNLOAD_MIN_TICKS floors the result so even the smallest hold still takes a few ticks to unload.
+const UNLOAD_REFERENCE_CARGO = 90; // = SHIP_TYPES.generalFreighter.cargoCapacity; the reference hull's unload is unchanged
+const UNLOAD_MIN_TICKS = 3;        // floor: the smallest holds still take at least this many ticks to unload
+
 // Returns a MODIFIED COPY of the base mission with the ship's stats applied.
 // transit rescaled by ceil (stays integer + closed-form); cargo drives the
 // extraction-phase length (requiredTicksForPhase reads cargoCapacity). Because
 // extractionRatePerTick is 1 for today's missions, any integer ship cargo still
-// divides evenly, no partial-final-tick path is introduced.
+// divides evenly, no partial-final-tick path is introduced. The unload phase is
+// now cargo-scaled too (Crew 0.14.0 Phase 5): unloadTicks grows with the hull's
+// cargo hold and is then shortened by the crew unloadSpeed multiplier (see below).
 export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): MissionDef {
-  // Crew 0.14.0 (crew goes live): the ship's crew OPERATIONS/"unloadSpeed" contribution (folded onto
-  // ShipDerivedStats.unloadSpeedMult by the crew overlay; undefined for a bare shipDerivedStats() call)
-  // SPEEDS homeworld unload by dividing unloadTicks by the multiplier, clamped to a 1-tick floor.
-  // With NO crew, unloadSpeedMult is undefined -> exactly 1, so this branch keeps base.unloadTicks
-  // BYTE-IDENTICAL (no ceil/floor rounding applied at all), which is what keeps every crew-free
-  // fixture unchanged. ⚠️ THIS IS THE ONLY unloadTicks scaling here: the separate "unloadTicks scales
-  // by cargoCapacity" balance change is a LATER phase and is deliberately NOT applied in this phase.
+  // Crew 0.14.0 Phase 5: unloadTicks is derived in TWO ordered steps, both integer + closed-form so
+  // requiredTicksForPhase reads a whole number and the offline==live parity of this pure function holds.
+  //   (1) CARGO-SCALE FIRST: scale base.unloadTicks by the hull's cargoCapacity relative to
+  //       UNLOAD_REFERENCE_CARGO (ceil), floored at UNLOAD_MIN_TICKS. A bigger hold -> a longer unload.
+  //   (2) CREW DIVIDE ON TOP: the ship's crew OPERATIONS/"unloadSpeed" contribution (folded onto
+  //       ShipDerivedStats.unloadSpeedMult by the crew overlay; undefined for a bare shipDerivedStats()
+  //       call) SPEEDS unload by dividing the cargo-scaled figure by the multiplier (ceil), clamped to a
+  //       1-tick floor. With NO crew, unloadSpeedMult is undefined -> exactly 1, so step (2) is a no-op.
+  // For the reference General Freighter (cargo 90, no crew) this is max(3, ceil(8*90/90)) = 8, then
+  // ceil(8/1) = 8, BYTE-IDENTICAL to base.unloadTicks (which is what keeps every reference-hull fixture
+  // unchanged). ⚠️ A hull whose cargo != UNLOAD_REFERENCE_CARGO now gets a DIFFERENT crew-free unload
+  // length than base.unloadTicks: that is the intended balance change, NOT a regression.
+  const cargoScaledUnload = Math.max(
+    UNLOAD_MIN_TICKS,
+    Math.ceil((base.unloadTicks * ship.cargoCapacity) / UNLOAD_REFERENCE_CARGO),
+  );
   const unloadMult = ship.unloadSpeedMult ?? 1;
-  const unloadTicks = unloadMult === 1 ? base.unloadTicks : Math.max(1, Math.ceil(base.unloadTicks / unloadMult));
+  const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
   return {
     ...base,
     transitOutTicks: Math.ceil(base.transitOutTicks / ship.transitSpeedMult),

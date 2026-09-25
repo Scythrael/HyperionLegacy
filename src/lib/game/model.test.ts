@@ -1102,6 +1102,39 @@ describe("effectiveMissionDef", () => {
     effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
     expect(MISSIONS.shortOreRun.cargoCapacity).toBe(90);
   });
+
+  // Crew 0.14.0 Phase 5 ("cargo scales unload"): unloadTicks = max(UNLOAD_MIN_TICKS,
+  // ceil(base.unloadTicks * cargo / UNLOAD_REFERENCE_CARGO)), then the crew unloadSpeed
+  // divide on top. UNLOAD_REFERENCE_CARGO is calibrated to the freighter's cargo (90), so
+  // the reference hull is unchanged and only bigger / smaller holds diverge. FIRST-PASS
+  // TUNABLE numbers, so these pin the FORMULA + direction, not a balance target.
+  it("cargo-scales unloadTicks: reference hull unchanged, a bigger hold unloads longer, a smaller hold shorter", () => {
+    // Reference hull (generalFreighter, cargo 90 == UNLOAD_REFERENCE_CARGO): unchanged.
+    const freighterEff = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "generalFreighter", assignedCaptainId: null }));
+    expect(freighterEff.unloadTicks).toBe(short.unloadTicks); // max(3, ceil(8*90/90)) = 8
+    // Bigger hold (hauler, cargo 180): unload grows proportionally.
+    const haulerEff = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }));
+    expect(haulerEff.unloadTicks).toBe(16); // max(3, ceil(8*180/90)) = 16
+    expect(haulerEff.unloadTicks).toBeGreaterThan(short.unloadTicks);
+    // Smaller hold (runner, cargo 60): unload shrinks (still above the floor).
+    const runnerEff = effectiveMissionDef(short, shipDerivedStats({ id: "s", typeKey: "prospectorRunner", assignedCaptainId: null }));
+    expect(runnerEff.unloadTicks).toBe(6); // max(3, ceil(8*60/90)) = 6
+    expect(runnerEff.unloadTicks).toBeLessThan(short.unloadTicks);
+  });
+
+  it("floors the cargo-scaled unloadTicks at UNLOAD_MIN_TICKS for a very small hold", () => {
+    const tiny = { ...shipDerivedStats({ id: "s", typeKey: "generalFreighter", assignedCaptainId: null }), cargoCapacity: 10 };
+    // Raw scale would be ceil(8 * 10 / 90) = ceil(0.89) = 1, floored up to the 3-tick minimum.
+    expect(effectiveMissionDef(short, tiny).unloadTicks).toBe(3);
+  });
+
+  it("applies the crew unloadSpeed divide ON TOP of the cargo-scaled unload (cargo-scale first, then crew)", () => {
+    // Hauler (cargo 180) cargo-scales unload to 16; a crew unloadSpeedMult of 2 then halves it to 8.
+    const haulerCrewed = { ...shipDerivedStats({ id: "s", typeKey: "prospectorHauler", assignedCaptainId: null }), unloadSpeedMult: 2 };
+    const eff = effectiveMissionDef(short, haulerCrewed);
+    expect(eff.unloadTicks).toBe(Math.max(1, Math.ceil(16 / 2))); // 8
+    expect(eff.unloadTicks).toBeLessThan(16); // strictly shorter than the crew-free cargo-scaled 16
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -3868,10 +3868,12 @@ describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
   // so the assertion exercises the ship-modified phase geometry, not just the
   // base one:
   //   - HAULER: cargo 180 (extract phase 180 ticks, not 90), transit 0.8
-  //     (transitOut/Back ceil(25/0.8)=32 ticks, not 25) -> full cycle
-  //     1+32+180+32+8 = 253 ticks.
-  //   - RUNNER: cargo 60 (extract 60), transit 1.5 (ceil(25/1.5)=17) -> full
-  //     cycle 1+17+60+17+8 = 103 ticks.
+  //     (transitOut/Back ceil(25/0.8)=32 ticks, not 25), unload cargo-scaled to
+  //     max(3, ceil(8*180/90))=16 (Crew 0.14.0 Phase 5) -> full cycle
+  //     1+32+180+32+16 = 261 ticks.
+  //   - RUNNER: cargo 60 (extract 60), transit 1.5 (ceil(25/1.5)=17), unload
+  //     cargo-scaled to max(3, ceil(8*60/90))=6 -> full cycle
+  //     1+17+60+17+6 = 101 ticks.
   // Because effectiveMissionDef is computed ONCE per call (constant across the
   // whole while loop), the big call and the small-step chain see the SAME
   // requiredTicksForPhase values for every phase, exactly the property that
@@ -3919,28 +3921,33 @@ describe("tickCaptainMission, assigned ship stats (Task 6)", () => {
   };
 
   it("CLOSED-FORM holds with a HAULER (cargo 180 / transit 0.8) as shipStats", () => {
-    // 560 ticks crosses more than 2 full hauler cycles (2*253=506). 5600 steps
-    // of 0.1 each sum to the same 560, same step granularity as the base test.
-    closedFormForShip("prospectorHauler", 560, 5600);
+    // 560 ticks crosses more than 2 full hauler cycles (2*261=522, Crew 0.14.0
+    // Phase 5 cargo-scaled unload). 4480 steps of 0.125 (== 1/8, exactly
+    // representable in IEEE-754) each sum to EXACTLY 560. This uses the same exact
+    // step size as the RUNNER case below rather than 0.1: with the cargo-scaled
+    // unload the endpoint now lands where a 0.1 step's sub-ULP drift would cross a
+    // whole-tick boundary and cost a unit of cargo/XP on one path only (a float
+    // artifact of the step size, not a closed-form defect). 0.125 makes both paths
+    // receive identical total elapsed time so the closed-form property holds
+    // bit-exactly.
+    closedFormForShip("prospectorHauler", 560, 4480);
   });
 
   it("CLOSED-FORM holds with a RUNNER (cargo 60 / transit 1.5) as shipStats", () => {
-    // 230 ticks crosses more than 2 full runner cycles (2*103=206). 1840 steps of
-    // 0.125 each sum to EXACTLY 230.
+    // 230 ticks crosses more than 2 full runner cycles (2*101=202, Crew 0.14.0
+    // Phase 5 cargo-scaled unload). 1840 steps of 0.125 each sum to EXACTLY 230.
     //
     // Step size is 0.125 (== 1/8, exactly representable in IEEE-754), NOT 0.1: with
-    // 0.1, 2300 steps sum to 229.99999999999997, a hair UNDER 230, so the stepped
-    // path receives less total elapsed time than the 230.0 big jump and lands
-    // phaseProgressTicks at 5.999999999999995 (one whole extraction tick SHORT of the
-    // big jump's 6). Because extraction loot rolls fire on WHOLE-tick boundaries, that
-    // half-ULP shortfall costs a full unit of cargo/XP at this endpoint, breaking the
-    // exact .equals() checks below. That is a float-representation artifact of the STEP
-    // SIZE (the two paths get genuinely-unequal totals), NOT a defect in the closed-form
-    // production code, which snaps at phase boundaries but not at intermediate whole-tick
-    // boundaries mid-phase. 0.125 makes 1840 steps sum to exactly 230, so both paths get
-    // identical total elapsed time and the closed-form property holds bit-exactly. (The
-    // HAULER case above survives 0.1 only by luck, its 5600*0.1 lands a hair OVER 560,
-    // so floor() stays correct; same underlying fragility, opposite float direction.)
+    // 0.1, the stepped path's accumulated elapsed time drifts a sub-ULP off the big
+    // jump's exact 230.0, and because extraction loot rolls fire on WHOLE-tick
+    // boundaries that drift can cost a full unit of cargo/XP at the endpoint, breaking
+    // the exact .equals() checks below. That is a float-representation artifact of the
+    // STEP SIZE (the two paths get genuinely-unequal totals), NOT a defect in the
+    // closed-form production code, which snaps at phase boundaries but not at
+    // intermediate whole-tick boundaries mid-phase. 0.125 makes 1840 steps sum to
+    // exactly 230, so both paths get identical total elapsed time and the closed-form
+    // property holds bit-exactly. (The HAULER case above uses the same exact 0.125 step
+    // for the same reason.)
     closedFormForShip("prospectorRunner", 230, 1840);
   });
 
@@ -4163,22 +4170,25 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
 
   it("a RUNNER-assigned captain is FURTHER ALONG than a FREIGHTER-assigned captain for the same elapsed time", () => {
     // tickDurationSeconds = 1 (fresh default), so deltaSeconds == ticksElapsed.
-    // Run both for 103 ticks, chosen because that is EXACTLY one full RUNNER
+    // Run both for 101 ticks, chosen because that is EXACTLY one full RUNNER
     // cycle, so the runner's lead is unmissable (it completes and delivers,
     // while the freighter has not even finished its first extraction).
     //
     // Cycle geometry (shortOreRun base: orders 1, transitOut/Back 25 each,
-    // extract = ceil(cargoCapacity/1) ticks, unload 8):
-    //   FREIGHTER (transit 1.0, cargo 90): 1 + 25 + 90 + 25 + 8 = 149 ticks/cycle.
-    //     Cumulative boundaries: orders done @1, transitOut done @26, extracting
-    //     done @116. At 103 ticks the freighter is STILL in "extracting", at
-    //     progress 103 - 26 = 77 of 90 -> ZERO cycles completed -> ZERO loot
+    // extract = ceil(cargoCapacity/1) ticks, base unload 8). Crew 0.14.0 Phase 5
+    // cargo-scales unload per hull: max(3, ceil(8 * cargo / 90)):
+    //   FREIGHTER (transit 1.0, cargo 90): unload stays max(3, ceil(8*90/90)) = 8
+    //     (cargo 90 is the reference, so this hull is unchanged). Cycle =
+    //     1 + 25 + 90 + 25 + 8 = 149 ticks. Cumulative boundaries: orders done @1,
+    //     transitOut done @26. At 101 ticks the freighter is STILL in "extracting",
+    //     at progress 101 - 26 = 75 of 90 -> ZERO cycles completed -> ZERO loot
     //     delivered to homePlanet (loot only lands on unload completion).
     //   RUNNER (transit 1.5, cargo 60): transitOut/Back = ceil(25/1.5) = 17 each,
-    //     extract = 60. 1 + 17 + 60 + 17 + 8 = 103 ticks/cycle. At 103 ticks the
-    //     runner completes EXACTLY one cycle and auto-repeats -> back at
-    //     "ordersReceived", having delivered a full 60-unit haul to homePlanet.
-    const DELTA = 103;
+    //     extract = 60, unload cargo-scaled to max(3, ceil(8*60/90)) = 6. Cycle =
+    //     1 + 17 + 60 + 17 + 6 = 101 ticks. At 101 ticks the runner completes
+    //     EXACTLY one cycle and auto-repeats -> back at "ordersReceived", having
+    //     delivered a full 60-unit haul to homePlanet.
+    const DELTA = 101;
 
     // Case A: baseline, the seeded Freighter stays assigned to captain 1.
     const stateA = stateOnShortOreRun();
@@ -4193,7 +4203,7 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
 
     // Runner completed a cycle and is back at the start; freighter is mid-extract.
     expect((resultA.captains[0].mission as CaptainMissionState).phase).toBe("extracting");
-    expect((resultA.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(77, 6);
+    expect((resultA.captains[0].mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(75, 6);
     expect((resultB.captains[0].mission as CaptainMissionState).phase).toBe("ordersReceived");
 
     // The decisive rng-independent proof: the runner delivered a full haul; the
@@ -4206,8 +4216,8 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
 
     // Fleet XP no longer distinguishes them: since the Progression Pacing Rework
     // (v0.5.0) FA XP accrues per WHOLE tick a mission advances, NOT as a per-cycle
-    // lump. Both captains were on an active mission for the full 103 ticks, so both
-    // accrued the identical 103 FA XP (fleetAdminXpPerTick == 1, unchanged by ship
+    // lump. Both captains were on an active mission for the full 101 ticks, so both
+    // accrued the identical 101 FA XP (fleetAdminXpPerTick == 1, unchanged by ship
     // stats, effectiveMissionDef preserves it) regardless of who completed a cycle.
     // The stale pre-rework assertion here was `resultB > resultA` (true only under
     // the old per-cycle XP lump). CREDITS remain the cycle-completion discriminator
