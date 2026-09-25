@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 56;
+export const SAVE_VERSION = 57;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2207,6 +2207,20 @@ const MIGRATIONS: Record<number, Migration> = {
     ...state,
     seniorStaffSeed: state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED,
     seniorStaffRosterSize: state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE,
+  }),
+  // v56 -> v57 (0.14.0 Crew, Phase C-2): pure additive backfill of the two DORMANT Personnel Rosters
+  // fields, no behavior change (mirrors the v54->v55 / v55->v56 pattern above). Backfills the saved-
+  // roster list (empty) and the id counter (1, first minted id "roster-1") with the SAME defaults
+  // freshState uses, so a fresh save and a migrated save stay indistinguishable in shape. The two new
+  // OPTIONAL per-record fields (NotableCrewMember.assignedShipId, SeniorStaffOfficer.favorite) are left
+  // undefined on purpose: they are additive-optional (an absent value reads as unassigned / not
+  // favorited), so no per-record backfill is needed. Both new GameState fields are plain values, not
+  // Decimals, so hydrateDecimals is unchanged. Idempotent: `??` only fills an absent field. Nothing
+  // reads any of this on the tick; rosters apply only on explicit user action.
+  56: (state: any): any => ({
+    ...state,
+    personnelRosters: state.personnelRosters ?? [],
+    nextRosterId: state.nextRosterId ?? 1,
   }),
 };
 

@@ -4745,6 +4745,14 @@ export interface NotableCrewMember {
   name: string;
   gender: string;
   favorite?: boolean;
+  // Crew 0.14.0 (Phase C-2): a notable can be ASSIGNED to a ship (mirrors the officer's
+  // assignedShipId authority). A pinned+applied notable occupies ONE complement slot of its
+  // rank/division on top of the fungible bucket bulk. Optional + ADDITIVE: an absent value reads
+  // as unassigned (null), so an old save needs no field-level migration for it (the personnelRosters
+  // v56->v57 migration only adds the two fleet-wide roster fields). DORMANT for the tick: folding an
+  // assigned notable's stat contribution into the crew overlay is a documented FOLLOW-ON
+  // (crewOverlay.ts), so with no roster applied all existing behavior is byte-identical.
+  assignedShipId?: string | null;
 }
 
 // --- Senior Staff = few, named, full objects (fine to persist per-person) ---------------------
@@ -4803,6 +4811,11 @@ export interface SeniorStaffOfficer {
   // established optional-additive field convention (e.g. favorite / weaponType elsewhere).
   promotionCounters?: Partial<Record<PromotionObjectiveKind, number>>;
   assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
+  // Crew 0.14.0 (Phase C-2): favoriting parity with NotableCrewMember (which already carries
+  // `favorite?`), so the Personnel Rosters builder can favorite an officer the same way ships/items
+  // are favorited. Optional + ADDITIVE (an absent value reads as not-favorited), so an old save needs
+  // no field-level migration. Pure UI/curation flag; nothing mechanical reads it.
+  favorite?: boolean;
 }
 
 // The base size of the Senior Staff candidate roster (Phase 1; user 2026-09-23, "base 10,
@@ -4817,6 +4830,29 @@ export const SENIOR_STAFF_ROSTER_BASE = 10;
 // fractional-bits constant the combat RNG also uses). Per-save reseeding is a later option and is
 // not observable while the engine is dormant. TUNABLE.
 export const SENIOR_STAFF_DEFAULT_SEED = 0x9e3779b9;
+
+// --- Crew 0.14.0 (Phase C-2): PERSONNEL ROSTERS -----------------------------------------------
+// A ROSTER is a NAMED, priority-ordered set of PINNED people (officers by seat + notable crew) plus
+// a fill policy, applied to a ship and CAPPED by that ship's real caps. It is the personnel
+// counterpart to a Loadout: where a Loadout saves a ship's GEAR, a roster saves its PEOPLE. Applying
+// a partial roster auto-completes the complement with RANDOM bulk crew (top-rank-down), NOT persisted
+// back to the roster (see personnelRosters.ts applyRoster). The optional Armory-loadout link is the
+// per-roster toggle from the synthesis: linked = exact caps + gear travel as a "ship + gear + people"
+// package; unlinked = portable, capped by whatever hull it is applied to. applyRoster applies PEOPLE
+// to the given ship; the gear SWAP a linked loadout implies is the Armory's job (out of scope here).
+//
+// WHY ONLY INDIVIDUALS ARE PINNED (COMPLEMENT PRIORITY MODEL, user 2026-09-24): officers + notable
+// crew are individual records with ids, so they pin by id in a reorderable PRIORITY order; the BULK
+// complement is fungible histogram buckets (no per-head identity), so it is NOT individually pinnable
+// and simply AUTO-FILLS to cap honoring the pins.
+export interface PersonnelRoster {
+  id: string; // "roster-N", allocated from GameState.nextRosterId (mirrors nextLoadoutId / nextShipId)
+  name: string;
+  linkedLoadoutId: string | null; // optional link to an Armory Loadout (the capacity/gear source of truth); null = unlinked/portable
+  includePeople: boolean; // the checkbox: whether this roster carries Senior Staff + Complement people at all
+  seatAssignments: Partial<Record<SeniorStaffSeat, string>>; // seat -> the pinned officer's id (absent seat = unpinned)
+  pinnedNotableCrew: string[]; // pinned NotableCrewMember ids, in PRIORITY order (index 0 = highest priority)
+}
 
 export interface GameState {
   captains: CaptainState[];
@@ -5160,6 +5196,16 @@ export interface GameState {
   // value so a later upgrade can expand it. Nothing reads either field yet (dormant).
   seniorStaffSeed: number; // stable per-save PRNG seed for the deterministic candidate roster
   seniorStaffRosterSize: number; // how many candidates the roster shows (base SENIOR_STAFF_ROSTER_BASE, upgradeable later)
+  // --- Crew 0.14.0 (Phase C-2): PERSONNEL ROSTERS ----------------------------------------------
+  // The saved personnel loadouts (see PersonnelRoster above). freshState seeds the clean-slate
+  // defaults (no rosters, id counter at 1 so the first minted id is "roster-1", mirroring
+  // nextLoadoutId's "next allocatable" seeding). The v56->v57 migration backfills the IDENTICAL
+  // defaults onto existing saves, so a fresh save and a migrated save stay indistinguishable in shape.
+  // Rosters run ONLY on explicit user action (personnelRosters.ts), never on the tick, so this stays
+  // additive-neutral: with no roster applied, all existing behavior + the crew parity tests are
+  // byte-identical.
+  personnelRosters: PersonnelRoster[];
+  nextRosterId: number; // monotonic id source for a new PersonnelRoster id; never reused, mirrors nextLoadoutId / nextShipId
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -9123,5 +9169,10 @@ export function freshState(): GameState {
     // saves. Nothing reads either yet.
     seniorStaffSeed: SENIOR_STAFF_DEFAULT_SEED,
     seniorStaffRosterSize: SENIOR_STAFF_ROSTER_BASE,
+    // Crew 0.14.0 (Phase C-2): no saved rosters yet, the id counter at 1 (first minted id "roster-1",
+    // mirroring nextLoadoutId's "next allocatable" seeding). Existing saves reach the IDENTICAL shape
+    // via the v56->v57 migration (save.ts), so a fresh save and a migrated save stay indistinguishable.
+    personnelRosters: [],
+    nextRosterId: 1,
   };
 }
