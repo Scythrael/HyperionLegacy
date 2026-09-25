@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature } from "./model";
+import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -149,12 +149,38 @@ export function shipCrewContribution(state: GameState, ship: ShipInstance): Reco
   const quartersMod = installedQuartersModule(state, ship);
   const bridgeMod = installedBridgeModule(state, ship);
 
-  // --- Complement: the bucket rollup is already keyed by the crew.* vocabulary. A quarters module
-  // scales each bucket's contribution by its division's effectiveness multiplier (division-focused
-  // boosts its own division at the others' cost; general boosts every division uniformly). With NO
-  // module we pass contributionForSignature UNCHANGED, so the rollup is byte-identical to before.
+  // --- Complement + assigned NOTABLE crew: the bucket rollup is keyed by the crew.* vocabulary. A
+  // quarters module scales each bucket's contribution by its division's effectiveness multiplier
+  // (division-focused boosts its own division at the others' cost; general boosts every division
+  // uniformly). With NO module we pass contributionForSignature UNCHANGED, so the rollup is
+  // byte-identical to before.
+  //
+  // GL-1: a NOTABLE crew member assigned to THIS ship (assignedShipId === ship.id, the same authority
+  // as officer seating) sits on top of the fungible bucket bulk and contributes exactly like a single
+  // crew of its signature, folded through the SAME contrib (so a quarters module amplifies it by
+  // division too). ADDITIVE-NEUTRAL: with no assigned notable the bucket list IS the complement's own
+  // array (same reference, same iteration + accumulation order), so this stays byte-identical to the
+  // pre-GL-1 path for every ship without a pinned notable, and the offline==live parity is preserved
+  // (a pure function of state).
   const complement = ship.complement;
-  if (complement && complement.buckets.length > 0) {
+  const baseBuckets = complement?.buckets ?? [];
+  const assignedNotables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
+  const buckets: CrewBucket[] =
+    assignedNotables.length > 0
+      ? [
+          ...baseBuckets,
+          ...assignedNotables.map((n) => ({
+            profession: n.profession,
+            rarity: n.rarity,
+            rank: n.rank,
+            race: n.race,
+            buff1Id: n.buff1Id,
+            buff2Id: n.buff2Id,
+            count: 1,
+          })),
+        ]
+      : baseBuckets;
+  if (buckets.length > 0) {
     const contrib = quartersMod
       ? (sig: CrewSignature): Record<string, number> => {
           const mult = quartersProfessionMultiplier(quartersMod, sig.profession);
@@ -165,7 +191,7 @@ export function shipCrewContribution(state: GameState, ship: ShipInstance): Reco
           return scaled;
         }
       : contributionForSignature;
-    const rollup = rollupBuckets(complement.buckets, contrib);
+    const rollup = rollupBuckets(buckets, contrib);
     for (const key of Object.keys(rollup)) add(key, rollup[key]);
   }
 

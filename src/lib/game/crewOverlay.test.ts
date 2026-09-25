@@ -141,6 +141,28 @@ describe("shipCrewContribution", () => {
     expect(shipCrewContribution(s, ship(s))).toEqual({});
   });
 
+  it("folds an assigned NOTABLE crew member (GL-1) like a single crew of its signature", () => {
+    const s = stateWith([], []);
+    s.notableCrew = [
+      { id: "notable-1", profession: "operations", rarity: "standard", rank: 1, race: "earthBorn",
+        buff1Id: "ops.unloadSpeed", buff2Id: null, name: "Standout", gender: "nonbinary", assignedShipId: "ship-1" },
+    ];
+    const contrib = shipCrewContribution(s, ship(s));
+    // one crew of the ops.unloadSpeed signature (standard x1, rank1 x1): magnitude 0.002 * 1.
+    expect(contrib[CREW_STAT_KEYS.unloadSpeed]).toBeCloseTo(0.002, 9);
+    // earthBorn racial crew.crewEffectiveness complement 0.0004 * 1 (dormant, still summed).
+    expect(contrib[CREW_STAT_KEYS.crewEffectiveness]).toBeCloseTo(0.0004, 9);
+  });
+
+  it("does NOT fold a notable assigned to a DIFFERENT ship (byte-identical to no-notable)", () => {
+    const s = stateWith([], []);
+    s.notableCrew = [
+      { id: "notable-1", profession: "operations", rarity: "standard", rank: 1, race: "earthBorn",
+        buff1Id: "ops.unloadSpeed", buff2Id: null, name: "Standout", gender: "nonbinary", assignedShipId: "ship-999" },
+    ];
+    expect(shipCrewContribution(s, ship(s))).toEqual({});
+  });
+
   it("drops officer bonuses with no ship-stat consumer (dormant, e.g. tactical weapon command)", () => {
     const s = stateWith(
       [],
