@@ -308,6 +308,10 @@ import { transitBerthsFree } from "./berths";
 // stats) + the per-tick crew engine (transports + auto-crew, run once per whole tick like the
 // process-line passes) + the officer mission-completion fold that feeds promotion gates.
 import { effectiveShipStats, resolveCrew, foldOfficerMissionCompletions } from "./crewOverlay";
+// Crew 0.14.0 (Phase C-3b): the fleet-wide captain-XP multiplier from accumulated retirements. It is
+// x1 (byte-identical) until a captain retires, so wiring it into captain XP accrual below changes no
+// existing save's behavior (every existing save has 0 retirements).
+import { retirementExpMultiplier } from "./captainRetirement";
 // Crafting Allocation Redesign (Task C2): the per-slot line engine below reuses C1's
 // pure allocation core, `lineInputsPerIteration` builds a line's per-iteration input
 // map from the recipe registries (the SAME map startRefineJob/startFabricateJob build
@@ -1740,7 +1744,19 @@ export function tickCaptainMission(
   // economyTick does NOT become claimable until the next one. That is deliberate: this
   // function cannot observe another captain's progress, so if within-call freeing were
   // claimable, one big call and many small calls would disagree about who docked when.
-  berthBudget: number = Infinity
+  berthBudget: number = Infinity,
+  // Crew 0.14.0 (Phase C-3b): the fleet-wide captain-XP multiplier from accumulated retirements
+  // (captainRetirement.ts retirementExpMultiplier). economyTick computes it ONCE from the incoming
+  // state and passes it here; it multiplies THIS captain's per-call XP award below.
+  //
+  // ⚠️ THE DEFAULT 1 IS WHAT KEEPS EVERY EXISTING CALL SITE AND TEST BYTE-IDENTICAL. Omitting this
+  // argument means "no retirement bonus", the pre-C-3b behavior, and the multiplier is EXACTLY 1
+  // whenever no captain has retired (every existing save), so the closed-form parity baseline cannot
+  // move because of this parameter's existence. It is a call-constant (a pure function of the incoming
+  // state, unchanged by another captain's progress within the call), so the "one big call == many
+  // small calls" guarantee holds for the same reason the `bonuses` constant does. See the fractional-
+  // rate parity trap at the accrual site below before shipping a nonzero-retirement fractional rate.
+  captainXpMult: number = 1
 ): {
   captain: CaptainState;
   // Mission Rework (Task 1): widened LootMaterialKey -> string. The loot delta is now
@@ -2231,7 +2247,16 @@ export function tickCaptainMission(
   // behavior-preserving) so Task 6 can report the GROSS XP awarded this call in
   // lifetimeStatsDelta.captainXpAwarded below, distinct from the captain's own `xp`
   // (which the level-up loop then drains by subtracting thresholds).
-  const captainXpAwardedThisCall = new Decimal(xpRate).times(wholeTicksElapsed);
+  // Crew 0.14.0 (Phase C-3b): fold the fleet-wide RETIREMENT captain-XP multiplier into the award. It
+  // is a call-constant, so the closed-form product stays a single product (parity preserved) and, at
+  // its byte-identical default of 1 (no captain has retired -> retirementExpMultiplier is exactly 1),
+  // `.times(1)` leaves the Decimal value-identical to before, so the 101-parity baseline is untouched.
+  // ⚠️ FRACTIONAL-RATE PARITY: once a captain retires, captainXpMult is fractional (e.g. 1.05), and it
+  // then shares the exact caveat the xpRate trap comment above documents. It does NOT affect the current
+  // parity TEST (that runs at 0 retirements, mult 1), and no live save changes (all start at 0
+  // retirements); a nonzero-retirement fractional multiplier needs its own parity re-derivation/test,
+  // same as a fractional xpRate would.
+  const captainXpAwardedThisCall = new Decimal(xpRate).times(wholeTicksElapsed).times(captainXpMult);
   xp = xp.plus(captainXpAwardedThisCall);
   // Captain level-ups via the shared fold helper (was an inline subtract-and-carry
   // loop). Captain XP awards ONE stat point per level, so statPoints climbs by the
@@ -2594,6 +2619,12 @@ export function tickCaptainPatrol(
   // UNDEFINED (not []) is the absent sentinel: an empty array would mean "gear present but bare"
   // (no weapons / zero shields), so a not-passed gear falls back to the hull-default build instead.
   installedGear?: EquipmentInstance[],
+  // Crew 0.14.0 (Phase C-3b): the fleet-wide RETIREMENT captain-XP multiplier, mirroring the extraction
+  // path's captainXpMult. economyTick computes it ONCE (retirementExpMultiplier) and passes it here so
+  // patrol XP gets the same retirement boost extraction does. Default 1 keeps every existing call +
+  // test byte-identical, and it is EXACTLY 1 until a captain retires (every existing save), so the
+  // patrol closed-form parity baseline cannot move because of this parameter's existence.
+  captainXpMult: number = 1,
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
     captain,
@@ -3013,8 +3044,14 @@ export function tickCaptainPatrol(
   let xp = captain.xp;
   let level = captain.level;
   let statPoints = captain.statPoints;
+  // Crew 0.14.0 (Phase C-3b): fold the fleet-wide RETIREMENT captain-XP multiplier into the won-wave
+  // sum (a single product on the summed total, so the closed-form patrol-XP parity holds for the same
+  // reason the extraction site's does). At its byte-identical default of 1 (no captain retired),
+  // `captainXpAwarded * 1 === captainXpAwarded` for the plain number, so the total is value-identical
+  // and the guard below (raw > 0, and the multiplier is always >= 1) is unaffected.
+  const awardedXp = captainXpAwarded * captainXpMult;
   if (captainXpAwarded > 0) {
-    xp = xp.plus(captainXpAwarded);
+    xp = xp.plus(awardedXp);
     const captainLevelUps = foldXpLevelUps(xp, level, xpForNextLevel);
     xp = captainLevelUps.xp;
     level = captainLevelUps.level;
@@ -3045,7 +3082,7 @@ export function tickCaptainPatrol(
     itemsGathered: { ...lootMaterials },
     missionsCompleted: routesCompleted > 0 ? { [patrolKey]: new Decimal(routesCompleted) } : {},
     creditsEarned: new Decimal(creditsAwarded),
-    captainXpAwarded: new Decimal(captainXpAwarded),
+    captainXpAwarded: new Decimal(awardedXp), // Crew 0.14.0 C-3b: the boosted gross (== raw at mult 1)
     fleetAdminXpAwarded: new Decimal(fleetAdminXpAwarded),
   };
 
@@ -3327,6 +3364,13 @@ export function economyTick(
   // inline `state.gameTimeSeconds + deltaSeconds`.
   const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
 
+  // Crew 0.14.0 (Phase C-3b): the fleet-wide RETIREMENT captain-XP multiplier, computed ONCE from the
+  // incoming state (a call-constant, like berthBudget) and passed into each captain's tickCaptainMission
+  // below. Exactly 1 whenever no captain has retired (every existing save), so it is byte-identical
+  // there; it only lifts XP once retirements accumulate. Read once here (never a live per-captain read)
+  // so one big offline call and many small live calls apply the SAME multiplier.
+  const captainXpMult = retirementExpMultiplier(state);
+
   // Mission Rework (Task 1): Record<string,Decimal> (not narrow LootMaterialKey) --
   // each captain's per-mission loot delta may carry item keys beyond the 3 ore tiers.
   // Seeded with the 3 ore-tier keys (emptyLootTotals) so passiveTrickle's commonOre
@@ -3521,7 +3565,10 @@ export function economyTick(
           patrolFuelPerCycle,
           creditsBudgetRemaining,
           FUEL_CREDITS_PER_UNIT, // explicit so the installedGear arg below lands in the right slot
-          patrolGear
+          patrolGear,
+          // Crew 0.14.0 (Phase C-3b): same fleet-wide retirement captain-XP multiplier as extraction
+          // (x1 until a captain retires, so byte-identical for every existing save).
+          captainXpMult
         );
         // Draw down the shared budgets so a later captain sees the reduced values (no
         // double-spend), and sum for the single Decimal tank/credits deductions below.
@@ -3718,7 +3765,10 @@ export function economyTick(
       fuelPerCycle,
       creditsBudgetRemaining,
       FUEL_CREDITS_PER_UNIT, // explicit so berthBudgetRemaining lands in the right slot
-      berthBudgetRemaining
+      berthBudgetRemaining,
+      // Crew 0.14.0 (Phase C-3b): the fleet-wide retirement captain-XP multiplier (x1 until a captain
+      // retires, so byte-identical for every existing save).
+      captainXpMult
     );
     // 0.13.4 Phase 3: draw the shared berth budget down so the next captain in this map sees it.
     // Same posture as the fuel and credit draw-downs directly below.

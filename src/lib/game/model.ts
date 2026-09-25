@@ -2437,6 +2437,15 @@ export interface CaptainState {
   secondaryPoints: number;
   unlockedSecondaryTalents: SecondaryTalentKey[];
   retirements: number;
+  // Crew 0.14.0 (Phase C-3b): the INHERITED IDENTITY race of this captaincy, set when a retiring
+  // captain's seated Executive officer (the XO) succeeds them (retireCaptain, captainRetirement.ts).
+  // OPTIONAL + ADDITIVE: an absent value means "no inherited identity yet" (a brand-new captain has
+  // never taken a successor), so an old save needs NO field-level migration and NO SAVE_VERSION bump:
+  // it rides the `...captain` spread through serialize/hydrateDecimals untouched (a plain string, not
+  // a Decimal), exactly like lastStopReason below and the established optional-additive convention.
+  // This is IDENTITY DATA ONLY today: applying a captain RACIAL BONUS from it is a documented FOLLOW-ON
+  // (ties to the E-CAP captain-identity set); nothing on the tick reads this field yet.
+  race?: CrewRace;
   // OPTIONAL transient display hint (offline recap): the reason this captain's mission last
   // ended at a genuine wall-stop, see CaptainStopReason above. undefined by default (a clean
   // completion, a recall, or a captain that never stopped leaves it unset). A plain string, so
