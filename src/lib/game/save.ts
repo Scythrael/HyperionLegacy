@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 57;
+export const SAVE_VERSION = 58;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2221,6 +2221,23 @@ const MIGRATIONS: Record<number, Migration> = {
     ...state,
     personnelRosters: state.personnelRosters ?? [],
     nextRosterId: state.nextRosterId ?? 1,
+  }),
+  // v57 -> v58 (0.14.0 Crew, Phase C-3a): pure additive backfill of the three DORMANT captain PRESTIGE
+  // secondary-tree fields onto EVERY captain, no behavior change (mirrors the v54->v55 crew pattern
+  // above). Backfills each captain's secondaryPoints (0), unlockedSecondaryTalents ([]) and retirements
+  // (0) with the SAME defaults freshCaptainStack() uses, so a fresh save and a migrated save stay
+  // indistinguishable in shape. All three are plain values (a number, a string array, a number), not
+  // Decimals, so hydrateDecimals is unchanged. Idempotent: `??` only fills an absent field, so a captain
+  // that already carries these keeps them. Nothing reads any of this yet (allocation is spent only on a
+  // later explicit action; effect application is a still-later live phase).
+  57: (state: any): any => ({
+    ...state,
+    captains: (state.captains ?? []).map((c: any) => ({
+      ...c,
+      secondaryPoints: c.secondaryPoints ?? 0,
+      unlockedSecondaryTalents: c.unlockedSecondaryTalents ?? [],
+      retirements: c.retirements ?? 0,
+    })),
   }),
 };
 

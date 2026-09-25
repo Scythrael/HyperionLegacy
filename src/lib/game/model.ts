@@ -2423,6 +2423,20 @@ export interface CaptainState {
   statPoints: number; // unspent, earned on level-up, spent via buyHomeworldTalent's unlockCaptainSlot effect (tick.ts)
   unlockedCaptainTalents: CaptainTalentKey[]; // this captain's own purchased Captain Talent keys, see buyCaptainTalent (tick.ts)
   spec: CaptainTalentBranch | null; // this captain's chosen Captain Specialization, if any, null means no CAPTAIN_SPEC_BONUS entry applies yet (see that table below)
+  // Crew 0.14.0 (Phase C-3a): the DORMANT captain PRESTIGE secondary talent tree state. These three
+  // fields are ADDITIVE + inert until later phases wire them up; nothing on the tick reads them yet.
+  //   secondaryPoints: unspent points to spend in the secondary tree (SECONDARY_CAPTAIN_TALENTS). One
+  //     point is earned per captain retirement (a LATER phase, C-3b); allocation is spent via
+  //     buySecondaryTalent (captainSecondaryTree.ts). Default 0. A brand-new captain has none.
+  //   unlockedSecondaryTalents: this captain's own purchased secondary-tree node keys. Single-branch-
+  //     committed by the allocation rules (canBuySecondaryTalent), so at most one of the 9 branches is
+  //     ever populated. Default [].
+  //   retirements: how many times this captaincy/lineage has retired (0..5), dormant until C-3b builds
+  //     the retirement + XO-succession loop. Capped at 5 (a locked-in captain); 5 points fill exactly
+  //     ONE branch = one of 9 ultimate specs. Default 0.
+  secondaryPoints: number;
+  unlockedSecondaryTalents: SecondaryTalentKey[];
+  retirements: number;
   // OPTIONAL transient display hint (offline recap): the reason this captain's mission last
   // ended at a genuine wall-stop, see CaptainStopReason above. undefined by default (a clean
   // completion, a recall, or a captain that never stopped leaves it unset). A plain string, so
@@ -8274,6 +8288,444 @@ export const CAPTAIN_SPEC_BONUS: Partial<Record<CaptainTalentBranch, CaptainTale
   resourcefulness: { type: "bonusRollChance", chance: 0.01 },
 };
 
+// ===========================================================================
+// Captain PRESTIGE secondary talent tree (Crew 0.14.0, Phase C-3a) -- DORMANT
+// ===========================================================================
+//
+// A SECOND captain-tier talent tree that DEEPENS the base tree's three identities. Points are earned
+// via captain RETIREMENT (a later phase, C-3b) and spent through captainSecondaryTree.ts. This block
+// is purely the tree STRUCTURE + the catalog DATA; the allocation ENGINE is captainSecondaryTree.ts,
+// and EFFECT APPLICATION to gameplay is a still-LATER live phase.
+//
+// ⚠️ DORMANT + additive-neutral: NOTHING applies these effects yet. The `effect` field on every node
+// below is inert CATALOG DATA (a first-pass, tunable description of what the node WILL do), exactly
+// the way the base CAPTAIN_TALENTS once carried `{ type: "none" }` gateways for combat/science before
+// those systems existed. The tick economy reads none of this; a captain that owns secondary nodes
+// ticks byte-identically to one that does not, until the live-wiring phase lands.
+//
+// Shape (mirrors CAPTAIN_TALENTS): 3 TREES x 3 BRANCHES x 5 RUNGS = 45 nodes. A fully-retired captain
+// has 5 secondary points and fills EXACTLY ONE branch (all 5 rungs) = one of 9 ultimate specs. Within
+// a branch the 5 rungs chain linearly rung1 <-> rung2 <-> ... <-> rung5 via `neighbors`; there are NO
+// cross-branch neighbors, so a branch is an isolated chain whose rung-1 node is its only entry. Rung 5
+// of every branch is the defining CAPSTONE. Content is from docs/plans/2026-09-22-crew-0.14.0-plan.md
+// ("Captain PRESTIGE secondary tree - content" + the REVISION to the Prospector tree, which supersedes
+// the old Fabrication branch: the Prospector tree is Extraction / Logistics / Trade).
+export type SecondaryTalentTree = "prospector" | "tactician" | "explorer";
+
+// The 9 branch ids (3 per tree). Prospector deepens `resourcefulness`, Tactician `tactical`, Explorer
+// `science`. camelCase keys, closed union.
+export type SecondaryTalentBranch =
+  // TREE 1 - PROSPECTOR (economy/industry)
+  | "extraction"
+  | "logistics"
+  | "trade"
+  // TREE 2 - TACTICIAN (combat)
+  | "gunnery"
+  | "aegis"
+  | "fleetOps"
+  // TREE 3 - EXPLORER (frontier/crew)
+  | "surveySensors"
+  | "expeditionRelics"
+  | "commandCrew";
+
+// The 45 node keys (`<branch><rung>`), closed union. rung 1 = entry, 5 = capstone.
+export type SecondaryTalentKey =
+  // Prospector / Extraction
+  | "extraction1" | "extraction2" | "extraction3" | "extraction4" | "extraction5"
+  // Prospector / Logistics
+  | "logistics1" | "logistics2" | "logistics3" | "logistics4" | "logistics5"
+  // Prospector / Trade (all gateway until the trade system, 0.14.x)
+  | "trade1" | "trade2" | "trade3" | "trade4" | "trade5"
+  // Tactician / Gunnery
+  | "gunnery1" | "gunnery2" | "gunnery3" | "gunnery4" | "gunnery5"
+  // Tactician / Aegis
+  | "aegis1" | "aegis2" | "aegis3" | "aegis4" | "aegis5"
+  // Tactician / Fleet Ops (rungs 4-5 gateway until the fleet-ops system, 0.14.x)
+  | "fleetOps1" | "fleetOps2" | "fleetOps3" | "fleetOps4" | "fleetOps5"
+  // Explorer / Survey & Sensors
+  | "surveySensors1" | "surveySensors2" | "surveySensors3" | "surveySensors4" | "surveySensors5"
+  // Explorer / Expedition & Relics
+  | "expeditionRelics1" | "expeditionRelics2" | "expeditionRelics3" | "expeditionRelics4" | "expeditionRelics5"
+  // Explorer / Command & Crew
+  | "commandCrew1" | "commandCrew2" | "commandCrew3" | "commandCrew4" | "commandCrew5";
+
+// The stable iteration order for the 3 trees and the 9 branches (helpers/UI/tests read these instead
+// of re-deriving the order from the catalog). Prospector -> Tactician -> Explorer; within each tree the
+// 3 branches in the plan's order.
+export const SECONDARY_TALENT_TREES: readonly SecondaryTalentTree[] = ["prospector", "tactician", "explorer"];
+export const SECONDARY_TALENT_BRANCHES: readonly SecondaryTalentBranch[] = [
+  "extraction", "logistics", "trade",
+  "gunnery", "aegis", "fleetOps",
+  "surveySensors", "expeditionRelics", "commandCrew",
+];
+
+// A typed union of the secondary-tree effects, FIRST-PASS + inert (see the DORMANT note above). This
+// is CATALOG DATA only; no consumer applies any of it yet.
+//   none       - a pure gateway rung whose real system does not exist yet (Trade, and Fleet Ops'
+//                gateway rungs), or an unlock/preview with no magnitude. Renders honestly as "no bonus
+//                yet", the same reason CaptainTalentEffect carries its own `none` member.
+//   statMult   - a generic multiplicative bonus to a named stat. `stat` is a plain descriptive label,
+//                NOT yet a validated engine stat key (the live-wiring phase maps these to real stats).
+//   procChance - a generic chance-based effect (a find/quality/detection roll).
+//   capstone   - a rung-5 defining unlock/proc, identified by `id`; the live phase gives each a real
+//                mechanic. ALL magnitudes/chances below are FIRST-PASS TUNABLE placeholders.
+export type CaptainSecondaryTalentEffect =
+  | { type: "none" }
+  | { type: "statMult"; stat: string; mult: number }
+  | { type: "procChance"; chance: number }
+  | { type: "capstone"; id: string };
+
+// Mirrors CaptainTalentDef's shape (branch/label/cost/neighbors/effect/flavor/x/y), plus `tree` +
+// `rung`. `cost` is always 1 secondary point. `neighbors` is bidirectional by convention (like the
+// base tree) and, within the secondary tree, is strictly the intra-branch linear chain.
+export interface CaptainSecondaryTalentDef {
+  tree: SecondaryTalentTree;
+  branch: SecondaryTalentBranch;
+  rung: 1 | 2 | 3 | 4 | 5;
+  label: string;
+  cost: number; // secondaryPoints; always 1
+  neighbors: SecondaryTalentKey[]; // bidirectional; intra-branch linear chain only (no cross-branch links)
+  effect: CaptainSecondaryTalentEffect; // INERT catalog data; nothing applies it yet (see DORMANT note)
+  flavor: string; // short narrative blurb, for the later talent-tree tooltips
+  x: number; // web-space coordinate; FIRST-PASS TUNABLE (the radial layout mockup comes at the UI phase)
+  y: number; // FIRST-PASS TUNABLE
+}
+
+// The 45-node catalog. Coordinates lay the 3 trees out in 3 radial sectors (Prospector top, Tactician
+// lower-left, Explorer lower-right), each tree's 3 branches fanning outward, each branch a 5-rung chain
+// stepping away from the center. ALL x/y are FIRST-PASS TUNABLE placeholders (same launch-placeholder
+// spirit as CAPTAIN_TALENTS' own coordinates); the real layout is authored from a mockup at the UI
+// phase. Magnitudes/chances/capstone ids are likewise FIRST-PASS TUNABLE.
+export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecondaryTalentDef> = {
+  // ============ TREE 1 - PROSPECTOR ============
+  // --- Extraction (-> Motherlode) ---
+  extraction1: {
+    tree: "prospector", branch: "extraction", rung: 1,
+    label: "Prospector's Eye", cost: 1,
+    x: 41, y: 113, neighbors: ["extraction2"],
+    effect: { type: "statMult", stat: "extractionYield", mult: 0.05 },
+    flavor: "You read a survey scan the way others read a map: value first, everything else second.",
+  },
+  extraction2: {
+    tree: "prospector", branch: "extraction", rung: 2,
+    label: "Deep Veins", cost: 1,
+    x: 75, y: 207, neighbors: ["extraction1", "extraction3"],
+    effect: { type: "procChance", chance: 0.05 }, // +rare/uncommon find chance
+    flavor: "The richest seams hide below the obvious ones. You have learned where to look.",
+  },
+  extraction3: {
+    tree: "prospector", branch: "extraction", rung: 3,
+    label: "Efficient Haul", cost: 1,
+    x: 109, y: 301, neighbors: ["extraction2", "extraction4"],
+    effect: { type: "statMult", stat: "extractionSpeed", mult: 0.08 }, // faster extraction cycles
+    flavor: "A tighter cut of the extraction cycle means more runs before the shift is done.",
+  },
+  extraction4: {
+    tree: "prospector", branch: "extraction", rung: 4,
+    label: "Assayer", cost: 1, // util
+    x: 144, y: 395, neighbors: ["extraction3", "extraction5"],
+    effect: { type: "procChance", chance: 0.05 }, // +material quality chance
+    flavor: "You grade ore by feel now, culling the dross before it ever reaches the hold.",
+  },
+  extraction5: {
+    tree: "prospector", branch: "extraction", rung: 5,
+    label: "Motherlode", cost: 1, // CAPSTONE
+    x: 178, y: 489, neighbors: ["extraction4"],
+    effect: { type: "capstone", id: "motherlode" }, // chance for an extraction action to yield a full double haul / rare burst
+    flavor: "Once in a career a prospector cracks a deposit that pays for the whole ship. You do it on schedule.",
+  },
+  // --- Logistics (-> Overloaded Holds) [revised: hauling, not trade] ---
+  logistics1: {
+    tree: "prospector", branch: "logistics", rung: 1,
+    label: "Quartermaster", cost: 1,
+    x: 0, y: 120, neighbors: ["logistics2"],
+    effect: { type: "statMult", stat: "cargoCapacity", mult: 0.05 },
+    flavor: "Every centimeter of hold is inventoried, stacked, and accounted for.",
+  },
+  logistics2: {
+    tree: "prospector", branch: "logistics", rung: 2,
+    label: "Fuel Discipline", cost: 1,
+    x: 0, y: 220, neighbors: ["logistics1", "logistics3"],
+    effect: { type: "statMult", stat: "fuelEfficiency", mult: 0.05 }, // +fuel efficiency / reach
+    flavor: "You coax more reach out of every drop, plotting burns a lazier captain would waste.",
+  },
+  logistics3: {
+    tree: "prospector", branch: "logistics", rung: 3,
+    label: "Rapid Turnaround", cost: 1,
+    x: 0, y: 320, neighbors: ["logistics2", "logistics4"],
+    effect: { type: "statMult", stat: "unloadSpeed", mult: 0.08 }, // +unload speed
+    flavor: "A hold empties fastest when the crew already knows where every crate goes.",
+  },
+  logistics4: {
+    tree: "prospector", branch: "logistics", rung: 4,
+    label: "Efficient Stowage", cost: 1, // util
+    x: 0, y: 420, neighbors: ["logistics3", "logistics5"],
+    effect: { type: "statMult", stat: "loadSpeed", mult: 0.08 }, // +pre-mission load speed
+    flavor: "Loading is choreography. Yours is rehearsed to the second.",
+  },
+  logistics5: {
+    tree: "prospector", branch: "logistics", rung: 5,
+    label: "Overloaded Holds", cost: 1, // CAPSTONE
+    x: 0, y: 520, neighbors: ["logistics4"],
+    effect: { type: "capstone", id: "overloadedHolds" }, // carry beyond cargo cap by X% with no penalty
+    flavor: "The manifest says the hold is full. You have found the margin the manifest forgot.",
+  },
+  // --- Trade (-> Trade Baron) [all gateway until the trade system, 0.14.x] ---
+  trade1: {
+    tree: "prospector", branch: "trade", rung: 1,
+    label: "Market Contacts", cost: 1, // gateway
+    x: -41, y: 113, neighbors: ["trade2"],
+    effect: { type: "none" }, // unlock/boost market access; no trade system to apply it to yet
+    flavor: "A name at every dock and a favor owed at most of them.",
+  },
+  trade2: {
+    tree: "prospector", branch: "trade", rung: 2,
+    label: "Shrewd Negotiator", cost: 1, // gateway
+    x: -75, y: 207, neighbors: ["trade1", "trade3"],
+    effect: { type: "none" }, // better BUY prices; gateway until trade
+    flavor: "You never take the first price, and rarely the second.",
+  },
+  trade3: {
+    tree: "prospector", branch: "trade", rung: 3,
+    label: "Premium Goods", cost: 1, // gateway
+    x: -109, y: 301, neighbors: ["trade2", "trade4"],
+    effect: { type: "none" }, // better SELL margins; gateway until trade
+    flavor: "Presentation is half the margin. Your holds sell before they open.",
+  },
+  trade4: {
+    tree: "prospector", branch: "trade", rung: 4,
+    label: "Trade Routes", cost: 1, // util, gateway
+    x: -144, y: 395, neighbors: ["trade3", "trade5"],
+    effect: { type: "none" }, // passive income from established routes; gateway until trade
+    flavor: "A route run enough times runs itself, and pays whether you sail it or not.",
+  },
+  trade5: {
+    tree: "prospector", branch: "trade", rung: 5,
+    label: "Trade Baron", cost: 1, // CAPSTONE, gateway
+    x: -178, y: 489, neighbors: ["trade4"],
+    effect: { type: "capstone", id: "tradeBaron" }, // best margins + passive credit trickle; gateway until trade
+    flavor: "Fleets move when you say the price is right. The market bends to the baron.",
+  },
+  // ============ TREE 2 - TACTICIAN ============
+  // --- Gunnery (-> Alpha Strike) ---
+  gunnery1: {
+    tree: "tactician", branch: "gunnery", rung: 1,
+    label: "Weapons Drill", cost: 1,
+    x: -118, y: -21, neighbors: ["gunnery2"],
+    effect: { type: "statMult", stat: "weaponDamage", mult: 0.05 },
+    flavor: "A gun crew drilled to reflex hits harder than one that has to think.",
+  },
+  gunnery2: {
+    tree: "tactician", branch: "gunnery", rung: 2,
+    label: "Marksman", cost: 1,
+    x: -217, y: -38, neighbors: ["gunnery1", "gunnery3"],
+    effect: { type: "statMult", stat: "weaponAccuracy", mult: 0.05 },
+    flavor: "You place shots where the armor is thin and the crew is thinner.",
+  },
+  gunnery3: {
+    tree: "tactician", branch: "gunnery", rung: 3,
+    label: "Overcharge", cost: 1,
+    x: -315, y: -56, neighbors: ["gunnery2", "gunnery4"],
+    effect: { type: "statMult", stat: "damageVsHighHealth", mult: 0.08 }, // +damage vs high-health targets
+    flavor: "The bigger the hull, the more it hurts when you pour it on.",
+  },
+  gunnery4: {
+    tree: "tactician", branch: "gunnery", rung: 4,
+    label: "Ammo Reserves", cost: 1, // util
+    x: -414, y: -73, neighbors: ["gunnery3", "gunnery5"],
+    effect: { type: "statMult", stat: "weaponCooldown", mult: 0.08 }, // faster weapon cooldown
+    flavor: "Deep magazines and a loader who never rests keep the volleys coming.",
+  },
+  gunnery5: {
+    tree: "tactician", branch: "gunnery", rung: 5,
+    label: "Alpha Strike", cost: 1, // CAPSTONE
+    x: -512, y: -90, neighbors: ["gunnery4"],
+    effect: { type: "capstone", id: "alphaStrike" }, // opening-volley burst: first combat round bonus/double damage
+    flavor: "The first exchange is the whole fight. You make sure it is the last one they choose.",
+  },
+  // --- Aegis / defense (-> Bulwark) ---
+  aegis1: {
+    tree: "tactician", branch: "aegis", rung: 1,
+    label: "Shield Discipline", cost: 1,
+    x: -104, y: -60, neighbors: ["aegis2"],
+    effect: { type: "statMult", stat: "shieldEffectiveness", mult: 0.05 },
+    flavor: "A shield held at the right facing outlasts one twice its rating.",
+  },
+  aegis2: {
+    tree: "tactician", branch: "aegis", rung: 2,
+    label: "Reinforced Hull", cost: 1,
+    x: -191, y: -110, neighbors: ["aegis1", "aegis3"],
+    effect: { type: "statMult", stat: "hullArmor", mult: 0.05 }, // +hull / armor
+    flavor: "Bracing, ablative plate, and a stubborn refusal to come apart.",
+  },
+  aegis3: {
+    tree: "tactician", branch: "aegis", rung: 3,
+    label: "Damage Control", cost: 1,
+    x: -277, y: -160, neighbors: ["aegis2", "aegis4"],
+    effect: { type: "statMult", stat: "hullRepairRate", mult: 0.08 }, // +hull repair rate
+    flavor: "Your damage teams patch a breach before the alarm finishes sounding.",
+  },
+  aegis4: {
+    tree: "tactician", branch: "aegis", rung: 4,
+    label: "Point Defense", cost: 1, // util
+    x: -364, y: -210, neighbors: ["aegis3", "aegis5"],
+    effect: { type: "statMult", stat: "evasion", mult: 0.05 }, // +evasion / incoming-fire mitigation
+    flavor: "Half the incoming fire never reaches the hull. You made sure of that.",
+  },
+  aegis5: {
+    tree: "tactician", branch: "aegis", rung: 5,
+    label: "Bulwark", cost: 1, // CAPSTONE
+    x: -450, y: -260, neighbors: ["aegis4"],
+    effect: { type: "capstone", id: "bulwark" }, // a damage floor / survive-one-lethal-hit per battle
+    flavor: "They threw everything at you and you were still there when the smoke cleared.",
+  },
+  // --- Fleet Ops / drones & patrols (rungs 4-5 gateway until the fleet-ops system, 0.14.x) ---
+  fleetOps1: {
+    tree: "tactician", branch: "fleetOps", rung: 1,
+    label: "Drone Handler", cost: 1,
+    x: -77, y: -92, neighbors: ["fleetOps2"],
+    effect: { type: "statMult", stat: "droneEffectiveness", mult: 0.05 },
+    flavor: "Your drones fly like they know what you want before you signal it.",
+  },
+  fleetOps2: {
+    tree: "tactician", branch: "fleetOps", rung: 2,
+    label: "Squadron Tactics", cost: 1,
+    x: -141, y: -169, neighbors: ["fleetOps1", "fleetOps3"],
+    effect: { type: "statMult", stat: "droneDurability", mult: 0.05 }, // +drone hp / accuracy
+    flavor: "A squadron that covers each other loses far fewer of its own.",
+  },
+  fleetOps3: {
+    tree: "tactician", branch: "fleetOps", rung: 3,
+    label: "Patrol Efficiency", cost: 1,
+    x: -206, y: -245, neighbors: ["fleetOps2", "fleetOps4"],
+    effect: { type: "statMult", stat: "patrolReturns", mult: 0.08 }, // +patrol returns
+    flavor: "You wring a full sweep's worth of results out of half a sweep's fuel.",
+  },
+  fleetOps4: {
+    tree: "tactician", branch: "fleetOps", rung: 4,
+    label: "Wing Commander", cost: 1, // util, gateway
+    x: -270, y: -322, neighbors: ["fleetOps3", "fleetOps5"],
+    effect: { type: "none" }, // coordinate multiple ships; no fleet-ops system to apply it to yet
+    flavor: "One captain, many hulls, a single mind moving them.",
+  },
+  fleetOps5: {
+    tree: "tactician", branch: "fleetOps", rung: 5,
+    label: "Wolfpack", cost: 1, // CAPSTONE, gateway
+    x: -334, y: -398, neighbors: ["fleetOps4"],
+    effect: { type: "capstone", id: "wolfpack" }, // extra drone squadron / fleet-wide combat bonus; gateway
+    flavor: "They do not fight a ship. They fight the pack, and the pack fights as one.",
+  },
+  // ============ TREE 3 - EXPLORER ============
+  // --- Survey & Sensors (-> Deep Scan) ---
+  surveySensors1: {
+    tree: "explorer", branch: "surveySensors", rung: 1,
+    label: "Keen Sensors", cost: 1,
+    x: 77, y: -92, neighbors: ["surveySensors2"],
+    effect: { type: "statMult", stat: "sensorsPower", mult: 0.05 },
+    flavor: "You tune an array to hear the whisper under the noise.",
+  },
+  surveySensors2: {
+    tree: "explorer", branch: "surveySensors", rung: 2,
+    label: "Cartographer", cost: 1,
+    x: 141, y: -169, neighbors: ["surveySensors1", "surveySensors3"],
+    effect: { type: "statMult", stat: "scanRate", mult: 0.08 }, // +scan % / sec
+    flavor: "An unknown system resolves into a chart under your patient sweep.",
+  },
+  surveySensors3: {
+    tree: "explorer", branch: "surveySensors", rung: 3,
+    label: "Anomaly Sense", cost: 1,
+    x: 206, y: -245, neighbors: ["surveySensors2", "surveySensors4"],
+    effect: { type: "procChance", chance: 0.05 }, // +rare / anomaly detection
+    flavor: "The readings that make other captains shrug make you change heading.",
+  },
+  surveySensors4: {
+    tree: "explorer", branch: "surveySensors", rung: 4,
+    label: "Foreknowledge", cost: 1, // util, gateway (exploration lands later in 0.14.0)
+    x: 270, y: -322, neighbors: ["surveySensors3", "surveySensors5"],
+    effect: { type: "none" }, // preview a destination's rewards/hazards; no exploration system to apply it to yet
+    flavor: "You know what waits at the next star before you burn for it.",
+  },
+  surveySensors5: {
+    tree: "explorer", branch: "surveySensors", rung: 5,
+    label: "Deep Scan", cost: 1, // CAPSTONE
+    x: 334, y: -398, neighbors: ["surveySensors4"],
+    effect: { type: "capstone", id: "deepScan" }, // full-system reveal + a guaranteed rare-tier discovery
+    flavor: "One pass and the whole system gives up its secrets, including the one it was hiding.",
+  },
+  // --- Expedition & Relics (-> Relic Hunter) ---
+  expeditionRelics1: {
+    tree: "explorer", branch: "expeditionRelics", rung: 1,
+    label: "Expedition Lead", cost: 1,
+    x: 104, y: -60, neighbors: ["expeditionRelics2"],
+    effect: { type: "statMult", stat: "groundTeamEffectiveness", mult: 0.05 },
+    flavor: "A team led well comes back whole, and comes back with more.",
+  },
+  expeditionRelics2: {
+    tree: "explorer", branch: "expeditionRelics", rung: 2,
+    label: "Field Science", cost: 1,
+    x: 191, y: -110, neighbors: ["expeditionRelics1", "expeditionRelics3"],
+    effect: { type: "procChance", chance: 0.05 }, // +relic / finding chance
+    flavor: "You find meaning in the rubble that others walk right past.",
+  },
+  expeditionRelics3: {
+    tree: "explorer", branch: "expeditionRelics", rung: 3,
+    label: "Away-Team Doctrine", cost: 1,
+    x: 277, y: -160, neighbors: ["expeditionRelics2", "expeditionRelics4"],
+    effect: { type: "statMult", stat: "gambitWinOdds", mult: 0.05 }, // +gambit win odds
+    flavor: "A drilled team wins the encounter before the first move is made.",
+  },
+  expeditionRelics4: {
+    tree: "explorer", branch: "expeditionRelics", rung: 4,
+    label: "Preservationist", cost: 1, // util
+    x: 364, y: -210, neighbors: ["expeditionRelics3", "expeditionRelics5"],
+    effect: { type: "statMult", stat: "relicQuality", mult: 0.08 }, // +relic quality / relic-research speed
+    flavor: "A relic recovered with care is worth three hauled out with a crowbar.",
+  },
+  expeditionRelics5: {
+    tree: "explorer", branch: "expeditionRelics", rung: 5,
+    label: "Relic Hunter", cost: 1, // CAPSTONE
+    x: 450, y: -260, neighbors: ["expeditionRelics4"],
+    effect: { type: "capstone", id: "relicHunter" }, // guaranteed relic from an expedition / +relic rarity tier
+    flavor: "Where there is a legend, there is a relic, and you have never come home empty.",
+  },
+  // --- Command & Crew (-> Legendary Captain) ---
+  commandCrew1: {
+    tree: "explorer", branch: "commandCrew", rung: 1,
+    label: "Inspiring Leader", cost: 1,
+    x: 118, y: -21, neighbors: ["commandCrew2"],
+    effect: { type: "statMult", stat: "crewEffectiveness", mult: 0.05 }, // +complement crew effectiveness
+    flavor: "A crew that believes in the captain does the work of a crew twice its size.",
+  },
+  commandCrew2: {
+    tree: "explorer", branch: "commandCrew", rung: 2,
+    label: "Mentor", cost: 1,
+    x: 217, y: -38, neighbors: ["commandCrew1", "commandCrew3"],
+    effect: { type: "statMult", stat: "officerOutput", mult: 0.05 }, // +officer output / faster candidate refresh
+    flavor: "The officers who served under you go on to captain their own.",
+  },
+  commandCrew3: {
+    tree: "explorer", branch: "commandCrew", rung: 3,
+    label: "Drillmaster", cost: 1,
+    x: 315, y: -56, neighbors: ["commandCrew2", "commandCrew4"],
+    effect: { type: "statMult", stat: "promotionProgress", mult: 0.08 }, // faster promotion-objective progress
+    flavor: "Under your watch a green cadet earns the pips in half the usual time.",
+  },
+  commandCrew4: {
+    tree: "explorer", branch: "commandCrew", rung: 4,
+    label: "Recruiter", cost: 1, // util
+    x: 414, y: -73, neighbors: ["commandCrew3", "commandCrew5"],
+    effect: { type: "statMult", stat: "candidateRosterSize", mult: 0.08 }, // +candidate roster size / +crew capacity
+    flavor: "The best hands in the sector hear you are hiring and come looking for you.",
+  },
+  commandCrew5: {
+    tree: "explorer", branch: "commandCrew", rung: 5,
+    label: "Legendary Captain", cost: 1, // CAPSTONE
+    x: 512, y: -90, neighbors: ["commandCrew4"],
+    effect: { type: "capstone", id: "legendaryCaptain" }, // crew-wide multiplier + an officer aura
+    flavor: "They will tell stories about serving under you long after the ship is scrap.",
+  },
+};
+
 // Radial Skill Web (docs/plans/2026-07-08-radial-skill-web-plan.md, Task 3):
 // this table is now a radial GRAPH, one hub per HomeworldTalentBranch (exactly
 // 5 hubs, each `isHub: true` at x:0,y:0 within its category), not a set of
@@ -8896,7 +9348,15 @@ export const categoryCards: SelectorCard[] = [
 // a slot that has never been played.
 export function freshCaptainStack(): Pick<
   CaptainState,
-  "mission" | "xp" | "level" | "statPoints" | "unlockedCaptainTalents" | "spec"
+  | "mission"
+  | "xp"
+  | "level"
+  | "statPoints"
+  | "unlockedCaptainTalents"
+  | "spec"
+  | "secondaryPoints"
+  | "unlockedSecondaryTalents"
+  | "retirements"
 > {
   return {
     mission: null,
@@ -8905,6 +9365,11 @@ export function freshCaptainStack(): Pick<
     statPoints: 0,
     unlockedCaptainTalents: [],
     spec: null,
+    // Crew 0.14.0 (Phase C-3a): the DORMANT secondary-tree baseline. A brand-new (or newly-unlocked)
+    // captain slot has spent no retirement points and never retired.
+    secondaryPoints: 0,
+    unlockedSecondaryTalents: [],
+    retirements: 0,
   };
 }
 
