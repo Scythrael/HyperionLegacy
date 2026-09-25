@@ -26,6 +26,9 @@
   // reads live state, routes every side effect back to the do* handlers below.
   import SeniorStaffPanel from "./lib/SeniorStaffPanel.svelte";
   import ComplementPanel from "./lib/ComplementPanel.svelte";
+  // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
+  // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
+  import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -344,6 +347,23 @@
     officerRankLabel,
   } from "./lib/game/seniorStaff";
   import type { SeniorStaffSeat } from "./lib/game/model";
+  // Crew 0.14.0 (phase 4d): the pure PERSONNEL ROSTERS engine, wired by the do* handlers below.
+  // Each takes + returns a whole GameState (createRoster also returns the new id); all are
+  // refuse-by-returning-the-same-state, so a no-op leaves state === next and we skip the log/save.
+  import {
+    createRoster,
+    updateRoster,
+    deleteRoster,
+    setLinkedLoadout,
+    setIncludePeople,
+    assignSeat,
+    pinNotable,
+    unpinNotable,
+    moveNotableUp,
+    moveNotableDown,
+    applyRoster,
+    type RosterPatch,
+  } from "./lib/game/personnelRosters";
   // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
   // DERIVED row list (built from the total REQUISITION_CATALOGUE Record over
   // EquipmentSlotType), so this console renders whatever slots have a Standard-Issue floor
@@ -1389,7 +1409,7 @@
   // stored) rather than the Salvage Bay's "seeded at level 0" posture, because the bay has
   // lanes to sell and this has nothing to sell. See quartermaster.ts for why it ships in the
   // same release that made Standard-Issue baselines auto-salvageable.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory" | "archive";
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory" | "archive" | "personnelRosters";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -1418,6 +1438,7 @@
     quartermaster: "Quartermaster",
     armory: "Armory",
     archive: "Archive",
+    personnelRosters: "Personnel Rosters",
   };
 
   // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
@@ -4837,6 +4858,105 @@
     };
     doSave();
     pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
+  }
+
+  // ── Personnel Rosters (Crew 0.14.0 phase 4d) ───────────────────────────────
+  // The PersonnelRostersPanel's controls route here. Each handler follows the canonical do* flow:
+  // call the PURE personnelRosters.ts engine fn, reassign `state`, pushLog, doSave. The engine fns
+  // refuse by returning the SAME state (no throws), so a no-op leaves state === next and we skip the
+  // log/save. NONE of this runs on the tick, so with no roster applied all crew-parity behavior is
+  // byte-identical (personnelRosters + its fields already exist from C-2, so no SAVE_VERSION bump).
+  const rosterName = (rosterId: string): string =>
+    state.personnelRosters.find((r) => r.id === rosterId)?.name ?? rosterId;
+
+  // SAVE NEW: mint a fresh roster (createRoster returns { next, rosterId }; a null id means the
+  // optional loadout link was a non-existent id, which the panel never sends, so it is defensive).
+  function doCreateRoster(opts: { name: string; linkedLoadoutId: string | null; includePeople: boolean }) {
+    const { next, rosterId } = createRoster(state, opts);
+    if (rosterId === null || next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Created personnel roster "${opts.name}".`);
+  }
+
+  // UPDATE: write a patch back (the panel commits the deferred NAME through this path; updateRoster's
+  // patch covers the name field, so a separate rename handler is not surfaced this phase).
+  function doUpdateRoster(rosterId: string, patch: RosterPatch) {
+    const next = updateRoster(state, rosterId, patch);
+    if (next === state) return; // missing roster / bad link / no change
+    state = next;
+    doSave();
+    pushLog(`Updated personnel roster "${rosterName(rosterId)}".`);
+  }
+
+  function doDeleteRoster(rosterId: string) {
+    const name = rosterName(rosterId); // capture before the delete removes it
+    const next = deleteRoster(state, rosterId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Deleted personnel roster "${name}".`);
+  }
+
+  function doSetRosterLoadout(rosterId: string, linkedLoadoutId: string | null) {
+    const next = setLinkedLoadout(state, rosterId, linkedLoadoutId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Roster "${rosterName(rosterId)}" ${linkedLoadoutId ? "linked to an Armory loadout" : "unlinked (portable)"}.`);
+  }
+
+  function doSetRosterIncludePeople(rosterId: string, includePeople: boolean) {
+    const next = setIncludePeople(state, rosterId, includePeople);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Roster "${rosterName(rosterId)}" ${includePeople ? "now carries Senior Staff + Complement" : "set to loadout-only"}.`);
+  }
+
+  function doAssignRosterSeat(rosterId: string, seat: SeniorStaffSeat, officerId: string | null) {
+    const next = assignSeat(state, rosterId, seat, officerId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Roster "${rosterName(rosterId)}": ${seat} seat ${officerId ? "assigned" : "cleared"}.`);
+  }
+
+  function doPinNotable(rosterId: string, notableId: string) {
+    const next = pinNotable(state, rosterId, notableId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    const notable = state.notableCrew.find((n) => n.id === notableId);
+    pushLog(`Pinned ${notable?.name ?? "crew"} to roster "${rosterName(rosterId)}".`);
+  }
+
+  function doUnpinNotable(rosterId: string, notableId: string) {
+    const notable = state.notableCrew.find((n) => n.id === notableId);
+    const next = unpinNotable(state, rosterId, notableId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Unpinned ${notable?.name ?? "crew"} from roster "${rosterName(rosterId)}".`);
+  }
+
+  // REORDER one pinned notable a single step. moveNotableUp / moveNotableDown are same-ref no-ops at
+  // the ends or on a bad id, so the panel's disabled arrows and the engine guard agree.
+  function doReorderNotable(rosterId: string, notableId: string, dir: "up" | "down") {
+    const next = dir === "up" ? moveNotableUp(state, rosterId, notableId) : moveNotableDown(state, rosterId, notableId);
+    if (next === state) return;
+    state = next;
+    doSave();
+  }
+
+  // APPLY the roster's people to a ship (the one side-effectful engine action). applyRoster is a
+  // same-ref no-op on a missing roster/ship or a roster carrying no people, so we skip the log/save.
+  function doApplyRoster(rosterId: string, shipId: string) {
+    const next = applyRoster(state, rosterId, shipId);
+    if (next === state) return;
+    state = next;
+    doSave();
+    pushLog(`Applied roster "${rosterName(rosterId)}" to ${devShipLabel(shipId)}.`);
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
@@ -9023,6 +9143,13 @@
       null, null,
       `${archiveCompletionVM.pct.toFixed(1)}% complete`,
       facilityAttention.has("archive")),
+    // CREW 0.14.0 (phase 4d): Personnel Rosters, saved PEOPLE loadouts (the personnel counterpart to
+    // the Armory's gear loadouts). A SERVICE facility like the Armory: no FACILITIES entry, no
+    // founding, no level; the count comes straight off state.personnelRosters.
+    fpane("personnelRosters", "🧑‍🚀", FACILITY_LABELS.personnelRosters, "Personnel loadouts",
+      null, null,
+      `${state.personnelRosters.length} saved roster${state.personnelRosters.length === 1 ? "" : "s"}`,
+      facilityAttention.has("personnelRosters")),
   ];
 
   // ── SHARED FACILITY-CONSOLE SUB-TABS (0.13.5, user: one-row console header). The console renders
@@ -13683,6 +13810,28 @@
                 {/each}
               </div>
             </Panel>
+          {:else if activeFoundryFacility === "personnelRosters"}
+            <!-- CREW 0.14.0 (phase 4d): the Personnel Rosters facility. Saved PEOPLE loadouts (the
+                 personnel counterpart to the Armory's gear loadouts): a named, priority-ordered set
+                 of pinned bridge officers + notable crew, optionally linked to an Armory loadout for
+                 exact caps + gear, applied to a ship (the priority list fills each rank to cap, then
+                 randoms auto-fill the rest, not persisted). Structural edits (loadout link, include-
+                 people, seat assignments, pins + order) route LIVE to their per-field do* handlers;
+                 the NAME is the one deferred field, committed by Update. All side effects run the pure
+                 personnelRosters.ts engine + doSave + pushLog in the handlers below. -->
+            <PersonnelRostersPanel
+              {state}
+              onCreateRoster={doCreateRoster}
+              onUpdateRoster={doUpdateRoster}
+              onDeleteRoster={doDeleteRoster}
+              onSetLoadout={doSetRosterLoadout}
+              onSetIncludePeople={doSetRosterIncludePeople}
+              onAssignSeat={doAssignRosterSeat}
+              onPinNotable={doPinNotable}
+              onUnpinNotable={doUnpinNotable}
+              onReorderNotable={doReorderNotable}
+              onApplyRoster={doApplyRoster}
+            />
           {/if}
         {/if}
       </div>
