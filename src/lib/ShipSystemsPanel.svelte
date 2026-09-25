@@ -98,6 +98,11 @@
   // / clamp). Extracted so this panel and the Combat View pip tooltips share ONE clamp
   // implementation; the measure + await-tick + reflow flow below stays local.
   import { clampFloatingTip } from "./floatingTip";
+  // 0.14.0 crew C-4c: the crew -> ship-stat overlay. effectiveShipStats is the SAME crew-boosted
+  // fold every engine consumer routes through (so the readout shows Senior Staff + Complement
+  // boosts); shipCrewContribution + applyCrewOverlay let the source popover split the crew delta by
+  // source using the EXACT engine functions (never a reimplementation of the fold). READ-ONLY here.
+  import { effectiveShipStats, shipCrewContribution, applyCrewOverlay } from "./game/crewOverlay";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship
@@ -228,6 +233,19 @@
   let tipLeft = 0;
   let tipTop = 0;
   let tipVisible = false;
+  // 0.14.0 crew C-4c: the stat readout's floating POPOVER. ONE element, two modes:
+  //   "info"   -> the stat's plain-language definition (the (i) affordance)
+  //   "source" -> the stat's SOURCE buckets (tapping the VALUE)
+  // A POPOVER floating over the rows, never an inline accordion (explicit user correction). It is
+  // click/tap-toggled (works the same on desktop hover devices + touch), and opening one closes the
+  // tile tooltip + any other stat popover (one floater at a time). Positioned with the SAME
+  // clampFloatingTip recipe + containing-block dependency as .ss-tip-float, so it stays inside the
+  // viewport on mobile. Purely informational: it carries no interactive controls.
+  let statPop: { key: string; mode: "info" | "source"; el: HTMLElement } | null = null;
+  let statPopEl: HTMLDivElement | undefined;
+  let statPopLeft = 0;
+  let statPopTop = 0;
+  let statPopVisible = false;
   // GRACE-DELAY hide for the HOVER (unpinned) tooltip. The floating tooltip is a
   // detached position:fixed element sitting a small gap (TIP_GAP) off the tile, and it
   // carries the Install / Uninstall button (pointer-events:auto). On a hover-capable
@@ -283,6 +301,9 @@
     activeTip = null;
     tipPinned = false;
     tipVisible = false;
+    // 0.14.0 crew C-4c: drop any open stat popover so it never carries onto the newly-shown ship.
+    statPop = null;
+    statPopVisible = false;
     // Also drop any in-progress rename edit, so an open name draft never commits onto
     // the newly-shown ship (commit() reads the live shipId + nameDraft). Latent today
     // (the modal blocks switching mid-edit) but a real footgun the moment that changes.
@@ -396,6 +417,23 @@
   $: baseStats = ship ? shipDerivedStats(ship, []) : null;
   $: fittedPieces = ship ? equippedFor(safeState, shipId) : [];
   $: fitStats = ship ? shipDerivedStats(ship, fittedPieces) : null;
+  // 0.14.0 crew C-4c: the CREW-INCLUSIVE fitted stats (Senior Staff + Complement folded on top of the
+  // gear fold) the readout DISPLAYS as the current value. This is the SAME effectiveShipStats every
+  // engine consumer reads, so the number the player sees matches what the ship actually does.
+  // ⚠️ fitStats above stays GEAR-ONLY on purpose: the install candidate COMPARE (compareRows) diffs
+  // gear loadouts off fitStats, and installing a system changes GEAR, not crew, so the compare must
+  // never fold crew in (that would double-count it). Only this readout display becomes crew-inclusive.
+  $: effectiveStats = ship ? effectiveShipStats(safeState, ship) : null;
+  // The crew delta split by SOURCE, folded through the EXACT engine functions (shipCrewContribution +
+  // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value. The
+  // fold ADDS both sources into one crew.* key, so folding each source ALONE off the same gear baseline
+  // splits the total exactly, with no cross term. Senior Staff carries its officers' RACIAL + any
+  // bridge-module amp; Complement carries any quarters-module amp: an honest coarse grouping, not a
+  // faked per-source (racial / module) split the exported functions do not expose separately.
+  $: complementOnlyStats =
+    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...safeState, officers: [] }, ship)) : null;
+  $: officerOnlyStats =
+    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, { ...ship, complement: undefined })) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -419,10 +457,68 @@
       { label: "Mass", base: base.mass, fitted: fit.mass, kind: "flat" },
     ];
   }
-  // All economy stat rows, shown together under the "Exploration / Prospecting" readout
-  // section (the mockup's grouping): extraction + cargo + FTL + fuel + power + mass, each
-  // keeping its base -> installed delta so the comparison the panel has always shown holds.
-  $: liveStatRows = baseStats && fitStats ? buildLiveRows(baseStats, fitStats) : [];
+  // 0.14.0 crew C-4c readout descriptors: ONE list per economy stat the readout shows, so the
+  // crew-inclusive VALUE, the (i) definition, and the tap-value SOURCE popover all key off the same
+  // stat. Order + labels MIRROR buildLiveRows above (which the gear-only install compare still uses,
+  // untouched). `get` reads the stat off any derived-stat fold (base / gear / crew-inclusive).
+  type StatDescriptor = { key: string; label: string; kind: "flat" | "pct" | "ly"; get: (s: ShipDerivedStats) => number };
+  const STAT_DESCRIPTORS: StatDescriptor[] = [
+    { key: "extractionYield", label: "Extraction Yield", kind: "pct", get: (s) => s.extractionYieldMult },
+    { key: "cargoCapacity", label: "Cargo Capacity", kind: "flat", get: (s) => s.cargoCapacity },
+    { key: "ftlSpeed", label: "FTL Speed", kind: "pct", get: (s) => s.transitSpeedMult },
+    { key: "range", label: "Range", kind: "ly", get: shipRangeLyOf },
+    { key: "powerOutput", label: "Power Output", kind: "flat", get: (s) => s.powerOutput },
+    { key: "powerDraw", label: "Power Draw", kind: "flat", get: (s) => s.powerDraw },
+    { key: "mass", label: "Mass", kind: "flat", get: (s) => s.mass },
+  ];
+  // Plain-language definition per stat for the (i) affordance: what it does + how it affects play,
+  // one sentence each (US English, first-pass). Keyed by StatDescriptor.key.
+  const STAT_INFO: Record<string, string> = {
+    extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
+    cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
+    ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time.",
+    range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations.",
+    powerOutput: "Total power the reactor supplies to the ship; it needs to cover everything the installed systems draw.",
+    powerDraw: "Total power the installed systems consume; keep it at or under power output. Lower is better.",
+    mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
+  };
+  // The economy readout rows: base (bare hull), gear (gear-only fold), and effective (crew-inclusive)
+  // for each stat. The row VALUE shows `effective`; the inline "(...)" note stays the GEAR delta
+  // (gear - base), so crew is surfaced in the value + the source popover, never mislabeled as gear.
+  type ReadoutRow = { key: string; label: string; kind: "flat" | "pct" | "ly"; base: number; gear: number; effective: number };
+  $: readoutRows =
+    baseStats && fitStats && effectiveStats
+      ? STAT_DESCRIPTORS.map((d) => ({
+          key: d.key,
+          label: d.label,
+          kind: d.kind,
+          base: d.get(baseStats),
+          gear: d.get(fitStats),
+          effective: d.get(effectiveStats),
+        }))
+      : ([] as ReadoutRow[]);
+  // The SOURCE buckets for one readout stat: Base/hull (absolute), then the non-zero contributors as
+  // signed deltas off the bare hull -> Ship systems (gear), Senior Staff (officers), Complement. Only
+  // non-negligible buckets show (plus Base always), so a stat nothing modifies reads honestly as base.
+  type SourceBucket = { label: string; text: string; delta: boolean };
+  function sourceBucketsFor(key: string): SourceBucket[] {
+    const d = STAT_DESCRIPTORS.find((x) => x.key === key);
+    if (!d || !baseStats || !fitStats) return [];
+    const base = d.get(baseStats);
+    const gear = d.get(fitStats);
+    const out: SourceBucket[] = [{ label: "Base / hull", text: fmtStatUnit(d.kind, base), delta: false }];
+    const gearDelta = gear - base;
+    if (Math.abs(gearDelta) > 1e-9) out.push({ label: "Ship systems", text: fmtDeltaUnit(d.kind, gearDelta), delta: true });
+    if (officerOnlyStats) {
+      const od = d.get(officerOnlyStats) - gear;
+      if (Math.abs(od) > 1e-9) out.push({ label: "Senior Staff", text: fmtDeltaUnit(d.kind, od), delta: true });
+    }
+    if (complementOnlyStats) {
+      const cd = d.get(complementOnlyStats) - gear;
+      if (Math.abs(cd) > 1e-9) out.push({ label: "Complement", text: fmtDeltaUnit(d.kind, cd), delta: true });
+    }
+    return out;
+  }
 
   // --- Combat reads -----------------------------------------------------------
   // combatHullTypeOf now returns non-null for every hull, so isCombatHull is true for
@@ -646,6 +742,19 @@
   function fmtFlat(v: number): string {
     return Number.isInteger(v) ? v.toString() : v.toFixed(1);
   }
+  // 0.14.0 crew C-4c: format a raw stat value / signed delta in its display units for the source
+  // popover (percent multipliers as "×1.20" / "+20 pts", range in LY, flats as a rounded number).
+  function fmtStatUnit(kind: "flat" | "pct" | "ly", v: number): string {
+    if (kind === "pct") return "×" + v.toFixed(2);
+    if (kind === "ly") return `${Math.round(v)} LY`;
+    return fmtFlat(Number(v.toFixed(1)));
+  }
+  function fmtDeltaUnit(kind: "flat" | "pct" | "ly", dv: number): string {
+    const sign = dv > 0 ? "+" : "";
+    if (kind === "pct") return `${sign}${(dv * 100).toFixed(0)} pts`;
+    if (kind === "ly") return `${sign}${Math.round(dv)} LY`;
+    return `${sign}${fmtFlat(Number(dv.toFixed(1)))}`;
+  }
   // A defensive-stat EFFECTIVENESS ratio (combat-defense "Effectiveness %" model) as a whole-percent
   // string, e.g. 1.2 -> "120%", 0.667 -> "67%". May read below or above 100% (a glass hull is < 100%,
   // a capital hull > 100%). Rounded to the nearest point so the readout stays clean.
@@ -815,6 +924,44 @@
     tipVisible = true;
   }
 
+  // 0.14.0 crew C-4c: position the stat popover with the SAME clamp recipe as positionTip (measured
+  // AFTER the CSS max-height cap, so the returned top already fits the capped element in the margins).
+  function positionStatPop(): void {
+    if (!statPop || !statPopEl) return;
+    const anchor = statPop.el.getBoundingClientRect();
+    const { left, top } = clampFloatingTip({
+      anchorRect: anchor,
+      tipWidth: statPopEl.offsetWidth,
+      tipHeight: statPopEl.offsetHeight,
+      viewportW: window.innerWidth,
+      viewportH: window.innerHeight,
+      margin: TIP_MARGIN,
+      gap: TIP_GAP,
+    });
+    statPopLeft = left;
+    statPopTop = top;
+    statPopVisible = true;
+  }
+  // Toggle the stat popover for a stat's (i) definition or its source buckets. Re-tapping the SAME
+  // affordance closes it; opening one closes the tile tooltip + supersedes any other stat popover
+  // (one floater at a time). Rendered invisible for one frame, then measured + placed, so it never
+  // flashes at the wrong spot (mirrors openTip). NOT gated on editsBlocked: it is read-only info.
+  async function toggleStatPop(key: string, mode: "info" | "source", el: HTMLElement): Promise<void> {
+    if (statPop && statPop.key === key && statPop.mode === mode) {
+      closeStatPop();
+      return;
+    }
+    closeTip(true); // never show a tile tooltip and a stat popover at the same time
+    statPop = { key, mode, el };
+    statPopVisible = false;
+    await tick();
+    positionStatPop();
+  }
+  function closeStatPop(): void {
+    statPop = null;
+    statPopVisible = false;
+  }
+
   // Open the floating tooltip for a piece. Rendered invisibly for one frame, then
   // measured + positioned + shown, so it never flashes at the wrong spot. Blocked
   // while the ship is damaged (tiles are locked then).
@@ -823,6 +970,7 @@
     // A fresh open (hover swap, click-pin, or picker open) supersedes any pending
     // grace-delay hide, so a stale timer can never close the tooltip we just opened.
     cancelTipHide();
+    closeStatPop(); // one floater at a time: opening a tile tooltip closes any stat popover
     activeTip = { piece, el };
     // A pin only sticks on a coarse (touch) pointer. On a hover-capable device the
     // click still opens the tooltip, but leaving it UNPINNED means a subsequent hover
@@ -862,6 +1010,7 @@
   // (capture:true catches the inner column's scroll, which does not bubble to window).
   function reflowTip(): void {
     if (activeTip) positionTip();
+    if (statPop) positionStatPop();
   }
   // Outside-press dismiss for a PINNED (touch) tooltip: a press that lands neither on
   // the anchor tile nor inside the tooltip itself closes the pin. This is safe for the
@@ -871,8 +1020,14 @@
   // own click, and a press on a spare tile pins that spare's tooltip (its click runs
   // after this and re-opens the tooltip onto the tapped tile).
   function onOutsidePointerDown(e: Event): void {
-    if (!tipPinned || !activeTip) return;
     const target = e.target as Node | null;
+    // Stat popover (0.14.0 crew C-4c): a press landing neither on its anchor affordance nor inside
+    // the popover closes it. A press ON the affordance is left to its own click handler (which
+    // toggles), so this only dismisses a click-away. Same modal-safe reasoning as the tile tooltip.
+    if (statPop && target && !statPop.el.contains(target) && !(statPopEl && statPopEl.contains(target))) {
+      closeStatPop();
+    }
+    if (!tipPinned || !activeTip) return;
     if (target && (activeTip.el.contains(target) || (tipEl && tipEl.contains(target)))) return;
     closeTip(true);
   }
@@ -1642,15 +1797,30 @@
           </div>
         {/if}
 
-        <!-- EXPLORATION / PROSPECTING: the economy stats (extraction, cargo, FTL, fuel,
-             power, mass), each with its base -> installed gear delta preserved. -->
+        <!-- EXPLORATION / PROSPECTING: the economy stats (extraction, cargo, FTL, range,
+             power, mass). 0.14.0 crew C-4c: the VALUE is now CREW-INCLUSIVE (effectiveShipStats),
+             the inline "(...)" note stays the gear-only delta, an (i) button opens the stat's
+             definition popover, and tapping the value opens its SOURCE-buckets popover. -->
         <div class="ss-cat">
           <div class="ss-cat-head"><span class="ss-cat-glyph" aria-hidden="true">&#9935;</span> Exploration / Prospecting</div>
-          {#each liveStatRows as row (row.label)}
-            {@const delta = fmtDelta(row)}
+          {#each readoutRows as row (row.key)}
+            {@const gearNote = fmtDelta({ label: row.label, base: row.base, fitted: row.gear, kind: row.kind })}
             <div class="ss-srow">
-              <span class="ss-sk">{row.label}</span>
-              <span class="ss-sv">{fmtStatValue(row)}{#if delta}{" "}<small>({delta})</small>{/if}</span>
+              <span class="ss-sk">
+                {row.label}
+                <button
+                  type="button"
+                  class="ss-info-btn"
+                  aria-label={"About " + row.label}
+                  on:click|stopPropagation={(e) => toggleStatPop(row.key, "info", e.currentTarget)}
+                >&#9432;</button>
+              </span>
+              <button
+                type="button"
+                class="ss-sv ss-sv-btn"
+                aria-label={"Show sources for " + row.label}
+                on:click|stopPropagation={(e) => toggleStatPop(row.key, "source", e.currentTarget)}
+              >{fmtStatValue({ label: row.label, base: row.base, fitted: row.effective, kind: row.kind })}{#if gearNote}{" "}<small>({gearNote})</small>{/if}</button>
             </div>
           {/each}
         </div>
@@ -1676,6 +1846,36 @@
       on:pointerleave={scheduleTipHide}
     >
       <EquipmentTooltip piece={tipPiece} />
+    </div>
+  {/if}
+
+  <!-- STAT POPOVER (0.14.0 crew C-4c): one JS-positioned floater over the readout rows, clamped
+       inside the viewport (see positionStatPop), toggled from the (i) affordance ("info": a
+       plain-language definition) or the tapped stat VALUE ("source": the stat's source buckets).
+       A POPOVER, not an inline accordion (explicit user correction). Display-only: no controls. -->
+  {#if statPop}
+    {@const pop = statPop}
+    <div
+      class="ss-statpop"
+      bind:this={statPopEl}
+      role="tooltip"
+      style="left: {statPopLeft}px; top: {statPopTop}px; visibility: {statPopVisible ? 'visible' : 'hidden'}"
+    >
+      {#if pop.mode === "info"}
+        <p class="ss-statpop-def">{STAT_INFO[pop.key] ?? ""}</p>
+      {:else}
+        {@const buckets = sourceBucketsFor(pop.key)}
+        <div class="ss-statpop-head">Sources</div>
+        {#each buckets as b (b.label)}
+          <div class="ss-statpop-row">
+            <span class="ss-statpop-src">{b.label}</span>
+            <span class="ss-statpop-val" class:delta={b.delta}>{b.text}</span>
+          </div>
+        {/each}
+        {#if buckets.length <= 1}
+          <p class="ss-statpop-note">Nothing is modifying this stat yet: it reads at the bare-hull value.</p>
+        {/if}
+      {/if}
     </div>
   {/if}
 </div>
@@ -2641,6 +2841,100 @@
     height: 7px;
     border-radius: var(--corner);
     margin-right: 5px;
+  }
+
+  /* 0.14.0 crew C-4c: the readout row's (i) definition affordance + the tappable stat VALUE.
+     Both are native <button>s (keyboard-accessible + focusable for free, so no a11y role /
+     tabindex / keydown needed), reset to sit inline in the .ss-srow layout. */
+  .ss-info-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    margin-left: 5px;
+    flex: 0 0 auto;
+    font-size: var(--text-xs);
+    line-height: 1;
+    color: var(--color-text-dim);
+    cursor: pointer;
+  }
+  .ss-info-btn:hover,
+  .ss-info-btn:focus-visible {
+    color: var(--color-accent-bright);
+  }
+  /* The value button keeps the .ss-sv look (mono, right-aligned, primary) and adds a dotted
+     underline hint that it is tappable (opens the source popover). */
+  .ss-sv-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline dotted rgba(var(--color-accent-rgb), 0.55);
+    text-underline-offset: 3px;
+  }
+  .ss-sv-btn:hover,
+  .ss-sv-btn:focus-visible {
+    color: var(--color-accent-bright);
+  }
+
+  /* STAT POPOVER: floats over the readout rows (position:fixed, JS-clamped, SAME recipe +
+     containing-block dependency as .ss-tip-float below). NOT an inline accordion (explicit
+     user correction). Opaque backing so nothing behind it bleeds through. */
+  .ss-statpop {
+    position: fixed;
+    z-index: 61;
+    width: 232px;
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    pointer-events: auto;
+    background: var(--color-bg-deep);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+    padding: 10px 12px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  }
+  .ss-statpop-def {
+    margin: 0;
+    font-size: var(--text-xs);
+    line-height: 1.45;
+    color: var(--color-text-secondary);
+  }
+  .ss-statpop-head {
+    font-size: var(--text-3xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .ss-statpop-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: var(--text-xs);
+    padding: 2px 0;
+  }
+  .ss-statpop-src {
+    color: var(--color-text-secondary);
+  }
+  .ss-statpop-val {
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    white-space: nowrap;
+  }
+  .ss-statpop-val.delta {
+    color: var(--color-accent-bright);
+  }
+  .ss-statpop-note {
+    margin: 6px 0 0;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+    line-height: 1.4;
   }
 
   /* FLOATING TOOLTIP WRAPPER: position:fixed so it escapes the panel's inner scroll
