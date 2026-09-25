@@ -8394,6 +8394,7 @@ export interface CaptainSecondaryTalentDef {
   label: string;
   cost: number; // secondaryPoints; always 1
   neighbors: SecondaryTalentKey[]; // bidirectional; intra-branch linear chain only (no cross-branch links)
+  isHub?: boolean; // exactly one per branch = its rung-1 entry; the fog-of-war seed (always visible, learn first), mirroring CaptainTalentDef. RadialWeb needs it to render an un-started branch.
   effect: CaptainSecondaryTalentEffect; // INERT catalog data; nothing applies it yet (see DORMANT note)
   flavor: string; // short narrative blurb, for the later talent-tree tooltips
   x: number; // web-space coordinate; FIRST-PASS TUNABLE (the radial layout mockup comes at the UI phase)
@@ -8409,7 +8410,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   // ============ TREE 1 - PROSPECTOR ============
   // --- Extraction (-> Motherlode) ---
   extraction1: {
-    tree: "prospector", branch: "extraction", rung: 1,
+    tree: "prospector", branch: "extraction", rung: 1, isHub: true,
     label: "Prospector's Eye", cost: 1,
     x: 41, y: 113, neighbors: ["extraction2"],
     effect: { type: "statMult", stat: "extractionYield", mult: 0.05 },
@@ -8445,7 +8446,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Logistics (-> Overloaded Holds) [revised: hauling, not trade] ---
   logistics1: {
-    tree: "prospector", branch: "logistics", rung: 1,
+    tree: "prospector", branch: "logistics", rung: 1, isHub: true,
     label: "Quartermaster", cost: 1,
     x: 0, y: 120, neighbors: ["logistics2"],
     effect: { type: "statMult", stat: "cargoCapacity", mult: 0.05 },
@@ -8481,7 +8482,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Trade (-> Trade Baron) [all gateway until the trade system, 0.14.x] ---
   trade1: {
-    tree: "prospector", branch: "trade", rung: 1,
+    tree: "prospector", branch: "trade", rung: 1, isHub: true,
     label: "Market Contacts", cost: 1, // gateway
     x: -41, y: 113, neighbors: ["trade2"],
     effect: { type: "none" }, // unlock/boost market access; no trade system to apply it to yet
@@ -8518,7 +8519,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   // ============ TREE 2 - TACTICIAN ============
   // --- Gunnery (-> Alpha Strike) ---
   gunnery1: {
-    tree: "tactician", branch: "gunnery", rung: 1,
+    tree: "tactician", branch: "gunnery", rung: 1, isHub: true,
     label: "Weapons Drill", cost: 1,
     x: -118, y: -21, neighbors: ["gunnery2"],
     effect: { type: "statMult", stat: "weaponDamage", mult: 0.05 },
@@ -8554,7 +8555,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Aegis / defense (-> Bulwark) ---
   aegis1: {
-    tree: "tactician", branch: "aegis", rung: 1,
+    tree: "tactician", branch: "aegis", rung: 1, isHub: true,
     label: "Shield Discipline", cost: 1,
     x: -104, y: -60, neighbors: ["aegis2"],
     effect: { type: "statMult", stat: "shieldEffectiveness", mult: 0.05 },
@@ -8590,7 +8591,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Fleet Ops / drones & patrols (rungs 4-5 gateway until the fleet-ops system, 0.14.x) ---
   fleetOps1: {
-    tree: "tactician", branch: "fleetOps", rung: 1,
+    tree: "tactician", branch: "fleetOps", rung: 1, isHub: true,
     label: "Drone Handler", cost: 1,
     x: -77, y: -92, neighbors: ["fleetOps2"],
     effect: { type: "statMult", stat: "droneEffectiveness", mult: 0.05 },
@@ -8627,7 +8628,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   // ============ TREE 3 - EXPLORER ============
   // --- Survey & Sensors (-> Deep Scan) ---
   surveySensors1: {
-    tree: "explorer", branch: "surveySensors", rung: 1,
+    tree: "explorer", branch: "surveySensors", rung: 1, isHub: true,
     label: "Keen Sensors", cost: 1,
     x: 77, y: -92, neighbors: ["surveySensors2"],
     effect: { type: "statMult", stat: "sensorsPower", mult: 0.05 },
@@ -8663,7 +8664,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Expedition & Relics (-> Relic Hunter) ---
   expeditionRelics1: {
-    tree: "explorer", branch: "expeditionRelics", rung: 1,
+    tree: "explorer", branch: "expeditionRelics", rung: 1, isHub: true,
     label: "Expedition Lead", cost: 1,
     x: 104, y: -60, neighbors: ["expeditionRelics2"],
     effect: { type: "statMult", stat: "groundTeamEffectiveness", mult: 0.05 },
@@ -8699,7 +8700,7 @@ export const SECONDARY_CAPTAIN_TALENTS: Record<SecondaryTalentKey, CaptainSecond
   },
   // --- Command & Crew (-> Legendary Captain) ---
   commandCrew1: {
-    tree: "explorer", branch: "commandCrew", rung: 1,
+    tree: "explorer", branch: "commandCrew", rung: 1, isHub: true,
     label: "Inspiring Leader", cost: 1,
     x: 118, y: -21, neighbors: ["commandCrew2"],
     effect: { type: "statMult", stat: "crewEffectiveness", mult: 0.05 }, // +complement crew effectiveness

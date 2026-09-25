@@ -76,6 +76,19 @@ describe("SECONDARY_CAPTAIN_TALENTS catalog", () => {
     }
   });
 
+  it("seeds exactly one isHub per branch, and it is the rung-1 entry (RadialWeb fog-of-war seed)", () => {
+    for (const branch of SECONDARY_TALENT_BRANCHES) {
+      const keys = secondaryTalentsInBranch(branch);
+      const hubs = keys.filter((k) => SECONDARY_CAPTAIN_TALENTS[k].isHub === true);
+      expect(hubs).toHaveLength(1);
+      expect(SECONDARY_CAPTAIN_TALENTS[hubs[0]].rung).toBe(1);
+    }
+    // and no non-rung-1 node is flagged a hub anywhere in the catalog
+    for (const key of ALL_KEYS) {
+      if (SECONDARY_CAPTAIN_TALENTS[key].isHub) expect(SECONDARY_CAPTAIN_TALENTS[key].rung).toBe(1);
+    }
+  });
+
   it("groups the 9 branches into 3 trees of 3", () => {
     const byTree = new Map<string, Set<SecondaryTalentBranch>>();
     for (const key of ALL_KEYS) {

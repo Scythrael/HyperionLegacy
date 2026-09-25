@@ -297,6 +297,16 @@
     type CompletionRewardItem,
     type CaptainState,
     type TimedProcess,
+    // Crew 0.14.0 (phase 4e): the captain PRESTIGE secondary-tree catalog + iteration orders + types,
+    // read by the Prestige captain sub-tab's RadialWeb view, tree/branch selectors, and effect describer.
+    SECONDARY_CAPTAIN_TALENTS,
+    SECONDARY_TALENT_TREES,
+    SECONDARY_TALENT_BRANCHES,
+    type SecondaryTalentTree,
+    type SecondaryTalentBranch,
+    type SecondaryTalentKey,
+    type CaptainSecondaryTalentDef,
+    type CaptainSecondaryTalentEffect,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -347,6 +357,23 @@
     officerRankLabel,
   } from "./lib/game/seniorStaff";
   import type { SeniorStaffSeat } from "./lib/game/model";
+  // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
+  // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
+  // into state.captains by doBuySecondaryTalent); retireCaptain returns a whole GameState (same-ref no-op
+  // when illegal). committedBranch surfaces the single-branch commitment in the UI.
+  import {
+    canBuySecondaryTalent,
+    buySecondaryTalent,
+    committedBranch,
+  } from "./lib/game/captainSecondaryTree";
+  import {
+    canRetireCaptain,
+    retireCaptain,
+    retirementExpMultiplier,
+    seatedExecutiveOfficerFor,
+    RETIRE_LEVEL_GATE,
+    MAX_CAPTAIN_RETIREMENTS,
+  } from "./lib/game/captainRetirement";
   // Crew 0.14.0 (phase 4d): the pure PERSONNEL ROSTERS engine, wired by the do* handlers below.
   // Each takes + returns a whole GameState (createRoster also returns the new id); all are
   // refuse-by-returning-the-same-state, so a no-op leaves state === next and we skip the log/save.
@@ -1289,7 +1316,17 @@
   // Rename field, which used to live in their own modals, are now the "talents"
   // tab body and an inline Overview affordance respectively; "equipment" is a
   // locked placeholder (guarded even though SubTabs will not select it).
-  let activeCaptainTab: "overview" | "talents" | "ship" | "equipment" = "overview";
+  // Crew 0.14.0 (phase 4e): the "prestige" tab is the captain PRESTIGE secondary tree + retirement panel.
+  let activeCaptainTab: "overview" | "talents" | "ship" | "prestige" | "equipment" = "overview";
+
+  // Crew 0.14.0 (phase 4e): the Prestige sub-tab's BRANCH navigation (view-only, never persisted, like
+  // the homeworld selectedCategory). selectedSecondaryBranch is the single source of truth for which of
+  // the 9 branches renders; the tree it belongs to is DERIVED from it (selectedSecondaryTree below), so
+  // the two-level tree/branch SubTabs never fall out of sync. Defaults to the first Prospector branch;
+  // opening the tab re-points it at a committed captain's own branch (see the SubTabs onSelect).
+  let selectedSecondaryBranch: SecondaryTalentBranch = "extraction";
+  // The RETIREMENT confirm modal (acts on activeCaptain; opened by the Prestige tab's Retire button).
+  let retireConfirmOpen = false;
 
   // Captain Rename modal (Combat 0.13.0, Phase 1, Task 1.6). The "Rename" button
   // in CAPTAIN ACTIONS opens this small text-input modal, built on the SAME
@@ -7815,6 +7852,114 @@
     state = next;
     pushLog(`[${captain.label}] Talent learned: ${CAPTAIN_TALENTS[talentKey].label}.`);
     doSave();
+  }
+
+  // ── Crew 0.14.0 (phase 4e): captain PRESTIGE secondary tree + retirement ─────────────────────────
+  // Player-facing labels for the 3 trees and 9 branches. The catalog carries only per-NODE labels, so
+  // the tree/branch display names live here in the UI layer (same posture as SPEC_DISPLAY_NAME above).
+  const SECONDARY_TREE_LABEL: Record<SecondaryTalentTree, string> = {
+    prospector: "Prospector",
+    tactician: "Tactician",
+    explorer: "Explorer",
+  };
+  const SECONDARY_BRANCH_LABEL: Record<SecondaryTalentBranch, string> = {
+    extraction: "Extraction",
+    logistics: "Logistics",
+    trade: "Trade",
+    gunnery: "Gunnery",
+    aegis: "Aegis",
+    fleetOps: "Fleet Ops",
+    surveySensors: "Survey & Sensors",
+    expeditionRelics: "Expedition & Relics",
+    commandCrew: "Command & Crew",
+  };
+  // The 3 branches of each tree, in catalog order (SECONDARY_TALENT_BRANCHES already groups them by
+  // tree), so the tree->branch SubTabs can list a selected tree's branches. Built once from each
+  // branch's rung-1 node `tree` field.
+  const SECONDARY_TREE_BRANCHES: Record<SecondaryTalentTree, SecondaryTalentBranch[]> = (() => {
+    const map: Record<SecondaryTalentTree, SecondaryTalentBranch[]> = {
+      prospector: [],
+      tactician: [],
+      explorer: [],
+    };
+    for (const branch of SECONDARY_TALENT_BRANCHES) {
+      const tree = SECONDARY_CAPTAIN_TALENTS[`${branch}1` as SecondaryTalentKey].tree;
+      map[tree].push(branch);
+    }
+    return map;
+  })();
+  // The tree that owns the currently-selected branch. DERIVED so selectedSecondaryBranch stays the
+  // single source of truth (the tree SubTabs never drift from the branch SubTabs).
+  $: selectedSecondaryTree = SECONDARY_CAPTAIN_TALENTS[`${selectedSecondaryBranch}1` as SecondaryTalentKey].tree;
+
+
+  // Capstone (rung-5) taglines. The effect payload carries only an `id`, so these one-liners (drawn
+  // from the catalog's own capstone comments) let describeSecondaryTalentEffect render a real line.
+  const SECONDARY_CAPSTONE_TAGLINE: Record<string, string> = {
+    motherlode: "Motherlode: a chance for a full double haul",
+    overloadedHolds: "Overloaded Holds: carry beyond cargo cap, penalty-free",
+    tradeBaron: "Trade Baron: best margins + a passive credit trickle",
+    alphaStrike: "Alpha Strike: a bonus-damage opening volley",
+    bulwark: "Bulwark: survive one lethal hit per battle",
+    wolfpack: "Wolfpack: an extra drone squadron / fleet-wide edge",
+    deepScan: "Deep Scan: full-system reveal + a guaranteed rare find",
+    relicHunter: "Relic Hunter: a guaranteed relic from an expedition",
+    legendaryCaptain: "Legendary Captain: a crew-wide multiplier + officer aura",
+  };
+
+  // camelCase stat key -> spaced lower-case words, so a first-pass statMult line reads "extraction
+  // yield" not "extractionYield" (display nicety only; the stat key is inert placeholder data).
+  function humanizeSecondaryStat(stat: string): string {
+    return stat.replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase();
+  }
+
+  // The secondary tree's effect describer, passed to RadialWeb as describeEffect (mirrors
+  // describeCaptainTalentEffect / describeHomeworldTalentEffect). Renders each member to one short,
+  // HONEST player-facing line; the magnitudes are first-pass placeholders and nothing applies them yet,
+  // so gateway `none` rungs say so plainly rather than a misleading "+0%".
+  function describeSecondaryTalentEffect(effect: CaptainSecondaryTalentEffect): string {
+    switch (effect.type) {
+      case "none":
+        return "No bonus yet (system pending)";
+      case "statMult":
+        return `+${(effect.mult * 100).toFixed(1)}% ${humanizeSecondaryStat(effect.stat)}`;
+      case "procChance":
+        return `${(effect.chance * 100).toFixed(0)}% chance-based bonus (first-pass)`;
+      case "capstone":
+        return SECONDARY_CAPSTONE_TAGLINE[effect.id] ?? "Branch capstone";
+    }
+  }
+
+  // Buy one PRESTIGE secondary-tree node for `captainId`. buySecondaryTalent returns a CaptainState (NOT
+  // { next, success }), and returns a fresh no-op COPY when the buy is illegal, so we gate on
+  // canBuySecondaryTalent FIRST (skip the splice + save on a no-op) and only then splice the returned
+  // captain back into state.captains. Same pushLog + doSave idiom as the other do* handlers.
+  function doBuySecondaryTalent(captainId: number, key: SecondaryTalentKey) {
+    const captain = state.captains.find((c) => c.id === captainId);
+    if (!captain) return;
+    if (!canBuySecondaryTalent(captain, key)) return; // illegal/unaffordable/off-branch: no-op, no save
+    const nextCaptain = buySecondaryTalent(captain, key);
+    const captains = state.captains.map((c) => (c.id === captainId ? nextCaptain : c));
+    state = { ...state, captains };
+    pushLog(`[${captain.label}] Prestige talent learned: ${SECONDARY_CAPTAIN_TALENTS[key].label}.`);
+    doSave();
+  }
+
+  // RETIRE `captainId` (the mini-prestige + XO succession). retireCaptain is a same-ref NO-OP when
+  // illegal (canRetireCaptain false), so we bail on an unchanged reference. On success the captaincy slot
+  // persists but takes the XO's identity, so the log names the successor from the RETURNED state.
+  // Standard GameState reassign + save; closes the confirm modal.
+  function doRetireCaptain(captainId: number) {
+    const outgoing = state.captains.find((c) => c.id === captainId);
+    const next = retireCaptain(state, captainId);
+    if (next === state) return; // illegal: same-ref no-op
+    state = next;
+    const successor = state.captains.find((c) => c.id === captainId);
+    pushLog(
+      `[${outgoing?.label ?? "Captain"}] retired; ${successor?.label ?? "the executive officer"} succeeds to the captaincy.`,
+    );
+    doSave();
+    retireConfirmOpen = false;
   }
 
   // The three real CaptainTalentBranch literals, listed explicitly so
@@ -14983,10 +15128,20 @@
                   { key: "overview", label: "Overview" },
                   { key: "talents", label: "Talents" },
                   { key: "ship", label: "Ship" },
+                  { key: "prestige", label: "Prestige" },
                   { key: "equipment", label: "Equipment", locked: true },
                 ]}
                 active={activeCaptainTab}
-                onSelect={(k) => (activeCaptainTab = k as "overview" | "talents" | "ship" | "equipment")}
+                onSelect={(k) => {
+                  activeCaptainTab = k as "overview" | "talents" | "ship" | "prestige" | "equipment";
+                  // Crew 0.14.0 (phase 4e): opening Prestige re-points the branch nav at this captain's
+                  // COMMITTED branch (if any), so a partway-committed captain lands on their own tree
+                  // instead of the default Prospector/Extraction.
+                  if (k === "prestige") {
+                    const cb = committedBranch(activeCaptain);
+                    if (cb !== null) selectedSecondaryBranch = cb;
+                  }
+                }}
               />
             </div>
           </div>
@@ -15180,6 +15335,140 @@
               </button>
             </div>
           </Panel>
+          {/if}
+
+          {#if activeCaptainTab === "prestige"}
+          <!-- PRESTIGE tab (Crew 0.14.0, phase 4e). The captain PRESTIGE secondary talent tree + the
+               RETIREMENT panel, per the "Captain · Prestige" mockup context. LEFT (desktop) / TOP
+               (mobile) = the retirement + succession readout; RIGHT / BELOW = the tree with its
+               tree/branch selectors. Container-query responsive (.cc-prestige sets container-type), NO
+               JS mobile branch. All reads are activeCaptain-scoped; the two do* handlers own the writes.
+               NOTE: keep Svelte block tokens (hash-if / colon-else / slash-if) OUT of this comment. -->
+          {@const prestigeCommitted = committedBranch(activeCaptain)}
+          {@const prestigeSpendableHere = prestigeCommitted === null || prestigeCommitted === selectedSecondaryBranch}
+          {@const prestigeSuccessor = seatedExecutiveOfficerFor(state, activeCaptain.id)}
+          {@const prestigeLockedIn = activeCaptain.retirements >= MAX_CAPTAIN_RETIREMENTS}
+          {@const prestigeCanRetire = canRetireCaptain(state, activeCaptain.id)}
+          {@const prestigeExpBoostPct = Math.round((retirementExpMultiplier(state) - 1) * 100)}
+          <!-- The specific ineligibility reason, in canRetireCaptain's own guard order (level, then
+               mission-idle, then a seated XO); "" once eligible. Drives the disabled button's title +
+               the hint below it. The at-cap case is handled by the Locked-in branch, not here. -->
+          {@const prestigeRetireReason =
+            activeCaptain.level < RETIRE_LEVEL_GATE
+              ? `Reach level ${RETIRE_LEVEL_GATE} to retire (currently level ${activeCaptain.level}).`
+              : activeCaptain.mission !== null
+                ? "Recall this captain first, retirement needs an idle captain."
+                : !prestigeSuccessor
+                  ? "Seat an Executive officer (XO) aboard this captain's ship to succeed them."
+                  : ""}
+          <div class="cc-prestige">
+            <div class="cc-prestige-grid">
+
+              <!-- RETIREMENT + SUCCESSION readout. -->
+              <Panel>
+                <div class="panel-title">RETIREMENT &amp; SUCCESSION</div>
+                <div class="cc-ret-level">Level {activeCaptain.level}{#if activeCaptain.level === 1} · freshly succeeded{/if}</div>
+
+                <!-- Retirements as a rank collar of PIPS (Data-insignia homage): filled = spent, hollow
+                     = remaining, X/5. -->
+                <div class="cc-ret-row">
+                  <span class="cc-ret-key">Retirements</span>
+                  <span
+                    class="cc-ret-pips"
+                    role="img"
+                    aria-label={`${activeCaptain.retirements} of ${MAX_CAPTAIN_RETIREMENTS} retirements used`}
+                  >
+                    {#each Array(MAX_CAPTAIN_RETIREMENTS) as _, i}
+                      <span class="cc-pip" class:on={i < activeCaptain.retirements}></span>
+                    {/each}
+                  </span>
+                </div>
+
+                <div class="cc-ret-row">
+                  <span class="cc-ret-key">Prestige points</span>
+                  <span class="cc-ret-val">{activeCaptain.secondaryPoints} unspent</span>
+                </div>
+                <div class="cc-ret-row">
+                  <span class="cc-ret-key">Account XP boost</span>
+                  <span class="cc-ret-val">+{prestigeExpBoostPct}%</span>
+                </div>
+                <div class="cc-ret-row">
+                  <span class="cc-ret-key">XO successor</span>
+                  <span class="cc-ret-val">{prestigeSuccessor ? prestigeSuccessor.name : "None seated"}</span>
+                </div>
+
+                {#if prestigeLockedIn}
+                  <div class="cc-ret-lockedin">● Locked in ({activeCaptain.retirements}/{MAX_CAPTAIN_RETIREMENTS})</div>
+                  <div class="cc-hint">This captaincy has retired the maximum number of times. The lineage is now permanent, its {MAX_CAPTAIN_RETIREMENTS} prestige points fill exactly one branch to its capstone.</div>
+                {:else}
+                  <div class="dev-row" style="margin-top: 10px;">
+                    <button
+                      class="dev-btn"
+                      disabled={!prestigeCanRetire}
+                      title={prestigeCanRetire ? undefined : prestigeRetireReason}
+                      on:click={() => (retireConfirmOpen = true)}
+                    >
+                      {#if prestigeSuccessor}Retire → {prestigeSuccessor.name} succeeds{:else}Retire{/if}
+                    </button>
+                  </div>
+                  {#if !prestigeCanRetire}
+                    <div class="cc-hint">{prestigeRetireReason}</div>
+                  {/if}
+                  <div class="cc-hint">Retiring consumes the seated XO (they become the new captain, inheriting name + race), resets this captain to level 1 and refunds the base talent tree, and grants +1 prestige point. The secondary tree is kept. Voluntary, level-gated, {MAX_CAPTAIN_RETIREMENTS} max.</div>
+                {/if}
+              </Panel>
+
+              <!-- SECONDARY TREE + its tree/branch selectors. -->
+              <Panel>
+                <div class="panel-title">PRESTIGE TREE</div>
+                {#if prestigeCommitted !== null}
+                  <div class="research-cost">Committed to <b>{SECONDARY_BRANCH_LABEL[prestigeCommitted]}</b>. Points fill this ONE branch to its capstone, the other branches are locked.</div>
+                {:else}
+                  <div class="research-cost">Uncommitted. Your first pick locks this captain into ONE of the 9 branches, a {MAX_CAPTAIN_RETIREMENTS}-point run to its capstone.</div>
+                {/if}
+
+                <!-- Tree selector (3 trees). Picking a tree jumps to that tree's first branch; the
+                     branch selector below then lists that tree's 3 branches. -->
+                <div class="cc-prestige-tabs">
+                  <SubTabs
+                    tabs={SECONDARY_TALENT_TREES.map((t) => ({ key: t, label: SECONDARY_TREE_LABEL[t] }))}
+                    active={selectedSecondaryTree}
+                    onSelect={(k) => (selectedSecondaryBranch = SECONDARY_TREE_BRANCHES[k as SecondaryTalentTree][0])}
+                  />
+                </div>
+                <!-- Branch selector (the selected tree's 3 branches). Off-branch branches get a 🔒 prefix
+                     once the captain is committed, so the single-branch lock reads in the nav itself. -->
+                <div class="cc-prestige-tabs">
+                  <SubTabs
+                    tabs={SECONDARY_TREE_BRANCHES[selectedSecondaryTree].map((b) => ({
+                      key: b,
+                      label: (prestigeCommitted !== null && prestigeCommitted !== b ? "🔒 " : "") + SECONDARY_BRANCH_LABEL[b],
+                    }))}
+                    active={selectedSecondaryBranch}
+                    onSelect={(k) => (selectedSecondaryBranch = k as SecondaryTalentBranch)}
+                  />
+                </div>
+
+                {#if prestigeCommitted !== null && !prestigeSpendableHere}
+                  <!-- Viewing an OFF-branch tree while committed: it is view-only. Passing points=0 +
+                       pointsLabel="" below makes every node render locked and hides the corner readout,
+                       so nothing looks buyable; this banner says why. -->
+                  <div class="cc-prestige-locked">🔒 Committed to {SECONDARY_BRANCH_LABEL[prestigeCommitted]} · this branch is view-only.</div>
+                {/if}
+
+                <RadialWeb
+                  table={SECONDARY_CAPTAIN_TALENTS}
+                  branch={selectedSecondaryBranch}
+                  owned={activeCaptain.unlockedSecondaryTalents}
+                  points={prestigeSpendableHere ? activeCaptain.secondaryPoints : 0}
+                  pointsLabel={prestigeSpendableHere ? "Prestige Points" : ""}
+                  describeEffect={describeSecondaryTalentEffect}
+                  onLearn={(key) => doBuySecondaryTalent(activeCaptain.id, key as SecondaryTalentKey)}
+                />
+              </Panel>
+
+            </div>
+          </div>
           {/if}
 
           {#if activeCaptainTab === "equipment"}
@@ -18346,6 +18635,33 @@
     </ActionModal>
   {/if}
 
+  {#if retireConfirmOpen && activeCaptain}
+    <!-- Captain RETIREMENT confirm (Crew 0.14.0, phase 4e), on the shared ActionModal. Only reachable
+         from the Prestige tab's Retire button, which is disabled unless canRetireCaptain, so activeCaptain
+         is defined here; the Retire button re-checks canRetireCaptain so a state change between opening and
+         confirming can never commit an illegal retirement. -->
+    {@const retireSuccessor = seatedExecutiveOfficerFor(state, activeCaptain.id)}
+    <ActionModal title={`Retire · ${activeCaptain.label}`} ariaLabel="Retire captain confirmation" onClose={() => (retireConfirmOpen = false)}>
+      <p class="modal-warning">
+        {#if retireSuccessor}
+          <b>{retireSuccessor.name}</b> (the seated executive officer) will succeed to the captaincy, inheriting this slot's name and race. This captain resets to <b>level 1</b> and their base talent tree is refunded. You gain <b>+1 prestige point</b>; the secondary tree is kept. This can't be undone.
+        {:else}
+          This captain has no seated executive officer to succeed them, so they cannot retire.
+        {/if}
+      </p>
+      <svelte:fragment slot="footer">
+        <button class="dev-btn" on:click={() => (retireConfirmOpen = false)}>Cancel</button>
+        <button
+          class="dev-btn danger"
+          disabled={!canRetireCaptain(state, activeCaptain.id)}
+          on:click={() => doRetireCaptain(activeCaptain.id)}
+        >
+          Retire
+        </button>
+      </svelte:fragment>
+    </ActionModal>
+  {/if}
+
   {#if importModalOpen}
     <!-- Import Save confirmation modal (Task 7, Loot Tier Rework), reuses
          the SAME .modal-backdrop/Panel.modal-dialog/.modal-warning/.modal-row
@@ -20129,6 +20445,35 @@
   .cc-pts { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: var(--text-xs); color: var(--color-warning); }
   .cc-pts-dot { width: 7px; height: 7px; border-radius: var(--corner); background: var(--color-warning); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--color-warning) 55%, transparent); }
   .cc-hint { font-size: var(--text-xs); color: var(--color-text-dim); margin-top: 6px; }
+
+  /* ── CAPTAIN PRESTIGE tab (Crew 0.14.0, phase 4e). The retirement panel + the secondary tree stack on
+     mobile and sit side by side on desktop, driven by a CONTAINER query on .cc-prestige (NO JS mobile
+     branch). At width the retirement column is fixed and the tree column flexes; the tree column carries
+     min-width:0 so RadialWeb's fixed-height viewport can shrink to fit. */
+  .cc-prestige { container-type: inline-size; }
+  .cc-prestige-grid { display: flex; flex-direction: column; gap: 10px; }
+  @container (min-width: 720px) {
+    .cc-prestige-grid { flex-direction: row; align-items: flex-start; }
+    /* Both children are <Panel>s; target them positionally so no Panel-internal class is needed. */
+    .cc-prestige-grid > :global(:first-child) { flex: 0 0 320px; }
+    .cc-prestige-grid > :global(:last-child) { flex: 1 1 auto; min-width: 0; }
+  }
+  /* The tree/branch SubTabs rows: a little breathing room above each strip. */
+  .cc-prestige-tabs { margin-top: 8px; }
+  /* Off-branch (committed) view-only banner above the tree. */
+  .cc-prestige-locked { margin-top: 8px; font-size: var(--text-xs); color: var(--color-warning); }
+  /* Retirement readout rows: a dim key on the left, a value on the right, mono for the collar/values. */
+  .cc-ret-level { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--color-text-primary); margin: 2px 0 10px; }
+  .cc-ret-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; border-top: 1px solid var(--color-border); }
+  .cc-ret-key { font-size: var(--text-xs); color: var(--color-text-dim); }
+  .cc-ret-val { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-primary); }
+  /* Retirements PIPS: a rank collar of five squares (Data-insignia homage). Hollow = remaining, filled +
+     glowing accent = used. */
+  .cc-ret-pips { display: inline-flex; gap: 5px; }
+  .cc-pip { width: 10px; height: 10px; border-radius: var(--corner); border: 1px solid var(--color-border-strong); background: transparent; }
+  .cc-pip.on { border-color: var(--color-accent); background: var(--color-accent); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--color-accent) 55%, transparent); }
+  /* The locked-in (5/5) terminal state. */
+  .cc-ret-lockedin { margin-top: 10px; font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--color-accent); }
 
   /* ── FACILITY PANES (0.13.5 refined-B). Full-width rows on a FIXED column grid so the status text
      and progress bars start/end at the same x on EVERY pane (id + Manage columns are fixed; only the
