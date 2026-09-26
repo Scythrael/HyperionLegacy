@@ -294,6 +294,16 @@ export interface MissionDef {
   // in the Fleet Operations tab (a follow-up UI feature). Has NO effect on
   // tick math whatsoever; purely a presentational label read by the UI layer.
   tier: MissionTier;
+  // Exploration 0.14.0 (Phase E1a): flags a mission as a SENSOR-DRIVEN SURVEY. OPTIONAL, so
+  // an ABSENT field reads as the default "extraction" (every pre-E1a mission omits it and is
+  // byte-identical). A "survey" mission reuses the ENTIRE extraction transit/scan/return/deliver
+  // machinery (it is still the extraction arm of the CaptainMissionState union, kind "extraction",
+  // dispatched + resolved by the same path); the flag ONLY tells tickCaptainMission to scale the
+  // survey's material yield by the ship's `sensors` derived stat (a bare / un-sensored ship reads
+  // sensors 0 -> no bonus, so a survey at sensors 0 equals a plain extraction run). It is NOT a
+  // MissionKind (that discriminates the mission-state UNION, extraction vs patrol); this is a
+  // per-def BEHAVIOR tag within the extraction kind. First-pass: only survey missions set it.
+  missionType?: "extraction" | "survey";
   // Flat Fleet Admiral XP awarded per WHOLE tick the mission is active (NOT per
   // completed cycle). Progression Pacing Rework (Task 5) moved Fleet Admiral XP
   // onto the SAME per-active-tick accrual captain XP already uses (Task 4): it is
@@ -395,7 +405,17 @@ export interface MissionDef {
 // keep this true for any future entry too, or update requiredTicksForPhase's
 // extracting case to handle a smaller final tick.
 export const MISSIONS: Record<
-  "localFuelRun" | "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+  | "localFuelRun"
+  | "shortOreRun"
+  | "longOreRun"
+  | "salvageWreckage"
+  | "forageFlora"
+  // Exploration 0.14.0 (Phase E1a): the two SENSOR-DRIVEN SURVEY missions, tier II. They reuse
+  // the whole extraction machinery (see MissionDef.missionType), just flagged "survey" so their
+  // material yield scales with the ship's sensors. Adding these keys automatically widens
+  // MissionKey + forces a BASE_XP_PER_TICK entry for each (the exhaustive Record below).
+  | "surveyMineralAnomaly"
+  | "surveyStellarPhenomena",
   MissionDef
 > = {
   // Fuel-sourcing RESTRUCTURE (2026-07-15): the fuel BOOTSTRAP mission, FIRST in the
@@ -532,6 +552,63 @@ export const MISSIONS: Record<
     requiresCaptainLevel: 3, // slightly above Salvage's 2, CAPABILITY gate, KEPT (see salvageWreckage)
     requiresCargoCapacity: 90, // == default Freighter hold; excludes only the small Runner (60)
   },
+  // --- SURVEY missions (Exploration 0.14.0, Phase E1a, design "E1 design decisions" 2026-09-25) ---
+  // The FIRST live consumer of the `sensors` stat. A survey = transit to a KNOWN system -> a
+  // sensor-driven scan -> yield, reusing the extraction transit/scan/return/deliver machinery
+  // (missionType "survey" is the ONLY difference from an ore run). They reward RARE materials +
+  // credits + XP, and tickCaptainMission scales their material yield by the ship's sensors
+  // (SURVEY_SENSOR_YIELD_COEFF, tick.ts). No new currency/entity: the loot triads reuse existing
+  // ITEMS, mixed into new combinations so a survey is not a carbon copy of one ore run. Their
+  // uncommon/rare CHANCES sit ABOVE the ore runs (a survey hunts the good stuff), and the sensor
+  // yield bonus stacks on top of that. TIER II (unlike the tier-I economy runs) + mid-range transit
+  // (longer than the longOreRun's 70/70) but still within a base General Freighter's reach (round
+  // trip <= its fuelCapacity 200 at FUEL_PER_TICK 1), so an explorer OR a sensor-equipped freighter
+  // can run them. unlockLevel is 1 (the deferred mission-control unlock rung would strand a >1 gate,
+  // see the unlockLevel comment above); the captain-level + cargo capability gates provide the
+  // progression nudge instead. ⚠️ ALL numeric fields FIRST-PASS TUNABLE, device-retuned like the
+  // rest of this file. cargoCapacity divides evenly by extractionRatePerTick (contract above).
+  surveyMineralAnomaly: {
+    label: "Survey Mineral Anomaly",
+    missionType: "survey",
+    transitOutTicks: 85, // mid-range: 170-tick round trip (> longOreRun's 140), reachable by the Freighter (reach 200)
+    transitBackTicks: 85,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 120, // a longer scan than the ore runs; divides evenly by rate 1
+    uncommonChance: 0.1, // ABOVE longOreRun's 0.08: a survey is rarity-focused (tunable)
+    rareChance: 0.03, //    ABOVE longOreRun's 0.02 (tunable)
+    // NEW combination of EXISTING items (not an existing mission's triad): Titanium common
+    // floor, Cobalt uncommon, Osmium rare. Rarity tags match the loot-triad contract.
+    lootTable: { common: "commonOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    primaryMaterial: "commonOre", // == lootTable.common (§3.4 auto-stop)
+    tier: "II",
+    fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap
+    creditsPerCycle: 100, // richer than the tier-I runs; tunable
+    unlockLevel: 1, // available from the level-1 seed (the deferred unlock rung would strand a >1 gate)
+    requiresCaptainLevel: 4, // a step above forageFlora's 3 (CAPABILITY gate, the progression nudge)
+    requiresCargoCapacity: 90, // == default Freighter hold; excludes only the small Runner (60)
+  },
+  surveyStellarPhenomena: {
+    label: "Survey Stellar Phenomena",
+    missionType: "survey",
+    transitOutTicks: 95, // 190-tick round trip, still within the Freighter's reach (200)
+    transitBackTicks: 95,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 120,
+    uncommonChance: 0.12, // the richer of the two surveys (tunable)
+    rareChance: 0.04, //    the richer of the two surveys (tunable)
+    // NEW combination of EXISTING items: Ferrite common floor, Volatile Resin uncommon, Exotic
+    // Spore Cluster rare (the "exotic" payoff). Rarity tags match the loot-triad contract.
+    lootTable: { common: "ferriteOre", uncommon: "volatileResin", rare: "exoticSporeCluster" },
+    primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
+    tier: "II",
+    fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap
+    creditsPerCycle: 120, // the richest first-pass survey reward; tunable
+    unlockLevel: 1,
+    requiresCaptainLevel: 5, // above surveyMineralAnomaly's 4 (progression nudge)
+    requiresCargoCapacity: 90,
+  },
 };
 
 export type MissionKey = keyof typeof MISSIONS;
@@ -573,6 +650,15 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   longOreRun: 1.1,
   salvageWreckage: 1.2,
   forageFlora: 1.25,
+  // Exploration 0.14.0 (E1a): the tier-II surveys carry the richest per-tick XP premium (their
+  // longer transit + rarity focus). FRACTIONAL, exactly like longOreRun/salvage/forage above, and
+  // SAFE for the SAME reason: both the offline (tick -> economyTick(_,1)) and live loops accrue
+  // strictly per whole tick (each step adds new Decimal(rate).times(1), never .times(N>1)), and
+  // 1.5 / 1.6 are terminating decimals. The survey closed-form parity test in tick.test.ts proves
+  // it holds at these rates (mirrors the longOreRun @ 1.1 proof). Do NOT raise any rate to a
+  // fraction without a matching parity assertion at that rate (see the trap note above).
+  surveyMineralAnomaly: 1.5,
+  surveyStellarPhenomena: 1.6,
 };
 
 // --- Combat factions (Combat 0.13.0, design §S14) ----------------------------
@@ -1707,8 +1793,9 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // the capacity principle. The implicitStats / affixPool below exist only so a module is a well-formed,
   // budgeted piece of gear (physicals, durability, iLevel) that mints through the shared generation
   // path; crewStations / crewEfficiency are the honest signature keys for these slots (both are in
-  // LIVE_STAT_KEYS but, like sensors / materialQualityChance, are NOT folded by equipmentStatMods, so
-  // installing a module leaves shipDerivedStats byte-identical and only the crew overlay reacts). Each
+  // LIVE_STAT_KEYS but, like materialQualityChance, are NOT folded by equipmentStatMods, so installing
+  // a module leaves shipDerivedStats byte-identical and only the crew overlay reacts; `sensors` is the
+  // exception that graduated to a real fold in Exploration 0.14.0 E1a). Each
   // variety's `key` IS a module-catalog id (the generation path stamps it onto the instance as
   // moduleVariant); statRatios are empty because a module's power is catalog-driven, not budget-biased.
   //
@@ -1759,12 +1846,13 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // and defensive-combat slots). It mints through the shared generation path so a sensor is a well-formed,
   // budgeted piece of gear (physicals, durability, iLevel).
   //
-  // ⚠️ DORMANT / NO CONSUMER THIS PATCH. Exploration (the scan/survey system that CONSUMES sensors) is not
-  // built yet, so nothing reads a fitted sensor. The signature stat is `sensors`, which (like
-  // materialQualityChance) is LIVE vocabulary but deliberately NOT folded by equipmentStatMods (its fold
-  // switch skips it via the default case). So installing a sensor contributes to the `sensors` stat total
-  // WITHOUT changing shipDerivedStats at all: the economy fold is byte-identical, and only the future
-  // exploration consumer will react. massReduction is the one secondary affix, and because the slot's base
+  // ⚠️ LIVE AS OF EXPLORATION 0.14.0 E1a. The signature stat is `sensors`, now the FIRST live consumer
+  // of the sensor slot: equipmentStatMods FOLDS `sensors` as a flat point-sum into ShipDerivedStats.sensors,
+  // and survey missions (MISSIONS' missionType "survey") scale their material yield by it (tick.ts's
+  // tickCaptainMission). ⚠️ ADDITIVE-NEUTRAL for the ECONOMY fold: `sensors` moves only that one new field;
+  // every other derived stat is byte-identical, and a ship with no sensor fitted folds sensors 0 (no survey
+  // bonus). Explorer-hull BASE sensors + Science-crew amplification stay DEFERRED (design I.6): a fitted
+  // sensor item is the only source of sensors this patch. massReduction is the one secondary affix, and because the slot's base
   // mass is 0 (SLOT_BASE_PHYSICALS) a rolled massReduction is consumed into the piece's own (0-floored)
   // mass by generateEquipment and removed from rolledStats, so it too folds to nothing.
   //
@@ -1834,10 +1922,11 @@ export const LIVE_STAT_KEYS = [
   // vocabulary when the bridge + quarters slots were defined. crewStations (quarters signature =
   // crew capacity) + crewEfficiency (quarters affix + bridge signature = crew comfort / officer
   // output). LIVE means "a slot references them" (the drift guard fences that); like
-  // sensors / materialQualityChance they are NOT folded by equipmentStatMods, because a crew
+  // materialQualityChance they are NOT folded by equipmentStatMods, because a crew
   // module's real effect is catalog-driven (crewModules.ts), scaled per the capacity principle,
   // not read off these budget lines. Installing a module therefore leaves shipDerivedStats
-  // byte-identical; only the crew overlay reacts.
+  // byte-identical; only the crew overlay reacts. (`sensors` is the LIVE key that DOES fold now,
+  // as of Exploration 0.14.0 E1a; see equipmentStatMods + ShipDerivedStats.sensors.)
   "crewStations",
   "crewEfficiency",
 ] as const;
@@ -2172,6 +2261,15 @@ export interface ShipDerivedStats {
   mass: number;             // total equipped mass (0 for a bare hull); drives the Mass penalty below
   powerOutput: number;      // reactor Power Output from fitted gear (0 with no reactor fitted)
   powerDraw: number;        // total Power Draw of fitted gear (0 with no gear); must fit powerOutput in 0.12.0
+  // Exploration 0.14.0 (Phase E1a): the ship's SENSORS stat, folded ADDITIVELY from a fitted SENSOR
+  // ARRAY (the `sensor` slot's `sensors` implicit + affix lines). This is the FIRST live consumer of
+  // the `sensors` stat: survey missions scale their material yield by it (tick.ts's tickCaptainMission).
+  // ⚠️ ADDITIVE-NEUTRAL: a bare hull, and any ship with NO sensor item fitted, folds to sensors 0 (the
+  // sensor slot has no Standard-Issue baseline, so an un-sensored ship contributes nothing here), so
+  // every non-survey stat + fixture is byte-identical to before this field existed. Explorer-hull BASE
+  // sensors + Science-crew sensor amplification stay DEFERRED (design I.6): for E1a the ONLY source of
+  // sensors is a fitted sensor item, and the crew overlay does NOT map crew.sensors onto this field.
+  sensors: number;
   // Crew 0.14.0 (crew goes live): a >1 multiplier that SPEEDS homeworld unload, folded on TOP of
   // shipDerivedStats by the crew overlay (crewOverlay.ts applyCrewOverlay / effectiveShipStats)
   // from a ship's crew "unloadSpeed" contribution. shipDerivedStats itself NEVER sets it (it stays
@@ -2264,10 +2362,13 @@ export function plusToPercent(plus: number, B: number, r: number): number {
 //   powerOutput , sum of the powerOutput stat across pieces (the reactor implicit).
 //
 // Each piece contributes implicitStats + rolledStats (both raw "plus" magnitudes).
-// RESERVED stat keys (sensors, materialQualityChance) are deliberately NOT folded
-// this patch: their consumers are deferred (design §5/§11), so summing them here
-// would be dead data. massReduction / powerDrawReduction are folded into the mass /
-// power NET totals rather than surfaced as their own lines.
+// `sensors` is FOLDED as a FLAT additive total (Exploration 0.14.0 E1a): it is a raw
+// point sum (NOT a percent-curve stat), consumed by survey-mission yield in tick.ts, so
+// a fitted Sensor Array now moves ShipDerivedStats.sensors. `materialQualityChance`
+// stays RESERVED (its consumer is still deferred, design §5/§11), so summing it here
+// would be dead data and it falls through the default case untouched. massReduction /
+// powerDrawReduction are folded into the mass / power NET totals rather than surfaced as
+// their own lines.
 export interface EquipmentStatMods {
   flat: Record<string, number>;
   percentPlus: Record<string, number>;
@@ -2276,7 +2377,7 @@ export interface EquipmentStatMods {
   powerOutput: number;
 }
 export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMods {
-  const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0 };
+  const flat: Record<string, number> = { cargoCapacity: 0, fuelCapacity: 0, sensors: 0 };
   const percentPlus: Record<string, number> = {
     transitSpeedMult: 0,
     engineEfficiency: 0,
@@ -2299,9 +2400,13 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
     for (const stats of [piece.implicitStats, piece.rolledStats]) {
       for (const [key, value] of Object.entries(stats)) {
         switch (key) {
-          // FLAT capacities: summed directly.
+          // FLAT capacities + the sensors point-sum: summed directly.
+          // Exploration 0.14.0 (E1a): `sensors` folds here as a flat raw-point total (its
+          // survey-yield consumer went live), UNLIKE the percent stats above; it is NOT run
+          // through PERCENT_STAT_CURVES.
           case "cargoCapacity":
           case "fuelCapacity":
+          case "sensors":
             flat[key] += value;
             break;
           // PERCENT stats: summed as raw plus magnitudes (curve-converted later).
@@ -2320,9 +2425,10 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
           case "powerOutput":
             powerOutput += value;
             break;
-          // RESERVED (sensors, materialQualityChance) + any unknown key: intentionally
-          // ignored this patch (their consumers are deferred). No silent surprise: the
-          // fold simply does not read them.
+          // RESERVED (materialQualityChance) + any unknown key: intentionally ignored this
+          // patch (its consumer is still deferred). No silent surprise: the fold simply does
+          // not read it. (`sensors` USED to live here too; it graduated to the flat case above
+          // when its survey-yield consumer went live in Exploration 0.14.0 E1a.)
           default:
             break;
         }
@@ -2356,6 +2462,9 @@ function hullDerivedStats(ship: ShipInstance): ShipDerivedStats {
     mass: 0,
     powerOutput: 0,
     powerDraw: 0,
+    // Exploration 0.14.0 (E1a): a bare hull has NO sensors, its only source is a fitted
+    // sensor item (explorer-hull base sensors are deferred, design I.6). Folded in below.
+    sensors: 0,
   };
 }
 
@@ -2391,9 +2500,12 @@ export function shipDerivedStats(
 
   const mods = equipmentStatMods(pieces);
 
-  // (2) FLAT capacities.
+  // (2) FLAT capacities (+ the sensors point-sum, Exploration 0.14.0 E1a). Each ADDS the
+  // fitted-gear total onto the bare-hull value; with no sensor item mods.flat.sensors is 0,
+  // so sensors stays at the hull's 0 and the fold is byte-identical for an un-sensored ship.
   const cargoCapacity = base.cargoCapacity + mods.flat.cargoCapacity;
   const fuelCapacity = base.fuelCapacity + mods.flat.fuelCapacity;
+  const sensors = base.sensors + mods.flat.sensors;
 
   // (3) PERCENT boosts through the curve.
   const transitCurve = PERCENT_STAT_CURVES.transitSpeedMult;
@@ -2435,6 +2547,7 @@ export function shipDerivedStats(
     mass: mods.totalMass,
     powerOutput: mods.powerOutput,
     powerDraw: mods.totalPowerDraw,
+    sensors,
   };
 }
 

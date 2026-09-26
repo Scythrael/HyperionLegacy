@@ -297,11 +297,13 @@ describe("MISSIONS, launch set", () => {
   // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
   // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
   // count assertion was updated 2 -> 4 and the title made honest.
-  it("has exactly 5 missions with the specified tick counts and cargo/extraction values", () => {
+  it("has exactly 7 missions with the specified tick counts and cargo/extraction values", () => {
     // Fuel-sourcing RESTRUCTURE (2026-07-15): grew 4 -> 5 with the free localFuelRun
     // bootstrap (asserted in its own describe block above). The ore-run per-field
     // assertions below are unchanged (anti-regression).
-    expect(Object.keys(MISSIONS)).toHaveLength(5);
+    // Exploration 0.14.0 (E1a): grew 5 -> 7 with the two tier-II SURVEY missions
+    // (surveyMineralAnomaly / surveyStellarPhenomena), asserted in their own block below.
+    expect(Object.keys(MISSIONS)).toHaveLength(7);
 
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
@@ -355,7 +357,13 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
   // The authoritative triad per mission (design §1). Common / uncommon / rare
   // ITEM keys, all of which already exist as scaffolded ITEMS placeholders.
   const EXPECTED_TRIADS: Record<
-    "localFuelRun" | "shortOreRun" | "longOreRun" | "salvageWreckage" | "forageFlora",
+    | "localFuelRun"
+    | "shortOreRun"
+    | "longOreRun"
+    | "salvageWreckage"
+    | "forageFlora"
+    | "surveyMineralAnomaly"
+    | "surveyStellarPhenomena",
     { common: string; uncommon: string; rare: string }
   > = {
     // Fuel-sourcing RESTRUCTURE: the fuel bootstrap yields Deuterium Ice ONLY. Its
@@ -367,11 +375,24 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     longOreRun: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
     salvageWreckage: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
     forageFlora: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
+    // Exploration 0.14.0 (E1a): the two survey triads. NEW combinations of EXISTING items
+    // (not a copy of any ore run's triad), each with its rare-tier payoff (Osmium / Exotic
+    // Spore Cluster). The loot-triad rarity contract below verifies each tier's rarity tag.
+    surveyMineralAnomaly: { common: "commonOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    surveyStellarPhenomena: { common: "ferriteOre", uncommon: "volatileResin", rare: "exoticSporeCluster" },
   };
 
-  it("all 5 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage)", () => {
+  it("all 7 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage + 2 surveys)", () => {
     expect(Object.keys(MISSIONS).sort()).toEqual(
-      ["forageFlora", "localFuelRun", "longOreRun", "salvageWreckage", "shortOreRun"].sort()
+      [
+        "forageFlora",
+        "localFuelRun",
+        "longOreRun",
+        "salvageWreckage",
+        "shortOreRun",
+        "surveyMineralAnomaly",
+        "surveyStellarPhenomena",
+      ].sort()
     );
   });
 
@@ -441,6 +462,41 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
       // Closed-form parity trap: fleetAdminXpPerTick MUST stay an integer (see the
       // ⚠️ block in model.ts MissionDef); Task 2 owns any fractional XP retune.
       expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
+    }
+  });
+
+  // Exploration 0.14.0 (Phase E1a): the two SURVEY missions. They are flagged missionType
+  // "survey" (the ONLY per-def difference from an ore run), sit at tier II, and reuse the
+  // extraction machinery. This pins their survey-defining contract + the additive-neutrality
+  // of the flag: every EXISTING mission omits missionType (reads as the default "extraction").
+  it("the 2 survey missions are tier-II, flagged missionType 'survey', with valid, rarity-focused chances", () => {
+    for (const key of ["surveyMineralAnomaly", "surveyStellarPhenomena"] as const) {
+      const m = MISSIONS[key];
+      expect(m.missionType).toBe("survey");
+      expect(m.tier).toBe("II");
+      // Mid-range transit: a longer round trip than the longOreRun's 70/70, but still within a
+      // base General Freighter's reach (fuelCapacity 200 at FUEL_PER_TICK 1), so it stays runnable.
+      expect(m.transitOutTicks).toBeGreaterThan(MISSIONS.longOreRun.transitOutTicks);
+      expect(m.transitOutTicks + m.transitBackTicks).toBeLessThanOrEqual(SHIP_TYPES.generalFreighter.fuelCapacity);
+      expect(m.unloadTicks).toBeGreaterThan(0);
+      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      // A survey hunts the good stuff: its rarity odds sit ABOVE the richest ore run (longOreRun).
+      expect(m.uncommonChance).toBeGreaterThan(MISSIONS.longOreRun.uncommonChance);
+      expect(m.rareChance).toBeGreaterThan(MISSIONS.longOreRun.rareChance);
+      expect(m.uncommonChance).toBeLessThanOrEqual(1);
+      expect(m.rareChance).toBeLessThanOrEqual(1);
+      // unlockLevel 1: available from the level-1 seed (a >1 gate would be stranded by the
+      // deferred mission-control unlock rung); the captain-level gate is the progression nudge.
+      expect(m.unlockLevel).toBe(1);
+      expect(m.requiresCaptainLevel).toBeGreaterThanOrEqual(4);
+      // Integer FA XP rate (closed-form parity trap), same as every other mission.
+      expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
+    }
+  });
+
+  it("every EXISTING (non-survey) mission omits missionType (reads as the default 'extraction')", () => {
+    for (const key of ["localFuelRun", "shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
+      expect(MISSIONS[key].missionType).toBeUndefined();
     }
   });
 });
@@ -1286,7 +1342,7 @@ describe("equipmentStatMods (the aggregator)", () => {
     expect(mods.totalPowerDraw).toBe(11); // 14 gross - 3 reduction
   });
 
-  it("takes powerOutput from the reactor implicit and IGNORES reserved stats", () => {
+  it("takes powerOutput from the reactor implicit, FOLDS sensors (E1a), and IGNORES still-reserved stats", () => {
     const pieces = [
       makeEquip({ id: "r", slotType: "reactorCore", implicitStats: { powerOutput: 50 } }),
       makeEquip({ id: "u", slotType: "specUtility", implicitStats: { extractionYieldMult: 5 }, rolledStats: { sensors: 9, materialQualityChance: 9 } }),
@@ -1294,8 +1350,11 @@ describe("equipmentStatMods (the aggregator)", () => {
     const mods = equipmentStatMods(pieces);
     expect(mods.powerOutput).toBe(50);
     expect(mods.percentPlus.extractionYieldMult).toBe(5);
-    // sensors / materialQualityChance are RESERVED: they must NOT leak into any folded bucket.
-    expect((mods.flat as Record<string, number>).sensors).toBeUndefined();
+    // Exploration 0.14.0 (E1a): `sensors` now FOLDS as a flat point-sum (its survey-yield
+    // consumer went live), so it lands in the flat bucket rather than being ignored.
+    expect(mods.flat.sensors).toBe(9);
+    // materialQualityChance is STILL reserved: it must NOT leak into any folded bucket.
+    expect((mods.flat as Record<string, number>).materialQualityChance).toBeUndefined();
     expect((mods.percentPlus as Record<string, number>).materialQualityChance).toBeUndefined();
   });
 
@@ -1303,6 +1362,7 @@ describe("equipmentStatMods (the aggregator)", () => {
     const mods = equipmentStatMods([]);
     expect(mods.flat.cargoCapacity).toBe(0);
     expect(mods.flat.fuelCapacity).toBe(0);
+    expect(mods.flat.sensors).toBe(0); // Exploration 0.14.0 (E1a): the new flat sensors sum, 0 with no gear
     expect(mods.percentPlus.transitSpeedMult).toBe(0);
     expect(mods.totalMass).toBe(0);
     expect(mods.totalPowerDraw).toBe(0);
@@ -1321,6 +1381,22 @@ describe("shipDerivedStats fold (Task 13)", () => {
     expect(bare.fuelCapacity).toBe(SHIP_TYPES.generalFreighter.fuelCapacity);
     expect(bare.mass).toBe(0);
     expect(bare.powerOutput).toBe(0);
+    // Exploration 0.14.0 (E1a): a bare hull has NO sensors (explorer-hull base sensors deferred).
+    expect(bare.sensors).toBe(0);
+  });
+
+  it("a fitted SENSOR folds its `sensors` in ADDITIVELY, and is 0 without one (E1a)", () => {
+    // A bare / un-sensored ship reads sensors 0 (the additive-neutral guarantee).
+    expect(shipDerivedStats(freighter, []).sensors).toBe(0);
+    // A sensor piece contributes its `sensors` implicit + affix as a flat point-sum. Its OTHER
+    // derived stats are untouched (sensors folds alone; nothing else changed), the additive-
+    // neutrality of the new field. iLevel/rarity here just make a well-formed makeEquip piece.
+    const sensor = makeEquip({ id: "s", slotType: "sensor", implicitStats: { sensors: 7 }, rolledStats: { sensors: 4 } });
+    const withSensor = shipDerivedStats(freighter, [sensor]);
+    expect(withSensor.sensors).toBe(11); // 7 implicit + 4 rolled
+    // Every OTHER field equals the bare-hull projection (sensors moved, nothing else).
+    const bare = shipDerivedStats(freighter, []);
+    expect({ ...withSensor, sensors: 0 }).toEqual(bare);
   });
 
   it("a fitted Cargo Bay RAISES effective cargo by the flat sum", () => {

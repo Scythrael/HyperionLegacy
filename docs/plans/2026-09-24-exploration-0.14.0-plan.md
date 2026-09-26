@@ -159,3 +159,16 @@ exploration are BOTH done + QA'd (delta + full QA sheet, standing format).
 5. Away-team gambit ruleset depth: how much gambit configurability in 0.14.0 vs deferred to the 2.0 active mode.
 6. Does the captain-identity set (E-CAP) or modules (E-MOD) want to land earlier (they improve the current game
    independent of exploration content)?
+
+## E1 design decisions (user 2026-09-25)
+- SURVEY missions REWARD (E1a): rare/exotic MATERIALS + credits + XP, SENSOR-SCALED, using the existing item
+  economy. NO new currency/entity. The richer discovery->research->relic rewards layer on in E4; surveys give
+  tangible payoff now. This makes the built-but-dormant sensor item + the explorer/Aurora hull matter (the
+  FIRST live consumer of the `sensors` stat).
+- SCOPE: SURVEY (E1a) first, then TRANSPORT/supply (E1b). Transport = cost-in/reward-out credit economy,
+  cargo-scaled (Eir + Operations crew shine); refugee variant ties E5 (deferred).
+- E1a mechanic: fold the `sensors` stat LIVE (equipmentStatMods currently skips it like materialQualityChance)
+  into an additive ShipDerivedStats.sensors; survey missions reuse the extraction transit/scan/return
+  framework with a mission-type flag, drop rare/exotic materials, and scale yield by the ship's sensors.
+  Explorer-hull BASE sensors + Science-crew sensor amplification stay deferred (I.6); a bare ship reads
+  sensors 0 -> no survey bonus (additive-neutral for non-sensor ships).

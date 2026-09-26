@@ -1630,6 +1630,17 @@ function rollExtractionTick(
 // tick depending on outcomes.
 const BONUS_ROLL_COMMON_CHANCE = 0.3;
 
+// Exploration 0.14.0 (Phase E1a): the SURVEY sensor-yield coefficient. A survey mission's
+// material yield scales by (1 + ship.sensors * SURVEY_SENSOR_YIELD_COEFF), so each point of
+// the folded `sensors` derived stat (from a fitted Sensor Array) adds this fraction to the
+// per-tier yield multiplier. This is the FIRST live consumer of the sensor item + explorer
+// hulls, per the E1a design. ⚠️ FIRST-PASS TUNABLE, device-retuned like the rest of this
+// file's constants: at coeff 0.02, a ship carrying ~10-20 sensor points delivers +20-40%
+// survey material. A ship with NO sensor fitted reads sensors 0 -> +0, so a survey run is
+// byte-identical to a plain (un-sensored) extraction run at sensors 0. Applied ONLY to
+// survey-flagged missions (missionType "survey"); extraction/patrol missions never read it.
+const SURVEY_SENSOR_YIELD_COEFF = 0.02;
+
 function rollBonusExtractionTick(
   missionDef: MissionDef,
   bonuses: {
@@ -1965,6 +1976,24 @@ export function tickCaptainMission(
   // ore/material each extracting tick produces, regardless of which tier won.
   const shipYieldBonus = shipStats ? shipStats.extractionYieldMult - 1 : 0;
 
+  // Exploration 0.14.0 (Phase E1a): the SURVEY sensor-yield bonus, a CALL-CONSTANT computed
+  // ONCE here (exactly like shipYieldBonus directly above), so the closed-form
+  // "one big jump == many small ticks" guarantee holds for the SAME reason: it does not vary
+  // per roll or per tick within the call. It applies ONLY to survey-flagged missions
+  // (missionDef.missionType === "survey"); for every extraction/patrol mission it is 0, so
+  // non-survey yields are byte-identical. The ship's `sensors` is read off its derived stats,
+  // the SAME shipStats the yield bonus above reads (crew-inclusive when the caller passes
+  // effectiveShipStats, which economyTick does), and for E1a sensors comes ONLY from a fitted
+  // sensor item (explorer-hull base sensors + Science-crew amplification are deferred, design
+  // I.6), so a bare / un-sensored ship reads sensors 0 -> +0. Added to all three tier yield
+  // mults below alongside shipYieldBonus, so it scales the survey's material amount equally
+  // regardless of which rarity tier a tick rolls (the design's "sensor-scaled yield"). It does
+  // NOT touch the chance/bonus-roll fields (a survey's rarity ODDS are the mission def's own).
+  const surveySensorBonus =
+    shipStats && missionDef.missionType === "survey"
+      ? shipStats.sensors * SURVEY_SENSOR_YIELD_COEFF
+      : 0;
+
   // Computed ONCE per call, not per roll, bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
@@ -1976,10 +2005,10 @@ export function tickCaptainMission(
   // a hull's cargo/yield stats change how much a tick yields, not the odds of
   // hitting a tier or triggering a bonus roll.
   const resolvedBonuses = {
-    commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus,
-    uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus,
+    commonYieldMult: (bonuses.commonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
+    uncommonYieldMult: (bonuses.uncommonYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
-    rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus,
+    rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     rareChanceMult: bonuses.rareChanceMult ?? 0,
     bonusRollChance: bonuses.bonusRollChance ?? 0,
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,

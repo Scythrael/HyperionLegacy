@@ -66,6 +66,7 @@ import {
   type HomeworldTalentKey,
   type GameState,
   type CaptainMissionState,
+  type ShipDerivedStats,
   type MissionKey,
   type TimedProcess,
   type TimedProcessKind,
@@ -265,6 +266,131 @@ describe("tickCaptainMission, closed-form requirement", () => {
     const base = freshCaptains(1)[0]; // mission: null
     const result = tickCaptainMission(100, base, ALWAYS_MIN_ROLL);
     expect(result.captain).toBe(base);
+  });
+});
+
+// Exploration 0.14.0 (Phase E1a): SURVEY missions scale their material yield by the ship's
+// folded `sensors` derived stat. These tests pin: (1) more sensors -> strictly more survey
+// material, with sensors 0 equal to the un-sensored baseline; (2) a NON-survey mission is
+// byte-identical regardless of sensors (the flag gates the bonus); and (3) the closed-form
+// offline==live parity STILL holds for a survey run with a sensor value (the sensor bonus is
+// a call-constant, exactly like the existing yield bonus, so chunking cannot change the total).
+describe("tickCaptainMission, survey sensor-scaled yield (Exploration 0.14.0 E1a)", () => {
+  // Mirrors tick.ts's private SURVEY_SENSOR_YIELD_COEFF (not exported); kept in lockstep here so
+  // the expected magnitudes below read from the same first-pass tunable rather than a magic number.
+  const SURVEY_SENSOR_YIELD_COEFF_TEST = 0.02;
+  // A neutral ShipDerivedStats with a given sensors value. Every OTHER stat is neutral
+  // (extractionYieldMult 1 -> the existing hull yield bonus is 0, isolating the sensor effect;
+  // cargoCapacity 90 == the reference hull so effectiveMissionDef's cargo/unload are unchanged;
+  // transitSpeedMult 1 so transit is not rescaled; a huge fuel tank so reach never gates here).
+  const shipStatsWithSensors = (sensors: number): ShipDerivedStats => ({
+    cargoCapacity: 90,
+    transitSpeedMult: 1,
+    extractionYieldMult: 1,
+    engineEfficiency: 0,
+    fuelCapacity: 1_000_000,
+    mass: 0,
+    powerOutput: 0,
+    powerDraw: 0,
+    sensors,
+  });
+
+  // One full surveyMineralAnomaly cycle at the neutral hull: 1 (orders) + 85 (out) + 90
+  // (extract) + 85 (back) + 8 (unload) = 269 ticks. ALWAYS_MIN_ROLL makes RARE win every
+  // extracting tick, so the whole cycle's yield lands in the rare tier's item (osmiumOre).
+  const SURVEY_CYCLE_TICKS = 1 + 85 + 90 + 85 + 8;
+
+  it("a survey delivers MORE rare material with more sensors; sensors 0 equals the un-sensored baseline", () => {
+    // A neutral shipStats (cargoCapacity 90 == reference hull) makes effectiveMissionDef keep the
+    // extracting phase at 90 ticks, so one SURVEY_CYCLE_TICKS run completes exactly one cycle and
+    // its whole yield lands in the rare item. Varying ONLY sensors isolates the sensor effect.
+    const runOneCycle = (sensors: number): Decimal => {
+      const base = freshCaptains(1)[0];
+      base.mission = missionCaptain("surveyMineralAnomaly");
+      const { homePlanetDelta } = tickCaptainMission(SURVEY_CYCLE_TICKS, base, ALWAYS_MIN_ROLL, {}, shipStatsWithSensors(sensors));
+      return homePlanetDelta.osmiumOre ?? new Decimal(0); // surveyMineralAnomaly's rare item
+    };
+
+    const sensors0 = runOneCycle(0);       // a ship with a sensor-less fold
+    const sensors20 = runOneCycle(20);     // a fitted sensor: 20 points
+
+    // 90 extracting ticks, each delivering baseAmount 1 * (1 + sensors * 0.02) of osmiumOre.
+    expect(sensors0.equals(90)).toBe(true);            // sensors 0 -> +0 -> baseline 90 (the un-sensored floor)
+    // +40% -> 126 (toBeCloseTo, not .equals: 90 * 1.4 carries the usual binary-float residue).
+    expect(sensors20.toNumber()).toBeCloseTo(90 * (1 + 20 * SURVEY_SENSOR_YIELD_COEFF_TEST), 6); // 126
+    // The monotonic claim: more sensors -> strictly more material.
+    expect(sensors20.greaterThan(sensors0)).toBe(true);
+  });
+
+  it("a NON-survey (extraction) mission is byte-identical regardless of sensors (the flag gates the bonus)", () => {
+    // One full shortOreRun cycle at the neutral hull: 1 + 25 + 90 + 25 + 8 = 149 ticks.
+    const runOreCycle = (sensors: number): Decimal => {
+      const base = freshCaptains(1)[0];
+      base.mission = missionCaptain("shortOreRun");
+      const { homePlanetDelta } = tickCaptainMission(149, base, ALWAYS_MIN_ROLL, {}, shipStatsWithSensors(sensors));
+      return homePlanetDelta.rareMaterial; // shortOreRun's rare item (seeded key)
+    };
+    // shortOreRun has no missionType, so surveySensorBonus is 0 whatever the sensors are:
+    // both deliveries are the baseline 90, proving the sensor bonus never touches extraction.
+    expect(runOreCycle(0).equals(90)).toBe(true);
+    expect(runOreCycle(20).equals(90)).toBe(true);
+    expect(runOreCycle(0).equals(runOreCycle(20))).toBe(true);
+  });
+
+  it("closed-form parity: a survey with sensors, one big jump equals many small ticks (loot + xp) at BOTH survey rates", () => {
+    // Mirrors the extraction closed-form test above, but with a SURVEY mission + a sensor value
+    // (20) so the sensor-scaled yield mult (1 + 20*0.02 = 1.4) AND the fractional XP rate are both
+    // exercised. The sensor bonus is a call-constant, so one big call must equal the sum of many
+    // small ones exactly. Run for BOTH surveys so this is the parity test the closed-form trap
+    // demands AT their real fractional XP rates (surveyMineralAnomaly 1.5, surveyStellarPhenomena
+    // 1.6). The span (800 ticks) crosses multiple auto-repeat cycles (269 / 289 ticks each).
+    // STEPPED IN INTEGER 1-TICK increments (NOT 0.1), exactly mirroring how production accrues XP:
+    // both offline (tick -> economyTick(_,1) per whole tick) and live (one economyTick per bar)
+    // advance strictly per whole tick, which is the accrual shape the canonical fractional-rate XP
+    // parity test above relies on. Whole-tick loot rolls land identically either way.
+    const shipStats = shipStatsWithSensors(20);
+    // [survey key, its rare-tier item key]. rng()=0 sends every extracting tick to the rare tier,
+    // so the rare item is where the sensor-scaled yield lands.
+    const cases: Array<[MissionKey, string]> = [
+      ["surveyMineralAnomaly", "osmiumOre"],
+      ["surveyStellarPhenomena", "exoticSporeCluster"],
+    ];
+
+    for (const [missionKey, rareItem] of cases) {
+      const big = freshCaptains(1)[0];
+      big.mission = missionCaptain(missionKey);
+      const bigJump = tickCaptainMission(800, big, ALWAYS_MIN_ROLL, {}, shipStats);
+
+      let steppedCaptain = freshCaptains(1)[0];
+      steppedCaptain.mission = missionCaptain(missionKey);
+      let steppedRare = new Decimal(0);
+      for (let i = 0; i < 800; i++) {
+        const result = tickCaptainMission(1, steppedCaptain, ALWAYS_MIN_ROLL, {}, shipStats);
+        steppedCaptain = result.captain;
+        steppedRare = steppedRare.plus(result.homePlanetDelta[rareItem] ?? new Decimal(0));
+      }
+
+      // Delivered rare material accumulated across completed cycles must agree.
+      expect((bigJump.homePlanetDelta[rareItem] ?? new Decimal(0)).equals(steppedRare), `${missionKey} delivered loot parity`).toBe(true);
+      // In-flight cargo of the current cycle must also agree (same closed-form guarantee as cargo above).
+      expect(
+        (bigJump.captain.mission as CaptainMissionState).cargo.rareMaterial.equals(
+          (steppedCaptain.mission as CaptainMissionState).cargo.rareMaterial
+        ),
+        `${missionKey} in-flight cargo parity`
+      ).toBe(true);
+      // Phase progression + the fractional-rate captain XP must be chunk-invariant too.
+      expect((bigJump.captain.mission as CaptainMissionState).phase).toBe((steppedCaptain.mission as CaptainMissionState).phase);
+      expect((bigJump.captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+        (steppedCaptain.mission as CaptainMissionState).phaseProgressTicks,
+        6
+      );
+      expect(bigJump.captain.xp.equals(steppedCaptain.xp), `${missionKey} captain XP parity`).toBe(true);
+      expect(bigJump.captain.level).toBe(steppedCaptain.level);
+      // And prove the sensor bonus genuinely fired (delivered > the un-sensored baseline would be):
+      // at least 2 full cycles completed (2*90=180 baseline), sensor-scaled to > 180.
+      expect((bigJump.homePlanetDelta[rareItem] ?? new Decimal(0)).greaterThan(180)).toBe(true);
+    }
   });
 });
 

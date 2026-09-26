@@ -1,12 +1,17 @@
-// 0.14.0 SENSORS (DORMANT) tests: the SCANNING-ARRAY catalog + its pure readers, the sensor slot's
-// generation / install behavior, and CRUCIALLY the dormancy proof (installing a sensor does NOT change
-// shipDerivedStats).
+// 0.14.0 SENSORS tests: the SCANNING-ARRAY catalog + its pure readers, the sensor slot's generation /
+// install behavior, and the derived-stat fold.
+//
+// ⚠️ EXPLORATION 0.14.0 E1a: the sensor slot is NO LONGER dormant. `sensors` now FOLDS as a flat
+// point-sum into ShipDerivedStats.sensors (survey missions consume it), so a fitted sensor DOES change
+// shipDerivedStats.sensors. The old "byte-identical" dormancy contract now applies to every OTHER
+// derived stat: folding a sensor moves ONLY the `sensors` field and leaves the rest untouched (mass /
+// powerDraw 0, no economy change). That narrowed contract is what the final describe below proves.
 //
 // Covers: catalog integrity (3 arrays, ids == the sensor slot variety keys, unique, kinds); the slot
 // generates + stamps moduleVariant + is economy-neutral; no Standard-Issue baseline (throws); the slot
 // is an installable ALLOW-EMPTY SINGLETON (swap + empty on uninstall); installedSensorArray resolves;
-// effect params scale with rarity/quality; and a smoke assertion that a fitted sensor leaves
-// shipDerivedStats byte-identical (the DORMANCY contract).
+// effect params scale with rarity/quality; and that a fitted sensor folds its `sensors` in additively
+// while leaving every other derived stat byte-identical (the narrowed E1a fold contract).
 
 import { describe, it, expect } from "vitest";
 import {
@@ -210,11 +215,12 @@ describe("installedSensorArray resolution + effect params", () => {
 });
 
 // ============================================================================
-describe("DORMANCY: a fitted sensor does NOT change shipDerivedStats", () => {
-  it("shipDerivedStats is byte-identical with and without a powerful crafted sensor installed", () => {
+describe("FOLD (E1a): a fitted sensor moves ONLY shipDerivedStats.sensors, nothing else", () => {
+  it("folds the sensor's `sensors` in additively while every other derived stat stays byte-identical", () => {
     const s = freshState();
     const ship = ship1(s);
     const bare = shipDerivedStats(ship, []);
+    expect(bare.sensors).toBe(0); // an un-sensored ship reads sensors 0 (the additive-neutral floor)
     // A REAL generated sensor (budget-derived `sensors` line + possible massReduction affix), max-ish.
     const gen = generateEquipment({
       slotType: "sensor",
@@ -227,8 +233,14 @@ describe("DORMANCY: a fitted sensor does NOT change shipDerivedStats", () => {
       rng: () => 0.5,
       allocateId: () => "equip-sensor",
     });
-    // Folding the sensor in changes nothing: `sensors` is unfolded (default case in equipmentStatMods),
-    // and mass 0 / powerDraw 0 drag nothing. Only the (future) exploration consumer will react.
-    expect(shipDerivedStats(ship, [gen])).toEqual(bare);
+    // Exploration 0.14.0 (E1a): the `sensors` line now FOLDS as a flat point-sum, so the derived
+    // sensors equals the piece's implicit + rolled sensors total, and is strictly positive.
+    const expectedSensors = (gen.implicitStats.sensors ?? 0) + (gen.rolledStats.sensors ?? 0);
+    const folded = shipDerivedStats(ship, [gen]);
+    expect(folded.sensors).toBe(expectedSensors);
+    expect(folded.sensors).toBeGreaterThan(0);
+    // The NARROWED byte-identical contract: EVERY OTHER derived stat is unchanged (mass 0 / powerDraw
+    // 0 drag nothing; a massReduction affix floors the piece's own 0 mass at 0). Only `sensors` moved.
+    expect({ ...folded, sensors: 0 }).toEqual(bare);
   });
 });

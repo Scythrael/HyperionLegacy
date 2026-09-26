@@ -15742,7 +15742,7 @@
             <SubTabs
               tabs={[
                 { key: "tierI", label: "Tier I" },
-                { key: "tierII", label: "Tier II", locked: true },
+                { key: "tierII", label: "Tier II" },
                 { key: "tierIII", label: "Tier III", locked: true },
                 { key: "tierIV", label: "Tier IV", locked: true },
                 { key: "tierV", label: "Tier V", locked: true },
@@ -15751,14 +15751,19 @@
               onSelect={(key) => (activeMissionTier = key as MissionTierKey)}
             />
 
-            {#if activeMissionTier === "tierI"}
+            {#if activeMissionTier === "tierI" || activeMissionTier === "tierII"}
               <!-- tierIMissions/embarked mirror the OLD block's per-mission
-                   embarked filter above, just scoped to Tier I's mission set
-                   instead of iterating ALL of MISSIONS, the embarked-
+                   embarked filter above, just scoped to the SELECTED tier's
+                   mission set instead of iterating ALL of MISSIONS, the embarked-
                    captains display below (progress bar, phase label,
                    cargo-so-far, Recall button) is otherwise byte-identical to
-                   what this replaced, only its position in the markup moved. -->
-              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === "I")}
+                   what this replaced, only its position in the markup moved.
+                   Exploration 0.14.0 (E1a): Tier II is now LIVE (the sensor-driven
+                   SURVEY missions live there); the block renders the active tier's
+                   missions by mapping the SubTabs key to the MissionDef.tier roman
+                   numeral, so the SAME markup serves both tiers with no duplication. -->
+              {@const activeTierRoman = activeMissionTier === "tierII" ? "II" : "I"}
+              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === activeTierRoman)}
               <!-- Combat 0.13.0 (9b.5a): extractionMissionOf narrows the mission union to
                    the extraction arm; this IN PROGRESS list is extraction-only, so a
                    patrolling captain is excluded from `embarked` (its mission is not an
