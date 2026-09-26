@@ -431,6 +431,28 @@ export const COMBAT_DEFAULT_LOADOUT: Record<CombatHullType, CombatDefaultLoadout
 		droneRoles: ["attack"],
 		builtInBays: 2,
 	},
+	// --- EXPLORER HULLS (0.14.0 Exploration Phase E0, design Part B) ------------------
+	// The glass-tank explorers carry TERRIBLE offense by design (their power goes to shields,
+	// range, and sensors, not guns). Each has weaponHardpoints 1 (model.ts), so the signature
+	// loadout is a SINGLE autocannon (the weakest gun in the roster) with NO padding, and NO
+	// drone bays (drones stay a carrier-only capability). Their combat survivability is their
+	// huge shields (SHIP_TYPES), not their weapons: fine against underpowered foes, overmatched
+	// by anything organized. ⚠️ TUNABLE, same first-pass spirit as the entries above.
+	orion: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	aurora: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
+	eir: {
+		weapons: ["autocannon"],
+		droneRoles: [],
+		builtInBays: 0,
+	},
 };
 
 // ============================================================================

@@ -139,7 +139,12 @@ describe("Research R1, BLUEPRINTS registry is well-formed", () => {
 // fabricator.test.ts.
 // ============================================================================
 describe("Combat 0.13.0, unlock-only warship hull blueprints", () => {
-  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp"] as const;
+  // The two warship hull blueprints PLUS the three 0.14.0 explorer hull blueprints
+  // (orion/aurora/eir): all five are the SAME unlock-only shape (tier 2, craft nothing,
+  // Research offers them at the level-2 lab ceiling), so they share this contract exactly.
+  // The explorer blueprints are E0's PLACEHOLDER acquisition gate; the real discovery gate
+  // (E4) is a later phase, but the unlock-only shape they carry now must still hold.
+  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp", "orionHullBp", "auroraHullBp", "eirHullBp"] as const;
 
   it("both exist, are unlockOnly, craft nothing (no output either kind, empty inputs)", () => {
     for (const key of UNLOCK_ONLY_KEYS) {

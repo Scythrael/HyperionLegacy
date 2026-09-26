@@ -1077,6 +1077,65 @@ describe("SHIP_TYPES", () => {
     expect(SHIP_TYPES.destroyer.transitSpeedMult).toBeGreaterThan(SHIP_TYPES.battleship.transitSpeedMult);
     expect(SHIP_TYPES.carrier.weaponHardpoints).toBeLessThan(SHIP_TYPES.destroyer.weaponHardpoints);
   });
+
+  // EXPLORER HULLS (0.14.0 Exploration Phase E0, design Part B: B.1 fantasy / B.2 stat
+  // mapping / B.4 the LOCKED glass-tank power-grid archetype). The three explorer-spec hulls
+  // (orion/aurora/eir) all share the archetype: power-RICH, by far the longest RANGE (highest
+  // fuelCapacity in the fleet), the STRONGEST shields (highest shieldCapacity in the fleet),
+  // MORE module slots than any combat hull, TERRIBLE weapons (1 hardpoint, no drones), and a
+  // LOW / frail hull. These stats are FIRST-PASS TUNABLE; this test guards the ARCHETYPE
+  // INVARIANTS (the relationships), not the exact placeholder numbers, so a tuning pass that
+  // preserves the identity does not have to touch it.
+  it("has the 3 explorer hulls (orion/aurora/eir) with the glass-tank archetype invariants", () => {
+    const EXPLORER_HULLS = ["orion", "aurora", "eir"] as const;
+    // The other (non-explorer) hulls, for the fleet-wide "highest fuel / strongest shields" checks.
+    const NON_EXPLORER_HULLS = [
+      "generalFreighter", "prospectorHauler", "prospectorRunner", "prospectorMiner",
+      "destroyer", "battleship", "carrier",
+    ] as const;
+    const maxNonExplorerFuel = Math.max(...NON_EXPLORER_HULLS.map((k) => SHIP_TYPES[k].fuelCapacity));
+    const maxNonExplorerShield = Math.max(...NON_EXPLORER_HULLS.map((k) => SHIP_TYPES[k].shieldCapacity));
+
+    for (const key of EXPLORER_HULLS) {
+      const def = SHIP_TYPES[key];
+      expect(def, key).toBeDefined();
+      // Explorer spec, tier 2 (entry explorers, a mid-game capital-class hull).
+      expect(def.spec, `${key}.spec`).toBe("explorer");
+      expect(def.tier, `${key}.tier`).toBe(2);
+      // GLASS TANK: strong shields, frail hull. shieldCapacity strictly greater than hullIntegrity.
+      expect(def.shieldCapacity, `${key} shields > hull`).toBeGreaterThan(def.hullIntegrity);
+      // REACH: highest fuel in the fleet (strictly above every non-explorer hull).
+      expect(def.fuelCapacity, `${key} fuel is fleet-highest`).toBeGreaterThan(maxNonExplorerFuel);
+      // SHIELDS: strongest in the fleet (strictly above every non-explorer hull, incl. the battleship).
+      expect(def.shieldCapacity, `${key} shields are fleet-strongest`).toBeGreaterThan(maxNonExplorerShield);
+      // WEAPONS: minimal (one hardpoint) and NO drone bays (offense is not the explorer's job).
+      expect(def.weaponHardpoints, `${key} minimal hardpoints`).toBe(1);
+      expect(def.droneBays ?? 0, `${key} no drone bays`).toBe(0);
+      // MODULES: more than any combat hull (the battleship, at 3, is the combat max) -- the identity.
+      expect(def.moduleSlots, `${key} more modules than the battleship`).toBeGreaterThan(SHIP_TYPES.battleship.moduleSlots);
+      // CARGO: better than the baseline freighter (long trips need supplies).
+      expect(def.cargoCapacity, `${key} better-than-normal cargo`).toBeGreaterThan(SHIP_TYPES.generalFreighter.cargoCapacity);
+      // Well-formed: positive fuel + non-negative efficiency (the fuel loop asserts these), a real
+      // build recipe, and an E0 blueprint gate (the placeholder acquisition; real E4 gate deferred).
+      expect(def.fuelCapacity, `${key}.fuelCapacity`).toBeGreaterThan(0);
+      expect(def.engineEfficiency, `${key}.engineEfficiency`).toBeGreaterThanOrEqual(0);
+      expect(def.buildRecipe.durationTicks, `${key}.durationTicks`).toBeGreaterThan(0);
+      expect(def.requiresBlueprint, `${key}.requiresBlueprint`).toBeDefined();
+      // The blueprint it names is a real, unlock-only blueprint (mirrors the warship hull gate).
+      expect(BLUEPRINTS[def.requiresBlueprint!], `${key} blueprint exists`).toBeDefined();
+      expect(blueprintKind(BLUEPRINTS[def.requiresBlueprint!]), `${key} blueprint unlock-only`).toBe("unlockOnly");
+    }
+
+    // DISTINCT identities within the family (design B.4 sub-types):
+    //   Aurora = the survey scout: the MOST module slots + the best straight-line transit.
+    //   Eir    = the transport: the BIGGEST cargo (supplies / refugees).
+    expect(SHIP_TYPES.aurora.moduleSlots).toBeGreaterThan(SHIP_TYPES.orion.moduleSlots);
+    expect(SHIP_TYPES.aurora.moduleSlots).toBeGreaterThan(SHIP_TYPES.eir.moduleSlots);
+    expect(SHIP_TYPES.aurora.transitSpeedMult).toBeGreaterThan(SHIP_TYPES.orion.transitSpeedMult);
+    expect(SHIP_TYPES.aurora.transitSpeedMult).toBeGreaterThan(SHIP_TYPES.eir.transitSpeedMult);
+    expect(SHIP_TYPES.eir.cargoCapacity).toBeGreaterThan(SHIP_TYPES.orion.cargoCapacity);
+    expect(SHIP_TYPES.eir.cargoCapacity).toBeGreaterThan(SHIP_TYPES.aurora.cargoCapacity);
+  });
 });
 
 describe("effectiveMissionDef", () => {

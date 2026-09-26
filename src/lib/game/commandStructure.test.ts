@@ -41,6 +41,21 @@ describe("command structure - totals + role weighting", () => {
     expect(complementTotalCap("destroyer")).toBeLessThan(complementTotalCap("battleship"));
   });
 
+  it("the 0.14.0 explorer hulls activate the (very large) explorer complement band", () => {
+    // Before Phase E0 no hull used spec "explorer", so the big explorer band in SPEC_BASE_TOTAL
+    // (500 base, the hundreds-scale complement) sat dormant. The three explorer hulls (orion/
+    // aurora/eir) now activate it: each carries a FAR larger crew than any combat hull, per the
+    // saga's "hundreds-scale Complement / a 1,017-crew flagship" intent. This proves the
+    // per-spec structure resolves for every explorer hull (commandStructureForHull reads
+    // SHIP_TYPES[hull].spec), not just that the numbers are big.
+    for (const hull of ["orion", "aurora", "eir"] as const) {
+      const structure = commandStructureForHull(hull);
+      expect(Object.keys(structure.divisions).length, `${hull} has resolved divisions`).toBeGreaterThan(0);
+      // An explorer's total dwarfs the fleet's biggest COMBAT hull (the tier-3 battleship).
+      expect(complementTotalCap(hull), `${hull} > battleship crew`).toBeGreaterThan(complementTotalCap("battleship"));
+    }
+  });
+
   it("the bonusCapacity hook (future crew-quarters module) raises the total cap additively", () => {
     const base = complementTotalCap("destroyer");
     expect(complementTotalCap("destroyer", 25)).toBe(base + 25);

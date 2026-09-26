@@ -54,7 +54,10 @@ describe("Fabricator F1, BLUEPRINTS craftDurationTicks", () => {
 // craftable list. The Research side (that Research DOES offer them) is in research.test.ts.
 // ============================================================================
 describe("Combat 0.13.0, Fabricator refuses unlock-only warship blueprints", () => {
-  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp"] as const;
+  // Every unlock-only hull blueprint: the two warships PLUS the three 0.14.0 explorer hulls
+  // (orion/aurora/eir), which are the same unlock-only shape (a Shipyard build gate that crafts
+  // nothing), so the Fabricator must refuse them all identically.
+  const UNLOCK_ONLY_KEYS = ["battleshipHullBp", "carrierHullBp", "orionHullBp", "auroraHullBp", "eirHullBp"] as const;
 
   it("canFabricate returns unlockOnly EVEN when researched + tier-available (guard fires first)", () => {
     for (const key of UNLOCK_ONLY_KEYS) {

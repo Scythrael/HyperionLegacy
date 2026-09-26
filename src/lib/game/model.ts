@@ -98,11 +98,25 @@ export type ShipTypeKey =
   // extraction / fuel) are deliberately MINIMAL for a warship (a warship hauls little).
   | "destroyer"
   | "battleship"
-  | "carrier";
-// FORWARD BUCKETS (documented in the design doc, NOT built this pass): explorer --
-// cruiser/surveyor/medical (explorer hulls get MORE module slots). Add keys here
-// only when actually built. (The tactician combat trio destroyer/battleship/carrier
-// is now BUILT, above.)
+  | "carrier"
+  // --- EXPLORER HULLS (0.14.0 Exploration Phase E0, design Part B: B.1 fantasy / B.2
+  // stat mapping / B.4 power-grid archetype) ---------------------------------------
+  // The three v1 EXPLORER-spec hulls (spec "explorer"), the fleet's long-range survey
+  // family. They activate the (very large) explorer complement band that already sits
+  // in commandStructure.ts (SPEC_BASE_TOTAL.explorer / SPEC_DIVISION_WEIGHTS.explorer)
+  // with no hull using it. ALL THREE share the LOCKED glass-tank archetype (design B.4):
+  // power-RICH, by far the longest RANGE (highest fuelCapacity in the fleet) + strongest
+  // SHIELDS, better-than-normal CARGO, MORE module slots than any combat hull (the
+  // explorer/science identity), TERRIBLE weapons (1 hardpoint, no drones), and a LOW /
+  // frail hull (papier-mache once the shields drop). Their stats are FIRST-PASS TUNABLE.
+  // ⚠️ DEFERRED (design I.6 / A.6 / B.3, NOT built here): a base-hull SENSORS stat (no
+  // sensors field exists on ShipTypeDef; the explorer sensor advantage lands with the
+  // sensor-consumer phase) and the B.3 power-allocation preset (fixed stats chosen for
+  // E0). The REAL discovery-gated acquisition is a later phase (E4 research); for E0
+  // these are ordinary blueprint-gated capital builds (see the SHIP_TYPES entries).
+  | "orion"
+  | "aurora"
+  | "eir";
 
 export interface ShipTypeDef {
   label: string;
@@ -814,8 +828,9 @@ export type PatrolKey = keyof typeof PATROLS;
 // are POPULATED but INERT this pass (no module/equipment system exists yet) --
 // carried now so the table shape is stable when those systems land, rather than
 // bolted on later. Add an entry here (and grow ShipTypeKey above) only when a
-// hull is actually built, the tactician/explorer families are forward buckets,
-// deliberately absent until their systems exist.
+// hull is actually built. The tactician combat trio (destroyer/battleship/carrier)
+// and the explorer family (orion/aurora/eir, 0.14.0 Phase E0) are now BUILT below;
+// no forward bucket remains absent.
 export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   // ⚠️ FUEL STATS ARE FIRST-PASS TUNABLE ⚠️ The fuelCapacity / engineEfficiency
   // values below establish the four hulls' fuel PROFILES (design §3): the Freighter
@@ -948,6 +963,92 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
+  },
+
+  // --- EXPLORER HULLS (0.14.0 Exploration Phase E0, design Part B) ------------------
+  // ⚠️ EVERY NUMBER HERE IS FIRST-PASS + TUNABLE (a later tuning pass owns balance),
+  // the SAME launch-placeholder spirit as the combat + economy hulls above.
+  //
+  // The LOCKED glass-tank archetype (design B.1 / B.2 / B.4), shared by all three:
+  //   RANGE    : fuelCapacity is the HIGHEST in the fleet (all > the freighter's 200, the
+  //              old fleet max) + a good engineEfficiency. These are the reach hulls: an
+  //              unexplored world sits so far out that an ordinary ship runs dry before
+  //              arriving, so the explorer spends huge power to balance velocity vs stamina.
+  //   SHIELDS  : shieldCapacity is the STRONGEST in the fleet (all > the battleship's 600)
+  //              with a strong recharge. ⚠️ This intentionally raises the roster's shield-cap
+  //              EFFECTIVENESS ceiling above the old battleship 2.0x (Orion is 800/300 =
+  //              ~2.67x, see REF_SHIELD_CAPACITY): the explorer IS the strongest-shield hull
+  //              by design. Still far under the retired x5 amplifier, so no runaway shields.
+  //   HULL     : hullIntegrity is LOW / frail (around the runner's 300, well below any combat
+  //              hull): a "pre-beaten pinata" the instant the shields drop.
+  //   WEAPONS  : minimal, weaponHardpoints 1 and NO drone bays. Terrible offense: fine against
+  //              underpowered foes, overmatched by anything organized (weapons are utility/
+  //              survey, not guns). Default loadout = 1 autocannon (see COMBAT_DEFAULT_LOADOUT).
+  //   CARGO    : better-than-normal (long trips need supplies), Eir the largest in the fleet.
+  //   MODULES  : MORE module slots than any combat hull (battleship 3 is the combat max), the
+  //              explorer/science identity, Aurora the most. Still INERT (no module system yet).
+  //
+  // tier 2: entry explorers, a mid-game capital-class hull (a step above the tier-1 economy
+  // line, alongside the tier-2 destroyer). ACQUISITION: blueprint-gated capital builds, exactly
+  // like the battleship / carrier (one unlock-only blueprint each, so the three are independent
+  // unlock choices). The blueprints are tier 2, RESEARCHABLE at the Research Lab's current
+  // level-2 ceiling (NOT a dead gate: the warship hull blueprints prove tier-2 research works
+  // today). ⚠️ This is E0's placeholder gate ONLY: the REAL discovery-gated acquisition (finding
+  // an explorer hull in the field) is a later phase (E4 research); the blueprint keeps them
+  // well-formed + earnable now without stranding them.
+  //
+  // ⚠️ DEFERRED (design I.6 / A.6 / B.3): NO base-hull sensors stat (ShipTypeDef has no sensors
+  // field; the explorer sensor advantage arrives with the sensor-consumer phase) and NO B.3
+  // power-allocation preset (fixed stats chosen for E0). E0's explorer identity == the range /
+  // shield / cargo / module / frail-hull profile only.
+  orion: {
+    label: "Orion", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
+    // Blueprint-gated capital build (E0 placeholder; real E4 discovery gate deferred). Its OWN
+    // unlock-only blueprint, distinct from Aurora's / Eir's, so each explorer is an independent unlock.
+    requiresBlueprint: "orionHullBp",
+    // The CORE long-range explorer: a BALANCED glass tank (the Enterprise-D generalist). Good at
+    // everything an explorer does, best at nothing. FIRST-PASS TUNABLE.
+    cargoCapacity: 120, transitSpeedMult: 1.1, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE
+    fuelCapacity: 340, engineEfficiency: 0.35, // FIRST-PASS TUNABLE: highest-tier range + good reach efficiency
+    moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
+    // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
+    hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
+    cost: { credits: 700 },
+    // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
+    description: "A long-range explorer. Enormous shields and reach, a frail hull, and almost no guns.",
+  },
+  aurora: {
+    label: "Aurora", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
+    requiresBlueprint: "auroraHullBp",
+    // The SENSOR / scout specialist: leaner combat, the MOST module slots in the fleet, the best
+    // straight-line transit, neutral-to-high extraction. Still a glass tank. FIRST-PASS TUNABLE.
+    cargoCapacity: 100, transitSpeedMult: 1.3, extractionYieldMult: 1.1, // FIRST-PASS TUNABLE: fastest explorer
+    fuelCapacity: 320, engineEfficiency: 0.4, // FIRST-PASS TUNABLE: highest-tier range + best reach efficiency
+    moduleSlots: 5, equipmentSlots: 0, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
+    // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
+    hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
+    cost: { credits: 650 },
+    // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
+    description: "A survey scout. The most module slots and the fastest cruise, at the cost of frame and hold.",
+  },
+  eir: {
+    label: "Eir", spec: "explorer", tier: 2, // FIRST-PASS TUNABLE
+    requiresBlueprint: "eirHullBp",
+    // The crew-landing / evac TRANSPORT: the BIGGEST cargo (supplies + refugees) and, via the
+    // explorer complement band, the biggest CREW capacity, with modest everything else. Still a
+    // glass tank. FIRST-PASS TUNABLE.
+    cargoCapacity: 220, transitSpeedMult: 0.9, extractionYieldMult: 1.0, // FIRST-PASS TUNABLE: biggest hold, slower heavy transport
+    fuelCapacity: 300, engineEfficiency: 0.3, // FIRST-PASS TUNABLE: still highest-tier range, modest among explorers
+    moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3)
+    // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
+    // but still frail vs its shields, modest recharge.
+    hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
+    cost: { credits: 750 },
+    // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
+    buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
+    description: "A medical transport. The largest hold and crew the fleet fields, for supplies and evacuations.",
   },
 };
 
@@ -6692,6 +6793,62 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
     flavor: "The full construction schematics for a carrier: a drone platform that launches squadrons to fight for it.",
     unlockHint: "Research at the Research Lab to unlock the Carrier at the Shipyard.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // EXPLORER HULL BLUEPRINTS (0.14.0 Exploration Phase E0) ────────────────────
+  // The SAME unlock-only shape as the warship hull blueprints above: they craft NOTHING
+  // (unlockOnly: true, empty recipe.inputs, INERT craftDurationTicks 1), their payoff is
+  // Shipyard build access for the matching explorer hull (its ShipTypeDef.requiresBlueprint).
+  // ONE blueprint per explorer so the three (Orion / Aurora / Eir) are independent unlock
+  // choices, mirroring the battleship / carrier split.
+  //
+  // TIER = 2, for the SAME reason as the warship hull blueprints: `tier` gates the Research Lab
+  // LEVEL required (canResearch: bp.tier > level -> tierLocked), and the Lab caps at level 2
+  // today (FACILITIES.research has 2 rungs), so a tier-3 blueprint would be permanently
+  // un-researchable and its hull permanently un-buildable. Tier 2 keeps them reachable now.
+  //
+  // ⚠️ E0 PLACEHOLDER GATE ONLY. The REAL discovery-gated acquisition (finding an explorer hull
+  // out in the field) is a later phase (E4 research). This blueprint gate keeps the explorers
+  // well-formed + earnable in current content rather than a dead, unobtainable gate; E4 replaces
+  // or augments it. ⚠️ FIRST-PASS TUNABLE ⚠️ tier / researchDurationTicks / researchCreditCost
+  // are launch placeholders (mid-game capital hulls; lighter than the warship 6000 since these
+  // are a distinct, non-combat line), retuned at the device-check stage.
+  orionHullBp: {
+    key: "orionHullBp",
+    label: "Orion Hull Blueprint",
+    tier: 2,
+    researchDurationTicks: 280,
+    researchCreditCost: 5000,
+    craftDurationTicks: 1, // INERT: unlock-only blueprints are never fabricated (positive to satisfy the F1 invariant)
+    unlockOnly: true,
+    recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
+    flavor: "The full construction schematics for the Orion: the fleet's balanced long-range explorer.",
+    unlockHint: "Research at the Research Lab to unlock the Orion at the Shipyard.",
+  },
+  auroraHullBp: {
+    key: "auroraHullBp",
+    label: "Aurora Hull Blueprint",
+    tier: 2,
+    researchDurationTicks: 280,
+    researchCreditCost: 5000,
+    craftDurationTicks: 1, // INERT: unlock-only blueprints are never fabricated (positive to satisfy the F1 invariant)
+    unlockOnly: true,
+    recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
+    flavor: "The full construction schematics for the Aurora: a survey scout heavy with sensor and science modules.",
+    unlockHint: "Research at the Research Lab to unlock the Aurora at the Shipyard.",
+  },
+  eirHullBp: {
+    key: "eirHullBp",
+    label: "Eir Hull Blueprint",
+    tier: 2,
+    researchDurationTicks: 280,
+    researchCreditCost: 5000,
+    craftDurationTicks: 1, // INERT: unlock-only blueprints are never fabricated (positive to satisfy the F1 invariant)
+    unlockOnly: true,
+    recipe: { inputs: {} }, // nothing to craft: the payoff is Shipyard build access, not an item
+    flavor: "The full construction schematics for the Eir: a medical transport built to carry crews, supplies, and evacuees.",
+    unlockHint: "Research at the Research Lab to unlock the Eir at the Shipyard.",
   },
 };
 
