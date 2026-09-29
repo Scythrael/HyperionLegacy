@@ -2328,8 +2328,13 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     expect(itemTotal(migrated.inventory, "titaniumIngot").equals(4)).toBe(true);
     expect(itemTotal(migrated.inventory, "uncommonMaterial").equals(0)).toBe(true);
 
-    // discovered / activeProcesses / nextProcessId all ride through untouched.
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial"]);
+    // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed.
+    // The pre-migration set was commonOre/rareMaterial/refinedMaterial; the load now also adds
+    // titaniumIngot, which the player holds (4, folded from refinedMaterial by the v28->v29
+    // item-merge) but which the old save never marked discovered, so it was an invisible stack.
+    // refinedMaterial rides through (reconcile only ADDS, never removes); uncommonMaterial is
+    // held at 0 so it is NOT revealed. activeProcesses / nextProcessId ride through untouched.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot"]);
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(3);
 
@@ -2492,7 +2497,9 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     expect(migrated.inventory.refinedMaterial).toBeUndefined();
     expect(migrated.inventory.components).toBeUndefined();
     expect(itemTotal(migrated.inventory, "titaniumIngot").equals(20)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(4);
     expect(migrated.lifetimeStats.itemsRefined.refinedMaterial.equals(20)).toBe(true);
@@ -2623,7 +2630,9 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     // The refineOrder:null MIGRATIONS[19] seeds is DROPPED by MIGRATIONS[23] (Task C6, v23->v24),
     // which retires the single-order model, the final v24 shape carries no order key, only the
     // new empty line fields.
@@ -2792,7 +2801,9 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     // refineOrder (seeded null by MIGRATIONS[19]) is DROPPED by MIGRATIONS[23] (Task C6, v23->v24) --
     // the single-order model is retired, so the final v24 shape has no order key, only line fields.
     expect("refineOrder" in migrated).toBe(false);
@@ -2992,7 +3003,9 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect("refineOrder" in migrated).toBe(false); // also dropped by C6's v23->v24 step (see above)
     expect(migrated.researchedBlueprints).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
@@ -3187,7 +3200,9 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
 
     // --- Every OTHER field rides through untouched (Decimal fields hydrated). ---
     expect(itemTotal(migrated.inventory, "commonOre").equals(1200)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "refinedMaterial", "uncommonMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
@@ -3375,7 +3390,9 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect("fabricateOrder" in migrated).toBe(false);
     expect(itemTotal(migrated.inventory, "commonOre").equals(2000)).toBe(true);
     expect(itemTotal(migrated.inventory, "frameSegment").equals(5)).toBe(true);
-    expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "frameSegment", "refinedMaterial", "uncommonMaterial"]);
+  // discovered is RECONCILED on load (reconcileDiscovered): every HELD item is revealed, so
+  // rareMaterial + titaniumIngot (folded from refinedMaterial) join the set the old save listed.
+    expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "frameSegment", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
     expect(migrated.nextProcessId).toBe(9);
     expect(migrated.credits.equals(8000)).toBe(true);

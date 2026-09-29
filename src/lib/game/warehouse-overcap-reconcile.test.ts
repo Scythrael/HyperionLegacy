@@ -21,7 +21,7 @@
 // the load path fixes a head-version save with no bump).
 // ============================================================================
 import { describe, it, expect } from "vitest";
-import { clampInventoryToCaps, itemCap, tierCap } from "./tick";
+import { clampInventoryToCaps, reconcileDiscovered, itemCap, tierCap } from "./tick";
 import { serialize, deserialize, migrate, SAVE_VERSION, type SaveFile } from "./save";
 import { freshState } from "./model";
 import { itemTotal, getBucket } from "./inventory";
@@ -111,5 +111,74 @@ describe("migrate, a head-version save with an over-cap ore stack is clamped on 
     const migrated = migrate(save);
     expect(itemTotal(migrated.inventory, "commonOre").equals(cap)).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").gt(cap)).toBe(false);
+  });
+});
+
+// ============================================================================
+// Discovery reconciliation (hotfix: salvage-only drops invisible in the Warehouse).
+//
+// THE BUG (reported by a player): a salvage-EXCLUSIVE exotic (intactDataCore and its two
+// siblings, never gathered/refined/fabricated) never appeared in the Warehouse even when held.
+// Root cause: salvage deposits via addItemQuality, which bypasses addToInventory's discovery
+// seam, so the drop stayed OUT of state.discovered and the tile rendered as a masked, count-less
+// "❓ undiscovered" (the count block is gated on `discovered`), i.e. held but invisible.
+//
+// THE FIX has two halves: the salvage apply site now marks discovery going forward (covered in
+// salvage.test.ts), and reconcileDiscovered(state) reveals any held item on LOAD, the SAME
+// idempotent, no-bump, every-load normalization clampInventoryToCaps is. These tests cover the
+// reconcile: (1) a held-but-undiscovered item is revealed and nothing already discovered is lost;
+// (2) a key held at zero is NOT revealed; (3) a non-catalog key is skipped; (4) idempotent
+// same-reference; (5) INTEGRATION through migrate() at the head version (no bump).
+// ============================================================================
+describe("reconcileDiscovered, a held-but-undiscovered item is revealed on load", () => {
+  const EXOTIC = "intactDataCore"; // a salvage-ONLY exotic: never gathered, refined or fabricated
+
+  it("reveals an item held (count > 0) but missing from the discovered set, additively", () => {
+    const state = freshState();
+    expect(state.discovered).not.toContain(EXOTIC); // precondition: the bug's shape
+    state.inventory = { ...state.inventory, [EXOTIC]: [new Decimal(3)] };
+
+    const next = reconcileDiscovered(state);
+    expect(next.discovered).toContain(EXOTIC);
+    // Purely additive: every previously-discovered id survives.
+    for (const id of state.discovered) expect(next.discovered).toContain(id);
+  });
+
+  it("does NOT reveal an item present as a key but held at zero", () => {
+    const state = freshState();
+    state.inventory = { ...state.inventory, [EXOTIC]: [new Decimal(0)] };
+    expect(reconcileDiscovered(state).discovered).not.toContain(EXOTIC);
+  });
+
+  it("skips an inventory key with no ITEMS entry (it can never render a tile)", () => {
+    const state = freshState();
+    state.inventory = { ...state.inventory, totallyUnknownItemXYZ: [new Decimal(5)] };
+    expect(reconcileDiscovered(state).discovered).not.toContain("totallyUnknownItemXYZ");
+  });
+
+  it("is idempotent, a fully-reconciled state returns the same reference", () => {
+    const state = freshState();
+    state.inventory = { ...state.inventory, [EXOTIC]: [new Decimal(2)] };
+    const once = reconcileDiscovered(state);
+    const twice = reconcileDiscovered(once);
+    expect(twice).toBe(once); // nothing left to reveal -> same reference
+  });
+});
+
+describe("migrate, a head-version save's held-but-undiscovered exotic is revealed on load (no bump)", () => {
+  it("reveals a salvage-only exotic through serialize -> deserialize -> migrate", () => {
+    const EXOTIC = "intactDataCore";
+    const state = freshState();
+    state.inventory = { ...state.inventory, [EXOTIC]: [new Decimal(1)] };
+    // Model the bug precisely: held but not discovered.
+    state.discovered = state.discovered.filter((id) => id !== EXOTIC);
+
+    const raw = serialize(state, Date.now());
+    const save = deserialize(raw) as SaveFile;
+    expect(save.version).toBe(SAVE_VERSION); // fresh serialize writes the head version (no migration runs)
+
+    const migrated = migrate(save);
+    expect(itemTotal(migrated.inventory, EXOTIC).gt(0)).toBe(true); // still held
+    expect(migrated.discovered).toContain(EXOTIC); // and now revealed
   });
 });

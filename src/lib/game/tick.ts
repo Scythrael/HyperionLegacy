@@ -6916,6 +6916,49 @@ export function clampInventoryToCaps(state: GameState): GameState {
 }
 
 // ============================================================================
+// Discovery reconciliation (hotfix: salvage-only drops invisible in the Warehouse).
+//
+// reconcileDiscovered(state) enforces the invariant "you always discover what you HOLD":
+// every item with a positive on-hand total is in state.discovered, so it renders as a real,
+// COUNTED Warehouse tile instead of a masked, count-less "❓ undiscovered" one.
+//
+// WHY THIS EXISTS (the same raw-write gap clampInventoryToCaps above documents): addToInventory,
+// the normal grant seam, marks an item discovered on any positive deposit, but SALVAGE payouts
+// deposit via addItemQuality directly and bypass that seam (deliberately, so salvage may exceed a
+// material's cap). A drop that salvage is the ONLY source of (the reserved exotics anomalousAlloy /
+// precursorCircuit / intactDataCore, never gathered, refined or fabricated) therefore stayed
+// undiscovered and INVISIBLE even while held. The salvage apply site now marks discovery going
+// forward (the salvageResolve branch in resolveProcesses), and THIS reconcile reveals the stock
+// existing saves already accumulated. It also stands as a permanent backstop: any future grant path
+// that forgets to mark discovery can never hide a held item past the next load.
+//
+// WHERE IT RUNS: at LOAD (save.ts migrate), unconditionally and every load, exactly like
+// clampInventoryToCaps. IDEMPOTENT (an already-discovered holding is untouched) and it does NOT
+// change the save SHAPE, so it needs NO SAVE_VERSION bump: a value normalization, not a schema
+// migration.
+//
+// PURE: reads state.inventory + state.discovered (+ the static ITEMS table); returns a NEW state
+// only when something was actually revealed (else the SAME reference, no needless clone); mutates
+// nothing. Only real catalog items are revealed, an inventory key absent from ITEMS is left alone
+// (it cannot render a tile anyway, and the discovered/total counter only counts ITEMS keys).
+// ============================================================================
+export function reconcileDiscovered(state: GameState): GameState {
+  const discoveredSet = new Set(state.discovered);
+  let discovered = state.discovered;
+  let changed = false;
+  for (const itemId of Object.keys(state.inventory)) {
+    if (discoveredSet.has(itemId)) continue;
+    if (ITEMS[itemId] === undefined) continue; // not a catalog item -> never renders, skip
+    if (itemTotal(state.inventory, itemId).gt(0)) {
+      discovered = [...discovered, itemId];
+      discoveredSet.add(itemId);
+      changed = true;
+    }
+  }
+  return changed ? { ...state, discovered } : state;
+}
+
+// ============================================================================
 // Fuel tank cap + buy (Mission Rework Task 4, design §3).
 //
 // fuelCap(state), the CURRENT global Fuel Tank capacity, a DERIVED value (never
@@ -10806,6 +10849,22 @@ export function resolveProcesses(
         equipment = resolved.next.equipment;
         ships = resolved.next.ships;
         credits = resolved.next.credits;
+        // Hotfix (salvage discovery): a salvage payout deposits via addItemQuality, which
+        // DELIBERATELY bypasses the addToInventory discovery seam so a salvage may exceed a
+        // material's warehouse cap. Marking-as-discovered got left behind with the cap clamp,
+        // so a drop that salvage is the ONLY source of (the reserved exotics anomalousAlloy /
+        // precursorCircuit / intactDataCore, never gathered, refined or fabricated) stayed
+        // undiscovered and rendered as a masked, count-less Warehouse tile: held but invisible.
+        // Mark every POSITIVELY-recovered item discovered here, at the single salvage apply
+        // site, using the SAME "a positive amount reveals" rule addToInventory applies. It is
+        // purely additive to the discovered SET (a UI reveal), guarded on !includes so it never
+        // duplicates; it draws NO rng and changes NO counts, so offline==live parity and every
+        // economy value are untouched (one big resolve and many small ones reveal the identical
+        // set). Covers the loot roll (a material salvage) and, harmlessly, the already-discovered
+        // materials an equipment recycle refunds.
+        for (const [itemId, qty] of Object.entries(resolved.recovered)) {
+          if (qty > 0 && !discovered.includes(itemId)) discovered = [...discovered, itemId];
+        }
       }
       // resolved === null: a STALE or refused target (already salvaged, since installed,
       // hull gone, last-hull guard now firing, none of that material held any more).

@@ -18,7 +18,7 @@ import { combatHullTypeOf, defaultSystemDurabilityForHull } from "./combat/bridg
 // shape-preserving, so it is applied on EVERY load with no SAVE_VERSION bump. See
 // clampInventoryToCaps in tick.ts for the full rationale. This is a one-way import (tick.ts
 // never imports save.ts), so it introduces no module cycle.
-import { clampInventoryToCaps, installMissingCombatBaselines } from "./tick";
+import { clampInventoryToCaps, reconcileDiscovered, installMissingCombatBaselines } from "./tick";
 // Guarded localStorage access (blocked site data / quota-exceeded degrade to "no
 // persistence" instead of throwing). Save WRITES already sat inside try/catch; the
 // bare READ/remove accessors here (loadFromLocalStorage, exportRawSave, hasRawSave,
@@ -2194,7 +2194,14 @@ export function migrate(save: SaveFile): GameState {
   // runs on every load (idempotent, no SAVE_VERSION bump), which is what un-sticks a legacy
   // over-cap stack that the deposit clamp + materialAtCap auto-stop can never re-clamp on
   // their own (a stuck stack gets no further deposit to trigger the deposit-side clamp).
-  return clampInventoryToCaps(hydrateDecimals(state));
+  //
+  // THEN reconcileDiscovered: reveal any HELD item that is not yet in the discovered set (the
+  // same idempotent, no-bump, every-load value normalization). This un-hides salvage-only drops
+  // (the reserved exotics) that a raw salvage deposit accumulated without marking discovery, so
+  // an existing save's hidden stock becomes visible on the very next load. Ordered AFTER the
+  // clamp so it reads the hydrated inventory (a clamped-to-zero stack, were one ever possible,
+  // correctly stays undiscovered since itemTotal is then 0).
+  return reconcileDiscovered(clampInventoryToCaps(hydrateDecimals(state)));
 }
 
 export function serialize(state: GameState, createdAt: number): string {
