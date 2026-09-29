@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.7";
+export const APP_VERSION = "0.13.8";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,20 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.8",
+    lede: "A quick fix: rare materials recovered only from salvage now show up in your Warehouse under Logistics. Any you already collected appear the next time you load.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "Salvaged exotics are visible.", text: "Salvage-only materials were landing in storage without revealing their tile, so they stayed hidden. They now show on pickup with a count, and past pickups reappear on your next load." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     version: "0.13.7",
     // Name confirmed by the user 2026-09-22.
