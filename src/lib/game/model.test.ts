@@ -297,13 +297,15 @@ describe("MISSIONS, launch set", () => {
   // (the 2 ore runs, keys unchanged, + salvageWreckage + forageFlora). This test's
   // per-field assertions on the 2 ore runs are unchanged (anti-regression); the
   // count assertion was updated 2 -> 4 and the title made honest.
-  it("has exactly 7 missions with the specified tick counts and cargo/extraction values", () => {
+  it("has exactly 9 missions with the specified tick counts and cargo/extraction values", () => {
     // Fuel-sourcing RESTRUCTURE (2026-07-15): grew 4 -> 5 with the free localFuelRun
     // bootstrap (asserted in its own describe block above). The ore-run per-field
     // assertions below are unchanged (anti-regression).
     // Exploration 0.14.0 (E1a): grew 5 -> 7 with the two tier-II SURVEY missions
     // (surveyMineralAnomaly / surveyStellarPhenomena), asserted in their own block below.
-    expect(Object.keys(MISSIONS)).toHaveLength(7);
+    // Exploration 0.14.0 (E1b): grew 7 -> 9 with the two TRANSPORT / supply runs
+    // (frontierSupplyRun / colonySupplyLift), asserted in their own block below.
+    expect(Object.keys(MISSIONS)).toHaveLength(9);
 
     expect(MISSIONS.shortOreRun.transitOutTicks).toBe(25);
     expect(MISSIONS.shortOreRun.transitBackTicks).toBe(25);
@@ -332,7 +334,11 @@ describe("MISSIONS, launch set", () => {
       // localFuelRun is the exception: it yields Deuterium Ice ONLY, so its uncommon/rare
       // chances are deliberately EXACTLY 0 (never roll). Its 0-only contract is enforced in
       // the dedicated restructure describe block above; here it must just be a valid [0,1].
-      const minChance = key === "localFuelRun" ? 0 : Number.MIN_VALUE;
+      // Exploration 0.14.0 (E1b): the TRANSPORT runs are the SAME kind of exception -- they are a
+      // pure credit COST-IN / REWARD-OUT loop that delivers NO loot (the deposit is suppressed in
+      // tickCaptainMission), so their uncommon/rare chances are deliberately 0 (nothing to roll).
+      const zeroLootRun = key === "localFuelRun" || MISSIONS[key].missionType === "transport";
+      const minChance = zeroLootRun ? 0 : Number.MIN_VALUE;
       expect(MISSIONS[key].uncommonChance).toBeGreaterThanOrEqual(minChance);
       expect(MISSIONS[key].uncommonChance).toBeLessThanOrEqual(1);
       expect(MISSIONS[key].rareChance).toBeGreaterThanOrEqual(minChance);
@@ -363,7 +369,9 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     | "salvageWreckage"
     | "forageFlora"
     | "surveyMineralAnomaly"
-    | "surveyStellarPhenomena",
+    | "surveyStellarPhenomena"
+    | "frontierSupplyRun"
+    | "colonySupplyLift",
     { common: string; uncommon: string; rare: string }
   > = {
     // Fuel-sourcing RESTRUCTURE: the fuel bootstrap yields Deuterium Ice ONLY. Its
@@ -380,12 +388,21 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     // Spore Cluster). The loot-triad rarity contract below verifies each tier's rarity tag.
     surveyMineralAnomaly: { common: "commonOre", uncommon: "cobaltOre", rare: "osmiumOre" },
     surveyStellarPhenomena: { common: "ferriteOre", uncommon: "volatileResin", rare: "exoticSporeCluster" },
+    // Exploration 0.14.0 (E1b): the two TRANSPORT triads are INERT SCAFFOLDING -- a transport is a
+    // credit loop that delivers NO loot (the deposit is suppressed in tickCaptainMission), so its
+    // lootTable exists only to satisfy MissionDef's loot-triad contract (real, correctly-rarity-
+    // tagged items + primaryMaterial == common). The generic tiers are guaranteed valid; they never
+    // deposit anything at runtime.
+    frontierSupplyRun: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    colonySupplyLift: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
   };
 
-  it("all 7 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage + 2 surveys)", () => {
+  it("all 9 mission keys exist (fuel bootstrap + 2 ore runs + salvage + forage + 2 surveys + 2 transports)", () => {
     expect(Object.keys(MISSIONS).sort()).toEqual(
       [
+        "colonySupplyLift",
         "forageFlora",
+        "frontierSupplyRun",
         "localFuelRun",
         "longOreRun",
         "salvageWreckage",
@@ -498,6 +515,60 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     for (const key of ["localFuelRun", "shortOreRun", "longOreRun", "salvageWreckage", "forageFlora"] as const) {
       expect(MISSIONS[key].missionType).toBeUndefined();
     }
+  });
+
+  // Exploration 0.14.0 (Phase E1b): the two TRANSPORT / supply missions. They are the credit
+  // COST-IN / REWARD-OUT loop (missionType "transport"), sit at tier II with the surveys, and carry
+  // the two transport economy fields. creditsPerCycle is 0 (the reward is the margin, not a flat
+  // per-cycle award), and their loot chances are 0 (no loot is ever delivered). This pins the
+  // transport-defining contract; the runtime cost-in/reward-out + loot-suppression + working-capital
+  // idle behavior is proven in tick.test.ts.
+  it("the 2 transport missions are tier-II 'transport' runs with a positive supply cost + margin, creditsPerCycle 0, and no loot", () => {
+    for (const key of ["frontierSupplyRun", "colonySupplyLift"] as const) {
+      const m = MISSIONS[key];
+      expect(m.missionType).toBe("transport");
+      expect(m.tier).toBe("II");
+      // The transport economy fields are present + positive (a real cost-in and a real margin).
+      expect(m.supplyCostPerCargo).toBeGreaterThan(0);
+      expect(m.rewardMargin).toBeGreaterThan(0);
+      // The reward is the margin, NOT a flat per-cycle award (no double-count in tickCaptainMission).
+      expect(m.creditsPerCycle).toBe(0);
+      // No loot delivered: the deposit is suppressed, so the chances are 0 (nothing to roll).
+      expect(m.uncommonChance).toBe(0);
+      expect(m.rareChance).toBe(0);
+      // primaryMaterial still satisfies the loot-triad contract (== lootTable.common), inert though.
+      expect(m.primaryMaterial).toBe(m.lootTable.common);
+      // unlockLevel 1 (like surveys; the deferred mission-control rung would strand a >1 gate); the
+      // captain-level gate is the progression nudge. Integer FA XP rate (closed-form parity trap).
+      expect(m.unlockLevel).toBe(1);
+      expect(m.requiresCaptainLevel).toBeGreaterThanOrEqual(3);
+      expect(m.cargoCapacity % m.extractionRatePerTick).toBe(0);
+      expect(Number.isInteger(m.fleetAdminXpPerTick)).toBe(true);
+    }
+    // The richer run (colonySupplyLift) carries the higher margin + a higher captain-level gate.
+    expect(MISSIONS.colonySupplyLift.rewardMargin!).toBeGreaterThan(MISSIONS.frontierSupplyRun.rewardMargin!);
+    expect(MISSIONS.colonySupplyLift.requiresCaptainLevel!).toBeGreaterThan(MISSIONS.frontierSupplyRun.requiresCaptainLevel!);
+  });
+
+  // Exploration 0.14.0 (Phase E1b): the Operations-tab ROUTING contract the UI relies on. App.svelte
+  // routes a mission to the EXPLORATION tab iff its missionType is "survey" || "transport", and to the
+  // GATHERING tab otherwise (excluding the free localFuelRun bootstrap). This pins that partition so
+  // the two tabs cannot silently drift or double-list a mission as content grows.
+  it("routing partition: exploration missions are exactly the surveys + transports; mining is everything else", () => {
+    const explorationKeys = (Object.keys(MISSIONS) as (keyof typeof MISSIONS)[])
+      .filter((k) => MISSIONS[k].missionType === "survey" || MISSIONS[k].missionType === "transport")
+      .sort();
+    expect(explorationKeys).toEqual(
+      ["colonySupplyLift", "frontierSupplyRun", "surveyMineralAnomaly", "surveyStellarPhenomena"].sort(),
+    );
+    // The Gathering (mining) set is every remaining mission except the localFuelRun bootstrap, and
+    // none of them carry an exploration missionType (so the two lists are disjoint + exhaustive).
+    const miningKeys = (Object.keys(MISSIONS) as (keyof typeof MISSIONS)[]).filter(
+      (k) => k !== "localFuelRun" && MISSIONS[k].missionType !== "survey" && MISSIONS[k].missionType !== "transport",
+    );
+    expect(miningKeys.sort()).toEqual(["forageFlora", "longOreRun", "salvageWreckage", "shortOreRun"].sort());
+    // Disjoint + together-with-localFuelRun exhaustive (no mission is both or neither).
+    expect(explorationKeys.length + miningKeys.length + 1).toBe(Object.keys(MISSIONS).length);
   });
 });
 

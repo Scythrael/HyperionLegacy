@@ -1994,6 +1994,19 @@ export function tickCaptainMission(
       ? shipStats.sensors * SURVEY_SENSOR_YIELD_COEFF
       : 0;
 
+  // Exploration 0.14.0 (Phase E1b): the TRANSPORT load cost, a CALL-CONSTANT computed ONCE here
+  // (exactly like surveySensorBonus / shipYieldBonus above), so the closed-form "one big jump ==
+  // many small ticks" guarantee holds for the SAME reason: it does not vary per cycle within the
+  // call. It applies ONLY to transport-flagged missions; for every extraction/survey/patrol mission
+  // it is 0. loadCost = the ship's EFFECTIVE cargoCapacity (missionDef is the ship-adjusted def, so
+  // .cargoCapacity is the hull's real hold) times supplyCostPerCargo, so a bigger hold loads (and
+  // profits) more with NO transport-specific cargo code. rewardMargin is captured alongside it; the
+  // NET profit per delivered cycle is loadCost * rewardMargin (see the cycle-completion branch). ?? 0
+  // tolerates a def that somehow omits the fields (it then simply nets nothing).
+  const transportLoadCost =
+    missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
+  const transportRewardMargin = missionDef.rewardMargin ?? 0;
+
   // Computed ONCE per call, not per roll, bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
@@ -2137,20 +2150,50 @@ export function tickCaptainMission(
         // ship-adjusted def, which preserves lootTable unchanged (effectiveMissionDef
         // only rescales transit/cargo geometry).
         const loot = missionDef.lootTable;
-        homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(cargo.commonOre);
-        homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(cargo.uncommonMaterial);
-        homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(cargo.rareMaterial);
+        // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
+        // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
+        // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
+        // but the DEPOSIT is suppressed here for a transport, so nothing lands in home inventory and
+        // lifetimeStatsDelta.itemsGathered (which mirrors homePlanetDelta) stays empty for it. A
+        // non-transport mission deposits exactly as before (byte-identical).
+        if (missionDef.missionType !== "transport") {
+          homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(cargo.commonOre);
+          homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(cargo.uncommonMaterial);
+          homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(cargo.rareMaterial);
+        }
         // Credits are still awarded once PER completed cycle (this branch can be
         // reached multiple times within one call's while loop, e.g. a big
         // offline-catchup ticksElapsed spanning several full cycles). Captain XP
         // (Task 4) AND Fleet Admiral XP (Task 5) are NO LONGER awarded here: both
         // now accrue per WHOLE tick, awarded once after the loop (see below), so
         // this branch touches only the credit total now.
-        creditsDelta += missionDef.creditsPerCycle;
-        // Task 6: one more completed cycle, counted in the SAME branch as the
-        // credit award and the loot delivery above, so all three (loot,
-        // credits, completion count) stay perfectly in sync per cycle.
-        cyclesCompleted += 1;
+        //
+        // Exploration 0.14.0 (Phase E1b): TRANSPORT cost-in / reward-out, resolved HERE at the
+        // delivered cycle, GATED on the running credit balance EXACTLY like the fuel auto-buy's
+        // creditsRemaining below (the running-credit accounting is already proven closed-form: at
+        // most one cycle boundary occurs per production call, and the closed-form parity test runs
+        // with an unbounded budget so the gate never distorts the one-big == many-small equality --
+        // see the transport parity test in tick.test.ts). WORKING-CAPITAL GATE: if the fleet can
+        // afford loadCost, "load supplies" (draw the running balance down by loadCost) and book the
+        // NET margin (loadCost * rewardMargin) into creditsDelta -- the cost is returned on delivery,
+        // so only the margin is new credits; else the cycle IDLES (no spend, no reward), mirroring the
+        // material-at-cap idle, and resumes automatically the moment credits recover. Only a FUNDED
+        // transport cycle counts as completed (an idle cycle delivered nothing). A non-transport
+        // mission takes the unchanged flat per-cycle award.
+        if (missionDef.missionType === "transport") {
+          if (creditsRemaining >= transportLoadCost) {
+            creditsRemaining -= transportLoadCost; // working capital committed this cycle (running balance)
+            creditsDelta += transportLoadCost * transportRewardMargin; // NET profit (cost returned, only margin is new)
+            cyclesCompleted += 1;
+          }
+          // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
+        } else {
+          creditsDelta += missionDef.creditsPerCycle;
+          // Task 6: one more completed cycle, counted in the SAME branch as the
+          // credit award and the loot delivery above, so all three (loot,
+          // credits, completion count) stay perfectly in sync per cycle.
+          cyclesCompleted += 1;
+        }
         // Fuel Economy v2 (F3): the AUTO-REPEAT fuel-spend rule (REPLACES Task-5's
         // stop-on-empty). A finished cycle either ends (recall) or STARTS A FRESH CYCLE,
         // which costs one round trip's fuel (need = fuelPerCycle). Outcomes, in priority
@@ -3696,7 +3739,13 @@ export function economyTick(
     // (proven by the offline-parity test in mission-recall-on-cap.test.ts). The `recalled`
     // flag is idempotent + persisted, so flagging it once (a big-span call) or re-flagging it
     // every tick (the stepped path) reaches the same terminal idle state either way.
-    if (materialAtCap(state, MISSIONS[missionKey].primaryMaterial)) {
+    // Exploration 0.14.0 (Phase E1b): a TRANSPORT mission delivers NO material (its loot deposit is
+    // suppressed in tickCaptainMission), so the material-at-cap auto-stop must NOT idle it -- its
+    // primaryMaterial is inert scaffolding, and gating a transport on a full warehouse of a material
+    // it never produces would strand a healthy credit run. Its OWN idle is the working-capital gate
+    // inside tickCaptainMission. Every non-transport mission keeps the exact cap behavior (the flag
+    // reads undefined for them, so the guard is byte-identical to before for all existing content).
+    if (MISSIONS[missionKey].missionType !== "transport" && materialAtCap(state, MISSIONS[missionKey].primaryMaterial)) {
       if (captain.mission.phase === "ordersReceived") {
         // At base, pre-departure: idle immediately rather than launching a run it can't finish.
         // Combat 0.13.0 (offline recap): stamp the CARGO stop reason here, this is the

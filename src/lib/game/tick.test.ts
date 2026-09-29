@@ -394,6 +394,139 @@ describe("tickCaptainMission, survey sensor-scaled yield (Exploration 0.14.0 E1a
   });
 });
 
+// Exploration 0.14.0 (Phase E1b): TRANSPORT / supply missions are the credit COST-IN / REWARD-OUT
+// loop. Per delivered cycle tickCaptainMission (a) SPENDS a cargo-scaled credit load cost and
+// CREDITS it back plus a margin -> net creditsDelta += loadCost * rewardMargin, (b) SUPPRESSES the
+// extraction loot deposit, and (c) IDLES the cycle (no spend, no reward) when the running credit
+// balance cannot cover the load, resuming the instant credits recover. These tests pin all three,
+// plus the closed-form offline==live parity that the fuel-auto-buy running-credit accounting already
+// guarantees (the transport spend rides the SAME creditsRemaining balance).
+describe("tickCaptainMission, transport cost-in/reward-out (Exploration 0.14.0 E1b)", () => {
+  // A neutral ShipDerivedStats with a given cargoCapacity. Every other stat is neutral (transit not
+  // rescaled, no yield bonus, a huge tank so reach never gates, sensors 0). effectiveMissionDef swaps
+  // this cargoCapacity into the mission, so the transport load cost scales with the hull's hold.
+  const shipStatsWithCargo = (cargoCapacity: number): ShipDerivedStats => ({
+    cargoCapacity,
+    transitSpeedMult: 1,
+    extractionYieldMult: 1,
+    engineEfficiency: 0,
+    fuelCapacity: 1_000_000,
+    mass: 0,
+    powerOutput: 0,
+    powerDraw: 0,
+    sensors: 0,
+  });
+  // A constant rng landing every extracting tick on the RARE tier (0 passes any positive rareChance),
+  // so a transport WOULD accumulate loot in its cargo -- the strongest proof that the DEPOSIT is
+  // suppressed (homePlanetDelta stays 0 even though the cargo filled).
+  const RARE_EVERY_TICK = () => 0;
+  // Run a transport long enough to complete >= 1 cycle; return the funded-cycle count + credit/loot.
+  const runTransport = (
+    missionKey: MissionKey,
+    ticks: number,
+    shipStats: ShipDerivedStats | null,
+    creditsBudget = Infinity,
+  ) => {
+    const cap = freshCaptains(1)[0];
+    cap.mission = missionCaptain(missionKey);
+    // args: rng, bonuses, shipStats, fuelBudget, fuelPerCycle, creditsBudget. fuelPerCycle 0 (default)
+    // means the fuel auto-buy never fires, so creditsRemaining is touched ONLY by the transport logic.
+    const r = tickCaptainMission(ticks, cap, RARE_EVERY_TICK, {}, shipStats, Infinity, 0, creditsBudget);
+    const cycles = (r.lifetimeStatsDelta.missionsCompleted[missionKey] ?? new Decimal(0)).toNumber();
+    return { r, cycles };
+  };
+
+  it("nets a cargo-scaled credit PROFIT per cycle and deposits NO extraction loot", () => {
+    // supplyCostPerCargo 4, rewardMargin 0.25 for frontierSupplyRun. With a neutral hull of cargo C,
+    // loadCost = C*4 and net per cycle = C*4*0.25 = C. So the delivered credits equal cargo * cycles.
+    const cost = MISSIONS.frontierSupplyRun.supplyCostPerCargo!;
+    const margin = MISSIONS.frontierSupplyRun.rewardMargin!;
+
+    for (const cargo of [90, 240]) {
+      const { r, cycles } = runTransport("frontierSupplyRun", 3000, shipStatsWithCargo(cargo));
+      expect(cycles).toBeGreaterThanOrEqual(1);
+      // NET = loadCost * margin per funded cycle (cost-in returned, only the margin is new credits).
+      const expectedNetPerCycle = cargo * cost * margin; // == cargo (with 4 * 0.25)
+      expect(r.creditsDelta).toBeCloseTo(expectedNetPerCycle * cycles, 6);
+      // NO extraction loot delivered, even though RARE_EVERY_TICK filled the cargo: the deposit is
+      // suppressed for a transport, so homePlanetDelta stays at its zero seed and itemsGathered too.
+      expect(r.homePlanetDelta.commonOre.equals(0)).toBe(true);
+      expect(r.homePlanetDelta.uncommonMaterial.equals(0)).toBe(true);
+      expect(r.homePlanetDelta.rareMaterial.equals(0)).toBe(true);
+      expect(Object.keys(r.homePlanetDelta).sort()).toEqual(["commonOre", "rareMaterial", "uncommonMaterial"]);
+      for (const v of Object.values(r.lifetimeStatsDelta.itemsGathered)) expect(v.equals(0)).toBe(true);
+    }
+
+    // Cargo-SCALED: a bigger hold earns strictly more per cycle (the Eir/hauler payoff, no extra code).
+    const small = runTransport("frontierSupplyRun", 3000, shipStatsWithCargo(90));
+    const big = runTransport("frontierSupplyRun", 3000, shipStatsWithCargo(240));
+    expect(big.r.creditsDelta / big.cycles).toBeGreaterThan(small.r.creditsDelta / small.cycles);
+  });
+
+  it("working-capital gate: idles (no spend, no reward, no loot) when credits are short, resumes when affordable", () => {
+    // null shipStats -> the raw def's cargo 120, so loadCost = 120 * 4 = 480 credits per cycle.
+    const loadCost = MISSIONS.frontierSupplyRun.cargoCapacity * MISSIONS.frontierSupplyRun.supplyCostPerCargo!;
+    expect(loadCost).toBe(480);
+
+    // STARVED: a running balance below the load cost -> every cycle idles. No credits booked, no loot,
+    // and NO cycle counted (an idle cycle delivered nothing). The mission stays active (it will resume).
+    const starved = runTransport("frontierSupplyRun", 3000, null, 100);
+    expect(starved.r.creditsDelta).toBe(0);
+    expect(starved.cycles).toBe(0);
+    expect(starved.r.homePlanetDelta.rareMaterial.equals(0)).toBe(true);
+    expect(starved.r.captain.mission).not.toBeNull(); // not ended: resumes the moment credits recover
+
+    // AFFORDABLE: the SAME mission + span with enough working capital funds every cycle and profits.
+    const funded = runTransport("frontierSupplyRun", 3000, null, 1_000_000_000);
+    expect(funded.cycles).toBeGreaterThanOrEqual(1);
+    expect(funded.r.creditsDelta).toBeCloseTo(loadCost * MISSIONS.frontierSupplyRun.rewardMargin! * funded.cycles, 6);
+  });
+
+  it("closed-form parity: a transport's credits, one big call equals the sum of many single-tick calls", () => {
+    // Mirrors the fuel-auto-buy running-credit parity posture: run with an UNBOUNDED budget (the
+    // default Infinity) so the working-capital gate never distorts the equality, exactly like the
+    // fuel closed-form tests run fuel-rich. The transport spend rides the SAME creditsRemaining
+    // balance the fuel auto-buy proved closed-form, so one big call must equal many small ones.
+    const bigCap = freshCaptains(1)[0];
+    bigCap.mission = missionCaptain("frontierSupplyRun");
+    const big = tickCaptainMission(800, bigCap, RARE_EVERY_TICK, {}, null);
+
+    let stepped = freshCaptains(1)[0];
+    stepped.mission = missionCaptain("frontierSupplyRun");
+    let steppedCredits = 0;
+    for (let i = 0; i < 800; i++) {
+      const res = tickCaptainMission(1, stepped, RARE_EVERY_TICK, {}, null);
+      stepped = res.captain;
+      steppedCredits += res.creditsDelta;
+    }
+
+    // The delivered NET credits must agree across chunking (the closed-form guarantee).
+    expect(big.creditsDelta).toBeCloseTo(steppedCredits, 6);
+    // The span genuinely completed cycles (else parity would be vacuous): cycle == 1+60+120+60+8 = 249.
+    expect(big.creditsDelta).toBeGreaterThan(0);
+    // Phase progression + in-flight cargo also chunk-invariant.
+    expect((big.captain.mission as CaptainMissionState).phase).toBe((stepped.mission as CaptainMissionState).phase);
+    expect((big.captain.mission as CaptainMissionState).phaseProgressTicks).toBeCloseTo(
+      (stepped.mission as CaptainMissionState).phaseProgressTicks,
+      6,
+    );
+    // And loot stays suppressed on BOTH paths.
+    expect(big.homePlanetDelta.rareMaterial.equals(0)).toBe(true);
+    expect((stepped.mission as CaptainMissionState).cargo.rareMaterial.equals(big.captain.mission ? (big.captain.mission as CaptainMissionState).cargo.rareMaterial : new Decimal(0))).toBe(true);
+  });
+
+  it("a non-transport (extraction) mission is untouched by the transport branch: it still deposits loot and awards creditsPerCycle", () => {
+    // Anti-regression: the transport cost-in/reward-out + loot-suppression branch must NOT touch a
+    // plain extraction run. One shortOreRun cycle (1+25+90+25+8 = 149 ticks) still delivers its loot
+    // and its flat creditsPerCycle (30), exactly as before E1b.
+    const cap = freshCaptains(1)[0];
+    cap.mission = missionCaptain("shortOreRun");
+    const r = tickCaptainMission(149, cap, RARE_EVERY_TICK, {}, null);
+    expect(r.homePlanetDelta.rareMaterial.equals(90)).toBe(true); // RARE_EVERY_TICK -> 90 rare delivered
+    expect(r.creditsDelta).toBe(MISSIONS.shortOreRun.creditsPerCycle); // flat per-cycle award unchanged (30)
+  });
+});
+
 describe("tickCaptainMission, phase progression", () => {
   it("advances phaseProgressTicks within ordersReceived without completing it", () => {
     const base = freshCaptains(1)[0];

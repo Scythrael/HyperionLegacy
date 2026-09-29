@@ -303,7 +303,34 @@ export interface MissionDef {
   // sensors 0 -> no bonus, so a survey at sensors 0 equals a plain extraction run). It is NOT a
   // MissionKind (that discriminates the mission-state UNION, extraction vs patrol); this is a
   // per-def BEHAVIOR tag within the extraction kind. First-pass: only survey missions set it.
-  missionType?: "extraction" | "survey";
+  //
+  // Exploration 0.14.0 (Phase E1b): "transport" is the second exploration behavior tag. A transport
+  // is the COST-IN / REWARD-OUT supply run (design I.1 + the "E1 design decisions" note): it reuses
+  // the ENTIRE extraction transit/scan/return/deliver machinery (still kind "extraction", dispatched
+  // + resolved by the same path), but at each delivered cycle tickCaptainMission (a) SPENDS a
+  // cargo-scaled CREDIT load cost and CREDITS it back plus a margin (net = a cargo-scaled credit
+  // PROFIT per cycle, so a bigger hold + faster crew turnaround earn more), and (b) SUPPRESSES the
+  // extraction loot deposit (a transport is a pure credit loop, NOT a mining run). A WORKING-CAPITAL
+  // gate mirrors the material-at-cap idle: if the fleet cannot afford the load cost, the cycle idles
+  // (no spend, no reward) and resumes automatically once credits recover. See supplyCostPerCargo +
+  // rewardMargin below and tickCaptainMission's transport branch. ⚠️ DEFERRED (design I.1, do NOT
+  // build here): the richer crafted-SUPPLIES-in loop (spend crafted materials instead of credits)
+  // and the refugee / prisoner variants (refugees tie E5). E1b ships only the credit supply-run.
+  missionType?: "extraction" | "survey" | "transport";
+  // Exploration 0.14.0 (Phase E1b): the TRANSPORT economy, both OPTIONAL so every non-transport
+  // mission omits them and is byte-identical (additive-neutral). Read ONLY when missionType is
+  // "transport"; a survey/extraction mission never touches them. FIRST-PASS TUNABLE, same launch-
+  // placeholder spirit as this file's other numbers (device-retuned later).
+  //
+  // supplyCostPerCargo: the CREDIT cost of the supplies loaded per unit of the ship's EFFECTIVE
+  // cargoCapacity. tickCaptainMission computes loadCost = effectiveCargoCapacity * supplyCostPerCargo,
+  // so a bigger hold (the Eir) loads more supplies -> a bigger run. The load cost is spent then
+  // returned on delivery (net zero on the cost itself); only the margin below is new credits.
+  supplyCostPerCargo?: number;
+  // rewardMargin: the FRACTIONAL profit on the load (0.25 = a 25% margin). Net credits per delivered
+  // cycle = loadCost * rewardMargin. This is the transport's whole reward (creditsPerCycle stays 0
+  // for a transport, so there is no double-count with the flat per-cycle award extraction/survey use).
+  rewardMargin?: number;
   // Flat Fleet Admiral XP awarded per WHOLE tick the mission is active (NOT per
   // completed cycle). Progression Pacing Rework (Task 5) moved Fleet Admiral XP
   // onto the SAME per-active-tick accrual captain XP already uses (Task 4): it is
@@ -415,7 +442,12 @@ export const MISSIONS: Record<
   // material yield scales with the ship's sensors. Adding these keys automatically widens
   // MissionKey + forces a BASE_XP_PER_TICK entry for each (the exhaustive Record below).
   | "surveyMineralAnomaly"
-  | "surveyStellarPhenomena",
+  | "surveyStellarPhenomena"
+  // Exploration 0.14.0 (Phase E1b): the two TRANSPORT / supply-run missions (missionType
+  // "transport"). Same widen-the-union + force-a-BASE_XP_PER_TICK-entry contract as the surveys
+  // above. They are the credit COST-IN / REWARD-OUT loop, NOT a loot run (see MissionDef.missionType).
+  | "frontierSupplyRun"
+  | "colonySupplyLift",
   MissionDef
 > = {
   // Fuel-sourcing RESTRUCTURE (2026-07-15): the fuel BOOTSTRAP mission, FIRST in the
@@ -609,6 +641,65 @@ export const MISSIONS: Record<
     requiresCaptainLevel: 5, // above surveyMineralAnomaly's 4 (progression nudge)
     requiresCargoCapacity: 90,
   },
+  // --- TRANSPORT / supply missions (Exploration 0.14.0, Phase E1b, design I.1 + "E1 design
+  // decisions" 2026-09-25) ---
+  // The COST-IN / REWARD-OUT credit loop. Each delivered cycle spends a cargo-scaled CREDIT load
+  // cost ("load supplies") and returns it PLUS rewardMargin, so the NET is a cargo-scaled credit
+  // PROFIT per cycle (tickCaptainMission's transport branch). A bigger hold (the Eir, cargo 220) and
+  // faster crew turnaround (Operations/unloadSpeed shrinks the unload phase via effectiveMissionDef)
+  // both earn more, WITHOUT any transport-specific code for either (both fold through
+  // effectiveMissionDef). They deliver NO extraction loot (the deposit is suppressed for transports),
+  // so their lootTable is inert SCAFFOLDING kept only to satisfy MissionDef's loot-triad contract
+  // (the generic common/uncommon/rare tiers, guaranteed real + correctly-rarity-tagged); it is never
+  // deposited. creditsPerCycle is 0 (the reward IS the margin; the transport branch skips the flat
+  // per-cycle award to avoid a double-count). uncommon/rareChance are 0 (like localFuelRun: nothing
+  // to roll, since loot is suppressed anyway). TIER II like the surveys (mid-range exploration ops);
+  // unlockLevel 1 (the deferred mission-control rung would strand a >1 gate, see the unlockLevel
+  // comment); captain-level + cargo capability gates provide the progression nudge. ⚠️ ALL numeric
+  // fields FIRST-PASS TUNABLE, device-retuned like the rest of this file.
+  frontierSupplyRun: {
+    label: "Frontier Supply Run",
+    missionType: "transport",
+    transitOutTicks: 60, // mid-range: shorter than the surveys, a bread-and-butter haul
+    transitBackTicks: 60,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 120, // divides evenly by rate 1 (the extracting-phase contract)
+    uncommonChance: 0, // no loot rolled/delivered: a transport is a pure credit loop
+    rareChance: 0,
+    // Inert scaffolding (never deposited): the generic tiers, guaranteed real + correctly tagged.
+    lootTable: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    primaryMaterial: "commonOre", // == lootTable.common (the loot-triad contract); inert for transport
+    tier: "II",
+    fleetAdminXpPerTick: 1, // INTEGER, see MissionDef's closed-form parity trap
+    creditsPerCycle: 0, // the reward is the margin below, NOT a flat per-cycle award
+    supplyCostPerCargo: 4, // credits of supplies loaded per unit of effective cargo (TUNABLE)
+    rewardMargin: 0.25, // 25% profit on the load -> net = loadCost * 0.25 per cycle (TUNABLE)
+    unlockLevel: 1, // available from the level-1 seed (the deferred unlock rung would strand a >1 gate)
+    requiresCaptainLevel: 3, // a modest capability gate (the progression nudge)
+    requiresCargoCapacity: 90, // == default Freighter hold; excludes only the small Runner (60)
+  },
+  colonySupplyLift: {
+    label: "Colony Supply Lift",
+    missionType: "transport",
+    transitOutTicks: 90, // the longer, richer supply run
+    transitBackTicks: 90,
+    unloadTicks: 8,
+    extractionRatePerTick: 1,
+    cargoCapacity: 150, // divides evenly by rate 1
+    uncommonChance: 0,
+    rareChance: 0,
+    lootTable: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
+    primaryMaterial: "commonOre", // == lootTable.common (inert for transport)
+    tier: "II",
+    fleetAdminXpPerTick: 1, // INTEGER, closed-form parity trap
+    creditsPerCycle: 0, // reward is the margin
+    supplyCostPerCargo: 6, // richer supplies per unit (TUNABLE)
+    rewardMargin: 0.35, // the richer margin: net = loadCost * 0.35 per cycle (TUNABLE)
+    unlockLevel: 1,
+    requiresCaptainLevel: 5, // above the Frontier run's 3 (progression nudge)
+    requiresCargoCapacity: 90,
+  },
 };
 
 export type MissionKey = keyof typeof MISSIONS;
@@ -659,6 +750,11 @@ export const BASE_XP_PER_TICK: Record<MissionKey, number> = {
   // fraction without a matching parity assertion at that rate (see the trap note above).
   surveyMineralAnomaly: 1.5,
   surveyStellarPhenomena: 1.6,
+  // Exploration 0.14.0 (E1b): the transports carry an INTEGER per-tick XP rate (1), the parity-safe
+  // choice (see the closed-form trap note above) and a modest anchor: a supply run's payoff is the
+  // credit margin, not XP. Kept integer deliberately so they add no new fractional-rate parity surface.
+  frontierSupplyRun: 1,
+  colonySupplyLift: 1,
 };
 
 // --- Combat factions (Combat 0.13.0, design §S14) ----------------------------

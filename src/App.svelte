@@ -1740,7 +1740,12 @@
   // default landing tab; missionControl + combat are the other two live tabs.
   // ⚠️ "overview" LEADS (0.13.5, user): every in-progress mission on one tab, so the fleet's
   // state is the first thing Operations shows rather than being scattered across the mission tabs.
-  type OperationsTab = "overview" | "gathering" | "missionControl" | "combat";
+  // Exploration 0.14.0 (Phase E1b): "exploration" is now a LIVE Operations sub-tab (the dedicated
+  // EXPLORATION dispatch surface: the sensor-driven SURVEY missions moved here out of Gathering, plus
+  // the new TRANSPORT / supply runs), no longer a locked reserved slot. Routing is by
+  // MissionDef.missionType (survey | transport) so exploration content is grouped by what it IS, not
+  // by tier. Gathering now shows ONLY extraction/mining missions again.
+  type OperationsTab = "overview" | "gathering" | "exploration" | "missionControl" | "combat";
   let activeOperationsTab: OperationsTab = "overview";
 
   // ---- Warehouse facility view (Phase 2, Group C; 0.11.2 Task 9 restructure) --
@@ -15534,7 +15539,7 @@
           { key: "overview", label: "Overview" },
           { key: "gathering", label: "Gathering" },
           { key: "combat", label: "Combat Patrols" },
-          { key: "exploration", label: "Exploration", locked: true },
+          { key: "exploration", label: "Exploration" },
           { key: "missionControl", label: "Mission Control" },
           { key: "battlespacePve", label: "Battlespace (PvE)", locked: true },
           { key: "battlespacePvp", label: "Battlespace (PvP)", locked: true },
@@ -15688,6 +15693,170 @@
                   {/if}
       {/snippet}
 
+      <!-- Exploration 0.14.0 (Phase E1b): the AVAILABLE-MISSION row, extracted from the Gathering
+           tab into a SHARED snippet so the Gathering (mining) and Exploration (survey + transport)
+           tabs render the identical .mpane row with ZERO duplication. The body is the verbatim mpane
+           markup that lived inline in Gathering; the ONLY addition is a TRANSPORT branch in the two
+           reward surfaces (glance + "More info" reveal): a transport is a credit COST-IN / REWARD-OUT
+           run that delivers NO loot, so showing a drop table + a flat "0/cyc" would be a lie. For a
+           transport the drops row is replaced by the cargo-scaled supply economy (load cost + margin);
+           every non-transport mission renders byte-identically to before the extraction. -->
+      {#snippet availableMissionRow(missionKey: MissionKey, missionDef: typeof MISSIONS[MissionKey])}
+                  {@const unlocked = missionUnlocked(state, missionKey)}
+                  <!-- 0.13.6 fuel-to-reach: show the trip DISTANCE in lightyears (mission-intrinsic)
+                       and the representative hull's REACH, instead of a fuel cost. LY numbers are
+                       first-pass tunable (0.16.0 balance). -->
+                  {@const distanceLy = distanceLightYears(missionDef)}
+                  {@const shipRangeLy = representativeShip ? rangeLightYears(SHIP_TYPES[representativeShip.typeKey]) : null}
+                  <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
+                       lootTable), read the real item keys so drops read per-mission. -->
+                  {@const loot = missionDef.lootTable}
+                  <!-- Exploration 0.14.0 (E1b): a transport shows its credit economy, not loot. -->
+                  {@const isTransport = missionDef.missionType === "transport"}
+                  {@const marginPct = Math.round((missionDef.rewardMargin ?? 0) * 100)}
+                  {#if unlocked}
+                    {@const expanded = expandedMissionKey === missionKey}
+                    <div class="mpane-wrap">
+                      <div class="mpane">
+                        <div class="mpane-id">
+                          <span class="mpane-glyph" aria-hidden="true">🚀</span>
+                          <div class="mpane-idcol">
+                            <div class="mpane-name">{missionDef.label}</div>
+                            <!-- Captain-XP/tick via the shared xpPerTick helper, tucked under
+                                 the name (same value/formula, only its position moved). -->
+                            <div class="mpane-sub">Tier {missionDef.tier} &middot; {xpPerTick(missionKey, state.captains[0])}/tick XP</div>
+                          </div>
+                        </div>
+                        <!-- GLANCE mid: compact Requirements + Rewards. The full Drop Table /
+                             Requirements / Rewards detail is one tap away in "More info". -->
+                        <div class="mpane-mid">
+                          <div class="statline">
+                            <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
+                            <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
+                            <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
+                          </div>
+                          <div class="statline">
+                            <span>Rewards</span>
+                            {#if isTransport}
+                              <!-- Transport: a cargo-scaled credit margin, NOT loot. -->
+                              <span>Supply run &middot; <b>+{marginPct}%</b> margin/cyc</span>
+                            {:else}
+                            <!-- Drops icon row, the SAME shared builder + Warehouse-style tooltip
+                                 handlers the card used; base (captain-agnostic) chances, the popup
+                                 applies the selected captain's modifiers. -->
+                            <span class="drops-row">
+                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                                {@const dropItem = ITEMS[drop.key]}
+                                {#if dropItem}
+                                  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
+                                  <span
+                                    class="drop-icon"
+                                    role="img"
+                                    style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
+                                    aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
+                                    on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                    on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                                    on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                  >{warehouseCategoryGlyph(dropItem.category)}</span>
+                                {/if}
+                              {/each}
+                            </span>
+                            <span><b>{formatNumber(missionDef.creditsPerCycle)}</b>/cyc</span>
+                            {/if}
+                          </div>
+                        </div>
+                        <!-- Actions: "More info" toggles the in-place expandedMissionKey reveal;
+                             "Assign" opens the unchanged openMissionPopup dispatch flow. -->
+                        <div class="mpane-actions">
+                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
+                          <button class="buy-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
+                        </div>
+                      </div>
+                      {#if expanded}
+                        <!-- MORE INFO reveal (the existing expandedMissionKey detail, verbatim),
+                             opened under the row. ONLY MissionDef data; base per-tick odds via
+                             missionDropTiers, the SAME helper the glance icons use. -->
+                        <div class="mpane-reveal">
+                          <div class="mission-detail">
+                            {#if isTransport}
+                              <!-- Transport: the SUPPLY ECONOMY replaces the Drop Table (no loot). -->
+                              <div class="mission-detail-section">
+                                <div class="mission-col-label">Supply Economy</div>
+                                <div class="mission-req-line">Cost-in / reward-out supply run: no materials delivered.</div>
+                                <div class="mission-req-line">Load cost: {formatNumber(missionDef.supplyCostPerCargo ?? 0)} cr per unit of cargo (scales with the hull's hold).</div>
+                                <div class="mission-req-line">Margin: +{marginPct}% on the load returned per cycle (net profit).</div>
+                                <div class="mission-req-line">Idles when the fleet cannot afford the load; resumes when credits recover.</div>
+                              </div>
+                            {:else}
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Drop Table</div>
+                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
+                                {@const dItem = ITEMS[drop.key]}
+                                {#if dItem}
+                                  <div class="mission-req-line">
+                                    <!-- The fully-typed item NAME is TAPPABLE (0.13.5, user): it pops the SAME item
+                                         tooltip the compact glance icon does, so a player can confirm the item from
+                                         EITHER surface as naming grows. A real <button> (the reveal sits OUTSIDE the
+                                         pane, no button nesting) for keyboard + AT; hover / focus / tap all drive the
+                                         shared warehouse tooltip, fed this drop's own per-tick chance. -->
+                                    <button
+                                      type="button"
+                                      class="drop-name-btn"
+                                      style="color: {warehouseRarityColor(dItem.rarity)}"
+                                      on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                      on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
+                                      on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                      on:blur={hideWarehouseTooltip}
+                                      on:click={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
+                                    >{dItem.label}</button> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
+                                  </div>
+                                {/if}
+                              {/each}
+                            </div>
+                            {/if}
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Requirements</div>
+                              <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
+                              <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull range {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
+                            </div>
+                            <div class="mission-detail-section">
+                              <div class="mission-col-label">Rewards</div>
+                              {#if isTransport}
+                                <div class="mission-req-line">Credits / cycle: +{marginPct}% margin on the cargo-scaled load</div>
+                              {:else}
+                                <div class="mission-req-line">Credits / cycle: {formatNumber(missionDef.creditsPerCycle)}</div>
+                              {/if}
+                              <div class="mission-req-line">Captain XP / tick: {xpPerTick(missionKey, state.captains[0])}</div>
+                              <div class="mission-req-line">Fleet Admiral XP / tick: {missionDef.fleetAdminXpPerTick}</div>
+                            </div>
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {:else}
+                    <!-- LOCKED mission row: dashed + dimmed, the same "show locked content"
+                         convention, with the will-require preview so the player can plan. -->
+                    <div class="mpane locked" title="Unlock via Mission Control (Operations)">
+                      <div class="mpane-id">
+                        <span class="mpane-glyph" aria-hidden="true">🔒</span>
+                        <div class="mpane-idcol">
+                          <div class="mpane-name">{missionDef.label}</div>
+                          <div class="mpane-sub">Locked &middot; Mission Control</div>
+                        </div>
+                      </div>
+                      <div class="mpane-mid">
+                        <div class="statline"><span>Unlock via Mission Control (Operations tab)</span></div>
+                        <div class="statline">
+                          {#if missionDef.requiresCaptainLevel !== undefined}<span>Needs <b>Lv {missionDef.requiresCaptainLevel}</b></span>{/if}
+                          {#if missionDef.requiresCargoCapacity !== undefined}<span>Cargo <b>{formatNumber(missionDef.requiresCargoCapacity)}</b></span>{/if}
+                          <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
+                        </div>
+                      </div>
+                    </div>
+                  {/if}
+      {/snippet}
+
       {#if activeOperationsTab === "overview"}
         {@const gatheringCaptains = state.captains.filter((c) => extractionMissionOf(c) !== null)}
         {@const patrolCaptains = state.captains.filter((c) => c.mission !== null && c.mission.kind === "patrol")}
@@ -15729,20 +15898,20 @@
            + mission-card flow; in the 0.12.0 "Console" nav (CN5) the mission-
            CATEGORY rail was retired (mission types are the Operations ConsoleTabs
            top rail now), so resource-gathering, the rail's only live category, is
-           promoted directly under this Gathering tab. The tier selector + mission
-           cards below are UNCHANGED. Only Tier I is real (both shortOreRun and
-           longOreRun, see model.ts's MissionDef.tier field); Tiers II-V are
-           locked SubTabs entries. Dispatch does not happen inline here --
-           clicking an available mission card calls openMissionPopup, which
-           sets missionPopupKey/missionPopupCaptainId (declared near
-           deleteModalOpen). The popup markup that consumes that state and
-           performs the dispatch through the existing
-           doDispatchCaptainOnMission lives near the DELETE SAVE modal,
-           further down this same template. -->
+           promoted directly under this Gathering tab.
+           ⚠️ Exploration 0.14.0 (Phase E1b): the SURVEY missions (briefly hosted here
+           under Tier II in E1a) MOVED to the dedicated Exploration tab, alongside the new
+           TRANSPORT runs. Gathering now shows ONLY extraction/mining missions again, so
+           Tier II is LOCKED once more (all mining is Tier I) and the mission filter excludes
+           every exploration missionType (survey | transport). Dispatch does not happen
+           inline here -- clicking an available mission row calls openMissionPopup, whose
+           dispatch flow (doDispatchCaptainOnMission) lives near the DELETE SAVE modal
+           further down this same template. The .mpane row markup is the SHARED
+           availableMissionRow snippet defined above. -->
             <SubTabs
               tabs={[
                 { key: "tierI", label: "Tier I" },
-                { key: "tierII", label: "Tier II" },
+                { key: "tierII", label: "Tier II", locked: true },
                 { key: "tierIII", label: "Tier III", locked: true },
                 { key: "tierIV", label: "Tier IV", locked: true },
                 { key: "tierV", label: "Tier V", locked: true },
@@ -15751,170 +15920,62 @@
               onSelect={(key) => (activeMissionTier = key as MissionTierKey)}
             />
 
-            {#if activeMissionTier === "tierI" || activeMissionTier === "tierII"}
-              <!-- tierIMissions/embarked mirror the OLD block's per-mission
-                   embarked filter above, just scoped to the SELECTED tier's
-                   mission set instead of iterating ALL of MISSIONS, the embarked-
-                   captains display below (progress bar, phase label,
-                   cargo-so-far, Recall button) is otherwise byte-identical to
-                   what this replaced, only its position in the markup moved.
-                   Exploration 0.14.0 (E1a): Tier II is now LIVE (the sensor-driven
-                   SURVEY missions live there); the block renders the active tier's
-                   missions by mapping the SubTabs key to the MissionDef.tier roman
-                   numeral, so the SAME markup serves both tiers with no duplication. -->
-              {@const activeTierRoman = activeMissionTier === "tierII" ? "II" : "I"}
-              {@const tierIMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === activeTierRoman)}
-              <!-- Combat 0.13.0 (9b.5a): extractionMissionOf narrows the mission union to
-                   the extraction arm; this IN PROGRESS list is extraction-only, so a
-                   patrolling captain is excluded from `embarked` (its mission is not an
-                   extraction run). The `!` inside the each is safe because the filter
-                   guaranteed an extraction mission for every listed captain. -->
+            {#if activeMissionTier === "tierI"}
+              <!-- Mining missions ONLY: exclude the free bootstrap (localFuelRun) AND every
+                   exploration missionType (survey | transport), which live on the Exploration tab
+                   now. All mining is Tier I, so the tier filter + the missionType exclusion agree. -->
+              {@const miningMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([key, def]) => key !== "localFuelRun" && def.tier === "I" && def.missionType !== "survey" && def.missionType !== "transport")}
 
               <div class="home-sec-hd">
                 <span class="home-sec-h">Available Missions</span>
                 <span class="home-sec-rule"></span>
               </div>
-              <!-- OPERATIONS mission-pane redesign (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html):
-                   the AVAILABLE MISSIONS card grid became a vertical stack of full-width ROWS
-                   (the facilities/captains .fpane/.cpane idiom, here .mpane). This is a straight
-                   REFLOW: the exact same missionUnlocked gate, drop-icon tooltip handlers,
-                   expandedMissionKey "View Info" expand, and openMissionPopup Assign flow, only
-                   relaid out. Nothing about dispatch behavior changed. -->
+              <!-- OPERATIONS mission-pane redesign (0.13.5): the AVAILABLE MISSIONS card grid
+                   became a vertical stack of full-width ROWS (.mpane), now rendered through the
+                   shared availableMissionRow snippet (Exploration 0.14.0 E1b) so Gathering +
+                   Exploration cannot drift. Nothing about dispatch behavior changed. -->
               <div class="mission-panes">
-                {#each tierIMissions as [missionKey, missionDef]}
-                  {@const unlocked = missionUnlocked(state, missionKey)}
-                  <!-- 0.13.6 fuel-to-reach: show the trip DISTANCE in lightyears (mission-intrinsic)
-                       and the representative hull's REACH, instead of a fuel cost. LY numbers are
-                       first-pass tunable (0.16.0 balance). -->
-                  {@const distanceLy = distanceLightYears(missionDef)}
-                  {@const shipRangeLy = representativeShip ? rangeLightYears(SHIP_TYPES[representativeShip.typeKey]) : null}
-                  <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
-                       lootTable), read the real item keys so drops read per-mission. -->
-                  {@const loot = missionDef.lootTable}
-                  {#if unlocked}
-                    {@const expanded = expandedMissionKey === missionKey}
-                    <div class="mpane-wrap">
-                      <div class="mpane">
-                        <div class="mpane-id">
-                          <span class="mpane-glyph" aria-hidden="true">🚀</span>
-                          <div class="mpane-idcol">
-                            <div class="mpane-name">{missionDef.label}</div>
-                            <!-- Captain-XP/tick via the shared xpPerTick helper, tucked under
-                                 the name (same value/formula, only its position moved). -->
-                            <div class="mpane-sub">Tier {missionDef.tier} &middot; {xpPerTick(missionKey, state.captains[0])}/tick XP</div>
-                          </div>
-                        </div>
-                        <!-- GLANCE mid: compact Requirements + Rewards. The full Drop Table /
-                             Requirements / Rewards detail is one tap away in "More info". -->
-                        <div class="mpane-mid">
-                          <div class="statline">
-                            <span>Needs <b>Lv {missionDef.requiresCaptainLevel ?? 1}</b></span>
-                            <span>Cargo <b>{missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "--"}</b></span>
-                            <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
-                          </div>
-                          <div class="statline">
-                            <span>Rewards</span>
-                            <!-- Drops icon row, the SAME shared builder + Warehouse-style tooltip
-                                 handlers the card used; base (captain-agnostic) chances, the popup
-                                 applies the selected captain's modifiers. -->
-                            <span class="drops-row">
-                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
-                                {@const dropItem = ITEMS[drop.key]}
-                                {#if dropItem}
-                                  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions, INTENTIONAL: this icon is a span (not a focusable button) carrying a tap-to-pin tooltip; stopPropagation is a harmless leftover from when the card was a button. Keyboard/AT users get the SAME drops as real, focusable buttons in the dispatch popup, so no interaction is lost. -->
-                                  <span
-                                    class="drop-icon"
-                                    role="img"
-                                    style="--drop-rc: {warehouseRarityColor(dropItem.rarity)};"
-                                    aria-label="{dropItem.label}, {drop.chancePct.toFixed(1)}% drop chance"
-                                    on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                    on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
-                                    on:click|stopPropagation={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                  >{warehouseCategoryGlyph(dropItem.category)}</span>
-                                {/if}
-                              {/each}
-                            </span>
-                            <span><b>{formatNumber(missionDef.creditsPerCycle)}</b>/cyc</span>
-                          </div>
-                        </div>
-                        <!-- Actions: "More info" toggles the in-place expandedMissionKey reveal;
-                             "Assign" opens the unchanged openMissionPopup dispatch flow. -->
-                        <div class="mpane-actions">
-                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
-                          <button class="buy-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
-                        </div>
-                      </div>
-                      {#if expanded}
-                        <!-- MORE INFO reveal (the existing expandedMissionKey detail, verbatim),
-                             opened under the row. ONLY MissionDef data; base per-tick odds via
-                             missionDropTiers, the SAME helper the glance icons use. -->
-                        <div class="mpane-reveal">
-                          <div class="mission-detail">
-                            <div class="mission-detail-section">
-                              <div class="mission-col-label">Drop Table</div>
-                              {#each missionDropTiers(loot, missionDef.uncommonChance, missionDef.rareChance) as drop (drop.key)}
-                                {@const dItem = ITEMS[drop.key]}
-                                {#if dItem}
-                                  <div class="mission-req-line">
-                                    <!-- The fully-typed item NAME is TAPPABLE (0.13.5, user): it pops the SAME item
-                                         tooltip the compact glance icon does, so a player can confirm the item from
-                                         EITHER surface as naming grows. A real <button> (the reveal sits OUTSIDE the
-                                         pane, no button nesting) for keyboard + AT; hover / focus / tap all drive the
-                                         shared warehouse tooltip, fed this drop's own per-tick chance. -->
-                                    <button
-                                      type="button"
-                                      class="drop-name-btn"
-                                      style="color: {warehouseRarityColor(dItem.rarity)}"
-                                      on:pointerenter={(e) => hoverEnterWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                      on:pointerleave={(e) => hoverLeaveWarehouseTooltip(e, drop.key)}
-                                      on:focus={(e) => focusShowWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                      on:blur={hideWarehouseTooltip}
-                                      on:click={(e) => toggleWarehouseTooltip(e, drop.key, drop.chancePct)}
-                                    >{dItem.label}</button> ({dItem.rarity}): {drop.chancePct.toFixed(1)}% per tick
-                                  </div>
-                                {/if}
-                              {/each}
-                            </div>
-                            <div class="mission-detail-section">
-                              <div class="mission-col-label">Requirements</div>
-                              <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
-                              <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull range {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
-                            </div>
-                            <div class="mission-detail-section">
-                              <div class="mission-col-label">Rewards</div>
-                              <div class="mission-req-line">Credits / cycle: {formatNumber(missionDef.creditsPerCycle)}</div>
-                              <div class="mission-req-line">Captain XP / tick: {xpPerTick(missionKey, state.captains[0])}</div>
-                              <div class="mission-req-line">Fleet Admiral XP / tick: {missionDef.fleetAdminXpPerTick}</div>
-                            </div>
-                          </div>
-                        </div>
-                      {/if}
-                    </div>
-                  {:else}
-                    <!-- LOCKED mission row: dashed + dimmed, the same "show locked content"
-                         convention, with the will-require preview so the player can plan. -->
-                    <div class="mpane locked" title="Unlock via Mission Control (Operations)">
-                      <div class="mpane-id">
-                        <span class="mpane-glyph" aria-hidden="true">🔒</span>
-                        <div class="mpane-idcol">
-                          <div class="mpane-name">{missionDef.label}</div>
-                          <div class="mpane-sub">Locked &middot; Mission Control</div>
-                        </div>
-                      </div>
-                      <div class="mpane-mid">
-                        <div class="statline"><span>Unlock via Mission Control (Operations tab)</span></div>
-                        <div class="statline">
-                          {#if missionDef.requiresCaptainLevel !== undefined}<span>Needs <b>Lv {missionDef.requiresCaptainLevel}</b></span>{/if}
-                          {#if missionDef.requiresCargoCapacity !== undefined}<span>Cargo <b>{formatNumber(missionDef.requiresCargoCapacity)}</b></span>{/if}
-                          <span>Distance <b>{formatNumber(Math.round(distanceLy))} LY</b></span>
-                        </div>
-                      </div>
-                    </div>
-                  {/if}
+                {#each miningMissions as [missionKey, missionDef]}
+                  {@render availableMissionRow(missionKey, missionDef)}
                 {/each}
               </div>
             {/if}
+      </div>
+      {/if}
+
+      {#if activeOperationsTab === "exploration"}
+      <!-- Exploration 0.14.0 (Phase E1b): the dedicated EXPLORATION dispatch surface. All
+           exploration missions live here, routed by MissionDef.missionType (NOT by tier), in two
+           sections: SURVEY missions (sensor-driven, deliver rare materials) and SUPPLY / TRANSPORT
+           runs (the cost-in / reward-out credit loop). Each row is the SAME shared availableMissionRow
+           snippet the Gathering tab uses, so the surfaces cannot drift. Dispatch is the unchanged
+           openMissionPopup flow. In-progress exploration missions (kind "extraction") continue to show
+           on the Operations Overview board as before. -->
+      {@const surveyMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.missionType === "survey")}
+      {@const transportMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.missionType === "transport")}
+      <div class="tab-scroll-area">
+        {#if surveyMissions.length > 0}
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Survey Missions</span>
+            <span class="home-sec-rule"></span>
+          </div>
+          <div class="mission-panes">
+            {#each surveyMissions as [missionKey, missionDef]}
+              {@render availableMissionRow(missionKey, missionDef)}
+            {/each}
+          </div>
+        {/if}
+        {#if transportMissions.length > 0}
+          <div class="home-sec-hd">
+            <span class="home-sec-h">Supply &amp; Transport Runs</span>
+            <span class="home-sec-rule"></span>
+          </div>
+          <div class="mission-panes">
+            {#each transportMissions as [missionKey, missionDef]}
+              {@render availableMissionRow(missionKey, missionDef)}
+            {/each}
+          </div>
+        {/if}
       </div>
       {/if}
 
