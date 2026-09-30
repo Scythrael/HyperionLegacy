@@ -1909,6 +1909,27 @@ describe("salvageResolve: each target arm resolves through the process path (0.1
     expect(viaTick.activeProcesses).toEqual([]);
   });
 
+  it("MARKS the recovered drop DISCOVERED, so a salvage-only exotic is no longer an invisible masked tile", () => {
+    // The reported bug: salvage deposits via addItemQuality, which bypasses addToInventory's
+    // discovery seam, so a drop salvage is the ONLY source of (an exclusive exotic) stayed
+    // undiscovered and rendered as a count-less "❓" Warehouse tile. Roll the TOP tier's first
+    // exclusive exotic and assert the completed salvage both deposits AND reveals it.
+    const state = timedSalvageState();
+    const jobState: GameState = {
+      ...state,
+      activeProcesses: [salvageJobAt({ kind: "material", itemId: HOUSING }, 1)],
+    };
+    // Learn which exotic this rng rolls (top tier's first drop) from the live path.
+    const viaLive = salvageSalvagedMaterial(state, HOUSING, strictRng([0.999999, 0]));
+    if (!viaLive.ok || viaLive.rolled === undefined) throw new Error("expected a top-tier roll");
+    const rolledId = viaLive.rolled.itemId;
+    expect(state.discovered).not.toContain(rolledId); // precondition: a salvage-only drop starts undiscovered
+
+    const viaTick = resolveProcesses(jobState, 1, strictRng([0.999999, 0])).next;
+    expect(itemTotal(viaTick.inventory, rolledId).gt(0)).toBe(true); // deposited
+    expect(viaTick.discovered).toContain(rolledId); // and revealed
+  });
+
   it("the SHIP arm tears the hull down exactly as the live instant path does, returning crafted systems and credits", () => {
     const state = timedSalvageState();
     const jobState: GameState = {
