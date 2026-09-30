@@ -157,7 +157,43 @@ expedition without it). A fresh / expedition-free save is unaffected.
 - Task completion -> enemy drops + random-event drops + a "treasure chest" / EXPEDITIONARY FINDINGS with a
   CHANCE of a RELIC (rarities) — REUSE the salvage loot-roll machinery for the tiered rarity roll.
 - E2 ships its activity resolver against this; sequence E3 to land with E2's activity phase (or E2 activities
-  ship against a placeholder resolver, E3 swaps in the real gambit combat).
+  ship against a placeholder resolver, E3 swaps in the real gambit combat). [E2 shipped the placeholder resolver
+  at `resolveActivitiesPhase` in expedition.ts; E3 swaps in the real engine there, record shape unchanged.]
+
+#### E3 GAMBIT DESIGN — FULL FFXII DEPTH (user, 2026-09-30) [LOCKED direction]
+The user wants the COMPLETE FFXII gambit system, not a trimmed preset: fully customizable, and LOAD-BEARING
+(harder missions spell "certain death" without proper gambits). The MODEL ships FFXII-grade in 0.14.0; the
+exhaustive CONTENT library grows through the balance pass (same first-pass-then-flood posture as every 0.14.0
+phase). Ties [[SUGGESTIONS: gambits-everywhere]] (the eventual auto-vs-gambit layer on ship combat too) - so
+build the interpreter GENERALIZABLE, not hard-wired to ground combat.
+- RULE = `[TARGET] + [ACTION]`, evaluated top-down, FIRST MATCH fires, per member, per round (FFXII's exact
+  structure). The TARGET carries the condition.
+- TARGET SELECTORS (the tactical heart, user's examples baked in): Foe nearest/farthest; Foe HIGHEST HP
+  ("punch the biggest guy to establish dominance"); Foe LOWEST HP (finish the wounded); Foe HIGHEST THREAT
+  ("take down the biggest damage threat first"); Foe IS HEALER/SUPPORT ("target the healer"); Foe IS
+  CASTER/ranged; Foe HAS STATUS = X; Foe in the LARGEST GROUP / most-numerous type (multi-group encounters);
+  Ally HP < X% (GRANULAR, configurable threshold); Ally HAS STATUS = X; Ally/Self any/lowest-HP; Self HP < X%
+  / has status = X.
+- NON-TARGET CONDITIONS: opening round; outnumbered; enemy group count >= N; a skill/item is available; the
+  objective is in reach.
+- STATUS / AFFLICTIONS (propose + name a first-pass set; the "if afflicted, a designated member cures it"
+  loop): debuffs e.g. Poison/Bleed (DoT), Stun/Concussed (skip), Burn, Weakened (dmg down), Suppressed (acc
+  down), Fear (may fall back), Corroded (armor down); buffs e.g. Shielded, Inspired. A CURE clears specific
+  statuses. This is what makes "Ally has status = Poison -> Cleanse" gambits matter.
+- ACTIONS: SECURITY = Attack (per selector) / Suppress / Taunt (force enemy focus, "establish dominance") /
+  Execute (bonus vs low HP) / Brace. SCIENCE = Cure/Cleanse (the designated curer) / Aid-Heal / Shield ally /
+  Analyze (reveal enemy role/weakness) / Secure objective / Take cover. BOTH = Use Item (a team-kit consumable
+  cure/stim, "use a skill OR an item to cure it") / Fall back / Hold.
+- ENEMY ROLES so targeting decisions are load-bearing: Bruiser (biggest/tank), Striker (highest damage
+  threat), Healer/Support (heals enemies - "target the healer"), Caster (applies afflictions), Swarm (many
+  weak). Hard encounters MIX roles + sling afflictions so a naive rule list loses.
+- PRESETS (flavorful, user-seeded, the accessible on-ramp + the seed of the eventual auto-vs-gambit split):
+  "Establish Dominance", "President of the Turtle Club", "Decapitate" (healer then striker), "Triage"
+  (cure/heal priority), "Balanced", "Relic Rush", plus Custom.
+- ⚠️ SCOPE NOTE: FFXII depth = the COMBINATORIAL model (target x condition x action x status), NOT a huge flat
+  list, so 0.14.0 ships the full model + a first-pass content set deep enough to make hard missions demand
+  smart gambits; the exhaustive affliction/skill/enemy-role library is balance-pass content. Interpreter stays
+  deterministic + offline-safe + generalizable (ship combat adopts it later).
 
 ### Phase E4 — Relics -> discovery-gated Research -> Museum [extends archive.ts]
 - RELICS are UNIDENTIFIED when found (like crafting BLANKS): the RESEARCH facility STUDIES a relic to reveal
