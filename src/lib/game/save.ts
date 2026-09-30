@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 58;
+export const SAVE_VERSION = 59;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2238,6 +2238,20 @@ const MIGRATIONS: Record<number, Migration> = {
       unlockedSecondaryTalents: c.unlockedSecondaryTalents ?? [],
       retirements: c.retirements ?? 0,
     })),
+  }),
+  // v58 -> v59 (0.14.0 Exploration, Phase E2a): pure additive backfill of the three new EXPEDITION
+  // fields, no behavior change (mirrors the crew v54->v55 pattern above). Backfills the active-
+  // expeditions list (empty), the id counter (1, first minted id "expedition-1"), and the per-save
+  // expedition seed (the fixed default) with the SAME values freshState uses, so a fresh save and a
+  // migrated save stay indistinguishable in shape. All three are plain values (an array of plain
+  // records, a number, a number), NO Decimals, so hydrateDecimals is unchanged. Idempotent: `??` only
+  // fills an absent field. With no active expedition, the tick path is byte-identical (resolveExpeditions
+  // is a same-reference no-op on an empty array), so this backfill changes no existing save's behavior.
+  58: (state: any): any => ({
+    ...state,
+    expeditions: state.expeditions ?? [],
+    nextExpeditionId: state.nextExpeditionId ?? 1,
+    expeditionSeed: state.expeditionSeed ?? EXPEDITION_DEFAULT_SEED,
   }),
 };
 

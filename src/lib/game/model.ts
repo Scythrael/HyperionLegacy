@@ -5209,6 +5209,117 @@ export interface PersonnelRoster {
   pinnedNotableCrew: string[]; // pinned NotableCrewMember ids, in PRIORITY order (index 0 = highest priority)
 }
 
+// ============================================================================
+// Exploration 0.14.0 (Phase E2a): the long-distance EXPEDITION state machine
+// ============================================================================
+//
+// An EXPEDITION is the big semi-idle exploration mode (design Part I.2). It is its OWN top-level
+// GameState record (state.expeditions), NOT a CaptainMissionState: a mission is a captain-bound
+// closed-form transit/scan/return cycle resolved inside the captain map, whereas an expedition is a
+// system-level, multi-phase, multi-body state machine that outlives many mission cycles and carries
+// its own bodies + findings. It still BINDS a ship + captain (shipId + captainId) the way a mission
+// binds a captain, but as a separate structure so the two never entangle.
+//
+// ⚠️ E2a SCOPE: the ENGINE + a GENERIC body model ONLY. A body here is generic (a scan size, a hazard
+// scalar, a discovered-token list, a placeholder activity list). PLANET TYPES + a named PoI/landmark
+// catalog are E2b; the real away-team GAMBIT activity resolver is E3 (E2a resolves activities through
+// a deterministic PLACEHOLDER resolver, see expedition.ts); relics/research/museum are E4. The seams
+// below (ExpeditionActivity.done, ExpeditionFinding.source, the generic discovery kinds) are shaped so
+// those later phases swap in without reshaping the record.
+//
+// ⚠️ DETERMINISM / PARITY: every seeded outcome (the anomaly chart, per-body discoveries, activities)
+// is a PURE function of the expedition's own `seed` + a fixed salt + an index, NEVER a live PRNG
+// stream position and NEVER Date.now()/Math.random(). Combined with resolving all intra-phase state
+// from ELAPSED gameTimeSeconds (see expedition.ts advanceExpedition), this makes one big offline
+// catch-up window byte-identical to many small live ticks BY CONSTRUCTION (the crown-jewel invariant).
+
+// The phases an expedition passes through, in order. TRANSIT (fly out) -> SCANNING (survey each body
+// to 100%) -> ACTIVITIES (ground-team tasks, placeholder-resolved in E2a) -> RETURN (fly home) ->
+// COMPLETE (findings claimable). MISSION-like transit/do/return, but system-scoped + multi-body.
+export type ExpeditionPhase = "transit" | "scanning" | "activities" | "return" | "complete";
+
+// A generic discovery token deposited when a body finishes scanning. E2a keeps it GENERIC (a kind +
+// an id); E2b replaces `kind` with a real planet-type-gated landmark/PoI catalog. The two kinds mirror
+// the sensor array's two discovery-odds biases (surface landmark vs underground PoI, sensorArrays.ts).
+export interface ExpeditionDiscovery {
+  id: string; // stable, "<expeditionId>-<bodyId>-disc-<n>"
+  kind: "landmark" | "underground";
+}
+
+// A ground-team task generated at a body's 100% scan. E2a resolves it through a PLACEHOLDER resolver
+// (expedition.ts) that just flips `done` + grants one placeholder finding; E3 swaps in the real gambit
+// away-team combat WITHOUT reshaping this record (it keeps `done` as the completion flag).
+export interface ExpeditionActivity {
+  id: string; // stable, "<expeditionId>-<bodyId>-act-<n>"
+  bodyId: string;
+  done: boolean; // set by the resolver when the task completes
+}
+
+// One body (planet / satellite / other) in the target system. GENERIC in E2a: a scan SIZE (scanTotal),
+// a scan cursor (scanProgress), a HAZARD scalar (slows scanning + a placeholder combat lever for E3),
+// and the discovered tokens + generated activities. `scanned` is the internal once-only latch that a
+// body's discoveries + activities are assigned exactly once when it first reaches 100%.
+export interface ExpeditionBody {
+  id: string;
+  scanTotal: number; // total scan work to reach 100% ("size"); bigger = longer to scan
+  scanProgress: number; // 0..scanTotal
+  hazard: number; // 0..1 hazard scalar; higher = slower scan (and, later, harder ground combat)
+  scanned: boolean; // latch: true once this body hit 100% and had its discoveries + activities assigned
+  discoveries: ExpeditionDiscovery[];
+  activities: ExpeditionActivity[];
+}
+
+// A claimable EXPEDITIONARY FINDING. E2a findings are GENERIC placeholder tokens (a count + a
+// provenance tag); E4 replaces this with the real relic/treasure system. `source` records where the
+// finding came from so E4 can route each provenance differently.
+export interface ExpeditionFinding {
+  id: string; // stable, "<expeditionId>-find-<n>"
+  source: "anomaly" | "activity";
+}
+
+// A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,
+// captured at dispatch so resolution is a pure function of the stored expedition (no live fitment
+// re-read). Structurally identical to sensorArrays.ts SensorArrayEffect; declared inline here (not
+// imported) to avoid a model.ts <-> sensorArrays.ts import cycle. A NEUTRAL snapshot (all-1 mults, 0
+// biases) is used when no sensor array is fitted.
+export interface ExpeditionScanParams {
+  scanRateMult: number;
+  coverageWidth: number;
+  landmarkOddsBias: number;
+  undergroundPoiOddsBias: number;
+}
+
+// One active expedition. Its `seed` is the per-expedition PRNG seed (derived at dispatch from the
+// per-save expeditionSeed + the expedition number, so it is stable across reloads and decorrelated
+// between expeditions). `phaseAnchorSeconds` is the gameTimeSeconds at which the CURRENT phase began;
+// elapsed-in-phase = gameTimeSeconds - phaseAnchorSeconds, and a phase boundary advances the anchor by
+// the EXACT phase duration (never snaps to the live clock) so overflow carries and many phases can
+// resolve in one big offline call, exactly like tickCaptainMission's phaseProgressTicks.
+export interface Expedition {
+  id: string; // "expedition-N", allocated from GameState.nextExpeditionId; never reused
+  shipId: string;
+  captainId: number;
+  targetSystemId: string; // banked sci-fi system id (design Part E)
+  systemName: string; // display name
+  sensorArrayId: string | null; // the installed sensor array's variant id at dispatch (null = none fitted)
+  scanParams: ExpeditionScanParams; // the array's resolved scan params, snapshotted at dispatch
+  sensorPower: number; // effectiveShipStats(...).sensors snapshotted at dispatch (crew-inclusive)
+  phase: ExpeditionPhase;
+  phaseAnchorSeconds: number; // gameTimeSeconds when the current phase started
+  shakedown: boolean; // the inaugural per-account run (shorter transit)
+  bodies: ExpeditionBody[];
+  anomalyResolved: boolean; // the mid-transit anomaly-chart roll has fired
+  anomalyCharted: boolean; // the roll succeeded (adds transit time + one placeholder finding)
+  findings: ExpeditionFinding[];
+  seed: number; // per-expedition PRNG seed (reload-deterministic, like inspectSeed)
+}
+
+// The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
+// backfills onto existing saves (so a fresh save and a migrated save land on the IDENTICAL shape, the
+// established convention). A fixed nonzero constant keeps freshState fully deterministic; it is a good
+// PRNG mixing start (a decorrelated transform of the crew seed's golden-ratio constant). TUNABLE.
+export const EXPEDITION_DEFAULT_SEED = 0x2545f491;
+
 export interface GameState {
   captains: CaptainState[];
   tickDurationSeconds: number; // fleet-wide tick cadence, every captain advances in lockstep on this single cadence (collapsed from a per-captain field during the UI Redesign; see docs/plans/2026-07-07-ui-redesign-design.md)
@@ -5561,6 +5672,29 @@ export interface GameState {
   // byte-identical.
   personnelRosters: PersonnelRoster[];
   nextRosterId: number; // monotonic id source for a new PersonnelRoster id; never reused, mirrors nextLoadoutId / nextShipId
+  // --- Exploration 0.14.0 (Phase E2a): the long-distance EXPEDITION state machine ----------------
+  // The fleet's active expeditions (see Expedition above). ONE array, one migration, one save shape,
+  // mirroring `ships` / `officers`. At most one expedition per ship is enforced at dispatch
+  // (startExpedition, expedition.ts). Each expedition resolves INDEPENDENTLY + deterministically on
+  // the tick (resolveExpeditions, run once per whole tick at the same tail seam as resolveCrew).
+  //
+  // ⚠️ ADDITIVE-NEUTRAL: with NO active expedition this array is EMPTY, and resolveExpeditions returns
+  // the SAME state reference on an empty array, so the whole tick path + every derived state is
+  // byte-identical to before this phase (the no-expedition byte-identical test proves it). No Decimals
+  // inside an Expedition (ids/strings/numbers/booleans only), so hydrateDecimals is unchanged; the
+  // array rides the `...state` spread verbatim like `ships`.
+  expeditions: Expedition[];
+  // Monotonic id source for a new Expedition.id ("expedition-N"); never reused, mirrors nextShipId.
+  // freshState seeds 1 so the first minted id is "expedition-1"; the v58->v59 migration backfills 1.
+  // ALSO the per-account "first expedition" signal: nextExpeditionId === 1 means none has ever been
+  // dispatched, which startExpedition reads to give the inaugural run its shorter SHAKEDOWN transit.
+  nextExpeditionId: number;
+  // The per-save expedition PRNG seed. Each dispatched expedition derives its OWN stable seed from
+  // this seed + its expedition number (expedition.ts makeExpeditionSeed), so every expedition's
+  // outcomes (system pick, bodies, anomaly, discoveries) are reload-deterministic yet decorrelated,
+  // the SAME pattern seniorStaffSeed / inspectSeed use. freshState seeds EXPEDITION_DEFAULT_SEED; the
+  // v58->v59 migration backfills the identical default. A plain number, so hydrateDecimals is unchanged.
+  expeditionSeed: number;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -10037,5 +10171,12 @@ export function freshState(): GameState {
     // via the v56->v57 migration (save.ts), so a fresh save and a migrated save stay indistinguishable.
     personnelRosters: [],
     nextRosterId: 1,
+    // Exploration 0.14.0 (Phase E2a): no active expeditions on a fresh save, the id counter at 1 (first
+    // minted id "expedition-1", and nextExpeditionId === 1 also flags the inaugural shakedown run), and
+    // the per-save expedition seed at the fixed default. Existing saves reach the IDENTICAL shape via the
+    // v58->v59 migration (save.ts), so a fresh save and a migrated save stay indistinguishable in shape.
+    expeditions: [],
+    nextExpeditionId: 1,
+    expeditionSeed: EXPEDITION_DEFAULT_SEED,
   };
 }

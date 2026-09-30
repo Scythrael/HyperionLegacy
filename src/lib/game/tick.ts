@@ -308,6 +308,10 @@ import { transitBerthsFree } from "./berths";
 // stats) + the per-tick crew engine (transports + auto-crew, run once per whole tick like the
 // process-line passes) + the officer mission-completion fold that feeds promotion gates.
 import { effectiveShipStats, resolveCrew, foldOfficerMissionCompletions } from "./crewOverlay";
+// Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
+// seam (same posture as resolveCrew). Deterministic + offline-safe; a same-reference no-op with no
+// active expedition (additive-neutral), so a save with no expedition is byte-identical to before.
+import { resolveExpeditions } from "./expedition";
 // Crew 0.14.0 (Phase C-3b): the fleet-wide captain-XP multiplier from accumulated retirements. It is
 // x1 (byte-identical) until a captain retires, so wiring it into captain XP accrual below changes no
 // existing save's behavior (every existing save has 0 retirements).
@@ -4182,7 +4186,15 @@ export function economyTick(
   // process passes on purpose: crew delivered/assigned THIS tick affects the NEXT tick's stats (the
   // same "promoted this tick, runs next tick" cadence promoteQueuedOrders uses), which keeps the crew
   // stats a per-cycle constant within the mission loop and preserves parity.
-  return resolveCrew(finalState);
+  // Exploration 0.14.0 (Phase E2a): advance every active expedition ONCE per whole tick, at the same
+  // tail seam as resolveCrew, and for the same parity reason (tick() steps economyTick(_,1) per whole
+  // tick, App.svelte calls economyTick(_,1) per bar, so offline catch-up and live play stay identical
+  // by construction). It reads finalState.gameTimeSeconds (already advanced by deltaSeconds above), draws
+  // NO rng off the economy stream (each expedition rolls from its own seeded PRNG keyed by seed+salt+
+  // index), and is a same-reference no-op when there is no active expedition, so a save with none is
+  // byte-identical to before this phase. Composed AFTER resolveCrew so crew delivered/assigned this tick
+  // is reflected in the state expeditions read from next tick (the same cadence resolveCrew itself uses).
+  return resolveExpeditions(resolveCrew(finalState));
 }
 
 // Offline catch-up entry point, tech spec §2 (Tick Loop and Time Semantics).
