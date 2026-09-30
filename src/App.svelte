@@ -36,6 +36,13 @@
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
   import { startExpedition, claimExpedition } from "./lib/game/expedition";
+  // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
+  // Exploration Ops tab (under the Expedition Console). Same posture: reads state.gambitPrograms, routes
+  // every edit to the do* handlers below (which write state.gambitPrograms + doSave). gambitPresetPrograms
+  // is the pure preset->program-pair lookup an applied preset writes.
+  import GambitEditorPanel from "./lib/GambitEditorPanel.svelte";
+  import { gambitPresetPrograms, GAMBIT_PRESETS } from "./lib/game/gambit";
+  import type { GambitRole, GambitRule } from "./lib/game/model";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -4953,6 +4960,59 @@
     state = next;
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${findings?.length ?? 0} gathered.`);
     doSave();
+  }
+
+  // ── Away-Team Gambits (Exploration 0.14.0 phase E3b) ────────────────────────
+  // The GambitEditorPanel's edits route here. These are LIVE PLAYER actions (never on the tick path), so
+  // there is no parity concern; each is a pure { next } update of the ACCOUNT-LEVEL state.gambitPrograms
+  // pair (snapshotted onto an expedition only at dispatch, so editing here never changes an in-flight run),
+  // followed by doSave. Programs are small ordered arrays; each handler rebuilds the affected role's array
+  // immutably. A no-op (out-of-range index) leaves state untouched and skips the save. A shallow clone of
+  // the program pair per edit keeps the reactive update cheap.
+  function cloneGambitRule(r: GambitRule): GambitRule {
+    return { ...r, params: r.params ? { ...r.params } : undefined };
+  }
+  function writeGambitProgram(role: GambitRole, program: GambitRule[]) {
+    state = {
+      ...state,
+      gambitPrograms: { ...state.gambitPrograms, [role]: program },
+    };
+    doSave();
+  }
+  // SET: replace one rule.
+  function doSetGambitRule(role: GambitRole, index: number, rule: GambitRule) {
+    const current = state.gambitPrograms[role];
+    if (index < 0 || index >= current.length) return;
+    const next = current.map((r, i) => (i === index ? cloneGambitRule(rule) : r));
+    writeGambitProgram(role, next);
+  }
+  // ADD: append a rule.
+  function doAddGambitRule(role: GambitRole, rule: GambitRule) {
+    writeGambitProgram(role, [...state.gambitPrograms[role], cloneGambitRule(rule)]);
+  }
+  // REMOVE: drop the rule at index.
+  function doRemoveGambitRule(role: GambitRole, index: number) {
+    const current = state.gambitPrograms[role];
+    if (index < 0 || index >= current.length) return;
+    writeGambitProgram(role, current.filter((_, i) => i !== index));
+  }
+  // MOVE: swap the rule at index with its up/down neighbor (reorder == priority).
+  function doMoveGambitRule(role: GambitRole, index: number, dir: "up" | "down") {
+    const current = state.gambitPrograms[role];
+    const target = dir === "up" ? index - 1 : index + 1;
+    if (index < 0 || index >= current.length || target < 0 || target >= current.length) return;
+    const next = current.slice();
+    [next[index], next[target]] = [next[target], next[index]];
+    writeGambitProgram(role, next);
+  }
+  // PRESET: load a preset's program PAIR into the account-level programs (overwrites both roles).
+  function doApplyGambitPreset(presetId: string) {
+    const pair = gambitPresetPrograms(presetId);
+    if (!pair) return;
+    state = { ...state, gambitPrograms: pair };
+    doSave();
+    const title = GAMBIT_PRESETS.find((p) => p.id === presetId)?.title ?? presetId;
+    pushLog(`Away-team gambits set to the ${title} preset.`);
   }
 
   // ── Personnel Rosters (Crew 0.14.0 phase 4d) ───────────────────────────────
@@ -15998,6 +16058,22 @@
           <span class="home-sec-rule"></span>
         </div>
         <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} />
+        <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
+             discoverable from dispatch (the console's dispatch view points here). Edits the ACCOUNT-LEVEL
+             gambit program pair via the do* handlers; account-level so it is reachable independently of any
+             one expedition (the pair is snapshotted at dispatch). -->
+        <div class="home-sec-hd">
+          <span class="home-sec-h">Away-Team Gambits</span>
+          <span class="home-sec-rule"></span>
+        </div>
+        <GambitEditorPanel
+          {state}
+          onSetRule={doSetGambitRule}
+          onAddRule={doAddGambitRule}
+          onRemoveRule={doRemoveGambitRule}
+          onMoveRule={doMoveGambitRule}
+          onApplyPreset={doApplyGambitPreset}
+        />
         {#if surveyMissions.length > 0}
           <div class="home-sec-hd">
             <span class="home-sec-h">Survey Missions</span>

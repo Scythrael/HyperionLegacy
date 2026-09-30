@@ -681,6 +681,30 @@ function applyAction(
 // The interpreter core (generalizable: evaluate a program, act on the first match)
 // ============================================================================
 
+// ============================================================================
+// TRANSIENT battle log (E3b, DISPLAY-ONLY -- never persisted, never on the parity deep-equal)
+// ============================================================================
+// A single round-event the E3b battle readout renders. This is a PURE OBSERVATION of what the interpreter
+// did in a round: it is populated ONLY when a caller attaches a log sink to the BattleState / resolver, and
+// recording only READS combatant/objective state around applyAction (it never draws rng and never mutates
+// combat state), so a battle with logging on is byte-identical to one with it off. The UI RE-DERIVES this
+// on demand from the stored expedition seed (deriveExpeditionActivityLog); it is NEVER written to the save,
+// so it stays out of the crown-jewel parity deep-equal by construction.
+export interface GambitLogEvent {
+  round: number; // 1-based round number
+  side: "team" | "enemy";
+  role: GroundRole; // the acting combatant's role
+  action: GambitActionId | "hold"; // "hold" == no rule matched this round
+  targetSide?: "team" | "enemy";
+  targetRole?: GroundRole;
+  hpDelta?: number; // negative = damage dealt to the target, positive = healed
+  downed?: boolean; // the action downed the target
+  missed?: boolean; // an offensive strike that missed (no hp change, target still up)
+  statusApplied?: boolean; // the action put a new status on the target (suppress/analyze/brace/shield/...)
+  statusCleared?: boolean; // a cure/useItem cleansed a debuff off the target
+  objectiveDelta?: number; // secureObjective progress this action added
+}
+
 // The mutable per-battle state the interpreter reads + writes. GENERIC over combatants, so a future
 // ship-combat gambit layer can build its own combatant set + programs and reuse evaluateAndAct.
 export interface BattleState {
@@ -690,6 +714,7 @@ export interface BattleState {
   teamKit: number; // remaining team-kit consumables (useItem draws from this)
   tauntedBy: { id: string; remaining: number } | null; // a team member currently pulling enemy aggro
   pendingCureStatusId?: GambitStatusId; // the statusId a firing cure/useItem rule targets (threaded per-eval)
+  log?: GambitLogEvent[]; // OPTIONAL transient sink; when present, fired rules append a display-only event
 }
 
 // Whether an action needs a resolvable target to fire. Targetless actions (brace/takeCover/secure/hold/
@@ -737,19 +762,64 @@ function ruleFires(
   return { fires: true, target };
 }
 
+// Apply a firing rule's action, threading the cure-status param, and (ONLY when a log sink is attached to
+// the battle state) record a transient, display-only GambitLogEvent describing what happened. The no-log
+// path is BYTE-IDENTICAL to the pre-E3b sequence (set pendingCureStatusId -> applyAction -> clear), so
+// parity is preserved by construction; the log branch merely READS combatant/objective state around
+// applyAction (it never draws rng and never changes combat state), so the same battle results either way.
+function fireRule(
+  rule: GambitRule,
+  actor: GroundCombatant,
+  target: GroundCombatant | null,
+  state: BattleState,
+  rng: Rng,
+): void {
+  if (!state.log) {
+    state.pendingCureStatusId = rule.params?.statusId;
+    applyAction(rule.action, actor, target, rng, state);
+    state.pendingCureStatusId = undefined;
+    return;
+  }
+  // --- logging path (observation only) ---
+  const hpBefore = target ? target.hp : 0;
+  const downedBefore = target ? target.downed : false;
+  const statusesBefore = target ? target.statuses.length : 0;
+  const objectiveBefore = state.objective;
+  state.pendingCureStatusId = rule.params?.statusId;
+  applyAction(rule.action, actor, target, rng, state);
+  state.pendingCureStatusId = undefined;
+  const ev: GambitLogEvent = { round: state.round + 1, side: actor.side, role: actor.role, action: rule.action };
+  if (target) {
+    ev.targetSide = target.side;
+    ev.targetRole = target.role;
+    const delta = target.hp - hpBefore;
+    if (delta !== 0) ev.hpDelta = delta;
+    if (target.downed && !downedBefore) ev.downed = true;
+    if (target.statuses.length > statusesBefore) ev.statusApplied = true;
+    if ((rule.action === "cure" || rule.action === "useItem") && target.statuses.length < statusesBefore) ev.statusCleared = true;
+    const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
+    if (offensive && delta === 0 && !target.downed) ev.missed = true;
+  }
+  if (state.objective > objectiveBefore) ev.objectiveDelta = state.objective - objectiveBefore;
+  state.log.push(ev);
+}
+
+// Record an actor holding (no rule matched) -- only when a log sink is present.
+function recordHold(state: BattleState, actor: GroundCombatant): void {
+  if (state.log) state.log.push({ round: state.round + 1, side: actor.side, role: actor.role, action: "hold" });
+}
+
 // Evaluate a program TOP-DOWN for one actor and ACT on the FIRST matching rule. Returns nothing; mutates
 // the battle state. This is the reusable interpreter core (ground + future ship combat both call it).
 export function evaluateAndAct(program: GambitProgram, actor: GroundCombatant, state: BattleState, rng: Rng): void {
   for (const rule of program) {
     const res = ruleFires(rule, actor, state);
     if (!res.fires) continue;
-    // Thread the cure target status to applyAction (only cure/useItem read it).
-    state.pendingCureStatusId = rule.params?.statusId;
-    applyAction(rule.action, actor, res.target, rng, state);
-    state.pendingCureStatusId = undefined;
+    fireRule(rule, actor, res.target, state, rng);
     return; // first match fired: done for this actor this round
   }
   // No rule matched: the actor holds this round (does nothing).
+  recordHold(state, actor);
 }
 
 // The program that drives a combatant: the snapshotted team pair for team roles, the enemy role program
@@ -791,6 +861,7 @@ export function resolveGroundBattle(
   programs: GambitPrograms,
   teamKit: number,
   rng: Rng,
+  log?: GambitLogEvent[], // OPTIONAL transient sink (E3b); undefined => byte-identical no-log behavior
 ): GroundBattleResult {
   const state: BattleState = {
     combatants: [...team, ...enemies],
@@ -798,6 +869,7 @@ export function resolveGroundBattle(
     objective: 0,
     teamKit,
     tauntedBy: null,
+    log,
   };
 
   const teamAlive = () => state.combatants.filter((c) => c.side === "team" && !c.downed);
@@ -866,11 +938,10 @@ function evaluateEnemyWithTaunt(
     if (!res.fires) continue;
     const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
     const target = offensive ? taunter : res.target;
-    state.pendingCureStatusId = rule.params?.statusId;
-    applyAction(rule.action, actor, target, rng, state);
-    state.pendingCureStatusId = undefined;
+    fireRule(rule, actor, target, state, rng);
     return;
   }
+  recordHold(state, actor);
 }
 
 // End-of-round upkeep, IN PLACE: apply DoT damage, then decrement every status' remaining (pruning at 0),
@@ -1226,6 +1297,7 @@ export function resolveExpeditionActivity(
   body: ExpeditionBody,
   activity: ExpeditionActivity,
   globalIndex: number,
+  logSink?: GambitLogEvent[], // OPTIONAL (E3b): when passed, filled with the DECIDING battle's transient log
 ): ActivityResolution {
   const snapshot: AwayTeamSnapshot = {
     securityStrength: exp.securityStrength,
@@ -1234,8 +1306,15 @@ export function resolveExpeditionActivity(
   };
   const findingId = `${exp.id}-find-act-${activity.id}`;
   const relicId = `${exp.id}-relic-${activity.id}`;
+  // Copy an attempt's transient events into the caller's sink (last write wins == the deciding battle).
+  const commitLog = (attemptLog: GambitLogEvent[] | undefined): void => {
+    if (!logSink || !attemptLog) return;
+    logSink.length = 0;
+    for (const e of attemptLog) logSink.push(e);
+  };
 
   let attempts = 0;
+  let lastAttemptLog: GambitLogEvent[] | undefined;
   for (let attempt = 0; attempt < MAX_BATTLE_ATTEMPTS; attempt++) {
     attempts = attempt + 1;
     const battleSeed =
@@ -1247,8 +1326,11 @@ export function resolveExpeditionActivity(
     const rng = makeRng(battleSeed);
     const team = buildTeamCombatants(snapshot, `${exp.id}-${activity.id}-a${attempt}`);
     const enemies = generateEncounter(battleSeed, body.hazard, activity.poiId);
-    const result = resolveGroundBattle(team, enemies, exp.gambitPrograms, exp.teamKit, rng);
+    const attemptLog = logSink ? [] : undefined;
+    const result = resolveGroundBattle(team, enemies, exp.gambitPrograms, exp.teamKit, rng, attemptLog);
+    if (attemptLog) lastAttemptLog = attemptLog;
     if (result.result === "win") {
+      commitLog(attemptLog);
       const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
       const haul = rollHaul(rewardSeed, body.planetType, body.hazard, 1);
       const relic = rollRelicToken(
@@ -1272,6 +1354,7 @@ export function resolveExpeditionActivity(
     }
   }
   // Every attempt lost: EVACUATE with a reduced haul (always win something), no relic.
+  commitLog(lastAttemptLog);
   const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
   const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION);
   return {
@@ -1287,4 +1370,31 @@ export function resolveExpeditionActivity(
     outcome: "evacuated",
     attempts,
   };
+}
+
+// ============================================================================
+// E3b: on-demand transient battle-log derivation (DISPLAY-ONLY, parity-safe)
+// ============================================================================
+
+// The transient readout the E3b battle log renders for ONE resolved activity: its outcome + attempt count +
+// the deciding battle's round-by-round events. PURE + deterministic: it RE-RUNS resolveExpeditionActivity
+// from the stored expedition seed (the exact inputs the tick used), so it reproduces the identical battle
+// WITHOUT persisting anything. The engine tick never calls this, so it lives entirely outside the save /
+// parity deep-equal. The UI calls it lazily (only when a player expands an activity's log), passing the
+// activity's stable FLAT index across bodies (== the resolver's globalIndex).
+export interface ActivityBattleLog {
+  outcome: "win" | "evacuated";
+  attempts: number;
+  events: GambitLogEvent[];
+}
+
+export function deriveExpeditionActivityLog(
+  exp: Expedition,
+  body: ExpeditionBody,
+  activity: ExpeditionActivity,
+  globalIndex: number,
+): ActivityBattleLog {
+  const events: GambitLogEvent[] = [];
+  const res = resolveExpeditionActivity(exp, body, activity, globalIndex, events);
+  return { outcome: res.outcome, attempts: res.attempts, events };
 }

@@ -31,8 +31,8 @@
   // only shows the activities the placeholder resolver completes); relics are E4.
   // ============================================================================
 
-  import type { GameState, Expedition, CaptainState } from "./game/model";
-  import { SHIP_TYPES } from "./game/model";
+  import type { GameState, Expedition, ExpeditionBody, ExpeditionActivity, ExpeditionFinding, CaptainState } from "./game/model";
+  import { SHIP_TYPES, ITEMS } from "./game/model";
   import {
     expeditionCandidates,
     expeditionScanFraction,
@@ -42,6 +42,7 @@
     expeditionAnomalyMarkerFraction,
     type ExpeditionCandidate,
   } from "./game/expedition";
+  import { deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
@@ -139,6 +140,12 @@
   $: chosenArray = chosenShip ? installedSensorArray(state, chosenShip) : null;
   $: chosenSensors = chosenShip ? Math.round(effectiveShipStats(state, chosenShip).sensors) : 0;
   $: chosenCaptain = chosenShipId ? captainOf(chosenShipId) : null;
+  // The away team the chosen ship would send: derived from its crew (deriveAwayTeam), shown at dispatch so
+  // the player sees WHO they are sending before launch. The account-level gambit programs (edited in the
+  // Away-Team Gambits panel below) drive how that team fights; a compact rule-count summary is shown here.
+  $: chosenAwayTeam = chosenShip && !chosenExpedition ? deriveAwayTeam(state, chosenShip) : null;
+  $: securityRuleCount = state.gambitPrograms.security.length;
+  $: scienceRuleCount = state.gambitPrograms.science.length;
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
@@ -188,6 +195,106 @@
   // A whole percent for a fraction.
   function pct(frac: number): number {
     return Math.round(Math.max(0, Math.min(1, frac)) * 100);
+  }
+  // A coarse readable band for an away-team strength scalar (deriveAwayTeam returns unit-ish scalars).
+  function strengthBand(v: number): string {
+    if (v <= 0) return "Minimal";
+    if (v < 8) return "Light";
+    if (v < 20) return "Standard";
+    if (v < 40) return "Strong";
+    return "Elite";
+  }
+  function itemLabel(id: string): string {
+    return ITEMS[id]?.label ?? id;
+  }
+  function rarityLabel(tier: string): string {
+    return tier.charAt(0).toUpperCase() + tier.slice(1);
+  }
+
+  // --- Battle readout (E3b) ---------------------------------------------------
+  // The activity's stored finding (materials/credits/relic/evacuated), matched by the resolver's stable
+  // finding id. Present exactly when the activity is done (the resolver flips done + appends the finding
+  // together), so `done` <=> a finding exists.
+  function findingFor(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
+    const id = `${exp.id}-find-act-${activity.id}`;
+    return exp.findings.find((f) => f.id === id) ?? null;
+  }
+  // The activity's stable FLAT index across bodies (== the resolver's globalIndex), needed to re-derive its
+  // deterministic battle log.
+  function activityGlobalIndex(exp: Expedition, activityId: string): number {
+    let seen = 0;
+    for (const body of exp.bodies) {
+      for (const act of body.activities) {
+        if (act.id === activityId) return seen;
+        seen++;
+      }
+    }
+    return -1;
+  }
+
+  // Expanded battle logs: activity id -> its re-derived (TRANSIENT, never persisted) round-event list. The
+  // log is a PURE deterministic re-derivation from the stored expedition seed (deriveExpeditionActivityLog),
+  // computed LAZILY on expand and cached here; it lives entirely in local UI state and is never written to
+  // the save, so it stays out of the parity deep-equal by construction.
+  let expandedLogs: Record<string, GambitLogEvent[]> = {};
+  function toggleLog(exp: Expedition, body: ExpeditionBody, activity: ExpeditionActivity): void {
+    if (expandedLogs[activity.id]) {
+      const next = { ...expandedLogs };
+      delete next[activity.id];
+      expandedLogs = next;
+      return;
+    }
+    const gi = activityGlobalIndex(exp, activity.id);
+    const derived = gi >= 0 ? deriveExpeditionActivityLog(exp, body, activity, gi) : null;
+    expandedLogs = { ...expandedLogs, [activity.id]: derived?.events ?? [] };
+  }
+
+  // --- Battle-log line formatting (display-only) ------------------------------
+  const ROLE_NAME: Record<string, string> = {
+    security: "Security",
+    science: "Science",
+    bruiser: "Bruiser",
+    striker: "Striker",
+    healer: "Healer",
+    caster: "Caster",
+    swarm: "Swarm",
+  };
+  const EVENT_VERB: Record<string, string> = {
+    attack: "attacks",
+    suppress: "suppresses",
+    taunt: "taunts",
+    execute: "executes",
+    brace: "braces",
+    cure: "cures",
+    aidHeal: "heals",
+    shieldAlly: "shields",
+    analyze: "analyzes",
+    secureObjective: "secures the objective",
+    takeCover: "takes cover",
+    useItem: "uses a kit on",
+    fallBack: "falls back",
+    hold: "holds",
+  };
+  function roleName(role: string): string {
+    return ROLE_NAME[role] ?? role;
+  }
+  function eventLine(ev: GambitLogEvent): string {
+    const who = `${ev.side === "enemy" ? "Enemy " : ""}${roleName(ev.role)}`;
+    if (ev.action === "hold") return `${who} holds`;
+    if (ev.action === "secureObjective") {
+      return `${who} secures the objective${ev.objectiveDelta ? ` (+${ev.objectiveDelta})` : ""}`;
+    }
+    const verb = EVENT_VERB[ev.action] ?? ev.action;
+    let line = `${who} ${verb}`;
+    if (ev.targetRole) line += ` ${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}`;
+    const tail: string[] = [];
+    if (ev.missed) tail.push("miss");
+    else if (ev.hpDelta && ev.hpDelta < 0) tail.push(`${ev.hpDelta} HP`);
+    else if (ev.hpDelta && ev.hpDelta > 0) tail.push(`+${ev.hpDelta} HP`);
+    if (ev.statusApplied) tail.push("affliction applied");
+    if (ev.statusCleared) tail.push("cleansed");
+    if (ev.downed) tail.push("DOWNED");
+    return tail.length ? `${line}: ${tail.join(", ")}` : line;
   }
 
   // --- Actions (all route to the host) ----------------------------------------
@@ -319,21 +426,67 @@
           {/each}
         </div>
 
-        <!-- ACTIVITY LIST -->
+        <!-- ACTIVITY BATTLE READOUT: each resolved away-team task shows its OUTCOME (secured vs evacuated) +
+             the finding it yielded (materials / credits / an unidentified relic), with an expandable, re-
+             derived round log so the player can see their gambits at work and tune them. -->
         {#if activitiesTotal > 0}
-          <div class="exp-section-tag">Ground-team activities · {activitiesDone}/{activitiesTotal}</div>
+          <div class="exp-section-tag">Away-team activities · {activitiesDone}/{activitiesTotal}</div>
           <div class="exp-acts">
             {#each exp.bodies as body (body.id)}
               {#each body.activities as act (act.id)}
-                <div class="exp-act" class:done={act.done}>
-                  <span class="exp-act-check" aria-hidden="true">{act.done ? "✓" : "○"}</span>
-                  <span class="exp-act-label">{poiLabel(act.poiId)}</span>
-                  <span class="exp-act-body">{planetLabel(body.planetType)}{#if isOrbital(body.planetType)} · satellite{/if}</span>
+                {@const finding = findingFor(exp, act)}
+                <div class="exp-act-card" class:done={act.done}>
+                  <div class="exp-act-head">
+                    <span class="exp-act-check" aria-hidden="true">{act.done ? "✓" : "○"}</span>
+                    <span class="exp-act-label">{poiLabel(act.poiId)}</span>
+                    <span class="exp-act-body">{planetLabel(body.planetType)}{#if isOrbital(body.planetType)} · satellite{/if}</span>
+                    {#if act.done && finding}
+                      {#if finding.evacuated}
+                        <span class="exp-chip evac">Evacuated</span>
+                      {:else}
+                        <span class="exp-chip secured">Secured</span>
+                      {/if}
+                    {:else}
+                      <span class="exp-chip range">Pending</span>
+                    {/if}
+                  </div>
+                  {#if act.done && finding}
+                    <div class="exp-act-finds">
+                      {#each Object.entries(finding.materials ?? {}) as [itemId, qty]}
+                        <span class="exp-find-chip">{itemLabel(itemId)} ×{qty}</span>
+                      {/each}
+                      {#if (finding.credits ?? 0) > 0}
+                        <span class="exp-find-chip credits">{finding.credits} credits</span>
+                      {/if}
+                      {#if finding.relic}
+                        <span class="exp-find-chip relic">Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
+                      {/if}
+                    </div>
+                    <button type="button" class="exp-log-toggle" on:click={() => toggleLog(exp, body, act)}>
+                      {expandedLogs[act.id] ? "Hide battle log" : "View battle log"}
+                    </button>
+                    {#if expandedLogs[act.id]}
+                      <div class="exp-log">
+                        {#if expandedLogs[act.id].length === 0}
+                          <div class="exp-log-line dim">No combat: the team secured the site unopposed.</div>
+                        {:else}
+                          {#each expandedLogs[act.id] as ev, li (li)}
+                            {#if li === 0 || expandedLogs[act.id][li - 1].round !== ev.round}
+                              <div class="exp-log-round">Round {ev.round}</div>
+                            {/if}
+                            <div class="exp-log-line" class:enemy={ev.side === "enemy"} class:down={ev.downed}>
+                              {eventLine(ev)}
+                            </div>
+                          {/each}
+                        {/if}
+                      </div>
+                    {/if}
+                  {/if}
                 </div>
               {/each}
             {/each}
           </div>
-          <div class="exp-note">Activities auto-resolve. Away-team gambit combat lands in a later update.</div>
+          <div class="exp-note">Battles auto-resolve using your away-team gambits. Lost tasks evacuate with a reduced haul. Tune the rules in the Away-Team Gambits panel below.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -415,18 +568,22 @@
               {/if}
             </div>
 
-            <div class="exp-section-tag">Ground teams</div>
+            <div class="exp-section-tag">Away team</div>
             <div class="exp-teams">
               <div class="exp-team">
-                <span class="exp-team-name">Science</span>
-                <span class="exp-team-role">Surveys, samples, and excavates relic leads.</span>
+                <span class="exp-team-name">Security<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.securityStrength) : "-"}</span></span>
+                <span class="exp-team-role">Fights planetary encounters. Runs the Security gambit ({securityRuleCount} rule{securityRuleCount === 1 ? "" : "s"}).</span>
               </div>
               <div class="exp-team">
-                <span class="exp-team-name">Security</span>
-                <span class="exp-team-role">Protects the team and fights planetary encounters.</span>
+                <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
+                <span class="exp-team-role">Surveys, cures, and secures. Runs the Science gambit ({scienceRuleCount} rule{scienceRuleCount === 1 ? "" : "s"}).</span>
+              </div>
+              <div class="exp-team">
+                <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>
+                <span class="exp-team-role">Per-battle cure/stim consumables carried by the away team.</span>
               </div>
             </div>
-            <div class="exp-note">Ground-team loadouts and gambit combat land in a later update.</div>
+            <div class="exp-note">Crew this ship (Security / Science / support) to field a stronger team. Set how they fight in the Away-Team Gambits panel below; the program is snapshotted at launch.</div>
 
             <div class="exp-section-tag">Anomaly chart</div>
             <label class="exp-toggle">
@@ -730,24 +887,11 @@
     flex-direction: column;
     gap: 4px;
   }
-  .exp-act {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    border-radius: var(--corner);
-    background: rgba(var(--color-accent-rgb), 0.04);
-    font-size: var(--text-xs);
-    color: var(--color-text-secondary);
-  }
-  .exp-act.done {
-    color: var(--color-text-primary);
-  }
   .exp-act-check {
     color: var(--color-text-dim);
     flex: 0 0 auto;
   }
-  .exp-act.done .exp-act-check {
+  .exp-act-card.done .exp-act-check {
     color: var(--color-success);
   }
   .exp-act-label {
@@ -761,6 +905,118 @@
   }
   .exp-note {
     font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+
+  /* AWAY-TEAM STRENGTH badge (dispatch) */
+  .exp-team-str {
+    float: right;
+    font-size: var(--text-2xs);
+    padding: 0 8px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.16);
+    color: var(--color-accent-bright);
+  }
+
+  /* ACTIVITY BATTLE READOUT cards (in-progress) */
+  .exp-act-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .exp-act-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-act-card.done .exp-act-head {
+    color: var(--color-text-primary);
+  }
+  .exp-act-finds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .exp-find-chip {
+    font-size: var(--text-2xs);
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.1);
+    color: var(--color-text-secondary);
+  }
+  .exp-find-chip.credits {
+    color: var(--color-accent-bright);
+  }
+  .exp-find-chip.relic {
+    background: var(--color-accent);
+    color: var(--color-bg-deep);
+  }
+  .exp-chip.secured {
+    background: rgba(var(--color-success-rgb, 90, 190, 120), 0.18);
+    color: var(--color-success);
+    margin-left: auto;
+  }
+  .exp-chip.evac {
+    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.18);
+    color: var(--color-warning);
+    margin-left: auto;
+  }
+  .exp-log-toggle {
+    align-self: flex-start;
+    padding: 3px 10px;
+    font-size: var(--text-2xs);
+    color: var(--color-accent-bright);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 999px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exp-log-toggle:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.45);
+  }
+  .exp-log {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 240px;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: var(--corner);
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .exp-log-round {
+    font-family: var(--font-mono);
+    font-size: calc(9px * var(--ui-scale));
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+    margin-top: 4px;
+  }
+  .exp-log-round:first-child {
+    margin-top: 0;
+  }
+  .exp-log-line {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+  }
+  .exp-log-line.enemy {
+    color: var(--color-text-dim);
+  }
+  .exp-log-line.down {
+    color: var(--color-warning);
+  }
+  .exp-log-line.dim {
     color: var(--color-text-dim);
     font-style: italic;
   }
