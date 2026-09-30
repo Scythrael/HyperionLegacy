@@ -91,6 +91,61 @@ additive-neutral discipline as crew: no expedition in flight => the tick path is
 - SETUP/CHOICE points surface in UI (array pick, activity selection, anomaly-chart opt-in); execution ticks.
 - SAVE bump. Heavy parity + determinism tests (one-big-window vs stepped must match, like the crew parity test).
 
+#### E2b — Planet types + PoI catalog (CONTENT LAYER, LOCKED 2026-09-30 from the approved Expedition Console mockup)
+The E2a engine shipped with a GENERIC body model (a scan size, a random hazard, generic landmark/underground
+discovery tokens). E2b makes discoveries REAL + TYPE-GATED, as pure data + readers in `src/lib/game/expeditionContent.ts`
+(the same DATA-only posture as `sensorArrays.ts`; imports the `ExpeditionPlanetType` union from `model.ts`,
+no cycle). NO UI (that is E2c). Names + which PoIs are eligible on which planet types are LOCKED user calls;
+all weights/biases/hazard scalars are FIRST-PASS TUNABLE.
+
+**PLANET TYPES (8)** — each gates which discoveries appear + their per-pool odds (via a `surfaceBias` /
+`undergroundBias` added to the sensor array's own bias in the discovery roll) and carries a HAZARD tier ->
+scalar (feeds the E2a scan-rate hazard penalty + later ground difficulty). A body's `planetType` is assigned
+at system generation (seeded, FIRST-PASS uniform over the 8) and stamps the body's `hazard`.
+
+| # | id | Label | Hazard tier | Notes |
+|---|----|-------|-------------|-------|
+| 1 | `terrestrial` | Terrestrial | LOW | balanced finds (ruins, outposts, mixed minerals) |
+| 2 | `ocean` | Ocean | MEDIUM | xeno-flora, biotech samples, sunken structures; surface work slower |
+| 3 | `arid` | Arid | LOW-MEDIUM | buried ruins + preserved tech; strong UNDERGROUND-PoI odds |
+| 4 | `volcanic` | Volcanic | HIGH | rare/exotic minerals, few structures |
+| 5 | `frozen` | Frozen | MEDIUM | preserved relics + crashed ships, best relic-survival odds |
+| 6 | `gasGiant` | Gas Giant | LOW (orbital) | NO LANDING: orbital scan only; SATELLITES host the ground activities |
+| 7 | `barren` | Barren | LOW | straightforward mining, few discoveries |
+| 8 | `toxic` | Toxic | VERY HIGH | exotic compounds + strange life, needs a hardened team |
+
+Hazard tier scalars (TUNABLE): low 0.1, lowMedium 0.25, medium 0.4, high 0.65, veryHigh 0.9.
+
+**POINTS OF INTEREST (9)** — two pools; the sensor array bias (`sensorArrays.ts`: Wide-Beam favors surface,
+Focused-Beam favors underground) + the planet type's own pool bias together skew which pool discovery rolls
+draw from. Each PoI declares a per-planet-type eligibility/WEIGHT map (absent => not eligible on that type);
+the weighted pick within a pool draws from the type's eligible set.
+
+- SURFACE (Wide-Beam favors): `ancientRuins` Ancient Ruins (dig-site; relic lead), `crashedShip` Crashed Ship
+  (salvage + intact tech/log), `xenoFloraBloom` Xeno-Flora Bloom (science sampling; biotech/research),
+  `mineralOutcrop` Mineral Outcrop (rare/exotic material, planet-type flavored), `derelictOutpost` Derelict
+  Outpost (supplies/data; fight risk).
+- UNDERGROUND (Focused-Beam favors): `caveNetwork` Cave Network (branching; deposits/dens — the universal
+  underground find, eligible on every type), `buriedVault` Buried Vault (sealed cache; high relic odds behind
+  a fight), `subterraneanCivilization` Subterranean Civilization (the big relic prize; needs an exploration
+  build), `geothermalChamber` Geothermal Chamber (energy/exotic-compound; volcanic-flavored).
+
+**Gas Giant orbital-only handling:** kept simple + faithful. `orbitalOnly: true` is a flag the E2c UI reads to
+flavor a gas-giant body's finds/activities as SATELLITE OPS (no surface landing). The engine still generates
+discoveries + one activity per discovery for a gas-giant body from its eligible pool, so it yields activities
+like any body.
+
+**Engine wiring (`expedition.ts`):** `ExpeditionBody` gains persisted `planetType`; `ExpeditionDiscovery` +
+`ExpeditionActivity` gain a `poiId`. The SCANNING discovery roll now draws from `poisForPlanetType(body.planetType)`,
+weighted, with per-pool odds = base + planet-type pool bias + snapshotted array pool bias, keeping the E2a
+`makeRng(seed ^ salt ^ index)` keyed determinism (the extra weighted-pick draws come from that same keyed
+stream). Determinism / closed-form parity (one-big == many-small) / additive-neutrality (no active expedition
+=> same-ref, byte-identical tick) are all preserved — the catalog is static data on no non-expedition path.
+
+**SAVE:** `SAVE_VERSION` 59 -> 60; MIGRATIONS[59] backfills `planetType: "terrestrial"` onto any in-flight
+expedition body that predates the field (v59 is branch-only, but a mid-branch v59 save could hold an
+expedition without it). A fresh / expedition-free save is unaffected.
+
 ### Phase E3 — Ground teams + away-team GAMBIT combat [interleaves with E2 activities]
 - Ground teams = 2 roles (I.4/I.7): SCIENCE (find relics) + SECURITY (protect / fight). Per-team Armor/Weapon/
   Tool gear (shared shape with the future Landing Party / Invasion). One task at a time per ship; higher-tier

@@ -37,6 +37,14 @@ import {
 } from "./expedition";
 import { tick } from "./tick";
 import { migrate, type SaveFile } from "./save";
+import {
+  PLANET_TYPES,
+  POI_CATALOG,
+  poisForPlanetType,
+  getPlanetTypeById,
+  getPoiById,
+  planetTypeHazard,
+} from "./expeditionContent";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -84,7 +92,7 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
     phaseAnchorSeconds: 0,
     shakedown: false,
     bodies: [
-      { id: "body-1", scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
+      { id: "body-1", planetType: "terrestrial", scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
     ],
     anomalyResolved: false,
     anomalyCharted: false,
@@ -121,6 +129,9 @@ describe("startExpedition — dispatch shapes a valid expedition", () => {
       expect(body.scanned).toBe(false);
       expect(body.discoveries).toEqual([]);
       expect(body.activities).toEqual([]);
+      // E2b: a valid planet type is assigned, and the body's hazard tracks that type's scalar.
+      expect(PLANET_TYPES.some((p) => p.id === body.planetType)).toBe(true);
+      expect(body.hazard).toBe(planetTypeHazard(body.planetType));
     }
     // State was advanced: the expedition is stored + the id counter bumped.
     expect(res.next.expeditions).toHaveLength(1);
@@ -196,6 +207,18 @@ describe("phase advancement — deterministic transit -> scanning -> activities 
       expect(body.discoveries.length).toBeGreaterThan(0);
       expect(body.activities.length).toBe(body.discoveries.length);
       expect(body.activities.every((a) => a.done)).toBe(true);
+      // E2b: every discovery names a real PoI from the body's planet-type pool, and its activity carries
+      // the same PoI id (the kind matches the PoI's pool).
+      const pools = poisForPlanetType(body.planetType);
+      const eligible = new Map<string, (typeof pools.surface)[number]["poi"]>(
+        [...pools.surface, ...pools.underground].map((w) => [w.poi.id as string, w.poi]),
+      );
+      body.discoveries.forEach((d, k) => {
+        const poi = eligible.get(d.poiId);
+        expect(poi).toBeDefined();
+        expect(d.kind).toBe(poi!.pool === "surface" ? "landmark" : "underground");
+        expect(body.activities[k].poiId).toBe(d.poiId);
+      });
     }
     // Findings = one per completed activity + (charted ? 1 : 0) for the anomaly.
     const activityFindings = done.findings.filter((f) => f.source === "activity").length;
@@ -271,7 +294,7 @@ describe("anomaly roll — seeded + deterministic, fires exactly once at the mid
 // ============================================================================
 describe("scanning — consumes the sensor array effect (better array / higher sensors scans faster)", () => {
   const bodies = () => [
-    { id: "body-1", scanTotal: 200, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
+    { id: "body-1", planetType: "terrestrial" as const, scanTotal: 200, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
   ];
   const T = 200; // seconds into the scanning phase to sample
 
@@ -301,8 +324,8 @@ describe("scanning — consumes the sensor array effect (better array / higher s
   });
 
   it("a more hazardous body scans slower", () => {
-    const calm = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", scanTotal: 200, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] }] });
-    const dangerous = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", scanTotal: 200, scanProgress: 0, hazard: 0.8, scanned: false, discoveries: [], activities: [] }] });
+    const calm = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", planetType: "terrestrial", scanTotal: 200, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] }] });
+    const dangerous = makeExpedition({ phase: "scanning", bodies: [{ id: "body-1", planetType: "terrestrial", scanTotal: 200, scanProgress: 0, hazard: 0.8, scanned: false, discoveries: [], activities: [] }] });
     expect(advanceExpedition(dangerous, T).bodies[0].scanProgress).toBeLessThan(advanceExpedition(calm, T).bodies[0].scanProgress);
   });
 });
@@ -376,5 +399,207 @@ describe("SAVE migration v58 -> v59 seeds the expedition fields", () => {
     expect(migrated.expeditions).toEqual([]);
     expect(migrated.nextExpeditionId).toBe(1);
     expect(migrated.expeditionSeed).toBe(EXPEDITION_DEFAULT_SEED);
+  });
+});
+
+// ============================================================================
+// E2b: the CONTENT LAYER -- planet types + PoI catalog gate + skew discoveries.
+// ============================================================================
+
+// Advance a hand-built single-body expedition (fixed planet type + scan params) to complete over many
+// seeds, tallying how many surface vs underground discoveries it yielded. Isolates the discovery roll.
+function tallyPoolsOverSeeds(
+  planetType: GameState["expeditions"][number]["bodies"][number]["planetType"],
+  scanParams: Expedition["scanParams"],
+  seeds: number,
+): { surface: number; underground: number } {
+  let surface = 0;
+  let underground = 0;
+  for (let n = 0; n < seeds; n++) {
+    const exp = makeExpedition({
+      phase: "scanning",
+      scanParams,
+      seed: (0x51ed270b + Math.imul(n + 1, 0x9e3779b9)) >>> 0,
+      bodies: [
+        { id: "body-1", planetType, scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] },
+      ],
+    });
+    const done = advanceExpedition(exp, 10_000_000);
+    for (const d of done.bodies[0].discoveries) {
+      if (d.kind === "landmark") surface++;
+      else underground++;
+    }
+  }
+  return { surface, underground };
+}
+
+describe("E2b content catalog — planet types + PoI catalog are well-formed", () => {
+  it("has the 8 locked planet types with resolved hazard scalars and a single orbital-only type", () => {
+    expect(PLANET_TYPES).toHaveLength(8);
+    const ids = PLANET_TYPES.map((p) => p.id).sort();
+    expect(ids).toEqual(["arid", "barren", "frozen", "gasGiant", "ocean", "terrestrial", "toxic", "volcanic"]);
+    // Exactly Gas Giant is orbital-only.
+    expect(PLANET_TYPES.filter((p) => p.orbitalOnly).map((p) => p.id)).toEqual(["gasGiant"]);
+    // Each type's hazard scalar matches its tier reader, and Toxic is the most hazardous, Terrestrial low.
+    for (const p of PLANET_TYPES) expect(p.hazard).toBe(planetTypeHazard(p.id));
+    expect(getPlanetTypeById("toxic")!.hazard).toBeGreaterThan(getPlanetTypeById("terrestrial")!.hazard);
+  });
+
+  it("has the 9 locked PoIs split 5 surface / 4 underground, and every type has both pools populated", () => {
+    expect(POI_CATALOG).toHaveLength(9);
+    expect(POI_CATALOG.filter((p) => p.pool === "surface")).toHaveLength(5);
+    expect(POI_CATALOG.filter((p) => p.pool === "underground")).toHaveLength(4);
+    for (const pt of PLANET_TYPES) {
+      const pools = poisForPlanetType(pt.id);
+      expect(pools.surface.length).toBeGreaterThan(0);
+      expect(pools.underground.length).toBeGreaterThan(0);
+      // Every weighted candidate resolves to a real PoI in the matching pool with a positive weight.
+      for (const w of pools.surface) {
+        expect(getPoiById(w.poi.id)!.pool).toBe("surface");
+        expect(w.weight).toBeGreaterThan(0);
+      }
+      for (const w of pools.underground) expect(getPoiById(w.poi.id)!.pool).toBe("underground");
+    }
+  });
+});
+
+describe("E2b discovery roll — drawn from the planet-type pool, skewed by array bias", () => {
+  const SEEDS = 300;
+  const wide = { scanRateMult: 0.8, coverageWidth: 1.5, landmarkOddsBias: 0.15, undergroundPoiOddsBias: 0 };
+  const focused = { scanRateMult: 1.3, coverageWidth: 0.6, landmarkOddsBias: 0, undergroundPoiOddsBias: 0.2 };
+
+  it("every discovery is a PoI eligible for the body's planet type (all 8 types)", () => {
+    const neutral = { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 };
+    for (const pt of PLANET_TYPES) {
+      const eligible = new Set<string>([...poisForPlanetType(pt.id).surface, ...poisForPlanetType(pt.id).underground].map((w) => w.poi.id));
+      for (let n = 0; n < 60; n++) {
+        const exp = makeExpedition({
+          phase: "scanning",
+          scanParams: neutral,
+          seed: (0x1234abcd + Math.imul(n + 1, 0x85ebca6b)) >>> 0,
+          bodies: [{ id: "body-1", planetType: pt.id, scanTotal: 100, scanProgress: 0, hazard: 0, scanned: false, discoveries: [], activities: [] }],
+        });
+        const done = advanceExpedition(exp, 10_000_000);
+        for (const d of done.bodies[0].discoveries) expect(eligible.has(d.poiId)).toBe(true);
+      }
+    }
+  });
+
+  it("Wide-Beam yields relatively more surface finds; Focused-Beam relatively more underground (same type)", () => {
+    // Fix the planet type (terrestrial, balanced biases) so the sensor ARRAY is the only differentiator.
+    const w = tallyPoolsOverSeeds("terrestrial", wide, SEEDS);
+    const f = tallyPoolsOverSeeds("terrestrial", focused, SEEDS);
+    // Wide's surface share exceeds Focused's; Focused's underground share exceeds Wide's.
+    const wideSurfaceShare = w.surface / (w.surface + w.underground);
+    const focusedSurfaceShare = f.surface / (f.surface + f.underground);
+    expect(wideSurfaceShare).toBeGreaterThan(focusedSurfaceShare);
+    expect(f.underground).toBeGreaterThan(w.underground);
+    expect(w.surface).toBeGreaterThan(f.surface);
+  });
+
+  it("planet type skews the mix too: Arid yields more underground than Terrestrial under the same array", () => {
+    const neutral = { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 };
+    const arid = tallyPoolsOverSeeds("arid", neutral, SEEDS);
+    const terr = tallyPoolsOverSeeds("terrestrial", neutral, SEEDS);
+    const aridUnderShare = arid.underground / (arid.surface + arid.underground);
+    const terrUnderShare = terr.underground / (terr.surface + terr.underground);
+    expect(aridUnderShare).toBeGreaterThan(terrUnderShare);
+  });
+});
+
+describe("E2b Gas Giant — orbital-only, yet still yields activities (satellite ops)", () => {
+  it("gasGiant is the orbital-only type and still generates a full activity list at 100% scan", () => {
+    expect(getPlanetTypeById("gasGiant")!.orbitalOnly).toBe(true);
+    let anyActivities = false;
+    for (let n = 0; n < 40; n++) {
+      const exp = makeExpedition({
+        phase: "scanning",
+        seed: (0x0a11ce ^ Math.imul(n + 1, 0x9e3779b9)) >>> 0,
+        bodies: [{ id: "body-1", planetType: "gasGiant", scanTotal: 100, scanProgress: 0, hazard: 0.1, scanned: false, discoveries: [], activities: [] }],
+      });
+      const done = advanceExpedition(exp, 10_000_000);
+      const body = done.bodies[0];
+      expect(body.scanned).toBe(true);
+      expect(body.discoveries.length).toBeGreaterThan(0); // still yields finds (flavored satellite ops)
+      expect(body.activities.length).toBe(body.discoveries.length);
+      expect(body.activities.every((a) => a.done)).toBe(true);
+      // Every gas-giant find is from the gas-giant eligible pool.
+      const eligible = new Set<string>([...poisForPlanetType("gasGiant").surface, ...poisForPlanetType("gasGiant").underground].map((w) => w.poi.id));
+      for (const d of body.discoveries) expect(eligible.has(d.poiId)).toBe(true);
+      if (body.activities.length > 0) anyActivities = true;
+    }
+    expect(anyActivities).toBe(true);
+  });
+});
+
+describe("E2b PARITY — a TYPED multi-body system is byte-identical big-jump vs stepped", () => {
+  // A hand-built system spanning several planet types (incl. the orbital-only Gas Giant + high-hazard
+  // types), advanced from transit. The closed-form invariant (E2a) must still hold with the E2b content:
+  // one big advance == many small stepped advances, byte-for-byte.
+  const make = () =>
+    makeExpedition({
+      phase: "transit",
+      shakedown: true,
+      seed: makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, 7),
+      bodies: [
+        { id: "body-1", planetType: "toxic", scanTotal: 120, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] },
+        { id: "body-2", planetType: "volcanic", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("volcanic"), scanned: false, discoveries: [], activities: [] },
+        { id: "body-3", planetType: "gasGiant", scanTotal: 150, scanProgress: 0, hazard: planetTypeHazard("gasGiant"), scanned: false, discoveries: [], activities: [] },
+      ],
+    });
+
+  it("one 200k-second jump equals 100-second stepping", () => {
+    const big = advanceExpedition(make(), 200_000);
+    let stepped = make();
+    for (let t = 100; t <= 200_000; t += 100) stepped = advanceExpedition(stepped, t);
+    expect(stepped).toEqual(big);
+    expect(big.phase).toBe("complete");
+    // Non-trivial: every typed body scanned + yielded discoveries + activities.
+    for (const body of big.bodies) {
+      expect(body.scanned).toBe(true);
+      expect(body.discoveries.length).toBeGreaterThan(0);
+      expect(body.activities.every((a) => a.done)).toBe(true);
+    }
+  });
+});
+
+// ============================================================================
+describe("SAVE migration v59 -> v60 backfills a body planetType", () => {
+  it("backfills terrestrial onto an in-flight expedition body that predates planetType", () => {
+    // A v59-shaped save holding an in-flight expedition whose body lacks the new planetType field.
+    const s: any = freshState();
+    const body: any = { id: "body-1", scanTotal: 100, scanProgress: 40, hazard: 0.4, scanned: false, discoveries: [], activities: [] };
+    delete body.planetType; // simulate the pre-E2b shape
+    s.expeditions = [
+      {
+        id: "expedition-1",
+        shipId: "ship-1",
+        captainId: 1,
+        targetSystemId: "keplersReach",
+        systemName: "Kepler's Reach",
+        sensorArrayId: null,
+        scanParams: { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 },
+        sensorPower: 0,
+        phase: "scanning",
+        phaseAnchorSeconds: 0,
+        shakedown: true,
+        bodies: [body],
+        anomalyResolved: true,
+        anomalyCharted: false,
+        findings: [],
+        seed: 12345,
+      },
+    ];
+    s.nextExpeditionId = 2;
+    const save: SaveFile = { version: 59, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as any;
+    const migrated: any = migrate(save);
+    expect(migrated.expeditions[0].bodies[0].planetType).toBe("terrestrial");
+  });
+
+  it("is a no-op for a save with no active expeditions", () => {
+    const s: any = freshState();
+    const save: SaveFile = { version: 59, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as any;
+    const migrated: any = migrate(save);
+    expect(migrated.expeditions).toEqual([]);
   });
 });

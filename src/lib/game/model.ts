@@ -5238,32 +5238,56 @@ export interface PersonnelRoster {
 // COMPLETE (findings claimable). MISSION-like transit/do/return, but system-scoped + multi-body.
 export type ExpeditionPhase = "transit" | "scanning" | "activities" | "return" | "complete";
 
-// A generic discovery token deposited when a body finishes scanning. E2a keeps it GENERIC (a kind +
-// an id); E2b replaces `kind` with a real planet-type-gated landmark/PoI catalog. The two kinds mirror
-// the sensor array's two discovery-odds biases (surface landmark vs underground PoI, sensorArrays.ts).
+// The 8 PLANET TYPES a body can be (Exploration 0.14.0, Phase E2b; LOCKED from the approved Expedition
+// Console mockup 2026-09-30). The type gates which discoveries appear + their odds and carries a hazard
+// scalar (expeditionContent.ts PLANET_TYPES). Persisted on ExpeditionBody, so it is a plain string union
+// here (the catalog DATA + weights live in expeditionContent.ts, which imports this type; model.ts does
+// NOT import expeditionContent.ts, so there is no import cycle -- the same one-way arrow sensorArrays.ts
+// has with model.ts). "gasGiant" is orbital-only (no surface landing; its finds are satellite ops).
+export type ExpeditionPlanetType =
+  | "terrestrial"
+  | "ocean"
+  | "arid"
+  | "volcanic"
+  | "frozen"
+  | "gasGiant"
+  | "barren"
+  | "toxic";
+
+// A discovery deposited when a body finishes scanning. E2a kept it GENERIC (a kind + an id); E2b makes
+// it REAL + type-gated: `poiId` names a concrete Point of Interest from the POI_CATALOG
+// (expeditionContent.ts), drawn from the body's planetType eligible pool. `kind` stays as the cheap
+// pool tag (surface landmark vs underground PoI, mirroring the sensor array's two discovery-odds
+// biases); the pool is also derivable from the PoI's `pool`, so `kind` is a denormalized convenience.
 export interface ExpeditionDiscovery {
   id: string; // stable, "<expeditionId>-<bodyId>-disc-<n>"
   kind: "landmark" | "underground";
+  poiId: string; // the POI_CATALOG id this discovery resolved to (expeditionContent.ts)
 }
 
 // A ground-team task generated at a body's 100% scan. E2a resolves it through a PLACEHOLDER resolver
 // (expedition.ts) that just flips `done` + grants one placeholder finding; E3 swaps in the real gambit
-// away-team combat WITHOUT reshaping this record (it keeps `done` as the completion flag).
+// away-team combat WITHOUT reshaping this record (it keeps `done` as the completion flag). E2b names the
+// task by the PoI it came from (`poiId`); the E2c UI flavors it by that PoI + the body's planetType
+// (e.g. a gasGiant task reads as "satellite ops").
 export interface ExpeditionActivity {
   id: string; // stable, "<expeditionId>-<bodyId>-act-<n>"
   bodyId: string;
+  poiId: string; // the PoI this task came from (expeditionContent.ts POI_CATALOG id)
   done: boolean; // set by the resolver when the task completes
 }
 
-// One body (planet / satellite / other) in the target system. GENERIC in E2a: a scan SIZE (scanTotal),
-// a scan cursor (scanProgress), a HAZARD scalar (slows scanning + a placeholder combat lever for E3),
-// and the discovered tokens + generated activities. `scanned` is the internal once-only latch that a
-// body's discoveries + activities are assigned exactly once when it first reaches 100%.
+// One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
+// discoveries appear + their odds and drives its `hazard` scalar (which slows scanning + is a placeholder
+// combat lever for E3). Plus a scan SIZE (scanTotal), a scan cursor (scanProgress), and the discovered
+// PoIs + generated activities. `scanned` is the internal once-only latch that a body's discoveries +
+// activities are assigned exactly once when it first reaches 100%.
 export interface ExpeditionBody {
   id: string;
+  planetType: ExpeditionPlanetType; // E2b: gates discoveries + odds; drives `hazard`. Assigned at generation.
   scanTotal: number; // total scan work to reach 100% ("size"); bigger = longer to scan
   scanProgress: number; // 0..scanTotal
-  hazard: number; // 0..1 hazard scalar; higher = slower scan (and, later, harder ground combat)
+  hazard: number; // 0..1 hazard scalar (from planetType); higher = slower scan (and, later, harder ground combat)
   scanned: boolean; // latch: true once this body hit 100% and had its discoveries + activities assigned
   discoveries: ExpeditionDiscovery[];
   activities: ExpeditionActivity[];

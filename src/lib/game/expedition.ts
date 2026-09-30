@@ -53,9 +53,16 @@ import type {
   ExpeditionFinding,
   ExpeditionScanParams,
 } from "./model";
-import { makeRng } from "./combat/rng";
+import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect } from "./sensorArrays";
 import { effectiveShipStats } from "./crewOverlay";
+import {
+  PLANET_TYPES,
+  poisForPlanetType,
+  planetTypeHazard,
+  type WeightedPoi,
+} from "./expeditionContent";
+import type { ExpeditionPlanetType } from "./model";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -86,12 +93,13 @@ export const SCAN_BASE_RATE = 0.05; // base scan units per second (a bare, un-se
 export const SCAN_SENSOR_COEFF = 0.02; // each point of the ship's sensors adds +2% scan speed (mirrors SURVEY_SENSOR_YIELD_COEFF)
 export const SCAN_HAZARD_PENALTY = 0.5; // a hazard-1.0 body scans at 1/(1+0.5) == ~67% speed
 
-// Per-body generation ranges (generic sizes + hazards).
+// Per-body generation ranges (sizes). A body's HAZARD is no longer a free roll: E2b derives it from the
+// body's assigned PLANET TYPE (planetTypeHazard, expeditionContent.ts), so a body's danger tracks its
+// type (Volcanic HIGH, Toxic VERY HIGH, Terrestrial LOW) instead of an independent random scalar.
 export const BODY_COUNT_MIN = 1;
 export const BODY_COUNT_MAX = 3;
 export const BODY_SCAN_MIN = 80; // smallest body's scanTotal (~27 min at base rate 0.05)
 export const BODY_SCAN_MAX = 200; // largest body's scanTotal
-export const HAZARD_MAX_PERMILLE = 800; // hazard rolls in [0, 0.8]
 
 // DISCOVERY: seeded generic tokens deposited when a body finishes scanning. Attempts per body, and the
 // per-attempt base odds (the sensor array's discovery-odds biases add on top). A body ALWAYS yields at
@@ -190,11 +198,18 @@ function generateSystem(seed: number): { systemId: string; systemName: string; b
   const bodyCount = rng.nextRange(BODY_COUNT_MIN, BODY_COUNT_MAX);
   const bodies: ExpeditionBody[] = [];
   for (let i = 0; i < bodyCount; i++) {
+    // E2b: pick the body's PLANET TYPE from the seeded generation stream (FIRST-PASS uniform over the 8
+    // types; a weighted rarity distribution is a tuning knob). The type gates the body's discoveries +
+    // odds (assignDiscoveriesAndActivities) and stamps its `hazard` (planetTypeHazard). The pick draws
+    // from the SAME generation stream as the size/count, kept SEPARATE from each body's discovery stream
+    // (assignDiscoveriesAndActivities), so generation order never perturbs discovery outcomes.
+    const planetType: ExpeditionPlanetType = PLANET_TYPES[rng.nextInt(PLANET_TYPES.length)].id;
     bodies.push({
       id: `body-${i + 1}`,
+      planetType,
       scanTotal: rng.nextRange(BODY_SCAN_MIN, BODY_SCAN_MAX),
       scanProgress: 0,
-      hazard: rng.nextInt(HAZARD_MAX_PERMILLE + 1) / 1000,
+      hazard: planetTypeHazard(planetType),
       scanned: false,
       discoveries: [],
       activities: [],
@@ -316,27 +331,64 @@ function phaseDurationSeconds(exp: Expedition): number {
   }
 }
 
-// Assign a body's generic discoveries + one activity per discovery, ONCE, when it first hits 100%.
-// Seeded off (expedition seed, DISCOVERY_SALT, body index) so it is chunking-independent + reproducible.
-// A body ALWAYS yields at least one discovery (design I.2: 100% scan yields an activity list).
+// Pick one PoI from a weighted candidate list via a single integer draw over the total weight. Pure
+// function of the rng's next draw, so it stays chunking-independent + reproducible. The list is never
+// empty at the call sites (POIS_BY_PLANET_TYPE asserts each pool non-empty per type; the caller also
+// length-guards), so the trailing return is a defensive floor, never reached.
+function pickWeightedPoi(rng: Rng, candidates: WeightedPoi[]): WeightedPoi {
+  let total = 0;
+  for (const c of candidates) total += c.weight;
+  let roll = rng.nextInt(total); // [0, total)
+  for (const c of candidates) {
+    roll -= c.weight;
+    if (roll < 0) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+// Assign a body's discoveries + one activity per discovery, ONCE, when it first hits 100%. E2b makes the
+// discoveries REAL + TYPE-GATED: they are drawn from the body's PLANET TYPE eligible PoI pools
+// (poisForPlanetType, expeditionContent.ts), and skewed by the SNAPSHOTTED sensor array bias (surface vs
+// underground). Each per-attempt pool roll extends the E2a formula by adding the PLANET TYPE's own
+// per-pool bias to the array's bias on top of the base odds, so Wide-Beam (surface bias) yields more
+// surface finds, Focused-Beam (underground bias) yields more underground finds, AND the planet type
+// shapes the mix (Arid skews underground, Barren yields fewer, etc.). Seeded off (expedition seed,
+// DISCOVERY_SALT, body index), so it is chunking-independent + reproducible (unchanged from E2a; the
+// extra weighted-pick draws come from this same keyed stream, never a live stream position). A body
+// ALWAYS yields at least one discovery (design I.2: 100% scan yields an activity list).
 function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, bodyIndex: number): void {
   const rng = makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
+  // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
+  // union type makes unreachable, kept so an unexpected id still yields a valid pool.
+  const planet = PLANET_TYPES.find((p) => p.id === body.planetType) ?? PLANET_TYPES[0];
+  const pools = poisForPlanetType(planet.id);
   const attempts = DISCOVERY_ATTEMPTS_BASE + rng.nextInt(DISCOVERY_ATTEMPTS_SPREAD + 1);
-  const landmarkPermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + exp.scanParams.landmarkOddsBias);
-  const undergroundPermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + exp.scanParams.undergroundPoiOddsBias);
+  // Per-pool per-attempt odds: base + the PLANET TYPE's pool bias + the sensor ARRAY's pool bias.
+  const surfacePermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + planet.surfaceBias + exp.scanParams.landmarkOddsBias);
+  const undergroundPermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + planet.undergroundBias + exp.scanParams.undergroundPoiOddsBias);
   const discoveries: ExpeditionDiscovery[] = [];
   for (let a = 0; a < attempts; a++) {
-    if (rng.chance(landmarkPermille, 1000))
-      discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark" });
-    if (rng.chance(undergroundPermille, 1000))
-      discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "underground" });
+    if (pools.surface.length > 0 && rng.chance(surfacePermille, 1000)) {
+      const poi = pickWeightedPoi(rng, pools.surface).poi;
+      discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: poi.id });
+    }
+    if (pools.underground.length > 0 && rng.chance(undergroundPermille, 1000)) {
+      const poi = pickWeightedPoi(rng, pools.underground).poi;
+      discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "underground", poiId: poi.id });
+    }
   }
-  if (discoveries.length === 0)
-    discoveries.push({ id: `${exp.id}-${body.id}-disc-0`, kind: "landmark" });
+  if (discoveries.length === 0) {
+    // Guarantee at least one discovery: prefer a surface find, else fall to underground (every planet
+    // type has at least one eligible PoI in each pool, so a candidate always exists).
+    const useSurface = pools.surface.length > 0;
+    const poi = pickWeightedPoi(rng, useSurface ? pools.surface : pools.underground).poi;
+    discoveries.push({ id: `${exp.id}-${body.id}-disc-0`, kind: useSurface ? "landmark" : "underground", poiId: poi.id });
+  }
   body.discoveries = discoveries;
-  body.activities = discoveries.map((_, k) => ({
+  body.activities = discoveries.map((d, k) => ({
     id: `${exp.id}-${body.id}-act-${k}`,
     bodyId: body.id,
+    poiId: d.poiId,
     done: false,
   }));
 }

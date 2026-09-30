@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 59;
+export const SAVE_VERSION = 60;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2252,6 +2252,27 @@ const MIGRATIONS: Record<number, Migration> = {
     expeditions: state.expeditions ?? [],
     nextExpeditionId: state.nextExpeditionId ?? 1,
     expeditionSeed: state.expeditionSeed ?? EXPEDITION_DEFAULT_SEED,
+  }),
+  // v59 -> v60 (0.14.0 Exploration, Phase E2b): the CONTENT LAYER adds a persisted `planetType` to every
+  // ExpeditionBody (it gates the body's discoveries + odds and drives its hazard). v59 is a BRANCH-ONLY
+  // version, but a mid-branch v59 save could already hold an IN-FLIGHT expedition whose bodies predate the
+  // field, so backfill a sensible default ("terrestrial", the balanced/LOW-hazard type) onto any body that
+  // lacks one. Idempotent: `??` only fills an absent field, so a body that already carries a planetType
+  // keeps it. A fresh save has no in-flight expeditions (expeditions []), so this is a no-op for it; a
+  // migrated save with no active expedition is likewise untouched. Only PLAIN string values are added, no
+  // Decimals, so hydrateDecimals is unchanged. (The new PoI-id fields on discoveries/activities need no
+  // backfill: a v59 body has no discoveries/activities generated for an unfinished scan, and a scanned
+  // body's discoveries were assigned by the E2a generator which is being replaced in the SAME branch, so
+  // no released save can hold the old generic shape.)
+  59: (state: any): any => ({
+    ...state,
+    expeditions: (state.expeditions ?? []).map((exp: any) => ({
+      ...exp,
+      bodies: (exp.bodies ?? []).map((b: any) => ({
+        ...b,
+        planetType: b.planetType ?? "terrestrial",
+      })),
+    })),
   }),
 };
 
