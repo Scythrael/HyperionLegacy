@@ -204,6 +204,25 @@ build the interpreter GENERALIZABLE, not hard-wired to ground combat.
   some resource sourcing (deuterium/rare) as exploration rewards (the surviving piece of the old auto-mining).
 - SAVE bump (relic inventory + museum state). Gate.
 
+#### E4 DECISIONS (user + source recon, 2026-10-01)
+- ⚠️ **FOUNDATION GAP (fix first):** `claimExpedition` currently deposits NOTHING. It removes the expedition
+  and returns the findings; `doClaimExpedition` only logs a count, so every material/credit/relic an
+  expedition earns is discarded on Claim (the deposit was deliberately deferred to E4; 0.14.0 unreleased, so
+  no player impact). E4 starts by making Claim DEPOSIT: materials via `addToInventory` (the discovery seam,
+  NOT raw addItemQuality, per the 0.13.8 invisible-exotic hotfix), credits, and relics into a relic store.
+- **RELICS + ARTIFACTS ARE COMBINED (user, 2026-10-01).** The 2026-07-29 SUGGESTIONS notes defined TWO
+  distinct collectibles (UNKNOWN RELICS from long-range exploration = research-to-unlock, not accumulation;
+  ARTIFACTS from archaeological surveys = per-copy stacking passive + nested K-piece "Relic Bonus" sets
+  leveling on a doubling copy ladder with the least-collected BOTTLENECK rule). For 0.14.0 the user confirmed
+  these are ONE combined system (the plan's merged wording above was intentional). Working interpretation =
+  the UNION, nothing dropped: expedition relics arrive UNIDENTIFIED -> Research studies one to reveal WHICH
+  relic it is -> a FIRST-FIND of a relic type is the unknown-relic DISCOVERY UNLOCK (e.g. a discovery-gated
+  research project / powerful bonus) -> every copy goes to the MUSEUM for the artifact layers (per-copy
+  passive + K-piece set tiers leveling on the doubling ladder, bottlenecked by the least-collected relic).
+  Relic SETS + roster + bonuses + unlocks are NEW ENTITIES: proposed via mockup for user approval, not
+  invented. Leveling curve first-pass from the user's own example (10/20/40/80/160 copies, +0.005/level
+  additive), still the open "PIN AT DESIGN TIME" from the notes, so TUNABLE.
+
 ### Phase E5 — Refugees -> facility crews + evacuation [ties E1 transport + crew]
 - The evacuation -> refugees -> facility-crews loop (C.3): a transport/supply mission variant (E1) carries
   refugees; delivering them staffs facility crews. Ties the exploration transport loop back into the crew +
