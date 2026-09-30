@@ -5334,6 +5334,12 @@ export interface Expedition {
   bodies: ExpeditionBody[];
   anomalyResolved: boolean; // the mid-transit anomaly-chart roll has fired
   anomalyCharted: boolean; // the roll succeeded (adds transit time + one placeholder finding)
+  // E2c anomaly OPT-IN: the player's dispatch-time choice to CHART an anomaly if one is detected mid-
+  // transit. The E2a roll fired unconditionally; E2c gates it on this stored flag (maybeResolveAnomaly
+  // only rolls when true). Persisted because the roll fires at the transit MIDPOINT, long after dispatch,
+  // so an offline catch-up must read the player's choice off the stored expedition. Kept deterministic:
+  // the flag is a fixed input, not a live value, so one-big == many-small parity is preserved.
+  anomalyOptIn: boolean;
   findings: ExpeditionFinding[];
   seed: number; // per-expedition PRNG seed (reload-deterministic, like inspectSeed)
 }

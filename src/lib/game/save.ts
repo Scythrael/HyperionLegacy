@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 60;
+export const SAVE_VERSION = 61;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2272,6 +2272,21 @@ const MIGRATIONS: Record<number, Migration> = {
         ...b,
         planetType: b.planetType ?? "terrestrial",
       })),
+    })),
+  }),
+  // v60 -> v61 (0.14.0 Exploration, Phase E2c): the Expedition Console adds a persisted `anomalyOptIn`
+  // to every Expedition. The E2a/E2b engine rolled the mid-transit anomaly UNCONDITIONALLY; E2c gates
+  // that roll on the player's dispatch-time opt-in choice. Backfill `true` onto any in-flight expedition
+  // that predates the field so its behavior is IDENTICAL to before (always attempts the chart) -- this
+  // preserves offline==live parity for a mid-branch save carrying an active expedition. v60 is a
+  // BRANCH-ONLY version, but a mid-branch v60 save could hold an in-flight expedition, so the backfill is
+  // real, not defensive. Only a PLAIN boolean is added (no Decimals), so hydrateDecimals is unchanged. A
+  // fresh / expedition-free save has an empty expeditions array, so this is a no-op for it.
+  60: (state: any): any => ({
+    ...state,
+    expeditions: (state.expeditions ?? []).map((exp: any) => ({
+      ...exp,
+      anomalyOptIn: exp.anomalyOptIn ?? true,
     })),
   }),
 };

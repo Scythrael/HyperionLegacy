@@ -1,0 +1,952 @@
+<script lang="ts">
+  // ============================================================================
+  // ExpeditionPanel.svelte
+  // Author: Claude (Opus 4.8) | Exploration 0.14.0 phase E2c (Expedition Console)
+  //
+  // The player-facing EXPEDITION CONSOLE, rendered as the headline "Expeditions"
+  // section of the Exploration Ops tab (above Survey Missions / Supply & Transport
+  // Runs). It realizes the approved "Expedition Console" mockup (2026-09-30): pick a
+  // ship, read a sensor-gated FOREKNOWLEDGE preview of candidate frontier systems,
+  // dispatch, then track the Transit -> Scanning -> Activities -> Return run.
+  //
+  // POSTURE (mirrors SeniorStaffPanel / ComplementPanel / ShipSystemsPanel exactly):
+  //   - PURE PRESENTATION + INTERACTION. It READS live state through the already-tested
+  //     expedition.ts engine (expeditionCandidates / the phase-progress readers) + the
+  //     sensor + content catalogs. It NEVER reimplements game logic and NEVER mutates
+  //     state: Launch + Claim bubble UP to the host (App.svelte) via callbacks, which
+  //     run the pure engine fns + doSave + pushLog in one place. When the host reassigns
+  //     `state`, every derived value below recomputes.
+  //   - RESPONSIVE the ShipSystemsPanel / SeniorStaffPanel way: ONE shared DOM tree, split
+  //     by CSS only. The outer wrap is a container-query context (container-type:
+  //     inline-size); a NARROW container (<= 768px) stacks the dispatch layout in one
+  //     column, a WIDE container (>= 769px) lays the candidate list + the setup rail side
+  //     by side. There is NO isMobile JS branch and no separate mobile/desktop markup. It
+  //     works at 375px.
+  //
+  // SCOPE (E2c): the dispatch console (ship picker, sensor-gated candidate targets, the
+  // installed scanning-array readout, a DISPLAY-ONLY Science + Security ground-team strip,
+  // the anomaly-chart opt-in, Launch) + the in-progress view (phase stepper, transit bar
+  // with the charted-anomaly marker, per-body scan cards, the activity list, a findings
+  // tally, Claim). The away-team GAMBIT combat that resolves activities is E3 (this panel
+  // only shows the activities the placeholder resolver completes); relics are E4.
+  // ============================================================================
+
+  import type { GameState, Expedition, CaptainState } from "./game/model";
+  import { SHIP_TYPES } from "./game/model";
+  import {
+    expeditionCandidates,
+    expeditionScanFraction,
+    expeditionActivitiesDone,
+    expeditionActivitiesTotal,
+    expeditionPhaseFraction,
+    expeditionAnomalyMarkerFraction,
+    type ExpeditionCandidate,
+  } from "./game/expedition";
+  import { installedSensorArray } from "./game/sensorArrays";
+  import { effectiveShipStats } from "./game/crewOverlay";
+  import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
+  import type { HazardTier } from "./game/expeditionContent";
+
+  // --- Props ------------------------------------------------------------------
+  // `state` is the whole GameState (read-only here). The callbacks route every side effect
+  // back to the host so persistence + logging happen exactly once, in App.svelte.
+  export let state: GameState;
+  // Launch: dispatch the chosen ship + its captain on the chosen candidate, with the anomaly
+  // opt-in. Host: startExpedition -> doSave -> pushLog.
+  export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => void;
+  // Claim: collect a COMPLETE expedition's findings. Host: claimExpedition -> doSave -> pushLog.
+  export let onClaim: (expeditionId: string) => void;
+
+  // --- Local UI state ---------------------------------------------------------
+  // The ship whose console is open. null until the first eligible ship defaults in below.
+  let chosenShipId: string | null = null;
+  // The candidate target the player has selected in the dispatch view (before Launch).
+  let selectedCandidateId: string | null = null;
+  // The dispatch-time anomaly-chart opt-in (default ON: chart an anomaly if sensors flag one).
+  let anomalyOptIn = true;
+
+  // --- Static display metadata ------------------------------------------------
+  const HAZARD_LABEL: Record<HazardTier, string> = {
+    low: "Low",
+    lowMedium: "Low-Med",
+    medium: "Medium",
+    high: "High",
+    veryHigh: "Very High",
+  };
+  // The scanning array's one-line CHARACTER (from its kind), shown read-only in dispatch.
+  const ARRAY_CHARACTER: Record<string, string> = {
+    wide: "Wide-beam: wider coverage per pass, better surface-landmark odds.",
+    focused: "Focused-beam: faster cadence, higher underground-PoI odds.",
+    balanced: "Balanced: an even mix of coverage and cadence.",
+  };
+  const PHASE_STEPS: { key: Expedition["phase"]; label: string }[] = [
+    { key: "transit", label: "Transit" },
+    { key: "scanning", label: "Scanning" },
+    { key: "activities", label: "Activities" },
+    { key: "return", label: "Return" },
+  ];
+  const PHASE_ORDER: Expedition["phase"][] = ["transit", "scanning", "activities", "return", "complete"];
+
+  // --- Derived reads ----------------------------------------------------------
+  $: now = state.gameTimeSeconds;
+
+  // shipId -> its active expedition (at most one per ship).
+  $: expeditionByShip = (() => {
+    const map = new Map<string, Expedition>();
+    for (const e of state.expeditions) map.set(e.shipId, e);
+    return map;
+  })();
+
+  // The captain flying a ship (or null if parked), by the assignment authority.
+  function captainOf(shipId: string): CaptainState | null {
+    const ship = state.ships.find((s) => s.id === shipId);
+    if (!ship || ship.assignedCaptainId === null) return null;
+    return state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
+  }
+
+  // A ship is DISPATCHABLE when it has an assigned, IDLE captain (no mission), no active
+  // expedition, and is not damaged. Explorer hulls shine (higher base sensors -> more
+  // foreknowledge), but any assigned idle ship may go.
+  $: dispatchableShips = state.ships.filter((s) => {
+    if (expeditionByShip.has(s.id)) return false;
+    if (s.damaged) return false;
+    const cap = captainOf(s.id);
+    return cap !== null && cap.mission === null;
+  });
+  // Ships currently ON an expedition (tracked in the console alongside dispatchable ones).
+  $: expeditionShips = state.ships.filter((s) => expeditionByShip.has(s.id));
+  // The console's ship picker list: active expeditions first (the headline), then dispatch-ready ships.
+  $: consoleShips = [...expeditionShips, ...dispatchableShips];
+
+  // Default / repair the chosen ship: keep the current pick if still eligible, else fall to the first.
+  $: if (consoleShips.length > 0 && (chosenShipId === null || !consoleShips.some((s) => s.id === chosenShipId))) {
+    chosenShipId = consoleShips[0].id;
+  }
+  $: if (consoleShips.length === 0 && chosenShipId !== null) {
+    chosenShipId = null;
+  }
+
+  $: chosenShip = chosenShipId ? state.ships.find((s) => s.id === chosenShipId) ?? null : null;
+  $: chosenExpedition = chosenShipId ? expeditionByShip.get(chosenShipId) ?? null : null;
+
+  // DISPATCH-view derives (only meaningful when the chosen ship has no active expedition).
+  $: candidates = chosenShip && !chosenExpedition ? expeditionCandidates(state, chosenShip.id) : [];
+  // Default / repair the selected candidate when the list (or ship) changes.
+  $: if (candidates.length > 0 && (selectedCandidateId === null || !candidates.some((c) => c.id === selectedCandidateId))) {
+    selectedCandidateId = candidates[0].id;
+  }
+  $: selectedCandidate = candidates.find((c) => c.id === selectedCandidateId) ?? null;
+  $: chosenArray = chosenShip ? installedSensorArray(state, chosenShip) : null;
+  $: chosenSensors = chosenShip ? Math.round(effectiveShipStats(state, chosenShip).sensors) : 0;
+  $: chosenCaptain = chosenShipId ? captainOf(chosenShipId) : null;
+
+  // IN-PROGRESS-view derives.
+  $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
+  $: activitiesDone = chosenExpedition ? expeditionActivitiesDone(chosenExpedition) : 0;
+  $: activitiesTotal = chosenExpedition ? expeditionActivitiesTotal(chosenExpedition) : 0;
+  $: legFraction = chosenExpedition ? expeditionPhaseFraction(chosenExpedition, now) : 0;
+  $: anomalyMarker = chosenExpedition ? expeditionAnomalyMarkerFraction(chosenExpedition) : null;
+
+  // --- Display helpers --------------------------------------------------------
+  function shipName(shipId: string): string {
+    const ship = state.ships.find((s) => s.id === shipId);
+    if (!ship) return shipId;
+    return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? shipId;
+  }
+  function hullLabel(shipId: string): string {
+    const ship = state.ships.find((s) => s.id === shipId);
+    return ship ? SHIP_TYPES[ship.typeKey]?.label ?? "" : "";
+  }
+  function planetLabel(id: string): string {
+    return getPlanetTypeById(id)?.label ?? id;
+  }
+  function hazardLabelFor(planetTypeId: string): string {
+    const tier = getPlanetTypeById(planetTypeId)?.hazardTier;
+    return tier ? HAZARD_LABEL[tier] : "";
+  }
+  function poiLabel(id: string): string {
+    return getPoiById(id)?.label ?? id;
+  }
+  function isOrbital(planetTypeId: string): boolean {
+    return getPlanetTypeById(planetTypeId)?.orbitalOnly === true;
+  }
+  // A per-body scan meter hue: low (dim) -> mid (accent) -> high (success).
+  function scanColor(frac: number): string {
+    if (frac >= 0.999) return "var(--color-success)";
+    if (frac >= 0.5) return "var(--color-accent-bright)";
+    return "var(--color-accent)";
+  }
+  // The label under a phase step: where this step sits relative to the expedition's current phase.
+  function stepState(step: Expedition["phase"], current: Expedition["phase"]): "done" | "active" | "todo" {
+    if (current === "complete") return "done";
+    const si = PHASE_ORDER.indexOf(step);
+    const ci = PHASE_ORDER.indexOf(current);
+    if (si < ci) return "done";
+    if (si === ci) return "active";
+    return "todo";
+  }
+  // A whole percent for a fraction.
+  function pct(frac: number): number {
+    return Math.round(Math.max(0, Math.min(1, frac)) * 100);
+  }
+
+  // --- Actions (all route to the host) ----------------------------------------
+  function launch(): void {
+    if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
+    onStart(chosenShip.id, chosenCaptain.id, selectedCandidate.id, anomalyOptIn);
+    // The host reassigns state; the chosen ship now has an active expedition and this view swaps to
+    // in-progress on the next reactive pass. Reset the dispatch-only local toggles for the next dispatch.
+    selectedCandidateId = null;
+    anomalyOptIn = true;
+  }
+</script>
+
+<div class="exp">
+  {#if consoleShips.length === 0}
+    <!-- Additive-neutral early game: nothing to dispatch, nothing in flight. -->
+    <div class="exp-empty">
+      No ship is ready for an expedition. Assign a captain to an idle ship (Ships tab), then dispatch it
+      here to explore the frontier.
+    </div>
+  {:else}
+    <!-- SHIP PICKER: active expeditions + dispatch-ready ships. The console body below follows the pick. -->
+    <div class="exp-ships" role="tablist" aria-label="Expedition ships">
+      {#each consoleShips as s (s.id)}
+        {@const exp = expeditionByShip.get(s.id) ?? null}
+        <button
+          type="button"
+          class="exp-ship"
+          class:active={chosenShipId === s.id}
+          class:flying={exp !== null}
+          role="tab"
+          aria-selected={chosenShipId === s.id}
+          on:click={() => (chosenShipId = s.id)}
+        >
+          <span class="exp-ship-name">{shipName(s.id)}</span>
+          <span class="exp-ship-status">
+            {#if exp}
+              {exp.phase === "complete" ? "Findings ready" : `On expedition · ${exp.phase}`}
+            {:else}
+              Ready to dispatch
+            {/if}
+          </span>
+        </button>
+      {/each}
+    </div>
+
+    {#if chosenShip && chosenExpedition}
+      <!-- ========================= IN-PROGRESS ========================= -->
+      {@const exp = chosenExpedition}
+      <div class="exp-body">
+        <div class="exp-hdr">
+          <div class="exp-hdr-main">
+            <span class="exp-hdr-system">{exp.systemName}</span>
+            <span class="exp-hdr-sub">
+              {shipName(exp.shipId)}{#if chosenCaptain} · {chosenCaptain.label}{/if}{#if exp.shakedown} · shakedown run{/if}
+            </span>
+          </div>
+          {#if exp.phase === "complete"}
+            <button type="button" class="exp-btn primary" on:click={() => onClaim(exp.id)}>Claim findings</button>
+          {/if}
+        </div>
+
+        <!-- PHASE STEPPER -->
+        <div class="exp-stepper">
+          {#each PHASE_STEPS as step, i (step.key)}
+            {@const st = stepState(step.key, exp.phase)}
+            <div class="exp-step" class:done={st === "done"} class:active={st === "active"}>
+              <span class="exp-step-dot" aria-hidden="true">{st === "done" ? "✓" : i + 1}</span>
+              <span class="exp-step-label">{step.label}</span>
+            </div>
+            {#if i < PHASE_STEPS.length - 1}
+              <span class="exp-step-link" class:done={stepState(step.key, exp.phase) === "done"} aria-hidden="true"></span>
+            {/if}
+          {/each}
+        </div>
+
+        <!-- TRANSIT / RETURN leg bar (with the charted-anomaly marker on the outbound leg) -->
+        {#if exp.phase === "transit" || exp.phase === "return"}
+          <div class="exp-leg">
+            <div class="exp-leg-top">
+              <span>{exp.phase === "transit" ? "Outbound transit" : "Return transit"}</span>
+              <span>{pct(legFraction)}%</span>
+            </div>
+            <div class="exp-bar">
+              <div class="exp-bar-fill" style="width: {pct(legFraction)}%;"></div>
+              {#if exp.phase === "transit" && anomalyMarker !== null}
+                <div class="exp-bar-marker" style="left: {pct(anomalyMarker)}%;" title="Anomaly-chart check"></div>
+              {/if}
+            </div>
+            {#if exp.phase === "transit" && anomalyMarker !== null}
+              <div class="exp-leg-note">
+                {#if exp.anomalyResolved}
+                  {exp.anomalyCharted ? "Anomaly charted: a detour was added and logged a finding." : "Anomaly check passed: nothing charted."}
+                {:else}
+                  Anomaly-chart opt-in active: sensors will check for an anomaly at the marker.
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
+        <!-- PER-BODY SCAN CARDS -->
+        <div class="exp-section-tag">System scan · {scanPct}%</div>
+        <div class="exp-bodies">
+          {#each exp.bodies as body (body.id)}
+            {@const frac = body.scanTotal > 0 ? body.scanProgress / body.scanTotal : 0}
+            <div class="exp-body-card">
+              <div class="exp-body-top">
+                <span class="exp-body-type">
+                  {planetLabel(body.planetType)}
+                  {#if isOrbital(body.planetType)}<span class="exp-body-flag">orbital ops</span>{/if}
+                </span>
+                <span class="exp-body-haz">{hazardLabelFor(body.planetType)} hazard</span>
+              </div>
+              <div class="exp-bar slim">
+                <div class="exp-bar-fill" style="width: {pct(frac)}%; background: {scanColor(frac)};"></div>
+              </div>
+              <div class="exp-body-scanpct">{pct(frac)}% scanned</div>
+              {#if body.discoveries.length > 0}
+                <div class="exp-body-pois">
+                  {#each body.discoveries as d (d.id)}
+                    <span class="exp-poi" class:underground={d.kind === "underground"}>{poiLabel(d.poiId)}</span>
+                  {/each}
+                </div>
+              {:else}
+                <div class="exp-body-pois dim">{frac >= 0.999 ? "No discoveries" : "Awaiting scan"}</div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <!-- ACTIVITY LIST -->
+        {#if activitiesTotal > 0}
+          <div class="exp-section-tag">Ground-team activities · {activitiesDone}/{activitiesTotal}</div>
+          <div class="exp-acts">
+            {#each exp.bodies as body (body.id)}
+              {#each body.activities as act (act.id)}
+                <div class="exp-act" class:done={act.done}>
+                  <span class="exp-act-check" aria-hidden="true">{act.done ? "✓" : "○"}</span>
+                  <span class="exp-act-label">{poiLabel(act.poiId)}</span>
+                  <span class="exp-act-body">{planetLabel(body.planetType)}{#if isOrbital(body.planetType)} · satellite{/if}</span>
+                </div>
+              {/each}
+            {/each}
+          </div>
+          <div class="exp-note">Activities auto-resolve. Away-team gambit combat lands in a later update.</div>
+        {/if}
+
+        <!-- FINDINGS TALLY -->
+        <div class="exp-findings">
+          <span class="exp-findings-count">{exp.findings.length}</span>
+          <span class="exp-findings-label">findings gathered</span>
+          {#if exp.anomalyCharted}<span class="exp-chip anomaly">+ charted anomaly</span>{/if}
+        </div>
+      </div>
+    {:else if chosenShip}
+      <!-- ============================ DISPATCH ============================ -->
+      <div class="exp-body">
+        <div class="exp-hdr">
+          <div class="exp-hdr-main">
+            <span class="exp-hdr-system">Dispatch · {shipName(chosenShip.id)}</span>
+            <span class="exp-hdr-sub">
+              {hullLabel(chosenShip.id)}{#if chosenCaptain} · {chosenCaptain.label}{/if} · Sensors {chosenSensors}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="exp-btn primary"
+            disabled={!selectedCandidate || !chosenCaptain}
+            title={!chosenCaptain ? "Assign a captain to this ship first" : !selectedCandidate ? "Select a target system" : "Launch the expedition"}
+            on:click={launch}
+          >Launch</button>
+        </div>
+
+        <div class="exp-dispatch">
+          <!-- TARGET CANDIDATES with sensor-gated FOREKNOWLEDGE -->
+          <div class="exp-targets">
+            <div class="exp-section-tag">Candidate targets</div>
+            {#each candidates as cand (cand.id)}
+              {@const fk = cand.foreknowledge}
+              <button
+                type="button"
+                class="exp-target"
+                class:active={selectedCandidateId === cand.id}
+                on:click={() => (selectedCandidateId = cand.id)}
+              >
+                <div class="exp-target-top">
+                  <span class="exp-target-name">{cand.systemName}</span>
+                  {#if !fk.inRange}
+                    <span class="exp-chip range">Beyond sensor range</span>
+                  {:else}
+                    <span class="exp-chip">{fk.bodyCount} {fk.bodyCount === 1 ? "body" : "bodies"}</span>
+                    {#if fk.relicSignature === true}<span class="exp-chip relic">Relic signature</span>{/if}
+                  {/if}
+                </div>
+                {#if fk.inRange && fk.bodies}
+                  <div class="exp-target-bodies">
+                    {#each fk.bodies as b, i}
+                      <span class="exp-target-body">
+                        {#if b.planetType}
+                          {planetLabel(b.planetType)}{#if b.hazard !== null} · {hazardLabelFor(b.planetType)} hazard{/if}
+                        {:else}
+                          Body {i + 1} · unresolved
+                        {/if}
+                      </span>
+                    {/each}
+                  </div>
+                {:else if !fk.inRange}
+                  <div class="exp-target-hidden">Contents hidden. A stronger sensor array reveals more.</div>
+                {/if}
+              </button>
+            {/each}
+          </div>
+
+          <!-- SETUP RAIL: scanning array, ground teams, anomaly opt-in -->
+          <div class="exp-setup">
+            <div class="exp-section-tag">Scanning array</div>
+            <div class="exp-setup-block">
+              {#if chosenArray}
+                <div class="exp-array-name">{chosenArray.def.label}</div>
+                <div class="exp-array-char">{ARRAY_CHARACTER[chosenArray.def.kind] ?? ""}</div>
+              {:else}
+                <div class="exp-array-name dim">No sensor array installed</div>
+                <div class="exp-array-char">Scanning runs at the base rate. Install a sensor array (Ships tab) to scan faster and see farther.</div>
+              {/if}
+            </div>
+
+            <div class="exp-section-tag">Ground teams</div>
+            <div class="exp-teams">
+              <div class="exp-team">
+                <span class="exp-team-name">Science</span>
+                <span class="exp-team-role">Surveys, samples, and excavates relic leads.</span>
+              </div>
+              <div class="exp-team">
+                <span class="exp-team-name">Security</span>
+                <span class="exp-team-role">Protects the team and fights planetary encounters.</span>
+              </div>
+            </div>
+            <div class="exp-note">Ground-team loadouts and gambit combat land in a later update.</div>
+
+            <div class="exp-section-tag">Anomaly chart</div>
+            <label class="exp-toggle">
+              <input type="checkbox" bind:checked={anomalyOptIn} />
+              <span class="exp-toggle-text">
+                Chart an anomaly if sensors detect one en route
+                <span class="exp-toggle-note">Adds transit time but yields an extra finding.</span>
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+    {/if}
+  {/if}
+</div>
+
+<style>
+  /* CONTAINER-QUERY layout (mirrors SeniorStaffPanel / ShipSystemsPanel). The wrap is the container the
+     queries key off, so the console responds to its OWN width, not the viewport. */
+  .exp {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .exp-empty {
+    font-size: var(--text-sm);
+    color: var(--color-text-dim);
+    padding: 12px;
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.24);
+    border-radius: var(--corner);
+    line-height: 1.5;
+  }
+
+  /* SHIP PICKER: a wrapping row of ship chips. */
+  .exp-ships {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .exp-ship {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 7px 11px;
+    text-align: left;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+    border-radius: var(--corner);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exp-ship:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .exp-ship.flying {
+    background: rgba(var(--color-accent-rgb), 0.09);
+  }
+  .exp-ship.active {
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.14);
+  }
+  .exp-ship-name {
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-ship-status {
+    font-size: var(--text-2xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+
+  /* BODY (shared by dispatch + in-progress). */
+  .exp-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .exp-hdr {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .exp-hdr-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .exp-hdr-system {
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    color: var(--color-text-primary);
+  }
+  .exp-hdr-sub {
+    font-size: var(--text-2xs);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+
+  .exp-section-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+
+  /* BUTTONS */
+  .exp-btn {
+    padding: 7px 14px;
+    border-radius: var(--corner);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    background: rgba(var(--color-accent-rgb), 0.1);
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exp-btn.primary {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-bg-deep);
+  }
+  .exp-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* STEPPER */
+  .exp-stepper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .exp-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-text-dim);
+  }
+  .exp-step-dot {
+    width: calc(20px * var(--ui-scale));
+    height: calc(20px * var(--ui-scale));
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-2xs);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    background: rgba(var(--color-accent-rgb), 0.06);
+    flex: 0 0 auto;
+  }
+  .exp-step-label {
+    font-size: var(--text-xs);
+  }
+  .exp-step.active {
+    color: var(--color-text-primary);
+  }
+  .exp-step.active .exp-step-dot {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-bg-deep);
+  }
+  .exp-step.done {
+    color: var(--color-success);
+  }
+  .exp-step.done .exp-step-dot {
+    border-color: var(--color-success);
+    color: var(--color-success);
+  }
+  .exp-step-link {
+    flex: 1 1 6px;
+    height: 2px;
+    min-width: 6px;
+    background: rgba(var(--color-accent-rgb), 0.2);
+    border-radius: 2px;
+  }
+  .exp-step-link.done {
+    background: var(--color-success);
+  }
+
+  /* PROGRESS BARS (leg + per-body scan) */
+  .exp-leg {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .exp-leg-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-bar {
+    position: relative;
+    height: calc(10px * var(--ui-scale));
+    background: rgba(var(--color-accent-rgb), 0.1);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .exp-bar.slim {
+    height: calc(7px * var(--ui-scale));
+  }
+  .exp-bar-fill {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 999px;
+    transition: width 0.3s ease;
+  }
+  .exp-bar-marker {
+    position: absolute;
+    top: -2px;
+    bottom: -2px;
+    width: 2px;
+    background: var(--color-warning);
+    /* overflow:hidden on the bar clips the marker to the track height, which is fine (it still reads). */
+  }
+  .exp-leg-note {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    line-height: 1.4;
+  }
+
+  /* PER-BODY SCAN CARDS */
+  .exp-bodies {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .exp-body-card {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 9px 10px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .exp-body-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .exp-body-type {
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-body-flag {
+    font-size: calc(9px * var(--ui-scale));
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-accent-bright);
+    margin-left: 6px;
+  }
+  .exp-body-haz {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-body-scanpct {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-body-pois {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .exp-body-pois.dim {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+  .exp-poi {
+    font-size: var(--text-2xs);
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.14);
+    color: var(--color-accent-bright);
+  }
+  .exp-poi.underground {
+    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.16);
+    color: var(--color-warning);
+  }
+
+  /* ACTIVITY LIST */
+  .exp-acts {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .exp-act {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.04);
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-act.done {
+    color: var(--color-text-primary);
+  }
+  .exp-act-check {
+    color: var(--color-text-dim);
+    flex: 0 0 auto;
+  }
+  .exp-act.done .exp-act-check {
+    color: var(--color-success);
+  }
+  .exp-act-label {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .exp-act-body {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .exp-note {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+
+  /* FINDINGS TALLY */
+  .exp-findings {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .exp-findings-count {
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    color: var(--color-accent-bright);
+  }
+  .exp-findings-label {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+
+  /* DISPATCH LAYOUT: stacked on a narrow container, two columns on a wide one. */
+  .exp-dispatch {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .exp-targets,
+  .exp-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  @container (min-width: 769px) {
+    .exp-dispatch {
+      flex-direction: row;
+      align-items: flex-start;
+    }
+    .exp-targets {
+      flex: 1 1 58%;
+    }
+    .exp-setup {
+      flex: 1 1 42%;
+    }
+  }
+
+  .exp-target {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 9px 11px;
+    text-align: left;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+    border-radius: var(--corner);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .exp-target:hover {
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .exp-target.active {
+    border-color: var(--color-accent);
+    background: rgba(var(--color-accent-rgb), 0.12);
+  }
+  .exp-target-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .exp-target-name {
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
+    margin-right: auto;
+  }
+  .exp-target-bodies {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .exp-target-body {
+    font-size: var(--text-2xs);
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.1);
+    color: var(--color-text-secondary);
+  }
+  .exp-target-hidden {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+
+  /* CHIPS */
+  .exp-chip {
+    font-size: var(--text-2xs);
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(var(--color-accent-rgb), 0.16);
+    color: var(--color-accent-bright);
+    white-space: nowrap;
+  }
+  .exp-chip.range {
+    background: rgba(var(--color-accent-rgb), 0.08);
+    color: var(--color-text-dim);
+  }
+  .exp-chip.relic {
+    background: var(--color-accent);
+    color: var(--color-bg-deep);
+  }
+  .exp-chip.anomaly {
+    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.18);
+    color: var(--color-warning);
+  }
+
+  /* SETUP RAIL blocks */
+  .exp-setup-block {
+    padding: 9px 11px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .exp-array-name {
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-array-name.dim {
+    color: var(--color-text-dim);
+  }
+  .exp-array-char {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+    margin-top: 3px;
+  }
+  .exp-teams {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .exp-team {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 10px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .exp-team-name {
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-team-role {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    line-height: 1.4;
+  }
+  .exp-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 9px 11px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+    cursor: pointer;
+  }
+  .exp-toggle input {
+    margin-top: 2px;
+    flex: 0 0 auto;
+    accent-color: var(--color-accent);
+  }
+  .exp-toggle-text {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .exp-toggle-note {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+</style>

@@ -29,6 +29,13 @@
   // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
   // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
   import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
+  // Exploration 0.14.0 (phase E2c): the Expedition Console, the headline "Expeditions" section of the
+  // Exploration Ops tab. Same posture as the crew panels above: reads live state through the pure
+  // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
+  // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
+  import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
+  // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
+  import { startExpedition, claimExpedition } from "./lib/game/expedition";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -4920,6 +4927,32 @@
     };
     doSave();
     pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
+  }
+
+  // ── Expeditions (Exploration 0.14.0 phase E2c) ──────────────────────────────
+  // The Expedition Console's Launch / Claim route here. Each follows the canonical do* flow: call the
+  // PURE expedition.ts engine fn, reassign `state`, pushLog, doSave. The engine fns refuse by returning
+  // the SAME state (no throws), so a no-op leaves state === next and we skip the log/save. Dispatch COMMITS
+  // the chosen candidate's seed (so the launch matches the previewed foreknowledge) + stores the anomaly
+  // opt-in; claim removes a complete expedition and hands back its (E2c placeholder) findings for the E4
+  // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
+  // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
+  function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
+    const { next, success, expedition } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
+    if (!success || next === state) return;
+    state = next;
+    pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
+    doSave();
+  }
+
+  function doClaimExpedition(expeditionId: string) {
+    // Capture the system name before the claim removes the expedition (for the log line).
+    const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
+    const { next, success, findings } = claimExpedition(state, expeditionId);
+    if (!success || next === state) return;
+    state = next;
+    pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${findings?.length ?? 0} gathered.`);
+    doSave();
   }
 
   // ── Personnel Rosters (Crew 0.14.0 phase 4d) ───────────────────────────────
@@ -15954,6 +15987,17 @@
       {@const surveyMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.missionType === "survey")}
       {@const transportMissions = (Object.entries(MISSIONS) as [MissionKey, typeof MISSIONS[MissionKey]][]).filter(([, def]) => def.missionType === "transport")}
       <div class="tab-scroll-area">
+        <!-- Exploration 0.14.0 (E2c): the EXPEDITION CONSOLE is the HEADLINE of this tab (expeditions are
+             the long-distance semi-idle mode; the survey + transport missions below are the idle tier). It
+             reads live state through the pure expedition.ts engine + routes Launch / Claim to the do*
+             handlers (doStartExpedition / doClaimExpedition). Additive-neutral: with no expedition-ready
+             ship it renders a single hint line and nothing else changes. -->
+        <div class="home-sec-hd">
+          <span class="home-sec-h">Expeditions</span>
+          <span class="home-sec-count">{state.expeditions.length}</span>
+          <span class="home-sec-rule"></span>
+        </div>
+        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} />
         {#if surveyMissions.length > 0}
           <div class="home-sec-hd">
             <span class="home-sec-h">Survey Missions</span>

@@ -46,6 +46,7 @@
 
 import type {
   GameState,
+  ShipInstance,
   Expedition,
   ExpeditionBody,
   ExpeditionDiscovery,
@@ -112,6 +113,42 @@ export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before
 // placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
 export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
 
+// ============================================================================
+// E2c: candidate targets + sensor-gated foreknowledge (FIRST-PASS TUNABLE)
+// ============================================================================
+//
+// The dispatch console offers a small STABLE list of candidate frontier systems. The list is derived
+// PURELY from the per-save expeditionSeed + a candidate INDEX (via makeExpeditionSeed), so it is stable
+// across ticks (a preview NEVER advances expeditionSeed) yet reproducible; dispatch COMMITS one
+// candidate's seed to the launched expedition and only THEN advances expeditionSeed so the next list is
+// fresh. Because a candidate's seed IS the seed the committed expedition uses, the foreknowledge preview
+// (a display-derived projection of generateSystem(seed) + the same discovery roll) can never lie.
+export const EXPEDITION_CANDIDATE_COUNT = 3; // how many candidate targets the console offers (TUNABLE)
+
+// SENSOR FOREKNOWLEDGE THRESHOLDS: the crew-inclusive `sensors` power (effectiveShipStats) a ship needs
+// to reveal each successive layer of a candidate's contents. Below the first threshold the destination
+// reads "beyond sensor range" (only its name is known, like the mockup's Cygnus Gate). A standard fitted
+// sensor array folds to ~20 sensors (tick.test), so a bare hull (0) is beyond range, a basic sensor
+// reveals the body count + planet types, and richer sensors (rarity/quality/iLevel, later crew-amplified)
+// unlock hazard + the relic signature. FIRST-PASS TUNABLE placeholders (the balance pass owns the reveal
+// curve), the same posture as the transit/scan/anomaly constants above.
+export const SENSOR_REVEAL_IN_RANGE = 8; // >= this: in range -> body COUNT is known
+export const SENSOR_REVEAL_PLANET_TYPES = 20; // >= this: each body's PLANET TYPE is known
+export const SENSOR_REVEAL_HAZARD = 40; // >= this: each body's HAZARD tier is known
+export const SENSOR_REVEAL_RELIC = 65; // >= this: the system's RELIC SIGNATURE flag is known
+
+// The PoIs whose findings carry a RELIC lead (the relic-signature detector keys off these). A curated
+// subset of the catalog by flavor: dig-site ruins, intact-tech crashed ships, the sealed vault, and the
+// deep subterranean prize. FIRST-PASS TUNABLE (the E4 relic economy owns the real relic-bearing set); the
+// signature is a truthful HINT ("this system, scanned with your array, would surface a relic lead"),
+// derived from the SAME seeded discovery roll the committed expedition runs, so it never lies.
+const RELIC_BEARING_POIS: ReadonlySet<string> = new Set<string>([
+  "ancientRuins",
+  "crashedShip",
+  "buriedVault",
+  "subterraneanCivilization",
+]);
+
 // The banked sci-fi system names (design Part E). A dispatched expedition picks one by a seeded index.
 // Extend this list as more systems are named; the seeded pick just indexes into it.
 export interface BankedSystem {
@@ -174,6 +211,14 @@ export function makeExpeditionSeed(saveSeed: number, expeditionNumber: number): 
   );
 }
 
+// Advance the per-save expeditionSeed after a dispatch COMMITS a candidate, so the NEXT candidate list is
+// a fresh set of systems (the old list's un-chosen candidates are not re-offered). Pure uint32 mixing, a
+// decorrelated transform distinct from makeExpeditionSeed's per-index mix. Only startExpedition calls it
+// (never a preview, never the tick), so previews stay STABLE until a dispatch actually happens.
+export function advanceExpeditionSeed(saveSeed: number): number {
+  return (Math.imul((saveSeed >>> 0) ^ 0x9e3779b9, 0x27d4eb2f) ^ 0x85ebca6b) >>> 0;
+}
+
 function clampPermille(fraction: number): number {
   return Math.max(0, Math.min(1000, Math.round(fraction * 1000)));
 }
@@ -218,32 +263,167 @@ function generateSystem(seed: number): { systemId: string; systemName: string; b
   return { systemId: system.id, systemName: system.name, bodies };
 }
 
-// Dispatch a ship + captain on a NEW expedition. Pure: returns { success, next, expedition } or a
-// failure with a reason and the UNCHANGED state (same reference). Mirrors how a mission binds a
-// captain (dispatchCaptainOnMission), but writes to state.expeditions instead of the captain. Enforces
-// at most ONE expedition per ship. The target system + bodies are seeded from the per-save
-// expeditionSeed + the expedition number; the installed sensor array + the crew-inclusive `sensors`
-// derived stat are SNAPSHOTTED at dispatch so resolution is a pure function of the stored expedition.
-export function startExpedition(state: GameState, shipId: string, captainId: number): ExpeditionDispatchResult {
+// The resolved sensor snapshot for a ship: its installed array (or null), that array's rarity/quality-
+// scaled scan params (or the NEUTRAL params when none is fitted), and the ship's crew-inclusive `sensors`
+// power. Factored out so the DISPATCH commit and the FOREKNOWLEDGE preview read the SAME inputs, which is
+// what makes the preview truthful (the launched expedition snapshots exactly what the preview projected).
+// A missing ship reads neutral params + sensors 0 (defensive; startExpedition guards the ship first).
+function shipSensorSnapshot(
+  state: GameState,
+  ship: ShipInstance | undefined,
+): { sensorArrayId: string | null; scanParams: ExpeditionScanParams; sensorPower: number } {
+  if (!ship) return { sensorArrayId: null, scanParams: { ...NEUTRAL_SCAN_PARAMS }, sensorPower: 0 };
+  const installed = installedSensorArray(state, ship);
+  return {
+    sensorArrayId: installed?.def.id ?? null,
+    scanParams: installed ? sensorArrayEffect(installed) : { ...NEUTRAL_SCAN_PARAMS },
+    // effectiveShipStats folds equipment + crew (crewOverlay), so a Science officer / Science division /
+    // a fitted sensor item all shape this by construction. 0 for a bare hull today.
+    sensorPower: effectiveShipStats(state, ship).sensors,
+  };
+}
+
+// ============================================================================
+// E2c: candidate targets + sensor-gated foreknowledge (pure readers)
+// ============================================================================
+
+// A candidate's FOREKNOWLEDGE view: a progressive reveal gated by the ship's crew-inclusive `sensors`.
+// Below SENSOR_REVEAL_IN_RANGE the destination is `inRange: false` (only its name is known); each higher
+// threshold unlocks the next field. Every revealed value is a projection of generateSystem(candidate.seed)
+// (+ the same discovery roll for the relic signature), so it matches what the committed expedition
+// resolves. A field is null until its threshold is met (the UI shows a masked placeholder for a null).
+export interface ExpeditionForeknowledgeBody {
+  planetType: ExpeditionPlanetType | null; // revealed at SENSOR_REVEAL_PLANET_TYPES
+  hazard: number | null; // revealed at SENSOR_REVEAL_HAZARD (the planet type's hazard scalar)
+}
+export interface ExpeditionForeknowledge {
+  inRange: boolean; // sensors >= SENSOR_REVEAL_IN_RANGE
+  bodyCount: number | null; // revealed with inRange
+  bodies: ExpeditionForeknowledgeBody[] | null; // one per body once in range (fields fill by threshold)
+  relicSignature: boolean | null; // revealed at SENSOR_REVEAL_RELIC: a relic lead is present
+}
+
+// One offered candidate target: a stable id + index, the seed the committed expedition WILL use, the
+// system identity (always known -- a name shows even beyond sensor range, like the mockup's Cygnus Gate),
+// and the sensor-gated foreknowledge view.
+export interface ExpeditionCandidate {
+  id: string; // "cand-<index>", stable for a given expeditionSeed
+  index: number;
+  seed: number; // == the committed expedition's seed if this candidate is chosen (so the preview matches)
+  systemId: string;
+  systemName: string;
+  foreknowledge: ExpeditionForeknowledge;
+}
+
+// Run the REAL seeded discovery roll for a preview system (generateSystem's bodies), reusing the exact
+// engine path (assignDiscoveriesAndActivities) so the projection cannot drift from what the committed
+// expedition resolves. Builds a throwaway expedition-shaped object with the given seed + the ship's
+// snapshotted scan params (the array bias skews discoveries, so the preview must use the ship's array),
+// then reads the resulting discoveries. Pure: mutates only the local throwaway. The relic signature keys
+// off whether any would-be discovery is a RELIC_BEARING_POIS PoI.
+function previewRelicSignature(seed: number, scanParams: ExpeditionScanParams): boolean {
+  const gen = generateSystem(seed);
+  const fake: Expedition = {
+    id: "preview",
+    shipId: "",
+    captainId: 0,
+    targetSystemId: gen.systemId,
+    systemName: gen.systemName,
+    sensorArrayId: null,
+    scanParams,
+    sensorPower: 0,
+    phase: "scanning",
+    phaseAnchorSeconds: 0,
+    shakedown: false,
+    bodies: gen.bodies,
+    anomalyResolved: false,
+    anomalyCharted: false,
+    anomalyOptIn: false,
+    findings: [],
+    seed,
+  };
+  fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
+  for (const b of fake.bodies) for (const d of b.discoveries) if (RELIC_BEARING_POIS.has(d.poiId)) return true;
+  return false;
+}
+
+// Gate a generated system into a foreknowledge VIEW by the ship's sensor power. Pure.
+function gateForeknowledge(
+  sensorPower: number,
+  bodies: ExpeditionBody[],
+  seed: number,
+  scanParams: ExpeditionScanParams,
+): ExpeditionForeknowledge {
+  const inRange = sensorPower >= SENSOR_REVEAL_IN_RANGE;
+  if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSignature: null };
+  const showTypes = sensorPower >= SENSOR_REVEAL_PLANET_TYPES;
+  const showHazard = sensorPower >= SENSOR_REVEAL_HAZARD;
+  const showRelic = sensorPower >= SENSOR_REVEAL_RELIC;
+  return {
+    inRange: true,
+    bodyCount: bodies.length,
+    bodies: bodies.map((b) => ({
+      planetType: showTypes ? b.planetType : null,
+      hazard: showHazard ? b.hazard : null,
+    })),
+    relicSignature: showRelic ? previewRelicSignature(seed, scanParams) : null,
+  };
+}
+
+// The STABLE list of candidate targets a ship's expedition console offers. PURE reader: derived only from
+// the per-save expeditionSeed + a candidate index (via makeExpeditionSeed) and the ship's sensor snapshot,
+// so it is stable across ticks (nothing here advances expeditionSeed) and identical on repeated reads of
+// an unchanged state. The candidate SEEDS are ship-independent (all ships see the same frontier systems);
+// only the FOREKNOWLEDGE reveal differs by the ship's sensors. dispatch (startExpedition) commits one
+// candidate's seed and only THEN advances expeditionSeed for a fresh next list.
+export function expeditionCandidates(state: GameState, shipId: string): ExpeditionCandidate[] {
+  const ship = state.ships.find((s) => s.id === shipId);
+  const snap = shipSensorSnapshot(state, ship);
+  const out: ExpeditionCandidate[] = [];
+  for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
+    const seed = makeExpeditionSeed(state.expeditionSeed, i);
+    const gen = generateSystem(seed);
+    out.push({
+      id: `cand-${i}`,
+      index: i,
+      seed,
+      systemId: gen.systemId,
+      systemName: gen.systemName,
+      foreknowledge: gateForeknowledge(snap.sensorPower, gen.bodies, seed, snap.scanParams),
+    });
+  }
+  return out;
+}
+
+// Dispatch a ship + captain on a NEW expedition by COMMITTING a chosen candidate target. Pure: returns
+// { success, next, expedition } or a failure with a reason and the UNCHANGED state (same reference).
+// Mirrors how a mission binds a captain (dispatchCaptainOnMission), but writes to state.expeditions
+// instead of the captain. Enforces at most ONE expedition per ship + the assigned-captain guard. The
+// launched system is generated from the CHOSEN CANDIDATE'S seed (so it matches the foreknowledge preview
+// the player saw), the sensor array + crew-inclusive `sensors` are SNAPSHOTTED (resolution is then a pure
+// function of the stored expedition), the anomaly OPT-IN is stored, and expeditionSeed is advanced so the
+// next candidate list is fresh. `anomalyOptIn` defaults true (the E2a/E2b always-chart behavior).
+export function startExpedition(
+  state: GameState,
+  shipId: string,
+  captainId: number,
+  candidateId: string,
+  anomalyOptIn: boolean = true,
+): ExpeditionDispatchResult {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { next: state, success: false, reason: "noSuchShip" };
   if (ship.assignedCaptainId !== captainId) return { next: state, success: false, reason: "captainNotAssigned" };
   if (state.expeditions.some((e) => e.shipId === shipId))
     return { next: state, success: false, reason: "shipAlreadyOnExpedition" };
 
+  const candidate = expeditionCandidates(state, shipId).find((c) => c.id === candidateId);
+  if (!candidate) return { next: state, success: false, reason: "noSuchCandidate" };
+
   const number = state.nextExpeditionId;
-  const seed = makeExpeditionSeed(state.expeditionSeed, number);
+  const seed = candidate.seed; // COMMIT the previewed candidate's seed so the launch matches its preview
   const id = `expedition-${number}`;
   const gen = generateSystem(seed);
-
-  // Snapshot the installed sensor array's resolved (rarity/quality-scaled) scan params + the ship's
-  // crew-inclusive sensors stat. effectiveShipStats folds equipment + crew (crewOverlay), so a Science
-  // officer / Science division / a fitted sensor item all shape the snapshot by construction. A ship
-  // with no sensor array snapshots the NEUTRAL params + whatever `sensors` its gear/crew fold to (0 for
-  // a bare hull today, since the sensor slot has no Standard-Issue baseline).
-  const installed = installedSensorArray(state, ship);
-  const scanParams: ExpeditionScanParams = installed ? sensorArrayEffect(installed) : { ...NEUTRAL_SCAN_PARAMS };
-  const sensorPower = effectiveShipStats(state, ship).sensors;
+  const snap = shipSensorSnapshot(state, ship);
 
   const expedition: Expedition = {
     id,
@@ -251,21 +431,28 @@ export function startExpedition(state: GameState, shipId: string, captainId: num
     captainId,
     targetSystemId: gen.systemId,
     systemName: gen.systemName,
-    sensorArrayId: installed?.def.id ?? null,
-    scanParams,
-    sensorPower,
+    sensorArrayId: snap.sensorArrayId,
+    scanParams: snap.scanParams,
+    sensorPower: snap.sensorPower,
     phase: "transit",
     phaseAnchorSeconds: state.gameTimeSeconds,
     shakedown: number === 1, // per-account inaugural run (nextExpeditionId === 1 means none dispatched yet)
     bodies: gen.bodies,
     anomalyResolved: false,
     anomalyCharted: false,
+    anomalyOptIn,
     findings: [],
     seed,
   };
 
   return {
-    next: { ...state, expeditions: [...state.expeditions, expedition], nextExpeditionId: number + 1 },
+    next: {
+      ...state,
+      expeditions: [...state.expeditions, expedition],
+      nextExpeditionId: number + 1,
+      // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
+      expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
+    },
     success: true,
     expedition,
   };
@@ -448,6 +635,11 @@ function maybeResolveAnomaly(exp: Expedition, elapsedInPhase: number): void {
   if (exp.anomalyResolved) return;
   if (elapsedInPhase + PHASE_EPS < baseTransitSeconds(exp) * ANOMALY_CHECK_FRACTION) return;
   exp.anomalyResolved = true;
+  // E2c ANOMALY OPT-IN: only ATTEMPT the chart when the player opted in at dispatch. When opted out we
+  // still latch anomalyResolved at the midpoint (so the check fires exactly once, keeping the phase math
+  // stable) but never roll -> the detour is never added and no anomaly finding is granted. The gate is a
+  // stored flag, not a live value, so this stays deterministic + offline==live parity-safe.
+  if (!exp.anomalyOptIn) return;
   const charted = makeRng((exp.seed ^ ANOMALY_SALT) >>> 0).chance(ANOMALY_CHANCE_PERMILLE, 1000);
   if (charted) {
     exp.anomalyCharted = true;
@@ -569,4 +761,34 @@ export function expeditionActivitiesDone(exp: Expedition): number {
   let n = 0;
   for (const body of exp.bodies) for (const act of body.activities) if (act.done) n++;
   return n;
+}
+
+// The total number of ground-team activities across all bodies (0 until the SCANNING phase generates
+// them at each body's 100%). Pure reader for the E2c UI's activity tally. (totalActivities is internal;
+// this is its exported twin.)
+export function expeditionActivitiesTotal(exp: Expedition): number {
+  return totalActivities(exp);
+}
+
+// The CURRENT phase's progress fraction in [0, 1], derived from ELAPSED-in-phase / the phase duration at
+// state.gameTimeSeconds. Pure DISPLAY reader (drives the transit/return bars + the scanning meter): it
+// reads the stored phaseAnchorSeconds the tick maintains, never advancing anything. A "complete"
+// expedition reads 1. A zero-length phase (e.g. no activities) reads 1 so the UI shows it filled/skipped.
+export function expeditionPhaseFraction(exp: Expedition, nowSeconds: number): number {
+  if (exp.phase === "complete") return 1;
+  const dur = phaseDurationSeconds(exp);
+  if (dur <= 0) return 1;
+  const elapsed = Math.max(0, nowSeconds - exp.phaseAnchorSeconds);
+  return Math.max(0, Math.min(1, elapsed / dur));
+}
+
+// Where the charted-anomaly MARKER sits on the transit bar, as a fraction in [0, 1], or null when the
+// expedition opted OUT (no marker to show). The anomaly is checked at ANOMALY_CHECK_FRACTION of the BASE
+// transit; once charted the bar total grows by the detour, so the marker's fractional position shifts
+// left. Pure DISPLAY reader. Only meaningful during the transit phase (the UI reads it there).
+export function expeditionAnomalyMarkerFraction(exp: Expedition): number | null {
+  if (!exp.anomalyOptIn) return null;
+  const total = transitDurationSeconds(exp);
+  if (total <= 0) return null;
+  return Math.max(0, Math.min(1, (baseTransitSeconds(exp) * ANOMALY_CHECK_FRACTION) / total));
 }

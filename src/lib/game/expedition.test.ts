@@ -23,7 +23,9 @@ import {
   advanceExpedition,
   resolveExpeditions,
   claimExpedition,
+  expeditionCandidates,
   makeExpeditionSeed,
+  advanceExpeditionSeed,
   expeditionScanFraction,
   expeditionActivitiesDone,
   BANKED_SYSTEMS,
@@ -34,6 +36,11 @@ import {
   SHAKEDOWN_TRANSIT_SECONDS,
   ANOMALY_CHECK_FRACTION,
   ACTIVITY_SECONDS,
+  EXPEDITION_CANDIDATE_COUNT,
+  SENSOR_REVEAL_IN_RANGE,
+  SENSOR_REVEAL_PLANET_TYPES,
+  SENSOR_REVEAL_HAZARD,
+  SENSOR_REVEAL_RELIC,
 } from "./expedition";
 import { tick } from "./tick";
 import { migrate, type SaveFile } from "./save";
@@ -96,17 +103,26 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
     ],
     anomalyResolved: false,
     anomalyCharted: false,
+    anomalyOptIn: true,
     findings: [],
     seed: 12345,
     ...over,
   };
 }
 
+// Dispatch helper: resolve a candidate id off the state's console list and commit it. Defaults to the
+// first candidate ("cand-0"), which on a fresh save uses seed makeExpeditionSeed(EXPEDITION_DEFAULT_SEED,
+// 0). Mirrors how the E2c UI dispatches (pick a candidate -> startExpedition).
+function dispatch(s: GameState, shipId = "ship-1", captainId = 1, idx = 0, anomalyOptIn = true) {
+  const cands = expeditionCandidates(s, shipId);
+  return startExpedition(s, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn);
+}
+
 // ============================================================================
 describe("startExpedition — dispatch shapes a valid expedition", () => {
   it("creates a transit-phase expedition with a banked system + 1..3 generic bodies", () => {
     const s = freshState(); // ship-1 assigned to captain 1, gameTimeSeconds 0
-    const res = startExpedition(s, "ship-1", 1);
+    const res = dispatch(s);
     expect(res.success).toBe(true);
     const exp = res.expedition!;
     expect(exp.id).toBe("expedition-1");
@@ -140,27 +156,27 @@ describe("startExpedition — dispatch shapes a valid expedition", () => {
 
   it("rejects a second expedition for the same ship, and a wrong captain", () => {
     const s = freshState();
-    const first = startExpedition(s, "ship-1", 1);
+    const first = dispatch(s);
     expect(first.success).toBe(true);
-    const dup = startExpedition(first.next, "ship-1", 1);
+    const dup = dispatch(first.next);
     expect(dup.success).toBe(false);
     expect(dup.reason).toBe("shipAlreadyOnExpedition");
     expect(dup.next).toBe(first.next); // same reference on failure
 
-    const wrongCaptain = startExpedition(s, "ship-1", 999);
+    const wrongCaptain = dispatch(s, "ship-1", 999);
     expect(wrongCaptain.success).toBe(false);
     expect(wrongCaptain.reason).toBe("captainNotAssigned");
 
-    const noShip = startExpedition(s, "ship-nope", 1);
+    const noShip = dispatch(s, "ship-nope");
     expect(noShip.success).toBe(false);
     expect(noShip.reason).toBe("noSuchShip");
   });
 
   it("is reload-deterministic: the same save seed + expedition number yields the same expedition", () => {
-    const a = startExpedition(freshState(), "ship-1", 1).expedition!;
-    const b = startExpedition(freshState(), "ship-1", 1).expedition!;
+    const a = dispatch(freshState()).expedition!;
+    const b = dispatch(freshState()).expedition!;
     expect(a).toEqual(b);
-    expect(a.seed).toBe(makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, 1));
+    expect(a.seed).toBe(makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, 0));
   });
 });
 
@@ -169,7 +185,7 @@ describe("startExpedition — snapshots the installed sensor array + params", ()
   it("snapshots the array variant + its resolved scan params (wide-beam)", () => {
     let s = freshState();
     s = { ...s, equipment: [...s.equipment, sensorInstance("equip-sensor-1", "sensorWideBeam", "ship-1")] };
-    const exp = startExpedition(s, "ship-1", 1).expedition!;
+    const exp = dispatch(s).expedition!;
     expect(exp.sensorArrayId).toBe("sensorWideBeam");
     // Wide-beam character (sensorArrays.ts): slower cadence, wider coverage.
     expect(exp.scanParams.scanRateMult).toBe(0.8);
@@ -179,7 +195,7 @@ describe("startExpedition — snapshots the installed sensor array + params", ()
   });
 
   it("a bare ship snapshots null + neutral scan params + sensors 0", () => {
-    const exp = startExpedition(freshState(), "ship-1", 1).expedition!;
+    const exp = dispatch(freshState()).expedition!;
     expect(exp.sensorArrayId).toBeNull();
     expect(exp.scanParams).toEqual({ scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 });
     expect(exp.sensorPower).toBe(0); // no sensor gear + no crew mapping onto sensors yet
@@ -189,7 +205,7 @@ describe("startExpedition — snapshots the installed sensor array + params", ()
 // ============================================================================
 describe("phase advancement — deterministic transit -> scanning -> activities -> return -> complete", () => {
   it("stays in transit before the leg elapses, then walks the full machine to complete", () => {
-    const exp = startExpedition(freshState(), "ship-1", 1).expedition!; // shakedown transit
+    const exp = dispatch(freshState()).expedition!; // shakedown transit
 
     // Early: still in transit.
     expect(advanceExpedition(exp, 10).phase).toBe("transit");
@@ -229,7 +245,7 @@ describe("phase advancement — deterministic transit -> scanning -> activities 
   });
 
   it("resolveExpeditions is a same-reference no-op once an expedition is complete", () => {
-    const exp = startExpedition(freshState(), "ship-1", 1).expedition!;
+    const exp = dispatch(freshState()).expedition!;
     const complete = advanceExpedition(exp, 1_000_000);
     expect(complete.phase).toBe("complete");
     // advanceExpedition on a complete expedition returns the SAME reference.
@@ -237,14 +253,14 @@ describe("phase advancement — deterministic transit -> scanning -> activities 
   });
 
   it("claimExpedition removes a complete expedition and returns its findings", () => {
-    let s = startExpedition(freshState(), "ship-1", 1).next;
+    let s = dispatch(freshState()).next;
     // Advance the stored expedition to complete via the engine.
     s = { ...s, gameTimeSeconds: 1_000_000 };
     s = resolveExpeditions(s);
     const exp = s.expeditions[0];
     expect(exp.phase).toBe("complete");
 
-    const notYet = claimExpedition(startExpedition(freshState(), "ship-1", 1).next, "expedition-1");
+    const notYet = claimExpedition(dispatch(freshState()).next, "expedition-1");
     expect(notYet.success).toBe(false);
     expect(notYet.reason).toBe("notComplete");
 
@@ -258,18 +274,18 @@ describe("phase advancement — deterministic transit -> scanning -> activities 
 // ============================================================================
 describe("anomaly roll — seeded + deterministic, fires exactly once at the midpoint", () => {
   it("is a pure function of the seed (two runs agree; re-advancing agrees)", () => {
-    const exp = startExpedition(freshState(), "ship-1", 1).expedition!;
+    const exp = dispatch(freshState()).expedition!;
     const a = advanceExpedition(exp, 1_000_000);
     const b = advanceExpedition(exp, 1_000_000);
     expect(a.anomalyCharted).toBe(b.anomalyCharted);
     expect(a.anomalyResolved).toBe(true);
     // The outcome is stable for a fixed seed (regression guard on determinism, not on the value itself).
-    const rerun = advanceExpedition(startExpedition(freshState(), "ship-1", 1).expedition!, 1_000_000);
+    const rerun = advanceExpedition(dispatch(freshState()).expedition!, 1_000_000);
     expect(rerun.anomalyCharted).toBe(a.anomalyCharted);
   });
 
   it("does not resolve before the midpoint", () => {
-    const exp = startExpedition(freshState(), "ship-1", 1).expedition!;
+    const exp = dispatch(freshState()).expedition!;
     const before = advanceExpedition(exp, SHAKEDOWN_TRANSIT_SECONDS * ANOMALY_CHECK_FRACTION - 5);
     expect(before.anomalyResolved).toBe(false);
     expect(before.anomalyCharted).toBe(false);
@@ -344,7 +360,7 @@ describe("PARITY: one big offline window == many small live ticks", () => {
   }
 
   it("the expedition is byte-identical whether resolved in one jump or stepped per tick", () => {
-    const base = startExpedition(freshState(), "ship-1", 1).next;
+    const base = dispatch(freshState()).next;
 
     // OFFLINE: one big catch-up.
     const big = tick(SPAN_SECONDS, base, seededRng());
@@ -599,6 +615,224 @@ describe("SAVE migration v59 -> v60 backfills a body planetType", () => {
   it("is a no-op for a save with no active expeditions", () => {
     const s: any = freshState();
     const save: SaveFile = { version: 59, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as any;
+    const migrated: any = migrate(save);
+    expect(migrated.expeditions).toEqual([]);
+  });
+});
+
+// ============================================================================
+// E2c: sensor-gated candidate targets + foreknowledge, the candidate-commit dispatch, anomaly opt-in.
+// ============================================================================
+
+// A ship fitted with a sensor array rolled to a given `sensors` power, so a test can dial foreknowledge
+// reveal tiers. The sensor `sensors` implicit is what effectiveShipStats folds to sensorPower; a bare
+// hull reads 0. We set the implicit directly (bypassing the generator) to hit an exact power.
+function shipWithSensors(sensors: number): GameState {
+  let s = freshState();
+  const piece: EquipmentInstance = sensorInstance("equip-sensor-pow", "sensorBalanced", "ship-1", {
+    implicitStats: { sensors },
+  });
+  s = { ...s, equipment: [...s.equipment, piece] };
+  return s;
+}
+
+describe("E2c expeditionCandidates — a stable, deterministic candidate list", () => {
+  it("offers EXPEDITION_CANDIDATE_COUNT candidates with stable ids + reload-deterministic seeds", () => {
+    const s = freshState();
+    const cands = expeditionCandidates(s, "ship-1");
+    expect(cands).toHaveLength(EXPEDITION_CANDIDATE_COUNT);
+    cands.forEach((c, i) => {
+      expect(c.id).toBe(`cand-${i}`);
+      expect(c.index).toBe(i);
+      expect(c.seed).toBe(makeExpeditionSeed(s.expeditionSeed, i));
+      expect(BANKED_SYSTEMS.some((sys) => sys.id === c.systemId)).toBe(true);
+      expect(c.systemName).toBe(BANKED_SYSTEMS.find((sys) => sys.id === c.systemId)!.name);
+    });
+  });
+
+  it("is stable across repeated reads on an unchanged state (a preview never advances the seed)", () => {
+    const s = freshState();
+    expect(expeditionCandidates(s, "ship-1")).toEqual(expeditionCandidates(s, "ship-1"));
+    // Reading candidates does not mutate the save seed.
+    expect(s.expeditionSeed).toBe(freshState().expeditionSeed);
+  });
+
+  it("all ships see the SAME candidate systems (seeds are ship-independent; only foreknowledge differs)", () => {
+    // Two ships with different sensors: same seeds/systems, different reveal.
+    const weak = expeditionCandidates(shipWithSensors(0), "ship-1");
+    const strong = expeditionCandidates(shipWithSensors(100), "ship-1");
+    weak.forEach((c, i) => {
+      expect(strong[i].seed).toBe(c.seed);
+      expect(strong[i].systemId).toBe(c.systemId);
+    });
+  });
+});
+
+describe("E2c foreknowledge — progressive reveal scales with the ship's sensors", () => {
+  it("a bare hull (0 sensors) is BEYOND SENSOR RANGE: contents hidden", () => {
+    const cands = expeditionCandidates(freshState(), "ship-1"); // ship-1 bare => sensors 0
+    for (const c of cands) {
+      expect(c.foreknowledge.inRange).toBe(false);
+      expect(c.foreknowledge.bodyCount).toBeNull();
+      expect(c.foreknowledge.bodies).toBeNull();
+      expect(c.foreknowledge.relicSignature).toBeNull();
+      // The system NAME is still known (a destination reads by name even beyond range).
+      expect(c.systemName.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("in-range but low sensors reveal only the body COUNT, not types/hazard/relic", () => {
+    const cands = expeditionCandidates(shipWithSensors(SENSOR_REVEAL_IN_RANGE), "ship-1");
+    for (const c of cands) {
+      expect(c.foreknowledge.inRange).toBe(true);
+      expect(c.foreknowledge.bodyCount).toBeGreaterThanOrEqual(BODY_COUNT_MIN);
+      expect(c.foreknowledge.bodies).not.toBeNull();
+      for (const b of c.foreknowledge.bodies!) {
+        expect(b.planetType).toBeNull(); // below the planet-type threshold
+        expect(b.hazard).toBeNull();
+      }
+      expect(c.foreknowledge.relicSignature).toBeNull();
+    }
+  });
+
+  it("full sensors reveal every layer: count + planet types + hazard + relic signature", () => {
+    const cands = expeditionCandidates(shipWithSensors(SENSOR_REVEAL_RELIC), "ship-1");
+    for (const c of cands) {
+      expect(c.foreknowledge.inRange).toBe(true);
+      expect(c.foreknowledge.bodyCount).toBe(c.foreknowledge.bodies!.length);
+      for (const b of c.foreknowledge.bodies!) {
+        expect(b.planetType).not.toBeNull();
+        expect(PLANET_TYPES.some((p) => p.id === b.planetType)).toBe(true);
+        expect(b.hazard).toBe(planetTypeHazard(b.planetType!));
+      }
+      expect(typeof c.foreknowledge.relicSignature).toBe("boolean");
+    }
+  });
+
+  it("reveal is monotonic: each threshold unlocks one more layer, none regress", () => {
+    const at = (p: number) => expeditionCandidates(shipWithSensors(p), "ship-1")[0].foreknowledge;
+    const belowRange = at(SENSOR_REVEAL_IN_RANGE - 1);
+    const count = at(SENSOR_REVEAL_IN_RANGE);
+    const types = at(SENSOR_REVEAL_PLANET_TYPES);
+    const hazard = at(SENSOR_REVEAL_HAZARD);
+    const relic = at(SENSOR_REVEAL_RELIC);
+    expect(belowRange.inRange).toBe(false);
+    expect(count.inRange).toBe(true);
+    expect(count.bodies![0].planetType).toBeNull();
+    expect(types.bodies![0].planetType).not.toBeNull();
+    expect(types.bodies![0].hazard).toBeNull();
+    expect(hazard.bodies![0].hazard).not.toBeNull();
+    expect(hazard.relicSignature).toBeNull();
+    expect(typeof relic.relicSignature).toBe("boolean");
+  });
+});
+
+describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its preview", () => {
+  it("the committed expedition's system + bodies match the previewed candidate exactly", () => {
+    const s = shipWithSensors(SENSOR_REVEAL_RELIC); // full reveal so we can compare bodies
+    const cand = expeditionCandidates(s, "ship-1")[1]; // choose the SECOND candidate
+    const res = startExpedition(s, "ship-1", 1, cand.id);
+    expect(res.success).toBe(true);
+    const exp = res.expedition!;
+    // The launched expedition uses the candidate's own seed, so its identity + bodies match the preview.
+    expect(exp.seed).toBe(cand.seed);
+    expect(exp.targetSystemId).toBe(cand.systemId);
+    expect(exp.systemName).toBe(cand.systemName);
+    expect(exp.bodies.length).toBe(cand.foreknowledge.bodyCount);
+    exp.bodies.forEach((b, i) => {
+      expect(b.planetType).toBe(cand.foreknowledge.bodies![i].planetType);
+      expect(b.hazard).toBe(cand.foreknowledge.bodies![i].hazard);
+    });
+  });
+
+  it("dispatch ADVANCES expeditionSeed so the next candidate list is a fresh set", () => {
+    const s = freshState();
+    const before = expeditionCandidates(s, "ship-1").map((c) => c.seed);
+    const res = startExpedition(s, "ship-1", 1, "cand-0");
+    expect(res.success).toBe(true);
+    expect(res.next.expeditionSeed).toBe(advanceExpeditionSeed(s.expeditionSeed));
+    const after = expeditionCandidates(res.next, "ship-1").map((c) => c.seed);
+    expect(after).not.toEqual(before); // the list refreshed
+  });
+
+  it("rejects an unknown candidate id (same-ref state), and still enforces the ship/captain guards", () => {
+    const s = freshState();
+    const bad = startExpedition(s, "ship-1", 1, "cand-nope");
+    expect(bad.success).toBe(false);
+    expect(bad.reason).toBe("noSuchCandidate");
+    expect(bad.next).toBe(s);
+    // The pre-existing guards fire BEFORE the candidate lookup.
+    expect(startExpedition(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
+    expect(startExpedition(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
+    const first = startExpedition(s, "ship-1", 1, "cand-0");
+    expect(startExpedition(first.next, "ship-1", 1, "cand-0").reason).toBe("shipAlreadyOnExpedition");
+  });
+});
+
+describe("E2c anomaly opt-in — the toggle gates whether the mid-transit chart is attempted", () => {
+  it("opting OUT never charts (resolved at the midpoint, but no chart + no anomaly finding)", () => {
+    // A hand-built transit expedition seeded so the OPT-IN run WOULD chart, to prove the opt-out gate.
+    let seed = 0;
+    for (let n = 1; n <= 60; n++) {
+      const s = makeExpeditionSeed(EXPEDITION_DEFAULT_SEED, n);
+      const optedIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed: s, anomalyOptIn: true }), 1_000_000);
+      if (optedIn.anomalyCharted) { seed = s; break; }
+    }
+    expect(seed).not.toBe(0); // found a charting seed
+
+    const optIn = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: true }), 1_000_000);
+    const optOut = advanceExpedition(makeExpedition({ phase: "transit", shakedown: true, seed, anomalyOptIn: false }), 1_000_000);
+
+    // Opted IN with a charting seed: charted + an anomaly finding.
+    expect(optIn.anomalyCharted).toBe(true);
+    expect(optIn.findings.some((f) => f.source === "anomaly")).toBe(true);
+    // Opted OUT on the SAME seed: the roll fired (resolved) but never charted + granted no anomaly finding.
+    expect(optOut.anomalyResolved).toBe(true);
+    expect(optOut.anomalyCharted).toBe(false);
+    expect(optOut.findings.some((f) => f.source === "anomaly")).toBe(false);
+  });
+
+  it("startExpedition stores the opt-in flag from dispatch", () => {
+    const optIn = startExpedition(freshState(), "ship-1", 1, "cand-0", true).expedition!;
+    const optOut = startExpedition(freshState(), "ship-1", 1, "cand-0", false).expedition!;
+    expect(optIn.anomalyOptIn).toBe(true);
+    expect(optOut.anomalyOptIn).toBe(false);
+  });
+});
+
+// ============================================================================
+describe("SAVE migration v60 -> v61 backfills anomalyOptIn", () => {
+  it("backfills anomalyOptIn true onto an in-flight expedition that predates the field", () => {
+    const s: any = freshState();
+    const exp: any = {
+      id: "expedition-1",
+      shipId: "ship-1",
+      captainId: 1,
+      targetSystemId: "keplersReach",
+      systemName: "Kepler's Reach",
+      sensorArrayId: null,
+      scanParams: { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 },
+      sensorPower: 0,
+      phase: "transit",
+      phaseAnchorSeconds: 0,
+      shakedown: true,
+      bodies: [{ id: "body-1", planetType: "terrestrial", scanTotal: 100, scanProgress: 0, hazard: 0.1, scanned: false, discoveries: [], activities: [] }],
+      anomalyResolved: false,
+      anomalyCharted: false,
+      findings: [],
+      seed: 12345,
+    };
+    delete exp.anomalyOptIn; // simulate the pre-E2c shape
+    s.expeditions = [exp];
+    s.nextExpeditionId = 2;
+    const save: SaveFile = { version: 60, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as any;
+    const migrated: any = migrate(save);
+    expect(migrated.expeditions[0].anomalyOptIn).toBe(true);
+  });
+
+  it("is a no-op for a save with no active expeditions", () => {
+    const s: any = freshState();
+    const save: SaveFile = { version: 60, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: s } as any;
     const migrated: any = migrate(save);
     expect(migrated.expeditions).toEqual([]);
   });
