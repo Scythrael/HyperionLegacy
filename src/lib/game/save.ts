@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 61;
+export const SAVE_VERSION = 62;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2289,6 +2289,37 @@ const MIGRATIONS: Record<number, Migration> = {
       anomalyOptIn: exp.anomalyOptIn ?? true,
     })),
   }),
+  // v61 -> v62 (0.14.0 Exploration, Phase E3a): the away-team GAMBIT engine adds (1) the ACCOUNT-LEVEL
+  // gambit program pair on GameState (state.gambitPrograms) and (2) the per-expedition SNAPSHOT the
+  // ground-combat resolver reads (securityStrength / scienceStrength / teamKit / gambitPrograms on each
+  // Expedition). Seed the account pair from the DEFAULT ("Balanced") preset so an existing save behaves
+  // sensibly out of the box, and backfill the snapshot onto any IN-FLIGHT expedition that predates the
+  // fields: a NEUTRAL team (0/0 strength, base kit) + the default program pair, which keeps its remaining
+  // activities resolvable with a minimal team. v61 is a BRANCH-ONLY version, but a mid-branch v61 save
+  // could hold an active expedition, so the backfill is real. Only plain nested arrays/objects/numbers are
+  // added (no Decimals), so hydrateDecimals is unchanged. A fresh / expedition-free save just gains the
+  // account pair (this is a no-op for its empty expeditions array).
+  61: (state: any): any => {
+    const cloneRule = (r: any): any => ({ ...r, params: r.params ? { ...r.params } : undefined });
+    const defaultPrograms = {
+      security: DEFAULT_GAMBIT_PROGRAMS.security.map(cloneRule),
+      science: DEFAULT_GAMBIT_PROGRAMS.science.map(cloneRule),
+    };
+    return {
+      ...state,
+      gambitPrograms: state.gambitPrograms ?? defaultPrograms,
+      expeditions: (state.expeditions ?? []).map((exp: any) => ({
+        ...exp,
+        securityStrength: exp.securityStrength ?? 0,
+        scienceStrength: exp.scienceStrength ?? 0,
+        teamKit: exp.teamKit ?? 0,
+        gambitPrograms: exp.gambitPrograms ?? {
+          security: DEFAULT_GAMBIT_PROGRAMS.security.map(cloneRule),
+          science: DEFAULT_GAMBIT_PROGRAMS.science.map(cloneRule),
+        },
+      })),
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

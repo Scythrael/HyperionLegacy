@@ -64,6 +64,11 @@ import {
   type WeightedPoi,
 } from "./expeditionContent";
 import type { ExpeditionPlanetType } from "./model";
+// E3a: the away-team GAMBIT engine. deriveAwayTeam snapshots the ship's crew-derived team strength at
+// dispatch; resolveExpeditionActivity is the real gambit-combat swap-in for the placeholder activity
+// resolver below. The gambit catalogs are static data touched ONLY on the activities path, so importing
+// them here keeps the no-expedition tick byte-identical (additive-neutral).
+import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -341,6 +346,12 @@ function previewRelicSignature(seed: number, scanParams: ExpeditionScanParams): 
     anomalyOptIn: false,
     findings: [],
     seed,
+    // E3a snapshot fields: irrelevant to the discovery-only preview (it never resolves activities), so a
+    // neutral zero team + the default program pair keeps this throwaway well-typed without affecting the roll.
+    securityStrength: 0,
+    scienceStrength: 0,
+    teamKit: 0,
+    gambitPrograms: { security: [], science: [] },
   };
   fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
   for (const b of fake.bodies) for (const d of b.discoveries) if (RELIC_BEARING_POIS.has(d.poiId)) return true;
@@ -424,6 +435,14 @@ export function startExpedition(
   const id = `expedition-${number}`;
   const gen = generateSystem(seed);
   const snap = shipSensorSnapshot(state, ship);
+  // E3a: snapshot the away team's crew-derived strength + team kit + the account-level gambit program
+  // pair, so the expedition's ground battles resolve as a pure function of the stored expedition (parity;
+  // editing the account programs mid-flight never changes an in-flight run, matching the sensor snapshot).
+  const awayTeam = deriveAwayTeam(state, ship);
+  const gambitPrograms = {
+    security: state.gambitPrograms.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+    science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+  };
 
   const expedition: Expedition = {
     id,
@@ -443,6 +462,10 @@ export function startExpedition(
     anomalyOptIn,
     findings: [],
     seed,
+    securityStrength: awayTeam.securityStrength,
+    scienceStrength: awayTeam.scienceStrength,
+    teamKit: awayTeam.teamKit,
+    gambitPrograms,
   };
 
   return {
@@ -605,11 +628,15 @@ function resolveScanningPhase(exp: Expedition, consumed: number): void {
   }
 }
 
-// Resolve ACTIVITIES up to `consumed` seconds into the phase: the PLACEHOLDER resolver. It completes one
-// task per ACTIVITY_SECONDS in flat body/activity order, flipping `done` + appending one placeholder
-// finding per newly-completed task. Idempotent (only touches !done activities). ⚠️ E3 SWAP-IN SEAM: the
-// real gambit away-team combat replaces the "flip done + grant a finding" body here; it keeps
-// ExpeditionActivity.done as the completion flag + appends to exp.findings, so the record is unchanged.
+// Resolve ACTIVITIES up to `consumed` seconds into the phase: the E3 GAMBIT resolver (swapped in for the
+// E2a placeholder). It completes one task per ACTIVITY_SECONDS in flat body/activity order, flipping `done`
+// and appending the task's REAL finding (materials + credits + a relic chance) from the away-team gambit
+// battle (gambit.ts resolveExpeditionActivity). The ExpeditionActivity record is UNCHANGED (still just
+// id/bodyId/poiId/done): `done` stays the completion flag and findings are still appended to exp.findings,
+// exactly the E2a contract. Idempotent (only touches !done activities); deterministic (each battle is keyed
+// off exp.seed + a fixed salt + the activity's flat index, never a live stream position), so re-running at a
+// larger `consumed` yields the identical findings and the done-latch prevents any double-award. `seen` is
+// the activity's stable FLAT index across bodies, which is exactly the globalIndex the resolver seeds off.
 function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
   const total = totalActivities(exp);
   if (total === 0) return;
@@ -619,7 +646,7 @@ function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
     for (const act of body.activities) {
       if (seen < completedCount && !act.done) {
         act.done = true;
-        exp.findings.push({ id: `${exp.id}-find-act-${act.id}`, source: "activity" });
+        exp.findings.push(resolveExpeditionActivity(exp, body, act, seen).finding);
       }
       seen++;
     }

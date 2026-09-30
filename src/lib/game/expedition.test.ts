@@ -14,6 +14,7 @@ import { describe, it, expect } from "vitest";
 import {
   freshState,
   EXPEDITION_DEFAULT_SEED,
+  DEFAULT_GAMBIT_PROGRAMS,
   type GameState,
   type Expedition,
   type EquipmentInstance,
@@ -106,6 +107,15 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
     anomalyOptIn: true,
     findings: [],
     seed: 12345,
+    // E3a away-team snapshot: a neutral team + the default program pair, so a hand-built expedition still
+    // resolves its activities (a bare team can still win the easy placeholder-heir fights, or evacuate).
+    securityStrength: 0,
+    scienceStrength: 0,
+    teamKit: 2,
+    gambitPrograms: {
+      security: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+      science: DEFAULT_GAMBIT_PROGRAMS.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+    },
     ...over,
   };
 }

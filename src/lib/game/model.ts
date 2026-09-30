@@ -5293,13 +5293,152 @@ export interface ExpeditionBody {
   activities: ExpeditionActivity[];
 }
 
-// A claimable EXPEDITIONARY FINDING. E2a findings are GENERIC placeholder tokens (a count + a
-// provenance tag); E4 replaces this with the real relic/treasure system. `source` records where the
-// finding came from so E4 can route each provenance differently.
+// A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
+// E3 makes an ACTIVITY finding REAL by attaching the away-team task's reward payload (planet-flavored
+// materials + credits + a CHANCE at an UNIDENTIFIED relic token). The payload fields are OPTIONAL so the
+// anomaly finding (and any pre-E3 placeholder finding on a mid-branch save) stays valid unchanged; E4
+// still owns the DEPOSIT + relic identification (claimExpedition only hands the findings back). `source`
+// records where the finding came from so E4 can route each provenance differently.
 export interface ExpeditionFinding {
   id: string; // stable, "<expeditionId>-find-<n>"
   source: "anomaly" | "activity";
+  // E3 activity-finding payload (all optional; unset on an anomaly / pre-E3 finding):
+  poiId?: string; // the PoI the away-team task resolved (expeditionContent.ts POI_CATALOG id)
+  materials?: Record<string, number>; // itemId -> quantity gathered (E4 deposits these)
+  credits?: number; // credits recovered
+  relic?: ExpeditionRelicToken | null; // an UNIDENTIFIED relic token when the roll hit (E4 identifies it), else null/unset
+  evacuated?: boolean; // true when the task was LOST after every attempt (evacuated: a reduced "always win something" payload)
 }
+
+// An UNIDENTIFIED relic the away-team recovered. Its rarity TIER + quality come from REUSING the salvage
+// tiered-rarity roll machinery (SALVAGE_LOOT_POOLS, gambit.ts rollRelicToken); the concrete relic + its
+// bonus are DELIBERATELY not resolved here -- E4 (Research -> Museum) owns identification, so this token
+// stays generic (`unidentified: true`) until then, exactly like a crafting BLANK before inspection.
+export interface ExpeditionRelicToken {
+  id: string; // stable, "<expeditionId>-relic-<n>"
+  tier: EquipmentRarity; // the salvage-tier rarity this relic rolled (reuses the rarity ladder)
+  quality: number; // 0..5 quality bucket from the salvage tier (reuses the 0-5 quality system)
+  unidentified: true; // always true this phase: E4 owns identification/research/museum
+}
+
+// ============================================================================
+// Away-team GAMBIT combat model (Exploration 0.14.0, Phase E3a; LOCKED FFXII structure, user 2026-09-30)
+// ============================================================================
+// The PERSISTED gambit rule model. A RULE is [TARGET selector] + [ACTION], evaluated TOP-DOWN with the
+// FIRST MATCH firing (FFXII's exact structure); the TARGET carries the condition (an HP threshold, a
+// status). A PROGRAM is an ordered list of rules; the player keeps ONE program per ROLE (Security +
+// Science) as an ACCOUNT-LEVEL pair on GameState (all away teams use it, first-pass). The INTERPRETER +
+// ground-combat resolver live in gambit.ts (built generalizable, so the pinned ship-combat gambit layer
+// can reuse it later); this file owns only the persisted shapes + the default program pair.
+
+// TARGET SELECTORS (the tactical heart). Foe selectors pick an enemy; Ally/Self selectors pick a friendly.
+// A few are NON-TARGET CONDITIONS (openingRound/outnumbered) whose action fires against a contextual
+// default target. Selectors that need a parameter read it from GambitRule.params (hpThreshold / statusId).
+export type GambitTargetSelector =
+  // --- Foe selectors ---
+  | "foeNearest"
+  | "foeFarthest"
+  | "foeHighestHp" // "punch the biggest guy to establish dominance"
+  | "foeLowestHp" // finish the wounded
+  | "foeHighestThreat" // take down the biggest damage threat first
+  | "foeIsHealer" // target the enemy healer/support
+  | "foeIsCaster" // target the enemy caster/ranged
+  | "foeHasStatus" // params.statusId: a foe already carrying status X
+  | "foeLargestGroup" // the most-numerous enemy type (multi-group encounters)
+  // --- Ally / Self selectors ---
+  | "allyLowestHp"
+  | "allyHpBelow" // params.hpThreshold (0..1 fraction): a granular, configurable trigger
+  | "allyHasStatus" // params.statusId (absent => any debuff): the "designated member cures it" hook
+  | "self"
+  | "selfHpBelow" // params.hpThreshold
+  | "selfHasStatus" // params.statusId
+  // --- Non-target conditions (fire against a contextual default target) ---
+  | "openingRound"
+  | "outnumbered";
+
+// ACTIONS, role-scoped. SECURITY fights; SCIENCE supports/cures/secures; BOTH share the neutral trio.
+// Role-legality is enforced by gambit.ts (isActionLegalForRole): a Science rule with a Security action
+// (or vice-versa) is skipped by the resolver + flagged by validateGambitProgram.
+export type GambitActionId =
+  // --- Security ---
+  | "attack"
+  | "suppress" // damage + apply Suppressed (accuracy down)
+  | "taunt" // force enemy focus onto the taunter ("establish dominance" / tank)
+  | "execute" // bonus damage vs a low-HP foe
+  | "brace" // self Shielded (damage taken down)
+  // --- Science ---
+  | "cure" // clear a debuff (params.statusId, else all debuffs) from an ally
+  | "aidHeal" // restore an ally's HP
+  | "shieldAlly" // apply Shielded to an ally
+  | "analyze" // reveal a foe's weakness (apply Corroded: armor down)
+  | "secureObjective" // advance the objective track (can win the fight mid-combat)
+  | "takeCover" // self damage-taken-down without acting offensively
+  // --- Both ---
+  | "useItem" // spend a team-kit consumable to cure an ally (works with no Science curer)
+  | "fallBack" // disengage this round
+  | "hold"; // do nothing (explicit no-op)
+
+// The STATUS / AFFLICTION vocabulary (gambit.ts GAMBIT_STATUSES carries the effect semantics + first-pass
+// magnitudes/durations). Debuffs: Poison/Bleed (DoT), Stun (skip), Weakened (dmg down), Suppressed (acc
+// down), Corroded (armor down), Fear (may fall back). Buffs: Shielded (dmg taken down), Inspired (dmg up).
+export type GambitStatusId =
+  | "poison"
+  | "bleed"
+  | "stun"
+  | "weakened"
+  | "suppressed"
+  | "corroded"
+  | "fear"
+  | "shielded"
+  | "inspired";
+
+// Optional parameters a selector reads (an HP threshold as a 0..1 fraction, a status id). Absent when the
+// selector needs none.
+export interface GambitRuleParams {
+  hpThreshold?: number; // 0..1 fraction for allyHpBelow / selfHpBelow
+  statusId?: GambitStatusId; // for foeHasStatus / allyHasStatus / selfHasStatus (and cure's target status)
+}
+
+// ONE gambit rule: a target selector (+ optional params) and the action to take on the match.
+export interface GambitRule {
+  target: GambitTargetSelector;
+  params?: GambitRuleParams;
+  action: GambitActionId;
+}
+
+// An ordered gambit program: rules evaluated top-down, first match fires (per member, per round).
+export type GambitProgram = GambitRule[];
+
+// The two away-team roles the player writes programs for.
+export type GambitRole = "security" | "science";
+
+// The player's ACCOUNT-LEVEL program pair (one per role). Every away team uses this pair, first-pass; a
+// per-ship override is a documented follow-on. Stored on GameState; snapshotted onto an Expedition at
+// dispatch so resolution is a pure function of the stored expedition (parity), like the sensor snapshot.
+export interface GambitPrograms {
+  security: GambitProgram;
+  science: GambitProgram;
+}
+
+// The DEFAULT program pair a fresh save starts from and the v61->v62 migration seeds onto existing saves.
+// This IS the "Balanced" preset (gambit.ts GAMBIT_PRESETS references this constant, single source of
+// truth): a sensible general pair -- Security kills the enemy healer, then the biggest threat, then
+// finishes the wounded, then hits the nearest; Science heals a hurt ally, cleanses afflictions, secures
+// the objective, and covers when itself is low. FIRST-PASS TUNABLE.
+export const DEFAULT_GAMBIT_PROGRAMS: GambitPrograms = {
+  security: [
+    { target: "foeIsHealer", action: "attack" },
+    { target: "foeHighestThreat", action: "attack" },
+    { target: "foeLowestHp", action: "execute" },
+    { target: "foeNearest", action: "attack" },
+  ],
+  science: [
+    { target: "allyHpBelow", params: { hpThreshold: 0.5 }, action: "aidHeal" },
+    { target: "allyHasStatus", action: "cure" },
+    { target: "self", action: "secureObjective" },
+    { target: "selfHpBelow", params: { hpThreshold: 0.4 }, action: "takeCover" },
+  ],
+};
 
 // A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,
 // captured at dispatch so resolution is a pure function of the stored expedition (no live fitment
@@ -5342,6 +5481,18 @@ export interface Expedition {
   anomalyOptIn: boolean;
   findings: ExpeditionFinding[];
   seed: number; // per-expedition PRNG seed (reload-deterministic, like inspectSeed)
+  // --- E3a away-team SNAPSHOT (captured at dispatch, exactly like the sensor snapshot above) ------------
+  // The away team's derived combat strength + team kit, and the gambit program pair, snapshotted at
+  // dispatch (startExpedition, from the ship's crew via deriveAwayTeam + state.gambitPrograms). Resolution
+  // (the E3 gambit ground battles in resolveActivitiesPhase) reads ONLY these stored fields, so it is a
+  // pure function of the stored expedition -- the tick chain (advanceExpedition) needs no GameState, and
+  // one-big == many-small parity holds by construction (the snapshot is a fixed input, not a live read).
+  // Editing the account-level programs mid-flight does NOT change an in-flight run, matching the sensor
+  // snapshot's "the launch is what you saw at dispatch" contract.
+  securityStrength: number; // Security division + tactical officers -> detail count + combat power/HP
+  scienceStrength: number; // Science division + science/medical officers -> party power (support/cure/secure)
+  teamKit: number; // per-battle team-kit consumables (cures/stims) available for useItem
+  gambitPrograms: GambitPrograms; // the snapshotted Security + Science program pair the away teams run
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
@@ -5725,6 +5876,15 @@ export interface GameState {
   // the SAME pattern seniorStaffSeed / inspectSeed use. freshState seeds EXPEDITION_DEFAULT_SEED; the
   // v58->v59 migration backfills the identical default. A plain number, so hydrateDecimals is unchanged.
   expeditionSeed: number;
+  // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
+  // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
+  // these). Every away team uses this pair (first-pass; a per-ship override is a documented follow-on).
+  // startExpedition SNAPSHOTS this onto the launched Expedition (Expedition.gambitPrograms) so an in-flight
+  // run resolves against the pair as it was at dispatch (parity + the snapshot contract). freshState seeds
+  // DEFAULT_GAMBIT_PROGRAMS (== the "Balanced" preset); the v61->v62 migration backfills the identical
+  // default. Plain nested arrays/objects (no Decimals), so hydrateDecimals is unchanged, and NOTHING on the
+  // tick path reads this field except a dispatch, so a save with no expedition stays additive-neutral.
+  gambitPrograms: GambitPrograms;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -10208,5 +10368,12 @@ export function freshState(): GameState {
     expeditions: [],
     nextExpeditionId: 1,
     expeditionSeed: EXPEDITION_DEFAULT_SEED,
+    // Exploration 0.14.0 (Phase E3a): the account-level away-team gambit pair starts from the Balanced
+    // default (DEFAULT_GAMBIT_PROGRAMS). Existing saves reach the IDENTICAL shape via the v61->v62
+    // migration (save.ts), so a fresh save and a migrated save stay indistinguishable.
+    gambitPrograms: {
+      security: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+      science: DEFAULT_GAMBIT_PROGRAMS.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
+    },
   };
 }
