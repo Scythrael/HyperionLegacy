@@ -195,6 +195,35 @@ build the interpreter GENERALIZABLE, not hard-wired to ground combat.
   smart gambits; the exhaustive affliction/skill/enemy-role library is balance-pass content. Interpreter stays
   deterministic + offline-safe + generalizable (ship combat adopts it later).
 
+#### ⭐ THE AWAY TEAM ROSTER: the INTENDED plan for exploration ground teams (user-confirmed 2026-10-01)
+⚠️ This was the plan all along but was never written into this doc (see the record below). It is now the
+authoritative model for ground teams, and the E3 build DEVIATES from it until reworked.
+- **A DEDICATED AWAY-TEAM ROSTER PER SHIP**: persistent, NAMED members, stored like Senior Staff officers
+  (small + bounded, so the crew Complement's bucket model is untouched). Two squads with distinct jobs
+  (2026-10-01 split): the **SECURITY DETAIL fights** (Contact phase, Security-only gambit battles, in-fight
+  curing via medic skills + kit items) and the **SCIENCE PARTY does the fieldwork** (excavate / sample /
+  decrypt; drives speed, haul, relic odds).
+- **EACH MEMBER IS OUTFITTED**: **Armor / Weapon / Tool** gear slots + **cybernetic IMPLANT** slots. Implants
+  equip to INDIVIDUAL members, not squads. Security implants = combat; Science implants = fieldwork.
+  UNIQUE-EQUIPPED implants (Neural Backup) = ONE in the entire fleet.
+- **Base strength still flows from the crew** (the ship's Security / Science divisions + the matching
+  officers); gear and implants layer on top.
+- **ONE shared loadout family:** this roster + loadout system is the same mechanic the older notes call for
+  across Landing Party missions, Away Missions, and Battlespace Invasion ground troops ("build the
+  equipment slots ONCE and reuse"), so design it to be reused, not exploration-only.
+- **Source notes this consolidates** (SUGGESTIONS): "Landing Party missions" (2026-07-07: "item/equipment
+  slots for the boarding party, a loadout system, not just picking which captain/crew go"), "Away Missions"
+  (2026-07-16: crew fill away-mission slots; build the loadout ONCE across Away Missions / Landing Party /
+  Invasion), the "Ground combat" entry (ground characters with offense/defense/debuff specs), and the
+  2026-07-09 cybernetics entry (implants on individuals).
+- **WHAT THE CODE DOES TODAY (the deviation to fix):** `buildTeamCombatants` (gambit.ts) MINTS anonymous
+  members fresh for every battle from crew strength (ids like `<prefix>-sec-0`), with no persistence, no
+  gear, no slots. E3 (2026-09-30) chose "derive from crew" and DEFERRED the gear layer because these notes
+  were not cross-checked before that build. Rework: members come from the persistent roster.
+- **OPEN for the design pass (mockup first):** how members are recruited (a candidate roster like officers?
+  drawn from crew?), members per squad, gear catalog + crafting, slot counts, member progression, and what
+  happens when a member falls (injury vs permanent loss).
+
 ### Phase E4 — Relics -> discovery-gated Research -> Museum [extends archive.ts]
 - RELICS are UNIDENTIFIED when found (like crafting BLANKS): the RESEARCH facility STUDIES a relic to reveal
   it (reuse the blanks/inspect + queue pattern), then you give it to the MUSEUM = a new Archive-family tab

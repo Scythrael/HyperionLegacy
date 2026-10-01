@@ -549,6 +549,13 @@ Table for a future release; brainstorm depth later.
 - The deferred "Ground Crews" 3rd crew piece (Boarding/Science/Security teams, per-team Armor/Weapon/Tool
   gear, the gambit system) IS the expedition ground-team system. Science + Security are the two roles; gambit
   auto-resolve is the battle model.
+- **[LOCKED 2026-10-01, the intended plan made explicit]** "Per-team gear" above was an under-statement. The
+  plan is a **DEDICATED, PERSISTENT AWAY-TEAM ROSTER PER SHIP of NAMED members**, each outfitted with
+  **Armor / Weapon / Tool** gear slots plus **cybernetic implant** slots (implants per individual member;
+  unique-equipped ones limited to one per fleet). **Security fights, Science does the fieldwork** (user
+  2026-10-01). Base strength still comes from the crew. It is the SAME loadout family as Landing Party /
+  Away Missions / Battlespace Invasion (SUGGESTIONS). Authoritative detail: the exploration plan
+  (`2026-09-24-exploration-0.14.0-plan.md`) section "THE AWAY TEAM ROSTER".
 
 ### I.5 The SEMI-IDLE model [LEAD STEER, user asked for help 2026-09-23]
 - It is idle-compatible BECAUSE battles AUTO-resolve via gambits (not a live manual session). This RESOLVES
