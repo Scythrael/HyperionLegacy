@@ -6498,7 +6498,11 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "legendary",
     unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
-    flavor: "A sealed memory core pulled whole from a dead ship, its archives locked behind a cipher no one alive can key.",
+    // ⚠️ EASTER EGG, keep as-is: the closing quote is the game's FIRST MEME (user, 2026-10-01), a
+    // nod to the 2026-09-29 player report that this salvage-only exotic had "no slot" and no use
+    // (which led to the 0.13.8 discovery hotfix). Deliberately UNANNOUNCED: never list it in patch
+    // notes or the Discord post, and do not "clean up" the line during flavor/copy passes.
+    flavor: "A sealed memory core pulled whole from a dead ship, its archives locked behind a cipher no one alive can key. \"What is this thing even for?\"",
   },
 };
 
