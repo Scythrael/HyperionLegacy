@@ -62,7 +62,11 @@ import {
   buildPatrolPlayerCombatant,
   regenPatrolShield,
   capturePlayerSystemDurability,
+  damageControlBeforeWave,
 } from "./patrolWave";
+// E4d: the Damage Control Suite's between-wave regen fraction (a model-only leaf), read off the SAME
+// installed gear the live loop reads, so the replay's patch-up matches the real fight.
+import { damageControlEffect } from "../utilityGear";
 import { generateEnemyWaveDetailed } from "./enemyWave";
 import { resolveBattle } from "./resolveBattle";
 import { replenishDrones } from "./droneDefense";
@@ -146,7 +150,8 @@ export interface PatrolReplay {
   // damaged). No loot/XP/damage is applied here regardless: this is display only.
   defeated: boolean;
   // The player's carry hull after the last resolved wave (post-battle; hull never
-  // regenerates between waves). On a defeat this is the surviving hull at the loss.
+  // regenerates between waves, except the E4d Damage Control Suite's patch-up before
+  // each later wave). On a defeat this is the surviving hull at the loss.
   finalPlayerHull: number;
   // The player's carry shield after the last resolved wave (post-battle, before any
   // trailing transit-back regen, which does not feed another battle).
@@ -224,6 +229,9 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   // Standard-Issue set (or the low-level tests' absent gear) this folds to the authored stats exactly,
   // so no existing replay/parity outcome moves.
   const foldedDefense = foldedPlayerDefense(stats, input.installedGear);
+  // E4d: the Damage Control Suite's between-wave hull patch-up fraction (0 without the suite), the SAME
+  // value the live loop computes from the same gear.
+  const waveHullRegenFraction = damageControlEffect(input.installedGear).waveHullRegenFraction;
 
   // The wave schedule: a pure function of the master seed + def params, IDENTICAL to
   // the array freshPatrolMission persisted at dispatch (same call), so the replay's
@@ -272,6 +280,10 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
         replenishDrones(squadron, squadron.droneReplenishRate);
       }
     }
+
+    // E4d: the Damage Control Suite's between-wave hull patch-up, the SAME shared leaf at the SAME point
+    // (just before the wave's combatant is built) as the live loop, so the replay stays byte-identical.
+    carryHull = damageControlBeforeWave(waveIndex, foldedDefense.hullMax, carryHull, waveHullRegenFraction);
 
     // PLAYER combatant from the carry-state, via the SHARED leaf the live loop uses.
     const player = buildPatrolPlayerCombatant({

@@ -80,6 +80,7 @@ import type {
   EquipmentSlotType,
   ShipSpec,
   CaptainTalentBranch,
+  EquipRequirement,
 } from "./model";
 // startAutoSalvageGrace is the ONE writer of EquipmentInstance.graceStartedAtGameSeconds. Every
 // uninstall route in this file calls it on the piece it pools, so a piece the player just took
@@ -306,6 +307,22 @@ export function onMissionLock(
 }
 
 // ----------------------------------------------------------------------------
+// pieceEquipRequirement (Exploration 0.14.0, E4d)
+// ----------------------------------------------------------------------------
+// The equip gate that applies to THIS piece. A VARIETY may carry its own gate (the relic-unlocked utility
+// families in specUtility: the Damage Control Suite is tactician-only, the Pathfinder Suite explorer-only),
+// which REPLACES the slot's. The variety is recognized by the instance's stamped moduleVariant
+// (generateEquipment stamps it for exactly those varieties). A piece with no moduleVariant, or whose variety
+// carries no gate (every pre-E4d piece), resolves to the SLOT's requirement, so existing gating is
+// byte-identical. Exported so the Armory's loadout install applies the SAME hull gate. PURE.
+export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequirement | undefined {
+  const slotDef = EQUIPMENT_SLOTS[instance.slotType];
+  const variety =
+    instance.moduleVariant !== undefined ? slotDef?.varieties.find((v) => v.key === instance.moduleVariant) : undefined;
+  return variety?.equipRequirement ?? slotDef?.equipRequirement;
+}
+
+// ----------------------------------------------------------------------------
 // canFitEquipment
 // ----------------------------------------------------------------------------
 // THE fitment gate: a pure predicate answering "can this spare piece be fit to this
@@ -394,8 +411,7 @@ export function canFitEquipment(
   // patch; a piece in a reserved slot (none are generated this patch) has no def and
   // so no gate. A universal slot (cargoBay / ftlDrive / reactorCore) has no
   // equipRequirement at all and clears this whole block.
-  const slotDef = EQUIPMENT_SLOTS[instance.slotType];
-  const req = slotDef?.equipRequirement;
+  const req = pieceEquipRequirement(instance);
   if (req) {
     // HULL gate: the target hull's static spec (SHIP_TYPES[typeKey].spec) must equal
     // the required hullSpec. OPTIONAL, an absent hullSpec skips this check.

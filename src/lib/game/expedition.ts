@@ -56,7 +56,10 @@ import type {
   ExpeditionScanParams,
 } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
-import { installedSensorArray, sensorArrayEffect } from "./sensorArrays";
+import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
+// E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
+import { pathfinderEffect } from "./utilityGear";
+import { equippedFor } from "./equipment";
 import { effectiveShipStats } from "./crewOverlay";
 import {
   PLANET_TYPES,
@@ -296,6 +299,24 @@ function shipSensorSnapshot(
   };
 }
 
+// E4d: the ship's INSTALLED-GEAR expedition bonuses, added to the museum's at dispatch: the Pathfinder
+// Suite's scan speed + hazard resist, and the installed sensor array's relic-find bonus (non-zero only for
+// the Bio-Resonance Array). Exact zeros for a ship carrying neither (every existing loadout), so the
+// snapshot sum museum + 0 is the museum value bit-for-bit. Pure.
+export interface ExpeditionGearBonuses {
+  scanSpeed: number;
+  hazardResist: number;
+  relicFindChance: number;
+}
+export function expeditionGearBonuses(state: GameState, ship: ShipInstance): ExpeditionGearBonuses {
+  const pathfinder = pathfinderEffect(equippedFor(state, ship.id));
+  return {
+    scanSpeed: pathfinder.scanSpeed,
+    hazardResist: pathfinder.hazardResist,
+    relicFindChance: sensorArrayRelicFindBonus(installedSensorArray(state, ship)),
+  };
+}
+
 // ============================================================================
 // E2c: candidate targets + sensor-gated foreknowledge (pure readers)
 // ============================================================================
@@ -471,6 +492,11 @@ export function startExpedition(
   // you saw at dispatch" contract as the sensor + away-team snapshots), so resolution reads only stored
   // values and a museum that grows mid-flight never changes an in-flight run (parity by construction).
   const museum = museumBonuses(state);
+  // E4d: the ship's installed relic-unlocked gear (Pathfinder Suite, Bio-Resonance Array) adds to the SAME
+  // snapshot, ADDITIVELY and at the same dispatch instant, so resolution reads only stored values and an
+  // in-flight run never changes if the ship's gear changes later (the same contract as the museum and
+  // sensor-array snapshots). Zeros without the gear, so museum + 0 is bit-identical to the E4b snapshot.
+  const gear = expeditionGearBonuses(state, ship);
   const gambitPrograms = {
     security: state.gambitPrograms.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
     science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
@@ -498,9 +524,9 @@ export function startExpedition(
     scienceStrength: awayTeam.scienceStrength,
     teamKit: awayTeam.teamKit,
     gambitPrograms,
-    scanSpeedBonus: museum.scanSpeed,
-    relicFindBonus: museum.relicFindChance,
-    hazardResist: museum.hazardResist,
+    scanSpeedBonus: museum.scanSpeed + gear.scanSpeed,
+    relicFindBonus: museum.relicFindChance + gear.relicFindChance,
+    hazardResist: museum.hazardResist + gear.hazardResist,
   };
 
   return {

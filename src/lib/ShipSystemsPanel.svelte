@@ -150,8 +150,10 @@
   // The installable SINGLETON slots, grouped by function to match the mockup. Each
   // slot holds at most one piece (install replaces, uninstall leaves it bare for a
   // combat slot or auto-restores a Standard-Issue baseline for an economy slot).
-  //   prospectorOnly, specUtility (the Prospecting Rig slot) exists only on Prospector
-  //                   hulls (design: the Freighter has no Spec Utility slot).
+  //   prospectorOnly, specUtility exists only on SPECIALIZED hulls (design: the Freighter
+  //                   has no Spec Utility slot). The flag's name predates E4d, when the slot
+  //                   was Prospector-only; it now also shows on tactician + explorer hulls
+  //                   (see hasSpecUtilitySlot).
   type SlotMeta = { slotType: EquipmentSlotType; label: string; prospectorOnly?: boolean };
   // DEFENSE singletons (combat): shown for every hull (all hulls are combat-capable).
   const DEFENSE_SLOTS: SlotMeta[] = [
@@ -164,6 +166,12 @@
     { slotType: "ftlDrive", label: "FTL Drive" },
     { slotType: "reactorCore", label: "Reactor Core" },
     { slotType: "specUtility", label: "Spec Utility", prospectorOnly: true },
+    // The scanning array (0.14.0). The sensor slot has existed on EVERY hull since the sensor
+    // foundation (an allow-empty catalog singleton), and the Expedition console tells players to
+    // "Install a sensor array (Ships tab)", but this tile was never added, so a crafted array
+    // (first craftable: the Bio-Resonance Array) had no way to be installed. Label matches the
+    // engine's EQUIPMENT_SLOTS.sensor.label.
+    { slotType: "sensor", label: "Sensor Array" },
   ];
 
   // A stable per-slotType glyph for the combat slots (weapon / shield / plating /
@@ -326,6 +334,8 @@
       ? state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null
       : null;
   $: isProspectorHull = shipDef?.spec === "prospector";
+  // E4d: every specialized hull (prospector / tactician / explorer) shows the Spec Utility slot.
+  $: hasSpecUtilitySlot = shipDef !== null && shipDef !== undefined && shipDef.spec !== "general";
   $: onMission = assignedCaptain !== null && assignedCaptain.mission !== null;
 
   // --- Ship name (Renamable Ships) --------------------------------------------
@@ -395,9 +405,11 @@
   }
 
   // The SHIP-SYSTEM singleton slots actually shown for THIS hull: the Spec Utility
-  // slot is Prospector-only, so it is dropped on other hulls. The Defense singletons
-  // and the weapon strip show on every hull (all hulls are combat-capable now).
-  $: visibleSystemSlots = SYSTEM_SLOTS.filter((s) => !s.prospectorOnly || isProspectorHull);
+  // slot exists on every SPECIALIZED hull (prospector rigs; since E4d also the tactician
+  // Damage Control Suite and the explorer Pathfinder Suite) and is dropped only on the
+  // general Freighter (design: the Freighter has no Spec Utility slot). The Defense
+  // singletons and the weapon strip show on every hull (all hulls are combat-capable now).
+  $: visibleSystemSlots = SYSTEM_SLOTS.filter((s) => !s.prospectorOnly || hasSpecUtilitySlot);
 
   // Reactive per-slot "what is installed here" map, keyed by slotType. CRITICAL for
   // correct redraws: reading fittedInSlot(...) inside a template expression hides the
@@ -609,15 +621,35 @@
   $: pickerActive = selectedSlot !== null || selectedHardpoint !== null || selectedBay !== null;
   $: pickerSpares =
     selectedSlot !== null
-      ? equipmentPool.filter((e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === selectedSlot)
+      ? equipmentPool.filter(
+          (e) =>
+            e.fittedToShipId === null &&
+            e.committedToLoadoutId === undefined &&
+            e.slotType === selectedSlot &&
+            // E4d: the Spec Utility slot now holds several hull-gated FAMILIES (prospecting rigs, the
+            // tactician Damage Control Suite, the explorer Pathfinder Suite). A family built for a
+            // different hull class can never go in, so it is left out of this hull's list entirely rather
+            // than shown as a wall of dimmed "wrong hull" tiles. (A prospector hull's list is therefore
+            // exactly what it was before E4d: only rigs.) Every other slot is unfiltered, as before.
+            (selectedSlot !== "specUtility" || !isHullSpecBlocked(e.id)),
+        )
       : selectedHardpoint !== null
         ? spareWeapons
         : selectedBay !== null
           ? sparePods
           : [];
+  // E4d: true when this spare is refused by THIS hull's class gate (the per-variety equipRequirement).
+  function isHullSpecBlocked(instanceId: string): boolean {
+    const gate = canFitEquipment(safeState, shipId, instanceId);
+    return !gate.ok && gate.reason === "hullSpec";
+  }
   $: pickerLabel =
     selectedSlot !== null
-      ? EQUIPMENT_SLOTS[selectedSlot]?.label ?? selectedSlot
+      ? // E4d: the Spec Utility slot's catalog label is "Prospecting Rig" (its original single family); on a
+        // non-prospector hull it now holds a different family, so the picker uses the neutral slot name.
+        selectedSlot === "specUtility" && !isProspectorHull
+        ? "Spec Utility"
+        : EQUIPMENT_SLOTS[selectedSlot]?.label ?? selectedSlot
       : selectedHardpoint !== null
         ? "Weapon"
         : selectedBay !== null
@@ -1184,6 +1216,13 @@
   function spareLabel(piece: EquipmentInstance): string {
     if (piece.slotType === "weapon") return weaponName(piece);
     if (piece.slotType === "droneBay") return `${droneRoleName(piece.droneRole)} drone`;
+    // E4d: a relic-unlocked family in the shared Spec Utility slot (stamped moduleVariant with its own
+    // identity) reads as its OWN name ("Damage Control Suite"), not the slot's original "Prospecting Rig".
+    // Every other piece (no such variety) keeps the slot label exactly as before.
+    if (piece.slotType === "specUtility" && piece.moduleVariant !== undefined) {
+      const v = EQUIPMENT_SLOTS.specUtility.varieties.find((x) => x.key === piece.moduleVariant);
+      if (v !== undefined) return v.label;
+    }
     return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
   }
 </script>

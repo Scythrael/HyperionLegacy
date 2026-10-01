@@ -3,7 +3,8 @@
 // A sensor is a normal EquipmentInstance on the `sensor` slot (model.ts EQUIPMENT_SLOTS): a craftable,
 // rollable, ALLOW-EMPTY singleton (quality / rarity / iLevel). WHICH scanning array it is lives on the
 // instance as `moduleVariant` (a catalog id, stamped by generateEquipment), exactly like a crew module.
-// This module owns the SENSOR_ARRAYS catalog (3 arrays) and the pure functions that turn an installed
+// This module owns the SENSOR_ARRAYS catalog (4 arrays since E4d added the
+// Bio-Resonance relic hunter) and the pure functions that turn an installed
 // piece into its scan-behavior params.
 //
 // ⚠️ NOTHING HERE IS CONSUMED YET (DORMANT). Exploration (the scan/survey system, design I.2) is the
@@ -40,7 +41,8 @@ import { moduleEffectScale } from "./crewModules";
 // The scanning arrays (3): WIDE-beam / FOCUSED-beam / BALANCED
 // ============================================================================
 
-export type SensorArrayKind = "wide" | "focused" | "balanced";
+// E4d added "bioResonance": the relic-hunter array (the only one that raises relic find chance).
+export type SensorArrayKind = "wide" | "focused" | "balanced" | "bioResonance";
 
 export interface SensorArrayDef {
   id: string; // == the sensor slot variety key (stamped onto the instance as moduleVariant)
@@ -64,6 +66,13 @@ export interface SensorArrayDef {
   // undergroundPoiOddsBias: ADDITIVE bias to the odds of UNDERGROUND special PoIs, the FOCUSED-beam
   //   quirk ("higher odds of underground special PoIs"). 0 otherwise. SCALES with rarity/quality.
   undergroundPoiOddsBias: number;
+  // Exploration 0.14.0 (E4d): an ADDITIVE relic-find bonus fraction, folded into the expedition's
+  //   dispatch-time relicFindBonus snapshot (alongside the museum's relicFindChance; a won task's relic
+  //   token chance is x (1 + bonus), capped at certain, gambit.ts rollRelicToken). 0 for every array except
+  //   the Bio-Resonance Array, the relic hunter. SCALES with rarity/quality like the discovery biases (see
+  //   sensorArrayRelicFindBonus). Deliberately NOT part of sensorArrayEffect / ExpeditionScanParams, so the
+  //   scan-param snapshot shape every existing expedition stores is unchanged.
+  relicFindBonus: number;
 }
 
 // FIRST-PASS magnitudes. BALANCED is the 1.0/1.0 baseline with a small even bias to both discovery
@@ -80,6 +89,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     coverageWidth: 1.5,
     landmarkOddsBias: 0.15,
     undergroundPoiOddsBias: 0,
+    relicFindBonus: 0,
   },
   // FOCUSED-beam: faster per-pass cadence, smaller % per pass, higher odds of UNDERGROUND special PoIs.
   {
@@ -91,6 +101,7 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     coverageWidth: 0.6,
     landmarkOddsBias: 0,
     undergroundPoiOddsBias: 0.2,
+    relicFindBonus: 0,
   },
   // BALANCED: the neutral middle option, a mix of both.
   {
@@ -102,6 +113,22 @@ export const SENSOR_ARRAYS: readonly SensorArrayDef[] = [
     coverageWidth: 1.0,
     landmarkOddsBias: 0.05,
     undergroundPoiOddsBias: 0.05,
+    relicFindBonus: 0,
+  },
+  // BIO-RESONANCE (Exploration 0.14.0, E4d): the RELIC HUNTER. The only array that raises relic find chance
+  // (relicFindBonus, +25% relative at standard/q0, rarity/quality-scaled), paid for with the SLOWEST scan
+  // cadence of any array (scanRateMult 0.7) and no discovery-odds bias. The first CRAFTABLE array (its
+  // blueprint is discovery-gated by the Leviathan Scale). FIRST-PASS TUNABLE.
+  {
+    id: "sensorBioResonance",
+    label: "Bio-Resonance Array",
+    slot: "sensor",
+    kind: "bioResonance",
+    scanRateMult: 0.7,
+    coverageWidth: 1.0,
+    landmarkOddsBias: 0,
+    undergroundPoiOddsBias: 0,
+    relicFindBonus: 0.25,
   },
 ];
 
@@ -166,6 +193,15 @@ export function sensorArrayEffect(installed: InstalledSensorArray): SensorArrayE
     landmarkOddsBias: installed.def.landmarkOddsBias * scale,
     undergroundPoiOddsBias: installed.def.undergroundPoiOddsBias * scale,
   };
+}
+
+// Exploration 0.14.0 (E4d): the installed array's RELIC-FIND bonus, rarity/quality-scaled (moduleEffectScale,
+// standard/q0 == 1.0, like the discovery biases), or 0 when no array is installed. 0 for every array except
+// the Bio-Resonance Array, so an existing loadout snapshots exactly the museum's relicFindChance. Kept OUT of
+// sensorArrayEffect so the stored ExpeditionScanParams shape never changes. Pure.
+export function sensorArrayRelicFindBonus(installed: InstalledSensorArray | null): number {
+  if (installed === null || !(installed.def.relicFindBonus > 0)) return 0;
+  return installed.def.relicFindBonus * moduleEffectScale(installed.instance.rarity, installed.instance.quality);
 }
 
 // A convenience direct scale reader (rarity/quality -> effect scale), so a consumer that only needs the

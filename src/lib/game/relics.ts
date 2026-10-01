@@ -431,6 +431,24 @@ export function getRelicSetById(id: string): RelicSetDef | undefined {
 }
 
 // ============================================================================
+// E4d: the MASKED Research-catalog copy for a discovery-gated blueprint
+// ============================================================================
+
+// What the Research catalog shows for a blueprint still locked behind an UNDISCOVERED relic
+// (model.ts blueprintRelicLocked). It names the relic's SET, never the relic itself, so the card cannot
+// spoil a find the player has not made (the project's own name stays hidden too: the card shows only this
+// title + detail). An unknown / absent relic id falls back to a neutral phrase rather than leaking an id.
+// The ONE source of this wording: the masked card and the disabled-button block text both read it. Pure.
+export function undiscoveredResearchMask(relicId: string | undefined): { title: string; detail: string } {
+  const relic = relicId !== undefined ? RELIC_BY_ID.get(relicId) : undefined;
+  const setLabel = relic ? RELIC_SET_BY_ID.get(relic.setId)?.label : undefined;
+  return {
+    title: "Undiscovered research",
+    detail: setLabel ? `Requires a ${setLabel} relic discovery` : "Requires a relic discovery",
+  };
+}
+
+// ============================================================================
 // Identification (the keyed, tier-skewed roll a completed study runs)
 // ============================================================================
 

@@ -14,7 +14,7 @@ import { SHIP_TYPES, startAutoSalvageGrace } from "./model";
 // The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
-import { onMissionLock } from "./equipment";
+import { onMissionLock, pieceEquipRequirement } from "./equipment";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -101,7 +101,7 @@ export function deleteLoadout(state: GameState, loadoutId: string): GameState {
 
 // A loadout's slot, DERIVED from its pinned ship type. Mirrors ShipSystemsPanel's own enumeration
 // EXACTLY (weapon x weaponHardpoints [Offense]; shieldEmitters + hullPlating + droneBay x droneBays
-// [Defense]; cargoBay/ftlDrive/reactorCore always + specUtility only on a prospector-spec hull
+// [Defense]; cargoBay/ftlDrive/reactorCore always + specUtility on every specialized (non-general) hull
 // [Systems]) so a loadout never offers a slot a real hull of that type would not have.
 export type LoadoutSlotDef = {
   key: string; // stable key in Loadout.slots ("cargoBay", "weapon0", "droneBay1", ...)
@@ -127,7 +127,10 @@ export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlo
   defs.push({ key: "cargoBay", slotType: "cargoBay", index: null, group: "systems", label: "Cargo Bay" });
   defs.push({ key: "ftlDrive", slotType: "ftlDrive", index: null, group: "systems", label: "FTL Drive" });
   defs.push({ key: "reactorCore", slotType: "reactorCore", index: null, group: "systems", label: "Reactor Core" });
-  if (def?.spec === "prospector") {
+  // E4d: every SPECIALIZED hull (prospector rigs, tactician Damage Control Suite, explorer Pathfinder
+  // Suite) carries the Spec Utility slot; only the general Freighter has none. Mirrors ShipSystemsPanel's
+  // hasSpecUtilitySlot. (A prospector hull's slot set is unchanged.)
+  if (def !== undefined && def.spec !== "general") {
     defs.push({ key: "specUtility", slotType: "specUtility", index: null, group: "systems", label: "Spec Utility" });
   }
   return defs;
@@ -155,6 +158,13 @@ export function installIntoLoadout(
   // piece is hands-off until unlocked, so it cannot be committed to a loadout either).
   if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined || inst.locked === true) return state;
   if (inst.slotType !== slotDef.slotType) return state; // wrong kind of system for this slot
+  // E4d: the piece's HULL-CLASS gate (pieceEquipRequirement: a variety's own gate, else the slot's), the
+  // same check canFitEquipment makes, against the loadout's pinned hull type. Before E4d the only gated
+  // slot (specUtility) appeared only on prospector loadouts, whose rigs always passed; now a Damage
+  // Control Suite must not be committed to a prospector (or explorer) loadout and then checked out onto a
+  // hull it can never be installed on by hand.
+  const hullReq = pieceEquipRequirement(inst)?.hullSpec;
+  if (hullReq !== undefined && SHIP_TYPES[loadout.shipTypeKey]?.spec !== hullReq) return state;
   const prevId = loadout.slots[slotKey] ?? null;
   const equipment = state.equipment.map((e) => {
     if (e.id === instanceId) return { ...e, committedToLoadoutId: loadoutId };

@@ -1693,6 +1693,65 @@ export interface EquipmentVarietyDef {
   // are stat-vocabulary strings (same set the affixPool draws from). FIRST-PASS
   // TUNABLE launch placeholders, same device-check spirit as SHIP_TYPES' numbers.
   statRatios: Record<string, number>;
+  // --- Exploration 0.14.0 (E4d): per-VARIETY overrides (all OPTIONAL) ----------------------------
+  // A slot used to be ONE family (every variety shared the slot's signature stats, affix pool and
+  // equip gate). The relic-unlocked utility items (Damage Control Suite, Pathfinder Suite) are
+  // DIFFERENT families living in the SAME specUtility slot, so a variety may now carry its own:
+  //   implicitStats   , replaces the slot's signature lines for pieces of THIS variety.
+  //   affixPool       , replaces the slot's affix pool for pieces of THIS variety.
+  //   equipRequirement, replaces the slot's equip gate for pieces of THIS variety (canFitEquipment).
+  // ⚠️ ADDITIVE-NEUTRAL: every pre-E4d variety omits all three, so generateEquipment /
+  // previewCraftOutcome / canFitEquipment read the SLOT's tables exactly as before (byte-identical).
+  // A variety that sets ANY of them has its own identity, so generateEquipment STAMPS its key onto the
+  // instance as `moduleVariant` (see varietyHasOwnIdentity), which is how the gate + the effect readers
+  // recognize the piece later (the generic machinery does not otherwise persist a piece's variety).
+  implicitStats?: string[];
+  affixPool?: { stat: string; weight: number }[];
+  equipRequirement?: EquipRequirement;
+}
+
+// The optional equip gate a slot (or, since E4d, a single variety) imposes. All fields optional and
+// ANDed by canFitEquipment; only the fields present are checked. (Extracted from EquipmentSlotDef as a
+// named type in E4d so a variety can carry the same shape; the fields are unchanged.)
+export interface EquipRequirement {
+  captainSpec?: ShipSpec;
+  hullSpec?: ShipSpec;
+  minCaptainLevel?: number;
+  requiresResearch?: string;
+  requiresTalent?: string;
+}
+
+// Does this variety carry its OWN identity (any per-variety override), so its key must be stamped onto a
+// minted instance as moduleVariant? FALSE for every pre-E4d variety (they set none of the overrides), so
+// no existing mint gains a field. Pure.
+export function varietyHasOwnIdentity(variety: EquipmentVarietyDef): boolean {
+  return variety.implicitStats !== undefined || variety.affixPool !== undefined || variety.equipRequirement !== undefined;
+}
+
+// E4d: the player-facing SLOT label for a (slot, variety) pair. A slot's catalog label names its ORIGINAL
+// single family (specUtility reads "Prospecting Rig"), which would mislabel a relic-unlocked family living in
+// the same slot ("Prospecting Rig · Damage Control Suite"). So a variety with its OWN identity reads the slot's
+// neutral name instead ("Spec Utility", the name the Ships board + Armory already give that slot). Every
+// pre-E4d variety (and an absent / unknown variety) returns the catalog label UNCHANGED, so all existing
+// text is byte-identical. Pure.
+const OWN_IDENTITY_SLOT_LABEL: Partial<Record<string, string>> = { specUtility: "Spec Utility" };
+export function equipmentSlotLabel(slotType: string, varietyKey?: string | null): string {
+  const slot = EQUIPMENT_SLOTS[slotType];
+  if (slot === undefined) return slotType;
+  const variety = varietyKey ? slot.varieties.find((v) => v.key === varietyKey) : undefined;
+  if (variety !== undefined && varietyHasOwnIdentity(variety)) return OWN_IDENTITY_SLOT_LABEL[slotType] ?? slot.label;
+  return slot.label;
+}
+
+// The SLOT-LEVEL label for a heading that names a whole slot rather than one piece (e.g. the Warehouse
+// Ship Systems bay groups). Once a slot holds more than its original family (specUtility now carries
+// combat + explorer suites beside the prospector rigs), its catalog label ("Prospecting Rig") misnames
+// the group, so it reads the slot's neutral name ("Spec Utility") instead. Per-piece labels keep using
+// equipmentSlotLabel, so a mining rig still reads "Prospecting Rig". Pure.
+export function equipmentSlotGroupLabel(slotType: string): string | undefined {
+  const slot = EQUIPMENT_SLOTS[slotType];
+  if (slot === undefined) return undefined;
+  return OWN_IDENTITY_SLOT_LABEL[slotType] ?? slot.label;
 }
 
 // One equipment SLOT: the signature stats every piece in it carries, the affix
@@ -1711,13 +1770,7 @@ export interface EquipmentSlotDef {
   // Optional gate a captain/hull must satisfy to equip pieces of this slot. All
   // fields optional and ANDed by the later fitting task; only the fields present
   // are checked. specUtility is the one gated slot this patch.
-  equipRequirement?: {
-    captainSpec?: ShipSpec;
-    hullSpec?: ShipSpec;
-    minCaptainLevel?: number;
-    requiresResearch?: string;
-    requiresTalent?: string;
-  };
+  equipRequirement?: EquipRequirement;
 }
 
 // The six live slots (four economy + two Combat 1.0 defensive). ⚠️ statRatios and affix
@@ -1812,6 +1865,46 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "surveyRig", label: "Survey Rig", favorsSpec: "prospector", statRatios: { sensors: 0.65, extractionYieldMult: 0.25, materialQualityChance: 0.1 } },
       // Refinery-Feed: budget into material quality, feeding the refining chain.
       { key: "refineryFeedRig", label: "Refinery-Feed Rig", favorsSpec: "prospector", statRatios: { materialQualityChance: 0.65, extractionYieldMult: 0.25, sensors: 0.1 } },
+      // --- Exploration 0.14.0 (E4d): the two RELIC-UNLOCKED utility families --------------------
+      // Each is its OWN family in this slot (per-variety implicitStats / affixPool / equipRequirement
+      // overrides, see EquipmentVarietyDef), so it neither rolls extraction stats nor obeys the slot's
+      // prospector gate. Their effects are NOT folded by equipmentStatMods (except `sensors`, which is
+      // a real fold); they are read by utilityGear.ts's dedicated readers. Craftable only after the
+      // discovery-gated blueprint is researched (BLUEPRINTS damageControlSuiteBp / pathfinderSuiteBp).
+      // statRatios / weights FIRST-PASS TUNABLE.
+      //
+      // DAMAGE CONTROL SUITE (combat hulls only, the RECOVERY role): faster post-loss repair
+      // (repairSpeed -> shipRepairDurationTicks) + a light hull patch-up before each later patrol wave
+      // (waveHullRegen -> the shared wave sequence, tick.ts + patrolReplay.ts).
+      {
+        key: "damageControlSuite",
+        label: "Damage Control Suite",
+        favorsSpec: "tactician",
+        statRatios: { repairSpeed: 0.5, waveHullRegen: 0.4, massReduction: 0.1 },
+        implicitStats: ["repairSpeed", "waveHullRegen"],
+        affixPool: [
+          { stat: "repairSpeed", weight: 4 },
+          { stat: "waveHullRegen", weight: 4 },
+          { stat: "massReduction", weight: 1 },
+        ],
+        equipRequirement: { hullSpec: "tactician" },
+      },
+      // PATHFINDER SUITE (explorer hulls only): sensors (a real fold into ShipDerivedStats.sensors) +
+      // expedition scan speed + hazard resist (both fed into the dispatch-time expedition snapshot).
+      {
+        key: "pathfinderSuite",
+        label: "Pathfinder Suite",
+        favorsSpec: "explorer",
+        statRatios: { sensors: 0.4, expeditionScanSpeed: 0.3, hazardResist: 0.3 },
+        implicitStats: ["sensors", "expeditionScanSpeed", "hazardResist"],
+        affixPool: [
+          { stat: "sensors", weight: 3 },
+          { stat: "expeditionScanSpeed", weight: 3 },
+          { stat: "hazardResist", weight: 3 },
+          { stat: "massReduction", weight: 1 },
+        ],
+        equipRequirement: { hullSpec: "explorer" },
+      },
     ],
     // Gated by HULL CLASS only: the Prospecting Rig fits any captain flying a Prospector-class
     // hull. ⚠️ The captainSpec gate was DROPPED (2026-09-14, user): specialty gear installs on the
@@ -1974,6 +2067,10 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       { key: "sensorWideBeam", label: "Wide-Beam Array", statRatios: {} },
       { key: "sensorFocusedBeam", label: "Focused-Beam Array", statRatios: {} },
       { key: "sensorBalanced", label: "Balanced Array", statRatios: {} },
+      // Exploration 0.14.0 (E4d): the RELIC-HUNTER array, the only array that raises relic find chance
+      // (at the cost of slower scan cadence). Catalog-driven like its siblings (sensorArrays.ts). The FIRST
+      // CRAFTABLE array: its blueprint (bioResonanceArrayBp) is discovery-gated by the Leviathan Scale.
+      { key: "sensorBioResonance", label: "Bio-Resonance Array", statRatios: {} },
     ],
   },
 };
@@ -2030,6 +2127,16 @@ export const LIVE_STAT_KEYS = [
   // as of Exploration 0.14.0 E1a; see equipmentStatMods + ShipDerivedStats.sensors.)
   "crewStations",
   "crewEfficiency",
+  // Exploration 0.14.0 (E4d): the relic-unlocked utility items' stat lines. LIVE (a slot variety
+  // references them) but, like crewStations / crewEfficiency, NOT folded by equipmentStatMods: each is
+  // read by a dedicated reader in utilityGear.ts, so installing one leaves shipDerivedStats
+  // byte-identical (only the Pathfinder Suite's `sensors` line folds, through the existing case).
+  //   repairSpeed / waveHullRegen         , Damage Control Suite (repair time + between-wave hull regen)
+  //   expeditionScanSpeed / hazardResist  , Pathfinder Suite (expedition dispatch snapshot)
+  "repairSpeed",
+  "waveHullRegen",
+  "expeditionScanSpeed",
+  "hazardResist",
 ] as const;
 
 // RESERVED forward vocabulary for 0.12.0 (combat / crew / sensor / defense).
@@ -6481,7 +6588,9 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "recoveredTech",
     tier: 1,
     rarity: "epic",
-    unlockHint: "Recovered only from salvage; reserved for a future recipe not yet built.",
+    // E4d: no longer reserved. Its first recipe is the discovery-gated Damage Control Suite (BLUEPRINTS
+    // damageControlSuiteBp); expedition ground battles also drop it (gambit.ts), alongside salvage.
+    unlockHint: "Recovered from salvage and expedition finds; used to craft the Damage Control Suite.",
     flavor: "A slab of metal that shrugs off every assay, its lattice folded in ways the fleet's foundries can't read.",
   },
   precursorCircuit: {
@@ -6800,6 +6909,17 @@ export interface BlueprintDef {
   // (canFabricate rejects it with `unlockOnly`, and the F4 craftable-list enumerations filter
   // it out) since it produces nothing to craft. Absent/undefined = a normal craftable blueprint.
   unlockOnly?: true;
+  // --- DISCOVERY-GATED research (Exploration 0.14.0, Phase E4d) ------------------------------------
+  // A relic id (relics.ts RELICS[].id). When PRESENT, the blueprint cannot be researched until that relic
+  // has been IDENTIFIED at least once (state.relicDiscovered contains it, the FIRST FIND that a relic
+  // study's completion records). canResearch refuses it with the `undiscovered` reason, and the Research
+  // catalog shows the card MASKED (it names the relic's SET, never the relic) until then. ABSENT on every
+  // pre-E4d blueprint, so their research gate is byte-identical. Adding a gated project later (the
+  // deferred Precursor Lens module, Heart of the Archive's Neural Backup) is a pure DATA change: author the
+  // blueprint with this field and the gate, the mask and the reveal's "Research unlocked" line all follow.
+  // Typed as a plain string (not a relic-id union) because model.ts must not import relics.ts (relics.ts
+  // imports model.ts); a test asserts every value names a real relic.
+  requiresRelicDiscovery?: string;
   flavor?: string;      // narrative color (optional)
   unlockHint?: string;  // functional "how to unlock" clue for the UI (optional)
 }
@@ -7512,7 +7632,91 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     flavor: "The full construction schematics for the Eir: a medical transport built to carry crews, supplies, and evacuees.",
     unlockHint: "Research at the Research Lab to unlock the Eir at the Shipyard.",
   },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // DISCOVERY-GATED BLUEPRINTS (Exploration 0.14.0, Phase E4d) ──────────────────
+  // The first-find unlocks (plan "E4d FIRST-FIND UNLOCKS", user 2026-10-01): identifying a RARE relic for
+  // the first time opens a research project that could not be researched before
+  // (requiresRelicDiscovery; canResearch's `undiscovered` gate). Each is an ORDINARY equipmentOutput
+  // blueprint once unlocked (Research -> Fabricator -> a minted piece), so every craft/salvage/archive
+  // path treats it like any other gear blueprint.
+  //   Ancient Drive Coil  -> Damage Control Suite  (combat utility, tactician hulls)   [Anomalous Alloy]
+  //   Deep-Vein Compass   -> Pathfinder Suite      (explorer utility, explorer hulls)  [refined metals]
+  //   Leviathan Scale     -> Bio-Resonance Array   (relic-hunter scanning array)       [organics]
+  // DEFERRED (not authored here, by decision): Precursor Lens's special module ships with the module phase
+  // (E-MOD), and Heart of the Archive's Neural Backup waits on the cybernetic-implant scope call. Their first
+  // finds still get the normal discovery moment; adding their projects later is a data change (a blueprint
+  // carrying requiresRelicDiscovery).
+  //
+  // RAW INPUTS, deliberately (judgment call, flagged): Anomalous Alloy is a `raw`-category salvage exotic and
+  // the forage organics are raw (no refine recipe produces an organic refined item yet, so purifiedBiomass
+  // would be a dead end). The "no raw ore in an equipment recipe" rule is the mining ladder's; these are
+  // exploration/salvage payoffs the user specified by name, so model.test.ts carves discovery-gated blueprints
+  // out of that rule. TIER 2 (the Research Lab's ceiling) because each sits behind a rare relic.
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount.
+  damageControlSuiteBp: {
+    key: "damageControlSuiteBp",
+    label: "Damage Control Suite Blueprint",
+    tier: 2,
+    researchDurationTicks: 240,
+    researchCreditCost: 2400,
+    craftDurationTicks: 340,
+    equipmentOutput: { slotType: "specUtility", varietyKey: "damageControlSuite" },
+    requiresRelicDiscovery: "ancientDriveCoil",
+    // Anomalous Alloy (its first real use) for the self-sealing hull patches, couplings for the pumps.
+    recipe: { inputs: { anomalousAlloy: 2, titaniumIngot: 3, powerCoupling: 2 } },
+    flavor: "Self-sealing patch foam and a fast-response crew rig, built around an alloy that remembers its own shape.",
+    unlockHint: "Identify an Ancient Drive Coil to unlock this research; crafted at the Fabricator.",
+  },
+  pathfinderSuiteBp: {
+    key: "pathfinderSuiteBp",
+    label: "Pathfinder Suite Blueprint",
+    tier: 2,
+    researchDurationTicks: 240,
+    researchCreditCost: 2400,
+    craftDurationTicks: 340,
+    equipmentOutput: { slotType: "specUtility", varietyKey: "pathfinderSuite" },
+    requiresRelicDiscovery: "deepVeinCompass",
+    // Refined metals: a titanium survey frame with a wafer-dense sensor head.
+    recipe: { inputs: { titaniumIngot: 4, polysilicateWafer: 3, frameSegment: 1 } },
+    flavor: "A survey package that reads the ground the way the old compass did: where it is safe to tread, and where to look.",
+    unlockHint: "Identify a Deep-Vein Compass to unlock this research; crafted at the Fabricator.",
+  },
+  bioResonanceArrayBp: {
+    key: "bioResonanceArrayBp",
+    label: "Bio-Resonance Array Blueprint",
+    tier: 2,
+    researchDurationTicks: 240,
+    researchCreditCost: 2400,
+    craftDurationTicks: 340,
+    // The FIRST craftable sensor array. A sensor-slot equipmentOutput rides the same generic mint
+    // (generateEquipment stamps the catalog id as moduleVariant for the sensor slot).
+    equipmentOutput: { slotType: "sensor", varietyKey: "sensorBioResonance" },
+    requiresRelicDiscovery: "leviathanScale",
+    // Organics: a grown resonance membrane, the rare spore cluster as its tuning core.
+    recipe: { inputs: { fibrousBiomass: 12, volatileResin: 6, exoticSporeCluster: 2, polysilicateWafer: 2 } },
+    flavor: "A living membrane tuned to the hum of very old things. It sweeps slowly, and it listens for relics.",
+    unlockHint: "Identify a Leviathan Scale to unlock this research; crafted at the Fabricator.",
+  },
 };
+
+// Exploration 0.14.0 (E4d): the blueprints a relic's FIRST FIND unlocks (requiresRelicDiscovery ===
+// relicId), in BLUEPRINTS declaration order. Empty for a relic that gates nothing (most relics, and the
+// deferred Precursor Lens / Heart of the Archive today). Pure over the static table; the identification
+// reveal reads it for its "Research unlocked" line.
+export function blueprintsUnlockedByRelic(relicId: string): BlueprintDef[] {
+  return Object.values(BLUEPRINTS).filter((bp) => bp.requiresRelicDiscovery === relicId);
+}
+
+// Exploration 0.14.0 (E4d): is this blueprint still LOCKED behind an undiscovered relic? TRUE only for a
+// discovery-gated blueprint whose relic is not yet in state.relicDiscovered. FALSE for every ungated
+// blueprint (all pre-E4d content) and for an unknown key. canResearch reads it for the `undiscovered`
+// reason and the Research catalog reads it to MASK the card. Pure.
+export function blueprintRelicLocked(state: GameState, key: string): boolean {
+  const relicId = BLUEPRINTS[key]?.requiresRelicDiscovery;
+  if (relicId === undefined) return false;
+  return !(state.relicDiscovered ?? []).includes(relicId);
+}
 
 // --- Default equipment variety per live slot (0.11.0 Task 18) ----------------
 // The Standard-Issue FLOOR: the ONE variety per live slot whose Standard-rarity,
@@ -8430,6 +8634,7 @@ export function blueprintResearchable(state: GameState, key: string): boolean {
   if (!bp) return false; // unknown key, not a real blueprint
   if (blueprintUnlocked(state, key)) return false; // already researched
   if (researchInProgress(state, key)) return false; // a project is already unlocking it
+  if (blueprintRelicLocked(state, key)) return false; // E4d: its relic has not been discovered yet
   return bp.tier <= researchFacilityLevel(state); // tier gated by the research-facility level
 }
 

@@ -28,6 +28,8 @@ import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
 import type { PatrolSystemDurability, EquipmentInstance } from "../model";
+// E4d: the Damage Control Suite's pure regen arithmetic (utilityGear.ts imports model only, so no cycle).
+import { damageControlWaveRegen } from "../utilityGear";
 
 // ---------------------------------------------------------------------------
 // buildPatrolPlayerCombatant -- mint the PLAYER combatant for one patrol wave.
@@ -139,6 +141,29 @@ export function capturePlayerSystemDurability(player: Combatant): PatrolSystemDu
     reactor: player.reactor ? player.reactor.durability : 0,
     ftl: player.ftl ? player.ftl.durability : 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// damageControlBeforeWave -- the Damage Control Suite's between-wave HULL patch-up (Exploration 0.14.0,
+// Phase E4d). The ONE exception to "hull never regens between waves": a tactician hull carrying the
+// relic-unlocked Damage Control Suite restores a LIGHT fraction of its (folded) max hull right before each
+// LATER wave of a cycle (waveIndex > 0; the opening wave starts from the cycle's full hull anyway).
+//
+// Both the live tick loop and the display replay call this ONE leaf at the same point (just before building
+// the wave's player combatant), so the two stay byte-identical. It is applied exactly ONCE per wave index
+// (each wave resolves exactly once on either path, however the elapsed span is chunked), uses whole hull
+// points, and draws no rng, so offline == live and the closed-form parity hold. `regenFraction` comes from
+// utilityGear.ts damageControlEffect(installedGear) and is EXACTLY 0 without the suite, in which case the
+// carry hull is returned UNCHANGED (no arithmetic pass): every existing patrol is byte-identical. PURE.
+// ---------------------------------------------------------------------------
+export function damageControlBeforeWave(
+  waveIndex: number,
+  hullMax: number,
+  carryHull: number,
+  regenFraction: number,
+): number {
+  if (waveIndex <= 0 || !(regenFraction > 0)) return carryHull;
+  return damageControlWaveRegen(hullMax, carryHull, regenFraction);
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@
 //   - buildRelicReveal: the card's view model, from that record + the post-completion state.
 
 import type { CompletionLogEntry, GameState, RelicSetId, EquipmentRarity } from "./game/model";
+import { blueprintsUnlockedByRelic } from "./game/model";
 import { getRelicById, getRelicSetById, relicCopies, setCompletion, type RelicRarity } from "./game/relics";
 
 export interface RelicReveal {
@@ -30,6 +31,20 @@ export interface RelicReveal {
   firstFind: boolean; // the first identified copy of this relic type (the discovery moment)
   copyNumber: number; // this copy's number in the Museum (the museum count right after it landed)
   setCollected: number; // distinct relics of the set now held
+  // E4d: the research projects this reveal UNLOCKED (display labels), non-empty only on a FIRST FIND of a
+  // relic that gates research (BLUEPRINTS[].requiresRelicDiscovery). The card renders one "Research
+  // unlocked: <project>" line per entry under the FIRST FIND banner. Empty for a repeat copy and for a
+  // relic that gates nothing (including the deferred Precursor Lens / Heart of the Archive today).
+  researchUnlocked: string[];
+}
+
+// E4d: the "Research unlocked" project labels a relic's FIRST FIND opens, in BLUEPRINTS order. A repeat
+// copy (firstFind false) unlocks nothing new, so it reads empty. The label drops the catalog's trailing
+// " Blueprint" so the line names the project ("Damage Control Suite"), matching how the Fabricator and the
+// tooltip name a crafted piece. Pure.
+export function researchUnlockedByFind(relicId: string, firstFind: boolean): string[] {
+  if (!firstFind) return [];
+  return blueprintsUnlockedByRelic(relicId).map((bp) => bp.label.replace(/\s+Blueprint$/, ""));
 }
 
 // The relicStudy completion records in the log that are NOT in `seenIds` (the ids that already existed
@@ -86,5 +101,6 @@ export function buildRelicReveal(
     firstFind,
     copyNumber: Math.max(1, relicCopies(museum, relicId)),
     setCollected: setCompletion(museum, def.setId).collected,
+    researchUnlocked: researchUnlockedByFind(relicId, firstFind),
   };
 }

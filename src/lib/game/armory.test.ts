@@ -85,7 +85,11 @@ describe("armory: slot derivation + install / uninstall (Item Lifecycle 0.13.6)"
     expect(defs.some((d) => d.slotType === "shieldEmitters")).toBe(true);
     expect(defs.some((d) => d.slotType === "hullPlating")).toBe(true);
     expect(defs.some((d) => d.slotType === "cargoBay")).toBe(true);
-    expect(defs.some((d) => d.slotType === "specUtility")).toBe(dt.spec === "prospector");
+    // E4d: every SPECIALIZED hull (prospector / tactician / explorer) carries the Spec Utility slot (the
+    // tactician Damage Control Suite lives there); only the general Freighter has none.
+    expect(defs.some((d) => d.slotType === "specUtility")).toBe(dt.spec !== "general");
+    expect(loadoutSlotDefsForShipType("generalFreighter").some((d) => d.slotType === "specUtility")).toBe(false);
+    expect(loadoutSlotDefsForShipType("orion").some((d) => d.slotType === "specUtility")).toBe(true);
   });
 
   it("a prospector-spec hull gets the specUtility slot", () => {

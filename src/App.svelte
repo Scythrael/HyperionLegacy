@@ -174,6 +174,11 @@
     // lists exactly the craftable GEAR blueprints and nothing stackable.
     blueprintMintsEquipmentInstance,
     blueprintUnlocked,
+    // Exploration 0.14.0 (E4d): a discovery-gated blueprint whose relic is not found yet renders MASKED.
+    blueprintRelicLocked,
+    // E4d: the variety-aware slot label (a relic-unlocked family in a shared slot reads "Spec Utility").
+    equipmentSlotLabel,
+    equipmentSlotGroupLabel,
     // Crafting 0.13.3 (Phase 4 Unit 4.5): how many crafted item levels ONE learned node
     // of the `craftingItemLevel` Homeworld Talent grants. Read here ONLY to name the grant
     // in the crafting-level panel's signpost while the talent is still UNLEARNED. Once it
@@ -859,7 +864,7 @@
     museumResearchDurationTicks,
   } from "./lib/game/tick";
   // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
-  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS } from "./lib/game/relics";
+  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS, undiscoveredResearchMask } from "./lib/game/relics";
   // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
   import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
   // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
@@ -5349,6 +5354,9 @@
   // four LIVE slots are shown in a fixed order so the grouped grid is stable.
   const BAY_SLOT_ORDER: EquipmentSlotType[] = [
     "cargoBay", "ftlDrive", "reactorCore", "specUtility",
+    // 0.14.0: crafted scanning arrays are ship equipment too; without this group a crafted array
+    // sat invisible in the spare pool (same class of bug as BUG-U1 below).
+    "sensor",
     // Combat 1.0 (BUG-U1): crafted combat gear IS ship equipment and must show in this bay too, it
     // was invisible while this list was economy-only. shieldEmitters/hullPlating carry EQUIPMENT_SLOTS
     // labels; weapon + droneBay live in separate tables (WEAPON_DEFS / drone roles) so they take a
@@ -5384,7 +5392,7 @@
   // pieces that share a favorite state keep their original pool order.
   $: baySystemGroups = BAY_SLOT_ORDER.map((slot) => ({
     slot,
-    label: EQUIPMENT_SLOTS[slot]?.label ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
+    label: equipmentSlotGroupLabel(slot) ?? BAY_SLOT_LABEL_FALLBACK[slot] ?? slot,
     pieces: baySpareSystems
       .filter((p) => p.slotType === slot)
       .sort((a, b) => (b.favorite === true ? 1 : 0) - (a.favorite === true ? 1 : 0)),
@@ -6707,9 +6715,16 @@
         : bp.equipmentOutput?.slotType === "shieldEmitters" || bp.equipmentOutput?.slotType === "hullPlating"
           ? { order: 2, label: "Defense" }
           : { order: 3, label: "Systems" };
+    // 0.14.0 E4d: a relic-gated blueprint stays MASKED here until its relic is discovered, the same
+    // "never reveal it early" rule as the Research catalog and the Museum. It still counts toward the
+    // Archive total (like the Museum's undiscovered relics), so completion honestly shows there is
+    // more to find; nothing can be enshrined before discovery anyway (no spare can exist yet).
+    const gatedLocked = blueprintRelicLocked(state, key);
     return {
       key,
-      label: BLUEPRINTS[key]?.label ?? key,
+      label: gatedLocked
+        ? `Undiscovered (${((d) => d.charAt(0).toLowerCase() + d.slice(1))(undiscoveredResearchMask(bp.requiresRelicDiscovery).detail)})`
+        : BLUEPRINTS[key]?.label ?? key,
       archived: entry?.score ?? 0,
       archivedRarity: entry?.rarity ?? null,
       archivedQuality: entry?.quality ?? null,
@@ -7020,7 +7035,8 @@
   function equipmentOutputLabel(eq: { slotType: EquipmentSlotType; varietyKey: string }): string {
     const slot = EQUIPMENT_SLOTS[eq.slotType];
     const variety = slot?.varieties.find((v) => v.key === eq.varietyKey);
-    return `${slot?.label ?? eq.slotType} · ${variety?.label ?? eq.varietyKey}`;
+    // E4d: equipmentSlotLabel keeps every existing label, and names a relic-unlocked family's slot neutrally.
+    return `${equipmentSlotLabel(eq.slotType, eq.varietyKey)} · ${variety?.label ?? eq.varietyKey}`;
   }
 
   // Combat 1.0 (Unit 1.2b + 2.1b): the player-facing NAME a WEAPON or DRONE-POD blueprint crafts,
@@ -7393,6 +7409,10 @@
           // Defensive: a save carrying a retired blueprint key. It can never promote, so the
           // row says how to clear it rather than waiting forever in silence.
           return "That blueprint no longer exists. Remove this order.";
+        case "undiscovered":
+          // E4d: refused at enqueue, so only a hand-edited / imported save reaches this. It names the
+          // relic's SET (never the relic), the masked card's own wording.
+          return `Waiting: ${undiscoveredResearchMask(rbp?.requiresRelicDiscovery).detail}.`;
         default:
           // A craft-line-only or salvage-only token on a research row is unreachable: the
           // Research Lab adapter delegates to canResearch, which mints only the reasons above
@@ -7540,6 +7560,10 @@
         return "You have already researched that.";
       case "inProgress":
         return "The lab is already researching that.";
+      case "undiscovered":
+        // E4d: unreachable from the UI (the catalog masks the card and offers no queue control), kept
+        // for exhaustiveness. Worded without naming the project or its relic.
+        return "That research is still undiscovered. Identify the relic it needs first.";
     }
   }
 
@@ -9405,6 +9429,9 @@
         return "Not enough credits";
       case "alreadyResearched":
         return "Already researched";
+      case "undiscovered":
+        // E4d: names the relic's SET only (never the undiscovered relic), the same wording the masked card uses.
+        return undiscoveredResearchMask(bp.requiresRelicDiscovery).detail;
       case "notFound":
         return "Unavailable";
     }
@@ -11741,6 +11768,18 @@
                     <span class="home-sec-rule"></span>
                   </div>
                   {#each group.blueprints as bp (bp.key)}
+                    {#if blueprintRelicLocked(state, bp.key)}
+                    <!-- E4d DISCOVERY-GATED + still locked: a MASKED card. It shows ONLY the mask copy (the
+                         relic's SET, never the relic, and not the project's name / recipe / cost either), so
+                         the catalog cannot spoil an undiscovered find. No Research or queue control: the
+                         engine refuses both (canResearch + canEnqueueOrder `undiscovered`). Once the relic's
+                         first find lands, blueprintRelicLocked reads false and the normal card below renders. -->
+                    {@const mask = undiscoveredResearchMask(bp.requiresRelicDiscovery)}
+                    <div class="mission-card" style="opacity: 0.75;">
+                      <div class="research-name"><Icon name="discovery" size={12} /> {mask.title}</div>
+                      <div class="research-cost">{mask.detail}</div>
+                    </div>
+                    {:else}
                     {@const unlocked = blueprintUnlocked(state, bp.key)}
                     {@const gate = canResearch(state, bp.key)}
                     <!-- In-flight lookup: the researchProject TimedProcess unlocking THIS
@@ -11872,6 +11911,7 @@
                         {/if}
                       {/if}
                     </div>
+                    {/if}
                   {/each}
                 {/each}
               </Panel>

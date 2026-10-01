@@ -1735,11 +1735,22 @@ describe("Task A3, salvaged-material category + exclusive salvage items", () => 
   // Each exclusive exotic carries an HONEST reserved-tone hint (no invented source),
   // in the same spirit as denseOre's "no source yet" placeholder.
   it("each exclusive exotic has an honest 'recovered from salvage, reserved for a future recipe' hint", () => {
-    for (const id of ["anomalousAlloy", "precursorCircuit", "intactDataCore"]) {
+    // Exploration 0.14.0 (E4d): Anomalous Alloy got its first recipe (the discovery-gated Damage Control
+    // Suite), so it left the "reserved" set; its hint now names that recipe instead (asserted below).
+    for (const id of ["precursorCircuit", "intactDataCore"]) {
       const hint = ITEMS[id].unlockHint.toLowerCase();
       expect(hint).toContain("salvage");
       expect(hint).toContain("reserved for a future recipe");
     }
+  });
+
+  it("E4d: Anomalous Alloy's hint is honest about its first real use (salvage source + the Damage Control Suite)", () => {
+    const hint = ITEMS.anomalousAlloy.unlockHint.toLowerCase();
+    expect(hint).toContain("salvage");
+    expect(hint).not.toContain("reserved for a future recipe");
+    expect(hint).toContain("damage control suite");
+    // And the recipe really exists (no invented use).
+    expect(Object.values(BLUEPRINTS).some((bp) => (bp.recipe.inputs.anomalousAlloy ?? 0) > 0)).toBe(true);
   });
 
   // DRIFT GUARD (design §8): these new items are produced by NOTHING this patch, so
@@ -1928,7 +1939,17 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
     // Crew 0.14.0 (Phase 1b) crew-module keys (bridge + quarters):
     "crewStations",
     "crewEfficiency",
+    // Exploration 0.14.0 (E4d) relic-unlocked utility keys (Damage Control Suite + Pathfinder Suite):
+    "repairSpeed",
+    "waveHullRegen",
+    "expeditionScanSpeed",
+    "hazardResist",
   ]);
+
+  // E4d: the per-slot variety counts. 3 for every gear slot, except quarters (9 crew-quarters variants),
+  // specUtility (3 prospecting rigs + the 2 relic-unlocked utility families) and sensor (3 scanning
+  // arrays + the relic-hunter Bio-Resonance Array).
+  const EXPECTED_VARIETY_COUNT: Record<string, number> = { quarters: 9, specUtility: 5, sensor: 4 };
 
   it("holds the four economy slots, the two Combat 1.0 defensive slots, the two crew-module slots, and the sensor slot", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
@@ -1943,11 +1964,25 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
       // Per-slot variety count: 3 for every gear slot (including the 3 sensor scanning arrays, 0.14.0),
       // but the quarters crew-module slot carries the 9 crew-quarters variants (6 division-focused +
       // 3 general, Crew 0.14.0 Phase 1b).
-      expect(slot.varieties.length).toBe(key === "quarters" ? 9 : 3);
+      expect(slot.varieties.length).toBe(EXPECTED_VARIETY_COUNT[key] ?? 3);
       // Both stat lists must be present (a slot with no signature or no roll pool
       // is a data error, not a valid launch state).
       expect(slot.implicitStats.length).toBeGreaterThan(0);
       expect(slot.affixPool.length).toBeGreaterThan(0);
+      // E4d: a variety's OWN implicit / affix overrides are fenced by the same vocabulary rules.
+      for (const v of slot.varieties) {
+        if (v.implicitStats !== undefined) {
+          expect(v.implicitStats.length, `${key}/${v.key} implicits`).toBeGreaterThan(0);
+          for (const stat of v.implicitStats) expect(ALLOWED_STAT_KEYS.has(stat), `${key}/${v.key} ${stat}`).toBe(true);
+        }
+        if (v.affixPool !== undefined) {
+          expect(v.affixPool.length, `${key}/${v.key} affixes`).toBeGreaterThan(0);
+          for (const affix of v.affixPool) {
+            expect(ALLOWED_STAT_KEYS.has(affix.stat), `${key}/${v.key} ${affix.stat}`).toBe(true);
+            expect(affix.weight).toBeGreaterThan(0);
+          }
+        }
+      }
       // Fence the vocabulary: every implicit stat key is live-this-patch.
       for (const stat of slot.implicitStats) {
         expect(ALLOWED_STAT_KEYS.has(stat)).toBe(true);
@@ -2080,13 +2115,16 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     "yieldRigBp", "surveyRigBp", "refineryFeedRigBp",
     "balancedEmitterBp", "rechargeArrayBp", "capacitorBankBp",
     "reinforcedPlatingBp", "ablativePlatingBp", "compositePlatingBp",
+    // Exploration 0.14.0 (E4d): the three DISCOVERY-GATED blueprints (two specUtility families + the
+    // first craftable sensor array).
+    "damageControlSuiteBp", "pathfinderSuiteBp", "bioResonanceArrayBp",
   ];
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
   const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
 
-  it("defines exactly 18 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
-    expect(equipmentBlueprints).toHaveLength(18);
+  it("defines exactly 21 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
+    expect(equipmentBlueprints).toHaveLength(21);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
     expect(keys).toEqual([...EQUIP_BP_KEYS].sort());
@@ -2095,7 +2133,7 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     const pairs = new Set(
       equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
     );
-    expect(pairs.size).toBe(18);
+    expect(pairs.size).toBe(21);
     // COVERAGE GUARD: every variety of every installable equipment slot (the four economy slots
     // PLUS the two defensive combat slots) must have a craftable blueprint. This is the assertion
     // that would have caught the shipped gap where shieldEmitters / hullPlating had none.
@@ -2127,6 +2165,11 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
       }
       // No equipment blueprint consumes RAW ore directly (design: raw -> refine ->
       // fabricate -> equip); every input is a refined material or a component.
+      // E4d CARVE-OUT: a DISCOVERY-GATED blueprint (requiresRelicDiscovery) is an exploration payoff
+      // whose recipe the user specified by name (Anomalous Alloy, a raw salvage exotic; the forage
+      // organics, raw because nothing refines them yet), so it may take raw inputs. The mining-ladder
+      // rule still holds for every ordinary equipment blueprint.
+      if (bp.requiresRelicDiscovery !== undefined) continue;
       for (const inputKey of inputKeys) {
         expect(ITEMS[inputKey].category, `${bp.key} input ${inputKey} is not raw`).not.toBe("raw");
       }
@@ -2624,7 +2667,7 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     }
   });
 
-  it("LIVE_STAT_KEYS holds exactly the 18 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module)", () => {
+  it("LIVE_STAT_KEYS holds exactly the 22 live keys (10 economy + 6 Combat 1.0 defensive + 2 crew-module + 4 E4d utility)", () => {
     // Pins the LIVE vocabulary so a key added/removed here is a deliberate, tested
     // change (the slot table draws only from this set).
     expect([...LIVE_STAT_KEYS].sort()).toEqual(
@@ -2649,6 +2692,11 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
         // Crew 0.14.0 (Phase 1b) crew-module keys (bridge + quarters):
         "crewStations",
         "crewEfficiency",
+        // Exploration 0.14.0 (E4d) relic-unlocked utility keys (Damage Control Suite + Pathfinder Suite):
+        "repairSpeed",
+        "waveHullRegen",
+        "expeditionScanSpeed",
+        "hazardResist",
       ].sort(),
     );
   });

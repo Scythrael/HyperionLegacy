@@ -225,6 +225,11 @@
                 <div class="rs-first-h"><Icon name="discovery" size={12} /> First find</div>
                 <div class="rs-first-t">Discovered: {reveal.relicLabel}</div>
                 <div class="rs-first-d">The first {reveal.relicLabel} your fleet has identified. It now has a place in the Museum.</div>
+                <!-- E4d: a first find that opens discovery-gated research names each project it unlocked
+                     (buildRelicReveal's researchUnlocked, empty for a relic that gates nothing). -->
+                {#each reveal.researchUnlocked ?? [] as project (project)}
+                  <div class="rs-first-r"><Icon name="research" size={12} /> Research unlocked: <b>{project}</b></div>
+                {/each}
               </div>
             {/if}
             <div class="rs-copy">
@@ -578,6 +583,17 @@
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     margin-top: 2px;
+  }
+  .rs-first-r {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .rs-first-r b {
+    color: var(--color-success);
   }
   .rs-copy {
     margin: 10px 0 8px;

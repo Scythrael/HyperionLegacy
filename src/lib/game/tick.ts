@@ -114,6 +114,7 @@ import {
   blueprintKind,
   blueprintMintsEquipmentInstance,
   blueprintUnlocked,
+  blueprintRelicLocked, // Exploration 0.14.0 (E4d): the discovery-gated research lock
   // Equipment 0.11.0 Task B1: the spare-storage-cap seam. equipmentAtCap is the
   // equipment twin of materialAtCap, consulted by both fabricate gates below to refuse
   // STARTING a new equipment craft when the spare pool is full.
@@ -265,7 +266,10 @@ import type { DroneSquadron } from "./combat/drones";
 // between-wave shield-regen formula. The DISPLAY-ONLY patrol replay (patrolReplay.ts)
 // calls these SAME leaves, so the watchable replay stays byte-identical to this live
 // loop by construction (parity is structural, not coincidental).
-import { buildPatrolPlayerCombatant, regenPatrolShield, capturePlayerSystemDurability } from "./combat/patrolWave";
+import { buildPatrolPlayerCombatant, regenPatrolShield, capturePlayerSystemDurability, damageControlBeforeWave } from "./combat/patrolWave";
+// Exploration 0.14.0 (E4d): the relic-unlocked Damage Control Suite's pure effect readers (repair speed +
+// between-wave hull regen). A model-only leaf; zeros without the suite (additive-neutral).
+import { damageControlEffect, damageControlRepairTicks } from "./utilityGear";
 // Combat 0.13.0 (Phase 10, design S12): the seeded per-won-wave PATROL LOOT roller.
 // rollWaveLoot(table, seed) is the PURE reward roll a defeated wave (a wreck) yields;
 // PatrolLootTable is the data-driven table shape. tick.ts owns the seed derivation (a
@@ -2800,6 +2804,10 @@ export function tickCaptainPatrol(
   // limp damage goes negative. Computed once (pure). For a Standard-Issue set (or absent gear) this
   // folds byte-identically to the authored stats, so parity + SI fixtures do not move.
   const foldedDefense = foldedPlayerDefense(shipDef, installedGear);
+  // Exploration 0.14.0 (E4d): the installed Damage Control Suite's between-wave hull patch-up fraction,
+  // computed ONCE (pure, from the same installedGear). EXACTLY 0 without the suite, which makes the
+  // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
+  const waveHullRegenFraction = damageControlEffect(installedGear).waveHullRegenFraction;
 
   // WORKING mission copy. Spread makes a fresh object (so wavesWon/phase/etc. mutations
   // never touch the input), and playerDrones is DEEP-cloned so the between-wave
@@ -2907,6 +2915,12 @@ export function tickCaptainPatrol(
       waveIndex < mission.waveTicks.length && mission.waveTicks[waveIndex] === routeTick;
 
     if (waveThisTick) {
+      // ---- E4d: DAMAGE CONTROL between waves. A Damage Control Suite patches a light fraction of the
+      // folded max hull back on before every LATER wave (waveIndex > 0) via the SHARED leaf the display
+      // replay also calls at the same point, so the two stay byte-identical. Once per wave index (each
+      // wave fires exactly once here, however the span is chunked), no rng: offline == live. Without the
+      // suite the fraction is 0 and the hull is returned unchanged.
+      mission.playerHull = damageControlBeforeWave(waveIndex, foldedDefense.hullMax, mission.playerHull, waveHullRegenFraction);
       // ---- FIGHT the scheduled wave. --------------------------------------------------
       // PLAYER combatant: FRESH from the hull defaults (weapons + cooldowns reset each
       // wave, each wave being a discrete battle, design-correct), then OVERRIDE hull/
@@ -6760,7 +6774,12 @@ export function shipRepairDurationTicks(ship: ShipInstance, installedGear: Equip
   const damage =
     ship.repairDamage ??
     (installedGear.length > 0 ? foldedPlayerDefense(shipDef, installedGear).hullMax : shipDef.hullIntegrity);
-  return REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+  const baseTicks = REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+  // Exploration 0.14.0 (E4d): an installed Damage Control Suite shortens the repair (ceil, >= 1 tick),
+  // decided HERE at process creation (the duration is fixed on the TimedProcess, so an in-flight repair is
+  // never re-timed and the closed-form countdown is untouched). Without the suite (or with gear unknown,
+  // the pure ship-only overload) the reduction is exactly 0 and the base is returned unchanged.
+  return damageControlRepairTicks(baseTicks, damageControlEffect(installedGear).repairTimeReduction);
 }
 
 // The AUTO-START pass. For each DAMAGED hull not already in a repair bay, start a shipRepair
@@ -6855,10 +6874,15 @@ export function processShipRepairs(state: GameState): GameState {
 //   tierLocked       , BLUEPRINTS[key].tier > the research facility level (upgrade to unlock)
 //   noSlot           , every research slot is busy (active projects >= researchSlotCount)
 //   credits          , state.credits < BLUEPRINTS[key].researchCreditCost (can't afford)
+//   undiscovered     , (Exploration 0.14.0, E4d) a DISCOVERY-GATED blueprint whose relic
+//                      (BLUEPRINTS[key].requiresRelicDiscovery) is not yet in state.relicDiscovered.
+//                      Checked after inProgress, before tierLocked: the relic is the more
+//                      fundamental lock (the UI masks the whole card while it holds).
 export type ResearchBlockReason =
   | "notFound"
   | "alreadyResearched"
   | "inProgress"
+  | "undiscovered"
   | "tierLocked"
   | "noSlot"
   | "credits";
@@ -6903,6 +6927,11 @@ export function canResearch(
       p.effect.key === blueprintKey
   );
   if (inProgress) return { ok: false, reason: "inProgress" };
+
+  // --- Discovery gate (Exploration 0.14.0, E4d): a blueprint carrying requiresRelicDiscovery stays
+  // locked until its relic's FIRST FIND (state.relicDiscovered). Ungated blueprints (all pre-E4d content)
+  // read false here, so their gate order and reasons are byte-identical.
+  if (blueprintRelicLocked(state, blueprintKey)) return { ok: false, reason: "undiscovered" };
 
   // --- Tier unlock: the research facility's level must have reached the blueprint's tier
   // (blueprintResearchable reads the SAME level >= tier relation; here it's its own reason so
@@ -9042,7 +9071,10 @@ export type EnqueueBlockReason =
   | "materials"
   | "notEnoughHeld"
   | "alreadyResearched"
-  | "inProgress";
+  | "inProgress"
+  // Exploration 0.14.0 (E4d): a discovery-gated research project whose relic has not been found yet
+  // (canResearch's own `undiscovered` verdict, forwarded at enqueue; see canEnqueueOrder rule 5).
+  | "undiscovered";
 
 // Does this order shape belong at this facility? A craft line goes to the facility that
 // runs its kind; a salvage target goes to the Salvage Bay. Checked at enqueue so a
@@ -9174,7 +9206,13 @@ export function canEnqueueOrder(
     );
     if (duplicate) return { ok: false, reason: "alreadyQueued" };
     const research = canResearch(state, order.blueprintKey);
-    if (!research.ok && (research.reason === "alreadyResearched" || research.reason === "inProgress")) {
+    // E4d: `undiscovered` is refused at enqueue too. Unlike tierLocked / credits / noSlot it is not a
+    // wait the player can plan around (it clears only on a relic's first find, an exploration outcome),
+    // and the Research catalog masks the card, so a queued order on one could only be a dead row.
+    if (
+      !research.ok &&
+      (research.reason === "alreadyResearched" || research.reason === "inProgress" || research.reason === "undiscovered")
+    ) {
       return { ok: false, reason: research.reason };
     }
   }

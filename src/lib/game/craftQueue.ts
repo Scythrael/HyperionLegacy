@@ -53,6 +53,7 @@ import {
   BLUEPRINTS,
   REFINE_RECIPES,
   EQUIPMENT_SLOTS,
+  equipmentSlotLabel, // E4d: variety-aware slot label
   SHIP_TYPES,
   type GameState,
   type QueueFacilityKey,
@@ -286,7 +287,8 @@ export function craftLineOutputLabel(kind: CraftLineKind, recipeKey: string): st
 function equipmentVarietyLabel(slotType: string, varietyKey: string): string {
   const slot = EQUIPMENT_SLOTS[slotType];
   const variety = slot?.varieties.find((v) => v.key === varietyKey);
-  return `${slot?.label ?? slotType} · ${variety?.label ?? varietyKey}`;
+  // E4d: equipmentSlotLabel keeps every existing label, and names a relic-unlocked family's slot neutrally.
+  return `${equipmentSlotLabel(slotType, varietyKey)} · ${variety?.label ?? varietyKey}`;
 }
 
 // An EXISTING piece of gear, named the way the rest of the game names it.

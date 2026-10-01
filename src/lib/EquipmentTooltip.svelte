@@ -23,7 +23,7 @@
   // fixed hex, matching App.svelte's warehouseRarityColor posture.
   // ============================================================================
   import type { EquipmentRarity, EquipmentInstance, ItemRarity, ShipTypeKey } from "./game/model";
-  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES } from "./game/model";
+  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES, equipmentSlotLabel } from "./game/model";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
   // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
@@ -128,6 +128,11 @@
     yieldRig: "💎",
     surveyRig: "📡",
     refineryFeedRig: "🧪",
+    // Exploration 0.14.0 (E4d): the relic-unlocked items (same placeholder-emoji surface as above; the
+    // game-wide SVG migration of this map is a separate pass).
+    damageControlSuite: "🧯",
+    pathfinderSuite: "🗺️",
+    sensorBioResonance: "🧬",
   };
 
   // Fallback glyph per SLOT, used if a variety is unmapped OR a slot has no variety
@@ -146,6 +151,10 @@
   // Resolve a piece's VARIETY key: a crafted piece from its blueprint's equipmentOutput,
   // a Standard-Issue baseline from the slot's blessed default variety.
   function resolveVarietyKey(piece: EquipmentInstance): string | null {
+    // E4d: a piece whose variety is stamped on it (catalog slots + the relic-unlocked utility families)
+    // names its own variety, so even a craft-less (dev-minted) one resolves its glyph. For every other
+    // piece moduleVariant is absent and the original resolution below is unchanged.
+    if (piece.moduleVariant !== undefined) return piece.moduleVariant;
     if (piece.blueprintKey === null) return DEFAULT_EQUIPMENT_VARIETY[piece.slotType] ?? null;
     return BLUEPRINTS[piece.blueprintKey]?.equipmentOutput?.varietyKey ?? null;
   }
@@ -195,6 +204,11 @@
     massReduction: "Mass Reduction",
     sensors: "Sensors",
     materialQualityChance: "Material Quality",
+    // Exploration 0.14.0 (E4d): the relic-unlocked utility items' lines.
+    repairSpeed: "Repair Speed",
+    waveHullRegen: "Hull Regen Between Waves",
+    expeditionScanSpeed: "Expedition Scan Speed",
+    hazardResist: "Hazard Resist",
     hullStrength: "Hull Plating",
     hullIntegrity: "Hull Integrity",
     shieldCapacity: "Shield Capacity",
@@ -317,8 +331,10 @@
     }
     return bp.label.replace(/\s+Blueprint$/, "");
   }
-  function slotLabelFor(slotType: string): string {
-    if (EQUIPMENT_SLOTS[slotType] !== undefined) return EQUIPMENT_SLOTS[slotType].label;
+  // E4d: variety-aware (equipmentSlotLabel), so a relic-unlocked family in the shared Spec Utility slot
+  // reads "Spec Utility" rather than the slot's original "Prospecting Rig"; every existing piece is unchanged.
+  function slotLabelFor(slotType: string, varietyKey: string | null = null): string {
+    if (EQUIPMENT_SLOTS[slotType] !== undefined) return equipmentSlotLabel(slotType, varietyKey);
     if (slotType === "weapon") return "Weapon";
     if (slotType === "droneBay") return "Drone Pod";
     return slotType;
@@ -399,7 +415,7 @@
         chip: `${grade} · Q${p.quality}`,
         chipColor: accent,
         iLevel: p.iLevel,
-        slotLabel: slotLabelFor(p.slotType),
+        slotLabel: slotLabelFor(p.slotType, resolveVarietyKey(p)),
         // A weapon's DAMAGE and other combat stats live on its base def, folded with the rolled
         // yield/accuracy by the SAME function combat uses, so the card shows what the ship fires.
         weaponCombat:
@@ -469,7 +485,7 @@
       name: blueprintName(resolved.blueprintKey),
       chip: "In progress",
       chipColor: DIM,
-      slotLabel: preview ? slotLabelFor(preview.slotType) : "",
+      slotLabel: preview ? slotLabelFor(preview.slotType, preview.varietyKey) : "",
       preview,
       weaponBase,
       flavor: bp?.flavor ?? null,

@@ -33,6 +33,7 @@ import {
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
+  varietyHasOwnIdentity,
   type BlueprintDef,
   type EquipmentInstance,
   type EquipmentRarity,
@@ -365,12 +366,18 @@ export function generateEquipment(a: {
   const budget = computeBudget(a.iLevel, a.quality, rarityIndex(a.rarity));
   const { implicitShare, affixShare } = budgetShares(budget);
 
+  // E4d: a variety with its OWN identity (the relic-unlocked utility families) may override the slot's
+  // signature lines + affix pool. Every pre-E4d variety omits both, so these resolve to the slot's own
+  // tables and the roll below is byte-identical (same lines, same pool, same draw count).
+  const implicitStatKeys = variety.implicitStats ?? slotDef.implicitStats;
+  const affixPool = variety.affixPool ?? slotDef.affixPool;
+
   // --- Implicit (signature) lines: always present, equal share ---------------
   const implicitStats: Record<string, number> = {};
-  const implicitCount = slotDef.implicitStats.length;
+  const implicitCount = implicitStatKeys.length;
   const implicitEach = implicitCount > 0 ? Math.round(implicitShare / implicitCount) : 0;
   const rarityIdx = rarityIndex(a.rarity);
-  for (const stat of slotDef.implicitStats) {
+  for (const stat of implicitStatKeys) {
     // Combat-defense rework (HYBRID model): the three DEFENSIVE implicit lines do NOT use the shared
     // budget-derived implicitEach. Their Standard-Issue floor is a FLAT, hull-independent value per stat
     // (SI_PLATING_HP = 100 additive, SI_EMITTER_CAP = 300, SI_EMITTER_RECHARGE = 6), so each rides a
@@ -401,7 +408,7 @@ export function generateEquipment(a: {
   // affixCount() first (may consume one rng draw for augmented), THEN the picks, so
   // the stream advances in the documented order.
   const wantAffixes = affixCount(a.rarity, a.rng);
-  const rolledStatKeys = rollDistinctAffixStats(slotDef.affixPool, variety, wantAffixes, a.rng);
+  const rolledStatKeys = rollDistinctAffixStats(affixPool, variety, wantAffixes, a.rng);
   const rolledStats: Record<string, number> = {};
   // Divide by the ACTUAL number of picks (the pool may have offered fewer than
   // wantAffixes), so the affix share is spread evenly across the lines that exist.
@@ -453,7 +460,11 @@ export function generateEquipment(a: {
   // The rolled varietyKey IS the catalog id for these slots. Absent on every other slot (analogue of
   // weaponType / droneRole). Full Fabricator-blueprint + salvage-precursor sourcing is a LATER
   // follow-on; today these mint through this same shared generation path.
-  if (a.slotType === "bridge" || a.slotType === "quarters" || a.slotType === "sensor") {
+  //   - Exploration 0.14.0 (E4d): a variety with its OWN identity (per-variety overrides, e.g. the
+  //     Damage Control Suite / Pathfinder Suite in specUtility) is stamped too, so canFitEquipment can
+  //     apply its variety-level equip gate and utilityGear.ts can read its effect. varietyHasOwnIdentity
+  //     is false for every pre-E4d variety, so no existing mint gains the field.
+  if (a.slotType === "bridge" || a.slotType === "quarters" || a.slotType === "sensor" || varietyHasOwnIdentity(variety)) {
     piece.moduleVariant = a.varietyKey;
   }
   return piece;
@@ -764,8 +775,11 @@ export function previewCraftOutcome(
     outputKind = "equipment";
     slotType = eqOut.slotType;
     varietyKey = eqOut.varietyKey;
-    implicitStatKeys = slotDef.implicitStats;
-    affixPoolTable = slotDef.affixPool;
+    // E4d: mirror generateEquipment's per-variety override resolution, so a relic-unlocked utility
+    // item previews its OWN lines (absent overrides -> the slot's tables, unchanged for existing gear).
+    const variety = slotDef.varieties.find((v) => v.key === eqOut.varietyKey);
+    implicitStatKeys = variety?.implicitStats ?? slotDef.implicitStats;
+    affixPoolTable = variety?.affixPool ?? slotDef.affixPool;
   } else if (blueprint.weaponOutput !== undefined) {
     outputKind = "weapon";
     slotType = "weapon";
