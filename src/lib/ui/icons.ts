@@ -106,6 +106,69 @@ export const ICON_PATHS = {
   chevronRight: ["M9 6l6 6-6 6"],
   // Close: remove a queued order, dismiss a modal.
   close: ["M6 6l12 12", "M18 6L6 18"],
+
+  // --- Relics + Museum (Exploration 0.14.0, phase E4) ---
+  // The user asked for every relic graphic to be SVG (2026-10-01), so the whole relic surface is
+  // born on <Icon> rather than migrated later. One glyph per relic so a Museum roster reads at a
+  // glance; a set's capstone glyph doubles as that set's emblem.
+
+  // Relic (unidentified): a sealed hex token with a question mark. The hex is the same token the
+  // approved mockup's Relic Vault used; the "?" is what separates it from `component`'s hex nut.
+  relic: ["M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9z", "M10 9.5a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.3v.9", "M12 15.9v.2"],
+  // Museum: a classical front (pediment, entablature, four columns, stepped base).
+  museum: ["M3 9l9-5 9 5z", "M4 11h16", "M6.5 11v6M10.5 11v6M13.5 11v6M17.5 11v6", "M4 17h16M3 20h18"],
+  // Study: a magnifying glass, the "examine this unknown thing" verb.
+  study: ["M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z", "M15.3 15.3L20 20"],
+  // Discovery: a four-point sparkle with a small companion, the "first find" moment.
+  discovery: ["M11 3c.6 4.3 1.9 5.9 6 6.5-4.1.6-5.4 2.2-6 6.5-.6-4.3-1.9-5.9-6-6.5 4.1-.6 5.4-2.2 6-6.5z", "M19 15v4M17 17h4"],
+
+  // Precursor Set (the lost civilization).
+  // Glyph Tablet: an arch-topped stone slab with engraved lines.
+  relicGlyphTablet: ["M6 21V8a6 6 0 0 1 12 0v13z", "M9.5 10.5h5M9.5 14h3M9.5 17.5h5"],
+  // Resonance Shard: a crystal kite with sound arcs on either side.
+  relicResonanceShard: ["M12 3l4 8-4 10-4-10z", "M8 11h8", "M19.5 8.5a5 5 0 0 1 0 5M4.5 8.5a5 5 0 0 0 0 5"],
+  // Star-Chart Fragment: a torn sheet with a marked star and a plotted course. The star is a
+  // four-point sparkle, not a plus, so it cannot be misread as an "add" control.
+  relicStarChartFragment: ["M4 4h11l-2 4.5 2.5 3.5-2.5 3.5 2 4.5H4z", "M8.5 7c.3 1.7.9 2.3 2.5 2.5-1.6.2-2.2.8-2.5 2.5-.3-1.7-.9-2.3-2.5-2.5 1.6-.2 2.2-.8 2.5-2.5z", "M6.5 17.5c1.5 0 2.7-.8 3.2-2.2"],
+  // Precursor Lens: a telescope on a tripod (the lens as an instrument). Concentric rings were
+  // tried first and read as a target or a radio button at 1em.
+  relicPrecursorLens: ["M4 15l11-6 1.8 3.4-11 6z", "M15.2 7.6l3.4-1.8 2.4 4.6-3.4 1.8z", "M10.5 14.5L8 21M10.5 14.5l3.5 6.5"],
+  // Heart of the Archive (capstone): a cut gem circled by an orbit, a core that still turns.
+  relicHeartOfTheArchive: ["M12 4l5 7-5 9-5-9z", "M7 11h10", "M2.5 13c0-2 4.3-3.6 9.5-3.6s9.5 1.6 9.5 3.6-4.3 3.6-9.5 3.6-9.5-1.6-9.5-3.6z"],
+
+  // Shipwright Set (lost ships).
+  // Hull Rivet: a curved hull panel with its row of rivets. A side-view rivet was tried first and
+  // read as a flying saucer at 1em.
+  relicHullRivet: ["M3 9c5-3 13-3 18 0v8c-5-3-13-3-18 0z", "M7 11.6v.2M12 10.8v.2M17 11.6v.2"],
+  // Flight Recorder: the black box, a handled case carrying a data trace.
+  relicFlightRecorder: ["M5 8h14v12H5z", "M9 8V5h6v3", "M7.5 14h2l1.5-3 2 6 1.5-3h2"],
+  // Ancient Drive Coil: a wound coil between two end plates.
+  relicAncientDriveCoil: ["M5 4.5h14M5 19.5h14", "M7 4.5l10 3-10 3 10 3-10 3 10 3"],
+  // Captain's Sigil (capstone): a medallion bearing the fleet delta, on a ribbon.
+  relicCaptainsSigil: ["M12 3.5a6 6 0 1 0 0 12 6 6 0 0 0 0-12z", "M12 6.5l3 6-3-1.5-3 1.5z", "M9.5 15L8 21l4-2 4 2-1.5-6"],
+
+  // Xenobiology Set (strange life).
+  // Spore Capsule: a sealed pill with spores drifting off it.
+  relicSporeCapsule: ["M9 7a3 3 0 0 1 6 0v10a3 3 0 0 1-6 0z", "M9 12h6", "M18.5 5.5v.2M20.5 8.5v.2M19.5 2.5v.2"],
+  // Bioluminescent Seed: a teardrop seed throwing off light.
+  relicBioluminescentSeed: ["M12 5c2.5 3 4 5.3 4 7.5a4 4 0 0 1-8 0C8 10.3 9.5 8 12 5z", "M12 10v5", "M4.5 9l1.3.7M19.5 9l-1.3.7M3.5 14.5h1.4M20.5 14.5h-1.4"],
+  // Leviathan Scale: the overlapping scale pattern (two scales over one). A single shield-shaped
+  // scale was tried first and read as a shield.
+  relicLeviathanScale: ["M4 5c0 4 1.8 6.5 4 6.5S12 9 12 5M12 5c0 4 1.8 6.5 4 6.5S20 9 20 5", "M8 11.5c0 4 1.8 6.5 4 6.5s4-2.5 4-6.5", "M4 11.5c0 4 1.8 6.5 4 6.5M20 11.5c0 4-1.8 6.5-4 6.5"],
+  // Living Crystal (capstone): a crystal prism with a leaf growing from it.
+  relicLivingCrystal: ["M10 2.5l3 4.5v9l-3 5-3-5V7z", "M7 7h6", "M13 13.5c2.8-2.2 5.5-2 7.5-1.3-1 3-3.8 4.6-7.5 3.8"],
+
+  // Deep Earth Set (the planet's interior).
+  // Geode Core: a split rough stone with a crystal-starred hollow.
+  relicGeodeCore: ["M7 5l6-1.5 5.5 3 2 6-2.5 6-6 1.5-5.5-2.5L4 12z", "M12 8.5l1.2 2.3 2.3.5-1.6 1.8.3 2.4-2.2-1-2.2 1 .3-2.4-1.6-1.8 2.3-.5z"],
+  // Magma Pearl: a sphere with fire held inside it.
+  relicMagmaPearl: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M12 16c-1.9 0-3.2-1.3-3.2-3 0-2 2-2.8 2-5 1.8 1 4.4 2.6 4.4 5 0 1.7-1.3 3-3.2 3z"],
+  // Deep-Vein Compass: a compass rose whose needle points down the vein.
+  relicDeepVeinCompass: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M15.5 8.5l-2 5-5 2 2-5z", "M12 3v2"],
+  // Tectonic Keystone (capstone): a stone arch with its keystone set at the crown. A lone wedge
+  // was tried first and read as a letter W at 1em; the arch is what makes it a keystone, and the
+  // block joints are what stop the bare arch reading as a horseshoe magnet.
+  relicTectonicKeystone: ["M3 21v-8a9 9 0 0 1 18 0v8", "M7 21v-8a5 5 0 0 1 10 0v8", "M9.6 4.3h4.8l-1.1 3.9h-2.6z", "M8.5 9.5L5.6 6.6M15.5 9.5l2.9-2.9M3 13h4M17 13h4"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

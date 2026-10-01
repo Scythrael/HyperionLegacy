@@ -85,11 +85,33 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   equipment: "subject",
   ship: "subject",
   credits: "subject",
+  // Relics + Museum (0.14.0 E4). Each relic glyph NAMES a specific collectible, so all are subjects.
+  relic: "subject",
+  museum: "subject",
+  discovery: "subject",
+  relicGlyphTablet: "subject",
+  relicResonanceShard: "subject",
+  relicStarChartFragment: "subject",
+  relicPrecursorLens: "subject",
+  relicHeartOfTheArchive: "subject",
+  relicHullRivet: "subject",
+  relicFlightRecorder: "subject",
+  relicAncientDriveCoil: "subject",
+  relicCaptainsSigil: "subject",
+  relicSporeCapsule: "subject",
+  relicBioluminescentSeed: "subject",
+  relicLeviathanScale: "subject",
+  relicLivingCrystal: "subject",
+  relicGeodeCore: "subject",
+  relicMagmaPearl: "subject",
+  relicDeepVeinCompass: "subject",
+  relicTectonicKeystone: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
   queue: "action",
   close: "action",
+  study: "action",
 
   // ORNAMENT: structure and direction. Least restricted.
   clock: "ornament",
