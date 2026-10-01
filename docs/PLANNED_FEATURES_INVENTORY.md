@@ -14,7 +14,7 @@
 | 5 | July 2026 plans |
 | 6 | Aug-Sep 2026 plans, audit, QA and patch-note docs |
 
-The full row-level tables (about 860 rows, each with source file:line, target release, doc status, code status, flag and evidence) are in [`docs/inventory/2026-09-30/`](inventory/2026-09-30/). The row IDs below (S4-CP12, AR-10, ...) point into those tables.
+The full row-level tables (about 1,050 rows, each with source file:line, target release, doc status, code status, flag and evidence) are in [`docs/inventory/2026-09-30/`](inventory/2026-09-30/). The row IDs below (S4-CP12, AR-10, ...) point into those tables.
 
 **Flags:**
 - **GAP:** planned and locked, not built, and no phase owns it.
@@ -143,6 +143,41 @@ Either way, 0.14.0 is adding new item classes with no provenance: relics, implan
 | S1-44 | Captain pickers show Level; matching empty-state wording; lock cue on tier buttons | QoL batch | User never assigned a batch |
 | AR-6 | More Armory loadouts unlocked by talents | 0.13.6 design | Flat 25 stub |
 | PR-24, PR-25, S24 | Tick-bar pulse style; about 45 internal "fitting" comments; baseline-label alignment (dev only) | various | Low |
+
+### B2. Older (July-era) plans that fell off the roadmap (slice 5)
+
+| ID | Item | Notes |
+|---|---|---|
+| S5-152 | **MATERIAL LINES** (planned 0.11.1, then 0.11.3): give every mission-loot material a crafting purpose through thematic lines | Never built. The design lives only on the unmerged branch `feat/material-lines-0.11.1` (last commit 2026-07-20). No plan since mentions it. **Ferrite, Cobalt Ore, Osmium Ore, Scrap Alloy and Salvaged Circuitry still have no consumer** (S5-105) |
+| S5-130 | **Dead stat on live gear:** `materialQualityChance` rolls on all three Prospecting Rigs (65% of the Refinery-Feed Rig's stat budget) and shows as "Material Quality" in the tooltip | Nothing reads it (verified in code). Players are crafting a rig whose main stat does nothing |
+| S5-126 / S5-196 | **Combat 1.1 fast-follow** never shipped and has no tracking entry: modules + the active-ability engine, the ambush counter-modules, the in-combat drone-replenish module, the power-budget fit gate, Overcharged Capacitors | The sim hooks exist but are hardwired off. E-MOD (0.14.0) does not name these. The power budget overlaps S4-A03 |
+| S5-133 | Equipment **discard** and **sell for credits** (0.11.0 scope) | Only salvage exists |
+| S5-151 | **Install from the item side** (0.12.0 console, locked: "from the item OR from the ship") | Ship side only |
+| S5-195 | "Damaged [System]" wreck drops planned to grow to shields and plating | Weapons only |
+| S5-080 | `reactorTier <= ship tier` gating equipment and module tiers | Comment only |
+| S5-061 | Talents that raise FA XP | Never logged anywhere |
+| S5-168 / S5-169 | Junk loot crate (junk sold for credits, the 1-in-1M "Old Boot", the "Junk King" achievement); salvage feeds research | The SUGGESTIONS entry the 0.11.2 design points to does not exist |
+| S5-120 | Combat-era talents: the base Tactician and Explorer trees are still single inert hubs; Tactical and Science specs have no bonus; the **INFAMY** talent (more patrol waves) exists only as a comment | Trigger (combat shipped) has passed |
+
+Slice 5 drift, which belongs with section C:
+- S5-128: material rarity was meant to cap crafted rarity, and material quality to feed crafted quality. Neither happens.
+- S5-129: sensors and extractor efficiency were meant to drive rarity and quality.
+- S5-131: cargo as a true hold cap. Still tracked as open at SUGG :811.
+- S5-145: "Dispatch once / repeatedly" was meant for all mission types. It is built for patrols only.
+- S5-037: the old loot-rarity-range "bug" entry contradicts a later user decision. Stale. Supersedes S1-89.
+
+Slice 5 decisions, which belong with section D:
+- S5-016: the Energy resource.
+- S5-094: missions on the shared timed-process engine.
+- S5-101: rare inputs for warehouse tiers.
+- S5-114: a Research Data currency.
+- S5-135: the reserved `thrusters` and `propellantTanks` slots.
+- S5-138: repairs cost time only (the plan said a % of materials).
+- S5-141: the Pacifist and smart-reflect achievement seeds.
+- S5-149 / S5-148 / S5-154: the Recruiter's Office (cadets, transfer requests, replacement captains), officer stats, and Senior Staff training exercises + role milestones. Same family as A2.
+- S5-191: a rare collectible (trophy) combat loot hook.
+- S5-192: mixed drone pods in a bay.
+- S5-198: the online-prep retrofit. Same as KI73.
 
 ---
 
