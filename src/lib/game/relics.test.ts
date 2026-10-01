@@ -123,6 +123,10 @@ function completeExpedition(findings: ExpeditionFinding[], id = "expedition-1"):
     scienceStrength: 0,
     teamKit: 0,
     gambitPrograms: { security: [], science: [] },
+    // E4b museum snapshot: neutral (an empty museum), so every pre-E4b assertion is unchanged.
+    scanSpeedBonus: 0,
+    relicFindBonus: 0,
+    hazardResist: 0,
   };
 }
 

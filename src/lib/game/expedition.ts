@@ -72,7 +72,7 @@ import type { ExpeditionPlanetType } from "./model";
 import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
-import { RELIC_SETS, relicSetForPoi } from "./relics";
+import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
 import type { RelicSetId, RelicVaultToken } from "./model";
 // E4a: the CLAIM DEPOSIT routes materials through the discovery-safe add seam (addToInventory, clamped at
 // itemCap) and folds the haul into lifetimeStats through the shared fold. These are imported from tick.ts,
@@ -366,6 +366,11 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): Relic
     scienceStrength: 0,
     teamKit: 0,
     gambitPrograms: { security: [], science: [] },
+    // E4b museum snapshot: irrelevant to the discovery roll (it reads only the seed + scan-param biases),
+    // so the neutral zeros keep the throwaway well-typed without touching the preview.
+    scanSpeedBonus: 0,
+    relicFindBonus: 0,
+    hazardResist: 0,
   };
   fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
   const found = new Set<RelicSetId>();
@@ -460,7 +465,12 @@ export function startExpedition(
   // E3a: snapshot the away team's crew-derived strength + team kit + the account-level gambit program
   // pair, so the expedition's ground battles resolve as a pure function of the stored expedition (parity;
   // editing the account programs mid-flight never changes an in-flight run, matching the sensor snapshot).
+  // (E4b: deriveAwayTeam already folds the museum's scienceTeamPower into scienceStrength.)
   const awayTeam = deriveAwayTeam(state, ship);
+  // E4b: snapshot the account-level museum's EXPEDITION bonuses at dispatch (the same "the launch is what
+  // you saw at dispatch" contract as the sensor + away-team snapshots), so resolution reads only stored
+  // values and a museum that grows mid-flight never changes an in-flight run (parity by construction).
+  const museum = museumBonuses(state);
   const gambitPrograms = {
     security: state.gambitPrograms.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
     science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
@@ -488,6 +498,9 @@ export function startExpedition(
     scienceStrength: awayTeam.scienceStrength,
     teamKit: awayTeam.teamKit,
     gambitPrograms,
+    scanSpeedBonus: museum.scanSpeed,
+    relicFindBonus: museum.relicFindChance,
+    hazardResist: museum.hazardResist,
   };
 
   return {
@@ -522,10 +535,17 @@ function transitDurationSeconds(exp: Expedition): number {
 
 // The scan rate (scan units / second) for one body: base rate, shaped by the snapshotted array's
 // cadence + coverage and the ship's sensors, slowed by the body's hazard. Always > 0.
+//
+// E4b: two SNAPSHOTTED museum bonuses shape it too. scanSpeedBonus multiplies the rate by (1 + b), and
+// hazardResist shrinks the hazard the body presents (resistedHazard, bounded, never negative) before the
+// hazard slow is computed. Both are stored on the expedition at dispatch, so the rate stays a pure
+// function of the stored run. Both are 0 for an empty museum: x * 1 is exact and resistedHazard returns
+// the hazard unchanged, so the rate is bit-identical to E4a.
 function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number {
   const sensorBoost = 1 + Math.max(0, exp.sensorPower) * SCAN_SENSOR_COEFF;
-  const hazardSlow = 1 + Math.max(0, body.hazard) * SCAN_HAZARD_PENALTY;
-  return (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost) / hazardSlow;
+  const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, exp.hazardResist ?? 0)) * SCAN_HAZARD_PENALTY;
+  const museumScan = 1 + (exp.scanSpeedBonus ?? 0);
+  return (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
 }
 
 // Total time to scan the WHOLE system (all bodies, sequentially). The SCANNING phase's duration.

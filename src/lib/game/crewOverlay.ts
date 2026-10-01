@@ -44,6 +44,9 @@ import {
   quartersCapacityBonus,
   hullSpecOf,
 } from "./crewModules";
+// Exploration 0.14.0 (Phase E4b): the account-level MUSEUM bonuses (relics.ts). relics.ts imports only
+// TYPES from model.ts + the leaf PRNG, so this import adds no cycle.
+import { museumBonuses, type MuseumStat } from "./relics";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -133,7 +136,32 @@ export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, nu
 
 // Sum a ship's COMPLEMENT rollup + every OFFICER assigned to it into one { crew.*: number } modifier
 // map. PURE: reads state.officers + ship.complement + the static catalogs, mutates nothing.
-export function shipCrewContribution(state: GameState, ship: ShipInstance): Record<string, number> {
+//
+// Exploration 0.14.0 (Phase E4b): the museum's `crewBonuses` stat AMPLIFIES every crew contribution
+// fleet-wide: each per-stat delta in the finished map is multiplied by (1 + crewBonuses) before the
+// overlay applies it (see scaleCrewContribution). `museum` is optional so a caller that already holds
+// the bonuses (effectiveShipStats) does not recompute them; omitted, it is read off `state`. With an
+// empty museum crewBonuses is 0 and the map is returned UNTOUCHED (no scaling pass at all), so every
+// crew number stays byte-identical to E4a.
+export function shipCrewContribution(
+  state: GameState,
+  ship: ShipInstance,
+  museum: Readonly<Record<MuseumStat, number>> = museumBonuses(state),
+): Record<string, number> {
+  return scaleCrewContribution(rawShipCrewContribution(state, ship), museum.crewBonuses);
+}
+
+// Multiply every crew.* delta by (1 + crewBonus). crewBonus 0 returns the SAME map (no copy, no float
+// op), the additive-neutral guarantee. Pure: never mutates the input map.
+export function scaleCrewContribution(crew: Record<string, number>, crewBonus: number): Record<string, number> {
+  if (crewBonus === 0) return crew;
+  const scaled: Record<string, number> = {};
+  for (const key of Object.keys(crew)) scaled[key] = crew[key] * (1 + crewBonus);
+  return scaled;
+}
+
+// The UN-amplified crew contribution (the pre-E4b body of shipCrewContribution, unchanged).
+function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<string, number> {
   const out: Record<string, number> = {};
   const add = (key: string, value: number): void => {
     if (value === 0) return;
@@ -231,9 +259,57 @@ export function shipCrewContribution(state: GameState, ship: ShipInstance): Reco
 // (economyTick, patrol, dispatch gates, fuel/range) routes through, so crew is applied identically
 // everywhere. PURE (reads state + the static tables). With no crew it equals shipDerivedStats(ship,
 // equippedFor(...)) exactly (applyCrewOverlay returns base unchanged).
+//
+// Exploration 0.14.0 (Phase E4b): the account-level MUSEUM overlay is layered LAST, on top of the crew
+// result (applyMuseumOverlay). The museum is read ONCE here off `state` and shared with the crew
+// amplification (crewBonuses) so both read the same snapshot. Because every engine consumer (economyTick
+// missions + patrol, dispatch gates, berths, expedition sensor snapshot) and the UI readout route through
+// this one function, the museum's ship-stat bonuses land everywhere at once. With an empty museum both
+// overlays are identity (same reference), so the result is byte-identical to E4a.
 export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDerivedStats {
   const base = shipDerivedStats(ship, equippedFor(state, ship.id));
-  return applyCrewOverlay(base, shipCrewContribution(state, ship));
+  const museum = museumBonuses(state);
+  const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
+  return applyMuseumOverlay(crewed, museum);
+}
+
+// ============================================================================
+// The MUSEUM overlay (pure), Exploration 0.14.0 Phase E4b
+// ============================================================================
+//
+// Folds the account-level museum's SHIP-STAT bonuses (fractions, relics.ts museumBonuses) onto a ship's
+// derived stats, multiplicatively, AFTER the crew overlay (the museum is fleet-wide, so it scales the
+// crew-boosted number):
+//
+//   cargoCapacity   -> cargoCapacity        x (1 + b)
+//   transitSpeed    -> transitSpeedMult     x (1 + b)
+//   miningYield     -> extractionYieldMult  x (1 + b)
+//   sensors         -> sensors              x (1 + b)   (0 stays 0: the museum amplifies fitted sensors)
+//   extractionSpeed -> extractionSpeedMult  x (1 + b)   (read by effectiveMissionDef, which shortens the
+//                                                        extracting PHASE; set only when b != 0, so a
+//                                                        museum without it never adds the optional field)
+//
+// ADDITIVE-NEUTRAL: when every ship-relevant bonus is 0 this returns the SAME base reference (no clone),
+// the byte-identical guarantee applyCrewOverlay also gives. The other museum stats (research, crafting,
+// salvage, expedition, extraction odds, crew amplification) are wired at their own seams, not here.
+export function applyMuseumOverlay(
+  base: ShipDerivedStats,
+  museum: Readonly<Record<MuseumStat, number>>,
+): ShipDerivedStats {
+  const cargo = museum.cargoCapacity;
+  const transit = museum.transitSpeed;
+  const mining = museum.miningYield;
+  const sensors = museum.sensors;
+  const extraction = museum.extractionSpeed;
+  if (cargo === 0 && transit === 0 && mining === 0 && sensors === 0 && extraction === 0) return base;
+  return {
+    ...base,
+    cargoCapacity: base.cargoCapacity * (1 + cargo),
+    transitSpeedMult: base.transitSpeedMult * (1 + transit),
+    extractionYieldMult: base.extractionYieldMult * (1 + mining),
+    sensors: base.sensors * (1 + sensors),
+    ...(extraction !== 0 ? { extractionSpeedMult: (base.extractionSpeedMult ?? 1) * (1 + extraction) } : {}),
+  };
 }
 
 // ============================================================================

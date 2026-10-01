@@ -56,7 +56,7 @@ import { makeRng, type Rng } from "./combat/rng";
 import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
 // E4a: the PoI -> relic-set single source of truth (pure data; imports no engine module, so no cycle).
-import { RELIC_BEARING_POIS, isRelicBearingPoi } from "./relics";
+import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } from "./relics";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -1036,6 +1036,14 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
     TEAM_KIT_BASE + TEAM_KIT_PER_MEDICAL * Math.floor(supportHeads / TEAM_KIT_MEDICAL_DIVISOR),
   );
 
+  // Exploration 0.14.0 (Phase E4b): the account-level museum's scienceTeamPower multiplies the derived
+  // Science strength by (1 + b). Applied HERE (not at the dispatch call site) so the dispatch console's
+  // away-team preview and the snapshot startExpedition stores are the SAME number. startExpedition
+  // snapshots the result, so a museum that grows mid-flight never changes an in-flight team. b = 0 for an
+  // empty museum: the multiply is skipped entirely, so the snapshot is bit-identical to E4a.
+  const sciencePower = museumBonuses(state).scienceTeamPower;
+  if (sciencePower !== 0) science = science * (1 + sciencePower);
+
   return { securityStrength: security, scienceStrength: science, teamKit };
 }
 
@@ -1231,15 +1239,22 @@ function pickWeighted<T extends { weight: number }>(rng: Rng, items: T[]): T {
 // reach a higher relic tier). The relic keeps the tier's rarity NAME + quality bucket but stays
 // UNIDENTIFIED (E4 owns the concrete relic + its bonus). Returns the token, or null if the chance missed.
 // Draw order: relic chance, then (on hit) the tier pick -- fixed + documented.
+//
+// E4b: `findBonus` is the expedition's SNAPSHOTTED museum relicFindChance. It multiplies the permille chance
+// by (1 + findBonus), rounded to a whole permille and capped at 1000 (a certain drop, never more). It only
+// moves the threshold of the SAME single chance draw, so the draw order above is unchanged. 0 (the
+// default, an empty museum) skips the multiply entirely, so the chance is bit-identical to E4a.
 export function rollRelicToken(
   seed: number,
   hazard: number,
   poiId: string,
   relicId: string,
+  findBonus: number = 0,
 ): ExpeditionRelicToken | null {
   if (!isRelicBearingPoi(poiId)) return null;
   const rng = makeRng(seed >>> 0);
-  const chance = Math.min(1000, RELIC_BASE_PERMILLE + Math.round(Math.max(0, Math.min(1, hazard)) * RELIC_HAZARD_PERMILLE));
+  const baseChance = Math.min(1000, RELIC_BASE_PERMILLE + Math.round(Math.max(0, Math.min(1, hazard)) * RELIC_HAZARD_PERMILLE));
+  const chance = findBonus > 0 ? Math.min(1000, Math.round(baseChance * (1 + findBonus))) : baseChance;
   if (!rng.chance(chance, 1000)) return null;
   // REUSE the salvage tier ladder: hazard sets how far up the ordered tiers the roll can reach.
   const pool = SALVAGE_LOOT_POOLS.intactReactorCore;
@@ -1324,7 +1339,11 @@ export function resolveExpeditionActivity(
       0;
     const rng = makeRng(battleSeed);
     const team = buildTeamCombatants(snapshot, `${exp.id}-${activity.id}-a${attempt}`);
-    const enemies = generateEncounter(battleSeed, body.hazard, activity.poiId);
+    // E4b: the guard is scaled by the hazard the body PRESENTS to this run (the snapshotted museum
+    // hazardResist shrinks it, bounded + never negative; 0 -> the raw hazard, bit-identical). The REWARD
+    // rolls below keep the body's RAW hazard on purpose: resisting a world's danger makes the fight
+    // easier, it does not make the find poorer.
+    const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), activity.poiId);
     const attemptLog = logSink ? [] : undefined;
     const result = resolveGroundBattle(team, enemies, exp.gambitPrograms, exp.teamKit, rng, attemptLog);
     if (attemptLog) lastAttemptLog = attemptLog;
@@ -1337,6 +1356,7 @@ export function resolveExpeditionActivity(
         body.hazard,
         activity.poiId,
         relicId,
+        exp.relicFindBonus ?? 0, // E4b: the snapshotted museum relicFindChance
       );
       return {
         finding: {

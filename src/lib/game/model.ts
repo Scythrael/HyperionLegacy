@@ -408,6 +408,11 @@ export interface MissionDef {
   // excludes the small-hold Runner (60), nudging the player toward a real hauler for the
   // bigger runs WITHOUT hard-blocking a standard loadout. Ore runs leave it undefined.
   requiresCargoCapacity?: number;
+  // Exploration 0.14.0 (Phase E4b): an EXPLICIT extracting-phase length, set ONLY by effectiveMissionDef
+  // when a ship carries a museum extractionSpeedMult > 1 (never on a static MISSIONS entry).
+  // requiredTicksForPhase reads it in place of ceil(cargoCapacity / extractionRatePerTick); absent means
+  // "derive it the usual way", so every existing def is byte-identical.
+  extractionTicksOverride?: number;
 }
 
 // Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
@@ -2318,7 +2323,8 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
     case "transitOut":
       return missionDef.transitOutTicks;
     case "extracting":
-      return Math.ceil(missionDef.cargoCapacity / missionDef.extractionRatePerTick);
+      // E4b: a museum-shortened extracting phase (effectiveMissionDef) carries its length explicitly.
+      return missionDef.extractionTicksOverride ?? Math.ceil(missionDef.cargoCapacity / missionDef.extractionRatePerTick);
     case "transitBack":
       return missionDef.transitBackTicks;
     case "unloading":
@@ -2373,6 +2379,12 @@ export interface ShipDerivedStats {
   // reads as the neutral 1 (byte-identical unload timing). ⚠️ OPTIONAL on purpose: adding it must not
   // force every existing ShipDerivedStats literal/toEqual fixture to carry it.
   unloadSpeedMult?: number;
+  // Exploration 0.14.0 (Phase E4b): a >1 multiplier that SHORTENS the extracting phase, folded on TOP
+  // of the crew result by the MUSEUM overlay (crewOverlay.ts applyMuseumOverlay) from the museum's
+  // `extractionSpeed` bonus. Same OPTIONAL posture as unloadSpeedMult: shipDerivedStats never sets it,
+  // the overlay sets it only when the bonus is non-zero, and effectiveMissionDef reads absent as the
+  // neutral 1 (byte-identical extraction timing).
+  extractionSpeedMult?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -2690,7 +2702,39 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
     transitBackTicks: Math.ceil(base.transitBackTicks / ship.transitSpeedMult),
     cargoCapacity: ship.cargoCapacity,
     unloadTicks,
+    ...museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult),
   };
+}
+
+// Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).
+// FIRST-PASS TUNABLE; 1 means "never a 0-tick phase", which ceil already guarantees for any positive
+// length, so this is belt-and-suspenders exactly like effectiveMissionDef's unload floor.
+export const EXTRACTION_MIN_TICKS = 1;
+
+// Exploration 0.14.0 (Phase E4b): the museum EXTRACTION SPEED seam. The extracting phase has no literal
+// duration field: its length is ceil(cargoCapacity / extractionRatePerTick) (requiredTicksForPhase). To
+// make it FASTER without changing what one cycle hauls (that is miningYield's job, via
+// extractionYieldMult, so this must not double-count it), the fold:
+//   1. takes the un-sped length baseTicks = ceil(cargo / rate),
+//   2. shortens it: ticks = max(EXTRACTION_MIN_TICKS, ceil(baseTicks / speedMult)) (ceil, the same
+//      conservative rounding the transit/unload divides use, so a tiny bonus never over-delivers),
+//   3. raises the per-tick rate to rate * baseTicks / ticks, so ticks * rate' == baseTicks * rate: the
+//      hold fills to EXACTLY the amount the un-sped phase would have extracted, just in fewer ticks.
+// Each extracting tick still makes the SAME rng draws (rollExtractionTick reads only the def's
+// chances), so the draw count per tick is unchanged; only the number of ticks drops, which is what
+// "faster" means. Expected rare/uncommon/common amounts per CYCLE are preserved (each tick's whole
+// amount lands in one tier). Returns {} (nothing spread) when the multiplier is absent / <= 1 /
+// non-finite, or when the ceil leaves the length unchanged, so the def stays byte-identical.
+function museumExtractionSpeedFold(
+  rate: number,
+  cargoCapacity: number,
+  speedMult: number | undefined,
+): { extractionTicksOverride?: number; extractionRatePerTick?: number } {
+  if (speedMult === undefined || !Number.isFinite(speedMult) || speedMult <= 1 || !(rate > 0)) return {};
+  const baseTicks = Math.ceil(cargoCapacity / rate);
+  const ticks = Math.max(EXTRACTION_MIN_TICKS, Math.ceil(baseTicks / speedMult));
+  if (ticks >= baseTicks) return {};
+  return { extractionTicksOverride: ticks, extractionRatePerTick: (rate * baseTicks) / ticks };
 }
 
 // Combat 0.13.0 (offline recap "why did it stop early"): a TRANSIENT display hint recording
@@ -5544,6 +5588,16 @@ export interface Expedition {
   scienceStrength: number; // Science division + science/medical officers -> party power (support/cure/secure)
   teamKit: number; // per-battle team-kit consumables (cures/stims) available for useItem
   gambitPrograms: GambitPrograms; // the snapshotted Security + Science program pair the away teams run
+  // --- E4b MUSEUM SNAPSHOT (captured at dispatch, exactly like the sensor + away-team snapshots above) ---
+  // The account-level museum's expedition bonuses (relics.ts museumBonuses fractions), frozen at dispatch
+  // so resolution stays a PURE function of the stored run: a relic study completing mid-flight never
+  // re-times an in-flight scan or re-rolls a battle (parity by construction). The museum's
+  // scienceTeamPower needs no field of its own: it is folded into scienceStrength above before that is
+  // snapshotted. All three are 0 for an empty museum (and the v63 -> v64 migration backfills 0 onto
+  // in-flight expeditions), which makes every formula that reads them bit-identical to E4a.
+  scanSpeedBonus: number; // museum scanSpeed: multiplies the scan rate by (1 + this)
+  relicFindBonus: number; // museum relicFindChance: multiplies a won task's relic-token chance by (1 + this), capped at certain
+  hazardResist: number; // museum hazardResist: shrinks the body hazard scanning + ground encounters see (bounded, never negative)
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
@@ -8645,15 +8699,32 @@ if (QUALITY_STEP_CHANCE.length !== QUALITY_TIERS - 1) {
 // sequence of rollQuality calls, and thus of draws, is identical regardless of how the span
 // was chunked. The variability only means a later draw's stream position depends on earlier
 // outcomes, which is true identically on both paths.
-export function rollQuality(rng: () => number): number {
+//
+// Exploration 0.14.0 (Phase E4b): the optional `bonus` is the museum's craftingQuality fraction. It
+// shifts the roll toward higher quality WITHOUT ADDING OR REMOVING A SINGLE DRAW: the climb draws
+// exactly as before (the base thresholds alone decide when the loop stops), and the bonus is applied to
+// the FAILING draw only, as a one-step "near miss" promotion. The climb at step k fails when
+// r >= QUALITY_STEP_CHANCE[k]; with a bonus, that same r is ALSO checked against the boosted threshold
+// min(1, QUALITY_STEP_CHANCE[k] * (1 + bonus)), and if r falls in the window
+// [chance, boosted chance) the roll ends ONE tier higher. No further draw is made after a promotion
+// (the loop still breaks), so the draw COUNT and ORDER are bit-identical to the un-boosted roll for
+// every rng sequence, and the shared seeded stream (mission loot, mints) never shifts. Net effect: the
+// chance of reaching at least tier k+1 from tier k becomes chance * (1 + bonus) (capped at 1). A bonus
+// of 0 (or any non-positive / non-finite value) skips the promotion check entirely, so the result is
+// bit-identical to the pre-E4b roll.
+export function rollQuality(rng: () => number, bonus: number = 0): number {
   let tier = 0;
+  const boosted = bonus > 0 && Number.isFinite(bonus);
   // One climb attempt per step. `< chance` (not `<=`) matches every other rng gate in the
   // engine (rollExtractionTick's `rng() < effectiveRareChance`), so a rng returning exactly
   // the threshold does NOT advance, consistent across the codebase.
   for (let step = 0; step < QUALITY_STEP_CHANCE.length; step++) {
-    if (rng() < QUALITY_STEP_CHANCE[step]) {
+    const r = rng();
+    if (r < QUALITY_STEP_CHANCE[step]) {
       tier += 1; // this step succeeded, climb and try the next (compounding)
     } else {
+      // E4b near-miss promotion off the SAME draw (no extra draw; see the header above).
+      if (boosted && r < Math.min(1, QUALITY_STEP_CHANCE[step] * (1 + bonus))) tier += 1;
       break; // first failure ends the climb; the tier reached so far is final
     }
   }

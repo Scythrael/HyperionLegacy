@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 63;
+export const SAVE_VERSION = 64;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2336,6 +2336,25 @@ const MIGRATIONS: Record<number, Migration> = {
     relicDiscovered: state.relicDiscovered ?? [],
     relicSeed: state.relicSeed ?? RELIC_DEFAULT_SEED,
     nextRelicStudyIndex: state.nextRelicStudyIndex ?? 1,
+  }),
+  // v63 -> v64 (0.14.0 Exploration, Phase E4b): the MUSEUM BONUSES go live, and three of them are
+  // SNAPSHOTTED onto each Expedition at dispatch (scanSpeedBonus / relicFindBonus / hazardResist), so an
+  // expedition's resolution stays a pure function of the stored run. Backfill 0 (the NEUTRAL value) onto
+  // any IN-FLIGHT expedition that predates the fields: every formula that reads them is bit-identical at 0
+  // (scan rate x 1, relic chance unchanged, hazard unreduced), so an in-flight run resolves EXACTLY as it
+  // would have under E4a (offline == live parity for a mid-branch save). v63 is a BRANCH-ONLY version, but
+  // a mid-branch v63 save could hold an active expedition, so the backfill is real. Plain numbers only (no
+  // Decimals), so hydrateDecimals is unchanged. Idempotent: `??` only fills an absent field. A fresh /
+  // expedition-free save just maps an empty array (a no-op). Every other museum stat is DERIVED on read
+  // from state.relicMuseum (backfilled by v62 -> v63), so it needs no stored field.
+  63: (state: any): any => ({
+    ...state,
+    expeditions: (state.expeditions ?? []).map((exp: any) => ({
+      ...exp,
+      scanSpeedBonus: exp.scanSpeedBonus ?? 0,
+      relicFindBonus: exp.relicFindBonus ?? 0,
+      hazardResist: exp.hazardResist ?? 0,
+    })),
   }),
 };
 

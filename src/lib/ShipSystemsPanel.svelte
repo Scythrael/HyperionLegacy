@@ -434,6 +434,12 @@
     ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...safeState, officers: [] }, ship)) : null;
   $: officerOnlyStats =
     ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, { ...ship, complement: undefined })) : null;
+  // 0.14.0 E4b: the crew-inclusive stats WITHOUT the museum overlay (both crew sources folded, exactly the
+  // value effectiveShipStats overlays the museum onto). The MUSEUM bucket is effective - this, so the
+  // source buckets still sum to the shown value once the museum's ship-stat bonuses apply. (The museum's
+  // crewBonuses amplification lives INSIDE the crew contribution, so it already shows in the Senior Staff
+  // + Complement buckets above.) With an empty museum this equals effectiveStats and the bucket hides.
+  $: crewOnlyStats = ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, ship)) : null;
 
   // The economy stat rows (real numbers). `kind` picks the formatter: percent for the
   // multiplier / 0-based-bonus stats, flat for capacities / power / mass. Split into
@@ -498,7 +504,8 @@
         }))
       : ([] as ReadoutRow[]);
   // The SOURCE buckets for one readout stat: Base/hull (absolute), then the non-zero contributors as
-  // signed deltas off the bare hull -> Ship systems (gear), Senior Staff (officers), Complement. Only
+  // signed deltas off the bare hull -> Ship systems (gear), Senior Staff (officers), Complement, Museum
+  // (0.14.0 E4b: the account-level relic museum's ship-stat bonuses, layered last). Only
   // non-negligible buckets show (plus Base always), so a stat nothing modifies reads honestly as base.
   type SourceBucket = { label: string; text: string; delta: boolean };
   function sourceBucketsFor(key: string): SourceBucket[] {
@@ -516,6 +523,10 @@
     if (complementOnlyStats) {
       const cd = d.get(complementOnlyStats) - gear;
       if (Math.abs(cd) > 1e-9) out.push({ label: "Complement", text: fmtDeltaUnit(d.kind, cd), delta: true });
+    }
+    if (crewOnlyStats && effectiveStats) {
+      const md = d.get(effectiveStats) - d.get(crewOnlyStats);
+      if (Math.abs(md) > 1e-9) out.push({ label: "Museum", text: fmtDeltaUnit(d.kind, md), delta: true });
     }
     return out;
   }

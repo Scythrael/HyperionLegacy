@@ -182,7 +182,7 @@ import {
 } from "./model";
 // Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
 // relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
-import { identifyRelic, relicStudySeed, relicStudyDurationTicks, RELIC_STUDY_LANES } from "./relics";
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, RELIC_STUDY_LANES, museumBonuses } from "./relics";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -1623,6 +1623,17 @@ export const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested
 // per-tick base amount (extractionRatePerTick) scaled by its own mult --
 // e.g. a high rareYieldMult now produces a large delivered amount on any
 // tick where rare actually hits, not just a scaled flat-1 unit like before.
+// Exploration 0.14.0 (Phase E4b): the museum's rareMaterialChance, applied as a MULTIPLIER on the
+// already talent-scaled rare chance and capped at 1 (so a chance can never exceed certainty). It only
+// moves the THRESHOLD the existing `rng() < effectiveRareChance` gate compares against: the gate still
+// makes its one draw, and a rare miss still falls through to the same uncommon draw, so the per-tick
+// draw COUNT rule above (1 or 2, never 3) is untouched. Absent / 0 -> Math.min(1, chance) exactly, the
+// pre-E4b expression, bit-identical. Shared by the primary and bonus rolls so both read one formula.
+function museumRareChance(talentScaledChance: number, museumMult: number | undefined): number {
+  const b = museumMult ?? 0;
+  return Math.min(1, b === 0 ? talentScaledChance : talentScaledChance * (1 + b));
+}
+
 function rollExtractionTick(
   missionDef: MissionDef,
   bonuses: {
@@ -1631,11 +1642,12 @@ function rollExtractionTick(
     uncommonChanceMult: number;
     rareYieldMult: number;
     rareChanceMult: number;
+    museumRareChanceMult?: number;
   },
   rng: () => number
 ): Record<LootMaterialKey, Decimal> {
   const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
-  const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
+  const effectiveRareChance = museumRareChance(missionDef.rareChance * (1 + bonuses.rareChanceMult), bonuses.museumRareChanceMult);
   const baseAmount = new Decimal(missionDef.extractionRatePerTick);
 
   if (rng() < effectiveRareChance) {
@@ -1684,11 +1696,12 @@ function rollBonusExtractionTick(
     uncommonChanceMult: number;
     rareYieldMult: number;
     rareChanceMult: number;
+    museumRareChanceMult?: number;
   },
   rng: () => number
 ): Record<LootMaterialKey, Decimal> {
   const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + bonuses.uncommonChanceMult));
-  const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + bonuses.rareChanceMult));
+  const effectiveRareChance = museumRareChance(missionDef.rareChance * (1 + bonuses.rareChanceMult), bonuses.museumRareChanceMult);
   const baseAmount = new Decimal(missionDef.extractionRatePerTick);
 
   if (rng() < effectiveRareChance) {
@@ -1741,6 +1754,11 @@ export function tickCaptainMission(
     // before (see captainSpecBonusRollChance's own comment for why order
     // matters here).
     specBonusRollChance?: number;
+    // Exploration 0.14.0 (Phase E4b): the museum's rareMaterialChance fraction, a MULTIPLIER on the
+    // talent-scaled rare chance (museumRareChance, capped at 1). Fleet-wide (account-level), resolved by
+    // economyTick ONCE per call off its incoming state, so it is a call-constant exactly like the other
+    // fields here. Omitted / 0 -> bit-identical odds.
+    museumRareChanceMult?: number;
   } = {},
   // The assigned ship's three derived stats (cargoCapacity, transitSpeedMult,
   // extractionYieldMult), or null for "no ship modifier", the default, which
@@ -2058,6 +2076,7 @@ export function tickCaptainMission(
     uncommonChanceMult: bonuses.uncommonChanceMult ?? 0,
     rareYieldMult: (bonuses.rareYieldMult ?? 0) + shipYieldBonus + surveySensorBonus,
     rareChanceMult: bonuses.rareChanceMult ?? 0,
+    museumRareChanceMult: bonuses.museumRareChanceMult ?? 0,
     bonusRollChance: bonuses.bonusRollChance ?? 0,
     bonusRollChanceMult: bonuses.bonusRollChanceMult ?? 0,
     specBonusRollChance: bonuses.specBonusRollChance ?? 0,
@@ -3478,6 +3497,17 @@ export function economyTick(
   // so one big offline call and many small live calls apply the SAME multiplier.
   const captainXpMult = retirementExpMultiplier(state);
 
+  // Exploration 0.14.0 (Phase E4b): the account-level MUSEUM bonuses, read ONCE per economyTick call off
+  // the INCOMING state (a call-constant, like captainXpMult above). This is the ONE consistent read point
+  // for the economy-side museum stats consumed in this function (rareMaterialChance below). The SHIP-stat
+  // museum bonuses reach the missions through effectiveShipStats(state, ship), which reads the SAME
+  // incoming `state`, so both agree. A relic study completing in resolveProcesses later in THIS call only
+  // takes effect from the NEXT call. Because tick() steps economyTick(_, 1) once per whole tick offline and
+  // App.svelte does the same live, the museum is re-read at the identical tick boundary on both paths, so
+  // a museum that GROWS mid-span stays offline == live (parity), and is never cached across ticks. With
+  // an empty museum every field is 0 and every consumer is bit-identical.
+  const museum = museumBonuses(state);
+
   // Mission Rework (Task 1): Record<string,Decimal> (not narrow LootMaterialKey) --
   // each captain's per-mission loot delta may carry item keys beyond the 3 ore tiers.
   // Seeded with the 3 ore-tier keys (emptyLootTotals) so passiveTrickle's commonOre
@@ -3853,6 +3883,8 @@ export function economyTick(
       bonusRollChance: captainBonusRollChance(captain),
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
       specBonusRollChance: captainSpecBonusRollChance(captain),
+      // E4b: the museum's rareMaterialChance (0 with an empty museum -> bit-identical odds).
+      museumRareChanceMult: museum.rareMaterialChance,
     };
     // rng passed explicitly (rather than omitted) since bonuses is positional
     // arg 4, omitting arg 3 here would pass bonuses AS rng. rng is economyTick's
@@ -6935,10 +6967,36 @@ export function startResearch(
   // the inputs map is empty, startProcess's gate/deduct loops no-op over it. It pushes the
   // "researchProject" TimedProcess (remainingTicks = researchDurationTicks) whose completion
   // effect unlocks the blueprint.
-  return startProcess(afterCredits, "researchProject", {}, bp.researchDurationTicks, {
-    type: "unlockBlueprint",
-    key: blueprintKey,
-  });
+  // E4b: the museum's researchSpeed shortens the project, decided ONCE here at START (see
+  // museumResearchDurationTicks), so an in-flight project is never re-timed.
+  return startProcess(
+    afterCredits,
+    "researchProject",
+    {},
+    museumResearchDurationTicks(bp.researchDurationTicks, museumBonuses(state).researchSpeed),
+    {
+      type: "unlockBlueprint",
+      key: blueprintKey,
+    }
+  );
+}
+
+// Exploration 0.14.0 (Phase E4b): the museum RESEARCH SPEED seam, shared by blueprint research
+// (startResearch) and relic study (startRelicStudy). The base duration is DIVIDED by (1 + bonus) and
+// rounded UP (Math.ceil), floored at 1 tick, the exact convention refineJobDurationTicks documents:
+//   - CEIL is the conservative direction (a tiny bonus can never over-deliver speed) and keeps the
+//     duration an integer, which the FA XP lump (FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks) needs
+//     to stay exactly reproducible. As with the refinery/shipyard speed rungs, a faster job is a shorter
+//     job, so its duration-proportional FA XP lump is correspondingly smaller (XP per tick unchanged).
+//   - START-TIME ONLY: the result is FIXED on the TimedProcess at creation, so a study/project already in
+//     flight is never re-timed when the museum grows; resolveProcesses' closed-form countdown is untouched
+//     (offline == live by construction).
+//   - bonus <= 0 / non-finite, or a non-positive / non-finite base, returns the base UNCHANGED (no
+//     rounding pass at all), so an empty museum is bit-identical.
+export function museumResearchDurationTicks(baseTicks: number, researchSpeedBonus: number): number {
+  if (!(researchSpeedBonus > 0) || !Number.isFinite(researchSpeedBonus)) return baseTicks;
+  if (!(baseTicks > 0) || !Number.isFinite(baseTicks)) return baseTicks;
+  return Math.max(1, Math.ceil(baseTicks / (1 + researchSpeedBonus)));
 }
 
 // ============================================================================
@@ -7008,7 +7066,9 @@ export function startRelicStudy(
     relicVault: vault.filter((t) => t.id !== vaultTokenId),
     nextRelicStudyIndex: studyIndex + 1,
   };
-  return startProcess(afterVault, "relicStudy", {}, relicStudyDurationTicks(token.tier), {
+  // E4b: the museum's researchSpeed shortens the study too (start-time only, the shared seam).
+  const durationTicks = museumResearchDurationTicks(relicStudyDurationTicks(token.tier), museumBonuses(state).researchSpeed);
+  return startProcess(afterVault, "relicStudy", {}, durationTicks, {
     type: "identifyRelic",
     token: { ...token },
     studyIndex,
@@ -10473,14 +10533,18 @@ function mintCraftedPiece(args: {
   faTalentBonus: number;
   gameTimeSeconds: number;
   allocateId: () => string;
+  // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, threaded into rollQuality's
+  // draw-count-invariant near-miss promotion. Optional (0 = bit-identical roll).
+  qualityBonus?: number;
 }): EquipmentInstance | null {
   const { bp, blueprintKey, rng, craftingLevel, faTalentBonus, gameTimeSeconds, allocateId } = args;
+  const qualityBonus = args.qualityBonus ?? 0;
   // Shape FIRST, before any draw: a corrupt/hand-edited blueprint with no output shape must draw
   // NOTHING and no-op, exactly as the original completion branch did (parity).
   const hasShape =
     bp.equipmentOutput !== undefined || bp.weaponOutput !== undefined || bp.droneOutput !== undefined;
   if (!hasShape) return null;
-  const quality = rollQuality(rng); // draw #1
+  const quality = rollQuality(rng, qualityBonus); // draw #1 (E4b: museum craftingQuality, same draws)
   const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
   const iLevel = computeItemLevel({
     craftingLevel,
@@ -10570,6 +10634,7 @@ export function inspectBlank(state: GameState, blueprintKey: string): GameState 
     faTalentBonus: craftingItemLevelBonus(state),
     gameTimeSeconds: state.gameTimeSeconds,
     allocateId: () => `equip-${mintedId}`,
+    qualityBonus: museumBonuses(state).craftingQuality, // E4b: read at inspect, like craftingLevel
   });
   if (minted === null) return state; // corrupt output shape: no-op, do not consume the blank
   const remaining = held.minus(1);
@@ -10727,6 +10792,13 @@ export function resolveProcesses(
   let relicMuseum: Record<string, number> = state.relicMuseum ?? {};
   let relicDiscovered: string[] = state.relicDiscovered ?? [];
   let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
+  // Exploration 0.14.0 (Phase E4b): the museum's craftingQuality fraction, read ONCE per resolve off the
+  // INCOMING state (a call-constant: a relic study completing below in THIS call grows the museum only
+  // for the NEXT call). Every production quality roll in this call (refine/fabricate addItem + the
+  // equipment/weapon/drone mints) passes it to rollQuality, whose near-miss promotion makes NO extra
+  // draw, so the threaded stream advances identically with or without a museum. 0 with an empty museum
+  // -> bit-identical rolls. economyTick steps this once per whole tick on both paths (parity).
+  const craftQualityBonus = museumBonuses(state).craftingQuality;
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3; reweighted in 0.13.3 Unit 3.2):
   // accumulates craftingXpAwardForProcess(process) for every PRODUCTION job (refine /
@@ -10784,7 +10856,7 @@ export function resolveProcesses(
       // distributes crafted output across buckets identically to many small live steps
       // (⚠️ parity test in quality-roll.test.ts). effect.amount is always > 0 for a real
       // recipe, so this always contributes a genuine deposit.
-      const quality = rollQuality(rng);
+      const quality = rollQuality(rng, craftQualityBonus); // E4b: museum craftingQuality (draw-count invariant)
       // Output granted through the shared add seam -> the item is marked
       // discovered (its amount is always > 0 for a real refine recipe). Warehouse cap
       // clamp: the deposit is bounded at the output item's cap (itemCap), so a job
@@ -10951,7 +11023,7 @@ export function resolveProcesses(
       // precedence; the two could only differ on a malformed double-shape blueprint, which the data
       // invariant forbids (and both branches mint an EquipmentInstance either way, no parity gap).
       if (bp !== undefined && eqOut !== undefined) {
-        const quality = rollQuality(rng); // draw #1 (see order note above)
+        const quality = rollQuality(rng, craftQualityBonus); // draw #1 (see order note above); E4b museum bonus, same draws
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel, // read directly: MIGRATIONS[26] guarantees the field (Task 20 retired the interim ?? 1 guard)
@@ -11018,7 +11090,7 @@ export function resolveProcesses(
         // BYTE-IDENTICALLY to before (this branch never runs for them), and a weapon craft mints a
         // bit-identical instance at the same seed offline and live. Only the minter differs
         // (generateWeapon rolls the weaponYield implicit + weapon affixes off the FIXED base def).
-        const quality = rollQuality(rng); // draw #1 (same order as the equipment branch)
+        const quality = rollQuality(rng, craftQualityBonus); // draw #1 (same order as the equipment branch); E4b museum bonus
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel,
@@ -11056,7 +11128,7 @@ export function resolveProcesses(
         // blueprints did not exist until this unit), and a drone craft mints a bit-identical instance
         // at the same seed offline and live. Only the minter differs (generateDronePod rolls the
         // droneHp implicit + drone affixes off the FIXED role template).
-        const quality = rollQuality(rng); // draw #1 (same order as the equipment/weapon branches)
+        const quality = rollQuality(rng, craftQualityBonus); // draw #1 (same order as the equipment/weapon branches); E4b museum bonus
         const rarity: EquipmentRarity = rollCraftedRarity(rng); // draw #2
         const iLevel = computeItemLevel({
           craftingLevel: state.craftingLevel,

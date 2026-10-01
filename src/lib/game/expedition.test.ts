@@ -116,6 +116,10 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
       security: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
       science: DEFAULT_GAMBIT_PROGRAMS.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
     },
+    // E4b museum snapshot: neutral (an empty museum), so every pre-E4b assertion is unchanged.
+    scanSpeedBonus: 0,
+    relicFindBonus: 0,
+    hazardResist: 0,
     ...over,
   };
 }

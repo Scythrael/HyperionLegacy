@@ -110,6 +110,9 @@ import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
 // INSTALLING mid-mission is locked for SALVAGE too, one source of truth for that lock.
 import { onMissionLock } from "./equipment";
+// Exploration 0.14.0 (Phase E4b): the museum's salvageYield bonus (relics.ts imports only model TYPES +
+// the leaf PRNG, so this adds no cycle).
+import { museumBonuses } from "./relics";
 
 // --- Derived salvage reservations (Crafting 0.13.3, Phase 2 Unit 2.1) --------
 // Re-exported so "the salvage reservation helpers live in salvage.ts" stays TRUE for
@@ -165,6 +168,21 @@ export function salvageTalentBonus(state: GameState): {
     },
     { yieldBonus: 0, ceilingBonus: 0 }
   );
+}
+
+// ----------------------------------------------------------------------------
+// salvageYieldMult (Exploration 0.14.0, Phase E4b)
+// ----------------------------------------------------------------------------
+// The museum's `salvageYield` bonus as a MULTIPLIER on a salvage's final recovery FRACTION:
+// (1 + museumBonuses(state).salvageYield). The ONE seam both recycle (salvageEquipment) and hull
+// teardown (salvageShip) read, so the museum scales every recipe/build refund identically. It is applied
+// AFTER the band + quality + talent terms are summed (a multiplier on the whole fraction, the "x(1 + b)"
+// museum convention), unlike the FA talent, which stays a FLAT add on recycle only (a hull teardown never
+// reads the talent, by design). Reads state only; draws NOTHING, so the one-draw rng contract of both
+// salvages is untouched (the timed salvageJob stays offline == live). Empty museum -> exactly 1, and
+// x * 1 === x in IEEE math, so every fraction (and every floored amount) is bit-identical.
+export function salvageYieldMult(state: GameState): number {
+  return 1 + museumBonuses(state).salvageYield;
 }
 
 // ----------------------------------------------------------------------------
@@ -336,11 +354,13 @@ export function salvageEquipment(
   // folds in the learned FA salvage talent automatically (so it always applies in
   // real play); `talentBonus` is the extra test-override layered on top.
   const band = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  // E4b: the museum's salvageYield scales the WHOLE fraction (salvageYieldMult, 1 with no museum).
   const fraction =
-    band +
-    piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER +
-    salvageTalentBonus(state).yieldBonus +
-    talentBonus;
+    (band +
+      piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER +
+      salvageTalentBonus(state).yieldBonus +
+      talentBonus) *
+    salvageYieldMult(state);
 
   // --- Deposit the recovered inputs at quality 0 ----------------------------
   // The blueprint that crafted this piece is guaranteed to exist (a crafted piece
@@ -672,7 +692,10 @@ export function salvageShip(
   // quality/talent bonus applies here: a hull has no quality rung, and the FA salvage talent
   // buffs fine MATERIAL recycling, not a coarse hull teardown. So the fraction is the raw band.
   const recipe = SHIP_TYPES[ship.typeKey].buildRecipe;
-  const fraction = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  // E4b: the museum's salvageYield DOES scale a teardown (the museum is a fleet-wide relic bonus, not the
+  // fine-recycling FA talent above), via the shared salvageYieldMult seam (exactly 1 with no museum).
+  const fraction =
+    (SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN)) * salvageYieldMult(state);
 
   // Deposit floor(count * fraction) of each build component into the QUALITY-0 bucket (crude
   // recovery, same as recycled scrap). Record every component's floored amount (including 0)

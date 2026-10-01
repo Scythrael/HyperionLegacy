@@ -23,7 +23,7 @@
 //
 // ⚠️ ADDITIVE-NEUTRAL SEAM FOR E4b: museumBonuses on an empty museum is ALL ZEROS, so
 // wiring a consumer later as `base * (1 + bonus)` or `base + bonus` changes nothing for a
-// save with no identified relics. Nothing reads museumBonuses on the live path this phase.
+// save with no identified relics. E4b wires every stat into its live consumer (see museumBonuses).
 //
 // ⚠️ ALL NUMERIC CONSTANTS BELOW ARE FIRST-PASS TUNABLE (the per-copy passive, the ladder,
 // the per-level bonus, the capstone multiplier, the tier-skew weights, the study durations),
@@ -628,7 +628,40 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
 }
 
 // The museum's total bonuses for a game state (reads state.relicMuseum; a pre-E4 shape reads empty).
-// NOTHING on the live path reads this in E4a; E4b wires each MuseumStat into its consumer.
+// E4b wires every MuseumStat into its live consumer (see the consumer map below). DERIVED ON READ, never
+// stored: each consumer reads it fresh off the state it is handed (economyTick once per call off its
+// incoming state; actions at action time), so it can never go stale and is never cached across ticks.
+//
+// E4b CONSUMER MAP (all fractions, applied x (1 + b) unless noted; b = 0 is bit-identical everywhere):
+//   cargoCapacity / transitSpeed / miningYield / sensors / extractionSpeed
+//                       -> crewOverlay.ts applyMuseumOverlay (inside effectiveShipStats, after crew)
+//   crewBonuses         -> crewOverlay.ts shipCrewContribution (every crew.* delta x (1 + b))
+//   researchSpeed       -> tick.ts museumResearchDurationTicks (research + relic study, start time)
+//   craftingQuality     -> model.ts rollQuality (draw-count-invariant near-miss promotion)
+//   salvageYield        -> salvage.ts salvageYieldMult (recycle + hull teardown fraction)
+//   rareMaterialChance  -> tick.ts museumRareChance (extraction rare-tier chance, capped at 1)
+//   scanSpeed / relicFindChance / hazardResist
+//                       -> SNAPSHOTTED onto the Expedition at dispatch (expedition.ts startExpedition)
+//   scienceTeamPower    -> gambit.ts deriveAwayTeam (scienceStrength x (1 + b), then snapshotted)
 export function museumBonuses(state: GameState): Record<MuseumStat, number> {
   return museumBonusesFromRecord(state.relicMuseum ?? {});
+}
+
+// ============================================================================
+// E4b: hazard resistance (pure, bounded)
+// ============================================================================
+
+// The most a museum hazardResist can shave off a body's hazard, as a fraction (0.75 = a hazard-1.0 body
+// reads at worst 0.25). Keeps danger meaningful no matter how big the museum grows. FIRST-PASS TUNABLE.
+export const MUSEUM_HAZARD_RESIST_MAX = 0.75;
+
+// The hazard a body PRESENTS to an expedition with the given (snapshotted) museum hazardResist:
+// hazard * (1 - clamp(resist, 0, MUSEUM_HAZARD_RESIST_MAX)), floored at 0 so it can never go negative.
+// Multiplicative on purpose: a safe body (hazard 0) stays 0, and the reduction scales with the danger.
+// resist 0 (an empty museum) returns `hazard` UNCHANGED (same value, no float op), so every hazard read
+// is bit-identical to E4a. Pure.
+export function resistedHazard(hazard: number, resist: number): number {
+  if (!(resist > 0)) return hazard;
+  const r = Math.min(MUSEUM_HAZARD_RESIST_MAX, resist);
+  return Math.max(0, hazard * (1 - r));
 }
