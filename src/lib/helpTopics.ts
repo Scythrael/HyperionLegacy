@@ -13,7 +13,7 @@
 // Test-guarded required ids (helpTopics.test.ts): missions, refining,
 // fabricating, research, shipyard, docks, storage, salvage, fuel. Additional
 // topics (crew, operations, homeworld, shipSystems, combat, patrols, combatView,
-// combatGear, queues, craftingLevels, autoSalvage, quartermaster) are welcome and
+// combatGear, queues, craftingLevels, autoSalvage, quartermaster, relics) are welcome and
 // help orient a new player, but the nine above must always be present.
 //
 // ⚠️ THIS MANUAL IS PART OF A RELEASE, NOT A ONE-TIME WRITE-UP. Crafting 0.13.3
@@ -105,6 +105,13 @@ export const HELP_TOPICS: HelpTopic[] = [
     id: "research",
     title: "Research",
     body: "The Research Lab, in the Foundry program, is where you unlock blueprints. Each research project takes time and credits and permanently unlocks something you can build, from component recipes to ship-system and combat-gear blueprints (weapons, shield emitters, hull plating, and drone pods). Combat gear is researched here just like other ship systems: unlock a weapon, shield, plating, or drone-pod blueprint, then craft it at the Fabricator. Projects are organized in tiers gated by the lab's own level, so upgrading the lab opens deeper research. Research is the front of the whole production chain: research a blueprint here, craft it at the Fabricator, then use the result to build ships or install their systems, combat gear included.",
+  },
+  {
+    // Exploration 0.14.0 (E4c). No ladder thresholds or bonus sizes in the prose (they are tunable
+    // constants in relics.ts; the Museum tab prints the live numbers), per the rule at the top.
+    id: "relics",
+    title: "Relics and the Museum",
+    body: "Relics are recovered by your away teams on expeditions. A team that wins a task at a relic-bearing site may bring one home, and the Expedition Console names which relic sets a system's sites can yield once your sensors are strong enough. Relics arrive unidentified: claiming a finished expedition puts them in the Relic Vault on the Research Lab's Relics tab. Study a relic there to reveal which relic of its set it is. A study takes time and runs on its own lane, so it never blocks blueprint research. A relic's tier (from the away-team roll) matters: a higher tier makes the rarer relics of its set more likely. The first time you identify a relic type is a first find, a new discovery for your collection. Every identified copy goes to the Museum, on the Archive's Museum tab, and grants a small permanent bonus of its set's per-copy stat. Each set is also a collection: owning relics 1 through K of a set unlocks its K-piece set bonus, and that bonus levels up as you collect more copies. A level needs every required relic at the next copy threshold, so a tier is only as strong as its least-collected relic, and the Museum highlights the bottleneck relic holding a tier back.",
   },
   {
     id: "shipyard",

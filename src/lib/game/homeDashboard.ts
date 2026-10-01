@@ -135,7 +135,11 @@ export type JumpTarget =
   // this board) and COMPLETES (a Recently-completed row), and both of those rows have an
   // obvious place to send the player that did not exist when the union was written. Before
   // this, a completed salvage carried a null target and rendered as a non-navigable row.
-  | "salvageBay";
+  | "salvageBay"
+  // Exploration 0.14.0 (E4c): the Research facility's RELICS sub-tab (the relic vault + study lane +
+  // identification reveal). A relic study runs at the Research facility but on its OWN lane, so its rows
+  // land on the Relics sub-tab rather than on the blueprint-research list the "research" target opens.
+  | "relics";
 
 // Which FLAVOR of in-progress row this is. Drives how the UI reads the optional
 // fields: a "patrol" row is the only kind that carries `combat` (and has a null ETA,
@@ -542,9 +546,10 @@ function labelForProcess(
     case "relicStudy": {
       const setLabel = effect.type === "identifyRelic" ? getRelicSetById(effect.token.setId)?.label ?? effect.token.setId : null;
       return {
-        icon: "research",
+        // E4c: the relic glyph (SVG, App's HOME_ICON_NAME) + the Relics sub-tab, where the study runs.
+        icon: "relic",
         primaryLabel: setLabel !== null ? `Studying, ${setLabel} relic` : "Studying a relic",
-        jumpTarget: "research",
+        jumpTarget: "relics",
       };
     }
 
@@ -1139,7 +1144,8 @@ const COMPLETION_KIND_VIEW: Record<
   salvageJob:              { verb: "Salvaged",    icon: "salvage",    source: "Salvage Bay",    jumpTarget: "salvageBay" },
   // Exploration 0.14.0 (E4a): a completed relic study. The subject is the IDENTIFIED relic (named via
   // relics.ts in completionSubjectLabel). Reuses the research glyph and the Research Lab's own label.
-  relicStudy:              { verb: "Identified",  icon: "research",   source: "Research Lab",   jumpTarget: "research" },
+  // E4c: the relic glyph + the Relics sub-tab (where the identification reveal card lives).
+  relicStudy:              { verb: "Identified",  icon: "relic",      source: "Research Lab",   jumpTarget: "relics" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from

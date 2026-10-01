@@ -47,6 +47,9 @@
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
   import type { HazardTier } from "./game/expeditionContent";
+  // E4c: relic glyphs + set names come from the ONE UI-side relic vocabulary (every graphic is SVG).
+  import Icon from "./ui/Icon.svelte";
+  import { relicSetShortLabel } from "./ui/relicIcons";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here). The callbacks route every side effect
@@ -459,7 +462,8 @@
                         <span class="exp-find-chip credits">{finding.credits} credits</span>
                       {/if}
                       {#if finding.relic}
-                        <span class="exp-find-chip relic">Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
+                        <!-- E4c: the unidentified-relic glyph (SVG, ui/relicIcons.ts vocabulary), never an emoji. -->
+                        <span class="exp-find-chip relic"><Icon name="relic" size={11} /> Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
                       {/if}
                     </div>
                     <button type="button" class="exp-log-toggle" on:click={() => toggleLog(exp, body, act)}>
@@ -533,7 +537,12 @@
                     <span class="exp-chip range">Beyond sensor range</span>
                   {:else}
                     <span class="exp-chip">{fk.bodyCount} {fk.bodyCount === 1 ? "body" : "bodies"}</span>
-                    {#if fk.relicSignature === true}<span class="exp-chip relic">Relic signature</span>{/if}
+                    <!-- E4c: name WHICH relic sets the system's would-be discoveries source (the engine's
+                         relicSets projection, canonical set order) instead of a bare "Relic signature". Revealed
+                         at the same sensor threshold; an empty list (no relic-bearing PoI) shows no chip. -->
+                    {#if fk.relicSets && fk.relicSets.length > 0}
+                      <span class="exp-chip relic"><Icon name="relic" size={11} /> Relics: {fk.relicSets.map(relicSetShortLabel).join(", ")}</span>
+                    {/if}
                   {/if}
                 </div>
                 {#if fk.inRange && fk.bodies}
@@ -1130,6 +1139,8 @@
   .exp-chip.relic {
     background: var(--color-accent);
     color: var(--color-bg-deep);
+    /* E4c: the named-sets chip can run long (up to four set names), so it may wrap on a phone. */
+    white-space: normal;
   }
   .exp-chip.anomaly {
     background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.18);

@@ -611,6 +611,21 @@ export function zeroMuseumBonuses(): Record<MuseumStat, number> {
   return out;
 }
 
+// E4c: the PER-COPY passive a set's copies grant to its perCopyStat, as a fraction. The ONE formula both
+// museumBonusesFromRecord and the Museum UI read, so the displayed "+X%" can never drift from what the
+// engine applies. Pure.
+export function setPerCopyBonus(totalCopies: number): number {
+  return totalCopies * MUSEUM_PER_COPY_BONUS;
+}
+
+// E4c: the bonus ONE set tier currently grants to EACH of its stats, as a fraction (0 when locked / level
+// 0). The ONE formula both museumBonusesFromRecord and the Museum UI's tier rows read. The expression order
+// (level * MUSEUM_TIER_LEVEL_BONUS * magnitude) is the original inline one, so the fold is bit-identical.
+export function setTierBonus(t: Pick<SetTierLevel, "level" | "magnitude">): number {
+  if (t.level <= 0) return 0;
+  return t.level * MUSEUM_TIER_LEVEL_BONUS * t.magnitude;
+}
+
 // The museum's total bonuses from a museum record: per set, every copy adds MUSEUM_PER_COPY_BONUS of the
 // set's per-copy stat, and every tier level adds MUSEUM_TIER_LEVEL_BONUS * magnitude to each of the tier's
 // stats. All additive. An empty museum reads ALL ZEROS (the additive-neutral E4b seam). Pure.
@@ -618,10 +633,10 @@ export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>
   const out = zeroMuseumBonuses();
   for (const set of RELIC_SETS) {
     const { totalCopies } = setCompletion(museum, set.id);
-    if (totalCopies > 0) out[set.perCopyStat] += totalCopies * MUSEUM_PER_COPY_BONUS;
+    if (totalCopies > 0) out[set.perCopyStat] += setPerCopyBonus(totalCopies);
     for (const t of setTierLevels(museum, set.id)) {
       if (t.level <= 0) continue;
-      for (const stat of t.stats) out[stat] += t.level * MUSEUM_TIER_LEVEL_BONUS * t.magnitude;
+      for (const stat of t.stats) out[stat] += setTierBonus(t);
     }
   }
   return out;

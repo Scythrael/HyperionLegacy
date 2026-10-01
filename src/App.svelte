@@ -34,6 +34,9 @@
   // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
   // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
+  // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
+  import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
+  import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
   import { startExpedition, claimExpedition, summarizeExpeditionFindings } from "./lib/game/expedition";
   // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
@@ -311,6 +314,9 @@
     type CompletionRewardItem,
     type CaptainState,
     type TimedProcess,
+    // Exploration 0.14.0 (E4c): the relic vault token + set id the [DEV] relic grants mint.
+    type RelicSetId,
+    type RelicVaultToken,
     // Crew 0.14.0 (phase 4e): the captain PRESTIGE secondary-tree catalog + iteration orders + types,
     // read by the Prestige captain sub-tab's RadialWeb view, tree/branch selectors, and effect describer.
     SECONDARY_CAPTAIN_TALENTS,
@@ -843,7 +849,23 @@
     inspectBlank,
     // Crafted Blanks 0.13.7: the BULK inspect, rolls up to qty blanks bounded by free spare-bay space.
     inspectBlanks,
+    // Exploration 0.14.0 (E4c): the relic STUDY action + its readers. startRelicStudy is the Relics
+    // sub-tab's Study button (via doStartRelicStudy); relicStudiesInFlight + identifyStudiedRelic feed the
+    // identification-reveal OBSERVER; museumResearchDurationTicks is the museum research-speed seam the
+    // research catalog's duration label now reads, so the label shows the time a project really takes.
+    startRelicStudy,
+    relicStudiesInFlight,
+    identifyStudiedRelic,
+    museumResearchDurationTicks,
   } from "./lib/game/tick";
+  // Exploration 0.14.0 (E4c): the relic catalog + museum readers (pure) the Relics/Museum host code reads.
+  import { museumBonuses, getRelicById, getRelicSetById, RELIC_SETS } from "./lib/game/relics";
+  // Exploration 0.14.0 (E4c): the identification-reveal view model + the observer's record picker.
+  import { buildRelicReveal, pickRelicStudyRecord, unseenRelicStudyRecords, type RelicReveal } from "./lib/relicReveal";
+  // Exploration 0.14.0 (E4c): the crew + museum boosted ship stats, the SAME helper the engine dispatches
+  // missions through. The two mission-timing popups now read it (they read the bare equipment fold before,
+  // which omitted crew and the museum, so the shown times disagreed with the flown ones).
+  import { effectiveShipStats } from "./lib/game/crewOverlay";
   // Crafted Blanks 0.13.7: the display order for a bulk inspect-reveal (rarity -> quality -> iLevel).
   import { sortRolledPieces } from "./lib/game/inspectSort";
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
@@ -2219,8 +2241,19 @@
   // Research buttons), and Upgrades (the lab's tier/slot track). Same independent
   // typed-union + let-state discipline as the two facilities above; defaults to
   // Overview (the at-a-glance "what's cooking" view), matching the others.
-  type ResearchSubTab = "overview" | "research" | "upgrades";
+  // Exploration 0.14.0 (E4c): a fourth tab, "relics", the relic VAULT + STUDY LANE + identification
+  // reveal (RelicStudyPanel). A relic study runs on the Research facility's OWN lane, separate from
+  // blueprint research, so it gets its own tab beside the catalog rather than a section inside it.
+  type ResearchSubTab = "overview" | "research" | "relics" | "upgrades";
   let activeResearchSubTab: ResearchSubTab = "overview";
+
+  // Exploration 0.14.0 (E4c): the Archive's TWO-tab axis. "archive" is the existing enshrine record
+  // (unchanged); "museum" is the relic MUSEUM (MuseumPanel): the four relic sets, their rosters and the
+  // leveling set tiers. The relics + artifacts system is one Archive-family collection, so the Museum
+  // lives here rather than as a new facility. Defaults to "archive" so the existing console opens as
+  // it always has.
+  type ArchiveSubTab = "archive" | "museum";
+  let activeArchiveSubTab: ArchiveSubTab = "archive";
 
   // Fabricator (Task F4 UI): the Fabricator's THREE-tab axis, Overview (slots in use +
   // in-flight craft jobs + researched/fabricable counts + the Shipyard signpost), Craft
@@ -3033,6 +3066,7 @@
       activeShipyardSubTab,
       activeQuartermasterSubTab,
       activeSalvageBaySubTab,
+      activeArchiveSubTab,
       activeSystemSubTab,
     ].join("/");
     if (navKey !== navScroll.lastKey) {
@@ -3444,6 +3478,8 @@
       case "shipyard":
       case "fuelDepot":
       case "salvageBay":
+      // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab, a Facilities console too.
+      case "relics":
       case "facilities":
         return "facilities";
       default: {
@@ -3513,6 +3549,13 @@
         facilitiesView = "console";
         activeFoundryFacility = "salvageBay";
         activeSalvageBaySubTab = "salvage";
+        break;
+      case "relics":
+        // Exploration 0.14.0 (E4c): a running or just-identified relic study. It lands on the Research
+        // facility's Relics sub-tab (vault + study lane + the reveal card), not the blueprint catalog.
+        facilitiesView = "console";
+        activeFoundryFacility = "research";
+        activeResearchSubTab = "relics";
         break;
       case "facilities":
         // The Facilities OVERVIEW (the dashboard of all facility cards), NOT a single foundry
@@ -3585,6 +3628,9 @@
       case "fabricator":
         return "fabricator";
       case "research":
+        return "research";
+      // Exploration 0.14.0 (E4c): relic study runs at the Research facility, so it dots that card.
+      case "relics":
         return "research";
       case "shipyard":
         return "shipyard";
@@ -3716,6 +3762,8 @@
     storage: "warehouse",
     docks: "docks",
     salvage: "salvage",
+    // Exploration 0.14.0 (E4c): relic study rows (in flight + identified) wear the relic glyph.
+    relic: "relic",
   };
 
   // The registry icon for a hint, or null when the sweep has not reached it yet.
@@ -4365,6 +4413,79 @@
     pushLog(`[DEV] Granted testing materials (raw ores + refined) for the craft chain.`);
   }
 
+  // --- [DEV] Relic + Museum grants (Exploration 0.14.0, E4c) --------------------
+  // RAW test grants so every Vault / Study / Museum state can be QA'd live without running expeditions.
+  // DEV_MODE-gated at the markup (Debug tab only), same immutable { ...state } + "[DEV] ..." log shape as
+  // the grants above. They bypass the claim deposit and the study roll on purpose.
+  let devRelicSet: RelicSetId = "precursor";
+  let devRelicTier: EquipmentRarity = "standard";
+  let devRelicCount = 3;
+  let devMuseumSet: RelicSetId = "precursor";
+  let devMuseumCopies = 10;
+  // even     = every relic in the set at exactly N copies.
+  // bottleneck = every relic at N except the LAST at N - 1, so (with N on a ladder rung, e.g. 20) the
+  //            tiers that need the last relic are held one copy short by a single relic (the BOTTLENECK
+  //            call-out), while the others read "next at T copies each".
+  // partial  = every relic at N except the LAST, which is removed + un-discovered (the masked tile and
+  //            the LOCKED capstone tier).
+  let devMuseumMode: "even" | "bottleneck" | "partial" = "even";
+  const DEV_RELIC_TIERS: EquipmentRarity[] = ["standard", "augmented", "stellar", "radiant"];
+
+  // (a) Unidentified tokens into the vault: `count` tokens of the chosen set + tier, sourced from the
+  // set's first PoI. Every id is checked against every token already in play (the vault AND the tokens
+  // carried by in-flight studies) and bumped until free. A wall-clock stamp alone is NOT enough: two
+  // grants inside the same millisecond (a scripted QA pass did exactly this) minted identical ids, and a
+  // duplicate key makes the vault's keyed {#each} throw, which blanks the whole Relics tab.
+  function devGrantRelicTokens() {
+    const set = RELIC_SETS.find((s) => s.id === devRelicSet);
+    if (!set) return;
+    const taken = new Set<string>((state.relicVault ?? []).map((t) => t.id));
+    for (const p of state.activeProcesses) {
+      if (p.effect.type === "identifyRelic") taken.add(p.effect.token.id);
+    }
+    const stamp = Date.now();
+    let seq = 0;
+    const freshId = (): string => {
+      let id = `dev-relic-${stamp}-${seq++}`;
+      while (taken.has(id)) id = `dev-relic-${stamp}-${seq++}`;
+      taken.add(id);
+      return id;
+    };
+    const tokens: RelicVaultToken[] = Array.from({ length: devRelicCount }, () => ({
+      id: freshId(),
+      tier: devRelicTier,
+      quality: 0,
+      setId: set.id,
+      poiId: set.sources[0],
+    }));
+    state = { ...state, relicVault: [...(state.relicVault ?? []), ...tokens] };
+    pushLog(`[DEV] +${devRelicCount} unidentified ${devRelicTier} ${set.label} relic${devRelicCount === 1 ? "" : "s"} to the vault.`);
+  }
+
+  // (b) Museum copies: SET (not add) every relic of the chosen set per the mode, registering each held
+  // relic as discovered (appended in piece order if new) and, in "partial" mode, removing the last relic
+  // from both the museum and the discovered registry so its masked state can be checked.
+  function devGrantMuseumCopies() {
+    const set = RELIC_SETS.find((s) => s.id === devMuseumSet);
+    if (!set) return;
+    const n = Math.max(1, Math.floor(devMuseumCopies));
+    const museum: Record<string, number> = { ...(state.relicMuseum ?? {}) };
+    let discovered = [...(state.relicDiscovered ?? [])];
+    set.relicIds.forEach((rid, i) => {
+      const last = i === set.relicIds.length - 1;
+      if (devMuseumMode === "partial" && last) {
+        delete museum[rid];
+        discovered = discovered.filter((d) => d !== rid);
+        return;
+      }
+      const copies = devMuseumMode === "bottleneck" && last ? Math.max(1, n - 1) : n;
+      museum[rid] = copies;
+      if (!discovered.includes(rid)) discovered.push(rid);
+    });
+    state = { ...state, relicMuseum: museum, relicDiscovered: discovered };
+    pushLog(`[DEV] ${set.label} museum set to ${devMuseumMode} ${n} copies.`);
+  }
+
   // --- [DEV] Equipment 0.11.0 test controls (Equipment debug panel) ---------
   // A minimal, DEV_MODE-gated harness so the new ship-equipment system can be
   // exercised on a real device BEFORE the mockup-gated fitting UI is built. It
@@ -4967,6 +5088,107 @@
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
     doSave();
   }
+
+  // ── Relics (Exploration 0.14.0 phase E4c) ───────────────────────────────────
+  // The Relics sub-tab's Study button routes here. The canonical do* flow: the PURE engine fn
+  // (startRelicStudy, which gates through canStartRelicStudy and refuses by returning the SAME state),
+  // reassign `state`, pushLog, doSave. A refusal (a race between render and click) is a silent no-op.
+  function doStartRelicStudy(tokenId: string) {
+    const token = (state.relicVault ?? []).find((t) => t.id === tokenId) ?? null;
+    const { next, started } = startRelicStudy(state, tokenId);
+    if (!started || next === state) return;
+    state = next;
+    const setLabel = token ? getRelicSetById(token.setId)?.label ?? token.setId : "unknown set";
+    pushLog(`Relic study started → ${token ? token.tier.charAt(0).toUpperCase() + token.tier.slice(1) : ""} ${setLabel} relic.`);
+    doSave();
+  }
+
+  // The "View in Museum" jump from the reveal card: the Archive console's Museum sub-tab.
+  function viewMuseum() {
+    activeTab = "facilities";
+    facilitiesView = "console";
+    activeFoundryFacility = "archive";
+    activeArchiveSubTab = "museum";
+  }
+
+  // THE IDENTIFICATION REVEAL, fed by an OBSERVER (the Salvage Bay's last-salvage pattern, see
+  // syncSalvageJobWatch). resolveProcesses is the single completion seam for live AND offline play and
+  // returns only the next GameState, so the reveal watches state instead of adding a UI callback to the
+  // parity-critical path.
+  //
+  // IT READS THE COMPLETED-EVENTS RECORD, NEVER AN INVENTORY DIFF. When a watched study LEAVES, the
+  // identified relic comes from the "relicStudy" completion record the resolver wrote in the same update
+  // (subjectKey = the identified relic id). A museum diff is not attributable (a second lane or a [DEV]
+  // grant could move the same counts); the record is authored by the code that granted the copy. The
+  // record is matched among the ones that did not exist when the study was first watched, preferring the
+  // one naming the relic the engine's keyed roll derives for that study (pickRelicStudyRecord).
+  //
+  // FIRST FIND is decided against the discovered registry AS IT WAS when the study was first watched:
+  // a relic absent from it then is this study's discovery.
+  //
+  // The reveal is NOT cleared on navigation (unlike the salvage readout): a study takes minutes, so the
+  // player has usually wandered off when it lands, and the card waits on the Relics tab until they
+  // dismiss it or the next study replaces it.
+  //
+  // KNOWN AND ACCEPTED LIMIT (the salvage observer's own): a study that both starts and finishes inside
+  // one state update (an offline catch-up across a page reload) is never seen entering, so it gets no
+  // reveal card. The copy still lands, and the Home board's Recently Completed row still names it.
+  //
+  // IT MUST NOT WRITE TO `state`, or it would re-trigger itself.
+  let lastRelicReveal: RelicReveal | null = null;
+  type WatchedRelicStudy = {
+    token: RelicVaultToken | null;
+    studyIndex: number | null;
+    discoveredAtStart: Set<string>;
+    seenRecordIds: Set<string>;
+  };
+  let watchedRelicStudies = new Map<string, WatchedRelicStudy>();
+  function syncRelicStudyWatch() {
+    const live = relicStudiesInFlight(state);
+    const liveIds = new Set(live.map((p) => p.id));
+    const log = state.completionLog ?? [];
+    // ENTERING: capture the token, its stamped index, and what was already known/logged.
+    for (const p of live) {
+      if (watchedRelicStudies.has(p.id)) continue;
+      watchedRelicStudies.set(p.id, {
+        token: p.effect.type === "identifyRelic" ? p.effect.token : null,
+        studyIndex: p.effect.type === "identifyRelic" ? p.effect.studyIndex : null,
+        discoveredAtStart: new Set(state.relicDiscovered ?? []),
+        seenRecordIds: new Set(log.filter((e) => e.kind === "relicStudy").map((e) => e.id)),
+      });
+    }
+    // LEAVING: the process is gone, so it resolved. Report it from the record, then forget it.
+    const claimed = new Set<string>();
+    for (const [id, watched] of [...watchedRelicStudies]) {
+      if (liveIds.has(id)) continue;
+      watchedRelicStudies.delete(id);
+      const unseen = unseenRelicStudyRecords(log, watched.seenRecordIds).filter((e) => !claimed.has(e.id));
+      const expected =
+        watched.token !== null && watched.studyIndex !== null ? identifyStudiedRelic(state, watched.token, watched.studyIndex) : null;
+      const record = pickRelicStudyRecord(unseen, expected);
+      if (record === null || record.subjectKey === null) continue;
+      claimed.add(record.id);
+      const firstFind = !watched.discoveredAtStart.has(record.subjectKey);
+      const reveal = buildRelicReveal(state, record, firstFind, watched.token?.tier ?? null);
+      if (reveal === null) continue;
+      lastRelicReveal = reveal;
+      pushLog(
+        `Relic identified → [${reveal.relicLabel}] (${reveal.setLabel}, relic ${reveal.index} of ${reveal.setSize}).${firstFind ? " First find!" : ""} Copy #${reveal.copyNumber} sent to the Museum.`,
+      );
+    }
+  }
+  // The observer's trigger (referencing `state` makes it reactive; the initial run on a loaded save
+  // starts watching a study that was already in flight when the save was closed).
+  $: state, syncRelicStudyWatch();
+
+  // The Relics sub-tab's time readouts, through the SAME formatters every console uses (with the
+  // tick-count preference). Reactive so a preference flip re-renders the panel.
+  $: relicRemainingFmt = (remaining: number, total: number) => remainingReadout(remaining, total, showTickCounts, state.tickDurationSeconds);
+  $: relicDurationFmt = (ticks: number) => durationReadout(ticks, showTickCounts, state.tickDurationSeconds);
+
+  // E4c display honesty: the museum's research speed, read once per state for the research catalog's
+  // duration labels (startResearch applies the same bonus through museumResearchDurationTicks).
+  $: museumResearchSpeed = museumBonuses(state).researchSpeed;
 
   // ── Away-Team Gambits (Exploration 0.14.0 phase E3b) ────────────────────────
   // The GambitEditorPanel's edits route here. These are LIVE PLAYER actions (never on the tick path), so
@@ -9446,6 +9668,7 @@
         return { tabs: [
           { key: "overview", label: "Overview" },
           { key: "research", label: "Research" },
+          { key: "relics", label: "Relics" },
           { key: "upgrades", label: "Upgrades" },
         ], active: activeResearchSubTab, onSelect: (key) => (activeResearchSubTab = key as ResearchSubTab) };
       case "fuelStorage":
@@ -9462,6 +9685,12 @@
           { key: "build", label: "Build" },
           { key: "upgrades", label: "Upgrades" },
         ], active: activeShipyardSubTab, onSelect: (key) => (activeShipyardSubTab = key as ShipyardSubTab) };
+      // Exploration 0.14.0 (E4c): the Archive gained the Museum beside its enshrine record.
+      case "archive":
+        return { tabs: [
+          { key: "archive", label: "Archive" },
+          { key: "museum", label: "Museum" },
+        ], active: activeArchiveSubTab, onSelect: (key) => (activeArchiveSubTab = key as ArchiveSubTab) };
       default:
         return null;
     }
@@ -11402,6 +11631,9 @@
                 <div class="research-cost">Level: {researchLevel}</div>
                 <div class="research-cost">Research slots: {activeResearchProjects.length} / {researchSlots} in use</div>
                 <div class="research-cost">Blueprints researched: {researchedBlueprintCount} / {totalBlueprintCount}</div>
+                <!-- Exploration 0.14.0 (E4c): the relic lane at a glance (it runs on its OWN lane, so it is not
+                     in the research-slot count above); the Relics tab holds the vault and the study itself. -->
+                <div class="research-cost">Relic studies: {relicStudiesInFlight(state).length} running · {(state.relicVault ?? []).length} unidentified in the vault</div>
 
                 <!-- In-flight research projects, one progress card each. progress is
                      how much of the duration has elapsed (durationTicks - remainingTicks
@@ -11536,7 +11768,10 @@
                           Crafts: {#each Object.keys(bp.recipe.inputs) as inId, i}{bp.recipe.inputs[inId]}× [{ITEMS[inId]?.label ?? inId}]{i < Object.keys(bp.recipe.inputs).length - 1 ? " + " : ""}{/each} → {#if bp.weaponOutput || bp.droneOutput}[{craftedInstanceBlueprintLabel(bp)}]{:else if bp.equipmentOutput}[{equipmentOutputLabel(bp.equipmentOutput)}]{:else}{bp.recipe.outputQty}× [{ITEMS[bp.recipe.outputItem ?? ""]?.label ?? bp.recipe.outputItem}]{/if}
                         </div>
                       {/if}
-                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(bp.researchDurationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                      <!-- E4c display honesty: the duration is the MUSEUM-ADJUSTED one (the research-speed seam
+                           startResearch applies at start), not the catalog base, so the label is the time the
+                           project will actually take. With an empty museum it is the base, unchanged. -->
+                      <div class="research-cost">Cost: ◈ {formatNumber(bp.researchCreditCost)} · {durationReadout(museumResearchDurationTicks(bp.researchDurationTicks, museumResearchSpeed), showTickCounts, state.tickDurationSeconds)}</div>
 
                       {#if unlocked}
                         <!-- 0.13.3 Unit 7.0, GLYPH ONLY: the literal ✓ dingbat becomes the same
@@ -11639,6 +11874,32 @@
                     </div>
                   {/each}
                 {/each}
+              </Panel>
+            {/if}
+
+            {#if activeResearchSubTab === "relics"}
+              <!-- RELICS (Exploration 0.14.0, E4c): the relic VAULT of unidentified tokens, the STUDY LANE
+                   (select -> Study, the in-flight study with its real museum-adjusted countdown, the facility
+                   and lane gates), and the IDENTIFICATION REVEAL for the most recently completed study (fed
+                   by the syncRelicStudyWatch observer, which reads the completed-events record). The panel
+                   only reads; Study routes to doStartRelicStudy, View in Museum to viewMuseum. -->
+              <Panel>
+                <div class="panel-title">
+                  RELICS
+                  <HelpTip
+                    label="How relic study works"
+                    text="Away teams bring relics home unidentified. Study one here to reveal which relic of its set it is. A study runs on its own lane, so it never blocks blueprint research. The first time you identify a relic type is a discovery, and every identified copy goes to the Museum in the Archive."
+                  />
+                </div>
+                <RelicStudyPanel
+                  {state}
+                  reveal={lastRelicReveal}
+                  onStudy={doStartRelicStudy}
+                  onViewMuseum={viewMuseum}
+                  onDismissReveal={() => (lastRelicReveal = null)}
+                  formatRemaining={relicRemainingFmt}
+                  formatDuration={relicDurationFmt}
+                />
               </Panel>
             {/if}
 
@@ -14021,6 +14282,21 @@
                 {/if}
               </Panel>
             {/if}
+          {:else if activeFoundryFacility === "archive" && activeArchiveSubTab === "museum"}
+            <!-- THE MUSEUM (Exploration 0.14.0, E4c): the Archive's relic collection. Every identified relic
+                 copy lands here; the four sets' rosters (undiscovered relics masked), the per-copy passive,
+                 and the leveling K-piece set tiers with their bottleneck call-outs. Pure display
+                 (MuseumPanel reads the relics.ts museum readers); no actions. -->
+            <Panel>
+              <div class="panel-title">
+                THE MUSEUM
+                <HelpTip
+                  label="How the Museum works"
+                  text="Every relic your Research Lab identifies is displayed here. Each copy adds a small permanent bonus. Owning relics 1 through K of a set unlocks its K-piece bonus, which levels up as every one of those relics reaches the next copy threshold."
+                />
+              </div>
+              <MuseumPanel {state} />
+            </Panel>
           {:else if activeFoundryFacility === "archive"}
             <!-- ITEM LIFECYCLE 0.13.6: the Archive console. The completionist record of this
                  miniature empire: enshrine your best-crafted version of each item for a score and
@@ -15671,9 +15947,14 @@
                          Resolved the SAME way the engine resolves it, so the card and the tick cannot
                          disagree about how long a phase is. A ship-less captain falls back to the raw
                          def, which is the engine's own "no modifier" fallback. -->
+                    <!-- E4c display honesty: through effectiveShipStats (equipment + CREW + MUSEUM, the
+                         helper economyTick flies the mission with and homeDashboard's row already reads), not
+                         the bare equipment fold, which omitted crew (since crew went live) and the museum's
+                         transit / cargo / extraction-speed overrides, so this card could disagree with the
+                         Home board and the engine. -->
                     {@const missionShip = state.ships.find((s) => s.assignedCaptainId === captain.id)}
                     {@const missionDef = missionShip
-                      ? effectiveMissionDef(MISSIONS[mission.missionKey], shipDerivedStats(missionShip, equippedFor(state, missionShip.id)))
+                      ? effectiveMissionDef(MISSIONS[mission.missionKey], effectiveShipStats(state, missionShip))
                       : MISSIONS[mission.missionKey]}
                     {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
                     {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
@@ -17672,6 +17953,36 @@
             <span class="dev-label">[DEV] Materials</span>
             <button class="dev-btn" on:click={devGrantMaterials}>+ Craft materials (ores + refined)</button>
           </div>
+          <!-- [DEV] Relic + Museum grants (Exploration 0.14.0, E4c). Raw grants so every Vault / Study /
+               Museum state can be QA'd live; see devGrantRelicTokens / devGrantMuseumCopies. -->
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Relic tokens</span>
+            <select class="dev-btn" bind:value={devRelicSet}>
+              {#each RELIC_SETS as rs (rs.id)}<option value={rs.id}>{rs.label}</option>{/each}
+            </select>
+            <select class="dev-btn" bind:value={devRelicTier}>
+              {#each DEV_RELIC_TIERS as t (t)}<option value={t}>{t}</option>{/each}
+            </select>
+            <select class="dev-btn" bind:value={devRelicCount}>
+              {#each [1, 3, 10] as c (c)}<option value={c}>x{c}</option>{/each}
+            </select>
+            <button class="dev-btn" on:click={devGrantRelicTokens}>+ To vault</button>
+          </div>
+          <div class="dev-row">
+            <span class="dev-label">[DEV] Museum copies</span>
+            <select class="dev-btn" bind:value={devMuseumSet}>
+              {#each RELIC_SETS as rs (rs.id)}<option value={rs.id}>{rs.label}</option>{/each}
+            </select>
+            <select class="dev-btn" bind:value={devMuseumCopies}>
+              {#each [1, 9, 10, 20, 40, 45, 80, 160] as c (c)}<option value={c}>{c} each</option>{/each}
+            </select>
+            <select class="dev-btn" bind:value={devMuseumMode}>
+              <option value="even">even</option>
+              <option value="bottleneck">bottleneck (last relic N-1)</option>
+              <option value="partial">partial (last relic undiscovered)</option>
+            </select>
+            <button class="dev-btn" on:click={devGrantMuseumCopies}>Set museum</button>
+          </div>
           <!-- [DEV] Combat 0.13.0 test battle. Runs the REAL sim (bridge ->
                resolveBattle -> formatCombatLog) on the player's first ship vs a
                hardcoded pirate and prints the log below. READ-ONLY on state: it
@@ -18037,8 +18348,11 @@
                DROP RATES above stay on the raw missionDef (loot table + drop chances are mission-
                intrinsic, not ship-scaled). -->
           {@const popupShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
+          <!-- E4c display honesty: effectiveShipStats (equipment + CREW + MUSEUM), the stats the mission is
+               actually dispatched and flown with, so the preview includes crew transit/unload bonuses and the
+               museum's transit / cargo / extraction-speed override (the bare equipment fold omitted both). -->
           {@const timingDef = popupShip !== null
-            ? effectiveMissionDef(missionDef, shipDerivedStats(popupShip, equippedFor(state, popupShip.id)))
+            ? effectiveMissionDef(missionDef, effectiveShipStats(state, popupShip))
             : missionDef}
           {@const transitOutTicks = timingDef.transitOutTicks}
           {@const extractingTicks = requiredTicksForPhase("extracting", timingDef)}

@@ -46,6 +46,8 @@ import {
   setCompletion,
   museumBonuses,
   museumBonusesFromRecord,
+  setTierBonus,
+  setPerCopyBonus,
 } from "./relics";
 import { RELIC_BEARING_POIS as GAMBIT_RELIC_BEARING_POIS, rollRelicToken } from "./gambit";
 import {
@@ -541,5 +543,38 @@ describe("SAVE migration v62 -> v63 seeds the relic store", () => {
     expect(migrated.relicDiscovered).toEqual(["hullRivet"]);
     expect(migrated.relicSeed).toBe(42);
     expect(migrated.nextRelicStudyIndex).toBe(9);
+  });
+});
+
+// ============================================================================
+// E4c: the two per-tier / per-copy formulas the Museum UI reads are the SAME ones the fold applies, so the
+// displayed "+X%" can never drift from the engine's bonus.
+describe("museum display formulas (E4c): setTierBonus + setPerCopyBonus are the fold's own numbers", () => {
+  it("setTierBonus is level x per-level bonus x magnitude, 0 for a locked / level-0 tier", () => {
+    expect(setTierBonus({ level: 0, magnitude: 1 })).toBe(0);
+    expect(setTierBonus({ level: 3, magnitude: 1 })).toBe(3 * MUSEUM_TIER_LEVEL_BONUS * 1);
+    expect(setTierBonus({ level: 2, magnitude: MUSEUM_CAPSTONE_MAGNITUDE })).toBe(2 * MUSEUM_TIER_LEVEL_BONUS * MUSEUM_CAPSTONE_MAGNITUDE);
+    expect(setPerCopyBonus(0)).toBe(0);
+    expect(setPerCopyBonus(126)).toBe(126 * MUSEUM_PER_COPY_BONUS);
+  });
+
+  it("summing the per-tier + per-copy displays over a museum reproduces museumBonusesFromRecord exactly", () => {
+    const museum = { glyphTablet: 45, resonanceShard: 41, starChartFragment: 22, precursorLens: 18, hullRivet: 12, flightRecorder: 3 };
+    const expected = museumBonusesFromRecord(museum);
+    const rebuilt: Record<string, number> = Object.fromEntries(MUSEUM_STATS.map((st) => [st, 0]));
+    for (const set of RELIC_SETS) {
+      const copies = setCompletion(museum, set.id).totalCopies;
+      if (copies > 0) rebuilt[set.perCopyStat] += setPerCopyBonus(copies);
+      for (const t of setTierLevels(museum, set.id)) {
+        if (t.level <= 0) continue;
+        for (const st of t.stats) rebuilt[st] += setTierBonus(t);
+      }
+    }
+    expect(rebuilt).toEqual(expected);
+    // The approved mockup's Precursor example: 2-piece Lv 3 (+1.5%), 3-piece Lv 2 (+1.0%), 4-piece Lv 1
+    // (+0.5%), and 126 copies at +0.1% each on research speed.
+    expect(expected.researchSpeed).toBeCloseTo(0.126 + 0.015, 10);
+    expect(expected.craftingQuality).toBeCloseTo(0.01, 10);
+    expect(expected.relicFindChance).toBeCloseTo(0.005, 10);
   });
 });
