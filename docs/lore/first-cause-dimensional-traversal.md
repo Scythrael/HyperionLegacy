@@ -90,6 +90,17 @@ now"), so DO NOT extrapolate the reveal (e.g. whether Scythrael becomes the Firs
 just hold the thread: callsign Scythrael + a millennium in hiding + emerges altered. Ties to the
 Captain Identity system (callsigns are a real field there) and the far-future story bible.
 
+## Story hook: the Archive AI and the dead ship (user, 2026-10-01)
+The **Intact Data Core** (a salvage-only exotic) is "a sealed memory core pulled whole from a dead ship,
+its archives locked behind a cipher no one alive can key." The user's hook: the AI in those archives can
+be brought back, **coalescing into the tangible world** inside an environment built from Data Cores, and
+taken on as a **unique Senior Staff officer**. It may **know something about the DBDs**: the ship it served
+on is dead, and it may have witnessed what killed it. That makes the Data Core a quiet thread toward the
+First Cause long before the player knows the enemy exists (its in-game flavor already ends with a crew
+member asking "What is this thing even for?", the game's first meme). Mechanics are SAVED FOR LATER (see
+SUGGESTIONS "THE ARCHIVE AI"). ⚠️ The namelessness rule applies: the AI must never NAME the DBDs before
+the story does; it can know, hint, fear, or refuse to say.
+
 ## Status
 Deep-future north-star. Captured so the beat is not lost; no scheduling. When DT is designed, this
 cinematic is the anchor for the first traversal's presentation and the carry-forward rules.

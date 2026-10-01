@@ -222,6 +222,23 @@ build the interpreter GENERALIZABLE, not hard-wired to ground combat.
   Relic SETS + roster + bonuses + unlocks are NEW ENTITIES: proposed via mockup for user approval, not
   invented. Leveling curve first-pass from the user's own example (10/20/40/80/160 copies, +0.005/level
   additive), still the open "PIN AT DESIGN TIME" from the notes, so TUNABLE.
+- **E4d FIRST-FIND UNLOCKS, revised with the user (2026-10-01).** A 4th variety in an existing slot must earn
+  its place: reactor cores + hull plating each have only 3 stats with all three corners already covered (a
+  4th = power creep), and the utility (SUS) slot holds ONLY prospector rigs, so combat + explorer hulls have an
+  EMPTY utility slot today. Lineup (rare-relic first find -> discovery-gated research -> item, crafted with):
+  - Ancient Drive Coil -> COMBAT utility item, combat hulls only (proposed role: recovery = faster post-loss
+    repair + light between-wave hull regen) [Anomalous Alloy]. User named this SUS role (1 of the 8).
+  - Deep-Vein Compass -> EXPLORER utility item, explorers only (sensors + scan speed + hazard resist)
+    [refined metals]. User named this SUS role (2 of the 8).
+  - Leviathan Scale -> RELIC-HUNTER scanning array (the only array that raises relic find chance, at the
+    cost of slower scans) [organics].
+  - Precursor Lens -> SPECIAL MODULE: a unique proc you cannot get elsewhere [Precursor Circuit]. Needs the
+    universal module system (E-MOD), whose module slots are inert today.
+  - Heart of the Archive (Precursor CAPSTONE) -> **NEURAL BACKUP (Reraise)**, the user's final pick for NOW
+    ("B for this one", 2026-10-01, after briefly choosing C = the Archive Ghost ground-team member): the core
+    holds the away team's neural backups, so ONCE PER BATTLE the first member to fall gets back up at partial
+    HP. Really rare by design (capstone first find + an Intact Data Core). Replaces the proposed
+    Archive-Linked bridge module. The bigger AI idea is DEFERRED, see SUGGESTIONS "THE ARCHIVE AI".
 
 ### Phase E5 — Refugees -> facility crews + evacuation [ties E1 transport + crew]
 - The evacuation -> refugees -> facility-crews loop (C.3): a transport/supply mission variant (E1) carries
