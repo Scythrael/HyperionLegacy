@@ -236,9 +236,21 @@ build the interpreter GENERALIZABLE, not hard-wired to ground combat.
     universal module system (E-MOD), whose module slots are inert today.
   - Heart of the Archive (Precursor CAPSTONE) -> **NEURAL BACKUP (Reraise)**, the user's final pick for NOW
     ("B for this one", 2026-10-01, after briefly choosing C = the Archive Ghost ground-team member): the core
-    holds the away team's neural backups, so ONCE PER BATTLE the first member to fall gets back up at partial
-    HP. Really rare by design (capstone first find + an Intact Data Core). Replaces the proposed
-    Archive-Linked bridge module. The bigger AI idea is DEFERRED, see SUGGESTIONS "THE ARCHIVE AI".
+    holds the away team's neural backups. Really rare by design (capstone first find + an Intact Data Core).
+    Replaces the proposed Archive-Linked bridge module. The bigger AI idea is DEFERRED, see SUGGESTIONS
+    "THE ARCHIVE AI". **Refined by the user (2026-10-01):** Neural Backup is an EQUIPPED item and
+    **UNIQUE-EQUIPPED = ONE IN THE ENTIRE FLEET, period** (not one per character/team); it can fire at most
+    ONCE PER BATTLE and is NOT guaranteed (~50% chance) to revive the first downed member. It is a
+    **CYBERNETIC IMPLANT**, see "CYBERNETICS REVIVED" below.
+  - **Resolved 2026-10-01:** Precursor Lens's special module ships WITH the module phase (E-MOD) as its first
+    content, not in E4d. Combat utility role = RECOVERY (faster post-loss repair + light between-wave hull regen).
+- ⚠️ **CYBERNETICS REVIVED via ground teams (user, 2026-10-01).** Augmentation/cybernetics was 0.14.0's ONLY
+  conscious cut, for a data-model reason: the crew Complement is a bucket histogram of interchangeable crew,
+  and equipping individual crew breaks that. The user's insight: the deferred GROUND-TEAM gear layer is "a new
+  home for cybernetic implants", and ground teams are NOT complement buckets, so the original reason does not
+  apply there. Neural Backup is the first implant. OPEN (user's call): whether the implant system lands in
+  0.14.0 (e.g. foundation + Neural Backup only) or later; per-team vs per-member implant slots; the wider
+  implant catalog.
 
 ### Phase E5 — Refugees -> facility crews + evacuation [ties E1 transport + crew]
 - The evacuation -> refugees -> facility-crews loop (C.3): a transport/supply mission variant (E1) carries
