@@ -9,7 +9,7 @@
 //     on the same seeds (proves gambit depth is load-bearing).
 //   - EVACUATE->RETRY: an unwinnable activity loses every attempt, evacuates, still yields a partial finding.
 //   - REWARDS: the relic roll REUSES the salvage tiers + yields an UNIDENTIFIED relic at a chance; a
-//     non-relic PoI never yields one.
+//     non-relic PoI never yields one (E4a: the relic-bearing set is DERIVED from relics.ts).
 //   - PARITY: a typed multi-body expedition whose activities resolve REAL gambit fights is byte-identical
 //     big-jump vs stepped.
 //   - SAVE migration v61 -> v62 seeds the default gambit program pair + backfills the expedition snapshot.
@@ -47,7 +47,8 @@ import {
   type BattleState,
 } from "./gambit";
 import { advanceExpedition, makeExpeditionSeed } from "./expedition";
-import { planetTypeHazard } from "./expeditionContent";
+import { planetTypeHazard, POI_CATALOG } from "./expeditionContent";
+import { RELIC_SETS, relicSetForPoi } from "./relics";
 import { migrate, type SaveFile } from "./save";
 import { makeRng } from "./combat/rng";
 
@@ -329,7 +330,11 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
     expect(res.finding.poiId).toBe("caveNetwork");
     expect(Object.keys(res.finding.materials ?? {}).length).toBeGreaterThan(0);
     expect(res.finding.credits ?? 0).toBeGreaterThan(0);
-    expect(res.finding.relic ?? null).toBeNull(); // caveNetwork is not relic-bearing
+    // E4a INTENTIONAL CHANGE: caveNetwork now SOURCES the Deep Earth relic set (relics.ts RELIC_SET_BY_POI),
+    // so it is relic-bearing and a win MAY carry a relic (it used to be asserted null here). Whatever
+    // rolled, it is an UNIDENTIFIED token, and claiming it routes to Deep Earth.
+    expect(relicSetForPoi("caveNetwork")).toBe("deepEarth");
+    if (res.finding.relic) expect(res.finding.relic.unidentified).toBe(true);
     expect(res.finding.evacuated).toBeUndefined();
   });
 
@@ -364,9 +369,21 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
 describe("rewards — the relic roll REUSES the salvage tiers", () => {
   const poolTiers = SALVAGE_LOOT_POOLS.intactReactorCore;
 
-  it("a non-relic-bearing PoI never yields a relic token", () => {
+  // E4a INTENTIONAL CHANGE: this used "mineralOutcrop" as the non-bearing PoI. The approved Relic Museum
+  // mockup makes mineralOutcrop a Deep Earth SOURCE, and in fact every catalog PoI now sources some set,
+  // so the only non-bearing PoI left is an id outside the catalog (a tampered / unknown id).
+  it("a non-relic-bearing (unknown) PoI never yields a relic token", () => {
     for (let s = 0; s < 200; s++) {
-      expect(rollRelicToken(s, 0.9, "mineralOutcrop", `relic-${s}`)).toBeNull();
+      expect(rollRelicToken(s, 0.9, "notARealPoi", `relic-${s}`)).toBeNull();
+    }
+  });
+
+  it("E4a: the newly relic-bearing PoIs (Xenobiology + Deep Earth sources) now yield relics at a chance", () => {
+    for (const poi of ["xenoFloraBloom", "mineralOutcrop", "caveNetwork", "geothermalChamber", "derelictOutpost"]) {
+      let hits = 0;
+      for (let s = 0; s < 200; s++) if (rollRelicToken(s, 0.6, poi, `relic-${s}`)) hits++;
+      expect(hits).toBeGreaterThan(0);
+      expect(hits).toBeLessThan(200);
     }
   });
 
@@ -386,8 +403,13 @@ describe("rewards — the relic roll REUSES the salvage tiers", () => {
     expect(hits).toBeLessThan(300); // ...but not always (it is a chance)
   });
 
-  it("the gambit relic-bearing set matches the four locked relic PoIs", () => {
-    expect([...RELIC_BEARING_POIS].sort()).toEqual(["ancientRuins", "buriedVault", "crashedShip", "subterraneanCivilization"]);
+  // E4a INTENTIONAL CHANGE: the gambit relic-bearing set is no longer the hand-kept E3a four; it is DERIVED
+  // from relics.ts RELIC_SET_BY_POI (the union of every relic set's sources), the single source of truth
+  // the E2c foreknowledge signature reads too. That union is the whole 9-PoI catalog.
+  it("the gambit relic-bearing set is exactly the union of the relic sets' sources (all 9 PoIs)", () => {
+    const union = RELIC_SETS.flatMap((set) => [...set.sources]).sort();
+    expect([...RELIC_BEARING_POIS].sort()).toEqual(union);
+    expect(union).toEqual(POI_CATALOG.map((p) => p.id).sort());
   });
 });
 

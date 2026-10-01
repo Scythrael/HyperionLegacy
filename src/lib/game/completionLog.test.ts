@@ -46,6 +46,7 @@ import { resolveProcesses, economyTick, startLine, cancelLine, UNKNOWN_COMPLETIO
 // 0.13.7 Crafted Blanks: the dashboard row builder, so the blank-reward wording is asserted
 // through the SAME path the Home board renders rather than by reaching into private helpers.
 import { buildHomeDashboard } from "./homeDashboard";
+import { getRelicById } from "./relics";
 // App.svelte as a RAW STRING (Vite's ?raw), for the offline-clock call-site grep in section 7.
 // Same idiom salvage.test.ts uses for its live-only source guards: ?raw keeps this a pure
 // Vite/Vitest concern with no Node type dependency, so `npm run check` stays clean.
@@ -290,6 +291,8 @@ const ALL_KINDS = [
   "transitBerthExpansion",
   "shipRepair",
   "salvageJob",
+  // Exploration 0.14.0 (E4a): the Research facility's relic study.
+  "relicStudy",
 ] as const satisfies readonly TimedProcessKind[];
 
 // ⚠️ THE COMPILE-TIME HALF OF THE GUARD, the same trick QUEUE_FACILITY_ORDER uses in
@@ -307,9 +310,9 @@ const SALVAGED_MATERIAL =
 describe("every TimedProcessKind leaves an honest record", () => {
   it("is exhaustive over the union (compile-time guard)", () => {
     expect(ALL_KINDS_IS_EXHAUSTIVE).toBe(true);
-    // 0.13.4 Phase 3: 11 with transitBerthExpansion. The literal is a tripwire, so a new kind
-    // has to be acknowledged here as well as given a row in each exhaustive table.
-    expect(ALL_KINDS).toHaveLength(11);
+    // 0.13.4 Phase 3: 11 with transitBerthExpansion; E4a: 12 with relicStudy. The literal is a
+    // tripwire, so a new kind has to be acknowledged here as well as given a row in each exhaustive table.
+    expect(ALL_KINDS).toHaveLength(12);
   });
 
   it("records one entry per kind, each with the reward shape that kind actually grants", () => {
@@ -332,6 +335,11 @@ describe("every TimedProcessKind leaves an honest record", () => {
         readyProcess("p-berths", "transitBerthExpansion", { type: "transitBerthLevelUp" }),
         readyProcess("p-repair", "shipRepair", { type: "clearShipDamage", shipId: base.ships[0].id }),
         readyProcess("p-salvage", "salvageJob", { type: "salvageResolve", target: { kind: "material", itemId: SALVAGED_MATERIAL } }),
+        readyProcess("p-relic", "relicStudy", {
+          type: "identifyRelic",
+          token: { id: "expedition-1-relic-x", tier: "standard", quality: 0, setId: "precursor", poiId: "ancientRuins" },
+          studyIndex: 1,
+        }),
       ],
     };
 
@@ -383,6 +391,12 @@ describe("every TimedProcessKind leaves an honest record", () => {
     expect(salvaged.subjectKey).toBe(SALVAGED_MATERIAL);
     expect(salvaged.items.length).toBeGreaterThan(0);
     expect(salvaged.items.every((line) => ITEMS[line.itemId] !== undefined)).toBe(true);
+    // E4a: a relic study grants a RELIC, named by the identified relic id (a real Precursor relic),
+    // and that same relic landed in the museum.
+    const relic = byKind.get("relicStudy")!;
+    expect(relic.reward).toBe("relic");
+    expect(getRelicById(relic.subjectKey!)?.setId).toBe("precursor");
+    expect(out.relicMuseum[relic.subjectKey!]).toBe(1);
   });
 
   // 0.13.7 Crafted Blanks: a completed equipment fabricate no longer mints a usable instance,

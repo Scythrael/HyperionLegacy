@@ -1,0 +1,634 @@
+// ============================================================================
+// relics.ts: Exploration 0.14.0 (Phase E4a): the RELIC CATALOG + MUSEUM MATH.
+//
+// Relics + artifacts are ONE combined system (user, 2026-10-01): an expedition relic
+// arrives UNIDENTIFIED, Research STUDIES it to reveal which relic it is (a FIRST FIND of
+// a type is the discovery unlock), and every identified copy goes to the MUSEUM, where it
+// earns a per-copy passive and feeds the K-piece SET TIERS that level on the doubling copy
+// ladder, bottlenecked by the least-collected required relic.
+//
+// PURE DATA + PURE READERS ONLY (no Svelte, no state mutation, no side effects), the
+// exact posture of expeditionContent.ts / sensorArrays.ts. This module owns:
+//   - RELIC_SETS + RELICS: the four LOCKED sets (approved "Relic Museum" mockup,
+//     2026-10-01: "10/10, make it so") and their 17 relics, in K-piece order.
+//   - RELIC_SET_BY_POI: the ONE source of truth mapping an expedition PoI to the relic set
+//     it sources. BOTH the gambit reward relic roll (gambit.ts) AND the E2c foreknowledge
+//     relic signature (expedition.ts) read it, so the two can never drift.
+//   - MuseumStat: the closed union of stat ids the museum grants (E4b wires consumers).
+//   - The museum math constants (per-copy passive, the copy ladder, the per-level tier
+//     bonus) + the identification tier-skew weights + the study duration constants.
+//   - identifyRelic: the keyed deterministic identification roll a completed study runs.
+//   - Museum readers: relicCopyLevel, setTierLevels (with bottleneck info for the E4c UI),
+//     setCompletion, museumBonuses (Record<MuseumStat, number>).
+//
+// ⚠️ ADDITIVE-NEUTRAL SEAM FOR E4b: museumBonuses on an empty museum is ALL ZEROS, so
+// wiring a consumer later as `base * (1 + bonus)` or `base + bonus` changes nothing for a
+// save with no identified relics. Nothing reads museumBonuses on the live path this phase.
+//
+// ⚠️ ALL NUMERIC CONSTANTS BELOW ARE FIRST-PASS TUNABLE (the per-copy passive, the ladder,
+// the per-level bonus, the capstone multiplier, the tier-skew weights, the study durations),
+// the same posture as SHIP_TYPES / expeditionContent.ts. The NAMES, set membership, piece
+// order, sources and stat assignments are the user's locked content calls.
+//
+// IMPORT DIRECTION (no cycle): this file imports TYPES only from model.ts and
+// expeditionContent.ts, plus the leaf PRNG (combat/rng.ts). model.ts does NOT import this
+// file (RelicSetId + RelicVaultToken are declared there as plain shapes), so the arrow is
+// one-way, the same arrangement expeditionContent.ts has with model.ts.
+// ============================================================================
+
+import type { EquipmentRarity, GameState, RelicSetId } from "./model";
+import type { ExpeditionPoiId } from "./expeditionContent";
+import { makeRng } from "./combat/rng";
+
+// ============================================================================
+// Stats (the closed union E4b wires into consumers)
+// ============================================================================
+
+// Every stat a relic set grants. CLOSED on purpose: a new stat is a compile-time decision, and
+// museumBonuses returns a full Record over this union (every key present, zero by default), so an E4b
+// consumer never has to guard a missing key.
+export type MuseumStat =
+  // Precursor
+  | "researchSpeed"
+  | "craftingQuality"
+  | "relicFindChance"
+  // Shipwright
+  | "cargoCapacity"
+  | "transitSpeed"
+  | "salvageYield"
+  // Xenobiology
+  | "sensors"
+  | "scanSpeed"
+  | "scienceTeamPower"
+  | "crewBonuses"
+  // Deep Earth
+  | "miningYield"
+  | "rareMaterialChance"
+  | "extractionSpeed"
+  | "hazardResist";
+
+// The stat ids in a fixed canonical order (the iteration order museumBonuses seeds its Record in).
+export const MUSEUM_STATS: readonly MuseumStat[] = [
+  "researchSpeed",
+  "craftingQuality",
+  "relicFindChance",
+  "cargoCapacity",
+  "transitSpeed",
+  "salvageYield",
+  "sensors",
+  "scanSpeed",
+  "scienceTeamPower",
+  "crewBonuses",
+  "miningYield",
+  "rareMaterialChance",
+  "extractionSpeed",
+  "hazardResist",
+];
+
+// ============================================================================
+// FIRST-PASS TUNABLE museum math (from the user's own notes; the open "PIN AT DESIGN TIME")
+// ============================================================================
+
+// PER-COPY PASSIVE: every identified copy of ANY relic in a set adds this fraction of the set's
+// per-copy stat (0.001 = +0.1% per copy).
+export const MUSEUM_PER_COPY_BONUS = 0.001;
+
+// The doubling COPY LADDER. A relic's copy LEVEL is how many of these thresholds its copy count meets;
+// a set tier's LEVEL is the copy level of its LEAST-collected required relic (the BOTTLENECK rule).
+export const MUSEUM_COPY_LADDER: readonly number[] = [10, 20, 40, 80, 160];
+
+// Each set-tier LEVEL adds this fraction of each of the tier's stats (0.005 = +0.5% per level), additive.
+export const MUSEUM_TIER_LEVEL_BONUS = 0.005;
+
+// The CAPSTONE tier's per-level magnitude multiplier (the Precursor 5-piece "larger boon"). TUNABLE.
+export const MUSEUM_CAPSTONE_MAGNITUDE = 2;
+
+// ============================================================================
+// FIRST-PASS TUNABLE relic study (identification) constants
+// ============================================================================
+
+// Concurrent relic studies the Research facility runs on its OWN lane (separate from blueprint research,
+// so studying never blocks a research project). 1 lane first-pass; TUNABLE (a later Research rung could
+// add lanes the way addResearchSlots does).
+export const RELIC_STUDY_LANES = 1;
+
+// The base study duration (ticks; 1 tick == 1 second at the default cadence), scaled by the token's
+// rarity tier: a rarer relic takes longer to read. TUNABLE.
+export const RELIC_STUDY_BASE_TICKS = 600; // ~10 min IRL for a standard relic
+export const RELIC_STUDY_TIER_MULT: Readonly<Record<EquipmentRarity, number>> = {
+  derelict: 1,
+  standard: 1,
+  augmented: 1.5,
+  stellar: 2,
+  radiant: 3,
+  luminous: 3,
+  constellar: 3,
+};
+
+// The study duration for a token of the given tier, in whole ticks. Pure.
+export function relicStudyDurationTicks(tier: EquipmentRarity): number {
+  return Math.max(1, Math.round(RELIC_STUDY_BASE_TICKS * (RELIC_STUDY_TIER_MULT[tier] ?? 1)));
+}
+
+// ============================================================================
+// Relic + set catalog (LOCKED content, approved mockup 2026-10-01)
+// ============================================================================
+
+// A relic's rarity class within its set. Each set runs common -> ... -> capstone in piece order.
+export type RelicRarity = "common" | "uncommon" | "rare" | "capstone";
+
+export interface RelicDef {
+  id: string;
+  label: string;
+  setId: RelicSetId;
+  index: number; // 1-based K-piece position in its set (relic 1..K are required for the K-piece tier)
+  rarity: RelicRarity;
+  flavor: string; // short evocative line (the E4c Museum card surfaces it)
+}
+
+// One K-piece set tier: requires relics 1..pieces; each tier level adds MUSEUM_TIER_LEVEL_BONUS *
+// magnitude to EACH listed stat (a capstone lists two stats + a larger magnitude).
+export interface RelicSetTierDef {
+  pieces: number;
+  stats: readonly MuseumStat[];
+  magnitude: number; // per-level multiplier on MUSEUM_TIER_LEVEL_BONUS (1, or MUSEUM_CAPSTONE_MAGNITUDE)
+  capstone: boolean;
+}
+
+export interface RelicSetDef {
+  id: RelicSetId;
+  label: string;
+  sources: readonly ExpeditionPoiId[]; // the PoIs whose relics identify WITHIN this set
+  perCopyStat: MuseumStat; // every copy of any relic in the set adds MUSEUM_PER_COPY_BONUS of this
+  relicIds: readonly string[]; // the set's relics in K-piece order (index 1..K)
+  tiers: readonly RelicSetTierDef[]; // ascending by pieces (2..K)
+}
+
+// The 17 relics, in set order then K-piece order. LOCKED names/rarities/order.
+export const RELICS: readonly RelicDef[] = [
+  // --- PRECURSOR SET -------------------------------------------------------------------------------
+  {
+    id: "glyphTablet",
+    label: "Glyph Tablet",
+    setId: "precursor",
+    index: 1,
+    rarity: "common",
+    flavor: "Row upon row of patient carving. Half of it is a lesson, and the other half is a warning.",
+  },
+  {
+    id: "resonanceShard",
+    label: "Resonance Shard",
+    setId: "precursor",
+    index: 2,
+    rarity: "uncommon",
+    flavor: "It rings when held near another of its kind, a single clear note that never fades.",
+  },
+  {
+    id: "starChartFragment",
+    label: "Star-Chart Fragment",
+    setId: "precursor",
+    index: 3,
+    rarity: "uncommon",
+    flavor: "The constellations are wrong by a few thousand years. The routes between them are not.",
+  },
+  {
+    id: "precursorLens",
+    label: "Precursor Lens",
+    setId: "precursor",
+    index: 4,
+    rarity: "rare",
+    flavor: "Look through it at a blank wall and you will see the writing that used to be there.",
+  },
+  {
+    id: "heartOfTheArchive",
+    label: "Heart of the Archive",
+    setId: "precursor",
+    index: 5,
+    rarity: "capstone",
+    flavor: "Warm to the touch and slowly pulsing. Everything they knew is still in here, waiting to be asked.",
+  },
+  // --- SHIPWRIGHT SET ------------------------------------------------------------------------------
+  {
+    id: "hullRivet",
+    label: "Hull Rivet",
+    setId: "shipwright",
+    index: 1,
+    rarity: "common",
+    flavor: "A single rivet, forged from an alloy no yard in the fleet can match. It held for ten thousand years.",
+  },
+  {
+    id: "flightRecorder",
+    label: "Flight Recorder",
+    setId: "shipwright",
+    index: 2,
+    rarity: "uncommon",
+    flavor: "The last entry is a calm voice reading coordinates, over and over, until the power ran out.",
+  },
+  {
+    id: "ancientDriveCoil",
+    label: "Ancient Drive Coil",
+    setId: "shipwright",
+    index: 3,
+    rarity: "rare",
+    flavor: "Still faintly humming. Whoever wound it knew a way through the dark that the fleet has forgotten.",
+  },
+  {
+    id: "captainsSigil",
+    label: "Captain's Sigil",
+    setId: "shipwright",
+    index: 4,
+    rarity: "capstone",
+    flavor: "Worn smooth by a thumb that rubbed it before every jump. Command is older than any of us.",
+  },
+  // --- XENOBIOLOGY SET -----------------------------------------------------------------------------
+  {
+    id: "sporeCapsule",
+    label: "Spore Capsule",
+    setId: "xenobiology",
+    index: 1,
+    rarity: "common",
+    flavor: "Dormant, sealed, and patient. It is waiting for a world worth waking up on.",
+  },
+  {
+    id: "bioluminescentSeed",
+    label: "Bioluminescent Seed",
+    setId: "xenobiology",
+    index: 2,
+    rarity: "uncommon",
+    flavor: "It glows a little brighter whenever someone in the lab is speaking. Nobody has explained why.",
+  },
+  {
+    id: "leviathanScale",
+    label: "Leviathan Scale",
+    setId: "xenobiology",
+    index: 3,
+    rarity: "rare",
+    flavor: "One scale, wide as a cargo hatch. Somewhere out there is the rest of the animal.",
+  },
+  {
+    id: "livingCrystal",
+    label: "Living Crystal",
+    setId: "xenobiology",
+    index: 4,
+    rarity: "capstone",
+    flavor: "It grows by a fraction of a millimeter each night, always toward the nearest living thing.",
+  },
+  // --- DEEP EARTH SET ------------------------------------------------------------------------------
+  {
+    id: "geodeCore",
+    label: "Geode Core",
+    setId: "deepEarth",
+    index: 1,
+    rarity: "common",
+    flavor: "Crack it open and the light inside is older than the planet that held it.",
+  },
+  {
+    id: "magmaPearl",
+    label: "Magma Pearl",
+    setId: "deepEarth",
+    index: 2,
+    rarity: "uncommon",
+    flavor: "Polished by a river of molten rock, it never quite cools all the way down.",
+  },
+  {
+    id: "deepVeinCompass",
+    label: "Deep-Vein Compass",
+    setId: "deepEarth",
+    index: 3,
+    rarity: "rare",
+    flavor: "Its needle ignores north entirely. It only ever points toward something worth digging up.",
+  },
+  {
+    id: "tectonicKeystone",
+    label: "Tectonic Keystone",
+    setId: "deepEarth",
+    index: 4,
+    rarity: "capstone",
+    flavor: "Set it on the ground and the ground settles. Whole continents once turned on stones like this.",
+  },
+];
+
+// Helper: a non-capstone tier granting one stat at magnitude 1.
+function tier(pieces: number, stat: MuseumStat): RelicSetTierDef {
+  return { pieces, stats: [stat], magnitude: 1, capstone: false };
+}
+
+// The four relic SETS. Sources, per-copy stat, and tier stats are LOCKED (approved mockup).
+export const RELIC_SETS: readonly RelicSetDef[] = [
+  {
+    id: "precursor",
+    label: "Precursor Set",
+    sources: ["subterraneanCivilization", "buriedVault", "ancientRuins"],
+    perCopyStat: "researchSpeed",
+    relicIds: ["glyphTablet", "resonanceShard", "starChartFragment", "precursorLens", "heartOfTheArchive"],
+    tiers: [
+      tier(2, "researchSpeed"),
+      tier(3, "craftingQuality"),
+      tier(4, "relicFindChance"),
+      // The 5-piece CAPSTONE: a larger research-speed + crafting-quality boon.
+      { pieces: 5, stats: ["researchSpeed", "craftingQuality"], magnitude: MUSEUM_CAPSTONE_MAGNITUDE, capstone: true },
+    ],
+  },
+  {
+    id: "shipwright",
+    label: "Shipwright Set",
+    sources: ["crashedShip", "derelictOutpost"],
+    perCopyStat: "cargoCapacity",
+    relicIds: ["hullRivet", "flightRecorder", "ancientDriveCoil", "captainsSigil"],
+    tiers: [tier(2, "transitSpeed"), tier(3, "cargoCapacity"), tier(4, "salvageYield")],
+  },
+  {
+    id: "xenobiology",
+    label: "Xenobiology Set",
+    sources: ["xenoFloraBloom"],
+    perCopyStat: "sensors",
+    relicIds: ["sporeCapsule", "bioluminescentSeed", "leviathanScale", "livingCrystal"],
+    tiers: [tier(2, "scanSpeed"), tier(3, "scienceTeamPower"), tier(4, "crewBonuses")],
+  },
+  {
+    id: "deepEarth",
+    label: "Deep Earth Set",
+    sources: ["caveNetwork", "geothermalChamber", "mineralOutcrop"],
+    perCopyStat: "miningYield",
+    relicIds: ["geodeCore", "magmaPearl", "deepVeinCompass", "tectonicKeystone"],
+    tiers: [tier(2, "rareMaterialChance"), tier(3, "extractionSpeed"), tier(4, "hazardResist")],
+  },
+];
+
+// ============================================================================
+// Built-once indexes (ids asserted unique; set rosters asserted consistent with RELICS)
+// ============================================================================
+
+const RELIC_BY_ID: Map<string, RelicDef> = (() => {
+  const map = new Map<string, RelicDef>();
+  for (const def of RELICS) {
+    if (map.has(def.id)) throw new Error(`Duplicate relic id: ${def.id}`);
+    map.set(def.id, def);
+  }
+  return map;
+})();
+
+const RELIC_SET_BY_ID: Map<RelicSetId, RelicSetDef> = (() => {
+  const map = new Map<RelicSetId, RelicSetDef>();
+  for (const set of RELIC_SETS) {
+    if (map.has(set.id)) throw new Error(`Duplicate relic set id: ${set.id}`);
+    // Each roster entry must be a real relic of THIS set, at its declared 1-based index.
+    set.relicIds.forEach((rid, i) => {
+      const def = RELIC_BY_ID.get(rid);
+      if (!def || def.setId !== set.id || def.index !== i + 1) {
+        throw new Error(`Relic set ${set.id} roster mismatch at position ${i + 1}: ${rid}`);
+      }
+    });
+    for (const t of set.tiers) {
+      if (t.pieces < 2 || t.pieces > set.relicIds.length) throw new Error(`Relic set ${set.id} has an out-of-range ${t.pieces}-piece tier`);
+    }
+    map.set(set.id, set);
+  }
+  return map;
+})();
+
+// ============================================================================
+// PoI -> relic set: the ONE source of truth (gambit reward roll + foreknowledge signature)
+// ============================================================================
+
+// Built from RELIC_SETS[].sources so the mapping lives in exactly one place (the set's own source list).
+// A PoI sources at most ONE set (asserted). A PoI absent from every set's sources is NOT relic-bearing.
+export const RELIC_SET_BY_POI: Readonly<Partial<Record<ExpeditionPoiId, RelicSetId>>> = (() => {
+  const map: Partial<Record<ExpeditionPoiId, RelicSetId>> = {};
+  for (const set of RELIC_SETS) {
+    for (const poi of set.sources) {
+      if (map[poi] !== undefined) throw new Error(`PoI ${poi} sources two relic sets`);
+      map[poi] = set.id;
+    }
+  }
+  return map;
+})();
+
+// The relic-bearing PoIs as a set (derived from RELIC_SET_BY_POI, never hand-listed).
+export const RELIC_BEARING_POIS: ReadonlySet<string> = new Set<string>(Object.keys(RELIC_SET_BY_POI));
+
+// The relic set a PoI sources, or null when the PoI is not relic-bearing (or unknown). Pure.
+export function relicSetForPoi(poiId: string | undefined): RelicSetId | null {
+  if (poiId === undefined) return null;
+  return RELIC_SET_BY_POI[poiId as ExpeditionPoiId] ?? null;
+}
+
+// Is this PoI relic-bearing (sources some set)? The single predicate gambit.ts + expedition.ts read.
+export function isRelicBearingPoi(poiId: string | undefined): boolean {
+  return relicSetForPoi(poiId) !== null;
+}
+
+// ============================================================================
+// Pure catalog readers
+// ============================================================================
+
+export function getRelicById(id: string): RelicDef | undefined {
+  return RELIC_BY_ID.get(id);
+}
+
+export function getRelicSetById(id: string): RelicSetDef | undefined {
+  return RELIC_SET_BY_ID.get(id as RelicSetId);
+}
+
+// ============================================================================
+// Identification (the keyed, tier-skewed roll a completed study runs)
+// ============================================================================
+
+// The four rarity TIERS the reward roll actually produces (SALVAGE_LOOT_POOLS standard..radiant). The
+// reserved ladder ends fold onto the nearest produced tier: derelict reads as standard, luminous /
+// constellar read as radiant.
+type SkewTier = "standard" | "augmented" | "stellar" | "radiant";
+function skewTierOf(tier: EquipmentRarity): SkewTier {
+  switch (tier) {
+    case "augmented":
+    case "stellar":
+    case "radiant":
+      return tier;
+    case "luminous":
+    case "constellar":
+      return "radiant";
+    default:
+      return "standard"; // standard + derelict
+  }
+}
+
+// IDENTIFICATION TIER SKEW: the relative weight of each relic RARITY CLASS for a token of a given tier.
+// A standard token mostly reveals low-index (common/uncommon) relics; a radiant token has strong odds
+// of a rare or the capstone. The class is picked first (weighted over the classes the set actually
+// has), then a relic uniformly within the class, so a set with two uncommons splits the uncommon share
+// between them. FIRST-PASS TUNABLE.
+export const RELIC_RARITY_WEIGHTS_BY_TIER: Readonly<Record<SkewTier, Readonly<Record<RelicRarity, number>>>> = {
+  standard: { common: 60, uncommon: 30, rare: 9, capstone: 1 },
+  augmented: { common: 40, uncommon: 35, rare: 20, capstone: 5 },
+  stellar: { common: 20, uncommon: 30, rare: 35, capstone: 15 },
+  radiant: { common: 10, uncommon: 20, rare: 40, capstone: 30 },
+};
+
+const RELIC_RARITY_ORDER: readonly RelicRarity[] = ["common", "uncommon", "rare", "capstone"];
+
+// A fixed decorrelation salt for the identification roll (do NOT reuse across purposes).
+const RELIC_STUDY_SALT = 0x6a09e667;
+
+// Derive the identification roll's seed from (relicSeed, salt, studyIndex, tokenId). Mixing the token
+// id in means the study ORDER cannot launder a preferred result onto a different token (the same hole
+// inspectRollSeed closes for blanks). A small FNV-style string mix over the keyed base. Pure uint32.
+export function relicStudySeed(relicSeed: number, studyIndex: number, tokenId: string): number {
+  let h = ((relicSeed >>> 0) ^ RELIC_STUDY_SALT ^ Math.imul(studyIndex >>> 0, 0x9e3779b9)) >>> 0;
+  for (let i = 0; i < tokenId.length; i++) {
+    h = Math.imul(h ^ tokenId.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return h >>> 0;
+}
+
+// IDENTIFY a token: pick a relic WITHIN its set, skewed by its tier. A pure function of (setId, tier,
+// seed): the same inputs always reveal the same relic, independent of when or how the study was
+// resolved (offline == live by construction). Draw order: the rarity-class pick, then the in-class pick,
+// both from ONE makeRng(seed) stream. Returns the relic id, or null for an unknown set (a tampered save;
+// the caller then grants nothing).
+export function identifyRelic(setId: RelicSetId, tier: EquipmentRarity, seed: number): string | null {
+  const set = RELIC_SET_BY_ID.get(setId);
+  if (!set) return null;
+  const weights = RELIC_RARITY_WEIGHTS_BY_TIER[skewTierOf(tier)];
+  // Group the set's relics by rarity class (preserving piece order within a class).
+  const classes: { rarity: RelicRarity; weight: number; relicIds: string[] }[] = [];
+  for (const rarity of RELIC_RARITY_ORDER) {
+    const relicIds = set.relicIds.filter((rid) => RELIC_BY_ID.get(rid)?.rarity === rarity);
+    if (relicIds.length > 0 && weights[rarity] > 0) classes.push({ rarity, weight: weights[rarity], relicIds });
+  }
+  if (classes.length === 0) return set.relicIds[0] ?? null; // defensive: unreachable for the locked sets
+  const rng = makeRng(seed >>> 0);
+  let total = 0;
+  for (const c of classes) total += c.weight;
+  let roll = rng.nextInt(total);
+  let picked = classes[classes.length - 1];
+  for (const c of classes) {
+    roll -= c.weight;
+    if (roll < 0) {
+      picked = c;
+      break;
+    }
+  }
+  return picked.relicIds[rng.nextInt(picked.relicIds.length)];
+}
+
+// ============================================================================
+// Museum readers (pure)
+// ============================================================================
+
+// The copy count of a relic in a museum record (0 when absent). Pure.
+export function relicCopies(museum: Readonly<Record<string, number>>, relicId: string): number {
+  const n = museum[relicId] ?? 0;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+// A relic's copy LEVEL: how many MUSEUM_COPY_LADDER thresholds its copy count meets (0..ladder length).
+export function relicCopyLevel(copies: number): number {
+  let level = 0;
+  for (const threshold of MUSEUM_COPY_LADDER) if (copies >= threshold) level++;
+  return level;
+}
+
+// The next ladder threshold above a copy count, or null once every rung is met.
+function nextThreshold(copies: number): number | null {
+  for (const threshold of MUSEUM_COPY_LADDER) if (copies < threshold) return threshold;
+  return null;
+}
+
+// One set tier's state, with BOTTLENECK info for the E4c Museum UI.
+export interface SetTierLevel {
+  pieces: number; // K: requires relics 1..K
+  stats: readonly MuseumStat[];
+  magnitude: number;
+  capstone: boolean;
+  locked: boolean; // true when ANY required relic has 0 copies (the tier cannot level at all)
+  level: number; // 0..ladder length: the copy level of the bottleneck relic (0 when locked)
+  bottleneckRelicId: string; // the LEAST-collected required relic (ties -> the lowest index)
+  bottleneckCopies: number;
+  nextThreshold: number | null; // the bottleneck's next ladder rung, or null at max level
+  copiesToNextLevel: number | null; // nextThreshold - bottleneckCopies, or null at max level
+}
+
+// The level of every K-piece tier of a set, by the BOTTLENECK rule: a tier's level is the copy level of
+// its least-collected required relic (relics 1..K). A tier with any required relic at 0 copies is
+// LOCKED (level 0). Ordered by ascending piece count. Pure. Unknown set -> [].
+export function setTierLevels(museum: Readonly<Record<string, number>>, setId: RelicSetId): SetTierLevel[] {
+  const set = RELIC_SET_BY_ID.get(setId);
+  if (!set) return [];
+  return set.tiers.map((t) => {
+    const required = set.relicIds.slice(0, t.pieces);
+    let bottleneckRelicId = required[0];
+    let bottleneckCopies = relicCopies(museum, bottleneckRelicId);
+    for (const rid of required) {
+      const c = relicCopies(museum, rid);
+      if (c < bottleneckCopies) {
+        bottleneckCopies = c;
+        bottleneckRelicId = rid;
+      }
+    }
+    const locked = bottleneckCopies === 0;
+    const next = nextThreshold(bottleneckCopies);
+    return {
+      pieces: t.pieces,
+      stats: t.stats,
+      magnitude: t.magnitude,
+      capstone: t.capstone,
+      locked,
+      level: locked ? 0 : relicCopyLevel(bottleneckCopies),
+      bottleneckRelicId,
+      bottleneckCopies,
+      nextThreshold: next,
+      copiesToNextLevel: next === null ? null : next - bottleneckCopies,
+    };
+  });
+}
+
+// A set's COMPLETION: how many of its relics have at least one identified copy. Pure.
+export interface SetCompletion {
+  setId: RelicSetId;
+  collected: number; // distinct relics held (>= 1 copy)
+  total: number; // relics in the set
+  complete: boolean; // every relic held at least once
+  totalCopies: number; // every identified copy across the set (drives the per-copy passive)
+}
+
+export function setCompletion(museum: Readonly<Record<string, number>>, setId: RelicSetId): SetCompletion {
+  const set = RELIC_SET_BY_ID.get(setId);
+  if (!set) return { setId, collected: 0, total: 0, complete: false, totalCopies: 0 };
+  let collected = 0;
+  let totalCopies = 0;
+  for (const rid of set.relicIds) {
+    const c = relicCopies(museum, rid);
+    if (c > 0) collected++;
+    totalCopies += c;
+  }
+  return { setId, collected, total: set.relicIds.length, complete: collected === set.relicIds.length, totalCopies };
+}
+
+// An all-zero bonus record (every MuseumStat present).
+export function zeroMuseumBonuses(): Record<MuseumStat, number> {
+  const out = {} as Record<MuseumStat, number>;
+  for (const stat of MUSEUM_STATS) out[stat] = 0;
+  return out;
+}
+
+// The museum's total bonuses from a museum record: per set, every copy adds MUSEUM_PER_COPY_BONUS of the
+// set's per-copy stat, and every tier level adds MUSEUM_TIER_LEVEL_BONUS * magnitude to each of the tier's
+// stats. All additive. An empty museum reads ALL ZEROS (the additive-neutral E4b seam). Pure.
+export function museumBonusesFromRecord(museum: Readonly<Record<string, number>>): Record<MuseumStat, number> {
+  const out = zeroMuseumBonuses();
+  for (const set of RELIC_SETS) {
+    const { totalCopies } = setCompletion(museum, set.id);
+    if (totalCopies > 0) out[set.perCopyStat] += totalCopies * MUSEUM_PER_COPY_BONUS;
+    for (const t of setTierLevels(museum, set.id)) {
+      if (t.level <= 0) continue;
+      for (const stat of t.stats) out[stat] += t.level * MUSEUM_TIER_LEVEL_BONUS * t.magnitude;
+    }
+  }
+  return out;
+}
+
+// The museum's total bonuses for a game state (reads state.relicMuseum; a pre-E4 shape reads empty).
+// NOTHING on the live path reads this in E4a; E4b wires each MuseumStat into its consumer.
+export function museumBonuses(state: GameState): Record<MuseumStat, number> {
+  return museumBonusesFromRecord(state.relicMuseum ?? {});
+}

@@ -7,7 +7,8 @@
 //     system + bodies, snapshots the installed sensor array).
 //   - resolveExpeditions: the per-tick engine, run ONCE per whole tick at the same
 //     tail seam as resolveCrew (tick.ts), advancing every active expedition.
-//   - claimExpedition: collect a completed expedition's placeholder findings.
+//   - claimExpedition: collect a completed expedition and DEPOSIT its findings (E4a: materials,
+//     credits, and relic tokens into the relic vault; see depositExpeditionFindings).
 //
 // THE CROWN-JEWEL INVARIANT (offline == live parity), preserved BY CONSTRUCTION:
 //   1. Every intra-phase state (transit elapse, scan %, activity completion) is a
@@ -69,6 +70,18 @@ import type { ExpeditionPlanetType } from "./model";
 // resolver below. The gambit catalogs are static data touched ONLY on the activities path, so importing
 // them here keeps the no-expedition tick byte-identical (additive-neutral).
 import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
+// E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
+// claim deposit's set routing.
+import { RELIC_SETS, relicSetForPoi } from "./relics";
+import type { RelicSetId, RelicVaultToken } from "./model";
+// E4a: the CLAIM DEPOSIT routes materials through the discovery-safe add seam (addToInventory, clamped at
+// itemCap) and folds the haul into lifetimeStats through the shared fold. These are imported from tick.ts,
+// which itself imports resolveExpeditions from this module: an ESM cycle that is SAFE because neither
+// module touches the other's bindings at module-evaluation time (only inside function bodies, called
+// long after both modules have finished loading). ⚠️ Keep it that way: never call a tick.ts export at the
+// top level of this file.
+import { addToInventory, itemCap, foldLifetimeStatsDelta } from "./tick";
+import Decimal from "break_infinity.js";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -142,17 +155,12 @@ export const SENSOR_REVEAL_PLANET_TYPES = 20; // >= this: each body's PLANET TYP
 export const SENSOR_REVEAL_HAZARD = 40; // >= this: each body's HAZARD tier is known
 export const SENSOR_REVEAL_RELIC = 65; // >= this: the system's RELIC SIGNATURE flag is known
 
-// The PoIs whose findings carry a RELIC lead (the relic-signature detector keys off these). A curated
-// subset of the catalog by flavor: dig-site ruins, intact-tech crashed ships, the sealed vault, and the
-// deep subterranean prize. FIRST-PASS TUNABLE (the E4 relic economy owns the real relic-bearing set); the
-// signature is a truthful HINT ("this system, scanned with your array, would surface a relic lead"),
-// derived from the SAME seeded discovery roll the committed expedition runs, so it never lies.
-const RELIC_BEARING_POIS: ReadonlySet<string> = new Set<string>([
-  "ancientRuins",
-  "crashedShip",
-  "buriedVault",
-  "subterraneanCivilization",
-]);
+// The PoIs whose findings carry a RELIC lead (the relic-signature detector keys off these). E4a: this is
+// no longer a curated local list. It reads relics.ts RELIC_SET_BY_POI (via relicSetForPoi), the ONE
+// source of truth the gambit reward relic roll (gambit.ts rollRelicToken) also reads, so the signature
+// and the actual drops can never drift. The signature is a truthful HINT ("this system, scanned with your
+// array, would surface a relic lead"), derived from the SAME seeded discovery roll the committed
+// expedition runs, so it never lies.
 
 // The banked sci-fi system names (design Part E). A dispatched expedition picks one by a seeded index.
 // Extend this list as more systems are named; the seeded pick just indexes into it.
@@ -306,6 +314,11 @@ export interface ExpeditionForeknowledge {
   bodyCount: number | null; // revealed with inRange
   bodies: ExpeditionForeknowledgeBody[] | null; // one per body once in range (fields fill by threshold)
   relicSignature: boolean | null; // revealed at SENSOR_REVEAL_RELIC: a relic lead is present
+  // E4a (additive): WHICH relic sets the system's would-be discoveries source, in canonical RELIC_SETS
+  // order, revealed at the same SENSOR_REVEAL_RELIC threshold (null below it). Since E4a every PoI sources
+  // some set, so the boolean above reads true for any revealed system; this list is the informative half
+  // (the E4c UI can name the sets instead of a bare "Relic signature" chip).
+  relicSets: RelicSetId[] | null;
 }
 
 // One offered candidate target: a stable id + index, the seed the committed expedition WILL use, the
@@ -324,9 +337,10 @@ export interface ExpeditionCandidate {
 // engine path (assignDiscoveriesAndActivities) so the projection cannot drift from what the committed
 // expedition resolves. Builds a throwaway expedition-shaped object with the given seed + the ship's
 // snapshotted scan params (the array bias skews discoveries, so the preview must use the ship's array),
-// then reads the resulting discoveries. Pure: mutates only the local throwaway. The relic signature keys
-// off whether any would-be discovery is a RELIC_BEARING_POIS PoI.
-function previewRelicSignature(seed: number, scanParams: ExpeditionScanParams): boolean {
+// then reads the resulting discoveries. Pure: mutates only the local throwaway. Returns the distinct relic
+// SETS the would-be discoveries source (relics.ts relicSetForPoi), in canonical RELIC_SETS order; the
+// boolean signature is "this list is non-empty".
+function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): RelicSetId[] {
   const gen = generateSystem(seed);
   const fake: Expedition = {
     id: "preview",
@@ -354,8 +368,14 @@ function previewRelicSignature(seed: number, scanParams: ExpeditionScanParams): 
     gambitPrograms: { security: [], science: [] },
   };
   fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
-  for (const b of fake.bodies) for (const d of b.discoveries) if (RELIC_BEARING_POIS.has(d.poiId)) return true;
-  return false;
+  const found = new Set<RelicSetId>();
+  for (const b of fake.bodies) {
+    for (const d of b.discoveries) {
+      const setId = relicSetForPoi(d.poiId);
+      if (setId !== null) found.add(setId);
+    }
+  }
+  return RELIC_SETS.map((s) => s.id).filter((id) => found.has(id));
 }
 
 // Gate a generated system into a foreknowledge VIEW by the ship's sensor power. Pure.
@@ -366,10 +386,11 @@ function gateForeknowledge(
   scanParams: ExpeditionScanParams,
 ): ExpeditionForeknowledge {
   const inRange = sensorPower >= SENSOR_REVEAL_IN_RANGE;
-  if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSignature: null };
+  if (!inRange) return { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
   const showTypes = sensorPower >= SENSOR_REVEAL_PLANET_TYPES;
   const showHazard = sensorPower >= SENSOR_REVEAL_HAZARD;
   const showRelic = sensorPower >= SENSOR_REVEAL_RELIC;
+  const relicSets = showRelic ? previewRelicSets(seed, scanParams) : null;
   return {
     inRange: true,
     bodyCount: bodies.length,
@@ -377,7 +398,8 @@ function gateForeknowledge(
       planetType: showTypes ? b.planetType : null,
       hazard: showHazard ? b.hazard : null,
     })),
-    relicSignature: showRelic ? previewRelicSignature(seed, scanParams) : null,
+    relicSignature: relicSets === null ? null : relicSets.length > 0,
+    relicSets,
   };
 }
 
@@ -751,18 +773,115 @@ export interface ExpeditionClaimResult {
   findings?: ExpeditionFinding[]; // set only on success
 }
 
-// Collect a COMPLETE expedition: remove it from the fleet and hand back its findings. Pure.
-// ⚠️ E2a findings are GENERIC placeholder tokens with no reward payload, so claim just REMOVES the
-// expedition and returns the findings for the caller (the E2c UI / the E4 relic system) to deposit; it
-// does NOT itself deposit anything (there is nothing generic to deposit yet). A CLAIM step (rather than
-// auto-deposit) is deliberate: the real deposit lands with E4, and a claim keeps the completed
-// expedition visible until the player collects it. Fails (same-ref state) if not found or not complete.
+// DEPOSIT a list of expedition findings into the state (E4a, the claim-deposit foundation). Pure: returns
+// a NEW state (the input is never mutated), or the SAME reference when nothing in the findings carries a
+// payload (e.g. an anomaly-only run). Per finding:
+//   - MATERIALS go through addToInventory (tick.ts), the discovery-safe add seam: a positive amount marks
+//     the item DISCOVERED and the stack is CLAMPED at itemCap (overflow discarded, the standard deposit
+//     rule). ⚠️ NEVER raw addItemQuality: that bypasses discovery (the 0.13.8 invisible-exotic hotfix).
+//     Deposited at quality 0 (the reward roll carries no material quality).
+//   - CREDITS add to state.credits (Decimal).
+//   - A RELIC token becomes a RelicVaultToken in state.relicVault, keeping its tier + quality + the
+//     finding's PoI, ROUTED to its set by relics.ts relicSetForPoi (the single PoI -> set source). A token
+//     whose PoI maps to no set is skipped (unreachable for a real roll: rollRelicToken only fires on a
+//     relic-bearing PoI).
+//   - EVACUATED partial findings deposit exactly like any other (their payload is already the reduced
+//     "always win something" haul, and never carries a relic).
+//   - ANOMALY findings carry no payload today, so they are no-ops.
+// LIFETIME STATS: the haul folds through the shared foldLifetimeStatsDelta seam (the one extraction and
+// patrol loot use): materials into itemsGathered (the gross amount, mirroring how mission loot counts) and
+// credits into creditsEarned.
+export function depositExpeditionFindings(state: GameState, findings: readonly ExpeditionFinding[]): GameState {
+  let inventory = state.inventory;
+  let discovered = state.discovered;
+  let credits = state.credits;
+  const vaultAdds: RelicVaultToken[] = [];
+  const gathered: Record<string, Decimal> = {};
+  let creditsGained = 0;
+  let touched = false;
+
+  for (const f of findings) {
+    if (f.materials) {
+      for (const [itemId, qty] of Object.entries(f.materials)) {
+        if (!(qty > 0)) continue;
+        const amount = new Decimal(qty);
+        // itemCap reads state.facilities only (the warehouse levels), which a claim never changes, so
+        // reading it off the incoming state is exact.
+        const applied = addToInventory(inventory, discovered, itemId, amount, itemCap(state, itemId));
+        inventory = applied.inventory;
+        discovered = applied.discovered;
+        gathered[itemId] = (gathered[itemId] ?? new Decimal(0)).plus(amount);
+        touched = true;
+      }
+    }
+    if (f.credits !== undefined && f.credits > 0) {
+      credits = credits.plus(f.credits);
+      creditsGained += f.credits;
+      touched = true;
+    }
+    if (f.relic) {
+      const setId = relicSetForPoi(f.poiId);
+      if (setId !== null && f.poiId !== undefined) {
+        vaultAdds.push({ id: f.relic.id, tier: f.relic.tier, quality: f.relic.quality, setId, poiId: f.poiId });
+        touched = true;
+      }
+    }
+  }
+  if (!touched) return state;
+
+  const lifetimeStats = foldLifetimeStatsDelta(state.lifetimeStats, {
+    itemsGathered: gathered,
+    missionsCompleted: {},
+    creditsEarned: new Decimal(creditsGained),
+    captainXpAwarded: new Decimal(0),
+    fleetAdminXpAwarded: new Decimal(0),
+  });
+  return {
+    ...state,
+    inventory,
+    discovered,
+    credits,
+    lifetimeStats,
+    relicVault: vaultAdds.length > 0 ? [...(state.relicVault ?? []), ...vaultAdds] : state.relicVault,
+  };
+}
+
+// A compact summary of what a list of findings carries (the REQUESTED amounts, before any warehouse
+// clamp), for the claim log line. Pure DISPLAY reader: draws nothing, mutates nothing.
+export interface ExpeditionFindingsSummary {
+  materials: Record<string, number>; // itemId -> total quantity across the findings
+  credits: number;
+  relics: number; // relic tokens headed for the vault
+  evacuated: number; // findings from an evacuated (lost) task
+}
+
+export function summarizeExpeditionFindings(findings: readonly ExpeditionFinding[]): ExpeditionFindingsSummary {
+  const out: ExpeditionFindingsSummary = { materials: {}, credits: 0, relics: 0, evacuated: 0 };
+  for (const f of findings) {
+    if (f.materials) {
+      for (const [itemId, qty] of Object.entries(f.materials)) {
+        if (qty > 0) out.materials[itemId] = (out.materials[itemId] ?? 0) + qty;
+      }
+    }
+    if (f.credits !== undefined && f.credits > 0) out.credits += f.credits;
+    if (f.relic && relicSetForPoi(f.poiId) !== null) out.relics++;
+    if (f.evacuated) out.evacuated++;
+  }
+  return out;
+}
+
+// Collect a COMPLETE expedition: remove it from the fleet, DEPOSIT its findings (E4a: materials,
+// credits, and relic tokens into the vault, see depositExpeditionFindings), and hand the findings back
+// for the caller's log. Pure: { next, success, reason?, findings? }. A CLAIM step (rather than
+// auto-deposit on completion) is deliberate: a claim keeps the completed expedition visible until the
+// player collects it. Fails (same-ref state) if not found or not complete.
 export function claimExpedition(state: GameState, expeditionId: string): ExpeditionClaimResult {
   const exp = state.expeditions.find((e) => e.id === expeditionId);
   if (!exp) return { next: state, success: false, reason: "notFound" };
   if (exp.phase !== "complete") return { next: state, success: false, reason: "notComplete" };
+  const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
   return {
-    next: { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) },
+    next: depositExpeditionFindings(removed, exp.findings),
     success: true,
     findings: exp.findings,
   };

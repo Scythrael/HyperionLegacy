@@ -103,6 +103,8 @@ import {
 // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted derived-stats helper the engine uses (hull +
 // equipment fold with the ship's crew overlaid), so the readout and the engine agree on phase lengths.
 import { effectiveShipStats } from "./crewOverlay";
+// Exploration 0.14.0 (E4a): relic + set names for the relic-study rows (pure catalog, no cycle).
+import { getRelicById, getRelicSetById } from "./relics";
 
 // ---------------------------------------------------------------------------
 // Public shapes
@@ -532,6 +534,17 @@ function labelForProcess(
         icon: "salvage",
         primaryLabel: target !== null ? `Salvaging, ${target}` : "Salvaging",
         jumpTarget: "salvageBay",
+      };
+    }
+
+    // Exploration 0.14.0 (E4a): a relic study at the Research facility. Named by the token's SET (the
+    // relic itself is unknown until the study completes, which is the point of studying it).
+    case "relicStudy": {
+      const setLabel = effect.type === "identifyRelic" ? getRelicSetById(effect.token.setId)?.label ?? effect.token.setId : null;
+      return {
+        icon: "research",
+        primaryLabel: setLabel !== null ? `Studying, ${setLabel} relic` : "Studying a relic",
+        jumpTarget: "research",
       };
     }
 
@@ -1124,6 +1137,9 @@ const COMPLETION_KIND_VIEW: Record<
   // it. It shipped as `null` in Unit 4.4b only because the union had no Salvage Bay
   // destination at the time, not because a completed salvage has nowhere to send the player.
   salvageJob:              { verb: "Salvaged",    icon: "salvage",    source: "Salvage Bay",    jumpTarget: "salvageBay" },
+  // Exploration 0.14.0 (E4a): a completed relic study. The subject is the IDENTIFIED relic (named via
+  // relics.ts in completionSubjectLabel). Reuses the research glyph and the Research Lab's own label.
+  relicStudy:              { verb: "Identified",  icon: "research",   source: "Research Lab",   jumpTarget: "research" },
   // 0.13.4 Phase 2 Unit 2.2: the patrol run. The VERB is deliberately neutral ("Patrolled")
   // rather than outcome-flavored, because one row has to cover a clean finish, a recall, a
   // fuel-out and a defeat. The OUTCOME is carried by patrolEndReason and rendered from
@@ -1207,6 +1223,9 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
       const ship = state.ships.find((s) => s.id === key) ?? null;
       return ship !== null ? shipDisplayName(ship) : key;
     }
+    case "relic":
+      // Exploration 0.14.0 (E4a): the identified relic id, named through the relic catalog.
+      return getRelicById(key)?.label ?? key;
     case "materials":
     case "nothing": {
       // A refine / material-fabricate subject is an item id. A salvage subject is the
@@ -1304,6 +1323,8 @@ function completionDetail(entry: CompletionLogEntry): string | null {
   if (entry.reward === "blanks") {
     return entry.iterations > 1 ? `${entry.iterations} blanks` : "Uninspected blank";
   }
+  // Exploration 0.14.0 (E4a): the identified relic's copy went straight to the Museum; say where.
+  if (entry.reward === "relic") return "Added to the Museum";
   if (entry.iterations > 1) return `${entry.iterations} runs`;
   return null;
 }

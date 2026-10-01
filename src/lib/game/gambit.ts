@@ -55,6 +55,8 @@ import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
+// E4a: the PoI -> relic-set single source of truth (pure data; imports no engine module, so no cycle).
+import { RELIC_BEARING_POIS, isRelicBearingPoi } from "./relics";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -1198,15 +1200,12 @@ const CREDITS_BASE = 40; // base credit reward for a task
 const CREDITS_HAZARD_COEFF = 120; // + this * hazard (harder finds pay more)
 const EVAC_REWARD_FRACTION = 0.4; // an EVACUATED (lost) task keeps this fraction of the material/credit haul, no relic
 
-// The PoIs whose findings can carry a RELIC lead (mirrors expedition.ts RELIC_BEARING_POIS: dig-site
-// ruins, intact-tech crashed ships, the sealed vault, the deep subterranean prize). Duplicated here (not
-// imported) to avoid an expedition.ts <-> gambit.ts import cycle; a test asserts the two sets agree.
-export const RELIC_BEARING_POIS: ReadonlySet<string> = new Set<string>([
-  "ancientRuins",
-  "crashedShip",
-  "buriedVault",
-  "subterraneanCivilization",
-]);
+// The PoIs whose findings can carry a RELIC lead. E4a: no longer a hand-kept list here. It is DERIVED
+// from relics.ts RELIC_SET_BY_POI (each relic set's own `sources`), the ONE source of truth that the E2c
+// foreknowledge relic signature (expedition.ts) reads too, so the reward roll and the signature cannot
+// drift. Re-exported under the E3a name so existing importers keep working. (relics.ts imports no engine
+// module, so there is no import cycle.)
+export { RELIC_BEARING_POIS };
 
 // The base per-win chance a relic-bearing PoI yields a relic token, before the hazard bonus.
 const RELIC_BASE_PERMILLE = 350; // 35% on a relic-bearing PoI win
@@ -1238,7 +1237,7 @@ export function rollRelicToken(
   poiId: string,
   relicId: string,
 ): ExpeditionRelicToken | null {
-  if (!RELIC_BEARING_POIS.has(poiId)) return null;
+  if (!isRelicBearingPoi(poiId)) return null;
   const rng = makeRng(seed >>> 0);
   const chance = Math.min(1000, RELIC_BASE_PERMILLE + Math.round(Math.max(0, Math.min(1, hazard)) * RELIC_HAZARD_PERMILLE));
   if (!rng.chance(chance, 1000)) return null;

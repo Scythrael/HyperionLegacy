@@ -176,7 +176,13 @@ import {
   // auto-salvage rules; the uninstall routes (equipment.ts, salvageShip) call it for the
   // mirror-image reason. See the function's own comment in model.ts.
   startAutoSalvageGrace,
+  // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
+  type RelicVaultToken,
+  RELIC_DEFAULT_SEED,
 } from "./model";
+// Exploration 0.14.0 (Phase E4a): the relic catalog's pure identification roll + study constants.
+// relics.ts imports only model/expeditionContent TYPES + the leaf PRNG, so this adds no import cycle.
+import { identifyRelic, relicStudySeed, relicStudyDurationTicks, RELIC_STUDY_LANES } from "./relics";
 // Crafting 0.13.3 (Phase 2 Unit 2.1): the DERIVED salvage-reservation predicate the
 // enqueue gate consults so one target cannot be queued twice (design section 7.3).
 // Implemented in reservation.ts (a leaf both this file and equipment.ts can depend on
@@ -1015,6 +1021,17 @@ const PROCESS_XP_AWARDS: Record<TimedProcessKind, { fleetAdmin: boolean; craftin
   // It joins fuelRefineJob and shipRepair as the third neither-axis kind. Flipping either
   // half here without first closing the loop above would reopen the faucet.
   salvageJob:              { fleetAdmin: false, crafting: false },
+  // Exploration 0.14.0 (Phase E4a): a RELIC STUDY is research-like, so it takes the researchProject
+  // row: Fleet Admiral XP yes, crafting XP no.
+  //
+  // WHY FA XP: it is a finite, high-value, gated job, exactly the class 0.12.1 flipped true. Every study
+  // CONSUMES one unidentified relic, and relics only come from multi-hour expeditions (a won ground task
+  // on a relic-bearing PoI, at a chance), so there is no closed loop to farm: nothing recycles back into
+  // a relic, and the supply is bounded by expedition throughput. That is the opposite of the salvage /
+  // fuel faucet shapes excluded below and above.
+  // WHY NO CRAFTING XP: a study identifies a found object; it produces nothing, and the crafting axis is
+  // reserved for production (the same reason researchProject is crafting-false).
+  relicStudy:              { fleetAdmin: true,  crafting: false },
 };
 
 // ============================================================================
@@ -1093,6 +1110,10 @@ const PROCESS_COMPLETION_LOG: Record<TimedProcessKind, CompletionLogPolicy> = {
   // zero reward, and the fail-safe no-op on a stale target). Recording the empty cases is
   // the point: "nothing happened" reads as a bug until the player is told nothing was lost.
   salvageJob:              { logged: true, batched: false, reward: "byEffect" },
+  // Exploration 0.14.0 (Phase E4a): a relic study is a one-shot (one token in, one identified relic out),
+  // so a batch of one; logged (revealing WHICH relic it was is the payoff the player wants to see), and
+  // its honest shape is "relic" with the identified relic id as the subject.
+  relicStudy:              { logged: true, batched: false, reward: "relic" },
 };
 
 // What ONE completed iteration contributed, before it is either emitted on its own or
@@ -1328,6 +1349,16 @@ function completionYieldFor(
       };
     case "clearShipDamage":
       return { ...empty, reward: "repair", subjectKey: effect.shipId };
+    case "identifyRelic": {
+      // Exploration 0.14.0 (Phase E4a): the subject is the IDENTIFIED relic id. Re-derived here through
+      // the SAME pure keyed roll the resolver branch applied (identifyStudiedRelic), so the record names
+      // exactly the relic that landed; it draws from its own keyed stream, never the tick's rng. An
+      // unknown set (a tampered save) identified nothing and records "nothing".
+      const relicId = identifyStudiedRelic(state, effect.token, effect.studyIndex);
+      return relicId === null
+        ? { ...empty, reward: "nothing", subjectKey: effect.token.id, stale: true }
+        : { ...empty, reward: "relic", pieces: 1, subjectKey: relicId };
+    }
     case "salvageResolve": {
       // The subject is the TARGET's own id, so the Salvage Bay can find the newest record
       // for a specific piece / material / hull without parsing a sentence.
@@ -6911,6 +6942,89 @@ export function startResearch(
 }
 
 // ============================================================================
+// Exploration 0.14.0 (Phase E4a): RELIC STUDY (identification), the Research facility's own lane
+// ============================================================================
+//
+// An unidentified relic in the vault (state.relicVault) is STUDIED by the Research facility to reveal
+// WHICH relic of its set it is. The study is an ordinary timed process ("relicStudy") on its OWN lane:
+// relicStudySlotCount counts only relicStudy processes and canResearch counts only researchProject
+// processes, so a running study never blocks blueprint research and vice versa.
+//
+// CONSUME AT START (the engine's normal convention, unlike salvage): startRelicStudy REMOVES the token
+// from the vault and carries it inside the process effect, so the token can never be studied twice or
+// claimed by anything else while the study runs, with no derived reservation needed. A study is a
+// cancel-free one-shot (like research).
+//
+// COMPLETION (resolveProcesses' identifyRelic branch) runs a KEYED deterministic roll
+// (identifyStudiedRelic below), never the tick's threaded rng, so a study draws nothing from that stream
+// and is offline == live parity-safe by construction.
+
+export type RelicStudyBlockReason =
+  | "notFound" // no vault token with that id
+  | "noFacility" // the Research facility is not built (level 0)
+  | "noSlot"; // every relic-study lane is busy
+
+// How many relic studies the Research facility can run at once: RELIC_STUDY_LANES once the facility is
+// built (level >= 1), else 0. Its OWN lane count, independent of researchSlotCount. FIRST-PASS TUNABLE
+// (1 lane); a later Research rung can grow it the way addResearchSlots grows research.
+export function relicStudySlotCount(state: GameState): number {
+  return facilityLevel(state, RESEARCH_FACILITY_KEY) >= 1 ? RELIC_STUDY_LANES : 0;
+}
+
+// The relicStudy processes currently in flight, in activeProcesses order. Pure reader (the E4c UI + the
+// lane gate read it).
+export function relicStudiesInFlight(state: GameState): TimedProcess[] {
+  return state.activeProcesses.filter((p) => p.kind === "relicStudy");
+}
+
+// The single relic-study gate. Pure predicate; mirrors canResearch's typed-reason shape. Gate order:
+// identity (notFound) -> facility (noFacility) -> concurrency (noSlot).
+export function canStartRelicStudy(
+  state: GameState,
+  vaultTokenId: string
+): { ok: true } | { ok: false; reason: RelicStudyBlockReason } {
+  if (!(state.relicVault ?? []).some((t) => t.id === vaultTokenId)) return { ok: false, reason: "notFound" };
+  if (facilityLevel(state, RESEARCH_FACILITY_KEY) < 1) return { ok: false, reason: "noFacility" };
+  if (relicStudiesInFlight(state).length >= relicStudySlotCount(state)) return { ok: false, reason: "noSlot" };
+  return { ok: true };
+}
+
+// START a relic study: a thin wrapper over canStartRelicStudy (the single source of truth for every
+// gate). On a block: the SAME state reference + started:false + the reason. On ok: removes the token from
+// the vault, stamps the next study index (nextRelicStudyIndex, then advanced), and pushes a "relicStudy"
+// TimedProcess (duration scaled by the token's tier, relicStudyDurationTicks) whose identifyRelic effect
+// carries the token + its index. No material or credit inputs (first-pass: a study costs TIME only).
+export function startRelicStudy(
+  state: GameState,
+  vaultTokenId: string
+): { next: GameState; started: boolean; reason?: RelicStudyBlockReason } {
+  const gate = canStartRelicStudy(state, vaultTokenId);
+  if (!gate.ok) return { next: state, started: false, reason: gate.reason };
+  const vault = state.relicVault ?? [];
+  const token = vault.find((t) => t.id === vaultTokenId)!; // gate.ok guarantees presence
+  const studyIndex = state.nextRelicStudyIndex ?? 1;
+  const afterVault: GameState = {
+    ...state,
+    relicVault: vault.filter((t) => t.id !== vaultTokenId),
+    nextRelicStudyIndex: studyIndex + 1,
+  };
+  return startProcess(afterVault, "relicStudy", {}, relicStudyDurationTicks(token.tier), {
+    type: "identifyRelic",
+    token: { ...token },
+    studyIndex,
+  });
+}
+
+// The relic a completed study reveals: the KEYED roll identifyRelic(setId, tier, relicStudySeed(
+// relicSeed, studyIndex, tokenId)). A pure function of stored values (the save's fixed relicSeed + the
+// effect's own fields), so it is chunking-independent and reload-stable; it is the ONE derivation both the
+// resolver branch and the completion-log record call, so the two can never disagree. Returns null for an
+// unknown set (a tampered save).
+export function identifyStudiedRelic(state: GameState, token: RelicVaultToken, studyIndex: number): string | null {
+  return identifyRelic(token.setId, token.tier, relicStudySeed(state.relicSeed ?? RELIC_DEFAULT_SEED, studyIndex, token.id));
+}
+
+// ============================================================================
 // Tiered Warehouse, per-item storage cap helper (Phase 2, Task B2)
 // (docs/plans/2026-07-13-phase-2-warehouse-refine-economy-design.md §3.3).
 //
@@ -10607,6 +10721,12 @@ export function resolveProcesses(
   // returns before this line is even read. Decimal, like every other currency field, and
   // replaced (never mutated) by salvage.ts's own `.plus`.
   let credits = state.credits;
+  // Exploration 0.14.0 (Phase E4a): the museum copy counts + the first-find registry, raised only by a
+  // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
+  // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
+  let relicMuseum: Record<string, number> = state.relicMuseum ?? {};
+  let relicDiscovered: string[] = state.relicDiscovered ?? [];
+  let relicStudyCompleted = false; // gates the write-back so a no-study call never even re-keys the fields
   let fleetAdminXpDelta = 0;
   // Crafting Level XP (Equipment 0.11.0, Phase 3; reweighted in 0.13.3 Unit 3.2):
   // accumulates craftingXpAwardForProcess(process) for every PRODUCTION job (refine /
@@ -11090,6 +11210,21 @@ export function resolveProcesses(
       // and only on the success path. So a salvage completing inside one long offline span
       // draws exactly what the same salvage draws stepped live (⚠️ the behavioral proof is
       // the offline==live parity test in salvage.test.ts).
+    } else if (process.effect.type === "identifyRelic") {
+      // Exploration 0.14.0 (Phase E4a): a completed RELIC STUDY identifies its token and deposits ONE
+      // museum copy. The token left the vault at START (startRelicStudy), so there is nothing to consume
+      // here. The roll is KEYED (identifyStudiedRelic: relicSeed + a fixed salt + the study's stamped index
+      // + the token id), never the tick's threaded rng, so it draws NOTHING from that stream: the existing
+      // draw order is untouched and one big offline resolve identifies the identical relic as many small
+      // live steps (chunking-independent by construction). FIRST FIND: the first copy of a relic type is
+      // appended to the discovered registry exactly once (guarded on includes). An unknown set (a tampered
+      // save) identifies nothing and the process simply drops.
+      const relicId = identifyStudiedRelic(state, process.effect.token, process.effect.studyIndex);
+      relicStudyCompleted = true;
+      if (relicId !== null) {
+        relicMuseum = { ...relicMuseum, [relicId]: (relicMuseum[relicId] ?? 0) + 1 };
+        if (!relicDiscovered.includes(relicId)) relicDiscovered = [...relicDiscovered, relicId];
+      }
     } else {
       // facilityLevelUp: bump the target facility on a FRESH facilities map
       // (immutable). An absent facility starts from level 0 (grow-on-demand, same
@@ -11211,6 +11346,10 @@ export function resolveProcesses(
       nextCompletionLogId: completionAcc.nextId,
       openJobBatches: completionAcc.open,
       activeProcesses: stillActive,
+      // Exploration 0.14.0 (Phase E4a): the museum + first-find registry, written back ONLY when a relic
+      // study completed this call (conditional spread), so every call that completes no study lands
+      // byte-identical to before this phase, key set included.
+      ...(relicStudyCompleted ? { relicMuseum, relicDiscovered } : {}),
     },
     fleetAdminXpDelta,
     craftingXpDelta,

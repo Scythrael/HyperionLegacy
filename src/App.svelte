@@ -35,7 +35,7 @@
   // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings } from "./lib/game/expedition";
   // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
   // Exploration Ops tab (under the Expedition Console). Same posture: reads state.gambitPrograms, routes
   // every edit to the do* handlers below (which write state.gambitPrograms + doSave). gambitPresetPrograms
@@ -4958,7 +4958,13 @@
     const { next, success, findings } = claimExpedition(state, expeditionId);
     if (!success || next === state) return;
     state = next;
-    pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${findings?.length ?? 0} gathered.`);
+    // E4a: the claim now DEPOSITS (materials via the discovery-safe seam, credits, relic tokens into the
+    // vault), so the log says what landed rather than only how many findings there were.
+    const sum = summarizeExpeditionFindings(findings ?? []);
+    const landed: string[] = Object.entries(sum.materials).map(([id, q]) => `${formatNumber(q)} ${ITEMS[id]?.label ?? id}`);
+    if (sum.credits > 0) landed.push(`${formatNumber(sum.credits)} credits`);
+    if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault`);
+    pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
     doSave();
   }
 

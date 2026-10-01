@@ -2862,7 +2862,12 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // PROCESS_COMPLETION_LOG (both tick.ts) and COMPLETION_KIND_VIEW (homeDashboard.ts). A new
 // timed process cannot ship without deciding whether it grants XP, whether it is logged, and
 // how it renders.
-export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob";
+// Exploration 0.14.0 (Phase E4a): "relicStudy" is the Research facility's RELIC STUDY, run on its
+// OWN lane (relicStudySlotCount, tick.ts) so it never blocks blueprint research. It consumes one
+// unidentified vault token at START (the token rides the identifyRelic effect) and, on completion,
+// IDENTIFIES it with a keyed deterministic roll and deposits one museum copy (resolveProcesses). XP
+// policy, log policy and render row are declared in the same exhaustive Records as every other kind.
+export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob" | "researchProject" | "fabricateJob" | "shipBuild" | "equipmentStorageUpgrade" | "docksExpansion" | "transitBerthExpansion" | "shipRepair" | "salvageJob" | "relicStudy";
 
 // What a process's COMPLETION applies (inputs were already deducted at START --
 // design §4's atomic-consume fix). `addItem` grants a refine job's output;
@@ -2988,7 +2993,15 @@ export type ProcessEffect =
   // Terminal and for every job a manual promotion starts, so no migration touches
   // activeProcesses. It is `true | undefined` rather than `boolean` so "false" cannot be
   // written as a third, meaningless state. A plain boolean, so hydrateDecimals is unchanged.
-  | { type: "salvageResolve"; target: SalvageTargetRef; auto?: true };
+  | { type: "salvageResolve"; target: SalvageTargetRef; auto?: true }
+  // Exploration 0.14.0 (Phase E4a): a completed "relicStudy" IDENTIFIES the carried vault token. The
+  // token was REMOVED from state.relicVault at start (startRelicStudy), so it lives only here while the
+  // study runs (a cancel-free one-shot, like research). `studyIndex` is the monotonic index minted at
+  // start (state.nextRelicStudyIndex); the completion roll is keyed off (state.relicSeed, a fixed salt,
+  // studyIndex, token.id), so it is a pure function of stored values and offline == live by
+  // construction. NO Decimal (the token is plain strings/numbers), so hydrateDecimals skips this effect
+  // via its `"amount" in effect` guard and it round-trips through JSON verbatim.
+  | { type: "identifyRelic"; token: RelicVaultToken; studyIndex: number };
 
 // One in-flight timed process. `id` is monotonic ("proc-N"), allocated from
 // GameState.nextProcessId (mirrors the ShipInstance/nextShipId pattern).
@@ -4453,6 +4466,8 @@ export function freshSalvageConfirmQualities(): number[] {
 //              resolved as a fail-safe no-op, or a Standard-Issue baseline destroyed
 //              for zero reward. Recorded ON PURPOSE, because "nothing happened" reads
 //              as a bug until the player is told nothing was lost either.
+//   relic      (Exploration 0.14.0, E4a) a relic study identified a vault token; `subjectKey`
+//              is the IDENTIFIED relic id (relics.ts RELICS) and one museum copy landed.
 export type CompletionRewardKind =
   | "materials"
   | "systems"
@@ -4462,6 +4477,7 @@ export type CompletionRewardKind =
   | "hull"
   | "level"
   | "repair"
+  | "relic"
   | "nothing";
 
 // One stackable reward line: WHICH item, and HOW MUCH of it, accumulated across every
@@ -5322,6 +5338,41 @@ export interface ExpeditionRelicToken {
 }
 
 // ============================================================================
+// RELICS (Exploration 0.14.0, Phase E4a): the relic STORE on GameState
+// ============================================================================
+// Relics + artifacts are ONE combined system (user, 2026-10-01). An expedition relic arrives
+// UNIDENTIFIED (an ExpeditionRelicToken on a finding); claiming the expedition DEPOSITS it into the
+// relic VAULT below (a RelicVaultToken, routed to a SET by the finding's PoI). The Research facility
+// STUDIES a vault token (the "relicStudy" timed process) to reveal WHICH relic of its set it is; the
+// identified copy lands in the MUSEUM (copy counts per relic id), and the FIRST copy of a relic type
+// appends it to the DISCOVERED registry (the first-find unlock). The catalog (sets, relics, museum
+// math) lives in relics.ts; only the persisted SHAPES live here (one-way import arrow, the same posture
+// ExpeditionPlanetType has with expeditionContent.ts).
+
+// The four relic SETS (LOCKED, approved "Relic Museum" mockup 2026-10-01). relics.ts owns each set's
+// roster + bonuses; this union is declared here so the persisted vault token can name its set without
+// model.ts importing the catalog.
+export type RelicSetId = "precursor" | "shipwright" | "xenobiology" | "deepEarth";
+
+// An UNIDENTIFIED relic waiting in the vault for Research to study it. Carries the token's rolled
+// rarity TIER + quality (from the gambit reward roll), the SET it belongs to (routed off the source PoI
+// at claim time via relics.ts RELIC_SET_BY_POI), and the source PoI itself (provenance for the E4c UI).
+// Plain strings/numbers only (no Decimal), so hydrateDecimals is unchanged.
+export interface RelicVaultToken {
+  id: string; // the ExpeditionRelicToken id ("<expeditionId>-relic-<activityId>"), unique per token
+  tier: EquipmentRarity; // the rolled rarity tier; skews WHICH relic the study reveals (relics.ts)
+  quality: number; // 0..5 quality bucket carried from the reward roll (provenance; no effect yet)
+  setId: RelicSetId; // the set this token identifies WITHIN
+  poiId: string; // the PoI the finding came from (expeditionContent.ts POI_CATALOG id)
+}
+
+// The per-save relic PRNG seed. A study's identification roll is keyed off (relicSeed, a fixed salt, the
+// study's monotonic index, the token id), never a live stream position, so the outcome is reload- and
+// chunking-independent. A fixed default (like EXPEDITION_DEFAULT_SEED); freshState + the v62->v63
+// migration seed the identical value.
+export const RELIC_DEFAULT_SEED = 0x51ed270b;
+
+// ============================================================================
 // Away-team GAMBIT combat model (Exploration 0.14.0, Phase E3a; LOCKED FFXII structure, user 2026-09-30)
 // ============================================================================
 // The PERSISTED gambit rule model. A RULE is [TARGET selector] + [ACTION], evaluated TOP-DOWN with the
@@ -5885,6 +5936,26 @@ export interface GameState {
   // default. Plain nested arrays/objects (no Decimals), so hydrateDecimals is unchanged, and NOTHING on the
   // tick path reads this field except a dispatch, so a save with no expedition stays additive-neutral.
   gambitPrograms: GambitPrograms;
+  // --- Exploration 0.14.0 (Phase E4a): the RELIC STORE ---------------------------------------------
+  // See the RELICS block above RelicVaultToken. All plain values (no Decimals), so hydrateDecimals is
+  // unchanged; freshState seeds the empty store and the v62->v63 migration backfills the IDENTICAL shape.
+  // ⚠️ ADDITIVE-NEUTRAL: an empty vault + empty museum reads all-zero museumBonuses (relics.ts), and the
+  // tick only touches these when a "relicStudy" process completes, so a save with no relics is
+  // byte-identical on the tick path.
+  // The UNIDENTIFIED relics waiting for Research (claimExpedition appends; startRelicStudy removes one
+  // into its process). Ordered by arrival.
+  relicVault: RelicVaultToken[];
+  // The MUSEUM: identified copy count per relic id (relics.ts RELICS). Sparse: a relic absent until its
+  // first identified copy. Plain numbers (copy counts are small integers, never idle-scale).
+  relicMuseum: Record<string, number>;
+  // The DISCOVERED registry: relic ids in FIRST-FIND order, each appended exactly once (the first
+  // identified copy of its type). The unknown-relic discovery unlock reads this.
+  relicDiscovered: string[];
+  // The per-save relic PRNG seed (RELIC_DEFAULT_SEED by default). Fixed; never advanced.
+  relicSeed: number;
+  // Monotonic study index, stamped onto each relicStudy process at START (the "index" the keyed
+  // identification roll mixes in). freshState seeds 1; never reused.
+  nextRelicStudyIndex: number;
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -10375,5 +10446,13 @@ export function freshState(): GameState {
       security: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
       science: DEFAULT_GAMBIT_PROGRAMS.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
     },
+    // Exploration 0.14.0 (Phase E4a): an empty relic store (no vault tokens, no museum copies, nothing
+    // discovered), the fixed relic seed, and the study index at 1. Existing saves reach the IDENTICAL
+    // shape via the v62->v63 migration (save.ts).
+    relicVault: [],
+    relicMuseum: {},
+    relicDiscovered: [],
+    relicSeed: RELIC_DEFAULT_SEED,
+    nextRelicStudyIndex: 1,
   };
 }

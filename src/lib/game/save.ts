@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED } from "./model";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -40,7 +40,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 62;
+export const SAVE_VERSION = 63;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2320,6 +2320,23 @@ const MIGRATIONS: Record<number, Migration> = {
       })),
     };
   },
+  // v62 -> v63 (0.14.0 Exploration, Phase E4a): pure additive backfill of the RELIC STORE: the
+  // unidentified relic vault (empty), the museum copy counts (empty), the first-find discovered registry
+  // (empty), the per-save relic seed (the fixed default) and the study index counter (1), with the SAME
+  // values freshState uses, so a fresh save and a migrated save stay indistinguishable in shape. All plain
+  // values (arrays / a record of numbers / numbers), NO Decimals, so hydrateDecimals is unchanged.
+  // Idempotent: `??` only fills an absent field. No in-flight shape changes: a pre-E4 save cannot hold a
+  // "relicStudy" process (the kind did not exist), and its expeditions' findings are unchanged (the claim
+  // DEPOSIT reads the same finding shape). An empty store reads all-zero museum bonuses and the tick only
+  // touches it on a relicStudy completion, so this backfill changes no existing save's behavior.
+  62: (state: any): any => ({
+    ...state,
+    relicVault: state.relicVault ?? [],
+    relicMuseum: state.relicMuseum ?? {},
+    relicDiscovered: state.relicDiscovered ?? [],
+    relicSeed: state.relicSeed ?? RELIC_DEFAULT_SEED,
+    nextRelicStudyIndex: state.nextRelicStudyIndex ?? 1,
+  }),
 };
 
 export function migrate(save: SaveFile): GameState {
