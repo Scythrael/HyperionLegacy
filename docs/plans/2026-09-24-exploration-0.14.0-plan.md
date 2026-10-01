@@ -250,7 +250,19 @@ build the interpreter GENERALIZABLE, not hard-wired to ground combat.
   home for cybernetic implants", and ground teams are NOT complement buckets, so the original reason does not
   apply there. Neural Backup is the first implant. OPEN (user's call): whether the implant system lands in
   0.14.0 (e.g. foundation + Neural Backup only) or later; per-team vs per-member implant slots; the wider
-  implant catalog.
+  implant catalog. **DECIDED 2026-10-01: FULL cybernetics in 0.14.0** (implant system + a starting catalog);
+  the equipment-icon SVG migration pass follows E4. Mockup: "Cybernetics Bay" artifact.
+- ⚠️ **SQUAD ROLES SPLIT (user, 2026-10-01): SECURITY = BATTLES, SCIENCE = OVERWORLD.** "I'm not sure the
+  science team should really be part of the battle. The security team handles the battles and the science
+  team handles overworld activities." REVISES the built E3 design (where Science fought, had its own gambit
+  program, and could win mid-fight by securing the objective). Target model: an expedition activity becomes
+  (1) CONTACT: if the site is hostile, the Security detail fights by its gambits (Security-only battles; the
+  in-fight cure/aid/heal capability moves to Security via medic-style skills + kit items, honoring the
+  user's earlier "a designated person on that team uses a skill or an item to cure it"), then (2) FIELDWORK:
+  the Science party works the site, and Science strength + Science implants + the Museum's "Science team
+  power" drive fieldwork speed, yield, and relic odds. Losing the fight evacuates with a partial haul.
+  Science implants are therefore OVERWORLD implants; combat implants (incl. sustain + status resists, and
+  NEURAL BACKUP) belong to Security. Reconfiguration of the built E3 engine/UI follows E4d (file overlap).
 
 ### Phase E5 — Refugees -> facility crews + evacuation [ties E1 transport + crew]
 - The evacuation -> refugees -> facility-crews loop (C.3): a transport/supply mission variant (E1) carries
