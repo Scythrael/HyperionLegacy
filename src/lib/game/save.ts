@@ -5,7 +5,11 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
+// E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
+// (a neutral stub until Task 19). One-way import: seniorStaff.ts is a pure leaf over model.ts and
+// never imports save.ts.
+import { officerStatSeed, rollOfficerStats } from "./seniorStaff";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -40,7 +44,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 64;
+export const SAVE_VERSION = 65;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2356,6 +2360,30 @@ const MIGRATIONS: Record<number, Migration> = {
       hazardResist: exp.hazardResist ?? 0,
     })),
   }),
+  // v64 -> v65 (0.14.0 E-CREW "Crew Made Real", Task 2): the DORMANT away-team data model. Pure
+  // additive backfill of the named away-team roster (empty) + its id counter (1), the per-save AWAY
+  // RECRUIT seed (derived from the save's own seniorStaffSeed via awayRecruitSeedFrom, the SAME helper
+  // freshState uses, so a fresh save and a migrated save land on the identical value), the Armory squad
+  // loadouts (empty) + their id counter (1), and each Senior Staff officer's `stats`. The recruit board
+  // itself is derived, never stored, so it needs no backfill. The officer stats come from
+  // rollOfficerStats keyed on (seniorStaffSeed, officer id): today that is a stub returning the NEUTRAL
+  // line, so this step is behavior-neutral (and nothing reads stats yet); Task 19 swaps in the real roll
+  // behind the same call. Plain values only (no Decimals), so hydrateDecimals is unchanged. Idempotent:
+  // `??` only fills an absent field and an officer that already carries stats keeps them.
+  64: (state: any): any => {
+    const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
+    return {
+      ...state,
+      awayMembers: state.awayMembers ?? [],
+      nextAwayMemberId: state.nextAwayMemberId ?? 1,
+      awayRecruitSeed: state.awayRecruitSeed ?? awayRecruitSeedFrom(seniorStaffSeed),
+      squadLoadouts: state.squadLoadouts ?? [],
+      nextSquadLoadoutId: state.nextSquadLoadoutId ?? 1,
+      officers: (state.officers ?? []).map((o: any) =>
+        o.stats ? o : { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, o.id), o.rank) },
+      ),
+    };
+  },
 };
 
 export function migrate(save: SaveFile): GameState {

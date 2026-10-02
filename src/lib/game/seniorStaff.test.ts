@@ -30,6 +30,9 @@ import {
   unassignOfficer,
   toggleOfficerFavorite,
   officerInSeat,
+  NEUTRAL_OFFICER_STATS,
+  officerStatSeed,
+  rollOfficerStats,
 } from "./seniorStaff";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 
@@ -524,5 +527,32 @@ describe("toggleOfficerFavorite", () => {
   it("is a same-ref no-op on an unknown officer id", () => {
     const s0 = stateWith({ officers: [officer({ id: "officer-1" })] });
     expect(toggleOfficerFavorite(s0, "officer-404")).toBe(s0);
+  });
+});
+
+// ===== E-CREW Task 2: officer stat seed + the (stub) stat roll =====
+describe("officerStatSeed / rollOfficerStats (E-CREW data model)", () => {
+  it("officerStatSeed is a deterministic uint32 of (baseSeed, officerId)", () => {
+    const a = officerStatSeed(0x9e3779b9, "officer-1");
+    expect(officerStatSeed(0x9e3779b9, "officer-1")).toBe(a);
+    expect(Number.isInteger(a)).toBe(true);
+    expect(a).toBeGreaterThanOrEqual(0);
+    expect(a).toBeLessThanOrEqual(0xffffffff);
+  });
+
+  it("officerStatSeed differs across officer ids and across base seeds", () => {
+    const ids = ["officer-1", "officer-2", "officer-3", "officer-10", "officer-11"];
+    const seeds = new Set(ids.map((id) => officerStatSeed(12345, id)));
+    expect(seeds.size).toBe(ids.length);
+    expect(officerStatSeed(1, "officer-1")).not.toBe(officerStatSeed(2, "officer-1"));
+  });
+
+  it("the stub roll returns a fresh copy of the neutral stats for every rank", () => {
+    expect(NEUTRAL_OFFICER_STATS).toEqual({ strength: 10, integrity: 10, cunning: 10, constitution: 10 });
+    for (const rank of OFFICER_RANK_ORDER) {
+      const stats = rollOfficerStats(officerStatSeed(7, "officer-1"), rank);
+      expect(stats).toEqual(NEUTRAL_OFFICER_STATS);
+      expect(stats).not.toBe(NEUTRAL_OFFICER_STATS); // a copy, never the shared constant
+    }
   });
 });

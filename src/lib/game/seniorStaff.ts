@@ -31,6 +31,7 @@ import type {
   SeniorStaffOfficer,
   SeniorStaffSeat,
   CrewRace,
+  OfficerStats,
 } from "./model";
 import { SENIOR_STAFF_ROSTER_BASE } from "./model";
 import { seniorStaffBonusesForSeat, getSeniorStaffBonusById } from "./seniorStaffBonuses";
@@ -252,6 +253,38 @@ export function officerRacialBonus(officer: SeniorStaffOfficer): { statKey: stri
   const raceDef = CREW_RACES[officer.race];
   const rb = raceDef.racialBonus;
   return { statKey: rb.statKey, magnitude: rb.seniorStaff };
+}
+
+// ============================================================================
+// Officer stats (E-CREW D13, design section 7)
+// ============================================================================
+
+// The NEUTRAL stat line: what every officer carries until the real roll lands. Shared constant, so
+// callers must copy it (rollOfficerStats does) rather than hand it out by reference.
+export const NEUTRAL_OFFICER_STATS: OfficerStats = { strength: 10, integrity: 10, cunning: 10, constitution: 10 };
+
+// Mix a per-save seed + an officer id into one uint32 PRNG seed for that officer's stat roll. Keying on
+// the officer's own id (not its array position) means a roster reorder or a fire can never reshuffle
+// another officer's stats. Same inputs => same seed. A small FNV-style string mix over the
+// candidateSeed-style keyed base, with its own salt so it never collides with the roster seeds. Pure.
+const OFFICER_STAT_SEED_SALT = 0x3c6ef372;
+export function officerStatSeed(baseSeed: number, officerId: string): number {
+  let h = Math.imul(((baseSeed >>> 0) ^ OFFICER_STAT_SEED_SALT) >>> 0, 0x85ebca6b) >>> 0;
+  for (let i = 0; i < officerId.length; i++) {
+    h = Math.imul(h ^ officerId.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0xc2b2ae35) >>> 0;
+  h ^= h >>> 13;
+  return h >>> 0;
+}
+
+// Roll an officer's four stats from its stat seed and rank. STUB (E-CREW Task 2): returns a fresh copy
+// of NEUTRAL_OFFICER_STATS for every input, which keeps the v64->v65 backfill behavior-neutral while the
+// field is dormant. Task 19 replaces this body with the real seeded roll (1..20 plus promotion points);
+// the signature is final, so the migration and its callers will not change.
+export function rollOfficerStats(_seed: number, _rank: OfficerRank): OfficerStats {
+  return { ...NEUTRAL_OFFICER_STATS };
 }
 
 // ============================================================================

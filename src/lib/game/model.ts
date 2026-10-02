@@ -194,6 +194,11 @@ export interface ShipTypeDef {
   // The referenced blueprint is UNLOCK-ONLY (produces no craftable item, see BlueprintDef):
   // researching it grants build access, nothing is fabricated.
   requiresBlueprint?: string;
+  // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
+  // the member count per squad (`size`, 3 or 4) and how many such squads (`count`, so a future hull can
+  // list two Security details with no engine change). OPTIONAL and
+  // absent on every hull for now: the per-ship-type data lands in Task 3, and nothing reads it yet.
+  awayTeams?: { type: AwayTeamType; size: number; count: number }[];
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -5346,6 +5351,88 @@ export interface SeniorStaffOfficer {
   // are favorited. Optional + ADDITIVE (an absent value reads as not-favorited), so an old save needs
   // no field-level migration. Pure UI/curation flag; nothing mechanical reads it.
   favorite?: boolean;
+  // E-CREW (D13, design section 7): the officer's four stats, each a FACET of the department the
+  // officer heads (they act on the ship + on-ship crew only, never ground teams). OPTIONAL only so
+  // existing fixtures and freshly rolled candidates still compile while the field is DORMANT: the
+  // v64->v65 migration (save.ts) fills it on load via seniorStaff.ts rollOfficerStats, which is a
+  // neutral stub until Task 19 lands the real roll. Nothing reads it yet.
+  stats?: OfficerStats;
+}
+
+// ===== E-CREW "Crew Made Real": the AWAY TEAM roster + squad loadouts (DORMANT) =====
+// docs/plans/2026-10-02-crew-made-real-e-crew-design.md sections 2 and 4. The away team is a
+// DEDICATED roster of persistent NAMED members per ship (D1), stored like Senior Staff officers: a few
+// full objects in a flat GameState.awayMembers array, keyed to a ship by assignedShipId. These shapes
+// land DORMANT (Task 2): nothing reads or writes them yet; recruitment, gear, the expedition rework and
+// the Armory squad loadouts wire them in later tasks.
+
+// The away squad types, a DATA LIST and never a binary (D2): Security fights, Science does fieldwork.
+// "prospecting" is WIRED ONLY (data + gear compatibility); no ship fields a prospecting squad and no
+// activity uses one yet.
+export type AwayTeamType = "security" | "science" | "prospecting";
+export const AWAY_TEAM_TYPES: readonly AwayTeamType[] = ["security", "science", "prospecting"];
+
+// A member's specialty within its squad type. Security members specialize in offense / defense /
+// debuff; Science members in one fieldwork discipline. Prospecting has no specs yet (wired only).
+export type SecuritySpec = "offense" | "defense" | "debuff";
+export type ScienceSpec = "archaeology" | "xenobiology" | "geology" | "cryptography";
+export type AwayMemberSpec = SecuritySpec | ScienceSpec;
+
+// One named away-team member. Few, named, full objects (like SeniorStaffOfficer, unlike the bucketed
+// complement), so persisting per person is fine.
+//   id               , "member-N" from GameState.nextAwayMemberId; never reused.
+//   rank             , ROLLED at generation on the shared 8-tier CrewRank ladder and NEVER levels (D6);
+//                      it gates trait count and nudges magnitude, like the complement.
+//   traits           , rolled trait ids (count follows rank; the trait catalog lands in a later task).
+//   assignedShipId   , the ship whose squad holds the member (the authority, like officers); null =
+//                      unassigned.
+//   injuredUntilSeconds, gameTimeSeconds the member recovers at (D9); absent = ready.
+//   gambit           , the member's OWN program (D16, Security only); absent = the preset default.
+//   favorite         , curation flag only, parity with officers / notables.
+export interface AwayMember {
+  id: string;
+  teamType: AwayTeamType;
+  spec: AwayMemberSpec;
+  name: string;
+  race: CrewRace;
+  gender: string;
+  rank: CrewRank;
+  traits: string[];
+  assignedShipId: string | null;
+  injuredUntilSeconds?: number;
+  gambit?: GambitProgram;
+  favorite?: boolean;
+}
+
+// An officer's four stats (D13, design section 7). Each is a FACET of the department the officer
+// heads and acts on the ship + on-ship crew only, never on ground teams. Rolled per officer (Task 19);
+// until then the migration backfills the neutral value (seniorStaff.ts NEUTRAL_OFFICER_STATS).
+export interface OfficerStats {
+  strength: number;
+  integrity: number;
+  cunning: number;
+  constitution: number;
+}
+
+// One member's kit inside a squad loadout (D3: gear is per member, Armor + Weapon + Tool + implants).
+// Each slot holds an EquipmentInstance id, or null for an empty slot.
+export interface SquadLoadoutKit {
+  armor: string | null;
+  weapon: string | null;
+  tool: string | null;
+  implants: string[];
+}
+
+// A saved SQUAD LOADOUT in the Armory (design section 5.7): a named set of member kits for one squad
+// type, the away-team counterpart to a ship Loadout. checkedOutToShipId marks the squad currently
+// wearing it (null = in the Armory). Ids are minted from GameState.nextSquadLoadoutId (the Armory
+// task picks the prefix); never reused.
+export interface SquadLoadout {
+  id: string;
+  name: string;
+  teamType: AwayTeamType;
+  kits: SquadLoadoutKit[];
+  checkedOutToShipId: string | null;
 }
 
 // The base size of the Senior Staff candidate roster (Phase 1; user 2026-09-23, "base 10,
@@ -5360,6 +5447,15 @@ export const SENIOR_STAFF_ROSTER_BASE = 10;
 // fractional-bits constant the combat RNG also uses). Per-save reseeding is a later option and is
 // not observable while the engine is dormant. TUNABLE.
 export const SENIOR_STAFF_DEFAULT_SEED = 0x9e3779b9;
+
+// E-CREW: the per-save AWAY RECRUIT seed is DERIVED from the Senior Staff seed with a fixed XOR salt,
+// so the two candidate boards are decorrelated yet both stay fully deterministic. freshState AND the
+// v64->v65 migration (save.ts) both call this, so a fresh save and a migrated save land on the
+// identical value. Do NOT reuse the salt for another purpose.
+export const AWAY_RECRUIT_SEED_SALT = 0x5a17c0de;
+export function awayRecruitSeedFrom(seniorStaffSeed: number): number {
+  return ((seniorStaffSeed >>> 0) ^ AWAY_RECRUIT_SEED_SALT) >>> 0;
+}
 
 // --- Crew 0.14.0 (Phase C-2): PERSONNEL ROSTERS -----------------------------------------------
 // A ROSTER is a NAMED, priority-ordered set of PINNED people (officers by seat + notable crew) plus
@@ -6125,6 +6221,18 @@ export interface GameState {
   // Monotonic study index, stamped onto each relicStudy process at START (the "index" the keyed
   // identification roll mixes in). freshState seeds 1; never reused.
   nextRelicStudyIndex: number;
+  // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
+  // The away-team roster and the Armory squad loadouts (see the AwayMember / SquadLoadout block above).
+  // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL
+  // values, so a fresh save and a migrated save stay indistinguishable. All plain values (no Decimals),
+  // so hydrateDecimals is unchanged. NOTHING reads or writes these yet.
+  // The RECRUIT BOARD itself is NOT persisted: like seniorStaffCandidates it will be derived from
+  // awayRecruitSeed + the roster window index (a later task), regenerated identically live and offline.
+  awayMembers: AwayMember[]; // the named away-team members, keyed to a ship by assignedShipId
+  nextAwayMemberId: number; // monotonic id source for "member-N"; never reused, mirrors nextOfficerId
+  awayRecruitSeed: number; // stable per-save PRNG seed for the derived recruit board (awayRecruitSeedFrom)
+  squadLoadouts: SquadLoadout[]; // the Armory squad loadouts
+  nextSquadLoadoutId: number; // monotonic id source for a new SquadLoadout id; never reused
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -10774,5 +10882,13 @@ export function freshState(): GameState {
     relicDiscovered: [],
     relicSeed: RELIC_DEFAULT_SEED,
     nextRelicStudyIndex: 1,
+    // E-CREW (Task 2, DORMANT): no away members or squad loadouts, both id counters at 1, and the
+    // recruit seed derived from the Senior Staff seed (awayRecruitSeedFrom, so the two boards differ).
+    // Existing saves reach the IDENTICAL shape via the v64->v65 migration (save.ts).
+    awayMembers: [],
+    nextAwayMemberId: 1,
+    awayRecruitSeed: awayRecruitSeedFrom(SENIOR_STAFF_DEFAULT_SEED),
+    squadLoadouts: [],
+    nextSquadLoadoutId: 1,
   };
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   freshState,
+  AWAY_TEAM_TYPES,
+  awayRecruitSeedFrom,
   freshCaptains,
   freshCaptainStack,
   requiredTicksForPhase,
@@ -2708,5 +2710,25 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     for (const live of LIVE_STAT_KEYS) {
       expect(reserved.has(live)).toBe(false);
     }
+  });
+});
+
+// E-CREW Task 2 (docs/plans/2026-10-02-crew-made-real-e-crew-design.md section 4): the dormant
+// away-team roster + squad loadout containers a fresh save starts with.
+describe("freshState E-CREW fields (dormant data model)", () => {
+  it("seeds empty containers, counters at 1, and a recruit seed distinct from the Senior Staff seed", () => {
+    const s = freshState();
+    expect(s.awayMembers).toEqual([]);
+    expect(s.nextAwayMemberId).toBe(1);
+    expect(s.squadLoadouts).toEqual([]);
+    expect(s.nextSquadLoadoutId).toBe(1);
+    expect(typeof s.awayRecruitSeed).toBe("number");
+    expect(s.awayRecruitSeed).not.toBe(s.seniorStaffSeed);
+    expect(s.awayRecruitSeed).toBe(awayRecruitSeedFrom(s.seniorStaffSeed));
+    expect(freshState().awayRecruitSeed).toBe(s.awayRecruitSeed); // deterministic
+  });
+
+  it("AWAY_TEAM_TYPES is the three-type data list (prospecting wired only)", () => {
+    expect([...AWAY_TEAM_TYPES]).toEqual(["security", "science", "prospecting"]);
   });
 });
