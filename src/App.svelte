@@ -332,6 +332,10 @@
     type SecondaryTalentKey,
     type CaptainSecondaryTalentDef,
     type CaptainSecondaryTalentEffect,
+    // E-CREW prep: the single spare predicate (free to take) and its installed-on-nothing base,
+    // read by the Salvage Bay, the Armory install picker, the Archive rows, and the dev gear panel.
+    isSparePiece,
+    isUninstalledPiece,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -5348,7 +5352,7 @@
   }
 
   // ── Ship Systems bay (Equipment 0.11.0 Phase D, Warehouse "Ship Systems" tab) ──
-  // The bay shows the SPARE pool (fittedToShipId === null): spare crafted systems
+  // The bay shows the SPARE pool (isSparePiece): spare crafted systems
   // plus any Standard-Issue baselines (dimmed). Fitted systems live on their ships
   // (managed in ShipSystemsPanel), so they are deliberately NOT listed here. The
   // four LIVE slots are shown in a fixed order so the grouped grid is stable.
@@ -5379,9 +5383,7 @@
   // 0.13.6: a piece committed to an Armory loadout is NOT a free spare (it belongs to a set
   // edited in the Armory), so it is excluded from the Salvage Bay just like an installed piece.
   // Salvaging it here would strand the loadout's slot on a deleted id.
-  $: baySpareSystems = (state.equipment ?? []).filter(
-    (e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined
-  );
+  $: baySpareSystems = (state.equipment ?? []).filter((e) => isSparePiece(e));
 
   // The spare pool grouped by slot type, in BAY_SLOT_ORDER; empty groups dropped
   // so a slot with no spare systems shows no header. Each group carries the slot's
@@ -6557,7 +6559,7 @@
     const slot = armorySlotDefs.find((d) => d.key === armoryInstallSlotKey);
     if (slot === undefined) return [];
     return state.equipment.filter(
-      (e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === slot.slotType
+      (e) => isSparePiece(e) && e.slotType === slot.slotType
     );
   })();
   // Ships this loadout can check out to: matching type + no loadout already checked out to them.
@@ -6701,7 +6703,7 @@
     // All free crafted spares of this blueprint, sorted BEST-first (score desc) so the enshrine
     // picker lists the strongest candidate at the top; the player still picks explicitly.
     const spares = state.equipment
-      .filter((e) => e.blueprintKey === key && e.fittedToShipId === null && e.committedToLoadoutId === undefined)
+      .filter((e) => e.blueprintKey === key && isSparePiece(e))
       .slice()
       .sort((a, b) => itemScore(b) - itemScore(a));
     const bestSpare = spares[0] ?? null;
@@ -18138,7 +18140,7 @@
           <!-- Spare pool: every unfitted piece, grouped implicitly by the FIT rows
                below (each ship-slot lists its own matching spares). Here we just
                show the count + a flat list so the user can see what has been minted. -->
-          {@const sparePool = state.equipment.filter((e) => e.fittedToShipId === null)}
+          {@const sparePool = state.equipment.filter((e) => isUninstalledPiece(e))}
           <div class="dev-row">
             <span class="dev-label">Spares</span>
             <span class="dev-readout-text">{sparePool.length} in pool</span>
@@ -18185,7 +18187,7 @@
               {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
-                {@const matchingSpares = state.equipment.filter((e) => e.fittedToShipId === null && e.slotType === slot)}
+                {@const matchingSpares = state.equipment.filter((e) => isUninstalledPiece(e) && e.slotType === slot)}
                 <div class="dev-row">
                   <span class="dev-label">{EQUIPMENT_SLOTS[slot].label}</span>
                   {#if fitted}

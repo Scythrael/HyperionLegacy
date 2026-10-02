@@ -1546,7 +1546,14 @@ export interface EquipmentInstance {
   // fittedToShipId to that ship, so equippedFor() keeps reading a ship's gear unchanged. Absent on
   // every existing instance (optional, so no migration needed on the instances themselves).
   committedToLoadoutId?: string;
-  integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
+  // E-CREW (0.14.0): the MEMBER-gear authority. An away-team member wearing this piece carries the
+  // member's id here, and that is the single source of truth for member gear, exactly as
+  // fittedToShipId is for ship gear. A worn piece keeps fittedToShipId null, which is precisely why
+  // every "is it spare?" check must go through isSparePiece (below) and never read fittedToShipId
+  // alone. Set by a later E-CREW task; nothing writes it yet. Absent or null = not worn. Optional +
+  // additive (like weaponType / committedToLoadoutId), so no save migration.
+  fittedToMemberId?: string | null;
+  integrity?: string;                    // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
   // from the auto-salvage rules (never from a hand-clicked salvage, see the protection
@@ -8524,15 +8531,47 @@ export function isStandardIssueBaseline(piece: EquipmentInstance): boolean {
   return piece.blueprintKey === null && piece.rarity === "standard";
 }
 
+// isUninstalledPiece(piece): is this piece installed on NOTHING (no ship, no away-team member)?
+//
+// A piece can be installed in two places: on a ship (fittedToShipId) or, from E-CREW on, on a
+// member (fittedToMemberId). Both leave the other field empty, so neither field alone answers
+// "is it installed?". This is the ONE place that combines them. It deliberately says nothing
+// about Armory commitment: a piece committed to a loadout that is NOT checked out rests in the
+// Armory and is installed on nothing, so it counts as uninstalled here. For "is it free to take?"
+// use isSparePiece, which adds the commitment clause.
+//
+// Call sites that read this rather than isSparePiece are the ones whose current behavior treats a
+// committed-but-resting piece the same as a loose spare (the "fitted" refusals, the storage count,
+// the Quartermaster's "already holding one" bound). Routing them here keeps that behavior exactly
+// while still closing the member-gear hole. The spare-predicate test scans src for raw
+// fittedToShipId null comparisons; the return line below is the sanctioned exception.
+export function isUninstalledPiece(piece: EquipmentInstance): boolean {
+  return piece.fittedToShipId === null && !piece.fittedToMemberId; // isSparePiece-ok: the helper itself
+}
+
+// isSparePiece(piece): is this piece a free SPARE, free to take (install, commit, salvage, enshrine)?
+//
+// The ONE answer, mirroring how isStandardIssueBaseline became the single baseline predicate.
+// Spare = installed on nothing (isUninstalledPiece: no ship AND no member) AND not committed to an
+// Armory loadout (committedToLoadoutId). Member gear and loadout-committed gear both have
+// fittedToShipId null but are NOT spare, so reading fittedToShipId alone is always wrong for this
+// question. Every spare check routes through here; spare-predicate.test.ts guards against raw
+// comparisons creeping back in.
+export function isSparePiece(piece: EquipmentInstance): boolean {
+  return isUninstalledPiece(piece) && piece.committedToLoadoutId === undefined;
+}
+
 // spareEquipmentCount(state): how many systems currently OCCUPY spare storage, the
 // numerator of the "spare X / cap" display and the denominator of the cap enforcement.
-// The cap counts ONLY spare CRAFTED systems: fittedToShipId === null (unfitted, in the
-// pool) AND blueprintKey !== null (crafted, NOT a Standard-Issue baseline). A fitted
-// crafted system (lives on its ship), a spare baseline, and a fitted baseline are ALL
+// The cap counts ONLY uninstalled CRAFTED systems: isUninstalledPiece (on no ship and no
+// member, in the pool) AND blueprintKey !== null (crafted, NOT a Standard-Issue baseline). A
+// fitted crafted system (lives on its ship), a spare baseline, and a fitted baseline are ALL
 // excluded (see the section header's WHY). This exact predicate is the storage-cap set.
+// (isUninstalledPiece, not isSparePiece: gear committed to a resting Armory loadout has always
+// counted here, and E-CREW prep keeps that unchanged.)
 export function spareEquipmentCount(state: GameState): number {
   return state.equipment.filter(
-    (piece) => piece.fittedToShipId === null && piece.blueprintKey !== null
+    (piece) => isUninstalledPiece(piece) && piece.blueprintKey !== null
   ).length;
 }
 

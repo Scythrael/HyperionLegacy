@@ -177,6 +177,8 @@ import {
   // auto-salvage rules; the uninstall routes (equipment.ts, salvageShip) call it for the
   // mirror-image reason. See the function's own comment in model.ts.
   startAutoSalvageGrace,
+  // E-CREW prep: the single "installed on nothing" predicate (never read fittedToShipId alone).
+  isUninstalledPiece,
   // Exploration 0.14.0 (Phase E4a): the persisted unidentified-relic token a relicStudy carries.
   type RelicVaultToken,
   RELIC_DEFAULT_SEED,
@@ -8539,8 +8541,9 @@ function salvageTargetBlock(
       // INSTALLED since it was queued. salvageEquipment refuses a fitted piece outright,
       // so promoting one would burn a slot for a guaranteed no-op. The reservation makes
       // this hard to reach (a reserved instance cannot be installed, Unit 2.1), but the
-      // reservation is derived and this is the cheap, honest confirmation of it.
-      if (piece.fittedToShipId !== null) return { ok: false, reason: "fitted" };
+      // reservation is derived and this is the cheap, honest confirmation of it. Mirrors
+      // salvageEquipment's own guard exactly (isUninstalledPiece: on no ship, worn by no member).
+      if (!isUninstalledPiece(piece)) return { ok: false, reason: "fitted" };
       return { ok: true };
     }
     case "material": {

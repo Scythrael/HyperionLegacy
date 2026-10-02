@@ -67,6 +67,7 @@ import {
   generateCombatStandardIssue,
   generateStandardIssue,
   isStandardIssueBaseline,
+  isUninstalledPiece,
   startAutoSalvageGrace,
 } from "./model";
 import { itemTotal, removeItemLowestFirst } from "./inventory";
@@ -292,8 +293,11 @@ export type RequisitionBlockReason =
 
 // Every uninstalled Standard-Issue baseline of one slot that the player could actually
 // INSTALL right now. Three filters, each load-bearing:
-//   fittedToShipId === null  , an installed baseline is doing its job on a ship and is not
-//                              a spare the player can put somewhere else.
+//   isUninstalledPiece       , an installed baseline is doing its job on a ship (or, from
+//                              E-CREW, on an away-team member) and is not a spare the
+//                              player can put somewhere else. (Not isSparePiece: this bound
+//                              has never looked at Armory commitment, and E-CREW prep keeps
+//                              it unchanged.)
 //   isStandardIssueBaseline  , the STRICT predicate (blueprintKey null AND standard
 //                              rarity), never blueprintKey alone: dev-granted radiant gear
 //                              is also blueprint-less, and counting it here would refuse a
@@ -310,7 +314,7 @@ export function freeSpareBaselinesFor(
   const reserved = salvageReservedInstanceIds(state);
   return state.equipment.filter(
     (piece) =>
-      piece.fittedToShipId === null &&
+      isUninstalledPiece(piece) &&
       piece.slotType === slotType &&
       isStandardIssueBaseline(piece) &&
       !reserved.has(piece.id)

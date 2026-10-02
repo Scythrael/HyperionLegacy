@@ -22,4 +22,8 @@
 
 declare module "node:fs" {
   export function readFileSync(path: string, encoding: string): string;
+  // E-CREW Task 1: spare-predicate.test.ts WALKS src to scan every .ts/.svelte file for raw
+  // fittedToShipId null comparisons, so it needs to list a directory and tell files from folders.
+  export function readdirSync(path: string): string[];
+  export function statSync(path: string): { isDirectory(): boolean };
 }

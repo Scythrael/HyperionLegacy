@@ -5,7 +5,7 @@
 // the SCORE (a plain number), so the save never grows with the collection and a better craft later
 // simply overwrites the score. Pure over GameState, like armory.ts / salvage.ts.
 import type { GameState, EquipmentInstance, BlueprintDef } from "./model";
-import { BLUEPRINTS, blueprintMintsEquipmentInstance, rarityIndex } from "./model";
+import { BLUEPRINTS, blueprintMintsEquipmentInstance, rarityIndex, isSparePiece } from "./model";
 import { EQUIPMENT_ILEVEL_CAP_PER_TIER } from "./itemgen";
 
 const MAX_QUALITY = 5; // quality rungs 0..5
@@ -53,7 +53,7 @@ export function archiveCompletion(state: GameState): { total: number; max: numbe
 export function archiveItem(state: GameState, instanceId: string): GameState {
   const inst = state.equipment.find((e) => e.id === instanceId);
   if (inst === undefined) return state;
-  if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined) return state; // not a free spare
+  if (!isSparePiece(inst)) return state; // not a free spare (installed, worn, or committed)
   const key = inst.blueprintKey;
   if (key === null || !(key in BLUEPRINTS)) return state; // baselines / unknown blueprints are not archivable
   // Keep the BEST by score. When the new roll wins (or there is no entry yet), record its score AND

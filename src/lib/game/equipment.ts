@@ -665,7 +665,7 @@ export function unfitEquipment(
 // evict it to the spare pool (fittedToShipId -> null) and leave the slot (or, for a weapon, that one
 // hardpoint) EMPTY. Nothing is minted; nothing is destroyed. Consequences:
 //   - Whatever you take off is RECOVERABLE: it sits in storage and the install picker lists any
-//     fittedToShipId===null piece of the slot's type (baselines included), so it can be re-installed.
+//     spare piece (isSparePiece) of the slot's type (baselines included), so it can be re-installed.
 //     This is REQUIRED for economy too: an earlier version DESTROYED an economy baseline on uninstall
 //     as anti-clutter, but that made the free floor VANISH with no way back (there is no baseline
 //     blueprint to fabricate), which read as a lost item, the user-reported "nowhere to be found".

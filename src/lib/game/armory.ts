@@ -10,7 +10,7 @@
 // empty slot is simply absent. The slot SET a loadout offers is derived from its ship type at
 // render / install time (a later increment), so create does not need to enumerate slots.
 import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType } from "./model";
-import { SHIP_TYPES, startAutoSalvageGrace } from "./model";
+import { SHIP_TYPES, startAutoSalvageGrace, isSparePiece } from "./model";
 // The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
@@ -156,7 +156,7 @@ export function installIntoLoadout(
   if (inst === undefined) return state;
   // Not a free spare (fitted / already committed), OR LOCKED (0.13.6 favorite/lock split: a locked
   // piece is hands-off until unlocked, so it cannot be committed to a loadout either).
-  if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined || inst.locked === true) return state;
+  if (!isSparePiece(inst) || inst.locked === true) return state;
   if (inst.slotType !== slotDef.slotType) return state; // wrong kind of system for this slot
   // E4d: the piece's HULL-CLASS gate (pieceEquipRequirement: a variety's own gate, else the slot's), the
   // same check canFitEquipment makes, against the loadout's pinned hull type. Before E4d the only gated

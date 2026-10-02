@@ -87,6 +87,9 @@ import {
   HOMEWORLD_TALENTS,
   SHIP_TYPES,
   isStandardIssueBaseline,
+  // E-CREW prep: the single spare / installed predicates (never read fittedToShipId alone).
+  isSparePiece,
+  isUninstalledPiece,
   rarityIndex,
   // 0.13.3.1: the per-rarity rule's model (a TOTAL record over EquipmentRarity, so a new band
   // is a compile error there) and the grace period's resolver + default.
@@ -304,8 +307,10 @@ export function salvageEquipment(
   if (!piece) {
     return { ok: false, next: state, reason: "notFound" };
   }
-  // Fitted piece: it lives in a live slot, not the spare pool. It must be unfit first.
-  if (piece.fittedToShipId !== null) {
+  // Fitted piece: it lives in a live slot (on a ship, or worn by an away-team member), not the spare
+  // pool. It must be uninstalled first. isUninstalledPiece, not isSparePiece: this refusal has always
+  // been about installation alone, so a piece committed to a resting loadout is unchanged here.
+  if (!isUninstalledPiece(piece)) {
     return { ok: false, next: state, reason: "fitted" };
   }
   // LOCKED (0.13.6): the player's hands-off flag refuses MANUAL salvage too (not just the
@@ -1051,13 +1056,13 @@ const AUTO_SALVAGE_PROTECTIONS: Record<AutoSalvageProtection, AutoSalvageProtect
     isStandardIssueBaseline(subject.piece) &&
     !autoSalvageRulesReachBaseline(ctx.state.autoSalvage, subject.piece),
 
-  // fittedToShipId is the single source of truth for where a piece lives; an installed piece
-  // is in use.
+  // fittedToShipId (ship) and fittedToMemberId (away-team member) are the sources of truth for where
+  // a piece lives, combined by isUninstalledPiece; an installed piece is in use.
   // ⚠️ AND THIS IS EXACTLY WHY UNINSTALLING RESTARTS THE GRACE WINDOW. Because installed gear is
   // never a candidate, the moment a piece stops being installed is the moment ALL of its
   // protection would otherwise disappear, in one step, with no window. That cliff is the
   // destructive gap the graceWindow reason below now covers for both of its causes.
-  installed: (_ctx, subject) => subject.piece !== undefined && subject.piece.fittedToShipId !== null,
+  installed: (_ctx, subject) => subject.piece !== undefined && !isUninstalledPiece(subject.piece),
 
   // Already queued or already being broken down: the piece is spoken for, and queueing it
   // twice is refused by the engine anyway (isDuplicateSalvageTarget).
@@ -1334,14 +1339,14 @@ export function selectAutoSalvageTargets(state: GameState, limit: number): Salva
   const reserved = protection.reserved;
   const pool = state.equipment.filter(
     (piece) =>
-      // SPARE only. fittedToShipId is the single source of truth for where a piece lives;
-      // an installed piece is in use and is never a candidate.
-      piece.fittedToShipId === null &&
+      // SPARE only (isSparePiece). An installed piece (on a ship, or worn by an away-team
+      // member) is in use and is never a candidate.
       // 0.13.6 (item lifecycle): gear COMMITTED to an Armory loadout is in use too (it belongs
       // to a saved set), exactly like an installed piece, so it is never an auto-salvage
       // candidate. Without this, auto-salvage would silently destroy a loadout's committed gear
-      // once its grace lapsed and leave the loadout slot pointing at a deleted id.
-      piece.committedToLoadoutId === undefined &&
+      // once its grace lapsed and leave the loadout slot pointing at a deleted id. isSparePiece
+      // carries both clauses.
+      isSparePiece(piece) &&
       // ⚠️ STANDARD-ISSUE BASELINES ARE NO LONGER FILTERED OUT HERE (0.13.3.1 follow-up), and
       // removing this line is the change, not an oversight. They are now POOLED IN with every
       // other spare so the ordinary rules can see them, and whether one may actually be taken is

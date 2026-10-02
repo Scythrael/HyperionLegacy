@@ -1441,7 +1441,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // is still editable, the frozen-once-shipped rule applies only to prod-released migrations).
   //
   // HISTORY + WHY IT WAS NEUTERED: this step originally DELETED "orphaned economy baseline spares" on
-  // load, identifying them by `fittedToShipId === null && blueprintKey === null && economy slotType`.
+  // load, identifying them by `fittedToShipId === null && blueprintKey === null && economy slotType`. // isSparePiece-ok: history of a neutered migration, not a live check
   // Two problems, both serious:
   //   1) DATA LOSS by heuristic. `blueprintKey === null` is NOT a safe test for "worthless baseline":
   //      dev-granted gear (devGrantEquipment) is ALSO minted blueprintKey null while being a RADIANT
