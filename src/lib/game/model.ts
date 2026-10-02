@@ -196,8 +196,9 @@ export interface ShipTypeDef {
   requiresBlueprint?: string;
   // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
   // its `teamType`, the member count per squad (`size`, 3 or 4) and how many such squads (`count`, so a
-  // future hull can list two Security details with no engine change). OPTIONAL and
-  // absent on every hull for now: the per-ship-type data lands in Task 3, and nothing reads it yet.
+  // future hull can list two Security details with no engine change). Every SHIP_TYPES entry lists a
+  // Security and a Science squad plus a wired-only Prospecting entry (count 0). OPTIONAL so a hull
+  // without the data simply fields no squads (awayTeam.ts squadSlots reads it as 0).
   awayTeams?: { teamType: AwayTeamType; size: number; count: number }[];
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
@@ -1043,6 +1044,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A no-frills hauler. Every captain's starter and emergency fallback.",
   },
   prospectorHauler: {
@@ -1056,6 +1063,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "Doubles cargo at the cost of speed, big hauls, longer runs.",
   },
   prospectorRunner: {
@@ -1069,6 +1082,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "Fast transit, small hold, rapid short cycles.",
   },
   prospectorMiner: {
@@ -1082,6 +1101,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "Specialized extraction rig, more materials per tick.",
   },
 
@@ -1112,6 +1137,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Combat hull BOM: heavier than the economy hulls (more assemblies), a mid-length
     // build. ⚠️ FIRST-PASS TUNABLE. (9b re-tunes alongside the research gate.)
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 5, structuralAssembly: 2 }, credits: 2000, durationTicks: 600 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 4, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A fast strike hull. Quick shields, fewer guns, closes and hits hard.",
   },
   battleship: {
@@ -1132,6 +1163,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cost: { credits: 800 },
     // Heaviest BOM + longest build of any hull (a capital ship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 14, powerCoupling: 10, structuralAssembly: 5 }, credits: 5000, durationTicks: 1200 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 4, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A slow capital hull. The most armor, shields, and guns the fleet fields.",
   },
   carrier: {
@@ -1154,6 +1191,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cost: { credits: 800 },
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 4, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
 
@@ -1208,6 +1251,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cost: { credits: 700 },
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 4, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A long-range explorer. Enormous shields and reach, a frail hull, and almost no guns.",
   },
   aurora: {
@@ -1223,6 +1272,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cost: { credits: 650 },
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 4, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A survey scout. The most module slots and the fastest cruise, at the cost of frame and hold.",
   },
   eir: {
@@ -1240,6 +1295,12 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     cost: { credits: 750 },
     // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
+    // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting wired, never fielded.
+    awayTeams: [
+      { teamType: "security", size: 4, count: 1 },
+      { teamType: "science", size: 4, count: 1 },
+      { teamType: "prospecting", size: 3, count: 0 },
+    ],
     description: "A medical transport. The largest hold and crew the fleet fields, for supplies and evacuations.",
   },
 };
