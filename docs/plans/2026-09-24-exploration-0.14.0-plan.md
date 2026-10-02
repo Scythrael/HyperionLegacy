@@ -261,8 +261,16 @@ authoritative model for ground teams, and the E3 build DEVIATES from it until re
     Strength / Integrity / Cunning / Constitution on Senior Staff. User direction: senior staff are HEADS OF
     THEIR DEPARTMENTS, so their stats shape the SHIP's and the ON-SHIP CREW's operations (e.g. high Integrity
     = bravery: the security crew "more apt to act bravely in the face of death", boarding party
-    effectiveness). Officer stats do NOT touch ground-team stats on a planet. Exact per-stat effects: being
-    designed with the user.
+    effectiveness). Officer stats do NOT touch ground-team stats on a planet.
+  - OFFICER STAT MODEL = "EACH STAT IS ONE FACET" of the department the officer HEADS (user pick 2026-10-02):
+    Tactical heads Security, Science heads Science, Medical heads Medical, Engineering heads Engineering,
+    Operations heads Operations, Pilot heads Flight Deck; the XO touches every department at a smaller share.
+    STRENGTH = how hard the department works (scales its complement buffs). INTEGRITY = bravery, holds when it
+    counts (boarding defense + boarding party, steadiness when the hull is low, crew losses under fire).
+    CUNNING = finds the edge (chance the department over-delivers). CONSTITUTION = endurance (long expeditions
+    + patrols, recovery between deployments). ⚠️ NO DEAD STATS: crew losses, fatigue and boarding do not exist
+    yet, so each facet needs a LIVE 0.14.0 consumer (positive-framed, no new punishment); the boarding /
+    crew-loss parts light up when those systems land.
 - **OPEN for the design pass (mockup first):** how members are recruited (a candidate roster like officers?
   drawn from crew?), members per squad, gear catalog + crafting, slot counts, member progression, and what
   happens when a member falls (injury vs permanent loss).
