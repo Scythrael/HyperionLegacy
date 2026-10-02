@@ -460,7 +460,9 @@ function labelForProcess(
     // progress bar + ETA convey the fill; a live tank-percent readout is a separate
     // status concern, not this process, so it is not on the row.
     case "fuelRefineJob": {
-      return { icon: "fuel", primaryLabel: "Fuel Depot, topping up", jumpTarget: "fuelDepot" };
+      // 0.13.9 hotfix: unreachable from the board (buildHomeDashboard skips fuelRefineJob rows),
+      // and no link into the retired Depot's hidden console either way.
+      return { icon: "fuel", primaryLabel: "Fuel Depot, topping up", jumpTarget: null };
     }
 
     // Facility upgrade (mirrors App.svelte:3610 FACILITIES[key].label; target level is

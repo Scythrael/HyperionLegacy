@@ -47,4 +47,13 @@ describe("HELP_TOPICS", () => {
       expect(retiredNav.test(t.body), `retired nav name in: ${t.id}`).toBe(false);
     }
   });
+  // 0.13.9 final review: three more stale facts. Since 0.13.6 the admiral portrait opens Crew >
+  // Admiral and the System window's settings tab is labeled Settings (opened by the top-bar gear);
+  // and since "every hull is combat-capable" any hull can patrol (only a missing reactor blocks).
+  it("never repeats the retired portrait / Options / combat-hull-only claims (0.13.9)", () => {
+    const stale = /admiral portrait|from Options|Only a combat hull/i;
+    for (const t of HELP_TOPICS) {
+      expect(stale.test(t.body), `stale claim in: ${t.id}`).toBe(false);
+    }
+  });
 });

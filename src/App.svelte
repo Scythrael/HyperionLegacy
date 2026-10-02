@@ -4103,8 +4103,11 @@
   // 0.13.9: the "fuelCapacity" (out of reach) sentence for both dispatch surfaces. Names the trip's
   // distance and the captain's ship's GEAR-INCLUSIVE reach (shipRangeLightYears, the reading the gate
   // uses) when a ship is known, else a plain sentence. Range is FLOORED like every range readout, so
-  // an out-of-reach ship never reads as reaching exactly the trip distance; distances are whole or
-  // half lightyears, so Math.round never rounds one down.
+  // an out-of-reach ship never reads as reaching exactly the trip distance. ⚠️ CAVEAT: a distance is
+  // round-trip ticks x LY_PER_TICK (0.5), so today every trip is a whole or half lightyear and
+  // Math.round only ever rounds a half UP, which keeps the two shown numbers honest. If LY_PER_TICK
+  // changes or a fractional trip ever appears, rounding could show a distance BELOW the true one, and
+  // the display should then show a decimal (here and on the cards) instead of rounding.
   function outOfReachText(distanceLy: number, captainId?: number | null): string {
     const ship = captainId == null ? null : state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
     if (ship === null) return "Out of reach for this ship";

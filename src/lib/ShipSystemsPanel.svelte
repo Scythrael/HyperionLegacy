@@ -593,7 +593,7 @@
   function statValueText(row: StatRow, which: "base" | "fitted"): string {
     const v = which === "base" ? row.base : row.fitted;
     if (row.kind === "pct") return "×" + v.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(v)} LY`;
+    if (row.kind === "ly") return `${Math.floor(v)} LY`; // 0.13.9: floored like every range readout
     return fmtFlat(Number(v.toFixed(1)));
   }
   $: compareRows = ((): CompareRow[] => {
@@ -604,7 +604,9 @@
       if (!ship || !fitStats) return [];
       const candStats = shipDerivedStats(ship, candidateGear);
       return buildLiveRows(fitStats, candStats).map((r) => {
-        const delta = r.fitted - r.base;
+        // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
+        // delta always equals the difference of the two numbers shown beside it.
+        const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;
         const zero = Math.abs(delta) < 1e-9;
         const lowerBetter = ECON_LOWER_IS_BETTER.has(r.label);
         const good = !zero && (lowerBetter ? delta < 0 : delta > 0);
@@ -615,7 +617,7 @@
           : r.kind === "pct"
             ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
             : r.kind === "ly"
-              ? `${delta > 0 ? "+" : ""}${Math.round(delta)} LY`
+              ? `${delta > 0 ? "+" : ""}${delta} LY`
               : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
         return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
       });
@@ -654,17 +656,18 @@
   }
   function fmtStatValue(row: StatRow): string {
     if (row.kind === "pct") return "×" + row.fitted.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(row.fitted)} LY`;
+    if (row.kind === "ly") return `${Math.floor(row.fitted)} LY`; // 0.13.9: floored like every range readout
     return fmtFlat(Number(row.fitted.toFixed(1)));
   }
   // The signed base -> installed change, or null when it is effectively zero (so a row
   // simply omits the note rather than showing "+0"). Percent stats report in points.
   function fmtDelta(row: StatRow): string | null {
-    const d = row.fitted - row.base;
+    // 0.13.9: Range diffs the FLOORED values it shows, so the note matches the displayed numbers.
+    const d = row.kind === "ly" ? Math.floor(row.fitted) - Math.floor(row.base) : row.fitted - row.base;
     if (Math.abs(d) < 1e-9) return null;
     const sign = d > 0 ? "+" : "";
     if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
-    if (row.kind === "ly") return `${sign}${Math.round(d)} LY`;
+    if (row.kind === "ly") return `${sign}${d} LY`;
     return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
   }
   // A signed Battle-Rating delta for the tiles + the compare headline, e.g. "+68 BR" /
