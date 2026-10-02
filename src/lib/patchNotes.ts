@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.8";
+export const APP_VERSION = "0.13.9";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,21 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.9",
+    lede: "A quick fix: gear stored in Armory loadouts no longer takes up space in your Systems Bay.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended." },
+          { lead: "Requisitions are not blocked by loadouts.", text: "A Standard-Issue system sitting in an Armory loadout no longer stops the Quartermaster from issuing you a spare for that slot." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     version: "0.13.8",
     lede: "A quick fix: rare materials recovered only from salvage now show up in your Warehouse under Logistics. Any you already collected appear the next time you load.",
