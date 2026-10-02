@@ -39,4 +39,12 @@ describe("HELP_TOPICS", () => {
     expect(fuel.body).toMatch(/lightyears/i);
     expect(fuel.body).toMatch(/retired/i);
   });
+  // 0.13.9: the manual still sent players to the 0.11.x programs (Foundry, Drydock, Stores) long
+  // after the 0.12.0 console nav and the 0.13.2 Ships tab replaced them. Only current names now.
+  it("uses the current nav names, never the retired Foundry / Drydock / Stores programs (0.13.9)", () => {
+    const retiredNav = /\b(Foundry|Drydock|Stores)\b|\bprogram\b/;
+    for (const t of HELP_TOPICS) {
+      expect(retiredNav.test(t.body), `retired nav name in: ${t.id}`).toBe(false);
+    }
+  });
 });

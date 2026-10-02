@@ -2465,8 +2465,9 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
   it("parity: a hand-planted FUEL DEPOT order never promotes, and leaves the tick byte-identical on both paths", () => {
     // The Fuel Depot stub, proved inert rather than asserted inert. A legitimate route
     // cannot make this entry (every enqueue is refused), so it is planted directly, which is
-    // exactly the hand-edited-save case the double brake exists for. The depot's automatic
-    // pipelines keep running underneath it, which is what makes the comparison non-trivial.
+    // exactly the hand-edited-save case the double brake exists for. (Before 0.13.9 the depot's
+    // automatic pipelines ran underneath it; the 0.13.9 hotfix RETIRED them, so the stocked
+    // depot below now proves the opposite as well: nothing fuel-related moves at all.)
     const fuelling: GameState = {
       ...freshState(),
       facilities: { ...freshState().facilities, fuelStorage: { level: 1 } },
@@ -2483,10 +2484,11 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
 
     // The entry is untouched, id and position intact, after three hundred ticks.
     expect(jumped.processQueue).toEqual(base.processQueue);
-    // NON-VACUOUS: the depot's AUTOMATIC pipelines really did run across the span, which is
-    // the whole finding. There is nothing for a queue to add here.
-    expect(jumped.fuel.gt(base.fuel)).toBe(true);
-    expect(itemTotal(jumped.inventory, "deuteriumIce").lt(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
+    // 0.13.9 hotfix: the depot's pipelines are RETIRED, so a stocked depot with an empty tank
+    // refines NOTHING across the span: the tank and the Deuterium Ice are both untouched.
+    // (Previously these asserted the pipelines ran: fuel rose and ice fell.)
+    expect(jumped.fuel.eq(base.fuel)).toBe(true);
+    expect(itemTotal(jumped.inventory, "deuteriumIce").eq(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
   });
 
   it("parity: promoting a research project or a hull build draws NO rng", () => {

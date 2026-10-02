@@ -217,7 +217,7 @@ import {
   selectAutoSalvageTargets,
   type SalvageRejectReason,
 } from "./salvage";
-import { fuelNeeded, fuelForRoundTrip } from "./fuel";
+import { fuelNeeded, fuelForRoundTrip, rangeLightYears } from "./fuel";
 // Combat 0.13.0 (Phase 9b.5a): patrol dispatch helpers. combatHullTypeOf gates the
 // combat-hull requirement + resolves the CombatHullType for the drone default;
 // defaultDronesForHull seeds a carrier patrol's carry-state drones; planWaveSchedule
@@ -4170,6 +4170,40 @@ export type DispatchBlockReason =
   | "fuelCapacity"
   | "fuelEmpty";
 
+// ============================================================================
+// REACH FOR A REAL SHIP (0.13.9 hotfix): the ONE reading both dispatch gates AND every range
+// readout use, so the number the player sees and the gate that refuses them can never disagree.
+// ============================================================================
+// The bug this closes: the gates read the EQUIPMENT-FOLDED fuel capacity + engine efficiency (an
+// installed FTL Drive can carry both), while the cards and the dispatch popup displayed the bare
+// hull's SHIP_TYPES numbers. With a good drive installed the popup could show a range SHORTER than
+// the trip and still allow the dispatch.
+//
+// shipReachDef is the hull's static def with the two reach stats replaced by their folded values,
+// resolved the same way economyTick resolves them (equippedFor then shipDerivedStats). The gate
+// keeps its pre-0.13.6 FUEL-UNIT form (capacity >= round-trip need) so eligibility stays
+// byte-identical; the lightyear range is the same def through rangeLightYears.
+export function shipReachDef(state: GameState, ship: ShipInstance): ShipTypeDef {
+  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
+  return { ...SHIP_TYPES[ship.typeKey], fuelCapacity: stats.fuelCapacity, engineEfficiency: stats.engineEfficiency };
+}
+
+// The reach GATE for a round trip given by its two transit legs (a mission's or a patrol's).
+export function shipReachesRoundTrip(
+  state: GameState,
+  ship: ShipInstance,
+  transitOutTicks: number,
+  transitBackTicks: number
+): boolean {
+  const def = shipReachDef(state, ship);
+  return def.fuelCapacity >= fuelForRoundTrip(transitOutTicks, transitBackTicks, def);
+}
+
+// The reach READOUT, in lightyears, gear included (what "Ship range" displays).
+export function shipRangeLightYears(state: GameState, ship: ShipInstance): number {
+  return rangeLightYears(shipReachDef(state, ship));
+}
+
 // Mission Rework (Task 7): THE single consolidated dispatch gate. Pure predicate --
 // reads state + the static MISSIONS/SHIP_TYPES tables, mutates nothing, spends nothing.
 // This is the ONE source of truth for "can this captain fly this mission right now?":
@@ -4234,7 +4268,6 @@ export function canDispatch(
   // ever grounds a combat hull, but the gate applies to any assigned hull for safety. The
   // escape valve is the same as patrols: swap to a healthy hull via assignShipToCaptain.
   if (ship.damaged) return { ok: false, reason: "needsRepair" };
-  const shipDef = SHIP_TYPES[ship.typeKey];
   // Equipment 0.11.0 (Task 13/14): the EQUIPMENT-FOLDED derived stats for this hull,
   // resolved from the SAME seam economyTick uses (equippedFor + shipDerivedStats), so
   // the dispatch gate prices fuel and range on the very numbers the mission loop will
@@ -4267,14 +4300,17 @@ export function canDispatch(
   // legs scaled by engineEfficiency (see fuel.ts). Task 14: price it from the FOLDED
   // engineEfficiency (overlaid on the static ShipTypeDef, as economyTick does) so the
   // dispatch estimate matches the loop's per-cycle burn exactly.
-  const need = fuelNeeded(mission, { ...shipDef, engineEfficiency: stats.engineEfficiency });
   // REACH (0.13.6 fuel-to-reach): fuel is a RANGE stat, not a depleting resource. The ONLY fuel
   // gate is whether the hull's fuel capacity covers the round trip (its reach). This is the exact
   // pre-0.13.6 `fuelCapacity < need` capacity check (need = fuelNeeded with the folded efficiency),
   // equivalent to canReach (fuel.ts) but kept in fuel-unit form here to preserve byte-identical
   // eligibility. The old fuelEmpty RESOURCE gate + credit auto-buy are GONE: refuel is instant and
   // free, so a short tank can no longer block or charge for a dispatch.
-  if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
+  // 0.13.9: read through shipReachesRoundTrip, the SAME folded reach the range readouts display
+  // (fuelNeeded and fuelForRoundTrip are the identical formula, so this is byte-identical).
+  if (!shipReachesRoundTrip(state, ship, mission.transitOutTicks, mission.transitBackTicks)) {
+    return { ok: false, reason: "fuelCapacity" };
+  }
 
   return { ok: true };
 }
@@ -4691,21 +4727,17 @@ export function canDispatchPatrol(
   // choices (no block, no advisory): a bare hull keeps its innateHullArmor, and no emitter = 0 shields.
   const noWeaponAdvisory = !fittedGear.some((e) => e.slotType === "weapon");
 
-  const shipDef = SHIP_TYPES[ship.typeKey];
-
   // --- Fuel gates: price the round trip from the patrol's transit legs (fuelForRoundTrip),
   // using the EQUIPMENT-FOLDED engineEfficiency (overlaid on the static ShipTypeDef, as
   // canDispatch does), so the dispatch estimate matches the loop's per-cycle burn. With no
   // gear fitted the fold is an identity. The folded fuelCapacity gates RANGE.
-  const stats = shipDerivedStats(ship, equippedFor(state, ship.id));
-  const need = fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
-    ...shipDef,
-    engineEfficiency: stats.engineEfficiency,
-  });
   // REACH (0.13.6 fuel-to-reach): the ONLY fuel gate is whether the hull's fuel capacity covers
   // the round trip (its reach) - the exact pre-0.13.6 capacity check. The fuelEmpty RESOURCE gate +
-  // credit auto-buy are GONE: refuel is instant and free.
-  if (stats.fuelCapacity < need) return { ok: false, reason: "fuelCapacity" };
+  // credit auto-buy are GONE: refuel is instant and free. 0.13.9: through shipReachesRoundTrip, the
+  // SAME folded reach the range readouts display (byte-identical to the inline check it replaced).
+  if (!shipReachesRoundTrip(state, ship, def.transitOutTicks, def.transitBackTicks)) {
+    return { ok: false, reason: "fuelCapacity" };
+  }
 
   // Dispatchable. Carry the weapon advisory (only present when true) so the card can persistently
   // warn a weaponless dispatch without ever blocking it. Omitted (undefined) when a weapon IS
@@ -9665,7 +9697,18 @@ export function startFabricateJob(
 // Bounded work: at most fuelPipelineCount (<= a few) batches start per call, so the loop
 // is tightly bounded even across a 172,800-tick offline catch-up (once per free slot, not
 // once per tick), no Omega-14 unbounded-loop concern.
+//
+// ⚠️ RETIRED (0.13.9 hotfix): fuel-to-reach (0.13.6) made fuel a STAT (reach in lightyears,
+// instant free refuel), so nothing reads the tank any more, but this engine kept running
+// behind the hidden Fuel Depot: every tick it quietly turned a player's leftover Deuterium
+// Ice (now sellable at the Quartermaster) into fuel nobody uses. It now STARTS NOTHING. A
+// batch already in flight in a save still completes normally through resolveProcesses, so no
+// ice is stranded and nothing is lost. The same-reference no-op keeps offline == live parity
+// (this runs inside economyTick on both paths). The body below is dead code, deliberately
+// kept for 0.14.0's planned fuel-economy removal rather than deleted in a hotfix.
+export const FUEL_DEPOT_PIPELINES_RETIRED = true;
 export function processFuelPipelines(state: GameState): GameState {
+  if (FUEL_DEPOT_PIPELINES_RETIRED) return state;
   const pipelines = fuelPipelineCount(state);
   if (pipelines <= 0) return state; // no Fuel Depot / no pipelines -> same-reference no-op
 

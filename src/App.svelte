@@ -521,6 +521,9 @@
     // dispatch. PatrolDispatchBlockReason types the reason the block-reason helper maps
     // to player text (mirrors DispatchBlockReason for extraction missions).
     canDispatchPatrol,
+    // 0.13.9: the ONE gear-inclusive reach reading the gates use, for every range readout.
+    shipRangeLightYears,
+    shipReachesRoundTrip,
     dispatchCaptainOnPatrol,
     type PatrolDispatchBlockReason,
     // "Every hull is combat-capable": freshState() seeds only the economy Standard-Issue
@@ -839,7 +842,7 @@
   // Phase 9b.5d) prices a PATROL round trip from its two transit legs + the flying
   // hull's engine efficiency, the SAME figure canDispatchPatrol / dispatchCaptainOnPatrol
   // spend, so the patrol card's "fuel per run" can never mislead about the real cost.
-  import { fuelNeeded, fuelForRoundTrip, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./lib/game/fuel";
+  import { fuelNeeded, fuelForRoundTrip, distanceLightYears, LY_PER_TICK } from "./lib/game/fuel";
   // Combat 0.13.0, Phase 1, Task 1.6: MAX_CAPTAIN_NAME backs the Rename input's
   // maxlength attribute (the input can't exceed the same ceiling renameCaptain
   // enforces) and the "Max N characters" error copy. Imported from captainName.ts
@@ -1581,17 +1584,13 @@
   function shipPickerStats(ship: GameState["ships"][number]): string {
     const gear = equippedFor(state, ship.id);
     const stats = shipDerivedStats(ship, gear);
-    const reachLy = rangeLightYears({
-      ...SHIP_TYPES[ship.typeKey],
-      fuelCapacity: stats.fuelCapacity,
-      engineEfficiency: stats.engineEfficiency,
-    });
+    const reachLy = shipRangeLightYears(state, ship); // 0.13.9: the shared gear-inclusive reach
     // Battle Rating via the SAME shipToCombatant + battleRating path the roster + install panel use,
     // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
     // all three hull roles (warship / hauler / explorer).
     const hullType = combatHullTypeOf(ship.typeKey);
     const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
-    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} LY`];
+    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.floor(reachLy))} LY`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");
   }
@@ -4101,11 +4100,22 @@
     patrolDispatchKey = null;
   }
 
+  // 0.13.9: the "fuelCapacity" (out of reach) sentence for both dispatch surfaces. Names the trip's
+  // distance and the captain's ship's GEAR-INCLUSIVE reach (shipRangeLightYears, the reading the gate
+  // uses) when a ship is known, else a plain sentence. Range is FLOORED like every range readout, so
+  // an out-of-reach ship never reads as reaching exactly the trip distance; distances are whole or
+  // half lightyears, so Math.round never rounds one down.
+  function outOfReachText(distanceLy: number, captainId?: number | null): string {
+    const ship = captainId == null ? null : state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
+    if (ship === null) return "Out of reach for this ship";
+    return `Out of reach: this trip is ${formatNumber(Math.round(distanceLy))} LY, this ship reaches ${formatNumber(Math.floor(shipRangeLightYears(state, ship)))} LY`;
+  }
+
   // Maps a canDispatchPatrol PatrolDispatchBlockReason to a short player-facing string,
   // the patrol counterpart to dispatchBlockMessage. Wording matches the mockup where it
   // specifies one ("assign a combat hull first" for notCombatHull); the rest mirror the
   // extraction reason phrasings so the two dispatch surfaces read consistently.
-  function patrolDispatchBlockMessage(reason: PatrolDispatchBlockReason): string {
+  function patrolDispatchBlockMessage(reason: PatrolDispatchBlockReason, patrolKey?: PatrolKey | null, captainId?: number | null): string {
     switch (reason) {
       case "noCaptain":
         return "No captain selected";
@@ -4126,8 +4136,13 @@
         // no power = the ship physically cannot set a course. Missing weapon/plating/shields are
         // NOT blocks now (weapon = a persistent advisory below; plating/shields = silent choices).
         return "Install a reactor first (no power)";
-      case "fuelCapacity":
-        return "Ship's tank too small for this trip";
+      case "fuelCapacity": {
+        // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
+        const def = patrolKey != null ? PATROLS[patrolKey] : undefined;
+        return def === undefined
+          ? "Out of reach for this ship"
+          : outOfReachText((def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK, captainId);
+      }
       case "fuelEmpty":
         return "Not enough fuel or credits to refuel";
     }
@@ -7542,7 +7557,7 @@
   // Level / requiresCargoCapacity) so the level/cargo messages name the actual number
   // the gate checks, never a hardcoded guess. Exhaustive over the union (every
   // DispatchBlockReason has a case); the default is belt-and-suspenders only.
-  function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey): string {
+  function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey, captainId?: number | null): string {
     const mission = MISSIONS[missionKey];
     switch (reason) {
       case "locked":
@@ -7556,7 +7571,8 @@
         // and the captain would auto-idle after one wasted round trip. Block before that.
         return "Warehouse full for this material";
       case "fuelCapacity":
-        return "Ship's tank too small for this trip";
+        // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
+        return outOfReachText(distanceLightYears(mission), captainId);
       case "fuelEmpty":
         // Fuel Economy v2 (F3): a short tank now auto-buys the shortfall from credits; this
         // reason fires only when the shortfall is ALSO unaffordable (truly broke).
@@ -15161,7 +15177,8 @@
                        and the representative hull's REACH, instead of a fuel cost. LY numbers are
                        first-pass tunable (0.16.0 balance). -->
                   {@const distanceLy = distanceLightYears(missionDef)}
-                  {@const shipRangeLy = representativeShip ? rangeLightYears(SHIP_TYPES[representativeShip.typeKey]) : null}
+                  <!-- 0.13.9: the GEAR-INCLUSIVE range (shipRangeLightYears), the same reach the dispatch gate reads. -->
+                  {@const shipRangeLy = representativeShip ? shipRangeLightYears(state, representativeShip) : null}
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                        lootTable), read the real item keys so drops read per-mission. -->
                   {@const loot = missionDef.lootTable}
@@ -15253,7 +15270,7 @@
                               <div class="mission-col-label">Requirements</div>
                               <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
                               <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull range {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; ship range {formatNumber(Math.floor(shipRangeLy))} LY{/if}</div>
                             </div>
                             <div class="mission-detail-section">
                               <div class="mission-col-label">Rewards</div>
@@ -15362,7 +15379,9 @@
                      the card can never disagree with what the backend would allow. -->
                 {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolKey) : null}
                 {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
-                {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
+                <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test (shipRangeLightYears /
+                     shipReachesRoundTrip), so the red flag and canDispatchPatrol can never disagree. -->
+                {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
                 {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
                 {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
                 <!-- Combat 1.0 (Unit 2.4): the combat hull class (null for a non-combat
@@ -15374,7 +15393,7 @@
                 {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
                 {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
                 {@const expanded = expandedPatrolKey === patrolKey}
-                {@const outOfReach = patrolReachLy !== null && patrolReachLy < patrolDistanceLy}
+                {@const outOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
                 {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
                 <div class="mpane-wrap">
                   <!-- ROW: id (⚔️ + patrol label + faction sub) · glance mid · actions. warnedge
@@ -15393,7 +15412,7 @@
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
-                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} LY</b>{/if}</span>
+                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.floor(patrolReachLy))} LY</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
                            is selected (and a forecast exists), else a dim "pick a captain" prompt.
@@ -15429,7 +15448,7 @@
                       <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
                            gate/qualify dispatch. Same canDispatchPatrol reasons as before. -->
                       {#if gate !== null && !gate.ok}
-                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason, patrolKey, selectedCaptainId)}</div>
                       {/if}
                       {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
                         <div class="mpane-warn">⚠ No weapon installed. You won't be able to return fire.</div>
@@ -17299,16 +17318,19 @@
                title (the button is disabled below). -->
           {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
           {@const distanceLy = distanceLightYears(missionDef)}
-          {@const shipRangeLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
-          <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the hull's
-               reach covers the trip distance (the canDispatch gate); flag red when it does not. -->
+          {@const shipRangeLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+          {@const missionOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, missionDef.transitOutTicks, missionDef.transitBackTicks)}
+          <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the ship's
+               reach covers the trip distance (the canDispatch gate); flag red when it does not.
+               0.13.9: "Ship range" is GEAR-INCLUSIVE and the red flag is the gate's own reach test
+               (shipRangeLightYears / shipReachesRoundTrip), so the readout cannot contradict the gate. -->
           <div class="panel-title">RANGE</div>
           <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} LY</div>
-          <div class="research-cost" style={shipRangeLy !== null && shipRangeLy < distanceLy ? "color: var(--color-danger)" : ""}>
-            Hull range: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} LY` : "--"}
+          <div class="research-cost" style={missionOutOfReach ? "color: var(--color-danger)" : ""}>
+            Ship range: {shipRangeLy !== null ? `${formatNumber(Math.floor(shipRangeLy))} LY` : "no ship assigned"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
-            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
+            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)}</div>
           {/if}
         {/if}
 
@@ -17321,7 +17343,7 @@
               class="dev-btn"
               disabled={missionPopupGate !== null && !missionPopupGate.ok}
               title={missionPopupGate !== null && !missionPopupGate.ok
-                ? dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)
+                ? dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)
                 : undefined}
               on:click={doDispatchFromPopup}
             >
@@ -17355,7 +17377,9 @@
     {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
     {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolDispatchKey) : null}
     {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
-    {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
+    <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test, as on the patrol card. -->
+    {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+    {@const patrolOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
     {@const stance = patrolStanceByKey[patrolDispatchKey] ?? "balanced"}
     {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
     {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
@@ -17444,7 +17468,7 @@
 
         <div class="research-cost" style="margin-top: 20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
           {#if patrolReachLy !== null}
-            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull range {formatNumber(Math.round(patrolReachLy))} LY</span></span>
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolOutOfReach ? "color: var(--color-danger)" : ""}>ship range {formatNumber(Math.floor(patrolReachLy))} LY</span></span>
           {:else}
             <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY</span>
             <HelpTip label="Range" text="Select a captain to check whether their hull has the range for this patrol." />
@@ -17452,7 +17476,7 @@
         </div>
 
         {#if gate !== null && !gate.ok}
-          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId)}</div>
         {/if}
         {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
           <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
@@ -17466,7 +17490,7 @@
           <button
             class="buy-btn"
             disabled={gate === null || !gate.ok}
-            title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason) : undefined}
+            title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId) : undefined}
             on:click={doDispatchPatrolFromPopup}
           >
             Dispatch Patrol

@@ -375,6 +375,11 @@ function shipDisplayName(ship: ShipInstance): string {
   return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
 }
 
+// 0.13.9 hotfix: the RETIRED Fuel Depot's facility key. Fuel-to-reach (0.13.6) hid its card and
+// 0.13.9 stopped its pipelines; its model record stays for 0.14.0's fuel-economy cleanup. Home
+// skips it wherever it would otherwise offer a prompt or a link into the hidden console.
+export const RETIRED_FUEL_DEPOT_KEY = "fuelStorage";
+
 // Map a facility KEY (the string carried by a facilityLevelUp effect) to its Section-8
 // jump destination, or null when the facility has no Section-8 tab (Warehouse tiers
 // live in the Stores bucket, which is not one of the seven jump targets). WHY a map and
@@ -390,8 +395,10 @@ function facilityJumpTarget(facilityKey: string): JumpTarget | null {
       return "fabricator";
     case "shipyard":
       return "shipyard";
+    // 0.13.9 hotfix: the Fuel Depot is RETIRED (fuel-to-reach, 0.13.6) and has no card, so a
+    // leftover fuelStorage upgrade in an old save routes nowhere rather than into the hidden console.
     case "fuelStorage":
-      return "fuelDepot";
+      return null;
     // missionControl gates the gathering/patrol missions, so its upgrade routes to the
     // Operations gathering tab (the closest Section-8 destination).
     case "missionControl":
@@ -958,6 +965,10 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // chance of a count and a key drifting apart.
   const upgradeKeys: string[] = [];
   for (const facilityKey of Object.keys(FACILITIES)) {
+    // 0.13.9 hotfix: skip the RETIRED Fuel Depot. Its record stays in FACILITIES for 0.14.0's
+    // fuel-economy cleanup, but it has no card and does nothing, so "Fuel Depot upgrade ready"
+    // (and its deep link into the hidden console) must never be offered.
+    if (facilityKey === RETIRED_FUEL_DEPOT_KEY) continue;
     if (canBuildFacilityUpgrade(state, facilityKey).ok) {
       upgradeKeys.push(facilityKey);
     }
@@ -1107,7 +1118,9 @@ const COMPLETION_KIND_VIEW: Record<
   fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  source: "Fabricator",     jumpTarget: "fabricator" },
   researchProject:         { verb: "Researched",  icon: "research",   source: "Research Lab",   jumpTarget: "research" },
   shipBuild:               { verb: "Built",       icon: "shipBuild",  source: "Shipyard",       jumpTarget: "shipyard" },
-  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       source: "Fuel Depot",     jumpTarget: "fuelDepot" },
+  // 0.13.9 hotfix: the Fuel Depot is RETIRED and hidden, so an old "Refined Fuel" history entry
+  // is a plain, non-navigable row instead of a link into the hidden console.
+  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       source: "Fuel Depot",     jumpTarget: null },
   facilityUpgrade:         { verb: "Upgraded",    icon: "facility",   source: "Facilities",     jumpTarget: "facilities" },
   // No Section-8 destination for either storage track (Stores is not a jump target), so
   // these render as plain, non-navigable rows rather than routing somewhere invented.
@@ -1427,6 +1440,10 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   // 1. Every timed job (refine / fabricate / research / ship build / fuel / facility +
   //    storage + docks upgrades / repair), enumerated generically off the one array.
   for (const process of state.activeProcesses) {
+    // 0.13.9 hotfix: a fuel batch left in flight by an older save (the retired Fuel Depot) is
+    // still allowed to finish, but it is not shown: the row would name a retired facility and
+    // link into its hidden console, and it can no longer matter to the player.
+    if (process.kind === "fuelRefineJob") continue;
     inProgress.push(rowForProcess(process, state, craftRunByLine));
   }
 

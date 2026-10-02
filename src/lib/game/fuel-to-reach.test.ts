@@ -6,9 +6,9 @@
 // ship/mission eligibility. If a future edit drifts the gate, this fails.
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { SHIP_TYPES, MISSIONS, freshState } from "./model";
-import { fuelNeeded, canReach, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./fuel";
-import { dispatchCaptainOnMission, economyTick } from "./tick";
+import { SHIP_TYPES, MISSIONS, PATROLS, freshState } from "./model";
+import { fuelNeeded, fuelForRoundTrip, canReach, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./fuel";
+import { dispatchCaptainOnMission, economyTick, shipReachDef, shipReachesRoundTrip, shipRangeLightYears } from "./tick";
 
 describe("fuel-to-reach: the lightyear gate equals the old capacity gate (parity)", () => {
   it("canReach(mission, ship) === (fuelCapacity >= fuelNeeded) for EVERY ship x mission", () => {
@@ -59,5 +59,46 @@ describe("fuel-to-reach: fuel no longer depletes and never fuel-stops a captain"
     for (let i = 0; i < 500; i++) state = economyTick(state, 1, () => 0.5);
     expect(state.fuel.eq(1)).toBe(true); // the tank never drained (instant free refuel)
     expect(state.captains.every((c) => c.lastStopReason !== "fuel")).toBe(true); // never fuel-stopped
+  });
+});
+
+// 0.13.9 hotfix: ONE gear-inclusive reach reading for a real ship. The gates read the
+// equipment-folded fuel capacity + efficiency while the range readouts used to show the bare
+// hull's numbers, so an installed FTL Drive could make the popup show a range SHORTER than the
+// trip while the dispatch was still allowed. Both now go through shipReachDef.
+describe("fuel-to-reach: shipRangeLightYears / shipReachesRoundTrip (0.13.9)", () => {
+  // freshState's ship-1 with its installed FTL Drive carrying an extra +300 Fuel Capacity affix.
+  function boostedFleet() {
+    const s = freshState();
+    const ship = s.ships[0];
+    const equipment = s.equipment.map((e) =>
+      e.fittedToShipId === ship.id && e.slotType === "ftlDrive"
+        ? { ...e, rolledStats: { ...e.rolledStats, fuelCapacity: (e.rolledStats.fuelCapacity ?? 0) + 300 } }
+        : e
+    );
+    return { state: { ...s, equipment }, ship };
+  }
+
+  it("the range readout INCLUDES installed gear (not the bare hull's number)", () => {
+    const { state, ship } = boostedFleet();
+    const bare = rangeLightYears(SHIP_TYPES[ship.typeKey]);
+    expect(shipRangeLightYears(state, ship)).toBeCloseTo(bare + 300 * (1 + SHIP_TYPES[ship.typeKey].engineEfficiency) * LY_PER_TICK, 9);
+    expect(shipRangeLightYears(state, ship)).toBeGreaterThan(bare);
+  });
+
+  it("the gate helper equals the old inline gate AND agrees with the lightyear readout, for every mission and patrol", () => {
+    const { state, ship } = boostedFleet();
+    const def = shipReachDef(state, ship);
+    const trips: [string, number, number][] = [
+      ...Object.entries(MISSIONS).map(([k, m]) => [k, m.transitOutTicks, m.transitBackTicks] as [string, number, number]),
+      ...Object.entries(PATROLS).map(([k, p]) => [k, p.transitOutTicks, p.transitBackTicks] as [string, number, number]),
+    ];
+    for (const [key, out, back] of trips) {
+      const gate = shipReachesRoundTrip(state, ship, out, back);
+      // Byte-identical to the pre-0.13.9 inline check (folded capacity vs folded-efficiency need).
+      expect(gate, `${key}: old inline gate`).toBe(def.fuelCapacity >= fuelForRoundTrip(out, back, def));
+      // And the readout the player sees tells the same story (range covers the round-trip distance).
+      expect(gate, `${key}: readout`).toBe(shipRangeLightYears(state, ship) >= (out + back) * LY_PER_TICK);
+    }
   });
 });

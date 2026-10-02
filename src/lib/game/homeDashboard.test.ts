@@ -39,7 +39,9 @@ import {
   // build fixtures from (ids and literal orders only, no Decimal, see QueuedJob).
   type QueuedJob,
 } from "./model";
-import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } from "./homeDashboard";
+import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, RETIRED_FUEL_DEPOT_KEY, type ActivityRow } from "./homeDashboard";
+// 0.13.9: the same gate the upgrade prompt reads, for the retired-Fuel-Depot non-vacuity check.
+import { canBuildFacilityUpgrade } from "./tick";
 // The stuck-at-00:00 regression cases below read the mission table directly.
 import { MISSIONS } from "./model";
 
@@ -192,8 +194,9 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
   const rows = model.inProgress;
 
   it("emits one row per running process plus one per active mission, and none for the idle captain", () => {
-    // 9 processes + patrol + extraction = 11; the idle captain (id 3) adds nothing.
-    expect(rows.length).toBe(11);
+    // 9 processes + patrol + extraction = 11, MINUS the retired Fuel Depot's in-flight batch
+    // (0.13.9 hotfix: still allowed to finish, never shown) = 10; the idle captain (id 3) adds nothing.
+    expect(rows.length).toBe(10);
     expect(rows.some((r) => r.id.includes("3"))).toBe(false);
   });
 
@@ -206,8 +209,9 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
     expect(rowById(rows, "p-facility").primaryLabel).toBe("Refinery, upgrade to Level 1");
     expect(rowById(rows, "p-facility").jumpTarget).toBe("refinery");
 
-    expect(rowById(rows, "p-fuel").primaryLabel).toBe("Fuel Depot, topping up");
-    expect(rowById(rows, "p-fuel").jumpTarget).toBe("fuelDepot");
+    // 0.13.9 hotfix: the retired Fuel Depot's batch gets NO row (it used to read "Fuel Depot,
+    // topping up" and link into the hidden console).
+    expect(rows.some((r) => r.id === "p-fuel")).toBe(false);
 
     expect(rowById(rows, "p-research").primaryLabel).toBe("Researching, Frame Segment Blueprint");
     expect(rowById(rows, "p-research").jumpTarget).toBe("research");
@@ -1054,6 +1058,46 @@ describe("buildHomeDashboard: facilityKeys on the upgrade prompt (Unit 4.6b)", (
     expect(promptById(model, "idle-facility-upgrade")).toBeUndefined();
     expect(model.needsOrders.length).toBeGreaterThan(0);
     for (const prompt of model.needsOrders) expect(prompt.facilityKeys).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// 0.13.9 hotfix: THE RETIRED FUEL DEPOT HAS NO PLAYER-REACHABLE ENTRY POINT ON HOME.
+// Fuel-to-reach (0.13.6) hid its card; the board still offered "Fuel Depot upgrade ready",
+// a "Fuel Depot, topping up" row, and links into the hidden console. None may appear now.
+// ============================================================================
+describe("buildHomeDashboard: the retired Fuel Depot is never offered (0.13.9)", () => {
+  it("the upgrade prompt never names or counts the Fuel Depot, even when its upgrade is startable", () => {
+    // The depot's rungs cost commonOre, so stock plenty alongside the credits + FA level.
+    const fresh = freshState();
+    const rich: GameState = {
+      ...fresh,
+      credits: new Decimal(1e12),
+      fleetAdminLevel: 3,
+      inventory: { ...fresh.inventory, commonOre: [new Decimal(1e9)] },
+    };
+    // Non-vacuous: the depot's next rung really IS startable in this state.
+    expect(canBuildFacilityUpgrade(rich, RETIRED_FUEL_DEPOT_KEY).ok).toBe(true);
+    const upgrade = promptById(buildHomeDashboard(rich), "idle-facility-upgrade");
+    expect(upgrade).toBeDefined();
+    expect(upgrade!.facilityKeys ?? []).not.toContain(RETIRED_FUEL_DEPOT_KEY);
+    expect(upgrade!.facilityKey).not.toBe(RETIRED_FUEL_DEPOT_KEY);
+    expect(upgrade!.label).not.toMatch(/fuel depot/i);
+  });
+
+  it("no in-progress row or completion row links to the hidden fuelDepot console", () => {
+    const state: GameState = {
+      ...withLog([completionRecord({ id: "d-fuel", kind: "fuelRefineJob", reward: "fuel", fuelAmount: "25" })]),
+      activeProcesses: [
+        { id: "p-fuel", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addFuel", amount: new Decimal(50) } },
+        { id: "p-depot-up", kind: "facilityUpgrade", remainingTicks: 5, durationTicks: 10, effect: { type: "facilityLevelUp", facility: RETIRED_FUEL_DEPOT_KEY } },
+      ],
+    };
+    const model = buildHomeDashboard(state);
+    expect(model.inProgress.some((r) => r.id === "p-fuel")).toBe(false); // the batch row is gone
+    for (const row of model.inProgress) expect(row.jumpTarget).not.toBe("fuelDepot");
+    for (const row of model.recentlyCompleted) expect(row.jumpTarget).not.toBe("fuelDepot");
+    for (const prompt of model.needsOrders) expect(prompt.jumpTarget).not.toBe("fuelDepot");
   });
 });
 

@@ -5635,9 +5635,23 @@ describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, 
     // Quality-bucketed inventory (Task 9a): seed the ice into its quality-0 bucket.
     s.inventory = { ...s.inventory, deuteriumIce: [new Decimal(1000)] };
     s.credits = new Decimal(1000);
-    // One economyTick fills the depot's free pipeline slot with a fuel-refine batch. rng is
-    // irrelevant here (the single captain is idle -> no mission economy runs), so pin it.
-    s = economyTick(s, 1, () => 0.5);
+    // 0.13.9 hotfix: the depot's pipelines are RETIRED (processFuelPipelines starts nothing), so
+    // economyTick can no longer mint the batch this test round-trips. Plant it directly, in the
+    // exact shape startProcess minted for a pre-0.13.9 save; that is precisely the legacy case
+    // that still has to load and complete. (Previously: one economyTick started it.)
+    s = {
+      ...s,
+      activeProcesses: [
+        {
+          id: `proc-${s.nextProcessId}`,
+          kind: "fuelRefineJob",
+          remainingTicks: FUEL_REFINE_DURATION_TICKS,
+          durationTicks: FUEL_REFINE_DURATION_TICKS,
+          effect: { type: "addFuel", amount: new Decimal(100) },
+        },
+      ],
+      nextProcessId: s.nextProcessId + 1,
+    };
     const inFlightBefore = s.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
     expect(inFlightBefore).toBeGreaterThan(0); // a real fuelRefineJob is now persisted in activeProcesses
 

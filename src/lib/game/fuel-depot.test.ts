@@ -13,6 +13,8 @@
 //     repeating; more pipelines -> more fuel/time; fuel refining awards NO Fleet Admiral XP.
 //   - offline == live parity (the coupled-offline proof): tick(bigSpan) == looping
 //     economyTick(_,1) across BOTH pause conditions (ice-out and tank-full).
+//   ⚠️ 0.13.9 hotfix: the pipelines are RETIRED (processFuelPipelines starts nothing), so the
+//   engine suites below now assert NO start plus in-flight completion; see the banner there.
 //
 // Level-0 depot values (the F2 constants): 1 pipeline, 50 ice -> 100 fuel over 10 ticks,
 // tank cap FUEL_TANK_BASE_CAP (500). Upgrade rungs (buildFuelDepotUpgrades, model.ts):
@@ -132,160 +134,96 @@ describe("derive-on-read helpers (pipelines / yield / input)", () => {
   });
 });
 
-describe("processFuelPipelines / economyTick, a batch refines 50 ice -> 100 fuel over durationTicks", () => {
-  it("consumes 50 ice at start, deposits 100 fuel on completion (tank space available)", () => {
-    const state = depotState({ deuteriumIce: 100, fuel: 0, fuelStorageLevel: 0 });
+// ============================================================================
+// 0.13.9 hotfix: THE PIPELINES ARE RETIRED (processFuelPipelines starts nothing).
+//
+// Fuel-to-reach (0.13.6) made fuel a STAT, but the hidden Fuel Depot kept auto-refining a
+// player's leftover Deuterium Ice (sellable at the Quartermaster) into an unused tank. The
+// suites below REPLACE the old "a batch starts / auto-stops / auto-resumes / more pipelines
+// refine more" coverage, which described behavior the hotfix deliberately removed. What is
+// still asserted, and why each matters:
+//   - NO START, in every condition the old gates covered (tank room, tank full, plenty of ice,
+//     short ice, a 2-pipeline depot): ice is never consumed and no batch appears.
+//   - AN IN-FLIGHT BATCH FROM AN OLDER SAVE STILL COMPLETES (deposit clamped at the cap, no FA
+//     XP), so the retirement strands nothing; the old deposit-clamp and no-FA-XP guards now run
+//     against a seeded batch instead of one the engine started.
+//   - offline == live parity still holds with a batch in flight.
+// ============================================================================
 
-    // Tick 1: one batch starts, ice deducted AT START (100 -> 50), fuel not yet added.
-    const afterOne = economyTick(state, 1, () => 0);
-    expect(fuelJobs(afterOne)).toHaveLength(1);
-    expect(itemTotal(afterOne.inventory, "deuteriumIce").toString()).toBe("50"); // 50 consumed at start
-    expect(afterOne.fuel.toString()).toBe("0"); // batch in flight, no fuel yet
+// One in-flight fuel batch as an older save would carry it (the shape startProcess minted).
+function inFlightBatch(amount: number, remainingTicks: number, id = "proc-legacy-1") {
+  return {
+    id,
+    kind: "fuelRefineJob" as const,
+    remainingTicks,
+    durationTicks: FUEL_REFINE_DURATION_TICKS,
+    effect: { type: "addFuel" as const, amount: new Decimal(amount) },
+  };
+}
 
-    // Midway (tick 5): still in flight, still no fuel.
-    const midway = stepTicks(state, 5);
-    expect(fuelJobs(midway)).toHaveLength(1);
-    expect(midway.fuel.toString()).toBe("0");
-
-    // Tick 11: the batch (started tick 1, 10-tick duration) completes -> +100 fuel. With
-    // 50 ice left, a SECOND batch starts the same tick (slot freed by completion),
-    // consuming the last 50 ice. (Completion is tick 11, not 10: the batch is created
-    // AFTER resolveProcesses on its start tick, so it needs 10 later decrements, the
-    // same "done @ start+10" timing the refine-order tests document.)
-    const afterDone = stepTicks(state, 11);
-    expect(afterDone.fuel.toString()).toBe("100"); // 100 fuel deposited
-    expect(itemTotal(afterDone.inventory, "deuteriumIce").toString()).toBe("0"); // 100 - 50 - 50 (2nd batch started)
-    expect(fuelJobs(afterDone)).toHaveLength(1); // the 2nd batch is now in flight
+describe("RETIRED (0.13.9): the Fuel Depot starts no batch and consumes no Deuterium Ice", () => {
+  it("processFuelPipelines is a same-reference no-op even with tank room, ice, and pipelines", () => {
+    const state = depotState({ deuteriumIce: 500, fuel: 0, fuelStorageLevel: 4 });
+    expect(fuelPipelineCount(state)).toBe(2); // non-vacuous: the depot WOULD have run 2 pipelines
+    expect(processFuelPipelines(state)).toBe(state);
   });
+
+  const cases: { label: string; opts: { deuteriumIce: number; fuel: number; fuelStorageLevel: number } }[] = [
+    { label: "an empty tank with ample ice (the old 'batch starts' case)", opts: { deuteriumIce: 100, fuel: 0, fuelStorageLevel: 0 } },
+    { label: "a full tank (the old tank-full pause)", opts: { deuteriumIce: 500, fuel: FUEL_TANK_BASE_CAP, fuelStorageLevel: 0 } },
+    { label: "too little ice for a batch (the old ice-out pause)", opts: { deuteriumIce: 49, fuel: 0, fuelStorageLevel: 0 } },
+    { label: "a 2-pipeline, upgraded depot (the old 'more pipelines' case)", opts: { deuteriumIce: 200, fuel: 0, fuelStorageLevel: 6 } },
+  ];
+  for (const c of cases) {
+    it(`over many ticks: no batch, ice untouched, tank unchanged, for ${c.label}`, () => {
+      const state = depotState(c.opts);
+      const after = stepTicks(state, 25);
+      expect(fuelJobs(after)).toHaveLength(0);
+      expect(itemTotal(after.inventory, "deuteriumIce").toString()).toBe(String(c.opts.deuteriumIce));
+      expect(after.fuel.toString()).toBe(String(c.opts.fuel));
+    });
+  }
 });
 
-describe("auto-stop, tank full (fuel >= fuelCap)", () => {
-  it("pauses (starts no batch, consumes no ice) when the tank is already at cap", () => {
-    // fuel exactly at the level-0 cap (500), ample ice.
-    const state = depotState({ deuteriumIce: 500, fuel: FUEL_TANK_BASE_CAP, fuelStorageLevel: 0 });
-    const after = economyTick(state, 1, () => 0);
-    expect(fuelJobs(after)).toHaveLength(0); // no batch started, tank full
-    expect(itemTotal(after.inventory, "deuteriumIce").toString()).toBe("500"); // no ice consumed
-    expect(after.fuel.toString()).toBe(String(FUEL_TANK_BASE_CAP)); // unchanged
+describe("RETIRED (0.13.9): a batch already in flight in a save still completes (nothing stranded)", () => {
+  it("deposits its fuel on completion and starts no follow-up batch from the remaining ice", () => {
+    const base = depotState({ deuteriumIce: 100, fuel: 0, fuelStorageLevel: 0 });
+    const state: GameState = { ...base, activeProcesses: [inFlightBatch(FUEL_REFINE_OUTPUT, 3)] };
+    const after = stepTicks(state, 5);
+    expect(after.fuel.toString()).toBe(String(FUEL_REFINE_OUTPUT)); // the in-flight batch landed
+    expect(fuelJobs(after)).toHaveLength(0); // and no new batch replaced it
+    expect(itemTotal(after.inventory, "deuteriumIce").toString()).toBe("100"); // ice untouched
   });
 
-  it("RESUMES the instant tank room reappears (structural auto-resume)", () => {
-    // Start full -> paused. Drop the tank below cap -> a batch starts next tick.
-    const paused = economyTick(
-      depotState({ deuteriumIce: 500, fuel: FUEL_TANK_BASE_CAP, fuelStorageLevel: 0 }),
-      1,
-      () => 0
-    );
-    const roomFreed: GameState = { ...paused, fuel: new Decimal(FUEL_TANK_BASE_CAP - 200) };
-    const resumed = economyTick(roomFreed, 1, () => 0);
-    expect(fuelJobs(resumed)).toHaveLength(1); // batch started, room returned
-    expect(itemTotal(resumed.inventory, "deuteriumIce").toString()).toBe("450"); // 500 - 50
-  });
-});
-
-describe("deposit clamp, a batch started below cap tops up to EXACTLY the cap (no overshoot)", () => {
-  it("ANTI-REGRESSION: a completing batch clamps at fuelCap instead of overshooting (450 + a 100 batch -> 500, not 550)", () => {
-    // The tank at 450 is BELOW the level-0 cap (500), so a batch legally starts (the
-    // TANK-FULL start gate only blocks at/above cap). On completion the batch would
-    // deposit its full 100 fuel and reach 550 WITHOUT the clamp; Decimal.min(fuelCap, ...)
-    // tops the tank to exactly 500 instead, discarding the overshoot the same way an
-    // inventory deposit discards overflow at a warehouse cap. Regression guard for the
-    // reported 496 -> 596 / 500 overflow.
-    const state = depotState({ deuteriumIce: 100, fuel: 450, fuelStorageLevel: 0 });
-    const afterDone = stepTicks(state, 11); // batch starts tick 1, completes tick 11
-    expect(afterDone.fuel.toString()).toBe(String(FUEL_TANK_BASE_CAP)); // 500, clamped (pre-fix: 550)
-    expect(afterDone.fuel.lte(fuelCap(afterDone))).toBe(true); // invariant: fuel never exceeds the cap
-  });
-});
-
-describe("auto-stop, ice out (Deuterium Ice < batch input); no ice stranded", () => {
-  it("pauses (starts no batch) when ice < the batch input, leaving the ice UNTOUCHED (not stranded)", () => {
-    // 49 ice, batch needs 50 -> no batch can start; the 49 must remain (gate BEFORE consuming).
-    const state = depotState({ deuteriumIce: 49, fuel: 0, fuelStorageLevel: 0 });
-    const after = economyTick(state, 1, () => 0);
-    expect(fuelJobs(after)).toHaveLength(0); // no batch, not enough ice
-    expect(itemTotal(after.inventory, "deuteriumIce").toString()).toBe("49"); // NOT stranded, untouched
-    expect(after.fuel.toString()).toBe("0");
+  it("ANTI-REGRESSION (deposit clamp): a completing batch still tops up to EXACTLY the cap (450 + 100 -> 500)", () => {
+    const base = depotState({ fuel: 450, fuelStorageLevel: 0 });
+    const after = stepTicks({ ...base, activeProcesses: [inFlightBatch(100, 2)] }, 3);
+    expect(after.fuel.toString()).toBe(String(FUEL_TANK_BASE_CAP)); // 500, clamped (not 550)
+    expect(after.fuel.lte(fuelCap(after))).toBe(true);
   });
 
-  it("RESUMES when ice is replenished", () => {
-    const paused = economyTick(depotState({ deuteriumIce: 49, fuel: 0, fuelStorageLevel: 0 }), 1, () => 0);
-    const refuelled: GameState = { ...paused, inventory: { ...paused.inventory, deuteriumIce: [new Decimal(60)] } };
-    const resumed = economyTick(refuelled, 1, () => 0);
-    expect(fuelJobs(resumed)).toHaveLength(1); // batch started, ice arrived
-    expect(itemTotal(resumed.inventory, "deuteriumIce").toString()).toBe("10"); // 60 - 50
-  });
-});
-
-describe("more pipelines -> more fuel per unit time", () => {
-  it("a 2-pipeline depot (level 4) refines TWO batches concurrently: +200 fuel in 10 ticks", () => {
-    const state = depotState({ deuteriumIce: 200, fuel: 0, fuelStorageLevel: 4 });
-    expect(fuelPipelineCount(state)).toBe(2);
-
-    // Tick 1: BOTH pipelines start a batch, 2 * 50 = 100 ice consumed at once.
-    const afterOne = economyTick(state, 1, () => 0);
-    expect(fuelJobs(afterOne)).toHaveLength(2);
-    expect(itemTotal(afterOne.inventory, "deuteriumIce").toString()).toBe("100"); // 200 - 2*50
-
-    // Tick 11: both complete -> +200 fuel (vs. +100 for a single pipeline). The remaining
-    // 100 ice starts 2 more batches the same tick.
-    const afterDone = stepTicks(state, 11);
-    expect(afterDone.fuel.toString()).toBe("200"); // 2 batches * 100
-    expect(itemTotal(afterDone.inventory, "deuteriumIce").toString()).toBe("0"); // 200 - 4*50
-  });
-
-  it("upgraded yield + reduced input (level 6): a batch consumes 35 ice and yields 150 fuel", () => {
-    // 35 ice affords exactly one batch on this 2-pipeline depot; proves both the -input
-    // (35 consumed) and +yield (150 produced) upgrades apply to real production.
-    const state = depotState({ deuteriumIce: 35, fuel: 0, fuelStorageLevel: 6 });
-    const afterDone = stepTicks(state, 11); // batch started tick 1 completes tick 11
-    expect(afterDone.fuel.toString()).toBe("150"); // yield x1.5
-    expect(itemTotal(afterDone.inventory, "deuteriumIce").toString()).toBe("0"); // input 35 consumed
-  });
-});
-
-describe("fuel refining awards NO Fleet Admiral XP (additive economy, curve untouched)", () => {
-  it("completing fuel batches leaves fleetAdminXp / fleetAdminLevel unchanged", () => {
-    const state = depotState({ deuteriumIce: 100, fuel: 0, fuelStorageLevel: 0 });
-    expect(state.fleetAdminXp.eq(0)).toBe(true);
-    // Step past two full batches (each 10 ticks) so completions definitely fire.
-    const after = stepTicks(state, 25);
-    expect(after.fuel.gt(0)).toBe(true); // non-vacuous: fuel WAS produced
-    expect(after.fleetAdminXp.eq(0)).toBe(true); // ...but no FA XP awarded
+  it("completing a batch awards NO Fleet Admiral XP", () => {
+    const base = depotState({ fuel: 0, fuelStorageLevel: 0 });
+    const after = stepTicks({ ...base, activeProcesses: [inFlightBatch(100, 2)] }, 3);
+    expect(after.fuel.gt(0)).toBe(true); // non-vacuous: the batch did complete
+    expect(after.fleetAdminXp.eq(0)).toBe(true);
     expect(after.fleetAdminLevel).toBe(1);
   });
 });
 
-describe("⚠️ offline == live PARITY (tick(bigSpan) == looping economyTick(_,1))", () => {
-  it("ICE-OUT mid-span: fuel, ice, and in-flight batches all match", () => {
-    // 175 ice on a 1-pipeline depot = exactly 3 batches (150 ice), then 25 left < 50 (ice-out).
-    // Batches complete @10/@20/@30 -> 300 fuel (well under the 500 cap, so ONLY ice-out fires).
-    const make = () => depotState({ deuteriumIce: 175, fuel: 0, fuelStorageLevel: 0 });
+describe("⚠️ offline == live PARITY (tick(bigSpan) == looping economyTick(_,1)), pipelines retired", () => {
+  it("an in-flight batch plus leftover ice: fuel, ice, and processes all match", () => {
+    const make = (): GameState => ({
+      ...depotState({ deuteriumIce: 175, fuel: 0, fuelStorageLevel: 4 }),
+      activeProcesses: [inFlightBatch(100, 7, "proc-legacy-a"), inFlightBatch(100, 12, "proc-legacy-b")],
+    });
     const SPAN = 45;
-
-    const offline = tick(SPAN, make(), () => 0); // internally steps economyTick(_,1) per tick
-    const live = stepTicks(make(), SPAN);
-
-    expect(fuelSnapshot(offline)).toEqual(fuelSnapshot(live));
-    // Concrete + non-vacuous: 3 batches ran, 300 fuel, 25 ice stranded-but-untouched, none in flight.
-    expect(offline.fuel.toString()).toBe("300");
-    expect(itemTotal(offline.inventory, "deuteriumIce").toString()).toBe("25");
-    expect(fuelJobs(offline)).toHaveLength(0);
-  });
-
-  it("TANK-FULL mid-span: fuel, ice, and in-flight batches all match", () => {
-    // 400 ice on a 1-pipeline depot, cap 500. Batches complete @10..@50 -> fuel hits 500 at
-    // tick 50 (5 batches, 250 ice), then TANK-FULL pauses (150 ice remains, never consumed).
-    const make = () => depotState({ deuteriumIce: 400, fuel: 0, fuelStorageLevel: 0 });
-    const SPAN = 70;
-
     const offline = tick(SPAN, make(), () => 0);
     const live = stepTicks(make(), SPAN);
-
     expect(fuelSnapshot(offline)).toEqual(fuelSnapshot(live));
-    // Non-vacuous: tank filled to cap, extra ice left unconsumed, no batch in flight.
-    expect(offline.fuel.toString()).toBe(String(FUEL_TANK_BASE_CAP)); // 500, at cap
-    expect(itemTotal(offline.inventory, "deuteriumIce").toString()).toBe("150"); // 400 - 5*50
+    // Non-vacuous: both legacy batches landed, no new one started, the ice is untouched.
+    expect(offline.fuel.toString()).toBe("200");
+    expect(itemTotal(offline.inventory, "deuteriumIce").toString()).toBe("175");
     expect(fuelJobs(offline)).toHaveLength(0);
   });
 });
