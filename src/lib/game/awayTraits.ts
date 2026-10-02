@@ -46,7 +46,7 @@ export interface AwayTraitDef {
 // The catalog, Security first, then Science. Ids are stable save keys (members store them), so never
 // rename one; retire a trait by leaving its row in place. FIRST-PASS + TUNABLE numbers.
 export const AWAY_TRAITS: readonly AwayTraitDef[] = [
-  // --- Security ---------------------------------------------------------------------------------------
+  // ===== Security =====
   {
     id: "steadyAim",
     label: "Steady Aim",
@@ -103,7 +103,7 @@ export const AWAY_TRAITS: readonly AwayTraitDef[] = [
     teamTypes: ["security"],
     effect: { kind: "stat", stat: "armor", value: 0.08 },
   },
-  // --- Science ----------------------------------------------------------------------------------------
+  // ===== Science =====
   {
     id: "keenEye",
     label: "Keen Eye",

@@ -28,6 +28,7 @@ import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { officerRosterWindowIndex } from "./seniorStaff";
 import { makeRng } from "./combat/rng";
+import { onMissionLock } from "./equipment";
 
 // ============================================================================
 // Squad sizes (design section 5.2)
@@ -174,15 +175,102 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
 }
 
 // The current recruit board: one candidate per slot, `seniorStaffRosterSize` slots (the shared board
-// size), deterministic from the current window + awayRecruitSeed. Ephemeral (never persisted). Pure;
-// returns a fresh array of fresh member objects.
+// size), deterministic from the current window + awayRecruitSeed. Ephemeral (never persisted). A
+// candidate a current member was hired from (AwayMember.hiredFrom) is left off, so a hired recruit
+// leaves the board and cannot be hired twice; every other slot is unaffected (slots roll independently).
+// Pure; returns a fresh array of fresh member objects.
 export function awayRecruitCandidates(state: GameState): AwayMember[] {
   const windowIndex = officerRosterWindowIndex(state);
   const size = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
   const baseSeed = state.awayRecruitSeed >>> 0;
+  const hired = new Set(state.awayMembers.map((m) => m.hiredFrom).filter((id) => id !== undefined));
   const out: AwayMember[] = [];
   for (let slot = 0; slot < size; slot += 1) {
+    if (hired.has(awayCandidateId(windowIndex, slot))) continue;
     out.push(rollAwayCandidate(baseSeed, windowIndex, slot));
   }
   return out;
+}
+
+// ============================================================================
+// Actions (each returns a NEW GameState; inputs are never mutated; a refusal returns the SAME ref)
+// ============================================================================
+
+// Whether a ship's crew is LOCKED right now (design section 5.6, S1-62): no hire, fire or reassign
+// touches a ship that is out. Two sources, both existing state, nothing reinvented:
+//   - the captain is on a mission or patrol: equipment.ts onMissionLock, the SAME guard that locks gear
+//     installs and ship salvage (one source of truth for "this hull is in flight");
+//   - the ship is on an expedition: onMissionLock does not see those (an expedition lives in
+//     state.expeditions, not on captain.mission), yet that is exactly when the away team is deployed and
+//     its members are snapshotted, and claim later applies injuries to the live members. The test is the
+//     same "one expedition per ship" check startExpedition uses; it holds until the run is claimed.
+// A ship that does not exist is not locked (there is nothing in flight to protect), so a member left
+// pointing at a removed hull can still be fired or reassigned. Task 27 routes every crew action
+// (officers, complement, rosters) through this one helper. Pure.
+export function shipCrewLocked(state: GameState, shipId: string): boolean {
+  const lock = onMissionLock(state, shipId);
+  if (!lock.ok && lock.reason === "onMission") return true;
+  return state.expeditions.some((e) => e.shipId === shipId);
+}
+
+// Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
+// (returns the SAME state) when the candidate is not on the board (including one already hired), the
+// ship does not exist, that squad has no room, or the ship is crew-locked. The hire is re-ided to
+// "member-N" from nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and
+// keeps its rolled squad / spec / identity / rank / traits. Pure.
+export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
+  const candidate = awayRecruitCandidates(state).find((c) => c.id === candidateId);
+  if (!candidate) return state;
+  if (!state.ships.some((s) => s.id === shipId)) return state;
+  if (shipCrewLocked(state, shipId)) return state;
+  if (!squadHasRoom(state, shipId, candidate.teamType)) return state;
+  const hired: AwayMember = {
+    ...candidate,
+    id: `member-${state.nextAwayMemberId}`,
+    traits: [...candidate.traits],
+    assignedShipId: shipId,
+    hiredFrom: candidate.id,
+  };
+  return {
+    ...state,
+    awayMembers: [...state.awayMembers, hired],
+    nextAwayMemberId: state.nextAwayMemberId + 1,
+  };
+}
+
+// Fire a member. Refuses (returns the SAME state) for an unknown id or while the member's ship is
+// crew-locked. Otherwise it FIRST returns everything the member wears to storage (every piece with
+// fittedToMemberId === memberId gets null, which makes it spare again through isSparePiece: armor,
+// weapon, tool and implants alike), THEN removes the member, so no piece is ever left pointing at a
+// member who no longer exists. Pure.
+export function fireAwayMember(state: GameState, memberId: string): GameState {
+  const target = state.awayMembers.find((m) => m.id === memberId);
+  if (!target) return state;
+  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) return state;
+  return {
+    ...state,
+    equipment: state.equipment.map((e) => (e.fittedToMemberId === memberId ? { ...e, fittedToMemberId: null } : e)),
+    awayMembers: state.awayMembers.filter((m) => m.id !== memberId),
+  };
+}
+
+// Move a member to another ship's squad of the member's own team type, or bench them (shipId null =
+// unassigned). Refuses (returns the SAME state) for an unknown member, an unknown target ship, a full
+// target squad, or when EITHER the ship they leave or the ship they join is crew-locked. Moving to the
+// ship they are already on (or benching a benched member) is a same-ref no-op. Gear travels with the
+// member (it is keyed to the member, not the ship). Pure.
+export function reassignAwayMember(state: GameState, memberId: string, shipId: string | null): GameState {
+  const target = state.awayMembers.find((m) => m.id === memberId);
+  if (!target) return state;
+  if (target.assignedShipId === shipId) return state;
+  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) return state;
+  if (shipId !== null) {
+    if (!state.ships.some((s) => s.id === shipId)) return state;
+    if (shipCrewLocked(state, shipId)) return state;
+    if (!squadHasRoom(state, shipId, target.teamType)) return state;
+  }
+  return {
+    ...state,
+    awayMembers: state.awayMembers.map((m) => (m.id === memberId ? { ...m, assignedShipId: shipId } : m)),
+  };
 }

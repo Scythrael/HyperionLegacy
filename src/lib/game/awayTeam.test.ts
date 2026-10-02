@@ -1,10 +1,10 @@
 // E-CREW: tests for the away-team engine (awayTeam.ts). Covers the per-ship-type squad sizes
 // (design section 5.2) and the derived recruit board (section 5.1: determinism, window steps, squad /
-// spec / trait / rank / race rolls, augment affinity). Nothing here exercises the tick or the UI (the engine is not wired in yet).
+// spec / trait / rank / race rolls, augment affinity), plus hire / fire / reassign with the crew lock. Nothing here exercises the tick or the UI (the engine is not wired in yet).
 
 import { describe, it, expect } from "vitest";
-import { freshState, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
-import type { AwayMember, AwayTeamType, GameState, ShipTypeKey } from "./model";
+import { freshState, isSparePiece, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
+import type { AwayMember, AwayTeamType, CaptainMissionState, EquipmentInstance, GameState, ShipTypeKey } from "./model";
 import {
   squadSlots,
   membersInSquad,
@@ -14,13 +14,17 @@ import {
   implantSlotsFor,
   specsFor,
   awayRecruitCandidates,
+  shipCrewLocked,
+  hireAwayMember,
+  fireAwayMember,
+  reassignAwayMember,
 } from "./awayTeam";
 import { getAwayTrait } from "./awayTraits";
 import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { OFFICER_ROSTER_WINDOW_SECONDS, seniorStaffCandidates } from "./seniorStaff";
 
-// --- fixtures ---------------------------------------------------------------
+// ===== fixtures =====
 
 // A minimal hired member on `shipId`'s `teamType` squad. Only the fields the squad readers look at
 // matter; the rest are plausible placeholders.
@@ -50,7 +54,7 @@ function stateWithShips(ships: { id: string; typeKey: ShipTypeKey }[], members: 
 
 const ALL_TYPE_KEYS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 
-// --- Task 3: squad sizes ----------------------------------------------------
+// ===== Task 3: squad sizes =====
 
 describe("squadSlots (design section 5.2)", () => {
   it("Eir fields 4 Security and 4 Science", () => {
@@ -152,7 +156,7 @@ describe("membersInSquad / squadHasRoom", () => {
   });
 });
 
-// --- Task 4: traits + the derived recruit board ------------------------------
+// ===== Task 4: traits + the derived recruit board =====
 
 // A fresh state at a given game time / recruit seed / board size.
 function boardState(opts: { gameTimeSeconds?: number; seed?: number; rosterSize?: number } = {}): GameState {
@@ -252,5 +256,231 @@ describe("awayRecruitCandidates (derived board)", () => {
     expect(counts.get(1) ?? 0).toBeGreaterThan(counts.get(4) ?? 0);
     expect(counts.get(4) ?? 0).toBeGreaterThan(counts.get(8) ?? 0);
     expect(counts.get(8) ?? 0).toBeGreaterThan(0); // the top rank is rare but reachable
+  });
+});
+
+// ===== Task 5: hire / fire / reassign =====
+
+// A minimal active extraction mission: mission !== null is all onMissionLock reads. cargo's required-key
+// Record is satisfied with a cast; nothing here reads it.
+function activeMission(): CaptainMissionState {
+  return {
+    kind: "extraction",
+    missionKey: "shortOreRun",
+    phase: "transitOut",
+    phaseProgressTicks: 0,
+    cargo: {} as CaptainMissionState["cargo"],
+    recalled: false,
+  };
+}
+
+// A loose equipment piece (only the location fields matter to these tests).
+function piece(id: string, overrides: Partial<EquipmentInstance> = {}): EquipmentInstance {
+  return {
+    id,
+    slotType: "cargoBay",
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 1,
+    blueprintKey: null,
+    implicitStats: {},
+    rolledStats: {},
+    mass: 0,
+    powerDraw: 0,
+    durabilityMax: 100,
+    durability: 100,
+    fittedToShipId: null,
+    ...overrides,
+  };
+}
+
+// Two idle Destroyers (4 Security / 3 Science): ship-a is flown by captain 1, ship-b is parked.
+function hireState(members: AwayMember[] = []): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    gameTimeSeconds: 0,
+    ships: [
+      { ...base.ships[0], id: "ship-a", typeKey: "destroyer", assignedCaptainId: 1 },
+      { ...base.ships[0], id: "ship-b", typeKey: "destroyer", assignedCaptainId: null },
+    ],
+    captains: base.captains.map((c) => (c.id === 1 ? { ...c, mission: null } : c)),
+    awayMembers: members,
+    nextAwayMemberId: members.length + 1,
+  };
+}
+
+// Put captain 1 (ship-a's captain) on an active mission, which crew-locks ship-a.
+function onMission(s: GameState): GameState {
+  return { ...s, captains: s.captains.map((c) => (c.id === 1 ? { ...c, mission: activeMission() } : c)) };
+}
+
+// The first board candidate of the given squad type.
+function candidateOf(s: GameState, teamType: AwayTeamType): AwayMember {
+  const c = awayRecruitCandidates(s).find((m) => m.teamType === teamType);
+  if (!c) throw new Error(`no ${teamType} candidate on the fixture board`);
+  return c;
+}
+
+describe("shipCrewLocked", () => {
+  it("is false for an idle or parked ship, true while its captain is on a mission", () => {
+    const s = hireState();
+    expect(shipCrewLocked(s, "ship-a")).toBe(false);
+    expect(shipCrewLocked(s, "ship-b")).toBe(false);
+    expect(shipCrewLocked(onMission(s), "ship-a")).toBe(true);
+    expect(shipCrewLocked(onMission(s), "ship-b")).toBe(false);
+  });
+
+  it("is true while the ship is out on an expedition (the away team is deployed)", () => {
+    const s = hireState();
+    const withExpedition = { ...s, expeditions: [{ shipId: "ship-b" } as GameState["expeditions"][number]] };
+    expect(shipCrewLocked(withExpedition, "ship-b")).toBe(true);
+    expect(shipCrewLocked(withExpedition, "ship-a")).toBe(false);
+  });
+
+  it("is false for a ship that does not exist (nothing to protect)", () => {
+    expect(shipCrewLocked(hireState(), "ship-missing")).toBe(false);
+  });
+});
+
+describe("hireAwayMember", () => {
+  it("copies the candidate into the ship's squad with a fresh member id", () => {
+    const s = hireState();
+    const cand = candidateOf(s, "security");
+    const next = hireAwayMember(s, cand.id, "ship-a");
+    expect(next).not.toBe(s);
+    expect(next.awayMembers).toHaveLength(1);
+    const hired = next.awayMembers[0];
+    expect(hired).toMatchObject({
+      id: "member-1",
+      assignedShipId: "ship-a",
+      hiredFrom: cand.id,
+      name: cand.name,
+      teamType: cand.teamType,
+      spec: cand.spec,
+      rank: cand.rank,
+      traits: cand.traits,
+    });
+    expect(next.nextAwayMemberId).toBe(2);
+    expect(membersInSquad(next, "ship-a", "security")).toHaveLength(1);
+    expect(s.awayMembers).toEqual([]); // input untouched
+  });
+
+  it("fills the squad, then refuses with the same state ref once it is full", () => {
+    // Destroyer Science holds 3: seed it full, then try to hire a 4th scientist.
+    const full = [1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a"));
+    const s = hireState(full);
+    const cand = candidateOf(s, "science");
+    expect(hireAwayMember(s, cand.id, "ship-a")).toBe(s);
+    // The same candidate still fits the other Destroyer.
+    expect(hireAwayMember(s, cand.id, "ship-b").awayMembers).toHaveLength(4);
+  });
+
+  it("hires one by one until the squad is full", () => {
+    let s = hireState();
+    const scientists = awayRecruitCandidates(s).filter((c) => c.teamType === "science");
+    expect(scientists.length).toBeGreaterThanOrEqual(4); // the fixture board has enough to overfill
+    for (const c of scientists.slice(0, 3)) s = hireAwayMember(s, c.id, "ship-a");
+    expect(membersInSquad(s, "ship-a", "science")).toHaveLength(3);
+    expect(squadHasRoom(s, "ship-a", "science")).toBe(false);
+    expect(hireAwayMember(s, scientists[3].id, "ship-a")).toBe(s);
+  });
+
+  it("refuses a candidate not on the current board, and a ship that does not exist", () => {
+    const s = hireState();
+    expect(hireAwayMember(s, "away-candidate-999-0", "ship-a")).toBe(s);
+    expect(hireAwayMember(s, candidateOf(s, "security").id, "ship-missing")).toBe(s);
+  });
+
+  it("refuses while the ship is crew-locked", () => {
+    const s = onMission(hireState());
+    expect(hireAwayMember(s, candidateOf(s, "security").id, "ship-a")).toBe(s);
+  });
+
+  it("refuses hiring the same candidate twice, and drops them from the board", () => {
+    const s = hireState();
+    const cand = candidateOf(s, "security");
+    const once = hireAwayMember(s, cand.id, "ship-a");
+    expect(awayRecruitCandidates(once).some((c) => c.id === cand.id)).toBe(false);
+    expect(hireAwayMember(once, cand.id, "ship-a")).toBe(once);
+    expect(hireAwayMember(once, cand.id, "ship-b")).toBe(once);
+  });
+});
+
+describe("fireAwayMember", () => {
+  it("returns the member's gear to storage first, then removes the member", () => {
+    const s: GameState = {
+      ...hireState([member("member-1", "security", "ship-a"), member("member-2", "security", "ship-a")]),
+      equipment: [
+        piece("armor-1", { fittedToMemberId: "member-1" }),
+        piece("implant-1", { fittedToMemberId: "member-1" }),
+        piece("other-1", { fittedToMemberId: "member-2" }),
+        piece("ship-gear", { fittedToShipId: "ship-a" }),
+      ],
+    };
+    const next = fireAwayMember(s, "member-1");
+    expect(next.awayMembers.map((x) => x.id)).toEqual(["member-2"]);
+    expect(next.equipment.some((e) => e.fittedToMemberId === "member-1")).toBe(false);
+    for (const id of ["armor-1", "implant-1"]) {
+      const e = next.equipment.find((x) => x.id === id)!;
+      expect(e.fittedToMemberId).toBeNull();
+      expect(isSparePiece(e)).toBe(true);
+    }
+    expect(next.equipment.find((x) => x.id === "other-1")!.fittedToMemberId).toBe("member-2");
+    expect(next.equipment.find((x) => x.id === "ship-gear")!.fittedToShipId).toBe("ship-a");
+    expect(s.equipment.find((x) => x.id === "armor-1")!.fittedToMemberId).toBe("member-1"); // input untouched
+  });
+
+  it("refuses (same ref) while the member's ship is crew-locked, and for an unknown id", () => {
+    const s = hireState([member("member-1", "security", "ship-a")]);
+    const locked = onMission(s);
+    expect(fireAwayMember(locked, "member-1")).toBe(locked);
+    expect(fireAwayMember(s, "member-404")).toBe(s);
+  });
+
+  it("can fire an unassigned member", () => {
+    const s = hireState([member("member-1", "science", null)]);
+    expect(fireAwayMember(s, "member-1").awayMembers).toEqual([]);
+  });
+});
+
+describe("reassignAwayMember", () => {
+  it("moves a member to another ship's matching squad", () => {
+    const s = hireState([member("member-1", "science", "ship-a")]);
+    const next = reassignAwayMember(s, "member-1", "ship-b");
+    expect(next.awayMembers[0].assignedShipId).toBe("ship-b");
+    expect(membersInSquad(next, "ship-a", "science")).toEqual([]);
+    expect(membersInSquad(next, "ship-b", "science")).toHaveLength(1);
+  });
+
+  it("refuses (same ref) when the target squad is full", () => {
+    const fullB = [2, 3, 4].map((n) => member(`member-${n}`, "science", "ship-b"));
+    const s = hireState([member("member-1", "science", "ship-a"), ...fullB]);
+    expect(reassignAwayMember(s, "member-1", "ship-b")).toBe(s);
+  });
+
+  it("refuses (same ref) when either ship is crew-locked", () => {
+    const fromLocked = onMission(hireState([member("member-1", "science", "ship-a")]));
+    expect(reassignAwayMember(fromLocked, "member-1", "ship-b")).toBe(fromLocked);
+    expect(reassignAwayMember(fromLocked, "member-1", null)).toBe(fromLocked);
+    const toLocked = onMission(hireState([member("member-1", "science", "ship-b")]));
+    expect(reassignAwayMember(toLocked, "member-1", "ship-a")).toBe(toLocked);
+  });
+
+  it("unassigns with null, and assigns an unassigned member into a squad", () => {
+    const s = hireState([member("member-1", "security", "ship-a")]);
+    const benched = reassignAwayMember(s, "member-1", null);
+    expect(benched.awayMembers[0].assignedShipId).toBeNull();
+    expect(reassignAwayMember(benched, "member-1", "ship-b").awayMembers[0].assignedShipId).toBe("ship-b");
+  });
+
+  it("is a same-ref no-op for an unknown member, an unknown ship, or the ship it is already on", () => {
+    const s = hireState([member("member-1", "security", "ship-a")]);
+    expect(reassignAwayMember(s, "member-404", "ship-b")).toBe(s);
+    expect(reassignAwayMember(s, "member-1", "ship-missing")).toBe(s);
+    expect(reassignAwayMember(s, "member-1", "ship-a")).toBe(s);
+    const benched = reassignAwayMember(s, "member-1", null);
+    expect(reassignAwayMember(benched, "member-1", null)).toBe(benched);
   });
 });

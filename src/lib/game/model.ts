@@ -5464,6 +5464,11 @@ export interface AwayMember {
   // The member's OWN gambit program (D16, Security only); absent = the preset default.
   gambit?: GambitProgram;
   favorite?: boolean; // curation flag only, parity with officers / notables
+  // The recruit-board candidate id this member was hired from ("away-candidate-<window>-<slot>"). The
+  // board is derived and never persisted, so this is the only record that a candidate was taken: the
+  // board drops any candidate a current member was hired from, which makes a second hire of the same
+  // candidate refuse. Optional + additive (absent on any member made some other way), so no migration.
+  hiredFrom?: string;
 }
 
 // An officer's four stats (D13, design section 7). Each is a FACET of the department the officer
