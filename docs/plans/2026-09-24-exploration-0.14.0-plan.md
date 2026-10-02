@@ -319,6 +319,33 @@ authoritative model for ground teams, and the E3 build DEVIATES from it until re
   tuned for mining. ⚠️ OPEN: the user must NAME the 8 roles (do not invent the set); hull-class-gated vs
   per-item; how they map to the Explorer/crew roles. BLOCKED on that input.
 
+### INVENTORY GAP FIXES (DECIDED, user 2026-10-02)
+The 2026-09-30 planned-features audit ([PLANNED_FEATURES_INVENTORY.md](../PLANNED_FEATURES_INVENTORY.md)) found
+locked/planned work that never landed. User: "roll it into 0.14.0 as a bug fix that adds in proper functionality
+for those gaps and timing calls." These ride 0.14.0 as FIXES that add real function (never "remove the dead
+thing"). Each carried row is closed by ID in its commit.
+
+- **Phase E-CREW, "make crew real" (inventory A1-A3).** The away-team roster rework (THE AWAY TEAM ROSTER above,
+  carrying the older locked details in inventory A1) + cybernetics, AND the crew systems that display but do
+  nothing: dormant Senior Staff bonuses (S4-CP12), no-op Complement pools (S4-CP04/CP05), notables never creatable +
+  graduate/sort/mass-action (S4-C24), Active-mode assignment (S4-C18), plus the small crew rows in A2. Crew modules
+  get a blueprint AND an install tile (S4-CP23). ONE whole-build mockup before any code (mockup = full sign-off).
+- **Phase E-MAT, Material Lines + Material Quality (inventory B2: S5-152, S5-105, S5-130, S5-128).** Revive the
+  July Material Lines design (`feat/material-lines-0.11.1`, reconciled against current code first: recipes,
+  salvage, refinery queue and items have all moved since) so every mission material has a sink. Give the
+  `materialQualityChance` rig stat its designed function (equipment design 0.11.0 section 5: it raises the quality
+  of found materials, and material quality feeds crafted quality). Inventory already stores materials per quality.
+- **Gear handling (S5-133, S5-151):** equipment discard + sell for credits; install a system from the ITEM side as
+  well as the ship side (0.12.0 console lock).
+- **Captain trees (S5-120):** real Tactician + Explorer base talent trees (both are inert hubs today) + the INFAMY
+  talent (raises a patrol's max waves).
+- **Combat 1.1 leftovers ride E-MOD (S5-196, S5-126):** active-ability engine, ambush counter-modules, in-combat
+  drone replenish, Overcharged Capacitors, and the power-budget fit gate (same mechanic as E0's power grid,
+  S4-A03). The sim hooks exist and are hardwired off.
+- **Still in 0.14.0 scope from the audit (already locked there):** reach into expeditions + recall (A4), early
+  sensor acquisition + sensor roles (A5), the achievement foundation + milestone ledger E-CAP needs (A6), Help
+  rewrite incl. the wrong-in-prod fuel topic (A8). Section D decisions stay the user's; none are assumed here.
+
 ## Review + merge (per the standing workflow)
 Two-stage subagent review (Fable bug-check, then Opus full-ledger fix) after the build phases, a holistic
 review, then confirm-then-push. Deploy to staging only via `git push origin <branch>:staging`; promotion to
