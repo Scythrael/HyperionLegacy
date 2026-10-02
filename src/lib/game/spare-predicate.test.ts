@@ -6,13 +6,34 @@
 // "is this piece free to take?" and isUninstalledPiece the ONE answer to "is it installed on
 // anything?". The source scan below keeps raw comparisons from creeping back in: a line that truly
 // needs the raw field (the helpers themselves, or a historical comment) carries `isSparePiece-ok`.
+// Known blind spots of the scan: reversed operands (`null === x.fittedToShipId`), comparisons split
+// across lines, and .js files are not caught; review keeps those out.
 import { describe, it, expect } from "vitest";
 // node:fs through the minimal test shim (src/lib/fs-for-tests.d.ts); node:path is deliberately not
 // used, since the app tsconfig carries no node types and a "/" join works on every platform here.
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { isSparePiece, isUninstalledPiece } from "./model";
+import { isSparePiece, isUninstalledPiece, type EquipmentInstance } from "./model";
 
-const piece = (over: Partial<any> = {}) => ({ id: "equip-1", slotType: "cargoBay", fittedToShipId: null, ...over }) as any;
+// A loose, minimal piece; overrides set only the location fields under test.
+function piece(overrides: Partial<EquipmentInstance> = {}): EquipmentInstance {
+  return {
+    id: "equip-1",
+    slotType: "cargoBay",
+    rarity: "standard",
+    ascension: "none",
+    quality: 0,
+    iLevel: 1,
+    blueprintKey: null,
+    implicitStats: {},
+    rolledStats: {},
+    mass: 0,
+    powerDraw: 0,
+    durabilityMax: 100,
+    durability: 100,
+    fittedToShipId: null,
+    ...overrides,
+  };
+}
 
 describe("isSparePiece", () => {
   it("a loose piece is spare", () => expect(isSparePiece(piece())).toBe(true));
@@ -39,9 +60,10 @@ describe("no raw spare checks outside the helpers", () => {
       /!\s*[\w$.?]*\bfittedToShipId\b(?!\s*[!=]==?)/, // !piece.fittedToShipId
     ];
     const hits: string[] = [];
-    // Vacuity guard: the scan must actually see source, including the sanctioned helper line.
+    // Vacuity guard: the scan must actually see source, and must see the sanctioned helper line in
+    // model.ts specifically (a tagged line elsewhere, like save.ts's history comment, does not count).
     let scanned = 0;
-    let sawHelper = false;
+    let sawHelperInModel = false;
     const walk = (d: string) => {
       for (const f of readdirSync(d)) {
         const p = `${d}/${f}`;
@@ -50,15 +72,15 @@ describe("no raw spare checks outside the helpers", () => {
           scanned++;
           readFileSync(p, "utf8").split("\n").forEach((l, i) => {
             if (!raw.some((re) => re.test(l))) return;
-            if (l.includes("isSparePiece-ok")) sawHelper = true;
-            else hits.push(`${p}:${i + 1}`);
+            if (!l.includes("isSparePiece-ok")) hits.push(`${p}:${i + 1}`);
+            else if (p === "src/lib/game/model.ts") sawHelperInModel = true;
           });
         }
       }
     };
     walk("src");
     expect(scanned).toBeGreaterThan(50);
-    expect(sawHelper).toBe(true);
+    expect(sawHelperInModel).toBe(true);
     expect(hits).toEqual([]);
   });
 });

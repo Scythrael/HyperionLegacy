@@ -628,8 +628,8 @@ export function salvageShip(
   }
 
   // --- Return crafted systems to the spare pool; discard baselines ----------
-  // fittedToShipId is the SINGLE SOURCE OF TRUTH for where a piece lives (model.ts). For the
-  // pieces fitted to THIS hull:
+  // fittedToShipId is the authority for which SHIP holds a piece (model.ts; whether a piece is
+  // free to take is isSparePiece). For the pieces fitted to THIS hull:
   //   genuine Standard-Issue FLOOR (isStandardIssueBaseline) -> DISCARDED (dropped from the array).
   //                                         It is free + craftless, so there is nothing to preserve.
   //   EVERYTHING ELSE fitted here (crafted AND dev/valuable) -> unfit to the spare pool (set

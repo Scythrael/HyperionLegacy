@@ -45,8 +45,8 @@ export function archiveCompletion(state: GameState): { total: number; max: numbe
   return { total, max, pct: max > 0 ? (total / max) * 100 : 0 };
 }
 
-// Enshrine a rolled system into the Archive. It must be a free SPARE (fittedToShipId null, not
-// committed to a loadout) and a CRAFTED item (has a blueprintKey, not a Standard-Issue baseline).
+// Enshrine a rolled system into the Archive. It must be a free SPARE (isSparePiece: on no ship, worn
+// by no member, not committed to a loadout) and a CRAFTED item (has a blueprintKey, not a Standard-Issue baseline).
 // Slotting CONSUMES the instance (removed from state.equipment) and records max(existing, newScore)
 // for its blueprint. Same-ref no-op on any failed guard. Atomic: the score update and the consume
 // land in the one new state.

@@ -1,6 +1,8 @@
 // ============================================================================
-// A ONE-FUNCTION node:fs SHIM, for TESTS THAT READ SOURCE FILES.
-// 0.13.5 Phase 1. Used by contrast.test.ts, which parses src/app.css directly.
+// A MINIMAL node:fs SHIM (three functions), for TESTS THAT READ SOURCE FILES.
+// 0.13.5 Phase 1. readFileSync is used by contrast.test.ts (parses src/app.css directly) and the
+// other source-reading tests (uiPrimitives, uiScale, relicIcons). readdirSync + statSync were added
+// for E-CREW's spare-predicate.test.ts, which walks src to scan every source file.
 //
 // ⚠️ WHY THIS EXISTS RATHER THAN ADDING "node" TO tsconfig.app.json's `types`.
 //

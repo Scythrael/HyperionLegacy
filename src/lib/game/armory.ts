@@ -139,7 +139,7 @@ export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlo
 // Install a spare rolled system into a loadout slot. Refused (same-ref no-op) unless: the loadout
 // exists and is NOT checked out (editing a live-equipped loadout is a later increment, gated on the
 // ship's mission state to close the mid-mission-swap loophole); the slot key is a real slot for the
-// loadout's ship type; the instance is a free SPARE (fittedToShipId null and not already committed);
+// loadout's ship type; the instance is a free SPARE (isSparePiece: on no ship or member, not already committed);
 // and its slotType matches the slot. Swapping a filled slot returns the previous system to the spare
 // pool. Atomic: the committed marker moves in the SAME new state the loadout slot is written in.
 export function installIntoLoadout(

@@ -1489,9 +1489,10 @@ export type EquipmentAscension = "none" | "nova" | "celestial";
 
 // A concrete piece of equipment. Mirrors ShipInstance's lightweight per-instance
 // posture: non-stacking (each piece is its own record with a stable id), and its
-// `fittedToShipId` is the SINGLE SOURCE OF TRUTH for where the piece lives (null =
-// spare in the pool), deliberately not duplicated onto the ship so the two never
-// disagree, exactly like ShipInstance.assignedCaptainId. Nothing generates, fits,
+// `fittedToShipId` is the authority for which SHIP holds the piece (null = on no ship),
+// deliberately not duplicated onto the ship so the two never disagree, exactly like
+// ShipInstance.assignedCaptainId. Whether a piece is free to take is NOT that field alone:
+// it is isSparePiece (model.ts), which also checks member gear and loadout commitment. Nothing generates, fits,
 // or reads these yet; this task only declares the shape.
 export interface EquipmentInstance {
   id: string;                             // stable unique id, allocated from a GameState counter ("equip-N"), like nextShipId
@@ -1538,10 +1539,10 @@ export interface EquipmentInstance {
   powerDraw: number;                      // intrinsic; must fit within the reactor's Power Output (later fitting task)
   durabilityMax: number;
   durability: number;                     // never drops this patch; combat drives loss in 0.12.0
-  fittedToShipId: string | null;          // null = spare in the pool. THE fitment authority (mirrors ShipInstance.assignedCaptainId)
+  fittedToShipId: string | null;          // null = on no ship. THE ship-install authority (mirrors ShipInstance.assignedCaptainId); "spare?" is isSparePiece
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3; DORMANT until the Armory build wires it). The THIRD
   // fitment state: a system COMMITTED into a loadout carries the loadout's id here, which excludes it
-  // from the free spare pool AND the manual-install picker (spare = fittedToShipId null AND no
+  // from the free spare pool AND the manual-install picker (isSparePiece below requires no
   // committedToLoadoutId). When its loadout is checked out to a ship, checkout ALSO sets
   // fittedToShipId to that ship, so equippedFor() keeps reading a ship's gear unchanged. Absent on
   // every existing instance (optional, so no migration needed on the instances themselves).
@@ -1553,7 +1554,7 @@ export interface EquipmentInstance {
   // alone. Set by a later E-CREW task; nothing writes it yet. Absent or null = not worn. Optional +
   // additive (like weaponType / committedToLoadoutId), so no save migration.
   fittedToMemberId?: string | null;
-  integrity?: string;                    // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
+  integrity?: string;                     // RESERVED: server-minted anti-tamper token for the multiplayer era; unset this patch
   // --- 0.13.3.1 auto-salvage additions (Features 2 + 3) ------------------------------
   // FAVORITED: the player has pinned this exact piece, which makes it permanently exempt
   // from the auto-salvage rules (never from a hand-clicked salvage, see the protection
@@ -5908,8 +5909,8 @@ export interface GameState {
   researchedBlueprints: string[];
   // --- Equipment 0.11.0 (Task 3, docs/plans/2026-07-17-equipment-*.md) ----------
   // The GLOBAL equipment POOL: every piece the fleet owns, fitted or spare. An
-  // EquipmentInstance.fittedToShipId is the SINGLE SOURCE OF TRUTH for where a
-  // piece lives (null = spare here in the pool), mirroring how ShipInstance
+  // EquipmentInstance.fittedToShipId is the authority for which SHIP holds a
+  // piece (null = on no ship; "free to take" is isSparePiece), mirroring how ShipInstance
   // .assignedCaptainId owns assignment rather than a duplicated flag, so the two
   // can never disagree. Starts EMPTY on a fresh save; nothing generates or fits
   // pieces yet (generation/fitting are later tasks). No Decimal on the instance,
@@ -8544,7 +8545,7 @@ export function isStandardIssueBaseline(piece: EquipmentInstance): boolean {
 // committed-but-resting piece the same as a loose spare (the "fitted" refusals, the storage count,
 // the Quartermaster's "already holding one" bound). Routing them here keeps that behavior exactly
 // while still closing the member-gear hole. The spare-predicate test scans src for raw
-// fittedToShipId null comparisons; the return line below is the sanctioned exception.
+// fittedToShipId null comparisons; lines tagged isSparePiece-ok are the sanctioned exceptions.
 export function isUninstalledPiece(piece: EquipmentInstance): boolean {
   return piece.fittedToShipId === null && !piece.fittedToMemberId; // isSparePiece-ok: the helper itself
 }

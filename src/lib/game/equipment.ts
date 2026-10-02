@@ -7,8 +7,9 @@
 // every mutator returns a NEW GameState and never touches the input.
 //
 // THE ONE INVARIANT everything here upholds: EquipmentInstance.fittedToShipId is
-// the SINGLE SOURCE OF TRUTH for where a piece lives (null = spare in the pool),
-// deliberately not duplicated onto the ship, exactly like ShipInstance.assignedCaptainId.
+// the authority for which SHIP holds a piece (null = on no ship), deliberately not
+// duplicated onto the ship, exactly like ShipInstance.assignedCaptainId. Whether a
+// piece is free to take is isSparePiece (model.ts), never this field alone.
 // So "fit a piece" == set its fittedToShipId, "unfit" == null it, and "what is on
 // ship Y" == filter by fittedToShipId === Y. There is no second bookkeeping list.
 //
