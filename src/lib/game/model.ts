@@ -7069,9 +7069,17 @@ export function isStandardIssueBaseline(piece: EquipmentInstance): boolean {
 // pool) AND blueprintKey !== null (crafted, NOT a Standard-Issue baseline). A fitted
 // crafted system (lives on its ship), a spare baseline, and a fitted baseline are ALL
 // excluded (see the section header's WHY). This exact predicate is the storage-cap set.
+// 0.13.9 hotfix: a piece COMMITTED to an Armory loadout (committedToLoadoutId set) is also
+// excluded. A checked-out loadout's pieces are fitted (already excluded above), but a RESTING
+// loadout's pieces have fittedToShipId null, and the 0.13.6 Armory design is explicit that
+// they rest in the Armory and take NO storage space. Counting them filled the bay with gear
+// the player had deliberately put away.
 export function spareEquipmentCount(state: GameState): number {
   return state.equipment.filter(
-    (piece) => piece.fittedToShipId === null && piece.blueprintKey !== null
+    (piece) =>
+      piece.fittedToShipId === null &&
+      piece.committedToLoadoutId === undefined &&
+      piece.blueprintKey !== null
   ).length;
 }
 

@@ -4802,6 +4802,10 @@
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
+      case "committed":
+        // 0.13.9: the piece sits in an Armory loadout. Mostly a queued-row reason (a spare
+        // committed after its salvage was queued); the bay itself never lists committed gear.
+        return "the system is in an Armory loadout (remove it from the loadout first)";
       case "locked":
         return "the system is locked (unlock it first)";
       case "noRecipe":
@@ -6710,6 +6714,7 @@
       switch (reason) {
         case "notFound":
         case "fitted":
+        case "committed":
         case "noRecipe":
         case "notSalvagedMaterial":
         case "noneHeld":

@@ -291,9 +291,14 @@ export type RequisitionBlockReason =
   | "alreadyHoldingOne";
 
 // Every uninstalled Standard-Issue baseline of one slot that the player could actually
-// INSTALL right now. Three filters, each load-bearing:
+// INSTALL right now. Four filters, each load-bearing:
 //   fittedToShipId === null  , an installed baseline is doing its job on a ship and is not
 //                              a spare the player can put somewhere else.
+//   not loadout-COMMITTED    , (0.13.9 hotfix) a baseline committed to a RESTING Armory
+//                              loadout is unfitted but belongs to that loadout: the install
+//                              picker excludes it, so counting it here would refuse a
+//                              requisition on the strength of a piece the player cannot
+//                              install from the spare pool.
 //   isStandardIssueBaseline  , the STRICT predicate (blueprintKey null AND standard
 //                              rarity), never blueprintKey alone: dev-granted radiant gear
 //                              is also blueprint-less, and counting it here would refuse a
@@ -311,6 +316,7 @@ export function freeSpareBaselinesFor(
   return state.equipment.filter(
     (piece) =>
       piece.fittedToShipId === null &&
+      piece.committedToLoadoutId === undefined &&
       piece.slotType === slotType &&
       isStandardIssueBaseline(piece) &&
       !reserved.has(piece.id)

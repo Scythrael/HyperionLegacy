@@ -216,6 +216,7 @@ export interface SalvageRoll {
 //   Equipment recycle (salvageEquipment):
 //     notFound             no equipment piece with that id
 //     fitted               the piece is fitted to a ship (unfit it first)
+//     committed            the piece belongs to an Armory loadout (0.13.9, see the union below)
 //   (A spare Standard-Issue baseline, combat OR economy, is NOT refused: it is DESTROYED as a
 //    zero-reward declutter, see salvageEquipment below. That destroy path is the always-available
 //    storage escape valve, so there is no baseline-specific reject reason.)
@@ -235,6 +236,11 @@ export interface SalvageRoll {
 export type SalvageRejectReason =
   | "notFound"
   | "fitted"
+  // COMMITTED (0.13.9 hotfix): the piece belongs to an Armory loadout (committedToLoadoutId set).
+  // A loadout resting in the Armory leaves its pieces unfitted, so `fitted` alone did not catch
+  // them, and salvaging one would delete a piece a loadout slot still points at. Uninstall it
+  // from the loadout first (that returns it to the spare pool).
+  | "committed"
   // LOCKED (0.13.6 favorite/lock split): the player locked this exact piece. Unlike the old favorite
   // (auto-salvage only), a lock also refuses MANUAL salvage: unlock it first.
   | "locked"
@@ -289,6 +295,13 @@ export function salvageEquipment(
   // Fitted piece: it lives in a live slot, not the spare pool. It must be unfit first.
   if (piece.fittedToShipId !== null) {
     return { ok: false, next: state, reason: "fitted" };
+  }
+  // COMMITTED (0.13.9 hotfix): a piece in a RESTING Armory loadout is unfitted but is not a free
+  // spare. The Salvage Bay UI already hides it; this is the engine's own guard, so no caller (a
+  // queued job that was committed after queueing, a future surface) can strand a loadout slot on
+  // a deleted id. Checked BEFORE the baseline branch, which would otherwise destroy it.
+  if (piece.committedToLoadoutId !== undefined) {
+    return { ok: false, next: state, reason: "committed" };
   }
   // LOCKED (0.13.6): the player's hands-off flag refuses MANUAL salvage too (not just the
   // automation). Unlock it first. This is the whole point of Lock: a great roll cannot be lost to a

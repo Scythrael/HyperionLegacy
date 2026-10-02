@@ -293,6 +293,28 @@ describe("salvageEquipment: rejects non-salvageable targets as a same-ref no-op 
     expect(result.next.equipment.find((e) => e.id === "lock-1")).toBeDefined();
   });
 
+  it("0.13.9: REFUSES a piece COMMITTED to an Armory loadout (it is not a free spare)", () => {
+    // A resting committed piece has fittedToShipId null, so the fitted guard alone let it through.
+    // Salvaging it would delete a piece a loadout slot still points at. Both the crafted and the
+    // baseline shape are refused (the baseline path would otherwise DESTROY it for nothing).
+    const crafted: EquipmentInstance = {
+      ...makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 2, id: "com-1" }),
+      committedToLoadoutId: "lo-1",
+    };
+    const baseline: EquipmentInstance = {
+      ...makePiece({ slotType: "ftlDrive", fitted: false, crafted: false, quality: 0, id: "com-2" }),
+      committedToLoadoutId: "lo-1",
+    };
+    const state = stateWith([crafted, baseline]);
+    for (const id of ["com-1", "com-2"]) {
+      const result = salvageEquipment(state, id, () => 0.5);
+      expect("reason" in result).toBe(true);
+      if ("reason" in result) expect(result.reason).toBe("committed");
+      expect(result.next).toBe(state); // same-ref no-op: the loadout's piece survives
+      expect(result.next.equipment.find((e) => e.id === id)).toBeDefined();
+    }
+  });
+
   it("REFUSES a recipe-less NON-baseline spare (dev-shaped radiant, blueprintKey null) instead of destroying/crashing (AUDIT-2)", () => {
     // A dev-granted radiant spare is blueprintKey null but NOT a standard-rarity floor. The old
     // `blueprintKey===null -> destroy` silently deleted it; the naive one-line fix would crash the

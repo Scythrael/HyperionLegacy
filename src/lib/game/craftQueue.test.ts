@@ -3216,6 +3216,19 @@ describe("canStartSalvage: the promotion gate, per target arm", () => {
     expect(canStartSalvage(installed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "fitted" });
   });
 
+  it("0.13.9: refuses a spare that has since been COMMITTED to an Armory loadout (manual AND auto gates)", () => {
+    // Committing a queued spare into a resting loadout leaves fittedToShipId null, so the fitted
+    // check alone would promote it and the job would delete a piece the loadout slot points at.
+    // Both lane gates share salvageTargetBlock, so both must refuse it.
+    const state = salvageBayState();
+    const committed: GameState = {
+      ...state,
+      equipment: state.equipment.map((e) => (e.id === SPARE_ID ? { ...e, committedToLoadoutId: "lo-1" } : e)),
+    };
+    expect(canStartSalvage(committed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "committed" });
+    expect(canStartAutoSalvage(committed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "committed" });
+  });
+
   it("gates the MATERIAL arm on category and on actually holding one", () => {
     const state = salvageBayState();
     expect(canStartSalvage(state, materialSalvageOrder(HOUSING))).toEqual({ ok: true });
