@@ -366,6 +366,8 @@ removed. Verify in preview with the Debug offline sim: an expedition with a hire
 ### Task 18: Squad loadouts in the Armory
 
 **Files:** `src/lib/game/armory.ts`, `App.svelte` (Armory tab `Squad Loadouts`), tests.
+Decide here whether `SquadLoadoutKit` needs the design's optional `memberRole?` (design 5.7 lists it; Task 2 left
+it out) to match a kit to a member by spec rather than slot order; add it as optional if so (no migration).
 `createSquadLoadout(state, shipId, teamType, name)` snapshots the squad's installed pieces into kits (committing
 them like ship loadouts); `applySquadLoadout(state, loadoutId, shipId)` installs kits onto members in slot order,
 skipping and reporting missing/locked/unique-conflict pieces (never forcing); `checkInSquadLoadout`. Capacity:
@@ -388,6 +390,12 @@ unique conflict is skipped with a reason; cap shared with ship loadouts.
   is ephemeral), but NOT hired officers.
 - `promoteOfficer` adds +2 to the officer's two highest stats (first-pass).
 - `officerStatSeed(seed, officerId)` + `rollOfficerStats` real implementation used by the migration.
+- **Stub-era saves:** any save that loaded at v65 before this task got the neutral 10/10/10/10 stub. Add a
+  `v65 -> v66` migration that re-rolls every officer whose stats are MISSING (`!o.stats`, e.g. hired on a v65
+  save before this task) OR deep-equal `NEUTRAL_OFFICER_STATS` (a genuine all-10 roll is vanishingly rare and
+  harmless to re-roll). Because the seed is keyed on (seniorStaffSeed, officer id), this yields exactly the stats a
+  save going straight v64 -> v66 gets. Also set `stats` at hire time (`hireOfficer` copies the
+  candidate's rolled stats) so no hired officer is ever missing them; readers fall back to neutral until then.
 Tests: candidate stats deterministic; existing bonus picks for a fixed seed: document the change in the test;
 promotion raises stats; migration gives the same stats for the same save every time.
 
@@ -512,6 +520,11 @@ graph, starting with the complement graph). Verify in preview.
 `src/lib/helpTopics.ts`: add topics for Away Teams, Recruitment, Implants, Officer Stats, Complement Active Mode;
 rewrite the `fuel` topic for fuel-to-reach and remove the Fuel Depot mention from the Homeworld topic (inventory
 A8; wrong in prod since 0.13.6). Test: the existing help-topic shape test passes.
+
+### Task 34b: Consolidate SAVE_VERSION pins (chore)
+`save.test.ts` repeats `expect(SAVE_VERSION).toBe(N)` about 25 times and `.version).toBe(N)` about 11 times, so
+every bump edits ~36 lines. Keep ONE canonical pin; per-migration blocks assert the migrated fields (and use the
+imported `SAVE_VERSION` where they need "current"). Separate chore commit, no behavior change.
 
 ### Task 35: Review, QA sheet, staging
 Two-stage review (bug-check subagent, then a full-ledger fix pass), holistic review, then the controller
