@@ -63,7 +63,10 @@ interface AwayMember {                    // stored like SeniorStaffOfficer: few
   favorite?: boolean;
 }
 GameState.awayMembers: AwayMember[]
-GameState.awayCandidates: AwayMember[]    // the hourly board (assignedShipId null), refreshed like seniorStaffRoster
+// The hourly board is NOT persisted: like seniorStaffCandidates (seniorStaff.ts) it is a pure function of
+// (awayRecruitSeed, rosterWindowIndex, slot), regenerated identically live and offline. Hiring copies a
+// candidate into awayMembers. Board size reads seniorStaffRosterSize (one shared expansion upgrade).
+GameState.awayRecruitSeed: number         // per-save seed, set at v65 migration / freshState
 GameState.nextAwayMemberId: number
 GameState.squadLoadouts: SquadLoadout[]   // Armory, shares loadout capacity rules
 SeniorStaffOfficer.stats: OfficerStats    // { strength, integrity, cunning, constitution }, 1..20 (+promotion)
