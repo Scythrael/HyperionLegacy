@@ -208,6 +208,12 @@ wiring beside Senior Staff / Complement + `doHireAwayMember` / `doFireAwayMember
 chip, traits, affinity chip, 3 gear cells, implant chips, stat line, injury bar; open slot card links to the
 board). One DOM, responsive via `@container`. Empty gear cells render "Empty" (gear lands in Stage 3).
 
+**Engine contract (Tasks 3-5 landed, `112fc55`):** use the gates `canHireAwayMember` / `canFireAwayMember` /
+`canReassignAwayMember` and `hireTargetsFor` for disabled-with-reason buttons (add an `awayCrewBlockText(reason)`
+exhaustive switch, no default, like `requisitionBlockText`). Trait chips use `traitDisplayText`. Before wiring, add
+a private helper so `hireAwayMember` + `hireTargetsFor` build the recruit board ONCE per call (today the gate and
+the action each rebuild it, and hireTargetsFor rebuilds per ship; the UI calls these on render). Make
+`awayTraitEffectText` sign-aware (no "+-5%") and keep one decimal when a percent is fractional, before tuning.
 **Verify in preview** (`preview_start({name:"dev"})`, `?dev`): hire a candidate into the Aurora's Science
 squad, see the card, fire it; console has no errors; mobile width has no horizontal scroll. Screenshot for the
 controller.
@@ -296,7 +302,8 @@ export interface SnapshotMember { memberId: string; teamType: AwayTeamType; spec
 export interface AwayRosterSnapshot { security: SnapshotMember[]; science: SnapshotMember[] }
 ```
 `snapshotAwayRoster(state, ship)` folds each READY (not injured) member's gear + implants into `groundStats`.
-`Expedition.roster?: AwayRosterSnapshot`. Keep the existing `AwayTeamSnapshot` strengths as the squad-wide crew
+`Expedition.roster?: AwayRosterSnapshot`. Cap each squad's snapshot to `squadSlots` (a later balance pass that
+shrinks a hull's squad size must not let an over-capacity squad deploy; extra members stay aboard, unassigned to the run). Keep the existing `AwayTeamSnapshot` strengths as the squad-wide crew
 layer. **Fallback:** an empty squad snapshots as `[]` and resolution uses today's anonymous `buildTeamCombatants`
 path, so a ship with no roster resolves exactly as now (neutrality test: existing expedition fixtures replay
 byte-identical).
