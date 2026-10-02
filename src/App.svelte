@@ -73,6 +73,8 @@
     PATROLS,
     FACTIONS,
     requiredTicksForPhase,
+    // 0.13.9: the dispatch popup's per-phase TIMING rows + total, one source so they add up.
+    missionCycleTiming,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
     // rate against the REAL (ship-adjusted) cycle length, not the un-adjusted base.
@@ -17225,11 +17227,15 @@
           {@const timingDef = popupShip !== null
             ? effectiveMissionDef(missionDef, shipDerivedStats(popupShip, equippedFor(state, popupShip.id)))
             : missionDef}
-          {@const transitOutTicks = timingDef.transitOutTicks}
-          {@const extractingTicks = requiredTicksForPhase("extracting", timingDef)}
-          {@const transitBackTicks = timingDef.transitBackTicks}
-          {@const unloadTicks = timingDef.unloadTicks}
-          {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+          <!-- 0.13.9: every TIMING row, Orders Received included, comes from missionCycleTiming
+               (model.ts), and the total is their sum, so the listed rows always add up. -->
+          {@const cycleTiming = missionCycleTiming(timingDef)}
+          {@const ordersTicks = cycleTiming.ordersReceived}
+          {@const transitOutTicks = cycleTiming.transitOut}
+          {@const extractingTicks = cycleTiming.extracting}
+          {@const transitBackTicks = cycleTiming.transitBack}
+          {@const unloadTicks = cycleTiming.unloading}
+          {@const totalTicks = cycleTiming.total}
           {@const bonusRollChance = captainBonusRollChance(selectedCaptain)}
           {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
           {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
@@ -17278,6 +17284,7 @@
                ~28m / ~1h 5m / ~2d 3h), not raw seconds — "1692.0s" is hard to read (user 2026-09-14).
                The tick COUNT stays for the tick-counting player; a 0-tick phase reads "(-)". -->
           <div class="panel-title">TIMING</div>
+          <div class="research-cost">Orders received: {ordersTicks} {ordersTicks === 1 ? "tick" : "ticks"} ({formatDuration(ordersTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Transit out: {transitOutTicks} ticks ({formatDuration(transitOutTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Extracting: {extractingTicks} ticks ({formatDuration(extractingTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Transit back: {transitBackTicks} ticks ({formatDuration(transitBackTicks, state.tickDurationSeconds)})</div>

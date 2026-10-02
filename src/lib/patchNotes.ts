@@ -65,7 +65,7 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 export const PATCH_NOTES: PatchNote[] = [
   {
     version: "0.13.9",
-    lede: "A quick fix: gear stored in Armory loadouts no longer takes up space in your Systems Bay.",
+    lede: "A quick fix release: gear stored in Armory loadouts no longer takes up space in your Systems Bay, plus a few corrections.",
     categories: [
       {
         title: "Bug Fixes",
@@ -74,6 +74,8 @@ export const PATCH_NOTES: PatchNote[] = [
           { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended." },
           { lead: "Requisitions are not blocked by loadouts.", text: "A Standard-Issue system sitting in an Armory loadout no longer stops the Quartermaster from issuing you a spare for that slot." },
           { lead: "Loadout gear is safe from salvage.", text: "A system queued for salvage can no longer be installed in an Armory loadout, and a system already in a loadout is never salvaged." },
+          { lead: "Help explains reach.", text: "The Help entry on fuel still described the retired Fuel Depot. It now explains how reach in lightyears works today." },
+          { lead: "Mission timing adds up.", text: "The dispatch window's timing list now shows the Orders Received tick, so the phases add up to the total." },
         ],
       },
     ],

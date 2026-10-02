@@ -1913,6 +1913,28 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
   }
 }
 
+// One mission cycle's length, phase by phase, plus the total (0.13.9 hotfix). Every row is read
+// from requiredTicksForPhase, the engine's own phase lengths, and the total is their sum, so a
+// readout built on this can never list rows that do not add up. That was the bug: the dispatch
+// popup's TIMING list showed four rows but quietly added the 1-tick Orders Received phase to its
+// total. Pass the EFFECTIVE def (effectiveMissionDef) for a ship-scaled readout, as the popup does.
+export type MissionCycleTiming = Record<MissionPhase, number> & { total: number };
+export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
+  const ordersReceived = requiredTicksForPhase("ordersReceived", missionDef);
+  const transitOut = requiredTicksForPhase("transitOut", missionDef);
+  const extracting = requiredTicksForPhase("extracting", missionDef);
+  const transitBack = requiredTicksForPhase("transitBack", missionDef);
+  const unloading = requiredTicksForPhase("unloading", missionDef);
+  return {
+    ordersReceived,
+    transitOut,
+    extracting,
+    transitBack,
+    unloading,
+    total: ordersReceived + transitOut + extracting + transitBack + unloading,
+  };
+}
+
 // The mission-relevant stats a hull contributes, lifted out of the shared
 // SHIP_TYPES template for a specific ShipInstance AND folded together with the
 // stats of any equipment fitted to that ship (Equipment 0.11.0, Task 13). A thin

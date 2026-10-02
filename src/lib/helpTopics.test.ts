@@ -24,4 +24,19 @@ describe("HELP_TOPICS", () => {
       expect(banned.test(t.body), `stale fit-wording in body: ${t.id}`).toBe(false);
     }
   });
+  // 0.13.9: 0.13.6 turned fuel into REACH (lightyears, free instant refuel) and retired the Fuel
+  // Depot and the Local Deuterium Skim, but the manual kept describing the old fuel economy. Only
+  // the fuel topic may name the retired pieces (to say they are retired); no topic may describe
+  // fuel as something you burn, refine, or buy.
+  it("describes fuel as reach, never the retired fuel economy (0.13.9)", () => {
+    const retiredNames = /fuel depot|deuterium skim/i;
+    const oldEconomy = /burns? (round-trip )?fuel|fuel cost|refines? deuterium|auto-bought|fuel gauge|gauge in the top bar/i;
+    for (const t of HELP_TOPICS) {
+      if (t.id !== "fuel") expect(retiredNames.test(t.body), `retired fuel facility named in: ${t.id}`).toBe(false);
+      expect(oldEconomy.test(t.body), `old fuel-economy wording in: ${t.id}`).toBe(false);
+    }
+    const fuel = HELP_TOPICS.find((t) => t.id === "fuel")!;
+    expect(fuel.body).toMatch(/lightyears/i);
+    expect(fuel.body).toMatch(/retired/i);
+  });
 });

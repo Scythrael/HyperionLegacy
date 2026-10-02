@@ -4,6 +4,7 @@ import {
   freshCaptains,
   freshCaptainStack,
   requiredTicksForPhase,
+  missionCycleTiming,
   MISSIONS,
   REFINE_RECIPES,
   FACILITIES,
@@ -630,6 +631,21 @@ describe("requiredTicksForPhase", () => {
     // rescaled 10x down together (Extraction Rework regression fix), keeping the
     // resulting phase length unchanged at 90 ticks.
     expect(requiredTicksForPhase("extracting", MISSIONS.shortOreRun)).toBe(90);
+  });
+});
+
+describe("missionCycleTiming (0.13.9: the dispatch TIMING list)", () => {
+  it("lists every phase, Orders Received included, and the total is their exact sum", () => {
+    // The dispatch popup used to list four rows but add a hidden 1 tick for Orders Received to
+    // its total, so the rows did not add up. Every row now comes from requiredTicksForPhase.
+    const t = missionCycleTiming(MISSIONS.shortOreRun);
+    expect(t.ordersReceived).toBe(requiredTicksForPhase("ordersReceived", MISSIONS.shortOreRun));
+    expect(t.ordersReceived).toBe(1);
+    expect(t.transitOut).toBe(25);
+    expect(t.extracting).toBe(90);
+    expect(t.transitBack).toBe(25);
+    expect(t.unloading).toBe(8);
+    expect(t.total).toBe(t.ordersReceived + t.transitOut + t.extracting + t.transitBack + t.unloading);
   });
 });
 
