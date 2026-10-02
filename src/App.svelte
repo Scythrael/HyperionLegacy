@@ -26,6 +26,10 @@
   // reads live state, routes every side effect back to the do* handlers below.
   import SeniorStaffPanel from "./lib/SeniorStaffPanel.svelte";
   import ComplementPanel from "./lib/ComplementPanel.svelte";
+  // E-CREW "Crew Made Real" (Task 6): the ship-detail "Away Team" sub-tab (squads, member cards and
+  // the Recruitment Board). Same posture: reads live state, routes Hire / Fire / Move to the do*
+  // handlers below (pure awayTeam.ts engine + doSave + pushLog).
+  import AwayTeamPanel from "./lib/AwayTeamPanel.svelte";
   // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
   // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
   import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
@@ -387,6 +391,18 @@
     officerRankLabel,
   } from "./lib/game/seniorStaff";
   import type { SeniorStaffSeat } from "./lib/game/model";
+  // E-CREW (Task 6): the pure AWAY TEAM engine, wired by the doHire/doFire/doReassignAwayMember
+  // handlers. Each action returns the SAME state on refusal, so the handlers skip log + save then.
+  import {
+    hireAwayMember,
+    fireAwayMember,
+    reassignAwayMember,
+    canHireAwayMember,
+    canReassignAwayMember,
+    awayCrewBlockText,
+  } from "./lib/game/awayTeam";
+  import { awayShipName } from "./lib/awayTeamDisplay";
+  import { CREW_RANKS } from "./lib/game/crewRank";
   // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
   // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
   // into state.captains by doBuySecondaryTalent); retireCaptain returns a whole GameState (same-ref no-op
@@ -1570,11 +1586,12 @@
   let selectedShipId: string | null = null;
   // Crew 0.14.0 (phase 4a): the ship-detail page now carries a SubTabs strip. This tracks the
   // active sub-tab of the OPEN ship: "loadout" (the ShipSystemsPanel, unchanged), "seniorStaff"
-  // (the SeniorStaffPanel), or "complement" (a LOCKED coming-soon tab this phase). NOT persisted
+  // (the SeniorStaffPanel), "awayTeam" (the AwayTeamPanel, E-CREW Task 6), or "complement" (the
+  // ComplementPanel). NOT persisted
   // (pure navigation UI, no SAVE_VERSION bump); it defaults back to "loadout" whenever the page
   // switches to a different hull (see the reset beside the vanished-hull guard) so opening any
   // ship lands on its loadout board as before.
-  let activeShipDetailTab: "loadout" | "seniorStaff" | "complement" = "loadout";
+  let activeShipDetailTab: "loadout" | "seniorStaff" | "awayTeam" | "complement" = "loadout";
   // 0.13.2 Unit 7 (a11y focus management): a ONE-SHOT marker naming the roster row focus
   // should return to when the drill-down closes back to the grid. Set to the ship id at the
   // moment Back is pressed; the matching row's focusOnMount action consumes it (moving focus
@@ -5027,6 +5044,61 @@
     };
     doSave();
     pushLog(`Promoted ${promoted.name} to ${officerRankLabel(promoted.rank)}.`);
+  }
+
+  // ── Away Team (E-CREW "Crew Made Real", Task 6) ────────────────────────────
+  // The AwayTeamPanel / RecruitmentBoard controls route here. Canonical do* flow: the PURE
+  // awayTeam.ts action, `if (next === state)` (a refusal returns the same ref) log the typed reason
+  // and stop, else reassign state, pushLog, doSave. The panel already disables a blocked control
+  // with the same reason text, so the refusal log is a defensive backstop.
+
+  // A ship's player-facing name for the log (custom name, else hull label).
+  function awayShipLabel(shipId: string): string {
+    const ship = state.ships.find((s) => s.id === shipId);
+    return ship ? awayShipName(ship) : shipId;
+  }
+
+  // HIRE a board candidate into a ship's squad of the candidate's team type.
+  function doHireAwayMember(candidateId: string, shipId: string) {
+    const gate = canHireAwayMember(state, candidateId, shipId);
+    const next = hireAwayMember(state, candidateId, shipId);
+    if (next === state) {
+      if (!gate.ok) pushLog(`Cannot hire: ${awayCrewBlockText(gate.reason)}.`);
+      return;
+    }
+    const hired = next.awayMembers[next.awayMembers.length - 1];
+    state = next;
+    pushLog(`Hired ${hired.name} (${CREW_RANKS[hired.rank].label}) to the ${awayShipLabel(shipId)} ${hired.teamType} squad.`);
+    doSave();
+  }
+
+  // FIRE a member (confirmed in the panel's ActionModal). fireAwayMember returns their gear and
+  // implants to storage first, then removes them.
+  function doFireAwayMember(memberId: string) {
+    const member = state.awayMembers.find((m) => m.id === memberId);
+    const next = fireAwayMember(state, memberId);
+    if (next === state) return; // unknown id or crew-locked: the panel shows why
+    state = next;
+    pushLog(`Fired ${member?.name ?? memberId} from the away team.`);
+    doSave();
+  }
+
+  // MOVE a member to another ship's squad of their own type (shipId null benches them).
+  function doReassignAwayMember(memberId: string, shipId: string | null) {
+    const member = state.awayMembers.find((m) => m.id === memberId);
+    const gate = canReassignAwayMember(state, memberId, shipId);
+    const next = reassignAwayMember(state, memberId, shipId);
+    if (next === state) {
+      if (!gate.ok) pushLog(`Cannot move ${member?.name ?? memberId}: ${awayCrewBlockText(gate.reason)}.`);
+      return;
+    }
+    state = next;
+    pushLog(
+      shipId === null
+        ? `${member?.name ?? memberId} is now unassigned.`
+        : `Moved ${member?.name ?? memberId} to the ${awayShipLabel(shipId)} away team.`,
+    );
+    doSave();
   }
 
   // ── Crew favoriting (Crew 0.14.0 GL) ───────────────────────────────────────
@@ -15137,10 +15209,11 @@
           tabs={[
             { key: "loadout", label: "Loadout" },
             { key: "seniorStaff", label: "Senior Staff" },
+            { key: "awayTeam", label: "Away Team" },
             { key: "complement", label: "Complement" },
           ]}
           active={activeShipDetailTab}
-          onSelect={(k) => (activeShipDetailTab = k as "loadout" | "seniorStaff" | "complement")}
+          onSelect={(k) => (activeShipDetailTab = k as "loadout" | "seniorStaff" | "awayTeam" | "complement")}
         />
 
         {#if activeShipDetailTab === "loadout"}
@@ -15194,6 +15267,19 @@
           onDismiss={doFireOfficer}
           onPromote={doPromoteOfficer}
           onToggleFavorite={doToggleOfficerFavorite}
+        />
+        {:else if activeShipDetailTab === "awayTeam"}
+        <!-- AWAY TEAM (E-CREW "Crew Made Real", Task 6; approved mockup sections 1 + 2). One section
+             per squad this hull fields (Security fights the random battles, Science does fieldwork
+             while scanning), named member cards with spec / trait / affinity chips, the three gear
+             cells and implant slots, an open-slot card per free seat, and the Recruitment Board.
+             Hire / Fire / Move route to the do*AwayMember handlers (pure awayTeam.ts + doSave). -->
+        <AwayTeamPanel
+          {state}
+          shipId={ship.id}
+          onHire={doHireAwayMember}
+          onFire={doFireAwayMember}
+          onReassign={doReassignAwayMember}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:

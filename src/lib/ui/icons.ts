@@ -169,6 +169,29 @@ export const ICON_PATHS = {
   // was tried first and read as a letter W at 1em; the arch is what makes it a keystone, and the
   // block joints are what stop the bare arch reading as a horseshoe magnet.
   relicTectonicKeystone: ["M3 21v-8a9 9 0 0 1 18 0v8", "M7 21v-8a5 5 0 0 1 10 0v8", "M9.6 4.3h4.8l-1.1 3.9h-2.6z", "M8.5 9.5L5.6 6.6M15.5 9.5l2.9-2.9M3 13h4M17 13h4"],
+
+  // --- Away Team (E-CREW "Crew Made Real", 0.14.0) ---
+  // Drawn from the approved whole-build mockup's glyph sheet. The Science squad reuses `research`
+  // (the same flask), so it gets no glyph of its own here.
+
+  // Team: two figures, one in front of the other (a squad of people, not one person).
+  team: ["M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z", "M2.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6", "M16 4.3a3.5 3.5 0 0 1 0 6.4M18 14.5c1.9.8 3.1 2.8 3.5 5.5"],
+  // Security: a heater shield, the squad that fights.
+  security: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"],
+  // Armor: a vest with a collar and a plate seam (a member's Armor slot).
+  armor: ["M8 3h8l3 4-2 2v11H7V9L5 7z", "M9.5 3c.5 1.6 1.4 2.4 2.5 2.4S14 4.6 14.5 3", "M7 13h10"],
+  // Weapon (hand): a side-on sidearm, the member's Weapon slot. Named apart from ship weapons.
+  weaponHand: ["M3 13h12l3-3h3v4h-3l-1 1H9l-1 4H5l1-4H3z"],
+  // Tool: an open-jaw wrench, the member's Tool slot. The mockup's wrench was redrawn here because
+  // at 16px its half-open head read as a test tube; a closed jaw outline with a notch reads as a wrench.
+  tool: ["M19.8 7.2a5 5 0 0 1-6.5 6.5L7 20a2.1 2.1 0 0 1-3-3l6.3-6.3a5 5 0 0 1 6.5-6.5L13.5 7.5l3 3z"],
+  // Implant: a socketed module with leads on every side (a cybernetic slot). Fewer, longer leads
+  // than `wafer`, so the two never read alike.
+  implant: ["M8 8h8v8H8z", "M12 8V4M12 20v-4M8 12H4M20 12h-4", "M10.5 10.5h3v3h-3z"],
+  // Injury: a medical cross in outline, the recovering-member mark.
+  injury: ["M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"],
+  // Recruit: a figure with a plus, the "hire someone" verb (the board and an open squad slot).
+  recruit: ["M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z", "M3.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6", "M19 8v6M16 11h6"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

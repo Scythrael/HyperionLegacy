@@ -69,6 +69,8 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   // success is as harmful as a warning that stops reading as danger, just in the other direction.
   warning: "alert",
   check: "alert",
+  // Injury marks a member who cannot deploy, an ATTENTION meaning a pack must keep readable.
+  injury: "alert",
 
   // SUBJECT: names a thing. Restyling freely is the whole point of a pack.
   refinery: "subject",
@@ -106,12 +108,20 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   relicMagmaPearl: "subject",
   relicDeepVeinCompass: "subject",
   relicTectonicKeystone: "subject",
+  // Away Team (0.14.0 E-CREW): the squad, its types and a member's gear slots are things.
+  team: "subject",
+  security: "subject",
+  armor: "subject",
+  weaponHand: "subject",
+  tool: "subject",
+  implant: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
   queue: "action",
   close: "action",
   study: "action",
+  recruit: "action",
 
   // ORNAMENT: structure and direction. Least restricted.
   clock: "ornament",
