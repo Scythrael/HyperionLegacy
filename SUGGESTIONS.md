@@ -1926,3 +1926,24 @@ biggest untapped completion axis. FIX OWNED BY THE BALANCE PASS (~0.16.0): wire 
 mechanics (crafting levels / iLevel-quality interplay / gear or facility stats that push quality). Until then
 the Archive's quality dimension stays dark by design, and a true 100% archive also awaits the legendary
 luminous/constellar rarity band (also not produced yet). Both are content/balance headroom, not defects.
+
+## SHIP-CLASS LORE COMPENDIUM in the Archive (user 2026-10-02) [future, keep in mind for EVERY new hull]
+"We will 100% want eventual lore and such for each and every ship class." An in-game compendium section, most
+likely in the ARCHIVE, "with all things lore/etc in-game", for players who are interested. Per ship class:
+length, width, mass, hardpoints, system specs, and blurbs from the IN-LORE DEVELOPMENT PROCESS of that ship
+("especially since we're basically inventing new ships and such over time"). Not needed right now, but every
+new hull from here on should be designed with its lore entry in mind. Ties the master design's Compendium hub
+(inventory S4-MD14) and the 2026-07-18 ship roster + naming-theme notes.
+
+## HULL TIERS ARE SHIP-CLASS GENERATIONS (user 2026-10-02)
+"Think of Constitution vs. Galaxy Class. That's what each tier is." Each hull tier is a new generation of
+ship class, not a stat bump. The locked 1,017-crew explorer flagship "won't drop as the first iteration. It
+could be the 3rd or 4th tier of ship." So today's tier-2 explorers (Orion / Aurora / Eir) are an early
+generation, and the flagship arrives with a later tier (inventory S1-04 / S4-C26).
+
+## CRAFT-DUPLICATE CREW BUFF: HOLD, likely moves off ship crew (user 2026-10-02)
+The complement's second-level-exclusive "craft duplicate" buff has no sensible home on a ship. User: "hold off
+on this for now. Might be best put onto an FA talent, or potentially HOMEWORLD STAFFING that could come later
+on." Homeworld staffing is the user's idea for staffing homeworld facilities: "building buffs, and things like
+DEFENDING AGAINST INVASION when one happens (security and so forth would shine here)." Until then the buff
+should not roll on ship crew (no dead rolls).

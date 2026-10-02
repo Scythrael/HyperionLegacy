@@ -254,6 +254,15 @@ authoritative model for ground teams, and the E3 build DEVIATES from it until re
   - HOSTILITY = RANDOM ENCOUNTERS DURING SCAN PROGRESS: "Fights will randomly happen as you're progressing
     through scans. Basically a random chance." (RPG random-battle model, not a per-site contact phase.) The
     Security-tool encounter-rate dial (2026-09-17) scales that chance up or down.
+  - MOCKUP "Crew Made Real" (https://claude.ai/artifact/UYTkL2q9PyDHKGbeERcvuj) APPROVED by the user
+    ("delightful"). Section 12 answers: (a) the 1,017-crew flagship is a LATER HULL TIER (3rd or 4th; "each
+    tier is" a class generation, Constitution vs Galaxy), not this pass; (b) craft-duplicate crew buff HELD
+    (FA talent or future homeworld staffing; stop it rolling on ship crew); (c) OFFICER STATS ARE IN:
+    Strength / Integrity / Cunning / Constitution on Senior Staff. User direction: senior staff are HEADS OF
+    THEIR DEPARTMENTS, so their stats shape the SHIP's and the ON-SHIP CREW's operations (e.g. high Integrity
+    = bravery: the security crew "more apt to act bravely in the face of death", boarding party
+    effectiveness). Officer stats do NOT touch ground-team stats on a planet. Exact per-stat effects: being
+    designed with the user.
 - **OPEN for the design pass (mockup first):** how members are recruited (a candidate roster like officers?
   drawn from crew?), members per squad, gear catalog + crafting, slot counts, member progression, and what
   happens when a member falls (injury vs permanent loss).
