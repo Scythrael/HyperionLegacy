@@ -1,10 +1,24 @@
 // E-CREW: tests for the away-team engine (awayTeam.ts). Covers the per-ship-type squad sizes
-// (design section 5.2). Nothing here exercises the tick or the UI (the engine is not wired in yet).
+// (design section 5.2) and the derived recruit board (section 5.1: determinism, window steps, squad /
+// spec / trait / rank / race rolls, augment affinity). Nothing here exercises the tick or the UI (the engine is not wired in yet).
 
 import { describe, it, expect } from "vitest";
-import { freshState, SHIP_TYPES } from "./model";
+import { freshState, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
 import type { AwayMember, AwayTeamType, GameState, ShipTypeKey } from "./model";
-import { squadSlots, membersInSquad, squadHasRoom } from "./awayTeam";
+import {
+  squadSlots,
+  membersInSquad,
+  squadHasRoom,
+  traitCountForRank,
+  AUGMENT_AFFINITY_RACES,
+  implantSlotsFor,
+  specsFor,
+  awayRecruitCandidates,
+} from "./awayTeam";
+import { getAwayTrait } from "./awayTraits";
+import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
+import { CREW_RACE_IDS } from "./crewRaces";
+import { OFFICER_ROSTER_WINDOW_SECONDS, seniorStaffCandidates } from "./seniorStaff";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -135,5 +149,108 @@ describe("membersInSquad / squadHasRoom", () => {
     const s = stateWithShips([{ id: "ship-a", typeKey: "eir" }]);
     expect(squadHasRoom(s, "ship-a", "prospecting")).toBe(false);
     expect(squadHasRoom(s, "ship-missing", "security")).toBe(false);
+  });
+});
+
+// --- Task 4: traits + the derived recruit board ------------------------------
+
+// A fresh state at a given game time / recruit seed / board size.
+function boardState(opts: { gameTimeSeconds?: number; seed?: number; rosterSize?: number } = {}): GameState {
+  const base = freshState();
+  return {
+    ...base,
+    gameTimeSeconds: opts.gameTimeSeconds ?? 0,
+    awayRecruitSeed: opts.seed ?? base.awayRecruitSeed,
+    seniorStaffRosterSize: opts.rosterSize ?? base.seniorStaffRosterSize,
+  };
+}
+
+describe("traitCountForRank / implantSlotsFor / specsFor", () => {
+  it("trait count follows the complement buff-count ladder", () => {
+    for (const rank of CREW_RANK_ORDER) expect(traitCountForRank(rank)).toBe(buffCountForRank(rank));
+  });
+
+  it("Martian and Stheni carry augment affinity (2 implant slots); everyone else 1", () => {
+    expect(AUGMENT_AFFINITY_RACES.has("martian")).toBe(true);
+    expect(AUGMENT_AFFINITY_RACES.has("stheni")).toBe(true);
+    for (const race of CREW_RACE_IDS) {
+      const expected = race === "martian" || race === "stheni" ? 2 : 1;
+      expect(implantSlotsFor({ ...member("member-1", "security", null), race }), race).toBe(expected);
+    }
+  });
+
+  it("each squad type has its own spec set; prospecting has none yet", () => {
+    expect(specsFor("security")).toEqual(["offense", "defense", "debuff"]);
+    expect(specsFor("science")).toEqual(["archaeology", "xenobiology", "geology", "cryptography"]);
+    expect(specsFor("prospecting")).toEqual([]);
+  });
+});
+
+describe("awayRecruitCandidates (derived board)", () => {
+  it("is deterministic: same state, same board", () => {
+    const s = boardState({ gameTimeSeconds: 12_345 });
+    expect(awayRecruitCandidates(s)).toEqual(awayRecruitCandidates(s));
+    expect(awayRecruitCandidates(s)).toEqual(awayRecruitCandidates({ ...s, gameTimeSeconds: 12_999 })); // same window
+  });
+
+  it("sizes the board from the shared seniorStaffRosterSize, defaulting to the base", () => {
+    expect(awayRecruitCandidates(boardState())).toHaveLength(SENIOR_STAFF_ROSTER_BASE);
+    expect(awayRecruitCandidates(boardState({ rosterSize: 4 }))).toHaveLength(4);
+    const { seniorStaffRosterSize: _drop, ...noSize } = boardState();
+    expect(awayRecruitCandidates(noSize as GameState)).toHaveLength(SENIOR_STAFF_ROSTER_BASE);
+  });
+
+  it("changes when the roster window steps, and when the seed changes", () => {
+    const a = awayRecruitCandidates(boardState({ gameTimeSeconds: 0 }));
+    const b = awayRecruitCandidates(boardState({ gameTimeSeconds: OFFICER_ROSTER_WINDOW_SECONDS }));
+    const c = awayRecruitCandidates(boardState({ seed: 12345 }));
+    expect(b.map((m) => m.name)).not.toEqual(a.map((m) => m.name));
+    expect(c.map((m) => m.name)).not.toEqual(a.map((m) => m.name));
+  });
+
+  it("ids candidates by window and slot, unassigned", () => {
+    const board = awayRecruitCandidates(boardState({ gameTimeSeconds: OFFICER_ROSTER_WINDOW_SECONDS * 7 }));
+    board.forEach((m, slot) => {
+      expect(m.id).toBe(`away-candidate-7-${slot}`);
+      expect(m.assignedShipId).toBeNull();
+    });
+  });
+
+  it("differs from the officer board (its own seed + mix)", () => {
+    const s = boardState();
+    expect(awayRecruitCandidates(s).map((m) => m.name)).not.toEqual(seniorStaffCandidates(s).map((o) => o.name));
+  });
+
+  // Many windows of candidates, for the distribution checks below.
+  const many = Array.from({ length: 300 }, (_, w) =>
+    awayRecruitCandidates(boardState({ gameTimeSeconds: w * OFFICER_ROSTER_WINDOW_SECONDS })),
+  ).flat();
+
+  it("never rolls prospecting; both real squads appear; spec matches the squad", () => {
+    const types = new Set(many.map((m) => m.teamType));
+    expect(types.has("prospecting")).toBe(false);
+    expect(types.has("security")).toBe(true);
+    expect(types.has("science")).toBe(true);
+    for (const m of many) expect(specsFor(m.teamType), m.id).toContain(m.spec);
+  });
+
+  it("rolls distinct, team-appropriate traits, as many as the rank allows", () => {
+    for (const m of many) {
+      expect(m.traits, m.id).toHaveLength(traitCountForRank(m.rank));
+      expect(new Set(m.traits).size, m.id).toBe(m.traits.length);
+      for (const id of m.traits) expect(getAwayTrait(id)?.teamTypes, `${m.id} ${id}`).toContain(m.teamType);
+    }
+  });
+
+  it("rolls race from the crew race list and rank on the 8-tier ladder, weighted low", () => {
+    const counts = new Map<number, number>();
+    for (const m of many) {
+      expect(CREW_RACE_IDS).toContain(m.race);
+      expect(CREW_RANK_ORDER).toContain(m.rank);
+      counts.set(m.rank, (counts.get(m.rank) ?? 0) + 1);
+    }
+    expect(counts.get(1) ?? 0).toBeGreaterThan(counts.get(4) ?? 0);
+    expect(counts.get(4) ?? 0).toBeGreaterThan(counts.get(8) ?? 0);
+    expect(counts.get(8) ?? 0).toBeGreaterThan(0); // the top rank is rare but reachable
   });
 });

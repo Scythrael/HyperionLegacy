@@ -5439,8 +5439,9 @@ export type SecuritySpec = "offense" | "defense" | "debuff";
 export type ScienceSpec = "archaeology" | "xenobiology" | "geology" | "cryptography";
 export type AwayMemberSpec = SecuritySpec | ScienceSpec;
 
-// A rolled away-team trait id, a stable string key into the trait catalog. Kept as a plain string
-// until the trait-catalog task narrows it to a closed union.
+// A rolled away-team trait id, a stable string key into the trait catalog (awayTraits.ts AWAY_TRAITS).
+// Deliberately a plain string, not a closed union: it is persisted on members, so a save can carry an id
+// a later catalog retires, and readers look it up through getAwayTrait (which tolerates unknown ids).
 export type AwayTraitId = string;
 
 // One named away-team member. Few, named, full objects (like SeniorStaffOfficer, unlike the bucketed
