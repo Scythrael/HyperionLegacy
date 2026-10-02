@@ -471,7 +471,10 @@ from the bucket seed, never stored). Tests: count drops by one, notable created,
 **Files:** `seniorStaff.ts` (assign/unassign), `personnelRosters.ts` (`applyRoster`), `autoCrew.ts`,
 `crew.ts` (transfer/graduate), `awayTeam.ts`, UI lock badges. One helper `shipCrewLocked(state, shipId)`; every
 crew-changing action refuses with reason `"onMission"`. Tests: each action refuses while the ship is out and works
-after it returns.
+after it returns. (`shipCrewLocked` already exists from Task 5 and also locks while an expedition is out or
+unclaimed.) **Salvage gap (from Task 5 review):** `salvageShip` (salvage.ts ~596) must BENCH the ship's away members
+(`assignedShipId = null`, gear stays on them) atomically with the salvage, and the same for officers/notables if not
+already handled; test that no member points at a removed ship.
 
 ---
 

@@ -1935,6 +1935,11 @@ length, width, mass, hardpoints, system specs, and blurbs from the IN-LORE DEVEL
 new hull from here on should be designed with its lore entry in mind. Ties the master design's Compendium hub
 (inventory S4-MD14) and the 2026-07-18 ship roster + naming-theme notes.
 
+## SAVE FILE EXPORT/IMPORT IS TEMPORARY (user 2026-10-02)
+"When we implement online functionality, the save game export functionality will fall away." Do not invest in
+export/import polish (e.g. a copy/paste save-code option was proposed and declined). File export/import stays a
+hand-tested feature until accounts + cloud save replace it. Automated QA cannot drive the OS file picker, so skip it.
+
 ## HULL TIERS ARE SHIP-CLASS GENERATIONS (user 2026-10-02)
 "Think of Constitution vs. Galaxy Class. That's what each tier is." Each hull tier is a new generation of
 ship class, not a stat bump. The locked 1,017-crew explorer flagship "won't drop as the first iteration. It
