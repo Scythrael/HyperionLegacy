@@ -231,6 +231,29 @@ authoritative model for ground teams, and the E3 build DEVIATES from it until re
   - A THIRD GROUND TEAM TYPE, **PROSPECTING** (user-named): "at least the wiring to account for it". The team
     type must be a data-driven list, not a Security/Science binary. Whether Prospecting gets live content in
     0.14.0 is still open.
+  - A DOWNED MEMBER IS INJURED AND RECOVERS (recovery timer, Medical shortens it; gear + implants stay on), "but
+    we will have the same kind of difficulty toggles that ship combat has with SAFETY INTERLOCKS". Interlocks
+    are the planned (NOT yet built) opt-in endgame risk axis (SUGGESTIONS :1349 + :1416 reward philosophy:
+    permadeath only by informed, opt-in choice; gatekeep flex, never power). 0.14.0: injury-only, with the
+    member-fall path built so a future interlock can add a permadeath chance that shares the ship-combat
+    interlock design.
+  - PROGRESSION = "rankings similar to crew complement" (user LEANING, "not 100% sure ... but I think this would
+    be best"). Complement rank (crewRank.ts) is ROLLED AT GENERATION on the 8-tier ladder (Crewman ... Lt
+    Commander), never levels, gates trait COUNT and nudges magnitude; you improve by recruiting better. Applied
+    here: a candidate's rank is rolled on the hourly roster, so chasing a high-rank recruit is the growth loop
+    (pairs with fire-and-rehire). Revisit before the build plan locks.
+  - IMPLANT SLOTS = 1 per member by default; a 2nd slot via RACE AFFINITY (certain races integrate cybernetics
+    better), "for now". ⚠️ User concern to carry into the balance pass: "ensure that we're not inadvertently
+    creating a meta" (always-hire-race-X). Which races get affinity = a proposal in the mockup, not decided.
+  - PROSPECTING TEAM = WIRING ONLY in 0.14.0 (in the team-type list + gear compatibility; no ship fields one, no
+    activity uses it yet).
+  - OFFICERS ARE EXEMPT from the "crew never double-dips weapons/shields" rule (rule stays Complement-only).
+    User: "The bridge officers can double-dip across all possible options ... you'll have officers for combat
+    vessels, prospecting vessels, and science." So EVERY dormant officer bonus (S4-CP12) gets a live consumer,
+    incl. Tactical weapon/shield effectiveness.
+  - HOSTILITY = RANDOM ENCOUNTERS DURING SCAN PROGRESS: "Fights will randomly happen as you're progressing
+    through scans. Basically a random chance." (RPG random-battle model, not a per-site contact phase.) The
+    Security-tool encounter-rate dial (2026-09-17) scales that chance up or down.
 - **OPEN for the design pass (mockup first):** how members are recruited (a candidate roster like officers?
   drawn from crew?), members per squad, gear catalog + crafting, slot counts, member progression, and what
   happens when a member falls (injury vs permanent loss).
