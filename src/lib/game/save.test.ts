@@ -6359,6 +6359,17 @@ describe("SAVE migration v64 -> v65 (E-CREW data model)", () => {
     expect(migrated.officers[1].stats).toEqual(NEUTRAL_OFFICER_STATS);
   });
 
+  it("tolerates a null officer entry and a missing or non-array officers field", () => {
+    const withNull = migrate64(v64State([null, officerFixture("officer-1")]));
+    expect(withNull.officers).toHaveLength(2);
+    expect(withNull.officers[0]).toBeNull();
+    expect(withNull.officers[1].stats).toEqual(NEUTRAL_OFFICER_STATS);
+    const missing: any = v64State();
+    delete missing.officers;
+    expect(migrate64(missing).officers).toEqual([]);
+    expect(migrate64({ ...v64State(), officers: "corrupt" }).officers).toEqual([]);
+  });
+
   it("is idempotent: existing E-CREW values survive, and a second pass changes nothing", () => {
     const member = {
       id: "member-1", teamType: "security", spec: "offense", name: "Kade", race: "belter", gender: "male",

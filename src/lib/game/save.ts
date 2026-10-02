@@ -2379,8 +2379,12 @@ const MIGRATIONS: Record<number, Migration> = {
       awayRecruitSeed: state.awayRecruitSeed ?? awayRecruitSeedFrom(seniorStaffSeed),
       squadLoadouts: state.squadLoadouts ?? [],
       nextSquadLoadoutId: state.nextSquadLoadoutId ?? 1,
-      officers: (state.officers ?? []).map((o: any) =>
-        o.stats ? o : { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, o.id), o.rank) },
+      // Hardened like the file's other Array.isArray guards: a non-array officers field reads as empty,
+      // and a malformed (null / non-object) entry passes through untouched rather than throwing.
+      officers: (Array.isArray(state.officers) ? state.officers : []).map((o: any) =>
+        !o || typeof o !== "object" || o.stats
+          ? o
+          : { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, String(o.id ?? "")), o.rank) },
       ),
     };
   },

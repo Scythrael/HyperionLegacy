@@ -266,7 +266,7 @@ export const NEUTRAL_OFFICER_STATS: OfficerStats = { strength: 10, integrity: 10
 // Mix a per-save seed + an officer id into one uint32 PRNG seed for that officer's stat roll. Keying on
 // the officer's own id (not its array position) means a roster reorder or a fire can never reshuffle
 // another officer's stats. Same inputs => same seed. A small FNV-style string mix over the
-// candidateSeed-style keyed base, with its own salt so it never collides with the roster seeds. Pure.
+// candidateSeed-style keyed base, with its own salt so it stays decorrelated from the roster seeds. Pure.
 const OFFICER_STAT_SEED_SALT = 0x3c6ef372;
 export function officerStatSeed(baseSeed: number, officerId: string): number {
   let h = Math.imul(((baseSeed >>> 0) ^ OFFICER_STAT_SEED_SALT) >>> 0, 0x85ebca6b) >>> 0;

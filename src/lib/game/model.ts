@@ -195,10 +195,10 @@ export interface ShipTypeDef {
   // researching it grants build access, nothing is fabricated.
   requiresBlueprint?: string;
   // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
-  // the member count per squad (`size`, 3 or 4) and how many such squads (`count`, so a future hull can
-  // list two Security details with no engine change). OPTIONAL and
+  // its `teamType`, the member count per squad (`size`, 3 or 4) and how many such squads (`count`, so a
+  // future hull can list two Security details with no engine change). OPTIONAL and
   // absent on every hull for now: the per-ship-type data lands in Task 3, and nothing reads it yet.
-  awayTeams?: { type: AwayTeamType; size: number; count: number }[];
+  awayTeams?: { teamType: AwayTeamType; size: number; count: number }[];
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -5378,30 +5378,30 @@ export type SecuritySpec = "offense" | "defense" | "debuff";
 export type ScienceSpec = "archaeology" | "xenobiology" | "geology" | "cryptography";
 export type AwayMemberSpec = SecuritySpec | ScienceSpec;
 
+// A rolled away-team trait id, a stable string key into the trait catalog. Kept as a plain string
+// until the trait-catalog task narrows it to a closed union.
+export type AwayTraitId = string;
+
 // One named away-team member. Few, named, full objects (like SeniorStaffOfficer, unlike the bucketed
-// complement), so persisting per person is fine.
-//   id               , "member-N" from GameState.nextAwayMemberId; never reused.
-//   rank             , ROLLED at generation on the shared 8-tier CrewRank ladder and NEVER levels (D6);
-//                      it gates trait count and nudges magnitude, like the complement.
-//   traits           , rolled trait ids (count follows rank; the trait catalog lands in a later task).
-//   assignedShipId   , the ship whose squad holds the member (the authority, like officers); null =
-//                      unassigned.
-//   injuredUntilSeconds, gameTimeSeconds the member recovers at (D9); absent = ready.
-//   gambit           , the member's OWN program (D16, Security only); absent = the preset default.
-//   favorite         , curation flag only, parity with officers / notables.
+// complement), so persisting per person is fine. NOTE: `spec` is not yet tied to `teamType` at the
+// type level (a Security member could carry a Science spec); a specsFor(teamType) validator lands with
+// recruitment. Prospecting's spec set is still to be decided.
 export interface AwayMember {
-  id: string;
+  id: string; // "member-N" from GameState.nextAwayMemberId; never reused
   teamType: AwayTeamType;
-  spec: AwayMemberSpec;
+  spec: AwayMemberSpec; // must belong to teamType's spec set (validated at recruitment, not by the type)
   name: string;
   race: CrewRace;
   gender: string;
+  // ROLLED at generation on the shared 8-tier CrewRank ladder and NEVER levels (D6); it gates trait
+  // count and nudges magnitude, like the complement.
   rank: CrewRank;
-  traits: string[];
-  assignedShipId: string | null;
-  injuredUntilSeconds?: number;
+  traits: AwayTraitId[]; // rolled trait ids; the count follows rank
+  assignedShipId: string | null; // the ship whose squad holds the member (the authority, like officers); null = unassigned
+  injuredUntilSeconds?: number; // gameTimeSeconds the member recovers at (D9); absent = ready
+  // The member's OWN gambit program (D16, Security only); absent = the preset default.
   gambit?: GambitProgram;
-  favorite?: boolean;
+  favorite?: boolean; // curation flag only, parity with officers / notables
 }
 
 // An officer's four stats (D13, design section 7). Each is a FACET of the department the officer
