@@ -180,3 +180,20 @@ export function makeStreams(seed: number): { combat: Rng; cosmetic: Rng } {
 		cosmetic: makeRng((seed ^ COSMETIC_SEED_XOR) >>> 0),
 	};
 }
+
+// Weighted pick from `items` by parallel `weights` (same length, non-negative, positive sum), decided
+// by a SINGLE integer draw (nextInt(total), then a walk down the cumulative weights) so the odds are
+// exact and exactly one step of the stream is consumed. Shared so every weighted roll draws the same
+// way (lifted from crewGeneration.ts unchanged, so its rolls are byte-identical; the away-team recruit
+// rank uses it too). A zero-weight item is never picked. Pure with respect to the passed rng's state.
+export function weightedPick<T>(rng: Rng, items: readonly T[], weights: readonly number[]): T {
+	let total = 0;
+	for (const w of weights) total += w;
+	// Roll in [0, total), then walk the cumulative weights.
+	let roll = rng.nextInt(total);
+	for (let i = 0; i < items.length; i += 1) {
+		roll -= weights[i];
+		if (roll < 0) return items[i];
+	}
+	return items[items.length - 1]; // unreachable given a positive weight sum; defensive
+}

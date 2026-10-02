@@ -20,7 +20,9 @@
 // 0.5 catalogs (crewBuffs.ts); races from crewRaces.ts. All distributions are FIRST-PASS + TUNABLE.
 
 import type { CrewProfession, CrewRank, CrewRarity, CrewRace, CrewSignature, EquipmentRarity } from "./model";
-import { makeRng, type Rng } from "./combat/rng";
+// weightedPick is the shared single-draw weighted roll (combat/rng.ts); it was lifted from this file
+// unchanged, so every complement roll stays byte-identical.
+import { makeRng, weightedPick } from "./combat/rng";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { clampCrewRarity } from "./crewRarity";
@@ -53,20 +55,6 @@ const EXCLUSIVE_SECOND_BUFF_CHANCE = 35;
 // omitted, it is rolled uniformly over the six professions.
 export interface GenerateComplementOptions {
   profession?: CrewProfession;
-}
-
-// Weighted pick from `items` by parallel `weights` (same length, non-negative, positive sum), decided
-// by a single integer draw so it stays exact and reproducible. Pure w.r.t. the passed rng's state.
-function weightedPick<T>(rng: Rng, items: readonly T[], weights: readonly number[]): T {
-  let total = 0;
-  for (const w of weights) total += w;
-  // roll in [0, total); walk the cumulative weights.
-  let roll = rng.nextInt(total);
-  for (let i = 0; i < items.length; i += 1) {
-    roll -= weights[i];
-    if (roll < 0) return items[i];
-  }
-  return items[items.length - 1]; // unreachable given a positive weight sum; defensive
 }
 
 // Mix a base seed + a row index into one uint32 PRNG seed, so row `index` gives an independent draw

@@ -9,7 +9,7 @@
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
-import { makeRng, makeStreams } from "./rng";
+import { makeRng, makeStreams, weightedPick } from "./rng";
 
 // Pull N floats off a stream into an array, so we can compare whole sequences.
 function drawFloats(rng: { next(): number }, count: number): number[] {
@@ -111,5 +111,29 @@ describe("makeStreams independence (the offline==live foundation)", () => {
 		const a = drawFloats(makeStreams(77).cosmetic, 25);
 		const b = drawFloats(makeStreams(77).cosmetic, 25);
 		expect(a).toEqual(b);
+	});
+});
+
+describe("weightedPick (the shared weighted draw)", () => {
+	it("walks the cumulative weights off ONE nextInt(total) draw", () => {
+		const items = ["a", "b", "c"] as const;
+		const weights = [5, 0, 3];
+		for (let seed = 1; seed <= 200; seed++) {
+			const roll = makeRng(seed).nextInt(8);
+			const expected = roll < 5 ? "a" : "c";
+			const rng = makeRng(seed);
+			expect(weightedPick(rng, items, weights)).toBe(expected);
+			// Exactly one draw consumed: the next value matches a fresh stream's SECOND draw.
+			const ref = makeRng(seed);
+			ref.nextInt(8);
+			expect(rng.next()).toBe(ref.next());
+		}
+	});
+
+	it("never picks a zero-weight item", () => {
+		const rng = makeRng(42);
+		for (let i = 0; i < 500; i++) {
+			expect(weightedPick(rng, [1, 2, 3], [1, 0, 1])).not.toBe(2);
+		}
 	});
 });

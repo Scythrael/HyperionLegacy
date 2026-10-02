@@ -27,7 +27,7 @@ import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { officerRosterWindowIndex } from "./seniorStaff";
-import { makeRng } from "./combat/rng";
+import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { onMissionLock } from "./equipment";
 
 // ============================================================================
@@ -60,8 +60,24 @@ export function squadHasRoom(state: GameState, shipId: string, teamType: AwayTea
 }
 
 // ============================================================================
-// Member traits, implants, specs (design sections 2 and 5.1)
+// Member stats, traits, implants, specs (design sections 2, 5.1 and 5.3)
 // ============================================================================
+
+// A member stat that traits, gear and implants can raise, each bump a FRACTION of the member's own value
+// (0.05 = +5%). The Security stats match the member card's HP / PWR / ARM / ACC line; the Science ones
+// its FIELD / RELIC / HAZ line, plus statusChance for the Debuff spec's afflictions.
+// STACKING RULE: every same-stat bump from traits, gear and implants ADDS (two +5% accuracy sources make
+// +10%, never 1.05 * 1.05), the codebase's additive-within-a-layer convention. The member-power task
+// (design section 5.3) applies the summed bump once to the member's base value.
+export type AwayMemberStat =
+  | "hp"
+  | "power"
+  | "armor"
+  | "accuracy"
+  | "statusChance"
+  | "fieldwork"
+  | "relicFind"
+  | "hazardResist";
 
 // How many traits a member of this rank carries: the complement's buff-count ladder, reused as-is so
 // the two rank systems can never drift (D6: rank gates trait count like it gates complement buffs).
@@ -101,7 +117,9 @@ export function specsFor(teamType: AwayTeamType): AwayMemberSpec[] {
 // (seniorStaffRosterSize: one expansion upgrade grows both boards). Hiring copies a candidate into
 // GameState.awayMembers (hireAwayMember below).
 
-// The squads a recruit can roll, 50/50. Prospecting is deliberately absent (wired only, D2).
+// The squads a recruit can roll, 50/50. Prospecting is deliberately absent (wired only, D2). Every type
+// listed here MUST have a non-empty specsFor set (rollAwayCandidate checks it); add specs for a type
+// before making it recruitable.
 const RECRUITABLE_TEAM_TYPES: readonly AwayTeamType[] = ["security", "science"];
 
 // FIRST-PASS + TUNABLE rank weights for ranks 1..8 (CREW_RANK_ORDER), weighted toward low ranks so a
@@ -125,15 +143,10 @@ function awayCandidateId(windowIndex: number, slot: number): string {
   return `away-candidate-${windowIndex}-${slot}`;
 }
 
-// Roll one rank 1..8 from RECRUIT_RANK_WEIGHTS with a single integer draw (exact odds, one step).
-function rollRecruitRank(rng: ReturnType<typeof makeRng>): CrewRank {
-  const total = RECRUIT_RANK_WEIGHTS.reduce((a, b) => a + b, 0);
-  let roll = rng.nextInt(total);
-  for (let i = 0; i < RECRUIT_RANK_WEIGHTS.length; i += 1) {
-    roll -= RECRUIT_RANK_WEIGHTS[i];
-    if (roll < 0) return CREW_RANK_ORDER[i];
-  }
-  return CREW_RANK_ORDER[0]; // unreachable (roll < total); keeps the types total
+// Roll one rank 1..8 from RECRUIT_RANK_WEIGHTS with the shared single-draw weightedPick (exact odds,
+// one step of the stream).
+function rollRecruitRank(rng: Rng): CrewRank {
+  return weightedPick(rng, CREW_RANK_ORDER, RECRUIT_RANK_WEIGHTS);
 }
 
 // Roll ONE fully-formed candidate for (windowIndex, slot). One PRNG per candidate, drawn in a fixed
@@ -146,6 +159,9 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
 
   const teamType = RECRUITABLE_TEAM_TYPES[rng.nextInt(RECRUITABLE_TEAM_TYPES.length)];
   const specs = specsFor(teamType);
+  // A programming error, not a player state: RECRUITABLE_TEAM_TYPES only lists types with specs. Fail
+  // loud (the board tests roll thousands of candidates, so this can never ship silently).
+  if (specs.length === 0) throw new Error(`awayTeam: recruitable team type "${teamType}" has no specs`);
   const spec = specs[rng.nextInt(specs.length)];
   const race: CrewRace = CREW_RACE_IDS[rng.nextInt(CREW_RACE_IDS.length)];
   const rank = rollRecruitRank(rng);
@@ -178,7 +194,9 @@ function rollAwayCandidate(baseSeed: number, windowIndex: number, slot: number):
 // size), deterministic from the current window + awayRecruitSeed. Ephemeral (never persisted). A
 // candidate a current member was hired from (AwayMember.hiredFrom) is left off, so a hired recruit
 // leaves the board and cannot be hired twice; every other slot is unaffected (slots roll independently).
-// Pure; returns a fresh array of fresh member objects.
+// A FIRED recruit therefore REAPPEARS on the board if their window is still open (no member carries their
+// hiredFrom any more). That acts as an undo for a misclicked fire and is harmless, since hiring is free.
+// Open for the user to revisit. Pure; returns a fresh array of fresh member objects.
 export function awayRecruitCandidates(state: GameState): AwayMember[] {
   const windowIndex = officerRosterWindowIndex(state);
   const size = Math.max(0, state.seniorStaffRosterSize ?? SENIOR_STAFF_ROSTER_BASE);
@@ -213,17 +231,51 @@ export function shipCrewLocked(state: GameState, shipId: string): boolean {
   return state.expeditions.some((e) => e.shipId === shipId);
 }
 
-// Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
-// (returns the SAME state) when the candidate is not on the board (including one already hired), the
-// ship does not exist, that squad has no room, or the ship is crew-locked. The hire is re-ided to
-// "member-N" from nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and
-// keeps its rolled squad / spec / identity / rank / traits. Pure.
-export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
+// Why a crew action is refused, the gate pattern of equipment.ts canFitEquipment / EquipFitBlockReason:
+// each can* gate answers "would this go through, and if not, why?" so the UI can show a disabled control
+// with its reason, and each action calls its gate and returns the SAME state on refusal.
+//   noCandidate:  the candidate is not on the current board (never was, or already hired)
+//   noMember:     no member with that id
+//   noShip:       the target ship does not exist
+//   onMission:    a ship involved is crew-locked (shipCrewLocked); Task 27 unifies every crew lock on it
+//   squadFull:    the target squad of the member's team type has no open slot
+//   alreadyThere: a reassign to where the member already is (same ship, or benching a benched member)
+export type AwayCrewBlockReason = "noCandidate" | "noMember" | "noShip" | "onMission" | "squadFull" | "alreadyThere";
+
+export type AwayCrewGate = { ok: true } | { ok: false; reason: AwayCrewBlockReason };
+
+// Can this board candidate be hired into `shipId`'s squad of the candidate's team type? Checked in order:
+// noCandidate, noShip, onMission, squadFull. Pure.
+export function canHireAwayMember(state: GameState, candidateId: string, shipId: string): AwayCrewGate {
   const candidate = awayRecruitCandidates(state).find((c) => c.id === candidateId);
-  if (!candidate) return state;
-  if (!state.ships.some((s) => s.id === shipId)) return state;
-  if (shipCrewLocked(state, shipId)) return state;
-  if (!squadHasRoom(state, shipId, candidate.teamType)) return state;
+  if (!candidate) return { ok: false, reason: "noCandidate" };
+  if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
+  if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
+  if (!squadHasRoom(state, shipId, candidate.teamType)) return { ok: false, reason: "squadFull" };
+  return { ok: true };
+}
+
+// Every ship as a hire target for this candidate, in fleet order, with whether the hire would go through
+// and why not, so the UI can list each ship and show the blocked ones disabled with their reason. A
+// candidate not on the board marks every ship noCandidate. Pure.
+export function hireTargetsFor(
+  state: GameState,
+  candidateId: string,
+): { shipId: string; ok: boolean; reason?: AwayCrewBlockReason }[] {
+  return state.ships.map((ship) => {
+    const gate = canHireAwayMember(state, candidateId, ship.id);
+    return gate.ok ? { shipId: ship.id, ok: true } : { shipId: ship.id, ok: false, reason: gate.reason };
+  });
+}
+
+// Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
+// (returns the SAME state) whenever canHireAwayMember does. The hire is re-ided to "member-N" from
+// nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and keeps its rolled
+// squad / spec / identity / rank / traits. Pure.
+export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
+  if (!canHireAwayMember(state, candidateId, shipId).ok) return state;
+  const candidate = awayRecruitCandidates(state).find((c) => c.id === candidateId);
+  if (!candidate) return state; // the gate already found it; this narrows the type
   const hired: AwayMember = {
     ...candidate,
     id: `member-${state.nextAwayMemberId}`,
@@ -238,15 +290,23 @@ export function hireAwayMember(state: GameState, candidateId: string, shipId: st
   };
 }
 
-// Fire a member. Refuses (returns the SAME state) for an unknown id or while the member's ship is
-// crew-locked. Otherwise it FIRST returns everything the member wears to storage (every piece with
-// fittedToMemberId === memberId gets null, which makes it spare again through isSparePiece: armor,
-// weapon, tool and implants alike), THEN removes the member, so no piece is ever left pointing at a
-// member who no longer exists. Pure.
-export function fireAwayMember(state: GameState, memberId: string): GameState {
+// Can this member be fired? noMember for an unknown id, onMission while the member's ship is
+// crew-locked (an unassigned member is never locked). Pure.
+export function canFireAwayMember(state: GameState, memberId: string): AwayCrewGate {
   const target = state.awayMembers.find((m) => m.id === memberId);
-  if (!target) return state;
-  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) return state;
+  if (!target) return { ok: false, reason: "noMember" };
+  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) {
+    return { ok: false, reason: "onMission" };
+  }
+  return { ok: true };
+}
+
+// Fire a member. Refuses (returns the SAME state) whenever canFireAwayMember does. Otherwise it FIRST
+// returns everything the member wears to storage (every piece with fittedToMemberId === memberId gets
+// null, which makes it spare again through isSparePiece: armor, weapon, tool and implants alike), THEN
+// removes the member, so no piece is ever left pointing at a member who no longer exists. Pure.
+export function fireAwayMember(state: GameState, memberId: string): GameState {
+  if (!canFireAwayMember(state, memberId).ok) return state;
   return {
     ...state,
     equipment: state.equipment.map((e) => (e.fittedToMemberId === memberId ? { ...e, fittedToMemberId: null } : e)),
@@ -254,21 +314,30 @@ export function fireAwayMember(state: GameState, memberId: string): GameState {
   };
 }
 
-// Move a member to another ship's squad of the member's own team type, or bench them (shipId null =
-// unassigned). Refuses (returns the SAME state) for an unknown member, an unknown target ship, a full
-// target squad, or when EITHER the ship they leave or the ship they join is crew-locked. Moving to the
-// ship they are already on (or benching a benched member) is a same-ref no-op. Gear travels with the
-// member (it is keyed to the member, not the ship). Pure.
-export function reassignAwayMember(state: GameState, memberId: string, shipId: string | null): GameState {
+// Can this member move to `shipId`'s squad of their own team type, or be benched (shipId null)? Checked
+// in order: noMember, alreadyThere, onMission (the ship they leave), then for a real target noShip,
+// onMission (the ship they join) and squadFull. Pure.
+export function canReassignAwayMember(state: GameState, memberId: string, shipId: string | null): AwayCrewGate {
   const target = state.awayMembers.find((m) => m.id === memberId);
-  if (!target) return state;
-  if (target.assignedShipId === shipId) return state;
-  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) return state;
-  if (shipId !== null) {
-    if (!state.ships.some((s) => s.id === shipId)) return state;
-    if (shipCrewLocked(state, shipId)) return state;
-    if (!squadHasRoom(state, shipId, target.teamType)) return state;
+  if (!target) return { ok: false, reason: "noMember" };
+  if (target.assignedShipId === shipId) return { ok: false, reason: "alreadyThere" };
+  if (target.assignedShipId !== null && shipCrewLocked(state, target.assignedShipId)) {
+    return { ok: false, reason: "onMission" };
   }
+  if (shipId !== null) {
+    if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
+    if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
+    if (!squadHasRoom(state, shipId, target.teamType)) return { ok: false, reason: "squadFull" };
+  }
+  return { ok: true };
+}
+
+// Move a member to another ship's squad of the member's own team type, or bench them (shipId null =
+// unassigned). Refuses (returns the SAME state) whenever canReassignAwayMember does, which includes the
+// same-ref no-op of moving a member to where they already are. Gear travels with the member (it is
+// keyed to the member, not the ship). Pure.
+export function reassignAwayMember(state: GameState, memberId: string, shipId: string | null): GameState {
+  if (!canReassignAwayMember(state, memberId, shipId).ok) return state;
   return {
     ...state,
     awayMembers: state.awayMembers.map((m) => (m.id === memberId ? { ...m, assignedShipId: shipId } : m)),

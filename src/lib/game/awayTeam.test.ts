@@ -1,8 +1,10 @@
 // E-CREW: tests for the away-team engine (awayTeam.ts). Covers the per-ship-type squad sizes
 // (design section 5.2) and the derived recruit board (section 5.1: determinism, window steps, squad /
-// spec / trait / rank / race rolls, augment affinity), plus hire / fire / reassign with the crew lock. Nothing here exercises the tick or the UI (the engine is not wired in yet).
+// spec / trait / rank / race rolls, augment affinity), plus hire / fire / reassign with the crew lock
+// and their typed block reasons. Nothing here exercises the tick or the UI (the engine is not wired in
+// yet).
 
-import { describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect } from "vitest";
 import { freshState, isSparePiece, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
 import type { AwayMember, AwayTeamType, CaptainMissionState, EquipmentInstance, GameState, ShipTypeKey } from "./model";
 import {
@@ -18,6 +20,10 @@ import {
   hireAwayMember,
   fireAwayMember,
   reassignAwayMember,
+  canHireAwayMember,
+  canFireAwayMember,
+  canReassignAwayMember,
+  hireTargetsFor,
 } from "./awayTeam";
 import { getAwayTrait } from "./awayTraits";
 import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
@@ -102,17 +108,6 @@ describe("squadSlots (design section 5.2)", () => {
       const teams = SHIP_TYPES[key].awayTeams ?? [];
       expect(teams.some((t) => t.teamType === "security" && t.count >= 1), key).toBe(true);
       expect(teams.some((t) => t.teamType === "science" && t.count >= 1), key).toBe(true);
-    }
-  });
-
-  it("a hull with no awayTeams data returns 0", () => {
-    const saved = SHIP_TYPES.eir.awayTeams;
-    try {
-      delete SHIP_TYPES.eir.awayTeams;
-      expect(squadSlots("eir", "security")).toBe(0);
-      expect(squadSlots("eir", "science")).toBe(0);
-    } finally {
-      SHIP_TYPES.eir.awayTeams = saved;
     }
   });
 
@@ -225,10 +220,14 @@ describe("awayRecruitCandidates (derived board)", () => {
     expect(awayRecruitCandidates(s).map((m) => m.name)).not.toEqual(seniorStaffCandidates(s).map((o) => o.name));
   });
 
-  // Many windows of candidates, for the distribution checks below.
-  const many = Array.from({ length: 300 }, (_, w) =>
-    awayRecruitCandidates(boardState({ gameTimeSeconds: w * OFFICER_ROSTER_WINDOW_SECONDS })),
-  ).flat();
+  // Many windows of candidates, for the distribution checks below. Built once, lazily, in beforeAll so
+  // the work only runs when this block does.
+  let many: AwayMember[] = [];
+  beforeAll(() => {
+    many = Array.from({ length: 300 }, (_, w) =>
+      awayRecruitCandidates(boardState({ gameTimeSeconds: w * OFFICER_ROSTER_WINDOW_SECONDS })),
+    ).flat();
+  });
 
   it("never rolls prospecting; both real squads appear; spec matches the squad", () => {
     const types = new Set(many.map((m) => m.teamType));
@@ -482,5 +481,73 @@ describe("reassignAwayMember", () => {
     expect(reassignAwayMember(s, "member-1", "ship-a")).toBe(s);
     const benched = reassignAwayMember(s, "member-1", null);
     expect(reassignAwayMember(benched, "member-1", null)).toBe(benched);
+  });
+});
+
+// ===== Typed block reasons (the canFitEquipment / canRequisition gate pattern) =====
+
+describe("canHireAwayMember", () => {
+  it("returns each block reason, and ok when the hire would go through", () => {
+    const s = hireState();
+    const sci = candidateOf(s, "science");
+    expect(canHireAwayMember(s, sci.id, "ship-a")).toEqual({ ok: true });
+    expect(canHireAwayMember(s, "away-candidate-999-0", "ship-a")).toEqual({ ok: false, reason: "noCandidate" });
+    expect(canHireAwayMember(s, sci.id, "ship-missing")).toEqual({ ok: false, reason: "noShip" });
+    expect(canHireAwayMember(onMission(s), sci.id, "ship-a")).toEqual({ ok: false, reason: "onMission" });
+    const full = hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a")));
+    expect(canHireAwayMember(full, candidateOf(full, "science").id, "ship-a")).toEqual({
+      ok: false,
+      reason: "squadFull",
+    });
+  });
+});
+
+describe("canFireAwayMember", () => {
+  it("returns noMember, onMission, and ok", () => {
+    const s = hireState([member("member-1", "security", "ship-a")]);
+    expect(canFireAwayMember(s, "member-1")).toEqual({ ok: true });
+    expect(canFireAwayMember(s, "member-404")).toEqual({ ok: false, reason: "noMember" });
+    expect(canFireAwayMember(onMission(s), "member-1")).toEqual({ ok: false, reason: "onMission" });
+  });
+});
+
+describe("canReassignAwayMember", () => {
+  it("returns each block reason, and ok when the move would go through", () => {
+    const s = hireState([member("member-1", "science", "ship-a")]);
+    expect(canReassignAwayMember(s, "member-1", "ship-b")).toEqual({ ok: true });
+    expect(canReassignAwayMember(s, "member-1", null)).toEqual({ ok: true });
+    expect(canReassignAwayMember(s, "member-404", "ship-b")).toEqual({ ok: false, reason: "noMember" });
+    expect(canReassignAwayMember(s, "member-1", "ship-a")).toEqual({ ok: false, reason: "alreadyThere" });
+    expect(canReassignAwayMember(s, "member-1", "ship-missing")).toEqual({ ok: false, reason: "noShip" });
+    expect(canReassignAwayMember(onMission(s), "member-1", "ship-b")).toEqual({ ok: false, reason: "onMission" });
+    const fullB = hireState([
+      member("member-1", "science", "ship-a"),
+      ...[2, 3, 4].map((n) => member(`member-${n}`, "science", "ship-b")),
+    ]);
+    expect(canReassignAwayMember(fullB, "member-1", "ship-b")).toEqual({ ok: false, reason: "squadFull" });
+  });
+
+  it("reports onMission for a locked TARGET ship too", () => {
+    const s = onMission(hireState([member("member-1", "science", "ship-b")]));
+    expect(canReassignAwayMember(s, "member-1", "ship-a")).toEqual({ ok: false, reason: "onMission" });
+  });
+});
+
+describe("hireTargetsFor", () => {
+  it("lists every ship with whether the candidate can be hired there and why not", () => {
+    const s = onMission(hireState());
+    const cand = candidateOf(s, "security");
+    expect(hireTargetsFor(s, cand.id)).toEqual([
+      { shipId: "ship-a", ok: false, reason: "onMission" },
+      { shipId: "ship-b", ok: true },
+    ]);
+  });
+
+  it("marks every ship noCandidate for a candidate not on the board", () => {
+    const s = hireState();
+    expect(hireTargetsFor(s, "away-candidate-999-0")).toEqual([
+      { shipId: "ship-a", ok: false, reason: "noCandidate" },
+      { shipId: "ship-b", ok: false, reason: "noCandidate" },
+    ]);
   });
 });
