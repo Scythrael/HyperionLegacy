@@ -59,6 +59,9 @@ import {
   salvageSalvagedMaterial,
   salvageShip,
   salvageTalentBonus,
+  // 0.13.9: the private chance-rounding stream + rule, so amount expectations replay them exactly.
+  salvageRoundingStream,
+  chanceRound,
   // Crafting 0.13.3 (Phase 5 Unit 5.1): the PURE auto-salvage rule evaluator.
   selectAutoSalvageTargets,
   // 0.13.3.1: the PROTECTION SEAM (the named reason a target is off limits to the automation)
@@ -225,7 +228,7 @@ function expectedFraction(rngValue: number, quality: number): number {
 }
 
 describe("salvageEquipment: recovers floored inputs at quality 0 and consumes the piece (Task C1)", () => {
-  it("deposits floor(qty * fraction) of each recipe input into the quality-0 bucket and removes the piece", () => {
+  it("deposits qty * fraction (chance-rounded, 0.13.9) of each recipe input into the quality-0 bucket and removes the piece", () => {
     const quality = 3;
     const rngValue = 0.5; // pins the band mid-range; fraction = 0.30 + 0.05 + 0.06 = 0.41
     const piece = makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality, id: "sp-1" });
@@ -236,10 +239,14 @@ describe("salvageEquipment: recovers floored inputs at quality 0 and consumes th
     if (!("recovered" in result)) return; // narrow for the type checker
 
     const fraction = expectedFraction(rngValue, quality);
-    // Every recipe input is reported with its floored recovered amount (including 0),
-    // and every positive amount lands in the QUALITY-0 bucket specifically.
+    // Every recipe input is reported with its recovered amount (including 0), and every
+    // positive amount lands in the QUALITY-0 bucket specifically. 0.13.9: amounts are
+    // CHANCE-ROUNDED through the private stream seeded from the band draw, so the expectation
+    // replays that exact stream in recipe order (previously: Math.floor(qty * fraction)).
+    const privateStream = salvageRoundingStream(rngValue);
     for (const [itemId, qty] of Object.entries(SALVAGE_BP_INPUTS)) {
-      const expected = Math.floor(qty * fraction);
+      const expected = chanceRound(qty * fraction, privateStream);
+      expect([Math.floor(qty * fraction), Math.floor(qty * fraction) + 1]).toContain(expected);
       expect(result.recovered[itemId]).toBe(expected);
       expect(getBucket(result.next.inventory, itemId, 0).toNumber()).toBe(expected);
     }
@@ -987,18 +994,21 @@ describe("salvageShip: breaks down an idle hull (Task ship-salvage)", () => {
     // The unrelated spare crafted system is UNTOUCHED.
     expect(result.next.equipment.find((e) => e.id === "sp-x")).toBeDefined();
 
-    // Each build component is reported with its floored recovered amount and deposited into
-    // the QUALITY-0 bucket specifically.
+    // Each build component is reported with its recovered amount and deposited into the
+    // QUALITY-0 bucket specifically. 0.13.9: chance-rounded through the private stream seeded
+    // from the band draw (components in recipe order, then the credits), replayed here
+    // (previously: Math.floor(count * fraction) and Math.floor(credits * fraction)).
+    const privateStream = salvageRoundingStream(rngValue);
     for (const [itemId, count] of Object.entries(FREIGHTER_RECIPE.components)) {
-      const expected = Math.floor(count * fraction);
+      const expected = chanceRound(count * fraction, privateStream);
       expect(result.recovered[itemId]).toBe(expected);
       expect(getBucket(result.next.inventory, itemId, 0).toNumber()).toBe(expected);
     }
     // At least one component recovered a positive amount, so the deposit is real.
     expect(Object.values(result.recovered).some((n) => n > 0)).toBe(true);
 
-    // Credits refund: floor(recipe.credits * fraction), added onto the balance.
-    const expectedCredits = Math.floor(FREIGHTER_RECIPE.credits * fraction);
+    // Credits refund: recipe.credits * fraction, chance-rounded (the private stream's last draw).
+    const expectedCredits = chanceRound(FREIGHTER_RECIPE.credits * fraction, privateStream);
     expect(result.creditsRecovered).toBe(expectedCredits);
     expect(result.next.credits.toNumber()).toBe(startCredits + expectedCredits);
 
@@ -5109,5 +5119,86 @@ describe("loadout-committed gear is not auto-salvaged and survives a ship scrap 
     expect(lo).toBeDefined();
     expect(lo?.fittedToShipId).toBeNull();
     expect(lo?.committedToLoadoutId).toBe("loadout-1");
+  });
+});
+
+// ============================================================================
+// 0.13.9 hotfix: CHANCE-ROUNDED recovery through a PRIVATE stream.
+//
+// floor(qty * fraction) made every 1-2 unit recipe input recover 0, so seven gear blueprints
+// returned nothing at all. Recovery is now floor plus a chance of one more unit equal to the
+// leftover fraction (expected value = qty * fraction), drawn from a private stream seeded from
+// the band draw. The SHARED rng (economyTick's fleet stream on the tick path) is still drawn
+// exactly once, so every later draw in a span is byte-identical to before.
+// ============================================================================
+describe("salvage chance-rounding (0.13.9): small recipes recover, the shared stream is untouched", () => {
+  // A spare crafted Plasma Cannon (inputs 2 + 2) at quality 0: the recipe that used to return nothing.
+  const SMALL_BP = "plasmaBp";
+  function smallSpare(id = "pl-1"): EquipmentInstance {
+    // cargoBay only to mint a valid instance; salvage reads the blueprint, not the slot.
+    return { ...makePiece({ slotType: "cargoBay", fitted: false, crafted: true, quality: 0, id }), blueprintKey: SMALL_BP };
+  }
+  function counting(inner: () => number): { rng: () => number; calls: () => number } {
+    let n = 0;
+    return { rng: () => { n++; return inner(); }, calls: () => n };
+  }
+
+  it("draws the PASSED rng exactly ONCE per salvageEquipment and per salvageShip (shared stream unchanged)", () => {
+    const eq = counting(() => 0.5);
+    const r1 = salvageEquipment(stateWith([smallSpare()]), "pl-1", eq.rng);
+    expect(r1.ok).toBe(true);
+    expect(eq.calls()).toBe(1);
+
+    const base = shipSalvageState();
+    const ships: GameState = { ...base, ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }] };
+    const sh = counting(() => 0.5);
+    const r2 = salvageShip(ships, "ship-1", sh.rng);
+    expect(r2.ok).toBe(true);
+    expect(sh.calls()).toBe(1);
+  });
+
+  it("chanceRound draws its private stream exactly once per amount, even when nothing is left over", () => {
+    const priv = counting(() => 0.999);
+    expect(chanceRound(3, priv.rng)).toBe(3); // a whole number adds nothing...
+    expect(priv.calls()).toBe(1); // ...but still draws, so the private count is fixed per recipe
+    expect(chanceRound(2.5, priv.rng)).toBe(2); // 0.999 >= 0.5: rounds down
+    expect(chanceRound(2.5, () => 0.1)).toBe(3); // 0.1 < 0.5: rounds up
+    expect(priv.calls()).toBe(2);
+  });
+
+  it("a whole-number amount is never rounded up, whatever the private draw", () => {
+    for (let i = 0; i < 50; i++) expect(chanceRound(4, () => i / 50)).toBe(4);
+  });
+
+  it("a 2 + 2 recipe at Q0 recovers SOMETHING for some band draws (it used to recover nothing, always)", () => {
+    let anyPositive = false;
+    for (let i = 0; i < 40; i++) {
+      const result = salvageEquipment(stateWith([smallSpare()]), "pl-1", () => i / 40);
+      if (!("recovered" in result)) throw new Error("expected success");
+      for (const amount of Object.values(result.recovered)) {
+        expect(amount === 0 || amount === 1).toBe(true); // 2 * fraction < 1, so floor is 0
+        if (amount > 0) anyPositive = true;
+      }
+    }
+    expect(anyPositive).toBe(true);
+  });
+
+  it("the mean recovery over many salvages matches qty * fraction (the designed ~30-40% back)", () => {
+    const rng = mulberry32(13579);
+    const N = 4000;
+    const totals: Record<string, number> = {};
+    let fractionSum = 0;
+    for (let i = 0; i < N; i++) {
+      // Peek the band draw the same way salvageEquipment will consume it, to sum the true fraction.
+      const draw = rng();
+      fractionSum += expectedFraction(draw, 0);
+      const result = salvageEquipment(stateWith([smallSpare()]), "pl-1", () => draw);
+      if (!("recovered" in result)) throw new Error("expected success");
+      for (const [itemId, amount] of Object.entries(result.recovered)) totals[itemId] = (totals[itemId] ?? 0) + amount;
+    }
+    const meanFraction = fractionSum / N;
+    for (const [itemId, qty] of Object.entries(BLUEPRINTS[SMALL_BP].recipe.inputs)) {
+      expect(totals[itemId] / N).toBeCloseTo(qty * meanFraction, 1); // within 0.05 of the designed mean
+    }
   });
 });

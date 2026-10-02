@@ -41,6 +41,14 @@
 //   counts changes the stream for every later completion in the same span: treat them as
 //   load-bearing, not as an implementation detail.
 //
+//   ⚠️ 0.13.9 PRIVATE ROUNDING STREAM. salvageEquipment and salvageShip CHANCE-ROUND every
+//   recovered amount (salvageRoundingStream / chanceRound below). Those extra draws come from a
+//   PRIVATE mulberry32 stream seeded from the single band draw, never from the passed rng, so
+//   the shared counts above are unchanged (one each). The private count is fixed too: one per
+//   recipe input for salvageEquipment, one per build component plus one for the credits for
+//   salvageShip. The instant hull-teardown button passes the default Math.random, which is
+//   acceptable for a one-off manual action (nothing to stay in lockstep with).
+//
 //   salvage.test.ts still greps tick.ts, but for the REAL invariant now: every salvage
 //   call site there passes rng, and tick.ts adds no bare Math.random. See that guard's
 //   own header for what it defends and why it was not simply deleted.
@@ -110,6 +118,9 @@ import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
 // INSTALLING mid-mission is locked for SALVAGE too, one source of truth for that lock.
 import { onMissionLock } from "./equipment";
+// 0.13.9: the codebase's seeded mulberry32 factory, for the PRIVATE chance-rounding stream
+// (see salvageRoundingStream). rng.ts has no imports, so this adds no cycle.
+import { makeRng } from "./combat/rng";
 
 // --- Derived salvage reservations (Crafting 0.13.3, Phase 2 Unit 2.1) --------
 // Re-exported so "the salvage reservation helpers live in salvage.ts" stays TRUE for
@@ -184,6 +195,37 @@ export const SALVAGE_FRACTION_MAX = 0.4;
 // quality-0 one. Small on purpose, so quality nudges yield without dominating it.
 export const SALVAGE_QUALITY_BONUS_PER_TIER = 0.02;
 
+// ============================================================================
+// CHANCE-ROUNDING through a PRIVATE stream (0.13.9 hotfix)
+// ============================================================================
+// The bug: every recovered amount was floor(qty * fraction), so a recipe input of 1 or 2
+// units (fraction ~0.3 to 0.5) ALWAYS recovered 0, and seven gear blueprints with small
+// recipes returned nothing at all. The fix CHANCE-ROUNDS instead: floor(x), plus one more
+// unit with probability equal to the leftover fraction, so the EXPECTED recovery is exactly
+// qty * fraction (the designed ~30-40%) and a small recipe is no longer dead.
+//
+// ⚠️ THE EXTRA DRAWS DO NOT TOUCH THE SHARED STREAM. salvageEquipment and salvageShip still
+// take exactly ONE draw from the passed rng (the band), byte-identical to before, because on
+// the tick path that rng is economyTick's fleet stream (mission loot and production quality
+// roll from it too), and shifting it would move every later draw in the span. The per-input
+// rounding draws come from a private mulberry32 stream SEEDED FROM that one band draw, so
+// they are fully deterministic (offline == live) and cost the shared stream nothing.
+// salvageRoundingStream mints it; chanceRound always draws ONCE per amount, even when the
+// leftover fraction is 0, so the private draw count is fixed per recipe.
+const SALVAGE_ROUNDING_SEED_SALT = 0x5a17a9e1; // arbitrary fixed nonzero mixing constant
+
+export function salvageRoundingStream(bandDraw: number): () => number {
+  const stream = makeRng((Math.floor(bandDraw * 2 ** 32) ^ SALVAGE_ROUNDING_SEED_SALT) >>> 0);
+  return () => stream.next();
+}
+
+// floor(x) plus a chance of one more unit equal to x's fractional part. Draws exactly once.
+export function chanceRound(x: number, privateRng: () => number): number {
+  const whole = Math.floor(x);
+  const roll = privateRng(); // ALWAYS drawn, so the private draw count never depends on x
+  return whole + (roll < x - whole ? 1 : 0);
+}
+
 // ----------------------------------------------------------------------------
 // SalvageResult
 // ----------------------------------------------------------------------------
@@ -257,7 +299,7 @@ export type SalvageRejectReason =
 // ----------------------------------------------------------------------------
 // salvageEquipment
 // ----------------------------------------------------------------------------
-// Recycle a SPARE CRAFTED ship system: consume it, return floor(qty * fraction) of
+// Recycle a SPARE CRAFTED ship system: consume it, return a chance-rounded qty * fraction (0.13.9) of
 // each of its blueprint's crafting inputs to inventory at quality tier 0, and free
 // the storage slot it occupied.
 //
@@ -348,7 +390,10 @@ export function salvageEquipment(
   // The quality bonus rewards recycling a better system; salvageTalentBonus(state)
   // folds in the learned FA salvage talent automatically (so it always applies in
   // real play); `talentBonus` is the extra test-override layered on top.
-  const band = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  // The ONE shared-stream draw (unchanged count); it also seeds the private rounding stream.
+  const bandDraw = rng();
+  const band = SALVAGE_FRACTION_MIN + bandDraw * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  const rounding = salvageRoundingStream(bandDraw);
   const fraction =
     band +
     piece.quality * SALVAGE_QUALITY_BONUS_PER_TIER +
@@ -357,15 +402,16 @@ export function salvageEquipment(
 
   // --- Deposit the recovered inputs at quality 0 ----------------------------
   // The blueprint that crafted this piece is guaranteed to exist (a crafted piece
-  // carries a real blueprintKey). For each input, recover floor(qty * fraction) and
+  // carries a real blueprintKey). For each input, recover qty * fraction CHANCE-ROUNDED
+  // (0.13.9: floor plus a chance of one more, via the private stream; see chanceRound) and
   // deposit it into the QUALITY-0 bucket (crude recovery: recycled scrap is base
   // quality regardless of the salvaged system's quality).
   const inputs = BLUEPRINTS[piece.blueprintKey].recipe.inputs;
   const recovered: Record<string, number> = {};
   let inventory = state.inventory;
   for (const [itemId, qty] of Object.entries(inputs)) {
-    const amount = Math.floor(qty * fraction);
-    // Record every input's floored amount (including 0) so the caller sees the full
+    const amount = chanceRound(qty * fraction, rounding);
+    // Record every input's recovered amount (including 0) so the caller sees the full
     // breakdown of what this recipe gave back.
     recovered[itemId] = amount;
     // Only touch inventory for a positive recovery (depositing 0 would needlessly
@@ -685,25 +731,29 @@ export function salvageShip(
   // quality/talent bonus applies here: a hull has no quality rung, and the FA salvage talent
   // buffs fine MATERIAL recycling, not a coarse hull teardown. So the fraction is the raw band.
   const recipe = SHIP_TYPES[ship.typeKey].buildRecipe;
-  const fraction = SALVAGE_FRACTION_MIN + rng() * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  // The ONE shared-stream draw (unchanged count); it also seeds the private rounding stream.
+  const bandDraw = rng();
+  const fraction = SALVAGE_FRACTION_MIN + bandDraw * (SALVAGE_FRACTION_MAX - SALVAGE_FRACTION_MIN);
+  const rounding = salvageRoundingStream(bandDraw);
 
-  // Deposit floor(count * fraction) of each build component into the QUALITY-0 bucket (crude
-  // recovery, same as recycled scrap). Record every component's floored amount (including 0)
-  // so the caller sees the full breakdown; only touch inventory for a positive recovery.
+  // Deposit count * fraction of each build component, CHANCE-ROUNDED (0.13.9, see chanceRound),
+  // into the QUALITY-0 bucket (crude recovery, same as recycled scrap). Record every component's
+  // amount (including 0) so the caller sees the full breakdown; only touch inventory for a
+  // positive recovery. Private draws: one per component, then one for the credits.
   const recovered: Record<string, number> = {};
   let inventory = state.inventory;
   for (const [itemId, count] of Object.entries(recipe.components)) {
-    const amount = Math.floor(count * fraction);
+    const amount = chanceRound(count * fraction, rounding);
     recovered[itemId] = amount;
     if (amount > 0) {
       inventory = addItemQuality(inventory, itemId, new Decimal(amount), 0);
     }
   }
 
-  // Refund floor(credits * fraction) of the hull's flat build-credit cost onto the balance.
-  // state.credits is a Decimal, so add via .plus (creditsRecovered is a plain number, which
-  // Decimal.plus accepts). The reported number is the same plain integer.
-  const creditsRecovered = Math.floor(recipe.credits * fraction);
+  // Refund credits * fraction (CHANCE-ROUNDED, 0.13.9) of the hull's flat build-credit cost onto
+  // the balance. state.credits is a Decimal, so add via .plus (creditsRecovered is a plain number,
+  // which Decimal.plus accepts). The reported number is the same plain integer.
+  const creditsRecovered = chanceRound(recipe.credits * fraction, rounding);
   const credits = state.credits.plus(creditsRecovered);
 
   // --- Remove the hull + return the new state -------------------------------

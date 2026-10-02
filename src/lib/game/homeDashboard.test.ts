@@ -1185,7 +1185,7 @@ describe("buildHomeDashboard: a completed salvage names its target and its recov
     const row = model.recentlyCompleted[0];
     expect(row.rewards).toEqual([]);
     expect(row.creditsAmount).toBeNull();
-    expect(row.secondaryLabel).toBe("No materials recovered (rounded to zero)");
+    expect(row.secondaryLabel).toBe("No materials recovered this time"); // 0.13.9 wording (chance-rounded recovery)
     // The target is still named: the player must know WHICH piece went for nothing.
     expect(row.primaryLabel).toContain("Reactor");
   });

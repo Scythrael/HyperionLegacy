@@ -732,7 +732,10 @@ describe("a completed salvage records WHAT was broken down and WHAT came back", 
     const piece = craftedSpare("equip-78", "cargoBay", "balancedHoldBp");
     const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
 
-    const entry = resolveProcesses(s, 1, ZERO_RNG, T0).next.completionLog[0];
+    // 0.13.9: recovery is CHANCE-ROUNDED through a private stream seeded from the band draw, so
+    // ZERO_RNG no longer pins a zero line (it now rounds frameSegment up). A band draw of 0.1 is a
+    // deterministic draw that still yields the partial shape this case is about (0 + 1).
+    const entry = resolveProcesses(s, 1, () => 0.1, T0).next.completionLog[0];
 
     // Something DID come back, so the outcome is a real recovery...
     expect(entry.reward).toBe("materials");
@@ -747,9 +750,12 @@ describe("a completed salvage records WHAT was broken down and WHAT came back", 
     const piece = craftedSpare("equip-79", "reactorCore", "highOutputCoreBp");
     const s: GameState = { ...salvageStateWith(piece), activeProcesses: [salvageProcessFor(piece)] };
 
-    const entry = resolveProcesses(s, 1, ZERO_RNG, T0).next.completionLog[0];
+    // 0.13.9: chance-rounded recovery means an all-zero result is now an UNLUCKY ROLL rather than a
+    // certainty for this small recipe (that certainty was the bug). A band draw of 0.15 is a
+    // deterministic draw on which both lines round down, which is the outcome this case classifies.
+    const entry = resolveProcesses(s, 1, () => 0.15, T0).next.completionLog[0];
 
-    // Classified on the AMOUNTS. Both lines floored to zero, so nothing was recovered.
+    // Classified on the AMOUNTS. Both lines rounded to zero, so nothing was recovered.
     expect(entry.reward).toBe("nothing");
     // And it carries NO rows of zeroes for a reader to print under a Warehouse claim.
     expect(entry.items).toEqual([]);

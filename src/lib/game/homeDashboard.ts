@@ -1276,7 +1276,9 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     if (subject !== undefined && subject.kind === "equipment" && subject.blueprintKey === null) {
       return "Standard-Issue systems carry no materials to recover";
     }
-    return "No materials recovered (rounded to zero)";
+    // 0.13.9: recovery is chance-rounded now, so an all-zero result is an unlucky roll on a small
+    // recipe, not a rounding certainty; "this time" says that without blaming a rule.
+    return "No materials recovered this time";
   }
   if (entry.reward === "level" && entry.level !== null) {
     // ⚠️ SOME "LEVEL" REWARDS ARE REALLY CAPACITIES, and reporting a level for them is wrong in a

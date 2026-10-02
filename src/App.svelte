@@ -5058,7 +5058,7 @@
           manifest.length > 0
             ? `Salvage complete → [${watched.sourceName}]. Recovered: ${manifest}.`
             : recoveredNothing
-              ? `Salvage complete → [${watched.sourceName}]. No materials recovered (rounded to zero).`
+              ? `Salvage complete → [${watched.sourceName}]. No materials recovered this time.`
               : `Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`
         );
       }
@@ -5105,7 +5105,7 @@
       .filter(([, amount]) => amount > 0)
       .map(([itemId, amount]) => `${formatNumber(amount)} [${ITEMS[itemId]?.label ?? itemId}]`);
     if (result.creditsRecovered > 0) parts.push(`${formatNumber(new Decimal(result.creditsRecovered))} credits`);
-    const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
+    const summary = parts.length > 0 ? parts.join(", ") : "no materials this time";
     const systemsNote = returnedSystems > 0 ? ` ${returnedSystems} crafted system(s) returned to spares.` : "";
     pushLog(`Salvaged ${shipLabel} → recovered ${summary}.${systemsNote}`);
     doSave();
@@ -11929,10 +11929,11 @@
                            Warehouse is where they can be counted. -->
                       Everything went straight to the <strong>Warehouse</strong>.
                     {:else}
-                      <!-- The third preserved body branch: the recovery rounded to zero, so
+                      <!-- The third preserved body branch: every amount rounded down to zero
+                           (0.13.9: chance-rounded, so an unlucky roll on a small recipe), so
                            there is genuinely nothing to list. Said plainly rather than shown
                            as an empty manifest. -->
-                      No materials recovered (rounded to zero).
+                      No materials recovered this time.
                     {/if}
                   {/if}
                 </p>
