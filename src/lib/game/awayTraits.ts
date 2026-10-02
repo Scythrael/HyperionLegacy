@@ -167,9 +167,18 @@ const AWAY_STAT_TEXT: Record<AwayMemberStat, string> = {
   hazardResist: "hazard resistance",
 };
 
-// A 0..1 fraction as a whole percent ("0.05" => "5%").
+// A fraction as a percent, rounded to one decimal and printed without a trailing ".0" (0.05 => "5%",
+// 0.075 => "7.5%", -0.05 => "-5%"). Rounding goes through tenths of a percent so float noise
+// (0.07 * 100 = 7.000000000000001) never leaks into the text.
 function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
+  const tenths = Math.round(fraction * 1000);
+  return `${tenths === 0 ? 0 : tenths / 10}%`;
+}
+
+// A signed percent for a bump: "+5%" for a gain, "-5%" for a penalty (never "+-5%"), "0%" for none.
+function signedPct(fraction: number): string {
+  const text = pct(fraction);
+  return Math.round(fraction * 1000) > 0 ? `+${text}` : text;
 }
 
 // "A", "A and B", "A, B and C" (a short US English list, no serial comma).
@@ -182,7 +191,7 @@ function listText(parts: readonly string[]): string {
 export function awayTraitEffectText(effect: AwayTraitEffect): string {
   switch (effect.kind) {
     case "stat":
-      return `+${pct(effect.value)} ${AWAY_STAT_TEXT[effect.stat]}`;
+      return `${signedPct(effect.value)} ${AWAY_STAT_TEXT[effect.stat]}`;
     case "medic":
       return "Cures an ally's afflictions in battle";
     case "firstStrike":
@@ -192,7 +201,7 @@ export function awayTraitEffectText(effect: AwayTraitEffect): string {
     case "resistStatus":
       return `Resists ${GAMBIT_STATUSES[effect.status].label} (${pct(effect.value)})`;
     case "poiYield":
-      return `+${pct(effect.value)} yield at ${listText(effect.pois.map((id) => getPoiById(id)?.label ?? id))}`;
+      return `${signedPct(effect.value)} yield at ${listText(effect.pois.map((id) => getPoiById(id)?.label ?? id))}`;
   }
 }
 

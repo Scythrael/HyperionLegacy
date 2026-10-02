@@ -244,10 +244,36 @@ export type AwayCrewBlockReason = "noCandidate" | "noMember" | "noShip" | "onMis
 
 export type AwayCrewGate = { ok: true } | { ok: false; reason: AwayCrewBlockReason };
 
-// Can this board candidate be hired into `shipId`'s squad of the candidate's team type? Checked in order:
-// noCandidate, noShip, onMission, squadFull. Pure.
-export function canHireAwayMember(state: GameState, candidateId: string, shipId: string): AwayCrewGate {
-  const candidate = awayRecruitCandidates(state).find((c) => c.id === candidateId);
+// The player-facing line for a block reason (US English), shown on a disabled control. EXHAUSTIVE with
+// no default on purpose (the requisitionBlockText pattern): a new AwayCrewBlockReason is a compile error
+// here until it has text. Pure.
+export function awayCrewBlockText(reason: AwayCrewBlockReason): string {
+  switch (reason) {
+    case "noCandidate":
+      return "No longer on the board";
+    case "noMember":
+      return "No longer in the fleet";
+    case "noShip":
+      return "That ship is no longer in the fleet";
+    case "onMission":
+      return "Ship is out on a mission";
+    case "squadFull":
+      return "Squad is full";
+    case "alreadyThere":
+      return "Already on this ship";
+  }
+}
+
+// The board candidate with this id, or undefined when it is not on the current board. Builds the board
+// once; every hire path below calls it once per public call and then reuses the result. Pure.
+function boardCandidate(state: GameState, candidateId: string): AwayMember | undefined {
+  return awayRecruitCandidates(state).find((c) => c.id === candidateId);
+}
+
+// The hire gate for an already-looked-up candidate (undefined = not on the board), so canHireAwayMember,
+// hireTargetsFor and hireAwayMember share ONE board build per call (the UI calls these on render, and
+// hireTargetsFor would otherwise rebuild the board once per ship). Pure.
+function hireGateFor(state: GameState, candidate: AwayMember | undefined, shipId: string): AwayCrewGate {
   if (!candidate) return { ok: false, reason: "noCandidate" };
   if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
   if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
@@ -255,15 +281,23 @@ export function canHireAwayMember(state: GameState, candidateId: string, shipId:
   return { ok: true };
 }
 
+// Can this board candidate be hired into `shipId`'s squad of the candidate's team type? Checked in order:
+// noCandidate, noShip, onMission, squadFull. Pure.
+export function canHireAwayMember(state: GameState, candidateId: string, shipId: string): AwayCrewGate {
+  return hireGateFor(state, boardCandidate(state, candidateId), shipId);
+}
+
 // Every ship as a hire target for this candidate, in fleet order, with whether the hire would go through
 // and why not, so the UI can list each ship and show the blocked ones disabled with their reason. A
-// candidate not on the board marks every ship noCandidate. Pure.
+// candidate not on the board marks every ship noCandidate. The board is built once for the whole list.
+// Pure.
 export function hireTargetsFor(
   state: GameState,
   candidateId: string,
 ): { shipId: string; ok: boolean; reason?: AwayCrewBlockReason }[] {
+  const candidate = boardCandidate(state, candidateId);
   return state.ships.map((ship) => {
-    const gate = canHireAwayMember(state, candidateId, ship.id);
+    const gate = hireGateFor(state, candidate, ship.id);
     return gate.ok ? { shipId: ship.id, ok: true } : { shipId: ship.id, ok: false, reason: gate.reason };
   });
 }
@@ -271,11 +305,10 @@ export function hireTargetsFor(
 // Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
 // (returns the SAME state) whenever canHireAwayMember does. The hire is re-ided to "member-N" from
 // nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and keeps its rolled
-// squad / spec / identity / rank / traits. Pure.
+// squad / spec / identity / rank / traits. Builds the board once. Pure.
 export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
-  if (!canHireAwayMember(state, candidateId, shipId).ok) return state;
-  const candidate = awayRecruitCandidates(state).find((c) => c.id === candidateId);
-  if (!candidate) return state; // the gate already found it; this narrows the type
+  const candidate = boardCandidate(state, candidateId);
+  if (!candidate || !hireGateFor(state, candidate, shipId).ok) return state;
   const hired: AwayMember = {
     ...candidate,
     id: `member-${state.nextAwayMemberId}`,

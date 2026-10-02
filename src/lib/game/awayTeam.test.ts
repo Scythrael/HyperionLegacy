@@ -24,6 +24,8 @@ import {
   canFireAwayMember,
   canReassignAwayMember,
   hireTargetsFor,
+  awayCrewBlockText,
+  type AwayCrewBlockReason,
 } from "./awayTeam";
 import { getAwayTrait } from "./awayTraits";
 import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
@@ -549,5 +551,51 @@ describe("hireTargetsFor", () => {
       { shipId: "ship-a", ok: false, reason: "noCandidate" },
       { shipId: "ship-b", ok: false, reason: "noCandidate" },
     ]);
+  });
+});
+
+describe("awayCrewBlockText", () => {
+  it("maps every block reason to clean, non-empty player text", () => {
+    // Typed as a Record so a new reason is a compile error here too, not just in the switch.
+    const all: Record<AwayCrewBlockReason, true> = {
+      noCandidate: true,
+      noMember: true,
+      noShip: true,
+      onMission: true,
+      squadFull: true,
+      alreadyThere: true,
+    };
+    const texts = (Object.keys(all) as AwayCrewBlockReason[]).map((r) => awayCrewBlockText(r));
+    for (const t of texts) {
+      expect(t.trim().length).toBeGreaterThan(0);
+      expect(t).not.toContain(String.fromCharCode(0x2014));
+      expect(t).not.toMatch(/-{2}/);
+    }
+    expect(new Set(texts).size).toBe(texts.length);
+    expect(awayCrewBlockText("squadFull")).toBe("Squad is full");
+    expect(awayCrewBlockText("onMission")).toBe("Ship is out on a mission");
+    expect(awayCrewBlockText("noCandidate")).toBe("No longer on the board");
+    expect(awayCrewBlockText("alreadyThere")).toBe("Already on this ship");
+  });
+});
+
+describe("hire paths build the board once per call", () => {
+  it("hireTargetsFor and hireAwayMember agree with canHireAwayMember per ship", () => {
+    // ship-a's Science squad is full (Destroyer: 3), so the science candidates block there and not on ship-b.
+    const s = hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a")));
+    const seen = new Set<string>();
+    for (const cand of awayRecruitCandidates(s)) {
+      const targets = hireTargetsFor(s, cand.id);
+      for (const t of targets) {
+        const gate = canHireAwayMember(s, cand.id, t.shipId);
+        seen.add(gate.ok ? "ok" : gate.reason);
+        expect(t.ok).toBe(gate.ok);
+        if (!gate.ok) expect(t.reason).toBe(gate.reason);
+        const next = hireAwayMember(s, cand.id, t.shipId);
+        expect(next === s).toBe(!gate.ok);
+      }
+    }
+    expect(seen.has("ok")).toBe(true);
+    expect(seen.has("squadFull")).toBe(true);
   });
 });

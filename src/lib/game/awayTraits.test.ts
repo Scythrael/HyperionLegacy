@@ -81,6 +81,20 @@ describe("trait text", () => {
     for (const [effect, text] of cases) expect(awayTraitEffectText(effect)).toBe(text);
   });
 
+  it("signs a penalty with a minus, never \"+-\"", () => {
+    expect(awayTraitEffectText({ kind: "stat", stat: "accuracy", value: -0.05 })).toBe("-5% accuracy");
+    expect(awayTraitEffectText({ kind: "poiYield", pois: ["ancientRuins"], value: -0.1 })).toBe("-10% yield at Ancient Ruins");
+    expect(awayTraitEffectText({ kind: "stat", stat: "armor", value: 0 })).toBe("0% armor");
+  });
+
+  it("keeps one decimal when the percent is fractional, and drops a trailing .0", () => {
+    expect(awayTraitEffectText({ kind: "stat", stat: "power", value: 0.075 })).toBe("+7.5% power");
+    expect(awayTraitEffectText({ kind: "stat", stat: "power", value: -0.075 })).toBe("-7.5% power");
+    expect(awayTraitEffectText({ kind: "stat", stat: "power", value: 0.07 })).toBe("+7% power");
+    expect(awayTraitEffectText({ kind: "guard", allyHpBelow: 0.125 })).toBe("Takes hits meant for allies below 12.5% HP");
+    expect(awayTraitEffectText({ kind: "resistStatus", status: "fear", value: 0.333 })).toBe("Resists Fear (33.3%)");
+  });
+
   it("every catalog effect renders a clean, non-empty line", () => {
     for (const t of AWAY_TRAITS) {
       for (const e of t.effects) {
