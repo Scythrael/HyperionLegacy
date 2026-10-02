@@ -220,6 +220,17 @@ authoritative model for ground teams, and the E3 build DEVIATES from it until re
   members fresh for every battle from crew strength (ids like `<prefix>-sec-0`), with no persistence, no
   gear, no slots. E3 (2026-09-30) chose "derive from crew" and DEFERRED the gear layer because these notes
   were not cross-checked before that build. Rework: members come from the persistent roster.
+- **E-CREW DESIGN ANSWERS (user, 2026-10-02):**
+  - GEAR MODEL = EVERYTHING PER MEMBER (Armor + Weapon + Tool + implants on each named member), superseding the
+    2026-09-17 per-team slot counts. The management load is answered by **ARMORY LOADOUTS for the Security and
+    Science teams** ("already a plan as well", SUGGESTIONS :1736-1745), so a squad's whole kit is saved/applied
+    in one action, mirroring ship loadouts.
+  - RECRUITMENT = LIKE SENIOR STAFF (confirms the 2026-09-17 note): an hourly-refresh candidate roster (name,
+    race, squad specialty, rolled traits); hire into a ship's squad, fire to free the spot.
+  - SQUAD SIZE = PER SHIP TYPE, members of 3 or 4 per squad ("each ship type has different team sizes").
+  - A THIRD GROUND TEAM TYPE, **PROSPECTING** (user-named): "at least the wiring to account for it". The team
+    type must be a data-driven list, not a Security/Science binary. Whether Prospecting gets live content in
+    0.14.0 is still open.
 - **OPEN for the design pass (mockup first):** how members are recruited (a candidate roster like officers?
   drawn from crew?), members per squad, gear catalog + crafting, slot counts, member progression, and what
   happens when a member falls (injury vs permanent loss).
