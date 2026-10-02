@@ -9,8 +9,12 @@
 // A loadout's `slots` records only FILLED slots (slot key -> committed EquipmentInstance id); an
 // empty slot is simply absent. The slot SET a loadout offers is derived from its ship type at
 // render / install time (a later increment), so create does not need to enumerate slots.
-import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType } from "./model";
+import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType, EquipmentInstance } from "./model";
 import { SHIP_TYPES, startAutoSalvageGrace } from "./model";
+// The DERIVED salvage reservation (0.13.9 hotfix): a piece a queued or in-flight salvage owns cannot
+// be committed to a loadout, mirroring canFitEquipment. reservation.ts imports only model/inventory,
+// so no cycle.
+import { salvageReservedInstanceIds } from "./reservation";
 // The SHARED on-mission lock (equipment.ts): a ship whose captain is on an active mission cannot have
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
@@ -133,11 +137,26 @@ export function loadoutSlotDefsForShipType(shipTypeKey: ShipTypeKey): LoadoutSlo
   return defs;
 }
 
+// The Armory install picker's candidate list for one slot type: free spares (unfitted, not already
+// committed) of that type that are NOT reserved for salvage (0.13.9 hotfix). Lives here, beside
+// installIntoLoadout, so the picker and the engine agree on what can be committed. Locked pieces are
+// still listed (as before); installIntoLoadout refuses them.
+export function loadoutInstallCandidates(state: GameState, slotType: EquipmentSlotType): EquipmentInstance[] {
+  const reserved = salvageReservedInstanceIds(state);
+  return state.equipment.filter(
+    (e) =>
+      e.fittedToShipId === null &&
+      e.committedToLoadoutId === undefined &&
+      e.slotType === slotType &&
+      !reserved.has(e.id)
+  );
+}
+
 // Install a spare rolled system into a loadout slot. Refused (same-ref no-op) unless: the loadout
 // exists and is NOT checked out (editing a live-equipped loadout is a later increment, gated on the
 // ship's mission state to close the mid-mission-swap loophole); the slot key is a real slot for the
-// loadout's ship type; the instance is a free SPARE (fittedToShipId null and not already committed);
-// and its slotType matches the slot. Swapping a filled slot returns the previous system to the spare
+// loadout's ship type; the instance is a free SPARE (fittedToShipId null and not already committed),
+// not locked, and not reserved for salvage; and its slotType matches the slot. Swapping a filled slot returns the previous system to the spare
 // pool. Atomic: the committed marker moves in the SAME new state the loadout slot is written in.
 export function installIntoLoadout(
   state: GameState,
@@ -154,6 +173,11 @@ export function installIntoLoadout(
   // Not a free spare (fitted / already committed), OR LOCKED (0.13.6 favorite/lock split: a locked
   // piece is hands-off until unlocked, so it cannot be committed to a loadout either).
   if (inst.fittedToShipId !== null || inst.committedToLoadoutId !== undefined || inst.locked === true) return state;
+  // RESERVED FOR SALVAGE (0.13.9 hotfix): the same guard canFitEquipment applies ("queuedForSalvage").
+  // Committing a reserved piece left its queued (or auto) salvage entry alive; uninstalled from the
+  // loadout later, the piece was a spare again and that stale entry could salvage it, skipping the
+  // post-uninstall grace window. Cancel the salvage order first to free it.
+  if (salvageReservedInstanceIds(state).has(instanceId)) return state;
   if (inst.slotType !== slotDef.slotType) return state; // wrong kind of system for this slot
   const prevId = loadout.slots[slotKey] ?? null;
   const equipment = state.equipment.map((e) => {

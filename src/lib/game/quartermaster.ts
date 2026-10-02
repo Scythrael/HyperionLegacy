@@ -50,7 +50,7 @@
 //   REQUISITION_CATALOGUE    the TOTAL Record over EquipmentSlotType (totality lives here)
 //   REQUISITION_ENTRIES      the DERIVED, ordered list the console renders
 //   RequisitionBlockReason   the typed refusal union (mirrors EquipFitBlockReason)
-//   freeSpareBaselinesFor    query: uninstalled, unreserved baselines of one slot
+//   freeSpareBaselinesFor    query: uninstalled, unreserved, uncommitted baselines of one slot
 //   canRequisition           the gate (pure predicate + typed reason)
 //   requisitionStandardIssue the mutator
 // ============================================================================

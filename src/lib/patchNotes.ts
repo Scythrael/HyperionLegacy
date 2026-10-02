@@ -73,6 +73,7 @@ export const PATCH_NOTES: PatchNote[] = [
         bullets: [
           { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended." },
           { lead: "Requisitions are not blocked by loadouts.", text: "A Standard-Issue system sitting in an Armory loadout no longer stops the Quartermaster from issuing you a spare for that slot." },
+          { lead: "Loadout gear is safe from salvage.", text: "A system queued for salvage can no longer be installed in an Armory loadout, and a system already in a loadout is never salvaged." },
         ],
       },
     ],

@@ -769,7 +769,7 @@
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
   import {
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
-    loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
+    loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout, loadoutInstallCandidates,
     checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
   } from "./lib/game/armory";
   // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4): the completionist record, pure over GameState.
@@ -4793,9 +4793,9 @@
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
   // (a switch, no default) so a new reason is a compile error here. From the bay's
-  // system salvage only notFound / fitted are reachable (a spare baseline, combat or
-  // economy, is DESTROYED as a declutter rather than rejected); the salvaged-material and
-  // ship reasons are covered for totality.
+  // system salvage only notFound / fitted / committed are reachable (a spare baseline,
+  // combat or economy, is DESTROYED as a declutter rather than rejected); the
+  // salvaged-material and ship reasons are covered for totality.
   function salvageRejectText(reason: SalvageRejectReason): string {
     switch (reason) {
       case "notFound":
@@ -4803,9 +4803,10 @@
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
       case "committed":
-        // 0.13.9: the piece sits in an Armory loadout. Mostly a queued-row reason (a spare
-        // committed after its salvage was queued); the bay itself never lists committed gear.
-        return "the system is in an Armory loadout (remove it from the loadout first)";
+        // 0.13.9: the piece sits in an Armory loadout. Mostly a queued-row reason (a save where a
+        // spare was committed after its salvage was queued, before installIntoLoadout refused
+        // reserved pieces); the bay itself never lists committed gear.
+        return "the system is in an Armory loadout (uninstall it from the loadout first)";
       case "locked":
         return "the system is locked (unlock it first)";
       case "noRecipe":
@@ -5925,14 +5926,14 @@
 
   $: selectedLoadout = state.loadouts.find((l) => l.id === selectedLoadoutId) ?? null;
   $: armorySlotDefs = selectedLoadout ? loadoutSlotDefsForShipType(selectedLoadout.shipTypeKey) : [];
-  // Free spares (rolled pool) compatible with the slot whose install picker is open.
+  // Free spares (rolled pool) compatible with the slot whose install picker is open. 0.13.9: read
+  // from armory.ts's loadoutInstallCandidates, which also drops pieces reserved for salvage, so the
+  // picker never offers a piece installIntoLoadout would refuse for that reason.
   $: armoryInstallCandidates = (() => {
     if (selectedLoadout === null || armoryInstallSlotKey === null) return [];
     const slot = armorySlotDefs.find((d) => d.key === armoryInstallSlotKey);
     if (slot === undefined) return [];
-    return state.equipment.filter(
-      (e) => e.fittedToShipId === null && e.committedToLoadoutId === undefined && e.slotType === slot.slotType
-    );
+    return loadoutInstallCandidates(state, slot.slotType);
   })();
   // Ships this loadout can check out to: matching type + no loadout already checked out to them.
   // (On-mission ships are still listed; checkOutLoadout refuses and the handler explains why.)

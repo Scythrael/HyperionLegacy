@@ -2053,6 +2053,32 @@ describe("salvageResolve: a stale target is a fail-safe no-op (0.13.3 Unit 2.3)"
     });
   }
 
+  it("0.13.9: a RUNNING job whose piece was since COMMITTED to a loadout ends as a no-op; the piece survives", () => {
+    // The in-flight half of the committed guard. Promotion is past, so only salvageEquipment's own
+    // "committed" refusal stands between the job and deleting a piece a loadout slot points at.
+    const base = timedSalvageState();
+    const committed: GameState = {
+      ...base,
+      equipment: base.equipment.map((e) => (e.id === "sp-1" ? { ...e, committedToLoadoutId: "loadout-1" } : e)),
+    };
+    const jobState: GameState = {
+      ...committed,
+      activeProcesses: [salvageJobAt({ kind: "equipment", instanceId: "sp-1" }, 1)],
+    };
+    expect(salvageReservedInstanceIds(jobState).has("sp-1")).toBe(true); // non-vacuous: in flight
+
+    const counted = countingRng(strictRng([]));
+    const out = resolveProcesses(jobState, 1, counted.rng).next;
+
+    expect(out.activeProcesses).toEqual([]); // the job is dropped
+    const piece = out.equipment.find((e) => e.id === "sp-1");
+    expect(piece).toBeDefined(); // the piece survives, still in its loadout
+    expect(piece!.committedToLoadoutId).toBe("loadout-1");
+    expect(salvageReservedInstanceIds(out).has("sp-1")).toBe(false); // no reservation remains
+    expect(salvageFingerprint(out)).toEqual(salvageFingerprint({ ...committed, activeProcesses: [] }));
+    expect(counted.draws()).toBe(0);
+  });
+
   it("never throws, even on a hand-edited save naming three impossible targets at once", () => {
     const base = timedSalvageState();
     const jobState: GameState = {

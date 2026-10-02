@@ -8131,10 +8131,12 @@ function salvageTargetBlock(
       // this hard to reach (a reserved instance cannot be installed, Unit 2.1), but the
       // reservation is derived and this is the cheap, honest confirmation of it.
       if (piece.fittedToShipId !== null) return { ok: false, reason: "fitted" };
-      // COMMITTED to an Armory loadout since it was queued (0.13.9 hotfix). Unlike installing,
-      // committing does NOT consult the salvage reservation, so a queued spare CAN be put into a
-      // resting loadout, where it stays unfitted. salvageEquipment now refuses it ("committed"),
-      // so the order waits here with that reason instead of burning a lane on a no-op.
+      // COMMITTED to an Armory loadout since it was queued (0.13.9 hotfix). Before 0.13.9,
+      // installIntoLoadout did not consult the salvage reservation, so a save can hold a queued
+      // spare that was then put into a resting loadout, where it stays unfitted. installIntoLoadout
+      // now refuses reserved pieces; this is the confirmation for those saves. salvageEquipment
+      // refuses it too ("committed"), so the order waits here with that reason instead of burning
+      // a lane on a no-op.
       if (piece.committedToLoadoutId !== undefined) return { ok: false, reason: "committed" };
       return { ok: true };
     }

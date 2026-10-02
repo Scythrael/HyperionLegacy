@@ -4,7 +4,7 @@ import { freshState, SHIP_TYPES } from "./model";
 import {
   createLoadout, renameLoadout, deleteLoadout, loadoutCap, canCreateLoadout,
   loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
-  checkOutLoadout, checkInLoadout,
+  checkOutLoadout, checkInLoadout, loadoutInstallCandidates,
 } from "./armory";
 
 describe("armory: loadout create / rename / delete (Item Lifecycle 0.13.6)", () => {
@@ -124,6 +124,36 @@ describe("armory: slot derivation + install / uninstall (Item Lifecycle 0.13.6)"
     const s = stateWithSpareWeapon();
     const locked = { ...s, equipment: s.equipment.map((e: any) => (e.id === "equip-wpn" ? { ...e, locked: true } : e)) };
     expect(installIntoLoadout(locked, "loadout-1", "weapon0", "equip-wpn")).toBe(locked); // locked, same ref
+  });
+
+  // A queued salvage order for equip-wpn, so the derived reservation (reservation.ts) owns it.
+  function withWeaponQueuedForSalvage(s: any): any {
+    return {
+      ...s,
+      processQueue: [
+        {
+          id: "q-1",
+          facility: "salvageBay",
+          order: { type: "salvage", target: { kind: "equipment", instanceId: "equip-wpn" }, mode: { kind: "batch", remaining: 1 } },
+        },
+      ],
+    };
+  }
+
+  it("0.13.9: installIntoLoadout refuses a spare RESERVED for salvage (same ref)", () => {
+    // Mirrors canFitEquipment's queuedForSalvage guard. Committing a reserved piece left its salvage
+    // entry alive; once uninstalled from the loadout again, that stale entry could salvage it.
+    const reserved = withWeaponQueuedForSalvage(stateWithSpareWeapon());
+    expect(installIntoLoadout(reserved, "loadout-1", "weapon0", "equip-wpn")).toBe(reserved);
+  });
+
+  it("0.13.9: loadoutInstallCandidates lists free spares of the slot type, excluding reserved and committed pieces", () => {
+    const s = stateWithSpareWeapon();
+    expect(loadoutInstallCandidates(s, "weapon").map((e) => e.id)).toEqual(["equip-wpn"]);
+    expect(loadoutInstallCandidates(withWeaponQueuedForSalvage(s), "weapon")).toEqual([]); // reserved
+    const committed = { ...s, equipment: s.equipment.map((e: any) => (e.id === "equip-wpn" ? { ...e, committedToLoadoutId: "loadout-1" } : e)) };
+    expect(loadoutInstallCandidates(committed, "weapon")).toEqual([]); // already in a loadout
+    expect(loadoutInstallCandidates(s, "cargoBay").some((e) => e.id === "equip-wpn")).toBe(false); // wrong slot type
   });
 
   it("install then uninstall returns the system to the spare pool", () => {
