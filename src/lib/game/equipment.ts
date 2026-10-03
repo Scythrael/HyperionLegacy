@@ -446,11 +446,17 @@ export function canFitEquipment(
   // Armory loadout, evicting it would leave it committed while the loadout still reads as checked out
   // here, so refuse with the same rule unfitEquipmentInstance and the targeted swap above apply.
   // A re-install of the occupant itself is excluded (it is refused earlier as committedToLoadout).
+  // `.some`, not `.find`: fitEquipment evicts EVERY occupant of the slot, so a malformed save with two
+  // pieces in one singleton slot must not let an uncommitted first piece hide a committed second one.
   if (!MULTI_SLOT_TYPES.has(instance.slotType)) {
-    const occupant = state.equipment.find(
-      (e) => e.fittedToShipId === shipId && e.slotType === instance.slotType && e.id !== instanceId
+    const committedOccupant = state.equipment.some(
+      (e) =>
+        e.fittedToShipId === shipId &&
+        e.slotType === instance.slotType &&
+        e.id !== instanceId &&
+        e.committedToLoadoutId !== undefined
     );
-    if (occupant !== undefined && occupant.committedToLoadoutId !== undefined) {
+    if (committedOccupant) {
       return { ok: false, reason: "occupantInLoadout" };
     }
   }
