@@ -22,7 +22,7 @@ import type {
   MemberGroundStatKey,
   ShipTypeKey,
 } from "./model";
-import { SENIOR_STAFF_ROSTER_BASE, SHIP_TYPES } from "./model";
+import { SENIOR_STAFF_ROSTER_BASE, SHIP_TYPES, startAutoSalvageGrace } from "./model";
 import { awayTraitsForTeam } from "./awayTraits";
 import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
 import { CREW_RACE_IDS } from "./crewRaces";
@@ -409,12 +409,19 @@ export function canFireAwayMember(state: GameState, memberId: string): AwayCrewG
 // Fire a member. Refuses (returns the SAME state) whenever canFireAwayMember does. Otherwise it FIRST
 // returns everything the member wears to storage (every piece with fittedToMemberId === memberId gets
 // null, which makes it spare again through isSparePiece: armor, weapon, tool and implants alike), THEN
-// removes the member, so no piece is ever left pointing at a member who no longer exists. Pure.
+// removes the member, so no piece is ever left pointing at a member who no longer exists. Every returned
+// piece gets its auto-salvage grace restarted (startAutoSalvageGrace, model.ts), like every other uninstall
+// route (equipment.ts, memberEquipment.ts): worn gear is never an auto-salvage candidate, so without the
+// stamp a fired member's kit would be exposed the instant it reached storage. Pure.
 export function fireAwayMember(state: GameState, memberId: string): GameState {
   if (!canFireAwayMember(state, memberId).ok) return state;
   return {
     ...state,
-    equipment: state.equipment.map((e) => (e.fittedToMemberId === memberId ? { ...e, fittedToMemberId: null } : e)),
+    equipment: state.equipment.map((e) =>
+      e.fittedToMemberId === memberId
+        ? startAutoSalvageGrace({ ...e, fittedToMemberId: null }, state.gameTimeSeconds)
+        : e
+    ),
     awayMembers: state.awayMembers.filter((m) => m.id !== memberId),
   };
 }

@@ -62,7 +62,9 @@
 // the stamp a piece goes from permanently protected to fully eligible the instant it is taken
 // off, and a player mid-swap could find the piece they just removed already queued for salvage.
 // A FOURTH route lives outside this file (salvageShip, salvage.ts, which pools a scrapped hull's
-// installed systems) and stamps them the same way. If a fifth is ever added, it must too.
+// installed systems) and stamps them the same way. E-CREW 0.14.0 added the MEMBER routes, which stamp it
+// too: fitToMember's swaps and unfitFromMember (memberEquipment.ts), and fireAwayMember (awayTeam.ts).
+// Any further route must as well.
 //
 // Contents (Functions -> types -> queries -> gate -> mutators):
 //   captainBranchToShipSpec  the CaptainTalentBranch -> ShipSpec bridge the gate needs
