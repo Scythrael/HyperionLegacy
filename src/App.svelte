@@ -340,6 +340,9 @@
     // read by the Salvage Bay, the Armory install picker, the Archive rows, and the dev gear panel.
     isSparePiece,
     isUninstalledPiece,
+    // E-CREW Task 7: the member-slot predicate that keeps ship-only lists (the dev per-ship
+    // install rows) from offering away-team gear for a ship.
+    isMemberSlotType,
   } from "./lib/game/model";
   // Home dashboard (0.13.1). JumpTarget is the destination union that types
   // jumpToActivity's single argument (below), so the one nav-dispatch entry point stays in
@@ -18279,8 +18282,10 @@
               </div>
 
               <!-- Per live slot: what is fitted (with Unfit), plus each matching
-                   spare as a Fit button (disabled + reasoned when canFit blocks). -->
-              {#each Object.keys(EQUIPMENT_SLOTS) as slotKey}
+                   spare as a Fit button (disabled + reasoned when canFit blocks).
+                   SHIP slots only: the away-team member slots (isMemberSlotType) are worn
+                   by members, never installed on a hull. -->
+              {#each Object.keys(EQUIPMENT_SLOTS).filter((k) => !isMemberSlotType(k)) as slotKey}
                 {@const slot = slotKey as EquipmentSlotType}
                 {@const fitted = fittedInSlot(state, ship.id, slot)}
                 {@const matchingSpares = state.equipment.filter((e) => isUninstalledPiece(e) && e.slotType === slot)}

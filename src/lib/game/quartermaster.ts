@@ -236,6 +236,15 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   thrusters: null,
   sensor: null,
   propellantTanks: null,
+
+  // --- E-CREW 0.14.0 (Task 7): the four AWAY-TEAM MEMBER slots. null FOR NOW, on purpose: they are
+  // not ship slots (a ship requisition must never hand out member gear), and their per-team-type
+  // Standard-Issue floors land with the member-baseline task (E-CREW Task 9), which replaces these
+  // nulls through this same requisition path.
+  memberArmor: null,
+  memberWeapon: null,
+  memberTool: null,
+  implant: null,
 };
 
 // One requisition row as the CONSOLE reads it: the derived, display-ready shape.

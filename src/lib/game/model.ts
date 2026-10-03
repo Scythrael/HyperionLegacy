@@ -1531,7 +1531,30 @@ export type EquipmentSlotType =
   | "quarters"
   | "thrusters"
   | "sensor"
-  | "propellantTanks";
+  | "propellantTanks"
+  // E-CREW 0.14.0 (Task 7): the four AWAY-TEAM MEMBER slots (design D3/D4). These are NOT ship slots:
+  // a piece in one installs on a named away-team MEMBER (EquipmentInstance.fittedToMemberId), never on a
+  // hull, and its ground stat lines (MEMBER_GROUND_STAT_KEYS) are never folded into ShipDerivedStats.
+  // They ride the ship-system gear engine (EQUIPMENT_SLOTS varieties, BLUEPRINTS, generateEquipment), so
+  // every ship-only list filters them out with isMemberSlotType.
+  | "memberArmor"
+  | "memberWeapon"
+  | "memberTool"
+  | "implant";
+
+// E-CREW 0.14.0 (Task 7): the four away-team MEMBER slot types as data, and THE named predicate every
+// ship-only list filters with. A member piece rides the shared gear engine (catalog, blueprints, rolls,
+// salvage, storage), so any code that walks EQUIPMENT_SLOTS or the equipment pool in a SHIP context
+// (ship install pickers, loadout boards, requisition, stat folds) must ask isMemberSlotType rather than
+// hand-listing the four strings, so a fifth member slot later is a one-line add here.
+export const MEMBER_SLOT_TYPES: readonly EquipmentSlotType[] = ["memberArmor", "memberWeapon", "memberTool", "implant"];
+const MEMBER_SLOT_TYPE_SET: ReadonlySet<string> = new Set<string>(MEMBER_SLOT_TYPES);
+
+// Is this slot type an away-team MEMBER slot (worn by a member, never installed on a hull)? Takes a plain
+// string too, since several UI lists key slots by string. Pure.
+export function isMemberSlotType(slotType: EquipmentSlotType | string): boolean {
+  return MEMBER_SLOT_TYPE_SET.has(slotType);
+}
 
 // Rarity band of an equipment instance, ascending in power. 0.11.0 only ever
 // PRODUCES standard..radiant; derelict (a below-baseline salvage band) and the
@@ -2249,18 +2272,55 @@ export const RESERVED_STAT_KEYS = [
   "shieldAttenuation",
 ] as const;
 
-// Grouped view of the SAME two arrays for a caller that wants the whole
+// E-CREW 0.14.0 (Task 7): the GROUND stat vocabulary, a THIRD group beside LIVE and RESERVED. These are
+// the stat lines away-team MEMBER gear (the four member slot types) rolls, and ONLY member gear: no ship
+// slot references them and equipmentStatMods NEVER folds them into ShipDerivedStats (they hit its
+// explicit ignore case), so a member piece anywhere in state.equipment leaves every ship's derived stats
+// byte-identical. Every key carries a `ground` prefix so a ground line can never collide with a ship line
+// of the same idea (the Pathfinder Suite's ship-side `hazardResist` vs a Hazard Suit's groundHazardResist).
+//
+// Like every gear line they are raw budget POINTS (generateEquipment's budget split), not fractions; the
+// member-power task converts them onto the member's stats (awayTeam.ts GROUND_STAT_MEMBER_STAT maps each
+// key to the AwayMemberStat it raises, or null for the lines with no member stat yet). Consumers land in
+// E-CREW Tasks 12-16; this task ships the vocabulary + catalog only.
+//   groundHp / groundPower / groundArmor / groundAccuracy , Security combat lines (the member card's
+//                                                            HP / PWR / ARM / ACC)
+//   groundStatusChance                                    , affliction chance (stun / toxin carriers)
+//   groundStatusResist                                    , resist afflictions (Toxin Filters, Cortex Shield)
+//   groundFieldwork / groundRelicFind / groundHazardResist , Science fieldwork lines (FIELD / RELIC / HAZ)
+//   groundOrganicsYield / groundVaultYield                 , fieldwork YIELD toward one find family
+//                                                            (organics: Flora Scanner, Bio-Analyzer;
+//                                                            vaults: Decryptor, Cipher Wetware)
+// The tools' encounter dial (Shroud / Lure) is NOT a stat line: it is the variety's `encounterBias`
+// descriptor (EquipmentVarietyDef), a fixed property of the tool rather than a rolled magnitude.
+export const MEMBER_GROUND_STAT_KEYS = [
+  "groundHp",
+  "groundPower",
+  "groundArmor",
+  "groundAccuracy",
+  "groundStatusChance",
+  "groundStatusResist",
+  "groundFieldwork",
+  "groundRelicFind",
+  "groundHazardResist",
+  "groundOrganicsYield",
+  "groundVaultYield",
+] as const;
+export type MemberGroundStatKey = (typeof MEMBER_GROUND_STAT_KEYS)[number];
+
+// Grouped view of the SAME arrays for a caller that wants the whole
 // vocabulary in one object (the design doc's "stat registry"). No new data, just
 // a convenience handle: import LIVE_STAT_KEYS / RESERVED_STAT_KEYS directly for a
 // Set-membership check, or STAT_KEYS.live / STAT_KEYS.reserved to enumerate.
-export const STAT_KEYS = { live: LIVE_STAT_KEYS, reserved: RESERVED_STAT_KEYS } as const;
+// (E-CREW 0.14.0: STAT_KEYS.ground is the member-only vocabulary above.)
+export const STAT_KEYS = { live: LIVE_STAT_KEYS, reserved: RESERVED_STAT_KEYS, ground: MEMBER_GROUND_STAT_KEYS } as const;
 
 // Union types over the two vocabularies, for a future field/param that must hold
 // a KNOWN stat key. Forward convenience (no consumer this patch); derived from
 // the `as const` arrays so they can never drift from the runtime lists.
 export type LiveStatKey = (typeof LIVE_STAT_KEYS)[number];
 export type ReservedStatKey = (typeof RESERVED_STAT_KEYS)[number];
-export type StatKey = LiveStatKey | ReservedStatKey;
+export type StatKey = LiveStatKey | ReservedStatKey | MemberGroundStatKey;
 
 // Combat 0.13.0 (Phase 9b.5a): the mission-KIND discriminant. A captain can now run
 // one of several KINDS of mission, so CaptainState.mission is a discriminated union
@@ -2713,6 +2773,23 @@ export function equipmentStatMods(pieces: EquipmentInstance[]): EquipmentStatMod
             break;
           case "powerOutput":
             powerOutput += value;
+            break;
+          // E-CREW 0.14.0 (Task 7): the GROUND stat lines (MEMBER_GROUND_STAT_KEYS) worn by away-team
+          // members. NEVER folded into a ship: they belong to the member-power layer (awayTeam.ts), so
+          // they are listed here EXPLICITLY (not left to the default) to make the "member gear never
+          // moves ship stats" rule visible at the fold. A member piece also carries mass 0 / powerDraw
+          // 0 (SLOT_BASE_PHYSICALS), so even a stray one in a ship's piece list folds to nothing.
+          case "groundHp":
+          case "groundPower":
+          case "groundArmor":
+          case "groundAccuracy":
+          case "groundStatusChance":
+          case "groundStatusResist":
+          case "groundFieldwork":
+          case "groundRelicFind":
+          case "groundHazardResist":
+          case "groundOrganicsYield":
+          case "groundVaultYield":
             break;
           // RESERVED (materialQualityChance) + any unknown key: intentionally ignored this
           // patch (its consumer is still deferred). No silent surprise: the fold simply does
@@ -7939,7 +8016,8 @@ export const DEFAULT_EQUIPMENT_VARIETY: Record<string, string> = {
 // of this file). itemgen.ts re-exports it, so generateEquipment and itemgen.test.ts are
 // unaffected.
 export const SLOT_BASE_PHYSICALS: Record<
-  "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters" | "sensor",
+  | "cargoBay" | "ftlDrive" | "reactorCore" | "specUtility" | "shieldEmitters" | "hullPlating" | "bridge" | "quarters" | "sensor"
+  | "memberArmor" | "memberWeapon" | "memberTool" | "implant",
   { mass: number; powerDraw: number; durability: number }
 > = {
   cargoBay: { mass: 10, powerDraw: 2, durability: 100 },
@@ -7969,6 +8047,15 @@ export const SLOT_BASE_PHYSICALS: Record<
   // generated (Unit 1.2 crafting); nothing generates one this unit, so these are inert today.
   shieldEmitters: { mass: 8, powerDraw: 6, durability: 100 },
   hullPlating: { mass: 20, powerDraw: 0, durability: 160 },
+  // E-CREW 0.14.0 (Task 7): the four away-team MEMBER slots. mass 0 + powerDraw 0 by deliberate design:
+  // a member piece is worn by a person, not bolted to a hull, so it has no ship mass or reactor draw
+  // and can never drag a ship's speed / fuel through the equipment fold (the same economy-neutral
+  // posture as the crew modules + sensors). durability is a sensible reserved base so the generic
+  // generation path stays well-formed (armor wears hardest, tools least). FIRST-PASS TUNABLE.
+  memberArmor: { mass: 0, powerDraw: 0, durability: 120 },
+  memberWeapon: { mass: 0, powerDraw: 0, durability: 100 },
+  memberTool: { mass: 0, powerDraw: 0, durability: 80 },
+  implant: { mass: 0, powerDraw: 0, durability: 100 },
 };
 
 // --- Standard-Issue baseline generation (0.11.0 Task 20) ---------------------

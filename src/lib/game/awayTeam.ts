@@ -19,6 +19,7 @@ import type {
   CrewRace,
   CrewRank,
   GameState,
+  MemberGroundStatKey,
   ShipTypeKey,
 } from "./model";
 import { SENIOR_STAFF_ROSTER_BASE, SHIP_TYPES } from "./model";
@@ -78,6 +79,28 @@ export type AwayMemberStat =
   | "fieldwork"
   | "relicFind"
   | "hazardResist";
+
+// E-CREW 0.14.0 (Task 7): which member stat each GROUND gear line raises. Member gear rolls its own stat
+// vocabulary (model.ts MEMBER_GROUND_STAT_KEYS, `ground`-prefixed so it can never collide with a ship
+// stat), and the member-power task (design section 5.3) reads a worn piece's lines through THIS map. A
+// gear line is raw budget POINTS (like ship gear), so that task also owns the points-to-bump conversion;
+// the STACKING RULE above applies once converted. null = a line with no member stat to raise: it feeds
+// fieldwork YIELD (organics / vaults, read by the fieldwork task) or affliction RESIST (read by the
+// Security battle), never the member card's stat line. Total Record, so a new ground key is a compile
+// error here until it is mapped.
+export const GROUND_STAT_MEMBER_STAT: Record<MemberGroundStatKey, AwayMemberStat | null> = {
+  groundHp: "hp",
+  groundPower: "power",
+  groundArmor: "armor",
+  groundAccuracy: "accuracy",
+  groundStatusChance: "statusChance",
+  groundStatusResist: null,
+  groundFieldwork: "fieldwork",
+  groundRelicFind: "relicFind",
+  groundHazardResist: "hazardResist",
+  groundOrganicsYield: null,
+  groundVaultYield: null,
+};
 
 // How many traits a member of this rank carries: the complement's buff-count ladder, reused as-is so
 // the two rank systems can never drift (D6: rank gates trait count like it gates complement buffs).
