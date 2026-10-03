@@ -926,6 +926,57 @@ describe("targeted swap on a MULTI slot (0.13.9)", () => {
   it("refuses to swap out a piece committed to a checked-out Armory loadout", () => {
     const state = fullCarrierWeapons();
     const committed = { ...state, equipment: state.equipment.map((e) => (e.id === "w-1" ? { ...e, committedToLoadoutId: "loadout-1" } : e)) };
-    expect(canFitEquipment(committed, "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "committedToLoadout" });
+    // 0.13.9: the distinct occupantInLoadout reason (committedToLoadout reads as if the SPARE were committed).
+    expect(canFitEquipment(committed, "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "occupantInLoadout" });
+    expect(() => fitEquipment(committed, "ship-1", "w-3", "w-1")).toThrow(/occupantInLoadout/);
+  });
+});
+
+// 0.13.9 hotfix: a SINGLETON install evicts the slot's occupant to storage. When that occupant was
+// installed by a checked-out Armory loadout, the swap is refused (the same rule uninstall applies),
+// so the loadout is never left half checked out.
+describe("singleton swap over a loadout-installed occupant (0.13.9)", () => {
+  function shieldScenario(occupantCommitted: boolean): GameState {
+    const old = {
+      ...makeEquip({ id: "equip-1", slotType: "shieldEmitters", fittedToShipId: "ship-1" }),
+      ...(occupantCommitted ? { committedToLoadoutId: "loadout-1" } : {}),
+    } as EquipmentInstance;
+    const spare = makeEquip({ id: "equip-2", slotType: "shieldEmitters", fittedToShipId: null });
+    return withHull(withEquipment(freshState(), old, spare), "destroyer");
+  }
+
+  it("refuses with occupantInLoadout and leaves state unchanged", () => {
+    const state = shieldScenario(true);
+    expect(canFitEquipment(state, "ship-1", "equip-2")).toEqual({ ok: false, reason: "occupantInLoadout" });
+    expect(() => fitEquipment(state, "ship-1", "equip-2")).toThrow(/occupantInLoadout/);
+    // Nothing moved: the committed occupant stays installed and committed, the spare stays spare.
+    const occ = state.equipment.find((e) => e.id === "equip-1")!;
+    expect(occ.fittedToShipId).toBe("ship-1");
+    expect(occ.committedToLoadoutId).toBe("loadout-1");
+    expect(state.equipment.find((e) => e.id === "equip-2")!.fittedToShipId).toBeNull();
+  });
+
+  it("a normal singleton swap (uncommitted occupant) still works", () => {
+    const state = shieldScenario(false);
+    expect(canFitEquipment(state, "ship-1", "equip-2")).toEqual({ ok: true });
+    const next = fitEquipment(state, "ship-1", "equip-2");
+    expect(next.equipment.find((e) => e.id === "equip-1")!.fittedToShipId).toBeNull();
+    expect(next.equipment.find((e) => e.id === "equip-2")!.fittedToShipId).toBe("ship-1");
+  });
+
+  it("only the SAME slot on the SAME ship counts: a committed piece elsewhere does not block", () => {
+    const base = shieldScenario(false);
+    const otherSlot = { ...makeEquip({ id: "equip-3", slotType: "hullPlating", fittedToShipId: "ship-1" }), committedToLoadoutId: "loadout-1" } as EquipmentInstance;
+    const otherShip = { ...makeEquip({ id: "equip-4", slotType: "shieldEmitters", fittedToShipId: "ship-2" }), committedToLoadoutId: "loadout-2" } as EquipmentInstance;
+    const state = { ...base, equipment: [...base.equipment, otherSlot, otherShip] };
+    expect(canFitEquipment(state, "ship-1", "equip-2")).toEqual({ ok: true });
+  });
+
+  it("uninstall behavior is unchanged: the committed occupant still cannot be uninstalled", () => {
+    const state = shieldScenario(true);
+    expect(() => unfitEquipmentInstance(state, "ship-1", "equip-1")).toThrow(/committedToLoadout/);
+    // And an uncommitted occupant still uninstalls normally.
+    const next = unfitEquipmentInstance(shieldScenario(false), "ship-1", "equip-1");
+    expect(next.equipment.find((e) => e.id === "equip-1")!.fittedToShipId).toBeNull();
   });
 });

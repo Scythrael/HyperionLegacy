@@ -220,7 +220,13 @@ export type EquipFitBlockReason =
   // 0.13.9 hotfix (targeted swap): the piece named as the one being REPLACED (replacingInstanceId)
   // is not a valid swap-out target: it does not exist, is the incoming piece itself, is not
   // installed on THIS ship, or is not the same MULTI slot type as the incoming piece.
-  | "replaceTargetInvalid";
+  | "replaceTargetInvalid"
+  // 0.13.9 hotfix: the piece this install would move OUT (a singleton slot's current occupant, or a
+  // multi slot's targeted swap-out piece) was installed by a CHECKED-OUT Armory loadout
+  // (committedToLoadoutId set). Moving it to storage would leave it committed while its loadout still
+  // reads as checked out to this ship, a half-broken loadout; unfitEquipmentInstance refuses the same
+  // move. Distinct from committedToLoadout, which is about the INCOMING spare. Check the loadout in first.
+  | "occupantInLoadout";
 
 // ----------------------------------------------------------------------------
 // equippedFor
@@ -306,12 +312,14 @@ export function onMissionLock(
 // (slotNotInstallable) -> the piece is not reserved by a queued salvage (queuedForSalvage,
 // 0.13.3 Unit 2.1) -> ship exists + on-mission lock (noShip / onMission) -> the
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
-// captainSpecParked) -> weapon hardpoint capacity (hardpointsFull, weapon only).
+// captainSpecParked) -> the piece being moved out is not held by a checked-out loadout
+// (replaceTargetInvalid / occupantInLoadout, 0.13.9) -> weapon hardpoint capacity (hardpointsFull,
+// weapon only).
 //
 // 0.13.9 TARGETED SWAP (optional replacingInstanceId): on a MULTI slot (weapon / droneBay) the
 // loadout board's Swap names the exact installed piece being replaced. It must be a piece of the
 // SAME multi slot type installed on THIS ship (else replaceTargetInvalid), and must not be held by
-// a checked-out Armory loadout (committedToLoadout, the same rule unfitEquipmentInstance enforces).
+// a checked-out Armory loadout (occupantInLoadout, the same rule unfitEquipmentInstance enforces).
 // The capacity checks then discount it, because fitEquipment moves it out in the same transition.
 // Every other gate is unchanged and still applies to the incoming piece.
 export function canFitEquipment(
@@ -430,7 +438,21 @@ export function canFitEquipment(
     ) {
       return { ok: false, reason: "replaceTargetInvalid" };
     }
-    if (outgoing.committedToLoadoutId !== undefined) return { ok: false, reason: "committedToLoadout" };
+    if (outgoing.committedToLoadoutId !== undefined) return { ok: false, reason: "occupantInLoadout" };
+  }
+
+  // --- Singleton occupant guard (0.13.9 hotfix). A SINGLETON install evicts the slot's current
+  // occupant to storage (fitEquipment's atomic swap). If that occupant was installed by a checked-out
+  // Armory loadout, evicting it would leave it committed while the loadout still reads as checked out
+  // here, so refuse with the same rule unfitEquipmentInstance and the targeted swap above apply.
+  // A re-install of the occupant itself is excluded (it is refused earlier as committedToLoadout).
+  if (!MULTI_SLOT_TYPES.has(instance.slotType)) {
+    const occupant = state.equipment.find(
+      (e) => e.fittedToShipId === shipId && e.slotType === instance.slotType && e.id !== instanceId
+    );
+    if (occupant !== undefined && occupant.committedToLoadoutId !== undefined) {
+      return { ok: false, reason: "occupantInLoadout" };
+    }
   }
 
   // --- Weapon hardpoint capacity (Combat 1.0, Unit 1.8a): weapon is the one MULTI slot. A hull holds

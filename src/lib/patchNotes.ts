@@ -71,7 +71,7 @@ export const PATCH_NOTES: PatchNote[] = [
         title: "Bug Fixes",
         tone: "fixes",
         bullets: [
-          { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended. Loadout gear is also safe from salvage: a system queued for salvage can no longer be installed in a loadout, and a system already in one is never salvaged." },
+          { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended. Loadout gear is also safe from salvage and swaps: a system queued for salvage can no longer be installed in a loadout, a system already in one is never salvaged, and a system installed by a checked-out loadout can no longer be swapped out from under it." },
           { lead: "Requisitions are not blocked by loadouts.", text: "A Standard-Issue system sitting in an Armory loadout no longer stops the Quartermaster from issuing you a spare for that slot." },
           { lead: "Deuterium Ice is safe.", text: "The retired Fuel Depot was still quietly converting leftover Deuterium Ice into fuel nothing uses. It has stopped, so all of your ice can be sold at the Quartermaster, and Home no longer offers Fuel Depot upgrades." },
           { lead: "Salvage returns materials from small recipes.", text: "Salvaging gear with small recipes, like the Plasma Cannon or the Balanced systems, could return nothing because every amount rounded down. Leftover fractions now give a matching chance of one more unit, for gear and ship teardowns alike." },

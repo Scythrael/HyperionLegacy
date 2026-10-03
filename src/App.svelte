@@ -4554,6 +4554,9 @@
         return "all drone bays are full (uninstall a drone pod first)";
       case "replaceTargetInvalid":
         return "the system being swapped out is no longer installed here";
+      // 0.13.9: the system this install would move out belongs to a checked-out loadout.
+      case "occupantInLoadout":
+        return "the installed system belongs to a checked-out loadout (check that loadout in at the Armory first)";
     }
   }
 
