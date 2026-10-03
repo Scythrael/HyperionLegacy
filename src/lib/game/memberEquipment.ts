@@ -41,7 +41,7 @@
 // Contents:
 //   MemberFitBlockReason / MemberFitGate  the typed reasons + verdict shape
 //   memberFitBlockText                    player-facing text per reason (exhaustive)
-//   memberEquipment / memberPieceInSlot   queries
+//   memberEquipment / memberPieceInSlot / memberSlotPieces   queries
 //   memberSlotCapacity                    how many pieces of a member slot one member can wear
 //   canFitToMember / fitToMember          the install gate + mutator (singleton swap, targeted implant swap)
 //   canUnfitFromMember / unfitFromMember  the uninstall gate + mutator
@@ -49,7 +49,7 @@
 // ============================================================================
 
 import type { AwayMember, EquipmentInstance, GameState, MemberSlotType } from "./model";
-import { isMemberSlotType, isSparePiece, memberVariety, startAutoSalvageGrace } from "./model";
+import { isMemberSlotType, isUninstalledPiece, memberVariety, startAutoSalvageGrace } from "./model";
 // Imported from reservation.ts (the type-only leaf), the same way equipment.ts does, never from salvage.ts.
 import { salvageReservedInstanceIds } from "./reservation";
 import { canFitEquipment, type EquipFitBlockReason } from "./equipment";
@@ -59,26 +59,32 @@ import { implantSlotsFor, shipCrewLocked } from "./awayTeam";
 // MemberFitBlockReason
 // ============================================================================
 // Why a member install (canFitToMember) or uninstall (canUnfitFromMember) is refused. A string union so it
-// logs readably and the UI can switch on it exhaustively (see memberFitBlockText). Install gate order:
+// logs readably and the UI can switch on it exhaustively (see memberFitBlockText).
+// THE INSTALL GATE ORDER (the one authoritative list; canFitToMember's header points here). Properties of the
+// PIECE first, then the member, then the swap and slot arithmetic, mirroring canFitEquipment:
 //   noInstance              no piece has that id
 //   notMemberSlot           the piece is SHIP gear (installs on a hull via canFitEquipment)
+//   notSpare                the piece is already installed somewhere (!isUninstalledPiece): worn by a member,
+//                           including this one, or installed on a ship. FIRST among the piece's states, so a
+//                           worn piece that is also locked reads "Already installed", not "Locked".
 //   queuedForSalvage        a queued salvage order owns the piece (cancel it to install)
-//   committedToLoadout      the piece is committed to a loadout; ALSO returned when the piece an install
-//                           would swap out (a singleton occupant or the named implant) is held by a loadout
+//   committedToLoadout      the (resting) piece is committed to a loadout. Checked as its own reason rather
+//                           than folded into notSpare (isSparePiece folds it in), so it stays specific.
 //   locked                  the player's Lock flag
-//   notSpare                the piece is not a free spare (isSparePiece false): worn by a member, including
-//                           this one, or installed on a ship
 //   noMember                no member has that id
 //   onMission               the member's ship is crew-locked (shipCrewLocked); a benched member never is
 //   wrongTeam               the variety's teamTypes exclude the member's squad, or the piece's variety cannot
 //                           be resolved (no stamp, or a retired key), so no squad is known to wear it
 //   replaceTargetInvalid    replacingInstanceId is unknown, is the incoming piece, is not worn by this
 //                           member, or is a different slot type
-//   uniqueEquippedElsewhere another piece of the same unique-equipped variety is already worn somewhere
+//   occupantInLoadout       the OUTGOING piece (the singleton occupant, or the named implant) belongs to a
+//                           checked-out loadout, so this install may not swap it out
+//   uniqueEquippedElsewhere another piece of the same unique-equipped variety is already worn somewhere.
+//                           Before the implant cap: freeing a slot would not make a duplicate allowed.
 //   implantSlotsFull        the member already wears implantSlotsFor(member) implants and none is replaced
-// Uninstall gate only:
-//   notWornByMember         the piece exists but this member does not wear it
-// (The uninstall gate also returns noInstance, noMember, onMission and committedToLoadout.)
+// The UNINSTALL gate (canUnfitFromMember) returns, in order: noInstance, noMember, notWornByMember (the piece
+// exists but this member does not wear it; uninstall only), onMission, occupantInLoadout (the worn piece
+// belongs to a checked-out loadout).
 export type MemberFitBlockReason =
   | "noInstance"
   | "notMemberSlot"
@@ -90,6 +96,7 @@ export type MemberFitBlockReason =
   | "onMission"
   | "wrongTeam"
   | "replaceTargetInvalid"
+  | "occupantInLoadout"
   | "uniqueEquippedElsewhere"
   | "implantSlotsFull"
   | "notWornByMember";
@@ -121,6 +128,8 @@ export function memberFitBlockText(reason: MemberFitBlockReason): string {
       return "This squad cannot use this gear";
     case "replaceTargetInvalid":
       return "The piece to replace is no longer installed";
+    case "occupantInLoadout":
+      return "The installed piece belongs to a checked-out loadout (check that loadout in first)";
     case "uniqueEquippedElsewhere":
       return "Unique: only one can be installed in the whole fleet";
     case "implantSlotsFull":
@@ -139,15 +148,37 @@ export function memberEquipment(state: GameState, memberId: string): EquipmentIn
   return state.equipment.filter((e) => e.fittedToMemberId === memberId);
 }
 
-// The piece the member wears in `slotType`, or null when that slot is empty. Exact for the three singleton
-// slots (fitToMember's swap keeps at most one each). For "implant", a MULTI slot, it returns the FIRST worn
-// implant only; read every implant with memberEquipment(...).filter(e => e.slotType === "implant"). Pure.
+// The piece the member wears in a SINGLETON slot, or null when that slot is empty (fitToMember's swap keeps
+// at most one each). "implant" is excluded at the type level on purpose: it is a MULTI slot, so "the" implant
+// is ambiguous; use memberSlotPieces for it. Pure.
 export function memberPieceInSlot(
   state: GameState,
   memberId: string,
-  slotType: MemberSlotType
+  slotType: Exclude<MemberSlotType, "implant">
 ): EquipmentInstance | null {
   return state.equipment.find((e) => e.fittedToMemberId === memberId && e.slotType === slotType) ?? null;
+}
+
+// Every piece the member wears in `slotType`, for ANY member slot, so a slot grid can index singleton and
+// implant slots uniformly (index i = the i-th drawn slot). STABLE ORDER: by the numeric suffix of the
+// "equip-N" id (mint order), so a piece keeps its grid position as others come and go; an id without a
+// numeric suffix sorts after, in pool order (Array.prototype.sort is stable). Length is at most
+// memberSlotCapacity(member, slotType) because every install goes through canFitToMember, which keeps it
+// there; nothing is truncated here, so a worn piece can never be hidden. Pure (fresh array).
+export function memberSlotPieces(state: GameState, memberId: string, slotType: MemberSlotType): EquipmentInstance[] {
+  return state.equipment
+    .filter((e) => e.fittedToMemberId === memberId && e.slotType === slotType)
+    .sort((a, b) => {
+      const x = mintOrder(a.id);
+      const y = mintOrder(b.id);
+      return x === y ? 0 : x - y; // equal keys (incl. two Infinity) keep pool order
+    });
+}
+
+// The mint number of an "equip-N" id (any trailing integer), or Infinity when there is none. Pure.
+function mintOrder(id: string): number {
+  const m = /(\d+)$/.exec(id);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
 }
 
 // How many pieces of `slotType` one member can wear at once: implantSlotsFor(member) for implants, 1 for the
@@ -166,13 +197,7 @@ function memberCrewLocked(state: GameState, member: AwayMember): boolean {
 // ============================================================================
 // THE member install gate: can this spare piece be installed on this member right now? Pure; the single
 // source of truth fitToMember consults, and what the UI calls to enable an Install button with its reason.
-//
-// GATE ORDER (properties of the PIECE first, then the member, then the slot arithmetic), mirroring
-// canFitEquipment: noInstance -> notMemberSlot -> queuedForSalvage -> committedToLoadout -> locked ->
-// notSpare -> noMember -> onMission -> wrongTeam -> replaceTargetInvalid (and committedToLoadout for the
-// outgoing piece) -> uniqueEquippedElsewhere -> implantSlotsFull. committedToLoadout sits BEFORE notSpare on
-// purpose: isSparePiece also folds in the commitment, so checking it first keeps the more specific reason
-// reachable. Uniqueness precedes the implant cap because freeing a slot would not help a duplicate.
+// GATE ORDER: see the MemberFitBlockReason list above (the one authoritative copy).
 //
 // replacingInstanceId (optional): the worn piece this install swaps out. Required to swap at the implant
 // cap. Accepted for a singleton too when it names that slot's current occupant (the same swap the singleton
@@ -183,29 +208,63 @@ export function canFitToMember(
   pieceId: string,
   replacingInstanceId?: string
 ): MemberFitGate {
+  return evaluateFit(state, memberId, pieceId, replacingInstanceId).gate;
+}
+
+// The whole install evaluation in ONE pass, shared by canFitToMember and fitToMember so the mutator never
+// re-derives what the gate already found: the verdict, plus (when ok) the worn piece leaving in the same
+// transition (the named replace target, or a singleton's current occupant), null when nothing leaves. Pure.
+function evaluateFit(
+  state: GameState,
+  memberId: string,
+  pieceId: string,
+  replacingInstanceId: string | undefined
+): { gate: MemberFitGate; outgoing: EquipmentInstance | null } {
+  const refuse = (reason: MemberFitBlockReason): { gate: MemberFitGate; outgoing: null } => ({
+    gate: { ok: false, reason },
+    outgoing: null,
+  });
+
   const piece = state.equipment.find((e) => e.id === pieceId);
-  if (!piece) return { ok: false, reason: "noInstance" };
-  if (!isMemberSlotType(piece.slotType)) return { ok: false, reason: "notMemberSlot" };
+  if (!piece) return refuse("noInstance");
+  if (!isMemberSlotType(piece.slotType)) return refuse("notMemberSlot");
   const slotType = piece.slotType;
+  if (!isUninstalledPiece(piece)) return refuse("notSpare");
   // The same central salvage seam canFitEquipment guards: a reserved piece is uninstallable everywhere.
-  if (salvageReservedInstanceIds(state).has(pieceId)) return { ok: false, reason: "queuedForSalvage" };
-  if (piece.committedToLoadoutId !== undefined) return { ok: false, reason: "committedToLoadout" };
-  if (piece.locked === true) return { ok: false, reason: "locked" };
-  if (!isSparePiece(piece)) return { ok: false, reason: "notSpare" };
+  if (salvageReservedInstanceIds(state).has(pieceId)) return refuse("queuedForSalvage");
+  if (piece.committedToLoadoutId !== undefined) return refuse("committedToLoadout");
+  if (piece.locked === true) return refuse("locked");
+  // Past these checks the piece is a free spare (isSparePiece: uninstalled and not committed).
 
   const member = state.awayMembers.find((m) => m.id === memberId);
-  if (!member) return { ok: false, reason: "noMember" };
-  if (memberCrewLocked(state, member)) return { ok: false, reason: "onMission" };
+  if (!member) return refuse("noMember");
+  if (memberCrewLocked(state, member)) return refuse("onMission");
 
   const variety = memberVariety(slotType, piece.moduleVariant ?? "");
-  if (!variety || !variety.member.teamTypes.includes(member.teamType)) return { ok: false, reason: "wrongTeam" };
+  if (!variety || !variety.member.teamTypes.includes(member.teamType)) return refuse("wrongTeam");
 
-  // The piece(s) leaving in the same transition: the named replace target, or (singleton) the occupant.
-  const outgoing = outgoingPieceFor(state, member.id, piece, replacingInstanceId);
-  if (outgoing === "invalid") return { ok: false, reason: "replaceTargetInvalid" };
-  if (outgoing !== null && outgoing.committedToLoadoutId !== undefined) {
-    return { ok: false, reason: "committedToLoadout" };
+  // The piece leaving in the same transition. A named target must be worn by THIS member, in the SAME slot
+  // type, and not the incoming piece itself (for a singleton that is exactly its current occupant, since a
+  // singleton holds at most one). No named target: a singleton swaps its occupant (if any); an implant
+  // swaps nothing.
+  let outgoing: EquipmentInstance | null;
+  if (replacingInstanceId !== undefined) {
+    const target = state.equipment.find((e) => e.id === replacingInstanceId);
+    if (
+      target === undefined ||
+      target.id === pieceId ||
+      target.fittedToMemberId !== member.id ||
+      target.slotType !== slotType
+    ) {
+      return refuse("replaceTargetInvalid");
+    }
+    outgoing = target;
+  } else if (slotType === "implant") {
+    outgoing = null;
+  } else {
+    outgoing = state.equipment.find((e) => e.fittedToMemberId === member.id && e.slotType === slotType) ?? null;
   }
+  if (outgoing !== null && outgoing.committedToLoadoutId !== undefined) return refuse("occupantInLoadout");
   const outgoingId = outgoing?.id;
 
   // Fleet-wide uniqueness: any OTHER worn piece of the same variety blocks, except the one being swapped out.
@@ -218,7 +277,7 @@ export function canFitToMember(
         e.slotType === slotType &&
         e.moduleVariant === piece.moduleVariant
     );
-    if (wornElsewhere) return { ok: false, reason: "uniqueEquippedElsewhere" };
+    if (wornElsewhere) return refuse("uniqueEquippedElsewhere");
   }
 
   // Implant capacity: the implants staying on the member (the outgoing one leaves) must leave a free slot.
@@ -226,60 +285,38 @@ export function canFitToMember(
     const staying = state.equipment.filter(
       (e) => e.fittedToMemberId === member.id && e.slotType === "implant" && e.id !== outgoingId
     ).length;
-    if (staying >= memberSlotCapacity(member, slotType)) return { ok: false, reason: "implantSlotsFull" };
+    if (staying >= memberSlotCapacity(member, slotType)) return refuse("implantSlotsFull");
   }
 
-  return { ok: true };
+  return { gate: { ok: true }, outgoing };
 }
 
-// The worn piece an install of `incoming` on this member would swap out, null when none, or "invalid" when
-// replacingInstanceId names something that is not a valid swap-out target. Pure.
-//   - A named target must be worn by THIS member, in the SAME slot type, and not the incoming piece itself.
-//     (For a singleton that is exactly its current occupant, since a singleton holds at most one.)
-//   - No named target: a singleton swaps its current occupant (if any); an implant swaps nothing.
-function outgoingPieceFor(
-  state: GameState,
-  memberId: string,
-  incoming: EquipmentInstance,
-  replacingInstanceId: string | undefined
-): EquipmentInstance | null | "invalid" {
-  if (replacingInstanceId !== undefined) {
-    const target = state.equipment.find((e) => e.id === replacingInstanceId);
-    if (
-      target === undefined ||
-      target.id === incoming.id ||
-      target.fittedToMemberId !== memberId ||
-      target.slotType !== incoming.slotType
-    ) {
-      return "invalid";
-    }
-    return target;
-  }
-  if (incoming.slotType === "implant") return null;
-  return state.equipment.find((e) => e.fittedToMemberId === memberId && e.slotType === incoming.slotType) ?? null;
+// The " (member M, piece P, replacing R)" suffix the mutators' throw messages carry, so a log line names
+// exactly what was refused. Pure.
+function idSuffix(memberId: string, pieceId: string, replacingInstanceId?: string): string {
+  const replacing = replacingInstanceId !== undefined ? `, replacing ${replacingInstanceId}` : "";
+  return ` (member ${memberId}, piece ${pieceId}${replacing})`;
 }
 
 // ============================================================================
 // fitToMember
 // ============================================================================
-// Install a spare piece on a member. THROWS with the reason token when canFitToMember refuses. In ONE .map():
-// the incoming piece gets fittedToMemberId; the outgoing piece (the singleton occupant, or the named implant)
-// returns to storage with its auto-salvage grace restarted. Only ever MOVES pieces (never mints or destroys),
-// so the slot is never briefly double-occupied, the implant count never exceeds the cap, and nothing is lost
-// or duplicated. Pure.
+// Install a spare piece on a member. THROWS with the reason token (and the ids) when the gate refuses. In
+// ONE .map(): the incoming piece gets fittedToMemberId; the outgoing piece (the singleton occupant, or the
+// named implant) returns to storage with its auto-salvage grace restarted. Only ever MOVES pieces (never
+// mints or destroys), so the slot is never briefly double-occupied, the implant count never exceeds the
+// cap, and nothing is lost or duplicated. Pure.
 export function fitToMember(
   state: GameState,
   memberId: string,
   pieceId: string,
   replacingInstanceId?: string
 ): GameState {
-  const gate = canFitToMember(state, memberId, pieceId, replacingInstanceId);
-  if (!gate.ok) throw new Error(`fitToMember blocked: ${gate.reason}`);
-
-  // gate.ok guarantees the piece exists and the outgoing piece (if any) is valid.
-  const incoming = state.equipment.find((e) => e.id === pieceId)!;
-  const outgoing = outgoingPieceFor(state, memberId, incoming, replacingInstanceId);
-  const outgoingId = outgoing !== null && outgoing !== "invalid" ? outgoing.id : undefined;
+  const { gate, outgoing } = evaluateFit(state, memberId, pieceId, replacingInstanceId);
+  if (!gate.ok) {
+    throw new Error(`fitToMember blocked: ${gate.reason}${idSuffix(memberId, pieceId, replacingInstanceId)}`);
+  }
+  const outgoingId = outgoing?.id;
 
   return {
     ...state,
@@ -296,8 +333,8 @@ export function fitToMember(
 // ============================================================================
 // canUnfitFromMember / unfitFromMember
 // ============================================================================
-// The uninstall gate: noInstance -> noMember -> notWornByMember -> onMission -> committedToLoadout (a piece
-// a checked-out squad loadout installed is edited in the Armory, mirroring unfitEquipmentInstance). Pure.
+// The uninstall gate (order listed under MemberFitBlockReason). A piece a checked-out squad loadout
+// installed reports occupantInLoadout: it is edited in the Armory, mirroring unfitEquipmentInstance. Pure.
 export function canUnfitFromMember(state: GameState, memberId: string, pieceId: string): MemberFitGate {
   const piece = state.equipment.find((e) => e.id === pieceId);
   if (!piece) return { ok: false, reason: "noInstance" };
@@ -305,7 +342,7 @@ export function canUnfitFromMember(state: GameState, memberId: string, pieceId: 
   if (!member) return { ok: false, reason: "noMember" };
   if (piece.fittedToMemberId !== memberId) return { ok: false, reason: "notWornByMember" };
   if (memberCrewLocked(state, member)) return { ok: false, reason: "onMission" };
-  if (piece.committedToLoadoutId !== undefined) return { ok: false, reason: "committedToLoadout" };
+  if (piece.committedToLoadoutId !== undefined) return { ok: false, reason: "occupantInLoadout" };
   return { ok: true };
 }
 
@@ -314,7 +351,7 @@ export function canUnfitFromMember(state: GameState, memberId: string, pieceId: 
 // (notably while the member's ship is crew-locked). Pure.
 export function unfitFromMember(state: GameState, memberId: string, pieceId: string): GameState {
   const gate = canUnfitFromMember(state, memberId, pieceId);
-  if (!gate.ok) throw new Error(`unfitFromMember blocked: ${gate.reason}`);
+  if (!gate.ok) throw new Error(`unfitFromMember blocked: ${gate.reason}${idSuffix(memberId, pieceId)}`);
   return {
     ...state,
     equipment: state.equipment.map((e) =>
@@ -330,7 +367,10 @@ export function unfitFromMember(state: GameState, memberId: string, pieceId: str
 // canFitEquipment's verdict; MEMBER gear lists every member (roster order) with canFitToMember's verdict.
 // Disabled targets stay in the list with their reason so the picker can show why. An unknown piece has no
 // kind to list, so it returns []. NOTE: canFitEquipment does not itself require a spare (a ship piece may be
-// moved between hulls), so the Warehouse should offer "Install on..." only on spare rows. Pure.
+// moved between hulls), so the Warehouse should offer "Install on..." only on spare rows.
+// COST (Task 10): every entry runs a full gate (salvage reservations, uniqueness and capacity scans), so it is
+// O(targets x pool). Call it ONCE when a picker opens, never in a per-row reactive statement over the
+// Warehouse list. Pure.
 export type InstallTarget =
   | { kind: "ship"; shipId: string; ok: boolean; reason?: EquipFitBlockReason }
   | { kind: "member"; memberId: string; ok: boolean; reason?: MemberFitBlockReason };

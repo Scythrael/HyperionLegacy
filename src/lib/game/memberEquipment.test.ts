@@ -25,6 +25,8 @@ import {
   unfitFromMember,
   memberEquipment,
   memberPieceInSlot,
+  memberSlotPieces,
+  memberSlotCapacity,
   installTargetsFor,
   memberFitBlockText,
   type MemberFitBlockReason,
@@ -227,16 +229,16 @@ describe("canFitToMember", () => {
     expect(canFitToMember(s, "m-sec", "imp-new", "imp-old")).toEqual({ ok: true });
   });
 
-  it("committedToLoadout when the piece being swapped out is held by a loadout", () => {
+  it("occupantInLoadout when the piece being swapped out is held by a loadout", () => {
     const s = state([
       piece("imp-old", "implant", "dermalWeave", { fittedToMemberId: "m-sec", committedToLoadoutId: "lo-1" }),
       piece("imp-new", "implant", "targetingOptic"),
       piece("rifle-old", "memberWeapon", "pulseRifle", { fittedToMemberId: "m-sec", committedToLoadoutId: "lo-1" }),
       piece("rifle-new", "memberWeapon", "scattergun"),
     ]);
-    expect(canFitToMember(s, "m-sec", "imp-new", "imp-old")).toEqual({ ok: false, reason: "committedToLoadout" });
+    expect(canFitToMember(s, "m-sec", "imp-new", "imp-old")).toEqual({ ok: false, reason: "occupantInLoadout" });
     // A singleton occupant held by a loadout is not torn off by an implicit swap either.
-    expect(canFitToMember(s, "m-sec", "rifle-new")).toEqual({ ok: false, reason: "committedToLoadout" });
+    expect(canFitToMember(s, "m-sec", "rifle-new")).toEqual({ ok: false, reason: "occupantInLoadout" });
   });
 
   it("implantSlotsFull at the cap, unless a worn implant is named as the one to replace", () => {
@@ -289,6 +291,34 @@ describe("canFitToMember", () => {
     expect(canFitToMember(s, "m-sec", "nb-2")).toEqual({ ok: true });
   });
 
+  it("precedence: an installed piece reports notSpare before committed or locked", () => {
+    const s = state([
+      piece("worn-locked", "memberWeapon", "pulseRifle", { fittedToMemberId: "m-mar", locked: true }),
+      piece("on-ship", "memberWeapon", "pulseRifle", { fittedToShipId: "ship-a", committedToLoadoutId: "lo-1" }),
+    ]);
+    expect(canFitToMember(s, "m-sec", "worn-locked")).toEqual({ ok: false, reason: "notSpare" });
+    expect(canFitToMember(s, "m-sec", "on-ship")).toEqual({ ok: false, reason: "notSpare" });
+  });
+
+  it("precedence: a resting piece that is committed AND locked reports committedToLoadout", () => {
+    const s = state([piece("both", "memberWeapon", "pulseRifle", { committedToLoadoutId: "lo-1", locked: true })]);
+    expect(canFitToMember(s, "m-sec", "both")).toEqual({ ok: false, reason: "committedToLoadout" });
+  });
+
+  it("precedence: wrongTeam beats a bad replace target", () => {
+    const s = state([piece("sidearm", "memberWeapon", "sidearm")]);
+    expect(canFitToMember(s, "m-sec", "sidearm", "nope")).toEqual({ ok: false, reason: "wrongTeam" });
+  });
+
+  it("precedence: a duplicate unique piece at a full implant cap reports uniqueEquippedElsewhere", () => {
+    const s = state([
+      piece("imp-worn", "implant", "dermalWeave", { fittedToMemberId: "m-sec" }), // m-sec's one slot is full
+      piece("nb-worn", "implant", "neuralBackup", { fittedToMemberId: "m-mar" }),
+      piece("nb-new", "implant", "neuralBackup"),
+    ]);
+    expect(canFitToMember(s, "m-sec", "nb-new")).toEqual({ ok: false, reason: "uniqueEquippedElsewhere" });
+  });
+
   it("every block reason is reachable (exhaustive over MemberFitBlockReason)", () => {
     const base = state([
       piece("rifle", "memberWeapon", "pulseRifle"),
@@ -301,6 +331,8 @@ describe("canFitToMember", () => {
       piece("nb-new", "implant", "neuralBackup"),
       piece("committed", "memberWeapon", "pulseRifle", { committedToLoadoutId: "lo-1" }),
       piece("locked", "memberWeapon", "pulseRifle", { locked: true }),
+      piece("held-armor", "memberArmor", "ballisticWeave", { fittedToMemberId: "m-bench", committedToLoadoutId: "lo-1" }),
+      piece("armor-new", "memberArmor", "assaultHardsuit"),
     ]);
     const cases: Record<MemberFitBlockReason, () => ReturnType<typeof canFitToMember>> = {
       noInstance: () => canFitToMember(base, "m-sec", "nope"),
@@ -313,6 +345,7 @@ describe("canFitToMember", () => {
       onMission: () => canFitToMember(onMission(base), "m-sec", "rifle"),
       wrongTeam: () => canFitToMember(base, "m-sec", "sidearm"),
       replaceTargetInvalid: () => canFitToMember(base, "m-sec", "imp-new", "nope"),
+      occupantInLoadout: () => canFitToMember(base, "m-bench", "armor-new"),
       uniqueEquippedElsewhere: () => canFitToMember(base, "m-bench", "nb-new"),
       implantSlotsFull: () => canFitToMember(base, "m-sec", "imp-new"),
       notWornByMember: () => canUnfitFromMember(base, "m-sec", "rifle"),
@@ -363,6 +396,9 @@ describe("fitToMember", () => {
   it("throws with the reason token on a blocked install", () => {
     const s = state([piece("sidearm", "memberWeapon", "sidearm")]);
     expect(() => fitToMember(s, "m-sec", "sidearm")).toThrow(/wrongTeam/);
+    expect(() => fitToMember(s, "m-sec", "sidearm", "x-1")).toThrow(
+      "fitToMember blocked: wrongTeam (member m-sec, piece sidearm, replacing x-1)"
+    );
     expect(() => fitToMember(onMission(s), "m-sci", "sidearm")).toThrow(/onMission/);
   });
 
@@ -457,8 +493,10 @@ describe("unfitFromMember / canUnfitFromMember", () => {
     expect(canUnfitFromMember(s, "m-sec", "nope")).toEqual({ ok: false, reason: "noInstance" });
     expect(canUnfitFromMember(s, "m-404", "rifle")).toEqual({ ok: false, reason: "noMember" });
     expect(canUnfitFromMember(s, "m-mar", "rifle")).toEqual({ ok: false, reason: "notWornByMember" });
-    expect(canUnfitFromMember(s, "m-sec", "held")).toEqual({ ok: false, reason: "committedToLoadout" });
-    expect(() => unfitFromMember(s, "m-mar", "rifle")).toThrow(/notWornByMember/);
+    expect(canUnfitFromMember(s, "m-sec", "held")).toEqual({ ok: false, reason: "occupantInLoadout" });
+    expect(() => unfitFromMember(s, "m-mar", "rifle")).toThrow(
+      "unfitFromMember blocked: notWornByMember (member m-mar, piece rifle)"
+    );
   });
 
   it("never mutates its input", () => {
@@ -469,7 +507,7 @@ describe("unfitFromMember / canUnfitFromMember", () => {
   });
 });
 
-describe("memberEquipment / memberPieceInSlot", () => {
+describe("memberEquipment / memberPieceInSlot / memberSlotPieces", () => {
   it("read the member's worn pieces off fittedToMemberId", () => {
     const s = state([
       piece("rifle", "memberWeapon", "pulseRifle", { fittedToMemberId: "m-sec" }),
@@ -481,6 +519,43 @@ describe("memberEquipment / memberPieceInSlot", () => {
     expect(memberPieceInSlot(s, "m-sec", "memberWeapon")?.id).toBe("rifle");
     expect(memberPieceInSlot(s, "m-sec", "memberArmor")).toBeNull();
     expect(memberPieceInSlot(s, "m-mar", "memberArmor")?.id).toBe("other");
+    // Compile-time guard (enforced by npm run check): implant is a MULTI slot, so the singleton reader
+    // refuses it at the type level; memberSlotPieces is the implant reader.
+    // @ts-expect-error "implant" is excluded from memberPieceInSlot's slotType
+    memberPieceInSlot(s, "m-sec", "implant");
+  });
+
+  it("memberSlotPieces indexes every slot type uniformly, in stable mint order, within capacity", () => {
+    // Pool order deliberately differs from mint order (equip-12 before equip-3).
+    let s = state([
+      piece("equip-12", "implant", "reflexBooster"),
+      piece("equip-3", "implant", "dermalWeave"),
+      piece("equip-7", "memberWeapon", "pulseRifle", { fittedToMemberId: "m-mar" }),
+    ]);
+    s = fitToMember(s, "m-mar", "equip-12");
+    s = fitToMember(s, "m-mar", "equip-3");
+    const implants = memberSlotPieces(s, "m-mar", "implant");
+    expect(implants.map((e) => e.id)).toEqual(["equip-3", "equip-12"]);
+    const mar = s.awayMembers.find((m) => m.id === "m-mar")!;
+    expect(implants.length).toBeLessThanOrEqual(memberSlotCapacity(mar, "implant"));
+    expect(memberSlotPieces(s, "m-mar", "memberWeapon").map((e) => e.id)).toEqual(["equip-7"]);
+    expect(memberSlotPieces(s, "m-mar", "memberArmor")).toEqual([]);
+    // A targeted swap keeps the survivor's index stable: replacing equip-3 leaves equip-12 last.
+    const swapped = fitToMember(
+      { ...s, equipment: [...s.equipment, piece("equip-20", "implant", "targetingOptic")] },
+      "m-mar",
+      "equip-20",
+      "equip-3"
+    );
+    expect(memberSlotPieces(swapped, "m-mar", "implant").map((e) => e.id)).toEqual(["equip-12", "equip-20"]);
+  });
+
+  it("memberSlotCapacity is implantSlotsFor for implants and 1 for singletons", () => {
+    const mar = { race: "martian" as const };
+    const earth = { race: "earthBorn" as const };
+    expect(memberSlotCapacity(mar, "implant")).toBe(2);
+    expect(memberSlotCapacity(earth, "implant")).toBe(1);
+    expect(memberSlotCapacity(mar, "memberArmor")).toBe(1);
   });
 });
 
@@ -612,6 +687,7 @@ describe("memberFitBlockText", () => {
     "onMission",
     "wrongTeam",
     "replaceTargetInvalid",
+    "occupantInLoadout",
     "uniqueEquippedElsewhere",
     "implantSlotsFull",
     "notWornByMember",
