@@ -316,3 +316,23 @@ describe("readoutFor", () => {
     expect(via.rating).toBe(direct);
   });
 });
+
+// 0.13.9 hotfix: the TARGETED SWAP preview. A Swap on a filled hardpoint names the piece it
+// replaces, and the preview must drop exactly that piece, matching fitEquipment(..., replacingId).
+describe("applyHypotheticalInstall: targeted swap on a MULTI slot (0.13.9)", () => {
+  it("previewing a weapon swap on a FULL hull equals the real swap", () => {
+    // Destroyer: fill every hardpoint, then swap one specific gun for a spare.
+    const cap = DESTROYER_DEF.weaponHardpoints;
+    const mounted = Array.from({ length: cap }, (_, i) =>
+      makeEquip({ id: `wpn-${i}`, slotType: "weapon", weaponType: "autocannon", fittedToShipId: "ship-1" })
+    );
+    const candidate = makeEquip({ id: "wpn-new", slotType: "weapon", weaponType: "plasma", fittedToShipId: null });
+    const state = withEquipment(withHull(freshState(), DESTROYER_KEY), ...mounted, candidate);
+
+    const previewGear = applyHypotheticalInstall(equippedFor(state, "ship-1"), candidate, { kind: "hardpoint", index: 0 }, "wpn-0");
+    const realGear = equippedFor(fitEquipment(state, "ship-1", "wpn-new", "wpn-0"), "ship-1");
+    expect(previewGear.map((e) => e.id).sort()).toEqual(realGear.map((e) => e.id).sort());
+    expect(previewGear.filter((e) => e.slotType === "weapon")).toHaveLength(cap); // never over the cap
+    expect(previewGear.some((e) => e.id === "wpn-0")).toBe(false);
+  });
+});

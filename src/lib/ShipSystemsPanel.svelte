@@ -105,7 +105,9 @@
   // so persistence + logging happen exactly once, in App.svelte.
   export let state: GameState;
   export let shipId: string;
-  export let onInstall: (shipId: string, instanceId: string) => void;
+  // 0.13.9: the optional third argument names the installed weapon / drone pod a Swap replaces
+  // (a targeted swap on a MULTI slot); the host passes it to fitEquipment.
+  export let onInstall: (shipId: string, instanceId: string, replacingInstanceId?: string) => void;
   // Uninstall is BY INSTANCE ID (a weapon is a MULTI slot, so "uninstall the weapon"
   // is ambiguous without an id). The host routes this to unfitEquipmentInstance.
   export let onUninstall: (shipId: string, instanceId: string) => void;
@@ -542,6 +544,13 @@
           ? mountedPods[selectedBay] ?? null
           : null;
 
+  // 0.13.9 TARGETED SWAP: on a FILLED weapon hardpoint or drone bay, Swap replaces THAT piece. Its id
+  // rides into the gate, the preview, and the install, so a full hull is no longer refused with
+  // hardpointsFull / baysFull and the compare is against the piece being replaced. Singleton slots
+  // already swap on their own (undefined here), and an empty cell is a plain install.
+  $: replacingId =
+    (selectedHardpoint !== null || selectedBay !== null) && installedPiece !== null ? installedPiece.id : undefined;
+
   // If the chosen candidate is no longer among the compatible spares (it was just installed
   // elsewhere, salvaged, or the picker switched slots), drop the selection so the compare
   // never points at a vanished piece. Guarded to assign ONLY when stale, so it cannot loop.
@@ -562,7 +571,7 @@
   // helper. Guarded on the hull resolving (shipDef + combat class + an open target).
   $: candidateGear =
     installCandidate !== null && installTarget !== null
-      ? applyHypotheticalInstall(fittedPieces, installCandidate, installTarget)
+      ? applyHypotheticalInstall(fittedPieces, installCandidate, installTarget, replacingId)
       : null;
   // Only folded while a candidate is being compared (the compare's stat rows read it); the
   // headline current BR otherwise falls back to battleRatingValue, the SAME fold, so no
@@ -717,6 +726,8 @@
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":
         return "all drone bays are full (uninstall a drone pod first)";
+      case "replaceTargetInvalid":
+        return "the system being swapped out is no longer installed here";
     }
   }
 
@@ -950,7 +961,7 @@
   // roster's per-row rating cost; no Monte-Carlo forecast runs here.
   function spareNetRating(spare: EquipmentInstance): number | null {
     if (!shipDef || !combatHullType || installTarget === null || compareCurrentBR === null) return null;
-    const gear = applyHypotheticalInstall(fittedPieces, spare, installTarget);
+    const gear = applyHypotheticalInstall(fittedPieces, spare, installTarget, replacingId);
     const r = readoutFor(gear, shipDef, combatHullType, shipDef.weaponHardpoints, shipDef.droneBays ?? 0);
     return r.rating - compareCurrentBR;
   }
@@ -967,7 +978,7 @@
   }
 
   function handleInstall(instanceId: string): void {
-    onInstall(shipId, instanceId);
+    onInstall(shipId, instanceId, replacingId);
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
@@ -1465,7 +1476,7 @@
                 <div class="ss-flow-list">
                   <div class="ss-spare-list">
                     {#each pickerSpares as spare (spare.id)}
-                      {@const gate = canFitEquipment(safeState, shipId, spare.id)}
+                      {@const gate = canFitEquipment(safeState, shipId, spare.id, replacingId)}
                       {@const net = spareNetRating(spare)}
                       <button
                         type="button"
@@ -1504,7 +1515,7 @@
                 <!-- COMPARE pane: current (installed) vs the chosen candidate. -->
                 <div class="ss-flow-compare">
                   {#if installCandidate}
-                    {@const gate = canFitEquipment(safeState, shipId, installCandidate.id)}
+                    {@const gate = canFitEquipment(safeState, shipId, installCandidate.id, replacingId)}
                     <div class="ss-compare">
                       <div class="ss-compare-head">
                         <button class="ss-back" on:click={clearCandidate} aria-label="Back to the spare list">&#8592; Back</button>
@@ -1540,7 +1551,7 @@
                         disabled={!gate.ok || shipDamaged}
                         title={gate.ok ? undefined : reasonText(gate.reason)}
                         on:click={() => handleInstall(installCandidate.id)}
-                      >{gate.ok ? "Install" : "Blocked: " + reasonText(gate.reason)}</button>
+                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked: " + reasonText(gate.reason)}</button>
                     </div>
                   {:else}
                     <p class="ss-note ss-note-dim ss-compare-empty">Select a system to compare it with what is installed.</p>

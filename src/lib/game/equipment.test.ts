@@ -855,3 +855,77 @@ describe("canFitEquipment: a piece reserved by a queued salvage cannot be instal
     expect(canFitEquipment(reserved, "ship-1", "ghost")).toEqual({ ok: false, reason: "noInstance" });
   });
 });
+
+// ============================================================================
+// 0.13.9 hotfix: TARGETED SWAP on a MULTI slot (weapon hardpoint / drone bay).
+// ============================================================================
+// The loadout board shows "Swap" on a filled hardpoint / bay, but a plain install on a full
+// hull is refused with hardpointsFull / baysFull, so Swap could never swap. A swap names the
+// exact piece it replaces (replacingInstanceId): the cap check discounts it, and fitEquipment
+// moves it to the spare pool and installs the newcomer in ONE transition.
+describe("targeted swap on a MULTI slot (0.13.9)", () => {
+  function fullCarrierWeapons(): GameState {
+    // Carrier: 2 hardpoints, both mounted, plus one spare.
+    const w1 = makeEquip({ id: "w-1", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w2 = makeEquip({ id: "w-2", slotType: "weapon", fittedToShipId: "ship-1" });
+    const w3 = makeEquip({ id: "w-3", slotType: "weapon", fittedToShipId: null });
+    return withHull(withEquipment(freshState(), w1, w2, w3), "carrier");
+  }
+
+  it("swaps a weapon on a FULL hull in one call: old piece spare, new piece installed, count unchanged", () => {
+    const state = fullCarrierWeapons();
+    expect(canFitEquipment(state, "ship-1", "w-3")).toEqual({ ok: false, reason: "hardpointsFull" }); // plain install still refused
+    expect(canFitEquipment(state, "ship-1", "w-3", "w-1")).toEqual({ ok: true });
+
+    const next = fitEquipment(state, "ship-1", "w-3", "w-1");
+    const mounted = equippedFor(next, "ship-1").filter((e) => e.slotType === "weapon");
+    expect(mounted.map((e) => e.id).sort()).toEqual(["w-2", "w-3"]); // still exactly 2 hardpoints filled
+    const out = next.equipment.find((e) => e.id === "w-1")!;
+    expect(out.fittedToShipId).toBeNull(); // the replaced weapon is a spare, not lost
+    expect(out.graceStartedAtGameSeconds).toBe(next.gameTimeSeconds); // and its auto-salvage grace restarted
+    expect(next.equipment).toHaveLength(state.equipment.length); // nothing minted or destroyed
+    expect(state.equipment.find((e) => e.id === "w-1")!.fittedToShipId).toBe("ship-1"); // input untouched
+  });
+
+  it("swaps a drone pod on a FULL carrier in one call", () => {
+    const p1 = makeEquip({ id: "p-1", slotType: "droneBay", droneRole: "attack", fittedToShipId: "ship-1" });
+    const p2 = makeEquip({ id: "p-2", slotType: "droneBay", droneRole: "attack", fittedToShipId: "ship-1" });
+    const p3 = makeEquip({ id: "p-3", slotType: "droneBay", droneRole: "attack", fittedToShipId: null });
+    const state = withHull(withEquipment(freshState(), p1, p2, p3), "carrier");
+    expect(canFitEquipment(state, "ship-1", "p-3")).toEqual({ ok: false, reason: "baysFull" });
+
+    const next = fitEquipment(state, "ship-1", "p-3", "p-2");
+    expect(equippedFor(next, "ship-1").filter((e) => e.slotType === "droneBay").map((e) => e.id).sort()).toEqual(["p-1", "p-3"]);
+    expect(next.equipment.find((e) => e.id === "p-2")!.fittedToShipId).toBeNull();
+  });
+
+  it("keeps every other refusal: a locked candidate, an on-mission ship", () => {
+    const state = fullCarrierWeapons();
+    const locked = { ...state, equipment: state.equipment.map((e) => (e.id === "w-3" ? { ...e, locked: true } : e)) };
+    expect(canFitEquipment(locked, "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "locked" });
+    expect(canFitEquipment(withCaptainOnMission(state), "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "onMission" });
+  });
+
+  it("refuses a replacing id that is not a same-type piece installed on THIS ship", () => {
+    const state = fullCarrierWeapons();
+    const bad = { ok: false, reason: "replaceTargetInvalid" };
+    expect(canFitEquipment(state, "ship-1", "w-3", "ghost")).toEqual(bad); // no such piece
+    expect(canFitEquipment(state, "ship-1", "w-3", "w-3")).toEqual(bad); // replacing itself
+    // A weapon on ANOTHER ship.
+    const elsewhere = {
+      ...state,
+      equipment: [...state.equipment, makeEquip({ id: "w-9", slotType: "weapon", fittedToShipId: "ship-2" })],
+    };
+    expect(canFitEquipment(elsewhere, "ship-1", "w-3", "w-9")).toEqual(bad);
+    // A piece of a DIFFERENT slot type on this ship.
+    const cargo = { ...state, equipment: [...state.equipment, makeEquip({ id: "c-1", slotType: "cargoBay", fittedToShipId: "ship-1" })] };
+    expect(canFitEquipment(cargo, "ship-1", "w-3", "c-1")).toEqual(bad);
+    expect(() => fitEquipment(state, "ship-1", "w-3", "ghost")).toThrow(/replaceTargetInvalid/);
+  });
+
+  it("refuses to swap out a piece committed to a checked-out Armory loadout", () => {
+    const state = fullCarrierWeapons();
+    const committed = { ...state, equipment: state.equipment.map((e) => (e.id === "w-1" ? { ...e, committedToLoadoutId: "loadout-1" } : e)) };
+    expect(canFitEquipment(committed, "ship-1", "w-3", "w-1")).toEqual({ ok: false, reason: "committedToLoadout" });
+  });
+});

@@ -4549,6 +4549,8 @@
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":
         return "all drone bays are full (uninstall a drone pod first)";
+      case "replaceTargetInvalid":
+        return "the system being swapped out is no longer installed here";
     }
   }
 
@@ -4665,15 +4667,21 @@
   // swap (evicting any current occupant back to the pool) is handled inside
   // fitEquipment. `installSystem`/`uninstallSystem` are the USER-FACING names;
   // they wrap the unchanged fitEquipment/unfitEquipment code helpers.
-  function installSystem(shipId: string, instanceId: string) {
-    const gate = canFitEquipment(state, shipId, instanceId);
+  // 0.13.9: `replacingInstanceId` is a TARGETED SWAP on a weapon hardpoint / drone bay (the panel's
+  // Swap on a filled cell): fitEquipment moves that piece to storage and installs the new one in one step.
+  function installSystem(shipId: string, instanceId: string, replacingInstanceId?: string) {
+    const gate = canFitEquipment(state, shipId, instanceId, replacingInstanceId);
     if (!gate.ok) {
       pushLog(`Cannot install system: ${devFitReasonText(gate.reason)}.`);
       return;
     }
-    state = fitEquipment(state, shipId, instanceId);
+    state = fitEquipment(state, shipId, instanceId, replacingInstanceId);
     doSave();
-    pushLog(`Installed system ${instanceId} on ${devShipLabel(shipId)}.`);
+    pushLog(
+      replacingInstanceId !== undefined
+        ? `Swapped system ${replacingInstanceId} for ${instanceId} on ${devShipLabel(shipId)}.`
+        : `Installed system ${instanceId} on ${devShipLabel(shipId)}.`
+    );
   }
 
   // UNINSTALL one specific installed system BY INSTANCE ID (Combat 1.0, Unit 1.8b).
