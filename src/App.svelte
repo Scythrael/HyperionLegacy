@@ -4675,13 +4675,24 @@
       pushLog(`Cannot install system: ${devFitReasonText(gate.reason)}.`);
       return;
     }
+    // 0.13.9: name the pieces by their player-facing labels, never the raw instance ids
+    // (the log is visible in System > Log). Read before the transition for clarity.
+    const incomingName = systemNameById(instanceId);
+    const outgoingName = replacingInstanceId !== undefined ? systemNameById(replacingInstanceId) : "";
     state = fitEquipment(state, shipId, instanceId, replacingInstanceId);
     doSave();
     pushLog(
       replacingInstanceId !== undefined
-        ? `Swapped system ${replacingInstanceId} for ${instanceId} on ${devShipLabel(shipId)}.`
-        : `Installed system ${instanceId} on ${devShipLabel(shipId)}.`
+        ? `Swapped ${outgoingName} for ${incomingName} on ${devShipLabel(shipId)}.`
+        : `Installed ${incomingName} on ${devShipLabel(shipId)}.`
     );
+  }
+
+  // The player-facing label for an equipment instance id (log lines), via the same naming the
+  // salvage log uses; a missing id (hand-edited save) reads as a neutral fallback.
+  function systemNameById(instanceId: string): string {
+    const piece = state.equipment.find((e) => e.id === instanceId);
+    return piece ? systemSalvageName(piece) : "a system";
   }
 
   // UNINSTALL one specific installed system BY INSTANCE ID (Combat 1.0, Unit 1.8b).
@@ -4693,9 +4704,10 @@
   // uninstalled system is never lost (the install picker re-offers it). Persists the change.
   function uninstallSystem(shipId: string, instanceId: string) {
     try {
+      const name = systemNameById(instanceId);
       state = unfitEquipmentInstance(state, shipId, instanceId);
       doSave();
-      pushLog(`Uninstalled system ${instanceId} on ${devShipLabel(shipId)}.`);
+      pushLog(`Uninstalled ${name} on ${devShipLabel(shipId)}.`);
     } catch (e) {
       pushLog(`Cannot uninstall system: ${(e as Error).message}`);
     }

@@ -27,8 +27,8 @@
 //     bay cap), and installing ADDS the piece without evicting a sibling. So
 //     applyHypotheticalInstall APPENDS the candidate, exactly as fitEquipment does. This
 //     is why the preview for a weapon reads as "+1 gun", the real result of pressing
-//     Install (a "Swap" onto a FULL loadout is blocked by canFitEquipment, uninstall
-//     first, so the preview never has to model an eviction the install would not do).
+//     Install into an open cell (a targeted Swap passes replacingInstanceId, see below,
+//     and the preview then models exactly that one-for-one replacement).
 // The `target` parameter carries which hardpoint / bay the flow opened on so the caller
 // can pin the INSTALLED banner to it; it does NOT change the gear MATH (a MULTI install
 // always appends, and the readout is position-agnostic), but it keeps the API honest to

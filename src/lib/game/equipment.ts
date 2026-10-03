@@ -483,7 +483,7 @@ export function canFitEquipment(
 // TWO INSTALL SHAPES, branched on the slot (Combat 1.0, Unit 1.8a):
 //
 // MULTI slot (weapon): a hull holds UP TO its weaponHardpoints weapons. Installing ADDS
-// the incoming weapon and does NOT evict any sibling weapon, so a partly-armed hull fills
+// the incoming weapon and evicts no sibling UNLESS replacingInstanceId names one (0.13.9 targeted Swap), so a partly-armed hull fills
 // its remaining hardpoints one gun at a time. The hardpoint cap is enforced by
 // canFitEquipment (hardpointsFull) BEFORE we get here, so this branch just sets fitment.
 //
@@ -514,7 +514,7 @@ export function fitEquipment(
   const incoming = state.equipment.find((e) => e.id === instanceId)!;
   const slotType = incoming.slotType;
 
-  // MULTI slot (weapon): ADD the piece, evicting nothing. The cap is already vetted by the gate.
+  // MULTI slot (weapon / drone pod): ADD the piece; only a vetted replacingInstanceId is moved to storage. The cap is vetted by the gate.
   if (MULTI_SLOT_TYPES.has(slotType)) {
     const equipment = state.equipment.map((e) => {
       if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
