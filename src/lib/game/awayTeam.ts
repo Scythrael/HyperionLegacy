@@ -93,7 +93,7 @@ export type AwayMemberStat =
 //   - Member power (the eight mapped card stats: hp / power / armor / accuracy / fieldwork / relicFind /
 //     hazardResist / statusChance): the roster SNAPSHOT at dispatch (Task 12) converts the summed points.
 //   - Battle stats + resists (power / armor / accuracy / hp / statusChance, and groundStatusResist): the
-//     Security battle (Task 13).
+//     Security battle (Task 13) consumes the snapshot's converted values (and converts groundStatusResist).
 //   - Fieldwork yields + relic odds + hazard (fieldwork / relicFind / hazardResist, and the two yield
 //     lines): fieldwork (Task 15).
 //   - The three null keys: groundStatusResist becomes the member's chance to resist the statuses listed

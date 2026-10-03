@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
   // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
@@ -1218,8 +1218,10 @@
     // E4d: a relic-unlocked family in the shared Spec Utility slot (stamped moduleVariant with its own
     // identity) reads as its OWN name ("Damage Control Suite"), not the slot's original "Prospecting Rig".
     // Every other piece (no such variety) keeps the slot label exactly as before.
-    if (piece.slotType === "specUtility" && piece.moduleVariant !== undefined) {
-      const v = EQUIPMENT_SLOTS.specUtility.varieties.find((x) => x.key === piece.moduleVariant);
+    // Resolved through the shared pieceVarietyDef (model.ts), never a hand-rolled lookup. Still scoped to
+    // specUtility so crew modules and sensors keep their slot label exactly as before.
+    if (piece.slotType === "specUtility") {
+      const v = pieceVarietyDef(piece);
       if (v !== undefined) return v.label;
     }
     return EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType;
