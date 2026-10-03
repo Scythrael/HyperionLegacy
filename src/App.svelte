@@ -97,6 +97,9 @@
     // one ShipInstance's 3 mission-relevant stats (cargoCapacity/
     // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
     SHIP_TYPES,
+    // 0.13.9: the ONE fleet-aware ship label (custom name ?? hull label, " #N" when two
+    // ships would read the same), used by every picker, list and log line below.
+    shipDisplayLabel,
     shipDerivedStats,
     // Equipment 0.11.0 DEV readout (Debug tab only): the live slot table drives
     // the [DEV] grant selector's slot/variety options, and the three instance
@@ -4564,11 +4567,12 @@
     return `${p.id} ${p.rarity} q${p.quality}${sig} (mass ${p.mass.toFixed(0)}, draw ${p.powerDraw.toFixed(0)})`;
   }
 
-  // Safe hull label for a ship id (falls back to the raw id if the ship or its
-  // type def cannot be resolved), used only in the dev log messages below.
+  // Safe display label for a ship id (falls back to the raw id if the ship cannot be
+  // resolved), used by the install / uninstall / repair log lines and job names below.
+  // 0.13.9: the shared shipDisplayLabel, so it honors a custom name and numbers same-type hulls.
   function devShipLabel(shipId: string): string {
     const ship = state.ships.find((s) => s.id === shipId);
-    return ship ? (SHIP_TYPES[ship.typeKey]?.label ?? shipId) : shipId;
+    return ship ? shipDisplayLabel(state, ship) : shipId;
   }
 
   // FIT a spare piece to a ship. Checks canFitEquipment FIRST (fitEquipment THROWS
@@ -4745,12 +4749,14 @@
   function handleRenameShip(shipId: string, name: string) {
     const before = state.ships.find((s) => s.id === shipId);
     if (!before) return;
-    const previousDisplay = before.name ?? SHIP_TYPES[before.typeKey]?.label ?? shipId;
+    // The label the player saw BEFORE the rename (read off the pre-swap state).
+    const previousDisplay = shipDisplayLabel(state, before);
     const next = renameShip(state, shipId, name);
     if (next === state) return; // no change (rejected / no-op / unknown id): skip save + log
     state = next;
     const after = next.ships.find((s) => s.id === shipId);
-    const hullLabel = after ? SHIP_TYPES[after.typeKey]?.label ?? shipId : shipId;
+    // The label the ship shows NOW (a cleared hull may be numbered among its same-type peers).
+    const hullLabel = after ? shipDisplayLabel(next, after) : shipId;
     const cleared = after?.name === undefined; // empty draft dropped the custom name
     pushLog(
       cleared
@@ -5980,6 +5986,13 @@
   $: armoryCheckoutShips = selectedLoadout === null ? [] : state.ships.filter(
     (s) => s.typeKey === selectedLoadout!.shipTypeKey && !state.loadouts.some((l) => l.checkedOutToShipId === s.id)
   );
+  // A check-out option: the ship's display label plus who is aboard (the captain's label, the
+  // same source the Ships roster shows), or "Parked" when no captain is assigned. A captain id
+  // that no longer resolves reads as Parked, the roster's own fallback.
+  function armoryCheckoutOptionLabel(st: GameState, ship: ShipInstance): string {
+    const captain = ship.assignedCaptainId === null ? null : st.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
+    return `${shipDisplayLabel(st, ship)} · ${captain ? captain.label : "Parked"}`;
+  }
   // The ship picked in the check-out dropdown. Kept valid: default to the first eligible ship, and
   // snap back to it if the current pick leaves the eligible list (e.g. it got checked out elsewhere).
   let armoryCheckoutSelId: string | null = null;
@@ -7722,7 +7735,7 @@
     if (!success) return;
     state = next;
     if (captain && ship) {
-      pushLog(`[${captain.label}] Now flying: ${SHIP_TYPES[ship.typeKey].label}.`);
+      pushLog(`[${captain.label}] Now flying: ${shipDisplayLabel(state, ship)}.`);
     }
     // Close BOTH pickers unconditionally, whichever one drove this call is
     // now done, and the other is already null. Cheap and keeps this handler
@@ -13415,7 +13428,7 @@
                           <span style="font-weight:600; font-size:var(--text-sm); color:var(--color-text-primary); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{lo.name}</span>
                           <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:var(--color-text-dim); text-transform:uppercase; letter-spacing:0.06em; flex:none;">{SHIP_TYPES[lo.shipTypeKey]?.label ?? lo.shipTypeKey}</span>
                         </span>
-                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `In use: ${coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}` : "Available"}</span>
+                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `In use: ${coShip ? shipDisplayLabel(state, coShip) : "a ship"}` : "Available"}</span>
                       </span>
                     </button>
                   {/each}
@@ -13446,7 +13459,7 @@
                        the Check in button pushed right so it sits beneath the BR pill, and the
                        edit-locked hint in a small yellow caution box. -->
                   <div class="armory-locked-row">
-                    <span class="armory-inuse">In Use: {coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}</span>
+                    <span class="armory-inuse">In Use: {coShip ? shipDisplayLabel(state, coShip) : "a ship"}</span>
                     <button class="buy-btn" on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
                   </div>
                   <div class="armory-caution">Check in to edit this loadout.</div>
@@ -13462,7 +13475,7 @@
                     {:else}
                       <select class="setting-select" style="flex:1 1 0; min-width:0;" bind:value={armoryCheckoutSelId} aria-label="Ship to check out to">
                         {#each armoryCheckoutShips as s (s.id)}
-                          <option value={s.id}>{s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</option>
+                          <option value={s.id}>{armoryCheckoutOptionLabel(state, s)}</option>
                         {/each}
                       </select>
                       <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
@@ -14310,7 +14323,7 @@
               : state.ships.length === 1
                 ? "Cannot salvage your last ship: your fleet would be left with no hull"
                 : "Break down this hull for parts"}
-            on:click={() => requestSalvage("ship", ship.id, def?.label ?? ship.typeKey)}
+            on:click={() => requestSalvage("ship", ship.id, shipDisplayLabel(state, ship))}
           >
             Salvage
           </button>
@@ -14615,7 +14628,7 @@
                        just the hull class; "None" / "Unassigned" when no hull is flown. -->
                   <span class="cprow">
                     <span class="cprow-lbl">Ship</span>
-                    <span class="cprow-val">{paneShip === null ? "None · Unassigned" : paneShip.name ? `${paneShip.name} · ${SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}` : SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}</span>
+                    <span class="cprow-val">{paneShip === null ? "None · Unassigned" : paneShip.name ? `${shipDisplayLabel(state, paneShip)} · ${SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}` : shipDisplayLabel(state, paneShip)}</span>
                   </span>
                   <!-- XP row: same bar + percent idiom as the facility rows, driven by the
                        console's own xp/xpForNextLevel ratio. -->
@@ -14812,7 +14825,7 @@
                 Assignment: On patrol · {PATROLS[activeCaptain.mission.patrolKey].label}
               {/if}
             </div>
-            <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${overviewShip.name} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}</div>
+            <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${shipDisplayLabel(state, overviewShip)} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : shipDisplayLabel(state, overviewShip)}</div>
             <div class="cc-hint">Dispatch &amp; recall from the Operations tab; shown here for reference.</div>
           </Panel>
           {/if}
@@ -14884,7 +14897,7 @@
           {@const shipTabShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
           <Panel>
             <div class="panel-title">SHIP</div>
-            <div class="research-cost">Assigned: {shipTabShip === null ? "No ship assigned" : shipTabShip.name ? `${shipTabShip.name} · ${SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}` : SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}</div>
+            <div class="research-cost">Assigned: {shipTabShip === null ? "No ship assigned" : shipTabShip.name ? `${shipDisplayLabel(state, shipTabShip)} · ${SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}` : shipDisplayLabel(state, shipTabShip)}</div>
             <div class="dev-row" style="margin-top: 10px;">
               <button
                 class="dev-btn"
@@ -17569,7 +17582,7 @@
          case a captain got dispatched between opening and rendering. -->
     {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <ActionModal title={`Assign hull${pickerShip ? ` · ${SHIP_TYPES[pickerShip.typeKey].label}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
+    <ActionModal title={`Assign hull${pickerShip ? ` · ${shipDisplayLabel(state, pickerShip)}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
           <p class="prestige-text">No idle captains available, recall one first.</p>
@@ -17617,7 +17630,7 @@
               <!-- Renamable Ships: label the pick by custom name when set (with the
                    hull class in parens), so two same-type parked hulls are distinct. -->
               <button class="dev-btn ship-pick-opt" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>
-                <span class="ship-pick-name">{#if shipFavorites.has(ship.id)}<span class="ship-pick-fav" aria-label="Favorited">★</span>{/if}{ship.name ?? SHIP_TYPES[ship.typeKey].label}</span>
+                <span class="ship-pick-name">{#if shipFavorites.has(ship.id)}<span class="ship-pick-fav" aria-label="Favorited">★</span>{/if}{shipDisplayLabel(state, ship)}</span>
                 <span class="ship-pick-sub">{ship.name ? `${SHIP_TYPES[ship.typeKey].label} · ` : ""}{shipPickerStats(ship)}</span>
               </button>
             {/each}

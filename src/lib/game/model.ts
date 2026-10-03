@@ -951,6 +951,73 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   },
 };
 
+// Ship display labels (0.13.9 hotfix).
+// The ONE player-facing label for a ship, shared by every list, picker, queue row and
+// log line. The BASE label is the player's custom name, else the hull-type label (else
+// the raw id when the type is unknown, so nothing ever renders "undefined"). When another
+// ship in the fleet would render the SAME base label, every ship in that clash gets a
+// stable " #N" ordinal: its position among the clashing ships ordered by the numeric id
+// from "ship-N". Ids are allocated monotonically and never reused, so the numbering is
+// stable across sessions. A lone hull stays unsuffixed, and renaming a ship moves it out
+// of its old clash (a clash of one drops the suffix). PURE.
+export function shipBaseLabel(ship: ShipInstance): string {
+  return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+}
+
+// "ship-N" -> N; any other id sorts after every well-formed one (ties break on the raw id).
+function shipIdOrdinal(id: string): number {
+  const m = /^ship-(\d+)$/.exec(id);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+}
+
+function compareShipIds(a: string, b: string): number {
+  const na = shipIdOrdinal(a);
+  const nb = shipIdOrdinal(b);
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// The display label for ONE ship against its fleet. O(fleet); for a whole list at once
+// use shipDisplayLabels. Fails open on a missing ships array (the ship reads unsuffixed).
+export function shipDisplayLabel(
+  state: { readonly ships?: readonly ShipInstance[] } | null | undefined,
+  ship: ShipInstance,
+): string {
+  const base = shipBaseLabel(ship);
+  const ships = Array.isArray(state?.ships) ? state.ships : [];
+  let clash = false;
+  let rank = 1;
+  for (const other of ships) {
+    if (other.id === ship.id) continue;
+    if (shipBaseLabel(other) !== base) continue;
+    clash = true;
+    if (compareShipIds(other.id, ship.id) < 0) rank++;
+  }
+  return clash ? `${base} #${rank}` : base;
+}
+
+// Every ship's display label at once (id -> label), the batched form for lists that
+// label the whole fleet (the Ships roster). Same rule as shipDisplayLabel. PURE.
+export function shipDisplayLabels(ships: readonly ShipInstance[]): Map<string, string> {
+  const groups = new Map<string, string[]>();
+  for (const ship of ships) {
+    const base = shipBaseLabel(ship);
+    const ids = groups.get(base);
+    if (ids) ids.push(ship.id);
+    else groups.set(base, [ship.id]);
+  }
+  const out = new Map<string, string>();
+  for (const [base, ids] of groups) {
+    if (ids.length === 1) {
+      out.set(ids[0], base);
+      continue;
+    }
+    ids.sort(compareShipIds);
+    ids.forEach((id, i) => out.set(id, `${base} #${i + 1}`));
+  }
+  return out;
+}
+
 // --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
 // Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
 // numbers, real balancing at the device-check stage.

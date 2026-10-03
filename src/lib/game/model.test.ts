@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { shipDisplayLabel, shipDisplayLabels, type ShipInstance } from "./model";
+import { renameShip } from "./tick";
 import {
   freshState,
   freshCaptains,
@@ -2429,5 +2431,70 @@ describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)",
     for (const live of LIVE_STAT_KEYS) {
       expect(reserved.has(live)).toBe(false);
     }
+  });
+});
+
+// 0.13.9 hotfix: the shared fleet-aware ship label. Two unnamed hulls of one type used to
+// render identically ("General Freighter" twice) in every picker and list.
+describe("shipDisplayLabel / shipDisplayLabels", () => {
+  const mk = (id: string, typeKey: ShipInstance["typeKey"], name?: string): ShipInstance =>
+    name === undefined ? { id, typeKey, assignedCaptainId: null } : { id, typeKey, assignedCaptainId: null, name };
+
+  it("leaves a lone ship unchanged (no #1 on a single freighter)", () => {
+    const a = mk("ship-1", "generalFreighter");
+    expect(shipDisplayLabel({ ships: [a] }, a)).toBe("General Freighter");
+    expect(shipDisplayLabels([a]).get("ship-1")).toBe("General Freighter");
+    const named = mk("ship-2", "generalFreighter", "Hauler");
+    expect(shipDisplayLabel({ ships: [named] }, named)).toBe("Hauler");
+  });
+
+  it("numbers two unnamed freighters #1 / #2 in numeric id order", () => {
+    // Listed out of order and with ids that sort wrong as strings (10 < 9 as text).
+    const late = mk("ship-10", "generalFreighter");
+    const early = mk("ship-9", "generalFreighter");
+    const st = { ships: [late, early] };
+    expect(shipDisplayLabel(st, early)).toBe("General Freighter #1");
+    expect(shipDisplayLabel(st, late)).toBe("General Freighter #2");
+    const all = shipDisplayLabels(st.ships);
+    expect(all.get("ship-9")).toBe("General Freighter #1");
+    expect(all.get("ship-10")).toBe("General Freighter #2");
+  });
+
+  it("renaming one drops the suffix from both when no clash remains", () => {
+    const st = freshState();
+    const a = mk("ship-1", "generalFreighter");
+    const b = mk("ship-2", "generalFreighter");
+    const before = { ...st, ships: [a, b] };
+    expect(shipDisplayLabel(before, b)).toBe("General Freighter #2");
+    const after = renameShip(before, "ship-2", "Hauler");
+    const renamed = after.ships.find((s) => s.id === "ship-2")!;
+    const other = after.ships.find((s) => s.id === "ship-1")!;
+    expect(shipDisplayLabel(after, renamed)).toBe("Hauler");
+    expect(shipDisplayLabel(after, other)).toBe("General Freighter");
+    // Clearing the name puts it back in the clash, numbered by id again.
+    const cleared = renameShip(after, "ship-2", "");
+    expect(shipDisplayLabel(cleared, cleared.ships[1])).toBe("General Freighter #2");
+    expect(shipDisplayLabel(cleared, cleared.ships[0])).toBe("General Freighter #1");
+  });
+
+  it("does not clash across different hulls, and numbers a custom-name clash too", () => {
+    const f = mk("ship-1", "generalFreighter");
+    const d = mk("ship-2", "destroyer");
+    const st = { ships: [f, d] };
+    expect(shipDisplayLabel(st, f)).toBe("General Freighter");
+    expect(shipDisplayLabel(st, d)).toBe(SHIP_TYPES.destroyer.label);
+    // Two hulls the player gave the SAME name would also read alike, so they number too.
+    const x = mk("ship-3", "destroyer", "Falcon");
+    const y = mk("ship-4", "generalFreighter", "Falcon");
+    const st2 = { ships: [y, x, f] };
+    expect(shipDisplayLabel(st2, x)).toBe("Falcon #1");
+    expect(shipDisplayLabel(st2, y)).toBe("Falcon #2");
+    expect(shipDisplayLabel(st2, f)).toBe("General Freighter");
+  });
+
+  it("fails open on a missing fleet (the ship reads unsuffixed)", () => {
+    const a = mk("ship-1", "generalFreighter");
+    expect(shipDisplayLabel(undefined, a)).toBe("General Freighter");
+    expect(shipDisplayLabel({}, a)).toBe("General Freighter");
   });
 });

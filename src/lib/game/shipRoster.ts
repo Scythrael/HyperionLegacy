@@ -28,7 +28,7 @@
 // No em dashes / no "--" as punctuation (project rule): commas, periods, parens only.
 // ============================================================================
 
-import { SHIP_TYPES } from "./model";
+import { SHIP_TYPES, shipDisplayLabels } from "./model";
 import type { GameState, ShipInstance } from "./model";
 import { equippedFor } from "./equipment";
 import { computeCombatReadout } from "./combatFit";
@@ -70,9 +70,9 @@ export type ShipStatus = "parked" | "idle" | "gathering" | "patrol";
 // (Omega 14 perf note: the roster re-renders each tick for 50+ ships).
 export interface ShipRosterRow {
 	id: string;                       // ShipInstance.id, the stable row key + favorite key
-	name: string;                     // display name: ship.name ?? hull-class label
+	name: string;                     // display name: model.ts shipDisplayLabel (custom name ?? hull-class label, " #N" when labels clash)
 	className: string;                // hull-class label (SHIP_TYPES[typeKey].label)
-	hasCustomName: boolean;           // true when the player named the hull (name differs from the class label)
+	hasCustomName: boolean;           // true when the player named the hull (a custom name that differs from the class label)
 	captainName: string | null;       // aboard captain's label, or null when parked
 	status: ShipStatus;               // activity bucket (see ShipStatus)
 	damaged: boolean;                 // ship.damaged === true (limped home from a lost patrol)
@@ -221,18 +221,27 @@ export function shipNeedsAttention(state: GameState, ship: ShipInstance): boolea
 // Reads the ship's fitted gear ONCE (equippedFor) and reuses it for both the Battle
 // Rating (via the same shipToCombatant + battleRating path the install panel uses) and
 // the attention predicate, so a row costs one gear fetch. PURE.
-function buildRow(state: GameState, ship: ShipInstance, favorites: Set<string>): ShipRosterRow {
+function buildRow(
+	state: GameState,
+	ship: ShipInstance,
+	favorites: Set<string>,
+	labels: Map<string, string>,
+): ShipRosterRow {
 	const def = SHIP_TYPES[ship.typeKey];
 	const className = def?.label ?? ship.typeKey;
-	const name = ship.name ?? className;
+	// 0.13.9: the shared fleet-aware display label (two unnamed General Freighters read
+	// "General Freighter #1" / "#2"), batched once per roster build by the caller.
+	const name = labels.get(ship.id) ?? ship.name ?? className;
 
 	// hasCustomName drives a DISPLAY-ONLY choice in the row markup (0.13.2 Unit 7): an
 	// UNNAMED hull falls back to its class label for `name`, so repeating className in the
 	// meta line would read the class twice ("General Freighter . General Freighter . ..."). The
 	// row template shows className in the meta line ONLY when the player actually named the hull
-	// (name !== className). A defensively-named hull that happens to match its class label reads
+	// (ship.name differs from className). A defensively-named hull that happens to match its class label reads
 	// as "unnamed" here, which is the correct de-duplicated display either way.
-	const hasCustomName = name !== className;
+	// Keyed off the CUSTOM name (not `name`), since a numbered unnamed hull's `name`
+	// ("General Freighter #2") no longer equals its class label.
+	const hasCustomName = ship.name !== undefined && ship.name !== className;
 
 	const { captainName, status } = deriveStatus(state, ship);
 
@@ -280,7 +289,8 @@ function buildRow(state: GameState, ship: ShipInstance, favorites: Set<string>):
 // A name tiebreak used by every sort so ordering is deterministic even when the
 // primary key ties (Alpha: accuracy / stable output). Case-insensitive A to Z.
 function byName(a: ShipRosterRow, b: ShipRosterRow): number {
-	return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+	// numeric: "General Freighter #2" sorts before "#10".
+	return a.name.localeCompare(b.name, undefined, { sensitivity: "base", numeric: true });
 }
 
 // Return the comparator for a given sort key. Each falls back to byName on a tie so
@@ -328,7 +338,8 @@ export function buildShipRoster(state: GameState, opts: BuildShipRosterOptions):
 	const { sortKey, filterKey, searchText, favorites } = opts;
 
 	// 1. One row per ship.
-	const allRows = state.ships.map((ship) => buildRow(state, ship, favorites));
+	const labels = shipDisplayLabels(state.ships);
+	const allRows = state.ships.map((ship) => buildRow(state, ship, favorites, labels));
 
 	// 2a. Search filter (case-insensitive, trimmed). Empty search keeps everything.
 	//     Matches the display name OR the hull-class label so either finds the ship.

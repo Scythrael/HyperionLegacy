@@ -2710,6 +2710,18 @@ describe("buildCraftQueue: queued rows carry label, mode and position", () => {
     // no-op at completion, so its row must stay renderable until then).
     expect(salvageTargetLabel(state, { kind: "equipment", instanceId: "eq-gone" })).toBe("eq-gone");
     expect(salvageTargetLabel(state, { kind: "ship", shipId: "ship-gone" })).toBe("ship-gone");
+    // 0.13.9: a ship target uses the shared shipDisplayLabel, so two unnamed General
+    // Freighters in the queue read apart (numbered by id), and a lone one stays plain.
+    const twoFreighters: GameState = {
+      ...state,
+      ships: [
+        { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: null },
+        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
+      ],
+    };
+    expect(salvageTargetLabel(twoFreighters, { kind: "ship", shipId: "ship-2" })).toBe("General Freighter #2");
+    const oneFreighter: GameState = { ...twoFreighters, ships: [twoFreighters.ships[0]] };
+    expect(salvageTargetLabel(oneFreighter, { kind: "ship", shipId: "ship-1" })).toBe("General Freighter");
 
     // And the row builder routes a salvage order through that same label.
     const queuedSalvage = enqueueAll(state, [{ facility: "salvageBay", order: salvageOrder("eq-crafted") }]);

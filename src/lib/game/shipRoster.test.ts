@@ -306,10 +306,34 @@ describe("buildShipRoster attention predicate", () => {
 
 		const unnamedRow = rowFor(st, "ship-unnamed");
 		expect(unnamedRow?.hasCustomName).toBe(false);
-		expect(unnamedRow?.name).toBe("Destroyer"); // fell back to the class label
+		// Fell back to the class label, and (0.13.9) numbered: the echo hull renders the SAME
+		// "Destroyer" label, so both get a stable ordinal (non-"ship-N" ids tie-break on the raw id,
+		// "ship-echo" < "ship-unnamed"). hasCustomName keys off the custom name, so the suffix does
+		// not make the unnamed hull read as named.
+		expect(unnamedRow?.name).toBe("Destroyer #2");
 		expect(unnamedRow?.className).toBe("Destroyer");
 
-		expect(rowFor(st, "ship-echo")?.hasCustomName).toBe(false);
+		const echoRow = rowFor(st, "ship-echo");
+		expect(echoRow?.hasCustomName).toBe(false);
+		expect(echoRow?.name).toBe("Destroyer #1");
+	});
+
+	it("numbers same-label hulls in id order and leaves a lone hull unsuffixed (0.13.9)", () => {
+		const a = ship({ id: "ship-10", typeKey: "destroyer" });
+		const b = ship({ id: "ship-2", typeKey: "destroyer" });
+		const lone = ship({ id: "ship-3", typeKey: "generalFreighter" });
+		const st = stateWith([a, b, lone], [...combatKit("ship-10"), ...combatKit("ship-2")]);
+		// Numeric id order (2 before 10), not string order.
+		expect(rowFor(st, "ship-2")?.name).toBe("Destroyer #1");
+		expect(rowFor(st, "ship-10")?.name).toBe("Destroyer #2");
+		expect(rowFor(st, "ship-2")?.hasCustomName).toBe(false);
+		expect(rowFor(st, "ship-3")?.name).toBe("General Freighter");
+		// The name sort is numeric-aware, so #2 never sorts after #10 among many hulls.
+		const many = Array.from({ length: 11 }, (_, i) => ship({ id: `ship-${i + 1}`, typeKey: "destroyer" }));
+		const roster = buildShipRoster(stateWith(many, []), { sortKey: "name", filterKey: "all", searchText: "", favorites: new Set() });
+		const names = roster.groups.flatMap((g) => g.rows.map((r) => r.name));
+		expect(names.slice(0, 3)).toEqual(["Destroyer #1", "Destroyer #2", "Destroyer #3"]);
+		expect(names[10]).toBe("Destroyer #11");
 	});
 
 	it("derives status + captain from the assigned captain's mission", () => {

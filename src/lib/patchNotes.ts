@@ -77,7 +77,7 @@ export const PATCH_NOTES: PatchNote[] = [
           { lead: "Salvage returns materials from small recipes.", text: "Salvaging gear with small recipes, like the Plasma Cannon or the Balanced systems, could return nothing because every amount rounded down. Leftover fractions now give a matching chance of one more unit, for gear and ship teardowns alike." },
           { lead: "Swap works on weapons.", text: "Pressing Swap on an installed weapon or drone pod now replaces it in one step instead of asking you to uninstall it first." },
           { lead: "Range shows your real reach.", text: "Ship range on mission and patrol cards and in the dispatch windows now includes your installed FTL Drive, matching what dispatch actually checks. A trip that is out of reach now says how far it is and how far the ship can go." },
-          { lead: "Small corrections.", text: "The dispatch window's timing list now shows the Orders Received tick, so the phases add up to the total. Help now describes fuel as reach and points to the current tabs, and its Combat Patrols and Combat View entries are corrected." },
+          { lead: "Small corrections.", text: "The dispatch window's timing list now shows the Orders Received tick, so the phases add up to the total. Help now describes fuel as reach and points to the current tabs, and its Combat Patrols and Combat View entries are corrected. Unnamed ships of the same type are now numbered (General Freighter #2) wherever they are listed, and the Armory check-out list shows who is aboard." },
         ],
       },
     ],

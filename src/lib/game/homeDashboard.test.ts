@@ -234,6 +234,18 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
     expect(rowById(rows, "p-repair").jumpTarget).toBe("shipyard");
   });
 
+  it("numbers the repair target when another unnamed hull shares its class (0.13.9)", () => {
+    // A second General Freighter makes the two read alike, so the shared shipDisplayLabel
+    // numbers them by id: ship-1 (the repair target) is #1.
+    const base = seededState();
+    const st: GameState = {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }],
+    };
+    const twoRows = buildHomeDashboard(st).inProgress;
+    expect(rowById(twoRows, "p-repair").primaryLabel).toBe("Repairing, General Freighter #1 hull");
+  });
+
   it("computes a timed job's progress fraction and carries the raw ticks for the ETA", () => {
     const refine = rowById(rows, "p-refine");
     // (durationTicks - remainingTicks) / durationTicks = (100 - 60) / 100.

@@ -61,6 +61,7 @@ import {
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   extractionMissionOf,
+  shipDisplayLabel,
 } from "./model";
 // 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
 import { missionPhaseStatus } from "./berths";
@@ -367,12 +368,11 @@ function shipForCaptain(state: GameState, captainId: number): ShipInstance | nul
   return state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
 }
 
-// Player-facing display name for a ship: its player-chosen name if it has one, else the
-// hull-type label (the same `name ?? SHIP_TYPES[typeKey].label` rule the roster uses,
-// App.svelte:7462). Falls back to the raw id if the type is somehow unknown, never
-// renders "undefined".
-function shipDisplayName(ship: ShipInstance): string {
-  return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+// Player-facing display name for a ship: the shared model.ts shipDisplayLabel (custom name,
+// else hull-type label, numbered " #N" when another ship in the fleet shares that label, so
+// two unnamed General Freighters read apart). Never renders "undefined".
+function shipDisplayName(state: GameState, ship: ShipInstance): string {
+  return shipDisplayLabel(state, ship);
 }
 
 // 0.13.9 hotfix: the RETIRED Fuel Depot's facility key. Fuel-to-reach (0.13.6) hid its card and
@@ -512,7 +512,7 @@ function labelForProcess(
       let shipLabel = effect.type === "clearShipDamage" ? effect.shipId : "ship";
       if (effect.type === "clearShipDamage") {
         const ship = state.ships.find((s) => s.id === effect.shipId) ?? null;
-        if (ship !== null) shipLabel = shipDisplayName(ship);
+        if (ship !== null) shipLabel = shipDisplayName(state, ship);
       }
       return { icon: "repair", primaryLabel: `Repairing, ${shipLabel} hull`, jumpTarget: "shipyard" };
     }
@@ -855,7 +855,7 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
     idleCaptains.push({
       captainId: captain.id,
       captainLabel: captain.label,
-      shipLabel: ship === null ? null : shipDisplayName(ship),
+      shipLabel: ship === null ? null : shipDisplayName(state, ship),
       spec: ship === null ? "general" : (SHIP_TYPES[ship.typeKey]?.spec ?? "general"),
     });
   }
@@ -1219,7 +1219,7 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
       return FACILITIES[key]?.label ?? key;
     case "repair": {
       const ship = state.ships.find((s) => s.id === key) ?? null;
-      return ship !== null ? shipDisplayName(ship) : key;
+      return ship !== null ? shipDisplayName(state, ship) : key;
     }
     case "materials":
     case "nothing": {

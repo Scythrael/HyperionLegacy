@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, shipDisplayLabel } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
   // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
@@ -314,8 +314,9 @@
   // hull-type label (e.g. "General Freighter"). `shipHasCustomName` gates the hull-
   // class SUBTITLE so an UN-named ship does not show its hull label twice (title +
   // subtitle): a renamed ship shows name-over-class, an un-named ship shows just
-  // the class as the title.
-  $: shipDisplayName = ship ? (ship.name ?? shipDef?.label ?? shipId) : "";
+  // the class as the title. 0.13.9: the shared shipDisplayLabel, so an unnamed hull that
+  // shares its class with another reads "General Freighter #2", matching every list.
+  $: shipDisplayName = ship ? shipDisplayLabel(state, ship) : "";
   $: shipHasCustomName = ship?.name !== undefined && ship.name.length > 0;
 
   // Click-to-edit state for the name. `editingName` swaps the title text for an

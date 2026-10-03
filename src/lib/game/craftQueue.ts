@@ -63,6 +63,7 @@ import {
   type ShipTypeKey,
   type SalvageTargetRef,
   type TimedProcess,
+  shipDisplayLabel,
 } from "./model";
 import type { CraftLine, CraftLineKind, CraftLineMode } from "./allocation";
 // The ONE interpretation of a queued salvage order's unit count (0.13.3 batch-salvage
@@ -338,8 +339,8 @@ export function salvageTargetLabel(state: GameState, target: SalvageTargetRef): 
     case "ship": {
       const ship = state.ships.find((s) => s.id === target.shipId);
       if (ship === undefined) return target.shipId;
-      // The same `name ?? hull-class label` rule the roster and Home use.
-      return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+      // The shared display label the roster and Home use (numbered when hulls share a label).
+      return shipDisplayLabel(state, ship);
     }
   }
 }
