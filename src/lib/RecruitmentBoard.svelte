@@ -164,11 +164,14 @@
     const value = (e.currentTarget as HTMLSelectElement).value;
     picked = { ...picked, [candidateId]: value };
   }
+  // Hire, then (only when the hire actually happened, i.e. a member now carries this candidate's id
+  // in hiredFrom) focus the heading, since the card leaves the board. On a refusal focus stays put.
   async function hire(row: CandidateRow): Promise<void> {
     if (row.chosen === null || !row.chosen.ok) return;
-    onHire(row.candidate.id, row.chosen.shipId);
+    const id = row.candidate.id;
+    onHire(id, row.chosen.shipId);
     await tick();
-    focusHeading();
+    if (state.awayMembers.some((m) => m.hiredFrom === id)) focusHeading();
   }
 </script>
 
@@ -223,6 +226,7 @@
                 type="button"
                 class="aw-btn primary"
                 disabled={why !== null}
+                aria-label="Hire {c.name}"
                 aria-describedby={why !== null ? whyId : undefined}
                 title={why ?? `Hire into ${row.chosen?.label ?? ""}`}
                 on:click={() => hire(row)}

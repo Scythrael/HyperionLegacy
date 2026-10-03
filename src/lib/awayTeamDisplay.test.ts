@@ -13,6 +13,7 @@ import {
   awayCountdownText,
   awayRaceLabel,
   awayTargetLabel,
+  pickedMoveTarget,
 } from "./awayTeamDisplay";
 
 describe("awayTeamDisplay", () => {
@@ -40,6 +41,18 @@ describe("awayTeamDisplay", () => {
   it("labels a race from the catalog", () => {
     expect(awayRaceLabel("stheni")).toBe("Stheni");
     expect(awayRaceLabel("earthBorn")).toBe("Earth-born");
+  });
+
+  it("returns the picked move target only while the move would go through", () => {
+    const targets = [
+      { shipId: "ship-a", gate: { ok: true } },
+      { shipId: "ship-b", gate: { ok: false } },
+    ];
+    expect(pickedMoveTarget(targets, "ship-a")).toBe(targets[0]);
+    expect(pickedMoveTarget(targets, "ship-b")).toBeNull();
+    expect(pickedMoveTarget(targets, "ship-gone")).toBeNull();
+    expect(pickedMoveTarget(targets, "")).toBeNull();
+    expect(pickedMoveTarget(targets, undefined)).toBeNull();
   });
 
   it("renders a countdown in s / m / h m, rounding minutes up", () => {

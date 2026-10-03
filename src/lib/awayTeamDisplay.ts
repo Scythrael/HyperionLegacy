@@ -64,6 +64,19 @@ export function awayTargetLabel(ship: Pick<ShipInstance, "id" | "name" | "typeKe
   return `${awayShipName(ship)} · ${SQUAD_META[teamType].short}`;
 }
 
+// The picked Move target among a member's targets, or null when nothing is picked or the pick is no
+// longer a target the move would go through to (a blocked or vanished ship). The pick is a PARAMETER,
+// never read from component state, so a legacy-mode template that calls this re-renders as soon as
+// the pick changes (a variable read inside a function is invisible to the template's tracking). Pure.
+export function pickedMoveTarget<T extends { shipId: string; gate: { ok: boolean } }>(
+  targets: readonly T[],
+  pick: string | undefined,
+): T | null {
+  if (pick === undefined || pick === "") return null;
+  const t = targets.find((x) => x.shipId === pick);
+  return t && t.gate.ok ? t : null;
+}
+
 // A short countdown for a span in seconds: "1h 12m", "41m", "35s". A non-positive span reads "0s".
 // Minutes round UP so "refreshes in 1m" never shows while a full minute is still left to wait.
 export function awayCountdownText(seconds: number): string {

@@ -43,7 +43,14 @@
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
   import { CREW_RANKS } from "./game/crewRank";
   import type { IconName } from "./ui/icons";
-  import { SQUAD_META, awaySpecLabel, awayRaceLabel, awayTargetLabel, awayCountdownText } from "./awayTeamDisplay";
+  import {
+    SQUAD_META,
+    awaySpecLabel,
+    awayRaceLabel,
+    awayTargetLabel,
+    awayCountdownText,
+    pickedMoveTarget,
+  } from "./awayTeamDisplay";
 
   // --- Props ------------------------------------------------------------------
   export let state: GameState;
@@ -141,41 +148,40 @@
     return gate.ok ? undefined : awayCrewBlockText(gate.reason);
   }
 
-  // The member's picked Move target, only while it is still a target the move would go through to.
-  function pickedTarget(mv: MemberView): MemberView["moveTargets"][number] | null {
-    const t = mv.moveTargets.find((x) => x.shipId === movePick[mv.member.id]);
-    return t && t.gate.ok ? t : null;
-  }
-
   // --- Actions ----------------------------------------------------------------
-  // Jump to the board. No smooth behavior: the default scroll respects the in-game Reduce Motion
-  // setting (the app.css scroll-behavior rule), which an explicit "smooth" would override.
+  // Jump to the board. The jump is instant (no smooth behavior requested), so it never animates.
   function goToBoard(): void {
     boardEl?.scrollIntoView({ block: "start" });
     board?.focusHeading();
   }
-  async function focusSquad(teamType: AwayTeamType): Promise<void> {
-    await tick();
-    squadHeadings[teamType]?.focus({ preventScroll: true });
-  }
   function onPickMove(memberId: string, e: Event): void {
     movePick = { ...movePick, [memberId]: (e.currentTarget as HTMLSelectElement).value };
   }
-  function move(mv: MemberView): void {
-    const target = pickedTarget(mv);
+  // Move, then (only when the move actually happened, i.e. the member left this ship) send focus to
+  // the squad heading the card left. On a refusal the card stays and focus stays where it was.
+  async function move(mv: MemberView, picks: Record<string, string>): Promise<void> {
+    const target = pickedMoveTarget(mv.moveTargets, picks[mv.member.id]);
     if (target === null) return;
+    const id = mv.member.id;
+    onReassign(id, target.shipId);
+    await tick();
+    if (state.awayMembers.find((m) => m.id === id)?.assignedShipId === shipId) return; // refused
     const rest = { ...movePick };
-    delete rest[mv.member.id];
+    delete rest[id];
     movePick = rest;
-    onReassign(mv.member.id, target.shipId);
-    void focusSquad(mv.member.teamType);
+    squadHeadings[mv.member.teamType]?.focus({ preventScroll: true });
   }
-  function confirmFire(): void {
+  // Fire (confirmed), then focus the squad heading only if the member is really gone.
+  async function confirmFire(): Promise<void> {
     if (confirmFireId === null) return;
-    const member = state.awayMembers.find((m) => m.id === confirmFireId);
-    onFire(confirmFireId);
+    const id = confirmFireId;
+    const member = state.awayMembers.find((m) => m.id === id);
+    onFire(id);
     confirmFireId = null;
-    if (member) void focusSquad(member.teamType);
+    await tick();
+    if (member && !state.awayMembers.some((m) => m.id === id)) {
+      squadHeadings[member.teamType]?.focus({ preventScroll: true });
+    }
   }
   $: fireTarget = confirmFireId !== null ? state.awayMembers.find((m) => m.id === confirmFireId) ?? null : null;
 </script>
@@ -207,7 +213,7 @@
           {#each sq.members as mv (mv.member.id)}
             {@const m = mv.member}
             {@const whyId = `away-why-${m.id}`}
-            {@const moveTo = pickedTarget(mv)}
+            {@const moveTo = pickedMoveTarget(mv.moveTargets, movePick[m.id])}
             <div class="mem" class:injured={mv.injuredFor > 0}>
               <div class="mem-top">
                 <span class="mem-av"><Icon name={meta.icon} /></span>
@@ -272,14 +278,16 @@
                     type="button"
                     class="aw-btn"
                     disabled={moveTo === null}
+                    aria-label="Move {m.name}"
                     title={moveTo === null ? "Pick a ship to move to first" : `Move ${m.name} to ${moveTo.label}`}
-                    on:click={() => move(mv)}
+                    on:click={() => move(mv, movePick)}
                   >Move</button>
                 {/if}
                 <button
                   type="button"
                   class="aw-btn danger"
                   disabled={!mv.fire.ok}
+                  aria-label="Fire {m.name}"
                   aria-describedby={mv.fire.ok ? undefined : whyId}
                   title={gateText(mv.fire) ?? `Fire ${m.name}`}
                   on:click={() => (confirmFireId = m.id)}
