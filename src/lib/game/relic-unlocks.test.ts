@@ -4,8 +4,9 @@
 //   - THE GATE: a blueprint carrying requiresRelicDiscovery cannot be researched (canResearch /
 //     startResearch / blueprintResearchable / canEnqueueOrder) until its relic's FIRST FIND lands in
 //     state.relicDiscovered, with the `undiscovered` reason token; ungated blueprints are unchanged; the
-//     masked catalog copy names the SET and never leaks the relic (or the project); the deferred relics
-//     (Precursor Lens, Heart of the Archive) gate nothing yet. End to end through a real relic study.
+//     masked catalog copy names the SET and never leaks the relic (or the project); the deferred relic
+//     (Precursor Lens) gates nothing yet. Heart of the Archive gates Neural Backup (E-CREW Task 7).
+//     End to end through a real relic study.
 //   - HULL GATING: the Damage Control Suite installs on tactician hulls only, the Pathfinder Suite on
 //     explorer hulls only (per-variety equipRequirement), prospecting rigs keep the slot's prospector gate,
 //     and the Armory applies the same gate to a loadout install.
@@ -129,18 +130,20 @@ function labReady(s: GameState = freshState()): GameState {
 }
 const discovered = (s: GameState, ...relicIds: string[]): GameState => ({ ...s, relicDiscovered: [...(s.relicDiscovered ?? []), ...relicIds] });
 
-// The E4d lineup, as authored (relic -> blueprint).
+// The E4d lineup, as authored (relic -> blueprint). E-CREW Task 7 adds Heart of the Archive's Neural Backup
+// (the implant system it waited on now exists), so the gate loops below cover it too.
 const LINEUP: { relic: string; bp: string }[] = [
   { relic: "ancientDriveCoil", bp: "damageControlSuiteBp" },
   { relic: "deepVeinCompass", bp: "pathfinderSuiteBp" },
   { relic: "leviathanScale", bp: "bioResonanceArrayBp" },
+  { relic: "heartOfTheArchive", bp: "neuralBackupBp" },
 ];
 const GATED = Object.values(BLUEPRINTS).filter((bp) => bp.requiresRelicDiscovery !== undefined);
 const UNGATED = Object.values(BLUEPRINTS).filter((bp) => bp.requiresRelicDiscovery === undefined);
 
 // ============================================================================
 describe("E4d gate data: the discovery-gated blueprints", () => {
-  it("exactly the three lineup blueprints are gated, each by a REAL relic, and they are equipment blueprints", () => {
+  it("exactly the lineup blueprints are gated, each by a REAL relic, and they are equipment blueprints", () => {
     expect(GATED.map((bp) => bp.key).sort()).toEqual(LINEUP.map((l) => l.bp).sort());
     for (const { relic, bp } of LINEUP) {
       expect(BLUEPRINTS[bp].requiresRelicDiscovery).toBe(relic);
@@ -151,11 +154,10 @@ describe("E4d gate data: the discovery-gated blueprints", () => {
     }
   });
 
-  it("blueprintsUnlockedByRelic maps each lineup relic to its project; the DEFERRED relics gate nothing yet", () => {
+  it("blueprintsUnlockedByRelic maps each lineup relic to its project; the DEFERRED relic gates nothing yet", () => {
     for (const { relic, bp } of LINEUP) expect(blueprintsUnlockedByRelic(relic).map((b) => b.key)).toEqual([bp]);
-    // Deferred by decision: Precursor Lens (E-MOD) + Heart of the Archive (implant scope call).
+    // Deferred by decision: Precursor Lens (E-MOD). (Heart of the Archive now gates Neural Backup, E-CREW Task 7.)
     expect(blueprintsUnlockedByRelic("precursorLens")).toEqual([]);
-    expect(blueprintsUnlockedByRelic("heartOfTheArchive")).toEqual([]);
     // A common relic gates nothing.
     expect(blueprintsUnlockedByRelic("glyphTablet")).toEqual([]);
   });
@@ -290,7 +292,7 @@ describe("E4d reveal: the 'Research unlocked' line", () => {
     expect(researchUnlockedByFind("ancientDriveCoil", false)).toEqual([]); // repeat copy
     expect(researchUnlockedByFind("glyphTablet", true)).toEqual([]); // gates nothing
     expect(researchUnlockedByFind("precursorLens", true)).toEqual([]); // deferred (E-MOD)
-    expect(researchUnlockedByFind("heartOfTheArchive", true)).toEqual([]); // deferred (implant scope)
+    expect(researchUnlockedByFind("heartOfTheArchive", true)).toEqual(["Neural Backup"]); // E-CREW Task 7
   });
 
   it("buildRelicReveal carries researchUnlocked (first find only)", () => {

@@ -1774,6 +1774,8 @@ export function rarityIndex(rarity: EquipmentRarity): number {
 // consumes this yet. Six slots are in the table: the four economy slots plus the two
 // Combat 1.0 (Unit 1.1) defensive slots (shieldEmitters / hullPlating). The remaining
 // reserved EquipmentSlotType members (bridge/quarters/etc.) have no definition yet.
+// (Later additions: the crew-module + sensor slots, and E-CREW 0.14.0's four away-team MEMBER slots,
+// which are worn by members, never installed on a hull; see the member-gear block in the table.)
 // ============================================================================
 
 // One "variety" family within a slot: a flavor a rolled piece can belong to
@@ -1805,7 +1807,34 @@ export interface EquipmentVarietyDef {
   implicitStats?: string[];
   affixPool?: { stat: string; weight: number }[];
   equipRequirement?: EquipRequirement;
+  // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER gear descriptors (all OPTIONAL; member slots only).
+  // Set only on the varieties of the four member slots (isMemberSlotType); every ship variety omits them,
+  // so nothing ship-side changes. DORMANT DATA in this task: the install gate (Task 8), the roster
+  // snapshot + battle + fieldwork (Tasks 12-16) are the consumers. See the member-gear block of
+  // EQUIPMENT_SLOTS for the per-field meaning.
+  teamTypes?: readonly AwayTeamType[];          // squad types allowed to wear it (never "prospecting" yet)
+  weaponRange?: "long" | "short";               // member weapons: back line vs front line
+  planetTypes?: readonly ExpeditionPlanetType[]; // Science tools: tuned bodies; absent = any body
+  encounterBias?: number;                       // Security tools: signed scale on the random-encounter chance
+  uniqueEquipped?: true;                        // ONE worn in the entire fleet (D11, Neural Backup)
+  groundEffect?: GroundGearEffect;              // a fixed special behavior (see GroundGearEffect)
 }
+
+// E-CREW 0.14.0 (Task 7): a member gear variety's FIXED special behavior (not a rolled magnitude, so it
+// lives on the catalog variety, never on the instance). Statuses reuse the Security battle's own status
+// ids (GambitStatusId, gambit.ts GAMBIT_STATUSES). DORMANT: the Security battle (Task 13) and the
+// Neural Backup revive (Task 16) read these.
+//   groupHit , the attack strikes a GROUP of foes (Scattergun).
+//   inflict  , a chance (groundStatusChance) to apply `status` on hit / throw (Shock Baton, grenades).
+//   resist   , resists the listed statuses (groundStatusResist) (Toxin Filters, Cortex Shield).
+//   heal     , an in-fight heal item (Med Kit).
+//   revive   , once per battle, `chance` to revive the first downed ally at `hpFraction` HP (Neural Backup).
+export type GroundGearEffect =
+  | { kind: "groupHit" }
+  | { kind: "inflict"; status: GambitStatusId }
+  | { kind: "resist"; statuses: readonly GambitStatusId[] }
+  | { kind: "heal" }
+  | { kind: "revive"; chance: number; hpFraction: number };
 
 // The optional equip gate a slot (or, since E4d, a single variety) imposes. All fields optional and
 // ANDed by canFitEquipment; only the fields present are checked. (Extracted from EquipmentSlotDef as a
@@ -2168,6 +2197,448 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       // (at the cost of slower scan cadence). Catalog-driven like its siblings (sensorArrays.ts). The FIRST
       // CRAFTABLE array: its blueprint (bioResonanceArrayBp) is discovery-gated by the Leviathan Scale.
       { key: "sensorBioResonance", label: "Bio-Resonance Array", statRatios: {} },
+    ],
+  },
+  // ==========================================================================================
+  // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER GEAR (design D3/D4, section 5.4; names exactly as the
+  // user-approved mockup). Four slots worn by named away-team MEMBERS (EquipmentInstance.fittedToMemberId),
+  // NEVER by a hull: each member wears one Armor + one Weapon + one Tool + implants (1 slot, 2 with race
+  // affinity, awayTeam.ts implantSlotsFor). They ride the ship-system gear engine (blueprints, Fabricator
+  // blanks + inspect, quality / rarity / iLevel rolls, salvage, Lock / Favorite, Warehouse), so they are
+  // ordinary EQUIPMENT_SLOTS entries; every ship-only list filters them with isMemberSlotType.
+  //
+  // STAT LINES are the GROUND vocabulary only (MEMBER_GROUND_STAT_KEYS), never a ship key, so nothing
+  // here can move a ship's derived stats (equipmentStatMods ignores them explicitly). Many varieties carry
+  // their own implicitStats / affixPool (the E4d per-variety override), since a Med Kit and a Stun Grenade
+  // share a slot but not a job. Every member piece is stamped with its variety as `moduleVariant`
+  // (generateEquipment), which is how the install gate (teamTypes), the tool readers (planetTypes /
+  // encounterBias), the unique-equipped rule and the effect descriptors find the variety later.
+  //
+  // DESCRIPTORS (EquipmentVarietyDef, member-only, DORMANT DATA here; consumers are E-CREW Tasks 8-16):
+  //   teamTypes      , which squad types may wear it (REQUIRED in practice: every member variety lists one;
+  //                    "prospecting" is wired-only and no gear lists it yet).
+  //   weaponRange    , long (back line) vs short (front line) for the Security battle.
+  //   planetTypes    , Science tools tuned to body types; ABSENT = works on any body (Decryptor).
+  //   encounterBias  , the Security encounter dial (Shroud lowers the random-encounter chance, Lure raises
+  //                    it and raises drops), a signed fraction of the base chance.
+  //   uniqueEquipped , ONE worn in the entire fleet (D11, Neural Backup only).
+  //   groundEffect   , a fixed special behavior (group hit, inflict / resist a status, heal, revive).
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every statRatio, weight and descriptor value.
+
+  // MEMBER WEAPON: the sidearm a member carries. Signature groundPower; accuracy + affliction affixes.
+  memberWeapon: {
+    slotType: "memberWeapon",
+    label: "Weapon",
+    implicitStats: ["groundPower"],
+    affixPool: [
+      { stat: "groundPower", weight: 4 },
+      { stat: "groundAccuracy", weight: 3 },
+      { stat: "groundStatusChance", weight: 1 },
+    ],
+    varieties: [
+      // Pulse Rifle: the long-range Security standard, an even power / accuracy split.
+      {
+        key: "pulseRifle",
+        label: "Pulse Rifle",
+        teamTypes: ["security"],
+        weaponRange: "long",
+        implicitStats: ["groundPower", "groundAccuracy"],
+        statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
+      },
+      // Scattergun: short range, hits a GROUP of foes; raw power over aim.
+      {
+        key: "scattergun",
+        label: "Scattergun",
+        teamTypes: ["security"],
+        weaponRange: "short",
+        groundEffect: { kind: "groupHit" },
+        statRatios: { groundPower: 0.7, groundAccuracy: 0.25, groundStatusChance: 0.05 },
+      },
+      // Shock Baton: short range, a chance to STUN on hit.
+      {
+        key: "shockBaton",
+        label: "Shock Baton",
+        teamTypes: ["security"],
+        weaponRange: "short",
+        groundEffect: { kind: "inflict", status: "stun" },
+        implicitStats: ["groundPower", "groundStatusChance"],
+        statRatios: { groundStatusChance: 0.5, groundPower: 0.4, groundAccuracy: 0.1 },
+      },
+      // Sidearm: the Science party's self-defense piece (Science does fieldwork, not battles).
+      {
+        key: "sidearm",
+        label: "Sidearm",
+        teamTypes: ["science"],
+        weaponRange: "short",
+        statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
+      },
+    ],
+  },
+  // MEMBER ARMOR: the suit. Signature groundArmor; HP + hazard affixes.
+  memberArmor: {
+    slotType: "memberArmor",
+    label: "Armor",
+    implicitStats: ["groundArmor"],
+    affixPool: [
+      { stat: "groundArmor", weight: 4 },
+      { stat: "groundHp", weight: 3 },
+      { stat: "groundHazardResist", weight: 1 },
+    ],
+    varieties: [
+      // Ballistic Weave: LIGHT Security armor, trades plating for aim.
+      {
+        key: "ballisticWeave",
+        label: "Ballistic Weave",
+        teamTypes: ["security"],
+        affixPool: [
+          { stat: "groundArmor", weight: 3 },
+          { stat: "groundAccuracy", weight: 3 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundArmor: 0.4, groundAccuracy: 0.35, groundHp: 0.25 },
+      },
+      // Assault Hardsuit: HEAVY Security armor, armor AND hit points as its signature.
+      {
+        key: "assaultHardsuit",
+        label: "Assault Hardsuit",
+        teamTypes: ["security"],
+        implicitStats: ["groundArmor", "groundHp"],
+        statRatios: { groundArmor: 0.5, groundHp: 0.4, groundHazardResist: 0.1 },
+      },
+      // Field Suit: the Science party's working suit, light protection that helps the work.
+      {
+        key: "fieldSuit",
+        label: "Field Suit",
+        teamTypes: ["science"],
+        affixPool: [
+          { stat: "groundFieldwork", weight: 3 },
+          { stat: "groundArmor", weight: 2 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundFieldwork: 0.5, groundArmor: 0.3, groundHp: 0.2 },
+      },
+      // Hazard Suit: Science, cuts the hazard slowdown on a hostile body.
+      {
+        key: "hazardSuit",
+        label: "Hazard Suit",
+        teamTypes: ["science"],
+        implicitStats: ["groundHazardResist"],
+        affixPool: [
+          { stat: "groundHazardResist", weight: 4 },
+          { stat: "groundArmor", weight: 2 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundHazardResist: 0.6, groundArmor: 0.2, groundHp: 0.2 },
+      },
+    ],
+  },
+  // MEMBER TOOL: the kit item. Signature groundFieldwork (the Science default); every Security tool
+  // carries its own lines. Science tools are PLANET-TUNED (planetTypes); the fieldwork task applies a
+  // tuned tool only on a matching body.
+  memberTool: {
+    slotType: "memberTool",
+    label: "Tool",
+    implicitStats: ["groundFieldwork"],
+    affixPool: [
+      { stat: "groundFieldwork", weight: 4 },
+      { stat: "groundRelicFind", weight: 2 },
+      { stat: "groundHazardResist", weight: 2 },
+    ],
+    varieties: [
+      // Security tools:
+      // Stun Grenade: a thrown stun.
+      {
+        key: "stunGrenade",
+        label: "Stun Grenade",
+        teamTypes: ["security"],
+        groundEffect: { kind: "inflict", status: "stun" },
+        implicitStats: ["groundStatusChance"],
+        affixPool: [
+          { stat: "groundStatusChance", weight: 4 },
+          { stat: "groundAccuracy", weight: 2 },
+        ],
+        statRatios: { groundStatusChance: 0.7, groundAccuracy: 0.3 },
+      },
+      // Toxin Grenade: a thrown poison cloud.
+      {
+        key: "toxinGrenade",
+        label: "Toxin Grenade",
+        teamTypes: ["security"],
+        groundEffect: { kind: "inflict", status: "poison" },
+        implicitStats: ["groundStatusChance"],
+        affixPool: [
+          { stat: "groundStatusChance", weight: 3 },
+          { stat: "groundPower", weight: 3 },
+        ],
+        statRatios: { groundStatusChance: 0.6, groundPower: 0.4 },
+      },
+      // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry).
+      {
+        key: "medKit",
+        label: "Med Kit",
+        teamTypes: ["security"],
+        groundEffect: { kind: "heal" },
+        implicitStats: ["groundHp"],
+        affixPool: [
+          { stat: "groundHp", weight: 4 },
+          { stat: "groundArmor", weight: 1 },
+        ],
+        statRatios: { groundHp: 0.8, groundArmor: 0.2 },
+      },
+      // Shroud Emitter: the encounter dial turned DOWN (fewer random encounters).
+      {
+        key: "shroudEmitter",
+        label: "Shroud Emitter",
+        teamTypes: ["security"],
+        encounterBias: -0.4,
+        implicitStats: ["groundArmor"],
+        affixPool: [
+          { stat: "groundArmor", weight: 3 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundArmor: 0.6, groundHp: 0.4 },
+      },
+      // Lure Beacon: the encounter dial turned UP (more encounters, more drops).
+      {
+        key: "lureBeacon",
+        label: "Lure Beacon",
+        teamTypes: ["security"],
+        encounterBias: 0.4,
+        implicitStats: ["groundAccuracy"],
+        affixPool: [
+          { stat: "groundAccuracy", weight: 3 },
+          { stat: "groundPower", weight: 2 },
+        ],
+        statRatios: { groundAccuracy: 0.6, groundPower: 0.4 },
+      },
+      // Science tools (planet-tuned):
+      // Flora Scanner: organics finds on living worlds.
+      {
+        key: "floraScanner",
+        label: "Flora Scanner",
+        teamTypes: ["science"],
+        planetTypes: ["terrestrial", "ocean", "toxic"],
+        implicitStats: ["groundOrganicsYield"],
+        affixPool: [
+          { stat: "groundOrganicsYield", weight: 4 },
+          { stat: "groundFieldwork", weight: 3 },
+          { stat: "groundHazardResist", weight: 1 },
+        ],
+        statRatios: { groundOrganicsYield: 0.6, groundFieldwork: 0.3, groundHazardResist: 0.1 },
+      },
+      // Thermal Rig: fieldwork on volcanic and frozen bodies, with a hazard lean.
+      {
+        key: "thermalRig",
+        label: "Thermal Rig",
+        teamTypes: ["science"],
+        planetTypes: ["volcanic", "frozen"],
+        statRatios: { groundFieldwork: 0.55, groundHazardResist: 0.35, groundRelicFind: 0.1 },
+      },
+      // Core Drill: fieldwork on arid and barren bodies, with a relic lean (it digs).
+      {
+        key: "coreDrill",
+        label: "Core Drill",
+        teamTypes: ["science"],
+        planetTypes: ["arid", "barren"],
+        statRatios: { groundFieldwork: 0.55, groundRelicFind: 0.35, groundHazardResist: 0.1 },
+      },
+      // Decryptor: vaults and civilization sites on ANY body (no planetTypes).
+      {
+        key: "decryptor",
+        label: "Decryptor",
+        teamTypes: ["science"],
+        implicitStats: ["groundVaultYield"],
+        affixPool: [
+          { stat: "groundVaultYield", weight: 4 },
+          { stat: "groundRelicFind", weight: 3 },
+        ],
+        statRatios: { groundVaultYield: 0.6, groundRelicFind: 0.4 },
+      },
+      // Atmo Probe: orbital fieldwork on a gas giant (no surface to land on).
+      {
+        key: "atmoProbe",
+        label: "Atmo Probe",
+        teamTypes: ["science"],
+        planetTypes: ["gasGiant"],
+        statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.3, groundRelicFind: 0.1 },
+      },
+    ],
+  },
+  // IMPLANT: the Cybernetics Bay catalog. Security implants are COMBAT (incl. sustain + status resists +
+  // Neural Backup); Science implants are OVERWORLD (fieldwork). Every implant carries its own lines.
+  implant: {
+    slotType: "implant",
+    label: "Implant",
+    implicitStats: ["groundHp"],
+    affixPool: [
+      { stat: "groundHp", weight: 3 },
+      { stat: "groundArmor", weight: 2 },
+    ],
+    varieties: [
+      // Security (combat) implants:
+      // Dermal Weave: subdermal plating.
+      {
+        key: "dermalWeave",
+        label: "Dermal Weave",
+        teamTypes: ["security"],
+        implicitStats: ["groundArmor"],
+        affixPool: [
+          { stat: "groundArmor", weight: 3 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundArmor: 0.7, groundHp: 0.3 },
+      },
+      // Reflex Booster: faster reactions, harder to hit and quicker on target.
+      {
+        key: "reflexBooster",
+        label: "Reflex Booster",
+        teamTypes: ["security"],
+        implicitStats: ["groundAccuracy", "groundArmor"],
+        affixPool: [
+          { stat: "groundAccuracy", weight: 3 },
+          { stat: "groundArmor", weight: 2 },
+        ],
+        statRatios: { groundAccuracy: 0.5, groundArmor: 0.5 },
+      },
+      // Targeting Optic: an ocular aim assist, with a lean toward landing afflictions.
+      {
+        key: "targetingOptic",
+        label: "Targeting Optic",
+        teamTypes: ["security"],
+        implicitStats: ["groundAccuracy"],
+        affixPool: [
+          { stat: "groundAccuracy", weight: 4 },
+          { stat: "groundStatusChance", weight: 1 },
+        ],
+        statRatios: { groundAccuracy: 0.8, groundStatusChance: 0.2 },
+      },
+      // Adrenal Surge: raw striking power.
+      {
+        key: "adrenalSurge",
+        label: "Adrenal Surge",
+        teamTypes: ["security"],
+        implicitStats: ["groundPower"],
+        affixPool: [
+          { stat: "groundPower", weight: 4 },
+          { stat: "groundHp", weight: 1 },
+        ],
+        statRatios: { groundPower: 0.8, groundHp: 0.2 },
+      },
+      // Med-Nanite Swarm: sustain, a deeper hit-point pool.
+      {
+        key: "medNaniteSwarm",
+        label: "Med-Nanite Swarm",
+        teamTypes: ["security"],
+        implicitStats: ["groundHp"],
+        affixPool: [
+          { stat: "groundHp", weight: 4 },
+          { stat: "groundArmor", weight: 1 },
+        ],
+        statRatios: { groundHp: 0.8, groundArmor: 0.2 },
+      },
+      // Toxin Filters: resists poison.
+      {
+        key: "toxinFilters",
+        label: "Toxin Filters",
+        teamTypes: ["security"],
+        groundEffect: { kind: "resist", statuses: ["poison"] },
+        implicitStats: ["groundStatusResist"],
+        affixPool: [
+          { stat: "groundStatusResist", weight: 3 },
+          { stat: "groundHp", weight: 2 },
+        ],
+        statRatios: { groundStatusResist: 0.7, groundHp: 0.3 },
+      },
+      // Cortex Shield: resists stun and fear.
+      {
+        key: "cortexShield",
+        label: "Cortex Shield",
+        teamTypes: ["security"],
+        groundEffect: { kind: "resist", statuses: ["stun", "fear"] },
+        implicitStats: ["groundStatusResist"],
+        affixPool: [
+          { stat: "groundStatusResist", weight: 3 },
+          { stat: "groundArmor", weight: 2 },
+        ],
+        statRatios: { groundStatusResist: 0.7, groundArmor: 0.3 },
+      },
+      // Neural Backup (Heart of the Archive's first-find unlock): UNIQUE-EQUIPPED, one in the entire
+      // fleet (D11). Once per battle, a ~50% chance to revive the first downed member at 30% HP (E-CREW
+      // Task 16 reads the descriptor). Its rolled lines are modest sustain; the revive is the point.
+      {
+        key: "neuralBackup",
+        label: "Neural Backup",
+        teamTypes: ["security"],
+        uniqueEquipped: true,
+        groundEffect: { kind: "revive", chance: 0.5, hpFraction: 0.3 },
+        implicitStats: ["groundHp"],
+        affixPool: [
+          { stat: "groundHp", weight: 2 },
+          { stat: "groundStatusResist", weight: 1 },
+        ],
+        statRatios: { groundHp: 0.7, groundStatusResist: 0.3 },
+      },
+      // Science (overworld) implants:
+      // Synaptic Accelerator: faster fieldwork.
+      {
+        key: "synapticAccelerator",
+        label: "Synaptic Accelerator",
+        teamTypes: ["science"],
+        implicitStats: ["groundFieldwork"],
+        affixPool: [
+          { stat: "groundFieldwork", weight: 3 },
+          { stat: "groundRelicFind", weight: 1 },
+        ],
+        statRatios: { groundFieldwork: 0.8, groundRelicFind: 0.2 },
+      },
+      // Archaeo-Scanner: relic odds.
+      {
+        key: "archaeoScanner",
+        label: "Archaeo-Scanner",
+        teamTypes: ["science"],
+        implicitStats: ["groundRelicFind"],
+        affixPool: [
+          { stat: "groundRelicFind", weight: 3 },
+          { stat: "groundFieldwork", weight: 2 },
+        ],
+        statRatios: { groundRelicFind: 0.7, groundFieldwork: 0.3 },
+      },
+      // Environmental Adaptation: shrugs off a hostile body's hazards.
+      {
+        key: "environmentalAdaptation",
+        label: "Environmental Adaptation",
+        teamTypes: ["science"],
+        implicitStats: ["groundHazardResist"],
+        affixPool: [
+          { stat: "groundHazardResist", weight: 3 },
+          { stat: "groundFieldwork", weight: 1 },
+        ],
+        statRatios: { groundHazardResist: 0.8, groundFieldwork: 0.2 },
+      },
+      // Cipher Wetware: reads vaults and civilization sites.
+      {
+        key: "cipherWetware",
+        label: "Cipher Wetware",
+        teamTypes: ["science"],
+        implicitStats: ["groundVaultYield"],
+        affixPool: [
+          { stat: "groundVaultYield", weight: 3 },
+          { stat: "groundRelicFind", weight: 1 },
+        ],
+        statRatios: { groundVaultYield: 0.8, groundRelicFind: 0.2 },
+      },
+      // Bio-Analyzer: organics finds.
+      {
+        key: "bioAnalyzer",
+        label: "Bio-Analyzer",
+        teamTypes: ["science"],
+        implicitStats: ["groundOrganicsYield"],
+        affixPool: [
+          { stat: "groundOrganicsYield", weight: 3 },
+          { stat: "groundFieldwork", weight: 1 },
+        ],
+        statRatios: { groundOrganicsYield: 0.8, groundFieldwork: 0.2 },
+      },
     ],
   },
 };
@@ -7904,9 +8375,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   //   Deep-Vein Compass   -> Pathfinder Suite      (explorer utility, explorer hulls)  [refined metals]
   //   Leviathan Scale     -> Bio-Resonance Array   (relic-hunter scanning array)       [organics]
   // DEFERRED (not authored here, by decision): Precursor Lens's special module ships with the module phase
-  // (E-MOD), and Heart of the Archive's Neural Backup waits on the cybernetic-implant scope call. Their first
-  // finds still get the normal discovery moment; adding their projects later is a data change (a blueprint
-  // carrying requiresRelicDiscovery).
+  // (E-MOD); its first find still gets the normal discovery moment, and adding its project later is a data
+  // change (a blueprint carrying requiresRelicDiscovery). Heart of the Archive's Neural Backup is now authored
+  // with the away-team member gear (E-CREW Task 7, neuralBackupBp below).
   //
   // RAW INPUTS, deliberately (judgment call, flagged): Anomalous Alloy is a `raw`-category salvage exotic and
   // the forage organics are raw (no refine recipe produces an organic refined item yet, so purifiedBiomass
@@ -7957,6 +8428,435 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     recipe: { inputs: { fibrousBiomass: 12, volatileResin: 6, exoticSporeCluster: 2, polysilicateWafer: 2 } },
     flavor: "A living membrane tuned to the hum of very old things. It sweeps slowly, and it listens for relics.",
     unlockHint: "Identify a Leviathan Scale to unlock this research; crafted at the Fabricator.",
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // AWAY-TEAM MEMBER GEAR BLUEPRINTS (E-CREW 0.14.0, Task 7) ─────────────────
+  // One ordinary equipmentOutput blueprint per member-gear variety (EQUIPMENT_SLOTS memberWeapon /
+  // memberArmor / memberTool / implant), so member gear rides the SAME research -> Fabricator blank ->
+  // inspect -> salvage / Archive path as ship gear (design D4). Inputs are EXISTING producible refined
+  // materials + components only (titaniumIngot, polysilicateWafer, frameSegment, powerCoupling,
+  // structuralAssembly): weapons + armor lean titanium, tools + implants lean wafers and couplings.
+  // TIERS: the starter kit for each squad (one weapon, one armor, the basic tools) is tier 1; the
+  // specialist pieces and every implant (cybernetics) are tier 2, the Research Lab's current ceiling.
+  // The one exception is Neural Backup (below), discovery-gated by the Heart of the Archive.
+  // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount.
+
+  // MEMBER WEAPONS
+  pulseRifleBp: {
+    key: "pulseRifleBp",
+    label: "Pulse Rifle Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberWeapon", varietyKey: "pulseRifle" },
+    // A titanium receiver around a pulse coupling.
+    recipe: { inputs: { titaniumIngot: 3, powerCoupling: 1 } },
+    flavor: "The away team's standard long gun: steady, accurate, and forgiving of a nervous hand.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  scattergunBp: {
+    key: "scattergunBp",
+    label: "Scattergun Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberWeapon", varietyKey: "scattergun" },
+    // Heavy titanium barrels braced on a frame segment.
+    recipe: { inputs: { titaniumIngot: 4, frameSegment: 1 } },
+    flavor: "Short reach, wide spread. Whatever is in front of it has a bad day, usually several of them at once.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  shockBatonBp: {
+    key: "shockBatonBp",
+    label: "Shock Baton Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberWeapon", varietyKey: "shockBaton" },
+    // A titanium haft with paired couplings and a wafer regulator.
+    recipe: { inputs: { titaniumIngot: 2, powerCoupling: 2, polysilicateWafer: 1 } },
+    flavor: "A close-quarters baton that dumps a charge into whatever it touches. Most things stop moving for a moment.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  sidearmBp: {
+    key: "sidearmBp",
+    label: "Sidearm Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberWeapon", varietyKey: "sidearm" },
+    // A compact titanium frame and one coupling.
+    recipe: { inputs: { titaniumIngot: 2, powerCoupling: 1 } },
+    flavor: "A light pistol for people whose real work is on the ground in front of them.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+
+  // MEMBER ARMOR
+  ballisticWeaveBp: {
+    key: "ballisticWeaveBp",
+    label: "Ballistic Weave Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberArmor", varietyKey: "ballisticWeave" },
+    // Woven titanium fiber over a wafer-thin sensor lining.
+    recipe: { inputs: { titaniumIngot: 3, polysilicateWafer: 1 } },
+    flavor: "Light layered armor that turns a round without slowing the wearer's aim.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  assaultHardsuitBp: {
+    key: "assaultHardsuitBp",
+    label: "Assault Hardsuit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberArmor", varietyKey: "assaultHardsuit" },
+    // A full structural assembly as the suit's frame, plated in titanium.
+    recipe: { inputs: { titaniumIngot: 4, structuralAssembly: 1 } },
+    flavor: "A walking bulkhead. Slow to put on, slower to put down.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  fieldSuitBp: {
+    key: "fieldSuitBp",
+    label: "Field Suit Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberArmor", varietyKey: "fieldSuit" },
+    // A titanium-ribbed suit with wafer instrument panels.
+    recipe: { inputs: { titaniumIngot: 2, polysilicateWafer: 2 } },
+    flavor: "A working suit with sample pouches, sensor cuffs, and just enough padding for a bad landing.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  hazardSuitBp: {
+    key: "hazardSuitBp",
+    label: "Hazard Suit Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberArmor", varietyKey: "hazardSuit" },
+    // A sealed titanium shell on a frame segment, with wafer environmental controls.
+    recipe: { inputs: { titaniumIngot: 3, polysilicateWafer: 2, frameSegment: 1 } },
+    flavor: "Sealed against heat, cold, and air that would rather you did not breathe it.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+
+  // MEMBER TOOLS (Security kit, then planet-tuned Science tools)
+  stunGrenadeBp: {
+    key: "stunGrenadeBp",
+    label: "Stun Grenade Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "stunGrenade" },
+    // A wafer charge core around a coupling.
+    recipe: { inputs: { polysilicateWafer: 2, powerCoupling: 1 } },
+    flavor: "A bright flash and a hard hum. The hostiles stand very still for a moment.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  toxinGrenadeBp: {
+    key: "toxinGrenadeBp",
+    label: "Toxin Grenade Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "toxinGrenade" },
+    // A titanium canister, wafer dispersal, and a coupling trigger.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1, titaniumIngot: 1 } },
+    flavor: "A canister of something that lingers. Throw it, then stand upwind.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  medKitBp: {
+    key: "medKitBp",
+    label: "Med Kit Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "medKit" },
+    // Wafer diagnostics in a titanium case.
+    recipe: { inputs: { polysilicateWafer: 2, titaniumIngot: 1 } },
+    flavor: "Field dressings, stims, and a diagnostic wand. Keeps a downed friend in the fight.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  shroudEmitterBp: {
+    key: "shroudEmitterBp",
+    label: "Shroud Emitter Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "shroudEmitter" },
+    // A wafer projector array on paired couplings.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 2 } },
+    flavor: "Bends light and sound around the team. The local wildlife walks right past.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  lureBeaconBp: {
+    key: "lureBeaconBp",
+    label: "Lure Beacon Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "lureBeacon" },
+    // A frame-mounted wafer emitter on paired couplings.
+    recipe: { inputs: { polysilicateWafer: 2, powerCoupling: 2, frameSegment: 1 } },
+    flavor: "Broadcasts exactly what the hostiles want to hear. They come running, and they come carrying things.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  floraScannerBp: {
+    key: "floraScannerBp",
+    label: "Flora Scanner Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "floraScanner" },
+    // A wafer sensor head on a coupling.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1 } },
+    flavor: "Tuned for living worlds. It finds the sample worth taking among a thousand that are not.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  thermalRigBp: {
+    key: "thermalRigBp",
+    label: "Thermal Rig Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "thermalRig" },
+    // A titanium heat exchanger with wafer controls.
+    recipe: { inputs: { polysilicateWafer: 2, titaniumIngot: 2 } },
+    flavor: "Keeps instruments working where rock runs molten or air freezes solid.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  coreDrillBp: {
+    key: "coreDrillBp",
+    label: "Core Drill Blueprint",
+    tier: 1,
+    researchDurationTicks: 60,
+    researchCreditCost: 700,
+    craftDurationTicks: 150,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "coreDrill" },
+    // A titanium bit driven by a coupling.
+    recipe: { inputs: { titaniumIngot: 3, powerCoupling: 1 } },
+    flavor: "Pulls cores out of dry and dead ground, and sometimes something older than the ground.",
+    unlockHint: "Researched at the Research Lab; crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  decryptorBp: {
+    key: "decryptorBp",
+    label: "Decryptor Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "decryptor" },
+    // A dense wafer stack on a coupling.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 1 } },
+    flavor: "Talks to locks that were built before anyone here had a word for lock.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  atmoProbeBp: {
+    key: "atmoProbeBp",
+    label: "Atmo Probe Blueprint",
+    tier: 2,
+    researchDurationTicks: 120,
+    researchCreditCost: 1600,
+    craftDurationTicks: 300,
+    equipmentOutput: { slotType: "memberTool", varietyKey: "atmoProbe" },
+    // A frame-built drop probe with wafer sensors and a coupling.
+    recipe: { inputs: { polysilicateWafer: 2, frameSegment: 1, powerCoupling: 1 } },
+    flavor: "Dropped into a gas giant's bands on a long tether. What comes back up is worth the wait.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+
+  // IMPLANTS (Security combat set, then Science fieldwork set)
+  dermalWeaveBp: {
+    key: "dermalWeaveBp",
+    label: "Dermal Weave Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "dermalWeave" },
+    // Titanium mesh in a wafer-controlled graft.
+    recipe: { inputs: { titaniumIngot: 2, polysilicateWafer: 2 } },
+    flavor: "A subdermal mesh that hardens on impact. The surgeon says you will not notice it. You will.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  reflexBoosterBp: {
+    key: "reflexBoosterBp",
+    label: "Reflex Booster Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "reflexBooster" },
+    // Wafer neural taps on a coupling.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1 } },
+    flavor: "Shaves the gap between seeing and moving down to almost nothing.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  targetingOpticBp: {
+    key: "targetingOpticBp",
+    label: "Targeting Optic Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "targetingOptic" },
+    // A wafer lens assembly on a coupling.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1 } },
+    flavor: "An ocular overlay that leads the target for you.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  adrenalSurgeBp: {
+    key: "adrenalSurgeBp",
+    label: "Adrenal Surge Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "adrenalSurge" },
+    // Paired couplings on a wafer regulator.
+    recipe: { inputs: { polysilicateWafer: 2, powerCoupling: 2 } },
+    flavor: "A gland regulator that opens the floodgates when the shooting starts.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  medNaniteSwarmBp: {
+    key: "medNaniteSwarmBp",
+    label: "Med-Nanite Swarm Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "medNaniteSwarm" },
+    // A wafer hive on a coupling.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 1 } },
+    flavor: "A resident colony of repair nanites. They patch what they can, as fast as they can.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  toxinFiltersBp: {
+    key: "toxinFiltersBp",
+    label: "Toxin Filters Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "toxinFilters" },
+    // Titanium filter beds with wafer sensors.
+    recipe: { inputs: { polysilicateWafer: 2, titaniumIngot: 2 } },
+    flavor: "Filters in the bloodstream that catch poisons before they catch you.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  cortexShieldBp: {
+    key: "cortexShieldBp",
+    label: "Cortex Shield Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "cortexShield" },
+    // A titanium-shielded wafer damper.
+    recipe: { inputs: { polysilicateWafer: 3, titaniumIngot: 1 } },
+    flavor: "Dampens the shock of a stun and the pull of panic.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  synapticAcceleratorBp: {
+    key: "synapticAcceleratorBp",
+    label: "Synaptic Accelerator Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "synapticAccelerator" },
+    // Wafer neural taps on a coupling.
+    recipe: { inputs: { polysilicateWafer: 3, powerCoupling: 1 } },
+    flavor: "Speeds the work of a trained eye. Surveys finish sooner, and fewer details slip past.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  archaeoScannerBp: {
+    key: "archaeoScannerBp",
+    label: "Archaeo-Scanner Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "archaeoScanner" },
+    // A wafer sensor lattice on a frame segment.
+    recipe: { inputs: { polysilicateWafer: 4, frameSegment: 1 } },
+    flavor: "A retinal overlay that flags the shapes ancient builders left behind.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  environmentalAdaptationBp: {
+    key: "environmentalAdaptationBp",
+    label: "Environmental Adaptation Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "environmentalAdaptation" },
+    // Titanium-reinforced wafer regulators.
+    recipe: { inputs: { polysilicateWafer: 2, titaniumIngot: 2 } },
+    flavor: "Tunes the body to heat, cold, and thin air. Hostile ground feels a little less hostile.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  cipherWetwareBp: {
+    key: "cipherWetwareBp",
+    label: "Cipher Wetware Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "cipherWetware" },
+    // A dense wafer stack on a coupling.
+    recipe: { inputs: { polysilicateWafer: 4, powerCoupling: 1 } },
+    flavor: "Pattern-matching wetware for dead languages and old locks.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  bioAnalyzerBp: {
+    key: "bioAnalyzerBp",
+    label: "Bio-Analyzer Blueprint",
+    tier: 2,
+    researchDurationTicks: 160,
+    researchCreditCost: 2000,
+    craftDurationTicks: 320,
+    equipmentOutput: { slotType: "implant", varietyKey: "bioAnalyzer" },
+    // A wafer assay chip in a titanium housing.
+    recipe: { inputs: { polysilicateWafer: 3, titaniumIngot: 1 } },
+    flavor: "An in-body assay lab. It knows what is worth sampling before the glove comes off.",
+    unlockHint: "Researched at the Research Lab (needs a higher lab tier); crafted at the Fabricator. Away-team gear, worn by a squad member.",
+  },
+  // NEURAL BACKUP: the Heart of the Archive's first-find unlock (exploration plan E4d "Neural Backup
+  // (Reraise)", user 2026-10-01; deferred there until the implant system, which is this). Discovery-gated
+  // (requiresRelicDiscovery), so the Research card stays MASKED until a Heart of the Archive is identified.
+  // UNIQUE-EQUIPPED (one in the entire fleet, D11), so crafting a second only yields a spare. Really rare
+  // by design: the capstone relic's first find plus one Intact Data Core (the core holds the backups).
+  neuralBackupBp: {
+    key: "neuralBackupBp",
+    label: "Neural Backup Blueprint",
+    tier: 2,
+    researchDurationTicks: 240,
+    researchCreditCost: 2400,
+    craftDurationTicks: 340,
+    equipmentOutput: { slotType: "implant", varietyKey: "neuralBackup" },
+    requiresRelicDiscovery: "heartOfTheArchive",
+    // One Intact Data Core as the backup store, a modest wafer + coupling interface around it.
+    recipe: { inputs: { intactDataCore: 1, polysilicateWafer: 3, powerCoupling: 2 } },
+    flavor: "A cortical implant that keeps a running copy of its wearer. Once, when it matters most, it can bring them back.",
+    unlockHint: "Identify a Heart of the Archive to unlock this research; crafted at the Fabricator.",
   },
 };
 

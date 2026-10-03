@@ -33,6 +33,7 @@ import {
   PRODUCIBLE_EQUIPMENT_RARITIES,
   rarityIndex,
   SLOT_BASE_PHYSICALS,
+  isMemberSlotType,
   varietyHasOwnIdentity,
   type BlueprintDef,
   type EquipmentInstance,
@@ -464,7 +465,17 @@ export function generateEquipment(a: {
   //     Damage Control Suite / Pathfinder Suite in specUtility) is stamped too, so canFitEquipment can
   //     apply its variety-level equip gate and utilityGear.ts can read its effect. varietyHasOwnIdentity
   //     is false for every pre-E4d variety, so no existing mint gains the field.
-  if (a.slotType === "bridge" || a.slotType === "quarters" || a.slotType === "sensor" || varietyHasOwnIdentity(variety)) {
+  //   - E-CREW 0.14.0 (Task 7): EVERY away-team MEMBER piece (isMemberSlotType) is stamped, whether or not
+  //     its variety overrides any table: the member install gate reads the variety's teamTypes, the tool
+  //     readers its planetTypes / encounterBias, the unique-equipped rule and the battle its groundEffect,
+  //     all resolved from moduleVariant.
+  if (
+    a.slotType === "bridge" ||
+    a.slotType === "quarters" ||
+    a.slotType === "sensor" ||
+    isMemberSlotType(a.slotType) ||
+    varietyHasOwnIdentity(variety)
+  ) {
     piece.moduleVariant = a.varietyKey;
   }
   return piece;

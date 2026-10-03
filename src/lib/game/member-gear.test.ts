@@ -7,9 +7,27 @@
 //   - SHIP NEUTRALITY: member gear never folds into ShipDerivedStats, whether it is spare, worn by a member,
 //     or (defensively) handed straight to the fold, and ship-only lists (ship install gate, Armory loadout
 //     slots, Quartermaster requisition) never offer it.
+// And the catalog + blueprints:
+//   - the mockup names exactly, per slot; every variety's teamTypes non-empty and never "prospecting";
+//     tool planetTypes / encounterBias and the implant team split + unique-equipped as authored;
+//   - exactly one blueprint per member variety (the blueprint mints into that variety's slot), existing
+//     producible inputs only, Neural Backup discovery-gated by the Heart of the Archive with 1 Intact Data Core;
+//   - generateEquipment and the Fabricator blank + inspect path mint every member variety with ground lines
+//     only, stamped with its variety.
 import { describe, it, expect } from "vitest";
+import Decimal from "break_infinity.js";
 import {
   freshState,
+  BLUEPRINTS,
+  EQUIPMENT_SLOTS,
+  ITEMS,
+  REFINE_RECIPES,
+  RESEARCH_FACILITY_KEY,
+  AWAY_TEAM_TYPES,
+  PRODUCIBLE_EQUIPMENT_RARITIES,
+  blueprintRelicLocked,
+  blueprintKind,
+  type EquipmentVarietyDef,
   equipmentStatMods,
   shipDerivedStats,
   isMemberSlotType,
@@ -29,6 +47,10 @@ import { canFitEquipment } from "./equipment";
 import { loadoutSlotDefsForShipType } from "./armory";
 import { REQUISITION_CATALOGUE, REQUISITION_ENTRIES } from "./quartermaster";
 import { GROUND_STAT_MEMBER_STAT } from "./awayTeam";
+import { generateEquipment } from "./itemgen";
+import { canResearch, inspectBlank } from "./tick";
+import { PLANET_TYPES } from "./expeditionContent";
+import { getRelicById } from "./relics";
 
 // Every ship slot type (the union minus the four member slots), listed by hand so a new member slot
 // that is NOT registered in MEMBER_SLOT_TYPES fails the partition test below.
@@ -161,5 +183,267 @@ describe("ship-only lists never offer member gear", () => {
   it("the ship Quartermaster requisition offers no member slot (their floors land with E-CREW Task 9)", () => {
     for (const t of MEMBER_SLOT_TYPES) expect(REQUISITION_CATALOGUE[t], t).toBeNull();
     for (const entry of REQUISITION_ENTRIES) expect(isMemberSlotType(entry.slotType), entry.slotType).toBe(false);
+  });
+});
+
+// ============================================================================
+// Catalog (design section 5.4, names exactly as the user-approved mockup)
+// ============================================================================
+
+const MEMBER_CATALOG: Record<string, string[]> = {
+  memberWeapon: ["Pulse Rifle", "Scattergun", "Shock Baton", "Sidearm"],
+  memberArmor: ["Ballistic Weave", "Assault Hardsuit", "Field Suit", "Hazard Suit"],
+  memberTool: [
+    "Stun Grenade", "Toxin Grenade", "Med Kit", "Shroud Emitter", "Lure Beacon",
+    "Flora Scanner", "Thermal Rig", "Core Drill", "Decryptor", "Atmo Probe",
+  ],
+  implant: [
+    "Dermal Weave", "Reflex Booster", "Targeting Optic", "Adrenal Surge", "Med-Nanite Swarm",
+    "Toxin Filters", "Cortex Shield", "Neural Backup",
+    "Synaptic Accelerator", "Archaeo-Scanner", "Environmental Adaptation", "Cipher Wetware", "Bio-Analyzer",
+  ],
+};
+
+// Every member variety as (slotType, variety).
+const MEMBER_VARIETIES: { slotType: EquipmentSlotType; v: EquipmentVarietyDef }[] = MEMBER_SLOT_TYPES.flatMap((slotType) =>
+  EQUIPMENT_SLOTS[slotType].varieties.map((v) => ({ slotType, v })),
+);
+const variety = (slotType: string, key: string): EquipmentVarietyDef => {
+  const v = EQUIPMENT_SLOTS[slotType].varieties.find((x) => x.key === key);
+  if (v === undefined) throw new Error(`no ${slotType}/${key}`);
+  return v;
+};
+
+describe("member gear catalog", () => {
+  it("each member slot carries exactly the mockup names, in order", () => {
+    for (const slotType of MEMBER_SLOT_TYPES) {
+      expect(EQUIPMENT_SLOTS[slotType].varieties.map((v) => v.label), slotType).toEqual(MEMBER_CATALOG[slotType]);
+    }
+    expect(EQUIPMENT_SLOTS.memberArmor.label).toBe("Armor");
+    expect(EQUIPMENT_SLOTS.memberWeapon.label).toBe("Weapon");
+    expect(EQUIPMENT_SLOTS.memberTool.label).toBe("Tool");
+    expect(EQUIPMENT_SLOTS.implant.label).toBe("Implant");
+  });
+
+  it("variety keys are unique across the WHOLE slot table (blueprints are keyed <varietyKey>Bp)", () => {
+    const keys = Object.values(EQUIPMENT_SLOTS).flatMap((slot) => slot.varieties.map((v) => v.key));
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("every member variety lists a non-empty teamTypes of real team types, never the wired-only prospecting", () => {
+    for (const { slotType, v } of MEMBER_VARIETIES) {
+      const teams = v.teamTypes ?? [];
+      expect(teams.length, `${slotType}/${v.key}`).toBeGreaterThan(0);
+      for (const t of teams) expect(AWAY_TEAM_TYPES, `${slotType}/${v.key}`).toContain(t);
+      expect(teams, `${slotType}/${v.key}`).not.toContain("prospecting");
+    }
+  });
+
+  it("no SHIP variety carries a member-only descriptor", () => {
+    for (const [slotType, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+      if (isMemberSlotType(slotType)) continue;
+      for (const v of slot.varieties) {
+        expect(v.teamTypes, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.planetTypes, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.encounterBias, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.uniqueEquipped, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.weaponRange, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.groundEffect, `${slotType}/${v.key}`).toBeUndefined();
+      }
+    }
+  });
+
+  it("weapons: Security long / short / short, Science Sidearm; Scattergun hits a group, Shock Baton stuns", () => {
+    expect(variety("memberWeapon", "pulseRifle")).toMatchObject({ teamTypes: ["security"], weaponRange: "long" });
+    expect(variety("memberWeapon", "scattergun")).toMatchObject({ teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "groupHit" } });
+    expect(variety("memberWeapon", "shockBaton")).toMatchObject({ teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "inflict", status: "stun" } });
+    expect(variety("memberWeapon", "sidearm").teamTypes).toEqual(["science"]);
+  });
+
+  it("armor: two Security, two Science; the Hazard Suit's signature is hazard resist", () => {
+    expect(variety("memberArmor", "ballisticWeave").teamTypes).toEqual(["security"]);
+    expect(variety("memberArmor", "assaultHardsuit").teamTypes).toEqual(["security"]);
+    expect(variety("memberArmor", "fieldSuit").teamTypes).toEqual(["science"]);
+    expect(variety("memberArmor", "hazardSuit")).toMatchObject({ teamTypes: ["science"], implicitStats: ["groundHazardResist"] });
+  });
+
+  it("tools: the encounter dial (Shroud -0.4, Lure +0.4) is Security-only; Science tools are planet-tuned as authored", () => {
+    expect(variety("memberTool", "shroudEmitter")).toMatchObject({ teamTypes: ["security"], encounterBias: -0.4 });
+    expect(variety("memberTool", "lureBeacon")).toMatchObject({ teamTypes: ["security"], encounterBias: 0.4 });
+    for (const key of ["stunGrenade", "toxinGrenade", "medKit"]) expect(variety("memberTool", key).teamTypes).toEqual(["security"]);
+    // Only the two dial tools carry a bias.
+    const biased = EQUIPMENT_SLOTS.memberTool.varieties.filter((v) => v.encounterBias !== undefined).map((v) => v.key);
+    expect(biased.sort()).toEqual(["lureBeacon", "shroudEmitter"]);
+    const PLANETS: Record<string, string[] | undefined> = {
+      floraScanner: ["terrestrial", "ocean", "toxic"],
+      thermalRig: ["volcanic", "frozen"],
+      coreDrill: ["arid", "barren"],
+      decryptor: undefined, // any body
+      atmoProbe: ["gasGiant"],
+    };
+    const realPlanets = new Set<string>(PLANET_TYPES.map((p) => p.id));
+    for (const [key, planets] of Object.entries(PLANETS)) {
+      const v = variety("memberTool", key);
+      expect(v.teamTypes, key).toEqual(["science"]);
+      expect(v.planetTypes === undefined ? undefined : [...v.planetTypes], key).toEqual(planets);
+      for (const p of v.planetTypes ?? []) expect(realPlanets.has(p), `${key} ${p}`).toBe(true);
+    }
+    // Security tools are never planet-tuned.
+    for (const v of EQUIPMENT_SLOTS.memberTool.varieties) {
+      if (v.teamTypes?.includes("security")) expect(v.planetTypes, v.key).toBeUndefined();
+    }
+  });
+
+  it("implants: exactly one team each (8 Security, 5 Science); Neural Backup is the ONE unique-equipped piece", () => {
+    const security = EQUIPMENT_SLOTS.implant.varieties.filter((v) => v.teamTypes?.length === 1 && v.teamTypes[0] === "security");
+    const science = EQUIPMENT_SLOTS.implant.varieties.filter((v) => v.teamTypes?.length === 1 && v.teamTypes[0] === "science");
+    expect(security.length).toBe(8);
+    expect(science.length).toBe(5);
+    const unique = MEMBER_VARIETIES.filter(({ v }) => v.uniqueEquipped === true).map(({ v }) => v.key);
+    expect(unique).toEqual(["neuralBackup"]);
+    expect(variety("implant", "neuralBackup")).toMatchObject({
+      teamTypes: ["security"],
+      groundEffect: { kind: "revive", chance: 0.5, hpFraction: 0.3 },
+    });
+  });
+
+  it("each variety's statRatios cover exactly its affix pool and sum to ~1 (so the variety bias is coherent)", () => {
+    for (const { slotType, v } of MEMBER_VARIETIES) {
+      const pool = (v.affixPool ?? EQUIPMENT_SLOTS[slotType].affixPool).map((a) => a.stat).sort();
+      expect(Object.keys(v.statRatios).sort(), `${slotType}/${v.key}`).toEqual(pool);
+      const sum = Object.values(v.statRatios).reduce((a, b) => a + b, 0);
+      expect(sum, `${slotType}/${v.key}`).toBeCloseTo(1, 9);
+    }
+  });
+});
+
+// ============================================================================
+// Blueprints
+// ============================================================================
+
+const memberBlueprints = Object.values(BLUEPRINTS).filter(
+  (bp) => bp.equipmentOutput !== undefined && isMemberSlotType(bp.equipmentOutput.slotType),
+);
+
+describe("member gear blueprints", () => {
+  it("every member variety has EXACTLY one blueprint, and that blueprint mints into the variety's own slot", () => {
+    expect(memberBlueprints.length).toBe(MEMBER_VARIETIES.length);
+    for (const { slotType, v } of MEMBER_VARIETIES) {
+      const bps = memberBlueprints.filter((bp) => bp.equipmentOutput!.varietyKey === v.key);
+      expect(bps.length, `${slotType}/${v.key}`).toBe(1);
+      const bp = bps[0];
+      expect(bp.key).toBe(`${v.key}Bp`);
+      expect(bp.label).toBe(`${v.label} Blueprint`);
+      expect(bp.equipmentOutput!.slotType, v.key).toBe(slotType);
+      expect(blueprintKind(bp), v.key).toBe("equipment");
+      expect(bp.tier, v.key).toBeGreaterThanOrEqual(1);
+      expect(bp.tier, v.key).toBeLessThanOrEqual(2); // the Research Lab's ceiling
+    }
+  });
+
+  it("recipes use EXISTING producible materials only (refined from the Refinery, components from the Fabricator)", () => {
+    const refineOutputs = new Set<string>(Object.values(REFINE_RECIPES).map((r) => r.output.itemId));
+    const componentOutputs = new Set<string>();
+    for (const b of Object.values(BLUEPRINTS)) if (b.recipe.outputItem !== undefined) componentOutputs.add(b.recipe.outputItem);
+    for (const bp of memberBlueprints) {
+      const inputs = Object.entries(bp.recipe.inputs);
+      expect(inputs.length, bp.key).toBeGreaterThan(0);
+      for (const [itemId, qty] of inputs) {
+        expect(ITEMS[itemId], `${bp.key} ${itemId}`).toBeDefined();
+        expect(qty, `${bp.key} ${itemId}`).toBeGreaterThan(0);
+        if (bp.key === "neuralBackupBp" && itemId === "intactDataCore") continue; // the relic-tier salvage exotic
+        expect(refineOutputs.has(itemId) || componentOutputs.has(itemId), `${bp.key} ${itemId} is producible`).toBe(true);
+      }
+    }
+  });
+
+  it("only Neural Backup is discovery-gated, by the Heart of the Archive, and it consumes 1 Intact Data Core", () => {
+    const gated = memberBlueprints.filter((bp) => bp.requiresRelicDiscovery !== undefined).map((bp) => bp.key);
+    expect(gated).toEqual(["neuralBackupBp"]);
+    const nb = BLUEPRINTS.neuralBackupBp;
+    expect(nb.requiresRelicDiscovery).toBe("heartOfTheArchive");
+    expect(getRelicById("heartOfTheArchive")?.label).toBe("Heart of the Archive");
+    expect(nb.recipe.inputs.intactDataCore).toBe(1);
+    expect(nb.equipmentOutput).toEqual({ slotType: "implant", varietyKey: "neuralBackup" });
+  });
+
+  it("Neural Backup is relic-locked (and unresearchable) until the Heart of the Archive is discovered, then open", () => {
+    const s0 = freshState();
+    const lab: GameState = { ...s0, credits: new Decimal(1_000_000), facilities: { ...s0.facilities, [RESEARCH_FACILITY_KEY]: { level: 2 } } };
+    expect(blueprintRelicLocked(lab, "neuralBackupBp")).toBe(true);
+    expect(canResearch(lab, "neuralBackupBp")).toEqual({ ok: false, reason: "undiscovered" });
+    const found: GameState = { ...lab, relicDiscovered: [...(lab.relicDiscovered ?? []), "heartOfTheArchive"] };
+    expect(blueprintRelicLocked(found, "neuralBackupBp")).toBe(false);
+    expect(canResearch(found, "neuralBackupBp")).toEqual({ ok: true });
+    // Every other member blueprint is an ordinary (ungated) research project.
+    for (const bp of memberBlueprints) {
+      if (bp.key !== "neuralBackupBp") expect(blueprintRelicLocked(lab, bp.key), bp.key).toBe(false);
+    }
+  });
+});
+
+// ============================================================================
+// Generation: generateEquipment + the Fabricator blank / inspect path
+// ============================================================================
+
+describe("member gear generation", () => {
+  const GROUND = new Set<string>(MEMBER_GROUND_STAT_KEYS);
+  // A small deterministic stream so every rarity's affix draws are exercised.
+  const seq = (seed: number) => {
+    let x = seed;
+    return () => {
+      x = (x * 9301 + 49297) % 233280;
+      return x / 233280;
+    };
+  };
+
+  it("generateEquipment mints every member variety with ground lines only, stamped with its variety", () => {
+    let n = 0;
+    for (const { slotType, v } of MEMBER_VARIETIES) {
+      for (const rarity of PRODUCIBLE_EQUIPMENT_RARITIES) {
+        const p = generateEquipment({
+          slotType,
+          varietyKey: v.key,
+          blueprintKey: `${v.key}Bp`,
+          iLevel: 30,
+          quality: 3,
+          rarity,
+          ascension: "none",
+          rng: seq(n + 1),
+          allocateId: () => `equip-g${n}`,
+        });
+        n++;
+        const where = `${slotType}/${v.key}/${rarity}`;
+        expect(p.slotType, where).toBe(slotType);
+        expect(p.moduleVariant, where).toBe(v.key);
+        expect(p.rarity, where).toBe(rarity);
+        expect(p.quality, where).toBe(3);
+        expect(p.iLevel, where).toBe(30);
+        expect(p.mass, where).toBe(0);
+        expect(p.powerDraw, where).toBe(0);
+        expect(p.fittedToShipId, where).toBeNull();
+        expect(p.durability, where).toBe(p.durabilityMax);
+        const implicitKeys = Object.keys(p.implicitStats);
+        expect(implicitKeys.sort(), where).toEqual([...(v.implicitStats ?? EQUIPMENT_SLOTS[slotType].implicitStats)].sort());
+        for (const k of [...implicitKeys, ...Object.keys(p.rolledStats)]) expect(GROUND.has(k), `${where} ${k}`).toBe(true);
+        for (const val of Object.values(p.implicitStats)) expect(val, where).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("a Fabricator blank of every member blueprint inspects into a spare piece of that variety", () => {
+    for (const bp of memberBlueprints) {
+      const s0 = freshState();
+      const s: GameState = { ...s0, blanks: { [bp.key]: new Decimal(1) } };
+      const after = inspectBlank(s, bp.key);
+      expect(after, bp.key).not.toBe(s);
+      const minted = after.equipment[after.equipment.length - 1];
+      expect(minted.blueprintKey, bp.key).toBe(bp.key);
+      expect(minted.slotType, bp.key).toBe(bp.equipmentOutput!.slotType);
+      expect(minted.moduleVariant, bp.key).toBe(bp.equipmentOutput!.varietyKey);
+      // It lands as a free spare, and no ship can take it.
+      expect(minted.fittedToShipId, bp.key).toBeNull();
+      expect(canFitEquipment(after, after.ships[0].id, minted.id), bp.key).toEqual({ ok: false, reason: "slotNotInstallable" });
+    }
   });
 });

@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   freshState,
   AWAY_TEAM_TYPES,
+  MEMBER_GROUND_STAT_KEYS,
+  isMemberSlotType,
   awayRecruitSeedFrom,
   freshCaptains,
   freshCaptainStack,
@@ -1951,11 +1953,24 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
   // E4d: the per-slot variety counts. 3 for every gear slot, except quarters (9 crew-quarters variants),
   // specUtility (3 prospecting rigs + the 2 relic-unlocked utility families) and sensor (3 scanning
   // arrays + the relic-hunter Bio-Resonance Array).
-  const EXPECTED_VARIETY_COUNT: Record<string, number> = { quarters: 9, specUtility: 5, sensor: 4 };
+  // E-CREW 0.14.0 (Task 7): the four member slots carry the mockup catalog (4 weapons, 4 armors, 10 tools,
+  // 13 implants).
+  const EXPECTED_VARIETY_COUNT: Record<string, number> = {
+    quarters: 9, specUtility: 5, sensor: 4,
+    memberWeapon: 4, memberArmor: 4, memberTool: 10, implant: 13,
+  };
+  // E-CREW 0.14.0 (Task 7): member slots draw ONLY from the GROUND vocabulary, ship slots ONLY from the
+  // ship allow-set above, so a ground line can never land on a ship slot (or a ship line on member gear).
+  const GROUND_STAT_KEYS = new Set<string>(MEMBER_GROUND_STAT_KEYS);
+  const allowedFor = (slotKey: string): Set<string> => (isMemberSlotType(slotKey) ? GROUND_STAT_KEYS : ALLOWED_STAT_KEYS);
 
-  it("holds the four economy slots, the two Combat 1.0 defensive slots, the two crew-module slots, and the sensor slot", () => {
+  it("holds the four economy slots, the two Combat 1.0 defensive slots, the two crew-module slots, the sensor slot, and the four E-CREW member slots", () => {
     expect(Object.keys(EQUIPMENT_SLOTS).sort()).toEqual(
-      ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters", "sensor"].sort(),
+      [
+        "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating", "bridge", "quarters", "sensor",
+        // E-CREW 0.14.0 (Task 7): away-team member gear.
+        "memberWeapon", "memberArmor", "memberTool", "implant",
+      ].sort(),
     );
   });
 
@@ -1971,29 +1986,31 @@ describe("EQUIPMENT_SLOTS live-slot definitions (0.11.0 Task 2)", () => {
       // is a data error, not a valid launch state).
       expect(slot.implicitStats.length).toBeGreaterThan(0);
       expect(slot.affixPool.length).toBeGreaterThan(0);
+      // E-CREW Task 7: the vocabulary this slot may draw from (ground keys for member slots).
+      const allowed = allowedFor(key);
       // E4d: a variety's OWN implicit / affix overrides are fenced by the same vocabulary rules.
       for (const v of slot.varieties) {
         if (v.implicitStats !== undefined) {
           expect(v.implicitStats.length, `${key}/${v.key} implicits`).toBeGreaterThan(0);
-          for (const stat of v.implicitStats) expect(ALLOWED_STAT_KEYS.has(stat), `${key}/${v.key} ${stat}`).toBe(true);
+          for (const stat of v.implicitStats) expect(allowed.has(stat), `${key}/${v.key} ${stat}`).toBe(true);
         }
         if (v.affixPool !== undefined) {
           expect(v.affixPool.length, `${key}/${v.key} affixes`).toBeGreaterThan(0);
           for (const affix of v.affixPool) {
-            expect(ALLOWED_STAT_KEYS.has(affix.stat), `${key}/${v.key} ${affix.stat}`).toBe(true);
+            expect(allowed.has(affix.stat), `${key}/${v.key} ${affix.stat}`).toBe(true);
             expect(affix.weight).toBeGreaterThan(0);
           }
         }
       }
       // Fence the vocabulary: every implicit stat key is live-this-patch.
       for (const stat of slot.implicitStats) {
-        expect(ALLOWED_STAT_KEYS.has(stat)).toBe(true);
+        expect(allowed.has(stat)).toBe(true);
       }
       // Fence the vocabulary: every affix stat key is live-this-patch, and each
       // affix carries a positive bias weight (0/negative weights are meaningless
       // for the later weighted roll).
       for (const affix of slot.affixPool) {
-        expect(ALLOWED_STAT_KEYS.has(affix.stat)).toBe(true);
+        expect(allowed.has(affix.stat)).toBe(true);
         expect(affix.weight).toBeGreaterThan(0);
       }
     }
@@ -2120,13 +2137,21 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     // Exploration 0.14.0 (E4d): the three DISCOVERY-GATED blueprints (two specUtility families + the
     // first craftable sensor array).
     "damageControlSuiteBp", "pathfinderSuiteBp", "bioResonanceArrayBp",
+    // E-CREW 0.14.0 (Task 7): the 31 away-team MEMBER gear blueprints (Neural Backup discovery-gated).
+    "pulseRifleBp", "scattergunBp", "shockBatonBp", "sidearmBp",
+    "ballisticWeaveBp", "assaultHardsuitBp", "fieldSuitBp", "hazardSuitBp",
+    "stunGrenadeBp", "toxinGrenadeBp", "medKitBp", "shroudEmitterBp", "lureBeaconBp",
+    "floraScannerBp", "thermalRigBp", "coreDrillBp", "decryptorBp", "atmoProbeBp",
+    "dermalWeaveBp", "reflexBoosterBp", "targetingOpticBp", "adrenalSurgeBp", "medNaniteSwarmBp",
+    "toxinFiltersBp", "cortexShieldBp", "neuralBackupBp",
+    "synapticAcceleratorBp", "archaeoScannerBp", "environmentalAdaptationBp", "cipherWetwareBp", "bioAnalyzerBp",
   ];
 
   // Every equipment blueprint = a BLUEPRINTS entry carrying `equipmentOutput`.
   const equipmentBlueprints = Object.values(BLUEPRINTS).filter((bp) => bp.equipmentOutput);
 
-  it("defines exactly 21 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
-    expect(equipmentBlueprints).toHaveLength(21);
+  it("defines exactly 52 equipment blueprints, one per (equipmentOutput slot × variety)", () => {
+    expect(equipmentBlueprints).toHaveLength(52);
     // The named set matches the derived key list (no missing / extra entry).
     const keys = equipmentBlueprints.map((bp) => bp.key).sort();
     expect(keys).toEqual([...EQUIP_BP_KEYS].sort());
@@ -2135,11 +2160,15 @@ describe("Equipment BLUEPRINTS (0.11.0 Task 18)", () => {
     const pairs = new Set(
       equipmentBlueprints.map((bp) => `${bp.equipmentOutput!.slotType}/${bp.equipmentOutput!.varietyKey}`),
     );
-    expect(pairs.size).toBe(21);
+    expect(pairs.size).toBe(52);
     // COVERAGE GUARD: every variety of every installable equipment slot (the four economy slots
     // PLUS the two defensive combat slots) must have a craftable blueprint. This is the assertion
     // that would have caught the shipped gap where shieldEmitters / hullPlating had none.
-    const EQUIP_BP_SLOTS = ["cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating"] as const;
+    const EQUIP_BP_SLOTS = [
+      "cargoBay", "ftlDrive", "reactorCore", "specUtility", "shieldEmitters", "hullPlating",
+      // E-CREW 0.14.0 (Task 7): every member gear variety is craftable too.
+      "memberWeapon", "memberArmor", "memberTool", "implant",
+    ] as const;
     for (const slotType of EQUIP_BP_SLOTS) {
       for (const variety of EQUIPMENT_SLOTS[slotType].varieties) {
         expect(pairs.has(`${slotType}/${variety.key}`), `${slotType}/${variety.key} has a blueprint`).toBe(true);
@@ -2649,21 +2678,26 @@ describe("seedCombatStandardIssueForShip (Combat 1.0, Unit 1.3/1.4)", () => {
 describe("STAT_KEYS registry, drift guard over EQUIPMENT_SLOTS (0.11.0 Task 3)", () => {
   const LIVE = new Set<string>(LIVE_STAT_KEYS);
 
-  it("every stat key referenced by any live slot is a member of LIVE_STAT_KEYS", () => {
+  // E-CREW 0.14.0 (Task 7): the four member slots draw from the GROUND vocabulary instead (a third,
+  // member-only group, never folded into ship stats), so the guard checks each slot against its own set.
+  const GROUND = new Set<string>(MEMBER_GROUND_STAT_KEYS);
+
+  it("every stat key referenced by any live slot is a member of LIVE_STAT_KEYS (member slots: MEMBER_GROUND_STAT_KEYS)", () => {
     for (const [key, slot] of Object.entries(EQUIPMENT_SLOTS)) {
+      const vocab = isMemberSlotType(key) ? GROUND : LIVE;
       // Signature (implicit) stats, always present on every piece in the slot.
       for (const stat of slot.implicitStats) {
-        expect(LIVE.has(stat)).toBe(true);
+        expect(vocab.has(stat), `${key} ${stat}`).toBe(true);
       }
       // Affix-pool stats, the rolls a piece MAY draw on top of the implicits.
       for (const affix of slot.affixPool) {
-        expect(LIVE.has(affix.stat)).toBe(true);
+        expect(vocab.has(affix.stat), `${key} ${affix.stat}`).toBe(true);
       }
       // Every variety's budget-distribution keys (NOT checked by the Task 2 test,
       // this is the coverage this drift guard adds).
       for (const variety of slot.varieties) {
         for (const stat of Object.keys(variety.statRatios)) {
-          expect(LIVE.has(stat)).toBe(true);
+          expect(vocab.has(stat), `${key}/${variety.key} ${stat}`).toBe(true);
         }
       }
     }
