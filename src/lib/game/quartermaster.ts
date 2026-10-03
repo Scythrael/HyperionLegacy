@@ -188,11 +188,11 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   },
   hullPlating: {
     fallbackLabel: "Hull Plating",
-    blurb: "Armor. Restores the hull's baseline plating; a patrol will not launch without it.",
+    blurb: "Armor. Restores the hull's own baseline plating, nothing beyond it.",
     mint: { kind: "hullPlating" },
   },
 
-  // --- The WEAPON floor. A hardpoint needs a gun before a patrol will launch.
+  // --- The WEAPON floor. A weaponless ship can patrol but cannot return fire (0.13.9).
   //
   // ⚠️ THE AUTOCANNON SPECIFICALLY, AND THE CHOICE IS LOAD-BEARING. A Standard-Issue
   // weapon's per-shot stats come ENTIRELY from its base WEAPON_DEF (the baseline's own
@@ -208,7 +208,7 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   // tab gets its pricing and economy pass.
   weapon: {
     fallbackLabel: "Weapon (Standard-Issue Autocannon)",
-    blurb: "The floor gun, the same one every hull is issued. A patrol needs at least one weapon installed.",
+    blurb: "The floor gun, the same one every hull is issued. A ship with no weapon can still patrol, but it cannot return fire.",
     mint: { kind: "weapon", weaponType: "autocannon" },
   },
 
