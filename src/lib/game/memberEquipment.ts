@@ -160,8 +160,10 @@ export function memberPieceInSlot(
 }
 
 // Every piece the member wears in `slotType`, for ANY member slot, so a slot grid can index singleton and
-// implant slots uniformly (index i = the i-th drawn slot). STABLE ORDER: by the numeric suffix of the
-// "equip-N" id (mint order), so a piece keeps its grid position as others come and go; an id without a
+// implant slots uniformly (index i = the i-th drawn slot). DETERMINISTIC ORDER: by the numeric suffix of the
+// "equip-N" id (mint order). This is NOT position-stable: removing a lower-id piece shifts the rest down,
+// and a targeted swap's replacement lands by its own mint number, not in the replaced piece's index (a
+// position-stable grid would need a persisted slot index; see the Task 10 note in the plan). An id without a
 // numeric suffix sorts after, in pool order (Array.prototype.sort is stable). Length is at most
 // memberSlotCapacity(member, slotType) because every install goes through canFitToMember, which keeps it
 // there; nothing is truncated here, so a worn piece can never be hidden. Pure (fresh array).

@@ -540,7 +540,8 @@ describe("memberEquipment / memberPieceInSlot / memberSlotPieces", () => {
     expect(implants.length).toBeLessThanOrEqual(memberSlotCapacity(mar, "implant"));
     expect(memberSlotPieces(s, "m-mar", "memberWeapon").map((e) => e.id)).toEqual(["equip-7"]);
     expect(memberSlotPieces(s, "m-mar", "memberArmor")).toEqual([]);
-    // A targeted swap keeps the survivor's index stable: replacing equip-3 leaves equip-12 last.
+    // A targeted swap re-sorts by mint order: replacing equip-3 with equip-20 moves the survivor equip-12 to
+    // index 0 and puts the newcomer last (deterministic, not position-stable).
     const swapped = fitToMember(
       { ...s, equipment: [...s.equipment, piece("equip-20", "implant", "targetingOptic")] },
       "m-mar",

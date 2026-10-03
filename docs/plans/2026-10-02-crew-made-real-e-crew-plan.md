@@ -269,6 +269,25 @@ right team; the economy floor rule still holds.
 
 ### Task 10: Gear UI (member cells, install modal, Warehouse + Fabricator tabs)
 
+**Carry from Task 7 (`a8aac59`, `d601f6e`):** until this task, crafted member pieces are invisible
+(`BAY_SLOT_ORDER` is ship-only) yet count toward the SHARED equipment storage cap and are subject to auto-salvage
+rules. Decide + implement deliberately: (a) storage: shared cap vs a separate away-team gear cap (ask the user if
+it changes balance; default proposal: shared cap, shown in the new tab's header); (b) auto-salvage: member pieces
+follow the same rarity/duplicate rules, and the rules UI says so; (c) Salvage Bay + Archive list member pieces in
+their own groups; (d) EquipmentTooltip gets labels/icons for the 11 `ground*` stat keys (no camelCase fallback).
+The Archive gained 31 member slots, so existing players' completion % drops when 0.14.0 lands: say so in the 0.14.0
+patch notes.
+**Carry from Task 8 (`3415ca8`, memberEquipment.ts):** show "Install on..." only on SPARE rows (canFitEquipment does
+not require a spare, so installTargetsFor on an installed ship piece lists every ship); implants need a Swap flow
+(at cap a plain install reports implantSlotsFull: pass the chosen implant as replacingInstanceId); list implants
+via memberSlotPieces(state, memberId, "implant") (deterministic mint order, NOT position-stable: after a targeted
+implant swap the new implant may render in a different slot than the one tapped; if that reads badly in the grid,
+add an optional persisted `implantSlotIndex` on the piece, set on install, and sort by it); consider a member compare-preview helper (the ship
+side has applyHypotheticalInstall). Task 9: Quartermaster member baselines MUST carry a moduleVariant whose variety
+has member.teamTypes, or canFitToMember refuses them as wrongTeam. Task 11: add a "worn by" query (wearer of a
+unique variety) for "Installed on Lt. X (Aurora)". Open rule: injured members can currently be given gear (no rule
+says otherwise; fine unless the user objects).
+
 **Files:** `AwayTeamPanel.svelte`, the existing install modal component used by `ShipSystemsPanel.svelte`
 (reuse it with a member target), `App.svelte` Logistics (`Away-Team Gear`, `Implants` tabs) and Fabricator
 (`Away-Team Gear` tab), `EquipmentTooltip.svelte` (new stat keys get labels; tooltip design itself unchanged).
@@ -481,7 +500,11 @@ crew-changing action refuses with reason `"onMission"`. Tests: each action refus
 after it returns. (`shipCrewLocked` already exists from Task 5 and also locks while an expedition is out or
 unclaimed.) **Salvage gap (from Task 5 review):** `salvageShip` (salvage.ts ~596) must BENCH the ship's away members
 (`assignedShipId = null`, gear stays on them) atomically with the salvage, and the same for officers/notables if not
-already handled; test that no member points at a removed ship.
+already handled; test that no member points at a removed ship. **Reserve list (from Task 6 review):** members with
+`assignedShipId === null` (benched by salvage or "Move to... none") must be visible and reassignable: add a
+"Reserve" section (unassigned members, with Move-to-ship and Fire) where the recruitment board lives, so no member
+can ever become invisible. Also replace Task 6's provisional injury bar (2h nominal span) with the real recovery
+start once Task 16 stores it.
 
 ---
 
@@ -535,6 +558,31 @@ A8; wrong in prod since 0.13.6). Test: the existing help-topic shape test passes
 `save.test.ts` repeats `expect(SAVE_VERSION).toBe(N)` about 25 times and `.version).toBe(N)` about 11 times, so
 every bump edits ~36 lines. Keep ONE canonical pin; per-migration blocks assert the migrated fields (and use the
 imported `SAVE_VERSION` where they need "current"). Separate chore commit, no behavior change.
+
+### Task 34d: Merge 0.13.9 into feat/crew-0.14.0 (do as soon as the user promotes it)
+Known conflicts (from the hotfix + Task 1/8 reviews): `spareEquipmentCount` -> `isSparePiece(p) && blueprintKey !== null`;
+`freeSpareBaselinesFor` -> `isSparePiece`; `salvageEquipment` + `salvageTargetBlock` keep Task 1's `!isUninstalledPiece`
+"fitted" guard THEN the hotfix's "committed" guard; rewrite the Task 1 comments that say committed gear "has always
+counted" (now false); salvage chance-rounding keeps the 0.14.0 museum multiplier inside the fraction with the shared
+draw count still one; `installIntoLoadout` / `loadoutInstallCandidates` raw `fittedToShipId === null` -> `isSparePiece`
+(the source-scan test will flag them); keep the 0.13.9 patch-notes entry below 0.14.0's; Help topics may conflict.
+**Harmonize the singleton swap rule:** the ship gate (0.13.9) refuses `replacingInstanceId` on a singleton, while the
+member gate accepts it when it names the occupant. Make the ship side ALSO accept "the occupant" (same result as
+omitting it), so Task 10's shared Swap picker can pass the occupant uniformly. Apply the Task 7/8 review perf notes
+(ship-label helper per-row scans: use the batched `shipDisplayLabels` in the swap picker and Armory lists).
+Then remove the hotfix worktree (`git worktree remove`) and the "hotfix" entry in `.claude/launch.json`.
+
+### Task 34e: Shared "return piece to storage" helper (chore, from Task 8 review)
+The transition `startAutoSalvageGrace({ ...e, fittedToX: null }, now)` is hand-written in ~7 places (memberEquipment
+x2, awayTeam fire, equipment x3, armory). Add one `returnToStorage(piece, now)` in model.ts (nulls fittedToShipId AND
+fittedToMemberId, stamps grace) and route every storage-return through it, so the grace rule is structural rather
+than a header list. Behavior-neutral; separate commit.
+
+### Task 34c: Danger-color token migration (chore, from Task 6 review)
+About 31 hardcoded `rgba(248, 113, 113, ...)` danger tints across the app (e.g. SeniorStaffPanel ~742-749) ignore
+the colorblind-safe palette (`:root[data-palette="cbsafe"]` remaps `--color-danger`). Add `--color-danger-rgb` to
+`:root` and the cbsafe block (and any theme that overrides danger), then migrate the literals. Visual check in
+both palettes. Separate chore commit.
 
 ### Task 35: Review, QA sheet, staging
 Two-stage review (bug-check subagent, then a full-ledger fix pass), holistic review, then the controller
