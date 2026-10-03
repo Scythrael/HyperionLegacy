@@ -1,3 +1,8 @@
+<script context="module" lang="ts">
+  // A per-instance suffix for the heading id, so two boards on one page could never share an id.
+  let boardInstanceCount = 0;
+</script>
+
 <script lang="ts">
   // ============================================================================
   // RecruitmentBoard.svelte
@@ -6,10 +11,11 @@
   // The away-team RECRUITMENT BOARD: the derived hourly candidate board (awayTeam.ts
   // awayRecruitCandidates), each candidate with a ship selector and a Hire button. It mirrors the
   // Senior Staff panel's posture:
-  //   - PURE PRESENTATION + INTERACTION. The board, the per-ship hire gates and the block-reason
-  //     text all come from the tested engine (awayRecruitCandidates / hireTargetsFor /
-  //     awayCrewBlockText). Hire bubbles UP to the host (App.svelte doHireAwayMember: pure engine
-  //     fn, doSave, pushLog), so nothing here mutates state.
+  //   - PURE PRESENTATION + INTERACTION. The board, the per-ship hire gates, the refresh countdown
+  //     and the block-reason text all come from the tested engine (awayRecruitCandidates /
+  //     hireTargetsForCandidate / awayBoardSecondsToRefresh / awayCrewBlockText). Hire bubbles UP to
+  //     the host (App.svelte doHireAwayMember: pure engine fn, pushLog, doSave), so nothing here
+  //     mutates state. Picking a ship in the selector only records the pick; Hire acts.
   //   - RESPONSIVE via a container query on the card grid only (one DOM, no isMobile branch).
   //
   // It lives INSIDE the Away Team tab (the officer candidate roster likewise lives inside its own
@@ -17,15 +23,30 @@
   // can take the candidate, so the common case is one tap.
   // ============================================================================
 
+  import { tick } from "svelte";
   import Icon from "./ui/Icon.svelte";
   import type { AwayMember, GameState } from "./game/model";
-  import { awayRecruitCandidates, awayCrewBlockText, hireTargetsFor, implantSlotsFor, AUGMENT_AFFINITY_RACES } from "./game/awayTeam";
+  import {
+    AUGMENT_AFFINITY_RACES,
+    awayBoardSecondsToRefresh,
+    awayCrewBlockText,
+    awayRecruitCandidates,
+    hireTargetsForCandidate,
+    implantSlotsFor,
+    shipCrewLocked,
+  } from "./game/awayTeam";
   import type { AwayCrewBlockReason } from "./game/awayTeam";
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
-  import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./game/seniorStaff";
+  import { officerRosterWindowIndex } from "./game/seniorStaff";
   import { CREW_RANKS } from "./game/crewRank";
-  import { CREW_RACES } from "./game/crewRaces";
-  import { SQUAD_META, awaySpecLabel, rankTier, awayShipName, awayCountdownText } from "./awayTeamDisplay";
+  import {
+    SQUAD_META,
+    awaySpecLabel,
+    rankTier,
+    awayRaceLabel,
+    awayTargetLabel,
+    awayCountdownText,
+  } from "./awayTeamDisplay";
 
   // --- Props ------------------------------------------------------------------
   export let state: GameState;
@@ -34,10 +55,27 @@
   // Hire a candidate into a ship's squad of the candidate's team type (host: hireAwayMember).
   export let onHire: (candidateId: string, shipId: string) => void;
 
+  const headingId = `rboard-title-${++boardInstanceCount}`;
+  let headingEl: HTMLElement | null = null;
+
+  // Move focus to the board heading without scrolling (the host scrolls first when it needs to). The
+  // Away Team panel calls this from an open-slot card; the board calls it after a Hire, whose card
+  // leaves the board and would otherwise drop focus to the page.
+  export function focusHeading(): void {
+    headingEl?.focus({ preventScroll: true });
+  }
+
   // --- Local UI state ---------------------------------------------------------
   // The ship the player picked per candidate (candidate id -> ship id). A pick that is no longer a
-  // valid target falls back to the default below, so nothing stale survives a hire or a refresh.
+  // valid target falls back to the default below. Cleared whenever the board window rolls over, so
+  // picks for candidates that are gone never pile up.
   let picked: Record<string, string> = {};
+  let lastWindow: number | null = null;
+  $: windowIndex = officerRosterWindowIndex(state);
+  $: if (windowIndex !== lastWindow) {
+    lastWindow = windowIndex;
+    picked = {};
+  }
 
   interface TargetRow {
     shipId: string;
@@ -52,22 +90,40 @@
   }
 
   // --- Derived reads ----------------------------------------------------------
-  // Time left in the current board window: the same derivation the officer board's refresh uses
-  // (floor(gameTimeSeconds / OFFICER_ROSTER_WINDOW_SECONDS) steps the window).
-  $: secondsToRefresh =
-    (officerRosterWindowIndex(state) + 1) * OFFICER_ROSTER_WINDOW_SECONDS - state.gameTimeSeconds;
+  $: secondsToRefresh = awayBoardSecondsToRefresh(state);
 
-  // Every candidate with its hire targets and the chosen one. `picked` is named so a selector change
-  // recomputes the rows (it is read inside the helper, which the compiler cannot see).
-  $: rows = buildRows(state, shipId, picked);
+  // Every candidate with its hire targets and the chosen one, MEMOIZED: the host reassigns `state`
+  // on every tick poll, and rebuilding the board (and every candidate's per-ship gates) each time is
+  // wasted work. The rows depend only on the board inputs (window, seed, board size), who is hired
+  // where (the awayMembers ref, replaced by every hire / fire / move), each ship's name, hull and crew
+  // lock (folded into a small string, because the ships / captains / expeditions refs churn on ticks
+  // while the facts the gates read rarely change), the host ship and the picks.
+  let memoKey = "";
+  let memoMembers: AwayMember[] | null = null;
+  let memoPicks: Record<string, string> | null = null;
+  let memoRows: CandidateRow[] = [];
+  $: rows = rowsFor(state, shipId, picked);
 
+  function rowsFor(s: GameState, hostShipId: string, picks: Record<string, string>): CandidateRow[] {
+    const shipsKey = s.ships
+      .map((x) => `${x.id}:${x.name ?? ""}:${x.typeKey}:${shipCrewLocked(s, x.id) ? 1 : 0}`)
+      .join(",");
+    const key = `${officerRosterWindowIndex(s)}|${s.awayRecruitSeed}|${s.seniorStaffRosterSize}|${hostShipId}|${shipsKey}`;
+    if (key === memoKey && s.awayMembers === memoMembers && picks === memoPicks) return memoRows;
+    memoKey = key;
+    memoMembers = s.awayMembers;
+    memoPicks = picks;
+    memoRows = buildRows(s, hostShipId, picks);
+    return memoRows;
+  }
+
+  // One awayRecruitCandidates call for the whole board; each candidate's targets reuse it.
   function buildRows(s: GameState, hostShipId: string, picks: Record<string, string>): CandidateRow[] {
     return awayRecruitCandidates(s).map((candidate) => {
-      const short = SQUAD_META[candidate.teamType].short;
-      const targets: TargetRow[] = hireTargetsFor(s, candidate.id).map((t) => {
+      const targets: TargetRow[] = hireTargetsForCandidate(s, candidate).map((t) => {
         const ship = s.ships.find((x) => x.id === t.shipId);
-        const name = ship ? awayShipName(ship) : t.shipId;
-        return { shipId: t.shipId, label: `${name} · ${short}`, ok: t.ok, reason: t.reason };
+        const label = ship ? awayTargetLabel(ship, candidate.teamType) : t.shipId;
+        return { shipId: t.shipId, label, ok: t.ok, reason: t.reason };
       });
       const pick = targets.find((t) => t.shipId === picks[candidate.id] && t.ok);
       const host = targets.find((t) => t.shipId === hostShipId && t.ok);
@@ -78,9 +134,6 @@
   }
 
   // --- Display helpers --------------------------------------------------------
-  function raceLabel(m: AwayMember): string {
-    return CREW_RACES[m.race]?.label ?? m.race;
-  }
   // One trait as {label, effect, full}: the bold name, its generated effect text, and the full line
   // (flavor + effects) for the tooltip. An id the catalog no longer carries is skipped.
   function traitRows(m: AwayMember): { id: string; label: string; effect: string; full: string }[] {
@@ -100,21 +153,29 @@
   function optionText(t: TargetRow): string {
     return t.ok || t.reason === undefined ? t.label : `${t.label} (${awayCrewBlockText(t.reason)})`;
   }
+  // The visible reason a candidate cannot be hired right now, or null when Hire is live.
+  function whyText(row: CandidateRow): string | null {
+    if (row.chosen === null) return "No ship can take this recruit";
+    if (row.chosen.ok || row.chosen.reason === undefined) return null;
+    return awayCrewBlockText(row.chosen.reason);
+  }
 
   function onPick(candidateId: string, e: Event): void {
     const value = (e.currentTarget as HTMLSelectElement).value;
     picked = { ...picked, [candidateId]: value };
   }
-  function hire(row: CandidateRow): void {
+  async function hire(row: CandidateRow): Promise<void> {
     if (row.chosen === null || !row.chosen.ok) return;
     onHire(row.candidate.id, row.chosen.shipId);
+    await tick();
+    focusHeading();
   }
 </script>
 
-<section class="rboard" aria-labelledby="rboard-title">
+<section class="rboard" aria-labelledby={headingId}>
   <div class="rboard-head">
     <span class="rboard-glyph"><Icon name="recruit" /></span>
-    <h3 class="rboard-title" id="rboard-title" tabindex="-1">Recruitment Board</h3>
+    <h3 class="rboard-title" id={headingId} tabindex="-1" bind:this={headingEl}>Recruitment Board</h3>
     <span class="rboard-tag" title="The board refreshes every hour">
       <Icon name="clock" /> refreshes in {awayCountdownText(secondsToRefresh)}
     </span>
@@ -127,11 +188,13 @@
       {#each rows as row (row.candidate.id)}
         {@const c = row.candidate}
         {@const meta = SQUAD_META[c.teamType]}
+        {@const why = whyText(row)}
+        {@const whyId = `${headingId}-why-${c.id}`}
         <div class="rcand">
           <div class="rcand-name">{c.name}</div>
           <div class="rcand-row">
             <span class="rcand-rank rk-{rankTier(c.rank)}">{CREW_RANKS[c.rank].label}</span>
-            <span class="aw-chip">{raceLabel(c)}</span>
+            <span class="aw-chip">{awayRaceLabel(c.race)}</span>
             <span class="aw-chip spec {c.teamType}"><Icon name={meta.icon} /> {meta.short} · {awaySpecLabel(c.spec)}</span>
             {#if AUGMENT_AFFINITY_RACES.has(c.race)}
               <span class="aw-chip aff" title="Augment affinity: a second implant slot">Augment affinity</span>
@@ -148,6 +211,7 @@
               <select
                 class="rcand-select"
                 aria-label="Hire {c.name} into"
+                aria-describedby={why !== null ? whyId : undefined}
                 value={row.chosen?.shipId ?? ""}
                 on:change={(e) => onPick(c.id, e)}
               >
@@ -158,18 +222,15 @@
               <button
                 type="button"
                 class="aw-btn primary"
-                disabled={row.chosen === null || !row.chosen.ok}
-                title={row.chosen === null
-                  ? "No ship can take this recruit"
-                  : row.chosen.ok || row.chosen.reason === undefined
-                    ? `Hire into ${row.chosen.label}`
-                    : awayCrewBlockText(row.chosen.reason)}
+                disabled={why !== null}
+                aria-describedby={why !== null ? whyId : undefined}
+                title={why ?? `Hire into ${row.chosen?.label ?? ""}`}
                 on:click={() => hire(row)}
               >Hire</button>
             </span>
           </div>
-          {#if row.chosen !== null && !row.chosen.ok && row.chosen.reason !== undefined}
-            <div class="rcand-why">{awayCrewBlockText(row.chosen.reason)}</div>
+          {#if why !== null}
+            <div class="rcand-why" id={whyId}>{why}</div>
           {/if}
         </div>
       {/each}
@@ -209,8 +270,14 @@
     letter-spacing: 0.04em;
     color: var(--color-text-primary);
   }
+  /* Programmatic focus (after a Hire, or from an open-slot card) shows no ring after a mouse click,
+     but a keyboard user gets a visible cue on the heading focus lands on. */
   .rboard-title:focus {
     outline: none;
+  }
+  .rboard-title:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 3px;
   }
   .rboard-tag {
     margin-left: auto;
@@ -269,8 +336,9 @@
     font-size: var(--text-xs);
     letter-spacing: 0.03em;
   }
+  /* The rare find. Not --color-warning: that amber already means "blocked" in the reason lines. */
   .rk-hi {
-    color: var(--color-warning);
+    color: var(--rarity-constellar);
   }
   .rk-mid {
     color: var(--rarity-stellar);
@@ -331,7 +399,8 @@
     color: var(--color-text-dim);
   }
 
-  /* Shared chip + button look, kept identical to AwayTeamPanel's (each component scopes its own). */
+  /* Shared chip + button look, kept identical to AwayTeamPanel's (each component scopes its own). The
+     spec chip's border is the squad hue: set per squad type here, per squad section in the panel. */
   .aw-chip {
     display: inline-flex;
     align-items: center;
@@ -345,13 +414,12 @@
     white-space: nowrap;
   }
   .aw-chip.spec {
+    --squad-hue: var(--color-accent-bright);
     color: var(--color-text-primary);
+    border-color: var(--squad-hue);
   }
   .aw-chip.spec.security {
-    border-color: rgba(248, 113, 113, 0.45);
-  }
-  .aw-chip.spec.science {
-    border-color: rgba(var(--color-accent-rgb), 0.45);
+    --squad-hue: var(--color-danger);
   }
   .aw-chip.aff {
     color: var(--color-accent-bright);

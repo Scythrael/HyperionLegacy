@@ -180,10 +180,13 @@ export const ICON_PATHS = {
   security: ["M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"],
   // Armor: a vest with a collar and a plate seam (a member's Armor slot).
   armor: ["M8 3h8l3 4-2 2v11H7V9L5 7z", "M9.5 3c.5 1.6 1.4 2.4 2.5 2.4S14 4.6 14.5 3", "M7 13h10"],
-  // Weapon (hand): a side-on sidearm, the member's Weapon slot. Named apart from ship weapons.
-  weaponHand: ["M3 13h12l3-3h3v4h-3l-1 1H9l-1 4H5l1-4H3z"],
-  // Tool: an open-jaw wrench, the member's Tool slot. The mockup's wrench was redrawn here because
-  // at 16px its half-open head read as a test tube; a closed jaw outline with a notch reads as a wrench.
+  // Weapon (hand): a side-on pistol (slide, front sight, raked grip, trigger guard), the member's
+  // Weapon slot. Named apart from ship weapons. The mockup's long-barreled glyph read as a hair dryer
+  // at 16px, so it was redrawn as a compact sidearm.
+  weaponHand: ["M3.5 7.5h17v4H11l-1.5 7.5h-4l1.3-7.5H3.5z", "M11 11.5c.2 1.8 1 2.7 2.6 2.7h.4v-2.7", "M17.5 7.5v-1.5"],
+  // Tool: a wrench, the member's Tool slot, drawn as one outline whose head carries an open jaw (the
+  // notch). The mockup's wrench was redrawn because its head outline stopped short and read as a test
+  // tube at 16px; the continuous outline with the notch reads as a wrench.
   tool: ["M19.8 7.2a5 5 0 0 1-6.5 6.5L7 20a2.1 2.1 0 0 1-3-3l6.3-6.3a5 5 0 0 1 6.5-6.5L13.5 7.5l3 3z"],
   // Implant: a socketed module with leads on every side (a cybernetic slot). Fewer, longer leads
   // than `wafer`, so the two never read alike.

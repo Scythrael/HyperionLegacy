@@ -5,7 +5,15 @@ import { AWAY_TEAM_TYPES, freshState } from "./game/model";
 import { specsFor } from "./game/awayTeam";
 import { CREW_RANK_ORDER } from "./game/crewRank";
 import { ICON_NAMES } from "./ui/icons";
-import { SQUAD_META, awaySpecLabel, rankTier, awayShipName, awayCountdownText } from "./awayTeamDisplay";
+import {
+  SQUAD_META,
+  awaySpecLabel,
+  rankTier,
+  awayShipName,
+  awayCountdownText,
+  awayRaceLabel,
+  awayTargetLabel,
+} from "./awayTeamDisplay";
 
 describe("awayTeamDisplay", () => {
   it("labels every squad type with a real icon, and every spec", () => {
@@ -26,6 +34,12 @@ describe("awayTeamDisplay", () => {
     const ship = freshState().ships[0];
     expect(awayShipName({ ...ship, name: "Aurora Prime" })).toBe("Aurora Prime");
     expect(awayShipName({ ...ship, name: undefined })).toBe("General Freighter");
+    expect(awayTargetLabel({ ...ship, name: "Aurora Prime" }, "science")).toBe("Aurora Prime · Science");
+  });
+
+  it("labels a race from the catalog", () => {
+    expect(awayRaceLabel("stheni")).toBe("Stheni");
+    expect(awayRaceLabel("earthBorn")).toBe("Earth-born");
   });
 
   it("renders a countdown in s / m / h m, rounding minutes up", () => {

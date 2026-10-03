@@ -13,6 +13,9 @@
   //     crew gate come from the tested engine (game/awayTeam.ts); trait text is generated from the
   //     trait effects (game/awayTraits.ts). Fire / Move / Hire bubble UP to the host (App.svelte
   //     doFireAwayMember / doReassignAwayMember / doHireAwayMember), never mutating state here.
+  //   - EXPLICIT ACTIONS ONLY. A select never acts on change (on Windows Chromium the arrow keys on a
+  //     closed select fire change, WCAG 3.2.2): Move is a pick plus a Move button, like the board's
+  //     pick plus Hire. After Fire or Move, focus lands on the squad heading the card left.
   //   - RESPONSIVE via container queries only: ONE DOM, the member grid reflows by the panel's own
   //     width. No isMobile branch, no separate mobile markup.
   //
@@ -39,9 +42,8 @@
   import type { AwayCrewGate } from "./game/awayTeam";
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
   import { CREW_RANKS } from "./game/crewRank";
-  import { CREW_RACES } from "./game/crewRaces";
   import type { IconName } from "./ui/icons";
-  import { SQUAD_META, awaySpecLabel, awayShipName, awayCountdownText } from "./awayTeamDisplay";
+  import { SQUAD_META, awaySpecLabel, awayRaceLabel, awayTargetLabel, awayCountdownText } from "./awayTeamDisplay";
 
   // --- Props ------------------------------------------------------------------
   export let state: GameState;
@@ -55,11 +57,18 @@
 
   // --- Local UI state ---------------------------------------------------------
   let confirmFireId: string | null = null;
+  // The ship picked in each member's Move selector (member id -> ship id). Picking only records it;
+  // the Move button acts.
+  let movePick: Record<string, string> = {};
   let boardEl: HTMLElement | null = null;
+  let board: { focusHeading: () => void } | null = null;
+  // Each squad's heading, the focus target after a Fire or Move takes a card away.
+  let squadHeadings: Partial<Record<AwayTeamType, HTMLElement>> = {};
   let lastShipId: string | null = null;
   $: if (shipId !== lastShipId) {
     lastShipId = shipId;
     confirmFireId = null;
+    movePick = {};
   }
 
   // FIRST-PASS recovery base the injury bar scales against (design: 2h before Medical shortens it).
@@ -105,7 +114,7 @@
           .filter((x) => x.id !== id)
           .map((x) => ({
             shipId: x.id,
-            label: `${awayShipName(x)} · ${SQUAD_META[teamType].short}`,
+            label: awayTargetLabel(x, teamType),
             gate: canReassignAwayMember(s, member.id, x.id),
           })),
         injuredFor: Math.max(0, (member.injuredUntilSeconds ?? 0) - s.gameTimeSeconds),
@@ -116,9 +125,6 @@
   }
 
   // --- Display helpers --------------------------------------------------------
-  function raceLabel(m: AwayMember): string {
-    return CREW_RACES[m.race]?.label ?? m.race;
-  }
   function traitChips(m: AwayMember): { id: string; label: string; full: string }[] {
     const out: { id: string; label: string; full: string }[] = [];
     for (const id of m.traits) {
@@ -135,25 +141,41 @@
     return gate.ok ? undefined : awayCrewBlockText(gate.reason);
   }
 
-  // --- Actions ----------------------------------------------------------------
-  async function goToBoard(): Promise<void> {
-    await tick();
-    if (!boardEl) return;
-    boardEl.scrollIntoView({ behavior: "smooth", block: "start" });
-    const heading = boardEl.querySelector<HTMLElement>("#rboard-title");
-    heading?.focus({ preventScroll: true });
+  // The member's picked Move target, only while it is still a target the move would go through to.
+  function pickedTarget(mv: MemberView): MemberView["moveTargets"][number] | null {
+    const t = mv.moveTargets.find((x) => x.shipId === movePick[mv.member.id]);
+    return t && t.gate.ok ? t : null;
   }
-  function onMove(memberId: string, e: Event): void {
-    const select = e.currentTarget as HTMLSelectElement;
-    const target = select.value;
-    select.value = ""; // the control is a one-shot picker; it always rests on its prompt
-    if (target !== "") onReassign(memberId, target);
+
+  // --- Actions ----------------------------------------------------------------
+  // Jump to the board. No smooth behavior: the default scroll respects the in-game Reduce Motion
+  // setting (the app.css scroll-behavior rule), which an explicit "smooth" would override.
+  function goToBoard(): void {
+    boardEl?.scrollIntoView({ block: "start" });
+    board?.focusHeading();
+  }
+  async function focusSquad(teamType: AwayTeamType): Promise<void> {
+    await tick();
+    squadHeadings[teamType]?.focus({ preventScroll: true });
+  }
+  function onPickMove(memberId: string, e: Event): void {
+    movePick = { ...movePick, [memberId]: (e.currentTarget as HTMLSelectElement).value };
+  }
+  function move(mv: MemberView): void {
+    const target = pickedTarget(mv);
+    if (target === null) return;
+    const rest = { ...movePick };
+    delete rest[mv.member.id];
+    movePick = rest;
+    onReassign(mv.member.id, target.shipId);
+    void focusSquad(mv.member.teamType);
   }
   function confirmFire(): void {
-    if (confirmFireId !== null) {
-      onFire(confirmFireId);
-      confirmFireId = null;
-    }
+    if (confirmFireId === null) return;
+    const member = state.awayMembers.find((m) => m.id === confirmFireId);
+    onFire(confirmFireId);
+    confirmFireId = null;
+    if (member) void focusSquad(member.teamType);
   }
   $: fireTarget = confirmFireId !== null ? state.awayMembers.find((m) => m.id === confirmFireId) ?? null : null;
 </script>
@@ -170,21 +192,28 @@
 
     {#each squads as sq (sq.teamType)}
       {@const meta = SQUAD_META[sq.teamType]}
-      <section class="squad {sq.teamType}">
+      <section class="squad {sq.teamType}" aria-labelledby="away-squad-{shipId}-{sq.teamType}">
         <div class="squad-h">
-          <span class="squad-name"><Icon name={meta.icon} /> {meta.name}</span>
+          <h3
+            class="squad-name"
+            id="away-squad-{shipId}-{sq.teamType}"
+            tabindex="-1"
+            bind:this={squadHeadings[sq.teamType]}
+          ><Icon name={meta.icon} /> {meta.name}</h3>
           <span class="squad-meta">{sq.members.length} of {sq.slots} · {meta.role}</span>
         </div>
 
         <div class="members">
           {#each sq.members as mv (mv.member.id)}
             {@const m = mv.member}
+            {@const whyId = `away-why-${m.id}`}
+            {@const moveTo = pickedTarget(mv)}
             <div class="mem" class:injured={mv.injuredFor > 0}>
               <div class="mem-top">
                 <span class="mem-av"><Icon name={meta.icon} /></span>
                 <div class="mem-idn">
                   <div class="mem-name">{m.name}</div>
-                  <div class="mem-sub">{raceLabel(m)} · {CREW_RANKS[m.rank].label}</div>
+                  <div class="mem-sub">{awayRaceLabel(m.race)} · {CREW_RANKS[m.rank].label}</div>
                 </div>
               </div>
 
@@ -228,9 +257,9 @@
                 {#if mv.moveTargets.length > 0}
                   <select
                     class="mem-move"
-                    aria-label="Move {m.name} to another ship"
-                    value=""
-                    on:change={(e) => onMove(m.id, e)}
+                    aria-label="Ship to move {m.name} to"
+                    value={moveTo?.shipId ?? ""}
+                    on:change={(e) => onPickMove(m.id, e)}
                   >
                     <option value="" disabled>Move to...</option>
                     {#each mv.moveTargets as t (t.shipId)}
@@ -239,17 +268,25 @@
                       </option>
                     {/each}
                   </select>
+                  <button
+                    type="button"
+                    class="aw-btn"
+                    disabled={moveTo === null}
+                    title={moveTo === null ? "Pick a ship to move to first" : `Move ${m.name} to ${moveTo.label}`}
+                    on:click={() => move(mv)}
+                  >Move</button>
                 {/if}
                 <button
                   type="button"
                   class="aw-btn danger"
                   disabled={!mv.fire.ok}
+                  aria-describedby={mv.fire.ok ? undefined : whyId}
                   title={gateText(mv.fire) ?? `Fire ${m.name}`}
                   on:click={() => (confirmFireId = m.id)}
                 >Fire</button>
               </div>
               {#if !mv.fire.ok}
-                <div class="mem-why">{gateText(mv.fire)}</div>
+                <div class="mem-why" id={whyId}>{gateText(mv.fire)}</div>
               {/if}
             </div>
           {/each}
@@ -266,7 +303,7 @@
     {/each}
 
     <div class="away-board" bind:this={boardEl}>
-      <RecruitmentBoard {state} {shipId} {onHire} />
+      <RecruitmentBoard bind:this={board} {state} {shipId} {onHire} />
     </div>
   {/if}
 </div>
@@ -274,7 +311,7 @@
 {#if fireTarget !== null}
   <ActionModal title="Fire Member" onClose={() => (confirmFireId = null)}>
     <p class="away-confirm">
-      Fire <strong>{fireTarget.name}</strong> ({CREW_RANKS[fireTarget.rank].label}, {raceLabel(fireTarget)})?
+      Fire <strong>{fireTarget.name}</strong> ({CREW_RANKS[fireTarget.rank].label}, {awayRaceLabel(fireTarget.race)})?
       Their gear and implants go back to storage first, then they leave the fleet.
     </p>
     <svelte:fragment slot="footer">
@@ -317,6 +354,8 @@
     margin-bottom: 10px;
   }
   .squad-name {
+    margin: 0;
+    font-weight: normal;
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -324,6 +363,13 @@
     font-size: var(--text-md);
     letter-spacing: 0.03em;
     color: var(--squad-hue);
+  }
+  .squad-name:focus {
+    outline: none;
+  }
+  .squad-name:focus-visible {
+    outline: 1px solid var(--color-accent);
+    outline-offset: 3px;
   }
   .squad-meta {
     font-size: var(--text-xs);
@@ -430,6 +476,7 @@
     color: var(--color-text-secondary);
     white-space: nowrap;
   }
+  /* Same chip look as the board's (each component scopes its own); the spec border is the squad hue. */
   .aw-chip.spec {
     color: var(--color-text-primary);
     border-color: var(--squad-hue);
@@ -460,7 +507,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: var(--text-3xs, var(--text-2xs));
+    font-size: var(--text-3xs);
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-text-dim);
@@ -557,13 +604,15 @@
     color: var(--color-text-primary);
     border-color: var(--color-accent);
   }
+  /* Danger tints derive from the token (color-mix, the App.svelte precedent) so the colorblind-safe
+     palette re-hues them too. */
   .aw-btn.danger {
-    background: rgba(248, 113, 113, 0.1);
-    border-color: rgba(248, 113, 113, 0.4);
-    color: var(--color-danger, #f87171);
+    background: color-mix(in srgb, var(--color-danger) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+    color: var(--color-danger);
   }
   .aw-btn.danger:hover:not(:disabled) {
-    background: rgba(248, 113, 113, 0.2);
+    background: color-mix(in srgb, var(--color-danger) 20%, transparent);
   }
   .aw-btn:disabled {
     opacity: 0.45;

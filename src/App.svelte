@@ -398,10 +398,11 @@
     fireAwayMember,
     reassignAwayMember,
     canHireAwayMember,
+    canFireAwayMember,
     canReassignAwayMember,
     awayCrewBlockText,
   } from "./lib/game/awayTeam";
-  import { awayShipName } from "./lib/awayTeamDisplay";
+  import { awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
   import { CREW_RANKS } from "./lib/game/crewRank";
   // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
   // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
@@ -5060,15 +5061,20 @@
 
   // HIRE a board candidate into a ship's squad of the candidate's team type.
   function doHireAwayMember(candidateId: string, shipId: string) {
-    const gate = canHireAwayMember(state, candidateId, shipId);
     const next = hireAwayMember(state, candidateId, shipId);
     if (next === state) {
+      const gate = canHireAwayMember(state, candidateId, shipId);
       if (!gate.ok) pushLog(`Cannot hire: ${awayCrewBlockText(gate.reason)}.`);
       return;
     }
-    const hired = next.awayMembers[next.awayMembers.length - 1];
+    // The hire records the candidate it came from, so find it by that, not by list position.
+    const hired = next.awayMembers.find((m) => m.hiredFrom === candidateId);
     state = next;
-    pushLog(`Hired ${hired.name} (${CREW_RANKS[hired.rank].label}) to the ${awayShipLabel(shipId)} ${hired.teamType} squad.`);
+    if (hired) {
+      pushLog(
+        `Hired ${hired.name} (${CREW_RANKS[hired.rank].label}) to the ${awayShipLabel(shipId)} ${SQUAD_META[hired.teamType].name}.`,
+      );
+    }
     doSave();
   }
 
@@ -5077,7 +5083,11 @@
   function doFireAwayMember(memberId: string) {
     const member = state.awayMembers.find((m) => m.id === memberId);
     const next = fireAwayMember(state, memberId);
-    if (next === state) return; // unknown id or crew-locked: the panel shows why
+    if (next === state) {
+      const gate = canFireAwayMember(state, memberId);
+      if (!gate.ok) pushLog(`Cannot fire ${member?.name ?? memberId}: ${awayCrewBlockText(gate.reason)}.`);
+      return;
+    }
     state = next;
     pushLog(`Fired ${member?.name ?? memberId} from the away team.`);
     doSave();
@@ -5086,9 +5096,9 @@
   // MOVE a member to another ship's squad of their own type (shipId null benches them).
   function doReassignAwayMember(memberId: string, shipId: string | null) {
     const member = state.awayMembers.find((m) => m.id === memberId);
-    const gate = canReassignAwayMember(state, memberId, shipId);
     const next = reassignAwayMember(state, memberId, shipId);
     if (next === state) {
+      const gate = canReassignAwayMember(state, memberId, shipId);
       if (!gate.ok) pushLog(`Cannot move ${member?.name ?? memberId}: ${awayCrewBlockText(gate.reason)}.`);
       return;
     }

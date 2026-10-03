@@ -26,7 +26,7 @@ import { awayTraitsForTeam } from "./awayTraits";
 import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
-import { officerRosterWindowIndex } from "./seniorStaff";
+import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./seniorStaff";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { onMissionLock } from "./equipment";
 
@@ -210,6 +210,12 @@ export function awayRecruitCandidates(state: GameState): AwayMember[] {
   return out;
 }
 
+// Seconds until the board rolls over to its next window (the officer board's window, so both refresh
+// together). Always in (0, OFFICER_ROSTER_WINDOW_SECONDS]. Pure.
+export function awayBoardSecondsToRefresh(state: GameState): number {
+  return (officerRosterWindowIndex(state) + 1) * OFFICER_ROSTER_WINDOW_SECONDS - state.gameTimeSeconds;
+}
+
 // ============================================================================
 // Actions (each returns a NEW GameState; inputs are never mutated; a refusal returns the SAME ref)
 // ============================================================================
@@ -238,9 +244,18 @@ export function shipCrewLocked(state: GameState, shipId: string): boolean {
 //   noMember:     no member with that id
 //   noShip:       the target ship does not exist
 //   onMission:    a ship involved is crew-locked (shipCrewLocked); Task 27 unifies every crew lock on it
+//   noSquad:      the target hull fields no squad of the member's team type at all (0 slots), so the
+//                 player is never told "Squad is full" about a squad that does not exist
 //   squadFull:    the target squad of the member's team type has no open slot
 //   alreadyThere: a reassign to where the member already is (same ship, or benching a benched member)
-export type AwayCrewBlockReason = "noCandidate" | "noMember" | "noShip" | "onMission" | "squadFull" | "alreadyThere";
+export type AwayCrewBlockReason =
+  | "noCandidate"
+  | "noMember"
+  | "noShip"
+  | "onMission"
+  | "noSquad"
+  | "squadFull"
+  | "alreadyThere";
 
 export type AwayCrewGate = { ok: true } | { ok: false; reason: AwayCrewBlockReason };
 
@@ -257,11 +272,23 @@ export function awayCrewBlockText(reason: AwayCrewBlockReason): string {
       return "That ship is no longer in the fleet";
     case "onMission":
       return "Ship is out on a mission";
+    case "noSquad":
+      return "This ship fields no such squad";
     case "squadFull":
       return "Squad is full";
     case "alreadyThere":
       return "Already on this ship";
   }
+}
+
+// The squad half of a hire / move gate: noShip, noSquad (the hull fields none of this type), squadFull,
+// or ok. The caller has already checked the crew lock. Pure.
+function squadGate(state: GameState, shipId: string, teamType: AwayTeamType): AwayCrewGate {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (!ship) return { ok: false, reason: "noShip" };
+  if (squadSlots(ship.typeKey, teamType) === 0) return { ok: false, reason: "noSquad" };
+  if (!squadHasRoom(state, shipId, teamType)) return { ok: false, reason: "squadFull" };
+  return { ok: true };
 }
 
 // The board candidate with this id, or undefined when it is not on the current board. Builds the board
@@ -277,12 +304,11 @@ function hireGateFor(state: GameState, candidate: AwayMember | undefined, shipId
   if (!candidate) return { ok: false, reason: "noCandidate" };
   if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
   if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
-  if (!squadHasRoom(state, shipId, candidate.teamType)) return { ok: false, reason: "squadFull" };
-  return { ok: true };
+  return squadGate(state, shipId, candidate.teamType);
 }
 
 // Can this board candidate be hired into `shipId`'s squad of the candidate's team type? Checked in order:
-// noCandidate, noShip, onMission, squadFull. Pure.
+// noCandidate, noShip, onMission, noSquad, squadFull. Pure.
 export function canHireAwayMember(state: GameState, candidateId: string, shipId: string): AwayCrewGate {
   return hireGateFor(state, boardCandidate(state, candidateId), shipId);
 }
@@ -295,7 +321,16 @@ export function hireTargetsFor(
   state: GameState,
   candidateId: string,
 ): { shipId: string; ok: boolean; reason?: AwayCrewBlockReason }[] {
-  const candidate = boardCandidate(state, candidateId);
+  return hireTargetsForCandidate(state, boardCandidate(state, candidateId));
+}
+
+// hireTargetsFor for a candidate the caller ALREADY holds (from one awayRecruitCandidates call), so a
+// UI listing the whole board builds it once in total rather than once per candidate. Pass a candidate
+// taken from the current board; undefined marks every ship noCandidate, like an unknown id. Pure.
+export function hireTargetsForCandidate(
+  state: GameState,
+  candidate: AwayMember | undefined,
+): { shipId: string; ok: boolean; reason?: AwayCrewBlockReason }[] {
   return state.ships.map((ship) => {
     const gate = hireGateFor(state, candidate, ship.id);
     return gate.ok ? { shipId: ship.id, ok: true } : { shipId: ship.id, ok: false, reason: gate.reason };
@@ -349,7 +384,7 @@ export function fireAwayMember(state: GameState, memberId: string): GameState {
 
 // Can this member move to `shipId`'s squad of their own team type, or be benched (shipId null)? Checked
 // in order: noMember, alreadyThere, onMission (the ship they leave), then for a real target noShip,
-// onMission (the ship they join) and squadFull. Pure.
+// onMission (the ship they join), noSquad and squadFull. Pure.
 export function canReassignAwayMember(state: GameState, memberId: string, shipId: string | null): AwayCrewGate {
   const target = state.awayMembers.find((m) => m.id === memberId);
   if (!target) return { ok: false, reason: "noMember" };
@@ -360,7 +395,7 @@ export function canReassignAwayMember(state: GameState, memberId: string, shipId
   if (shipId !== null) {
     if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
     if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
-    if (!squadHasRoom(state, shipId, target.teamType)) return { ok: false, reason: "squadFull" };
+    return squadGate(state, shipId, target.teamType);
   }
   return { ok: true };
 }

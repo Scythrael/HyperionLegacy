@@ -5,8 +5,9 @@
 // labels (and so the logic is node-testable: this repo has no Svelte component test harness). Nothing
 // here is game logic; the engine lives in game/awayTeam.ts and game/awayTraits.ts.
 
-import type { AwayMemberSpec, AwayTeamType, CrewRank, ShipInstance } from "./game/model";
+import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ShipInstance } from "./game/model";
 import { SHIP_TYPES } from "./game/model";
+import { CREW_RACES } from "./game/crewRaces";
 import type { IconName } from "./ui/icons";
 
 export interface SquadMeta {
@@ -36,7 +37,7 @@ const SPEC_LABEL: Record<AwayMemberSpec, string> = {
 };
 
 export function awaySpecLabel(spec: AwayMemberSpec): string {
-  return SPEC_LABEL[spec] ?? spec;
+  return SPEC_LABEL[spec];
 }
 
 // The visual emphasis band for a rank on the recruit board: a Lieutenant or Lieutenant Commander is the
@@ -51,6 +52,16 @@ export function rankTier(rank: CrewRank): RankTier {
 // A ship's player-facing name: its custom name, else the hull label, else the raw id (the roster rule).
 export function awayShipName(ship: Pick<ShipInstance, "id" | "name" | "typeKey">): string {
   return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+}
+
+// A race's display label (the CREW_RACES catalog), the raw id only for a race the catalog lost.
+export function awayRaceLabel(race: CrewRace): string {
+  return CREW_RACES[race]?.label ?? race;
+}
+
+// A ship + squad target as one line, "Aurora · Science": the hire and move pickers' option label.
+export function awayTargetLabel(ship: Pick<ShipInstance, "id" | "name" | "typeKey">, teamType: AwayTeamType): string {
+  return `${awayShipName(ship)} · ${SQUAD_META[teamType].short}`;
 }
 
 // A short countdown for a span in seconds: "1h 12m", "41m", "35s". A non-positive span reads "0s".

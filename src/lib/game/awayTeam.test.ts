@@ -25,6 +25,8 @@ import {
   canReassignAwayMember,
   hireTargetsFor,
   awayCrewBlockText,
+  hireTargetsForCandidate,
+  awayBoardSecondsToRefresh,
   type AwayCrewBlockReason,
 } from "./awayTeam";
 import { getAwayTrait } from "./awayTraits";
@@ -562,6 +564,7 @@ describe("awayCrewBlockText", () => {
       noMember: true,
       noShip: true,
       onMission: true,
+      noSquad: true,
       squadFull: true,
       alreadyThere: true,
     };
@@ -579,7 +582,7 @@ describe("awayCrewBlockText", () => {
   });
 });
 
-describe("hire paths build the board once per call", () => {
+describe("hire paths agree", () => {
   it("hireTargetsFor and hireAwayMember agree with canHireAwayMember per ship", () => {
     // ship-a's Science squad is full (Destroyer: 3), so the science candidates block there and not on ship-b.
     const s = hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a")));
@@ -597,5 +600,36 @@ describe("hire paths build the board once per call", () => {
     }
     expect(seen.has("ok")).toBe(true);
     expect(seen.has("squadFull")).toBe(true);
+  });
+});
+
+describe("hireTargetsForCandidate", () => {
+  it("equals hireTargetsFor for every board candidate, and for an unknown one", () => {
+    const s = onMission(hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-b"))));
+    for (const cand of awayRecruitCandidates(s)) {
+      expect(hireTargetsForCandidate(s, cand)).toEqual(hireTargetsFor(s, cand.id));
+    }
+    expect(hireTargetsForCandidate(s, undefined)).toEqual(hireTargetsFor(s, "away-candidate-999-0"));
+  });
+});
+
+describe("noSquad", () => {
+  it("refuses a move into a squad type the target hull fields none of, never as squadFull", () => {
+    // A prospecting member (wired only: every hull lists it with 0 slots) cannot join any ship.
+    const s = hireState([member("member-1", "prospecting", null)]);
+    expect(canReassignAwayMember(s, "member-1", "ship-a")).toEqual({ ok: false, reason: "noSquad" });
+    expect(reassignAwayMember(s, "member-1", "ship-a")).toBe(s);
+    expect(awayCrewBlockText("noSquad")).not.toBe(awayCrewBlockText("squadFull"));
+  });
+});
+
+describe("awayBoardSecondsToRefresh", () => {
+  it("counts down to the next officer roster window", () => {
+    const at = (t: number) => awayBoardSecondsToRefresh({ ...freshState(), gameTimeSeconds: t });
+    expect(at(0)).toBe(OFFICER_ROSTER_WINDOW_SECONDS);
+    expect(at(1)).toBe(OFFICER_ROSTER_WINDOW_SECONDS - 1);
+    expect(at(OFFICER_ROSTER_WINDOW_SECONDS - 0.5)).toBe(0.5);
+    expect(at(OFFICER_ROSTER_WINDOW_SECONDS)).toBe(OFFICER_ROSTER_WINDOW_SECONDS);
+    expect(at(OFFICER_ROSTER_WINDOW_SECONDS * 3 + 600)).toBe(OFFICER_ROSTER_WINDOW_SECONDS - 600);
   });
 });
