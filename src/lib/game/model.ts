@@ -1547,12 +1547,14 @@ export type EquipmentSlotType =
 // salvage, storage), so any code that walks EQUIPMENT_SLOTS or the equipment pool in a SHIP context
 // (ship install pickers, loadout boards, requisition, stat folds) must ask isMemberSlotType rather than
 // hand-listing the four strings, so a fifth member slot later is a one-line add here.
-export const MEMBER_SLOT_TYPES: readonly EquipmentSlotType[] = ["memberArmor", "memberWeapon", "memberTool", "implant"];
+export const MEMBER_SLOT_TYPES = ["memberArmor", "memberWeapon", "memberTool", "implant"] as const satisfies readonly EquipmentSlotType[];
+export type MemberSlotType = (typeof MEMBER_SLOT_TYPES)[number];
 const MEMBER_SLOT_TYPE_SET: ReadonlySet<string> = new Set<string>(MEMBER_SLOT_TYPES);
 
 // Is this slot type an away-team MEMBER slot (worn by a member, never installed on a hull)? Takes a plain
-// string too, since several UI lists key slots by string. Pure.
-export function isMemberSlotType(slotType: EquipmentSlotType | string): boolean {
+// string too, since several UI lists key slots by string. A type guard, so a caller that filters member
+// slots OUT is left holding only ship slot types. Pure.
+export function isMemberSlotType(slotType: string): slotType is MemberSlotType {
   return MEMBER_SLOT_TYPE_SET.has(slotType);
 }
 
@@ -1599,19 +1601,19 @@ export interface EquipmentInstance {
   // reconstructs the DroneSquadron from the two. This is the DRONE analogue of weaponType. Absent
   // on every non-pod piece. Optional + additive, so no save migration.
   droneRole?: DroneRole;
-  // Crew modules AND sensor arrays: any slot whose per-variety EFFECT is catalog-resolved (rather
-  // than read off the budgeted stat lines) persists its rolled variety here.
-  //   - Crew 0.14.0 (Phase 1b): a CREW MODULE (slotType "bridge" or "quarters") stores a
-  //     QUARTERS_MODULES / BRIDGE_MODULES id (crewModules.ts); the crew overlay resolves its
-  //     effect (division focus / capacity / officer amplification) from that catalog.
-  //   - 0.14.0 sensors (DORMANT): a SENSOR ARRAY (slotType "sensor") stores a SENSOR_ARRAYS id
-  //     (sensorArrays.ts); exploration will later resolve the array's scan-behavior params from it.
-  // This is the analogue of weaponType / droneRole: the slot's generic variety machinery does NOT
-  // persist which variety a piece rolled, but the piece's real effect is resolved from its variant,
-  // so the variant MUST live on the instance. Set by the generation path (generateEquipment stamps
-  // it from the rolled varietyKey for these slots), scaled by this piece's rarity/quality per the
-  // catalog's effect scale. Absent on every other piece. Optional + additive (like weaponType /
-  // droneRole / favorite), so no save migration.
+  // The piece's STAMPED VARIETY KEY: which EQUIPMENT_SLOTS variety it rolled, persisted for every piece
+  // whose behavior is resolved from its variety rather than read off its budgeted stat lines. The slot's
+  // generic variety machinery does NOT otherwise persist the variety (the analogue of weaponType /
+  // droneRole). Resolve it with pieceVarietyDef(piece). Stamped by generateEquipment for:
+  //   - Crew 0.14.0 (Phase 1b): CREW MODULES (slotType "bridge" / "quarters"); the key is a
+  //     QUARTERS_MODULES / BRIDGE_MODULES id and the crew overlay resolves the effect (crewModules.ts).
+  //   - 0.14.0 sensors: SENSOR ARRAYS (slotType "sensor"); the key is a SENSOR_ARRAYS id (sensorArrays.ts).
+  //   - Exploration 0.14.0 (E4d): an OWN-IDENTITY variety (per-variety implicit / affix / equip-gate
+  //     overrides, varietyHasOwnIdentity), e.g. the Damage Control Suite / Pathfinder Suite in specUtility.
+  //   - E-CREW 0.14.0 (Task 7): EVERY away-team MEMBER piece (isMemberSlotType), whose member traits
+  //     (team allow-list, tool tuning, unique-equipped, ground effect) live on the variety.
+  // Absent on every other piece. Optional + additive (like weaponType / droneRole / favorite), so no
+  // save migration.
   moduleVariant?: string;
   rarity: EquipmentRarity;
   ascension: EquipmentAscension;          // "none" this patch (see EquipmentAscension)
@@ -1807,34 +1809,59 @@ export interface EquipmentVarietyDef {
   implicitStats?: string[];
   affixPool?: { stat: string; weight: number }[];
   equipRequirement?: EquipRequirement;
-  // E-CREW 0.14.0 (Task 7): AWAY-TEAM MEMBER gear descriptors (all OPTIONAL; member slots only).
-  // Set only on the varieties of the four member slots (isMemberSlotType); every ship variety omits them,
-  // so nothing ship-side changes. DORMANT DATA in this task: the install gate (Task 8), the roster
-  // snapshot + battle + fieldwork (Tasks 12-16) are the consumers. See the member-gear block of
-  // EQUIPMENT_SLOTS for the per-field meaning.
-  teamTypes?: readonly AwayTeamType[];          // squad types allowed to wear it (never "prospecting" yet)
-  weaponRange?: "long" | "short";               // member weapons: back line vs front line
-  planetTypes?: readonly ExpeditionPlanetType[]; // Science tools: tuned bodies; absent = any body
-  encounterBias?: number;                       // Security tools: signed scale on the random-encounter chance
-  uniqueEquipped?: true;                        // ONE worn in the entire fleet (D11, Neural Backup)
-  groundEffect?: GroundGearEffect;              // a fixed special behavior (see GroundGearEffect)
+  // E-CREW 0.14.0 (Task 7): the AWAY-TEAM MEMBER traits, nested so the member-only fields cannot sprawl
+  // across the shared variety shape. PRESENT on every variety of the four member slots (isMemberSlotType,
+  // asserted in tests) and ABSENT on every ship variety, so nothing ship-side changes. Read a member
+  // variety through memberVariety(slotType, key) (or pieceVarietyDef(piece)), which hands back the traits
+  // as non-optional.
+  member?: MemberVarietyTraits;
+}
+
+// E-CREW 0.14.0 (Task 7): what a member gear variety IS beyond its stat lines. FIXED catalog facts (never
+// rolled, so they live on the variety, never on the instance). DORMANT DATA in this task: the install
+// gate (Task 8), the roster snapshot + battle + fieldwork (Tasks 12-16) are the consumers. See the
+// member-gear block of EQUIPMENT_SLOTS for the per-field meaning.
+export interface MemberVarietyTraits {
+  readonly teamTypes: readonly AwayTeamType[];          // squads allowed to wear it (never "prospecting" yet)
+  readonly weaponRange?: "long" | "short";              // member weapons: back line vs front line
+  readonly planetTypes?: readonly ExpeditionPlanetType[]; // Science tools: tuned bodies; absent = any body
+  readonly encounterBias?: number;                      // Security tools: signed scale on the encounter chance
+  readonly uniqueEquipped?: true;                       // ONE worn in the entire fleet (D11, Neural Backup)
+  readonly groundEffect?: GroundGearEffect;             // a fixed special behavior (see GroundGearEffect)
+}
+
+// A member variety with its traits guaranteed present (what memberVariety returns).
+export type MemberVarietyDef = EquipmentVarietyDef & { member: MemberVarietyTraits };
+
+// The member variety `key` of member slot `slotType`, with its member traits non-optional, or undefined
+// for a ship slot, an unknown key, or a variety missing its traits. Pure.
+export function memberVariety(slotType: string, key: string): MemberVarietyDef | undefined {
+  if (!isMemberSlotType(slotType)) return undefined;
+  const v = EQUIPMENT_SLOTS[slotType]?.varieties.find((x) => x.key === key);
+  return v?.member !== undefined ? (v as MemberVarietyDef) : undefined;
 }
 
 // E-CREW 0.14.0 (Task 7): a member gear variety's FIXED special behavior (not a rolled magnitude, so it
-// lives on the catalog variety, never on the instance). Statuses reuse the Security battle's own status
-// ids (GambitStatusId, gambit.ts GAMBIT_STATUSES). DORMANT: the Security battle (Task 13) and the
-// Neural Backup revive (Task 16) read these.
-//   groupHit , the attack strikes a GROUP of foes (Scattergun).
-//   inflict  , a chance (groundStatusChance) to apply `status` on hit / throw (Shock Baton, grenades).
-//   resist   , resists the listed statuses (groundStatusResist) (Toxin Filters, Cortex Shield).
-//   heal     , an in-fight heal item (Med Kit).
-//   revive   , once per battle, `chance` to revive the first downed ally at `hpFraction` HP (Neural Backup).
+// lives on the catalog variety, never on the instance). Same readonly shape as the trait catalog's
+// AwayTraitEffect (awayTraits.ts), and statuses reuse the Security battle's own ids (GambitStatusId,
+// gambit.ts GAMBIT_STATUSES). DORMANT: the Security battle (Task 13) and the Neural Backup revive
+// (Task 16) read these. The battle snapshot (Tasks 12/13) normalizes trait AND gear effects into ONE
+// per-member resist map and ONE ability list, so the battle never reads the two catalogs separately.
+//   groupHit     , the attack strikes a GROUP of foes (Scattergun).
+//   inflict      , applies `status` on hit / throw (Shock Baton, grenades). THE STATUS-CHANCE RULE: a
+//                  piece's groundStatusChance line ALWAYS folds into the member-wide statusChance (like
+//                  every ground line), and an inflict piece applies its status with chance = that
+//                  member's statusChance. There is no separate per-piece chance read.
+//   resistStatus , resists the listed statuses with chance = the member's summed groundStatusResist
+//                  (Toxin Filters, Cortex Shield).
+//   heal         , an in-fight heal item (Med Kit).
+//   revive       , once per battle, `chance` to revive the first downed ally at `hpFraction` HP (Neural Backup).
 export type GroundGearEffect =
-  | { kind: "groupHit" }
-  | { kind: "inflict"; status: GambitStatusId }
-  | { kind: "resist"; statuses: readonly GambitStatusId[] }
-  | { kind: "heal" }
-  | { kind: "revive"; chance: number; hpFraction: number };
+  | { readonly kind: "groupHit" }
+  | { readonly kind: "inflict"; readonly status: GambitStatusId }
+  | { readonly kind: "resistStatus"; readonly statuses: readonly GambitStatusId[] }
+  | { readonly kind: "heal" }
+  | { readonly kind: "revive"; readonly chance: number; readonly hpFraction: number };
 
 // The optional equip gate a slot (or, since E4d, a single variety) imposes. All fields optional and
 // ANDed by canFitEquipment; only the fields present are checked. (Extracted from EquipmentSlotDef as a
@@ -1852,6 +1879,16 @@ export interface EquipRequirement {
 // no existing mint gains a field. Pure.
 export function varietyHasOwnIdentity(variety: EquipmentVarietyDef): boolean {
   return variety.implicitStats !== undefined || variety.affixPool !== undefined || variety.equipRequirement !== undefined;
+}
+
+// The catalog variety a piece rolled, resolved from its stamped moduleVariant (see EquipmentInstance), or
+// undefined when the piece carries no stamp (every economy / combat piece without its own identity) or the
+// key no longer names a variety of its slot (a retired variety on an old save). The ONE resolver for
+// "which variety is this piece", so the install gate, the member readers and the tooltip never hand-roll
+// the lookup. Pure.
+export function pieceVarietyDef(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">): EquipmentVarietyDef | undefined {
+  if (piece.moduleVariant === undefined) return undefined;
+  return EQUIPMENT_SLOTS[piece.slotType]?.varieties.find((v) => v.key === piece.moduleVariant);
 }
 
 // E4d: the player-facing SLOT label for a (slot, variety) pair. A slot's catalog label names its ORIGINAL
@@ -2214,21 +2251,25 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // (generateEquipment), which is how the install gate (teamTypes), the tool readers (planetTypes /
   // encounterBias), the unique-equipped rule and the effect descriptors find the variety later.
   //
-  // DESCRIPTORS (EquipmentVarietyDef, member-only, DORMANT DATA here; consumers are E-CREW Tasks 8-16):
-  //   teamTypes      , which squad types may wear it (REQUIRED in practice: every member variety lists one;
-  //                    "prospecting" is wired-only and no gear lists it yet).
+  // MEMBER TRAITS (each variety's `member: MemberVarietyTraits`, DORMANT DATA here; consumers are E-CREW
+  // Tasks 8-16):
+  //   teamTypes      , which squad types may wear it (REQUIRED; "prospecting" is wired-only and no gear
+  //                    lists it yet).
   //   weaponRange    , long (back line) vs short (front line) for the Security battle.
   //   planetTypes    , Science tools tuned to body types; ABSENT = works on any body (Decryptor).
   //   encounterBias  , the Security encounter dial (Shroud lowers the random-encounter chance, Lure raises
   //                    it and raises drops), a signed fraction of the base chance.
   //   uniqueEquipped , ONE worn in the entire fleet (D11, Neural Backup only).
-  //   groundEffect   , a fixed special behavior (group hit, inflict / resist a status, heal, revive).
+  //   groundEffect   , a fixed special behavior (group hit, inflict / resist statuses, heal, revive).
+  // SLOT LABELS read "Away-Team Armor / Weapon / Tool" so shared surfaces (Fabricator, Research, Archive,
+  // salvage rows) never confuse a member Weapon with a ship weapon; the member card keeps its own short
+  // cell headings. The implant slot needs no prefix (nothing ship-side is an implant).
   // ⚠️ FIRST-PASS TUNABLE ⚠️ every statRatio, weight and descriptor value.
 
   // MEMBER WEAPON: the sidearm a member carries. Signature groundPower; accuracy + affliction affixes.
   memberWeapon: {
     slotType: "memberWeapon",
-    label: "Weapon",
+    label: "Away-Team Weapon",
     implicitStats: ["groundPower"],
     affixPool: [
       { stat: "groundPower", weight: 4 },
@@ -2240,8 +2281,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "pulseRifle",
         label: "Pulse Rifle",
-        teamTypes: ["security"],
-        weaponRange: "long",
+        member: { teamTypes: ["security"], weaponRange: "long" },
         implicitStats: ["groundPower", "groundAccuracy"],
         statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
       },
@@ -2249,18 +2289,14 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "scattergun",
         label: "Scattergun",
-        teamTypes: ["security"],
-        weaponRange: "short",
-        groundEffect: { kind: "groupHit" },
+        member: { teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "groupHit" } },
         statRatios: { groundPower: 0.7, groundAccuracy: 0.25, groundStatusChance: 0.05 },
       },
       // Shock Baton: short range, a chance to STUN on hit.
       {
         key: "shockBaton",
         label: "Shock Baton",
-        teamTypes: ["security"],
-        weaponRange: "short",
-        groundEffect: { kind: "inflict", status: "stun" },
+        member: { teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "inflict", status: "stun" } },
         implicitStats: ["groundPower", "groundStatusChance"],
         statRatios: { groundStatusChance: 0.5, groundPower: 0.4, groundAccuracy: 0.1 },
       },
@@ -2268,8 +2304,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "sidearm",
         label: "Sidearm",
-        teamTypes: ["science"],
-        weaponRange: "short",
+        member: { teamTypes: ["science"], weaponRange: "short" },
         statRatios: { groundPower: 0.45, groundAccuracy: 0.45, groundStatusChance: 0.1 },
       },
     ],
@@ -2277,7 +2312,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // MEMBER ARMOR: the suit. Signature groundArmor; HP + hazard affixes.
   memberArmor: {
     slotType: "memberArmor",
-    label: "Armor",
+    label: "Away-Team Armor",
     implicitStats: ["groundArmor"],
     affixPool: [
       { stat: "groundArmor", weight: 4 },
@@ -2289,7 +2324,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "ballisticWeave",
         label: "Ballistic Weave",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         affixPool: [
           { stat: "groundArmor", weight: 3 },
           { stat: "groundAccuracy", weight: 3 },
@@ -2301,7 +2336,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "assaultHardsuit",
         label: "Assault Hardsuit",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundArmor", "groundHp"],
         statRatios: { groundArmor: 0.5, groundHp: 0.4, groundHazardResist: 0.1 },
       },
@@ -2309,7 +2344,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "fieldSuit",
         label: "Field Suit",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         affixPool: [
           { stat: "groundFieldwork", weight: 3 },
           { stat: "groundArmor", weight: 2 },
@@ -2321,7 +2356,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "hazardSuit",
         label: "Hazard Suit",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundHazardResist"],
         affixPool: [
           { stat: "groundHazardResist", weight: 4 },
@@ -2337,7 +2372,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
   // tuned tool only on a matching body.
   memberTool: {
     slotType: "memberTool",
-    label: "Tool",
+    label: "Away-Team Tool",
     implicitStats: ["groundFieldwork"],
     affixPool: [
       { stat: "groundFieldwork", weight: 4 },
@@ -2350,8 +2385,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "stunGrenade",
         label: "Stun Grenade",
-        teamTypes: ["security"],
-        groundEffect: { kind: "inflict", status: "stun" },
+        member: { teamTypes: ["security"], groundEffect: { kind: "inflict", status: "stun" } },
         implicitStats: ["groundStatusChance"],
         affixPool: [
           { stat: "groundStatusChance", weight: 4 },
@@ -2363,8 +2397,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "toxinGrenade",
         label: "Toxin Grenade",
-        teamTypes: ["security"],
-        groundEffect: { kind: "inflict", status: "poison" },
+        member: { teamTypes: ["security"], groundEffect: { kind: "inflict", status: "poison" } },
         implicitStats: ["groundStatusChance"],
         affixPool: [
           { stat: "groundStatusChance", weight: 3 },
@@ -2376,8 +2409,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "medKit",
         label: "Med Kit",
-        teamTypes: ["security"],
-        groundEffect: { kind: "heal" },
+        member: { teamTypes: ["security"], groundEffect: { kind: "heal" } },
         implicitStats: ["groundHp"],
         affixPool: [
           { stat: "groundHp", weight: 4 },
@@ -2389,8 +2421,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "shroudEmitter",
         label: "Shroud Emitter",
-        teamTypes: ["security"],
-        encounterBias: -0.4,
+        member: { teamTypes: ["security"], encounterBias: -0.4 },
         implicitStats: ["groundArmor"],
         affixPool: [
           { stat: "groundArmor", weight: 3 },
@@ -2402,8 +2433,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "lureBeacon",
         label: "Lure Beacon",
-        teamTypes: ["security"],
-        encounterBias: 0.4,
+        member: { teamTypes: ["security"], encounterBias: 0.4 },
         implicitStats: ["groundAccuracy"],
         affixPool: [
           { stat: "groundAccuracy", weight: 3 },
@@ -2416,8 +2446,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "floraScanner",
         label: "Flora Scanner",
-        teamTypes: ["science"],
-        planetTypes: ["terrestrial", "ocean", "toxic"],
+        member: { teamTypes: ["science"], planetTypes: ["terrestrial", "ocean", "toxic"] },
         implicitStats: ["groundOrganicsYield"],
         affixPool: [
           { stat: "groundOrganicsYield", weight: 4 },
@@ -2430,23 +2459,21 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "thermalRig",
         label: "Thermal Rig",
-        teamTypes: ["science"],
-        planetTypes: ["volcanic", "frozen"],
+        member: { teamTypes: ["science"], planetTypes: ["volcanic", "frozen"] },
         statRatios: { groundFieldwork: 0.55, groundHazardResist: 0.35, groundRelicFind: 0.1 },
       },
       // Core Drill: fieldwork on arid and barren bodies, with a relic lean (it digs).
       {
         key: "coreDrill",
         label: "Core Drill",
-        teamTypes: ["science"],
-        planetTypes: ["arid", "barren"],
+        member: { teamTypes: ["science"], planetTypes: ["arid", "barren"] },
         statRatios: { groundFieldwork: 0.55, groundRelicFind: 0.35, groundHazardResist: 0.1 },
       },
       // Decryptor: vaults and civilization sites on ANY body (no planetTypes).
       {
         key: "decryptor",
         label: "Decryptor",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundVaultYield"],
         affixPool: [
           { stat: "groundVaultYield", weight: 4 },
@@ -2458,8 +2485,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "atmoProbe",
         label: "Atmo Probe",
-        teamTypes: ["science"],
-        planetTypes: ["gasGiant"],
+        member: { teamTypes: ["science"], planetTypes: ["gasGiant"] },
         statRatios: { groundFieldwork: 0.6, groundHazardResist: 0.3, groundRelicFind: 0.1 },
       },
     ],
@@ -2480,7 +2506,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "dermalWeave",
         label: "Dermal Weave",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundArmor"],
         affixPool: [
           { stat: "groundArmor", weight: 3 },
@@ -2492,7 +2518,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "reflexBooster",
         label: "Reflex Booster",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundAccuracy", "groundArmor"],
         affixPool: [
           { stat: "groundAccuracy", weight: 3 },
@@ -2504,7 +2530,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "targetingOptic",
         label: "Targeting Optic",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundAccuracy"],
         affixPool: [
           { stat: "groundAccuracy", weight: 4 },
@@ -2516,7 +2542,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "adrenalSurge",
         label: "Adrenal Surge",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundPower"],
         affixPool: [
           { stat: "groundPower", weight: 4 },
@@ -2528,7 +2554,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "medNaniteSwarm",
         label: "Med-Nanite Swarm",
-        teamTypes: ["security"],
+        member: { teamTypes: ["security"] },
         implicitStats: ["groundHp"],
         affixPool: [
           { stat: "groundHp", weight: 4 },
@@ -2540,8 +2566,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "toxinFilters",
         label: "Toxin Filters",
-        teamTypes: ["security"],
-        groundEffect: { kind: "resist", statuses: ["poison"] },
+        member: { teamTypes: ["security"], groundEffect: { kind: "resistStatus", statuses: ["poison"] } },
         implicitStats: ["groundStatusResist"],
         affixPool: [
           { stat: "groundStatusResist", weight: 3 },
@@ -2553,8 +2578,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "cortexShield",
         label: "Cortex Shield",
-        teamTypes: ["security"],
-        groundEffect: { kind: "resist", statuses: ["stun", "fear"] },
+        member: { teamTypes: ["security"], groundEffect: { kind: "resistStatus", statuses: ["stun", "fear"] } },
         implicitStats: ["groundStatusResist"],
         affixPool: [
           { stat: "groundStatusResist", weight: 3 },
@@ -2568,22 +2592,24 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "neuralBackup",
         label: "Neural Backup",
-        teamTypes: ["security"],
-        uniqueEquipped: true,
-        groundEffect: { kind: "revive", chance: 0.5, hpFraction: 0.3 },
+        member: {
+          teamTypes: ["security"],
+          uniqueEquipped: true,
+          groundEffect: { kind: "revive", chance: 0.5, hpFraction: 0.3 },
+        },
         implicitStats: ["groundHp"],
         affixPool: [
           { stat: "groundHp", weight: 2 },
-          { stat: "groundStatusResist", weight: 1 },
+          { stat: "groundArmor", weight: 1 },
         ],
-        statRatios: { groundHp: 0.7, groundStatusResist: 0.3 },
+        statRatios: { groundHp: 0.7, groundArmor: 0.3 },
       },
       // Science (overworld) implants:
       // Synaptic Accelerator: faster fieldwork.
       {
         key: "synapticAccelerator",
         label: "Synaptic Accelerator",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundFieldwork"],
         affixPool: [
           { stat: "groundFieldwork", weight: 3 },
@@ -2595,7 +2621,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "archaeoScanner",
         label: "Archaeo-Scanner",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundRelicFind"],
         affixPool: [
           { stat: "groundRelicFind", weight: 3 },
@@ -2607,7 +2633,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "environmentalAdaptation",
         label: "Environmental Adaptation",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundHazardResist"],
         affixPool: [
           { stat: "groundHazardResist", weight: 3 },
@@ -2619,7 +2645,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "cipherWetware",
         label: "Cipher Wetware",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundVaultYield"],
         affixPool: [
           { stat: "groundVaultYield", weight: 3 },
@@ -2631,7 +2657,7 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
       {
         key: "bioAnalyzer",
         label: "Bio-Analyzer",
-        teamTypes: ["science"],
+        member: { teamTypes: ["science"] },
         implicitStats: ["groundOrganicsYield"],
         affixPool: [
           { stat: "groundOrganicsYield", weight: 3 },
@@ -2752,12 +2778,15 @@ export const RESERVED_STAT_KEYS = [
 //
 // Like every gear line they are raw budget POINTS (generateEquipment's budget split), not fractions; the
 // member-power task converts them onto the member's stats (awayTeam.ts GROUND_STAT_MEMBER_STAT maps each
-// key to the AwayMemberStat it raises, or null for the lines with no member stat yet). Consumers land in
-// E-CREW Tasks 12-16; this task ships the vocabulary + catalog only.
+// key to the AwayMemberStat it raises, or null for the lines with no member stat yet; its CONVERSION
+// CONTRACT says which task converts which line). Consumers land in E-CREW Tasks 12-16; this task ships
+// the vocabulary + catalog only.
 //   groundHp / groundPower / groundArmor / groundAccuracy , Security combat lines (the member card's
 //                                                            HP / PWR / ARM / ACC)
-//   groundStatusChance                                    , affliction chance (stun / toxin carriers)
-//   groundStatusResist                                    , resist afflictions (Toxin Filters, Cortex Shield)
+//   groundStatusChance                                    , folds into the member-wide statusChance, the
+//                                                            chance an `inflict` piece applies its status
+//   groundStatusResist                                    , the member's chance to resist the statuses its
+//                                                            `resistStatus` pieces list (Toxin Filters, Cortex Shield)
 //   groundFieldwork / groundRelicFind / groundHazardResist , Science fieldwork lines (FIELD / RELIC / HAZ)
 //   groundOrganicsYield / groundVaultYield                 , fieldwork YIELD toward one find family
 //                                                            (organics: Flora Scanner, Bio-Analyzer;

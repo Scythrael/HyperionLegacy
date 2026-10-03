@@ -91,6 +91,7 @@ import {
   EQUIPMENT_SLOTS,
   SHIP_TYPES,
   generateStandardIssue,
+  pieceVarietyDef,
   isStandardIssueBaseline,
   startAutoSalvageGrace,
 } from "./model";
@@ -317,10 +318,8 @@ export function onMissionLock(
 // carries no gate (every pre-E4d piece), resolves to the SLOT's requirement, so existing gating is
 // byte-identical. Exported so the Armory's loadout install applies the SAME hull gate. PURE.
 export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequirement | undefined {
-  const slotDef = EQUIPMENT_SLOTS[instance.slotType];
-  const variety =
-    instance.moduleVariant !== undefined ? slotDef?.varieties.find((v) => v.key === instance.moduleVariant) : undefined;
-  return variety?.equipRequirement ?? slotDef?.equipRequirement;
+  // The stamped variety via the shared resolver (pieceVarietyDef, model.ts), never a hand-rolled lookup.
+  return pieceVarietyDef(instance)?.equipRequirement ?? EQUIPMENT_SLOTS[instance.slotType]?.equipRequirement;
 }
 
 // ----------------------------------------------------------------------------

@@ -220,6 +220,18 @@
     droneAccuracy: "Drone Accuracy",
     moduleSlots: "Module Slots",
     equipmentSlots: "Equipment Slots",
+    // E-CREW 0.14.0: the away-team member gear GROUND lines (model.ts MEMBER_GROUND_STAT_KEYS).
+    groundHp: "Health",
+    groundPower: "Power",
+    groundArmor: "Armor",
+    groundAccuracy: "Accuracy",
+    groundStatusChance: "Status Chance",
+    groundStatusResist: "Status Resist",
+    groundFieldwork: "Fieldwork",
+    groundRelicFind: "Relic Find",
+    groundHazardResist: "Hazard Resist",
+    groundOrganicsYield: "Organics Yield",
+    groundVaultYield: "Vault Yield",
   };
   export function statLabel(key: string): string {
     if (STAT_LABEL[key]) return STAT_LABEL[key];

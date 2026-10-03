@@ -27,7 +27,9 @@ import {
   PRODUCIBLE_EQUIPMENT_RARITIES,
   blueprintRelicLocked,
   blueprintKind,
-  type EquipmentVarietyDef,
+  memberVariety,
+  pieceVarietyDef,
+  type MemberVarietyDef,
   equipmentStatMods,
   shipDerivedStats,
   isMemberSlotType,
@@ -159,6 +161,17 @@ describe("ship neutrality: member gear never folds into ShipDerivedStats", () =>
       expect(JSON.stringify(effectiveShipStats(withGear, sh))).toBe(JSON.stringify(effectiveShipStats(without, sh)));
     }
   });
+
+  it("even a worn member piece with a STRAY fittedToShipId on the ship leaves its stats byte-identical (fold-side guard)", () => {
+    const base = freshState();
+    const ship = base.ships[0];
+    const cargo = piece({ id: "cargo-1", slotType: "cargoBay", implicitStats: { cargoCapacity: 12 }, mass: 4, fittedToShipId: ship.id });
+    const without: GameState = { ...base, equipment: [...base.equipment, cargo] };
+    // A corrupt record: worn by a member AND pointing at the ship, so equippedFor hands it to the fold.
+    const stray = MEMBER_SLOT_TYPES.map((t, i) => loudMemberPiece(`m-stray-${i}`, t, { fittedToMemberId: "member-1", fittedToShipId: ship.id }));
+    const withStray: GameState = { ...without, equipment: [...without.equipment, ...stray] };
+    expect(JSON.stringify(effectiveShipStats(withStray, ship))).toBe(JSON.stringify(effectiveShipStats(without, ship)));
+  });
 });
 
 describe("ship-only lists never offer member gear", () => {
@@ -178,6 +191,10 @@ describe("ship-only lists never offer member gear", () => {
         expect(isMemberSlotType(def.slotType), `${typeKey}/${def.key}`).toBe(false);
       }
     }
+  });
+
+  it("the requisition catalogue keys partition EXACTLY into the ship slots + the member slots", () => {
+    expect(Object.keys(REQUISITION_CATALOGUE).sort()).toEqual([...SHIP_SLOT_TYPES, ...MEMBER_SLOT_TYPES].sort());
   });
 
   it("the ship Quartermaster requisition offers no member slot (their floors land with E-CREW Task 9)", () => {
@@ -204,13 +221,17 @@ const MEMBER_CATALOG: Record<string, string[]> = {
   ],
 };
 
-// Every member variety as (slotType, variety).
-const MEMBER_VARIETIES: { slotType: EquipmentSlotType; v: EquipmentVarietyDef }[] = MEMBER_SLOT_TYPES.flatMap((slotType) =>
-  EQUIPMENT_SLOTS[slotType].varieties.map((v) => ({ slotType, v })),
+// Every member variety as (slotType, variety), through the typed accessor (member traits non-optional).
+const MEMBER_VARIETIES: { slotType: EquipmentSlotType; v: MemberVarietyDef }[] = MEMBER_SLOT_TYPES.flatMap((slotType) =>
+  EQUIPMENT_SLOTS[slotType].varieties.map((raw) => {
+    const v = memberVariety(slotType, raw.key);
+    if (v === undefined) throw new Error(`${slotType}/${raw.key} has no member traits`);
+    return { slotType, v };
+  }),
 );
-const variety = (slotType: string, key: string): EquipmentVarietyDef => {
-  const v = EQUIPMENT_SLOTS[slotType].varieties.find((x) => x.key === key);
-  if (v === undefined) throw new Error(`no ${slotType}/${key}`);
+const variety = (slotType: string, key: string): MemberVarietyDef => {
+  const v = memberVariety(slotType, key);
+  if (v === undefined) throw new Error(`no member variety ${slotType}/${key}`);
   return v;
 };
 
@@ -219,10 +240,15 @@ describe("member gear catalog", () => {
     for (const slotType of MEMBER_SLOT_TYPES) {
       expect(EQUIPMENT_SLOTS[slotType].varieties.map((v) => v.label), slotType).toEqual(MEMBER_CATALOG[slotType]);
     }
-    expect(EQUIPMENT_SLOTS.memberArmor.label).toBe("Armor");
-    expect(EQUIPMENT_SLOTS.memberWeapon.label).toBe("Weapon");
-    expect(EQUIPMENT_SLOTS.memberTool.label).toBe("Tool");
+  });
+
+  it("member slot labels never collide with a ship slot label on shared surfaces", () => {
+    expect(EQUIPMENT_SLOTS.memberArmor.label).toBe("Away-Team Armor");
+    expect(EQUIPMENT_SLOTS.memberWeapon.label).toBe("Away-Team Weapon");
+    expect(EQUIPMENT_SLOTS.memberTool.label).toBe("Away-Team Tool");
     expect(EQUIPMENT_SLOTS.implant.label).toBe("Implant");
+    const shipLabels = new Set(Object.entries(EQUIPMENT_SLOTS).filter(([k]) => !isMemberSlotType(k)).map(([, slot]) => slot.label));
+    for (const t of MEMBER_SLOT_TYPES) expect(shipLabels.has(EQUIPMENT_SLOTS[t].label), t).toBe(false);
   });
 
   it("variety keys are unique across the WHOLE slot table (blueprints are keyed <varietyKey>Bp)", () => {
@@ -230,49 +256,52 @@ describe("member gear catalog", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  it("every member variety lists a non-empty teamTypes of real team types, never the wired-only prospecting", () => {
+  it("every member variety carries member traits with a non-empty teamTypes of real team types, never prospecting", () => {
     for (const { slotType, v } of MEMBER_VARIETIES) {
-      const teams = v.teamTypes ?? [];
+      const teams = v.member.teamTypes;
       expect(teams.length, `${slotType}/${v.key}`).toBeGreaterThan(0);
       for (const t of teams) expect(AWAY_TEAM_TYPES, `${slotType}/${v.key}`).toContain(t);
       expect(teams, `${slotType}/${v.key}`).not.toContain("prospecting");
     }
   });
 
-  it("no SHIP variety carries a member-only descriptor", () => {
+  it("no SHIP variety carries member traits, and memberVariety refuses ship slots and unknown keys", () => {
     for (const [slotType, slot] of Object.entries(EQUIPMENT_SLOTS)) {
       if (isMemberSlotType(slotType)) continue;
       for (const v of slot.varieties) {
-        expect(v.teamTypes, `${slotType}/${v.key}`).toBeUndefined();
-        expect(v.planetTypes, `${slotType}/${v.key}`).toBeUndefined();
-        expect(v.encounterBias, `${slotType}/${v.key}`).toBeUndefined();
-        expect(v.uniqueEquipped, `${slotType}/${v.key}`).toBeUndefined();
-        expect(v.weaponRange, `${slotType}/${v.key}`).toBeUndefined();
-        expect(v.groundEffect, `${slotType}/${v.key}`).toBeUndefined();
+        expect(v.member, `${slotType}/${v.key}`).toBeUndefined();
+        expect(memberVariety(slotType, v.key), `${slotType}/${v.key}`).toBeUndefined();
       }
     }
+    expect(memberVariety("memberWeapon", "noSuchGun")).toBeUndefined();
   });
 
   it("weapons: Security long / short / short, Science Sidearm; Scattergun hits a group, Shock Baton stuns", () => {
-    expect(variety("memberWeapon", "pulseRifle")).toMatchObject({ teamTypes: ["security"], weaponRange: "long" });
-    expect(variety("memberWeapon", "scattergun")).toMatchObject({ teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "groupHit" } });
-    expect(variety("memberWeapon", "shockBaton")).toMatchObject({ teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "inflict", status: "stun" } });
-    expect(variety("memberWeapon", "sidearm").teamTypes).toEqual(["science"]);
+    expect(variety("memberWeapon", "pulseRifle").member).toEqual({ teamTypes: ["security"], weaponRange: "long" });
+    expect(variety("memberWeapon", "scattergun").member).toEqual({ teamTypes: ["security"], weaponRange: "short", groundEffect: { kind: "groupHit" } });
+    expect(variety("memberWeapon", "shockBaton").member).toEqual({
+      teamTypes: ["security"],
+      weaponRange: "short",
+      groundEffect: { kind: "inflict", status: "stun" },
+    });
+    expect(variety("memberWeapon", "sidearm").member.teamTypes).toEqual(["science"]);
   });
 
   it("armor: two Security, two Science; the Hazard Suit's signature is hazard resist", () => {
-    expect(variety("memberArmor", "ballisticWeave").teamTypes).toEqual(["security"]);
-    expect(variety("memberArmor", "assaultHardsuit").teamTypes).toEqual(["security"]);
-    expect(variety("memberArmor", "fieldSuit").teamTypes).toEqual(["science"]);
-    expect(variety("memberArmor", "hazardSuit")).toMatchObject({ teamTypes: ["science"], implicitStats: ["groundHazardResist"] });
+    expect(variety("memberArmor", "ballisticWeave").member.teamTypes).toEqual(["security"]);
+    expect(variety("memberArmor", "assaultHardsuit").member.teamTypes).toEqual(["security"]);
+    expect(variety("memberArmor", "fieldSuit").member.teamTypes).toEqual(["science"]);
+    const hazard = variety("memberArmor", "hazardSuit");
+    expect(hazard.member.teamTypes).toEqual(["science"]);
+    expect(hazard.implicitStats).toEqual(["groundHazardResist"]);
   });
 
   it("tools: the encounter dial (Shroud -0.4, Lure +0.4) is Security-only; Science tools are planet-tuned as authored", () => {
-    expect(variety("memberTool", "shroudEmitter")).toMatchObject({ teamTypes: ["security"], encounterBias: -0.4 });
-    expect(variety("memberTool", "lureBeacon")).toMatchObject({ teamTypes: ["security"], encounterBias: 0.4 });
-    for (const key of ["stunGrenade", "toxinGrenade", "medKit"]) expect(variety("memberTool", key).teamTypes).toEqual(["security"]);
+    expect(variety("memberTool", "shroudEmitter").member).toEqual({ teamTypes: ["security"], encounterBias: -0.4 });
+    expect(variety("memberTool", "lureBeacon").member).toEqual({ teamTypes: ["security"], encounterBias: 0.4 });
+    for (const key of ["stunGrenade", "toxinGrenade", "medKit"]) expect(variety("memberTool", key).member.teamTypes).toEqual(["security"]);
     // Only the two dial tools carry a bias.
-    const biased = EQUIPMENT_SLOTS.memberTool.varieties.filter((v) => v.encounterBias !== undefined).map((v) => v.key);
+    const biased = MEMBER_VARIETIES.filter(({ v }) => v.member.encounterBias !== undefined).map(({ v }) => v.key);
     expect(biased.sort()).toEqual(["lureBeacon", "shroudEmitter"]);
     const PLANETS: Record<string, string[] | undefined> = {
       floraScanner: ["terrestrial", "ocean", "toxic"],
@@ -283,28 +312,39 @@ describe("member gear catalog", () => {
     };
     const realPlanets = new Set<string>(PLANET_TYPES.map((p) => p.id));
     for (const [key, planets] of Object.entries(PLANETS)) {
-      const v = variety("memberTool", key);
-      expect(v.teamTypes, key).toEqual(["science"]);
-      expect(v.planetTypes === undefined ? undefined : [...v.planetTypes], key).toEqual(planets);
-      for (const p of v.planetTypes ?? []) expect(realPlanets.has(p), `${key} ${p}`).toBe(true);
+      const m = variety("memberTool", key).member;
+      expect(m.teamTypes, key).toEqual(["science"]);
+      expect(m.planetTypes === undefined ? undefined : [...m.planetTypes], key).toEqual(planets);
+      for (const p of m.planetTypes ?? []) expect(realPlanets.has(p), `${key} ${p}`).toBe(true);
     }
-    // Security tools are never planet-tuned.
-    for (const v of EQUIPMENT_SLOTS.memberTool.varieties) {
-      if (v.teamTypes?.includes("security")) expect(v.planetTypes, v.key).toBeUndefined();
+    // Only Science tools are planet-tuned.
+    for (const { v } of MEMBER_VARIETIES) {
+      if (v.member.planetTypes !== undefined) expect(v.member.teamTypes, v.key).toEqual(["science"]);
     }
   });
 
   it("implants: exactly one team each (8 Security, 5 Science); Neural Backup is the ONE unique-equipped piece", () => {
-    const security = EQUIPMENT_SLOTS.implant.varieties.filter((v) => v.teamTypes?.length === 1 && v.teamTypes[0] === "security");
-    const science = EQUIPMENT_SLOTS.implant.varieties.filter((v) => v.teamTypes?.length === 1 && v.teamTypes[0] === "science");
-    expect(security.length).toBe(8);
-    expect(science.length).toBe(5);
-    const unique = MEMBER_VARIETIES.filter(({ v }) => v.uniqueEquipped === true).map(({ v }) => v.key);
+    const implants = MEMBER_VARIETIES.filter(({ slotType }) => slotType === "implant").map(({ v }) => v.member.teamTypes);
+    expect(implants.filter((t) => t.length === 1 && t[0] === "security").length).toBe(8);
+    expect(implants.filter((t) => t.length === 1 && t[0] === "science").length).toBe(5);
+    expect(implants.length).toBe(13);
+    const unique = MEMBER_VARIETIES.filter(({ v }) => v.member.uniqueEquipped === true).map(({ v }) => v.key);
     expect(unique).toEqual(["neuralBackup"]);
-    expect(variety("implant", "neuralBackup")).toMatchObject({
+    expect(variety("implant", "neuralBackup").member).toEqual({
       teamTypes: ["security"],
+      uniqueEquipped: true,
       groundEffect: { kind: "revive", chance: 0.5, hpFraction: 0.3 },
     });
+  });
+
+  it("a groundStatusResist line only appears on gear that resists something (no dead budget)", () => {
+    for (const { slotType, v } of MEMBER_VARIETIES) {
+      const stats = new Set([
+        ...(v.implicitStats ?? EQUIPMENT_SLOTS[slotType].implicitStats),
+        ...(v.affixPool ?? EQUIPMENT_SLOTS[slotType].affixPool).map((a) => a.stat),
+      ]);
+      if (stats.has("groundStatusResist")) expect(v.member.groundEffect?.kind, `${slotType}/${v.key}`).toBe("resistStatus");
+    }
   });
 
   it("each variety's statRatios cover exactly its affix pool and sum to ~1 (so the variety bias is coherent)", () => {
@@ -416,6 +456,7 @@ describe("member gear generation", () => {
         const where = `${slotType}/${v.key}/${rarity}`;
         expect(p.slotType, where).toBe(slotType);
         expect(p.moduleVariant, where).toBe(v.key);
+        expect(pieceVarietyDef(p), where).toBe(EQUIPMENT_SLOTS[slotType].varieties.find((x) => x.key === v.key));
         expect(p.rarity, where).toBe(rarity);
         expect(p.quality, where).toBe(3);
         expect(p.iLevel, where).toBe(30);
@@ -445,5 +486,24 @@ describe("member gear generation", () => {
       expect(minted.fittedToShipId, bp.key).toBeNull();
       expect(canFitEquipment(after, after.ships[0].id, minted.id), bp.key).toEqual({ ok: false, reason: "slotNotInstallable" });
     }
+  });
+});
+
+// ============================================================================
+// pieceVarietyDef: the one "which variety is this piece" resolver
+// ============================================================================
+
+describe("pieceVarietyDef", () => {
+  it("resolves a stamped piece to its catalog variety", () => {
+    const p = piece({ slotType: "memberTool", moduleVariant: "floraScanner" });
+    expect(pieceVarietyDef(p)).toBe(EQUIPMENT_SLOTS.memberTool.varieties.find((v) => v.key === "floraScanner"));
+    const sensor = piece({ slotType: "sensor", moduleVariant: "sensorBioResonance" });
+    expect(pieceVarietyDef(sensor)?.label).toBe("Bio-Resonance Array");
+  });
+
+  it("is undefined for an unstamped piece, an unknown key, or a key from another slot", () => {
+    expect(pieceVarietyDef(piece({ slotType: "cargoBay" }))).toBeUndefined();
+    expect(pieceVarietyDef(piece({ slotType: "memberWeapon", moduleVariant: "retiredGun" }))).toBeUndefined();
+    expect(pieceVarietyDef(piece({ slotType: "memberWeapon", moduleVariant: "medKit" }))).toBeUndefined();
   });
 });

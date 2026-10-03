@@ -82,12 +82,26 @@ export type AwayMemberStat =
 
 // E-CREW 0.14.0 (Task 7): which member stat each GROUND gear line raises. Member gear rolls its own stat
 // vocabulary (model.ts MEMBER_GROUND_STAT_KEYS, `ground`-prefixed so it can never collide with a ship
-// stat), and the member-power task (design section 5.3) reads a worn piece's lines through THIS map. A
-// gear line is raw budget POINTS (like ship gear), so that task also owns the points-to-bump conversion;
-// the STACKING RULE above applies once converted. null = a line with no member stat to raise: it feeds
-// fieldwork YIELD (organics / vaults, read by the fieldwork task) or affliction RESIST (read by the
-// Security battle), never the member card's stat line. Total Record, so a new ground key is a compile
-// error here until it is mapped.
+// stat), and the member-power layer (design section 5.3) reads a worn piece's lines through THIS map.
+// null = a line with no member card stat to raise (see the contract below). Total Record, so a new ground
+// key is a compile error here until it is mapped.
+//
+// CONVERSION CONTRACT (who turns gear POINTS into game magnitudes):
+//   - A gear line is raw budget POINTS (generateEquipment's split), so it scales with the piece's iLevel,
+//     quality and rarity. Points are SUMMED per member across every worn piece (armor + weapon + tool +
+//     implants), additively per the STACKING RULE above, and converted ONCE per member.
+//   - Member power (the eight mapped card stats: hp / power / armor / accuracy / fieldwork / relicFind /
+//     hazardResist / statusChance): the roster SNAPSHOT at dispatch (Task 12) converts the summed points.
+//   - Battle stats + resists (power / armor / accuracy / hp / statusChance, and groundStatusResist): the
+//     Security battle (Task 13).
+//   - Fieldwork yields + relic odds + hazard (fieldwork / relicFind / hazardResist, and the two yield
+//     lines): fieldwork (Task 15).
+//   - The three null keys: groundStatusResist becomes the member's chance to resist the statuses listed
+//     by its `resistStatus` pieces (Task 13); groundOrganicsYield / groundVaultYield become fieldwork
+//     yield multipliers toward organics / vault finds (Task 15).
+// THE STATUS-CHANCE RULE: a piece's groundStatusChance ALWAYS folds into the member-wide statusChance (it
+// maps there like any other line), and an `inflict` piece applies its listed status with chance = that
+// member's statusChance. There is no separate per-piece chance read.
 export const GROUND_STAT_MEMBER_STAT: Record<MemberGroundStatKey, AwayMemberStat | null> = {
   groundHp: "hp",
   groundPower: "power",

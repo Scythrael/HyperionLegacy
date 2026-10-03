@@ -466,9 +466,9 @@ export function generateEquipment(a: {
   //     apply its variety-level equip gate and utilityGear.ts can read its effect. varietyHasOwnIdentity
   //     is false for every pre-E4d variety, so no existing mint gains the field.
   //   - E-CREW 0.14.0 (Task 7): EVERY away-team MEMBER piece (isMemberSlotType) is stamped, whether or not
-  //     its variety overrides any table: the member install gate reads the variety's teamTypes, the tool
-  //     readers its planetTypes / encounterBias, the unique-equipped rule and the battle its groundEffect,
-  //     all resolved from moduleVariant.
+  //     its variety overrides any table: the member install gate, the tool readers, the unique-equipped
+  //     rule and the battle all read the variety's `member` traits (MemberVarietyTraits), resolved from
+  //     moduleVariant through pieceVarietyDef.
   if (
     a.slotType === "bridge" ||
     a.slotType === "quarters" ||
