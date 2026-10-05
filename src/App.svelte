@@ -102,6 +102,8 @@
     PATROLS,
     FACTIONS,
     requiredTicksForPhase,
+    // 0.13.9: the dispatch popup's per-phase TIMING rows + total, one source so they add up.
+    missionCycleTiming,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
     // by the flying hull's speed, so the fuel-chip expenditure math can measure a burn
     // rate against the REAL (ship-adjusted) cycle length, not the un-adjusted base.
@@ -124,6 +126,12 @@
     // one ShipInstance's 3 mission-relevant stats (cargoCapacity/
     // transitSpeedMult/extractionYieldMult) for the Docks ship rows.
     SHIP_TYPES,
+    // 0.13.9: the ONE fleet-aware ship label (custom name ?? hull label, " #N" when two
+    // ships would read the same), used by every picker, list and log line below.
+    shipDisplayLabel,
+    // The batched form (id -> label for the whole fleet), for lists that label many ships at once.
+    shipDisplayLabels,
+    shipBaseLabel,
     shipDerivedStats,
     // Equipment 0.11.0 DEV readout (Debug tab only): the live slot table drives
     // the [DEV] grant selector's slot/variety options, and the three instance
@@ -634,6 +642,9 @@
     // dispatch. PatrolDispatchBlockReason types the reason the block-reason helper maps
     // to player text (mirrors DispatchBlockReason for extraction missions).
     canDispatchPatrol,
+    // 0.13.9: the ONE gear-inclusive reach reading the gates use, for every range readout.
+    shipRangeLightYears,
+    shipReachesRoundTrip,
     dispatchCaptainOnPatrol,
     type PatrolDispatchBlockReason,
     // "Every hull is combat-capable": freshState() seeds only the economy Standard-Issue
@@ -900,7 +911,7 @@
   // ITEM LIFECYCLE 0.13.6 (Armory, Phase 3): the loadout lifecycle, pure over GameState.
   import {
     loadoutCap, canCreateLoadout, createLoadout, renameLoadout, deleteLoadout,
-    loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout,
+    loadoutSlotDefsForShipType, installIntoLoadout, uninstallFromLoadout, loadoutInstallCandidates,
     checkOutLoadout, checkInLoadout, type LoadoutSlotDef,
   } from "./lib/game/armory";
   // ITEM LIFECYCLE 0.13.6 (the Archive, Phase 4): the completionist record, pure over GameState.
@@ -968,7 +979,7 @@
   // Phase 9b.5d) prices a PATROL round trip from its two transit legs + the flying
   // hull's engine efficiency, the SAME figure canDispatchPatrol / dispatchCaptainOnPatrol
   // spend, so the patrol card's "fuel per run" can never mislead about the real cost.
-  import { fuelNeeded, fuelForRoundTrip, distanceLightYears, rangeLightYears, LY_PER_TICK } from "./lib/game/fuel";
+  import { fuelNeeded, fuelForRoundTrip, distanceLightYears, LY_PER_TICK } from "./lib/game/fuel";
   // Combat 0.13.0, Phase 1, Task 1.6: MAX_CAPTAIN_NAME backs the Rename input's
   // maxlength attribute (the input can't exceed the same ceiling renameCaptain
   // enforces) and the "Max N characters" error copy. Imported from captainName.ts
@@ -1729,17 +1740,13 @@
   function shipPickerStats(ship: GameState["ships"][number]): string {
     const gear = equippedFor(state, ship.id);
     const stats = shipDerivedStats(ship, gear);
-    const reachLy = rangeLightYears({
-      ...SHIP_TYPES[ship.typeKey],
-      fuelCapacity: stats.fuelCapacity,
-      engineEfficiency: stats.engineEfficiency,
-    });
+    const reachLy = shipRangeLightYears(state, ship); // 0.13.9: the shared gear-inclusive reach
     // Battle Rating via the SAME shipToCombatant + battleRating path the roster + install panel use,
     // so this number agrees with the roster's "BR". BR / Holds / Range is one spread that reads for
     // all three hull roles (warship / hauler / explorer).
     const hullType = combatHullTypeOf(ship.typeKey);
     const br = hullType ? battleRating(shipToCombatant({ id: ship.id, team: "player", stats: SHIP_TYPES[ship.typeKey], hullType, installedGear: gear })) : 0;
-    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.round(reachLy))} LY`];
+    const parts = [`BR ${formatNumber(br)}`, `Hold ${formatNumber(stats.cargoCapacity)}`, `${formatNumber(Math.floor(reachLy))} LY`];
     if (ship.damaged) parts.push("Damaged");
     return parts.join(" · ");
   }
@@ -4280,11 +4287,25 @@
     patrolDispatchKey = null;
   }
 
+  // 0.13.9: the "fuelCapacity" (out of reach) sentence for both dispatch surfaces. Names the trip's
+  // distance and the captain's ship's GEAR-INCLUSIVE reach (shipRangeLightYears, the reading the gate
+  // uses) when a ship is known, else a plain sentence. Range is FLOORED like every range readout, so
+  // an out-of-reach ship never reads as reaching exactly the trip distance. ⚠️ CAVEAT: a distance is
+  // round-trip ticks x LY_PER_TICK (0.5), so today every trip is a whole or half lightyear and
+  // Math.round only ever rounds a half UP, which keeps the two shown numbers honest. If LY_PER_TICK
+  // changes or a fractional trip ever appears, rounding could show a distance BELOW the true one, and
+  // the display should then show a decimal (here and on the cards) instead of rounding.
+  function outOfReachText(distanceLy: number, captainId?: number | null): string {
+    const ship = captainId == null ? null : state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
+    if (ship === null) return "Out of reach for this ship";
+    return `Out of reach: this trip is ${formatNumber(Math.round(distanceLy))} LY, this ship reaches ${formatNumber(Math.floor(shipRangeLightYears(state, ship)))} LY`;
+  }
+
   // Maps a canDispatchPatrol PatrolDispatchBlockReason to a short player-facing string,
   // the patrol counterpart to dispatchBlockMessage. Wording matches the mockup where it
   // specifies one ("assign a combat hull first" for notCombatHull); the rest mirror the
   // extraction reason phrasings so the two dispatch surfaces read consistently.
-  function patrolDispatchBlockMessage(reason: PatrolDispatchBlockReason): string {
+  function patrolDispatchBlockMessage(reason: PatrolDispatchBlockReason, patrolKey?: PatrolKey | null, captainId?: number | null): string {
     switch (reason) {
       case "noCaptain":
         return "No captain selected";
@@ -4305,8 +4326,13 @@
         // no power = the ship physically cannot set a course. Missing weapon/plating/shields are
         // NOT blocks now (weapon = a persistent advisory below; plating/shields = silent choices).
         return "Install a reactor first (no power)";
-      case "fuelCapacity":
-        return "Ship's tank too small for this trip";
+      case "fuelCapacity": {
+        // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
+        const def = patrolKey != null ? PATROLS[patrolKey] : undefined;
+        return def === undefined
+          ? "Out of reach for this ship"
+          : outOfReachText((def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK, captainId);
+      }
       case "fuelEmpty":
         return "Not enough fuel or credits to refuel";
     }
@@ -4783,6 +4809,11 @@
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":
         return "all drone bays are full (uninstall a drone pod first)";
+      case "replaceTargetInvalid":
+        return "the system being swapped out is no longer installed here";
+      // 0.13.9: the system this install would move out belongs to a checked-out loadout.
+      case "occupantInLoadout":
+        return "the installed system belongs to a checked-out loadout (check that loadout in at the Armory first)";
     }
   }
 
@@ -4796,11 +4827,12 @@
     return `${p.id} ${p.rarity} q${p.quality}${sig} (mass ${p.mass.toFixed(0)}, draw ${p.powerDraw.toFixed(0)})`;
   }
 
-  // Safe hull label for a ship id (falls back to the raw id if the ship or its
-  // type def cannot be resolved), used only in the dev log messages below.
+  // Safe display label for a ship id (falls back to the raw id if the ship cannot be
+  // resolved), used by the install / uninstall / repair log lines and job names below.
+  // 0.13.9: the shared shipDisplayLabel, so it honors a custom name and numbers same-type hulls.
   function devShipLabel(shipId: string): string {
     const ship = state.ships.find((s) => s.id === shipId);
-    return ship ? (SHIP_TYPES[ship.typeKey]?.label ?? shipId) : shipId;
+    return ship ? shipDisplayLabel(state, ship) : shipId;
   }
 
   // FIT a spare piece to a ship. Checks canFitEquipment FIRST (fitEquipment THROWS
@@ -4899,15 +4931,32 @@
   // swap (evicting any current occupant back to the pool) is handled inside
   // fitEquipment. `installSystem`/`uninstallSystem` are the USER-FACING names;
   // they wrap the unchanged fitEquipment/unfitEquipment code helpers.
-  function installSystem(shipId: string, instanceId: string) {
-    const gate = canFitEquipment(state, shipId, instanceId);
+  // 0.13.9: `replacingInstanceId` is a TARGETED SWAP on a weapon hardpoint / drone bay (the panel's
+  // Swap on a filled cell): fitEquipment moves that piece to storage and installs the new one in one step.
+  function installSystem(shipId: string, instanceId: string, replacingInstanceId?: string) {
+    const gate = canFitEquipment(state, shipId, instanceId, replacingInstanceId);
     if (!gate.ok) {
       pushLog(`Cannot install system: ${devFitReasonText(gate.reason)}.`);
       return;
     }
-    state = fitEquipment(state, shipId, instanceId);
+    // 0.13.9: name the pieces by their player-facing labels, never the raw instance ids
+    // (the log is visible in System > Log). Read before the transition for clarity.
+    const incomingName = systemNameById(instanceId);
+    const outgoingName = replacingInstanceId !== undefined ? systemNameById(replacingInstanceId) : "";
+    state = fitEquipment(state, shipId, instanceId, replacingInstanceId);
     doSave();
-    pushLog(`Installed system ${instanceId} on ${devShipLabel(shipId)}.`);
+    pushLog(
+      replacingInstanceId !== undefined
+        ? `Swapped ${outgoingName} for ${incomingName} on ${devShipLabel(shipId)}.`
+        : `Installed ${incomingName} on ${devShipLabel(shipId)}.`
+    );
+  }
+
+  // The player-facing label for an equipment instance id (log lines), via the same naming the
+  // salvage log uses; a missing id (hand-edited save) reads as a neutral fallback.
+  function systemNameById(instanceId: string): string {
+    const piece = state.equipment.find((e) => e.id === instanceId);
+    return piece ? systemSalvageName(piece) : "a system";
   }
 
   // UNINSTALL one specific installed system BY INSTANCE ID (Combat 1.0, Unit 1.8b).
@@ -4919,9 +4968,10 @@
   // uninstalled system is never lost (the install picker re-offers it). Persists the change.
   function uninstallSystem(shipId: string, instanceId: string) {
     try {
+      const name = systemNameById(instanceId);
       state = unfitEquipmentInstance(state, shipId, instanceId);
       doSave();
-      pushLog(`Uninstalled system ${instanceId} on ${devShipLabel(shipId)}.`);
+      pushLog(`Uninstalled ${name} on ${devShipLabel(shipId)}.`);
     } catch (e) {
       pushLog(`Cannot uninstall system: ${(e as Error).message}`);
     }
@@ -4959,12 +5009,14 @@
   function handleRenameShip(shipId: string, name: string) {
     const before = state.ships.find((s) => s.id === shipId);
     if (!before) return;
-    const previousDisplay = before.name ?? SHIP_TYPES[before.typeKey]?.label ?? shipId;
+    // The label the player saw BEFORE the rename (read off the pre-swap state).
+    const previousDisplay = shipDisplayLabel(state, before);
     const next = renameShip(state, shipId, name);
     if (next === state) return; // no change (rejected / no-op / unknown id): skip save + log
     state = next;
     const after = next.ships.find((s) => s.id === shipId);
-    const hullLabel = after ? SHIP_TYPES[after.typeKey]?.label ?? shipId : shipId;
+    // The label the ship shows NOW (a cleared hull may be numbered among its same-type peers).
+    const hullLabel = after ? shipDisplayLabel(next, after) : shipId;
     const cleared = after?.name === undefined; // empty draft dropped the custom name
     pushLog(
       cleared
@@ -5510,15 +5562,20 @@
 
   // Human sentence for a salvage REJECT reason. Exhaustive over SalvageRejectReason
   // (a switch, no default) so a new reason is a compile error here. From the bay's
-  // system salvage only notFound / fitted are reachable (a spare baseline, combat or
-  // economy, is DESTROYED as a declutter rather than rejected); the salvaged-material and
-  // ship reasons are covered for totality.
+  // system salvage only notFound / fitted / committed are reachable (a spare baseline,
+  // combat or economy, is DESTROYED as a declutter rather than rejected); the
+  // salvaged-material and ship reasons are covered for totality.
   function salvageRejectText(reason: SalvageRejectReason): string {
     switch (reason) {
       case "notFound":
         return "that system no longer exists";
       case "fitted":
         return "the system is installed on a ship (uninstall it first)";
+      case "committed":
+        // 0.13.9: the piece sits in an Armory loadout. Mostly a queued-row reason (a save where a
+        // spare was committed after its salvage was queued, before installIntoLoadout refused
+        // reserved pieces); the bay itself never lists committed gear.
+        return "the system is in an Armory loadout (uninstall it from the loadout first)";
       case "locked":
         return "the system is locked (unlock it first)";
       case "noRecipe":
@@ -5750,7 +5807,7 @@
           manifest.length > 0
             ? `Salvage complete → [${watched.sourceName}]. Recovered: ${manifest}.`
             : recoveredNothing
-              ? `Salvage complete → [${watched.sourceName}]. No materials recovered (rounded to zero).`
+              ? `Salvage complete → [${watched.sourceName}]. No materials recovered this time.`
               : `Salvage complete → [${watched.sourceName}]. Recovered materials are in the Warehouse.`
         );
       }
@@ -5797,7 +5854,7 @@
       .filter(([, amount]) => amount > 0)
       .map(([itemId, amount]) => `${formatNumber(amount)} [${ITEMS[itemId]?.label ?? itemId}]`);
     if (result.creditsRecovered > 0) parts.push(`${formatNumber(new Decimal(result.creditsRecovered))} credits`);
-    const summary = parts.length > 0 ? parts.join(", ") : "no materials (recovery rounded to zero)";
+    const summary = parts.length > 0 ? parts.join(", ") : "no materials this time";
     const systemsNote = returnedSystems > 0 ? ` ${returnedSystems} crafted system(s) returned to spares.` : "";
     pushLog(`Salvaged ${shipLabel} → recovered ${summary}.${systemsNote}`);
     doSave();
@@ -6638,20 +6695,33 @@
 
   $: selectedLoadout = state.loadouts.find((l) => l.id === selectedLoadoutId) ?? null;
   $: armorySlotDefs = selectedLoadout ? loadoutSlotDefsForShipType(selectedLoadout.shipTypeKey) : [];
-  // Free spares (rolled pool) compatible with the slot whose install picker is open.
+  // Free spares (rolled pool) compatible with the slot whose install picker is open. 0.13.9: read
+  // from armory.ts's loadoutInstallCandidates, which also drops pieces reserved for salvage, so the
+  // picker never offers a piece installIntoLoadout would refuse for that reason.
   $: armoryInstallCandidates = (() => {
     if (selectedLoadout === null || armoryInstallSlotKey === null) return [];
     const slot = armorySlotDefs.find((d) => d.key === armoryInstallSlotKey);
     if (slot === undefined) return [];
-    return state.equipment.filter(
-      (e) => isSparePiece(e) && e.slotType === slot.slotType
-    );
+    return loadoutInstallCandidates(state, slot.slotType);
   })();
   // Ships this loadout can check out to: matching type + no loadout already checked out to them.
   // (On-mission ships are still listed; checkOutLoadout refuses and the handler explains why.)
   $: armoryCheckoutShips = selectedLoadout === null ? [] : state.ships.filter(
     (s) => s.typeKey === selectedLoadout!.shipTypeKey && !state.loadouts.some((l) => l.checkedOutToShipId === s.id)
   );
+  // Every ship's display label, batched ONCE per state change (shipDisplayLabels) for the lists that
+  // label many ships (Armory roster "In use", check-out options, the Swap hull picker), instead of a
+  // per-row shipDisplayLabel that rescans the fleet for each row. Read inline in the markup
+  // (fleetShipLabels.get(id)) so Svelte tracks the dependency; shipBaseLabel is a never-hit fallback
+  // (every listed ship is in state.ships).
+  $: fleetShipLabels = shipDisplayLabels(state.ships);
+  // A check-out option: the ship's display label plus who is aboard (the captain's label, the
+  // same source the Ships roster shows), or "Parked" when no captain is assigned. A captain id
+  // that no longer resolves reads as Parked, the roster's own fallback.
+  function armoryCheckoutOptionLabel(st: GameState, labels: Map<string, string>, ship: ShipInstance): string {
+    const captain = ship.assignedCaptainId === null ? null : st.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
+    return `${labels.get(ship.id) ?? shipBaseLabel(ship)} · ${captain ? captain.label : "Parked"}`;
+  }
   // The ship picked in the check-out dropdown. Kept valid: default to the first eligible ship, and
   // snap back to it if the current pick leaves the eligible list (e.g. it got checked out elsewhere).
   let armoryCheckoutSelId: string | null = null;
@@ -7435,6 +7505,7 @@
       switch (reason) {
         case "notFound":
         case "fitted":
+        case "committed":
         case "noRecipe":
         case "notSalvagedMaterial":
         case "noneHeld":
@@ -8267,7 +8338,7 @@
   // Level / requiresCargoCapacity) so the level/cargo messages name the actual number
   // the gate checks, never a hardcoded guess. Exhaustive over the union (every
   // DispatchBlockReason has a case); the default is belt-and-suspenders only.
-  function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey): string {
+  function dispatchBlockMessage(reason: DispatchBlockReason, missionKey: MissionKey, captainId?: number | null): string {
     const mission = MISSIONS[missionKey];
     switch (reason) {
       case "locked":
@@ -8281,7 +8352,8 @@
         // and the captain would auto-idle after one wasted round trip. Block before that.
         return "Warehouse full for this material";
       case "fuelCapacity":
-        return "Ship's tank too small for this trip";
+        // 0.13.9: reach wording (fuel is reach since 0.13.6), with the real numbers when known.
+        return outOfReachText(distanceLightYears(mission), captainId);
       case "fuelEmpty":
         // Fuel Economy v2 (F3): a short tank now auto-buys the shortfall from credits; this
         // reason fires only when the shortfall is ALSO unaffordable (truly broke).
@@ -8516,7 +8588,7 @@
     if (!success) return;
     state = next;
     if (captain && ship) {
-      pushLog(`[${captain.label}] Now flying: ${SHIP_TYPES[ship.typeKey].label}.`);
+      pushLog(`[${captain.label}] Now flying: ${shipDisplayLabel(state, ship)}.`);
     }
     // Close BOTH pickers unconditionally, whichever one drove this call is
     // now done, and the other is already null. Cheap and keeps this handler
@@ -12805,10 +12877,11 @@
                            Warehouse is where they can be counted. -->
                       Everything went straight to the <strong>Warehouse</strong>.
                     {:else}
-                      <!-- The third preserved body branch: the recovery rounded to zero, so
+                      <!-- The third preserved body branch: every amount rounded down to zero
+                           (0.13.9: chance-rounded, so an unlucky roll on a small recipe), so
                            there is genuinely nothing to list. Said plainly rather than shown
                            as an empty manifest. -->
-                      No materials recovered (rounded to zero).
+                      No materials recovered this time.
                     {/if}
                   {/if}
                 </p>
@@ -14270,7 +14343,7 @@
                           <span style="font-weight:600; font-size:var(--text-sm); color:var(--color-text-primary); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{lo.name}</span>
                           <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:var(--color-text-dim); text-transform:uppercase; letter-spacing:0.06em; flex:none;">{SHIP_TYPES[lo.shipTypeKey]?.label ?? lo.shipTypeKey}</span>
                         </span>
-                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `In use: ${coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}` : "Available"}</span>
+                        <span style="font-family:var(--font-mono); font-size:var(--text-xs); color:{lo.checkedOutToShipId ? 'var(--color-success)' : 'var(--color-text-dim)'};">{lo.checkedOutToShipId ? `In use: ${coShip ? fleetShipLabels.get(coShip.id) ?? shipBaseLabel(coShip) : "a ship"}` : "Available"}</span>
                       </span>
                     </button>
                   {/each}
@@ -14301,7 +14374,7 @@
                        the Check in button pushed right so it sits beneath the BR pill, and the
                        edit-locked hint in a small yellow caution box. -->
                   <div class="armory-locked-row">
-                    <span class="armory-inuse">In Use: {coShip?.name ?? (coShip ? SHIP_TYPES[coShip.typeKey]?.label : null) ?? "a ship"}</span>
+                    <span class="armory-inuse">In Use: {coShip ? fleetShipLabels.get(coShip.id) ?? shipBaseLabel(coShip) : "a ship"}</span>
                     <button class="buy-btn" on:click={() => doArmoryCheckIn(selectedLoadout.id)}>Check in</button>
                   </div>
                   <div class="armory-caution">Check in to edit this loadout.</div>
@@ -14317,7 +14390,7 @@
                     {:else}
                       <select class="setting-select" style="flex:1 1 0; min-width:0;" bind:value={armoryCheckoutSelId} aria-label="Ship to check out to">
                         {#each armoryCheckoutShips as s (s.id)}
-                          <option value={s.id}>{s.name ?? SHIP_TYPES[s.typeKey]?.label ?? s.id}</option>
+                          <option value={s.id}>{armoryCheckoutOptionLabel(state, fleetShipLabels, s)}</option>
                         {/each}
                       </select>
                       <button class="buy-btn" style="flex:none; white-space:nowrap;" on:click={() => { if (armoryCheckoutSelId !== null) doArmoryCheckOut(armoryCheckoutSelId); }}>Check out</button>
@@ -15207,7 +15280,7 @@
               : state.ships.length === 1
                 ? "Cannot salvage your last ship: your fleet would be left with no hull"
                 : "Break down this hull for parts"}
-            on:click={() => requestSalvage("ship", ship.id, def?.label ?? ship.typeKey)}
+            on:click={() => requestSalvage("ship", ship.id, shipDisplayLabel(state, ship))}
           >
             Salvage
           </button>
@@ -15571,7 +15644,7 @@
                        just the hull class; "None" / "Unassigned" when no hull is flown. -->
                   <span class="cprow">
                     <span class="cprow-lbl">Ship</span>
-                    <span class="cprow-val">{paneShip === null ? "None · Unassigned" : paneShip.name ? `${paneShip.name} · ${SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}` : SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}</span>
+                    <span class="cprow-val">{paneShip === null ? "None · Unassigned" : paneShip.name ? `${shipDisplayLabel(state, paneShip)} · ${SHIP_TYPES[paneShip.typeKey]?.label ?? paneShip.typeKey}` : shipDisplayLabel(state, paneShip)}</span>
                   </span>
                   <!-- XP row: same bar + percent idiom as the facility rows, driven by the
                        console's own xp/xpForNextLevel ratio. -->
@@ -15778,7 +15851,7 @@
                 Assignment: On patrol · {PATROLS[activeCaptain.mission.patrolKey].label}
               {/if}
             </div>
-            <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${overviewShip.name} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}</div>
+            <div class="research-cost">Ship: {overviewShip === null ? "None · Unassigned" : overviewShip.name ? `${shipDisplayLabel(state, overviewShip)} · ${SHIP_TYPES[overviewShip.typeKey]?.label ?? overviewShip.typeKey}` : shipDisplayLabel(state, overviewShip)}</div>
             <div class="cc-hint">Dispatch &amp; recall from the Operations tab; shown here for reference.</div>
           </Panel>
           {/if}
@@ -15850,7 +15923,7 @@
           {@const shipTabShip = state.ships.find((s) => s.assignedCaptainId === activeCaptain.id) ?? null}
           <Panel>
             <div class="panel-title">SHIP</div>
-            <div class="research-cost">Assigned: {shipTabShip === null ? "No ship assigned" : shipTabShip.name ? `${shipTabShip.name} · ${SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}` : SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}</div>
+            <div class="research-cost">Assigned: {shipTabShip === null ? "No ship assigned" : shipTabShip.name ? `${shipDisplayLabel(state, shipTabShip)} · ${SHIP_TYPES[shipTabShip.typeKey]?.label ?? shipTabShip.typeKey}` : shipDisplayLabel(state, shipTabShip)}</div>
             <div class="dev-row" style="margin-top: 10px;">
               <button
                 class="dev-btn"
@@ -16228,7 +16301,8 @@
                        and the representative hull's REACH, instead of a fuel cost. LY numbers are
                        first-pass tunable (0.16.0 balance). -->
                   {@const distanceLy = distanceLightYears(missionDef)}
-                  {@const shipRangeLy = representativeShip ? rangeLightYears(SHIP_TYPES[representativeShip.typeKey]) : null}
+                  <!-- 0.13.9: the GEAR-INCLUSIVE range (shipRangeLightYears), the same reach the dispatch gate reads. -->
+                  {@const shipRangeLy = representativeShip ? shipRangeLightYears(state, representativeShip) : null}
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                        lootTable), read the real item keys so drops read per-mission. -->
                   {@const loot = missionDef.lootTable}
@@ -16339,7 +16413,7 @@
                               <div class="mission-col-label">Requirements</div>
                               <div class="mission-req-line">Captain Level: {missionDef.requiresCaptainLevel ?? 1}</div>
                               <div class="mission-req-line">Cargo Capacity: {missionDef.requiresCargoCapacity !== undefined ? formatNumber(missionDef.requiresCargoCapacity) : "None"}</div>
-                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; hull range {formatNumber(Math.round(shipRangeLy))} LY{/if}</div>
+                              <div class="mission-req-line">Distance: {formatNumber(Math.round(distanceLy))} LY{#if shipRangeLy !== null} &middot; ship range {formatNumber(Math.floor(shipRangeLy))} LY{/if}</div>
                             </div>
                             <div class="mission-detail-section">
                               <div class="mission-col-label">Rewards</div>
@@ -16597,7 +16671,9 @@
                      the card can never disagree with what the backend would allow. -->
                 {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolKey) : null}
                 {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
-                {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
+                <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test (shipRangeLightYears /
+                     shipReachesRoundTrip), so the red flag and canDispatchPatrol can never disagree. -->
+                {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
                 {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
                 {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
                 <!-- Combat 1.0 (Unit 2.4): the combat hull class (null for a non-combat
@@ -16609,7 +16685,7 @@
                 {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
                 {@const forecast = patrolForecastFor(state, patrolKey, def, selectedShip, hullType, stance)}
                 {@const expanded = expandedPatrolKey === patrolKey}
-                {@const outOfReach = patrolReachLy !== null && patrolReachLy < patrolDistanceLy}
+                {@const outOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
                 {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
                 <div class="mpane-wrap">
                   <!-- ROW: id (⚔️ + patrol label + faction sub) · glance mid · actions. warnedge
@@ -16628,7 +16704,7 @@
                       <div class="statline">
                         <span>Waves <b>{wavesLabel}</b></span>
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
-                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.round(patrolReachLy))} LY</b>{/if}</span>
+                        <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.floor(patrolReachLy))} LY</b>{/if}</span>
                       </div>
                       <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
                            is selected (and a forecast exists), else a dim "pick a captain" prompt.
@@ -16664,7 +16740,7 @@
                       <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
                            gate/qualify dispatch. Same canDispatchPatrol reasons as before. -->
                       {#if gate !== null && !gate.ok}
-                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason, patrolKey, selectedCaptainId)}</div>
                       {/if}
                       {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
                         <div class="mpane-warn">⚠ No weapon installed. You won't be able to return fire.</div>
@@ -18497,11 +18573,15 @@
           {@const timingDef = popupShip !== null
             ? effectiveMissionDef(missionDef, effectiveShipStats(state, popupShip))
             : missionDef}
-          {@const transitOutTicks = timingDef.transitOutTicks}
-          {@const extractingTicks = requiredTicksForPhase("extracting", timingDef)}
-          {@const transitBackTicks = timingDef.transitBackTicks}
-          {@const unloadTicks = timingDef.unloadTicks}
-          {@const totalTicks = 1 + transitOutTicks + extractingTicks + transitBackTicks + unloadTicks}
+          <!-- 0.13.9: every TIMING row, Orders Received included, comes from missionCycleTiming
+               (model.ts), and the total is their sum, so the listed rows always add up. -->
+          {@const cycleTiming = missionCycleTiming(timingDef)}
+          {@const ordersTicks = cycleTiming.ordersReceived}
+          {@const transitOutTicks = cycleTiming.transitOut}
+          {@const extractingTicks = cycleTiming.extracting}
+          {@const transitBackTicks = cycleTiming.transitBack}
+          {@const unloadTicks = cycleTiming.unloading}
+          {@const totalTicks = cycleTiming.total}
           {@const bonusRollChance = captainBonusRollChance(selectedCaptain)}
           {@const bonusRollChanceMult = captainBonusRollChanceMult(selectedCaptain)}
           {@const effectiveBonusRollChance = Math.min(1, bonusRollChance * (1 + bonusRollChanceMult))}
@@ -18550,6 +18630,7 @@
                ~28m / ~1h 5m / ~2d 3h), not raw seconds — "1692.0s" is hard to read (user 2026-09-14).
                The tick COUNT stays for the tick-counting player; a 0-tick phase reads "(-)". -->
           <div class="panel-title">TIMING</div>
+          <div class="research-cost">Orders received: {ordersTicks} {ordersTicks === 1 ? "tick" : "ticks"} ({formatDuration(ordersTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Transit out: {transitOutTicks} ticks ({formatDuration(transitOutTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Extracting: {extractingTicks} ticks ({formatDuration(extractingTicks, state.tickDurationSeconds)})</div>
           <div class="research-cost">Transit back: {transitBackTicks} ticks ({formatDuration(transitBackTicks, state.tickDurationSeconds)})</div>
@@ -18564,16 +18645,19 @@
                title (the button is disabled below). -->
           {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
           {@const distanceLy = distanceLightYears(missionDef)}
-          {@const shipRangeLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
-          <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the hull's
-               reach covers the trip distance (the canDispatch gate); flag red when it does not. -->
+          {@const shipRangeLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+          {@const missionOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, missionDef.transitOutTicks, missionDef.transitBackTicks)}
+          <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the ship's
+               reach covers the trip distance (the canDispatch gate); flag red when it does not.
+               0.13.9: "Ship range" is GEAR-INCLUSIVE and the red flag is the gate's own reach test
+               (shipRangeLightYears / shipReachesRoundTrip), so the readout cannot contradict the gate. -->
           <div class="panel-title">RANGE</div>
           <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} LY</div>
-          <div class="research-cost" style={shipRangeLy !== null && shipRangeLy < distanceLy ? "color: var(--color-danger)" : ""}>
-            Hull range: {shipRangeLy !== null ? `${formatNumber(Math.round(shipRangeLy))} LY` : "--"}
+          <div class="research-cost" style={missionOutOfReach ? "color: var(--color-danger)" : ""}>
+            Ship range: {shipRangeLy !== null ? `${formatNumber(Math.floor(shipRangeLy))} LY` : "no ship assigned"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
-            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)}</div>
+            <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)}</div>
           {/if}
         {/if}
 
@@ -18586,7 +18670,7 @@
               class="dev-btn"
               disabled={missionPopupGate !== null && !missionPopupGate.ok}
               title={missionPopupGate !== null && !missionPopupGate.ok
-                ? dispatchBlockMessage(missionPopupGate.reason, missionPopupKey)
+                ? dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)
                 : undefined}
               on:click={doDispatchFromPopup}
             >
@@ -18620,7 +18704,9 @@
     {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
     {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolDispatchKey) : null}
     {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
-    {@const patrolReachLy = selectedShip ? rangeLightYears(SHIP_TYPES[selectedShip.typeKey]) : null}
+    <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test, as on the patrol card. -->
+    {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+    {@const patrolOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
     {@const stance = patrolStanceByKey[patrolDispatchKey] ?? "balanced"}
     {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
     {@const hullType = selectedShip ? combatHullTypeOf(selectedShip.typeKey) : null}
@@ -18709,7 +18795,7 @@
 
         <div class="research-cost" style="margin-top: 20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
           {#if patrolReachLy !== null}
-            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolReachLy < patrolDistanceLy ? "color: var(--color-danger)" : ""}>hull range {formatNumber(Math.round(patrolReachLy))} LY</span></span>
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolOutOfReach ? "color: var(--color-danger)" : ""}>ship range {formatNumber(Math.floor(patrolReachLy))} LY</span></span>
           {:else}
             <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY</span>
             <HelpTip label="Range" text="Select a captain to check whether their hull has the range for this patrol." />
@@ -18717,7 +18803,7 @@
         </div>
 
         {#if gate !== null && !gate.ok}
-          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason)}</div>
+          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId)}</div>
         {/if}
         {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
           <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
@@ -18731,7 +18817,7 @@
           <button
             class="buy-btn"
             disabled={gate === null || !gate.ok}
-            title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason) : undefined}
+            title={gate !== null && !gate.ok ? patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId) : undefined}
             on:click={doDispatchPatrolFromPopup}
           >
             Dispatch Patrol
@@ -18786,7 +18872,7 @@
          case a captain got dispatched between opening and rendering. -->
     {@const pickerShip = state.ships.find((s) => s.id === assignPickerShipId) ?? null}
     {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
-    <ActionModal title={`Assign hull${pickerShip ? ` · ${SHIP_TYPES[pickerShip.typeKey].label}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
+    <ActionModal title={`Assign hull${pickerShip ? ` · ${shipDisplayLabel(state, pickerShip)}` : ""}`} ariaLabel="Assign hull to captain" onClose={closeShipPickers}>
         <p class="modal-instruction">Assign this hull to a captain. Their current ship parks.</p>
         {#if idleCaptains.length === 0}
           <p class="prestige-text">No idle captains available, recall one first.</p>
@@ -18834,7 +18920,7 @@
               <!-- Renamable Ships: label the pick by custom name when set (with the
                    hull class in parens), so two same-type parked hulls are distinct. -->
               <button class="dev-btn ship-pick-opt" on:click={() => doAssignShip(swapPickerCaptainId!, ship.id)}>
-                <span class="ship-pick-name">{#if shipFavorites.has(ship.id)}<span class="ship-pick-fav" aria-label="Favorited">★</span>{/if}{ship.name ?? SHIP_TYPES[ship.typeKey].label}</span>
+                <span class="ship-pick-name">{#if shipFavorites.has(ship.id)}<span class="ship-pick-fav" aria-label="Favorited">★</span>{/if}{fleetShipLabels.get(ship.id) ?? shipBaseLabel(ship)}</span>
                 <span class="ship-pick-sub">{ship.name ? `${SHIP_TYPES[ship.typeKey].label} · ` : ""}{shipPickerStats(ship)}</span>
               </button>
             {/each}

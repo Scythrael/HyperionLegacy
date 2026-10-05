@@ -15,7 +15,7 @@
 // left untouched (never rewrite patch-note history), so this deliberately reads
 // as "0.2.0 newer than 0.9.0" once, only here.
 
-export const APP_VERSION = "0.13.8";
+export const APP_VERSION = "0.13.9";
 
 // ---------------------------------------------------------------------------
 // SHAPE. 0.13.5 introduced a STRUCTURED entry (marquee features + category
@@ -63,6 +63,26 @@ export function isStructuredNote(n: PatchNote): n is PatchNoteStructured {
 }
 
 export const PATCH_NOTES: PatchNote[] = [
+  {
+    version: "0.13.9",
+    lede: "A quick fix release: gear stored in Armory loadouts no longer takes up space in your Systems Bay, plus a few corrections.",
+    categories: [
+      {
+        title: "Bug Fixes",
+        tone: "fixes",
+        bullets: [
+          { lead: "Armory gear stays out of storage.", text: "Systems in a loadout resting in the Armory were still counted as spares, which could fill your Systems Bay and block crafting. They now take no space, as intended. Loadout gear is also safe from salvage: a system queued for salvage can no longer be installed in a loadout, and a system already in one is never salvaged." },
+          { lead: "Requisitions are not blocked by loadouts.", text: "A Standard-Issue system sitting in an Armory loadout no longer stops the Quartermaster from issuing you a spare for that slot." },
+          { lead: "Deuterium Ice is safe.", text: "The retired Fuel Depot was still quietly converting leftover Deuterium Ice into fuel nothing uses. It has stopped, so all of your ice can be sold at the Quartermaster, and Home no longer offers Fuel Depot upgrades." },
+          { lead: "Salvage returns materials from small recipes.", text: "Salvaging gear with small recipes, like the Plasma Cannon or the Balanced systems, could return nothing because every amount rounded down. Leftover fractions now give a matching chance of one more unit, for gear and ship teardowns alike." },
+          { lead: "Swap works on weapons.", text: "Pressing Swap on an installed weapon or drone pod now replaces it in one step instead of asking you to uninstall it first." },
+          { lead: "Range shows your real reach.", text: "Ship range on mission and patrol cards and in the dispatch windows now includes your installed FTL Drive, matching what dispatch actually checks. A trip that is out of reach now says how far it is and how far the ship can go." },
+          { lead: "Small corrections.", text: "The dispatch window's timing list now shows the Orders Received tick, so the phases add up to the total. Help now describes fuel as reach and points to the current tabs, and its Combat Patrols and Combat View entries are corrected. Unnamed ships of the same type are now numbered (General Freighter #2) wherever they are listed, and the Armory check-out list shows who is aboard." },
+        ],
+      },
+    ],
+    save: "Your save carries over untouched.",
+  },
   {
     version: "0.13.8",
     lede: "A quick fix: rare materials recovered only from salvage now show up in your Warehouse under Logistics. Any you already collected appear the next time you load.",

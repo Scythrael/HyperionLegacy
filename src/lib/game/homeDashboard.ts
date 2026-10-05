@@ -60,6 +60,7 @@ import {
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
   extractionMissionOf,
+  shipDisplayLabel,
 } from "./model";
 // 0.13.4 Phase 4: the transit-berth read model, so the In Progress board can report a hold.
 import { missionPhaseStatus } from "./berths";
@@ -373,13 +374,17 @@ function shipForCaptain(state: GameState, captainId: number): ShipInstance | nul
   return state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
 }
 
-// Player-facing display name for a ship: its player-chosen name if it has one, else the
-// hull-type label (the same `name ?? SHIP_TYPES[typeKey].label` rule the roster uses,
-// App.svelte:7462). Falls back to the raw id if the type is somehow unknown, never
-// renders "undefined".
-function shipDisplayName(ship: ShipInstance): string {
-  return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+// Player-facing display name for a ship: the shared model.ts shipDisplayLabel (custom name,
+// else hull-type label, numbered " #N" when another ship in the fleet shares that label, so
+// two unnamed General Freighters read apart). Never renders "undefined".
+function shipDisplayName(state: GameState, ship: ShipInstance): string {
+  return shipDisplayLabel(state, ship);
 }
+
+// 0.13.9 hotfix: the RETIRED Fuel Depot's facility key. Fuel-to-reach (0.13.6) hid its card and
+// 0.13.9 stopped its pipelines; its model record stays for 0.14.0's fuel-economy cleanup. Home
+// skips it wherever it would otherwise offer a prompt or a link into the hidden console.
+export const RETIRED_FUEL_DEPOT_KEY = "fuelStorage";
 
 // Map a facility KEY (the string carried by a facilityLevelUp effect) to its Section-8
 // jump destination, or null when the facility has no Section-8 tab (Warehouse tiers
@@ -396,8 +401,10 @@ function facilityJumpTarget(facilityKey: string): JumpTarget | null {
       return "fabricator";
     case "shipyard":
       return "shipyard";
+    // 0.13.9 hotfix: the Fuel Depot is RETIRED (fuel-to-reach, 0.13.6) and has no card, so a
+    // leftover fuelStorage upgrade in an old save routes nowhere rather than into the hidden console.
     case "fuelStorage":
-      return "fuelDepot";
+      return null;
     // missionControl gates the gathering/patrol missions, so its upgrade routes to the
     // Operations gathering tab (the closest Section-8 destination).
     case "missionControl":
@@ -459,7 +466,9 @@ function labelForProcess(
     // progress bar + ETA convey the fill; a live tank-percent readout is a separate
     // status concern, not this process, so it is not on the row.
     case "fuelRefineJob": {
-      return { icon: "fuel", primaryLabel: "Fuel Depot, topping up", jumpTarget: "fuelDepot" };
+      // 0.13.9 hotfix: unreachable from the board (buildHomeDashboard skips fuelRefineJob rows),
+      // and no link into the retired Depot's hidden console either way.
+      return { icon: "fuel", primaryLabel: "Fuel Depot, topping up", jumpTarget: null };
     }
 
     // Facility upgrade (mirrors App.svelte:3610 FACILITIES[key].label; target level is
@@ -509,7 +518,7 @@ function labelForProcess(
       let shipLabel = effect.type === "clearShipDamage" ? effect.shipId : "ship";
       if (effect.type === "clearShipDamage") {
         const ship = state.ships.find((s) => s.id === effect.shipId) ?? null;
-        if (ship !== null) shipLabel = shipDisplayName(ship);
+        if (ship !== null) shipLabel = shipDisplayName(state, ship);
       }
       return { icon: "repair", primaryLabel: `Repairing, ${shipLabel} hull`, jumpTarget: "shipyard" };
     }
@@ -865,7 +874,7 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
     idleCaptains.push({
       captainId: captain.id,
       captainLabel: captain.label,
-      shipLabel: ship === null ? null : shipDisplayName(ship),
+      shipLabel: ship === null ? null : shipDisplayName(state, ship),
       spec: ship === null ? "general" : (SHIP_TYPES[ship.typeKey]?.spec ?? "general"),
     });
   }
@@ -977,6 +986,10 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
   // chance of a count and a key drifting apart.
   const upgradeKeys: string[] = [];
   for (const facilityKey of Object.keys(FACILITIES)) {
+    // 0.13.9 hotfix: skip the RETIRED Fuel Depot. Its record stays in FACILITIES for 0.14.0's
+    // fuel-economy cleanup, but it has no card and does nothing, so "Fuel Depot upgrade ready"
+    // (and its deep link into the hidden console) must never be offered.
+    if (facilityKey === RETIRED_FUEL_DEPOT_KEY) continue;
     if (canBuildFacilityUpgrade(state, facilityKey).ok) {
       upgradeKeys.push(facilityKey);
     }
@@ -1126,7 +1139,9 @@ const COMPLETION_KIND_VIEW: Record<
   fabricateJob:            { verb: "Fabricated",  icon: "fabricate",  source: "Fabricator",     jumpTarget: "fabricator" },
   researchProject:         { verb: "Researched",  icon: "research",   source: "Research Lab",   jumpTarget: "research" },
   shipBuild:               { verb: "Built",       icon: "shipBuild",  source: "Shipyard",       jumpTarget: "shipyard" },
-  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       source: "Fuel Depot",     jumpTarget: "fuelDepot" },
+  // 0.13.9 hotfix: the Fuel Depot is RETIRED and hidden, so an old "Refined Fuel" history entry
+  // is a plain, non-navigable row instead of a link into the hidden console.
+  fuelRefineJob:           { verb: "Refined",     icon: "fuel",       source: "Fuel Depot",     jumpTarget: null },
   facilityUpgrade:         { verb: "Upgraded",    icon: "facility",   source: "Facilities",     jumpTarget: "facilities" },
   // No Section-8 destination for either storage track (Stores is not a jump target), so
   // these render as plain, non-navigable rows rather than routing somewhere invented.
@@ -1227,7 +1242,7 @@ function completionSubjectLabel(entry: CompletionLogEntry, state: GameState): st
       return FACILITIES[key]?.label ?? key;
     case "repair": {
       const ship = state.ships.find((s) => s.id === key) ?? null;
-      return ship !== null ? shipDisplayName(ship) : key;
+      return ship !== null ? shipDisplayName(state, ship) : key;
     }
     case "relic":
       // Exploration 0.14.0 (E4a): the identified relic id, named through the relic catalog.
@@ -1287,7 +1302,9 @@ function completionDetail(entry: CompletionLogEntry): string | null {
     if (subject !== undefined && subject.kind === "equipment" && subject.blueprintKey === null) {
       return "Standard-Issue systems carry no materials to recover";
     }
-    return "No materials recovered (rounded to zero)";
+    // 0.13.9: recovery is chance-rounded now, so an all-zero result is an unlucky roll on a small
+    // recipe, not a rounding certainty; "this time" says that without blaming a rule.
+    return "No materials recovered this time";
   }
   if (entry.reward === "level" && entry.level !== null) {
     // ⚠️ SOME "LEVEL" REWARDS ARE REALLY CAPACITIES, and reporting a level for them is wrong in a
@@ -1455,6 +1472,10 @@ export function buildHomeDashboard(state: GameState): HomeDashboardModel {
   // 1. Every timed job (refine / fabricate / research / ship build / fuel / facility +
   //    storage + docks upgrades / repair), enumerated generically off the one array.
   for (const process of state.activeProcesses) {
+    // 0.13.9 hotfix: a fuel batch left in flight by an older save (the retired Fuel Depot) is
+    // still allowed to finish, but it is not shown: the row would name a retired facility and
+    // link into its hidden console, and it can no longer matter to the player.
+    if (process.kind === "fuelRefineJob") continue;
     inProgress.push(rowForProcess(process, state, craftRunByLine));
   }
 

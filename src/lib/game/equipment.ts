@@ -238,7 +238,17 @@ export type EquipFitBlockReason =
   // (SHIP_TYPES[hull].droneBays, non-zero only on a carrier) are already full, or the hull has no
   // bays at all (droneBays 0). droneBay is a MULTI slot like weapon; over-cap has nowhere to go.
   // Only ever returned for a droneBay piece.
-  | "baysFull";
+  | "baysFull"
+  // 0.13.9 hotfix (targeted swap): the piece named as the one being REPLACED (replacingInstanceId)
+  // is not a valid swap-out target: it does not exist, is the incoming piece itself, is not
+  // installed on THIS ship, or is not the same MULTI slot type as the incoming piece.
+  | "replaceTargetInvalid"
+  // 0.13.9 hotfix: the piece this install would move OUT (a singleton slot's current occupant, or a
+  // multi slot's targeted swap-out piece) was installed by a CHECKED-OUT Armory loadout
+  // (committedToLoadoutId set). Moving it to storage would leave it committed while its loadout still
+  // reads as checked out to this ship, a half-broken loadout; unfitEquipmentInstance refuses the same
+  // move. Distinct from committedToLoadout, which is about the INCOMING spare. Check the loadout in first.
+  | "occupantInLoadout";
 
 // ----------------------------------------------------------------------------
 // equippedFor
@@ -338,11 +348,23 @@ export function pieceEquipRequirement(instance: EquipmentInstance): EquipRequire
 // (slotNotInstallable) -> the piece is not reserved by a queued salvage (queuedForSalvage,
 // 0.13.3 Unit 2.1) -> ship exists + on-mission lock (noShip / onMission) -> the
 // slot's equipRequirement, hull first then captain (hullSpec / captainSpec /
-// captainSpecParked) -> weapon hardpoint capacity (hardpointsFull, weapon only).
+// captainSpecParked) -> the piece being moved out is not held by a checked-out loadout
+// (replaceTargetInvalid / occupantInLoadout, 0.13.9) -> weapon hardpoint capacity (hardpointsFull,
+// weapon only).
+//
+// 0.13.9 TARGETED SWAP (optional replacingInstanceId): on a MULTI slot (weapon / droneBay) the
+// loadout board's Swap names the exact installed piece being replaced. It must be a piece of the
+// SAME slot type installed on THIS ship (else replaceTargetInvalid), and must not be held by
+// a checked-out Armory loadout (occupantInLoadout, the same rule unfitEquipmentInstance enforces).
+// The capacity checks then discount it, because fitEquipment moves it out in the same transition.
+// On a SINGLETON slot a replacing id naming the slot's current occupant is accepted and changes
+// nothing (the singleton swap evicts that occupant anyway), matching memberEquipment.ts.
+// Every other gate is unchanged and still applies to the incoming piece.
 export function canFitEquipment(
   state: GameState,
   shipId: string,
-  instanceId: string
+  instanceId: string,
+  replacingInstanceId?: string
 ): { ok: true } | { ok: false; reason: EquipFitBlockReason } {
   // --- Identity: the equipment piece must exist. Found by id (the pool is a flat
   // list keyed by the stable EquipmentInstance.id, like every other id lookup here).
@@ -445,6 +467,45 @@ export function canFitEquipment(
     // The others layer on when a slot that uses them ships.
   }
 
+  // TARGETED SWAP TARGET (0.13.9): validated after every incoming-piece gate, right before the
+  // capacity checks it changes. The named piece must be installed on THIS ship in the SAME slot
+  // type and must not be the incoming piece. On a MULTI slot that picks the hardpoint / bay being
+  // replaced. On a SINGLETON it can only name that slot's current occupant, the piece the singleton
+  // swap evicts anyway, so it is ACCEPTED with exactly the result of omitting it (the same rule
+  // memberEquipment.ts applies, so a UI may pass the occupant uniformly for every slot kind).
+  if (replacingInstanceId !== undefined) {
+    const outgoing = state.equipment.find((e) => e.id === replacingInstanceId);
+    if (
+      outgoing === undefined ||
+      outgoing.id === instanceId ||
+      outgoing.fittedToShipId !== shipId ||
+      outgoing.slotType !== instance.slotType
+    ) {
+      return { ok: false, reason: "replaceTargetInvalid" };
+    }
+    if (outgoing.committedToLoadoutId !== undefined) return { ok: false, reason: "occupantInLoadout" };
+  }
+
+  // --- Singleton occupant guard (0.13.9 hotfix). A SINGLETON install evicts the slot's current
+  // occupant to storage (fitEquipment's atomic swap). If that occupant was installed by a checked-out
+  // Armory loadout, evicting it would leave it committed while the loadout still reads as checked out
+  // here, so refuse with the same rule unfitEquipmentInstance and the targeted swap above apply.
+  // A re-install of the occupant itself is excluded (it is refused earlier as committedToLoadout).
+  // `.some`, not `.find`: fitEquipment evicts EVERY occupant of the slot, so a malformed save with two
+  // pieces in one singleton slot must not let an uncommitted first piece hide a committed second one.
+  if (!MULTI_SLOT_TYPES.has(instance.slotType)) {
+    const committedOccupant = state.equipment.some(
+      (e) =>
+        e.fittedToShipId === shipId &&
+        e.slotType === instance.slotType &&
+        e.id !== instanceId &&
+        e.committedToLoadoutId !== undefined
+    );
+    if (committedOccupant) {
+      return { ok: false, reason: "occupantInLoadout" };
+    }
+  }
+
   // --- Weapon hardpoint capacity (Combat 1.0, Unit 1.8a): weapon is the one MULTI slot. A hull holds
   // UP TO SHIP_TYPES[hull].weaponHardpoints weapons; installing ADDS one (fitEquipment does not evict a
   // sibling). So the install is refused only when the OTHER weapons already fitted to this ship fill
@@ -453,8 +514,9 @@ export function canFitEquipment(
   // requirement (more fundamental) surfaces before a capacity block, and only a weapon reaches here.
   if (instance.slotType === "weapon") {
     const cap = SHIP_TYPES[ship.typeKey].weaponHardpoints;
+    // 0.13.9: a targeted swap's outgoing weapon leaves in the same transition, so it is not counted.
     const otherWeapons = state.equipment.filter(
-      (e) => e.fittedToShipId === shipId && e.slotType === "weapon" && e.id !== instanceId
+      (e) => e.fittedToShipId === shipId && e.slotType === "weapon" && e.id !== instanceId && e.id !== replacingInstanceId
     ).length;
     if (otherWeapons >= cap) return { ok: false, reason: "hardpointsFull" };
   }
@@ -466,8 +528,9 @@ export function canFitEquipment(
   // same posture as the weapon check above.
   if (instance.slotType === "droneBay") {
     const cap = SHIP_TYPES[ship.typeKey].droneBays ?? 0;
+    // 0.13.9: a targeted swap's outgoing pod leaves in the same transition, so it is not counted.
     const otherPods = state.equipment.filter(
-      (e) => e.fittedToShipId === shipId && e.slotType === "droneBay" && e.id !== instanceId
+      (e) => e.fittedToShipId === shipId && e.slotType === "droneBay" && e.id !== instanceId && e.id !== replacingInstanceId
     ).length;
     if (otherPods >= cap) return { ok: false, reason: "baysFull" };
   }
@@ -493,7 +556,7 @@ export function canFitEquipment(
 // TWO INSTALL SHAPES, branched on the slot (Combat 1.0, Unit 1.8a):
 //
 // MULTI slot (weapon): a hull holds UP TO its weaponHardpoints weapons. Installing ADDS
-// the incoming weapon and does NOT evict any sibling weapon, so a partly-armed hull fills
+// the incoming weapon and evicts no sibling UNLESS replacingInstanceId names one (0.13.9 targeted Swap), so a partly-armed hull fills
 // its remaining hardpoints one gun at a time. The hardpoint cap is enforced by
 // canFitEquipment (hardpointsFull) BEFORE we get here, so this branch just sets fitment.
 //
@@ -502,8 +565,18 @@ export function canFitEquipment(
 // EVICTS the current occupant back to the spare pool (its fittedToShipId set to null) in
 // the SAME transition that fits the new one, so the slot is never briefly double-occupied
 // and the pool never briefly loses the evicted piece. Both edits happen in one .map().
-export function fitEquipment(state: GameState, shipId: string, instanceId: string): GameState {
-  const gate = canFitEquipment(state, shipId, instanceId);
+//
+// 0.13.9 TARGETED SWAP (MULTI slot + replacingInstanceId, vetted by canFitEquipment): the named
+// outgoing piece is evicted to the spare pool (grace restarted, exactly as unfitEquipmentInstance
+// does) and the incoming piece installed, in ONE .map(), so the hull is never briefly over its cap
+// and no piece is ever lost or duplicated.
+export function fitEquipment(
+  state: GameState,
+  shipId: string,
+  instanceId: string,
+  replacingInstanceId?: string
+): GameState {
+  const gate = canFitEquipment(state, shipId, instanceId, replacingInstanceId);
   if (!gate.ok) {
     // Loud, tokenized failure (see WHY THROW above). The reason token is embedded so
     // a caller/log can recover it from the message.
@@ -514,11 +587,16 @@ export function fitEquipment(state: GameState, shipId: string, instanceId: strin
   const incoming = state.equipment.find((e) => e.id === instanceId)!;
   const slotType = incoming.slotType;
 
-  // MULTI slot (weapon): ADD the piece, evicting nothing. The cap is already vetted by the gate.
+  // MULTI slot (weapon / drone pod): ADD the piece; only a vetted replacingInstanceId is moved to storage. The cap is vetted by the gate.
   if (MULTI_SLOT_TYPES.has(slotType)) {
-    const equipment = state.equipment.map((e) =>
-      e.id === instanceId ? { ...e, fittedToShipId: shipId } : e
-    );
+    const equipment = state.equipment.map((e) => {
+      if (e.id === instanceId) return { ...e, fittedToShipId: shipId };
+      // 0.13.9 targeted swap: the replaced piece returns to the pool with its grace restarted.
+      if (replacingInstanceId !== undefined && e.id === replacingInstanceId) {
+        return startAutoSalvageGrace({ ...e, fittedToShipId: null }, state.gameTimeSeconds);
+      }
+      return e;
+    });
     return { ...state, equipment };
   }
 

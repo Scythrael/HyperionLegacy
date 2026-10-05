@@ -34,7 +34,7 @@ import type { GameState, CaptainState, CaptainStopReason, ShipInstance } from ".
 // reads; the summary reuses them ONLY to reconstruct gross XP earned from two leftover-xp
 // snapshots (see xpEarnedAcrossLevels). Importing these keeps the pure-diff invariant: no RNG, no
 // tick(), just reading catalog data the same way the Warehouse/Operations UI already does.
-import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel } from "./model";
+import { MISSIONS, PATROLS, xpForNextLevel, xpForNextFleetAdminLevel, shipDisplayLabel } from "./model";
 import { itemTotal } from "./inventory";
 
 // One material whose on-hand total rose across the offline advance. `qty` is the
@@ -76,8 +76,8 @@ export interface OfflineCaptainProgress {
 }
 
 // One ship that limped home into the repair queue DURING the offline advance, i.e.
-// it is flagged damaged in `after` but was not in `before`. `name` falls back to the
-// ship's id when the hull has no player-given name (naming is still optional).
+// it is flagged damaged in `after` but was not in `before`. `name` is the shared ship
+// display label (custom name, else hull label, numbered when hulls share a label).
 export interface OfflineShipInRepair {
   id: string;
   name: string;
@@ -336,7 +336,7 @@ export function summarizeOfflineProgress(
   for (const ship of shipsOf(after)) {
     const wasDamaged = beforeDamaged.get(ship.id) === true;
     if (ship.damaged === true && !wasDamaged) {
-      shipsInRepair.push({ id: ship.id, name: ship.name ?? ship.id });
+      shipsInRepair.push({ id: ship.id, name: shipDisplayLabel(after, ship) });
     }
   }
 

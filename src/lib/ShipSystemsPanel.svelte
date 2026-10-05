@@ -55,7 +55,7 @@
     EquipmentSlotType,
     ShipDerivedStats,
   } from "./game/model";
-  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef } from "./game/model";
+  import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
   // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
@@ -110,7 +110,9 @@
   // so persistence + logging happen exactly once, in App.svelte.
   export let state: GameState;
   export let shipId: string;
-  export let onInstall: (shipId: string, instanceId: string) => void;
+  // 0.13.9: the optional third argument names the installed weapon / drone pod a Swap replaces
+  // (a targeted swap on a MULTI slot); the host passes it to fitEquipment.
+  export let onInstall: (shipId: string, instanceId: string, replacingInstanceId?: string) => void;
   // Uninstall is BY INSTANCE ID (a weapon is a MULTI slot, so "uninstall the weapon"
   // is ambiguous without an id). The host routes this to unfitEquipmentInstance.
   export let onUninstall: (shipId: string, instanceId: string) => void;
@@ -343,8 +345,9 @@
   // hull-type label (e.g. "General Freighter"). `shipHasCustomName` gates the hull-
   // class SUBTITLE so an UN-named ship does not show its hull label twice (title +
   // subtitle): a renamed ship shows name-over-class, an un-named ship shows just
-  // the class as the title.
-  $: shipDisplayName = ship ? (ship.name ?? shipDef?.label ?? shipId) : "";
+  // the class as the title. 0.13.9: the shared shipDisplayLabel, so an unnamed hull that
+  // shares its class with another reads "General Freighter #2", matching every list.
+  $: shipDisplayName = ship ? shipDisplayLabel(state, ship) : "";
   $: shipHasCustomName = ship?.name !== undefined && ship.name.length > 0;
 
   // Click-to-edit state for the name. `editingName` swaps the title text for an
@@ -680,6 +683,13 @@
           ? mountedPods[selectedBay] ?? null
           : null;
 
+  // 0.13.9 TARGETED SWAP: on a FILLED weapon hardpoint or drone bay, Swap replaces THAT piece. Its id
+  // rides into the gate, the preview, and the install, so a full hull is no longer refused with
+  // hardpointsFull / baysFull and the compare is against the piece being replaced. Singleton slots
+  // already swap on their own (undefined here), and an empty cell is a plain install.
+  $: replacingId =
+    (selectedHardpoint !== null || selectedBay !== null) && installedPiece !== null ? installedPiece.id : undefined;
+
   // If the chosen candidate is no longer among the compatible spares (it was just installed
   // elsewhere, salvaged, or the picker switched slots), drop the selection so the compare
   // never points at a vanished piece. Guarded to assign ONLY when stale, so it cannot loop.
@@ -700,7 +710,7 @@
   // helper. Guarded on the hull resolving (shipDef + combat class + an open target).
   $: candidateGear =
     installCandidate !== null && installTarget !== null
-      ? applyHypotheticalInstall(fittedPieces, installCandidate, installTarget)
+      ? applyHypotheticalInstall(fittedPieces, installCandidate, installTarget, replacingId)
       : null;
   // Only folded while a candidate is being compared (the compare's stat rows read it); the
   // headline current BR otherwise falls back to battleRatingValue, the SAME fold, so no
@@ -731,7 +741,7 @@
   function statValueText(row: StatRow, which: "base" | "fitted"): string {
     const v = which === "base" ? row.base : row.fitted;
     if (row.kind === "pct") return "×" + v.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(v)} LY`;
+    if (row.kind === "ly") return `${Math.floor(v)} LY`; // 0.13.9: floored like every range readout
     return fmtFlat(Number(v.toFixed(1)));
   }
   $: compareRows = ((): CompareRow[] => {
@@ -742,7 +752,9 @@
       if (!ship || !fitStats) return [];
       const candStats = shipDerivedStats(ship, candidateGear);
       return buildLiveRows(fitStats, candStats).map((r) => {
-        const delta = r.fitted - r.base;
+        // 0.13.9: a Range row diffs the FLOORED values it displays (floor(fitted) - floor(base)), so the
+        // delta always equals the difference of the two numbers shown beside it.
+        const delta = r.kind === "ly" ? Math.floor(r.fitted) - Math.floor(r.base) : r.fitted - r.base;
         const zero = Math.abs(delta) < 1e-9;
         const lowerBetter = ECON_LOWER_IS_BETTER.has(r.label);
         const good = !zero && (lowerBetter ? delta < 0 : delta > 0);
@@ -753,7 +765,7 @@
           : r.kind === "pct"
             ? `${delta > 0 ? "+" : ""}${(delta * 100).toFixed(0)} pts`
             : r.kind === "ly"
-              ? `${delta > 0 ? "+" : ""}${Math.round(delta)} LY`
+              ? `${delta > 0 ? "+" : ""}${delta} LY`
               : `${delta > 0 ? "+" : ""}${fmtFlat(Number(delta.toFixed(1)))}`;
         return { label: r.label, curText: statValueText(r, "base"), candText: statValueText(r, "fitted"), deltaText, good, bad };
       });
@@ -805,17 +817,18 @@
   }
   function fmtStatValue(row: StatRow): string {
     if (row.kind === "pct") return "×" + row.fitted.toFixed(2);
-    if (row.kind === "ly") return `${Math.round(row.fitted)} LY`;
+    if (row.kind === "ly") return `${Math.floor(row.fitted)} LY`; // 0.13.9: floored like every range readout
     return fmtFlat(Number(row.fitted.toFixed(1)));
   }
   // The signed base -> installed change, or null when it is effectively zero (so a row
   // simply omits the note rather than showing "+0"). Percent stats report in points.
   function fmtDelta(row: StatRow): string | null {
-    const d = row.fitted - row.base;
+    // 0.13.9: Range diffs the FLOORED values it shows, so the note matches the displayed numbers.
+    const d = row.kind === "ly" ? Math.floor(row.fitted) - Math.floor(row.base) : row.fitted - row.base;
     if (Math.abs(d) < 1e-9) return null;
     const sign = d > 0 ? "+" : "";
     if (row.kind === "pct") return `${sign}${(d * 100).toFixed(0)} pts`;
-    if (row.kind === "ly") return `${sign}${Math.round(d)} LY`;
+    if (row.kind === "ly") return `${sign}${d} LY`;
     return `${sign}${fmtFlat(Number(d.toFixed(1)))} gear`;
   }
   // A signed Battle-Rating delta for the tiles + the compare headline, e.g. "+68 BR" /
@@ -865,6 +878,11 @@
         return "all weapon hardpoints are full (uninstall a weapon first)";
       case "baysFull":
         return "all drone bays are full (uninstall a drone pod first)";
+      case "replaceTargetInvalid":
+        return "the system being swapped out is no longer installed here";
+      // 0.13.9: the system this install would move out belongs to a checked-out loadout.
+      case "occupantInLoadout":
+        return "the installed system belongs to a checked-out loadout (check that loadout in at the Armory first)";
     }
   }
 
@@ -1144,7 +1162,7 @@
   // roster's per-row rating cost; no Monte-Carlo forecast runs here.
   function spareNetRating(spare: EquipmentInstance): number | null {
     if (!shipDef || !combatHullType || installTarget === null || compareCurrentBR === null) return null;
-    const gear = applyHypotheticalInstall(fittedPieces, spare, installTarget);
+    const gear = applyHypotheticalInstall(fittedPieces, spare, installTarget, replacingId);
     const r = readoutFor(gear, shipDef, combatHullType, shipDef.weaponHardpoints, shipDef.droneBays ?? 0);
     return r.rating - compareCurrentBR;
   }
@@ -1161,7 +1179,7 @@
   }
 
   function handleInstall(instanceId: string): void {
-    onInstall(shipId, instanceId);
+    onInstall(shipId, instanceId, replacingId);
     selectedSlot = null;
     selectedHardpoint = null;
     selectedBay = null;
@@ -1668,7 +1686,7 @@
                 <div class="ss-flow-list">
                   <div class="ss-spare-list">
                     {#each pickerSpares as spare (spare.id)}
-                      {@const gate = canFitEquipment(safeState, shipId, spare.id)}
+                      {@const gate = canFitEquipment(safeState, shipId, spare.id, replacingId)}
                       {@const net = spareNetRating(spare)}
                       <button
                         type="button"
@@ -1707,7 +1725,7 @@
                 <!-- COMPARE pane: current (installed) vs the chosen candidate. -->
                 <div class="ss-flow-compare">
                   {#if installCandidate}
-                    {@const gate = canFitEquipment(safeState, shipId, installCandidate.id)}
+                    {@const gate = canFitEquipment(safeState, shipId, installCandidate.id, replacingId)}
                     <div class="ss-compare">
                       <div class="ss-compare-head">
                         <button class="ss-back" on:click={clearCandidate} aria-label="Back to the spare list">&#8592; Back</button>
@@ -1743,7 +1761,7 @@
                         disabled={!gate.ok || shipDamaged}
                         title={gate.ok ? undefined : reasonText(gate.reason)}
                         on:click={() => handleInstall(installCandidate.id)}
-                      >{gate.ok ? "Install" : "Blocked: " + reasonText(gate.reason)}</button>
+                      >{gate.ok ? (replacingId !== undefined ? "Swap" : "Install") : "Blocked: " + reasonText(gate.reason)}</button>
                     </div>
                   {:else}
                     <p class="ss-note ss-note-dim ss-compare-empty">Select a system to compare it with what is installed.</p>

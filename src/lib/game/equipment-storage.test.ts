@@ -122,6 +122,25 @@ describe("spareEquipmentCount: counts ONLY unfitted crafted systems (Task B1)", 
     expect(spareEquipmentCount(s)).toBe(1);
   });
 
+  it("0.13.9: excludes a crafted piece COMMITTED to a resting Armory loadout (committed gear takes no storage)", () => {
+    // The 0.13.6 Armory design: a committed piece lives in its loadout, and a loadout that is not
+    // checked out rests in the Armory taking NO warehouse space. A resting committed piece has
+    // fittedToShipId null, so the old predicate counted it as a loose spare.
+    const pool: EquipmentInstance[] = [
+      makePiece({ slotType: "cargoBay", fitted: false, crafted: true, id: "loose" }), // COUNTS: loose spare
+      { ...makePiece({ slotType: "cargoBay", fitted: false, crafted: true, id: "resting" }), committedToLoadoutId: "lo-1" }, // excluded: resting in its loadout
+      { ...makePiece({ slotType: "ftlDrive", fitted: true, crafted: true, id: "out" }), committedToLoadoutId: "lo-2" }, // excluded: checked out (installed)
+    ];
+    const s: GameState = { ...freshState(), equipment: pool };
+    expect(spareEquipmentCount(s)).toBe(1);
+    // And the cap gate reads the corrected number: a full cap's worth of committed pieces is NOT full.
+    const committedOnly: GameState = {
+      ...freshState(),
+      equipment: spareCraftedPieces(EQUIPMENT_STORAGE_CAP_BASE).map((p) => ({ ...p, committedToLoadoutId: "lo-1" })),
+    };
+    expect(equipmentAtCap(committedOnly)).toBe(false);
+  });
+
   it("equipmentAtCap is true at/over the cap and false below it", () => {
     const cap = EQUIPMENT_STORAGE_CAP_BASE;
     const below: GameState = { ...freshState(), equipment: spareCraftedPieces(cap - 1) };

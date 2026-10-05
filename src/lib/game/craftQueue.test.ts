@@ -2465,8 +2465,9 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
   it("parity: a hand-planted FUEL DEPOT order never promotes, and leaves the tick byte-identical on both paths", () => {
     // The Fuel Depot stub, proved inert rather than asserted inert. A legitimate route
     // cannot make this entry (every enqueue is refused), so it is planted directly, which is
-    // exactly the hand-edited-save case the double brake exists for. The depot's automatic
-    // pipelines keep running underneath it, which is what makes the comparison non-trivial.
+    // exactly the hand-edited-save case the double brake exists for. (Before 0.13.9 the depot's
+    // automatic pipelines ran underneath it; the 0.13.9 hotfix RETIRED them, so the stocked
+    // depot below now proves the opposite as well: nothing fuel-related moves at all.)
     const fuelling: GameState = {
       ...freshState(),
       facilities: { ...freshState().facilities, fuelStorage: { level: 1 } },
@@ -2483,10 +2484,11 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
 
     // The entry is untouched, id and position intact, after three hundred ticks.
     expect(jumped.processQueue).toEqual(base.processQueue);
-    // NON-VACUOUS: the depot's AUTOMATIC pipelines really did run across the span, which is
-    // the whole finding. There is nothing for a queue to add here.
-    expect(jumped.fuel.gt(base.fuel)).toBe(true);
-    expect(itemTotal(jumped.inventory, "deuteriumIce").lt(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
+    // 0.13.9 hotfix: the depot's pipelines are RETIRED, so a stocked depot with an empty tank
+    // refines NOTHING across the span: the tank and the Deuterium Ice are both untouched.
+    // (Previously these asserted the pipelines ran: fuel rose and ice fell.)
+    expect(jumped.fuel.eq(base.fuel)).toBe(true);
+    expect(itemTotal(jumped.inventory, "deuteriumIce").eq(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
   });
 
   it("parity: promoting a research project or a hull build draws NO rng", () => {
@@ -2708,6 +2710,18 @@ describe("buildCraftQueue: queued rows carry label, mode and position", () => {
     // no-op at completion, so its row must stay renderable until then).
     expect(salvageTargetLabel(state, { kind: "equipment", instanceId: "eq-gone" })).toBe("eq-gone");
     expect(salvageTargetLabel(state, { kind: "ship", shipId: "ship-gone" })).toBe("ship-gone");
+    // 0.13.9: a ship target uses the shared shipDisplayLabel, so two unnamed General
+    // Freighters in the queue read apart (numbered by id), and a lone one stays plain.
+    const twoFreighters: GameState = {
+      ...state,
+      ships: [
+        { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: null },
+        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
+      ],
+    };
+    expect(salvageTargetLabel(twoFreighters, { kind: "ship", shipId: "ship-2" })).toBe("General Freighter #2");
+    const oneFreighter: GameState = { ...twoFreighters, ships: [twoFreighters.ships[0]] };
+    expect(salvageTargetLabel(oneFreighter, { kind: "ship", shipId: "ship-1" })).toBe("General Freighter");
 
     // And the row builder routes a salvage order through that same label.
     const queuedSalvage = enqueueAll(state, [{ facility: "salvageBay", order: salvageOrder("eq-crafted") }]);
@@ -3214,6 +3228,19 @@ describe("canStartSalvage: the promotion gate, per target arm", () => {
       equipment: state.equipment.map((e) => (e.id === SPARE_ID ? { ...e, fittedToShipId: "ship-2" } : e)),
     };
     expect(canStartSalvage(installed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "fitted" });
+  });
+
+  it("0.13.9: refuses a spare that has since been COMMITTED to an Armory loadout (manual AND auto gates)", () => {
+    // Committing a queued spare into a resting loadout leaves fittedToShipId null, so the fitted
+    // check alone would promote it and the job would delete a piece the loadout slot points at.
+    // Both lane gates share salvageTargetBlock, so both must refuse it.
+    const state = salvageBayState();
+    const committed: GameState = {
+      ...state,
+      equipment: state.equipment.map((e) => (e.id === SPARE_ID ? { ...e, committedToLoadoutId: "lo-1" } : e)),
+    };
+    expect(canStartSalvage(committed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "committed" });
+    expect(canStartAutoSalvage(committed, salvageOrder(SPARE_ID))).toEqual({ ok: false, reason: "committed" });
   });
 
   it("gates the MATERIAL arm on category and on actually holding one", () => {

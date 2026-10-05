@@ -193,6 +193,8 @@ describe("summarizeOfflineProgress", () => {
     const summary = summarizeOfflineProgress(before, after, 1200);
     expect(summary.shipsInRepair).toHaveLength(1);
     expect(summary.shipsInRepair[0].id).toBe("ship-1");
+    // 0.13.9: an unnamed hull reads by its display label (it used to show the raw "ship-1" id).
+    expect(summary.shipsInRepair[0].name).toBe("General Freighter");
     expect(summary.hasContent).toBe(true);
 
     // A ship ALREADY damaged before the advance is not "news" and is not re-reported.

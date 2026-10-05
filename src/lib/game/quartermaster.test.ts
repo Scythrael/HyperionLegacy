@@ -365,6 +365,24 @@ describe("requisitionStandardIssue: the bound, and never a silent no-op", () => 
     expect(second.minted).not.toBeNull();
   });
 
+  it("0.13.9: a baseline COMMITTED to a resting Armory loadout does not count as one you hold", () => {
+    // A committed piece belongs to its loadout: the install picker excludes it, so the player
+    // cannot put it on a ship from the spare pool. Counting it would refuse a requisition on the
+    // strength of a piece that is not actually available.
+    const first = requisitionStandardIssue(emptyPoolState(), "hullPlating");
+    expect(freeSpareBaselinesFor(first.next, "hullPlating")).toHaveLength(1);
+
+    const committed: GameState = {
+      ...first.next,
+      equipment: first.next.equipment.map((p) => ({ ...p, committedToLoadoutId: "lo-1" })),
+    };
+    expect(freeSpareBaselinesFor(committed, "hullPlating")).toHaveLength(0);
+    expect(canRequisition(committed, "hullPlating")).toEqual({ ok: true });
+    const second = requisitionStandardIssue(committed, "hullPlating");
+    expect(second.reason).toBeNull();
+    expect(second.minted).not.toBeNull();
+  });
+
   it("dev-granted blueprint-less gear is NOT mistaken for a baseline", () => {
     // isStandardIssueBaseline is strict (blueprint-less AND standard rarity) precisely because
     // dev grants are also blueprint-less while being radiant items. Counting one here would

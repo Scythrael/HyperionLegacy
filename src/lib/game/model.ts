@@ -1305,6 +1305,73 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
   },
 };
 
+// Ship display labels (0.13.9 hotfix).
+// The ONE player-facing label for a ship, shared by every list, picker, queue row and
+// log line. The BASE label is the player's custom name, else the hull-type label (else
+// the raw id when the type is unknown, so nothing ever renders "undefined"). When another
+// ship in the fleet would render the SAME base label, every ship in that clash gets a
+// stable " #N" ordinal: its position among the clashing ships ordered by the numeric id
+// from "ship-N". Ids are allocated monotonically and never reused, so the numbering is
+// stable across sessions. A lone hull stays unsuffixed, and renaming a ship moves it out
+// of its old clash (a clash of one drops the suffix). PURE.
+export function shipBaseLabel(ship: ShipInstance): string {
+  return ship.name ?? SHIP_TYPES[ship.typeKey]?.label ?? ship.id;
+}
+
+// "ship-N" -> N; any other id sorts after every well-formed one (ties break on the raw id).
+function shipIdOrdinal(id: string): number {
+  const m = /^ship-(\d+)$/.exec(id);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+}
+
+function compareShipIds(a: string, b: string): number {
+  const na = shipIdOrdinal(a);
+  const nb = shipIdOrdinal(b);
+  if (na !== nb) return na < nb ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// The display label for ONE ship against its fleet. O(fleet); for a whole list at once
+// use shipDisplayLabels. Fails open on a missing ships array (the ship reads unsuffixed).
+export function shipDisplayLabel(
+  state: { readonly ships?: readonly ShipInstance[] } | null | undefined,
+  ship: ShipInstance,
+): string {
+  const base = shipBaseLabel(ship);
+  const ships = Array.isArray(state?.ships) ? state.ships : [];
+  let clash = false;
+  let rank = 1;
+  for (const other of ships) {
+    if (other.id === ship.id) continue;
+    if (shipBaseLabel(other) !== base) continue;
+    clash = true;
+    if (compareShipIds(other.id, ship.id) < 0) rank++;
+  }
+  return clash ? `${base} #${rank}` : base;
+}
+
+// Every ship's display label at once (id -> label), the batched form for lists that
+// label the whole fleet (the Ships roster). Same rule as shipDisplayLabel. PURE.
+export function shipDisplayLabels(ships: readonly ShipInstance[]): Map<string, string> {
+  const groups = new Map<string, string[]>();
+  for (const ship of ships) {
+    const base = shipBaseLabel(ship);
+    const ids = groups.get(base);
+    if (ids) ids.push(ship.id);
+    else groups.set(base, [ship.id]);
+  }
+  const out = new Map<string, string>();
+  for (const [base, ids] of groups) {
+    if (ids.length === 1) {
+      out.set(ids[0], base);
+      continue;
+    }
+    ids.sort(compareShipIds);
+    ids.forEach((id, i) => out.set(id, `${base} #${i + 1}`));
+  }
+  return out;
+}
+
 // --- Fuel economy constants (Mission Rework Task 3, design §3) -------------------
 // Both FIRST-PASS TUNABLE, same launch-placeholder spirit as MISSIONS'/SHIP_TYPES'
 // numbers, real balancing at the device-check stage.
@@ -3071,6 +3138,28 @@ export function requiredTicksForPhase(phase: MissionPhase, missionDef: MissionDe
     case "unloading":
       return missionDef.unloadTicks;
   }
+}
+
+// One mission cycle's length, phase by phase, plus the total (0.13.9 hotfix). Every row is read
+// from requiredTicksForPhase, the engine's own phase lengths, and the total is their sum, so a
+// readout built on this can never list rows that do not add up. That was the bug: the dispatch
+// popup's TIMING list showed four rows but quietly added the 1-tick Orders Received phase to its
+// total. Pass the EFFECTIVE def (effectiveMissionDef) for a ship-scaled readout, as the popup does.
+export type MissionCycleTiming = Record<MissionPhase, number> & { total: number };
+export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
+  const ordersReceived = requiredTicksForPhase("ordersReceived", missionDef);
+  const transitOut = requiredTicksForPhase("transitOut", missionDef);
+  const extracting = requiredTicksForPhase("extracting", missionDef);
+  const transitBack = requiredTicksForPhase("transitBack", missionDef);
+  const unloading = requiredTicksForPhase("unloading", missionDef);
+  return {
+    ordersReceived,
+    transitOut,
+    extracting,
+    transitBack,
+    unloading,
+    total: ordersReceived + transitOut + extracting + transitBack + unloading,
+  };
 }
 
 // The mission-relevant stats a hull contributes, lifted out of the shared
@@ -9732,10 +9821,11 @@ export function isStandardIssueBaseline(piece: EquipmentInstance): boolean {
 // Armory and is installed on nothing, so it counts as uninstalled here. For "is it free to take?"
 // use isSparePiece, which adds the commitment clause.
 //
-// Call sites that read this rather than isSparePiece are the ones whose current behavior treats a
-// committed-but-resting piece the same as a loose spare (the "fitted" refusals, the storage count,
-// the Quartermaster's "already holding one" bound). Routing them here keeps that behavior exactly
-// while still closing the member-gear hole. The spare-predicate test scans src for raw
+// Call sites that read this rather than isSparePiece are the "fitted"/"installed" refusals
+// (salvage, member install) that ask only "is it installed?" and then refuse commitment
+// separately with their own, more specific reason, plus the dev panel's raw pool readouts. The storage count and the Quartermaster's "already holding one"
+// bound used to read this too, but the 0.13.9 hotfix made committed-resting gear take no storage
+// and not count as a holdable spare, so both now read isSparePiece. The spare-predicate test scans src for raw
 // fittedToShipId null comparisons; lines tagged isSparePiece-ok are the sanctioned exceptions.
 export function isUninstalledPiece(piece: EquipmentInstance): boolean {
   return piece.fittedToShipId === null && !piece.fittedToMemberId; // isSparePiece-ok: the helper itself
@@ -9755,15 +9845,19 @@ export function isSparePiece(piece: EquipmentInstance): boolean {
 
 // spareEquipmentCount(state): how many systems currently OCCUPY spare storage, the
 // numerator of the "spare X / cap" display and the denominator of the cap enforcement.
-// The cap counts ONLY uninstalled CRAFTED systems: isUninstalledPiece (on no ship and no
-// member, in the pool) AND blueprintKey !== null (crafted, NOT a Standard-Issue baseline). A
-// fitted crafted system (lives on its ship), a spare baseline, and a fitted baseline are ALL
-// excluded (see the section header's WHY). This exact predicate is the storage-cap set.
-// (isUninstalledPiece, not isSparePiece: gear committed to a resting Armory loadout has always
-// counted here, and E-CREW prep keeps that unchanged.)
+// The cap counts ONLY spare CRAFTED systems: isSparePiece (on no ship and no member, and not
+// committed to an Armory loadout) AND blueprintKey !== null (crafted, NOT a Standard-Issue
+// baseline). A fitted crafted system (lives on its ship), member gear, a spare baseline, and a
+// fitted baseline are ALL excluded (see the section header's WHY). This exact predicate is the
+// storage-cap set.
+// 0.13.9 hotfix: a piece COMMITTED to an Armory loadout is excluded too, hence isSparePiece
+// rather than isUninstalledPiece. A checked-out loadout's pieces are fitted (already excluded),
+// but a RESTING loadout's pieces are installed on nothing, and the 0.13.6 Armory design is
+// explicit that they rest in the Armory and take NO storage space. Counting them filled the bay
+// with gear the player had deliberately put away.
 export function spareEquipmentCount(state: GameState): number {
   return state.equipment.filter(
-    (piece) => isUninstalledPiece(piece) && piece.blueprintKey !== null
+    (piece) => isSparePiece(piece) && piece.blueprintKey !== null
   ).length;
 }
 

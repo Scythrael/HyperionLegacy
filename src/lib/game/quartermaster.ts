@@ -50,7 +50,7 @@
 //   REQUISITION_CATALOGUE    the TOTAL Record over EquipmentSlotType (totality lives here)
 //   REQUISITION_ENTRIES      the DERIVED, ordered list the console renders
 //   RequisitionBlockReason   the typed refusal union (mirrors EquipFitBlockReason)
-//   freeSpareBaselinesFor    query: uninstalled, unreserved baselines of one slot
+//   freeSpareBaselinesFor    query: uninstalled, unreserved, uncommitted baselines of one slot
 //   canRequisition           the gate (pure predicate + typed reason)
 //   requisitionStandardIssue the mutator
 // ============================================================================
@@ -67,7 +67,7 @@ import {
   generateCombatStandardIssue,
   generateStandardIssue,
   isStandardIssueBaseline,
-  isUninstalledPiece,
+  isSparePiece,
   startAutoSalvageGrace,
 } from "./model";
 import { itemTotal, removeItemLowestFirst } from "./inventory";
@@ -189,11 +189,11 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   },
   hullPlating: {
     fallbackLabel: "Hull Plating",
-    blurb: "Armor. Restores the hull's baseline plating; a patrol will not launch without it.",
+    blurb: "Armor. Restores the hull's own baseline plating, nothing beyond it.",
     mint: { kind: "hullPlating" },
   },
 
-  // --- The WEAPON floor. A hardpoint needs a gun before a patrol will launch.
+  // --- The WEAPON floor. A weaponless ship can patrol but cannot return fire (0.13.9).
   //
   // ⚠️ THE AUTOCANNON SPECIFICALLY, AND THE CHOICE IS LOAD-BEARING. A Standard-Issue
   // weapon's per-shot stats come ENTIRELY from its base WEAPON_DEF (the baseline's own
@@ -209,7 +209,7 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   // tab gets its pricing and economy pass.
   weapon: {
     fallbackLabel: "Weapon (Standard-Issue Autocannon)",
-    blurb: "The floor gun, the same one every hull is issued. A patrol needs at least one weapon installed.",
+    blurb: "The floor gun, the same one every hull is issued. A ship with no weapon can still patrol, but it cannot return fire.",
     mint: { kind: "weapon", weaponType: "autocannon" },
   },
 
@@ -302,11 +302,14 @@ export type RequisitionBlockReason =
 
 // Every uninstalled Standard-Issue baseline of one slot that the player could actually
 // INSTALL right now. Three filters, each load-bearing:
-//   isUninstalledPiece       , an installed baseline is doing its job on a ship (or, from
-//                              E-CREW, on an away-team member) and is not a spare the
-//                              player can put somewhere else. (Not isSparePiece: this bound
-//                              has never looked at Armory commitment, and E-CREW prep keeps
-//                              it unchanged.)
+//   isSparePiece             , installed on nothing AND not loadout-committed. An installed
+//                              baseline is doing its job on a ship (or, from E-CREW, on an
+//                              away-team member) and is not a spare the player can put
+//                              somewhere else. (0.13.9 hotfix) A baseline committed to a
+//                              RESTING Armory loadout is installed on nothing but belongs to
+//                              that loadout: the install picker excludes it, so counting it
+//                              here would refuse a requisition on the strength of a piece
+//                              the player cannot install from the spare pool.
 //   isStandardIssueBaseline  , the STRICT predicate (blueprintKey null AND standard
 //                              rarity), never blueprintKey alone: dev-granted radiant gear
 //                              is also blueprint-less, and counting it here would refuse a
@@ -323,7 +326,7 @@ export function freeSpareBaselinesFor(
   const reserved = salvageReservedInstanceIds(state);
   return state.equipment.filter(
     (piece) =>
-      isUninstalledPiece(piece) &&
+      isSparePiece(piece) &&
       piece.slotType === slotType &&
       isStandardIssueBaseline(piece) &&
       !reserved.has(piece.id)
@@ -337,7 +340,7 @@ export function freeSpareBaselinesFor(
 // FILE MOST WORTH READING BEFORE CHANGING IT.
 //
 // The spare-storage cap counts a specific set, stated by spareEquipmentCount (model.ts):
-// unfitted AND blueprintKey !== null, i.e. spare CRAFTED systems. A Standard-Issue baseline
+// isSparePiece AND blueprintKey !== null, i.e. spare CRAFTED systems. A Standard-Issue baseline
 // is excluded BY DEFINITION, with the reason recorded at the cap itself: a baseline is the
 // free slot floor, not collectible inventory, so it occupies no storage. Gating this action
 // on equipmentAtCap would therefore be a FAKE gate: the thing being minted cannot move the

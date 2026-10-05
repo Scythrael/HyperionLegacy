@@ -27,8 +27,8 @@
 //     bay cap), and installing ADDS the piece without evicting a sibling. So
 //     applyHypotheticalInstall APPENDS the candidate, exactly as fitEquipment does. This
 //     is why the preview for a weapon reads as "+1 gun", the real result of pressing
-//     Install (a "Swap" onto a FULL loadout is blocked by canFitEquipment, uninstall
-//     first, so the preview never has to model an eviction the install would not do).
+//     Install into an open cell (a targeted Swap passes replacingInstanceId, see below,
+//     and the preview then models exactly that one-for-one replacement).
 // The `target` parameter carries which hardpoint / bay the flow opened on so the caller
 // can pin the INSTALLED banner to it; it does NOT change the gear MATH (a MULTI install
 // always appends, and the readout is position-agnostic), but it keeps the API honest to
@@ -94,10 +94,15 @@ const MULTI_SLOT_TYPES: ReadonlySet<EquipmentInstance["slotType"]> = new Set<
 // the piece appears exactly once, mirroring fitEquipment's `id !== instanceId` no-op guard.
 // `target` is accepted for API symmetry with the flow (which hardpoint / bay was tapped);
 // the gear math does not branch on the index (see the header), only on singleton-vs-multi.
+//
+// 0.13.9 TARGETED SWAP: `replacingId` (optional) names the installed MULTI-slot piece a Swap is
+// replacing; it is dropped from the base too, exactly as fitEquipment(..., replacingInstanceId)
+// evicts it, so the preview compares against the piece actually being replaced.
 export function applyHypotheticalInstall(
   currentGear: EquipmentInstance[],
   candidate: EquipmentInstance,
   target: InstallTarget,
+  replacingId?: string,
 ): EquipmentInstance[] {
   // Void-read the target so the parameter is genuinely part of the signature (it documents
   // the flow's intent and is used by callers for banner pinning) without the gear math
@@ -111,6 +116,7 @@ export function applyHypotheticalInstall(
   // for a SINGLETON, (b) any existing occupant of the candidate's slot (the evicted piece).
   const base = currentGear.filter((piece) => {
     if (piece.id === candidate.id) return false; // dupe guard (fitEquipment no-op equivalent)
+    if (replacingId !== undefined && piece.id === replacingId) return false; // 0.13.9 targeted swap-out
     if (!isMulti && piece.slotType === candidate.slotType) return false; // singleton eviction
     return true;
   });
