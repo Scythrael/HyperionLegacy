@@ -56,8 +56,17 @@
 // ============================================================================
 
 import Decimal from "break_infinity.js";
-import type { EquipmentInstance, EquipmentSlotType, GameState, ItemCategory, RawSubCategory } from "./model";
+import type {
+  AwayTeamType,
+  EquipmentInstance,
+  EquipmentSlotType,
+  GameState,
+  ItemCategory,
+  MemberSlotType,
+  RawSubCategory,
+} from "./model";
 import {
+  AWAY_TEAM_TYPES,
   DEFAULT_EQUIPMENT_VARIETY,
   EQUIPMENT_SLOTS,
   ITEMS,
@@ -66,8 +75,10 @@ import {
   SI_PLATING_HP,
   generateCombatStandardIssue,
   generateStandardIssue,
+  isMemberSlotType,
   isStandardIssueBaseline,
   isSparePiece,
+  memberVariety,
   startAutoSalvageGrace,
 } from "./model";
 import { itemTotal, removeItemLowestFirst } from "./inventory";
@@ -107,12 +118,19 @@ import { salvageReservedInstanceIds } from "./reservation";
 // in the fold, and pinned the GEAR to fixed dials. So a requisitioned emitter is
 // byte-identical to the one a destroyer was born with, and installing it on any hull
 // reproduces that hull's own authored numbers. There are no per-ship variants to model.
+//
+//   member         (E-CREW 0.14.0, Task 9) generateStandardIssue with an explicit varietyKey: an
+//                  away-team MEMBER baseline. A member slot is shared by every squad type, so it has
+//                  no single default variety; each per-team row names the variety its squad wears,
+//                  and the generator stamps it as moduleVariant so the member install gate
+//                  (canFitToMember) knows which squad the piece is for.
 export type RequisitionMint =
   | { kind: "economy" }
   | { kind: "shieldEmitter" }
   | { kind: "hullPlating" }
   | { kind: "weapon"; weaponType: WeaponId }
-  | { kind: "dronePod"; droneRole: DroneRole };
+  | { kind: "dronePod"; droneRole: DroneRole }
+  | { kind: "member"; varietyKey: string };
 
 // One catalogue row, before the player-facing label is resolved.
 export interface RequisitionRow {
@@ -127,6 +145,29 @@ export interface RequisitionRow {
   blurb: string;
   mint: RequisitionMint;
 }
+
+// E-CREW 0.14.0 (Task 9): one away-team MEMBER row, for one squad type. Just the variety and the line:
+// the label is derived from the variety's own catalog label (buildRequisitionEntries), so a rename in
+// EQUIPMENT_SLOTS renames the row too, the same single-source rule the ship rows follow.
+export interface MemberRequisitionRow {
+  varietyKey: string;
+  blurb: string;
+}
+
+// A member slot's catalogue value: one row PER SQUAD TYPE, because the slot is shared by every squad and
+// each squad wears its own varieties. Partial on purpose: a squad with no row has no floor to draw
+// (Prospecting is wired only and fields no members).
+export interface MemberRequisitionSlot {
+  perTeam: Partial<Record<AwayTeamType, MemberRequisitionRow>>;
+}
+
+// The catalogue's type: still TOTAL over EquipmentSlotType (a new slot type is a compile error until it
+// has an entry), with the value shape split by slot kind. A ship slot holds one RequisitionRow; a member
+// slot holds per-team rows. Neither kind can hold the other's shape, so a ship row can never be keyed by
+// a squad and a member slot can never mint through a ship generator.
+export type RequisitionCatalogue = {
+  [K in EquipmentSlotType]: K extends MemberSlotType ? MemberRequisitionSlot | null : RequisitionRow | null;
+};
 
 // ----------------------------------------------------------------------------
 // REQUISITION_CATALOGUE: the TOTAL Record over EquipmentSlotType.
@@ -144,7 +185,7 @@ export interface RequisitionRow {
 // generator, so generateStandardIssue would THROW for them. A counter cannot issue a part
 // that does not exist. When one of them becomes real, replacing its null here is the
 // whole UI change.
-export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | null> = {
+export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   // --- The four ECONOMY floors. Each mints the slot's blessed DEFAULT_EQUIPMENT_VARIETY
   // baseline, stat-neutral by design (STANDARD_ISSUE_IMPLICIT_MAGNITUDE is 0), so a ship
   // wearing one resolves missions identically to a bare hull. Free is therefore not a
@@ -237,23 +278,77 @@ export const REQUISITION_CATALOGUE: Record<EquipmentSlotType, RequisitionRow | n
   sensor: null,
   propellantTanks: null,
 
-  // --- E-CREW 0.14.0 (Task 7): the four AWAY-TEAM MEMBER slots. null FOR NOW, on purpose: they are
-  // not ship slots (a ship requisition must never hand out member gear), and their per-team-type
-  // Standard-Issue floors land with the member-baseline task (E-CREW Task 9), which replaces these
-  // nulls through this same requisition path.
-  memberArmor: null,
-  memberWeapon: null,
-  memberTool: null,
+  // --- E-CREW 0.14.0 (Task 9): the AWAY-TEAM MEMBER floors (design 5.4, inventory S94: "every ship /
+  // crewman takes the SAME baseline"). One free Armor / Weapon / Tool per squad type, the anti-softlock
+  // floor once member gear matters: a squad whose gear was salvaged can always be kitted out again.
+  //
+  // WHY THESE VARIETIES. A Standard-Issue piece's stat lines sit at the floor magnitude (0), so the
+  // variety contributes no numbers; what it DOES contribute is its fixed catalog behavior (weapon range,
+  // ground effect, encounter dial, planet tuning). So each row names the variety whose behavior is the
+  // most basic for its squad, keeping specialties a crafted reward:
+  //   Security armor   Ballistic Weave  the LIGHT suit (the Hardsuit is the heavy upgrade). No effect.
+  //   Security weapon  Pulse Rifle      the squad's standard long gun with NO ground effect (the
+  //                                     Scattergun's group hit and the Baton's stun are specialties).
+  //   Security tool    Med Kit          every Security tool carries an effect, so this picks the
+  //                                     defensive one. The grenades are offense (stun / poison), and
+  //                                     the Shroud / Lure dial the encounter chance by a FLAT 40%
+  //                                     regardless of stats, which is real power a free counter must
+  //                                     not hand out.
+  //   Science armor    Field Suit       the working suit (the Hazard Suit is the hazard specialty).
+  //   Science weapon   Sidearm          the only Science weapon.
+  //   Science tool     Flora Scanner    planet-tuned like most Science tools, and tuned to the most
+  //                                     body types (terrestrial, ocean, toxic). The Decryptor works on
+  //                                     any body, but its job is vault and civilization sites, a
+  //                                     specialty rather than the basic field kit.
+  // A test fences every pick to a real variety its squad may wear, so a catalog rename fails loudly.
+  //
+  // NOT ISSUED: implants (earned through the Cybernetics Bay, no free floor) and the Prospecting squad
+  // (wired only: no hull fields one and no gear lists it).
+  memberArmor: {
+    perTeam: {
+      security: { varietyKey: "ballisticWeave", blurb: "The light suit every Security recruit can draw." },
+      science: { varietyKey: "fieldSuit", blurb: "The working suit every Science recruit can draw." },
+    },
+  },
+  memberWeapon: {
+    perTeam: {
+      security: { varietyKey: "pulseRifle", blurb: "The basic long gun every Security recruit can draw." },
+      science: { varietyKey: "sidearm", blurb: "The self-defense piece every Science recruit can draw." },
+    },
+  },
+  memberTool: {
+    perTeam: {
+      security: { varietyKey: "medKit", blurb: "The basic field kit every Security recruit can draw." },
+      science: { varietyKey: "floraScanner", blurb: "The basic survey tool every Science recruit can draw." },
+    },
+  },
   implant: null,
 };
 
 // One requisition row as the CONSOLE reads it: the derived, display-ready shape.
 export interface RequisitionEntry {
+  // Unique per row (the console's keyed-each key): the slot type for a ship row, "slotType:teamType" for
+  // a member row, since one member slot yields a row per squad.
+  key: string;
   slotType: EquipmentSlotType;
+  // The squad a MEMBER row issues for; null on every ship row. Pass it back to canRequisition /
+  // requisitionStandardIssue / freeSpareBaselinesFor, which bound member rows per (slot, squad).
+  teamType: AwayTeamType | null;
   label: string;
   blurb: string;
   mint: RequisitionMint;
 }
+
+// The short slot noun a member row's label leads with ("Armor (Standard-Issue Ballistic Weave)"), the
+// member twin of the ship weapon row's "Weapon (Standard-Issue Autocannon)". The slot's own catalog label
+// reads "Away-Team Armor", which the console's Away-Team heading already says. Total over MemberSlotType
+// so a new member slot is a compile error here too.
+const MEMBER_SLOT_NOUN: Record<MemberSlotType, string> = {
+  memberArmor: "Armor",
+  memberWeapon: "Weapon",
+  memberTool: "Tool",
+  implant: "Implant",
+};
 
 // Build the ordered, display-ready list from the catalogue above. DERIVED, never a second
 // hand-written list: the console iterates this, so a new catalogue row appears on screen
@@ -268,20 +363,56 @@ export interface RequisitionEntry {
 // EQUIPMENT_SLOTS entry take their label from THERE, so renaming a slot in the blessed
 // table renames it here too. weapon and droneBay have no entry (they mint through
 // WEAPON_DEFS / ROLE_TEMPLATE), so they fall back to the catalogue's own name.
+//
+// E-CREW (Task 9): a MEMBER slot expands into one entry per squad that has a row, in AWAY_TEAM_TYPES
+// order, labeled from the variety's catalog label. The member slots sit last in the catalogue, so every
+// ship row still comes first, in the same order as before.
 function buildRequisitionEntries(): RequisitionEntry[] {
   const entries: RequisitionEntry[] = [];
   for (const key of Object.keys(REQUISITION_CATALOGUE)) {
     const slotType = key as EquipmentSlotType;
-    const row = REQUISITION_CATALOGUE[slotType];
+    if (isMemberSlotType(slotType)) {
+      const memberSlot = REQUISITION_CATALOGUE[slotType];
+      if (memberSlot === null) continue; // no floor for this member slot (implants are earned)
+      for (const teamType of AWAY_TEAM_TYPES) {
+        const row = memberSlot.perTeam[teamType];
+        if (row === undefined) continue; // this squad has no floor in this slot
+        const variety = memberVariety(slotType, row.varietyKey);
+        // A catalogue row naming a variety the catalog does not have is a data bug: fail at module load
+        // rather than render a row whose every requisition would throw in the generator.
+        if (variety === undefined) {
+          throw new Error(`REQUISITION_CATALOGUE: ${slotType} names unknown member variety "${row.varietyKey}"`);
+        }
+        entries.push({
+          key: `${slotType}:${teamType}`,
+          slotType,
+          teamType,
+          label: `${MEMBER_SLOT_NOUN[slotType]} (Standard-Issue ${variety.label})`,
+          blurb: row.blurb,
+          mint: { kind: "member", varietyKey: row.varietyKey },
+        });
+      }
+      continue;
+    }
+    const row: RequisitionRow | null = REQUISITION_CATALOGUE[slotType as Exclude<EquipmentSlotType, MemberSlotType>];
     if (row === null) continue; // no Standard-Issue floor for this slot: nothing to issue
     entries.push({
+      key: slotType,
       slotType,
+      teamType: null,
       label: EQUIPMENT_SLOTS[slotType]?.label ?? row.fallbackLabel,
       blurb: row.blurb,
       mint: row.mint,
     });
   }
   return entries;
+}
+
+// The catalogue entry for one (slot, squad) request, or null when there is no floor to issue: an unknown
+// slot, a null slot, a ship slot asked for a squad, a member slot asked without one, or a squad with no
+// row in that slot. The ONE resolver the gate and the mutator share, so they cannot disagree. Pure.
+function requisitionEntryFor(slotType: EquipmentSlotType, teamType: AwayTeamType | null): RequisitionEntry | null {
+  return REQUISITION_ENTRIES.find((e) => e.slotType === slotType && e.teamType === teamType) ?? null;
 }
 
 // The list the Requisition tab renders. Built once at module load, like every other
@@ -319,9 +450,17 @@ export type RequisitionBlockReason =
 //                              one" would refuse the replacement for a piece that is on
 //                              its way to being destroyed, which is the exact soft-block
 //                              this facility exists to prevent.
+//   wearable by teamType     , (E-CREW Task 9, member rows only) when a squad is named, only a
+//                              baseline whose stamped variety that squad may wear counts. A member
+//                              slot is shared by every squad, so a spare Security rifle must not
+//                              refuse the Science sidearm: the bound is per (slot, squad), and
+//                              "holding one" means holding one THIS squad could install. Read through
+//                              the same teamTypes the install gate (canFitToMember) checks, so a
+//                              piece counts here exactly when it would install on that squad.
 export function freeSpareBaselinesFor(
   state: GameState,
-  slotType: EquipmentSlotType
+  slotType: EquipmentSlotType,
+  teamType: AwayTeamType | null = null
 ): EquipmentInstance[] {
   const reserved = salvageReservedInstanceIds(state);
   return state.equipment.filter(
@@ -329,7 +468,9 @@ export function freeSpareBaselinesFor(
       isSparePiece(piece) &&
       piece.slotType === slotType &&
       isStandardIssueBaseline(piece) &&
-      !reserved.has(piece.id)
+      !reserved.has(piece.id) &&
+      (teamType === null ||
+        (memberVariety(slotType, piece.moduleVariant ?? "")?.member.teamTypes.includes(teamType) ?? false))
   );
 }
 
@@ -361,17 +502,20 @@ export function freeSpareBaselinesFor(
 // re-opens the requisition. A baseline queued for salvage does NOT count (see
 // freeSpareBaselinesFor), so a player cannot be refused on the strength of a piece that is
 // about to be destroyed.
+//
+// E-CREW (Task 9): `teamType` names the squad for a MEMBER row and must be omitted (null) for a ship
+// row. The bound is then per (slot, squad); see freeSpareBaselinesFor.
 export function canRequisition(
   state: GameState,
-  slotType: EquipmentSlotType
+  slotType: EquipmentSlotType,
+  teamType: AwayTeamType | null = null
 ): { ok: true } | { ok: false; reason: RequisitionBlockReason } {
-  // Typed to include undefined deliberately: the Record is total over the union, but this
-  // gate is also the BOUNDARY a UI (or a stale save, or a test) can reach with a string that
-  // is not a live slot at all, and a runtime miss must be a stated refusal rather than a
-  // crash. TypeScript alone would not admit the comparison without this annotation.
-  const row: RequisitionRow | null | undefined = REQUISITION_CATALOGUE[slotType];
-  if (row === undefined || row === null) return { ok: false, reason: "noBaselineForSlot" };
-  if (freeSpareBaselinesFor(state, slotType).length > 0) {
+  // Resolved through the derived entry list rather than an index into the catalogue: this gate is
+  // also the BOUNDARY a UI (or a stale save, or a test) can reach with a string that is not a live
+  // slot at all, or a squad the slot has no row for, and a runtime miss must be a stated refusal
+  // rather than a crash.
+  if (requisitionEntryFor(slotType, teamType) === null) return { ok: false, reason: "noBaselineForSlot" };
+  if (freeSpareBaselinesFor(state, slotType, teamType).length > 0) {
     return { ok: false, reason: "alreadyHoldingOne" };
   }
   return { ok: true };
@@ -427,6 +571,11 @@ function mintForRow(
         fittedToShipId: null,
         allocateId,
       });
+    case "member":
+      // The same generator the ship's economy floors use, told which variety to mint: the implicit lines
+      // sit at the floor magnitude and the variety is stamped as moduleVariant (see generateStandardIssue).
+      // It lands as a spare worn by nobody, exactly as a ship baseline lands installed on nothing.
+      return generateStandardIssue({ slotType, varietyKey: mint.varietyKey, fittedToShipId: null, allocateId });
   }
 }
 
@@ -454,19 +603,22 @@ function mintForRow(
 //
 // NEVER A SILENT NO-OP: a refusal returns the untouched state AND a typed reason, so the
 // console always has something to say.
+//
+// E-CREW (Task 9): `teamType` names the squad for a MEMBER row (null for a ship row), as canRequisition.
 export function requisitionStandardIssue(
   state: GameState,
-  slotType: EquipmentSlotType
+  slotType: EquipmentSlotType,
+  teamType: AwayTeamType | null = null
 ): { next: GameState; minted: EquipmentInstance | null; reason: RequisitionBlockReason | null } {
-  const gate = canRequisition(state, slotType);
+  const gate = canRequisition(state, slotType, teamType);
   if (!gate.ok) return { next: state, minted: null, reason: gate.reason };
 
-  // The gate proved this row exists and is non-null.
-  const row = REQUISITION_CATALOGUE[slotType]!;
+  // The gate proved this entry exists.
+  const entry = requisitionEntryFor(slotType, teamType)!;
   const mintedId = "equip-" + state.nextEquipmentId;
   const allocateId = () => mintedId;
 
-  const piece = mintForRow(slotType, row.mint, allocateId);
+  const piece = mintForRow(slotType, entry.mint, allocateId);
 
   const stamped = startAutoSalvageGrace(piece, state.gameTimeSeconds);
   return {

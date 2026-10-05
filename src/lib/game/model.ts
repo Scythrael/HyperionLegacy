@@ -9133,6 +9133,18 @@ export const STANDARD_ISSUE_ILEVEL = 1;
 // this patch; it is read to keep the baseline pinned to the neutral family and to
 // future-proof the piece if variety ever gains an implicit role.
 //
+// E-CREW 0.14.0 (Task 9): an OPTIONAL explicit `varietyKey` overrides that default, for the
+// away-team MEMBER slots. A member slot has no single blessed default (its varieties are split by
+// squad type, so "the" Standard-Issue armor differs for Security and Science), so the caller (the
+// Quartermaster's per-team requisition rows) names the variety. Two things follow the variety,
+// mirroring generateEquipment exactly so a baseline is an ordinary piece of its slot:
+//   - the implicit KEYS are the variety's own signature lines when it overrides them (E4d), else
+//     the slot's; still every one at the floor magnitude, so the piece stays stat-neutral.
+//   - the variety key is STAMPED as moduleVariant for a member slot (or a variety with its own
+//     identity), since the member install gate (canFitToMember) resolves the piece's squad from it.
+// Omitted (every pre-E-CREW caller), the default variety is read as before, and because no default
+// economy variety carries its own identity, the minted piece is byte-identical to the old shape.
+//
 // durabilityMax / durability are the slot's base durability (a real, reserved value,
 // durability is never lost in 0.11.0 and does NOT feed shipDerivedStats, so it is
 // stat-neutral to keep). mass / powerDraw are 0 by design (see the note), NOT the
@@ -9144,15 +9156,19 @@ export function generateStandardIssue(a: {
   slotType: EquipmentSlotType;
   fittedToShipId: string | null;
   allocateId: () => string;
+  // E-CREW 0.14.0 (Task 9): the variety to mint, overriding DEFAULT_EQUIPMENT_VARIETY (see the note
+  // above). Required in practice for a member slot, which has no default variety.
+  varietyKey?: string;
 }): EquipmentInstance {
   const slotDef = EQUIPMENT_SLOTS[a.slotType];
   if (slotDef === undefined) {
     // Reserved slots have no definition this patch; a Standard-Issue cannot exist for one.
     throw new Error(`generateStandardIssue: no slot definition for "${a.slotType}" (not a live slot this patch)`);
   }
-  const varietyKey = DEFAULT_EQUIPMENT_VARIETY[a.slotType];
-  if (varietyKey === undefined || slotDef.varieties.find((v) => v.key === varietyKey) === undefined) {
-    throw new Error(`generateStandardIssue: slot "${a.slotType}" has no default variety "${varietyKey}"`);
+  const varietyKey = a.varietyKey ?? DEFAULT_EQUIPMENT_VARIETY[a.slotType];
+  const variety = varietyKey === undefined ? undefined : slotDef.varieties.find((v) => v.key === varietyKey);
+  if (variety === undefined) {
+    throw new Error(`generateStandardIssue: slot "${a.slotType}" has no variety "${varietyKey}"`);
   }
   const basePhysicals = SLOT_BASE_PHYSICALS[a.slotType as keyof typeof SLOT_BASE_PHYSICALS];
   if (basePhysicals === undefined) {
@@ -9162,12 +9178,13 @@ export function generateStandardIssue(a: {
   // Implicit (signature) lines ONLY, every one at the fixed floor magnitude (0 this
   // patch, stat-neutral). The KEYS are still present (a well-formed piece carries its
   // slot's signature lines), just at magnitude 0.
+  // E4d / E-CREW: a variety with its own signature lines replaces the slot's (as generateEquipment does).
   const implicitStats: Record<string, number> = {};
-  for (const stat of slotDef.implicitStats) {
+  for (const stat of variety.implicitStats ?? slotDef.implicitStats) {
     implicitStats[stat] = STANDARD_ISSUE_IMPLICIT_MAGNITUDE;
   }
 
-  return {
+  const piece: EquipmentInstance = {
     id: a.allocateId(),
     slotType: a.slotType,
     rarity: "standard",
@@ -9183,6 +9200,13 @@ export function generateStandardIssue(a: {
     durability: basePhysicals.durability, // fresh piece starts at full durability
     fittedToShipId: a.fittedToShipId,
   };
+  // The same stamping rule generateEquipment applies (itemgen.ts): every member piece, and any variety with
+  // its own identity, persists its variety key. False for every default economy variety, so the seeded
+  // and migrated ship baselines gain no field.
+  if (isMemberSlotType(a.slotType) || varietyHasOwnIdentity(variety)) {
+    piece.moduleVariant = varietyKey;
+  }
+  return piece;
 }
 
 // The ONE shared "fit a ship out with its baseline floor" helper (Omega 4, DRY):

@@ -140,6 +140,8 @@
     EQUIPMENT_SLOTS,
     type EquipmentInstance,
     type EquipmentSlotType,
+    // E-CREW (Task 9): the squad a Quartermaster member row issues for.
+    type AwayTeamType,
     // Equipment 0.11.0 Phase D (2026-07-20): the two PURE derived readers the Ship
     // Systems bay header shows, spareEquipmentCount(state) = how many spare CRAFTED
     // systems occupy storage (the numerator), equipmentStorageCap(state) = the current
@@ -6956,8 +6958,9 @@
   //
   // NO COST, so there is nothing to deduct and no confirm to ask for: the counter's whole job
   // is to make a missing slot floor an errand instead of a wall.
-  function doRequisition(slotType: EquipmentSlotType, label: string) {
-    const { next, minted, reason } = requisitionStandardIssue(state, slotType);
+  // E-CREW (Task 9): a member row names its squad (teamType); a ship row passes null.
+  function doRequisition(slotType: EquipmentSlotType, teamType: AwayTeamType | null, label: string) {
+    const { next, minted, reason } = requisitionStandardIssue(state, slotType, teamType);
     if (minted === null) {
       pushLog(`Cannot requisition ${label}: ${reason === null ? "the Quartermaster refused that request" : requisitionBlockText(reason)}`);
       return;
@@ -8899,8 +8902,28 @@
   // in the model can set it now. A card that dotted whenever a pattern was in stock would be
   // permanently lit, which is how a dot stops meaning anything.
   $: quartermasterAvailableCount = REQUISITION_ENTRIES.filter(
-    (entry) => canRequisition(state, entry.slotType).ok
+    (entry) => canRequisition(state, entry.slotType, entry.teamType).ok
   ).length;
+
+  // E-CREW (Task 9): the Requisition tab's shelves. Ship rows first, then one "Away-Team" shelf per squad
+  // that has member rows, in the entry list's own order. DERIVED from REQUISITION_ENTRIES (never a
+  // hand-written squad list), so a squad that gains a floor gains a shelf with no edit here. Static data,
+  // so built once, not reactively.
+  const requisitionSections: { key: string; label: string; entries: typeof REQUISITION_ENTRIES }[] = (() => {
+    const sections = [
+      { key: "ship", label: "Ship Systems", entries: REQUISITION_ENTRIES.filter((e) => e.teamType === null) },
+    ];
+    const teams: AwayTeamType[] = [];
+    for (const e of REQUISITION_ENTRIES) if (e.teamType !== null && !teams.includes(e.teamType)) teams.push(e.teamType);
+    for (const team of teams) {
+      sections.push({
+        key: team,
+        label: `Away-Team · ${SQUAD_META[team].short}`,
+        entries: REQUISITION_ENTRIES.filter((e) => e.teamType === team),
+      });
+    }
+    return sections.filter((s) => s.entries.length > 0);
+  })();
   // Fleet-wide tick readout (collapsed from per-captain activeCycle/
   // activeBarSeconds/activeTickProgress/activeTickRemaining during the UI
   // Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md).
@@ -14152,19 +14175,27 @@
                     REQUISITION
                     <HelpTip
                       label="How Requisition works"
-                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen. A Standard-Issue piece is the floor, not an upgrade: it fills a slot so the ship can fly, and it is always the weakest version of that system. Crafted systems are the real gains."
+                      text="Standard-Issue patterns, issued free. Take one and it lands in your spare systems, ready to install from a ship's Ship Systems screen, or on an away-team member of the matching squad. A Standard-Issue piece is the floor, not an upgrade: it fills a slot so a ship can fly and a crew member is not working bare-handed, and it is always the weakest version of that system. Crafted systems are the real gains."
                     />
                   </div>
 
+                  <!-- E-CREW (Task 9): grouped into shelves (Ship Systems, then one Away-Team shelf
+                       per squad), the same home-sec-hd header idiom the Sell tab's shelves use. The
+                       rows themselves are unchanged; a member row just carries its squad. -->
+                  {#each requisitionSections as section (section.key)}
+                  <div class="home-sec-hd qm-sell-shelf">
+                    <span class="home-sec-h">{section.label}</span>
+                    <span class="home-sec-rule"></span>
+                  </div>
                   <div class="cq-list">
-                    {#each REQUISITION_ENTRIES as entry (entry.slotType)}
+                    {#each section.entries as entry (entry.key)}
                       <!-- The SAME gate the transform runs (canRequisition), so the disabled
                            state and the actual refusal can never diverge, and the reason is a
                            PERSISTENT note under the row rather than a hover title (the
                            2026-07-24 flicker decision this tab already made for the Docks
                            button: a reason the player cannot read is the same as no reason). -->
-                      {@const gate = canRequisition(state, entry.slotType)}
-                      {@const held = freeSpareBaselinesFor(state, entry.slotType).length}
+                      {@const gate = canRequisition(state, entry.slotType, entry.teamType)}
+                      {@const held = freeSpareBaselinesFor(state, entry.slotType, entry.teamType).length}
                       <div class="cq-row">
                         <div class="cq-body">
                           <span class="home-l1">{entry.label}</span>
@@ -14183,7 +14214,12 @@
                           <button
                             class="buy-btn"
                             disabled={!gate.ok}
-                            on:click={() => doRequisition(entry.slotType, entry.label)}
+                            on:click={() =>
+                              doRequisition(
+                                entry.slotType,
+                                entry.teamType,
+                                entry.teamType === null ? entry.label : `${SQUAD_META[entry.teamType].short} ${entry.label}`
+                              )}
                           >
                             Requisition
                           </button>
@@ -14191,6 +14227,7 @@
                       </div>
                     {/each}
                   </div>
+                  {/each}
 
                   <!-- WHY THE COUNTER ISSUES ONE AT A TIME, stated where a player meets the
                        limit rather than only in the code. It is a bound on a free mint, and it

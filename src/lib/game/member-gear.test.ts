@@ -6,7 +6,7 @@
 //     onto the member stats it raises (awayTeam.ts GROUND_STAT_MEMBER_STAT);
 //   - SHIP NEUTRALITY: member gear never folds into ShipDerivedStats, whether it is spare, worn by a member,
 //     or (defensively) handed straight to the fold, and ship-only lists (ship install gate, Armory loadout
-//     slots, Quartermaster requisition) never offer it.
+//     slots, the Quartermaster's ship requisition rows) never offer it.
 // And the catalog + blueprints:
 //   - the mockup names exactly, per slot; every variety's teamTypes non-empty and never "prospecting";
 //     tool planetTypes / encounterBias and the implant team split + unique-equipped as authored;
@@ -197,9 +197,12 @@ describe("ship-only lists never offer member gear", () => {
     expect(Object.keys(REQUISITION_CATALOGUE).sort()).toEqual([...SHIP_SLOT_TYPES, ...MEMBER_SLOT_TYPES].sort());
   });
 
-  it("the ship Quartermaster requisition offers no member slot (their floors land with E-CREW Task 9)", () => {
-    for (const t of MEMBER_SLOT_TYPES) expect(REQUISITION_CATALOGUE[t], t).toBeNull();
-    for (const entry of REQUISITION_ENTRIES) expect(isMemberSlotType(entry.slotType), entry.slotType).toBe(false);
+  it("a SHIP Quartermaster row never issues member gear; member rows always name a squad (E-CREW Task 9)", () => {
+    // Task 9 gave the member slots per-squad floors, so member rows now exist; what must hold is the
+    // separation: a ship row (teamType null) is never a member slot, and a member row always names a squad.
+    for (const entry of REQUISITION_ENTRIES) {
+      expect(isMemberSlotType(entry.slotType), entry.key).toBe(entry.teamType !== null);
+    }
   });
 });
 

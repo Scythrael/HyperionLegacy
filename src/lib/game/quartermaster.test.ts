@@ -21,15 +21,19 @@
 // ============================================================================
 import { describe, it, expect } from "vitest";
 import {
+  ECONOMY_FLOOR_SLOTS,
   REQUISITION_CATALOGUE,
   REQUISITION_ENTRIES,
   canRequisition,
   freeSpareBaselinesFor,
   requisitionBlockText,
   requisitionStandardIssue,
+  type MemberRequisitionSlot,
   type RequisitionBlockReason,
+  type RequisitionRow,
 } from "./quartermaster";
 import {
+  AWAY_TEAM_TYPES,
   DEFAULT_EQUIPMENT_VARIETY,
   EQUIPMENT_SLOTS,
   EQUIPMENT_STORAGE_CAP_BASE,
@@ -40,13 +44,19 @@ import {
   freshState,
   generateCombatStandardIssue,
   generateStandardIssue,
+  isMemberSlotType,
   isStandardIssueBaseline,
+  memberVariety,
   spareEquipmentCount,
+  type AwayMember,
+  type AwayTeamType,
   type EquipmentInstance,
   type EquipmentSlotType,
   type GameState,
 } from "./model";
 import { COMBAT_DEFAULT_LOADOUT } from "./combat/bridge";
+import { canFitToMember, fitToMember } from "./memberEquipment";
+import { autoSalvageProtectionForTarget, salvageEquipment } from "./salvage";
 
 // A state with NOTHING in the equipment pool. freshState seeds the starting ship with a
 // full set of INSTALLED baselines, which is correct for the game but noise for these
@@ -56,10 +66,14 @@ function emptyPoolState(): GameState {
   return { ...freshState(), equipment: [] };
 }
 
-// Every slot the catalogue can actually issue, read off the DERIVED list rather than
+// Every row the catalogue can actually issue, read off the DERIVED list rather than
 // re-typed here. That is the point: if a new slot gains a Standard-Issue floor, every
-// per-slot test below covers it automatically, with no edit to this file.
-const ISSUABLE_SLOTS: EquipmentSlotType[] = REQUISITION_ENTRIES.map((e) => e.slotType);
+// per-slot test below covers it automatically, with no edit to this file. E-CREW (Task 9):
+// a row is a (slot, squad) pair, since a member slot issues one row per squad type; ship
+// rows carry teamType null.
+const ISSUABLE_ROWS: { slot: EquipmentSlotType; teamType: AwayTeamType | null }[] = REQUISITION_ENTRIES.map(
+  (e) => ({ slot: e.slotType, teamType: e.teamType })
+);
 
 // Every slot the catalogue explicitly declares has NO floor.
 const NON_ISSUABLE_SLOTS: EquipmentSlotType[] = (
@@ -72,7 +86,7 @@ describe("REQUISITION_CATALOGUE: the list is DERIVED from data, never hand-liste
     // floor (seedStandardIssueForShip iterates exactly this map). Adding a fifth economy
     // slot there without a catalogue row would make this fail, which is the drift guard.
     for (const slot of Object.keys(DEFAULT_EQUIPMENT_VARIETY) as EquipmentSlotType[]) {
-      const row = REQUISITION_CATALOGUE[slot];
+      const row = REQUISITION_CATALOGUE[slot] as RequisitionRow | null;
       expect(row, `no requisition row for economy floor slot "${slot}"`).not.toBeNull();
       expect(row?.mint.kind).toBe("economy");
     }
@@ -89,10 +103,22 @@ describe("REQUISITION_CATALOGUE: the list is DERIVED from data, never hand-liste
   });
 
   it("REQUISITION_ENTRIES is exactly the non-null rows, in catalogue order", () => {
-    const expected = (Object.keys(REQUISITION_CATALOGUE) as EquipmentSlotType[]).filter(
-      (slot) => REQUISITION_CATALOGUE[slot] !== null
-    );
-    expect(REQUISITION_ENTRIES.map((e) => e.slotType)).toEqual(expected);
+    // A ship slot yields one row; a member slot yields one row per squad it lists (E-CREW Task 9).
+    const expected: string[] = [];
+    for (const slot of Object.keys(REQUISITION_CATALOGUE) as EquipmentSlotType[]) {
+      const value = REQUISITION_CATALOGUE[slot];
+      if (value === null) continue;
+      if (isMemberSlotType(slot)) {
+        for (const team of AWAY_TEAM_TYPES) {
+          if ((value as MemberRequisitionSlot).perTeam[team] !== undefined) expected.push(`${slot}:${team}`);
+        }
+      } else {
+        expected.push(slot);
+      }
+    }
+    expect(REQUISITION_ENTRIES.map((e) => e.key)).toEqual(expected);
+    // Every key is unique (the console's keyed each relies on it).
+    expect(new Set(REQUISITION_ENTRIES.map((e) => e.key)).size).toBe(REQUISITION_ENTRIES.length);
     // Non-vacuous: there really are rows, and there really are declared-empty slots too.
     expect(REQUISITION_ENTRIES.length).toBeGreaterThan(0);
     expect(NON_ISSUABLE_SLOTS.length).toBeGreaterThan(0);
@@ -102,7 +128,7 @@ describe("REQUISITION_CATALOGUE: the list is DERIVED from data, never hand-liste
     // Single-source labels: renaming a slot in the blessed table renames the requisition
     // row too. weapon and droneBay have no EQUIPMENT_SLOTS entry (they mint through their
     // own tables) and legitimately carry their own name.
-    for (const entry of REQUISITION_ENTRIES) {
+    for (const entry of REQUISITION_ENTRIES.filter((e) => e.teamType === null)) {
       const slotDef = EQUIPMENT_SLOTS[entry.slotType];
       if (slotDef !== undefined) expect(entry.label).toBe(slotDef.label);
       else expect(entry.label.length).toBeGreaterThan(0);
@@ -152,9 +178,9 @@ describe("REQUISITION_CATALOGUE: the list is DERIVED from data, never hand-liste
 
 describe("requisitionStandardIssue: every Standard-Issue slot is requisitionable", () => {
   it("issues a well-formed SPARE baseline for each issuable slot", () => {
-    for (const slot of ISSUABLE_SLOTS) {
+    for (const { slot, teamType } of ISSUABLE_ROWS) {
       const state = emptyPoolState();
-      const result = requisitionStandardIssue(state, slot);
+      const result = requisitionStandardIssue(state, slot, teamType);
 
       expect(result.reason, `refused a requisition for "${slot}"`).toBeNull();
       const piece = result.minted as EquipmentInstance;
@@ -185,9 +211,9 @@ describe("requisitionStandardIssue: every Standard-Issue slot is requisitionable
     // The release that makes this necessary is the same one that ships it: baselines became
     // auto-salvageable, so an unstamped requisition could be queued for teardown before the
     // player got it onto a ship. Game time, never a wall clock, for parity.
-    for (const slot of ISSUABLE_SLOTS) {
+    for (const { slot, teamType } of ISSUABLE_ROWS) {
       const state = { ...emptyPoolState(), gameTimeSeconds: 4242 };
-      const piece = requisitionStandardIssue(state, slot).minted as EquipmentInstance;
+      const piece = requisitionStandardIssue(state, slot, teamType).minted as EquipmentInstance;
       expect(piece.graceStartedAtGameSeconds, `no grace stamp on a requisitioned "${slot}"`).toBe(4242);
     }
   });
@@ -244,8 +270,8 @@ describe("requisitionStandardIssue: every Standard-Issue slot is requisitionable
     // A baseline that dragged speed or ate reactor budget would make requisitioning one a
     // BALANCE event rather than a floor restoration, and on the economy side it would move
     // mission timings on every save. Both generators mint 0/0; this holds them to it.
-    for (const slot of ISSUABLE_SLOTS) {
-      const piece = requisitionStandardIssue(emptyPoolState(), slot).minted as EquipmentInstance;
+    for (const { slot, teamType } of ISSUABLE_ROWS) {
+      const piece = requisitionStandardIssue(emptyPoolState(), slot, teamType).minted as EquipmentInstance;
       expect(piece.mass, `"${slot}" baseline has mass`).toBe(0);
       expect(piece.powerDraw, `"${slot}" baseline draws power`).toBe(0);
     }
@@ -314,12 +340,12 @@ describe("requisitionStandardIssue: the bound, and never a silent no-op", () => 
 
   it("the bound is PER SLOT: holding one does not block a different slot", () => {
     let state = emptyPoolState();
-    for (const slot of ISSUABLE_SLOTS) {
-      const result = requisitionStandardIssue(state, slot);
-      expect(result.reason, `holding other baselines blocked "${slot}"`).toBeNull();
+    for (const { slot, teamType } of ISSUABLE_ROWS) {
+      const result = requisitionStandardIssue(state, slot, teamType);
+      expect(result.reason, `holding other baselines blocked "${slot}" (${teamType})`).toBeNull();
       state = result.next;
     }
-    expect(state.equipment.length).toBe(ISSUABLE_SLOTS.length);
+    expect(state.equipment.length).toBe(ISSUABLE_ROWS.length);
   });
 
   it("CANNOT block recovery: installing the spare re-opens the requisition", () => {
@@ -432,5 +458,187 @@ describe("requisitionStandardIssue: it is a player action, not a tick behaviour"
     // And no key was added or removed: the save SHAPE is identical, which is why this needed
     // no SAVE_VERSION bump.
     expect(Object.keys(next).sort()).toEqual(Object.keys(state).sort());
+  });
+});
+
+// ============================================================================
+// E-CREW 0.14.0 (Task 9): the away-team MEMBER Standard-Issue kit.
+// One free Armor / Weapon / Tool per squad (Security, Science), never an implant and never
+// Prospecting. Each row mints through generateStandardIssue with its squad's basic variety
+// stamped, so the member install gate accepts it for that squad and refuses it for the other.
+// ============================================================================
+describe("E-CREW Task 9: the away-team member Standard-Issue kit", () => {
+  // The deliberate picks (quartermaster.ts records why each is the basic variety for its squad).
+  const KIT: { slot: EquipmentSlotType; teamType: AwayTeamType; variety: string; other: AwayTeamType }[] = [
+    { slot: "memberArmor", teamType: "security", variety: "ballisticWeave", other: "science" },
+    { slot: "memberWeapon", teamType: "security", variety: "pulseRifle", other: "science" },
+    { slot: "memberTool", teamType: "security", variety: "medKit", other: "science" },
+    { slot: "memberArmor", teamType: "science", variety: "fieldSuit", other: "security" },
+    { slot: "memberWeapon", teamType: "science", variety: "sidearm", other: "security" },
+    { slot: "memberTool", teamType: "science", variety: "floraScanner", other: "security" },
+  ];
+
+  function awayMember(id: string, teamType: AwayTeamType): AwayMember {
+    return {
+      id,
+      teamType,
+      spec: teamType === "science" ? "geology" : "offense",
+      name: `Member ${id}`,
+      race: "earthBorn",
+      gender: "female",
+      rank: 1,
+      traits: [],
+      assignedShipId: null, // benched: never crew-locked, so the gate reaches the team check
+    };
+  }
+
+  it("REQUISITION_ENTRIES carries exactly the six member rows, each keyed by (slot, squad)", () => {
+    const memberRows = REQUISITION_ENTRIES.filter((e) => e.teamType !== null);
+    expect(memberRows.map((e) => `${e.slotType}:${e.teamType}`).sort()).toEqual(
+      KIT.map((k) => `${k.slot}:${k.teamType}`).sort()
+    );
+    for (const row of memberRows) {
+      expect(isMemberSlotType(row.slotType), row.key).toBe(true);
+      expect(row.mint.kind).toBe("member");
+    }
+    // Ship rows never carry a squad and are never member slots.
+    for (const row of REQUISITION_ENTRIES.filter((e) => e.teamType === null)) {
+      expect(isMemberSlotType(row.slotType), row.key).toBe(false);
+    }
+    // No implant floor (implants are earned) and no Prospecting row (wired only).
+    expect(REQUISITION_CATALOGUE.implant).toBeNull();
+    expect(REQUISITION_ENTRIES.some((e) => e.slotType === "implant")).toBe(false);
+    expect(REQUISITION_ENTRIES.some((e) => e.teamType === "prospecting")).toBe(false);
+  });
+
+  it("each pick is a real variety its squad may wear, labeled from the catalog", () => {
+    for (const k of KIT) {
+      const variety = memberVariety(k.slot, k.variety);
+      expect(variety, `${k.slot}/${k.variety} is not a member variety`).toBeDefined();
+      expect(variety!.member.teamTypes).toContain(k.teamType);
+      const entry = REQUISITION_ENTRIES.find((e) => e.slotType === k.slot && e.teamType === k.teamType)!;
+      expect(entry.mint).toEqual({ kind: "member", varietyKey: k.variety });
+      expect(entry.label).toContain(`Standard-Issue ${variety!.label}`);
+      expect(entry.blurb.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("each mints a stat-neutral Standard-Issue baseline stamped with its variety", () => {
+    for (const k of KIT) {
+      const state = { ...emptyPoolState(), gameTimeSeconds: 77 };
+      const result = requisitionStandardIssue(state, k.slot, k.teamType);
+      expect(result.reason, `${k.slot}:${k.teamType} refused`).toBeNull();
+      const piece = result.minted as EquipmentInstance;
+      expect(isStandardIssueBaseline(piece)).toBe(true);
+      expect(piece.blueprintKey).toBeNull();
+      expect(piece.rarity).toBe("standard");
+      expect(piece.quality).toBe(0);
+      expect(piece.slotType).toBe(k.slot);
+      expect(piece.moduleVariant).toBe(k.variety);
+      expect(piece.fittedToShipId).toBeNull();
+      expect(piece.fittedToMemberId ?? null).toBeNull(); // a spare worn by nobody
+      expect(piece.rolledStats).toEqual({});
+      // The variety's own signature lines (or the slot's), every one at the floor magnitude.
+      const variety = memberVariety(k.slot, k.variety)!;
+      const keys = variety.implicitStats ?? EQUIPMENT_SLOTS[k.slot]!.implicitStats;
+      expect(Object.keys(piece.implicitStats).sort()).toEqual([...keys].sort());
+      for (const v of Object.values(piece.implicitStats)) expect(v).toBe(0);
+      expect(piece.graceStartedAtGameSeconds).toBe(77);
+      // Byte-identical to the shared generator told the same variety (minus the grace stamp).
+      const reference = generateStandardIssue({
+        slotType: k.slot,
+        varietyKey: k.variety,
+        fittedToShipId: null,
+        allocateId: () => piece.id,
+      });
+      const { graceStartedAtGameSeconds: _g, ...withoutStamp } = piece;
+      expect(withoutStamp).toEqual(reference);
+    }
+  });
+
+  it("canFitToMember accepts it for its squad and refuses it (wrongTeam) for the other", () => {
+    for (const k of KIT) {
+      const minted = requisitionStandardIssue(emptyPoolState(), k.slot, k.teamType);
+      const piece = minted.minted as EquipmentInstance;
+      const state: GameState = {
+        ...minted.next,
+        awayMembers: [awayMember("member-own", k.teamType), awayMember("member-other", k.other)],
+      };
+      expect(canFitToMember(state, "member-own", piece.id), `${k.slot}:${k.teamType}`).toEqual({ ok: true });
+      expect(canFitToMember(state, "member-other", piece.id)).toEqual({ ok: false, reason: "wrongTeam" });
+    }
+  });
+
+  it("the bound is per (slot, squad): a Security spare never blocks the Science row", () => {
+    const sec = requisitionStandardIssue(emptyPoolState(), "memberWeapon", "security");
+    expect(sec.reason).toBeNull();
+    expect(freeSpareBaselinesFor(sec.next, "memberWeapon", "security")).toHaveLength(1);
+    expect(freeSpareBaselinesFor(sec.next, "memberWeapon", "science")).toHaveLength(0);
+
+    // A second Security weapon is refused with the stated reason; the Science one still issues.
+    const again = requisitionStandardIssue(sec.next, "memberWeapon", "security");
+    expect(again.reason).toBe<RequisitionBlockReason>("alreadyHoldingOne");
+    expect(again.next).toBe(sec.next);
+    const sci = requisitionStandardIssue(sec.next, "memberWeapon", "science");
+    expect(sci.reason).toBeNull();
+    expect((sci.minted as EquipmentInstance).moduleVariant).toBe("sidearm");
+    expect(requisitionStandardIssue(sci.next, "memberWeapon", "science").reason).toBe("alreadyHoldingOne");
+  });
+
+  it("installing the spare on a member re-opens the row (it cannot block recovery)", () => {
+    const first = requisitionStandardIssue(emptyPoolState(), "memberArmor", "science");
+    const piece = first.minted as EquipmentInstance;
+    const state: GameState = { ...first.next, awayMembers: [awayMember("member-1", "science")] };
+    expect(canRequisition(state, "memberArmor", "science").ok).toBe(false);
+    const worn = fitToMember(state, "member-1", piece.id);
+    expect(canRequisition(worn, "memberArmor", "science")).toEqual({ ok: true });
+  });
+
+  it("refuses a squad the slot has no row for, and a ship slot asked for a squad", () => {
+    const state = emptyPoolState();
+    // A member slot needs a squad; Prospecting has no floor; implants have none at all.
+    expect(canRequisition(state, "memberWeapon")).toEqual({ ok: false, reason: "noBaselineForSlot" });
+    expect(canRequisition(state, "memberWeapon", "prospecting")).toEqual({ ok: false, reason: "noBaselineForSlot" });
+    expect(canRequisition(state, "implant", "security")).toEqual({ ok: false, reason: "noBaselineForSlot" });
+    // A ship row is never keyed by a squad.
+    expect(canRequisition(state, "cargoBay", "security")).toEqual({ ok: false, reason: "noBaselineForSlot" });
+    const refused = requisitionStandardIssue(state, "memberTool");
+    expect(refused.minted).toBeNull();
+    expect(refused.next).toBe(state);
+  });
+
+  it("the ship floors are untouched: no member slot is an economy floor, and economy baselines gain no stamp", () => {
+    for (const slot of ECONOMY_FLOOR_SLOTS) expect(isMemberSlotType(slot), slot).toBe(false);
+    for (const slot of Object.keys(DEFAULT_EQUIPMENT_VARIETY) as EquipmentSlotType[]) {
+      const piece = generateStandardIssue({ slotType: slot, fittedToShipId: null, allocateId: () => "equip-1" });
+      expect("moduleVariant" in piece, slot).toBe(false);
+    }
+    // A member slot has no default variety, so the generator refuses it without an explicit one,
+    // and refuses a variety its slot does not have.
+    expect(() =>
+      generateStandardIssue({ slotType: "memberArmor", fittedToShipId: null, allocateId: () => "equip-1" })
+    ).toThrow();
+    expect(() =>
+      generateStandardIssue({
+        slotType: "memberArmor",
+        varietyKey: "pulseRifle",
+        fittedToShipId: null,
+        allocateId: () => "equip-1",
+      })
+    ).toThrow();
+  });
+
+  it("a spare member baseline follows the baseline salvage rules: destroyed for nothing, auto-protected by default", () => {
+    const first = requisitionStandardIssue(emptyPoolState(), "memberTool", "security");
+    const piece = first.minted as EquipmentInstance;
+    // Auto-salvage: protected as a Standard-Issue baseline until the player's rules reach it.
+    expect(autoSalvageProtectionForTarget(first.next, { kind: "equipment", instanceId: piece.id })).toBe("baseline");
+    // Manual salvage: the zero-reward declutter every spare baseline gets (never a crafted recycle).
+    const result = salvageEquipment(first.next, piece.id, () => 0.5);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected a declutter");
+    expect(result.next.equipment.find((e) => e.id === piece.id)).toBeUndefined();
+    expect(Object.keys(result.recovered)).toHaveLength(0);
+    expect(result.next.inventory).toBe(first.next.inventory);
   });
 });
