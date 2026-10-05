@@ -62,13 +62,24 @@ export const focusTrap: Action<HTMLElement, () => void> = (node, onEscape) => {
   // Move focus into the modal on mount: the first focusable child, or the node
   // itself (made programmatically focusable) if the modal has no focusable
   // controls. Focusing the node keeps the Tab trap anchored inside the dialog.
-  const focusables = getFocusable(node);
-  if (focusables.length > 0) {
-    focusables[0].focus();
-  } else {
-    node.setAttribute("tabindex", "-1");
-    node.focus();
+  // ⚠️ THE MOVE WAITS ONE MICROTASK. A PORTALED dialog (ActionModal moves its backdrop to <body> with its
+  // own action) runs this action while still in place, and the portal's re-insert then BLURS whatever was
+  // just focused, leaving focus on <body> and the Tab trap with nothing inside it to hold (found in the
+  // E-CREW Task 10 review: every ActionModal opened with focus outside it). Deferring to a microtask lets
+  // the portal finish first; the trigger above is still captured synchronously, before anything moves.
+  function focusIn(): void {
+    const focusables = getFocusable(node);
+    if (focusables.length > 0) {
+      focusables[0].focus();
+    } else {
+      node.setAttribute("tabindex", "-1");
+      node.focus();
+    }
   }
+  // Only when focus is not already inside (a control inside that focused itself on mount keeps it).
+  queueMicrotask(() => {
+    if (node.isConnected && !node.contains(document.activeElement)) focusIn();
+  });
 
   // onKeydown
   // Handles the two keys a trapped modal cares about:

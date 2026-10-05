@@ -33,7 +33,7 @@
   // power has no fold yet); a member-level compare-preview helper can replace it when power lands.
   // ============================================================================
 
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import ActionModal from "./ActionModal.svelte";
   import RecruitmentBoard from "./RecruitmentBoard.svelte";
   import EquipmentTooltip, { equipmentRarityColor, statLabel } from "./EquipmentTooltip.svelte";
@@ -46,7 +46,7 @@
     memberFitBlockText,
     memberPieceInSlot,
     memberSlotCapacity,
-    memberSlotPieces,
+    memberWornIndex,
     pieceWearableBy,
   } from "./game/memberEquipment";
   import type { MemberFitGate } from "./game/memberEquipment";
@@ -55,6 +55,7 @@
     MEMBER_SLOT_META,
     fmtGearStat,
     memberCompareRows,
+    memberGradeText,
     memberPieceName,
   } from "./awayGearDisplay";
   import { clampFloatingTip } from "./floatingTip";
@@ -147,6 +148,9 @@
   function buildSquads(s: GameState, id: string): SquadView[] {
     const host = s.ships.find((x) => x.id === id);
     if (!host) return [];
+    // ONE pass over the pool for every member's worn pieces (this rebuilds on every state change, i.e.
+    // every tick), rather than a scan per member per slot.
+    const worn = memberWornIndex(s);
     const out: SquadView[] = [];
     for (const teamType of AWAY_TEAM_TYPES) {
       const slots = squadSlots(host.typeKey, teamType);
@@ -162,17 +166,24 @@
             gate: canReassignAwayMember(s, member.id, x.id),
           })),
         injuredFor: Math.max(0, (member.injuredUntilSeconds ?? 0) - s.gameTimeSeconds),
-        gear: MEMBER_GEAR_CELLS.map((slot) => ({ slot, piece: memberPieceInSlot(s, member.id, slot) })),
-        ...implantView(s, member),
+        ...gearView(member, worn.get(member.id) ?? []),
       }));
       out.push({ teamType, slots, members, open: Math.max(0, slots - members.length) });
     }
     return out;
   }
 
-  function implantView(s: GameState, member: AwayMember): { implants: EquipmentInstance[]; implantOpen: number } {
-    const implants = memberSlotPieces(s, member.id, "implant");
-    return { implants, implantOpen: Math.max(0, memberSlotCapacity(member, "implant") - implants.length) };
+  // A member's cells + implant chips from their worn list (memberWornIndex, already in mint order).
+  function gearView(
+    member: AwayMember,
+    worn: EquipmentInstance[]
+  ): Pick<MemberView, "gear" | "implants" | "implantOpen"> {
+    const implants = worn.filter((p) => p.slotType === "implant");
+    return {
+      gear: MEMBER_GEAR_CELLS.map((slot) => ({ slot, piece: worn.find((p) => p.slotType === slot) ?? null })),
+      implants,
+      implantOpen: Math.max(0, memberSlotCapacity(member, "implant") - implants.length),
+    };
   }
 
   // --- Display helpers --------------------------------------------------------
@@ -238,9 +249,49 @@
     candidateId = null;
     gearPick = { memberId, slot, implantId };
   }
+  // Close the flow. The dialog hands focus back to its trigger, but an install, swap or uninstall can
+  // remove that trigger (an implant chip is keyed by its implant), so settleFocus lands focus on a stable
+  // target instead of <body>. The returning focus must not re-pop the cell tooltip (suppressFocusTip).
   function closeGear(): void {
+    const pick = gearPick;
     gearPick = null;
     candidateId = null;
+    suppressFocusTip = true;
+    void settleFocus(pick);
+  }
+  async function settleFocus(pick: { memberId: string; slot: MemberSlotType } | null): Promise<void> {
+    await tick();
+    const active = document.activeElement;
+    if (pick !== null && (active === null || active === document.body || !active.isConnected)) {
+      // The member's cell for that slot (for an implant, their first implant chip, worn or open), else
+      // the heading of the squad they are in.
+      const cell = document.querySelector<HTMLElement>(
+        `[data-gear-member="${pick.memberId}"][data-gear-slot="${pick.slot}"]`
+      );
+      const member = state.awayMembers.find((m) => m.id === pick.memberId);
+      (cell ?? (member ? squadHeadings[member.teamType] : undefined))?.focus();
+    }
+    suppressFocusTip = false;
+  }
+
+  // Narrow dialog (the list and the compare drill, see the .gm-flow container queries): picking a spare
+  // hides the list, so focus moves to the commit button (or Back when the commit is refused); Back returns
+  // focus to the spare that was picked. On a wide dialog both panes stay visible and focus stays put.
+  let gmListEl: HTMLDivElement | null = null;
+  let gmBackEl: HTMLButtonElement | null = null;
+  let gmCommitEl: HTMLButtonElement | null = null;
+  async function pickCandidate(id: string): Promise<void> {
+    candidateId = id;
+    await tick();
+    if (gmListEl !== null && gmListEl.offsetParent === null) {
+      (gmCommitEl !== null && !gmCommitEl.disabled ? gmCommitEl : gmBackEl)?.focus();
+    }
+  }
+  async function backToList(): Promise<void> {
+    const prev = candidateId;
+    candidateId = null;
+    await tick();
+    if (prev !== null) gmListEl?.querySelector<HTMLElement>(`[data-spare-id="${prev}"]`)?.focus();
   }
 
   interface GearFlow {
@@ -298,10 +349,6 @@
   function gateWhy(gate: MemberFitGate | null): string | undefined {
     return gate === null || gate.ok ? undefined : memberFitBlockText(gate.reason);
   }
-  function gradeText(p: EquipmentInstance): string {
-    if (p.blueprintKey === null) return `Standard-Issue · iL ${p.iLevel}`;
-    return `${p.rarity.charAt(0).toUpperCase()}${p.rarity.slice(1)} · Q${p.quality} · iL ${p.iLevel}`;
-  }
   function installCandidate(f: GearFlow, pieceId: string): void {
     onInstall(f.member.id, pieceId, f.replacingId);
     closeGear();
@@ -317,20 +364,49 @@
   // clip or offset it, placed by the shared clampFloatingTip math (prefer above, flip below, clamp).
   // Rendered invisible for one frame, measured, then shown, so it never flashes at the wrong spot.
   // pointer-events: none (it holds no controls; the cell's own click opens the install flow).
+  // Escape dismisses it; a scroll or resize (which move the anchor) hides it. Those three listeners are
+  // attached only while a tip is open. Focus returning to a cell as a dialog closes does not re-pop it.
   let tipEl: HTMLDivElement | null = null;
   let tipLeft = 0;
   let tipTop = 0;
   let tipVisible = false;
+  let tipListening = false;
+  let suppressFocusTip = false;
   async function showTip(piece: EquipmentInstance | null, el: HTMLElement): Promise<void> {
     if (piece === null || gearPick !== null) return;
     tip = { piece, el };
     tipVisible = false;
+    listenWhileTip(true);
     await tick();
     placeTip();
+  }
+  function onCellFocus(piece: EquipmentInstance | null, el: HTMLElement): void {
+    if (suppressFocusTip) {
+      suppressFocusTip = false;
+      return;
+    }
+    void showTip(piece, el);
   }
   function hideTip(): void {
     tip = null;
     tipVisible = false;
+    listenWhileTip(false);
+  }
+  function onTipKey(e: KeyboardEvent): void {
+    if (e.key === "Escape") hideTip();
+  }
+  function listenWhileTip(on: boolean): void {
+    if (on === tipListening) return;
+    tipListening = on;
+    if (on) {
+      window.addEventListener("scroll", hideTip, true);
+      window.addEventListener("resize", hideTip);
+      window.addEventListener("keydown", onTipKey);
+    } else {
+      window.removeEventListener("scroll", hideTip, true);
+      window.removeEventListener("resize", hideTip);
+      window.removeEventListener("keydown", onTipKey);
+    }
   }
   function placeTip(): void {
     if (tip === null || tipEl === null) return;
@@ -351,9 +427,7 @@
     document.body.appendChild(node);
     return { destroy: () => node.remove() };
   }
-  // A scroll moves the anchor; the tooltip is a glance, so it just hides (the next hover re-opens it).
-  onMount(() => window.addEventListener("scroll", hideTip, true));
-  onDestroy(() => window.removeEventListener("scroll", hideTip, true));
+  onDestroy(() => listenWhileTip(false));
 </script>
 
 <div class="away">
@@ -419,10 +493,12 @@
                     aria-label={g.piece !== null
                       ? `${meta.label}: ${memberPieceName(g.piece)}. Swap or uninstall`
                       : `${meta.label}: empty. Install`}
+                    data-gear-member={m.id}
+                    data-gear-slot={g.slot}
                     on:click={() => openGear(m.id, g.slot, null)}
                     on:mouseenter={(e) => showTip(g.piece, e.currentTarget)}
                     on:mouseleave={hideTip}
-                    on:focus={(e) => showTip(g.piece, e.currentTarget)}
+                    on:focus={(e) => onCellFocus(g.piece, e.currentTarget)}
                     on:blur={hideTip}
                   >
                     <span class="gs-k"><Icon name={meta.icon} /> {meta.label}</span>
@@ -439,10 +515,12 @@
                     class="imp worn"
                     style="--gs-rc: {equipmentRarityColor(imp.rarity)};"
                     aria-label={`Implant: ${memberPieceName(imp)}. Swap or uninstall`}
+                    data-gear-member={m.id}
+                    data-gear-slot="implant"
                     on:click={() => openGear(m.id, "implant", imp.id)}
                     on:mouseenter={(e) => showTip(imp, e.currentTarget)}
                     on:mouseleave={hideTip}
-                    on:focus={(e) => showTip(imp, e.currentTarget)}
+                    on:focus={(e) => onCellFocus(imp, e.currentTarget)}
                     on:blur={hideTip}
                   ><Icon name="implant" /> {memberPieceName(imp)}</button>
                 {/each}
@@ -451,6 +529,8 @@
                     type="button"
                     class="imp open"
                     aria-label="Empty implant slot. Install"
+                    data-gear-member={m.id}
+                    data-gear-slot="implant"
                     on:click={() => openGear(m.id, "implant", null)}
                   ><Icon name="implant" /> Implant</button>
                 {/each}
@@ -550,7 +630,7 @@
       {#if f.installed !== null}
         <span class="gm-text">
           <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}</span>
-          <span class="gm-sub">{gradeText(f.installed)}</span>
+          <span class="gm-sub">{memberGradeText(f.installed, true)}</span>
         </span>
         <button
           type="button"
@@ -576,7 +656,7 @@
       </p>
     {:else}
       <div class="gm-flow" class:has-candidate={candidate !== null}>
-        <div class="gm-list">
+        <div class="gm-list" bind:this={gmListEl}>
           {#each f.spares as sp (sp.piece.id)}
             <button
               type="button"
@@ -584,13 +664,14 @@
               class:sel={candidateId === sp.piece.id}
               class:blocked={!sp.gate.ok}
               aria-pressed={candidateId === sp.piece.id}
-              aria-label={`${memberPieceName(sp.piece)}: ${gradeText(sp.piece)}.${sp.gate.ok ? "" : ` Cannot install: ${gateWhy(sp.gate)}.`} Compare.`}
-              on:click={() => (candidateId = sp.piece.id)}
+              aria-label={`${memberPieceName(sp.piece)}: ${memberGradeText(sp.piece, true)}.${sp.gate.ok ? "" : ` Cannot install: ${gateWhy(sp.gate)}.`} Compare.`}
+              data-spare-id={sp.piece.id}
+              on:click={() => pickCandidate(sp.piece.id)}
             >
               <span class="gm-ic" style="color: {equipmentRarityColor(sp.piece.rarity)};"><Icon name={MEMBER_SLOT_META[f.slot].icon} /></span>
               <span class="gm-text">
                 <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}</span>
-                <span class="gm-sub">{gradeText(sp.piece)}</span>
+                <span class="gm-sub">{memberGradeText(sp.piece, true)}</span>
               </span>
               {#if !sp.gate.ok}<span class="gm-blocked">Blocked</span>{/if}
             </button>
@@ -601,7 +682,7 @@
           {#if candidate !== null}
             {@const why = gateWhy(candidate.gate)}
             <div class="gm-compare-head">
-              <button type="button" class="aw-btn gm-back" on:click={() => (candidateId = null)} aria-label="Back to the spare list">Back</button>
+              <button type="button" class="aw-btn gm-back" bind:this={gmBackEl} on:click={backToList} aria-label="Back to the spare list">Back</button>
               <span class="gm-compare-title">Comparison</span>
             </div>
             <div class="gm-compare-name" style="color: {equipmentRarityColor(candidate.piece.rarity)};">{memberPieceName(candidate.piece)}</div>
@@ -624,6 +705,7 @@
             <button
               type="button"
               class="aw-btn gm-commit"
+              bind:this={gmCommitEl}
               disabled={why !== undefined}
               aria-describedby={why !== undefined ? "gm-commit-why" : undefined}
               on:click={() => installCandidate(f, candidate.piece.id)}
