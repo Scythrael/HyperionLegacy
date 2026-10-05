@@ -8,7 +8,7 @@
   // aria-describedby, and a member whose implant slots are full offers a Swap per worn implant instead.
   // PURE PRESENTATION: a click bubbles up (onInstallShip / onInstallMember); the host re-runs the real
   // gate, installs, logs and closes. One DOM; the shared ActionModal shell is the bottom sheet on a phone
-  // and the centered dialog on desktop.
+  // and the centered dialog on desktop. The footer is the host's (slot "footer": its Cancel button).
   // ============================================================================
   import ActionModal from "./ActionModal.svelte";
   import type { EquipmentInstance } from "./game/model";
@@ -76,9 +76,9 @@
       {/each}
     </div>
   {/if}
-  <svelte:fragment slot="footer">
-    <button type="button" class="iot-cancel" on:click={onClose}>Cancel</button>
-  </svelte:fragment>
+  <!-- The host passes its Cancel button (App's own .dev-btn, the style every ActionModal footer uses), so
+       the picker's footer matches the other dialogs exactly. -->
+  <svelte:fragment slot="footer"><slot name="footer" /></svelte:fragment>
 </ActionModal>
 
 <style>
@@ -157,22 +157,7 @@
     color: var(--color-text-disabled);
     cursor: not-allowed;
   }
-  .iot-cancel {
-    padding: 6px 12px;
-    font-size: var(--text-sm);
-    font-family: inherit;
-    background: rgba(var(--color-accent-rgb), 0.06);
-    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
-    border-radius: var(--corner);
-    color: var(--color-text-secondary);
-    cursor: pointer;
-  }
-  .iot-cancel:hover {
-    color: var(--color-text-primary);
-    border-color: var(--color-accent);
-  }
-  .iot-btn:focus-visible,
-  .iot-cancel:focus-visible {
+  .iot-btn:focus-visible {
     outline: 1px solid var(--color-accent);
     outline-offset: 2px;
   }

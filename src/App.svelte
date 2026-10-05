@@ -5262,6 +5262,13 @@
   async function closeInstallOn() {
     installOnPieceId = null;
     installOnRows = [];
+    await restoreLogisticsFocus();
+  }
+  // After a dialog opened from a Logistics popup closes, its trigger (the popup's button) is gone, so the
+  // dialog's own focus restore has nowhere to go: land focus on the active Logistics tab (a stable
+  // control) instead of <body>. A no-op off Logistics, or when focus already landed somewhere real.
+  async function restoreLogisticsFocus(): Promise<void> {
+    if (activeTab !== "logistics") return;
     await svelteTick();
     const active = document.activeElement;
     if (active === null || active === document.body || !active.isConnected) {
@@ -5620,10 +5627,17 @@
     droneBay: "Drone Bays",
   };
 
-  // The tile the player has selected -> its EquipmentTooltip is surfaced inline
-  // below the grid. null = nothing selected (grid only). Cleared whenever the
-  // selected piece leaves the pool (salvaged) or the tab changes.
+  // The SALVAGE BAY's selected tile -> its EquipmentTooltip + Salvage panel surfaces inline below the
+  // grid. null = nothing selected (grid only). It reads null once the piece leaves the pool (salvaged;
+  // selectedSystem below resolves against the live pool) and is cleared whenever the player leaves the
+  // Salvage Bay (the reactive reset below).
+  // ⚠️ SALVAGE BAY ONLY (E-CREW 0.14.0 Task 10 review). Until then Logistics > Ship Equipment shared this
+  // id, so a tile selected in the bay popped Ship Equipment's popup open (and took focus) the next time
+  // Logistics opened. Ship Equipment now has selectedShipSpareId, Away-Team Gear selectedGearId.
   let selectedSystemId: string | null = null;
+  $: if (!(activeTab === "facilities" && facilitiesView === "console" && activeFoundryFacility === "salvageBay")) {
+    selectedSystemId = null;
+  }
 
   // The spare pool, guarded like ShipSystemsPanel's render-boundary `?? []` (a
   // partially-migrated state should degrade to an empty bay, not white-screen).
@@ -5660,13 +5674,21 @@
     { key: "member", title: "Away-Team Gear", unit: "piece", groups: bayMemberGroups },
   ];
 
-  // The Away-Team Gear tab's open piece (its detail popup: tooltip, Install on..., Favorite / Lock,
-  // Salvage). Its own id rather than selectedSystemId so the Salvage Bay's inline selection is untouched.
+  // The two Logistics spare popups' open pieces, each its OWN id (never the Salvage Bay's
+  // selectedSystemId): Ship Equipment's ship spare and Away-Team Gear's member piece. Each resolves
+  // against the live pool and its own kind, and both clear whenever the Logistics tab or sub-tab changes,
+  // so no popup ever reopens by itself.
+  let selectedShipSpareId: string | null = null;
   let selectedGearId: string | null = null;
+  $: selectedShipSpare =
+    selectedShipSpareId !== null
+      ? baySpareSystems.find((p) => p.id === selectedShipSpareId && !isMemberSlotType(p.slotType)) ?? null
+      : null;
   $: selectedGear =
     selectedGearId !== null
       ? baySpareSystems.find((p) => p.id === selectedGearId && isMemberSlotType(p.slotType)) ?? null
       : null;
+  $: activeTab, activeLogisticsTab, ((selectedShipSpareId = null), (selectedGearId = null));
 
   // The resolved selected piece (or null). Reactive on the pool, so if the
   // selected piece is salvaged the tooltip auto-hides even without an explicit
@@ -5682,11 +5704,9 @@
   // is SALVAGED (returns components). Drives the button label + helper text below.
   $: selectedIsBaseline = selectedSystem !== null && selectedSystem.blueprintKey === null;
 
-  // Toggle a tile's selection (clicking the open tile closes it), matching the
-  // slot-select toggle idiom ShipSystemsPanel uses. Shared by BOTH spare-bay surfaces since
-  // the 0.13.6 Favorite/Lock split: the Salvage Bay (whose selected panel hosts Salvage + the
-  // Favorite/Lock toggles) and Logistics > Ship Equipment (whose selected panel hosts the
-  // Favorite/Lock toggles). Both render the selected card INLINE below the grid.
+  // Toggle the Salvage Bay's tile selection (clicking the open tile closes it), matching the
+  // slot-select toggle idiom ShipSystemsPanel uses. Salvage Bay only (Ship Equipment's tiles set
+  // selectedShipSpareId, see above).
   function selectSystemTile(instanceId: string) {
     selectedSystemId = selectedSystemId === instanceId ? null : instanceId;
   }
@@ -6588,12 +6608,14 @@
 
   function cancelSalvageConfirm() {
     salvageConfirm = null;
+    void restoreLogisticsFocus();
   }
   // Confirm: dispatch to the matching existing handler by `kind`, then clear. Snapshot the
   // pending target FIRST so clearing it can't race the dispatch.
   function confirmSalvage() {
     const pending = salvageConfirm;
     salvageConfirm = null;
+    void restoreLogisticsFocus();
     if (pending === null) return;
     if (pending.kind === "ship") doSalvageShip(pending.id);
     else doQueueSalvage(pending.kind, pending.id, pending.units);
@@ -8029,6 +8051,7 @@
   }
   function closeQueueFullNotice() {
     queueFullNotice = null;
+    void restoreLogisticsFocus();
   }
 
   // How a single enqueue control should behave, from one refusal reason.
@@ -13547,9 +13570,12 @@
                              See the stale-derivation trap note on systemSalvageState. -->
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
                         {@const memberIc = memberSlotIcon(piece.slotType)}
+                        <!-- The ship tiles' title convention ("Standard-Issue baseline" / "radiant · Q5"),
+                             led by a member piece's variety name ("Ballistic Weave · Standard-Issue baseline"). -->
+                        {@const shipTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
                         {@const baseTitle = memberIc !== null
-                          ? `${memberPieceName(piece)} · ${memberGradeText(piece)}`
-                          : isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                          ? `${memberPieceName(piece).replace(/^Standard-Issue /, "")} · ${shipTitle}`
+                          : shipTitle}
                         <button
                           type="button"
                           class="systems-tile"
@@ -15036,14 +15062,14 @@
                         type="button"
                         class="systems-tile"
                         class:baseline={isBaseline}
-                        class:selected={selectedSystemId === piece.id}
+                        class:selected={selectedShipSpareId === piece.id}
                         style="--sys-rc: {equipmentRarityColor(piece.rarity)};"
                         title={piece.locked === true
                           ? `${baseTitle} · locked, safe from salvage`
                           : piece.favorite === true
                             ? `${baseTitle} · favorited`
                             : baseTitle}
-                        on:click={() => selectSystemTile(piece.id)}
+                        on:click={() => (selectedShipSpareId = selectedShipSpareId === piece.id ? null : piece.id)}
                       >
                         <span class="systems-tile-dot"></span>
                         <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
@@ -15073,17 +15099,16 @@
                    commit until unlocked.
                Both shown for every spare (a Standard-Issue baseline included), each with a text
                label so neither is an icon-only control. -->
-          <!-- Ship pieces only: selectedSystem is shared with the Salvage Bay, whose tiles include member
-               gear, so a member piece selected there never opens this ship popup. -->
-          {#if selectedSystem && !isMemberSlotType(selectedSystem.slotType)}
-            {@const sys = selectedSystem}
+          <!-- This tab's OWN selection (selectedShipSpareId, ship pieces only), never the Salvage Bay's. -->
+          {#if selectedShipSpare}
+            {@const sys = selectedShipSpare}
             <!-- SELECTED SPARE as a POPUP (user 2026-09-18): tapping a tile opens a modal with the
                  item detail and its controls. E-CREW 0.14.0: the body is the shared spareGearPopupBody
                  (Install on..., Favorite, Lock, Salvage / Destroy), the same one Away-Team Gear renders. -->
-            <ActionModal title={systemSalvageName(sys)} ariaLabel={`${systemSalvageName(sys)} options`} onClose={() => (selectedSystemId = null)}>
-              {@render spareGearPopupBody(sys, () => (selectedSystemId = null))}
+            <ActionModal title={systemSalvageName(sys)} ariaLabel={`${systemSalvageName(sys)} options`} onClose={() => (selectedShipSpareId = null)}>
+              {@render spareGearPopupBody(sys, () => (selectedShipSpareId = null))}
               <svelte:fragment slot="footer">
-                <button class="dev-btn" on:click={() => (selectedSystemId = null)}>Cancel</button>
+                <button class="dev-btn" on:click={() => (selectedShipSpareId = null)}>Cancel</button>
               </svelte:fragment>
             </ActionModal>
           {/if}
@@ -15204,7 +15229,9 @@
             onInstallShip={(shipId) => installFromPicker("ship", shipId)}
             onInstallMember={(memberId, replacingId) => installFromPicker("member", memberId, replacingId)}
             onClose={closeInstallOn}
-          />
+          >
+            <button slot="footer" class="dev-btn" on:click={closeInstallOn}>Cancel</button>
+          </InstallOnPicker>
         {/if}
 
         {#if activeLogisticsTab === "craftedBlanks"}
