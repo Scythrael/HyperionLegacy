@@ -5,23 +5,20 @@
 //
 // Ship gear lists only ships and member gear only members, by construction (installTargetsFor). A target
 // the gate refuses stays listed, disabled, with its reason. A member at the implant cap also lists one
-// "Replace <implant>" choice per worn implant (the targeted swap), each with its own gate. Usable targets
+// "Replace <implant>" choice per worn implant (the targeted swap), each with its own gate. A UNIQUE piece
+// (Task 11, Neural Backup) refused because a copy is worn names that wearer ("Installed on Kira Vale
+// (Aurora)") instead of the generic line, and the wearer's own row offers the one swap the gate allows:
+// trading the copy they wear for this one. Usable targets
 // come first (a stable sort keeps fleet / roster order within each band). The list is a SNAPSHOT: the click
 // re-runs the real gate in the host's handlers, so a stale target is refused there, never half-applied.
 
 import type { EquipmentInstance, GameState } from "./game/model";
 import { SHIP_TYPES, isMemberSlotType, shipDisplayLabels } from "./game/model";
 import type { EquipFitBlockReason } from "./game/equipment";
-import {
-  canFitToMember,
-  installTargetsFor,
-  memberFitBlockText,
-  memberPieceInSlot,
-  memberSlotPieces,
-} from "./game/memberEquipment";
+import { canFitToMember, installTargetsFor, memberPieceInSlot, memberSlotPieces, uniqueWearer } from "./game/memberEquipment";
 import { CREW_RANKS } from "./game/crewRank";
 import { SQUAD_META, awayTargetLabel } from "./awayTeamDisplay";
-import { memberPieceName } from "./awayGearDisplay";
+import { memberFitReasonText, memberPieceName } from "./awayGearDisplay";
 
 // One "Replace <implant>" choice under a member whose implant slots are full.
 export interface InstallOnReplace {
@@ -54,7 +51,8 @@ function usable(r: InstallOnRow): number {
 }
 
 // The picker's rows for one piece. `shipReasonText` renders a ship gate refusal (the host owns that
-// wording, App.svelte devFitReasonText); member refusals use memberFitBlockText. Pure.
+// wording, App.svelte devFitReasonText); member refusals use memberFitReasonText (memberFitBlockText, or the
+// wearer for a unique refusal). Pure.
 export function buildInstallOnRows(
   s: GameState,
   pieceId: string,
@@ -87,13 +85,25 @@ export function buildInstallOnRows(
       m && piece && isMemberSlotType(piece.slotType) && piece.slotType !== "implant"
         ? memberPieceInSlot(s, m.id, piece.slotType)
         : null;
-    const replace: InstallOnReplace[] =
-      !t.ok && t.reason === "implantSlotsFull" && m
-        ? memberSlotPieces(s, m.id, "implant").map((imp) => {
-            const g = canFitToMember(s, m.id, pieceId, imp.id);
-            return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitBlockText(g.reason) };
-          })
-        : [];
+    // The worn implants a targeted swap could send back: every one at the cap, or, for the member who
+    // already wears a copy of this unique piece, just that copy (swapping anything else would still leave
+    // two worn, so the gate would refuse it).
+    let swappable: EquipmentInstance[] = [];
+    if (!t.ok && m) {
+      if (t.reason === "implantSlotsFull") {
+        swappable = memberSlotPieces(s, m.id, "implant");
+      } else if (t.reason === "uniqueEquippedElsewhere" && piece?.moduleVariant !== undefined) {
+        const worn = uniqueWearer(s, piece.moduleVariant);
+        const wornPiece = worn !== null && worn.memberId === m.id ? s.equipment.find((e) => e.id === worn.pieceId) : undefined;
+        if (wornPiece !== undefined && wornPiece.slotType === piece.slotType) swappable = [wornPiece];
+      }
+    }
+    const replace: InstallOnReplace[] = m
+      ? swappable.map((imp) => {
+          const g = canFitToMember(s, m.id, pieceId, imp.id);
+          return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitReasonText(s, pieceId, g.reason) };
+        })
+      : [];
     return {
       key: `member:${t.memberId}`,
       kind: "member",
@@ -101,7 +111,7 @@ export function buildInstallOnRows(
       label: m ? m.name : t.memberId,
       sub: m ? `${CREW_RANKS[m.rank].label} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
       ok: t.ok,
-      reason: t.ok || t.reason === undefined ? "" : memberFitBlockText(t.reason),
+      reason: t.ok || t.reason === undefined ? "" : memberFitReasonText(s, pieceId, t.reason),
       replace,
     };
   });

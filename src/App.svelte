@@ -437,10 +437,13 @@
     GEAR_CATEGORY_ORDER,
     blueprintGearCategory,
     groupMemberSpares,
+    isUniqueEquippedPiece,
+    memberFitReasonText,
     memberGradeText,
     memberPieceName,
     memberSlotIcon,
     memberWearersText,
+    uniqueWearerLabel,
     type GearCategory,
   } from "./lib/awayGearDisplay";
   import { CREW_RANKS } from "./lib/game/crewRank";
@@ -5209,7 +5212,7 @@
     const who = member?.name ?? memberId;
     const gate = canFitToMember(state, memberId, pieceId, replacingInstanceId);
     if (!gate.ok) {
-      pushLog(`Cannot install on ${who}: ${memberFitBlockText(gate.reason)}.`);
+      pushLog(`Cannot install on ${who}: ${memberFitReasonText(state, pieceId, gate.reason)}.`);
       return;
     }
     const piece = state.equipment.find((e) => e.id === pieceId);
@@ -10346,6 +10349,13 @@
   {#if p.blueprintKey === null}
     <span class="systems-salvage-none spare-pop-why">Standard-Issue gear can be destroyed to declutter; it takes no Systems Bay space and yields no components.</span>
   {/if}
+  <!-- Task 11: a unique-equipped piece says so, and names who wears the fleet's one copy when it is not this. -->
+  {#if isUniqueEquippedPiece(p)}
+    {@const wearer = uniqueWearerLabel(state, p)}
+    <span class="systems-salvage-none spare-pop-why spare-pop-uniq">
+      {`Unique: only one can be installed in the whole fleet.${wearer !== null ? ` Another is installed on ${wearer}.` : ""}`}
+    </span>
+  {/if}
 {/snippet}
 
 <!-- ================= THE ORDER QUEUE PANEL (Crafting 0.13.3) =================
@@ -15174,17 +15184,22 @@
                            queued / running in the Salvage Bay (a reserved piece cannot install). -->
                       {@const rowSalvage = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
                       {@const rowBusy = piece.locked === true || rowSalvage !== "free"}
+                      <!-- Task 11: a unique-equipped piece (Neural Backup, one worn in the whole fleet) carries a
+                           "Unique" tag, and names who wears the fleet's copy when another one is worn. -->
+                      {@const uniq = isUniqueEquippedPiece(piece)}
+                      {@const wearer = uniq ? uniqueWearerLabel(state, piece) : null}
                       <div class="awg-row" style="--sys-rc: {equipmentRarityColor(piece.rarity)};">
                         <button
                           type="button"
                           class="awg-main"
-                          aria-label={`${name}, ${grade}, item level ${piece.iLevel}. Details`}
+                          aria-label={`${name}${uniq ? ", unique" : ""}, ${grade}, item level ${piece.iLevel}.${wearer !== null ? ` Another is installed on ${wearer}.` : ""} Details`}
                           on:click={() => (selectedGearId = piece.id)}
                         >
                           <span class="awg-ic"><Icon name={group.icon} /></span>
                           <span class="awg-text">
-                            <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}</span>
+                            <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}{#if uniq}<span class="awg-tag awg-uniq">Unique</span>{/if}</span>
                             <span class="awg-sub">{grade} · iL {piece.iLevel}{wearers ? ` · ${wearers}` : ""}</span>
+                            {#if wearer !== null}<span class="awg-sub awg-wearer">Another is installed on {wearer}</span>{/if}
                           </span>
                         </button>
                         {#if rowBusy}
@@ -22184,6 +22199,10 @@
     color: var(--color-text-secondary);
   }
   .awg-install { flex: 0 0 auto; white-space: nowrap; }
+  /* Task 11: the "Unique" tag inline after a unique piece's name (the Locked tag's look, at name weight 400),
+     and the line naming who wears the fleet's one copy. */
+  .awg-uniq { display: inline-block; margin-left: 6px; padding: 0 5px; font-weight: 400; vertical-align: middle; }
+  .awg-wearer { color: var(--color-warning); }
   /* The shared spare popup body (spareGearPopupBody, both Logistics popups). */
   .spare-pop-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   /* A refused popup action keeps its label color (so its contrast and its danger / amber hue stay) but

@@ -7,8 +7,9 @@
 // (this repo has no Svelte component test harness). No game rules live here; the install gates are
 // game/memberEquipment.ts and the catalog is game/model.ts.
 
-import type { AwayTeamType, BlueprintDef, EquipmentInstance, EquipmentSlotType, MemberSlotType } from "./game/model";
-import { EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety } from "./game/model";
+import type { AwayTeamType, BlueprintDef, EquipmentInstance, EquipmentSlotType, GameState, MemberSlotType } from "./game/model";
+import { EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety, shipDisplayLabel } from "./game/model";
+import { memberFitBlockText, uniqueWearer, type MemberFitBlockReason } from "./game/memberEquipment";
 import { SQUAD_META } from "./awayTeamDisplay";
 import type { IconName } from "./ui/icons";
 
@@ -178,4 +179,46 @@ export function memberGradeText(
       ? "Standard-Issue"
       : `${piece.rarity.charAt(0).toUpperCase()}${piece.rarity.slice(1)} · Q${piece.quality}`;
   return withILevel ? `${grade} · iL ${piece.iLevel}` : grade;
+}
+
+// ============================================================================
+// Unique-equipped pieces (E-CREW Task 11, D11 Neural Backup)
+// ============================================================================
+// A unique-equipped variety may be WORN by only one member in the whole fleet (spare copies may sit in
+// storage). The install gate refuses a second with uniqueEquippedElsewhere; these helpers let every surface
+// say WHO wears it instead of the generic line, and mark such a piece with a "Unique" tag.
+
+// Is this a member piece of a unique-equipped variety? A ship piece or an unresolved variety reads false. Pure.
+export function isUniqueEquippedPiece(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">): boolean {
+  return memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.uniqueEquipped === true;
+}
+
+// For a unique piece, who wears ANOTHER copy right now: "Kira Vale (Aurora)" (the ship's display label, the
+// same "#2" disambiguation the roster uses), or "Kira Vale (Security, unassigned)" for a benched member.
+// null when the piece is not unique, nobody wears a copy, the worn copy IS this piece, or the wearer is no
+// longer on the roster (callers then fall back to the generic text). Pure.
+export function uniqueWearerLabel(
+  state: GameState,
+  piece: Pick<EquipmentInstance, "id" | "slotType" | "moduleVariant">
+): string | null {
+  if (!isUniqueEquippedPiece(piece)) return null;
+  const worn = uniqueWearer(state, piece.moduleVariant ?? "");
+  if (worn === null || worn.pieceId === piece.id) return null;
+  const member = state.awayMembers.find((m) => m.id === worn.memberId);
+  if (!member) return null;
+  const ship = member.assignedShipId !== null ? state.ships.find((x) => x.id === member.assignedShipId) : undefined;
+  const where = ship ? shipDisplayLabel(state, ship) : `${SQUAD_META[member.teamType].short}, unassigned`;
+  return `${member.name} (${where})`;
+}
+
+// The player-facing reason a member install of `pieceId` is refused: "Installed on Kira Vale (Aurora)" for a
+// unique refusal whose wearer resolves, else memberFitBlockText (the fallback for every other reason, and
+// for a unique refusal whose wearer cannot be named). Pure.
+export function memberFitReasonText(state: GameState, pieceId: string, reason: MemberFitBlockReason): string {
+  if (reason === "uniqueEquippedElsewhere") {
+    const piece = state.equipment.find((e) => e.id === pieceId);
+    const who = piece ? uniqueWearerLabel(state, piece) : null;
+    if (who !== null) return `Installed on ${who}`;
+  }
+  return memberFitBlockText(reason);
 }

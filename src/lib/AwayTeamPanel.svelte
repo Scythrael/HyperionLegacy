@@ -54,7 +54,9 @@
     MEMBER_GEAR_CELLS,
     MEMBER_SLOT_META,
     fmtGearStat,
+    isUniqueEquippedPiece,
     memberCompareRows,
+    memberFitReasonText,
     memberGradeText,
     memberPieceName,
   } from "./awayGearDisplay";
@@ -301,7 +303,9 @@
     installed: EquipmentInstance | null;
     replacingId: string | undefined; // passed to the gate + install: the named implant on an implant swap
     uninstall: MemberFitGate | null; // null when nothing is installed
-    spares: { piece: EquipmentInstance; gate: MemberFitGate }[];
+    // why: the refusal as player text ("" when ok); for a unique piece another member wears (Task 11) it
+    // names that wearer, which `wearer` also carries for the row's visible line (null otherwise).
+    spares: { piece: EquipmentInstance; gate: MemberFitGate; why: string; wearer: string | null }[];
   }
   // Everything the open flow shows, re-derived from state (so a tick, a salvage or an install elsewhere
   // can never leave it stale). Spares: free pieces of this slot THIS member's squad may wear (other
@@ -322,7 +326,12 @@
     const spares = s.equipment
       .filter((p) => isSparePiece(p) && p.slotType === slot && pieceWearableBy(p, member.teamType))
       .sort((a, b) => Number(b.favorite === true) - Number(a.favorite === true) || b.iLevel - a.iLevel)
-      .map((piece) => ({ piece, gate: canFitToMember(s, member.id, piece.id, replacingId) }));
+      .map((piece) => {
+        const gate = canFitToMember(s, member.id, piece.id, replacingId);
+        const why = gate.ok ? "" : memberFitReasonText(s, piece.id, gate.reason);
+        const wearer = !gate.ok && gate.reason === "uniqueEquippedElsewhere" ? why : null;
+        return { piece, gate, why, wearer };
+      });
     return {
       member,
       slot,
@@ -514,7 +523,7 @@
                     type="button"
                     class="imp worn"
                     style="--gs-rc: {equipmentRarityColor(imp.rarity)};"
-                    aria-label={`Implant: ${memberPieceName(imp)}. Swap or uninstall`}
+                    aria-label={`Implant: ${memberPieceName(imp)}${isUniqueEquippedPiece(imp) ? ", unique" : ""}. Swap or uninstall`}
                     data-gear-member={m.id}
                     data-gear-slot="implant"
                     on:click={() => openGear(m.id, "implant", imp.id)}
@@ -522,7 +531,7 @@
                     on:mouseleave={hideTip}
                     on:focus={(e) => onCellFocus(imp, e.currentTarget)}
                     on:blur={hideTip}
-                  ><Icon name="implant" /> {memberPieceName(imp)}</button>
+                  ><Icon name="implant" /> {memberPieceName(imp)}{#if isUniqueEquippedPiece(imp)}<span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</button>
                 {/each}
                 {#each Array(mv.implantOpen) as _, i (i)}
                   <button
@@ -629,7 +638,7 @@
       <span class="gm-tag">Installed</span>
       {#if f.installed !== null}
         <span class="gm-text">
-          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}</span>
+          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<span class="uniq-tag">Unique</span>{/if}</span>
           <span class="gm-sub">{memberGradeText(f.installed, true)}</span>
         </span>
         <button
@@ -664,14 +673,15 @@
               class:sel={candidateId === sp.piece.id}
               class:blocked={!sp.gate.ok}
               aria-pressed={candidateId === sp.piece.id}
-              aria-label={`${memberPieceName(sp.piece)}: ${memberGradeText(sp.piece, true)}.${sp.gate.ok ? "" : ` Cannot install: ${gateWhy(sp.gate)}.`} Compare.`}
+              aria-label={`${memberPieceName(sp.piece)}${isUniqueEquippedPiece(sp.piece) ? ", unique" : ""}: ${memberGradeText(sp.piece, true)}.${sp.gate.ok ? "" : ` Cannot install: ${sp.why}.`} Compare.`}
               data-spare-id={sp.piece.id}
               on:click={() => pickCandidate(sp.piece.id)}
             >
               <span class="gm-ic" style="color: {equipmentRarityColor(sp.piece.rarity)};"><Icon name={MEMBER_SLOT_META[f.slot].icon} /></span>
               <span class="gm-text">
-                <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}</span>
+                <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}{#if isUniqueEquippedPiece(sp.piece)}<span class="uniq-tag">Unique</span>{/if}</span>
                 <span class="gm-sub">{memberGradeText(sp.piece, true)}</span>
+                {#if sp.wearer !== null}<span class="gm-sub gm-wearer">{sp.wearer}</span>{/if}
               </span>
               {#if !sp.gate.ok}<span class="gm-blocked">Blocked</span>{/if}
             </button>
@@ -680,7 +690,7 @@
 
         <div class="gm-compare">
           {#if candidate !== null}
-            {@const why = gateWhy(candidate.gate)}
+            {@const why = candidate.gate.ok ? undefined : candidate.why}
             <div class="gm-compare-head">
               <button type="button" class="aw-btn gm-back" bind:this={gmBackEl} on:click={backToList} aria-label="Back to the spare list">Back</button>
               <span class="gm-compare-title">Comparison</span>
@@ -1132,6 +1142,23 @@
     flex: none;
     display: inline-flex;
     font-size: var(--text-lg);
+  }
+  /* Task 11: the small "Unique" tag on a unique-equipped piece (Neural Backup: one worn in the whole fleet),
+     the Logistics Locked tag's look (text in a thin accent border), sized to sit inline after a name. */
+  .uniq-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: var(--text-3xs);
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+    color: var(--color-text-secondary);
+  }
+  .gm-wearer {
+    color: var(--color-warning);
   }
   .gm-blocked {
     flex: none;

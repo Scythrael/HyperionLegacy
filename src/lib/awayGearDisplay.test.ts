@@ -2,8 +2,9 @@
 // categories, the member compare rows).
 
 import { describe, it, expect } from "vitest";
-import { BLUEPRINTS, EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES } from "./game/model";
-import type { EquipmentInstance, EquipmentSlotType } from "./game/model";
+import { BLUEPRINTS, EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, freshState, shipDisplayLabel } from "./game/model";
+import type { AwayMember, AwayTeamType, EquipmentInstance, EquipmentSlotType, GameState } from "./game/model";
+import { memberFitBlockText } from "./game/memberEquipment";
 import { ICON_NAMES } from "./ui/icons";
 import {
   MEMBER_SLOT_META,
@@ -18,6 +19,9 @@ import {
   memberCompareRows,
   fmtGearStat,
   memberGradeText,
+  isUniqueEquippedPiece,
+  uniqueWearerLabel,
+  memberFitReasonText,
 } from "./awayGearDisplay";
 
 function piece(
@@ -183,3 +187,89 @@ describe("awayGearDisplay: memberCompareRows", () => {
     expect(memberGradeText({ ...crafted, blueprintKey: null }, true)).toBe("Standard-Issue · iL 40");
   });
 });
+
+// ===== Task 11: who wears the fleet's one unique-equipped piece =====
+
+function crew(id: string, name: string, teamType: AwayTeamType, shipId: string | null): AwayMember {
+  return {
+    id,
+    teamType,
+    spec: teamType === "science" ? "geology" : "offense",
+    name,
+    race: "earthBorn",
+    gender: "female",
+    rank: 1,
+    traits: [],
+    assignedShipId: shipId,
+  };
+}
+
+function uniqueState(equipment: EquipmentInstance[]): GameState {
+  const fs = freshState();
+  return {
+    ...fs,
+    equipment,
+    awayMembers: [crew("m-on", "Kira Vale", "security", fs.ships[0].id), crew("m-off", "Ana Rook", "science", null)],
+  };
+}
+
+describe("awayGearDisplay: isUniqueEquippedPiece", () => {
+  it("is true only for a unique-equipped variety (Neural Backup)", () => {
+    expect(isUniqueEquippedPiece(piece("a", "implant", "neuralBackup"))).toBe(true);
+    expect(isUniqueEquippedPiece(piece("b", "implant", "dermalWeave"))).toBe(false);
+    expect(isUniqueEquippedPiece(piece("c", "implant", undefined))).toBe(false);
+    expect(isUniqueEquippedPiece(piece("d", "cargoBay", "neuralBackup"))).toBe(false);
+  });
+});
+
+describe("awayGearDisplay: uniqueWearerLabel", () => {
+  it("names the member wearing ANOTHER copy and their ship", () => {
+    const s = uniqueState([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-on" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(uniqueWearerLabel(s, byId(s, "nb-2"))).toBe(`Kira Vale (${shipDisplayLabel(s, s.ships[0])})`);
+  });
+
+  it("says squad and unassigned for a benched wearer", () => {
+    const s = uniqueState([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-off" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(uniqueWearerLabel(s, byId(s, "nb-2"))).toBe("Ana Rook (Science, unassigned)");
+  });
+
+  it("is null when nobody wears one, for the worn copy itself, for a non-unique piece, or an unknown wearer", () => {
+    const none = uniqueState([piece("nb-1", "implant", "neuralBackup"), piece("nb-2", "implant", "neuralBackup")]);
+    expect(uniqueWearerLabel(none, byId(none, "nb-2"))).toBeNull();
+    const worn = uniqueState([piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-on" })]);
+    expect(uniqueWearerLabel(worn, byId(worn, "nb-1"))).toBeNull();
+    const plain = uniqueState([
+      piece("dw-1", "implant", "dermalWeave", { fittedToMemberId: "m-on" }),
+      piece("dw-2", "implant", "dermalWeave"),
+    ]);
+    expect(uniqueWearerLabel(plain, byId(plain, "dw-2"))).toBeNull();
+    const ghost = uniqueState([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-gone" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(uniqueWearerLabel(ghost, byId(ghost, "nb-2"))).toBeNull();
+  });
+});
+
+describe("awayGearDisplay: memberFitReasonText", () => {
+  it("names the wearer for a unique refusal, and falls back to memberFitBlockText otherwise", () => {
+    const s = uniqueState([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-off" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere")).toBe("Installed on Ana Rook (Science, unassigned)");
+    expect(memberFitReasonText(s, "nb-2", "locked")).toBe(memberFitBlockText("locked"));
+    // No resolvable wearer (unknown piece): the generic unique text.
+    expect(memberFitReasonText(s, "nope", "uniqueEquippedElsewhere")).toBe(memberFitBlockText("uniqueEquippedElsewhere"));
+  });
+});
+
+function byId(s: GameState, id: string): EquipmentInstance {
+  return s.equipment.find((e) => e.id === id)!;
+}

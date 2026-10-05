@@ -45,6 +45,7 @@
 //   memberSlotCapacity                    how many pieces of a member slot one member can wear
 //   pieceWearableBy                       may a squad type wear this piece (its variety's teamTypes)
 //   memberWornIndex                       every member's worn pieces in ONE pass (memberId -> pieces)
+//   uniqueWearer                          who wears a (unique-equipped) variety right now, if anyone
 //   canFitToMember / fitToMember          the install gate + mutator (singleton swap, targeted implant swap)
 //   canUnfitFromMember / unfitFromMember  the uninstall gate + mutator
 //   InstallTarget / installTargetsFor     the item-side install list (S5-151), ships AND members
@@ -228,6 +229,19 @@ export function memberWornIndex(state: GameState): Map<string, EquipmentInstance
   }
   for (const list of out.values()) list.sort(byMintOrder);
   return out;
+}
+
+// Who wears a piece of the member variety `varietyKey` right now: the wearing member and the worn piece, or
+// null when no piece of it is worn (spare copies in storage do not count). Meant for a unique-equipped
+// variety (D11, Neural Backup), which canFitToMember keeps to at most ONE worn in the whole fleet, so "the"
+// wearer is well defined; for an ordinary variety it is simply the first worn piece in pool order. Reads only
+// MEMBER pieces (fittedToMemberId is the authority), so a ship piece never matches. The UI names this member
+// instead of the generic uniqueEquippedElsewhere text. Pure.
+export function uniqueWearer(state: GameState, varietyKey: string): { memberId: string; pieceId: string } | null {
+  const worn = state.equipment.find(
+    (e) => !!e.fittedToMemberId && isMemberSlotType(e.slotType) && e.moduleVariant === varietyKey
+  );
+  return worn ? { memberId: worn.fittedToMemberId as string, pieceId: worn.id } : null;
 }
 
 // Is this member crew-locked right now? A benched member (assignedShipId null) never is. Pure.

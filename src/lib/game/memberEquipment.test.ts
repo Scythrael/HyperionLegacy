@@ -37,10 +37,11 @@ import {
   memberFitBlockText,
   pieceWearableBy,
   memberWornIndex,
+  uniqueWearer,
   type MemberFitBlockReason,
 } from "./memberEquipment";
 import { canFitEquipment } from "./equipment";
-import { fireAwayMember } from "./awayTeam";
+import { fireAwayMember, reassignAwayMember } from "./awayTeam";
 import { salvageEquipment, selectAutoSalvageTargets } from "./salvage";
 
 // ===== fixtures =====
@@ -769,5 +770,96 @@ describe("memberWornIndex", () => {
         expect(worn.find((p) => p.slotType === slot) ?? null).toEqual(memberPieceInSlot(state, m.id, slot));
       }
     }
+  });
+});
+
+// ===== uniqueWearer (Task 11: who wears the fleet's one unique-equipped piece) =====
+
+describe("uniqueWearer", () => {
+  it("is null when no piece of the variety is worn, spare copies included", () => {
+    expect(uniqueWearer(state([]), "neuralBackup")).toBeNull();
+    const s = state([piece("nb-1", "implant", "neuralBackup"), piece("nb-2", "implant", "neuralBackup")]);
+    expect(uniqueWearer(s, "neuralBackup")).toBeNull();
+  });
+
+  it("names the member wearing it and the worn piece, on a ship or on the bench", () => {
+    const onShip = state([
+      piece("nb-1", "implant", "neuralBackup"),
+      piece("nb-2", "implant", "neuralBackup", { fittedToMemberId: "m-mar" }),
+    ]);
+    expect(uniqueWearer(onShip, "neuralBackup")).toEqual({ memberId: "m-mar", pieceId: "nb-2" });
+    const benched = state([piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-bench" })]);
+    expect(uniqueWearer(benched, "neuralBackup")).toEqual({ memberId: "m-bench", pieceId: "nb-1" });
+  });
+
+  it("ignores other varieties, and a ship piece that happens to carry the same variant key", () => {
+    const s = state([
+      piece("imp", "implant", "dermalWeave", { fittedToMemberId: "m-sec" }),
+      piece("odd", "cargoBay", "neuralBackup", { fittedToShipId: "ship-a" }),
+    ]);
+    expect(uniqueWearer(s, "neuralBackup")).toBeNull();
+    expect(uniqueWearer(s, "dermalWeave")).toEqual({ memberId: "m-sec", pieceId: "imp" });
+  });
+
+  it("firing the wearer frees the unique: a second copy then installs on another member", () => {
+    const s = state([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-mar" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(canFitToMember(s, "m-sec", "nb-2")).toEqual({ ok: false, reason: "uniqueEquippedElsewhere" });
+    const fired = fireAwayMember(s, "m-mar");
+    expect(uniqueWearer(fired, "neuralBackup")).toBeNull();
+    expect(canFitToMember(fired, "m-sec", "nb-2")).toEqual({ ok: true });
+    const next = fitToMember(fired, "m-sec", "nb-2");
+    expect(uniqueWearer(next, "neuralBackup")).toEqual({ memberId: "m-sec", pieceId: "nb-2" });
+    // And now the first copy (back in storage) is the one refused.
+    expect(canFitToMember(next, "m-bench", "nb-1")).toEqual({ ok: false, reason: "uniqueEquippedElsewhere" });
+  });
+
+  it("salvage and auto-salvage never take the worn unique piece", () => {
+    const s: GameState = {
+      ...state([
+        piece("nb-worn", "implant", "neuralBackup", { fittedToMemberId: "m-mar", quality: 0 }),
+        piece("nb-spare", "implant", "neuralBackup", { quality: 0 }),
+      ]),
+      salvageConfirmQualities: [],
+      autoSalvage: {
+        enabled: true,
+        qualities: [0, 1, 2, 3, 4, 5],
+        duplicates: false,
+        keepPerVariety: 0,
+        rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+        graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+      },
+    };
+    const manual = salvageEquipment(s, "nb-worn", () => 0.5);
+    expect(manual.ok).toBe(false);
+    expect(manual.next).toBe(s);
+    const ids = selectAutoSalvageTargets(s, 1000).map((t) => (t.kind === "equipment" ? t.instanceId : t.kind));
+    expect(ids).not.toContain("nb-worn");
+    expect(uniqueWearer(s, "neuralBackup")).toEqual({ memberId: "m-mar", pieceId: "nb-worn" });
+  });
+
+  it("a wearer moved to another ship (or the bench) keeps it, and it still blocks everyone else", () => {
+    const s = state([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-mar" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    for (const dest of ["ship-a", null] as const) {
+      const moved = reassignAwayMember(s, "m-mar", dest);
+      expect(moved.awayMembers.find((m) => m.id === "m-mar")!.assignedShipId).toBe(dest);
+      expect(byId(moved, "nb-1").fittedToMemberId).toBe("m-mar");
+      expect(uniqueWearer(moved, "neuralBackup")).toEqual({ memberId: "m-mar", pieceId: "nb-1" });
+      for (const other of ["m-sec", "m-bench"]) {
+        expect(canFitToMember(moved, other, "nb-2")).toEqual({ ok: false, reason: "uniqueEquippedElsewhere" });
+      }
+    }
+  });
+
+  it("never mutates its input", () => {
+    const s = state([piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-mar" })]);
+    const snapshot = structuredClone(s);
+    uniqueWearer(s, "neuralBackup");
+    expect(s).toEqual(snapshot);
   });
 });

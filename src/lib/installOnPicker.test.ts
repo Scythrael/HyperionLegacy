@@ -1,7 +1,7 @@
 // E-CREW Task 10 review: the item-side "Install on..." picker's row model (installOnPicker.ts).
 
 import { describe, it, expect } from "vitest";
-import { SHIP_TYPES, freshState } from "./game/model";
+import { SHIP_TYPES, freshState, shipDisplayLabel } from "./game/model";
 import type { AwayMember, AwayTeamType, CrewRace, EquipmentInstance, EquipmentSlotType, GameState } from "./game/model";
 import { buildInstallOnRows, sentenceCase } from "./installOnPicker";
 
@@ -122,5 +122,47 @@ describe("buildInstallOnRows", () => {
     expect(rows[0].reason).toBe("Ship refused: locked");
     expect(buildInstallOnRows(fs, "nope", shipReason)).toEqual([]);
     expect(sentenceCase("abc")).toBe("Abc");
+  });
+
+  it("names who wears a unique piece instead of the generic unique line (ship or bench)", () => {
+    const fs = freshState();
+    const ship = fs.ships[0];
+    const wornOnShip = state(
+      [piece("equip-1", "implant", "neuralBackup", { fittedToMemberId: "m1" }), piece("equip-2", "implant", "neuralBackup")],
+      [member("m1", "security", "earthBorn", ship.id), member("m2", "security"), member("m3", "science")]
+    );
+    const rows = buildInstallOnRows(wornOnShip, "equip-2", shipReason);
+    const m2 = rows.find((r) => r.targetId === "m2")!;
+    expect(m2.ok).toBe(false);
+    expect(m2.reason).toBe(`Installed on Member m1 (${shipDisplayLabel(wornOnShip, ship)})`);
+    expect(m2.replace).toEqual([]);
+    // Another refusal keeps its own text (Neural Backup is wearable by every squad, so use a locked spare).
+    const lockedRows = buildInstallOnRows(
+      state([piece("equip-3", "implant", "neuralBackup", { locked: true })], [member("m2", "security")]),
+      "equip-3",
+      shipReason
+    );
+    expect(lockedRows[0].reason).toBe("Locked (unlock it first)");
+
+    const benched = state(
+      [piece("equip-1", "implant", "neuralBackup", { fittedToMemberId: "m1" }), piece("equip-2", "implant", "neuralBackup")],
+      [member("m1", "security"), member("m2", "security")]
+    );
+    const b2 = buildInstallOnRows(benched, "equip-2", shipReason).find((r) => r.targetId === "m2")!;
+    expect(b2.reason).toBe("Installed on Member m1 (Security, unassigned)");
+  });
+
+  it("offers the wearer a Swap for the copy they wear (the one allowed unique replace)", () => {
+    const s = state(
+      [piece("equip-1", "implant", "neuralBackup", { fittedToMemberId: "m1" }), piece("equip-2", "implant", "neuralBackup")],
+      [member("m2", "security"), member("m1", "security")]
+    );
+    const rows = buildInstallOnRows(s, "equip-2", shipReason);
+    const m1 = rows.find((r) => r.targetId === "m1")!;
+    expect(m1.ok).toBe(false);
+    expect(m1.reason).toBe("Installed on Member m1 (Security, unassigned)");
+    expect(m1.replace.map((r) => [r.id, r.name, r.ok])).toEqual([["equip-1", "Neural Backup", true]]);
+    // Usable (it has an installable swap), so it sorts above the blocked m2.
+    expect(rows.map((r) => r.targetId)).toEqual(["m1", "m2"]);
   });
 });
