@@ -10280,6 +10280,81 @@
   {/if}
 {/snippet}
 
+<!-- ================= THE SPARE GEAR POPUP BODY (E-CREW 0.14.0, user 2026-10-05) =================
+     ONE body for both Logistics spare popups (Ship Equipment and Away-Team Gear; user decision
+     "Salvage in both popups"), so the two tabs cannot drift: the item tooltip, then Install on...,
+     Favorite, Lock and Salvage / Destroy, then the persistent reason line.
+
+     SALVAGE QUEUES, never destroys on the spot: it goes through requestSalvage, the SAME path the
+     Salvage Bay's own button takes, so the per-quality confirm rules, the queue depth (a full queue
+     opens the queue-full notice instead) and the engine's Lock / committed / reserved guards all apply
+     unchanged. A Standard-Issue piece reads "Destroy" with the Salvage Bay's no-components line. The
+     disabled states mirror the bay's: locked, already queued or running, or a queue refusal other
+     than full. The popup closes first so the confirm (or queue-full) dialog never stacks on it.
+
+     Params:
+       p      the spare piece (an isSparePiece member of baySpareSystems).
+       close  closes the host popup (clears that tab's selection). -->
+{#snippet spareGearPopupBody(p: EquipmentInstance, close: () => void)}
+  {@const pName = systemSalvageName(p)}
+  {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, p.id)}
+  {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
+  {@const queueCtl = enqueueControlFor(queueBlocked)}
+  {@const busy = p.locked === true || salvageState !== "free"}
+  <EquipmentTooltip piece={p} />
+  <div class="awg-acts">
+    <button
+      class="buy-btn"
+      disabled={busy}
+      aria-describedby={busy ? "spare-popup-why" : undefined}
+      on:click={() => {
+        const id = p.id;
+        close();
+        openInstallOn(id);
+      }}
+    >Install on…</button>
+    <button
+      class="buy-btn systems-fav-btn"
+      class:systems-fav-btn-on={p.favorite === true}
+      on:click={() => doToggleEquipmentFavorite(p.id, p.favorite !== true)}
+      aria-pressed={p.favorite === true}
+    >{p.favorite === true ? "★ Favorited" : "☆ Favorite"}</button>
+    <button
+      class="buy-btn systems-fav-btn"
+      class:systems-fav-btn-on={p.locked === true}
+      on:click={() => doToggleEquipmentLock(p.id, p.locked !== true)}
+      aria-pressed={p.locked === true}
+    >{p.locked === true ? "Locked" : "Lock"}</button>
+    <button
+      class="buy-btn systems-salvage-btn"
+      disabled={busy || (queueBlocked !== null && !queueCtl.queueFullOnly)}
+      aria-describedby={busy || (queueBlocked !== null && !queueCtl.queueFullOnly) ? "spare-popup-why" : undefined}
+      on:click={() => {
+        const id = p.id;
+        close();
+        if (queueCtl.queueFullOnly) openQueueFullNotice("salvageBay");
+        else requestSalvage("system", id, pName);
+      }}
+    >{p.blueprintKey === null ? "Destroy" : "Salvage"}</button>
+  </div>
+  <span class="systems-salvage-none awg-why" id="spare-popup-why">
+    {#if p.locked === true}
+      Locked: safe from auto-salvage, manual salvage, install and loadout commit. Unlock it to install or salvage it.
+    {:else if salvageState === "running"}
+      Being salvaged now in the Salvage Bay.
+    {:else if salvageState === "queued"}
+      Queued for salvage. Remove it from the Salvage Bay queue to keep it.
+    {:else if queueBlocked !== null}
+      {enqueueBlockText(queueBlocked)}
+    {:else}
+      Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage adds it to the Salvage Bay queue.
+    {/if}
+  </span>
+  {#if p.blueprintKey === null}
+    <span class="systems-salvage-none awg-why">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
+  {/if}
+{/snippet}
+
 <!-- ================= THE ORDER QUEUE PANEL (Crafting 0.13.3) =================
      ONE queue panel for every queue-capable CRAFT console. Unit 4.2 wrote this markup
      inline on the Refinery; Unit 4.3 EXTRACTED it here unchanged rather than pasting a
@@ -15046,8 +15121,8 @@
                the grid, replacing the old browse-only floating popover. The floating card was
                action-free (pointer-events none) because this tab hosted nothing to do to a spare;
                now it hosts the two management controls that DON'T belong in the Salvage Bay's
-               salvage flow, so it needs a real, focusable panel. Salvage itself still lives ONLY in
-               the Salvage Bay tab (a spare is broken down there, deliberately). The two toggles:
+               salvage flow, so it needs a real, focusable panel. (E-CREW 0.14.0, user 2026-10-05:
+               it now also queues Salvage / Destroy, see the spareGearPopupBody snippet.) The two toggles:
                  FAVORITE (amber star) sorts the piece to the top of its group. Display only.
                  LOCK (padlock) protects it from auto-salvage, manual salvage, install and loadout
                    commit until unlocked.
@@ -15056,47 +15131,10 @@
           {#if selectedSystem}
             {@const sys = selectedSystem}
             <!-- SELECTED SPARE as a POPUP (user 2026-09-18): tapping a tile opens a modal with the
-                 item detail + the Favorite / Lock toggles + a Cancel button, instead of an inline
-                 card. Salvage still lives only in the Salvage Bay. -->
+                 item detail and its controls. E-CREW 0.14.0: the body is the shared spareGearPopupBody
+                 (Install on..., Favorite, Lock, Salvage / Destroy), the same one Away-Team Gear renders. -->
             <ActionModal title={systemSalvageName(sys)} ariaLabel="Spare system options" onClose={() => (selectedSystemId = null)}>
-              <EquipmentTooltip piece={sys} />
-              <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
-                <!-- E-CREW 0.14.0 (Task 10, S5-151): install from the ITEM side. Every piece in this bay is
-                     a spare, so the button is always offered here; it opens the ship picker (this popup
-                     closes first so two dialogs never stack). A locked piece cannot be installed, so the
-                     button is disabled and the lock note below says why. -->
-                <button
-                  class="buy-btn"
-                  disabled={sys.locked === true}
-                  aria-describedby={sys.locked === true ? "sys-install-why" : undefined}
-                  on:click={() => {
-                    const id = sys.id;
-                    selectedSystemId = null;
-                    openInstallOn(id);
-                  }}
-                >
-                  Install on…
-                </button>
-                <button
-                  class="buy-btn systems-fav-btn"
-                  class:systems-fav-btn-on={sys.favorite === true}
-                  on:click={() => doToggleEquipmentFavorite(sys.id, sys.favorite !== true)}
-                  aria-pressed={sys.favorite === true}
-                >
-                  {sys.favorite === true ? "★ Favorited" : "☆ Favorite"}
-                </button>
-                <button
-                  class="buy-btn systems-fav-btn"
-                  class:systems-fav-btn-on={sys.locked === true}
-                  on:click={() => doToggleEquipmentLock(sys.id, sys.locked !== true)}
-                  aria-pressed={sys.locked === true}
-                >
-                  {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
-                </button>
-              </div>
-              <span class="systems-salvage-none" id="sys-install-why" style="display:block; margin-top:8px;">
-                {#if sys.locked === true}Locked: safe from auto-salvage, manual salvage, install and loadout commit. Break it down in the Salvage Bay after unlocking.{:else}Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage lives in the Salvage Bay.{/if}
-              </span>
+              {@render spareGearPopupBody(sys, () => (selectedSystemId = null))}
               <svelte:fragment slot="footer">
                 <button class="dev-btn" on:click={() => (selectedSystemId = null)}>Cancel</button>
               </svelte:fragment>
@@ -15213,69 +15251,12 @@
             {/if}
           </Panel>
 
-          <!-- The piece popup: the item tooltip + Install on... + Favorite / Lock + Salvage (approved mockup
-               section 6 lists Lock, Favorite, Salvage and Install on... for each spare). Salvage QUEUES the
-               same Salvage Bay job the bay's own button does (requestSalvage: the shared confirm dialog,
-               the lock and queue gates), so a piece can be broken down from where it is found. -->
+          <!-- The piece popup (approved mockup section 6 lists Lock, Favorite, Salvage and Install on...
+               for each spare): the shared spareGearPopupBody, the same body Ship Equipment's popup renders. -->
           {#if selectedGear}
             {@const g = selectedGear}
-            {@const gName = memberPieceName(g)}
-            {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, g.id)}
-            {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
-            {@const queueCtl = enqueueControlFor(queueBlocked)}
-            <ActionModal title={gName} ariaLabel="Away-team gear options" onClose={() => (selectedGearId = null)}>
-              <EquipmentTooltip piece={g} />
-              <div class="awg-acts">
-                <button
-                  class="buy-btn"
-                  disabled={g.locked === true || salvageState !== "free"}
-                  aria-describedby={g.locked === true || salvageState !== "free" ? "awg-gear-why" : undefined}
-                  on:click={() => {
-                    const id = g.id;
-                    selectedGearId = null;
-                    openInstallOn(id);
-                  }}
-                >Install on…</button>
-                <button
-                  class="buy-btn systems-fav-btn"
-                  class:systems-fav-btn-on={g.favorite === true}
-                  on:click={() => doToggleEquipmentFavorite(g.id, g.favorite !== true)}
-                  aria-pressed={g.favorite === true}
-                >{g.favorite === true ? "★ Favorited" : "☆ Favorite"}</button>
-                <button
-                  class="buy-btn systems-fav-btn"
-                  class:systems-fav-btn-on={g.locked === true}
-                  on:click={() => doToggleEquipmentLock(g.id, g.locked !== true)}
-                  aria-pressed={g.locked === true}
-                >{g.locked === true ? "Locked" : "Lock"}</button>
-                <button
-                  class="buy-btn systems-salvage-btn"
-                  disabled={g.locked === true || salvageState !== "free" || (queueBlocked !== null && !queueCtl.queueFullOnly)}
-                  aria-describedby={g.locked === true || salvageState !== "free" ? "awg-gear-why" : undefined}
-                  on:click={() => {
-                    const id = g.id;
-                    selectedGearId = null;
-                    if (queueCtl.queueFullOnly) openQueueFullNotice("salvageBay");
-                    else requestSalvage("system", id, gName);
-                  }}
-                >{g.blueprintKey === null ? "Destroy" : "Salvage"}</button>
-              </div>
-              <span class="systems-salvage-none awg-why" id="awg-gear-why">
-                {#if g.locked === true}
-                  Locked: safe from auto-salvage, manual salvage and install. Unlock it to install or salvage it.
-                {:else if salvageState === "running"}
-                  Being salvaged now in the Salvage Bay.
-                {:else if salvageState === "queued"}
-                  Queued for salvage. Remove it from the Salvage Bay queue to keep it.
-                {:else if queueBlocked !== null}
-                  {enqueueBlockText(queueBlocked)}
-                {:else}
-                  Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage queues it in the Salvage Bay.
-                {/if}
-              </span>
-              {#if g.blueprintKey === null}
-                <span class="systems-salvage-none awg-why">Standard-Issue gear can be destroyed to clear space, but yields no components. The Quartermaster issues another for free.</span>
-              {/if}
+            <ActionModal title={memberPieceName(g)} ariaLabel="Away-team gear options" onClose={() => (selectedGearId = null)}>
+              {@render spareGearPopupBody(g, () => (selectedGearId = null))}
               <svelte:fragment slot="footer">
                 <button class="dev-btn" on:click={() => (selectedGearId = null)}>Close</button>
               </svelte:fragment>
@@ -22298,6 +22279,9 @@
   }
   .awg-install { flex: 0 0 auto; white-space: nowrap; }
   .awg-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  /* A refused popup action keeps its label color (so its contrast and its danger / amber hue stay) but
+     loses its fill and takes a dashed border, so it reads as unavailable beside the live buttons. */
+  .awg-acts .buy-btn:disabled { background: transparent; border-style: dashed; }
   .awg-why { display: block; margin-top: 8px; }
 
   /* The item-side "Install on..." picker rows (ships or crew members), each with its own button and,
@@ -22320,9 +22304,15 @@
   .iot-why { font-size: var(--text-2xs); color: var(--color-warning); }
   .iot-btn { flex: 0 0 auto; white-space: nowrap; }
   /* .buy-btn only changes the cursor when disabled; these rows sit beside live buttons, so a refused
-     target also dims, matching the away-team cards. */
+     target also reads as disabled. Same treatment as .dev-btn:disabled: a faded fill and border with
+     the AA-safe --color-text-disabled label (never a whole-button opacity, which would drop the label
+     below 4.5:1, the 0.13.5 disabled-contrast fix). */
   .iot-btn:disabled,
-  .awg-install:disabled { opacity: 0.45; }
+  .awg-install:disabled {
+    background: rgba(var(--color-accent-rgb), 0.03);
+    border-color: rgba(var(--color-accent-rgb), 0.15);
+    color: var(--color-text-disabled);
+  }
 
   /* Research list (E-CREW 0.14.0, Task 10): the small "Away-Team Gear" / "Implants" sub-heading inside a
      tier, quieter than the tier's own section header. */
