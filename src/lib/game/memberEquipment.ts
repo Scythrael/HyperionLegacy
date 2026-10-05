@@ -44,12 +44,13 @@
 //   memberEquipment / memberPieceInSlot / memberSlotPieces   queries
 //   memberSlotCapacity                    how many pieces of a member slot one member can wear
 //   pieceWearableBy                       may a squad type wear this piece (its variety's teamTypes)
+//   memberWornIndex                       every member's worn pieces in ONE pass (memberId -> pieces)
 //   canFitToMember / fitToMember          the install gate + mutator (singleton swap, targeted implant swap)
 //   canUnfitFromMember / unfitFromMember  the uninstall gate + mutator
 //   InstallTarget / installTargetsFor     the item-side install list (S5-151), ships AND members
 // ============================================================================
 
-import type { AwayMember, EquipmentInstance, GameState, MemberSlotType } from "./model";
+import type { AwayMember, EquipmentInstance, GameState, MemberSlotType, MemberVarietyDef } from "./model";
 import { isMemberSlotType, isUninstalledPiece, memberVariety, startAutoSalvageGrace } from "./model";
 // Imported from reservation.ts (the type-only leaf), the same way equipment.ts does, never from salvage.ts.
 import { salvageReservedInstanceIds } from "./reservation";
@@ -171,11 +172,14 @@ export function memberPieceInSlot(
 export function memberSlotPieces(state: GameState, memberId: string, slotType: MemberSlotType): EquipmentInstance[] {
   return state.equipment
     .filter((e) => e.fittedToMemberId === memberId && e.slotType === slotType)
-    .sort((a, b) => {
-      const x = mintOrder(a.id);
-      const y = mintOrder(b.id);
-      return x === y ? 0 : x - y; // equal keys (incl. two Infinity) keep pool order
-    });
+    .sort(byMintOrder);
+}
+
+// The mint-order comparator: by "equip-N" number; equal keys (incl. two Infinity) keep pool order. Pure.
+function byMintOrder(a: EquipmentInstance, b: EquipmentInstance): number {
+  const x = mintOrder(a.id);
+  const y = mintOrder(b.id);
+  return x === y ? 0 : x - y;
 }
 
 // The mint number of an "equip-N" id (any trailing integer), or Infinity when there is none. Pure.
@@ -199,7 +203,31 @@ export function pieceWearableBy(
   piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">,
   teamType: AwayMember["teamType"]
 ): boolean {
-  return memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.teamTypes.includes(teamType) ?? false;
+  return varietyWearableBy(memberVariety(piece.slotType, piece.moduleVariant ?? ""), teamType);
+}
+
+// The rule itself, on an already-resolved variety (undefined = unresolved = nobody). A type guard, so the
+// install gate resolves the variety ONCE and keeps using it. Pure.
+function varietyWearableBy(
+  variety: MemberVarietyDef | undefined,
+  teamType: AwayMember["teamType"]
+): variety is MemberVarietyDef {
+  return variety !== undefined && variety.member.teamTypes.includes(teamType);
+}
+
+// Every member's worn pieces in ONE pass over the pool (memberId -> pieces, each list in memberSlotPieces'
+// deterministic mint order), so a roster view reads a member's cells and implants without rescanning
+// state.equipment per member per slot. A member wearing nothing has no entry. Pure (fresh map + arrays).
+export function memberWornIndex(state: GameState): Map<string, EquipmentInstance[]> {
+  const out = new Map<string, EquipmentInstance[]>();
+  for (const e of state.equipment) {
+    if (!e.fittedToMemberId) continue;
+    const list = out.get(e.fittedToMemberId);
+    if (list) list.push(e);
+    else out.set(e.fittedToMemberId, [e]);
+  }
+  for (const list of out.values()) list.sort(byMintOrder);
+  return out;
 }
 
 // Is this member crew-locked right now? A benched member (assignedShipId null) never is. Pure.
@@ -255,10 +283,9 @@ function evaluateFit(
   if (!member) return refuse("noMember");
   if (memberCrewLocked(state, member)) return refuse("onMission");
 
-  // pieceWearableBy is false whenever the variety does not resolve, so past this line it does.
-  if (!pieceWearableBy(piece, member.teamType)) return refuse("wrongTeam");
+  // Resolved ONCE; the shared wearable rule (pieceWearableBy's core) also narrows it to defined.
   const variety = memberVariety(slotType, piece.moduleVariant ?? "");
-  if (variety === undefined) return refuse("wrongTeam"); // unreachable; narrows the type without a cast
+  if (!varietyWearableBy(variety, member.teamType)) return refuse("wrongTeam");
 
   // The piece leaving in the same transition. A named target must be worn by THIS member, in the SAME slot
   // type, and not the incoming piece itself (for a singleton that is exactly its current occupant, since a

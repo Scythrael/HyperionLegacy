@@ -30,6 +30,10 @@
   // the Recruitment Board). Same posture: reads live state, routes Hire / Fire / Move to the do*
   // handlers below (pure awayTeam.ts engine + doSave + pushLog).
   import AwayTeamPanel from "./lib/AwayTeamPanel.svelte";
+  // E-CREW (Task 10 review): the item-side "Install on..." picker, extracted (markup + styles here, the
+  // pure row model in installOnPicker.ts).
+  import InstallOnPicker from "./lib/InstallOnPicker.svelte";
+  import { buildInstallOnRows, type InstallOnRow } from "./lib/installOnPicker";
   // Crew 0.14.0 (phase 4d): the Personnel Rosters facility screen (saved PEOPLE loadouts). Same
   // posture as the two panels above: reads live state, routes every mutation to the do* handlers.
   import PersonnelRostersPanel from "./lib/PersonnelRostersPanel.svelte";
@@ -415,7 +419,7 @@
     canReassignAwayMember,
     awayCrewBlockText,
   } from "./lib/game/awayTeam";
-  import { awayShipName, awayTargetLabel, SQUAD_META } from "./lib/awayTeamDisplay";
+  import { awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
   // E-CREW (Task 10): installing gear on away-team MEMBERS (the member card's install flow routes through
   // doInstallOnMember / doUninstallFromMember) and the item-side "Install on..." picker, which lists SHIPS
   // and MEMBERS from the one installTargetsFor. Plus the shared member-gear labels (awayGearDisplay), so
@@ -427,14 +431,13 @@
     unfitFromMember,
     memberFitBlockText,
     memberPieceInSlot,
-    memberSlotPieces,
-    installTargetsFor,
   } from "./lib/game/memberEquipment";
   import {
     GEAR_CATEGORY_LABEL,
     GEAR_CATEGORY_ORDER,
     blueprintGearCategory,
     groupMemberSpares,
+    memberGradeText,
     memberPieceName,
     memberSlotIcon,
     memberWearersText,
@@ -5240,103 +5243,37 @@
   }
 
   // ── Item-side "Install on..." picker (E-CREW Task 10, inventory S5-151) ─────
-  // Opened from a SPARE row in Logistics (Ship Equipment's piece popup, Away-Team Gear's rows). The target
-  // list comes from installTargetsFor ONCE, at open (its header: every entry runs a full gate, so it is
-  // never called per row in a reactive statement). Ship gear lists only ships and member gear only members,
-  // by construction. A target the gate refuses stays listed, disabled, with its reason. A member at the
-  // implant cap also lists one "Replace <implant>" choice per worn implant (the targeted swap), each with
-  // its own gate. The list is a snapshot: the click re-runs the real gate in the install handlers, so a
-  // target that went stale while the picker was open is refused with a log line, never half-applied.
-  interface InstallOnReplace {
-    id: string;
-    name: string;
-    ok: boolean;
-    reason: string;
-  }
-  interface InstallOnRow {
-    key: string;
-    kind: "ship" | "member";
-    targetId: string;
-    label: string;
-    sub: string;
-    ok: boolean;
-    reason: string;
-    replace: InstallOnReplace[];
-  }
+  // Opened from a SPARE in Logistics (Ship Equipment's piece popup, Away-Team Gear's rows); rendered by
+  // InstallOnPicker.svelte. The rows are built ONCE at open by installOnPicker.ts (buildInstallOnRows runs
+  // installTargetsFor, a full gate per target, so never per row in a reactive statement). The list is a
+  // snapshot: the click re-runs the real gate in the install handlers below, so a target that went stale
+  // while the picker was open is refused with a log line, never half-applied.
   let installOnPieceId: string | null = null;
   let installOnRows: InstallOnRow[] = [];
   $: installOnPiece = installOnPieceId !== null ? state.equipment.find((e) => e.id === installOnPieceId) ?? null : null;
 
-  // Sentence-case a lower-case reason line (the ship gate's devFitReasonText reads lower case).
-  function sentenceCase(text: string): string {
-    return text.charAt(0).toUpperCase() + text.slice(1);
-  }
-
-  function buildInstallOnRows(s: GameState, pieceId: string): InstallOnRow[] {
-    const labels = shipDisplayLabels(s.ships);
-    const piece = s.equipment.find((e) => e.id === pieceId);
-    const rows: InstallOnRow[] = installTargetsFor(s, pieceId).map((t): InstallOnRow => {
-      if (t.kind === "ship") {
-        const ship = s.ships.find((x) => x.id === t.shipId);
-        const label = labels.get(t.shipId) ?? t.shipId;
-        // The hull class under a custom name; nothing when the label already is the class.
-        const hull = ship ? SHIP_TYPES[ship.typeKey]?.label ?? "" : "";
-        return {
-          key: `ship:${t.shipId}`,
-          kind: "ship",
-          targetId: t.shipId,
-          label,
-          sub: hull !== "" && !label.startsWith(hull) ? hull : "",
-          ok: t.ok,
-          reason: t.ok || t.reason === undefined ? "" : sentenceCase(devFitReasonText(t.reason)),
-          replace: [],
-        };
-      }
-      const m = s.awayMembers.find((x) => x.id === t.memberId);
-      const ship = m && m.assignedShipId !== null ? s.ships.find((x) => x.id === m.assignedShipId) : undefined;
-      const where = m ? (ship ? awayTargetLabel(ship, m.teamType) : `Unassigned · ${SQUAD_META[m.teamType].short}`) : "";
-      // What the slot holds now, so the row says what a singleton install would swap out.
-      const occupant =
-        m && piece && isMemberSlotType(piece.slotType) && piece.slotType !== "implant"
-          ? memberPieceInSlot(s, m.id, piece.slotType)
-          : null;
-      const replace: InstallOnReplace[] =
-        !t.ok && t.reason === "implantSlotsFull" && m
-          ? memberSlotPieces(s, m.id, "implant").map((imp) => {
-              const g = canFitToMember(s, m.id, pieceId, imp.id);
-              return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitBlockText(g.reason) };
-            })
-          : [];
-      return {
-        key: `member:${t.memberId}`,
-        kind: "member",
-        targetId: t.memberId,
-        label: m ? m.name : t.memberId,
-        sub: m ? `${CREW_RANKS[m.rank].label} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
-        ok: t.ok,
-        reason: t.ok || t.reason === undefined ? "" : memberFitBlockText(t.reason),
-        replace,
-      };
-    });
-    // Installable targets first (a stable sort keeps fleet / roster order within each band), so the
-    // likely pick is at the top and the wrong-squad members sit below with their reasons.
-    const usable = (r: InstallOnRow): number => (r.ok || r.replace.some((x) => x.ok) ? 1 : 0);
-    return rows.sort((a, b) => usable(b) - usable(a));
-  }
   function openInstallOn(pieceId: string) {
     installOnPieceId = pieceId;
-    installOnRows = buildInstallOnRows(state, pieceId);
+    installOnRows = buildInstallOnRows(state, pieceId, devFitReasonText);
   }
-  function closeInstallOn() {
+  // Close the picker. Its trigger (a popup's button, or a row that an install just removed) is usually
+  // gone by now, so the dialog's focus restore has nowhere to go: land focus on the active Logistics tab
+  // (a stable control) rather than leaving it on <body>.
+  async function closeInstallOn() {
     installOnPieceId = null;
     installOnRows = [];
+    await svelteTick();
+    const active = document.activeElement;
+    if (active === null || active === document.body || !active.isConnected) {
+      document.querySelector<HTMLElement>(".ctab.active")?.focus();
+    }
   }
-  function installFromPicker(row: InstallOnRow, replacingInstanceId?: string) {
+  function installFromPicker(kind: "ship" | "member", targetId: string, replacingInstanceId?: string) {
     if (installOnPieceId === null) return;
     const pieceId = installOnPieceId;
-    if (row.kind === "ship") installSystem(row.targetId, pieceId);
-    else doInstallOnMember(row.targetId, pieceId, replacingInstanceId);
-    closeInstallOn();
+    if (kind === "ship") installSystem(targetId, pieceId);
+    else doInstallOnMember(targetId, pieceId, replacingInstanceId);
+    void closeInstallOn();
   }
 
   // ── Crew favoriting (Crew 0.14.0 GL) ───────────────────────────────────────
@@ -10280,6 +10217,39 @@
   {/if}
 {/snippet}
 
+<!-- ================= THE SHARED SYSTEMS BAY HEADER (E-CREW 0.14.0, Task 10 review) =================
+     ONE capacity header for Logistics > Ship Equipment AND Away-Team Gear, which share the Systems Bay's
+     spare cap (user decision 2026-10-05; spareEquipmentCount counts crafted spares of both kinds and no
+     Standard-Issue baseline). spare / cap + Upgrade Bay (disabled + reasoned exactly like the warehouse-tier
+     Build buttons, mirroring canUpgradeEquipmentStorage), then a line saying the bay is shared. The reason
+     renders in the persistent systems-bay-upgrade-note (2026-07-24 flicker fix: no hover title).
+     Params:
+       otherTab  the OTHER tab's name, so each tab's header names who it shares with. -->
+{#snippet systemsBayHeader(otherTab: string)}
+  {@const bayCap = equipmentStorageCap(state)}
+  {@const baySpare = spareEquipmentCount(state)}
+  {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
+  <div class="systems-bay-head">
+    <div class="systems-bay-cap">
+      <span class="systems-bay-cap-label">Systems Bay · shared with {otherTab}</span>
+      <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
+    </div>
+    {#if equipmentStorageUpgradeInFlight}
+      <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
+    {:else}
+      <button class="buy-btn systems-bay-upgrade" disabled={!upgradeCheck.ok} on:click={doUpgradeEquipmentBay}>
+        Upgrade Bay
+      </button>
+    {/if}
+  </div>
+  {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
+    <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
+  {/if}
+  <p class="systems-bay-shared-note">
+    Ship systems and away-team gear share one bay: every crafted spare in either tab counts toward the same {bayCap} slots. Standard-Issue pieces take no space.
+  </p>
+{/snippet}
+
 <!-- ================= THE SPARE GEAR POPUP BODY (E-CREW 0.14.0, user 2026-10-05) =================
      ONE body for both Logistics spare popups (Ship Equipment and Away-Team Gear; user decision
      "Salvage in both popups"), so the two tabs cannot drift: the item tooltip, then Install on...,
@@ -10302,7 +10272,7 @@
   {@const queueCtl = enqueueControlFor(queueBlocked)}
   {@const busy = p.locked === true || salvageState !== "free"}
   <EquipmentTooltip piece={p} />
-  <div class="awg-acts">
+  <div class="spare-pop-acts">
     <button
       class="buy-btn"
       disabled={busy}
@@ -10337,7 +10307,7 @@
       }}
     >{p.blueprintKey === null ? "Destroy" : "Salvage"}</button>
   </div>
-  <span class="systems-salvage-none awg-why" id="spare-popup-why">
+  <span class="systems-salvage-none spare-pop-why" id="spare-popup-why">
     {#if p.locked === true}
       Locked: safe from auto-salvage, manual salvage, install and loadout commit. Unlock it to install or salvage it.
     {:else if salvageState === "running"}
@@ -10351,7 +10321,7 @@
     {/if}
   </span>
   {#if p.blueprintKey === null}
-    <span class="systems-salvage-none awg-why">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
+    <span class="systems-salvage-none spare-pop-why">Standard-Issue gear can be destroyed to declutter; it takes no Systems Bay space and yields no components.</span>
   {/if}
 {/snippet}
 
@@ -13577,7 +13547,9 @@
                              See the stale-derivation trap note on systemSalvageState. -->
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
                         {@const memberIc = memberSlotIcon(piece.slotType)}
-                        {@const baseTitle = `${memberIc !== null ? `${memberPieceName(piece)} · ` : ""}${isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}`}
+                        {@const baseTitle = memberIc !== null
+                          ? `${memberPieceName(piece)} · ${memberGradeText(piece)}`
+                          : isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
                         <button
                           type="button"
                           class="systems-tile"
@@ -13631,8 +13603,9 @@
                  modal, which narrates discard-vs-parts on its own). The LABEL differs by
                  piece kind (selectedIsBaseline): a CRAFTED spare shows "Salvage" (returns a
                  fraction of its components); a Standard-Issue baseline shows "Destroy" plus
-                 helper text making clear it clears space but yields nothing. Destroy is the
-                 always-available storage escape valve, so no spare can ever become un-removable. -->
+                 helper text making clear it only declutters (a baseline takes no Systems Bay space)
+                 and yields nothing. Destroy is the always-available declutter, so no spare can ever
+                 become un-removable. -->
             {#if selectedSystem}
               {@const sys = selectedSystem}
               <!-- 0.13.3 Unit 4.4: the button QUEUES the job it used to perform. The label
@@ -13731,7 +13704,7 @@
                     <span class="systems-salvage-none">Locked, so nothing can salvage it. Unlock it to salvage.</span>
                   {/if}
                   {#if selectedIsBaseline}
-                    <span class="systems-salvage-none">Standard-Issue gear can be destroyed to clear space, but yields no components.</span>
+                    <span class="systems-salvage-none">Standard-Issue gear can be destroyed to declutter; it takes no Systems Bay space and yields no components.</span>
                   {/if}
                   <span class="systems-salvage-none">{actionNote}</span>
                   <!-- ⚠️ WHY THIS SPARE IS OFF LIMITS TO THE AUTOMATION, IN WORDS. The engine
@@ -15037,38 +15010,10 @@
                startEquipmentStorageUpgrade / salvageEquipment), and the
                EquipmentTooltip is reused as-is (its only branch change was the df53dd5
                weapon/drone blueprint name resolver). -->
-          {@const bayCap = equipmentStorageCap(state)}
-          {@const baySpare = spareEquipmentCount(state)}
-          {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
           <Panel>
-            <!-- CAPACITY HEADER: spare / cap + the Upgrade Bay button
-                 (disabled + reasoned exactly like the warehouse-tier Build
-                 buttons, mirroring canUpgradeEquipmentStorage). -->
-            <div class="systems-bay-head">
-              <div class="systems-bay-cap">
-                <span class="systems-bay-cap-label">Systems Bay</span>
-                <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
-              </div>
-              <!-- Native `title` removed (2026-07-24 flicker fix): the reason already
-                   renders in the persistent systems-bay-upgrade-note below, a plain
-                   text node that updates in place without flicker, so this button needs
-                   no hover popover (unlike the facility Build buttons, which have no
-                   persistent note and use facilityUpgradeButton). -->
-              {#if equipmentStorageUpgradeInFlight}
-                <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
-              {:else}
-                <button
-                  class="buy-btn systems-bay-upgrade"
-                  disabled={!upgradeCheck.ok}
-                  on:click={doUpgradeEquipmentBay}
-                >
-                  Upgrade Bay
-                </button>
-              {/if}
-            </div>
-            {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
-              <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
-            {/if}
+            <!-- CAPACITY HEADER: the shared systemsBayHeader snippet (E-CREW 0.14.0: the bay is
+                 shared with Away-Team Gear, and this header says so). -->
+            {@render systemsBayHeader("Away-Team Gear")}
 
             {#if baySystemGroups.length === 0}
               <div class="warehouse-stub">
@@ -15128,12 +15073,14 @@
                    commit until unlocked.
                Both shown for every spare (a Standard-Issue baseline included), each with a text
                label so neither is an icon-only control. -->
-          {#if selectedSystem}
+          <!-- Ship pieces only: selectedSystem is shared with the Salvage Bay, whose tiles include member
+               gear, so a member piece selected there never opens this ship popup. -->
+          {#if selectedSystem && !isMemberSlotType(selectedSystem.slotType)}
             {@const sys = selectedSystem}
             <!-- SELECTED SPARE as a POPUP (user 2026-09-18): tapping a tile opens a modal with the
                  item detail and its controls. E-CREW 0.14.0: the body is the shared spareGearPopupBody
                  (Install on..., Favorite, Lock, Salvage / Destroy), the same one Away-Team Gear renders. -->
-            <ActionModal title={systemSalvageName(sys)} ariaLabel="Spare system options" onClose={() => (selectedSystemId = null)}>
+            <ActionModal title={systemSalvageName(sys)} ariaLabel={`${systemSalvageName(sys)} options`} onClose={() => (selectedSystemId = null)}>
               {@render spareGearPopupBody(sys, () => (selectedSystemId = null))}
               <svelte:fragment slot="footer">
                 <button class="dev-btn" on:click={() => (selectedSystemId = null)}>Cancel</button>
@@ -15176,29 +15123,8 @@
                STORAGE IS SHARED (user decision 2026-10-05): member gear counts toward the SAME Systems Bay
                spare cap as ship systems (spareEquipmentCount), so the header shows that one shared number
                and says so, and Upgrade Bay raises it for both tabs. -->
-          {@const bayCap = equipmentStorageCap(state)}
-          {@const baySpare = spareEquipmentCount(state)}
-          {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
           <Panel>
-            <div class="systems-bay-head">
-              <div class="systems-bay-cap">
-                <span class="systems-bay-cap-label">Systems Bay · shared with Ship Equipment</span>
-                <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
-              </div>
-              {#if equipmentStorageUpgradeInFlight}
-                <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
-              {:else}
-                <button class="buy-btn systems-bay-upgrade" disabled={!upgradeCheck.ok} on:click={doUpgradeEquipmentBay}>
-                  Upgrade Bay
-                </button>
-              {/if}
-            </div>
-            {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
-              <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
-            {/if}
-            <p class="awg-shared-note">
-              Away-team gear and ship systems share one bay: every crafted spare in either tab counts toward the same {bayCap} slots. Standard-Issue pieces take no space.
-            </p>
+            {@render systemsBayHeader("Ship Equipment")}
 
             {#if bayMemberGroups.length === 0}
               <div class="warehouse-stub">
@@ -15216,9 +15142,13 @@
                   <div class="awg-list">
                     {#each group.pieces as piece (piece.id)}
                       {@const name = memberPieceName(piece)}
-                      {@const grade = piece.blueprintKey === null ? "Standard-Issue" : `${piece.rarity.charAt(0).toUpperCase()}${piece.rarity.slice(1)} · Q${piece.quality}`}
+                      {@const grade = memberGradeText(piece)}
                       {@const wearers = memberWearersText(piece)}
                       {@const lockId = `awg-lock-${piece.id}`}
+                      <!-- The SAME busy condition the popup's Install on... uses: locked, or already
+                           queued / running in the Salvage Bay (a reserved piece cannot install). -->
+                      {@const rowSalvage = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
+                      {@const rowBusy = piece.locked === true || rowSalvage !== "free"}
                       <div class="awg-row" style="--sys-rc: {equipmentRarityColor(piece.rarity)};">
                         <button
                           type="button"
@@ -15232,14 +15162,14 @@
                             <span class="awg-sub">{grade} · iL {piece.iLevel}{wearers ? ` · ${wearers}` : ""}</span>
                           </span>
                         </button>
-                        {#if piece.locked === true}
-                          <span class="awg-tag" id={lockId}>Locked</span>
+                        {#if rowBusy}
+                          <span class="awg-tag" id={lockId}>{piece.locked === true ? "Locked" : rowSalvage === "running" ? "Being salvaged" : "Queued for salvage"}</span>
                         {/if}
                         <button
                           type="button"
                           class="buy-btn awg-install"
-                          disabled={piece.locked === true}
-                          aria-describedby={piece.locked === true ? lockId : undefined}
+                          disabled={rowBusy}
+                          aria-describedby={rowBusy ? lockId : undefined}
                           aria-label={`Install ${name} on a crew member`}
                           on:click={() => openInstallOn(piece.id)}
                         >Install on…</button>
@@ -15255,7 +15185,7 @@
                for each spare): the shared spareGearPopupBody, the same body Ship Equipment's popup renders. -->
           {#if selectedGear}
             {@const g = selectedGear}
-            <ActionModal title={memberPieceName(g)} ariaLabel="Away-team gear options" onClose={() => (selectedGearId = null)}>
+            <ActionModal title={memberPieceName(g)} ariaLabel={`${memberPieceName(g)} options`} onClose={() => (selectedGearId = null)}>
               {@render spareGearPopupBody(g, () => (selectedGearId = null))}
               <svelte:fragment slot="footer">
                 <button class="dev-btn" on:click={() => (selectedGearId = null)}>Close</button>
@@ -15264,68 +15194,17 @@
           {/if}
         {/if}
 
-        <!-- ITEM-SIDE "INSTALL ON..." PICKER (E-CREW 0.14.0 Task 10, S5-151). Opened from a spare in
-             Ship Equipment (ships listed) or Away-Team Gear (crew members listed); the rows are the
-             installTargetsFor snapshot taken at open (buildInstallOnRows). Every target is listed; a
-             refused one is disabled with its gate's reason as visible text (aria-describedby), and a
-             member whose implant slots are full offers a Swap per worn implant instead. -->
+        <!-- ITEM-SIDE "INSTALL ON..." PICKER (E-CREW 0.14.0 Task 10, S5-151): InstallOnPicker.svelte over the
+             rows built at open (openInstallOn). Ship Equipment lists ships, Away-Team Gear crew members. -->
         {#if installOnPiece !== null}
-          {@const iop = installOnPiece}
-          {@const iopName = systemSalvageName(iop)}
-          {@const forMember = isMemberSlotType(iop.slotType)}
-          <ActionModal title={`Install · ${iopName}`} ariaLabel={`Install ${iopName} on`} onClose={closeInstallOn}>
-            <p class="iot-lead">
-              {forMember
-                ? `Choose the crew member to wear the ${iopName}. Installing over a piece they already wear sends that piece back to storage.`
-                : `Choose the ship to install the ${iopName} on. Installing over a system it already has sends that system back to storage.`}
-            </p>
-            {#if installOnRows.length === 0}
-              <p class="iot-lead">{forMember ? "No away-team members yet. Hire one from a ship's Away Team tab." : "No ships in the fleet."}</p>
-            {:else}
-              <div class="iot-list">
-                {#each installOnRows as row (row.key)}
-                  {@const whyId = `iot-why-${row.kind}-${row.targetId}`}
-                  <div class="iot-row" class:blocked={!row.ok}>
-                    <div class="iot-text">
-                      <span class="iot-name">{row.label}</span>
-                      {#if row.sub}<span class="iot-sub">{row.sub}</span>{/if}
-                      {#if !row.ok}<span class="iot-why" id={whyId}>{row.reason}</span>{/if}
-                    </div>
-                    {#if row.replace.length === 0}
-                      <button
-                        type="button"
-                        class="buy-btn iot-btn"
-                        disabled={!row.ok}
-                        aria-describedby={row.ok ? undefined : whyId}
-                        aria-label={`Install ${iopName} on ${row.label}`}
-                        on:click={() => installFromPicker(row)}
-                      >Install</button>
-                    {/if}
-                  </div>
-                  {#each row.replace as rep (rep.id)}
-                    {@const repWhy = `iot-why-rep-${row.targetId}-${rep.id}`}
-                    <div class="iot-row iot-rep" class:blocked={!rep.ok}>
-                      <div class="iot-text">
-                        <span class="iot-sub">Replace {rep.name}</span>
-                        {#if !rep.ok}<span class="iot-why" id={repWhy}>{rep.reason}</span>{/if}
-                      </div>
-                      <button
-                        type="button"
-                        class="buy-btn iot-btn"
-                        disabled={!rep.ok}
-                        aria-describedby={rep.ok ? undefined : repWhy}
-                        aria-label={`Swap ${rep.name} for ${iopName} on ${row.label}`}
-                        on:click={() => installFromPicker(row, rep.id)}
-                      >Swap</button>
-                    </div>
-                  {/each}
-                {/each}
-              </div>
-            {/if}
-            <svelte:fragment slot="footer">
-              <button class="dev-btn" on:click={closeInstallOn}>Cancel</button>
-            </svelte:fragment>
-          </ActionModal>
+          <InstallOnPicker
+            piece={installOnPiece}
+            name={systemSalvageName(installOnPiece)}
+            rows={installOnRows}
+            onInstallShip={(shipId) => installFromPicker("ship", shipId)}
+            onInstallMember={(memberId, replacingId) => installFromPicker("member", memberId, replacingId)}
+            onClose={closeInstallOn}
+          />
         {/if}
 
         {#if activeLogisticsTab === "craftedBlanks"}
@@ -22245,7 +22124,7 @@
      One readable row per spare member piece: a details button (glyph + name in its rarity color +
      grade / iL / squad line) and the item-side "Install on..." button. The row is a flex line whose
      main button may shrink (min-width 0, the name wraps), so a 375px phone never scrolls sideways. */
-  .awg-shared-note {
+  .systems-bay-shared-note {
     font-size: var(--text-xs); color: var(--color-text-dim);
     margin: -4px 0 10px; line-height: 1.45;
   }
@@ -22278,36 +22157,16 @@
     color: var(--color-text-secondary);
   }
   .awg-install { flex: 0 0 auto; white-space: nowrap; }
-  .awg-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  /* The shared spare popup body (spareGearPopupBody, both Logistics popups). */
+  .spare-pop-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   /* A refused popup action keeps its label color (so its contrast and its danger / amber hue stay) but
      loses its fill and takes a dashed border, so it reads as unavailable beside the live buttons. */
-  .awg-acts .buy-btn:disabled { background: transparent; border-style: dashed; }
-  .awg-why { display: block; margin-top: 8px; }
+  .spare-pop-acts .buy-btn:disabled { background: transparent; border-style: dashed; }
+  .spare-pop-why { display: block; margin-top: 8px; }
 
-  /* The item-side "Install on..." picker rows (ships or crew members), each with its own button and,
-     when blocked, the gate's reason as visible text. A Replace row (implant swap) indents under its
-     member. */
-  .iot-lead { font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.45; margin: 0 0 10px; }
-  .iot-list { display: flex; flex-direction: column; gap: 6px; }
-  .iot-row {
-    display: flex; align-items: center; gap: 10px; min-width: 0;
-    padding: 7px 9px;
-    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
-    border-radius: var(--corner);
-    background: rgba(var(--color-accent-rgb), 0.04);
-  }
-  .iot-row.blocked { opacity: 0.8; }
-  .iot-rep { margin-left: 18px; border-style: dashed; }
-  .iot-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .iot-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); overflow-wrap: anywhere; }
-  .iot-sub { font-size: var(--text-2xs); color: var(--color-text-secondary); overflow-wrap: anywhere; }
-  .iot-why { font-size: var(--text-2xs); color: var(--color-warning); }
-  .iot-btn { flex: 0 0 auto; white-space: nowrap; }
-  /* .buy-btn only changes the cursor when disabled; these rows sit beside live buttons, so a refused
-     target also reads as disabled. Same treatment as .dev-btn:disabled: a faded fill and border with
-     the AA-safe --color-text-disabled label (never a whole-button opacity, which would drop the label
-     below 4.5:1, the 0.13.5 disabled-contrast fix). */
-  .iot-btn:disabled,
+  /* A refused Away-Team Gear row's Install on...: faded fill and border with the AA-safe
+     --color-text-disabled label (never a whole-button opacity, which would drop the label below 4.5:1,
+     the 0.13.5 disabled-contrast fix). */
   .awg-install:disabled {
     background: rgba(var(--color-accent-rgb), 0.03);
     border-color: rgba(var(--color-accent-rgb), 0.15);

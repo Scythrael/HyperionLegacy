@@ -157,8 +157,25 @@ export function memberCompareRows(
   });
 }
 
-// A stat magnitude the way the item tooltip prints it: "+12", "+3.5". Pure.
+// A stat magnitude the way the item tooltip prints it: "+12", "+3.5". Rounded to one decimal FIRST, so a
+// tiny value never prints a signed zero ("-0.0"): anything that rounds to 0 reads "+0". Pure.
 export function fmtGearStat(v: number): string {
-  const body = Number.isInteger(v) ? v.toString() : v.toFixed(1);
-  return v < 0 ? body : `+${body}`;
+  const r = Math.round(v * 10) / 10;
+  if (r === 0) return "+0";
+  const body = Number.isInteger(r) ? r.toString() : r.toFixed(1);
+  return r < 0 ? body : `+${body}`;
+}
+
+// A piece's grade line: "Standard-Issue" for a Quartermaster baseline, else "Radiant · Q4"; with
+// `withILevel`, " · iL 40" appended. The ONE grade text the Away-Team Gear rows, the member install flow
+// and the Salvage Bay's member tiles share. Pure.
+export function memberGradeText(
+  piece: Pick<EquipmentInstance, "blueprintKey" | "rarity" | "quality" | "iLevel">,
+  withILevel = false
+): string {
+  const grade =
+    piece.blueprintKey === null
+      ? "Standard-Issue"
+      : `${piece.rarity.charAt(0).toUpperCase()}${piece.rarity.slice(1)} · Q${piece.quality}`;
+  return withILevel ? `${grade} · iL ${piece.iLevel}` : grade;
 }

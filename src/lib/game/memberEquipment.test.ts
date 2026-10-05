@@ -36,6 +36,7 @@ import {
   installTargetsFor,
   memberFitBlockText,
   pieceWearableBy,
+  memberWornIndex,
   type MemberFitBlockReason,
 } from "./memberEquipment";
 import { canFitEquipment } from "./equipment";
@@ -737,6 +738,35 @@ describe("pieceWearableBy", () => {
           const wrongTeam = !gate.ok && gate.reason === "wrongTeam";
           expect(wrongTeam, `${slot}/${v.key}/${t}`).toBe(!pieceWearableBy(p, t));
         }
+      }
+    }
+  });
+});
+
+// ===== memberWornIndex (Task 10 review: one pass for the roster view) =====
+
+describe("memberWornIndex", () => {
+  it("indexes every worn piece by member in mint order, matching the per-member queries", () => {
+    const state: GameState = {
+      ...freshState(),
+      awayMembers: [member("member-1", "security", null, "martian"), member("member-2", "science", null)],
+      equipment: [
+        piece("equip-12", "implant", "dermalWeave", { fittedToMemberId: "member-1" }),
+        piece("equip-3", "memberWeapon", "pulseRifle", { fittedToMemberId: "member-1" }),
+        piece("equip-5", "implant", "reflexBooster", { fittedToMemberId: "member-1" }),
+        piece("equip-7", "memberArmor", "fieldSuit", { fittedToMemberId: "member-2" }),
+        piece("equip-8", "memberTool", "medKit"), // spare: indexed nowhere
+      ],
+    };
+    const index = memberWornIndex(state);
+    expect(index.get("member-1")!.map((p) => p.id)).toEqual(["equip-3", "equip-5", "equip-12"]);
+    expect(index.get("member-2")!.map((p) => p.id)).toEqual(["equip-7"]);
+    expect(index.has("member-3")).toBe(false);
+    for (const m of state.awayMembers) {
+      const worn = index.get(m.id) ?? [];
+      expect(worn.filter((p) => p.slotType === "implant")).toEqual(memberSlotPieces(state, m.id, "implant"));
+      for (const slot of ["memberArmor", "memberWeapon", "memberTool"] as const) {
+        expect(worn.find((p) => p.slotType === slot) ?? null).toEqual(memberPieceInSlot(state, m.id, slot));
       }
     }
   });

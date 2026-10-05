@@ -17,6 +17,7 @@ import {
   pieceStatTotals,
   memberCompareRows,
   fmtGearStat,
+  memberGradeText,
 } from "./awayGearDisplay";
 
 function piece(
@@ -169,5 +170,16 @@ describe("awayGearDisplay: memberCompareRows", () => {
     expect(fmtGearStat(4)).toBe("+4");
     expect(fmtGearStat(3.26)).toBe("+3.3");
     expect(fmtGearStat(-2)).toBe("-2");
+    // Never a signed zero, and a value that rounds to a whole number prints whole.
+    expect(fmtGearStat(-0.04)).toBe("+0");
+    expect(fmtGearStat(0.04)).toBe("+0");
+    expect(fmtGearStat(2.96)).toBe("+3");
+  });
+
+  it("grades a piece one way everywhere", () => {
+    const crafted = piece("a", "memberWeapon", "pulseRifle", { rarity: "radiant", quality: 4, iLevel: 40 });
+    expect(memberGradeText(crafted)).toBe("Radiant · Q4");
+    expect(memberGradeText(crafted, true)).toBe("Radiant · Q4 · iL 40");
+    expect(memberGradeText({ ...crafted, blueprintKey: null }, true)).toBe("Standard-Issue · iL 40");
   });
 });
