@@ -6542,6 +6542,73 @@ export interface Expedition {
   scanSpeedBonus: number; // museum scanSpeed: multiplies the scan rate by (1 + this)
   relicFindBonus: number; // museum relicFindChance: multiplies a won task's relic-token chance by (1 + this), capped at certain
   hazardResist: number; // museum hazardResist: shrinks the body hazard scanning + ground encounters see (bounded, never negative)
+  // --- E-CREW 0.14.0 (Task 12): the named AWAY-TEAM ROSTER snapshot (design section 5.5) -------------
+  // Every READY member of the ship's squads (members, converted gear stats, implants, traits, programs),
+  // captured at dispatch by awayTeam.ts snapshotAwayRoster, exactly like the strength snapshot above, so
+  // resolution stays a pure function of the stored expedition (offline == live by construction). OPTIONAL
+  // + additive: startExpedition writes it only when at least one member deploys, so a ship with no roster
+  // stores an expedition byte-identical to before, and every reader treats absent as two empty squads (the
+  // anonymous crew-derived team still fights; design section 5.3's floor). The strengths above stay the
+  // squad-wide crew layer on top of the members.
+  roster?: AwayRosterSnapshot;
+}
+
+// E-CREW 0.14.0 (Task 12): ONE normalized ground effect on a snapshotted away-team member. The roster
+// snapshot folds the member's TRAIT effects (awayTraits.ts AWAY_TRAITS) and the fixed GEAR effects of every
+// worn piece (MemberVarietyTraits.groundEffect) into this ONE list, so the battle and fieldwork never read
+// the two catalogs separately. Stat bumps are NOT here (SnapshotMember.groundStats holds them) and neither
+// are status resists (SnapshotMember.resists folds trait AND gear resists into one map).
+// `points` on a gear effect is the worn piece's summed ground line POINTS (raw budget, so it already scales
+// with the piece's iLevel, quality and rarity). A gear effect's MAGNITUDE derives from it, so a Standard-
+// Issue baseline (every line 0) carries the behavior at zero strength (its Med Kit heals nothing).
+export type MemberGroundEffect =
+  | { readonly kind: "medic" } // trait (Field Medic): may cure and heal allies in a battle
+  | { readonly kind: "firstStrike" } // trait (Quick Draw): acts first on the opening round
+  | { readonly kind: "guard"; readonly allyHpBelow: number } // trait (Bulwark): takes hits meant for a hurt ally
+  | { readonly kind: "poiYield"; readonly pois: readonly string[]; readonly value: number } // trait: better finds at these PoIs (fieldwork)
+  | { readonly kind: "heal"; readonly points: number } // gear (Med Kit): an in-fight heal, and curing
+  | { readonly kind: "inflict"; readonly status: GambitStatusId; readonly points: number } // gear: applies `status` on a landed strike
+  | { readonly kind: "groupHit"; readonly points: number } // gear (Scattergun): the strike splashes the target's group
+  | { readonly kind: "revive"; readonly chance: number; readonly hpFraction: number; readonly points: number }; // gear (Neural Backup)
+
+// One worn piece as the snapshot saw it: which slot, which catalog variety (so a later reader can look up
+// the variety's fixed facts such as a tool's planetTypes or encounterBias), and its summed ground points.
+export interface SnapshotGearPiece {
+  pieceId: string;
+  slotType: MemberSlotType;
+  varietyKey: string; // the piece's stamped moduleVariant ("" when unstamped)
+  points: number; // the piece's summed ground line points (implicit + rolled)
+}
+
+// One deployed member, frozen at dispatch (awayTeam.ts snapshotAwayRoster). Plain data, no live refs.
+//   groundStats : every member stat (awayTeam.ts AwayMemberStat) as the member's summed BUMP: worn gear
+//                 converted by convertGroundPoints, plus trait stat bumps (the additive STACKING RULE). For
+//                 hp / power / armor / accuracy / fieldwork / relicFind / hazardResist the bump is a FRACTION
+//                 of the member's own base value (0.05 = +5%). statusChance has no base value worth scaling,
+//                 so its bump IS the chance (0.05 = 5 percentage points).
+//   rankFactor  : rankMagnitudeFactor(rank), the rank nudge the battle multiplies into hp / power / armor.
+//   resists     : status id -> chance (0..1) to shrug that status off (traits + resistStatus gear), capped.
+//   gambit      : the member's OWN program (member.gambit, else the account's Security program at dispatch).
+//                 Science members carry theirs inertly: Science never enters a battle.
+export interface SnapshotMember {
+  memberId: string;
+  teamType: AwayTeamType;
+  spec: AwayMemberSpec;
+  rank: CrewRank;
+  rankFactor: number;
+  traits: AwayTraitId[];
+  groundStats: Record<string, number>;
+  resists: Partial<Record<GambitStatusId, number>>;
+  implants: string[]; // worn implant variety keys, in mint order
+  gear: SnapshotGearPiece[]; // every worn piece, in mint order
+  gambit: GambitProgram;
+  effects: MemberGroundEffect[];
+}
+
+// The away-team roster snapshot: the deployed members of each squad, in deploy order. An empty squad is [].
+export interface AwayRosterSnapshot {
+  security: SnapshotMember[];
+  science: SnapshotMember[];
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

@@ -73,6 +73,8 @@ import type { ExpeditionPlanetType } from "./model";
 // resolver below. The gambit catalogs are static data touched ONLY on the activities path, so importing
 // them here keeps the no-expedition tick byte-identical (additive-neutral).
 import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
+// E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
+import { snapshotAwayRoster } from "./awayTeam";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -501,6 +503,11 @@ export function startExpedition(
     security: state.gambitPrograms.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
     science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
   };
+  // E-CREW (Task 12): snapshot the ship's READY named members (converted gear, traits, implants, programs)
+  // at the same dispatch instant. Stored ONLY when at least one member deploys, so a ship with no roster
+  // launches an expedition byte-identical to before (absent reads as two empty squads everywhere).
+  const roster = snapshotAwayRoster(state, ship);
+  const hasRoster = roster.security.length > 0 || roster.science.length > 0;
 
   const expedition: Expedition = {
     id,
@@ -527,6 +534,7 @@ export function startExpedition(
     scanSpeedBonus: museum.scanSpeed + gear.scanSpeed,
     relicFindBonus: museum.relicFindChance + gear.relicFindChance,
     hazardResist: museum.hazardResist + gear.hazardResist,
+    ...(hasRoster ? { roster } : {}),
   };
 
   return {

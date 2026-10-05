@@ -7,24 +7,41 @@
 // (design section 5.2), never from a hard-coded per-type switch, so a future hull can list two Security
 // details with no engine change (S4-I19).
 //
-// DORMANT on purpose: nothing in tick.ts, the expedition resolver, or the UI reads this module yet. Every
-// function is pure: it reads its inputs and returns fresh values, never mutating an input in place.
+// Every function is pure: it reads its inputs and returns fresh values, never mutating an input in place.
+// Task 12 adds the ROSTER SNAPSHOT (snapshotAwayRoster): startExpedition freezes the ship's ready members,
+// their converted gear stats, traits, implants and programs onto the Expedition at dispatch, so the
+// expedition resolver reads the stored snapshot and never this module's live readers.
 // See docs/plans/2026-10-02-crew-made-real-e-crew-design.md sections 4 and 5.
 
 import type {
   AwayMember,
   AwayMemberSpec,
+  AwayRosterSnapshot,
   AwayTeamType,
   AwayTraitId,
   CrewRace,
   CrewRank,
+  EquipmentInstance,
+  GambitProgram,
+  GambitStatusId,
   GameState,
+  MemberGroundEffect,
   MemberGroundStatKey,
+  ShipInstance,
   ShipTypeKey,
+  SnapshotGearPiece,
+  SnapshotMember,
 } from "./model";
-import { SENIOR_STAFF_ROSTER_BASE, SHIP_TYPES, startAutoSalvageGrace } from "./model";
-import { awayTraitsForTeam } from "./awayTraits";
-import { buffCountForRank, CREW_RANK_ORDER } from "./crewRank";
+import {
+  MEMBER_GROUND_STAT_KEYS,
+  SENIOR_STAFF_ROSTER_BASE,
+  SHIP_TYPES,
+  isMemberSlotType,
+  memberVariety,
+  startAutoSalvageGrace,
+} from "./model";
+import { awayTraitsForTeam, getAwayTrait } from "./awayTraits";
+import { buffCountForRank, CREW_RANK_ORDER, rankMagnitudeFactor } from "./crewRank";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./seniorStaff";
@@ -91,7 +108,8 @@ export type AwayMemberStat =
 //     quality and rarity. Points are SUMMED per member across every worn piece (armor + weapon + tool +
 //     implants), additively per the STACKING RULE above, and converted ONCE per member.
 //   - Member power (the eight mapped card stats: hp / power / armor / accuracy / fieldwork / relicFind /
-//     hazardResist / statusChance): the roster SNAPSHOT at dispatch (Task 12) converts the summed points.
+//     hazardResist / statusChance): the roster SNAPSHOT at dispatch (Task 12) converts the summed points
+//     through convertGroundPoints (below, the ONE conversion; its coefficients are GEAR_POINT_BUMP).
 //   - Battle stats + resists (power / armor / accuracy / hp / statusChance, and groundStatusResist): the
 //     Security battle (Task 13) consumes the snapshot's converted values (and converts groundStatusResist).
 //   - Fieldwork yields + relic odds + hazard (fieldwork / relicFind / hazardResist, and the two yield
@@ -454,4 +472,248 @@ export function reassignAwayMember(state: GameState, memberId: string, shipId: s
     ...state,
     awayMembers: state.awayMembers.map((m) => (m.id === memberId ? { ...m, assignedShipId: shipId } : m)),
   };
+}
+
+// ============================================================================
+// Member power: the gear POINT conversion (design section 5.3, the CONVERSION CONTRACT above)
+// ============================================================================
+//
+// A worn piece's ground lines are raw budget POINTS (itemgen.ts computeBudget: iLevel * 2 * quality and
+// rarity multipliers), so they already scale with the piece's iLevel. The snapshot SUMS every worn
+// piece's lines per member and converts them ONCE, here, into member stat bumps:
+//
+//   bump(stat) = summedPoints(stat line) * GEAR_POINT_BUMP[stat]
+//
+// For hp / power / armor / accuracy / fieldwork / relicFind / hazardResist the bump is a FRACTION of the
+// member's own base value (0.01 = +1%), ADDED to every other same-stat bump (traits), the STACKING RULE.
+// statusChance and the status resist are CHANCES with no base value worth scaling, so their bump IS the
+// chance, in absolute terms (0.005 per point: 20 points = 10 percentage points).
+// A Standard-Issue baseline carries every line at 0 (model.ts STANDARD_ISSUE_IMPLICIT_MAGNITUDE), so it
+// converts to no bump at all.
+// FIRST-PASS TUNABLE: every coefficient. Reference point: an iLevel 10 Standard-rarity quality 0 piece
+// has a 20 point budget, so a crafted rifle carries about 10 power points (+10% power).
+export const GEAR_POINT_BUMP: Readonly<Record<AwayMemberStat, number>> = {
+  hp: 0.01,
+  power: 0.01,
+  armor: 0.025, // base armor is small (a flat damage cut), so each point moves it a little more
+  accuracy: 0.004, // base accuracy is already high and the battle caps it
+  statusChance: 0.005, // absolute chance per point
+  fieldwork: 0.01,
+  relicFind: 0.01,
+  hazardResist: 0.01,
+};
+
+// groundStatusResist has no member card stat (GROUND_STAT_MEMBER_STAT maps it to null): it converts to the
+// member's absolute chance to resist the statuses its resistStatus pieces list. FIRST-PASS TUNABLE.
+export const STATUS_RESIST_PER_POINT = 0.01;
+
+// The most any one status resist can reach, so no member is ever fully immune. FIRST-PASS TUNABLE.
+export const STATUS_RESIST_CAP = 0.9;
+
+// The eight member stats in a fixed order (the keys every SnapshotMember.groundStats carries).
+const AWAY_MEMBER_STATS: readonly AwayMemberStat[] = [
+  "hp",
+  "power",
+  "armor",
+  "accuracy",
+  "statusChance",
+  "fieldwork",
+  "relicFind",
+  "hazardResist",
+];
+
+// THE conversion: summed ground line points (any subset of MEMBER_GROUND_STAT_KEYS) -> the member stat
+// bumps (every AwayMemberStat key present, 0 when nothing feeds it) and the status-resist chance.
+// groundOrganicsYield / groundVaultYield are fieldwork yields (Task 15) and are not converted here. Pure.
+export function convertGroundPoints(points: Partial<Record<MemberGroundStatKey, number>>): {
+  stats: Record<AwayMemberStat, number>;
+  statusResist: number;
+} {
+  const stats = {} as Record<AwayMemberStat, number>;
+  for (const stat of AWAY_MEMBER_STATS) stats[stat] = 0;
+  for (const key of MEMBER_GROUND_STAT_KEYS) {
+    const stat = GROUND_STAT_MEMBER_STAT[key];
+    if (stat === null) continue;
+    stats[stat] += (points[key] ?? 0) * GEAR_POINT_BUMP[stat];
+  }
+  return { stats, statusResist: (points.groundStatusResist ?? 0) * STATUS_RESIST_PER_POINT };
+}
+
+// One piece's ground lines (implicit + rolled), summed per ground key. Ship keys are ignored. Pure.
+export function pieceGroundPoints(
+  piece: Pick<EquipmentInstance, "implicitStats" | "rolledStats">
+): Partial<Record<MemberGroundStatKey, number>> {
+  const out: Partial<Record<MemberGroundStatKey, number>> = {};
+  for (const key of MEMBER_GROUND_STAT_KEYS) {
+    const v = (piece.implicitStats[key] ?? 0) + (piece.rolledStats[key] ?? 0);
+    if (v !== 0) out[key] = v;
+  }
+  return out;
+}
+
+// A piece's total ground points across every line: the magnitude a gear EFFECT scales with. Pure.
+function pieceTotalPoints(piece: Pick<EquipmentInstance, "implicitStats" | "rolledStats">): number {
+  let total = 0;
+  for (const v of Object.values(pieceGroundPoints(piece))) total += v ?? 0;
+  return total;
+}
+
+// ============================================================================
+// The roster snapshot at dispatch (Task 12, design section 5.5)
+// ============================================================================
+
+// Is a member ready to deploy right now? Injured members (D9) sit out until injuredUntilSeconds. Pure.
+export function isMemberReady(member: Pick<AwayMember, "injuredUntilSeconds">, gameTimeSeconds: number): boolean {
+  return member.injuredUntilSeconds === undefined || member.injuredUntilSeconds <= gameTimeSeconds;
+}
+
+// The trailing number of an id ("member-12" -> 12, "equip-7" -> 7), Infinity when there is none. The
+// deterministic HIRE order (members) and MINT order (pieces). Equal keys keep input order (stable sort).
+function idNumber(id: string): number {
+  const m = /(\d+)$/.exec(id);
+  return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
+}
+
+function byIdNumber<T extends { id: string }>(a: T, b: T): number {
+  const x = idNumber(a.id);
+  const y = idNumber(b.id);
+  return x === y ? 0 : x - y;
+}
+
+// The members of `ship`'s `teamType` squad who DEPLOY: ready ones only, in hire order, capped at the hull's
+// squadSlots. An injured member, or one past the cap (possible only if a hull's squad size ever shrank),
+// stays aboard. Pure.
+export function deployableMembers(state: GameState, ship: ShipInstance, teamType: AwayTeamType): AwayMember[] {
+  const cap = squadSlots(ship.typeKey, teamType);
+  return membersInSquad(state, ship.id, teamType)
+    .filter((m) => isMemberReady(m, state.gameTimeSeconds))
+    .sort(byIdNumber)
+    .slice(0, cap);
+}
+
+// Deep-copy a program so the snapshot never aliases live state (the editor mutates its working copy).
+function cloneProgram(program: GambitProgram): GambitProgram {
+  return program.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined }));
+}
+
+// Freeze ONE member: convert their worn gear, fold in their traits, normalize every effect. `worn` is the
+// member's worn pieces in mint order; `securityDefault` is the account's Security program at dispatch (the
+// program a Security member without their own runs). Pure.
+export function snapshotMember(
+  member: AwayMember,
+  worn: readonly EquipmentInstance[],
+  securityDefault: GambitProgram
+): SnapshotMember {
+  // 1) Gear: sum every worn piece's lines, convert once (the CONVERSION CONTRACT). Each piece's fixed
+  // groundEffect normalizes into the effect list, carrying the piece's own points as its magnitude.
+  const summed: Partial<Record<MemberGroundStatKey, number>> = {};
+  const gear: SnapshotGearPiece[] = [];
+  const effects: MemberGroundEffect[] = [];
+  const gearResistStatuses = new Set<GambitStatusId>();
+  for (const piece of worn) {
+    if (!isMemberSlotType(piece.slotType)) continue; // defensive: only member gear is ever worn
+    const lines = pieceGroundPoints(piece);
+    for (const key of Object.keys(lines) as MemberGroundStatKey[]) {
+      summed[key] = (summed[key] ?? 0) + (lines[key] ?? 0);
+    }
+    const points = pieceTotalPoints(piece);
+    const varietyKey = piece.moduleVariant ?? "";
+    gear.push({ pieceId: piece.id, slotType: piece.slotType, varietyKey, points });
+    const effect = memberVariety(piece.slotType, varietyKey)?.member.groundEffect;
+    if (!effect) continue;
+    switch (effect.kind) {
+      case "groupHit":
+        effects.push({ kind: "groupHit", points });
+        break;
+      case "inflict":
+        effects.push({ kind: "inflict", status: effect.status, points });
+        break;
+      case "heal":
+        effects.push({ kind: "heal", points });
+        break;
+      case "revive":
+        effects.push({ kind: "revive", chance: effect.chance, hpFraction: effect.hpFraction, points });
+        break;
+      case "resistStatus":
+        for (const status of effect.statuses) gearResistStatuses.add(status);
+        break;
+    }
+  }
+  const converted = convertGroundPoints(summed);
+
+  // 2) Traits: stat bumps ADD to the gear bumps (the STACKING RULE); the rest normalize into effects or
+  // resists. An id the catalog no longer carries is skipped.
+  const groundStats: Record<string, number> = { ...converted.stats };
+  const resists: Partial<Record<GambitStatusId, number>> = {};
+  for (const id of member.traits) {
+    const trait = getAwayTrait(id);
+    if (!trait) continue;
+    for (const e of trait.effects) {
+      switch (e.kind) {
+        case "stat":
+          groundStats[e.stat] = (groundStats[e.stat] ?? 0) + e.value;
+          break;
+        case "resistStatus":
+          resists[e.status] = (resists[e.status] ?? 0) + e.value;
+          break;
+        case "medic":
+          effects.push({ kind: "medic" });
+          break;
+        case "firstStrike":
+          effects.push({ kind: "firstStrike" });
+          break;
+        case "guard":
+          effects.push({ kind: "guard", allyHpBelow: e.allyHpBelow });
+          break;
+        case "poiYield":
+          effects.push({ kind: "poiYield", pois: [...e.pois], value: e.value });
+          break;
+      }
+    }
+  }
+  // 3) Gear resists: the member's converted statusResist applies to EVERY status any of its resistStatus
+  // pieces list (the contract's rule), once per status, on top of trait resists. Then cap each one so no
+  // member is ever immune.
+  if (converted.statusResist > 0) {
+    for (const status of gearResistStatuses) resists[status] = (resists[status] ?? 0) + converted.statusResist;
+  }
+  for (const status of Object.keys(resists) as GambitStatusId[]) {
+    resists[status] = Math.min(STATUS_RESIST_CAP, resists[status] ?? 0);
+  }
+
+  return {
+    memberId: member.id,
+    teamType: member.teamType,
+    spec: member.spec,
+    rank: member.rank,
+    rankFactor: rankMagnitudeFactor(member.rank),
+    traits: [...member.traits],
+    groundStats,
+    resists,
+    implants: gear.filter((g) => g.slotType === "implant").map((g) => g.varietyKey),
+    gear,
+    // Security runs its own program, else the account default. Science carries its own (or none) INERTLY:
+    // Science never enters a battle (design D2), so nothing executes it.
+    gambit: cloneProgram(member.gambit ?? (member.teamType === "security" ? securityDefault : [])),
+    effects,
+  };
+}
+
+// The ship's away-team ROSTER SNAPSHOT at dispatch: each squad's deployable members (ready, hire order,
+// capped), frozen with their converted gear, traits, implants and programs. An empty squad is []. Pure:
+// reads state.awayMembers, state.equipment (fittedToMemberId, the member-gear authority) and
+// state.gambitPrograms; returns fresh data with no live references.
+export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRosterSnapshot {
+  const worn = new Map<string, EquipmentInstance[]>();
+  for (const e of state.equipment) {
+    if (!e.fittedToMemberId) continue;
+    const list = worn.get(e.fittedToMemberId);
+    if (list) list.push(e);
+    else worn.set(e.fittedToMemberId, [e]);
+  }
+  for (const list of worn.values()) list.sort(byIdNumber);
+  const securityDefault = state.gambitPrograms.security;
+  const squad = (teamType: AwayTeamType): SnapshotMember[] =>
+    deployableMembers(state, ship, teamType).map((m) => snapshotMember(m, worn.get(m.id) ?? [], securityDefault));
+  return { security: squad("security"), science: squad("science") };
 }
