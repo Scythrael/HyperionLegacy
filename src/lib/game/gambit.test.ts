@@ -74,7 +74,7 @@ function mk(id: string, side: "team" | "enemy", role: GroundCombatant["role"], o
 }
 
 function bs(combatants: GroundCombatant[], over: Partial<BattleState> = {}): BattleState {
-  return { combatants, round: 0, objective: 0, teamKit: 0, tauntedBy: null, ...over };
+  return { combatants, round: 0, teamKit: 0, tauntedBy: null, ...over };
 }
 
 // A minimal expedition carrying an away-team snapshot + a scanned body with activities, for the resolver
@@ -120,24 +120,29 @@ function cloneProgs(p: GambitPrograms): GambitPrograms {
 // ============================================================================
 describe("rule evaluation — first-match top-down + role-legal enforcement", () => {
   it("fires the FIRST rule whose action is legal and whose target resolves", () => {
-    // A science actor with an illegal Security action first, then a legal secureObjective. The illegal
-    // rule is SKIPPED and the objective advances (proving role-legal enforcement + first-match fall-through).
-    const sci = mk("t-sci-0", "team", "science", { heal: 12 });
+    // E-CREW Task 13 rewrite (the Science actor + secureObjective it used are gone: Science never fights and
+    // the objective track was removed). A Security actor with an illegal Science-only action first, then a
+    // legal attack. The illegal rule is SKIPPED and the attack lands (role-legal enforcement + first-match
+    // fall-through).
+    const sec = mk("t-sec-0", "team", "security", { accuracy: 1 });
     const foe = mk("enemy-bruiser-1", "enemy", "bruiser");
-    const state = bs([sci, foe]);
+    const state = bs([sec, foe]);
     const program: GambitProgram = [
-      { target: "foeNearest", action: "attack" }, // ILLEGAL for science -> skipped
-      { target: "self", action: "secureObjective" }, // legal -> fires
+      { target: "foeNearest", action: "analyze" }, // ILLEGAL for Security -> skipped
+      { target: "foeNearest", action: "attack" }, // legal -> fires
     ];
-    evaluateAndAct(program, sci, state, makeRngLike());
-    expect(state.objective).toBeGreaterThan(0);
-    expect(foe.hp).toBe(foe.hpMax); // the illegal attack never landed
+    evaluateAndAct(program, sec, state, makeRngLike());
+    expect(hasStatus(foe, "corroded")).toBe(false); // the illegal analyze never fired
+    expect(foe.hp).toBeLessThan(foe.hpMax); // the attack landed
   });
 
   it("isActionLegalForRole gates team roles but not enemy roles", () => {
     expect(isActionLegalForRole("science", "attack")).toBe(false);
     expect(isActionLegalForRole("science", "cure")).toBe(true);
-    expect(isActionLegalForRole("security", "cure")).toBe(false);
+    // E-CREW Task 13: a Security program MAY contain the medic actions (they fire only for a medic member).
+    expect(isActionLegalForRole("security", "cure")).toBe(true);
+    expect(isActionLegalForRole("security", "aidHeal")).toBe(true);
+    expect(isActionLegalForRole("security", "analyze")).toBe(false);
     expect(isActionLegalForRole("security", "attack")).toBe(true);
     // Enemy roles run controlled internal programs, so every action is legal for them.
     expect(isActionLegalForRole("healer", "attack")).toBe(true);
@@ -150,8 +155,13 @@ describe("rule evaluation — first-match top-down + role-legal enforcement", ()
       { target: "foeNearest", action: "attack" }, // illegal
     ]);
     expect(sciIssues).toEqual([{ index: 1, action: "attack", reason: "illegalActionForRole" }]);
-    const secIssues = validateGambitProgram("security", [{ target: "allyLowestHp", action: "cure" }]);
-    expect(secIssues.map((i) => i.index)).toEqual([0]);
+    // E-CREW Task 13: cure is no longer an issue in a Security program (medic-gated at runtime);
+    // Science-only actions still are.
+    const secIssues = validateGambitProgram("security", [
+      { target: "allyLowestHp", action: "cure" },
+      { target: "self", action: "secureObjective" },
+    ]);
+    expect(secIssues.map((i) => i.index)).toEqual([1]);
     // The Balanced default pair is fully legal.
     expect(validateGambitProgram("security", DEFAULT_GAMBIT_PROGRAMS.security)).toEqual([]);
     expect(validateGambitProgram("science", DEFAULT_GAMBIT_PROGRAMS.science)).toEqual([]);
@@ -278,7 +288,11 @@ describe("enemy role behaviors", () => {
 describe("full battle — gambit depth is load-bearing", () => {
   // A mid-strength team vs a healer-guarded Buried Vault. A SMART program (kill the healer) should win
   // far more often than a LAZY one (attack nearest, which chews on a bruiser the healer keeps topped).
-  const snapshot = { securityStrength: 10, scienceStrength: 5, teamKit: 3 };
+  // E-CREW Task 13, DELIBERATE FIXTURE CHANGE: securityStrength 10 -> 18. The anonymous detail is now
+  // Security only (it used to add a healing Science body), so the old strength-10 pair (2 Security bodies)
+  // could no longer win this hazard-0.65 Vault on any seed. 18 fields the 4-body detail, where the smart
+  // program wins 28 of 60 and the lazy one 0, the same contrast the test exists to prove.
+  const snapshot = { securityStrength: 18, scienceStrength: 5, teamKit: 3 };
   const smart: GambitPrograms = {
     security: [
       { target: "foeIsHealer", action: "attack" },

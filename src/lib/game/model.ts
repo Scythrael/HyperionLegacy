@@ -6127,7 +6127,8 @@ export interface AwayMember {
   traits: AwayTraitId[]; // rolled trait ids; the count follows rank
   assignedShipId: string | null; // the ship whose squad holds the member (the authority, like officers); null = unassigned
   injuredUntilSeconds?: number; // gameTimeSeconds the member recovers at (D9); absent = ready
-  // The member's OWN gambit program (D16, Security only); absent = the preset default.
+  // The member's OWN gambit program (D16, Security only). ABSENT = the account's Security program
+  // (state.gambitPrograms.security) at the moment the roster is snapshotted at dispatch (E-CREW Task 13).
   gambit?: GambitProgram;
   favorite?: boolean; // curation flag only, parity with officers / notables
   // The recruit-board candidate id this member was hired from ("away-candidate-<window>-<slot>"). The
@@ -6448,7 +6449,9 @@ export interface GambitRule {
 // An ordered gambit program: rules evaluated top-down, first match fires (per member, per round).
 export type GambitProgram = GambitRule[];
 
-// The two away-team roles the player writes programs for.
+// The two away-team roles programs are stored for. E-CREW 0.14.0 (Task 13): only SECURITY programs ever
+// run (Science never enters a battle, design D2). "science" stays in the union, and GambitPrograms keeps
+// its two-key shape, so an old save carrying a Science program loads unchanged; nothing executes it.
 export type GambitRole = "security" | "science";
 
 // The player's ACCOUNT-LEVEL program pair (one per role). Every away team uses this pair, first-pass; a
@@ -6461,9 +6464,10 @@ export interface GambitPrograms {
 
 // The DEFAULT program pair a fresh save starts from and the v61->v62 migration seeds onto existing saves.
 // This IS the "Balanced" preset (gambit.ts GAMBIT_PRESETS references this constant, single source of
-// truth): a sensible general pair -- Security kills the enemy healer, then the biggest threat, then
-// finishes the wounded, then hits the nearest; Science heals a hurt ally, cleanses afflictions, secures
-// the objective, and covers when itself is low. FIRST-PASS TUNABLE.
+// truth): Security kills the enemy healer, then the biggest threat, then finishes the wounded, then hits
+// the nearest. E-CREW 0.14.0 (Task 13): the Science program is EMPTY, since Science never enters a battle
+// (it used to heal, cleanse and secure an objective track that no longer exists). An existing save keeps
+// whatever Science program it stored; nothing executes it. FIRST-PASS TUNABLE.
 export const DEFAULT_GAMBIT_PROGRAMS: GambitPrograms = {
   security: [
     { target: "foeIsHealer", action: "attack" },
@@ -6471,12 +6475,7 @@ export const DEFAULT_GAMBIT_PROGRAMS: GambitPrograms = {
     { target: "foeLowestHp", action: "execute" },
     { target: "foeNearest", action: "attack" },
   ],
-  science: [
-    { target: "allyHpBelow", params: { hpThreshold: 0.5 }, action: "aidHeal" },
-    { target: "allyHasStatus", action: "cure" },
-    { target: "self", action: "secureObjective" },
-    { target: "selfHpBelow", params: { hpThreshold: 0.4 }, action: "takeCover" },
-  ],
+  science: [],
 };
 
 // A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,

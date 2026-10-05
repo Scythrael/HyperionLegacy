@@ -184,12 +184,10 @@
   function progEq(a: GambitProgram, b: GambitProgram): boolean {
     return a.length === b.length && a.every((r, i) => ruleEq(r, b[i]));
   }
+  // E-CREW (Task 13): presets are Security-only and nothing executes a Science program, so the match reads
+  // the Security program alone (an old save's leftover Science program must not hide its preset).
   $: matchedPreset =
-    GAMBIT_PRESETS.find(
-      (p) =>
-        progEq(p.programs.security, state.gambitPrograms.security) &&
-        progEq(p.programs.science, state.gambitPrograms.science),
-    ) ?? null;
+    GAMBIT_PRESETS.find((p) => progEq(p.programs.security, state.gambitPrograms.security)) ?? null;
 
   // --- Edit helpers (build a rule + route to the host; NO local mutation) -----
   function patchRule(index: number, patch: Partial<GambitRule>): void {

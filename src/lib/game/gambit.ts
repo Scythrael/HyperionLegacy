@@ -15,8 +15,17 @@
 //      device the rest of the expedition engine uses (expedition.ts): re-resolving an activity at a later
 //      `consumed` value yields the identical battle, and the done-latch stops any re-award.
 //   2. The away-team strength + the gambit program pair are SNAPSHOTTED onto the Expedition at dispatch
-//      (Expedition.securityStrength / scienceStrength / teamKit / gambitPrograms). Resolution reads ONLY
-//      the stored expedition, so advanceExpedition needs no GameState and one-big == many-small holds.
+//      (Expedition.securityStrength / scienceStrength / teamKit / gambitPrograms), and since E-CREW Task 12
+//      so is the named roster (Expedition.roster: each member's converted stats, effects and OWN program).
+//      Resolution reads ONLY the stored expedition, so advanceExpedition needs no GameState and one-big ==
+//      many-small holds.
+//
+// E-CREW 0.14.0 (Task 13), THE SQUAD SPLIT (design D2 / D16 / section 10): SECURITY FIGHTS, SCIENCE NEVER
+// ENTERS A BATTLE (with or without a roster). Each Security member runs its OWN program; curing (cure /
+// aidHeal) comes from a medic trait or a heal tool inside Security; a battle ends ONLY when the enemies are
+// cleared or the team falls (the old "secure the objective" mid-fight win is gone). A ship with no Security
+// roster fields the anonymous crew-derived Security detail (buildTeamCombatants), so no ship is ever
+// blocked by an empty roster.
 //   3. ADDITIVE-NEUTRAL: nothing here runs on a no-expedition tick. The catalogs are static data touched
 //      only inside the activities path, so a save with no expedition is byte-identical to before.
 //
@@ -50,6 +59,8 @@ import type {
   EquipmentRarity,
   CrewProfession,
   SeniorStaffSeat,
+  SecuritySpec,
+  SnapshotMember,
 } from "./model";
 import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
@@ -67,26 +78,35 @@ const SECURITY_BASE_HP = 45;
 const SECURITY_BASE_POWER = 11;
 const SECURITY_BASE_ARMOR = 3;
 const SECURITY_BASE_ACCURACY = 0.9; // 0..1 hit chance before Suppressed
-const SCIENCE_BASE_HP = 32;
-const SCIENCE_BASE_POWER = 4; // Science is a weak attacker; its value is support/cure/secure
-const SCIENCE_BASE_ARMOR = 2;
-const SCIENCE_BASE_ACCURACY = 0.8;
-const SCIENCE_BASE_HEAL = 14; // HP restored by aidHeal (before scaling)
 
-// How crew strength scales a team member. securityStrength / scienceStrength (deriveAwayTeam) are
-// unit-ish scalars; each point adds a fraction to power + HP so more/better crew hits harder + lasts.
+// How crew strength scales a team member. securityStrength (deriveAwayTeam) is a unit-ish scalar; each
+// point adds a fraction to power + HP so more/better crew hits harder + lasts. With a named roster the
+// strength is the SQUAD-WIDE crew layer, shared evenly across the deployed members.
 const STRENGTH_POWER_COEFF = 0.9; // +0.9 power per strength point (shared across the detail)
 const STRENGTH_HP_COEFF = 4; // +4 HP per strength point
-const STRENGTH_HEAL_COEFF = 1.2; // +1.2 heal per Science strength point
 
-// Team size bands (more crew fields more bodies, so ally-targeting gambits matter). A bare ship still
-// fields ONE of each so an activity always resolves.
+// Anonymous Security detail size (no roster): more crew fields more bodies, so ally-targeting gambits
+// matter. A bare ship still fields ONE so an activity always resolves.
 const SEC_MEMBERS_MIN = 1;
 const SEC_MEMBERS_MAX = 4;
 const SEC_STRENGTH_PER_MEMBER = 6; // one extra Security body per this much strength
-const SCI_MEMBERS_MIN = 1;
-const SCI_MEMBERS_MAX = 2;
-const SCI_STRENGTH_PER_MEMBER = 8;
+
+// --- E-CREW (Task 13): named Security members (FIRST-PASS TUNABLE) ---
+// Base adjustments by Security spec, on top of the Security base line above. Offense hits harder, Defense
+// is tougher, Debuff lands afflictions (a small base status chance, an absolute chance).
+const SECURITY_SPEC_BASE: Record<SecuritySpec, { hp: number; power: number; armor: number; statusChance: number }> = {
+  offense: { hp: 0, power: 2, armor: 0, statusChance: 0 },
+  defense: { hp: 10, power: 0, armor: 1, statusChance: 0 },
+  debuff: { hp: 0, power: 0, armor: 0, statusChance: 0.1 },
+};
+const MEMBER_ACCURACY_CAP = 0.99; // gear + traits can never make a member a sure hit
+const MEMBER_STATUS_CHANCE_CAP = 0.9; // the most any member's on-hit affliction chance reaches
+const MEDIC_BASE_HEAL = 12; // aidHeal amount a medic-trait member brings bare-handed
+// GEAR EFFECTS SCALE WITH STAT LINES (a piece's summed ground points). A Standard-Issue baseline has every
+// line at 0, so its effect has no strength: a Standard-Issue Med Kit heals nothing on its own.
+const HEAL_PER_GEAR_POINT = 0.6; // aidHeal per point of a heal tool (an iLevel 10 crafted Med Kit, ~20 points, heals ~12)
+const GROUP_HIT_PER_POINT = 0.015; // splash fraction per point of a group-hit weapon
+const GROUP_HIT_CAP = 0.6; // the most of a strike's damage that splashes onto the target's group
 
 // --- Team kit (consumable cures/stims) ---
 const TEAM_KIT_BASE = 2; // a bare team carries this many kit consumables per battle
@@ -100,8 +120,6 @@ const OFFICER_STRENGTH = 3; // a relevant assigned officer adds this much streng
 // --- Battle loop ---
 const MAX_ROUNDS = 40; // hard bound so a stalemate can never loop forever (a timeout counts as a loss)
 export const MAX_BATTLE_ATTEMPTS = 3; // deterministic retries before an activity EVACUATES (see resolveExpeditionActivity)
-const OBJECTIVE_TARGET = 100; // secure track: reaching this WINS the fight mid-combat
-const SECURE_PER_ACTION = 34; // objective progress one secureObjective action adds (~3 actions to secure)
 
 // --- Damage / action tuning ---
 const DAMAGE_VARIANCE_MIN_PERMILLE = 850; // damage roll in [0.85, 1.15]x
@@ -161,8 +179,9 @@ const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + rel
 // attack-nearest program loses to attrition while a smart one decapitates.
 export type EnemyRole = "bruiser" | "striker" | "healer" | "caster" | "swarm";
 
-// A ground combatant's role is a team role (security/science) OR an enemy role. The interpreter treats
-// them uniformly; role only picks which program drives the combatant + gates legal actions for team roles.
+// A ground combatant's role is a team role OR an enemy role. The interpreter treats them uniformly; role
+// only picks which program drives the combatant + gates legal actions for team roles. Since E-CREW Task 13
+// the only team role that ever fights is "security" ("science" stays in the union so old data types check).
 export type GroundRole = GambitRole | EnemyRole;
 
 // Enemy behaviors expressed as gambit programs, run through the SAME interpreter (proving it is
@@ -220,6 +239,16 @@ export interface GroundCombatant {
   statuses: GroundStatus[];
   statusOnHit?: { id: GambitStatusId; permille: number }; // e.g. a Caster applies this on a landed attack
   downed: boolean;
+  // --- E-CREW (Task 13): a NAMED Security member (buildRosterCombatants). Every field is OPTIONAL and
+  // absent on anonymous team members and enemies, so their battles draw and act exactly as before. ---
+  memberId?: string; // the AwayMember this combatant is
+  program?: GambitProgram; // the member's OWN program (overrides the role-wide program)
+  medic?: boolean; // may use cure / aidHeal (a medic trait or a heal tool)
+  onHitStatuses?: { id: GambitStatusId; permille: number }[]; // inflict gear: rolled after a landed strike
+  groupHit?: number; // fraction of a landed attack/execute that splashes onto the target's group
+  resists?: Partial<Record<GambitStatusId, number>>; // permille chance to shrug off each status
+  firstStrike?: boolean; // acts before the other team members on the opening round
+  guardBelow?: number; // takes enemy strikes meant for an ally below this HP fraction
 }
 
 // ============================================================================
@@ -236,6 +265,13 @@ const SECURITY_LEGAL: ReadonlySet<GambitActionId> = new Set<GambitActionId>([
   "fallBack",
   "hold",
 ]);
+// E-CREW (Task 13): the MEDIC actions. A Security program MAY contain them (the editor offers them and the
+// Triage preset leads with them), but at runtime they fire only for a member who is a medic (a medic trait
+// or a heal tool, GroundCombatant.medic); for anyone else the rule is skipped and the next one is tried.
+const MEDIC_ACTIONS: ReadonlySet<GambitActionId> = new Set<GambitActionId>(["cure", "aidHeal"]);
+// The legacy Science action set. Science NEVER enters a battle since Task 13, so nothing executes a
+// Science program any more; the set stays only so validateGambitProgram("science", ...) still answers for
+// an old save's stored Science program (GambitPrograms keeps its shape for backward compatibility).
 const SCIENCE_LEGAL: ReadonlySet<GambitActionId> = new Set<GambitActionId>([
   "cure",
   "aidHeal",
@@ -248,12 +284,22 @@ const SCIENCE_LEGAL: ReadonlySet<GambitActionId> = new Set<GambitActionId>([
   "hold",
 ]);
 
-// Is an action legal for a role? Team roles are gated to their action set; enemy roles run controlled
+// May a program for this role CONTAIN the action? Team roles are gated to their action set (Security
+// includes the medic actions, which fire only for a medic: see canActorUse); enemy roles run controlled
 // internal programs, so every action they use is legal (the gate exists to constrain PLAYER programs).
 export function isActionLegalForRole(role: GroundRole, action: GambitActionId): boolean {
-  if (role === "security") return SECURITY_LEGAL.has(action);
+  if (role === "security") return SECURITY_LEGAL.has(action) || MEDIC_ACTIONS.has(action);
   if (role === "science") return SCIENCE_LEGAL.has(action);
   return true; // enemy roles
+}
+
+// Can THIS combatant perform the action right now? The role gate, plus the medic gate: a Security member
+// may cure / aidHeal only when it is a medic (design section 10: curing comes from medic traits and kit
+// items inside Security). The resolver's legality check. Pure.
+export function canActorUse(actor: GroundCombatant, action: GambitActionId): boolean {
+  if (!isActionLegalForRole(actor.role, action)) return false;
+  if (actor.role === "security" && MEDIC_ACTIONS.has(action)) return actor.medic === true;
+  return true;
 }
 
 // A single flagged illegal rule (its index in the program + why), for the E3b editor.
@@ -265,7 +311,8 @@ export interface GambitProgramIssue {
 
 // Validate a program for a role: return the rules whose action is not legal for that role. PURE. The E3b
 // editor surfaces these; the resolver independently SKIPS illegal rules (defense in depth), so a stored
-// program can never make a Science member throw a punch.
+// program can never make a member do what its role cannot. A Security medic action is NOT an issue: it is
+// legal to write and simply does not fire for a member who is not a medic.
 export function validateGambitProgram(role: GambitRole, program: GambitProgram): GambitProgramIssue[] {
   const issues: GambitProgramIssue[] = [];
   program.forEach((rule, index) => {
@@ -293,10 +340,13 @@ function cloneProgramsData(p: GambitPrograms): GambitPrograms {
   return { security: p.security.map(cloneRule), science: p.science.map(cloneRule) };
 }
 
+// E-CREW (Task 13): rewritten for SECURITY ONLY (design D16: "the six preset titles stay"). Science never
+// enters a battle, so every preset's Science program is empty and nothing executes one. Each Security
+// program runs PER MEMBER (a newly hired member is seeded from one). Medic rules (cure / aidHeal) fire only
+// for a medic member and are skipped by everyone else, so one preset serves a mixed squad.
 export const GAMBIT_PRESETS: readonly GambitPreset[] = [
   {
-    // Establish Dominance: Security taunts + smashes the biggest/threat to hold aggro; Science keeps the
-    // tank up + secures.
+    // Establish Dominance: taunt the biggest body to hold aggro, then smash the biggest threat.
     id: "establishDominance",
     title: "Establish Dominance",
     programs: {
@@ -305,16 +355,11 @@ export const GAMBIT_PRESETS: readonly GambitPreset[] = [
         { target: "foeHighestThreat", action: "attack" },
         { target: "foeNearest", action: "attack" },
       ],
-      science: [
-        { target: "allyHpBelow", params: { hpThreshold: 0.6 }, action: "aidHeal" },
-        { target: "allyHasStatus", action: "cure" },
-        { target: "self", action: "secureObjective" },
-      ],
+      science: [],
     },
   },
   {
-    // Decapitate: kill the enemy healer, then the caster, then the biggest threat. Science analyzes the
-    // healer (armor down) so it dies faster, and triages.
+    // Decapitate: kill the enemy healer, then the caster, then the biggest threat.
     id: "decapitate",
     title: "Decapitate",
     programs: {
@@ -324,60 +369,50 @@ export const GAMBIT_PRESETS: readonly GambitPreset[] = [
         { target: "foeHighestThreat", action: "attack" },
         { target: "foeNearest", action: "attack" },
       ],
-      science: [
-        { target: "allyHpBelow", params: { hpThreshold: 0.45 }, action: "aidHeal" },
-        { target: "foeIsHealer", action: "analyze" },
-        { target: "allyHasStatus", action: "cure" },
-        { target: "self", action: "secureObjective" },
-      ],
+      science: [],
     },
   },
   {
-    // Turtle Club President: defense first -- taunt the threat, brace, shield + cover. Wins by outlasting.
+    // Turtle Club President: defense first. Taunt the threat, brace when hurt, a medic patches the wounded.
+    // Wins by outlasting.
     id: "turtleClubPresident",
     title: "Turtle Club President",
     programs: {
       security: [
         { target: "foeHighestThreat", action: "taunt" },
         { target: "selfHpBelow", params: { hpThreshold: 0.6 }, action: "brace" },
+        { target: "allyHpBelow", params: { hpThreshold: 0.5 }, action: "aidHeal" },
         { target: "foeNearest", action: "attack" },
       ],
-      science: [
-        { target: "allyHpBelow", params: { hpThreshold: 0.6 }, action: "shieldAlly" },
-        { target: "allyHpBelow", params: { hpThreshold: 0.4 }, action: "aidHeal" },
-        { target: "allyHasStatus", action: "cure" },
-        { target: "selfHpBelow", params: { hpThreshold: 0.5 }, action: "takeCover" },
-      ],
+      science: [],
     },
   },
   {
-    // Triage: cure/heal above all; Security finishes the wounded. Keeps a squad alive through affliction-
-    // heavy fights.
+    // Triage: MEDIC PRIORITY. A medic cures and heals above all; everyone spends team kit on an afflicted
+    // ally, then finishes the wounded. Keeps a squad alive through affliction-heavy fights.
     id: "triage",
     title: "Triage",
     programs: {
       security: [
+        { target: "allyHasStatus", action: "cure" },
+        { target: "allyHpBelow", params: { hpThreshold: 0.75 }, action: "aidHeal" },
+        { target: "allyHasStatus", action: "useItem" },
         { target: "foeLowestHp", action: "execute" },
         { target: "foeNearest", action: "attack" },
       ],
-      science: [
-        { target: "allyHasStatus", action: "cure" },
-        { target: "allyHpBelow", params: { hpThreshold: 0.75 }, action: "aidHeal" },
-        { target: "allyLowestHp", action: "aidHeal" },
-        { target: "self", action: "secureObjective" },
-      ],
+      science: [],
     },
   },
   {
-    // Balanced: the sensible general pair == DEFAULT_GAMBIT_PROGRAMS (single source of truth, so the
+    // Balanced: the sensible general program == DEFAULT_GAMBIT_PROGRAMS (single source of truth, so the
     // fresh-save default and this preset can never drift).
     id: "balanced",
     title: "Balanced",
     programs: DEFAULT_GAMBIT_PROGRAMS,
   },
   {
-    // Custom: an empty starter the player fills in. An all-empty pair makes both members HOLD every round
-    // (they do nothing), so a fresh Custom loses -- which is the point of a starter you must build.
+    // Custom: an empty starter the player fills in. An empty program makes a member HOLD every round (it
+    // does nothing), so a fresh Custom loses, which is the point of a starter you must build.
     id: "custom",
     title: "Custom",
     programs: { security: [], science: [] },
@@ -591,26 +626,58 @@ function dealDamage(target: GroundCombatant, amount: number): void {
   }
 }
 
+// Try to apply a status to a target that may RESIST it (E-CREW Task 13: a named member's resists, from
+// traits + resistStatus gear). The resist roll draws ONE rng step, and ONLY when the target has a resist
+// above 0 for that status, so a target with no resists (every enemy, every anonymous member) draws exactly
+// as before. Returns whether the status landed.
+function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng): boolean {
+  const resist = target.resists?.[id] ?? 0;
+  if (resist > 0 && rng.chance(resist, 1000)) return false;
+  applyStatus(target, id);
+  return true;
+}
+
 // Perform an offensive strike (attack / suppress / execute): a hit-check, then damage + any on-hit
-// affliction. `mult` scales base damage (execute bonus / suppress reduction). Draw order: hit-check, then
-// (on hit) the damage variance, then (on hit, if any) the on-hit-status roll -- a fixed, documented order.
+// affliction. `mult` scales base damage (execute bonus / suppress reduction). Draw order, fixed and
+// documented: hit-check, then (on hit) the damage variance, then the group-hit splash (no draw), then (on
+// hit, if any) the attacker's statusOnHit roll (+ the target's resist roll), then each of the attacker's
+// onHitStatuses in order (its chance roll, + the target's resist roll). Combatants with no splash, no
+// onHitStatuses and no resists (enemies, anonymous members) draw exactly the pre-E-CREW sequence.
 function doStrike(
   attacker: GroundCombatant,
   target: GroundCombatant,
   rng: Rng,
   mult: number,
   applyOnHit: boolean,
+  state: BattleState,
 ): void {
   const hit = rng.chance(Math.round(effectiveAccuracy(attacker) * 1000), 1000);
   if (!hit) return; // a clean miss (the hit-check draw was still consumed, keeping the stream position fixed)
   const dmg = rollDamage(attacker, target, rng, mult);
   dealDamage(target, dmg);
+  // Group hit (Scattergun): a share of the landed damage splashes onto every OTHER alive foe of the
+  // target's group, in id order. No draw. Its share comes from the weapon's own stat lines.
+  if (applyOnHit && attacker.groupHit && attacker.groupHit > 0) {
+    const splash = Math.round(dmg * attacker.groupHit);
+    if (splash >= 1) {
+      const group = state.combatants
+        .filter((c) => !c.downed && c.side === target.side && c.id !== target.id && c.groupTag === target.groupTag)
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      for (const c of group) dealDamage(c, splash);
+    }
+  }
   if (applyOnHit && attacker.statusOnHit && !target.downed) {
-    if (rng.chance(attacker.statusOnHit.permille, 1000)) applyStatus(target, attacker.statusOnHit.id);
+    if (rng.chance(attacker.statusOnHit.permille, 1000)) tryApplyStatus(target, attacker.statusOnHit.id, rng);
+  }
+  if (applyOnHit && attacker.onHitStatuses) {
+    for (const inflict of attacker.onHitStatuses) {
+      if (target.downed) break;
+      if (rng.chance(inflict.permille, 1000)) tryApplyStatus(target, inflict.id, rng);
+    }
   }
 }
 
-// Apply a resolved rule's action. Mutates the working battle clone (combatants + objective) in place.
+// Apply a resolved rule's action. Mutates the working battle clone (combatants + battle state) in place.
 // Returns whether the action DID something (used only for readability; the resolver already committed to
 // this rule). Unknown/illegal actions are treated as hold.
 function applyAction(
@@ -622,18 +689,18 @@ function applyAction(
 ): void {
   switch (action) {
     case "attack":
-      if (target) doStrike(actor, target, rng, 1, true);
+      if (target) doStrike(actor, target, rng, 1, true, state);
       return;
     case "suppress":
       if (target) {
-        doStrike(actor, target, rng, SUPPRESS_DAMAGE_MULT, false);
-        if (!target.downed) applyStatus(target, "suppressed");
+        doStrike(actor, target, rng, SUPPRESS_DAMAGE_MULT, false, state);
+        if (!target.downed) tryApplyStatus(target, "suppressed", rng);
       }
       return;
     case "execute": {
       if (!target) return;
       const low = target.hp < target.hpMax * EXECUTE_HP_FRACTION;
-      doStrike(actor, target, rng, low ? EXECUTE_BONUS_MULT : 1, true);
+      doStrike(actor, target, rng, low ? EXECUTE_BONUS_MULT : 1, true, state);
       return;
     }
     case "taunt":
@@ -664,7 +731,8 @@ function applyAction(
       if (target) clearDebuffs(target, state.pendingCureStatusId);
       return;
     case "secureObjective":
-      state.objective = Math.min(OBJECTIVE_TARGET, state.objective + SECURE_PER_ACTION);
+      // E-CREW (Task 13): the objective track is GONE (a battle ends only on clear or wipe). The id stays in
+      // the action union for old stored Science programs; it is Science-only, and Science never fights.
       return;
     case "useItem":
       // Spend a team-kit consumable to cleanse the target ally (works with no Science curer). Only fires
@@ -688,23 +756,24 @@ function applyAction(
 // ============================================================================
 // A single round-event the E3b battle readout renders. This is a PURE OBSERVATION of what the interpreter
 // did in a round: it is populated ONLY when a caller attaches a log sink to the BattleState / resolver, and
-// recording only READS combatant/objective state around applyAction (it never draws rng and never mutates
-// combat state), so a battle with logging on is byte-identical to one with it off. The UI RE-DERIVES this
+// recording only READS combatant state around applyAction (it never draws rng and never mutates combat
+// state), so a battle with logging on is byte-identical to one with it off. The UI RE-DERIVES this
 // on demand from the stored expedition seed (deriveExpeditionActivityLog); it is NEVER written to the save,
 // so it stays out of the crown-jewel parity deep-equal by construction.
 export interface GambitLogEvent {
   round: number; // 1-based round number
   side: "team" | "enemy";
   role: GroundRole; // the acting combatant's role
+  memberId?: string; // E-CREW (Task 13): the acting named member, when the actor is one
   action: GambitActionId | "hold"; // "hold" == no rule matched this round
   targetSide?: "team" | "enemy";
   targetRole?: GroundRole;
+  targetMemberId?: string; // E-CREW (Task 13): the target named member, when the target is one
   hpDelta?: number; // negative = damage dealt to the target, positive = healed
   downed?: boolean; // the action downed the target
   missed?: boolean; // an offensive strike that missed (no hp change, target still up)
   statusApplied?: boolean; // the action put a new status on the target (suppress/analyze/brace/shield/...)
   statusCleared?: boolean; // a cure/useItem cleansed a debuff off the target
-  objectiveDelta?: number; // secureObjective progress this action added
 }
 
 // The mutable per-battle state the interpreter reads + writes. GENERIC over combatants, so a future
@@ -712,7 +781,6 @@ export interface GambitLogEvent {
 export interface BattleState {
   combatants: GroundCombatant[];
   round: number;
-  objective: number; // 0..OBJECTIVE_TARGET
   teamKit: number; // remaining team-kit consumables (useItem draws from this)
   tauntedBy: { id: string; remaining: number } | null; // a team member currently pulling enemy aggro
   pendingCureStatusId?: GambitStatusId; // the statusId a firing cure/useItem rule targets (threaded per-eval)
@@ -734,17 +802,20 @@ function actionNeedsTarget(action: GambitActionId): boolean {
   }
 }
 
-// Does a candidate rule actually FIRE for this actor right now? A rule fires when its action is legal for
-// the actor's role, its target resolves (for target-needing actions), and any resource/precondition holds
-// (useItem needs kit + a cleansable target; cure needs a cleansable target). Returns the resolved target
-// (or null for a targetless action) when it fires, else undefined (try the next rule). This is what makes
-// FIRST-MATCH meaningful: a rule that cannot do anything is skipped, not wasted.
+// Does a candidate rule actually FIRE for this actor right now? A rule fires when the actor can use its
+// action (canActorUse: the role gate + the medic gate), its target resolves (for target-needing actions),
+// and any resource/precondition holds (useItem needs kit + a cleansable target; cure needs a cleansable
+// target; aidHeal needs an actor that actually heals, so a Standard-Issue Med Kit with no stat lines does
+// not waste the turn). Returns the resolved target (or null for a targetless action) when it fires, else
+// undefined (try the next rule). This is what makes FIRST-MATCH meaningful: a rule that cannot do anything
+// is skipped, not wasted.
 function ruleFires(
   rule: GambitRule,
   actor: GroundCombatant,
   state: BattleState,
 ): { fires: true; target: GroundCombatant | null } | { fires: false } {
-  if (!isActionLegalForRole(actor.role, rule.action)) return { fires: false };
+  if (!canActorUse(actor, rule.action)) return { fires: false };
+  if (rule.action === "aidHeal" && Math.round(actor.heal) < 1) return { fires: false };
   const needsTarget = actionNeedsTarget(rule.action);
   const target = resolveTarget(rule.target, rule.params, actor, state);
   if (needsTarget && !target) return { fires: false };
@@ -786,14 +857,15 @@ function fireRule(
   const hpBefore = target ? target.hp : 0;
   const downedBefore = target ? target.downed : false;
   const statusesBefore = target ? target.statuses.length : 0;
-  const objectiveBefore = state.objective;
   state.pendingCureStatusId = rule.params?.statusId;
   applyAction(rule.action, actor, target, rng, state);
   state.pendingCureStatusId = undefined;
   const ev: GambitLogEvent = { round: state.round + 1, side: actor.side, role: actor.role, action: rule.action };
+  if (actor.memberId) ev.memberId = actor.memberId;
   if (target) {
     ev.targetSide = target.side;
     ev.targetRole = target.role;
+    if (target.memberId) ev.targetMemberId = target.memberId;
     const delta = target.hp - hpBefore;
     if (delta !== 0) ev.hpDelta = delta;
     if (target.downed && !downedBefore) ev.downed = true;
@@ -802,13 +874,15 @@ function fireRule(
     const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
     if (offensive && delta === 0 && !target.downed) ev.missed = true;
   }
-  if (state.objective > objectiveBefore) ev.objectiveDelta = state.objective - objectiveBefore;
   state.log.push(ev);
 }
 
 // Record an actor holding (no rule matched) -- only when a log sink is present.
 function recordHold(state: BattleState, actor: GroundCombatant): void {
-  if (state.log) state.log.push({ round: state.round + 1, side: actor.side, role: actor.role, action: "hold" });
+  if (!state.log) return;
+  const ev: GambitLogEvent = { round: state.round + 1, side: actor.side, role: actor.role, action: "hold" };
+  if (actor.memberId) ev.memberId = actor.memberId;
+  state.log.push(ev);
 }
 
 // Evaluate a program TOP-DOWN for one actor and ACT on the FIRST matching rule. Returns nothing; mutates
@@ -824,9 +898,12 @@ export function evaluateAndAct(program: GambitProgram, actor: GroundCombatant, s
   recordHold(state, actor);
 }
 
-// The program that drives a combatant: the snapshotted team pair for team roles, the enemy role program
-// for enemies.
+// The program that drives a combatant: a named member's OWN program (E-CREW Task 13, per-member gambits);
+// else the snapshotted role-wide Security program for an anonymous team member; else the enemy role
+// program. A "science" combatant never reaches a battle any more (nothing executes a Science program); the
+// branch stays only so a hand-built test combatant of that role still type-checks and holds.
 function programFor(actor: GroundCombatant, programs: GambitPrograms): GambitProgram {
+  if (actor.program) return actor.program;
   if (actor.role === "security") return programs.security;
   if (actor.role === "science") return programs.science;
   return ENEMY_ROLE_PROGRAMS[actor.role as EnemyRole] ?? [];
@@ -840,6 +917,24 @@ function enemyTargetOverride(state: BattleState): GroundCombatant | null {
   return taunter ?? null;
 }
 
+// E-CREW (Task 13, the Bulwark trait): an enemy strike aimed at a team member below a guard's HP line is
+// taken by that guard instead (the lowest-id alive guard that is not the target itself). Null when there
+// is no such guard, which is always the case for an anonymous team. No rng.
+function guardFor(state: BattleState, target: GroundCombatant | null): GroundCombatant | null {
+  if (!target || target.side !== "team") return null;
+  const guards = state.combatants
+    .filter(
+      (c) =>
+        !c.downed &&
+        c.side === "team" &&
+        c.id !== target.id &&
+        c.guardBelow !== undefined &&
+        target.hp < target.hpMax * c.guardBelow
+    )
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return guards[0] ?? null;
+}
+
 // ============================================================================
 // The battle resolver (deterministic; one atomic fight)
 // ============================================================================
@@ -847,14 +942,15 @@ function enemyTargetOverride(state: BattleState): GroundCombatant | null {
 export interface GroundBattleResult {
   result: "win" | "loss";
   rounds: number;
-  objective: number;
   teamAliveCount: number;
   enemyAliveCount: number;
   teamHpRemaining: number; // summed team HP at the end (a "how decisively" signal for tests/telemetry)
 }
 
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
-// is down OR the objective track is secured; LOSS when the team is wiped or the round cap is hit. Mutates
+// is down; LOSS when the team is wiped or the round cap is hit (E-CREW Task 13: a battle ends ONLY on a
+// clear or a wipe; the old objective track that could win mid-fight is gone). Each named member runs its
+// own program (GroundCombatant.program); `programs.security` drives any anonymous member. Mutates
 // the passed combatants' clones inside a fresh BattleState (the caller owns cloning if it must preserve
 // inputs; buildTeamCombatants + generateEncounter both mint fresh combatants, so callers here pass throwaways).
 export function resolveGroundBattle(
@@ -868,7 +964,6 @@ export function resolveGroundBattle(
   const state: BattleState = {
     combatants: [...team, ...enemies],
     round: 0,
-    objective: 0,
     teamKit,
     tauntedBy: null,
     log,
@@ -880,16 +975,18 @@ export function resolveGroundBattle(
   const summarize = (result: "win" | "loss"): GroundBattleResult => ({
     result,
     rounds: state.round,
-    objective: state.objective,
     teamAliveCount: teamAlive().length,
     enemyAliveCount: enemyAlive().length,
     teamHpRemaining: teamAlive().reduce((sum, c) => sum + c.hp, 0),
   });
 
   while (state.round < MAX_ROUNDS) {
-    // Fixed acting order: team first (by id), then enemies (by id). Stable => deterministic.
+    // Fixed acting order: team first (by id), then enemies (by id). Stable => deterministic. On the
+    // opening round a First Strike member (Quick Draw) acts ahead of the rest of the team.
+    const opening = state.round === 0;
     const order = [...state.combatants].sort((a, b) => {
       if (a.side !== b.side) return a.side === "team" ? -1 : 1;
+      if (opening && !!a.firstStrike !== !!b.firstStrike) return a.firstStrike ? -1 : 1;
       return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
 
@@ -902,13 +999,10 @@ export function resolveGroundBattle(
 
       const program = programFor(actor, programs);
       if (actor.side === "enemy") {
-        // Enemies obey a live taunt: override an offensive foe target onto the taunter. We evaluate the
-        // enemy program but, when its chosen action is an offensive strike, retarget to the taunter.
-        const override = enemyTargetOverride(state);
-        if (override) {
-          evaluateEnemyWithTaunt(program, actor, state, rng, override);
-          continue;
-        }
+        // Enemies obey a live taunt (an offensive strike retargets onto the taunter) and a guard (a strike
+        // at a hurt ally is taken by a Bulwark member). With neither in play this is evaluateAndAct exactly.
+        evaluateEnemy(program, actor, state, rng);
+        continue;
       }
       evaluateAndAct(program, actor, state, rng);
     }
@@ -916,8 +1010,7 @@ export function resolveGroundBattle(
     // End-of-round upkeep: DoT ticks + status duration decrement + taunt decrement.
     tickEndOfRound(state);
 
-    // Win/loss checks (objective can win mid-fight).
-    if (state.objective >= OBJECTIVE_TARGET) return summarize("win");
+    // Win/loss checks: a clear wins, a wipe loses. Nothing else ends a fight.
     if (enemyAlive().length === 0) return summarize("win");
     if (teamAlive().length === 0) return summarize("loss");
     state.round += 1;
@@ -926,20 +1019,17 @@ export function resolveGroundBattle(
   return summarize("loss");
 }
 
-// An enemy under a taunt: run its program but force any offensive strike onto the taunter. Non-offensive
-// actions (a healer's aidHeal on a wounded ally) are unaffected. Keeps the same first-match evaluation.
-function evaluateEnemyWithTaunt(
-  program: GambitProgram,
-  actor: GroundCombatant,
-  state: BattleState,
-  rng: Rng,
-  taunter: GroundCombatant,
-): void {
+// An enemy's turn: the same first-match evaluation as evaluateAndAct, except an offensive strike retargets
+// onto a live taunter, else onto a guard covering a hurt ally (E-CREW Task 13), else keeps its own target.
+// Non-offensive actions (a healer's aidHeal on a wounded ally) are unaffected. With no taunt and no guard
+// in play this is byte-identical to evaluateAndAct.
+function evaluateEnemy(program: GambitProgram, actor: GroundCombatant, state: BattleState, rng: Rng): void {
+  const taunter = enemyTargetOverride(state);
   for (const rule of program) {
     const res = ruleFires(rule, actor, state);
     if (!res.fires) continue;
     const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
-    const target = offensive ? taunter : res.target;
+    const target = offensive ? taunter ?? guardFor(state, res.target) ?? res.target : res.target;
     fireRule(rule, actor, target, state, rng);
     return;
   }
@@ -1047,22 +1137,21 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
   return { securityStrength: security, scienceStrength: science, teamKit };
 }
 
-// Build the team's ground combatants from a snapshot. The strength scalars are distributed across a small
-// squad (more strength -> more bodies AND stronger bodies), so ally-targeting gambits (heal the wounded,
-// cure the poisoned) are load-bearing. A bare snapshot (0/0) yields 1 Security + 1 Science at base stats.
+// Build the ANONYMOUS Security detail from a crew snapshot: the floor a ship with no Security roster
+// fields (design section 5.3), so no ship is ever blocked by an empty squad. The strength scalar is
+// distributed across a small detail (more strength -> more bodies AND stronger bodies). A bare snapshot
+// yields 1 Security member at base stats.
+// E-CREW (Task 13), DELIBERATE CHANGE: the detail is SECURITY ONLY. It used to add 1 to 2 Science bodies;
+// the squad split (Science never enters a battle) applies to every ship, roster or not. scienceStrength is
+// no longer read here (it feeds fieldwork, Task 15).
 // PURE: mints fresh combatants. `idPrefix` keeps ids stable + unique per battle.
 export function buildTeamCombatants(snapshot: AwayTeamSnapshot, idPrefix: string): GroundCombatant[] {
   const secMembers = Math.min(
     SEC_MEMBERS_MAX,
     Math.max(SEC_MEMBERS_MIN, SEC_MEMBERS_MIN + Math.floor(snapshot.securityStrength / SEC_STRENGTH_PER_MEMBER)),
   );
-  const sciMembers = Math.min(
-    SCI_MEMBERS_MAX,
-    Math.max(SCI_MEMBERS_MIN, SCI_MEMBERS_MIN + Math.floor(snapshot.scienceStrength / SCI_STRENGTH_PER_MEMBER)),
-  );
-  // Distribute each division's strength evenly across its members.
+  // Distribute the division's strength evenly across its members.
   const secPer = snapshot.securityStrength / secMembers;
-  const sciPer = snapshot.scienceStrength / sciMembers;
 
   const out: GroundCombatant[] = [];
   for (let i = 0; i < secMembers; i++) {
@@ -1084,26 +1173,112 @@ export function buildTeamCombatants(snapshot: AwayTeamSnapshot, idPrefix: string
       downed: false,
     });
   }
-  for (let i = 0; i < sciMembers; i++) {
-    const hp = Math.round(SCIENCE_BASE_HP + sciPer * STRENGTH_HP_COEFF);
-    const power = SCIENCE_BASE_POWER + sciPer * STRENGTH_POWER_COEFF * 0.5; // Science hits softer even when strong
-    out.push({
-      id: `${idPrefix}-sci-${i}`,
+  return out;
+}
+
+// Build the NAMED Security squad from the roster snapshot (E-CREW Task 13, design section 5.3): one
+// combatant per snapshotted member, in snapshot (deploy) order. Member power =
+//   (Security base + spec base + crew layer) * rank factor * (1 + the member's summed gear/trait bump)
+// for hp / power / armor; accuracy = base * (1 + bump), capped; the crew layer is the squad-wide
+// securityStrength shared evenly across the deployed members (the same coefficients the anonymous detail
+// uses). Effects become combatant fields: a medic trait or a heal tool makes the member a medic; heal,
+// inflict and group-hit strength come from the pieces' own stat lines (GEAR EFFECTS SCALE WITH STAT LINES;
+// weaponRange is positioning only and changes no number here). Each member carries its OWN program.
+// PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (the caller falls back to
+// the anonymous detail).
+export function buildRosterCombatants(
+  members: readonly SnapshotMember[],
+  securityStrength: number,
+  idPrefix: string,
+): GroundCombatant[] {
+  if (members.length === 0) return [];
+  const crewPer = securityStrength / members.length;
+  return members.map((m, i) => {
+    const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
+    const bump = (stat: string): number => m.groundStats[stat] ?? 0;
+    const rf = m.rankFactor;
+    const hp = Math.max(1, Math.round((SECURITY_BASE_HP + spec.hp + crewPer * STRENGTH_HP_COEFF) * rf * (1 + bump("hp"))));
+    const power = Math.max(0, (SECURITY_BASE_POWER + spec.power + crewPer * STRENGTH_POWER_COEFF) * rf * (1 + bump("power")));
+    const armor = Math.max(0, (SECURITY_BASE_ARMOR + spec.armor) * rf * (1 + bump("armor")));
+    const accuracy = Math.max(0, Math.min(MEMBER_ACCURACY_CAP, SECURITY_BASE_ACCURACY * (1 + bump("accuracy"))));
+    const statusChance = Math.max(0, Math.min(MEMBER_STATUS_CHANCE_CAP, spec.statusChance + bump("statusChance")));
+
+    let medicTrait = false;
+    let healPoints = 0;
+    let hasHealTool = false;
+    let groupPoints = 0;
+    let firstStrike = false;
+    let guardBelow: number | undefined;
+    const inflicts: GambitStatusId[] = [];
+    for (const e of m.effects) {
+      switch (e.kind) {
+        case "medic":
+          medicTrait = true;
+          break;
+        case "heal":
+          hasHealTool = true;
+          healPoints += e.points;
+          break;
+        case "groupHit":
+          groupPoints += e.points;
+          break;
+        case "inflict":
+          if (!inflicts.includes(e.status)) inflicts.push(e.status);
+          break;
+        case "firstStrike":
+          firstStrike = true;
+          break;
+        case "guard":
+          guardBelow = Math.max(guardBelow ?? 0, e.allyHpBelow);
+          break;
+        // poiYield (fieldwork, Task 15) and revive (Neural Backup, Task 16) are not battle stats here.
+      }
+    }
+    const heal = ((medicTrait ? MEDIC_BASE_HEAL : 0) + healPoints * HEAL_PER_GEAR_POINT) * rf;
+    const permille = Math.round(statusChance * 1000);
+
+    const c: GroundCombatant = {
+      id: `${idPrefix}-sec-${i}`,
       side: "team",
-      role: "science",
+      role: "security",
       hp,
       hpMax: hp,
       power,
-      accuracy: SCIENCE_BASE_ACCURACY,
-      armor: SCIENCE_BASE_ARMOR,
-      heal: SCIENCE_BASE_HEAL + sciPer * STRENGTH_HEAL_COEFF,
+      accuracy,
+      armor,
+      heal,
       threat: power,
-      groupTag: "science",
+      groupTag: "security",
       statuses: [],
       downed: false,
-    });
-  }
-  return out;
+      memberId: m.memberId,
+      program: m.gambit,
+    };
+    if (medicTrait || hasHealTool) c.medic = true;
+    if (permille > 0 && inflicts.length > 0) c.onHitStatuses = inflicts.map((id) => ({ id, permille }));
+    const groupHit = Math.min(GROUP_HIT_CAP, groupPoints * GROUP_HIT_PER_POINT);
+    if (groupHit > 0) c.groupHit = groupHit;
+    const resists: Partial<Record<GambitStatusId, number>> = {};
+    for (const [id, chance] of Object.entries(m.resists) as [GambitStatusId, number][]) {
+      const r = Math.round(chance * 1000);
+      if (r > 0) resists[id] = r;
+    }
+    if (Object.keys(resists).length > 0) c.resists = resists;
+    if (firstStrike) c.firstStrike = true;
+    if (guardBelow !== undefined) c.guardBelow = guardBelow;
+    return c;
+  });
+}
+
+// The team an expedition activity fields: the named Security roster when one deployed, else the anonymous
+// crew-derived Security detail. Science NEVER fights (with or without a roster). PURE.
+export function expeditionTeamCombatants(exp: Expedition, idPrefix: string): GroundCombatant[] {
+  const security = exp.roster?.security ?? [];
+  if (security.length > 0) return buildRosterCombatants(security, exp.securityStrength, idPrefix);
+  return buildTeamCombatants(
+    { securityStrength: exp.securityStrength, scienceStrength: exp.scienceStrength, teamKit: exp.teamKit },
+    idPrefix,
+  );
 }
 
 // ============================================================================
@@ -1313,11 +1488,6 @@ export function resolveExpeditionActivity(
   globalIndex: number,
   logSink?: GambitLogEvent[], // OPTIONAL (E3b): when passed, filled with the DECIDING battle's transient log
 ): ActivityResolution {
-  const snapshot: AwayTeamSnapshot = {
-    securityStrength: exp.securityStrength,
-    scienceStrength: exp.scienceStrength,
-    teamKit: exp.teamKit,
-  };
   const findingId = `${exp.id}-find-act-${activity.id}`;
   const relicId = `${exp.id}-relic-${activity.id}`;
   // Copy an attempt's transient events into the caller's sink (last write wins == the deciding battle).
@@ -1338,7 +1508,8 @@ export function resolveExpeditionActivity(
         Math.imul(attempt + 1, 0x85ebca6b)) >>>
       0;
     const rng = makeRng(battleSeed);
-    const team = buildTeamCombatants(snapshot, `${exp.id}-${activity.id}-a${attempt}`);
+    // E-CREW (Task 13): the named Security roster, else the anonymous Security detail. Never Science.
+    const team = expeditionTeamCombatants(exp, `${exp.id}-${activity.id}-a${attempt}`);
     // E4b: the guard is scaled by the hazard the body PRESENTS to this run (the snapshotted museum
     // hazardResist shrinks it, bounded + never negative; 0 -> the raw hazard, bit-identical). The REWARD
     // rolls below keep the body's RAW hazard on purpose: resisting a world's danger makes the fight

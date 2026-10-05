@@ -284,9 +284,6 @@
   function eventLine(ev: GambitLogEvent): string {
     const who = `${ev.side === "enemy" ? "Enemy " : ""}${roleName(ev.role)}`;
     if (ev.action === "hold") return `${who} holds`;
-    if (ev.action === "secureObjective") {
-      return `${who} secures the objective${ev.objectiveDelta ? ` (+${ev.objectiveDelta})` : ""}`;
-    }
     const verb = EVENT_VERB[ev.action] ?? ev.action;
     let line = `${who} ${verb}`;
     if (ev.targetRole) line += ` ${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}`;

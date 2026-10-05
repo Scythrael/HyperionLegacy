@@ -6,6 +6,14 @@
 //   - trait AND gear effects normalize into one effect list + one capped resist map;
 //   - the snapshot is a pure function with no live references;
 //   - a ship with no roster launches an expedition byte-identical to before (no `roster` field).
+//
+// Task 13, Security-only battles with per-member gambits (gambit.ts):
+//   - Science never enters a battle (roster or anonymous fallback);
+//   - each member runs its OWN program; medic actions fire only for a medic (trait or heal tool);
+//   - gear effects scale with the piece's stat lines (a Standard-Issue Med Kit heals nothing);
+//   - a battle ends only on a clear or a wipe (no objective win);
+//   - presets keep their exact titles and are Security-only;
+//   - determinism: same seed, same log; offline == live through advanceExpedition with a roster.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -25,7 +33,28 @@ import {
   STATUS_RESIST_CAP,
 } from "./awayTeam";
 import { rankMagnitudeFactor } from "./crewRank";
-import { expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, expeditionCandidates, makeExpeditionSeed, startExpedition } from "./expedition";
+import {
+  applyStatus,
+  buildRosterCombatants,
+  buildTeamCombatants,
+  canActorUse,
+  deriveExpeditionActivityLog,
+  evaluateAndAct,
+  expeditionTeamCombatants,
+  generateEncounter,
+  hasStatus,
+  resolveExpeditionActivity,
+  resolveGroundBattle,
+  validateGambitProgram,
+  GAMBIT_PRESETS,
+  type BattleState,
+  type GambitLogEvent,
+  type GroundCombatant,
+} from "./gambit";
+import { planetTypeHazard } from "./expeditionContent";
+import { makeRng } from "./combat/rng";
+import { DEFAULT_GAMBIT_PROGRAMS, type Expedition, type GambitProgram, type SnapshotMember } from "./model";
 
 // ===== fixtures =====
 
@@ -260,5 +289,371 @@ describe("startExpedition stores the roster (and stays byte-identical without on
     expect(exp.roster).toEqual(snapshotAwayRoster(s, ship(s)));
     expect(exp.roster!.security.map((m) => m.memberId)).toEqual(["member-1"]);
     expect(exp.roster!.science.map((m) => m.memberId)).toEqual(["member-2"]);
+  });
+});
+
+// ============================================================================
+// Task 13 fixtures
+// ============================================================================
+
+// A snapshotted Security member with neutral stats; callers override effects / program / stats.
+function snap(memberId: string, over: Partial<SnapshotMember> = {}): SnapshotMember {
+  return {
+    memberId,
+    teamType: "security",
+    spec: "offense",
+    rank: 1,
+    rankFactor: 1,
+    traits: [],
+    groundStats: { hp: 0, power: 0, armor: 0, accuracy: 0, statusChance: 0, fieldwork: 0, relicFind: 0, hazardResist: 0 },
+    resists: {},
+    implants: [],
+    gear: [],
+    gambit: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r })),
+    effects: [],
+    ...over,
+  };
+}
+
+function enemy(id: string, over: Partial<GroundCombatant> = {}): GroundCombatant {
+  return {
+    id,
+    side: "enemy",
+    role: "bruiser",
+    hp: 60,
+    hpMax: 60,
+    power: 8,
+    accuracy: 1,
+    armor: 0,
+    heal: 0,
+    threat: 8,
+    groupTag: "bruiser",
+    statuses: [],
+    downed: false,
+    ...over,
+  };
+}
+
+function battle(combatants: GroundCombatant[]): BattleState {
+  return { combatants, round: 0, teamKit: 0, tauntedBy: null };
+}
+
+// A minimal expedition (one terrestrial body), mirroring gambit.test.ts makeExp.
+function makeExp(over: Partial<Expedition> = {}): Expedition {
+  return {
+    id: "expedition-1",
+    shipId: "ship-1",
+    captainId: 1,
+    targetSystemId: "keplersReach",
+    systemName: "Kepler's Reach",
+    sensorArrayId: null,
+    scanParams: { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 },
+    sensorPower: 0,
+    phase: "transit",
+    phaseAnchorSeconds: 0,
+    shakedown: true,
+    bodies: [
+      { id: "body-1", planetType: "terrestrial", scanTotal: 100, scanProgress: 0, hazard: planetTypeHazard("terrestrial"), scanned: false, discoveries: [], activities: [] },
+    ],
+    anomalyResolved: false,
+    anomalyCharted: false,
+    anomalyOptIn: true,
+    findings: [],
+    seed: 12345,
+    securityStrength: 8,
+    scienceStrength: 6,
+    teamKit: 2,
+    gambitPrograms: { security: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r })), science: [] },
+    scanSpeedBonus: 0,
+    relicFindBonus: 0,
+    hazardResist: 0,
+    ...over,
+  };
+}
+
+const ACT = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "buriedVault", done: false };
+
+// ============================================================================
+describe("Task 13: Science never enters a battle", () => {
+  it("the anonymous fallback fields Security only, at every strength", () => {
+    for (const str of [0, 5, 12, 40]) {
+      const team = buildTeamCombatants({ securityStrength: str, scienceStrength: 50, teamKit: 2 }, "x");
+      expect(team.length).toBeGreaterThan(0);
+      expect(team.every((c) => c.role === "security")).toBe(true);
+    }
+  });
+
+  it("a roster's Science members never become combatants; Security members do, one each", () => {
+    const exp = makeExp({
+      roster: { security: [snap("member-1"), snap("member-2")], science: [snap("member-3", { teamType: "science", spec: "geology" })] },
+    });
+    const team = expeditionTeamCombatants(exp, "x");
+    expect(team.map((c) => c.memberId)).toEqual(["member-1", "member-2"]);
+    expect(team.every((c) => c.role === "security")).toBe(true);
+  });
+
+  it("a Science-only roster falls back to the anonymous Security detail, identical to no roster", () => {
+    const sciOnly = makeExp({ roster: { security: [], science: [snap("member-3", { teamType: "science", spec: "geology" })] } });
+    const none = makeExp();
+    expect(expeditionTeamCombatants(sciOnly, "x")).toEqual(expeditionTeamCombatants(none, "x"));
+    expect(resolveExpeditionActivity(sciOnly, sciOnly.bodies[0], ACT, 0)).toEqual(
+      resolveExpeditionActivity(none, none.bodies[0], ACT, 0)
+    );
+  });
+});
+
+// ============================================================================
+describe("Task 13: per-member gambits", () => {
+  it("two members with two different programs take two different first actions", () => {
+    const tank = snap("member-1", { gambit: [{ target: "foeHighestHp", action: "taunt" }] });
+    const striker = snap("member-2", { gambit: [{ target: "foeNearest", action: "attack" }] });
+    const log: GambitLogEvent[] = [];
+    resolveGroundBattle(
+      buildRosterCombatants([tank, striker], 8, "x"),
+      [enemy("enemy-bruiser-1")],
+      // The role-wide program says HOLD; named members ignore it and run their own.
+      { security: [], science: [] },
+      0,
+      makeRng(42),
+      log
+    );
+    const firstRound = log.filter((e) => e.round === 1 && e.side === "team");
+    expect(firstRound.map((e) => [e.memberId, e.action])).toEqual([
+      ["member-1", "taunt"],
+      ["member-2", "attack"],
+    ]);
+  });
+
+  it("every preset keeps its exact title, is Security-only, and validates clean for Security", () => {
+    expect(GAMBIT_PRESETS.map((p) => p.title)).toEqual([
+      "Establish Dominance",
+      "Decapitate",
+      "Turtle Club President",
+      "Triage",
+      "Balanced",
+      "Custom",
+    ]);
+    for (const p of GAMBIT_PRESETS) {
+      expect(p.programs.science).toEqual([]);
+      expect(validateGambitProgram("security", p.programs.security)).toEqual([]);
+    }
+    // Triage is MEDIC PRIORITY: it leads with the medic actions.
+    const triage = GAMBIT_PRESETS.find((p) => p.title === "Triage")!;
+    expect(triage.programs.security.slice(0, 2).map((r) => r.action)).toEqual(["cure", "aidHeal"]);
+  });
+});
+
+// ============================================================================
+describe("Task 13: medic legality and gear effects that scale with stat lines", () => {
+  const cureFirst: GambitProgram = [
+    { target: "allyHasStatus", action: "cure" },
+    { target: "foeNearest", action: "attack" },
+  ];
+
+  function afflictedAlly(): GroundCombatant {
+    const [ally] = buildRosterCombatants([snap("member-9")], 0, "ally");
+    applyStatus(ally, "poison");
+    return ally;
+  }
+
+  it("a plain Security member cannot cure: the rule is skipped and the next one fires", () => {
+    const [plain] = buildRosterCombatants([snap("member-1", { gambit: cureFirst })], 0, "x");
+    const ally = afflictedAlly();
+    const foe = enemy("enemy-bruiser-1");
+    expect(canActorUse(plain, "cure")).toBe(false);
+    evaluateAndAct(plain.program!, plain, battle([plain, ally, foe]), makeRng(1));
+    expect(hasStatus(ally, "poison")).toBe(true);
+  });
+
+  it("a Field Medic cures; so does a member carrying a Med Kit", () => {
+    for (const effects of [[{ kind: "medic" as const }], [{ kind: "heal" as const, points: 0 }]]) {
+      const [medic] = buildRosterCombatants([snap("member-1", { gambit: cureFirst, effects })], 0, "x");
+      const ally = afflictedAlly();
+      expect(canActorUse(medic, "cure")).toBe(true);
+      evaluateAndAct(medic.program!, medic, battle([medic, ally, enemy("enemy-bruiser-1")]), makeRng(1));
+      expect(hasStatus(ally, "poison")).toBe(false);
+    }
+  });
+
+  it("a Standard-Issue Med Kit (0 lines) heals 0, so aidHeal falls through; a crafted kit heals by its points", () => {
+    const healFirst: GambitProgram = [
+      { target: "allyHpBelow", params: { hpThreshold: 0.9 }, action: "aidHeal" },
+      { target: "self", action: "brace" },
+    ];
+    const [siKit] = buildRosterCombatants([snap("member-1", { gambit: healFirst, effects: [{ kind: "heal", points: 0 }] })], 0, "x");
+    expect(siKit.heal).toBe(0);
+    const hurt = buildRosterCombatants([snap("member-9")], 0, "ally")[0];
+    hurt.hp = 10;
+    evaluateAndAct(siKit.program!, siKit, battle([siKit, hurt, enemy("enemy-bruiser-1")]), makeRng(1));
+    expect(hurt.hp).toBe(10); // no heal fired
+    expect(hasStatus(siKit, "shielded")).toBe(true); // the next rule (brace) fired instead
+
+    const [small] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "heal", points: 10 }] })], 0, "x");
+    const [big] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "heal", points: 40 }] })], 0, "x");
+    expect(small.heal).toBeGreaterThan(0);
+    expect(big.heal).toBeCloseTo(small.heal * 4);
+    // A medic trait adds a bare-handed base heal on top of any kit.
+    const [medicKit] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "medic" }, { kind: "heal", points: 10 }] })], 0, "x");
+    expect(medicKit.heal).toBeGreaterThan(small.heal);
+  });
+
+  it("group hit and inflict take their strength from the stat lines; a Standard-Issue piece adds none", () => {
+    const [siScatter] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "groupHit", points: 0 }] })], 0, "x");
+    expect(siScatter.groupHit).toBeUndefined();
+    const [scatter] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "groupHit", points: 20 }] })], 0, "x");
+    expect(scatter.groupHit).toBeGreaterThan(0);
+
+    // Inflict rolls at the member's statusChance: 0 for an offense member with Standard-Issue lines.
+    const [siBaton] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "inflict", status: "stun", points: 0 }] })], 0, "x");
+    expect(siBaton.onHitStatuses).toBeUndefined();
+    const lines = { ...snap("m").groundStats, statusChance: 0.2 };
+    const [baton] = buildRosterCombatants(
+      [snap("member-1", { groundStats: lines, effects: [{ kind: "inflict", status: "stun", points: 10 }] })],
+      0,
+      "x"
+    );
+    expect(baton.onHitStatuses).toEqual([{ id: "stun", permille: 200 }]);
+  });
+
+  it("a scattergun's splash damages the rest of the target's group", () => {
+    const [scatter] = buildRosterCombatants(
+      [snap("member-1", { gambit: [{ target: "foeNearest", action: "attack" }], effects: [{ kind: "groupHit", points: 40 }] })],
+      0,
+      "x"
+    );
+    scatter.accuracy = 1;
+    const a = enemy("enemy-swarm-1", { groupTag: "swarm", role: "swarm" });
+    const b = enemy("enemy-swarm-2", { groupTag: "swarm", role: "swarm" });
+    const other = enemy("enemy-zbruiser-1");
+    evaluateAndAct(scatter.program!, scatter, battle([scatter, a, b, other]), makeRng(3));
+    expect(a.hp).toBeLessThan(a.hpMax);
+    expect(b.hp).toBeLessThan(b.hpMax);
+    expect(other.hp).toBe(other.hpMax);
+  });
+
+  it("a member's resist can shrug off an enemy affliction", () => {
+    const [immune] = buildRosterCombatants([snap("member-1")], 0, "x");
+    immune.resists = { poison: 1000 };
+    const caster = enemy("enemy-caster-1", { role: "caster", statusOnHit: { id: "poison", permille: 1000 } });
+    evaluateAndAct([{ target: "foeNearest", action: "attack" }], caster, battle([immune, caster]), makeRng(7));
+    expect(immune.hp).toBeLessThan(immune.hpMax); // the hit landed
+    expect(hasStatus(immune, "poison")).toBe(false); // the affliction was resisted
+  });
+
+  it("a Quick Draw member acts first on the opening round; a Bulwark takes hits meant for a hurt ally", () => {
+    const hold: GambitProgram = [];
+    const roster = [
+      snap("member-1", { gambit: hold }),
+      snap("member-2", { gambit: [{ target: "self", action: "brace" }], effects: [{ kind: "firstStrike" }] }),
+      snap("member-3", { gambit: hold, effects: [{ kind: "guard", allyHpBelow: 0.4 }] }),
+    ];
+    const team = buildRosterCombatants(roster, 0, "x");
+    team[0].hp = 5; // member-1 is badly hurt
+    const log: GambitLogEvent[] = [];
+    // A lone striker always goes for the lowest-HP foe (member-1); the Bulwark steps in front.
+    resolveGroundBattle(team, [enemy("enemy-striker-1", { role: "striker", power: 1 })], { security: [], science: [] }, 0, makeRng(5), log);
+    const round1 = log.filter((e) => e.round === 1);
+    expect(round1[0].memberId).toBe("member-2"); // first strike, despite the higher id
+    const strike = round1.find((e) => e.side === "enemy")!;
+    expect(strike.targetMemberId).toBe("member-3");
+  });
+});
+
+// ============================================================================
+describe("Task 13: a battle ends only on a clear or a wipe", () => {
+  it("a team that cannot clear and cannot fall runs to the round cap and LOSES (no objective win)", () => {
+    // A hand-built Science-role actor spamming the old secureObjective (which used to WIN in 3 rounds)
+    // against a foe that can never hit it.
+    const sci: GroundCombatant = {
+      ...enemy("t-sci-0"),
+      side: "team",
+      role: "science",
+      hp: 10_000,
+      hpMax: 10_000,
+      groupTag: "science",
+      program: [{ target: "self", action: "secureObjective" }],
+    };
+    const res = resolveGroundBattle([sci], [enemy("enemy-bruiser-1", { accuracy: 0 })], { security: [], science: [] }, 0, makeRng(9));
+    expect(res.result).toBe("loss");
+    expect(res.teamAliveCount).toBe(1);
+    expect(res.enemyAliveCount).toBe(1);
+    expect("objective" in res).toBe(false);
+  });
+
+  it("every win is a clear and every loss is a wipe or the round cap, across many roster fights", () => {
+    const roster = [snap("member-1"), snap("member-2", { spec: "defense" }), snap("member-3", { effects: [{ kind: "medic" }] })];
+    for (let s = 0; s < 40; s++) {
+      const seed = (0x777 ^ Math.imul(s + 1, 0x9e3779b9)) >>> 0;
+      const res = resolveGroundBattle(
+        buildRosterCombatants(roster, 6, `b${s}`),
+        generateEncounter(seed, 0.4, "buriedVault"),
+        DEFAULT_GAMBIT_PROGRAMS,
+        2,
+        makeRng(seed)
+      );
+      if (res.result === "win") expect(res.enemyAliveCount).toBe(0);
+      else expect(res.teamAliveCount === 0 || res.rounds >= 39).toBe(true);
+    }
+  });
+});
+
+// ============================================================================
+describe("Task 13: determinism with a roster", () => {
+  // A real roster snapshot (members + crafted gear) frozen onto a multi-body expedition.
+  function rosterExp(): Expedition {
+    const s = withRoster(
+      [
+        member("member-1", "security", { traits: ["fieldMedic"], spec: "defense", rank: 3 }),
+        member("member-2", "security", {
+          traits: ["breacher", "quickDraw"],
+          gambit: [
+            { target: "foeIsHealer", action: "attack" },
+            { target: "foeNearest", action: "attack" },
+          ],
+        }),
+        member("member-3", "security", { spec: "debuff", traits: ["bulwark"] }),
+        member("member-4", "science"),
+      ],
+      [
+        worn("equip-901", "memberWeapon", "scattergun", "member-2", { groundPower: 8 }, { groundAccuracy: 6 }),
+        worn("equip-902", "memberWeapon", "shockBaton", "member-3", { groundPower: 5, groundStatusChance: 9 }),
+        worn("equip-903", "memberTool", "medKit", "member-1", { groundHp: 14 }),
+        worn("equip-904", "implant", "toxinFilters", "member-1", { groundStatusResist: 30 }),
+      ]
+    );
+    return makeExp({
+      seed: makeExpeditionSeed(0x2545f491, 9),
+      roster: snapshotAwayRoster(s, ship(s)),
+      bodies: [
+        { id: "body-1", planetType: "toxic", scanTotal: 110, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] },
+        { id: "body-2", planetType: "frozen", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("frozen"), scanned: false, discoveries: [], activities: [] },
+      ],
+    });
+  }
+
+  it("same seed, same battle log", () => {
+    const exp = rosterExp();
+    const act = { ...ACT, poiId: "subterraneanCivilization" };
+    const a = deriveExpeditionActivityLog(exp, exp.bodies[0], act, 1);
+    const b = deriveExpeditionActivityLog(exp, exp.bodies[0], act, 1);
+    expect(a).toEqual(b);
+    expect(a.events.some((e) => e.memberId !== undefined)).toBe(true);
+  });
+
+  it("offline == live: one big advanceExpedition equals many small steps", () => {
+    const big = advanceExpedition(rosterExp(), 300_000);
+    let stepped = rosterExp();
+    for (let t = 100; t <= 300_000; t += 100) stepped = advanceExpedition(stepped, t);
+    expect(stepped).toEqual(big);
+    expect(big.phase).toBe("complete");
+    expect(big.findings.filter((f) => f.source === "activity").length).toBeGreaterThan(0);
+  });
+
+  it("the roster replaces the anonymous detail; without it the anonymous detail fights", () => {
+    const withR = rosterExp();
+    const without = { ...withR };
+    delete without.roster;
+    expect(expeditionTeamCombatants(withR, "x").map((c) => c.memberId)).toEqual(["member-1", "member-2", "member-3"]);
+    expect(expeditionTeamCombatants(without, "x").every((c) => c.memberId === undefined)).toBe(true);
   });
 });

@@ -2370,6 +2370,12 @@ const MIGRATIONS: Record<number, Migration> = {
   // line, so this step is behavior-neutral (and nothing reads stats yet); Task 19 swaps in the real roll
   // behind the same call. Plain values only (no Decimals), so hydrateDecimals is unchanged. Idempotent:
   // `??` only fills an absent field and an officer that already carries stats keeps them.
+  // E-CREW Tasks 12 + 13 add NOTHING here, on purpose: AwayMember.gambit is optional and ABSENT MEANS the
+  // account's Security program at dispatch (design section 10: "every existing account program becomes the
+  // default program a newly hired Security member starts with"), so there is nothing to stamp, and stamping
+  // would freeze a copy that later account edits could no longer reach. Expedition.roster is optional too:
+  // an in-flight expedition without one fields the anonymous Security detail. An old save's Science program
+  // stays stored as-is (GambitPrograms keeps its shape); nothing executes it.
   64: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {
