@@ -285,7 +285,13 @@ implant swap the new implant may render in a different slot than the one tapped;
 add an optional persisted `implantSlotIndex` on the piece, set on install, and sort by it); consider a member compare-preview helper (the ship
 side has applyHypotheticalInstall). Task 9: Quartermaster member baselines MUST carry a moduleVariant whose variety
 has member.teamTypes, or canFitToMember refuses them as wrongTeam. Task 11: add a "worn by" query (wearer of a
-unique variety) for "Installed on Lt. X (Aurora)". Open rule: injured members can currently be given gear (no rule
+unique variety) for "Installed on Lt. X (Aurora)".
+**Carry from Task 9 (`fe11321`):** Standard-Issue member baselines are issued but not yet visible anywhere except the
+Quartermaster row (Logistics "Crew Equipment" tab still locked; Ship Equipment filters member gear): Task 10's new
+tab must list them. EquipmentTooltip names every blueprint-less piece just "Standard-Issue": include the variety
+("Standard-Issue Pulse Rifle") for member pieces. Requisition log line doubles the phrase ("Requisitioned a
+Standard-Issue Security Weapon (Standard-Issue Pulse Rifle)") and requisitionBlockText says "for this slot" on
+member rows: tidy both. Open rule: injured members can currently be given gear (no rule
 says otherwise; fine unless the user objects).
 
 **Files:** `AwayTeamPanel.svelte`, the existing install modal component used by `ShipSystemsPanel.svelte`
@@ -342,6 +348,10 @@ otherwise a new step), tests.
 - Remove the "secure objective" mid-fight win; a battle ends on clear or wipe.
 - Presets keep titles; rewrite rules for Security only; Triage = medic priority.
 
+**Carry from Task 9 review:** gear ground EFFECTS (heal, inflict, groupHit, revive, resistStatus) must scale with the
+piece's stat lines (a Standard-Issue baseline's lines are all 0), so a FREE Quartermaster Med Kit heals ~nothing and a
+free Pulse Rifle's `weaponRange: "long"` gives positioning only, never a free power source. Test: a Standard-Issue
+Med Kit's in-battle heal is 0 (or the floor), a crafted one heals.
 Tests: Science members never appear in combatants; a member's own program fires (two members, two programs,
 two different first actions); the six preset titles are unchanged; determinism (same seed, same log).
 
