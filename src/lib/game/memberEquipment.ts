@@ -231,15 +231,21 @@ export function memberWornIndex(state: GameState): Map<string, EquipmentInstance
   return out;
 }
 
-// Who wears a piece of the member variety `varietyKey` right now: the wearing member and the worn piece, or
-// null when no piece of it is worn (spare copies in storage do not count). Meant for a unique-equipped
+// Who wears a piece of the member variety `varietyKey` in member slot `slotType` right now: the wearing member
+// and the worn piece, or null when no piece of it is worn (spare copies in storage do not count). Matched on
+// the slot too, because a variety key is only unique WITHIN its slot (the gate's own match does the same).
+// Meant for a unique-equipped
 // variety (D11, Neural Backup), which canFitToMember keeps to at most ONE worn in the whole fleet, so "the"
 // wearer is well defined; for an ordinary variety it is simply the first worn piece in pool order. Reads only
 // MEMBER pieces (fittedToMemberId is the authority), so a ship piece never matches. The UI names this member
 // instead of the generic uniqueEquippedElsewhere text. Pure.
-export function uniqueWearer(state: GameState, varietyKey: string): { memberId: string; pieceId: string } | null {
+export function uniqueWearer(
+  state: GameState,
+  varietyKey: string,
+  slotType: MemberSlotType
+): { memberId: string; pieceId: string } | null {
   const worn = state.equipment.find(
-    (e) => !!e.fittedToMemberId && isMemberSlotType(e.slotType) && e.moduleVariant === varietyKey
+    (e) => !!e.fittedToMemberId && e.slotType === slotType && e.moduleVariant === varietyKey
   );
   return worn ? { memberId: worn.fittedToMemberId as string, pieceId: worn.id } : null;
 }

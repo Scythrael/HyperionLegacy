@@ -136,7 +136,7 @@ describe("buildInstallOnRows", () => {
     expect(m2.ok).toBe(false);
     expect(m2.reason).toBe(`Installed on Member m1 (${shipDisplayLabel(wornOnShip, ship)})`);
     expect(m2.replace).toEqual([]);
-    // Another refusal keeps its own text (Neural Backup is wearable by every squad, so use a locked spare).
+    // Another refusal keeps its own text (a locked spare on a Security member, since Neural Backup is Security-only).
     const lockedRows = buildInstallOnRows(
       state([piece("equip-3", "implant", "neuralBackup", { locked: true })], [member("m2", "security")]),
       "equip-3",
@@ -160,9 +160,15 @@ describe("buildInstallOnRows", () => {
     const rows = buildInstallOnRows(s, "equip-2", shipReason);
     const m1 = rows.find((r) => r.targetId === "m1")!;
     expect(m1.ok).toBe(false);
-    expect(m1.reason).toBe("Installed on Member m1 (Security, unassigned)");
+    // Never named to themselves: the wearer's row points at the swap below instead.
+    expect(m1.reason).toBe("Already wears one (swap it below)");
+    expect(m2Row(rows).reason).toBe("Installed on Member m1 (Security, unassigned)");
     expect(m1.replace.map((r) => [r.id, r.name, r.ok])).toEqual([["equip-1", "Neural Backup", true]]);
     // Usable (it has an installable swap), so it sorts above the blocked m2.
     expect(rows.map((r) => r.targetId)).toEqual(["m1", "m2"]);
   });
 });
+
+function m2Row(rows: ReturnType<typeof buildInstallOnRows>) {
+  return rows.find((r) => r.targetId === "m2")!;
+}

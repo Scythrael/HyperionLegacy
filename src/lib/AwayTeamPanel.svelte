@@ -54,6 +54,7 @@
     MEMBER_GEAR_CELLS,
     MEMBER_SLOT_META,
     fmtGearStat,
+    UNIQUE_SELF_TEXT_GEAR_MODAL,
     isUniqueEquippedPiece,
     memberCompareRows,
     memberFitReasonText,
@@ -303,9 +304,10 @@
     installed: EquipmentInstance | null;
     replacingId: string | undefined; // passed to the gate + install: the named implant on an implant swap
     uninstall: MemberFitGate | null; // null when nothing is installed
-    // why: the refusal as player text ("" when ok); for a unique piece another member wears (Task 11) it
-    // names that wearer, which `wearer` also carries for the row's visible line (null otherwise).
-    spares: { piece: EquipmentInstance; gate: MemberFitGate; why: string; wearer: string | null }[];
+    // why: the refusal as player text ("" when ok). uniqueWhy (Task 11): the row's visible unique line, set
+    // ONLY when a unique refusal resolved to specific text (the other wearer named, or "Already wears one"
+    // on the wearer's own flow), so the generic fallback never renders in that line. null otherwise.
+    spares: { piece: EquipmentInstance; gate: MemberFitGate; why: string; uniqueWhy: string | null }[];
   }
   // Everything the open flow shows, re-derived from state (so a tick, a salvage or an install elsewhere
   // can never leave it stale). Spares: free pieces of this slot THIS member's squad may wear (other
@@ -328,9 +330,10 @@
       .sort((a, b) => Number(b.favorite === true) - Number(a.favorite === true) || b.iLevel - a.iLevel)
       .map((piece) => {
         const gate = canFitToMember(s, member.id, piece.id, replacingId);
-        const why = gate.ok ? "" : memberFitReasonText(s, piece.id, gate.reason);
-        const wearer = !gate.ok && gate.reason === "uniqueEquippedElsewhere" ? why : null;
-        return { piece, gate, why, wearer };
+        const why = gate.ok ? "" : memberFitReasonText(s, piece.id, gate.reason, member.id, UNIQUE_SELF_TEXT_GEAR_MODAL);
+        const uniqueWhy =
+          !gate.ok && gate.reason === "uniqueEquippedElsewhere" && why !== memberFitBlockText(gate.reason) ? why : null;
+        return { piece, gate, why, uniqueWhy };
       });
     return {
       member,
@@ -638,7 +641,7 @@
       <span class="gm-tag">Installed</span>
       {#if f.installed !== null}
         <span class="gm-text">
-          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<span class="uniq-tag">Unique</span>{/if}</span>
+          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<span class="vh">, unique</span><span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</span>
           <span class="gm-sub">{memberGradeText(f.installed, true)}</span>
         </span>
         <button
@@ -679,9 +682,9 @@
             >
               <span class="gm-ic" style="color: {equipmentRarityColor(sp.piece.rarity)};"><Icon name={MEMBER_SLOT_META[f.slot].icon} /></span>
               <span class="gm-text">
-                <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}{#if isUniqueEquippedPiece(sp.piece)}<span class="uniq-tag">Unique</span>{/if}</span>
+                <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}{#if isUniqueEquippedPiece(sp.piece)}<span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</span>
                 <span class="gm-sub">{memberGradeText(sp.piece, true)}</span>
-                {#if sp.wearer !== null}<span class="gm-sub gm-wearer">{sp.wearer}</span>{/if}
+                {#if sp.uniqueWhy !== null}<span class="gm-sub gm-wearer">{sp.uniqueWhy}</span>{/if}
               </span>
               {#if !sp.gate.ok}<span class="gm-blocked">Blocked</span>{/if}
             </button>
@@ -1156,6 +1159,18 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     border-radius: var(--corner);
     color: var(--color-text-secondary);
+  }
+  /* Visually hidden, still read by a screen reader (the Installed banner's ", unique"). */
+  .vh {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .gm-wearer {
     color: var(--color-warning);

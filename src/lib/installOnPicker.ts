@@ -7,8 +7,8 @@
 // the gate refuses stays listed, disabled, with its reason. A member at the implant cap also lists one
 // "Replace <implant>" choice per worn implant (the targeted swap), each with its own gate. A UNIQUE piece
 // (Task 11, Neural Backup) refused because a copy is worn names that wearer ("Installed on Kira Vale
-// (Aurora)") instead of the generic line, and the wearer's own row offers the one swap the gate allows:
-// trading the copy they wear for this one. Usable targets
+// (Aurora)") instead of the generic line; the wearer's own row never names them to themselves ("Already
+// wears one (swap it below)") and offers the one swap the gate allows: trading the copy they wear for this. Usable targets
 // come first (a stable sort keeps fleet / roster order within each band). The list is a SNAPSHOT: the click
 // re-runs the real gate in the host's handlers, so a stale target is refused there, never half-applied.
 
@@ -92,16 +92,20 @@ export function buildInstallOnRows(
     if (!t.ok && m) {
       if (t.reason === "implantSlotsFull") {
         swappable = memberSlotPieces(s, m.id, "implant");
-      } else if (t.reason === "uniqueEquippedElsewhere" && piece?.moduleVariant !== undefined) {
-        const worn = uniqueWearer(s, piece.moduleVariant);
+      } else if (
+        t.reason === "uniqueEquippedElsewhere" &&
+        piece?.moduleVariant !== undefined &&
+        isMemberSlotType(piece.slotType)
+      ) {
+        const worn = uniqueWearer(s, piece.moduleVariant, piece.slotType);
         const wornPiece = worn !== null && worn.memberId === m.id ? s.equipment.find((e) => e.id === worn.pieceId) : undefined;
-        if (wornPiece !== undefined && wornPiece.slotType === piece.slotType) swappable = [wornPiece];
+        if (wornPiece !== undefined) swappable = [wornPiece];
       }
     }
     const replace: InstallOnReplace[] = m
       ? swappable.map((imp) => {
           const g = canFitToMember(s, m.id, pieceId, imp.id);
-          return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitReasonText(s, pieceId, g.reason) };
+          return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitReasonText(s, pieceId, g.reason, m.id) };
         })
       : [];
     return {
@@ -111,7 +115,7 @@ export function buildInstallOnRows(
       label: m ? m.name : t.memberId,
       sub: m ? `${CREW_RANKS[m.rank].label} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
       ok: t.ok,
-      reason: t.ok || t.reason === undefined ? "" : memberFitReasonText(s, pieceId, t.reason),
+      reason: t.ok || t.reason === undefined ? "" : memberFitReasonText(s, pieceId, t.reason, t.memberId),
       replace,
     };
   });

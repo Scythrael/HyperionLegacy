@@ -193,32 +193,53 @@ export function isUniqueEquippedPiece(piece: Pick<EquipmentInstance, "slotType" 
   return memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.uniqueEquipped === true;
 }
 
-// For a unique piece, who wears ANOTHER copy right now: "Kira Vale (Aurora)" (the ship's display label, the
-// same "#2" disambiguation the roster uses), or "Kira Vale (Security, unassigned)" for a benched member.
-// null when the piece is not unique, nobody wears a copy, the worn copy IS this piece, or the wearer is no
-// longer on the roster (callers then fall back to the generic text). Pure.
-export function uniqueWearerLabel(
+// For a unique piece, who wears ANOTHER copy right now: the wearer's id and their label, "Kira Vale (Aurora)"
+// (the ship's display label, the same "#2" disambiguation the roster uses) or "Kira Vale (Security,
+// unassigned)" for a benched member. null when the piece is not unique, nobody wears a copy, the worn copy IS
+// this piece, or the wearer is no longer on the roster (callers then fall back to the generic text). Pure.
+function otherCopyWearer(
   state: GameState,
   piece: Pick<EquipmentInstance, "id" | "slotType" | "moduleVariant">
-): string | null {
-  if (!isUniqueEquippedPiece(piece)) return null;
-  const worn = uniqueWearer(state, piece.moduleVariant ?? "");
+): { memberId: string; label: string } | null {
+  if (!isUniqueEquippedPiece(piece) || !isMemberSlotType(piece.slotType)) return null;
+  const worn = uniqueWearer(state, piece.moduleVariant ?? "", piece.slotType);
   if (worn === null || worn.pieceId === piece.id) return null;
   const member = state.awayMembers.find((m) => m.id === worn.memberId);
   if (!member) return null;
   const ship = member.assignedShipId !== null ? state.ships.find((x) => x.id === member.assignedShipId) : undefined;
   const where = ship ? shipDisplayLabel(state, ship) : `${SQUAD_META[member.teamType].short}, unassigned`;
-  return `${member.name} (${where})`;
+  return { memberId: member.id, label: `${member.name} (${where})` };
 }
 
-// The player-facing reason a member install of `pieceId` is refused: "Installed on Kira Vale (Aurora)" for a
-// unique refusal whose wearer resolves, else memberFitBlockText (the fallback for every other reason, and
-// for a unique refusal whose wearer cannot be named). Pure.
-export function memberFitReasonText(state: GameState, pieceId: string, reason: MemberFitBlockReason): string {
+// The label half of otherCopyWearer: "Kira Vale (Aurora)", or null (see above). Pure.
+export function uniqueWearerLabel(
+  state: GameState,
+  piece: Pick<EquipmentInstance, "id" | "slotType" | "moduleVariant">
+): string | null {
+  return otherCopyWearer(state, piece)?.label ?? null;
+}
+
+// What a unique refusal reads on the WEARER's own row, so a member is never named to themselves. One per
+// surface, because each points at a different control: the picker lists the swap under the row, the gear
+// modal swaps from the worn implant's own chip.
+export const UNIQUE_SELF_TEXT_PICKER = "Already wears one (swap it below)";
+export const UNIQUE_SELF_TEXT_GEAR_MODAL = "Already wears one (use Swap on the installed implant)";
+
+// The player-facing reason a member install of `pieceId` is refused. For a unique refusal whose wearer
+// resolves: `selfText` when the wearer IS `forMemberId` (the member being installed on), else "Installed on
+// Kira Vale (Aurora)". Every other case, including a unique refusal whose wearer cannot be named, reads
+// memberFitBlockText (the fallback). Pure.
+export function memberFitReasonText(
+  state: GameState,
+  pieceId: string,
+  reason: MemberFitBlockReason,
+  forMemberId?: string,
+  selfText: string = UNIQUE_SELF_TEXT_PICKER
+): string {
   if (reason === "uniqueEquippedElsewhere") {
     const piece = state.equipment.find((e) => e.id === pieceId);
-    const who = piece ? uniqueWearerLabel(state, piece) : null;
-    if (who !== null) return `Installed on ${who}`;
+    const who = piece ? otherCopyWearer(state, piece) : null;
+    if (who !== null) return forMemberId !== undefined && who.memberId === forMemberId ? selfText : `Installed on ${who.label}`;
   }
   return memberFitBlockText(reason);
 }

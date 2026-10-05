@@ -22,6 +22,8 @@ import {
   isUniqueEquippedPiece,
   uniqueWearerLabel,
   memberFitReasonText,
+  UNIQUE_SELF_TEXT_PICKER,
+  UNIQUE_SELF_TEXT_GEAR_MODAL,
 } from "./awayGearDisplay";
 
 function piece(
@@ -209,7 +211,7 @@ function uniqueState(equipment: EquipmentInstance[]): GameState {
   return {
     ...fs,
     equipment,
-    awayMembers: [crew("m-on", "Kira Vale", "security", fs.ships[0].id), crew("m-off", "Ana Rook", "science", null)],
+    awayMembers: [crew("m-on", "Kira Vale", "security", fs.ships[0].id), crew("m-off", "Ana Rook", "security", null)],
   };
 }
 
@@ -236,7 +238,7 @@ describe("awayGearDisplay: uniqueWearerLabel", () => {
       piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-off" }),
       piece("nb-2", "implant", "neuralBackup"),
     ]);
-    expect(uniqueWearerLabel(s, byId(s, "nb-2"))).toBe("Ana Rook (Science, unassigned)");
+    expect(uniqueWearerLabel(s, byId(s, "nb-2"))).toBe("Ana Rook (Security, unassigned)");
   });
 
   it("is null when nobody wears one, for the worn copy itself, for a non-unique piece, or an unknown wearer", () => {
@@ -263,10 +265,26 @@ describe("awayGearDisplay: memberFitReasonText", () => {
       piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-off" }),
       piece("nb-2", "implant", "neuralBackup"),
     ]);
-    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere")).toBe("Installed on Ana Rook (Science, unassigned)");
+    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere")).toBe("Installed on Ana Rook (Security, unassigned)");
     expect(memberFitReasonText(s, "nb-2", "locked")).toBe(memberFitBlockText("locked"));
     // No resolvable wearer (unknown piece): the generic unique text.
     expect(memberFitReasonText(s, "nope", "uniqueEquippedElsewhere")).toBe(memberFitBlockText("uniqueEquippedElsewhere"));
+  });
+
+  it("never names the wearer to themselves: forMemberId === wearer reads the surface's self text", () => {
+    const s = uniqueState([
+      piece("nb-1", "implant", "neuralBackup", { fittedToMemberId: "m-off" }),
+      piece("nb-2", "implant", "neuralBackup"),
+    ]);
+    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere", "m-off")).toBe(UNIQUE_SELF_TEXT_PICKER);
+    expect(UNIQUE_SELF_TEXT_PICKER).toBe("Already wears one (swap it below)");
+    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere", "m-off", UNIQUE_SELF_TEXT_GEAR_MODAL)).toBe(
+      "Already wears one (use Swap on the installed implant)"
+    );
+    // Anyone else still sees who wears it.
+    expect(memberFitReasonText(s, "nb-2", "uniqueEquippedElsewhere", "m-on")).toBe(
+      "Installed on Ana Rook (Security, unassigned)"
+    );
   });
 });
 

@@ -10353,7 +10353,7 @@
   {#if isUniqueEquippedPiece(p)}
     {@const wearer = uniqueWearerLabel(state, p)}
     <span class="systems-salvage-none spare-pop-why spare-pop-uniq">
-      {`Unique: only one can be installed in the whole fleet.${wearer !== null ? ` Another is installed on ${wearer}.` : ""}`}
+      {`${memberFitBlockText("uniqueEquippedElsewhere")}.${wearer !== null ? ` Another is installed on ${wearer}.` : ""}`}
     </span>
   {/if}
 {/snippet}
@@ -15197,7 +15197,7 @@
                         >
                           <span class="awg-ic"><Icon name={group.icon} /></span>
                           <span class="awg-text">
-                            <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}{#if uniq}<span class="awg-tag awg-uniq">Unique</span>{/if}</span>
+                            <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}{#if uniq}<span class="awg-tag awg-uniq" aria-hidden="true">Unique</span>{/if}</span>
                             <span class="awg-sub">{grade} · iL {piece.iLevel}{wearers ? ` · ${wearers}` : ""}</span>
                             {#if wearer !== null}<span class="awg-sub awg-wearer">Another is installed on {wearer}</span>{/if}
                           </span>
