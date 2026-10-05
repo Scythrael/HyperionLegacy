@@ -415,7 +415,31 @@
     canReassignAwayMember,
     awayCrewBlockText,
   } from "./lib/game/awayTeam";
-  import { awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
+  import { awayShipName, awayTargetLabel, SQUAD_META } from "./lib/awayTeamDisplay";
+  // E-CREW (Task 10): installing gear on away-team MEMBERS (the member card's install flow routes through
+  // doInstallOnMember / doUninstallFromMember) and the item-side "Install on..." picker, which lists SHIPS
+  // and MEMBERS from the one installTargetsFor. Plus the shared member-gear labels (awayGearDisplay), so
+  // every surface names a member piece and groups member blueprints one way.
+  import {
+    canFitToMember,
+    fitToMember,
+    canUnfitFromMember,
+    unfitFromMember,
+    memberFitBlockText,
+    memberPieceInSlot,
+    memberSlotPieces,
+    installTargetsFor,
+  } from "./lib/game/memberEquipment";
+  import {
+    GEAR_CATEGORY_LABEL,
+    GEAR_CATEGORY_ORDER,
+    blueprintGearCategory,
+    groupMemberSpares,
+    memberPieceName,
+    memberSlotIcon,
+    memberWearersText,
+    type GearCategory,
+  } from "./lib/awayGearDisplay";
   import { CREW_RANKS } from "./lib/game/crewRank";
   // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
   // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
@@ -1574,7 +1598,9 @@
   //   - "shipEquipment" , the spare Ship Systems bay (moved verbatim from the old
   //                       Warehouse Finished Goods > Ship Systems), + compact
   //                       locked markers for the reserved Weapons/Modules/Consumables.
-  //   - "crewEquipment" , reserved/locked (crew equipment does not exist yet).
+  //   - "awayTeamGear"  , (E-CREW 0.14.0, Task 10) the spare AWAY-TEAM gear + implants, grouped by slot,
+  //                       each with "Install on..." (the item-side picker). It is the old reserved
+  //                       "Crew Equipment" slot made live, named per the approved mockup (section 6).
   //   - "materials"     , the material CATALOG (moved verbatim from the old
   //                       Warehouse Materials tab: themed sub-categories, tier
   //                       splits, masked undiscovered items). The DEFAULT (the
@@ -1585,7 +1611,8 @@
   // material CATALOG's salvaged-material tiles stay here in Materials, browse-only.
   // Defaults to "materials"; with Ships gone (0.13.2 Unit 2), Materials is now also
   // the FIRST tab, so Logistics opens on the most-used inventory view.
-  let activeLogisticsTab: "shipEquipment" | "craftedBlanks" | "crewEquipment" | "materials" = "materials";
+  type LogisticsTab = "shipEquipment" | "awayTeamGear" | "craftedBlanks" | "materials";
+  let activeLogisticsTab: LogisticsTab = "materials";
 
   // Ships tab inner view (0.13.2 Ships tab, Unit 2; originally 0.12.0 Console CN3b
   // as a Logistics sub-tab, relocated here verbatim). The Ships tab is NOT a nested
@@ -1778,15 +1805,15 @@
     { key: "byClass", label: "By class" },
   ];
 
-  // The Logistics top rail, in display order. Crew Equipment is a locked reserved
-  // slot (same honest "coming soon" affordance the System / Battlespace slots use);
-  // ConsoleTabs grays it and blocks selection.
+  // The Logistics top rail, in display order. E-CREW 0.14.0 (Task 10): the reserved locked
+  // "Crew Equipment" slot is now the live "Away-Team Gear" tab, right after Ship Equipment
+  // (the approved mockup's order: the two spare-gear tabs side by side, sharing one bay).
   const LOGISTICS_TABS: { key: string; label: string; locked?: boolean }[] = [
     { key: "shipEquipment", label: "Ship Equipment" },
+    { key: "awayTeamGear", label: "Away-Team Gear" },
     // Crafted Blanks 0.13.7: the mass-rolling loop moved out of the Fabricator's Inspect
-    // sub-tab. Sits right after Ship Equipment because inspecting fills that same bay.
+    // sub-tab. Sits right after the spare-gear tabs because inspecting fills that same bay.
     { key: "craftedBlanks", label: "Crafted Blanks" },
-    { key: "crewEquipment", label: "Crew Equipment", locked: true },
     { key: "materials", label: "Materials" },
   ];
 
@@ -5169,6 +5196,149 @@
     doSave();
   }
 
+  // INSTALL a spare piece on an away-team MEMBER (E-CREW Task 10). Shared by the member card's install flow
+  // (AwayTeamPanel) and the item-side "Install on..." picker. fitToMember THROWS on a refused gate, so the
+  // gate runs first and a refusal is logged with its reason (the UI already disables a blocked control with
+  // the same text; this is the backstop). replacingInstanceId names the worn piece to swap out (a targeted
+  // implant swap); a singleton swaps its occupant on its own. The log names the outgoing piece on a swap.
+  function doInstallOnMember(memberId: string, pieceId: string, replacingInstanceId?: string) {
+    const member = state.awayMembers.find((m) => m.id === memberId);
+    const who = member?.name ?? memberId;
+    const gate = canFitToMember(state, memberId, pieceId, replacingInstanceId);
+    if (!gate.ok) {
+      pushLog(`Cannot install on ${who}: ${memberFitBlockText(gate.reason)}.`);
+      return;
+    }
+    const piece = state.equipment.find((e) => e.id === pieceId);
+    const outgoing =
+      replacingInstanceId !== undefined
+        ? state.equipment.find((e) => e.id === replacingInstanceId) ?? null
+        : piece && isMemberSlotType(piece.slotType) && piece.slotType !== "implant"
+          ? memberPieceInSlot(state, memberId, piece.slotType)
+          : null;
+    const incomingName = systemNameById(pieceId);
+    const outgoingName = outgoing !== null ? systemSalvageName(outgoing) : "";
+    state = fitToMember(state, memberId, pieceId, replacingInstanceId);
+    pushLog(outgoing !== null ? `Swapped ${outgoingName} for ${incomingName} on ${who}.` : `Installed ${incomingName} on ${who}.`);
+    doSave();
+  }
+
+  // UNINSTALL one worn piece from a member: it returns to storage (Logistics > Away-Team Gear) and the
+  // slot is left empty. unfitFromMember THROWS on a refused gate, so the gate runs first.
+  function doUninstallFromMember(memberId: string, pieceId: string) {
+    const member = state.awayMembers.find((m) => m.id === memberId);
+    const who = member?.name ?? memberId;
+    const gate = canUnfitFromMember(state, memberId, pieceId);
+    if (!gate.ok) {
+      pushLog(`Cannot uninstall from ${who}: ${memberFitBlockText(gate.reason)}.`);
+      return;
+    }
+    const name = systemNameById(pieceId);
+    state = unfitFromMember(state, memberId, pieceId);
+    pushLog(`Uninstalled ${name} from ${who}. It is back in storage.`);
+    doSave();
+  }
+
+  // ── Item-side "Install on..." picker (E-CREW Task 10, inventory S5-151) ─────
+  // Opened from a SPARE row in Logistics (Ship Equipment's piece popup, Away-Team Gear's rows). The target
+  // list comes from installTargetsFor ONCE, at open (its header: every entry runs a full gate, so it is
+  // never called per row in a reactive statement). Ship gear lists only ships and member gear only members,
+  // by construction. A target the gate refuses stays listed, disabled, with its reason. A member at the
+  // implant cap also lists one "Replace <implant>" choice per worn implant (the targeted swap), each with
+  // its own gate. The list is a snapshot: the click re-runs the real gate in the install handlers, so a
+  // target that went stale while the picker was open is refused with a log line, never half-applied.
+  interface InstallOnReplace {
+    id: string;
+    name: string;
+    ok: boolean;
+    reason: string;
+  }
+  interface InstallOnRow {
+    key: string;
+    kind: "ship" | "member";
+    targetId: string;
+    label: string;
+    sub: string;
+    ok: boolean;
+    reason: string;
+    replace: InstallOnReplace[];
+  }
+  let installOnPieceId: string | null = null;
+  let installOnRows: InstallOnRow[] = [];
+  $: installOnPiece = installOnPieceId !== null ? state.equipment.find((e) => e.id === installOnPieceId) ?? null : null;
+
+  // Sentence-case a lower-case reason line (the ship gate's devFitReasonText reads lower case).
+  function sentenceCase(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
+  function buildInstallOnRows(s: GameState, pieceId: string): InstallOnRow[] {
+    const labels = shipDisplayLabels(s.ships);
+    const piece = s.equipment.find((e) => e.id === pieceId);
+    const rows: InstallOnRow[] = installTargetsFor(s, pieceId).map((t): InstallOnRow => {
+      if (t.kind === "ship") {
+        const ship = s.ships.find((x) => x.id === t.shipId);
+        const label = labels.get(t.shipId) ?? t.shipId;
+        // The hull class under a custom name; nothing when the label already is the class.
+        const hull = ship ? SHIP_TYPES[ship.typeKey]?.label ?? "" : "";
+        return {
+          key: `ship:${t.shipId}`,
+          kind: "ship",
+          targetId: t.shipId,
+          label,
+          sub: hull !== "" && !label.startsWith(hull) ? hull : "",
+          ok: t.ok,
+          reason: t.ok || t.reason === undefined ? "" : sentenceCase(devFitReasonText(t.reason)),
+          replace: [],
+        };
+      }
+      const m = s.awayMembers.find((x) => x.id === t.memberId);
+      const ship = m && m.assignedShipId !== null ? s.ships.find((x) => x.id === m.assignedShipId) : undefined;
+      const where = m ? (ship ? awayTargetLabel(ship, m.teamType) : `Unassigned · ${SQUAD_META[m.teamType].short}`) : "";
+      // What the slot holds now, so the row says what a singleton install would swap out.
+      const occupant =
+        m && piece && isMemberSlotType(piece.slotType) && piece.slotType !== "implant"
+          ? memberPieceInSlot(s, m.id, piece.slotType)
+          : null;
+      const replace: InstallOnReplace[] =
+        !t.ok && t.reason === "implantSlotsFull" && m
+          ? memberSlotPieces(s, m.id, "implant").map((imp) => {
+              const g = canFitToMember(s, m.id, pieceId, imp.id);
+              return { id: imp.id, name: memberPieceName(imp), ok: g.ok, reason: g.ok ? "" : memberFitBlockText(g.reason) };
+            })
+          : [];
+      return {
+        key: `member:${t.memberId}`,
+        kind: "member",
+        targetId: t.memberId,
+        label: m ? m.name : t.memberId,
+        sub: m ? `${CREW_RANKS[m.rank].label} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
+        ok: t.ok,
+        reason: t.ok || t.reason === undefined ? "" : memberFitBlockText(t.reason),
+        replace,
+      };
+    });
+    // Installable targets first (a stable sort keeps fleet / roster order within each band), so the
+    // likely pick is at the top and the wrong-squad members sit below with their reasons.
+    const usable = (r: InstallOnRow): number => (r.ok || r.replace.some((x) => x.ok) ? 1 : 0);
+    return rows.sort((a, b) => usable(b) - usable(a));
+  }
+  function openInstallOn(pieceId: string) {
+    installOnPieceId = pieceId;
+    installOnRows = buildInstallOnRows(state, pieceId);
+  }
+  function closeInstallOn() {
+    installOnPieceId = null;
+    installOnRows = [];
+  }
+  function installFromPicker(row: InstallOnRow, replacingInstanceId?: string) {
+    if (installOnPieceId === null) return;
+    const pieceId = installOnPieceId;
+    if (row.kind === "ship") installSystem(row.targetId, pieceId);
+    else doInstallOnMember(row.targetId, pieceId, replacingInstanceId);
+    closeInstallOn();
+  }
+
   // ── Crew favoriting (Crew 0.14.0 GL) ───────────────────────────────────────
   // Flip a bridge officer's / notable crew member's `favorite` curation flag. Pure engine fn +
   // state reassign + doSave; no pushLog (a cosmetic curation toggle, not a fleet event). The engine
@@ -5540,6 +5710,27 @@
       .sort((a, b) => (b.favorite === true ? 1 : 0) - (a.favorite === true ? 1 : 0)),
   })).filter((g) => g.pieces.length > 0);
 
+  // E-CREW 0.14.0 (Task 10): the MEMBER half of the same spare pool, grouped Armor / Weapons / Tools /
+  // Implants (awayGearDisplay.groupMemberSpares, favorites first). Read by Logistics > Away-Team Gear and
+  // the Salvage Bay's Away-Team Gear panel. BAY_SLOT_ORDER above stays SHIP-only, so the Ship Equipment
+  // bay never lists member pieces.
+  $: bayMemberGroups = groupMemberSpares(baySpareSystems);
+  // The Salvage Bay's tile panels: ship systems, then away-team gear. ONE tile markup renders both, so the
+  // member panel salvages exactly like the ship panel (same selection, same Salvage / Destroy panel). The
+  // member panel only renders when it has a piece (its empty state would just repeat the ship panel's).
+  $: salvageBaySections = [
+    { key: "ship", title: "Ship Systems", unit: "system", groups: baySystemGroups },
+    { key: "member", title: "Away-Team Gear", unit: "piece", groups: bayMemberGroups },
+  ];
+
+  // The Away-Team Gear tab's open piece (its detail popup: tooltip, Install on..., Favorite / Lock,
+  // Salvage). Its own id rather than selectedSystemId so the Salvage Bay's inline selection is untouched.
+  let selectedGearId: string | null = null;
+  $: selectedGear =
+    selectedGearId !== null
+      ? baySpareSystems.find((p) => p.id === selectedGearId && isMemberSlotType(p.slotType)) ?? null
+      : null;
+
   // The resolved selected piece (or null). Reactive on the pool, so if the
   // selected piece is salvaged the tooltip auto-hides even without an explicit
   // clear. Fitted pieces are absent from this list entirely (spares only), so EVERY
@@ -5895,6 +6086,9 @@
   // so it reads as "Standard-Issue <slot label>" (e.g. "Standard-Issue Cargo Bay"). The
   // final fallback keeps a hand-edited save from throwing.
   function systemSalvageName(piece: EquipmentInstance): string {
+    // E-CREW (Task 10): an away-team MEMBER piece reads its variety ("Pulse Rifle", "Standard-Issue Pulse
+    // Rifle"), the same name its tooltip and the Away-Team Gear tab show.
+    if (isMemberSlotType(piece.slotType)) return memberPieceName(piece);
     if (piece.blueprintKey === null) {
       return `Standard-Issue ${EQUIPMENT_SLOTS[piece.slotType]?.label ?? piece.slotType}`;
     }
@@ -6663,6 +6857,23 @@
     .map(([key, count]) => ({ key, count, label: BLUEPRINTS[key]?.label ?? key }))
     .sort((a, b) => a.label.localeCompare(b.label));
 
+  // E-CREW 0.14.0 (Task 10): the blank tiles grouped Ship Systems / Away-Team Gear / Implants (the
+  // approved mockup's shelves), empty groups dropped. A blueprint that mints no gear (none should reach
+  // state.blanks) files under Ship Systems rather than vanishing.
+  $: blankGroups = GEAR_CATEGORY_ORDER.map((cat) => ({
+    cat,
+    label: GEAR_CATEGORY_LABEL[cat],
+    rows: blankRows.filter((r) => {
+      const bp = BLUEPRINTS[r.key];
+      return ((bp && blueprintGearCategory(bp)) ?? "ship") === cat;
+    }),
+  })).filter((g) => g.rows.length > 0);
+  // A member blueprint's slot glyph (SVG), or null for ship gear (which keeps its blueprintIcon glyph).
+  function blueprintMemberIcon(key: string): IconName | null {
+    const out = BLUEPRINTS[key]?.equipmentOutput;
+    return out ? memberSlotIcon(out.slotType) : null;
+  }
+
   // ── Crafted Blanks 0.13.7: the Product Inspection panel state ──────────────
   // selectedBlankKey = which blank tile is open (null = grid only, no panel). inspectQty = the
   // stepper's value. The three derived readers below feed the panel: free spare-bay slots (the SAME
@@ -6868,11 +7079,17 @@
     const entry = state.archive[key];
     // Category for the "sort by category" grouping (user 2026-09-18): weapons / drones / defense
     // (shield + plating) / systems (the economy slots). Derived from the blueprint's output.
+    // E-CREW 0.14.0 (Task 10): away-team gear and implants get their own groups after the ship groups.
+    const gearCat = blueprintGearCategory(bp);
     const cat = bp.weaponOutput
       ? { order: 0, label: "Weapons" }
       : bp.droneOutput
         ? { order: 1, label: "Drone Pods" }
-        : bp.equipmentOutput?.slotType === "shieldEmitters" || bp.equipmentOutput?.slotType === "hullPlating"
+        : gearCat === "awayTeam"
+          ? { order: 4, label: GEAR_CATEGORY_LABEL.awayTeam }
+          : gearCat === "implant"
+            ? { order: 5, label: GEAR_CATEGORY_LABEL.implant }
+            : bp.equipmentOutput?.slotType === "shieldEmitters" || bp.equipmentOutput?.slotType === "hullPlating"
           ? { order: 2, label: "Defense" }
           : { order: 3, label: "Systems" };
     // 0.14.0 E4d: a relic-gated blueprint stays MASKED here until its relic is discovered, the same
@@ -9474,12 +9691,38 @@
     return blueprints.filter((bp) => bp.tier === tier).map((bp) => bp.key);
   }
 
+  // E-CREW 0.14.0 (Task 10): the Item dropdown's option groups for one tier: Materials, Ship Systems,
+  // Away-Team Gear, Implants (blueprintGearCategory), each in BLUEPRINTS order. When the tier holds only one
+  // kind the single group comes back unlabeled (label null), so the dropdown lists plain options exactly as
+  // before. Takes the blueprint list as a parameter for the stale-derivation reason fabricateKeysForTier
+  // records. Pure.
+  function fabricateKeyGroupsForTier(
+    blueprints: BlueprintDef[],
+    tier: number
+  ): { key: string; label: string | null; keys: string[] }[] {
+    const buckets: { key: string; label: string; keys: string[] }[] = [
+      { key: "material", label: "Materials", keys: [] },
+      ...GEAR_CATEGORY_ORDER.map((c) => ({ key: c as string, label: GEAR_CATEGORY_LABEL[c], keys: [] as string[] })),
+    ];
+    for (const bp of blueprints) {
+      if (bp.tier !== tier) continue;
+      const cat: string = blueprintGearCategory(bp) ?? "material";
+      buckets.find((b) => b.key === cat)?.keys.push(bp.key);
+    }
+    const used = buckets.filter((b) => b.keys.length > 0);
+    return used.length <= 1 ? used.map((b) => ({ ...b, label: null })) : used;
+  }
+
   // Blueprints grouped by TIER for the Research list (tiers ascending). PURE over
   // the STATIC BLUEPRINTS table (independent of live state, the per-blueprint
   // researched/gate reads happen in the markup), so this is a plain const computed
   // once at script init, mirroring the by-tier bucketing pattern used elsewhere.
   // Each group renders as a tier heading + its blueprint cards in the Research sub-tab.
-  const blueprintTierGroups: { tier: number; blueprints: BlueprintDef[] }[] = (() => {
+  // E-CREW 0.14.0 (Task 10): each tier also carries `sections`: its non-member blueprints first (in their
+  // existing order, unlabeled), then the member blueprints as trailing "Away-Team Gear" / "Implants"
+  // sub-groups, so the Research list shows the mockup's shelves without reordering anything already there.
+  type BlueprintSection = { key: string; label: string | null; blueprints: BlueprintDef[] };
+  const blueprintTierGroups: { tier: number; blueprints: BlueprintDef[]; sections: BlueprintSection[] }[] = (() => {
     const byTier = new Map<number, BlueprintDef[]>();
     for (const key of Object.keys(BLUEPRINTS)) {
       const bp = BLUEPRINTS[key];
@@ -9489,7 +9732,19 @@
     }
     return [...byTier.keys()]
       .sort((a, b) => a - b)
-      .map((tier) => ({ tier, blueprints: byTier.get(tier) ?? [] }));
+      .map((tier) => {
+        const blueprints = byTier.get(tier) ?? [];
+        const memberCat = (bp: BlueprintDef): GearCategory | null => {
+          const c = blueprintGearCategory(bp);
+          return c === "awayTeam" || c === "implant" ? c : null;
+        };
+        const sections: BlueprintSection[] = [
+          { key: "main", label: null, blueprints: blueprints.filter((bp) => memberCat(bp) === null) },
+          { key: "awayTeam", label: GEAR_CATEGORY_LABEL.awayTeam, blueprints: blueprints.filter((bp) => memberCat(bp) === "awayTeam") },
+          { key: "implant", label: GEAR_CATEGORY_LABEL.implant, blueprints: blueprints.filter((bp) => memberCat(bp) === "implant") },
+        ];
+        return { tier, blueprints, sections: sections.filter((s) => s.blueprints.length > 0) };
+      });
   })();
 
   // Combat 0.13.0 (warship research gate): the hull (if any) an UNLOCK-ONLY blueprint grants
@@ -11559,8 +11814,21 @@
                                 <!-- availableFabricateBlueprints is named HERE so this {#each}
                                      re-runs when research/level changes it, not only when
                                      cfgTier does (stale-derivation trap, 2026-09-10). -->
-                                {#each fabricateKeysForTier(availableFabricateBlueprints, cfgTier) as bk}
-                                  <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
+                                <!-- E-CREW 0.14.0 (Task 10): grouped Materials / Ship Systems / Away-Team
+                                     Gear / Implants (the approved mockup's Fabricator shelves) whenever the
+                                     tier holds more than one kind; a one-kind tier lists plain options. -->
+                                {#each fabricateKeyGroupsForTier(availableFabricateBlueprints, cfgTier) as grp (grp.key)}
+                                  {#if grp.label === null}
+                                    {#each grp.keys as bk}
+                                      <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
+                                    {/each}
+                                  {:else}
+                                    <optgroup label={grp.label}>
+                                      {#each grp.keys as bk}
+                                        <option value={bk}>{BLUEPRINTS[bk]?.label ?? bk}</option>
+                                      {/each}
+                                    </optgroup>
+                                  {/if}
                                 {/each}
                               </select>
                             </label>
@@ -11955,7 +12223,14 @@
                     <span class="home-sec-h"><Icon name="research" size={12} /> Tier {group.tier}</span>
                     <span class="home-sec-rule"></span>
                   </div>
-                  {#each group.blueprints as bp (bp.key)}
+                  <!-- E-CREW 0.14.0 (Task 10): inside each tier, member blueprints gather into trailing
+                       "Away-Team Gear" / "Implants" sub-groups (the approved mockup's shelves); every other
+                       blueprint keeps its exact place and order, under no extra heading. -->
+                  {#each group.sections as sec (sec.key)}
+                  {#if sec.label !== null}
+                    <div class="bp-cat-hd">{sec.label}</div>
+                  {/if}
+                  {#each sec.blueprints as bp (bp.key)}
                     {#if blueprintRelicLocked(state, bp.key)}
                     <!-- E4d DISCOVERY-GATED + still locked: a MASKED card. It shows ONLY the mask copy (the
                          relic's SET, never the relic, and not the project's name / recipe / cost either), so
@@ -12100,6 +12375,7 @@
                       {/if}
                     </div>
                     {/if}
+                  {/each}
                   {/each}
                 {/each}
               </Panel>
@@ -13187,24 +13463,29 @@
                  EquipmentTooltip below with a Salvage action for crafted spares.
                  Reads baySystemGroups / selectedSystemId / selectSystemTile, the
                  same shared state the Ship Equipment tab uses. -->
+            <!-- E-CREW 0.14.0 (Task 10): one panel per salvageBaySections entry, Ship Systems then
+                 Away-Team Gear (the member panel only when it holds a piece). Same tiles, same shared
+                 selection, so a member spare salvages through the panel below exactly like a ship spare. -->
+            {#each salvageBaySections as sec (sec.key)}
+            {#if sec.key === "ship" || sec.groups.length > 0}
             <Panel>
               <div class="warehouse-tier-head">
-                <span class="warehouse-tier-label">Ship Systems</span>
+                <span class="warehouse-tier-label">{sec.title}</span>
                 <span class="warehouse-tier-line"></span>
                 <span class="warehouse-tier-cap">recycle spares</span>
               </div>
-              {#if baySystemGroups.length === 0}
+              {#if sec.groups.length === 0}
                 <div class="warehouse-stub">
                   <div class="warehouse-stub-glyph">🛰️</div>
                   <p>No spare systems to salvage. Fabricate ship systems at the Fabricator, or uninstall an installed system to store it here first.</p>
                 </div>
               {:else}
-                {#each baySystemGroups as group (group.slot)}
+                {#each sec.groups as group (group.slot)}
                   <div class="warehouse-tier">
                     <div class="warehouse-tier-head">
                       <span class="warehouse-tier-label">{group.label}</span>
                       <span class="warehouse-tier-line"></span>
-                      <span class="warehouse-tier-cap">{group.pieces.length} system{group.pieces.length === 1 ? "" : "s"}</span>
+                      <span class="warehouse-tier-cap">{group.pieces.length} {sec.unit}{group.pieces.length === 1 ? "" : "s"}</span>
                     </div>
                     <div class="warehouse-grid">
                       {#each group.pieces as piece (piece.id)}
@@ -13220,7 +13501,8 @@
                              {@const} itself, so the compiler records them as dependencies.
                              See the stale-derivation trap note on systemSalvageState. -->
                         {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, piece.id)}
-                        {@const baseTitle = isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}
+                        {@const memberIc = memberSlotIcon(piece.slotType)}
+                        {@const baseTitle = `${memberIc !== null ? `${memberPieceName(piece)} · ` : ""}${isBaseline ? "Standard-Issue baseline" : `${piece.rarity} · Q${piece.quality}`}`}
                         <button
                           type="button"
                           class="systems-tile"
@@ -13240,7 +13522,7 @@
                           on:click={() => selectSystemTile(piece.id)}
                         >
                           <span class="systems-tile-dot"></span>
-                          <span class="systems-tile-ic">{equipmentIcon(piece)}</span>
+                          <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{:else}{equipmentIcon(piece)}{/if}</span>
                           <span class="systems-tile-il">iL {piece.iLevel}</span>
                           <!-- 0.13.3.1 Feature 2 / 0.13.6 split: the at-a-glance MARKERS, indicators
                                and not controls. The tile is itself a <button> (clicking it selects
@@ -13265,6 +13547,8 @@
                 {/each}
               {/if}
             </Panel>
+            {/if}
+            {/each}
 
             <!-- SELECTED SYSTEM: the reusable rarity-bordered tooltip, rendered
                  inline. EVERY spare has an active removal action in the tooltip's action
@@ -14171,7 +14455,7 @@
 
               <!-- "requisition" and "sell" are reachable; "purchase" stays a locked "Coming Soon!"
                    rail slot with NO content branch (the locked tab IS the placeholder, exactly as the
-                   Refinery's locked rail slot and Logistics' locked Crew Equipment tab do). -->
+                   Refinery's locked rail slot does). -->
               {#if activeQuartermasterSubTab === "requisition"}
                 <Panel>
                   <!-- 0.13.6 green-text pass: the intro + the "floor, not an upgrade" clarification
@@ -14629,7 +14913,7 @@
            gone). Structure mirrors Home's and Personnel's console idiom exactly:
            the shared <ConsoleTabs> primitive is the slim TOP rail, and the
            selected tab's page renders IN PLACE directly below it; NO left rail
-           anywhere. Tabs: Ship Equipment | Crew Equipment (locked) | Materials,
+           anywhere. Tabs: Ship Equipment | Away-Team Gear | Crafted Blanks | Materials,
            driven by activeLogisticsTab (default Materials). (0.13.2 Unit 2 removed
            the former Ships tab from this rail: the fleet roster + ship page are now
            their own first-class Ships tab, out of Logistics.) Salvaging is a
@@ -14641,9 +14925,10 @@
                                 inner product-family SubTabs strip FLATTENED away per
                                 the console principle; the reserved Weapons/Modules/
                                 Consumables families are compact locked markers now).
-             - Crew Equipment , a locked reserved rail slot (crew equipment does not
-                                exist yet); ConsoleTabs blocks its selection, so the
-                                locked tab IS the placeholder (no content branch).
+             - Away-Team Gear , (E-CREW 0.14.0 Task 10) the spare away-team gear and
+                                implants, grouped by slot, sharing the Systems Bay cap
+                                with Ship Equipment. The old locked "Crew Equipment"
+                                rail slot made live.
              - Materials      , the material CATALOG, moved VERBATIM from the old
                                 Warehouse Materials tab (themed sub-categories, tier
                                 splits, masked undiscovered items). Its salvaged-
@@ -14659,7 +14944,7 @@
       <ConsoleTabs
         tabs={LOGISTICS_TABS}
         active={activeLogisticsTab}
-        onSelect={(key) => (activeLogisticsTab = key as "shipEquipment" | "craftedBlanks" | "crewEquipment" | "materials")}
+        onSelect={(key) => (activeLogisticsTab = key as LogisticsTab)}
       />
       <div class="tab-scroll-area">
 
@@ -14776,6 +15061,22 @@
             <ActionModal title={systemSalvageName(sys)} ariaLabel="Spare system options" onClose={() => (selectedSystemId = null)}>
               <EquipmentTooltip piece={sys} />
               <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                <!-- E-CREW 0.14.0 (Task 10, S5-151): install from the ITEM side. Every piece in this bay is
+                     a spare, so the button is always offered here; it opens the ship picker (this popup
+                     closes first so two dialogs never stack). A locked piece cannot be installed, so the
+                     button is disabled and the lock note below says why. -->
+                <button
+                  class="buy-btn"
+                  disabled={sys.locked === true}
+                  aria-describedby={sys.locked === true ? "sys-install-why" : undefined}
+                  on:click={() => {
+                    const id = sys.id;
+                    selectedSystemId = null;
+                    openInstallOn(id);
+                  }}
+                >
+                  Install on…
+                </button>
                 <button
                   class="buy-btn systems-fav-btn"
                   class:systems-fav-btn-on={sys.favorite === true}
@@ -14793,7 +15094,7 @@
                   {sys.locked === true ? "🔒 Locked" : "🔓 Lock"}
                 </button>
               </div>
-              <span class="systems-salvage-none" style="display:block; margin-top:8px;">
+              <span class="systems-salvage-none" id="sys-install-why" style="display:block; margin-top:8px;">
                 {#if sys.locked === true}Locked: safe from auto-salvage, manual salvage, install and loadout commit. Break it down in the Salvage Bay after unlocking.{:else}Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage lives in the Salvage Bay.{/if}
               </span>
               <svelte:fragment slot="footer">
@@ -14827,6 +15128,225 @@
           </Panel>
         {/if}
 
+        {#if activeLogisticsTab === "awayTeamGear"}
+          <!-- AWAY-TEAM GEAR (E-CREW 0.14.0, Task 10; approved mockup section 6). Every SPARE member piece
+               (crafted gear, implants and the Quartermaster's Standard-Issue kit), grouped Armor / Weapons
+               / Tools / Implants, one readable ROW each (a member piece's name matters, so rows, not the
+               Ship Equipment glyph tiles). Each row opens the piece's popup (tooltip, Favorite / Lock,
+               Salvage) and carries "Install on...", the item-side picker (installTargetsFor: members only,
+               every member listed, a blocked one disabled with its reason).
+               STORAGE IS SHARED (user decision 2026-10-05): member gear counts toward the SAME Systems Bay
+               spare cap as ship systems (spareEquipmentCount), so the header shows that one shared number
+               and says so, and Upgrade Bay raises it for both tabs. -->
+          {@const bayCap = equipmentStorageCap(state)}
+          {@const baySpare = spareEquipmentCount(state)}
+          {@const upgradeCheck = canUpgradeEquipmentStorage(state)}
+          <Panel>
+            <div class="systems-bay-head">
+              <div class="systems-bay-cap">
+                <span class="systems-bay-cap-label">Systems Bay · shared with Ship Equipment</span>
+                <span class="systems-bay-cap-val">{baySpare} <small>/ {bayCap} spare</small></span>
+              </div>
+              {#if equipmentStorageUpgradeInFlight}
+                <div class="upgrade-inflight-line"><Icon name="clock" size={12} /> Upgrade already in progress</div>
+              {:else}
+                <button class="buy-btn systems-bay-upgrade" disabled={!upgradeCheck.ok} on:click={doUpgradeEquipmentBay}>
+                  Upgrade Bay
+                </button>
+              {/if}
+            </div>
+            {#if !equipmentStorageUpgradeInFlight && !upgradeCheck.ok}
+              <div class="systems-bay-upgrade-note">{upgradeCheck.reason}</div>
+            {/if}
+            <p class="awg-shared-note">
+              Away-team gear and ship systems share one bay: every crafted spare in either tab counts toward the same {bayCap} slots. Standard-Issue pieces take no space.
+            </p>
+
+            {#if bayMemberGroups.length === 0}
+              <div class="warehouse-stub">
+                <div class="warehouse-stub-glyph"><Icon name="armor" size={28} /></div>
+                <p>No spare away-team gear. Requisition Standard-Issue kit at the Quartermaster, craft gear and implants at the Fabricator, or uninstall a piece from a crew member to store it here.</p>
+              </div>
+            {:else}
+              {#each bayMemberGroups as group (group.slot)}
+                <div class="warehouse-tier">
+                  <div class="warehouse-tier-head">
+                    <span class="warehouse-tier-label awg-group-label"><Icon name={group.icon} size={12} /> {group.label}</span>
+                    <span class="warehouse-tier-line"></span>
+                    <span class="warehouse-tier-cap">{group.pieces.length} piece{group.pieces.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div class="awg-list">
+                    {#each group.pieces as piece (piece.id)}
+                      {@const name = memberPieceName(piece)}
+                      {@const grade = piece.blueprintKey === null ? "Standard-Issue" : `${piece.rarity.charAt(0).toUpperCase()}${piece.rarity.slice(1)} · Q${piece.quality}`}
+                      {@const wearers = memberWearersText(piece)}
+                      {@const lockId = `awg-lock-${piece.id}`}
+                      <div class="awg-row" style="--sys-rc: {equipmentRarityColor(piece.rarity)};">
+                        <button
+                          type="button"
+                          class="awg-main"
+                          aria-label={`${name}, ${grade}, item level ${piece.iLevel}. Details`}
+                          on:click={() => (selectedGearId = piece.id)}
+                        >
+                          <span class="awg-ic"><Icon name={group.icon} /></span>
+                          <span class="awg-text">
+                            <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}</span>
+                            <span class="awg-sub">{grade} · iL {piece.iLevel}{wearers ? ` · ${wearers}` : ""}</span>
+                          </span>
+                        </button>
+                        {#if piece.locked === true}
+                          <span class="awg-tag" id={lockId}>Locked</span>
+                        {/if}
+                        <button
+                          type="button"
+                          class="buy-btn awg-install"
+                          disabled={piece.locked === true}
+                          aria-describedby={piece.locked === true ? lockId : undefined}
+                          aria-label={`Install ${name} on a crew member`}
+                          on:click={() => openInstallOn(piece.id)}
+                        >Install on…</button>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            {/if}
+          </Panel>
+
+          <!-- The piece popup: the item tooltip + Install on... + Favorite / Lock + Salvage (approved mockup
+               section 6 lists Lock, Favorite, Salvage and Install on... for each spare). Salvage QUEUES the
+               same Salvage Bay job the bay's own button does (requestSalvage: the shared confirm dialog,
+               the lock and queue gates), so a piece can be broken down from where it is found. -->
+          {#if selectedGear}
+            {@const g = selectedGear}
+            {@const gName = memberPieceName(g)}
+            {@const salvageState = systemSalvageState(bayInFlightInstances, bayReservations, g.id)}
+            {@const queueBlocked = salvageBayQueue.enqueueBlockReason}
+            {@const queueCtl = enqueueControlFor(queueBlocked)}
+            <ActionModal title={gName} ariaLabel="Away-team gear options" onClose={() => (selectedGearId = null)}>
+              <EquipmentTooltip piece={g} />
+              <div class="awg-acts">
+                <button
+                  class="buy-btn"
+                  disabled={g.locked === true || salvageState !== "free"}
+                  aria-describedby={g.locked === true || salvageState !== "free" ? "awg-gear-why" : undefined}
+                  on:click={() => {
+                    const id = g.id;
+                    selectedGearId = null;
+                    openInstallOn(id);
+                  }}
+                >Install on…</button>
+                <button
+                  class="buy-btn systems-fav-btn"
+                  class:systems-fav-btn-on={g.favorite === true}
+                  on:click={() => doToggleEquipmentFavorite(g.id, g.favorite !== true)}
+                  aria-pressed={g.favorite === true}
+                >{g.favorite === true ? "★ Favorited" : "☆ Favorite"}</button>
+                <button
+                  class="buy-btn systems-fav-btn"
+                  class:systems-fav-btn-on={g.locked === true}
+                  on:click={() => doToggleEquipmentLock(g.id, g.locked !== true)}
+                  aria-pressed={g.locked === true}
+                >{g.locked === true ? "Locked" : "Lock"}</button>
+                <button
+                  class="buy-btn systems-salvage-btn"
+                  disabled={g.locked === true || salvageState !== "free" || (queueBlocked !== null && !queueCtl.queueFullOnly)}
+                  aria-describedby={g.locked === true || salvageState !== "free" ? "awg-gear-why" : undefined}
+                  on:click={() => {
+                    const id = g.id;
+                    selectedGearId = null;
+                    if (queueCtl.queueFullOnly) openQueueFullNotice("salvageBay");
+                    else requestSalvage("system", id, gName);
+                  }}
+                >{g.blueprintKey === null ? "Destroy" : "Salvage"}</button>
+              </div>
+              <span class="systems-salvage-none awg-why" id="awg-gear-why">
+                {#if g.locked === true}
+                  Locked: safe from auto-salvage, manual salvage and install. Unlock it to install or salvage it.
+                {:else if salvageState === "running"}
+                  Being salvaged now in the Salvage Bay.
+                {:else if salvageState === "queued"}
+                  Queued for salvage. Remove it from the Salvage Bay queue to keep it.
+                {:else if queueBlocked !== null}
+                  {enqueueBlockText(queueBlocked)}
+                {:else}
+                  Favorite pins it to the top of its group. Lock protects it from salvage and install. Salvage queues it in the Salvage Bay.
+                {/if}
+              </span>
+              {#if g.blueprintKey === null}
+                <span class="systems-salvage-none awg-why">Standard-Issue gear can be destroyed to clear space, but yields no components. The Quartermaster issues another for free.</span>
+              {/if}
+              <svelte:fragment slot="footer">
+                <button class="dev-btn" on:click={() => (selectedGearId = null)}>Close</button>
+              </svelte:fragment>
+            </ActionModal>
+          {/if}
+        {/if}
+
+        <!-- ITEM-SIDE "INSTALL ON..." PICKER (E-CREW 0.14.0 Task 10, S5-151). Opened from a spare in
+             Ship Equipment (ships listed) or Away-Team Gear (crew members listed); the rows are the
+             installTargetsFor snapshot taken at open (buildInstallOnRows). Every target is listed; a
+             refused one is disabled with its gate's reason as visible text (aria-describedby), and a
+             member whose implant slots are full offers a Swap per worn implant instead. -->
+        {#if installOnPiece !== null}
+          {@const iop = installOnPiece}
+          {@const iopName = systemSalvageName(iop)}
+          {@const forMember = isMemberSlotType(iop.slotType)}
+          <ActionModal title={`Install · ${iopName}`} ariaLabel={`Install ${iopName} on`} onClose={closeInstallOn}>
+            <p class="iot-lead">
+              {forMember
+                ? `Choose the crew member to wear the ${iopName}. Installing over a piece they already wear sends that piece back to storage.`
+                : `Choose the ship to install the ${iopName} on. Installing over a system it already has sends that system back to storage.`}
+            </p>
+            {#if installOnRows.length === 0}
+              <p class="iot-lead">{forMember ? "No away-team members yet. Hire one from a ship's Away Team tab." : "No ships in the fleet."}</p>
+            {:else}
+              <div class="iot-list">
+                {#each installOnRows as row (row.key)}
+                  {@const whyId = `iot-why-${row.kind}-${row.targetId}`}
+                  <div class="iot-row" class:blocked={!row.ok}>
+                    <div class="iot-text">
+                      <span class="iot-name">{row.label}</span>
+                      {#if row.sub}<span class="iot-sub">{row.sub}</span>{/if}
+                      {#if !row.ok}<span class="iot-why" id={whyId}>{row.reason}</span>{/if}
+                    </div>
+                    {#if row.replace.length === 0}
+                      <button
+                        type="button"
+                        class="buy-btn iot-btn"
+                        disabled={!row.ok}
+                        aria-describedby={row.ok ? undefined : whyId}
+                        aria-label={`Install ${iopName} on ${row.label}`}
+                        on:click={() => installFromPicker(row)}
+                      >Install</button>
+                    {/if}
+                  </div>
+                  {#each row.replace as rep (rep.id)}
+                    {@const repWhy = `iot-why-rep-${row.targetId}-${rep.id}`}
+                    <div class="iot-row iot-rep" class:blocked={!rep.ok}>
+                      <div class="iot-text">
+                        <span class="iot-sub">Replace {rep.name}</span>
+                        {#if !rep.ok}<span class="iot-why" id={repWhy}>{rep.reason}</span>{/if}
+                      </div>
+                      <button
+                        type="button"
+                        class="buy-btn iot-btn"
+                        disabled={!rep.ok}
+                        aria-describedby={rep.ok ? undefined : repWhy}
+                        aria-label={`Swap ${rep.name} for ${iopName} on ${row.label}`}
+                        on:click={() => installFromPicker(row, rep.id)}
+                      >Swap</button>
+                    </div>
+                  {/each}
+                {/each}
+              </div>
+            {/if}
+            <svelte:fragment slot="footer">
+              <button class="dev-btn" on:click={closeInstallOn}>Cancel</button>
+            </svelte:fragment>
+          </ActionModal>
+        {/if}
+
         {#if activeLogisticsTab === "craftedBlanks"}
           <!-- CRAFTED BLANKS (0.13.7). The mass-rolling loop, moved here from the Fabricator's old
                Inspect sub-tab. Crafting deposits stackable BLANKS (identical, unrolled); tapping a
@@ -14841,23 +15361,28 @@
               CRAFTED BLANKS
               <HelpTip
                 label="How blanks work"
-                text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. Rolled systems land in your spare bay under Ship Equipment, so inspecting is bounded by free bay space."
+                text="Crafting produces blanks: identical, stackable, unrolled. Inspect one to roll it into a system with its own quality, rarity and stats. Rolled systems land in your spare bay under Ship Equipment (away-team gear and implants under Away-Team Gear), so inspecting is bounded by free bay space."
               />
             </div>
             {#if blankRows.length === 0}
               <div class="warehouse-stub">
                 <div class="warehouse-stub-glyph">🔬</div>
-                <p>No blanks to inspect. Craft ship systems, weapons or drone pods at the Fabricator and they arrive here as blanks.</p>
+                <p>No blanks to inspect. Craft ship systems, weapons, drone pods, away-team gear or implants at the Fabricator and they arrive here as blanks.</p>
               </div>
             {:else}
+              <!-- E-CREW 0.14.0 (Task 10): grouped Ship Systems / Away-Team Gear / Implants (the approved
+                   mockup's Fabricator shelves), one tile grid per group. A member blank's tile draws its
+                   slot's SVG glyph (member gear has no emoji glyph). -->
+              {#each blankGroups as bg (bg.cat)}
               <div class="warehouse-tier">
                 <div class="warehouse-tier-head">
-                  <span class="warehouse-tier-label">Blanks</span>
+                  <span class="warehouse-tier-label">{bg.label}</span>
                   <span class="warehouse-tier-line"></span>
-                  <span class="warehouse-tier-cap">{blankRows.length} type{blankRows.length === 1 ? "" : "s"}</span>
+                  <span class="warehouse-tier-cap">{bg.rows.length} type{bg.rows.length === 1 ? "" : "s"}</span>
                 </div>
                 <div class="warehouse-grid">
-                  {#each blankRows as row (row.key)}
+                  {#each bg.rows as row (row.key)}
+                    {@const memberIc = blueprintMemberIcon(row.key)}
                     <button
                       type="button"
                       class="systems-tile"
@@ -14867,12 +15392,13 @@
                       on:click={() => selectBlankTile(row.key)}
                     >
                       <span class="systems-tile-dot"></span>
-                      <span class="systems-tile-ic">{blueprintIcon(row.key)}</span>
+                      <span class="systems-tile-ic">{#if memberIc !== null}<Icon name={memberIc} />{:else}{blueprintIcon(row.key)}{/if}</span>
                       <span class="systems-tile-il">×{row.count.toString()}</span>
                     </button>
                   {/each}
                 </div>
               </div>
+              {/each}
             {/if}
           </Panel>
 
@@ -14881,9 +15407,10 @@
                the engine (inspectBlanks) re-enforces the same cap, so the panel is advisory only. -->
           {#if selectedBlankKey !== null && selectedBlankHeld > 0}
             {@const label = BLUEPRINTS[selectedBlankKey]?.label ?? selectedBlankKey}
+            {@const selMemberIc = blueprintMemberIcon(selectedBlankKey)}
             <Panel>
               <div class="panel-title">PRODUCT INSPECTION</div>
-              <div class="research-name">{blueprintIcon(selectedBlankKey)} {label}</div>
+              <div class="research-name">{#if selMemberIc !== null}<Icon name={selMemberIc} />{:else}{blueprintIcon(selectedBlankKey)}{/if} {label}</div>
               <div class="research-cost">Blanks held: {selectedBlankHeld}</div>
               <div class="research-cost">Free spare-bay slots: {blankFreeSlots} / {equipmentStorageCap(state)}</div>
               {#if blankMaxN < 1}
@@ -17898,7 +18425,7 @@
                    the CONFIRMATIONS tab now (0.13.5, user), so the readout points there, not "just above". -->
               <SettingRow
                 label="Auto-salvage"
-                description="Queues matching spare ship systems for teardown on its own, adding orders to the Auto-Salvage Terminal on the Salvage tab; they run the same timed jobs, including while the game is closed. Your rules below decide what it may take: a spare is taken only if it matches EVERY rule you switch on. It never touches an installed or favorited system, one already queued or being broken down, a quality tier you set to confirm first, or (with a grace period set) one you just crafted or uninstalled. Salvaged materials and hull teardowns stay manual. Standard-Issue systems are left alone unless a rule reaches them (Quality at Q0, Rarity in the Standard band); when reached they are queued like any spare and recover nothing, and uninstalling one leaves its slot empty until you install a replacement."
+                description="Queues matching spare ship systems for teardown on its own, adding orders to the Auto-Salvage Terminal on the Salvage tab; they run the same timed jobs, including while the game is closed. Your rules below decide what it may take: a spare is taken only if it matches EVERY rule you switch on. It never touches an installed or favorited system, one already queued or being broken down, a quality tier you set to confirm first, or (with a grace period set) one you just crafted or uninstalled. Salvaged materials and hull teardowns stay manual. Standard-Issue systems are left alone unless a rule reaches them (Quality at Q0, Rarity in the Standard band); when reached they are queued like any spare and recover nothing, and uninstalling one leaves its slot empty until you install a replacement. Spare away-team gear and implants follow these same rules (gear a crew member is wearing is never touched)."
               >
                 <Toggle
                   label="Auto-salvage"
@@ -21729,6 +22256,78 @@
   .systems-bay-upgrade-note {
     font-size: var(--text-xs); color: var(--color-text-dim); font-style: italic;
     margin: -4px 0 10px;
+  }
+
+  /* ── Logistics > Away-Team Gear (E-CREW 0.14.0, Task 10) ─────────────────
+     One readable row per spare member piece: a details button (glyph + name in its rarity color +
+     grade / iL / squad line) and the item-side "Install on..." button. The row is a flex line whose
+     main button may shrink (min-width 0, the name wraps), so a 375px phone never scrolls sideways. */
+  .awg-shared-note {
+    font-size: var(--text-xs); color: var(--color-text-dim);
+    margin: -4px 0 10px; line-height: 1.45;
+  }
+  .awg-group-label { display: inline-flex; align-items: center; gap: 5px; }
+  .awg-list { display: flex; flex-direction: column; gap: 6px; }
+  .awg-row {
+    display: flex; align-items: center; gap: 8px; min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-left: 3px solid var(--sys-rc);
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.04);
+  }
+  .awg-main {
+    flex: 1 1 auto; min-width: 0;
+    display: flex; align-items: center; gap: 9px;
+    padding: 2px 0; background: none; border: 0;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .awg-main:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 2px; }
+  .awg-main:hover .awg-name { text-decoration: underline; }
+  .awg-ic { flex: none; display: inline-flex; font-size: var(--text-lg); color: var(--sys-rc); }
+  .awg-text { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .awg-name { font-size: var(--text-sm); font-weight: 600; color: var(--sys-rc); overflow-wrap: anywhere; }
+  .awg-fav { color: var(--color-warning); }
+  .awg-sub { font-size: var(--text-2xs); color: var(--color-text-secondary); overflow-wrap: anywhere; }
+  .awg-tag {
+    flex: none; font-size: var(--text-2xs); padding: 1px 6px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3); border-radius: var(--corner);
+    color: var(--color-text-secondary);
+  }
+  .awg-install { flex: 0 0 auto; white-space: nowrap; }
+  .awg-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .awg-why { display: block; margin-top: 8px; }
+
+  /* The item-side "Install on..." picker rows (ships or crew members), each with its own button and,
+     when blocked, the gate's reason as visible text. A Replace row (implant swap) indents under its
+     member. */
+  .iot-lead { font-size: var(--text-xs); color: var(--color-text-secondary); line-height: 1.45; margin: 0 0 10px; }
+  .iot-list { display: flex; flex-direction: column; gap: 6px; }
+  .iot-row {
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+    padding: 7px 9px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+    border-radius: var(--corner);
+    background: rgba(var(--color-accent-rgb), 0.04);
+  }
+  .iot-row.blocked { opacity: 0.8; }
+  .iot-rep { margin-left: 18px; border-style: dashed; }
+  .iot-text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .iot-name { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); overflow-wrap: anywhere; }
+  .iot-sub { font-size: var(--text-2xs); color: var(--color-text-secondary); overflow-wrap: anywhere; }
+  .iot-why { font-size: var(--text-2xs); color: var(--color-warning); }
+  .iot-btn { flex: 0 0 auto; white-space: nowrap; }
+  /* .buy-btn only changes the cursor when disabled; these rows sit beside live buttons, so a refused
+     target also dims, matching the away-team cards. */
+  .iot-btn:disabled,
+  .awg-install:disabled { opacity: 0.45; }
+
+  /* Research list (E-CREW 0.14.0, Task 10): the small "Away-Team Gear" / "Implants" sub-heading inside a
+     tier, quieter than the tier's own section header. */
+  .bp-cat-hd {
+    margin: 12px 0 4px;
+    font-size: var(--text-2xs); letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--color-text-secondary);
   }
 
   /* Docks "Expand Docks" header (Fleet Management): the Berths readout on the left,

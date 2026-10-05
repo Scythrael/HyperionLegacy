@@ -212,7 +212,7 @@ export interface Prompt {
 // One NOT-YET-UNLOCKED slot (dimmed chip, bottom). STUB in Unit 1 (Unit 3 fills it).
 // A feature the player has not unlocked yet, shown via the game's "coming soon" idiom.
 export interface LockedSlot {
-  id: string;          // stable slot id (e.g. "locked-crewEquipment")
+  id: string;          // stable slot id (e.g. "locked-achievements")
   icon: string;        // icon hint
   label: string;       // the locked feature's name
   note: string | null; // optional "Coming soon" / unlock-hint sub-line
@@ -1029,9 +1029,8 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
 //
 // TWO sources, in this order (design Section 6):
 //   1. RESERVED features the game ALREADY marks locked in its own nav (the ConsoleTabs
-//      carrying `locked: true`). These are STATIC (independent of save state): the reserved
-//      Logistics "Crew Equipment" tab (App.svelte:1059) and the three reserved Home meta
-//      tabs Achievements / Completion / Leaderboards (App.svelte:8545-8547, the reserved-tab
+//      carrying `locked: true`). These are STATIC (independent of save state): the three
+//      reserved Home meta tabs Achievements / Completion / Leaderboards (App.svelte:8545-8547, the reserved-tab
 //      comment at App.svelte:790). Labels are mirrored VERBATIM so a rename of the real tab
 //      is a one-place edit there + here (KEEP IN SYNC, same discipline as the phase-label
 //      maps above). This is a CURATED subset of every `locked:true` tab, matching the
@@ -1051,7 +1050,8 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
 // module constant (allocated once) and SPREAD into a fresh array per call, so the shared
 // list is never mutated and buildLocked stays pure.
 const RESERVED_COMING_SOON: LockedSlot[] = [
-  { id: "locked-crewEquipment", icon: "crewEquipment", label: "Crew Equipment", note: "Coming soon" },
+  // (E-CREW 0.14.0 Task 10: the Logistics "Crew Equipment" slot shipped as the live "Away-Team Gear" tab,
+  // so its chip left this list in the same edit, per the rule above.)
   { id: "locked-achievements", icon: "achievements", label: "Achievements", note: "Coming soon" },
   { id: "locked-completion", icon: "completion", label: "Completion", note: "Coming soon" },
   { id: "locked-leaderboards", icon: "leaderboards", label: "Leaderboards", note: "Coming soon" },

@@ -23,7 +23,10 @@
   // fixed hex, matching App.svelte's warehouseRarityColor posture.
   // ============================================================================
   import type { EquipmentRarity, EquipmentInstance, ItemRarity, ShipTypeKey } from "./game/model";
-  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES, equipmentSlotLabel } from "./game/model";
+  import { EQUIPMENT_SLOTS, BLUEPRINTS, DEFAULT_EQUIPMENT_VARIETY, ITEMS, SHIP_TYPES, equipmentSlotLabel, isMemberSlotType } from "./game/model";
+  // E-CREW 0.14.0 (Task 10): the one member-piece namer ("Standard-Issue Pulse Rifle"), shared with every
+  // away-team gear surface so the tooltip and the rows can never name a piece two ways.
+  import { memberPieceName } from "./awayGearDisplay";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
   // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
@@ -160,7 +163,11 @@
   }
 
   // Glyph from a (variety, slot) pair, shared by equipmentIcon(piece) and the craft path.
+  // E-CREW 0.14.0 (Task 10): an away-team MEMBER piece has no emoji glyph on purpose (member gear ships with
+  // SVG glyphs only, icons.ts armor / weaponHand / tool / implant, drawn by the host surfaces), so this
+  // returns "" and the card's existing {#if view.icon} guard renders no icon rather than the satellite fallback.
   function iconFor(varietyKey: string | null, slotType: string): string {
+    if (isMemberSlotType(slotType)) return "";
     if (varietyKey !== null && EQUIPMENT_VARIETY_ICON[varietyKey] !== undefined) return EQUIPMENT_VARIETY_ICON[varietyKey];
     return SLOT_ICON_FALLBACK[slotType] ?? "🛰️";
   }
@@ -310,7 +317,9 @@
 
   // ---- EQUIPMENT view (a rolled instance) -----------------------------------
   function equipmentName(p: EquipmentInstance): string {
-    if (p.blueprintKey === null) return "Standard-Issue";
+    // E-CREW (Task 10): a Standard-Issue MEMBER piece names its variety ("Standard-Issue Pulse Rifle"),
+    // since one member slot holds many squads' floors; ship baselines keep the bare "Standard-Issue".
+    if (p.blueprintKey === null) return isMemberSlotType(p.slotType) ? memberPieceName(p) : "Standard-Issue";
     const bp = BLUEPRINTS[p.blueprintKey];
     const eqOut = bp?.equipmentOutput;
     if (eqOut) {
@@ -322,7 +331,9 @@
   }
   function equipmentFlavor(p: EquipmentInstance): string | null {
     if (p.blueprintKey !== null) return BLUEPRINTS[p.blueprintKey]?.flavor ?? null;
-    const defaultVariety = DEFAULT_EQUIPMENT_VARIETY[p.slotType];
+    // E-CREW (Task 10): a member slot has no default variety; a Standard-Issue member piece carries its own
+    // stamped variety, so its flavor is that variety's blueprint flavor.
+    const defaultVariety = isMemberSlotType(p.slotType) ? p.moduleVariant : DEFAULT_EQUIPMENT_VARIETY[p.slotType];
     if (defaultVariety === undefined) return null;
     const bp = Object.values(BLUEPRINTS).find(
       (b) => b.equipmentOutput?.slotType === p.slotType && b.equipmentOutput?.varietyKey === defaultVariety,

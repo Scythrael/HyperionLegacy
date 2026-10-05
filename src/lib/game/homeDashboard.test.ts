@@ -306,11 +306,13 @@ describe("buildHomeDashboard, in-progress list (Unit 1)", () => {
     expect(model.needsOrders).toEqual([]);
     expect(model.allCaughtUp).toBe(true);
     // Unit 3 now fills locked (it was a Unit 1/2 stub). This state is freshState-based, so
-    // locked carries the four reserved coming-soon features PLUS the level-0 facilities; it
+    // locked carries the three reserved coming-soon features PLUS the level-0 facilities; it
     // is no longer empty. The exact contents are locked down in the Unit 3 block below; here
     // we only prove the stub is gone and a known coming-soon slot is present.
     expect(model.locked.length).toBeGreaterThan(0);
-    expect(model.locked.some((s) => s.id === "locked-crewEquipment")).toBe(true);
+    expect(model.locked.some((s) => s.id === "locked-achievements")).toBe(true);
+    // E-CREW 0.14.0: the Logistics Crew Equipment slot shipped (the Away-Team Gear tab), so its chip is gone.
+    expect(model.locked.some((s) => s.id === "locked-crewEquipment")).toBe(false);
   });
 });
 
@@ -588,25 +590,23 @@ function allBuiltFacilities() {
 describe("buildHomeDashboard, locked slots (Unit 3)", () => {
   it("always surfaces the reserved coming-soon features, regardless of facility levels", () => {
     // Every facility built (no facility chips), so ONLY the static reserved features remain.
-    // All four must be present with their mirrored labels, and none of the remaining chips
+    // All three must be present with their mirrored labels, and none of the remaining chips
     // is a facility chip.
     const allBuilt = { ...freshState(), facilities: allBuiltFacilities() };
     const model = buildHomeDashboard(allBuilt);
 
-    const crew = lockedById(model, "locked-crewEquipment");
     const achievements = lockedById(model, "locked-achievements");
     const completion = lockedById(model, "locked-completion");
     const leaderboards = lockedById(model, "locked-leaderboards");
-    expect(crew?.label).toBe("Crew Equipment");
     expect(achievements?.label).toBe("Achievements");
     expect(completion?.label).toBe("Completion");
     expect(leaderboards?.label).toBe("Leaderboards");
     // Reserved features read as "Coming soon".
-    expect(crew?.note).toBe("Coming soon");
+    expect(achievements?.note).toBe("Coming soon");
     // With every facility at level 1, there are no facility chips at all.
     expect(model.locked.some((s) => s.id.startsWith("locked-facility-"))).toBe(false);
-    // Exactly the four reserved features, nothing else.
-    expect(model.locked.length).toBe(4);
+    // Exactly the three reserved features, nothing else.
+    expect(model.locked.length).toBe(3);
   });
 
   it("surfaces a level-0 facility as a not-built chip and omits a leveled one", () => {
