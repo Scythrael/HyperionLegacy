@@ -15931,6 +15931,8 @@
           onHire={doHireAwayMember}
           onFire={doFireAwayMember}
           onReassign={doReassignAwayMember}
+          onInstall={doInstallOnMember}
+          onUninstall={doUninstallFromMember}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:
