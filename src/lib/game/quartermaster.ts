@@ -93,6 +93,9 @@ import type { DroneRole } from "./combat/drones";
 // salvage.ts imports from equipment.ts, so reaching for it from a sibling risks a cycle;
 // reservation.ts is the leaf both sides already depend on.
 import { salvageReservedInstanceIds } from "./reservation";
+// The one "which squad wears this piece" rule, shared with the member install gate (Task 9 review M2).
+// memberEquipment.ts imports nothing that imports this file, so there is no cycle.
+import { pieceWearableBy } from "./memberEquipment";
 
 // ----------------------------------------------------------------------------
 // RequisitionMint: HOW one catalogue row mints its baseline.
@@ -143,7 +146,12 @@ export interface RequisitionRow {
   // One line telling the player what the piece is FOR. Deliberately stat-free: the
   // magnitudes are tunable data and printing them here would let a retune make this lie.
   blurb: string;
-  mint: RequisitionMint;
+  // A SHIP row never mints through the member generator (Task 9 review M1): the "member" shape belongs to
+  // MemberRequisitionRow alone, so the type keeps a ship row from naming it.
+  mint: Exclude<RequisitionMint, { kind: "member" }>;
+  // The issued piece's own name, for a row whose label is not already that name (the weapon and drone pod
+  // rows read "Weapon (Standard-Issue Autocannon)"). Absent = "Standard-Issue <label>".
+  issuedName?: string;
 }
 
 // E-CREW 0.14.0 (Task 9): one away-team MEMBER row, for one squad type. Just the variety and the line:
@@ -250,6 +258,7 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   // tab gets its pricing and economy pass.
   weapon: {
     fallbackLabel: "Weapon (Standard-Issue Autocannon)",
+    issuedName: "Standard-Issue Autocannon",
     blurb: "The floor gun, the same one every hull is issued. A ship with no weapon can still patrol, but it cannot return fire.",
     mint: { kind: "weapon", weaponType: "autocannon" },
   },
@@ -264,6 +273,7 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   // reward.
   droneBay: {
     fallbackLabel: "Drone Pod (Standard-Issue Attack)",
+    issuedName: "Standard-Issue Attack Drone Pod",
     blurb: "A carrier's built-in squadron. Optional: a ship patrols without one, a carrier fights better with it.",
     mint: { kind: "dronePod", droneRole: "attack" },
   },
@@ -335,6 +345,11 @@ export interface RequisitionEntry {
   // requisitionStandardIssue / freeSpareBaselinesFor, which bound member rows per (slot, squad).
   teamType: AwayTeamType | null;
   label: string;
+  // The piece the row hands out, named ONCE ("Standard-Issue Pulse Rifle", "Standard-Issue Cargo Bay"), for
+  // the requisition log line. Kept apart from `label` because a row label already carries the phrase for
+  // some rows ("Weapon (Standard-Issue Autocannon)"), and prefixing it again read "a Standard-Issue Weapon
+  // (Standard-Issue Autocannon)" (Task 9 carry).
+  issuedName: string;
   blurb: string;
   mint: RequisitionMint;
 }
@@ -388,6 +403,7 @@ function buildRequisitionEntries(): RequisitionEntry[] {
           slotType,
           teamType,
           label: `${MEMBER_SLOT_NOUN[slotType]} (Standard-Issue ${variety.label})`,
+          issuedName: `Standard-Issue ${variety.label}`,
           blurb: row.blurb,
           mint: { kind: "member", varietyKey: row.varietyKey },
         });
@@ -396,11 +412,13 @@ function buildRequisitionEntries(): RequisitionEntry[] {
     }
     const row: RequisitionRow | null = REQUISITION_CATALOGUE[slotType as Exclude<EquipmentSlotType, MemberSlotType>];
     if (row === null) continue; // no Standard-Issue floor for this slot: nothing to issue
+    const label = EQUIPMENT_SLOTS[slotType]?.label ?? row.fallbackLabel;
     entries.push({
       key: slotType,
       slotType,
       teamType: null,
-      label: EQUIPMENT_SLOTS[slotType]?.label ?? row.fallbackLabel,
+      label,
+      issuedName: row.issuedName ?? `Standard-Issue ${label}`,
       blurb: row.blurb,
       mint: row.mint,
     });
@@ -455,8 +473,9 @@ export type RequisitionBlockReason =
 //                              slot is shared by every squad, so a spare Security rifle must not
 //                              refuse the Science sidearm: the bound is per (slot, squad), and
 //                              "holding one" means holding one THIS squad could install. Read through
-//                              the same teamTypes the install gate (canFitToMember) checks, so a
-//                              piece counts here exactly when it would install on that squad.
+//                              the SAME pieceWearableBy rule the install gate (canFitToMember)
+//                              checks, so a piece counts here exactly when it would install on that
+//                              squad.
 export function freeSpareBaselinesFor(
   state: GameState,
   slotType: EquipmentSlotType,
@@ -469,8 +488,7 @@ export function freeSpareBaselinesFor(
       piece.slotType === slotType &&
       isStandardIssueBaseline(piece) &&
       !reserved.has(piece.id) &&
-      (teamType === null ||
-        (memberVariety(slotType, piece.moduleVariant ?? "")?.member.teamTypes.includes(teamType) ?? false))
+      (teamType === null || pieceWearableBy(piece, teamType))
   );
 }
 
@@ -636,12 +654,16 @@ export function requisitionStandardIssue(
 // a new reason is a compile error in ONE place rather than a missing string discovered on
 // screen. Total over the union (a switch with no default), which is the same exhaustiveness
 // posture rarityIndex and the queue's block-reason text use.
-export function requisitionBlockText(reason: RequisitionBlockReason): string {
+// E-CREW (Task 10): `teamType` is the row's squad (null for a ship row). A member row is bound per (slot,
+// squad), so its text names the squad rather than "this slot", which a Security and a Science row share.
+export function requisitionBlockText(reason: RequisitionBlockReason, teamType: AwayTeamType | null = null): string {
   switch (reason) {
     case "noBaselineForSlot":
       return "There is no Standard-Issue pattern for that slot yet.";
     case "alreadyHoldingOne":
-      return "You already hold a spare Standard-Issue for this slot. Install it, and the counter will issue another.";
+      return teamType === null
+        ? "You already hold a spare Standard-Issue for this slot. Install it, and the counter will issue another."
+        : "You already hold a spare Standard-Issue of this kind for this squad. Install it on a squad member, and the counter will issue another.";
   }
 }
 

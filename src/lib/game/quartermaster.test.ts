@@ -436,7 +436,7 @@ describe("requisitionStandardIssue: the bound, and never a silent no-op", () => 
     // Exhaustive by construction (requisitionBlockText has no default branch), so this only
     // has to prove the strings are real and distinct rather than placeholders.
     const reasons: RequisitionBlockReason[] = ["noBaselineForSlot", "alreadyHoldingOne"];
-    const texts = reasons.map(requisitionBlockText);
+    const texts = reasons.map((r) => requisitionBlockText(r));
     for (const text of texts) expect(text.length).toBeGreaterThan(0);
     expect(new Set(texts).size).toBe(reasons.length);
   });
@@ -640,5 +640,26 @@ describe("E-CREW Task 9: the away-team member Standard-Issue kit", () => {
     expect(result.next.equipment.find((e) => e.id === piece.id)).toBeUndefined();
     expect(Object.keys(result.recovered)).toHaveLength(0);
     expect(result.next.inventory).toBe(first.next.inventory);
+  });
+});
+
+describe("E-CREW Task 10: requisition text names the piece once and the squad on member rows", () => {
+  it("every row's issued name carries the Standard-Issue prefix exactly once", () => {
+    for (const e of REQUISITION_ENTRIES) {
+      expect(e.issuedName.startsWith("Standard-Issue "), e.key).toBe(true);
+      expect(e.issuedName.split("Standard-Issue").length - 1, e.key).toBe(1);
+    }
+    const rifle = REQUISITION_ENTRIES.find((e) => e.slotType === "memberWeapon" && e.teamType === "security")!;
+    expect(rifle.issuedName).toBe("Standard-Issue Pulse Rifle");
+    expect(REQUISITION_ENTRIES.find((e) => e.slotType === "weapon")!.issuedName).toBe("Standard-Issue Autocannon");
+    expect(REQUISITION_ENTRIES.find((e) => e.slotType === "cargoBay")!.issuedName).toBe(
+      `Standard-Issue ${EQUIPMENT_SLOTS.cargoBay!.label}`
+    );
+  });
+
+  it("a member row's held-one refusal speaks of the squad, a ship row's of the slot", () => {
+    expect(requisitionBlockText("alreadyHoldingOne")).toContain("for this slot");
+    expect(requisitionBlockText("alreadyHoldingOne", "security")).toContain("for this squad");
+    expect(requisitionBlockText("alreadyHoldingOne", "security")).not.toContain("slot");
   });
 });

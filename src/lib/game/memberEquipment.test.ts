@@ -7,7 +7,13 @@
 // per-target predicates for both gear kinds. Nothing here exercises the tick or the UI.
 
 import { describe, it, expect } from "vitest";
-import { freshState, isSparePiece, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT } from "./model";
+import {
+  freshState,
+  isSparePiece,
+  AUTO_SALVAGE_RARITIES_NONE,
+  AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+  EQUIPMENT_SLOTS,
+} from "./model";
 import type {
   AwayMember,
   AwayTeamType,
@@ -29,6 +35,7 @@ import {
   memberSlotCapacity,
   installTargetsFor,
   memberFitBlockText,
+  pieceWearableBy,
   type MemberFitBlockReason,
 } from "./memberEquipment";
 import { canFitEquipment } from "./equipment";
@@ -700,6 +707,37 @@ describe("memberFitBlockText", () => {
       expect(text.length, r).toBeGreaterThan(0);
       expect(text, r).not.toMatch(/\bfit/i);
       expect(text, r).not.toMatch(new RegExp("\u2014|-{2}"));
+    }
+  });
+});
+
+// ===== pieceWearableBy (Task 9 review M2) =====
+
+describe("pieceWearableBy", () => {
+  it("is true only for a member piece whose variety lists the squad", () => {
+    expect(pieceWearableBy(piece("a", "memberWeapon", "pulseRifle"), "security")).toBe(true);
+    expect(pieceWearableBy(piece("a", "memberWeapon", "pulseRifle"), "science")).toBe(false);
+    expect(pieceWearableBy(piece("b", "implant", "dermalWeave"), "security")).toBe(true);
+  });
+
+  it("is false for ship gear, an unstamped member piece, and a retired variety key", () => {
+    expect(pieceWearableBy(piece("c", "cargoBay", undefined), "security")).toBe(false);
+    expect(pieceWearableBy(piece("d", "memberTool", undefined), "science")).toBe(false);
+    expect(pieceWearableBy(piece("e", "memberTool", "retiredKey"), "science")).toBe(false);
+  });
+
+  it("agrees with canFitToMember's wrongTeam verdict for every member variety and squad", () => {
+    const teams: AwayTeamType[] = ["security", "science"];
+    for (const slot of ["memberArmor", "memberWeapon", "memberTool", "implant"] as const) {
+      for (const v of EQUIPMENT_SLOTS[slot].varieties) {
+        const p = piece("equip-1", slot, v.key);
+        for (const t of teams) {
+          const state: GameState = { ...freshState(), equipment: [p], awayMembers: [member("member-1", t, null)] };
+          const gate = canFitToMember(state, "member-1", p.id);
+          const wrongTeam = !gate.ok && gate.reason === "wrongTeam";
+          expect(wrongTeam, `${slot}/${v.key}/${t}`).toBe(!pieceWearableBy(p, t));
+        }
+      }
     }
   });
 });

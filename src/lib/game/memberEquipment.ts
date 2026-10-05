@@ -43,6 +43,7 @@
 //   memberFitBlockText                    player-facing text per reason (exhaustive)
 //   memberEquipment / memberPieceInSlot / memberSlotPieces   queries
 //   memberSlotCapacity                    how many pieces of a member slot one member can wear
+//   pieceWearableBy                       may a squad type wear this piece (its variety's teamTypes)
 //   canFitToMember / fitToMember          the install gate + mutator (singleton swap, targeted implant swap)
 //   canUnfitFromMember / unfitFromMember  the uninstall gate + mutator
 //   InstallTarget / installTargetsFor     the item-side install list (S5-151), ships AND members
@@ -189,6 +190,18 @@ export function memberSlotCapacity(member: Pick<AwayMember, "race">, slotType: M
   return slotType === "implant" ? implantSlotsFor(member) : 1;
 }
 
+// May a member of squad `teamType` wear this piece? True only for a MEMBER piece whose stamped variety
+// (moduleVariant) resolves and lists that squad in its teamTypes. A ship piece, an unstamped member piece or a
+// retired variety key all read false (no squad is known to wear it). THE ONE "which squad wears this" rule,
+// shared by the install gate (canFitToMember's wrongTeam) and the Quartermaster's per-squad requisition bound
+// (freeSpareBaselinesFor), so the two can never disagree about whose gear a piece is. Pure.
+export function pieceWearableBy(
+  piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">,
+  teamType: AwayMember["teamType"]
+): boolean {
+  return memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.teamTypes.includes(teamType) ?? false;
+}
+
 // Is this member crew-locked right now? A benched member (assignedShipId null) never is. Pure.
 function memberCrewLocked(state: GameState, member: AwayMember): boolean {
   return member.assignedShipId !== null && shipCrewLocked(state, member.assignedShipId);
@@ -242,8 +255,10 @@ function evaluateFit(
   if (!member) return refuse("noMember");
   if (memberCrewLocked(state, member)) return refuse("onMission");
 
+  // pieceWearableBy is false whenever the variety does not resolve, so past this line it does.
+  if (!pieceWearableBy(piece, member.teamType)) return refuse("wrongTeam");
   const variety = memberVariety(slotType, piece.moduleVariant ?? "");
-  if (!variety || !variety.member.teamTypes.includes(member.teamType)) return refuse("wrongTeam");
+  if (variety === undefined) return refuse("wrongTeam"); // unreachable; narrows the type without a cast
 
   // The piece leaving in the same transition. A named target must be worn by THIS member, in the SAME slot
   // type, and not the incoming piece itself (for a singleton that is exactly its current occupant, since a

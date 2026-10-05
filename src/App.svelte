@@ -463,6 +463,7 @@
     freeSpareBaselinesFor,
     requisitionBlockText,
     requisitionStandardIssue,
+    type RequisitionEntry,
     // Sell counter (0.13.6): the derived sellable-stock shelf + the sell transform. Only items
     // carrying an ItemDef.sellValue are sellable; sellItem hard-refuses everything else.
     sellableInventory,
@@ -6959,14 +6960,19 @@
   // NO COST, so there is nothing to deduct and no confirm to ask for: the counter's whole job
   // is to make a missing slot floor an errand instead of a wall.
   // E-CREW (Task 9): a member row names its squad (teamType); a ship row passes null.
-  function doRequisition(slotType: EquipmentSlotType, teamType: AwayTeamType | null, label: string) {
-    const { next, minted, reason } = requisitionStandardIssue(state, slotType, teamType);
+  // E-CREW (Task 10): the log names the issued piece ONCE ("Requisitioned Standard-Issue Pulse Rifle
+  // (Security)"), from the entry's issuedName, instead of prefixing a label that already said it.
+  function doRequisition(entry: RequisitionEntry) {
+    const { next, minted, reason } = requisitionStandardIssue(state, entry.slotType, entry.teamType);
+    const name = entry.teamType === null ? entry.issuedName : `${entry.issuedName} (${SQUAD_META[entry.teamType].short})`;
     if (minted === null) {
-      pushLog(`Cannot requisition ${label}: ${reason === null ? "the Quartermaster refused that request" : requisitionBlockText(reason)}`);
+      pushLog(`Cannot requisition ${name}: ${reason === null ? "the Quartermaster refused that request" : requisitionBlockText(reason, entry.teamType)}`);
       return;
     }
     state = next;
-    pushLog(`Requisitioned a Standard-Issue ${label}. It is in your spare systems, ready to install.`);
+    pushLog(
+      `Requisitioned ${name}. It is in your spare ${entry.teamType === null ? "systems" : "away-team gear"}, ready to install.`
+    );
     doSave();
   }
 
@@ -14207,19 +14213,14 @@
                           </span>
                           <span class="cq-state">{entry.blurb}</span>
                           {#if !gate.ok}
-                            <span class="cq-state">{requisitionBlockText(gate.reason)}</span>
+                            <span class="cq-state">{requisitionBlockText(gate.reason, entry.teamType)}</span>
                           {/if}
                         </div>
                         <div class="cq-ctl">
                           <button
                             class="buy-btn"
                             disabled={!gate.ok}
-                            on:click={() =>
-                              doRequisition(
-                                entry.slotType,
-                                entry.teamType,
-                                entry.teamType === null ? entry.label : `${SQUAD_META[entry.teamType].short} ${entry.label}`
-                              )}
+                            on:click={() => doRequisition(entry)}
                           >
                             Requisition
                           </button>
