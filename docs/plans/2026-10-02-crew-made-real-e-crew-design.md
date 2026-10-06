@@ -34,6 +34,15 @@ plan all along). Every crew bonus a player can roll or see gets a live effect. T
 | D15 | The 1,017-crew flagship is a LATER hull tier (3rd/4th, a class generation), not this pass. |
 | D16 | Gambits are PER MEMBER (Security only). The six preset titles stay. |
 
+**D17. PARTY COMPOSITION IS THE PLAYER'S CHOICE (user, 2026-10-06). No rails.** "You choose your party. If you don't
+want a healer and want to go full-on assault, or if you want a team of medic/support based personnel, then you can do
+that. It's all about player choice ... If they want to be tanky with dots that kill enemies over time while they never
+die, that's fine. If they want glass cannons, that's fine too. Let's not force them onto rails." Consequences: no
+squad-composition requirement anywhere (no mandatory medic, tank, or spec mix); every archetype (assault, medic/support,
+DoT-tank, glass cannon) must be BUILDABLE from specs + traits + gear + gambits; content may be harder for some builds but
+never hard-gated to one; the no-roster stand-in detail gets nothing auto-added (it is not a player choice). Balance passes
+check archetype viability, not a "correct" composition.
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.

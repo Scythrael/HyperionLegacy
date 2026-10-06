@@ -355,6 +355,17 @@ Med Kit's in-battle heal is 0 (or the floor), a crafted one heals.
 Tests: Science members never appear in combatants; a member's own program fires (two members, two programs,
 two different first actions); the six preset titles are unchanged; determinism (same seed, same log).
 
+**Carry from Tasks 12-13 (`d75ed51`, `f44c9d3`):** snapshot lives in awayTeam.ts (cycle-safe); battles via
+`expeditionTeamCombatants` (roster.security or the Security-only anonymous fallback). Per D17 (player choice, no rails)
+the fallback stays as is (no auto-medic). Science strength + museum scienceTeamPower do nothing until Task 15.
+ExpeditionPanel's Science blurb ("Surveys, cures, and secures. Runs the Science gambit") is now false and the editor's
+Science tab must go (Task 17). Task 14: encounters call expeditionTeamCombatants / resolveGroundBattle with a keyed seed
+per scan step; the Shroud/Lure dial is in SnapshotMember.gear (variety encounterBias). Task 15: poiYield, fieldwork /
+relicFind / hazardResist bumps and gear planetTypes are in the snapshot; groundOrganicsYield / groundVaultYield are NOT
+converted yet (Task 15 owns them). Task 16: the revive effect is in the snapshot (chance, hpFraction, points) but unread;
+GroundBattleResult must list downed memberIds (combatants carry memberId). Tool inflicts ride the landed strike
+(first-pass; a separate throw action is a later option).
+
 ### Task 14: Random encounters during scan progress
 
 **Files:** `expedition.ts` (scan advance), `gambit.ts` (`generateEncounter` reuse), tests.
