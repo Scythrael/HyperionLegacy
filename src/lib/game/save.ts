@@ -2371,9 +2371,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // behind the same call. Plain values only (no Decimals), so hydrateDecimals is unchanged. Idempotent:
   // `??` only fills an absent field and an officer that already carries stats keeps them.
   // E-CREW Tasks 12 + 13 add NOTHING here, on purpose: AwayMember.gambit is optional and ABSENT MEANS the
-  // account's Security program at dispatch (design section 10: "every existing account program becomes the
-  // default program a newly hired Security member starts with"), so there is nothing to stamp, and stamping
-  // would freeze a copy that later account edits could no longer reach. Expedition.roster is optional too:
+  // built-in DEFAULT_MEMBER_GAMBIT (D19, user 2026-10-06; it superseded the design section 10 line that
+  // seeded members from the account program), so there is nothing to stamp, and stamping would freeze a
+  // copy a later retune of the default could no longer reach. The account pair (state.gambitPrograms)
+  // stays stored untouched; no battle reads it. Expedition.roster is optional too:
   // D18 removed the anonymous Security detail, so an in-flight expedition without a Security member fields
   // no team and each of its ground tasks evacuates without a battle (gambit.ts resolveExpeditionActivity);
   // nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its

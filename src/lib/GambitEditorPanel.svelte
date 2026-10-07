@@ -19,9 +19,11 @@
   //     a narrow one (<= 559px, e.g. 375px phones) stacks the target block above the action block. Works at
   //     375px.
   //
-  // The programs are ACCOUNT-LEVEL and SNAPSHOTTED onto an expedition at dispatch, so editing here does not
-  // change an in-flight run (a hint line says so). The engine + interpreter live in gambit.ts; this panel
-  // owns only the editing surface.
+  // The programs are ACCOUNT-LEVEL. D19 (user, 2026-10-06): NO battle reads them any more. Each Security
+  // member runs their own program, else the built-in DEFAULT_MEMBER_GAMBIT (no automatic kit use), so an
+  // edit here changes no member; a notice line says so. The stored pair is kept (and still editable) until
+  // the per-member editor (E-CREW Task 17) replaces this surface. The engine + interpreter live in gambit.ts;
+  // this panel owns only the editing surface.
   // ============================================================================
 
   import type {
@@ -239,6 +241,12 @@
     {/each}
   </div>
 
+  <p class="ge-notice" role="note">
+    Away-team members now fight with <b>their own</b> program, or the built-in default (full targeting,
+    attack and defense, no automatic kit use). The rules on this page are saved but do not change any
+    battle until per-member editing arrives.
+  </p>
+
   <p class="ge-intro">
     Rules run <b>top to bottom</b>: each {activeRole === "security" ? "Security" : "Science"} member takes the
     <b>first</b> rule whose target is found, every round. Reorder to set priority.
@@ -413,6 +421,17 @@
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
     line-height: 1.5;
+  }
+  /* D19: these account-level rules no longer drive any battle; say so plainly. */
+  .ge-notice {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: var(--text-xs);
+    line-height: 1.5;
+    color: var(--color-warning);
+    border: 1px solid rgba(var(--color-warning-rgb, 200, 150, 60), 0.45);
+    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.12);
   }
 
   .ge-empty {

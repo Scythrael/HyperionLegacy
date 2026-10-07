@@ -541,9 +541,9 @@ export function startExpedition(
   const id = `expedition-${number}`;
   const gen = generateSystem(seed);
   const snap = shipSensorSnapshot(state, ship);
-  // E3a: snapshot the away team's crew-derived strength + team kit + the account-level gambit program
-  // pair, so the expedition's ground battles resolve as a pure function of the stored expedition (parity;
-  // editing the account programs mid-flight never changes an in-flight run, matching the sensor snapshot).
+  // E3a: snapshot the away team's crew-derived strength + team kit, so the expedition's ground battles
+  // resolve as a pure function of the stored expedition (parity, matching the sensor snapshot). D19: the
+  // members' programs ride the roster snapshot below, not the account-level pair.
   // (E4b: deriveAwayTeam already folds the museum's scienceTeamPower into scienceStrength.)
   const awayTeam = deriveAwayTeam(state, ship);
   // E4b: snapshot the account-level museum's EXPEDITION bonuses at dispatch (the same "the launch is what
@@ -555,10 +555,9 @@ export function startExpedition(
   // in-flight run never changes if the ship's gear changes later (the same contract as the museum and
   // sensor-array snapshots). Zeros without the gear, so museum + 0 is bit-identical to the E4b snapshot.
   const gear = expeditionGearBonuses(state, ship);
-  const gambitPrograms = {
-    security: state.gambitPrograms.security.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
-    science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
-  };
+  // D19: Expedition.gambitPrograms is INERT (no battle reads it; each member carries its own program in the
+  // roster). Written empty so the stored shape stays loadable, and so no one mistakes it for a live input.
+  const gambitPrograms = { security: [], science: [] };
   // E-CREW (Task 12): snapshot the ship's READY named members (converted gear, traits, implants, programs)
   // at the same dispatch instant. D18: the gate above guarantees both squads are non-empty, so every
   // expedition launched from here on carries a roster. (An OLD in-flight expedition may still lack one;

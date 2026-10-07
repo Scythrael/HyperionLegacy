@@ -165,6 +165,31 @@ describe("rule evaluation — first-match top-down + role-legal enforcement", ()
     expect(foe.hp).toBeLessThan(foe.hpMax); // the attack landed
   });
 
+  // D19 FIX: the selector is the CONDITION for targetless actions too. "selfHpBelow -> brace" used to brace
+  // every round at full HP (the targetless action ignored its selector); now it waits for the condition.
+  it("a targetless action fires only when its selector resolves (brace when hurt means when hurt)", () => {
+    const program: GambitProgram = [
+      { target: "selfHpBelow", params: { hpThreshold: 0.5 }, action: "brace" },
+      { target: "foeNearest", action: "attack" },
+    ];
+    const healthy = mk("t-sec-0", "team", "security", { accuracy: 1 });
+    const foeA = mk("enemy-bruiser-1", "enemy", "bruiser");
+    evaluateAndAct(program, healthy, bs([healthy, foeA]), makeRngLike());
+    expect(hasStatus(healthy, "shielded")).toBe(false); // full HP: no brace
+    expect(foeA.hp).toBeLessThan(foeA.hpMax); // the attack fired instead
+
+    const hurt = mk("t-sec-0", "team", "security", { accuracy: 1, hp: 10 });
+    const foeB = mk("enemy-bruiser-1", "enemy", "bruiser");
+    evaluateAndAct(program, hurt, bs([hurt, foeB]), makeRngLike());
+    expect(hasStatus(hurt, "shielded")).toBe(true); // below half: braces
+    expect(foeB.hp).toBe(foeB.hpMax);
+
+    // "self" always resolves for a standing actor, so a plain self-brace is unchanged.
+    const plain = mk("t-sec-0", "team", "security");
+    evaluateAndAct([{ target: "self", action: "brace" }], plain, bs([plain, mk("enemy-bruiser-1", "enemy", "bruiser")]), makeRngLike());
+    expect(hasStatus(plain, "shielded")).toBe(true);
+  });
+
   it("isActionLegalForRole gates team roles but not enemy roles", () => {
     expect(isActionLegalForRole("science", "attack")).toBe(false);
     expect(isActionLegalForRole("science", "cure")).toBe(true);
@@ -349,7 +374,7 @@ describe("full battle — gambit depth is load-bearing", () => {
     for (let s = 0; s < N; s++) {
       const seed = (0x1234 ^ (s * 0x9e3779b9)) >>> 0;
       const enemies = generateEncounter(seed, HAZARD, "buriedVault");
-      if (resolveGroundBattle(team(programs, `b${s}`), enemies, programs, snapshot.teamKit, makeRng(seed)).result === "win") wins++;
+      if (resolveGroundBattle(team(programs, `b${s}`), enemies, snapshot.teamKit, makeRng(seed)).result === "win") wins++;
     }
     return wins;
   }
@@ -363,8 +388,8 @@ describe("full battle — gambit depth is load-bearing", () => {
 
   it("is deterministic: the same team + enemies + seed replays byte-identically", () => {
     const seed = 0xabcdef;
-    const a = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
-    const b = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
+    const a = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), snapshot.teamKit, makeRng(seed));
+    const b = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), snapshot.teamKit, makeRng(seed));
     expect(a).toEqual(b);
   });
 });

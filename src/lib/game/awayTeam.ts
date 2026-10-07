@@ -33,6 +33,7 @@ import type {
   SnapshotMember,
 } from "./model";
 import {
+  DEFAULT_MEMBER_GAMBIT,
   MEMBER_GROUND_STAT_KEYS,
   SENIOR_STAFF_ROSTER_BASE,
   SHIP_TYPES,
@@ -597,13 +598,9 @@ function cloneProgram(program: GambitProgram): GambitProgram {
 }
 
 // Freeze ONE member: convert their worn gear, fold in their traits, normalize every effect. `worn` is the
-// member's worn pieces in mint order; `securityDefault` is the account's Security program at dispatch (the
-// program a Security member without their own runs). Pure.
-export function snapshotMember(
-  member: AwayMember,
-  worn: readonly EquipmentInstance[],
-  securityDefault: GambitProgram
-): SnapshotMember {
+// member's worn pieces in mint order. A Security member without their own program gets the built-in
+// DEFAULT_MEMBER_GAMBIT (D19), never the account-level program. Pure.
+export function snapshotMember(member: AwayMember, worn: readonly EquipmentInstance[]): SnapshotMember {
   // 1) Gear: sum every worn piece's lines, convert once (the CONVERSION CONTRACT). Each piece's fixed
   // groundEffect normalizes into the effect list, carrying the piece's own points as its magnitude.
   const summed: Partial<Record<MemberGroundStatKey, number>> = {};
@@ -692,17 +689,17 @@ export function snapshotMember(
     resists,
     implants: gear.filter((g) => g.slotType === "implant").map((g) => g.varietyKey),
     gear,
-    // Security runs its own program, else the account default. Science carries its own (or none) INERTLY:
-    // Science never enters a battle (design D2), so nothing executes it.
-    gambit: cloneProgram(member.gambit ?? (member.teamType === "security" ? securityDefault : [])),
+    // Security runs its own program, else the built-in default (D19). Science carries its own (or none)
+    // INERTLY: Science never enters a battle (design D2), so nothing executes it.
+    gambit: cloneProgram(member.gambit ?? (member.teamType === "security" ? DEFAULT_MEMBER_GAMBIT : [])),
     effects,
   };
 }
 
 // The ship's away-team ROSTER SNAPSHOT at dispatch: each squad's deployable members (ready, hire order,
 // capped), frozen with their converted gear, traits, implants and programs. An empty squad is []. Pure:
-// reads state.awayMembers, state.equipment (fittedToMemberId, the member-gear authority) and
-// state.gambitPrograms; returns fresh data with no live references.
+// reads state.awayMembers and state.equipment (fittedToMemberId, the member-gear authority); returns fresh
+// data with no live references. D19: it never reads state.gambitPrograms.
 export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRosterSnapshot {
   const worn = new Map<string, EquipmentInstance[]>();
   for (const e of state.equipment) {
@@ -712,8 +709,7 @@ export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRo
     else worn.set(e.fittedToMemberId, [e]);
   }
   for (const list of worn.values()) list.sort(byIdNumber);
-  const securityDefault = state.gambitPrograms.security;
   const squad = (teamType: AwayTeamType): SnapshotMember[] =>
-    deployableMembers(state, ship, teamType).map((m) => snapshotMember(m, worn.get(m.id) ?? [], securityDefault));
+    deployableMembers(state, ship, teamType).map((m) => snapshotMember(m, worn.get(m.id) ?? []));
   return { security: squad("security"), science: squad("science") };
 }

@@ -54,7 +54,13 @@ import {
 } from "./gambit";
 import { planetTypeHazard } from "./expeditionContent";
 import { makeRng } from "./combat/rng";
-import { DEFAULT_GAMBIT_PROGRAMS, type Expedition, type GambitProgram, type SnapshotMember } from "./model";
+import {
+  DEFAULT_GAMBIT_PROGRAMS,
+  DEFAULT_MEMBER_GAMBIT,
+  type Expedition,
+  type GambitProgram,
+  type SnapshotMember,
+} from "./model";
 
 // ===== fixtures =====
 
@@ -233,7 +239,9 @@ describe("snapshotAwayRoster: effect normalization", () => {
     expect(snapshotAwayRoster(big, ship(big)).security[0].resists.fear).toBe(STATUS_RESIST_CAP);
   });
 
-  it("a Security member runs its own program, else the account Security program; Science carries its own inertly", () => {
+  // D19 DELIBERATE CHANGE: a Security member with no program used to get the ACCOUNT Security program
+  // (state.gambitPrograms.security). It now gets the built-in DEFAULT_MEMBER_GAMBIT, unlinked from it.
+  it("a Security member runs its own program, else the built-in default; Science carries its own inertly", () => {
     const own = [{ target: "foeLowestHp" as const, action: "execute" as const }];
     const s = withRoster([
       member("member-1", "security", { gambit: own }),
@@ -243,7 +251,8 @@ describe("snapshotAwayRoster: effect normalization", () => {
     const r = snapshotAwayRoster(s, ship(s));
     expect(r.security[0].gambit).toEqual(own);
     expect(r.security[0].gambit).not.toBe(own); // a copy, never the live array
-    expect(r.security[1].gambit).toEqual(s.gambitPrograms.security);
+    expect(r.security[1].gambit).toEqual(DEFAULT_MEMBER_GAMBIT);
+    expect(r.security[1].gambit).not.toBe(DEFAULT_MEMBER_GAMBIT); // a copy, never the shared constant
     expect(r.science[0].gambit).toEqual([]);
   });
 });
@@ -459,8 +468,6 @@ describe("Task 13: per-member gambits", () => {
     resolveGroundBattle(
       buildRosterCombatants([tank, striker], 8, "x"),
       [enemy("enemy-bruiser-1")],
-      // The role-wide program says HOLD; named members ignore it and run their own.
-      { security: [], science: [] },
       0,
       makeRng(42),
       log
@@ -488,6 +495,63 @@ describe("Task 13: per-member gambits", () => {
     // Triage is MEDIC PRIORITY: it leads with the medic actions.
     const triage = GAMBIT_PRESETS.find((p) => p.title === "Triage")!;
     expect(triage.programs.security.slice(0, 2).map((r) => r.action)).toEqual(["cure", "aidHeal"]);
+  });
+});
+
+// ============================================================================
+// D19 DEFAULT MEMBER GAMBITS (user, 2026-10-06): "A default set of gambits that covers everything but
+// automatic kit use should be assigned by default unless one is set up." Not linked to an account program.
+describe("D19: the built-in default member program", () => {
+  it("has NO automatic kit use: no Use Item rule", () => {
+    expect(DEFAULT_MEMBER_GAMBIT.some((r) => r.action === "useItem")).toBe(false);
+  });
+
+  it("covers targeting, attack and defense, and validates clean for Security", () => {
+    const actions = new Set(DEFAULT_MEMBER_GAMBIT.map((r) => r.action));
+    expect(actions.has("attack")).toBe(true);
+    expect(actions.has("execute")).toBe(true);
+    expect(actions.has("brace")).toBe(true); // defense
+    const targets = new Set(DEFAULT_MEMBER_GAMBIT.map((r) => r.target));
+    expect(targets.has("foeIsHealer")).toBe(true); // smart targeting, not just "nearest"
+    expect(targets.has("foeNearest")).toBe(true); // an always-firing fallback, so a member never idles
+    expect(validateGambitProgram("security", DEFAULT_MEMBER_GAMBIT)).toEqual([]);
+  });
+
+  it("is not a preset, and the six preset titles are unchanged", () => {
+    expect(GAMBIT_PRESETS.some((p) => JSON.stringify(p.programs.security) === JSON.stringify(DEFAULT_MEMBER_GAMBIT))).toBe(false);
+    expect(GAMBIT_PRESETS.map((p) => p.title)).toEqual([
+      "Establish Dominance",
+      "Decapitate",
+      "Turtle Club President",
+      "Triage",
+      "Balanced",
+      "Custom",
+    ]);
+  });
+
+  it("a hand-built Security combatant with no program runs the default (never an account pair)", () => {
+    const loner: GroundCombatant = { ...enemy("t-sec-0"), side: "team", role: "security", groupTag: "security" };
+    const healer = enemy("enemy-healer-1", { role: "healer", groupTag: "healer" });
+    const log: GambitLogEvent[] = [];
+    resolveGroundBattle([loner], [enemy("enemy-bruiser-1"), healer], 0, makeRng(4), log);
+    const first = log.find((e) => e.side === "team")!;
+    expect(first.action).toBe("attack");
+    expect(first.targetRole).toBe("healer"); // the default's targeting: kill the healer first
+  });
+
+  it("editing the ACCOUNT program changes no member: same snapshot, same expedition outcome", () => {
+    const base = withRoster([member("member-1", "security"), member("member-2", "science")]);
+    const hold: GameState = { ...base, gambitPrograms: { security: [{ target: "self", action: "hold" }], science: [] } };
+    const lazy: GameState = { ...base, gambitPrograms: { security: [{ target: "foeNearest", action: "attack" }], science: [] } };
+    expect(snapshotAwayRoster(hold, ship(hold))).toEqual(snapshotAwayRoster(lazy, ship(lazy)));
+    const run = (s: GameState) => {
+      const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      expect(res.success).toBe(true);
+      return advanceExpedition(res.expedition!, 1_000_000);
+    };
+    const a = run(hold);
+    expect(a.phase).toBe("complete");
+    expect(run(lazy)).toEqual(a);
   });
 });
 
@@ -599,7 +663,7 @@ describe("Task 13: medic legality and gear effects that scale with stat lines", 
     team[0].hp = 5; // member-1 is badly hurt
     const log: GambitLogEvent[] = [];
     // A lone striker always goes for the lowest-HP foe (member-1); the Bulwark steps in front.
-    resolveGroundBattle(team, [enemy("enemy-striker-1", { role: "striker", power: 1 })], { security: [], science: [] }, 0, makeRng(5), log);
+    resolveGroundBattle(team, [enemy("enemy-striker-1", { role: "striker", power: 1 })], 0, makeRng(5), log);
     const round1 = log.filter((e) => e.round === 1);
     expect(round1[0].memberId).toBe("member-2"); // first strike, despite the higher id
     const strike = round1.find((e) => e.side === "enemy")!;
@@ -621,7 +685,7 @@ describe("Task 13: a battle ends only on a clear or a wipe", () => {
       groupTag: "science",
       program: [{ target: "self", action: "secureObjective" }],
     };
-    const res = resolveGroundBattle([sci], [enemy("enemy-bruiser-1", { accuracy: 0 })], { security: [], science: [] }, 0, makeRng(9));
+    const res = resolveGroundBattle([sci], [enemy("enemy-bruiser-1", { accuracy: 0 })], 0, makeRng(9));
     expect(res.result).toBe("loss");
     expect(res.teamAliveCount).toBe(1);
     expect(res.enemyAliveCount).toBe(1);
@@ -635,7 +699,6 @@ describe("Task 13: a battle ends only on a clear or a wipe", () => {
       const res = resolveGroundBattle(
         buildRosterCombatants(roster, 6, `b${s}`),
         generateEncounter(seed, 0.4, "buriedVault"),
-        DEFAULT_GAMBIT_PROGRAMS,
         2,
         makeRng(seed)
       );

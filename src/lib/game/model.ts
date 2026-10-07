@@ -6127,8 +6127,9 @@ export interface AwayMember {
   traits: AwayTraitId[]; // rolled trait ids; the count follows rank
   assignedShipId: string | null; // the ship whose squad holds the member (the authority, like officers); null = unassigned
   injuredUntilSeconds?: number; // gameTimeSeconds the member recovers at (D9); absent = ready
-  // The member's OWN gambit program (D16, Security only). ABSENT = the account's Security program
-  // (state.gambitPrograms.security) at the moment the roster is snapshotted at dispatch (E-CREW Task 13).
+  // The member's OWN gambit program (D16, Security only). ABSENT = the built-in DEFAULT_MEMBER_GAMBIT (D19,
+  // user 2026-10-06: full targeting / attack / defense coverage, NO automatic kit use), frozen into the
+  // roster snapshot at dispatch. NOT linked to the account-level state.gambitPrograms.
   gambit?: GambitProgram;
   favorite?: boolean; // curation flag only, parity with officers / notables
   // The recruit-board candidate id this member was hired from ("away-candidate-<window>-<slot>"). The
@@ -6454,9 +6455,12 @@ export type GambitProgram = GambitRule[];
 // its two-key shape, so an old save carrying a Science program loads unchanged; nothing executes it.
 export type GambitRole = "security" | "science";
 
-// The player's ACCOUNT-LEVEL program pair (one per role). Every away team uses this pair, first-pass; a
-// per-ship override is a documented follow-on. Stored on GameState; snapshotted onto an Expedition at
-// dispatch so resolution is a pure function of the stored expedition (parity), like the sensor snapshot.
+// The player's ACCOUNT-LEVEL program pair (one per role), stored on GameState and edited by the Away-Team
+// Gambits panel. D19 (user, 2026-10-06): NO battle reads it any more. Each Security member runs its own
+// program, else DEFAULT_MEMBER_GAMBIT (below), never this pair. The shape stays so every save loads and
+// keeps what the player stored; the only readers left are that editor (and its App.svelte write
+// handlers), freshState + the v61 -> v62 migration (which seed it), and Expedition.gambitPrograms (an
+// inert field kept for save shape). The per-member editor (E-CREW Task 17) decides its future.
 export interface GambitPrograms {
   security: GambitProgram;
   science: GambitProgram;
@@ -6477,6 +6481,25 @@ export const DEFAULT_GAMBIT_PROGRAMS: GambitPrograms = {
   ],
   science: [],
 };
+
+// D19 DEFAULT MEMBER GAMBITS (user, 2026-10-06, verbatim): "A default set of gambits that covers everything
+// but automatic kit use should be assigned by default unless one is set up." The built-in program every
+// Security member runs until the player sets that member's own (AwayMember.gambit). It is NOT linked to the
+// account-level pair above: editing that changes no member. Coverage, top to bottom (first match fires):
+//   - medic support: cure an afflicted ally, then patch an ally below half HP. Both fire only for a member
+//     with Medical Training (gambit.ts canActorUse) and consume NO kit (team kit is spent only by Use Item);
+//   - defense: brace when badly hurt;
+//   - targeting: kill the enemy healer, then the caster, then finish the weakest foe, then the nearest.
+// It contains NO "useItem" rule (no automatic kit use); a test pins that. FIRST-PASS TUNABLE thresholds.
+export const DEFAULT_MEMBER_GAMBIT: GambitProgram = [
+  { target: "allyHasStatus", action: "cure" },
+  { target: "allyHpBelow", params: { hpThreshold: 0.5 }, action: "aidHeal" },
+  { target: "selfHpBelow", params: { hpThreshold: 0.25 }, action: "brace" },
+  { target: "foeIsHealer", action: "attack" },
+  { target: "foeIsCaster", action: "attack" },
+  { target: "foeLowestHp", action: "execute" },
+  { target: "foeNearest", action: "attack" },
+];
 
 // A snapshot of the installed sensor array's resolved (rarity/quality-scaled) scan-behavior params,
 // captured at dispatch so resolution is a pure function of the stored expedition (no live fitment
@@ -6520,17 +6543,20 @@ export interface Expedition {
   findings: ExpeditionFinding[];
   seed: number; // per-expedition PRNG seed (reload-deterministic, like inspectSeed)
   // --- E3a away-team SNAPSHOT (captured at dispatch, exactly like the sensor snapshot above) ------------
-  // The away team's derived combat strength + team kit, and the gambit program pair, snapshotted at
-  // dispatch (startExpedition, from the ship's crew via deriveAwayTeam + state.gambitPrograms). Resolution
+  // The away team's derived combat strength + team kit, snapshotted at dispatch (startExpedition, from the
+  // ship's crew via deriveAwayTeam; D19: the program pair below is no longer snapshotted). Resolution
   // (the E3 gambit ground battles in resolveActivitiesPhase) reads ONLY these stored fields, so it is a
   // pure function of the stored expedition -- the tick chain (advanceExpedition) needs no GameState, and
   // one-big == many-small parity holds by construction (the snapshot is a fixed input, not a live read).
-  // Editing the account-level programs mid-flight does NOT change an in-flight run, matching the sensor
-  // snapshot's "the launch is what you saw at dispatch" contract.
-  securityStrength: number; // Security division + tactical officers -> detail count + combat power/HP
+  // Nothing the player changes mid-flight alters an in-flight run, matching the sensor snapshot's "the
+  // launch is what you saw at dispatch" contract.
+  securityStrength: number; // Security division + tactical officers -> the squad-wide crew layer (power/HP)
   scienceStrength: number; // Science division + science/medical officers -> party power (support/cure/secure)
   teamKit: number; // per-battle team-kit consumables (cures/stims) available for useItem
-  gambitPrograms: GambitPrograms; // the snapshotted Security + Science program pair the away teams run
+  // D19: INERT. It used to snapshot the account program pair for the anonymous detail; no battle reads it
+  // now (members carry their own program in `roster`). startExpedition writes an empty pair; the field
+  // stays so every stored expedition keeps loading.
+  gambitPrograms: GambitPrograms;
   // --- E4b MUSEUM SNAPSHOT (captured at dispatch, exactly like the sensor + away-team snapshots above) ---
   // The account-level museum's expedition bonuses (relics.ts museumBonuses fractions), frozen at dispatch
   // so resolution stays a PURE function of the stored run: a relic study completing mid-flight never
@@ -6588,7 +6614,7 @@ export interface SnapshotGearPiece {
 //                 so its bump IS the chance (0.05 = 5 percentage points).
 //   rankFactor  : rankMagnitudeFactor(rank), the rank nudge the battle multiplies into hp / power / armor.
 //   resists     : status id -> chance (0..1) to shrug that status off (traits + resistStatus gear), capped.
-//   gambit      : the member's OWN program (member.gambit, else the account's Security program at dispatch).
+//   gambit      : the member's OWN program (member.gambit, else DEFAULT_MEMBER_GAMBIT for Security, D19).
 //                 Science members carry theirs inertly: Science never enters a battle.
 export interface SnapshotMember {
   memberId: string;
@@ -6994,9 +7020,9 @@ export interface GameState {
   expeditionSeed: number;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
-  // these). Every away team uses this pair (first-pass; a per-ship override is a documented follow-on).
-  // startExpedition SNAPSHOTS this onto the launched Expedition (Expedition.gambitPrograms) so an in-flight
-  // run resolves against the pair as it was at dispatch (parity + the snapshot contract). freshState seeds
+  // these). D19 (user, 2026-10-06): NO battle reads this pair any more (members run their own program, else
+  // DEFAULT_MEMBER_GAMBIT) and startExpedition no longer snapshots it; it is kept, as stored, for the
+  // editor until the per-member editor (E-CREW Task 17) decides its future. freshState seeds
   // DEFAULT_GAMBIT_PROGRAMS (== the "Balanced" preset); the v61->v62 migration backfills the identical
   // default. Plain nested arrays/objects (no Decimals), so hydrateDecimals is unchanged, and NOTHING on the
   // tick path reads this field except a dispatch, so a save with no expedition stays additive-neutral.

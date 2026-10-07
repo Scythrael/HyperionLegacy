@@ -14,9 +14,10 @@
 //      on those fixed inputs, not on HOW the elapsed span was chunked into ticks. This is the SAME keyed
 //      device the rest of the expedition engine uses (expedition.ts): re-resolving an activity at a later
 //      `consumed` value yields the identical battle, and the done-latch stops any re-award.
-//   2. The away-team strength + the gambit program pair are SNAPSHOTTED onto the Expedition at dispatch
-//      (Expedition.securityStrength / scienceStrength / teamKit / gambitPrograms), and since E-CREW Task 12
-//      so is the named roster (Expedition.roster: each member's converted stats, effects and OWN program).
+//   2. The away-team strength + team kit are SNAPSHOTTED onto the Expedition at dispatch
+//      (Expedition.securityStrength / scienceStrength / teamKit), and since E-CREW Task 12 so is the named
+//      roster (Expedition.roster: each member's converted stats, effects and OWN program, which since D19
+//      is DEFAULT_MEMBER_GAMBIT when the member has none). No battle reads the account program pair.
 //      Resolution reads ONLY the stored expedition, so advanceExpedition needs no GameState and one-big ==
 //      many-small holds.
 //
@@ -64,7 +65,7 @@ import type {
   SecuritySpec,
   SnapshotMember,
 } from "./model";
-import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS } from "./model";
+import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
@@ -783,28 +784,18 @@ export interface BattleState {
   log?: GambitLogEvent[]; // OPTIONAL transient sink; when present, fired rules append a display-only event
 }
 
-// Whether an action needs a resolvable target to fire. Targetless actions (brace/takeCover/secure/hold/
-// fallBack) fire on their own; useItem additionally needs kit + a cleansable target (checked below).
-function actionNeedsTarget(action: GambitActionId): boolean {
-  switch (action) {
-    case "brace":
-    case "takeCover":
-    case "secureObjective":
-    case "hold":
-    case "fallBack":
-      return false;
-    default:
-      return true;
-  }
-}
 
 // Does a candidate rule actually FIRE for this actor right now? A rule fires when the actor can use its
-// action (canActorUse: the role gate + the medic gate), its target resolves (for target-needing actions),
-// and any resource/precondition holds (useItem needs kit + a cleansable target; cure needs a cleansable
-// target; aidHeal needs an actor that actually heals, so a Standard-Issue Med Kit with no stat lines does
-// not waste the turn). Returns the resolved target (or null for a targetless action) when it fires, else
-// undefined (try the next rule). This is what makes FIRST-MATCH meaningful: a rule that cannot do anything
-// is skipped, not wasted.
+// action (canActorUse: the role gate + the medic gate), its target selector resolves, and any
+// resource/precondition holds (useItem needs kit + a cleansable target; cure needs a cleansable target;
+// aidHeal needs an actor that actually heals, so a Standard-Issue Med Kit with no stat lines does not waste
+// the turn). Returns the resolved target when it fires, else { fires: false } (try the next rule). This is
+// what makes FIRST-MATCH meaningful: a rule that cannot do anything is skipped, not wasted.
+// D19 FIX (DELIBERATE BEHAVIOR CHANGE): the selector is the rule's CONDITION for EVERY action, targetless
+// ones included. A targetless action (brace / takeCover / secureObjective / hold / fallBack) used to fire
+// even when its selector resolved nothing, so "selfHpBelow 60% -> brace" braced every round at full HP
+// (Turtle Club President's "brace when hurt" never meant that). It now fires only when the condition holds;
+// "self" still always resolves for a standing actor, so a plain "self -> brace" is unchanged.
 function ruleFires(
   rule: GambitRule,
   actor: GroundCombatant,
@@ -812,15 +803,13 @@ function ruleFires(
 ): { fires: true; target: GroundCombatant | null } | { fires: false } {
   if (!canActorUse(actor, rule.action)) return { fires: false };
   if (rule.action === "aidHeal" && Math.round(actor.heal) < 1) return { fires: false };
-  const needsTarget = actionNeedsTarget(rule.action);
   const target = resolveTarget(rule.target, rule.params, actor, state);
-  if (needsTarget && !target) return { fires: false };
+  if (!target) return { fires: false };
 
   // Cure/useItem only fire when the target actually carries a cleansable debuff (else fall through so a
   // lower rule can act). The selector often already found an afflicted ally, but a bare "self"/"allyLowestHp"
   // selector paired with cure must not waste the turn on a clean ally.
   if (rule.action === "cure" || rule.action === "useItem") {
-    if (!target) return { fires: false };
     const sid = rule.params?.statusId;
     const cleansable = sid
       ? hasStatus(target, sid)
@@ -894,14 +883,15 @@ export function evaluateAndAct(program: GambitProgram, actor: GroundCombatant, s
   recordHold(state, actor);
 }
 
-// The program that drives a combatant: a named member's OWN program (E-CREW Task 13, per-member gambits);
-// else the snapshotted role-wide Security program for an anonymous team member; else the enemy role
-// program. A "science" combatant never reaches a battle any more (nothing executes a Science program); the
-// branch stays only so a hand-built test combatant of that role still type-checks and holds.
-function programFor(actor: GroundCombatant, programs: GambitPrograms): GambitProgram {
+// The program that drives a combatant: a named member's OWN program (E-CREW Task 13, per-member gambits;
+// the snapshot already resolved an absent one to DEFAULT_MEMBER_GAMBIT); else, for a Security combatant
+// with no program at all (only a hand-built one), the same built-in DEFAULT_MEMBER_GAMBIT (D19: never the
+// account-level pair); else the enemy role program. A "science" combatant never reaches a battle (nothing
+// executes a Science program); it holds.
+function programFor(actor: GroundCombatant): GambitProgram {
   if (actor.program) return actor.program;
-  if (actor.role === "security") return programs.security;
-  if (actor.role === "science") return programs.science;
+  if (actor.role === "security") return DEFAULT_MEMBER_GAMBIT;
+  if (actor.role === "science") return [];
   return ENEMY_ROLE_PROGRAMS[actor.role as EnemyRole] ?? [];
 }
 
@@ -946,13 +936,12 @@ export interface GroundBattleResult {
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
 // is down; LOSS when the team is wiped or the round cap is hit (E-CREW Task 13: a battle ends ONLY on a
 // clear or a wipe; the old objective track that could win mid-fight is gone). Each named member runs its
-// own program (GroundCombatant.program); `programs.security` drives any anonymous member. Mutates
+// own program (GroundCombatant.program; see programFor). D19: no program pair is passed in. Mutates
 // the passed combatants' clones inside a fresh BattleState (the caller owns cloning if it must preserve
 // inputs; buildRosterCombatants + generateEncounter both mint fresh combatants, so callers here pass throwaways).
 export function resolveGroundBattle(
   team: GroundCombatant[],
   enemies: GroundCombatant[],
-  programs: GambitPrograms,
   teamKit: number,
   rng: Rng,
   log?: GambitLogEvent[], // OPTIONAL transient sink (E3b); undefined => byte-identical no-log behavior
@@ -993,7 +982,7 @@ export function resolveGroundBattle(
       // Fear: a chance to fall back (do nothing) instead of acting.
       if (hasStatus(actor, "fear") && rng.chance(Math.round(GAMBIT_STATUSES.fear.magnitude * 1000), 1000)) continue;
 
-      const program = programFor(actor, programs);
+      const program = programFor(actor);
       if (actor.side === "enemy") {
         // Enemies obey a live taunt (an offensive strike retargets onto the taunter) and a guard (a strike
         // at a hurt ally is taken by a Bulwark member). With neither in play this is evaluateAndAct exactly.
@@ -1478,7 +1467,7 @@ export function resolveExpeditionActivity(
     // easier, it does not make the find poorer.
     const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), activity.poiId);
     const attemptLog = logSink ? [] : undefined;
-    const result = resolveGroundBattle(team, enemies, exp.gambitPrograms, exp.teamKit, rng, attemptLog);
+    const result = resolveGroundBattle(team, enemies, exp.teamKit, rng, attemptLog);
     if (attemptLog) lastAttemptLog = attemptLog;
     if (result.result === "win") {
       commitLog(attemptLog);

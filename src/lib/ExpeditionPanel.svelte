@@ -145,16 +145,14 @@
   $: chosenArray = chosenShip ? installedSensorArray(state, chosenShip) : null;
   $: chosenSensors = chosenShip ? Math.round(effectiveShipStats(state, chosenShip).sensors) : 0;
   $: chosenCaptain = chosenShipId ? captainOf(chosenShipId) : null;
-  // The away team the chosen ship would send: derived from its crew (deriveAwayTeam), shown at dispatch so
-  // the player sees WHO they are sending before launch. The account-level gambit programs (edited in the
-  // Away-Team Gambits panel below) drive how that team fights; a compact rule-count summary is shown here.
+  // The away team the chosen ship would send: its crew layer (deriveAwayTeam) plus the ready named members
+  // (chosenTeamCheck below), shown at dispatch so the player sees WHO they are sending before launch. D19:
+  // each Security member fights with their own program, else the built-in default (no automatic kit use).
   $: chosenAwayTeam = chosenShip && !chosenExpedition ? deriveAwayTeam(state, chosenShip) : null;
   // D18 (user, 2026-10-06): the MINIMUM AWAY TEAM gate, the same pure check startExpedition enforces, so the
   // Launch button can never offer a dispatch the engine would refuse. Null outside the dispatch view.
   $: chosenTeamCheck = chosenShip && !chosenExpedition ? expeditionAwayTeamCheck(state, chosenShip) : null;
   $: needsAwayTeam = chosenTeamCheck !== null && !chosenTeamCheck.ok;
-  $: securityRuleCount = state.gambitPrograms.security.length;
-  $: scienceRuleCount = state.gambitPrograms.science.length;
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
@@ -497,7 +495,7 @@
               {/each}
             {/each}
           </div>
-          <div class="exp-note">Battles auto-resolve using your away-team gambits. Lost tasks evacuate with a reduced haul. Tune the rules in the Away-Team Gambits panel below.</div>
+          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -601,18 +599,18 @@
             <div class="exp-teams">
               <div class="exp-team">
                 <span class="exp-team-name">Security<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.securityStrength) : "-"}</span></span>
-                <span class="exp-team-role">Fights planetary encounters. Runs the Security gambit ({securityRuleCount} rule{securityRuleCount === 1 ? "" : "s"}).</span>
+                <span class="exp-team-role">Fights planetary encounters. {chosenTeamCheck?.security ?? 0} ready. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
-                <span class="exp-team-role">Surveys, cures, and secures. Runs the Science gambit ({scienceRuleCount} rule{scienceRuleCount === 1 ? "" : "s"}).</span>
+                <span class="exp-team-role">Does the fieldwork and never fights. {chosenTeamCheck?.science ?? 0} ready.</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>
                 <span class="exp-team-role">Per-battle cure/stim consumables carried by the away team.</span>
               </div>
             </div>
-            <div class="exp-note">Crew this ship (Security / Science / support) to field a stronger team. Set how they fight in the Away-Team Gambits panel below; the program is snapshotted at launch.</div>
+            <div class="exp-note">Hire Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength and team kit. The team and its programs are snapshotted at launch.</div>
 
             <div class="exp-section-tag">Anomaly chart</div>
             <label class="exp-toggle">
