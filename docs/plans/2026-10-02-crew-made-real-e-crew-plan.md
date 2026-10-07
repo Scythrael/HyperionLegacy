@@ -377,8 +377,9 @@ account's current Security program". D20 (partial): the Field Medic trait is lab
 `fieldMedic`); the Med Kit does nothing without it; Use Item first aid works for anyone at 0.5x, 1.25x trained
 (cleanse cuts ceil(remaining x eff) rounds + a FIRST_AID_HEAL x eff patch). Kit categories, beacon efficacy, splints,
 injury kits and fractures are still to design. Task 17 must: build the per-member editor (the account editor is
-inert), decide the account pair's future, and note that Establish Dominance + Turtle Club President lead with an
-always-firing taunt, so every member taunts every round and those presets win nothing (pre-existing, flagged).
+inert) and decide the account pair's future. (The Establish Dominance + Turtle Club President zero-win taunt bug is
+FIXED in `a84fdbe`: conditional taunts, titles unchanged, a per-preset win-floor test guards it. The deep
+Subterranean Civilization setup is near-unwinnable for every program: an encounter-balance question for later.)
 
 ### Task 14: Random encounters during scan progress
 
