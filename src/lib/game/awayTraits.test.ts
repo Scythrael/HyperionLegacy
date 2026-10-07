@@ -11,8 +11,10 @@ import {
   traitDisplayText,
   type AwayTraitEffect,
 } from "./awayTraits";
+import { FIRST_AID_TRAINED_EFFECTIVENESS } from "./gambit";
 
-const SECURITY_NAMES = ["Steady Aim", "Breacher", "Bulwark", "Field Medic", "Saboteur", "Quick Draw", "Iron Will", "Veteran"];
+// D20 DELIBERATE CHANGE: the mockup's "Field Medic" is renamed "Medical Training" (user, 2026-10-06).
+const SECURITY_NAMES = ["Steady Aim", "Breacher", "Bulwark", "Medical Training", "Saboteur", "Quick Draw", "Iron Will", "Veteran"];
 const SCIENCE_NAMES = ["Keen Eye", "Patient Hands", "Green Thumb", "Codebreaker", "Deep Survey", "Steady"];
 
 // No em dash (spelled by code point) and no double hyphen in player-facing text.
@@ -45,10 +47,14 @@ describe("AWAY_TRAITS catalog", () => {
     for (const t of AWAY_TRAITS) expectCleanText(`${t.label} ${traitDisplayText(t)}`, t.id);
   });
 
-  it("Field Medic carries the medic effect, so Security can cure", () => {
-    const medic = AWAY_TRAITS.find((t) => t.label === "Field Medic");
+  // D20: the label is "Medical Training"; the id stays "fieldMedic" because members store trait ids.
+  it("Medical Training (id fieldMedic, a stable save key) carries the medic effect, so Security can cure", () => {
+    const medic = AWAY_TRAITS.find((t) => t.label === "Medical Training");
+    expect(medic?.id).toBe("fieldMedic");
+    expect(getAwayTrait("fieldMedic")).toBe(medic);
     expect(medic?.effects).toEqual([{ kind: "medic" }]);
     expect(medic?.teamTypes).toContain("security");
+    expect(AWAY_TRAITS.some((t) => t.label === "Field Medic")).toBe(false);
   });
 
   it("no trait rolls for the wired-only Prospecting squad yet", () => {
@@ -67,7 +73,7 @@ describe("trait text", () => {
     const cases: [AwayTraitEffect, string][] = [
       [{ kind: "stat", stat: "accuracy", value: 0.05 }, "+5% accuracy"],
       [{ kind: "stat", stat: "relicFind", value: 0.05 }, "+5% relic chance"],
-      [{ kind: "medic" }, "Cures an ally's afflictions in battle"],
+      [{ kind: "medic" }, "Cures and heals allies in battle, can use a Med Kit, and gives +25% first aid"],
       [{ kind: "firstStrike" }, "Acts first on the opening round"],
       [{ kind: "guard", allyHpBelow: 0.4 }, "Takes hits meant for allies below 40% HP"],
       [{ kind: "resistStatus", status: "fear", value: 0.5 }, "Resists Fear (50%)"],
@@ -79,6 +85,11 @@ describe("trait text", () => {
       ],
     ];
     for (const [effect, text] of cases) expect(awayTraitEffectText(effect)).toBe(text);
+  });
+
+  it("the Medical Training first-aid figure is generated from the tunable constant", () => {
+    expect(FIRST_AID_TRAINED_EFFECTIVENESS).toBe(1.25);
+    expect(awayTraitEffectText({ kind: "medic" })).toContain("+25% first aid");
   });
 
   it("signs a penalty with a minus, never \"+-\"", () => {

@@ -22,9 +22,10 @@
 //      many-small holds.
 //
 // E-CREW 0.14.0 (Task 13), THE SQUAD SPLIT (design D2 / D16 / section 10): SECURITY FIGHTS, SCIENCE NEVER
-// ENTERS A BATTLE. Each Security member runs its OWN program; curing (cure / aidHeal) comes from a medic
-// trait or a heal tool inside Security; a battle ends ONLY when the enemies are cleared or the team falls
-// (the old "secure the objective" mid-fight win is gone).
+// ENTERS A BATTLE. Each Security member runs its OWN program; curing (cure / aidHeal) comes from a member
+// with MEDICAL TRAINING (D20: the trait id "fieldMedic"; a Med Kit only strengthens a trained member's
+// heal); a battle ends ONLY when the enemies are cleared or the team falls (the old "secure the objective"
+// mid-fight win is gone).
 // D18 (user, 2026-10-06): there is NO anonymous stand-in team any more. startExpedition refuses a ship
 // without 1 Security + 1 Science member, so only the named roster fights. An expedition launched before D18
 // with no Security member fields no team: its ground tasks evacuate WITHOUT a battle (see
@@ -98,14 +99,28 @@ const SECURITY_SPEC_BASE: Record<SecuritySpec, { hp: number; power: number; armo
 };
 const MEMBER_ACCURACY_CAP = 0.99; // gear + traits can never make a member a sure hit
 const MEMBER_STATUS_CHANCE_CAP = 0.9; // the most any member's on-hit affliction chance reaches
-const MEDIC_BASE_HEAL = 12; // aidHeal amount a medic-trait member brings bare-handed
+const MEDIC_BASE_HEAL = 12; // aidHeal amount a Medical Training member brings bare-handed
 // GEAR EFFECTS SCALE WITH STAT LINES (a piece's summed ground points). A Standard-Issue baseline has every
 // line at 0, so its effect has no strength: a Standard-Issue Med Kit heals nothing on its own.
+// D20 (user, 2026-10-06): "The Med Kit tool requires Medical Training." A Med Kit adds its points to the
+// heal of a member WITH Medical Training only; on anyone else it does nothing in battle (no medic actions,
+// no heal).
 const HEAL_PER_GEAR_POINT = 0.6; // aidHeal per point of a heal tool (an iLevel 10 crafted Med Kit, ~20 points, heals ~12)
 const GROUP_HIT_PER_POINT = 0.015; // splash fraction per point of a group-hit weapon
 const GROUP_HIT_CAP = 0.6; // the most of a strike's damage that splashes onto the target's group
 
 // --- Team kit (consumable cures/stims) ---
+// D20 FIRST AID (user, 2026-10-06): "Consumables (first aid) work for anyone, at reduced effectiveness
+// without training ... Maybe at 50% effectiveness"; Medical Training gives "something like a 25% or 50%
+// boost". A team-kit consumable (the "Use Item" action) is usable by ANY Security member; its effect is
+// scaled by the user's effectiveness: UNTRAINED (no Medical Training) or TRAINED. One use spends one kit
+// and does two things, both scaled (applyFirstAid): it CLEANSES the targeted debuff(s), cutting each one's
+// remaining rounds by ceil(remaining * effectiveness) (so at 1.0 or more it clears them, at 0.5 it halves
+// them), and it PATCHES the target for round(FIRST_AID_HEAL * effectiveness) HP. No rng, no draw.
+// FIRST-PASS TUNABLE.
+export const FIRST_AID_UNTRAINED_EFFECTIVENESS = 0.5;
+export const FIRST_AID_TRAINED_EFFECTIVENESS = 1.25;
+export const FIRST_AID_HEAL = 10; // the HP a first-aid use restores at 1.0 effectiveness
 const TEAM_KIT_BASE = 2; // a bare team carries this many kit consumables per battle
 const TEAM_KIT_PER_MEDICAL = 1; // +1 kit per this many medical/operations crew (headcount)
 const TEAM_KIT_MEDICAL_DIVISOR = 4;
@@ -240,7 +255,7 @@ export interface GroundCombatant {
   // absent on enemies (and on a hand-built test combatant), so their turns draw and act exactly as before. ---
   memberId?: string; // the AwayMember this combatant is
   program?: GambitProgram; // the member's OWN program (overrides the role-wide program)
-  medic?: boolean; // may use cure / aidHeal (a medic trait or a heal tool)
+  medic?: boolean; // has MEDICAL TRAINING (D20): may cure / aidHeal, a Med Kit counts, first aid is TRAINED
   onHitStatuses?: { id: GambitStatusId; permille: number }[]; // inflict gear: rolled after a landed strike
   groupHit?: number; // fraction of a landed attack/execute that splashes onto the target's group
   resists?: Partial<Record<GambitStatusId, number>>; // permille chance to shrug off each status
@@ -263,8 +278,9 @@ const SECURITY_LEGAL: ReadonlySet<GambitActionId> = new Set<GambitActionId>([
   "hold",
 ]);
 // E-CREW (Task 13): the MEDIC actions. A Security program MAY contain them (the editor offers them and the
-// Triage preset leads with them), but at runtime they fire only for a member who is a medic (a medic trait
-// or a heal tool, GroundCombatant.medic); for anyone else the rule is skipped and the next one is tried.
+// Triage preset leads with them), but at runtime they fire only for a member with Medical Training
+// (GroundCombatant.medic; D20: a Med Kit alone no longer qualifies); for anyone else the rule is skipped
+// and the next one is tried. Use Item is NOT a medic action: anyone may use it (see FIRST AID above).
 const MEDIC_ACTIONS: ReadonlySet<GambitActionId> = new Set<GambitActionId>(["cure", "aidHeal"]);
 // The legacy Science action set. Science NEVER enters a battle since Task 13, so nothing executes a
 // Science program any more; the set stays only so validateGambitProgram("science", ...) still answers for
@@ -291,8 +307,9 @@ export function isActionLegalForRole(role: GroundRole, action: GambitActionId): 
 }
 
 // Can THIS combatant perform the action right now? The role gate, plus the medic gate: a Security member
-// may cure / aidHeal only when it is a medic (design section 10: curing comes from medic traits and kit
-// items inside Security). The resolver's legality check. Pure.
+// may cure / aidHeal only with Medical Training (design section 10 + D20). Grenades and every other tool
+// need no training (D20: "Pull a pin and toss it"), and Use Item is open to anyone. The resolver's
+// legality check. Pure.
 export function canActorUse(actor: GroundCombatant, action: GambitActionId): boolean {
   if (!isActionLegalForRole(actor.role, action)) return false;
   if (actor.role === "security" && MEDIC_ACTIONS.has(action)) return actor.medic === true;
@@ -456,6 +473,30 @@ export function clearDebuffs(c: GroundCombatant, id?: GambitStatusId): boolean {
     return GAMBIT_STATUSES[s.id].kind !== "debuff"; // keep only buffs
   });
   return c.statuses.length < before;
+}
+
+// D20: the first-aid effectiveness a member's Use Item works at (Medical Training or not). Pure.
+export function firstAidEffectiveness(actor: Pick<GroundCombatant, "medic">): number {
+  return actor.medic === true ? FIRST_AID_TRAINED_EFFECTIVENESS : FIRST_AID_UNTRAINED_EFFECTIVENESS;
+}
+
+// Apply one first-aid use to `target` IN PLACE at `effectiveness` (see FIRST AID above): each targeted debuff
+// (the named one, else every debuff; buffs are never touched) loses ceil(remaining * effectiveness) rounds
+// and is pruned at 0, then (only if a debuff was cut) the target heals round(FIRST_AID_HEAL * effectiveness)
+// HP, capped at max. Returns whether a debuff was cut. No rng.
+export function applyFirstAid(c: GroundCombatant, effectiveness: number, id?: GambitStatusId): boolean {
+  let cut = false;
+  c.statuses = c.statuses
+    .map((s) => {
+      const targeted = id ? s.id === id : GAMBIT_STATUSES[s.id].kind === "debuff";
+      if (!targeted) return s;
+      cut = true;
+      return { ...s, remaining: s.remaining - Math.ceil(s.remaining * effectiveness) };
+    })
+    .filter((s) => s.remaining > 0);
+  // The patch rides the cleanse: no debuff to work on means no use (and no kit spent, see useItem).
+  if (cut && !c.downed) c.hp = Math.min(c.hpMax, c.hp + Math.round(FIRST_AID_HEAL * effectiveness));
+  return cut;
 }
 
 // A combatant's outgoing-damage multiplier from its buffs/debuffs (Weakened down, Inspired up).
@@ -732,9 +773,10 @@ function applyAction(
       // the action union for old stored Science programs; it is Science-only, and Science never fights.
       return;
     case "useItem":
-      // Spend a team-kit consumable to cleanse the target ally (works with no Science curer). Only fires
-      // when kit remains AND there is something to cleanse (the resolver gated the target already).
-      if (target && state.teamKit > 0 && clearDebuffs(target, state.pendingCureStatusId)) {
+      // Spend a team-kit consumable on FIRST AID for the target ally (D20: anyone may, at the user's
+      // first-aid effectiveness). Only fires when kit remains AND there is something to cleanse (the
+      // resolver gated the target already).
+      if (target && state.teamKit > 0 && applyFirstAid(target, firstAidEffectiveness(actor), state.pendingCureStatusId)) {
         state.teamKit -= 1;
       }
       return;
@@ -842,6 +884,7 @@ function fireRule(
   const hpBefore = target ? target.hp : 0;
   const downedBefore = target ? target.downed : false;
   const statusesBefore = target ? target.statuses.length : 0;
+  const debuffRoundsBefore = target ? debuffRounds(target) : 0;
   state.pendingCureStatusId = rule.params?.statusId;
   applyAction(rule.action, actor, target, rng, state);
   state.pendingCureStatusId = undefined;
@@ -855,11 +898,19 @@ function fireRule(
     if (delta !== 0) ev.hpDelta = delta;
     if (target.downed && !downedBefore) ev.downed = true;
     if (target.statuses.length > statusesBefore) ev.statusApplied = true;
-    if ((rule.action === "cure" || rule.action === "useItem") && target.statuses.length < statusesBefore) ev.statusCleared = true;
+    // A cleanse that only shortened a debuff (untrained first aid, D20) still counts as cleansing.
+    if ((rule.action === "cure" || rule.action === "useItem") && debuffRounds(target) < debuffRoundsBefore) ev.statusCleared = true;
     const offensive = rule.action === "attack" || rule.action === "suppress" || rule.action === "execute";
     if (offensive && delta === 0 && !target.downed) ev.missed = true;
   }
   state.log.push(ev);
+}
+
+// The total rounds of debuff left on a combatant (display-only, for the log's statusCleared). Pure.
+function debuffRounds(c: GroundCombatant): number {
+  let n = 0;
+  for (const s of c.statuses) if (GAMBIT_STATUSES[s.id].kind === "debuff") n += s.remaining;
+  return n;
 }
 
 // Record an actor holding (no rule matched) -- only when a log sink is present.
@@ -1126,8 +1177,10 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
 // combatant per snapshotted member, in snapshot (deploy) order. Member power =
 //   (Security base + spec base + crew layer) * rank factor * (1 + the member's summed gear/trait bump)
 // for hp / power / armor; accuracy = base * (1 + bump), capped; the crew layer is the squad-wide
-// securityStrength shared evenly across the deployed members (STRENGTH_HP_COEFF / STRENGTH_POWER_COEFF). Effects become combatant fields: a medic trait or a heal tool makes the member a medic; heal,
-// inflict and group-hit strength come from the pieces' own stat lines (GEAR EFFECTS SCALE WITH STAT LINES;
+// securityStrength shared evenly across the deployed members (STRENGTH_HP_COEFF / STRENGTH_POWER_COEFF).
+// Effects become combatant fields: Medical Training (the medic trait) makes the member a medic, and D20: a
+// heal tool (Med Kit) adds to a TRAINED member's heal only, doing nothing for anyone else; heal, inflict
+// and group-hit strength come from the pieces' own stat lines (GEAR EFFECTS SCALE WITH STAT LINES;
 // weaponRange is positioning only and changes no number here). Each member carries its OWN program.
 // PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (no team: see
 // resolveExpeditionActivity).
@@ -1150,7 +1203,6 @@ export function buildRosterCombatants(
 
     let medicTrait = false;
     let healPoints = 0;
-    let hasHealTool = false;
     let groupPoints = 0;
     let firstStrike = false;
     let guardBelow: number | undefined;
@@ -1161,8 +1213,7 @@ export function buildRosterCombatants(
           medicTrait = true;
           break;
         case "heal":
-          hasHealTool = true;
-          healPoints += e.points;
+          healPoints += e.points; // counts only with Medical Training (below)
           break;
         case "groupHit":
           groupPoints += e.points;
@@ -1179,7 +1230,8 @@ export function buildRosterCombatants(
         // poiYield (fieldwork, Task 15) and revive (Neural Backup, Task 16) are not battle stats here.
       }
     }
-    const heal = ((medicTrait ? MEDIC_BASE_HEAL : 0) + healPoints * HEAL_PER_GEAR_POINT) * rf;
+    // D20: the Med Kit requires Medical Training. Untrained, the kit adds nothing and the member heals 0.
+    const heal = medicTrait ? (MEDIC_BASE_HEAL + healPoints * HEAL_PER_GEAR_POINT) * rf : 0;
     const permille = Math.round(statusChance * 1000);
 
     const c: GroundCombatant = {
@@ -1199,7 +1251,7 @@ export function buildRosterCombatants(
       memberId: m.memberId,
       program: m.gambit,
     };
-    if (medicTrait || hasHealTool) c.medic = true;
+    if (medicTrait) c.medic = true;
     if (permille > 0 && inflicts.length > 0) c.onHitStatuses = inflicts.map((id) => ({ id, permille }));
     const groupHit = Math.min(GROUP_HIT_CAP, groupPoints * GROUP_HIT_PER_POINT);
     if (groupHit > 0) c.groupHit = groupHit;

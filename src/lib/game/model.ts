@@ -2472,7 +2472,8 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundStatusChance: 0.6, groundPower: 0.4 },
       },
-      // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry).
+      // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry). D20: it REQUIRES
+      // Medical Training (the fieldMedic trait); worn by anyone else it does nothing in battle.
       {
         key: "medKit",
         label: "Med Kit",
@@ -6588,11 +6589,11 @@ export interface Expedition {
 // with the piece's iLevel, quality and rarity). A gear effect's MAGNITUDE derives from it, so a Standard-
 // Issue baseline (every line 0) carries the behavior at zero strength (its Med Kit heals nothing).
 export type MemberGroundEffect =
-  | { readonly kind: "medic" } // trait (Field Medic): may cure and heal allies in a battle
+  | { readonly kind: "medic" } // trait (Medical Training, id fieldMedic): may cure and heal allies in a battle
   | { readonly kind: "firstStrike" } // trait (Quick Draw): acts first on the opening round
   | { readonly kind: "guard"; readonly allyHpBelow: number } // trait (Bulwark): takes hits meant for a hurt ally
   | { readonly kind: "poiYield"; readonly pois: readonly string[]; readonly value: number } // trait: better finds at these PoIs (fieldwork)
-  | { readonly kind: "heal"; readonly points: number } // gear (Med Kit): an in-fight heal, and curing
+  | { readonly kind: "heal"; readonly points: number } // gear (Med Kit): adds to the heal of a Medical Training member only (D20)
   | { readonly kind: "inflict"; readonly status: GambitStatusId; readonly points: number } // gear: applies `status` on a landed strike
   | { readonly kind: "groupHit"; readonly points: number } // gear (Scattergun): the strike splashes the target's group
   | { readonly kind: "revive"; readonly chance: number; readonly hpFraction: number; readonly points: number }; // gear (Neural Backup)

@@ -10,7 +10,8 @@
 // Task 13, Security-only battles with per-member gambits (gambit.ts):
 //   - Science never enters a battle; D18: there is no anonymous fallback (no Security, no team: an old
 //     in-flight expedition without one evacuates each task without a battle);
-//   - each member runs its OWN program; medic actions fire only for a medic (trait or heal tool);
+//   - each member runs its OWN program; medic actions fire only for a medic (D20: Medical Training only;
+//     a Med Kit does nothing without it); team-kit first aid works for anyone at 50%, 125% when trained;
 //   - gear effects scale with the piece's stat lines (a Standard-Issue Med Kit heals nothing);
 //   - a battle ends only on a clear or a wipe (no objective win);
 //   - presets keep their exact titles and are Security-only;
@@ -40,6 +41,10 @@ import {
   buildRosterCombatants,
   canActorUse,
   deriveExpeditionActivityLog,
+  firstAidEffectiveness,
+  FIRST_AID_HEAL,
+  FIRST_AID_TRAINED_EFFECTIVENESS,
+  FIRST_AID_UNTRAINED_EFFECTIVENESS,
   evaluateAndAct,
   expeditionTeamCombatants,
   generateEncounter,
@@ -577,36 +582,56 @@ describe("Task 13: medic legality and gear effects that scale with stat lines", 
     expect(hasStatus(ally, "poison")).toBe(true);
   });
 
-  it("a Field Medic cures; so does a member carrying a Med Kit", () => {
-    for (const effects of [[{ kind: "medic" as const }], [{ kind: "heal" as const, points: 0 }]]) {
-      const [medic] = buildRosterCombatants([snap("member-1", { gambit: cureFirst, effects })], 0, "x");
+  it("a member with Medical Training cures", () => {
+    const [medic] = buildRosterCombatants([snap("member-1", { gambit: cureFirst, effects: [{ kind: "medic" }] })], 0, "x");
+    const ally = afflictedAlly();
+    expect(canActorUse(medic, "cure")).toBe(true);
+    evaluateAndAct(medic.program!, medic, battle([medic, ally, enemy("enemy-bruiser-1")]), makeRng(1));
+    expect(hasStatus(ally, "poison")).toBe(false);
+  });
+
+  // D20 DELIBERATE CHANGE: a Med Kit used to make ANY carrier a medic (cure + aidHeal) and heal by its
+  // points. The Med Kit now requires Medical Training: without it the kit does nothing in battle.
+  it("D20: a Med Kit WITHOUT Medical Training grants nothing (no cure, no aidHeal, heal 0, at any points)", () => {
+    for (const points of [0, 10, 40]) {
+      const [kitOnly] = buildRosterCombatants([snap("member-1", { gambit: cureFirst, effects: [{ kind: "heal", points }] })], 0, "x");
+      expect(kitOnly.medic).toBeUndefined();
+      expect(kitOnly.heal).toBe(0);
+      expect(canActorUse(kitOnly, "cure")).toBe(false);
+      expect(canActorUse(kitOnly, "aidHeal")).toBe(false);
       const ally = afflictedAlly();
-      expect(canActorUse(medic, "cure")).toBe(true);
-      evaluateAndAct(medic.program!, medic, battle([medic, ally, enemy("enemy-bruiser-1")]), makeRng(1));
-      expect(hasStatus(ally, "poison")).toBe(false);
+      evaluateAndAct(kitOnly.program!, kitOnly, battle([kitOnly, ally, enemy("enemy-bruiser-1")]), makeRng(1));
+      expect(hasStatus(ally, "poison")).toBe(true); // the cure rule was skipped
     }
   });
 
-  it("a Standard-Issue Med Kit (0 lines) heals 0, so aidHeal falls through; a crafted kit heals by its points", () => {
+  // D20 DELIBERATE CHANGE: rewritten around Medical Training (the Med Kit counts only for a trained member).
+  it("a trained member's heal: bare-handed base, plus a crafted Med Kit by its points; a Standard-Issue kit adds 0", () => {
+    const trained = (points?: number) =>
+      buildRosterCombatants(
+        [snap("member-1", { effects: points === undefined ? [{ kind: "medic" }] : [{ kind: "medic" }, { kind: "heal", points }] })],
+        0,
+        "x"
+      )[0];
+    const bare = trained();
+    expect(bare.heal).toBeGreaterThan(0); // Medical Training heals bare-handed
+    expect(trained(0).heal).toBe(bare.heal); // a Standard-Issue Med Kit (0 lines) adds nothing
+    const small = trained(10).heal - bare.heal;
+    const big = trained(40).heal - bare.heal;
+    expect(small).toBeGreaterThan(0);
+    expect(big).toBeCloseTo(small * 4);
+
+    // An untrained member with no heal falls through aidHeal to the next rule.
     const healFirst: GambitProgram = [
       { target: "allyHpBelow", params: { hpThreshold: 0.9 }, action: "aidHeal" },
       { target: "self", action: "brace" },
     ];
-    const [siKit] = buildRosterCombatants([snap("member-1", { gambit: healFirst, effects: [{ kind: "heal", points: 0 }] })], 0, "x");
-    expect(siKit.heal).toBe(0);
+    const [plain] = buildRosterCombatants([snap("member-1", { gambit: healFirst, effects: [{ kind: "heal", points: 40 }] })], 0, "x");
     const hurt = buildRosterCombatants([snap("member-9")], 0, "ally")[0];
     hurt.hp = 10;
-    evaluateAndAct(siKit.program!, siKit, battle([siKit, hurt, enemy("enemy-bruiser-1")]), makeRng(1));
+    evaluateAndAct(plain.program!, plain, battle([plain, hurt, enemy("enemy-bruiser-1")]), makeRng(1));
     expect(hurt.hp).toBe(10); // no heal fired
-    expect(hasStatus(siKit, "shielded")).toBe(true); // the next rule (brace) fired instead
-
-    const [small] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "heal", points: 10 }] })], 0, "x");
-    const [big] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "heal", points: 40 }] })], 0, "x");
-    expect(small.heal).toBeGreaterThan(0);
-    expect(big.heal).toBeCloseTo(small.heal * 4);
-    // A medic trait adds a bare-handed base heal on top of any kit.
-    const [medicKit] = buildRosterCombatants([snap("member-1", { effects: [{ kind: "medic" }, { kind: "heal", points: 10 }] })], 0, "x");
-    expect(medicKit.heal).toBeGreaterThan(small.heal);
+    expect(hasStatus(plain, "shielded")).toBe(true); // the next rule (brace) fired instead
   });
 
   it("group hit and inflict take their strength from the stat lines; a Standard-Issue piece adds none", () => {
@@ -668,6 +693,74 @@ describe("Task 13: medic legality and gear effects that scale with stat lines", 
     expect(round1[0].memberId).toBe("member-2"); // first strike, despite the higher id
     const strike = round1.find((e) => e.side === "enemy")!;
     expect(strike.targetMemberId).toBe("member-3");
+  });
+});
+
+// ============================================================================
+// D20 (user, 2026-10-06): team-kit consumables ("Use Item", first aid) work for ANYONE, at 50% without
+// Medical Training and with a +25% boost (125%) with it. Grenades need no training ("Pull a pin").
+describe("D20: first aid effectiveness and untrained tools", () => {
+  const useItemFirst: GambitProgram = [{ target: "allyHasStatus", action: "useItem" }];
+
+  function aidOnce(effects: SnapshotMember["effects"]) {
+    const [actor] = buildRosterCombatants([snap("member-1", { gambit: useItemFirst, effects })], 0, "x");
+    const ally = buildRosterCombatants([snap("member-9")], 0, "ally")[0];
+    ally.hp = 20;
+    applyStatus(ally, "poison"); // 4 rounds
+    const state: BattleState = { combatants: [actor, ally, enemy("enemy-bruiser-1")], round: 0, teamKit: 2, tauntedBy: null };
+    evaluateAndAct(actor.program!, actor, state, makeRng(1));
+    return { actor, ally, state };
+  }
+
+  it("the constants are 0.5x untrained and 1.25x trained", () => {
+    expect(FIRST_AID_UNTRAINED_EFFECTIVENESS).toBe(0.5);
+    expect(FIRST_AID_TRAINED_EFFECTIVENESS).toBe(1.25);
+    expect(firstAidEffectiveness({})).toBe(0.5);
+    expect(firstAidEffectiveness({ medic: true })).toBe(1.25);
+  });
+
+  it("an untrained member CAN use team kit, at 50%: the debuff is halved and the patch is half", () => {
+    const { actor, ally, state } = aidOnce([]);
+    expect(canActorUse(actor, "useItem")).toBe(true);
+    expect(state.teamKit).toBe(1); // one kit spent
+    expect(ally.statuses.find((s) => s.id === "poison")?.remaining).toBe(2); // 4 rounds, halved
+    expect(ally.hp).toBe(20 + Math.round(FIRST_AID_HEAL * 0.5));
+  });
+
+  it("a Medical Training member uses it at 125%: the debuff is cleared and the patch is boosted", () => {
+    const { ally, state } = aidOnce([{ kind: "medic" }]);
+    expect(state.teamKit).toBe(1);
+    expect(hasStatus(ally, "poison")).toBe(false);
+    expect(ally.hp).toBe(20 + Math.round(FIRST_AID_HEAL * 1.25));
+  });
+
+  it("trained first aid restores 2.5x what untrained first aid does (before rounding)", () => {
+    const untrained = aidOnce([]).ally.hp - 20;
+    const trained = aidOnce([{ kind: "medic" }]).ally.hp - 20;
+    expect(trained).toBeGreaterThan(untrained);
+    expect(trained / untrained).toBeCloseTo(1.25 / 0.5, 0);
+  });
+
+  it("with no kit left, Use Item does not fire (no free first aid)", () => {
+    const [actor] = buildRosterCombatants([snap("member-1", { gambit: useItemFirst })], 0, "x");
+    const ally = buildRosterCombatants([snap("member-9")], 0, "ally")[0];
+    applyStatus(ally, "poison");
+    evaluateAndAct(actor.program!, actor, battle([actor, ally, enemy("enemy-bruiser-1")]), makeRng(1)); // teamKit 0
+    expect(ally.statuses.find((s) => s.id === "poison")?.remaining).toBe(4);
+  });
+
+  it("grenades need no training: an untrained member's grenade still lands its status", () => {
+    const lines = { ...snap("m").groundStats, statusChance: 0.3 };
+    const [thrower] = buildRosterCombatants(
+      [snap("member-1", { groundStats: lines, effects: [{ kind: "inflict", status: "stun", points: 10 }] })],
+      0,
+      "x"
+    );
+    expect(thrower.medic).toBeUndefined();
+    expect(thrower.onHitStatuses).toEqual([{ id: "stun", permille: 300 }]);
+    for (const a of ["attack", "suppress", "execute", "taunt", "brace", "useItem", "fallBack", "hold"] as const) {
+      expect(canActorUse(thrower, a), a).toBe(true); // only cure / aidHeal are gated on Medical Training
+    }
   });
 });
 

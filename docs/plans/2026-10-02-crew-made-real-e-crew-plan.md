@@ -366,6 +366,20 @@ converted yet (Task 15 owns them). Task 16: the revive effect is in the snapshot
 GroundBattleResult must list downed memberIds (combatants carry memberId). Tool inflicts ride the landed strike
 (first-pass; a separate throw action is a later option).
 
+**Carry from D18 / D19 / D20 (user 2026-10-06, built 2026-10-06):** D18: `startExpedition` refuses `needsAwayTeam`
+without 1 ready Security + 1 ready Science (`expeditionAwayTeamCheck`); the anonymous fallback is DELETED; an old
+in-flight expedition with no Security member evacuates each task with no battle (0 attempts, partial haul). Tests that
+dispatch use `awayTeamTestFixtures.ts`. D19: `DEFAULT_MEMBER_GAMBIT` (model.ts) is every member's program until set;
+no battle reads `state.gambitPrograms` (kept, stored, editable; the editor shows a notice) and
+`Expedition.gambitPrograms` is written empty; `resolveGroundBattle` takes no program pair. Engine fix: a targetless
+action now fires only when its selector resolves. This SUPERSEDES the Task 13 line "Hire seeds `gambit` from the
+account's current Security program". D20 (partial): the Field Medic trait is labelled "Medical Training" (id stays
+`fieldMedic`); the Med Kit does nothing without it; Use Item first aid works for anyone at 0.5x, 1.25x trained
+(cleanse cuts ceil(remaining x eff) rounds + a FIRST_AID_HEAL x eff patch). Kit categories, beacon efficacy, splints,
+injury kits and fractures are still to design. Task 17 must: build the per-member editor (the account editor is
+inert), decide the account pair's future, and note that Establish Dominance + Turtle Club President lead with an
+always-firing taunt, so every member taunts every round and those presets win nothing (pre-existing, flagged).
+
 ### Task 14: Random encounters during scan progress
 
 **Files:** `expedition.ts` (scan advance), `gambit.ts` (`generateEncounter` reuse), tests.

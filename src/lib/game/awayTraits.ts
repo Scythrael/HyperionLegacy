@@ -16,14 +16,14 @@
 import type { AwayTeamType, AwayTraitId, GambitStatusId } from "./model";
 import type { AwayMemberStat } from "./awayTeam";
 import { getPoiById, type ExpeditionPoiId } from "./expeditionContent";
-import { GAMBIT_STATUSES } from "./gambit";
+import { GAMBIT_STATUSES, FIRST_AID_TRAINED_EFFECTIVENESS } from "./gambit";
 
 // What a trait does, as a small closed union so a consumer switches on `kind` and the compiler flags a
 // new kind it does not handle. Keep it minimal: a new kind is added only when a trait needs one. A
 // `stat` bump stacks ADDITIVELY with every other same-stat bump (see AwayMemberStat in awayTeam.ts).
 export type AwayTraitEffect =
   | { readonly kind: "stat"; readonly stat: AwayMemberStat; readonly value: number } // a percentage bump to one member stat
-  | { readonly kind: "medic" } // can cure an ally's afflictions in a ground battle (design section 10: curing from Security)
+  | { readonly kind: "medic" } // MEDICAL TRAINING (D20): cure + heal allies in battle, use a Med Kit, trained first aid
   | { readonly kind: "firstStrike" } // acts first in the opening round
   | { readonly kind: "guard"; readonly allyHpBelow: number } // steps in front of an ally below this HP fraction
   | { readonly kind: "resistStatus"; readonly status: GambitStatusId; readonly value: number } // chance (0..1) to shrug it off
@@ -63,9 +63,11 @@ export const AWAY_TRAITS: readonly AwayTraitDef[] = [
     effects: [{ kind: "guard", allyHpBelow: 0.4 }],
   },
   {
+    // D20 (user, 2026-10-06): the skill is MEDICAL TRAINING. The id stays "fieldMedic" (a stored save key);
+    // only the player-facing label + description changed.
     id: "fieldMedic",
-    label: "Field Medic",
-    description: "Trained to patch wounds under fire.",
+    label: "Medical Training",
+    description: "Formally trained in field medicine.",
     teamTypes: ["security"],
     effects: [{ kind: "medic" }],
   },
@@ -193,7 +195,7 @@ export function awayTraitEffectText(effect: AwayTraitEffect): string {
     case "stat":
       return `${signedPct(effect.value)} ${AWAY_STAT_TEXT[effect.stat]}`;
     case "medic":
-      return "Cures an ally's afflictions in battle";
+      return `Cures and heals allies in battle, can use a Med Kit, and gives ${signedPct(FIRST_AID_TRAINED_EFFECTIVENESS - 1)} first aid`;
     case "firstStrike":
       return "Acts first on the opening round";
     case "guard":
