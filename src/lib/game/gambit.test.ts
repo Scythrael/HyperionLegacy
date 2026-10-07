@@ -494,6 +494,46 @@ describe("rewards — the relic roll REUSES the salvage tiers", () => {
 });
 
 // ============================================================================
+// A preset that can never win is a bug in our rule-writing, not a player choice. Establish Dominance and
+// Turtle Club President used to lead with an always-firing taunt (every member taunted every round) and won
+// 0 of 60 on every encounter below; rewritten 2026-10-06 (titles unchanged). Same fixture as the win tables:
+// named offense members, member 0 with Medical Training, team kit 3, 60 seeds.
+describe("presets are viable: each one can win", () => {
+  function presetWins(program: GambitProgram, poi: string, hazard: number, strength: number, members: number): number {
+    let wins = 0;
+    for (let s = 0; s < 60; s++) {
+      const seed = (0x1234 ^ (s * 0x9e3779b9)) >>> 0;
+      const roster = Array.from({ length: members }, (_, i) =>
+        secSnap(`member-${i + 1}`, { gambit: program.map((r) => ({ ...r })), effects: i === 0 ? [{ kind: "medic" }] : [] }),
+      );
+      const team = buildRosterCombatants(roster, strength, "p");
+      if (resolveGroundBattle(team, generateEncounter(seed, hazard, poi), 3, makeRng(seed)).result === "win") wins++;
+    }
+    return wins;
+  }
+  // Custom is the deliberately EMPTY starter (a member with no rules holds), so it is the one exception.
+  const playable = GAMBIT_PRESETS.filter((p) => p.id !== "custom");
+
+  it("every playable preset wins at least 30% of the standard easy encounter", () => {
+    for (const p of playable) expect(presetWins(p.programs.security, "caveNetwork", 0.3, 6, 2), p.title).toBeGreaterThanOrEqual(18);
+  });
+
+  it("no playable preset wins 0 on the moderate encounters", () => {
+    for (const p of playable) {
+      expect(presetWins(p.programs.security, "crashedShip", 0.4, 6, 2), `${p.title} crashedShip`).toBeGreaterThan(0);
+      expect(presetWins(p.programs.security, "buriedVault", 0.65, 18, 4), `${p.title} buriedVault`).toBeGreaterThan(0);
+    }
+  });
+
+  it("Establish Dominance taunts only on the opening round and Turtle taunts only to cover a hurt ally", () => {
+    const ed = GAMBIT_PRESETS.find((p) => p.id === "establishDominance")!.programs.security;
+    const tc = GAMBIT_PRESETS.find((p) => p.id === "turtleClubPresident")!.programs.security;
+    expect(ed.filter((r) => r.action === "taunt").map((r) => r.target)).toEqual(["openingRound"]);
+    expect(tc.filter((r) => r.action === "taunt").map((r) => r.target)).toEqual(["allyHpBelow"]);
+    for (const p of [ed, tc]) expect(p.some((r) => r.action === "useItem")).toBe(false); // no automatic kit use
+  });
+});
+
 describe("presets + crew derivation", () => {
   it("ships exactly the 6 locked preset titles, with Balanced == the default pair", () => {
     expect(GAMBIT_PRESETS.map((p) => p.title)).toEqual([

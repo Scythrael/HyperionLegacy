@@ -360,13 +360,17 @@ function cloneProgramsData(p: GambitPrograms): GambitPrograms {
 // for a medic member and are skipped by everyone else, so one preset serves a mixed squad.
 export const GAMBIT_PRESETS: readonly GambitPreset[] = [
   {
-    // Establish Dominance: taunt the biggest body to hold aggro, then smash the biggest threat.
+    // Establish Dominance: "punch the biggest guy in the room". Taunt ONCE, on the opening round, to pull
+    // the room's attention, take out the enemy medic (or the biggest guy just gets healed back up), then
+    // focus the highest-HP foe. FIX (2026-10-06): it used to lead with an always-firing taunt, so every
+    // member taunted every round and the preset never won (0 of 60 on every encounter type).
     id: "establishDominance",
     title: "Establish Dominance",
     programs: {
       security: [
-        { target: "foeHighestHp", action: "taunt" },
-        { target: "foeHighestThreat", action: "attack" },
+        { target: "openingRound", action: "taunt" },
+        { target: "foeIsHealer", action: "attack" },
+        { target: "foeHighestHp", action: "attack" },
         { target: "foeNearest", action: "attack" },
       ],
       science: [],
@@ -387,15 +391,19 @@ export const GAMBIT_PRESETS: readonly GambitPreset[] = [
     },
   },
   {
-    // Turtle Club President: defense first. Taunt the threat, brace when hurt, a medic patches the wounded.
-    // Wins by outlasting.
+    // Turtle Club President: defense first. Brace when badly hurt, a medic patches the wounded, and a member
+    // taunts only to pull fire off an ally in real danger; otherwise steady attacks (the healer first, then
+    // finish the weakest). No kit use. FIX (2026-10-06): it used to lead with an always-firing taunt, so
+    // every member taunted every round and the preset never won (0 of 60 on every encounter type).
     id: "turtleClubPresident",
     title: "Turtle Club President",
     programs: {
       security: [
-        { target: "foeHighestThreat", action: "taunt" },
-        { target: "selfHpBelow", params: { hpThreshold: 0.6 }, action: "brace" },
+        { target: "selfHpBelow", params: { hpThreshold: 0.2 }, action: "brace" },
         { target: "allyHpBelow", params: { hpThreshold: 0.5 }, action: "aidHeal" },
+        { target: "allyHpBelow", params: { hpThreshold: 0.2 }, action: "taunt" },
+        { target: "foeIsHealer", action: "attack" },
+        { target: "foeLowestHp", action: "execute" },
         { target: "foeNearest", action: "attack" },
       ],
       science: [],
