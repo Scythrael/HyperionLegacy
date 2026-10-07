@@ -43,6 +43,33 @@ DoT-tank, glass cannon) must be BUILDABLE from specs + traits + gear + gambits; 
 never hard-gated to one; the no-roster stand-in detail gets nothing auto-added (it is not a player choice). Balance passes
 check archetype viability, not a "correct" composition.
 
+**D18. MINIMUM AWAY TEAM (user, 2026-10-06):** "A ship with no roster should not be able to fight." An expedition needs
+at least **1 Security AND 1 Science** member to launch. There is NO anonymous stand-in team anymore (supersedes the E3
+derive-from-crew fallback and the D17 stand-in note): no roster, no expedition.
+
+**D19. DEFAULT MEMBER GAMBITS (user, 2026-10-06):** "A default set of gambits that covers everything but automatic kit
+use should be assigned by default unless one is set up." Each member runs a built-in default program (complete
+targeting/attack/defense coverage, NO automatic Use Item / kit rules) until the player sets that member's own program.
+Not linked to an account-wide program.
+
+**D20. SKILLSETS GATE KITS; MEDICAL TRAINING (user datadump, 2026-10-06, verbatim intent):**
+- "Combat characters should have specific skillsets, and certain skillsets should be required. If you have medical
+  experience, certain kits can be used." The skill is **Medical Training**.
+- The **Med Kit tool requires Medical Training** ("Number 1").
+- **Consumables (first aid) work for anyone, at reduced effectiveness without training** ("Maybe at 50% effectiveness");
+  Medical Training gives "something like a 25% or 50% boost to them".
+- "Certain types of medical consumables might require proper training, especially with some that can cure some things
+  like **bone fractures** or **high-level debuffs**." Other debuffs "are easily cured under standard first aid training".
+- Examples the user named: "a **splint** might help with a fracture after X amount of ticks", "an **injury kit** might
+  decrease the time spent recovering from an injury when an item is used to cure it".
+- **Grenades need no spec**: "Pull a pin and toss it."
+- **Lure Beacon / Shroud Emitter**: anyone can use them, but they "work at reduced ability ... unless you have someone who
+  improves the efficacy of certain categories of kits by 5%/6%" (category-efficacy specialists).
+- "Specific kits would include tools that an experienced medical professional would need to learn how to use."
+Implied model: kits belong to CATEGORIES (medical first aid, advanced medical, explosives, field devices, ...); each kit
+has an optional REQUIRED skill (hard gate) and/or an UNTRAINED efficacy multiplier; members' traits/skills add
+category-efficacy boosts. Exact numbers are first-pass and tunable.
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
