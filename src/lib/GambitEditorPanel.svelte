@@ -368,8 +368,8 @@
       {/each}
     </div>
     <p class="ge-note">
-      A preset loads both roles at once, overwriting the rules above. Programs are snapshotted at dispatch, so
-      editing here does not change an expedition already in flight.
+      A preset loads both roles at once, overwriting the rules above. Members' programs are snapshotted at
+      dispatch, so nothing changes an expedition already in flight.
     </p>
   </div>
 </div>
