@@ -46,7 +46,7 @@
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition, summarizeExpeditionFindings } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText } from "./lib/game/expedition";
   // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
   // Exploration Ops tab (under the Expedition Console). Same posture: reads state.gambitPrograms, routes
   // every edit to the do* handlers below (which write state.gambitPrograms + doSave). gambitPresetPrograms
@@ -5332,8 +5332,12 @@
   // relic system to route later. NONE of this runs on the tick, so with no expedition the tick path is
   // byte-identical to before (resolveExpeditions is a same-ref no-op on an empty expeditions array).
   function doStartExpedition(shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) {
-    const { next, success, expedition } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
-    if (!success || next === state) return;
+    const { next, success, expedition, reason } = startExpedition(state, shipId, captainId, candidateId, anomalyOptIn);
+    if (!success || next === state) {
+      // D18: the panel disables Launch for a known refusal, so this only fires on a race; say why anyway.
+      if (reason) pushLog(`[${devShipLabel(shipId)}] Expedition not launched: ${expeditionDispatchBlockText(reason)}.`);
+      return;
+    }
     state = next;
     pushLog(`[${devShipLabel(shipId)}] Expedition launched to ${expedition?.systemName ?? "the frontier"}.`);
     doSave();

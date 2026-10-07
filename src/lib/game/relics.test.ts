@@ -60,6 +60,7 @@ import {
   SENSOR_REVEAL_RELIC,
   SENSOR_REVEAL_HAZARD,
 } from "./expedition";
+import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
 import {
   tick,
   economyTick,
@@ -223,7 +224,7 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
   });
 
   it("the foreknowledge relic sets equal the sets the COMMITTED expedition actually discovers", () => {
-    const s = shipWithSensors(SENSOR_REVEAL_RELIC);
+    const s = ensureMinimumAwayTeam(shipWithSensors(SENSOR_REVEAL_RELIC)); // D18: a launchable ship
     const cands = expeditionCandidates(s, "ship-1");
     for (const cand of cands) {
       const fk = cand.foreknowledge;
@@ -311,7 +312,7 @@ describe("CLAIM DEPOSIT: findings land in inventory / credits / the relic vault"
 
   it("a real expedition run end-to-end: claimed credits + vault tokens match its findings", () => {
     // A crewed-strong snapshot so ground tasks win and relics can roll; run through the real tick.
-    let s = freshState();
+    let s = ensureMinimumAwayTeam(freshState()); // D18: a launchable ship
     const dispatched = startExpedition(s, "ship-1", 1, "cand-0");
     s = {
       ...dispatched.next,

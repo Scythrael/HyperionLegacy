@@ -40,6 +40,8 @@
     expeditionActivitiesTotal,
     expeditionPhaseFraction,
     expeditionAnomalyMarkerFraction,
+    expeditionAwayTeamCheck,
+    expeditionDispatchBlockText,
     type ExpeditionCandidate,
   } from "./game/expedition";
   import { deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
@@ -147,6 +149,10 @@
   // the player sees WHO they are sending before launch. The account-level gambit programs (edited in the
   // Away-Team Gambits panel below) drive how that team fights; a compact rule-count summary is shown here.
   $: chosenAwayTeam = chosenShip && !chosenExpedition ? deriveAwayTeam(state, chosenShip) : null;
+  // D18 (user, 2026-10-06): the MINIMUM AWAY TEAM gate, the same pure check startExpedition enforces, so the
+  // Launch button can never offer a dispatch the engine would refuse. Null outside the dispatch view.
+  $: chosenTeamCheck = chosenShip && !chosenExpedition ? expeditionAwayTeamCheck(state, chosenShip) : null;
+  $: needsAwayTeam = chosenTeamCheck !== null && !chosenTeamCheck.ok;
   $: securityRuleCount = state.gambitPrograms.security.length;
   $: scienceRuleCount = state.gambitPrograms.science.length;
 
@@ -468,7 +474,11 @@
                     </button>
                     {#if expandedLogs[act.id]}
                       <div class="exp-log">
-                        {#if expandedLogs[act.id].length === 0}
+                        {#if expandedLogs[act.id].length === 0 && finding.evacuated}
+                          <!-- D18: an expedition launched before the minimum-team rule, with no Security member,
+                               fields no team, so its tasks evacuate without a fight. -->
+                          <div class="exp-log-line dim">No combat: no Security member was deployed, so the team withdrew with a partial haul.</div>
+                        {:else if expandedLogs[act.id].length === 0}
                           <div class="exp-log-line dim">No combat: the team secured the site unopposed.</div>
                         {:else}
                           {#each expandedLogs[act.id] as ev, li (li)}
@@ -510,11 +520,24 @@
           <button
             type="button"
             class="exp-btn primary"
-            disabled={!selectedCandidate || !chosenCaptain}
-            title={!chosenCaptain ? "Assign a captain to this ship first" : !selectedCandidate ? "Select a target system" : "Launch the expedition"}
+            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam}
+            title={!chosenCaptain
+              ? expeditionDispatchBlockText("captainNotAssigned")
+              : !selectedCandidate
+                ? expeditionDispatchBlockText("noSuchCandidate")
+                : needsAwayTeam
+                  ? expeditionDispatchBlockText("needsAwayTeam")
+                  : "Launch the expedition"}
             on:click={launch}
           >Launch</button>
         </div>
+        {#if needsAwayTeam && chosenTeamCheck}
+          <!-- D18: say plainly why Launch is off and where to fix it (not only in a hover title). -->
+          <div class="exp-block" role="status">
+            {expeditionDispatchBlockText("needsAwayTeam")}.
+            <span class="exp-block-counts">Ready now: {chosenTeamCheck.security} Security, {chosenTeamCheck.science} Science.</span>
+          </div>
+        {/if}
 
         <div class="exp-dispatch">
           <!-- TARGET CANDIDATES with sensor-gated FOREKNOWLEDGE -->
@@ -913,6 +936,21 @@
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
     font-style: italic;
+  }
+  /* D18: the dispatch refusal line (Launch is disabled until the minimum away team is aboard). */
+  .exp-block {
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(var(--color-warning-rgb, 200, 150, 60), 0.45);
+    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.12);
+    color: var(--color-warning);
+  }
+  .exp-block-counts {
+    display: block;
+    margin-top: 2px;
+    color: var(--color-text-secondary);
   }
 
   /* AWAY-TEAM STRENGTH badge (dispatch) */

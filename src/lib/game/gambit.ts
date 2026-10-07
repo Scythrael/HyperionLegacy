@@ -21,11 +21,13 @@
 //      many-small holds.
 //
 // E-CREW 0.14.0 (Task 13), THE SQUAD SPLIT (design D2 / D16 / section 10): SECURITY FIGHTS, SCIENCE NEVER
-// ENTERS A BATTLE (with or without a roster). Each Security member runs its OWN program; curing (cure /
-// aidHeal) comes from a medic trait or a heal tool inside Security; a battle ends ONLY when the enemies are
-// cleared or the team falls (the old "secure the objective" mid-fight win is gone). A ship with no Security
-// roster fields the anonymous crew-derived Security detail (buildTeamCombatants), so no ship is ever
-// blocked by an empty roster.
+// ENTERS A BATTLE. Each Security member runs its OWN program; curing (cure / aidHeal) comes from a medic
+// trait or a heal tool inside Security; a battle ends ONLY when the enemies are cleared or the team falls
+// (the old "secure the objective" mid-fight win is gone).
+// D18 (user, 2026-10-06): there is NO anonymous stand-in team any more. startExpedition refuses a ship
+// without 1 Security + 1 Science member, so only the named roster fights. An expedition launched before D18
+// with no Security member fields no team: its ground tasks evacuate WITHOUT a battle (see
+// resolveExpeditionActivity), deterministically and with no draw.
 //   3. ADDITIVE-NEUTRAL: nothing here runs on a no-expedition tick. The catalogs are static data touched
 //      only inside the activities path, so a save with no expedition is byte-identical to before.
 //
@@ -80,16 +82,10 @@ const SECURITY_BASE_ARMOR = 3;
 const SECURITY_BASE_ACCURACY = 0.9; // 0..1 hit chance before Suppressed
 
 // How crew strength scales a team member. securityStrength (deriveAwayTeam) is a unit-ish scalar; each
-// point adds a fraction to power + HP so more/better crew hits harder + lasts. With a named roster the
-// strength is the SQUAD-WIDE crew layer, shared evenly across the deployed members.
-const STRENGTH_POWER_COEFF = 0.9; // +0.9 power per strength point (shared across the detail)
+// point adds a fraction to power + HP so more/better crew hits harder + lasts. It is the SQUAD-WIDE crew
+// layer, shared evenly across the deployed named members.
+const STRENGTH_POWER_COEFF = 0.9; // +0.9 power per strength point (shared across the squad)
 const STRENGTH_HP_COEFF = 4; // +4 HP per strength point
-
-// Anonymous Security detail size (no roster): more crew fields more bodies, so ally-targeting gambits
-// matter. A bare ship still fields ONE so an activity always resolves.
-const SEC_MEMBERS_MIN = 1;
-const SEC_MEMBERS_MAX = 4;
-const SEC_STRENGTH_PER_MEMBER = 6; // one extra Security body per this much strength
 
 // --- E-CREW (Task 13): named Security members (FIRST-PASS TUNABLE) ---
 // Base adjustments by Security spec, on top of the Security base line above. Offense hits harder, Defense
@@ -240,7 +236,7 @@ export interface GroundCombatant {
   statusOnHit?: { id: GambitStatusId; permille: number }; // e.g. a Caster applies this on a landed attack
   downed: boolean;
   // --- E-CREW (Task 13): a NAMED Security member (buildRosterCombatants). Every field is OPTIONAL and
-  // absent on anonymous team members and enemies, so their battles draw and act exactly as before. ---
+  // absent on enemies (and on a hand-built test combatant), so their turns draw and act exactly as before. ---
   memberId?: string; // the AwayMember this combatant is
   program?: GambitProgram; // the member's OWN program (overrides the role-wide program)
   medic?: boolean; // may use cure / aidHeal (a medic trait or a heal tool)
@@ -628,7 +624,7 @@ function dealDamage(target: GroundCombatant, amount: number): void {
 
 // Try to apply a status to a target that may RESIST it (E-CREW Task 13: a named member's resists, from
 // traits + resistStatus gear). The resist roll draws ONE rng step, and ONLY when the target has a resist
-// above 0 for that status, so a target with no resists (every enemy, every anonymous member) draws exactly
+// above 0 for that status, so a target with no resists (every enemy, a member without one) draws exactly
 // as before. Returns whether the status landed.
 function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng): boolean {
   const resist = target.resists?.[id] ?? 0;
@@ -642,7 +638,7 @@ function tryApplyStatus(target: GroundCombatant, id: GambitStatusId, rng: Rng): 
 // documented: hit-check, then (on hit) the damage variance, then the group-hit splash (no draw), then (on
 // hit, if any) the attacker's statusOnHit roll (+ the target's resist roll), then each of the attacker's
 // onHitStatuses in order (its chance roll, + the target's resist roll). Combatants with no splash, no
-// onHitStatuses and no resists (enemies, anonymous members) draw exactly the pre-E-CREW sequence.
+// onHitStatuses and no resists (enemies, a plain member) draw exactly the pre-E-CREW sequence.
 function doStrike(
   attacker: GroundCombatant,
   target: GroundCombatant,
@@ -919,7 +915,7 @@ function enemyTargetOverride(state: BattleState): GroundCombatant | null {
 
 // E-CREW (Task 13, the Bulwark trait): an enemy strike aimed at a team member below a guard's HP line is
 // taken by that guard instead (the lowest-id alive guard that is not the target itself). Null when there
-// is no such guard, which is always the case for an anonymous team. No rng.
+// is no such guard (a squad with no Bulwark member). No rng.
 function guardFor(state: BattleState, target: GroundCombatant | null): GroundCombatant | null {
   if (!target || target.side !== "team") return null;
   const guards = state.combatants
@@ -952,7 +948,7 @@ export interface GroundBattleResult {
 // clear or a wipe; the old objective track that could win mid-fight is gone). Each named member runs its
 // own program (GroundCombatant.program); `programs.security` drives any anonymous member. Mutates
 // the passed combatants' clones inside a fresh BattleState (the caller owns cloning if it must preserve
-// inputs; buildTeamCombatants + generateEncounter both mint fresh combatants, so callers here pass throwaways).
+// inputs; buildRosterCombatants + generateEncounter both mint fresh combatants, so callers here pass throwaways).
 export function resolveGroundBattle(
   team: GroundCombatant[],
   enemies: GroundCombatant[],
@@ -1064,8 +1060,8 @@ export function tickEndOfRound(state: BattleState): void {
 // The away team's derived strengths + kit, read from the ship's CREW (crewOverlay's division vocabulary:
 // Security + Science are professions; tactical/science/medical are the relevant officer seats). PURE:
 // reads ship.complement + state.officers + state.notableCrew + the static rarity/rank scalars, mutates
-// nothing. A bare ship (no crew) yields 0 strengths + the base kit, so an activity always resolves with a
-// minimal team. FIRST-PASS TUNABLE derivation.
+// nothing. A bare ship (no crew) yields 0 strengths + the base kit (the named members still fight at their
+// own base stats). FIRST-PASS TUNABLE derivation.
 export interface AwayTeamSnapshot {
   securityStrength: number;
   scienceStrength: number;
@@ -1137,55 +1133,15 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
   return { securityStrength: security, scienceStrength: science, teamKit };
 }
 
-// Build the ANONYMOUS Security detail from a crew snapshot: the floor a ship with no Security roster
-// fields (design section 5.3), so no ship is ever blocked by an empty squad. The strength scalar is
-// distributed across a small detail (more strength -> more bodies AND stronger bodies). A bare snapshot
-// yields 1 Security member at base stats.
-// E-CREW (Task 13), DELIBERATE CHANGE: the detail is SECURITY ONLY. It used to add 1 to 2 Science bodies;
-// the squad split (Science never enters a battle) applies to every ship, roster or not. scienceStrength is
-// no longer read here (it feeds fieldwork, Task 15).
-// PURE: mints fresh combatants. `idPrefix` keeps ids stable + unique per battle.
-export function buildTeamCombatants(snapshot: AwayTeamSnapshot, idPrefix: string): GroundCombatant[] {
-  const secMembers = Math.min(
-    SEC_MEMBERS_MAX,
-    Math.max(SEC_MEMBERS_MIN, SEC_MEMBERS_MIN + Math.floor(snapshot.securityStrength / SEC_STRENGTH_PER_MEMBER)),
-  );
-  // Distribute the division's strength evenly across its members.
-  const secPer = snapshot.securityStrength / secMembers;
-
-  const out: GroundCombatant[] = [];
-  for (let i = 0; i < secMembers; i++) {
-    const hp = Math.round(SECURITY_BASE_HP + secPer * STRENGTH_HP_COEFF);
-    const power = SECURITY_BASE_POWER + secPer * STRENGTH_POWER_COEFF;
-    out.push({
-      id: `${idPrefix}-sec-${i}`,
-      side: "team",
-      role: "security",
-      hp,
-      hpMax: hp,
-      power,
-      accuracy: SECURITY_BASE_ACCURACY,
-      armor: SECURITY_BASE_ARMOR,
-      heal: 0,
-      threat: power,
-      groupTag: "security",
-      statuses: [],
-      downed: false,
-    });
-  }
-  return out;
-}
-
 // Build the NAMED Security squad from the roster snapshot (E-CREW Task 13, design section 5.3): one
 // combatant per snapshotted member, in snapshot (deploy) order. Member power =
 //   (Security base + spec base + crew layer) * rank factor * (1 + the member's summed gear/trait bump)
 // for hp / power / armor; accuracy = base * (1 + bump), capped; the crew layer is the squad-wide
-// securityStrength shared evenly across the deployed members (the same coefficients the anonymous detail
-// uses). Effects become combatant fields: a medic trait or a heal tool makes the member a medic; heal,
+// securityStrength shared evenly across the deployed members (STRENGTH_HP_COEFF / STRENGTH_POWER_COEFF). Effects become combatant fields: a medic trait or a heal tool makes the member a medic; heal,
 // inflict and group-hit strength come from the pieces' own stat lines (GEAR EFFECTS SCALE WITH STAT LINES;
 // weaponRange is positioning only and changes no number here). Each member carries its OWN program.
-// PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (the caller falls back to
-// the anonymous detail).
+// PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (no team: see
+// resolveExpeditionActivity).
 export function buildRosterCombatants(
   members: readonly SnapshotMember[],
   securityStrength: number,
@@ -1270,15 +1226,11 @@ export function buildRosterCombatants(
   });
 }
 
-// The team an expedition activity fields: the named Security roster when one deployed, else the anonymous
-// crew-derived Security detail. Science NEVER fights (with or without a roster). PURE.
+// The team an expedition activity fields: the named Security roster. Science NEVER fights. D18: there is
+// no anonymous stand-in, so an expedition with no Security member in its roster (only possible for one
+// launched before D18) fields an EMPTY team, and the caller resolves the task without a battle. PURE.
 export function expeditionTeamCombatants(exp: Expedition, idPrefix: string): GroundCombatant[] {
-  const security = exp.roster?.security ?? [];
-  if (security.length > 0) return buildRosterCombatants(security, exp.securityStrength, idPrefix);
-  return buildTeamCombatants(
-    { securityStrength: exp.securityStrength, scienceStrength: exp.scienceStrength, teamKit: exp.teamKit },
-    idPrefix,
-  );
+  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix);
 }
 
 // ============================================================================
@@ -1497,6 +1449,16 @@ export function resolveExpeditionActivity(
     for (const e of attemptLog) logSink.push(e);
   };
 
+  // D18: no Security member deployed (an expedition launched before D18 with no roster, or a Science-only
+  // one) means NO team: there is no anonymous stand-in any more. The task resolves at once WITHOUT a battle
+  // as an evacuation (0 attempts, an empty log), keeping the reduced "always win something" haul from the
+  // same keyed reward roll as any evacuation. Deterministic, draws nothing from a battle stream, and safe
+  // for an old in-flight save (it can never crash on an empty team or stall the activities phase).
+  if ((exp.roster?.security ?? []).length === 0) {
+    commitLog([]);
+    return evacuatedResolution(exp, body, activity, globalIndex, 0);
+  }
+
   let attempts = 0;
   let lastAttemptLog: GambitLogEvent[] | undefined;
   for (let attempt = 0; attempt < MAX_BATTLE_ATTEMPTS; attempt++) {
@@ -1508,7 +1470,7 @@ export function resolveExpeditionActivity(
         Math.imul(attempt + 1, 0x85ebca6b)) >>>
       0;
     const rng = makeRng(battleSeed);
-    // E-CREW (Task 13): the named Security roster, else the anonymous Security detail. Never Science.
+    // E-CREW (Task 13): the named Security roster. Never Science.
     const team = expeditionTeamCombatants(exp, `${exp.id}-${activity.id}-a${attempt}`);
     // E4b: the guard is scaled by the hazard the body PRESENTS to this run (the snapshotted museum
     // hazardResist shrinks it, bounded + never negative; 0 -> the raw hazard, bit-identical). The REWARD
@@ -1545,11 +1507,24 @@ export function resolveExpeditionActivity(
   }
   // Every attempt lost: EVACUATE with a reduced haul (always win something), no relic.
   commitLog(lastAttemptLog);
+  return evacuatedResolution(exp, body, activity, globalIndex, attempts);
+}
+
+// An EVACUATED task's resolution: the reduced haul from the activity's keyed reward roll (the same seed a
+// win uses, scaled by EVAC_REWARD_FRACTION), no relic. Shared by the all-attempts-lost path and the D18
+// no-team path. PURE.
+function evacuatedResolution(
+  exp: Expedition,
+  body: ExpeditionBody,
+  activity: ExpeditionActivity,
+  globalIndex: number,
+  attempts: number,
+): ActivityResolution {
   const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
   const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION);
   return {
     finding: {
-      id: findingId,
+      id: `${exp.id}-find-act-${activity.id}`,
       source: "activity",
       poiId: activity.poiId,
       materials: haul.materials,

@@ -2374,8 +2374,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // account's Security program at dispatch (design section 10: "every existing account program becomes the
   // default program a newly hired Security member starts with"), so there is nothing to stamp, and stamping
   // would freeze a copy that later account edits could no longer reach. Expedition.roster is optional too:
-  // an in-flight expedition without one fields the anonymous Security detail. An old save's Science program
-  // stays stored as-is (GambitPrograms keeps its shape); nothing executes it.
+  // D18 removed the anonymous Security detail, so an in-flight expedition without a Security member fields
+  // no team and each of its ground tasks evacuates without a battle (gambit.ts resolveExpeditionActivity);
+  // nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
+  // shape); nothing executes it.
   64: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

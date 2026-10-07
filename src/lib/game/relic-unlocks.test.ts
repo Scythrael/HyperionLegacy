@@ -76,6 +76,7 @@ import { resolvePatrolWaves, replayPatrol } from "./combat/patrolReplay";
 import { combatHullTypeOf, foldedPlayerDefense, defaultSystemDurabilityForHull } from "./combat/bridge";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus, getSensorArrayById, SENSOR_ARRAYS } from "./sensorArrays";
 import { startExpedition, expeditionCandidates, resolveExpeditions, advanceExpedition, expeditionGearBonuses } from "./expedition";
+import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { rollRelicToken } from "./gambit";
 import { effectiveShipStats } from "./crewOverlay";
 import { buildRelicReveal, researchUnlockedByFind } from "../relicReveal";
@@ -603,7 +604,9 @@ describe("E4d Damage Control Suite: between-wave hull regen", () => {
 
 // ============================================================================
 describe("E4d expedition gear: Pathfinder Suite + Bio-Resonance Array feed the dispatch snapshot", () => {
-  const dispatch = (s: GameState) => {
+  // D18: the ship gets the minimum away team first (the gate itself is tested in expedition.test.ts).
+  const dispatch = (base: GameState) => {
+    const s = ensureMinimumAwayTeam(base);
     const cand = expeditionCandidates(s, "ship-1")[0];
     return startExpedition(s, "ship-1", 1, cand.id);
   };

@@ -5,10 +5,11 @@
 //   - groundStats = the summed worn gear lines converted ONCE (convertGroundPoints) plus trait stat bumps;
 //   - trait AND gear effects normalize into one effect list + one capped resist map;
 //   - the snapshot is a pure function with no live references;
-//   - a ship with no roster launches an expedition byte-identical to before (no `roster` field).
+//   - D18: a ship without 1 ready Security + 1 ready Science member cannot launch at all.
 //
 // Task 13, Security-only battles with per-member gambits (gambit.ts):
-//   - Science never enters a battle (roster or anonymous fallback);
+//   - Science never enters a battle; D18: there is no anonymous fallback (no Security, no team: an old
+//     in-flight expedition without one evacuates each task without a battle);
 //   - each member runs its OWN program; medic actions fire only for a medic (trait or heal tool);
 //   - gear effects scale with the piece's stat lines (a Standard-Issue Med Kit heals nothing);
 //   - a battle ends only on a clear or a wipe (no objective win);
@@ -37,7 +38,6 @@ import { advanceExpedition, expeditionCandidates, makeExpeditionSeed, startExped
 import {
   applyStatus,
   buildRosterCombatants,
-  buildTeamCombatants,
   canActorUse,
   deriveExpeditionActivityLog,
   evaluateAndAct,
@@ -265,7 +265,7 @@ describe("snapshotAwayRoster: purity", () => {
 });
 
 // ============================================================================
-describe("startExpedition stores the roster (and stays byte-identical without one)", () => {
+describe("startExpedition stores the roster (D18: and refuses without the minimum team)", () => {
   function launch(s: GameState) {
     const cand = expeditionCandidates(s, "ship-1")[0];
     const res = startExpedition(s, "ship-1", 1, cand.id);
@@ -273,14 +273,23 @@ describe("startExpedition stores the roster (and stays byte-identical without on
     return res.next.expeditions[res.next.expeditions.length - 1];
   }
 
-  it("a ship with no roster launches with no roster field at all", () => {
-    const exp = launch(freshState());
-    expect("roster" in exp).toBe(false);
+  // D18 DELIBERATE CHANGE: these two used to LAUNCH with no roster field (the anonymous crew detail fought).
+  // A ship with no roster can no longer launch, so they now assert the refusal.
+  it("a ship with no roster is refused (needsAwayTeam)", () => {
+    const s = freshState();
+    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    expect(res.success).toBe(false);
+    expect(res.reason).toBe("needsAwayTeam");
+    expect(res.next).toBe(s);
   });
 
-  it("a ship whose only members are injured launches with no roster field", () => {
-    const exp = launch(withRoster([member("member-1", "security", { injuredUntilSeconds: 99_999 })]));
-    expect("roster" in exp).toBe(false);
+  it("a ship whose only members are injured is refused", () => {
+    const s = withRoster([
+      member("member-1", "security", { injuredUntilSeconds: 99_999 }),
+      member("member-2", "science", { injuredUntilSeconds: 99_999 }),
+    ]);
+    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    expect(res.reason).toBe("needsAwayTeam");
   });
 
   it("a ship with ready members stores their snapshot", () => {
@@ -375,11 +384,11 @@ const ACT = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "buriedV
 
 // ============================================================================
 describe("Task 13: Science never enters a battle", () => {
-  it("the anonymous fallback fields Security only, at every strength", () => {
+  // D18 DELIBERATE CHANGE: the old first test here proved the ANONYMOUS fallback fielded Security only.
+  // The fallback (buildTeamCombatants) is deleted, so the test now proves there is no stand-in at all.
+  it("D18: with no Security member there is no stand-in team, at any crew strength", () => {
     for (const str of [0, 5, 12, 40]) {
-      const team = buildTeamCombatants({ securityStrength: str, scienceStrength: 50, teamKit: 2 }, "x");
-      expect(team.length).toBeGreaterThan(0);
-      expect(team.every((c) => c.role === "security")).toBe(true);
+      expect(expeditionTeamCombatants(makeExp({ securityStrength: str }), "x")).toEqual([]);
     }
   });
 
@@ -392,13 +401,52 @@ describe("Task 13: Science never enters a battle", () => {
     expect(team.every((c) => c.role === "security")).toBe(true);
   });
 
-  it("a Science-only roster falls back to the anonymous Security detail, identical to no roster", () => {
+  // D18 DELIBERATE CHANGE: a Science-only roster used to fall back to the anonymous detail. Now it, like an
+  // old in-flight expedition with no roster at all, fields NO team and each task evacuates without a battle.
+  it("a Science-only roster resolves exactly like no roster: no battle, an evacuation with a partial haul", () => {
     const sciOnly = makeExp({ roster: { security: [], science: [snap("member-3", { teamType: "science", spec: "geology" })] } });
     const none = makeExp();
-    expect(expeditionTeamCombatants(sciOnly, "x")).toEqual(expeditionTeamCombatants(none, "x"));
-    expect(resolveExpeditionActivity(sciOnly, sciOnly.bodies[0], ACT, 0)).toEqual(
-      resolveExpeditionActivity(none, none.bodies[0], ACT, 0)
-    );
+    expect(expeditionTeamCombatants(sciOnly, "x")).toEqual([]);
+    const a = resolveExpeditionActivity(sciOnly, sciOnly.bodies[0], ACT, 0);
+    expect(a).toEqual(resolveExpeditionActivity(none, none.bodies[0], ACT, 0));
+    expect(a.outcome).toBe("evacuated");
+    expect(a.attempts).toBe(0); // no battle was fought
+    expect(a.finding.evacuated).toBe(true);
+    expect(a.finding.relic).toBeNull();
+    expect(Object.keys(a.finding.materials ?? {}).length).toBeGreaterThan(0); // always win something
+    expect(deriveExpeditionActivityLog(none, none.bodies[0], ACT, 0)).toEqual({ outcome: "evacuated", attempts: 0, events: [] });
+  });
+});
+
+// ============================================================================
+// D18: an expedition launched BEFORE the minimum-team gate (an existing dev save) may carry no roster. It
+// must still run to completion without crashing or stalling, deterministically and offline == live.
+describe("D18: an in-flight expedition with no roster resolves safely", () => {
+  const noRosterExp = () =>
+    makeExp({
+      seed: makeExpeditionSeed(0x2545f491, 9),
+      securityStrength: 30,
+      bodies: [
+        { id: "body-1", planetType: "toxic", scanTotal: 110, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] },
+        { id: "body-2", planetType: "frozen", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("frozen"), scanned: false, discoveries: [], activities: [] },
+      ],
+    });
+
+  it("completes, every ground task evacuates with a partial haul, and one big advance == many small", () => {
+    const exp = noRosterExp();
+    expect("roster" in exp).toBe(false);
+    const big = advanceExpedition(exp, 300_000);
+    let stepped = noRosterExp();
+    for (let t = 100; t <= 300_000; t += 100) stepped = advanceExpedition(stepped, t);
+    expect(stepped).toEqual(big);
+    expect(big.phase).toBe("complete");
+    const acts = big.findings.filter((f) => f.source === "activity");
+    expect(acts.length).toBeGreaterThan(0);
+    for (const f of acts) {
+      expect(f.evacuated).toBe(true);
+      expect(f.relic).toBeNull();
+      expect(Object.keys(f.materials ?? {}).length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -649,11 +697,12 @@ describe("Task 13: determinism with a roster", () => {
     expect(big.findings.filter((f) => f.source === "activity").length).toBeGreaterThan(0);
   });
 
-  it("the roster replaces the anonymous detail; without it the anonymous detail fights", () => {
+  // D18 DELIBERATE CHANGE: without a roster this used to field the anonymous detail; now it fields nobody.
+  it("the roster's Security members fight; without a roster nobody does", () => {
     const withR = rosterExp();
     const without = { ...withR };
     delete without.roster;
     expect(expeditionTeamCombatants(withR, "x").map((c) => c.memberId)).toEqual(["member-1", "member-2", "member-3"]);
-    expect(expeditionTeamCombatants(without, "x").every((c) => c.memberId === undefined)).toBe(true);
+    expect(expeditionTeamCombatants(without, "x")).toEqual([]);
   });
 });

@@ -74,7 +74,7 @@ import type { ExpeditionPlanetType } from "./model";
 // them here keeps the no-expedition tick byte-identical (additive-neutral).
 import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
 // E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
-import { snapshotAwayRoster } from "./awayTeam";
+import { deployableMembers, snapshotAwayRoster } from "./awayTeam";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -245,11 +245,64 @@ function clampPermille(fraction: number): number {
 // Dispatch (startExpedition)
 // ============================================================================
 
+// Why startExpedition refuses a dispatch (the typed reason a failed ExpeditionDispatchResult carries).
+//   noSuchShip:               the ship does not exist
+//   captainNotAssigned:       the captain is not the one assigned to the ship
+//   shipAlreadyOnExpedition:  the ship already has an expedition (one per ship)
+//   noSuchCandidate:          the candidate is not on the ship's current console list
+//   needsAwayTeam:            D18 (user, 2026-10-06): the ship lacks the MINIMUM AWAY TEAM, at least
+//                             MIN_SECURITY_MEMBERS ready Security AND MIN_SCIENCE_MEMBERS ready Science members
+//                             (see expeditionAwayTeamCheck). No roster, no expedition.
+export type ExpeditionDispatchBlockReason =
+  | "noSuchShip"
+  | "captainNotAssigned"
+  | "shipAlreadyOnExpedition"
+  | "noSuchCandidate"
+  | "needsAwayTeam";
+
 export interface ExpeditionDispatchResult {
   next: GameState;
   success: boolean;
-  reason?: string; // set only on failure
+  reason?: ExpeditionDispatchBlockReason; // set only on failure
   expedition?: Expedition; // set only on success
+}
+
+// The player-facing line for a dispatch refusal (US English). EXHAUSTIVE with no default on purpose (the
+// awayCrewBlockText pattern): a new reason is a compile error here until it has text. Pure.
+export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReason): string {
+  switch (reason) {
+    case "noSuchShip":
+      return "That ship is no longer in the fleet";
+    case "captainNotAssigned":
+      return "Assign a captain to this ship first";
+    case "shipAlreadyOnExpedition":
+      return "This ship is already on an expedition";
+    case "noSuchCandidate":
+      return "Select a target system";
+    case "needsAwayTeam":
+      return "Needs at least 1 Security and 1 Science away-team member: hire them on the ship's Away Team tab";
+  }
+}
+
+// D18 MINIMUM AWAY TEAM (user, 2026-10-06): "A ship with no roster should not be able to fight." An
+// expedition launches only with at least this many DEPLOYABLE members in each squad (ready, within the
+// hull's squad cap: awayTeam.ts deployableMembers, the same rule the dispatch snapshot uses, so the gate
+// and the snapshot can never disagree). There is no anonymous stand-in team. Composition beyond the
+// minimum is the player's choice (D17: no rails).
+export const MIN_SECURITY_MEMBERS = 1;
+export const MIN_SCIENCE_MEMBERS = 1;
+
+// Does `ship` field the minimum away team right now? Returns the deployable head counts so the dispatch
+// UI can say what is missing. Pure.
+export interface ExpeditionAwayTeamCheck {
+  ok: boolean;
+  security: number; // deployable Security members (ready, capped)
+  science: number; // deployable Science members (ready, capped)
+}
+export function expeditionAwayTeamCheck(state: GameState, ship: ShipInstance): ExpeditionAwayTeamCheck {
+  const security = deployableMembers(state, ship, "security").length;
+  const science = deployableMembers(state, ship, "science").length;
+  return { ok: security >= MIN_SECURITY_MEMBERS && science >= MIN_SCIENCE_MEMBERS, security, science };
 }
 
 // Generate the target system + its 1..3 generic bodies from the expedition seed. Deterministic. The
@@ -459,7 +512,8 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
 // Dispatch a ship + captain on a NEW expedition by COMMITTING a chosen candidate target. Pure: returns
 // { success, next, expedition } or a failure with a reason and the UNCHANGED state (same reference).
 // Mirrors how a mission binds a captain (dispatchCaptainOnMission), but writes to state.expeditions
-// instead of the captain. Enforces at most ONE expedition per ship + the assigned-captain guard. The
+// instead of the captain. Enforces at most ONE expedition per ship + the assigned-captain guard + (D18) the
+// minimum away team (expeditionAwayTeamCheck), checked last so a bad ship/captain/candidate reports first. The
 // launched system is generated from the CHOSEN CANDIDATE'S seed (so it matches the foreknowledge preview
 // the player saw), the sensor array + crew-inclusive `sensors` are SNAPSHOTTED (resolution is then a pure
 // function of the stored expedition), the anomaly OPT-IN is stored, and expeditionSeed is advanced so the
@@ -479,6 +533,8 @@ export function startExpedition(
 
   const candidate = expeditionCandidates(state, shipId).find((c) => c.id === candidateId);
   if (!candidate) return { next: state, success: false, reason: "noSuchCandidate" };
+  // D18: no minimum away team (1 Security + 1 Science, ready), no expedition.
+  if (!expeditionAwayTeamCheck(state, ship).ok) return { next: state, success: false, reason: "needsAwayTeam" };
 
   const number = state.nextExpeditionId;
   const seed = candidate.seed; // COMMIT the previewed candidate's seed so the launch matches its preview
@@ -504,10 +560,10 @@ export function startExpedition(
     science: state.gambitPrograms.science.map((r) => ({ ...r, params: r.params ? { ...r.params } : undefined })),
   };
   // E-CREW (Task 12): snapshot the ship's READY named members (converted gear, traits, implants, programs)
-  // at the same dispatch instant. Stored ONLY when at least one member deploys, so a ship with no roster
-  // launches an expedition byte-identical to before (absent reads as two empty squads everywhere).
+  // at the same dispatch instant. D18: the gate above guarantees both squads are non-empty, so every
+  // expedition launched from here on carries a roster. (An OLD in-flight expedition may still lack one;
+  // the battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.)
   const roster = snapshotAwayRoster(state, ship);
-  const hasRoster = roster.security.length > 0 || roster.science.length > 0;
 
   const expedition: Expedition = {
     id,
@@ -534,7 +590,7 @@ export function startExpedition(
     scanSpeedBonus: museum.scanSpeed + gear.scanSpeed,
     relicFindBonus: museum.relicFindChance + gear.relicFindChance,
     hazardResist: museum.hazardResist + gear.hazardResist,
-    ...(hasRoster ? { roster } : {}),
+    roster,
   };
 
   return {

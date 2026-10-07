@@ -22,6 +22,7 @@ import {
   type Expedition,
   type GambitPrograms,
   type GambitProgram,
+  type SnapshotMember,
 } from "./model";
 import {
   resolveTarget,
@@ -33,7 +34,7 @@ import {
   isActionLegalForRole,
   validateGambitProgram,
   resolveGroundBattle,
-  buildTeamCombatants,
+  buildRosterCombatants,
   generateEncounter,
   deriveAwayTeam,
   resolveExpeditionActivity,
@@ -110,6 +111,34 @@ function makeExp(over: Partial<Expedition> = {}): Expedition {
     hazardResist: 0,
     ...over,
   };
+}
+
+// D18: a plain snapshotted Security member (rank 1, no traits or gear). Since the anonymous crew-derived
+// detail is gone, every battle fixture here fields named members built from these.
+function secSnap(memberId: string, over: Partial<SnapshotMember> = {}): SnapshotMember {
+  return {
+    memberId,
+    teamType: "security",
+    spec: "offense",
+    rank: 1,
+    rankFactor: 1,
+    traits: [],
+    groundStats: { hp: 0, power: 0, armor: 0, accuracy: 0, statusChance: 0, fieldwork: 0, relicFind: 0, hazardResist: 0 },
+    resists: {},
+    implants: [],
+    gear: [],
+    gambit: DEFAULT_GAMBIT_PROGRAMS.security.map((r) => ({ ...r })),
+    effects: [],
+    ...over,
+  };
+}
+
+// A roster of `n` plain Security members (member-1..n), each running `program`, and no Science.
+function secRoster(n: number, program?: GambitProgram): Expedition["roster"] {
+  const security = Array.from({ length: n }, (_, i) =>
+    secSnap(`member-${i + 1}`, program ? { gambit: program.map((r) => ({ ...r })) } : {}),
+  );
+  return { security, science: [] };
 }
 
 function cloneProgs(p: GambitPrograms): GambitPrograms {
@@ -292,7 +321,12 @@ describe("full battle — gambit depth is load-bearing", () => {
   // Security only (it used to add a healing Science body), so the old strength-10 pair (2 Security bodies)
   // could no longer win this hazard-0.65 Vault on any seed. 18 fields the 4-body detail, where the smart
   // program wins 28 of 60 and the lazy one 0, the same contrast the test exists to prove.
+  // D18 DELIBERATE FIXTURE CHANGE: the anonymous detail (buildTeamCombatants) is deleted, so the same four
+  // bodies are now four plain NAMED Security members sharing the same strength 18 crew layer, each running
+  // the program under test as its own.
   const snapshot = { securityStrength: 18, scienceStrength: 5, teamKit: 3 };
+  const team = (programs: GambitPrograms, prefix: string) =>
+    buildRosterCombatants(secRoster(4, programs.security)!.security, snapshot.securityStrength, prefix);
   const smart: GambitPrograms = {
     security: [
       { target: "foeIsHealer", action: "attack" },
@@ -314,9 +348,8 @@ describe("full battle — gambit depth is load-bearing", () => {
     let wins = 0;
     for (let s = 0; s < N; s++) {
       const seed = (0x1234 ^ (s * 0x9e3779b9)) >>> 0;
-      const team = buildTeamCombatants(snapshot, `b${s}`);
       const enemies = generateEncounter(seed, HAZARD, "buriedVault");
-      if (resolveGroundBattle(team, enemies, programs, snapshot.teamKit, makeRng(seed)).result === "win") wins++;
+      if (resolveGroundBattle(team(programs, `b${s}`), enemies, programs, snapshot.teamKit, makeRng(seed)).result === "win") wins++;
     }
     return wins;
   }
@@ -330,8 +363,8 @@ describe("full battle — gambit depth is load-bearing", () => {
 
   it("is deterministic: the same team + enemies + seed replays byte-identically", () => {
     const seed = 0xabcdef;
-    const a = resolveGroundBattle(buildTeamCombatants(snapshot, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
-    const b = resolveGroundBattle(buildTeamCombatants(snapshot, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
+    const a = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
+    const b = resolveGroundBattle(team(smart, "x"), generateEncounter(seed, HAZARD, "buriedVault"), smart, snapshot.teamKit, makeRng(seed));
     expect(a).toEqual(b);
   });
 });
@@ -339,7 +372,8 @@ describe("full battle — gambit depth is load-bearing", () => {
 // ============================================================================
 describe("resolveExpeditionActivity — win yields real findings; a lost task evacuates + retries", () => {
   it("a strong team WINS an easy task and yields a real material + credit finding", () => {
-    const exp = makeExp({ securityStrength: 40, scienceStrength: 20, teamKit: 6 });
+    // D18 DELIBERATE FIXTURE CHANGE: a named Security squad (the anonymous detail is gone).
+    const exp = makeExp({ securityStrength: 40, scienceStrength: 20, teamKit: 6, roster: secRoster(3) });
     const body = exp.bodies[0]; // terrestrial, low hazard
     const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "caveNetwork", done: false };
     const res = resolveExpeditionActivity(exp, body, activity, 0);
@@ -358,10 +392,13 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
 
   it("a bare team LOSES a brutal task on every attempt, EVACUATES, and still keeps a partial haul", () => {
     // A 0-strength team vs a very-high-hazard Subterranean Civilization (healer + caster + bruiser + striker).
+    // D18 DELIBERATE FIXTURE CHANGE: one plain named member (the anonymous detail is gone); with NO member
+    // at all the task would evacuate without fighting (0 attempts), which awayRoster.test.ts covers.
     const exp = makeExp({
       securityStrength: 0,
       scienceStrength: 0,
       teamKit: 0,
+      roster: secRoster(1),
       bodies: [{ id: "body-1", planetType: "toxic", scanTotal: 100, scanProgress: 0, hazard: planetTypeHazard("toxic"), scanned: false, discoveries: [], activities: [] }],
     });
     const body = exp.bodies[0];
@@ -375,7 +412,7 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
   });
 
   it("is deterministic: the same expedition + activity + index resolves identically", () => {
-    const exp = makeExp({ securityStrength: 12, scienceStrength: 6 });
+    const exp = makeExp({ securityStrength: 12, scienceStrength: 6, roster: secRoster(2) });
     const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "crashedShip", done: false };
     const a = resolveExpeditionActivity(exp, exp.bodies[0], activity, 2);
     const b = resolveExpeditionActivity(exp, exp.bodies[0], activity, 2);
@@ -492,6 +529,7 @@ describe("PARITY — a typed expedition whose activities resolve REAL gambit fig
       securityStrength: 14,
       scienceStrength: 7,
       teamKit: 4,
+      roster: secRoster(3), // D18: a named squad fights (there is no anonymous detail any more)
       bodies: [
         { id: "body-1", planetType: "arid", scanTotal: 110, scanProgress: 0, hazard: planetTypeHazard("arid"), scanned: false, discoveries: [], activities: [] },
         { id: "body-2", planetType: "frozen", scanTotal: 90, scanProgress: 0, hazard: planetTypeHazard("frozen"), scanned: false, discoveries: [], activities: [] },

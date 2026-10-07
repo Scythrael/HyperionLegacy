@@ -42,7 +42,12 @@ import {
   SENSOR_REVEAL_PLANET_TYPES,
   SENSOR_REVEAL_HAZARD,
   SENSOR_REVEAL_RELIC,
+  expeditionAwayTeamCheck,
+  expeditionDispatchBlockText,
+  MIN_SECURITY_MEMBERS,
+  MIN_SCIENCE_MEMBERS,
 } from "./expedition";
+import { ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { tick } from "./tick";
 import { migrate, type SaveFile } from "./save";
 import {
@@ -127,9 +132,12 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
 // Dispatch helper: resolve a candidate id off the state's console list and commit it. Defaults to the
 // first candidate ("cand-0"), which on a fresh save uses seed makeExpeditionSeed(EXPEDITION_DEFAULT_SEED,
 // 0). Mirrors how the E2c UI dispatches (pick a candidate -> startExpedition).
+// D18: the ship gets the minimum away team (1 Security + 1 Science) first when it lacks one, so these tests
+// keep testing the expedition engine, not the dispatch gate (which has its own block below).
 function dispatch(s: GameState, shipId = "ship-1", captainId = 1, idx = 0, anomalyOptIn = true) {
-  const cands = expeditionCandidates(s, shipId);
-  return startExpedition(s, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn);
+  const ready = ensureMinimumAwayTeam(s, shipId);
+  const cands = expeditionCandidates(ready, shipId);
+  return startExpedition(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn);
 }
 
 // ============================================================================
@@ -743,7 +751,7 @@ describe("E2c foreknowledge — progressive reveal scales with the ship's sensor
 
 describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its preview", () => {
   it("the committed expedition's system + bodies match the previewed candidate exactly", () => {
-    const s = shipWithSensors(SENSOR_REVEAL_RELIC); // full reveal so we can compare bodies
+    const s = ensureMinimumAwayTeam(shipWithSensors(SENSOR_REVEAL_RELIC)); // full reveal so we can compare bodies
     const cand = expeditionCandidates(s, "ship-1")[1]; // choose the SECOND candidate
     const res = startExpedition(s, "ship-1", 1, cand.id);
     expect(res.success).toBe(true);
@@ -760,7 +768,7 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
   });
 
   it("dispatch ADVANCES expeditionSeed so the next candidate list is a fresh set", () => {
-    const s = freshState();
+    const s = ensureMinimumAwayTeam(freshState());
     const before = expeditionCandidates(s, "ship-1").map((c) => c.seed);
     const res = startExpedition(s, "ship-1", 1, "cand-0");
     expect(res.success).toBe(true);
@@ -770,7 +778,7 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
   });
 
   it("rejects an unknown candidate id (same-ref state), and still enforces the ship/captain guards", () => {
-    const s = freshState();
+    const s = ensureMinimumAwayTeam(freshState());
     const bad = startExpedition(s, "ship-1", 1, "cand-nope");
     expect(bad.success).toBe(false);
     expect(bad.reason).toBe("noSuchCandidate");
@@ -780,6 +788,80 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
     expect(startExpedition(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
     const first = startExpedition(s, "ship-1", 1, "cand-0");
     expect(startExpedition(first.next, "ship-1", 1, "cand-0").reason).toBe("shipAlreadyOnExpedition");
+  });
+});
+
+// ============================================================================
+// D18 MINIMUM AWAY TEAM (user, 2026-10-06): "A ship with no roster should not be able to fight." An
+// expedition needs at least 1 Security AND 1 Science member, ready, to launch. No anonymous stand-in.
+describe("D18: an expedition needs at least 1 Security + 1 Science away-team member", () => {
+  function launchWith(members: ReturnType<typeof plainAwayMember>[], gameTimeSeconds = 0) {
+    const s: GameState = { ...freshState(), gameTimeSeconds, awayMembers: members };
+    return { s, res: startExpedition(s, "ship-1", 1, "cand-0") };
+  }
+  const sec = (id = "member-1") => plainAwayMember(id, "security", "ship-1");
+  const sci = (id = "member-2") => plainAwayMember(id, "science", "ship-1");
+
+  it("the minimum is 1 of each", () => {
+    expect(MIN_SECURITY_MEMBERS).toBe(1);
+    expect(MIN_SCIENCE_MEMBERS).toBe(1);
+  });
+
+  it("refuses a ship with no roster at all (same-ref state, typed reason)", () => {
+    const { s, res } = launchWith([]);
+    expect(res.success).toBe(false);
+    expect(res.reason).toBe("needsAwayTeam");
+    expect(res.next).toBe(s);
+    expect(res.expedition).toBeUndefined();
+  });
+
+  it("refuses Security without Science", () => {
+    expect(launchWith([sec()]).res.reason).toBe("needsAwayTeam");
+  });
+
+  it("refuses Science without Security", () => {
+    expect(launchWith([sci()]).res.reason).toBe("needsAwayTeam");
+  });
+
+  it("an injured member does not count until recovered", () => {
+    const hurtSec = { ...sec(), injuredUntilSeconds: 500 };
+    expect(launchWith([hurtSec, sci()], 100).res.reason).toBe("needsAwayTeam");
+    expect(launchWith([hurtSec, sci()], 500).res.success).toBe(true);
+    const hurtSci = { ...sci(), injuredUntilSeconds: 500 };
+    expect(launchWith([sec(), hurtSci], 100).res.reason).toBe("needsAwayTeam");
+  });
+
+  it("members on another ship or benched do not count", () => {
+    const elsewhere = [{ ...sec(), assignedShipId: "ship-2" }, { ...sci(), assignedShipId: null }];
+    expect(launchWith(elsewhere).res.reason).toBe("needsAwayTeam");
+  });
+
+  it("launches with 1 Security + 1 Science, and the roster snapshot carries both", () => {
+    const { res } = launchWith([sec(), sci()]);
+    expect(res.success).toBe(true);
+    expect(res.expedition!.roster!.security.map((m) => m.memberId)).toEqual(["member-1"]);
+    expect(res.expedition!.roster!.science.map((m) => m.memberId)).toEqual(["member-2"]);
+  });
+
+  it("expeditionAwayTeamCheck reports the deployable counts the UI shows", () => {
+    const s = withMinimumAwayTeam(freshState());
+    expect(expeditionAwayTeamCheck(s, s.ships[0])).toEqual({ ok: true, security: 1, science: 1 });
+    const bare = freshState();
+    expect(expeditionAwayTeamCheck(bare, bare.ships[0])).toEqual({ ok: false, security: 0, science: 0 });
+  });
+
+  it("the older guards report first: a bad candidate, captain or ship is named before the away team", () => {
+    const s = freshState(); // no away team
+    expect(startExpedition(s, "ship-1", 1, "cand-nope").reason).toBe("noSuchCandidate");
+    expect(startExpedition(s, "ship-1", 999, "cand-0").reason).toBe("captainNotAssigned");
+    expect(startExpedition(s, "ship-nope", 1, "cand-0").reason).toBe("noSuchShip");
+  });
+
+  it("the refusal has player text that names both squads and where to hire", () => {
+    const text = expeditionDispatchBlockText("needsAwayTeam");
+    expect(text).toContain("1 Security");
+    expect(text).toContain("1 Science");
+    expect(text).toContain("Away Team tab");
   });
 });
 
@@ -807,8 +889,8 @@ describe("E2c anomaly opt-in — the toggle gates whether the mid-transit chart 
   });
 
   it("startExpedition stores the opt-in flag from dispatch", () => {
-    const optIn = startExpedition(freshState(), "ship-1", 1, "cand-0", true).expedition!;
-    const optOut = startExpedition(freshState(), "ship-1", 1, "cand-0", false).expedition!;
+    const optIn = startExpedition(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", true).expedition!;
+    const optOut = startExpedition(ensureMinimumAwayTeam(freshState()), "ship-1", 1, "cand-0", false).expedition!;
     expect(optIn.anomalyOptIn).toBe(true);
     expect(optOut.anomalyOptIn).toBe(false);
   });

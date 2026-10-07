@@ -71,6 +71,7 @@ import {
 } from "./tick";
 import { salvageShip, salvageYieldMult } from "./salvage";
 import { startExpedition, expeditionCandidates, advanceExpedition, resolveExpeditions } from "./expedition";
+import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { deriveAwayTeam, rollRelicToken } from "./gambit";
 import { migrate, type SaveFile } from "./save";
 
@@ -457,7 +458,9 @@ describe("rareMaterialChance: the extraction rare-tier chance, capped, no new dr
 
 // ============================================================================
 describe("EXPEDITION: museum bonuses snapshotted at dispatch", () => {
-  const dispatch = (s: GameState) => {
+  // D18: the ship gets the minimum away team first (the gate itself is tested in expedition.test.ts).
+  const dispatch = (base: GameState) => {
+    const s = ensureMinimumAwayTeam(base);
     const cand = expeditionCandidates(s, "ship-1")[0];
     return startExpedition(s, "ship-1", 1, cand.id);
   };
@@ -637,7 +640,7 @@ describe("SAVE migration v63 -> v64 backfills the expedition museum snapshot", (
 
   // A v63-shaped state with one in-flight expedition lacking the three E4b fields.
   function dispatch63(): any {
-    const s = freshState();
+    const s = ensureMinimumAwayTeam(freshState());
     const exp: any = { ...startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition! };
     delete exp.scanSpeedBonus;
     delete exp.relicFindBonus;

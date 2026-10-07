@@ -6544,11 +6544,12 @@ export interface Expedition {
   // --- E-CREW 0.14.0 (Task 12): the named AWAY-TEAM ROSTER snapshot (design section 5.5) -------------
   // Every READY member of the ship's squads (members, converted gear stats, implants, traits, programs),
   // captured at dispatch by awayTeam.ts snapshotAwayRoster, exactly like the strength snapshot above, so
-  // resolution stays a pure function of the stored expedition (offline == live by construction). OPTIONAL
-  // + additive: startExpedition writes it only when at least one member deploys, so a ship with no roster
-  // stores an expedition byte-identical to before, and every reader treats absent as two empty squads (the
-  // anonymous crew-derived team still fights; design section 5.3's floor). The strengths above stay the
-  // squad-wide crew layer on top of the members.
+  // resolution stays a pure function of the stored expedition (offline == live by construction). D18
+  // (user, 2026-10-06): startExpedition refuses a ship without at least 1 ready Security AND 1 ready Science
+  // member, so every NEW expedition carries a roster. The field stays OPTIONAL for expeditions launched
+  // before D18: readers treat absent as two empty squads, and with no Security member a ground task fields
+  // NO team (there is no anonymous stand-in any more) and evacuates without a battle (gambit.ts
+  // resolveExpeditionActivity). The strengths above stay the squad-wide crew layer on top of the members.
   roster?: AwayRosterSnapshot;
 }
 
