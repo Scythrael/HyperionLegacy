@@ -11,6 +11,7 @@ import type { AwayTeamType, BlueprintDef, EquipmentInstance, EquipmentSlotType, 
 import { EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety, shipDisplayLabel } from "./game/model";
 import { memberFitBlockText, uniqueWearer, type MemberFitBlockReason } from "./game/memberEquipment";
 import { SQUAD_META } from "./awayTeamDisplay";
+import { hasMedicalTraining } from "./game/awayTraits";
 import type { IconName } from "./ui/icons";
 
 // ============================================================================
@@ -63,6 +64,29 @@ export function memberWearersText(piece: Pick<EquipmentInstance, "slotType" | "m
   const names = variety.member.teamTypes.map((t: AwayTeamType) => SQUAD_META[t].short);
   if (names.length === 0) return "";
   return names.length === 1 ? `${names[0]} only` : names.join(" or ");
+}
+
+// ============================================================================
+// Medical Training (D20): the Med Kit's heal needs it
+// ============================================================================
+// The hint every surface that lists or installs a Med Kit shows (Quartermaster, Logistics, the member card
+// and its install flow). Its stat lines apply to anyone; only the healing needs the training.
+export const NEEDS_MEDICAL_TRAINING_TEXT = "Needs Medical Training";
+// The muted line under a Med Kit worn by (or offered to) a member WITHOUT the training.
+export const UNTRAINED_MED_KIT_TEXT = "Needs Medical Training: no healing for this member";
+
+// Does this piece's ground effect need Medical Training (a heal tool: the Med Kit)? Pure.
+export function pieceNeedsMedicalTraining(piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">): boolean {
+  return memberVariety(piece.slotType, piece.moduleVariant ?? "")?.member.groundEffect?.kind === "heal";
+}
+
+// The untrained note for a piece on (or offered to) a member: UNTRAINED_MED_KIT_TEXT when the piece needs
+// Medical Training and the member lacks it, else null. Pure.
+export function untrainedGearNote(
+  piece: Pick<EquipmentInstance, "slotType" | "moduleVariant">,
+  member: { readonly traits: readonly string[] }
+): string | null {
+  return pieceNeedsMedicalTraining(piece) && !hasMedicalTraining(member) ? UNTRAINED_MED_KIT_TEXT : null;
 }
 
 // ============================================================================

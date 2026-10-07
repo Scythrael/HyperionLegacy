@@ -2472,8 +2472,9 @@ export const EQUIPMENT_SLOTS: Record<string, EquipmentSlotDef> = {
         ],
         statRatios: { groundStatusChance: 0.6, groundPower: 0.4 },
       },
-      // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry). D20: it REQUIRES
-      // Medical Training (the fieldMedic trait); worn by anyone else it does nothing in battle.
+      // Med Kit: the in-fight heal (the medic-style item the user asked Security to carry). D20: its HEAL
+      // (and the medic abilities) need Medical Training (the fieldMedic trait). Its groundHp / groundArmor
+      // stat lines apply to ANY wearer like every other piece; only the healing is gated.
       {
         key: "medKit",
         label: "Med Kit",

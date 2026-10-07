@@ -36,7 +36,7 @@
 // ⚠️ GENERALIZABLE ON PURPOSE (SUGGESTIONS: gambits-everywhere). The INTERPRETER core
 // (evaluateProgram + applyAction over a generic GroundCombatant[] + an injected Rng) is NOT hard-wired
 // to ground combat. The eventual auto-vs-gambit layer on SHIP combat can build a different combatant set
-// + program pair and reuse resolveGroundBattle's evaluate/apply loop. We deliberately do NOT contort the
+// (each combatant carrying its own program) and reuse resolveGroundBattle's evaluate/apply loop. We deliberately do NOT contort the
 // heavyweight ship Combatant type (combat/types.ts): a lighter GroundCombatant is the right model here,
 // and the SEAM the ship layer reuses is the pure evaluate/apply core, not the combatant shape.
 //
@@ -356,14 +356,16 @@ function cloneProgramsData(p: GambitPrograms): GambitPrograms {
 
 // E-CREW (Task 13): rewritten for SECURITY ONLY (design D16: "the six preset titles stay"). Science never
 // enters a battle, so every preset's Science program is empty and nothing executes one. Each Security
-// program runs PER MEMBER (a newly hired member is seeded from one). Medic rules (cure / aidHeal) fire only
-// for a medic member and are skipped by everyone else, so one preset serves a mixed squad.
+// program runs PER MEMBER; a member with none runs DEFAULT_MEMBER_GAMBIT (D19), which is not a preset.
+// Medic rules (cure / aidHeal) fire only for a member with Medical Training and are skipped by everyone
+// else, so one preset serves a mixed squad.
 export const GAMBIT_PRESETS: readonly GambitPreset[] = [
   {
     // Establish Dominance: "punch the biggest guy in the room". Taunt ONCE, on the opening round, to pull
     // the room's attention, take out the enemy medic (or the biggest guy just gets healed back up), then
     // focus the highest-HP foe. FIX (2026-10-06): it used to lead with an always-firing taunt, so every
-    // member taunted every round and the preset never won (0 of 60 on every encounter type).
+    // member taunted every round and the preset never won (0 of 60 on every encounter type). A taunt with
+    // no living ally to protect does not fire (ruleFires), so a solo member skips straight to its attacks.
     id: "establishDominance",
     title: "Establish Dominance",
     programs: {
@@ -841,17 +843,24 @@ export interface BattleState {
 // aidHeal needs an actor that actually heals, so a Standard-Issue Med Kit with no stat lines does not waste
 // the turn). Returns the resolved target when it fires, else { fires: false } (try the next rule). This is
 // what makes FIRST-MATCH meaningful: a rule that cannot do anything is skipped, not wasted.
-// D19 FIX (DELIBERATE BEHAVIOR CHANGE): the selector is the rule's CONDITION for EVERY action, targetless
-// ones included. A targetless action (brace / takeCover / secureObjective / hold / fallBack) used to fire
-// even when its selector resolved nothing, so "selfHpBelow 60% -> brace" braced every round at full HP
-// (Turtle Club President's "brace when hurt" never meant that). It now fires only when the condition holds;
-// "self" still always resolves for a standing actor, so a plain "self -> brace" is unchanged.
+// ENGINE FIX (2026-10-06, found while building D19's default program; not a D19 decision): the selector
+// is the rule's CONDITION for EVERY action, targetless ones included. A targetless action (brace /
+// takeCover / secureObjective / hold / fallBack) used to fire even when its selector resolved nothing, so
+// "selfHpBelow 60% -> brace" braced every round at full HP (Turtle Club President's "brace when hurt"
+// never meant that). It now fires only when the condition holds; "self" still always resolves for a
+// standing actor, so a plain "self -> brace" is unchanged.
 function ruleFires(
   rule: GambitRule,
   actor: GroundCombatant,
   state: BattleState,
 ): { fires: true; target: GroundCombatant | null } | { fires: false } {
   if (!canActorUse(actor, rule.action)) return { fires: false };
+  // A taunt only matters when there is an ally to draw fire AWAY from. With no living ally the taunter is
+  // already every enemy's only target, so the taunt would just waste the turn: it does not fire, and the
+  // next rule acts (2026-10-07: a solo Establish Dominance member used to burn its opening round on it).
+  if (rule.action === "taunt" && !state.combatants.some((c) => !c.downed && c.side === actor.side && c.id !== actor.id)) {
+    return { fires: false };
+  }
   if (rule.action === "aidHeal" && Math.round(actor.heal) < 1) return { fires: false };
   const target = resolveTarget(rule.target, rule.params, actor, state);
   if (!target) return { fires: false };
@@ -1489,7 +1498,7 @@ export function resolveExpeditionActivity(
   globalIndex: number,
   logSink?: GambitLogEvent[], // OPTIONAL (E3b): when passed, filled with the DECIDING battle's transient log
 ): ActivityResolution {
-  const findingId = `${exp.id}-find-act-${activity.id}`;
+  const findingId = activityFindingId(exp, activity.id);
   const relicId = `${exp.id}-relic-${activity.id}`;
   // Copy an attempt's transient events into the caller's sink (last write wins == the deciding battle).
   const commitLog = (attemptLog: GambitLogEvent[] | undefined): void => {
@@ -1505,7 +1514,7 @@ export function resolveExpeditionActivity(
   // for an old in-flight save (it can never crash on an empty team or stall the activities phase).
   if ((exp.roster?.security ?? []).length === 0) {
     commitLog([]);
-    return evacuatedResolution(exp, body, activity, globalIndex, 0);
+    return evacuatedResolution(exp, body, activity, globalIndex, 0, findingId);
   }
 
   let attempts = 0;
@@ -1556,7 +1565,13 @@ export function resolveExpeditionActivity(
   }
   // Every attempt lost: EVACUATE with a reduced haul (always win something), no relic.
   commitLog(lastAttemptLog);
-  return evacuatedResolution(exp, body, activity, globalIndex, attempts);
+  return evacuatedResolution(exp, body, activity, globalIndex, attempts, findingId);
+}
+
+// The stable id of the finding an activity resolves into: ONE template shared by the resolver and the UI
+// (ExpeditionPanel matches an activity to its finding by it). Pure.
+export function activityFindingId(exp: Pick<Expedition, "id">, activityId: string): string {
+  return `${exp.id}-find-act-${activityId}`;
 }
 
 // An EVACUATED task's resolution: the reduced haul from the activity's keyed reward roll (the same seed a
@@ -1568,12 +1583,13 @@ function evacuatedResolution(
   activity: ExpeditionActivity,
   globalIndex: number,
   attempts: number,
+  findingId: string,
 ): ActivityResolution {
   const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
   const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION);
   return {
     finding: {
-      id: `${exp.id}-find-act-${activity.id}`,
+      id: findingId,
       source: "activity",
       poiId: activity.poiId,
       materials: haul.materials,

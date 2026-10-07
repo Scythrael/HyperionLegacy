@@ -443,6 +443,8 @@
     memberPieceName,
     memberSlotIcon,
     memberWearersText,
+    NEEDS_MEDICAL_TRAINING_TEXT,
+    pieceNeedsMedicalTraining,
     uniqueWearerLabel,
     type GearCategory,
   } from "./lib/awayGearDisplay";
@@ -10353,6 +10355,10 @@
   {#if p.blueprintKey === null}
     <span class="systems-salvage-none spare-pop-why">Standard-Issue gear can be destroyed to declutter; it takes no Systems Bay space and yields no components.</span>
   {/if}
+  <!-- D20: the Med Kit heals only for a member with Medical Training (its stat lines count for anyone). -->
+  {#if pieceNeedsMedicalTraining(p)}
+    <span class="systems-salvage-none spare-pop-why">{NEEDS_MEDICAL_TRAINING_TEXT} to heal. Its stat lines apply to any wearer.</span>
+  {/if}
   <!-- Task 11: a unique-equipped piece says so, and names who wears the fleet's one copy when it is not this. -->
   {#if isUniqueEquippedPiece(p)}
     {@const wearer = uniqueWearerLabel(state, p)}
@@ -15204,6 +15210,7 @@
                             <span class="awg-name">{name}{#if piece.favorite === true}<span class="awg-fav" aria-hidden="true"> ★</span>{/if}{#if uniq}<span class="awg-tag awg-uniq" aria-hidden="true">Unique</span>{/if}</span>
                             <span class="awg-sub">{grade} · iL {piece.iLevel}{wearers ? ` · ${wearers}` : ""}</span>
                             {#if wearer !== null}<span class="awg-sub awg-wearer">Another is installed on {wearer}</span>{/if}
+                            {#if pieceNeedsMedicalTraining(piece)}<span class="awg-sub">{NEEDS_MEDICAL_TRAINING_TEXT}</span>{/if}
                           </span>
                         </button>
                         {#if rowBusy}

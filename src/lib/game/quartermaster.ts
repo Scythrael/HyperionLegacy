@@ -303,7 +303,9 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   //                                     defensive one. The grenades are offense (stun / poison), and
   //                                     the Shroud / Lure dial the encounter chance by a FLAT 40%
   //                                     regardless of stats, which is real power a free counter must
-  //                                     not hand out.
+  //                                     not hand out. D20 (user 2026-10-06/07): its heal needs Medical
+  //                                     Training, so on an untrained member only its stat lines count;
+  //                                     it stays the free tool and the blurb says so.
   //   Science armor    Field Suit       the working suit (the Hazard Suit is the hazard specialty).
   //   Science weapon   Sidearm          the only Science weapon.
   //   Science tool     Flora Scanner    planet-tuned like most Science tools, and tuned to the most
@@ -328,7 +330,10 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   },
   memberTool: {
     perTeam: {
-      security: { varietyKey: "medKit", blurb: "The basic field kit every Security recruit can draw." },
+      security: {
+        varietyKey: "medKit",
+        blurb: "The basic field kit every Security recruit can draw. Needs Medical Training to heal.",
+      },
       science: { varietyKey: "floraScanner", blurb: "The basic survey tool every Science recruit can draw." },
     },
   },

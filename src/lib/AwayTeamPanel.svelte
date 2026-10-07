@@ -60,6 +60,7 @@
     memberFitReasonText,
     memberGradeText,
     memberPieceName,
+    untrainedGearNote,
   } from "./awayGearDisplay";
   import { clampFloatingTip } from "./floatingTip";
   import {
@@ -497,13 +498,15 @@
               <div class="gear">
                 {#each mv.gear as g (g.slot)}
                   {@const meta = MEMBER_SLOT_META[g.slot]}
+                  <!-- D20: a Med Kit on a member without Medical Training cannot heal; say so on the cell. -->
+                  {@const trainNote = g.piece !== null ? untrainedGearNote(g.piece, m) : null}
                   <button
                     type="button"
                     class="gs"
                     class:none={g.piece === null}
                     style={g.piece !== null ? `--gs-rc: ${equipmentRarityColor(g.piece.rarity)};` : undefined}
                     aria-label={g.piece !== null
-                      ? `${meta.label}: ${memberPieceName(g.piece)}. Swap or uninstall`
+                      ? `${meta.label}: ${memberPieceName(g.piece)}.${trainNote !== null ? ` ${trainNote}.` : ""} Swap or uninstall`
                       : `${meta.label}: empty. Install`}
                     data-gear-member={m.id}
                     data-gear-slot={g.slot}
@@ -515,6 +518,7 @@
                   >
                     <span class="gs-k"><Icon name={meta.icon} /> {meta.label}</span>
                     <span class="gs-v">{g.piece !== null ? cellName(g.piece) : "Empty"}</span>
+                    {#if trainNote !== null}<span class="gs-note" aria-hidden="true">Needs Medical Training</span>{/if}
                     <span class="gs-a" aria-hidden="true">{g.piece !== null ? "Swap" : "Install"}</span>
                   </button>
                 {/each}
@@ -643,6 +647,7 @@
         <span class="gm-text">
           <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<span class="vh">, unique</span><span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</span>
           <span class="gm-sub">{memberGradeText(f.installed, true)}</span>
+          {#if untrainedGearNote(f.installed, f.member) !== null}<span class="gm-sub gm-train">{untrainedGearNote(f.installed, f.member)}</span>{/if}
         </span>
         <button
           type="button"
@@ -685,6 +690,7 @@
                 <span class="gm-name" style="color: {equipmentRarityColor(sp.piece.rarity)};">{memberPieceName(sp.piece)}{#if isUniqueEquippedPiece(sp.piece)}<span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</span>
                 <span class="gm-sub">{memberGradeText(sp.piece, true)}</span>
                 {#if sp.uniqueWhy !== null}<span class="gm-sub gm-wearer">{sp.uniqueWhy}</span>{/if}
+                {#if untrainedGearNote(sp.piece, f.member) !== null}<span class="gm-sub gm-train">{untrainedGearNote(sp.piece, f.member)}</span>{/if}
               </span>
               {#if !sp.gate.ok}<span class="gm-blocked">Blocked</span>{/if}
             </button>
@@ -1064,6 +1070,15 @@
   .gm-sub {
     font-size: var(--text-2xs);
     color: var(--color-text-secondary);
+  }
+  /* D20: the muted "Needs Medical Training" note on a Med Kit for an untrained member. */
+  .gm-train,
+  .gs-note {
+    color: var(--color-text-dim);
+    font-style: italic;
+  }
+  .gs-note {
+    font-size: var(--text-2xs);
   }
   .gm-note {
     margin: 10px 0 0;

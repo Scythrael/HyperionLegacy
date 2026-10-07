@@ -24,7 +24,13 @@ import {
   memberFitReasonText,
   UNIQUE_SELF_TEXT_PICKER,
   UNIQUE_SELF_TEXT_GEAR_MODAL,
+  NEEDS_MEDICAL_TRAINING_TEXT,
+  UNTRAINED_MED_KIT_TEXT,
+  pieceNeedsMedicalTraining,
+  untrainedGearNote,
 } from "./awayGearDisplay";
+import { hasMedicalTraining } from "./game/awayTraits";
+import { REQUISITION_ENTRIES } from "./game/quartermaster";
 
 function piece(
   id: string,
@@ -291,3 +297,37 @@ describe("awayGearDisplay: memberFitReasonText", () => {
 function byId(s: GameState, id: string): EquipmentInstance {
   return s.equipment.find((e) => e.id === id)!;
 }
+
+// D20 + user 2026-10-07: the Med Kit stays the free Security tool, but every surface that lists or installs it
+// says it needs Medical Training to heal.
+describe("Medical Training hint for the Med Kit", () => {
+  const trained = { traits: ["fieldMedic"] };
+  const untrained = { traits: ["steadyAim"] };
+
+  it("only the Med Kit (a heal tool) needs Medical Training; grenades and the rest do not", () => {
+    expect(pieceNeedsMedicalTraining(piece("e1", "memberTool", "medKit"))).toBe(true);
+    for (const v of ["stunGrenade", "toxinGrenade", "shroudEmitter"]) {
+      expect(pieceNeedsMedicalTraining(piece("e2", "memberTool", v)), v).toBe(false);
+    }
+    expect(pieceNeedsMedicalTraining(piece("e3", "memberWeapon", "pulseRifle"))).toBe(false);
+  });
+
+  it("hasMedicalTraining reads the medic trait; unknown ids count as nothing", () => {
+    expect(hasMedicalTraining(trained)).toBe(true);
+    expect(hasMedicalTraining(untrained)).toBe(false);
+    expect(hasMedicalTraining({ traits: ["retiredTraitId"] })).toBe(false);
+  });
+
+  it("the untrained note shows only for a Med Kit on a member without the training", () => {
+    const kit = piece("e1", "memberTool", "medKit");
+    expect(untrainedGearNote(kit, untrained)).toBe(UNTRAINED_MED_KIT_TEXT);
+    expect(untrainedGearNote(kit, trained)).toBeNull();
+    expect(untrainedGearNote(piece("e2", "memberTool", "stunGrenade"), untrained)).toBeNull();
+    expect(UNTRAINED_MED_KIT_TEXT.startsWith(NEEDS_MEDICAL_TRAINING_TEXT)).toBe(true);
+  });
+
+  it("the Quartermaster's Security tool row is still the Med Kit and its blurb carries the hint", () => {
+    const row = REQUISITION_ENTRIES.find((e) => e.slotType === "memberTool" && e.teamType === "security")!;
+    expect(row.blurb).toContain(NEEDS_MEDICAL_TRAINING_TEXT);
+  });
+});

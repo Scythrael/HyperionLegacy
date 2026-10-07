@@ -499,12 +499,22 @@ describe("rewards — the relic roll REUSES the salvage tiers", () => {
 // 0 of 60 on every encounter below; rewritten 2026-10-06 (titles unchanged). Same fixture as the win tables:
 // named offense members, member 0 with Medical Training, team kit 3, 60 seeds.
 describe("presets are viable: each one can win", () => {
-  function presetWins(program: GambitProgram, poi: string, hazard: number, strength: number, members: number): number {
+  function presetWins(
+    program: GambitProgram,
+    poi: string,
+    hazard: number,
+    strength: number,
+    members: number,
+    withMedic = true,
+  ): number {
     let wins = 0;
     for (let s = 0; s < 60; s++) {
       const seed = (0x1234 ^ (s * 0x9e3779b9)) >>> 0;
       const roster = Array.from({ length: members }, (_, i) =>
-        secSnap(`member-${i + 1}`, { gambit: program.map((r) => ({ ...r })), effects: i === 0 ? [{ kind: "medic" }] : [] }),
+        secSnap(`member-${i + 1}`, {
+          gambit: program.map((r) => ({ ...r })),
+          effects: i === 0 && withMedic ? [{ kind: "medic" }] : [],
+        }),
       );
       const team = buildRosterCombatants(roster, strength, "p");
       if (resolveGroundBattle(team, generateEncounter(seed, hazard, poi), 3, makeRng(seed)).result === "win") wins++;
@@ -516,6 +526,28 @@ describe("presets are viable: each one can win", () => {
 
   it("every playable preset wins at least 30% of the standard easy encounter", () => {
     for (const p of playable) expect(presetWins(p.programs.security, "caveNetwork", 0.3, 6, 2), p.title).toBeGreaterThanOrEqual(18);
+  });
+
+  it("every playable preset can win the easy encounter solo and without a medic", () => {
+    for (const p of playable) {
+      expect(presetWins(p.programs.security, "caveNetwork", 0.3, 6, 1), `${p.title} solo`).toBeGreaterThan(0);
+      expect(presetWins(p.programs.security, "caveNetwork", 0.3, 6, 2, false), `${p.title} no medic`).toBeGreaterThan(0);
+    }
+  });
+
+  it("a taunt with no living ally to protect does not fire: the next rule acts", () => {
+    const loner = mk("t-sec-0", "team", "security", { accuracy: 1 });
+    const foe = mk("enemy-bruiser-1", "enemy", "bruiser");
+    const state = bs([loner, foe]);
+    evaluateAndAct([{ target: "openingRound", action: "taunt" }, { target: "foeNearest", action: "attack" }], loner, state, makeRngLike());
+    expect(state.tauntedBy).toBeNull();
+    expect(foe.hp).toBeLessThan(foe.hpMax); // the attack fired instead
+    // With an ally standing, the same taunt fires.
+    const a = mk("t-sec-0", "team", "security");
+    const b = mk("t-sec-1", "team", "security");
+    const withAlly = bs([a, b, mk("enemy-bruiser-1", "enemy", "bruiser")]);
+    evaluateAndAct([{ target: "openingRound", action: "taunt" }], a, withAlly, makeRngLike());
+    expect(withAlly.tauntedBy?.id).toBe("t-sec-0");
   });
 
   it("no playable preset wins 0 on the moderate encounters", () => {

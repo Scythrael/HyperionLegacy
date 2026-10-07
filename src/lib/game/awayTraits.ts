@@ -155,6 +155,13 @@ export function getAwayTrait(id: AwayTraitId): AwayTraitDef | undefined {
   return AWAY_TRAITS.find((t) => t.id === id);
 }
 
+// D20: does this member have MEDICAL TRAINING (a trait carrying the medic effect)? The battle reads the same
+// fact from the snapshot (gambit.ts buildRosterCombatants); the UI reads it here to say when a worn Med Kit
+// cannot heal. An unknown trait id counts as nothing. Pure.
+export function hasMedicalTraining(member: { readonly traits: readonly AwayTraitId[] }): boolean {
+  return member.traits.some((id) => getAwayTrait(id)?.effects.some((e) => e.kind === "medic") === true);
+}
+
 // ===== Player text, generated from the effects =====
 
 // Player-facing names for the member stats (US English), as they read after a "+5%".

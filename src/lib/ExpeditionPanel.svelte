@@ -44,7 +44,7 @@
     expeditionDispatchBlockText,
     type ExpeditionCandidate,
   } from "./game/expedition";
-  import { deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
+  import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
@@ -223,7 +223,7 @@
   // finding id. Present exactly when the activity is done (the resolver flips done + appends the finding
   // together), so `done` <=> a finding exists.
   function findingFor(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
-    const id = `${exp.id}-find-act-${activity.id}`;
+    const id = activityFindingId(exp, activity.id);
     return exp.findings.find((f) => f.id === id) ?? null;
   }
   // The activity's stable FLAT index across bodies (== the resolver's globalIndex), needed to re-derive its
@@ -244,6 +244,10 @@
   // computed LAZILY on expand and cached here; it lives entirely in local UI state and is never written to
   // the save, so it stays out of the parity deep-equal by construction.
   let expandedLogs: Record<string, GambitLogEvent[]> = {};
+  // Activities whose re-derived outcome disagrees with the STORED finding (a battle fought by an earlier
+  // version of the engine, e.g. the pre-D18 stand-in team): their log would tell the wrong story, so the
+  // readout shows a neutral line instead.
+  let staleLogs: Record<string, boolean> = {};
   function toggleLog(exp: Expedition, body: ExpeditionBody, activity: ExpeditionActivity): void {
     if (expandedLogs[activity.id]) {
       const next = { ...expandedLogs };
@@ -253,6 +257,9 @@
     }
     const gi = activityGlobalIndex(exp, activity.id);
     const derived = gi >= 0 ? deriveExpeditionActivityLog(exp, body, activity, gi) : null;
+    const stored = findingFor(exp, activity);
+    const stale = derived !== null && stored !== null && (derived.outcome === "evacuated") !== (stored.evacuated === true);
+    staleLogs = { ...staleLogs, [activity.id]: stale };
     expandedLogs = { ...expandedLogs, [activity.id]: derived?.events ?? [] };
   }
 
@@ -472,7 +479,9 @@
                     </button>
                     {#if expandedLogs[act.id]}
                       <div class="exp-log">
-                        {#if expandedLogs[act.id].length === 0 && finding.evacuated}
+                        {#if staleLogs[act.id]}
+                          <div class="exp-log-line dim">Battle record from an earlier version.</div>
+                        {:else if expandedLogs[act.id].length === 0 && finding.evacuated}
                           <!-- D18: an expedition launched before the minimum-team rule, with no Security member,
                                fields no team, so its tasks evacuate without a fight. -->
                           <div class="exp-log-line dim">No combat: no Security member was deployed, so the team withdrew with a partial haul.</div>

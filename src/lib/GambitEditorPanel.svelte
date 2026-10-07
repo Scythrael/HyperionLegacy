@@ -248,8 +248,8 @@
   </p>
 
   <p class="ge-intro">
-    Rules run <b>top to bottom</b>: each {activeRole === "security" ? "Security" : "Science"} member takes the
-    <b>first</b> rule whose target is found, every round. Reorder to set priority.
+    Rules run <b>top to bottom</b>: a member running a program takes the <b>first</b> rule whose condition
+    holds, every round. Reorder to set priority.
   </p>
 
   <!-- RULE LIST -->

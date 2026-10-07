@@ -437,7 +437,8 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): Relic
     findings: [],
     seed,
     // E3a snapshot fields: irrelevant to the discovery-only preview (it never resolves activities), so a
-    // neutral zero team + the default program pair keeps this throwaway well-typed without affecting the roll.
+    // neutral zero team + an empty (inert since D19) program pair keeps this throwaway well-typed without
+    // affecting the roll.
     securityStrength: 0,
     scienceStrength: 0,
     teamKit: 0,
