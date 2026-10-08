@@ -82,7 +82,20 @@ Things like figuring out how close it got to becoming a star, etc." Consequences
 activities (no surface PoIs, no away-team landing, no random ground battles while scanning it); instead it offers a
 ship-based STUDY / ANALYSIS of the giant itself (e.g. its near-star mass, composition, storms). This supersedes the
 mockup's "Atmo Probe lets fieldwork run on gas giants" line and today's code (gas giants currently get PoIs and land
-teams). What the study yields and the Atmo Probe's new role are open (asked 2026-10-08).
+teams).
+- **Study rewards (user, 2026-10-08):** "the first 3 are all good ideas. Perhaps you can get one from a pool of different
+  rewards." A gas-giant study grants ONE reward rolled from a pool of: (1) atmospheric samples (volatile/rare gas
+  materials skimmed from orbit), (2) research data (speeds or unlocks research), (3) a lore readout for the Archive
+  (the giant's analysis card: mass, how close it came to becoming a star, storm/composition data).
+- **The probe (user, 2026-10-08):** keep the Atmo Probe's spirit with possibly a slightly different name: "A reinforced
+  probe unit that can better survive the crushing gravity of a gas giant, resistant against the intense forces and
+  dangerously corrosive elements often found within a gas giant ... I want genuine science behind it." It is dropped
+  from orbit (no landing) and improves the study.
+- **Genuine science to build on:** gas giants have no solid surface; NASA's Galileo atmospheric probe (1995) survived
+  about 58 minutes, descending to roughly 22 bar before heat and pressure ended it. Hazards: ammonia / ammonium
+  hydrosulfide / water clouds, winds above 600 km/h, steeply rising pressure and temperature. "How close it came to
+  becoming a star": ~13 Jupiter masses = deuterium burning (brown dwarf threshold); ~75 to 80 Jupiter masses = hydrogen
+  fusion (a true star). A study readout can express mass as a share of those thresholds.
 
 ## 3. Scope (rows this phase closes)
 
