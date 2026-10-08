@@ -39,8 +39,12 @@
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
   import { officerRosterWindowIndex } from "./game/seniorStaff";
   import { CREW_RANKS } from "./game/crewRank";
+  import HelpTip from "./HelpTip.svelte";
   import {
     SQUAD_META,
+    AUGMENT_AFFINITY_TEXT,
+    RANK_TEXT,
+    awaySpecDescription,
     awaySpecLabel,
     rankTier,
     awayRaceLabel,
@@ -196,16 +200,24 @@
         <div class="rcand">
           <div class="rcand-name">{c.name}</div>
           <div class="rcand-row">
-            <span class="rcand-rank rk-{rankTier(c.rank)}">{CREW_RANKS[c.rank].label}</span>
+            <!-- Rank, spec, affinity and each trait explain themselves on hover / tap / keyboard focus
+                 (the shared HelpTip, chip mode). -->
+            <HelpTip label={CREW_RANKS[c.rank].label} text={RANK_TEXT}
+              ><span class="rcand-rank rk-{rankTier(c.rank)}">{CREW_RANKS[c.rank].label}</span></HelpTip
+            >
             <span class="aw-chip">{awayRaceLabel(c.race)}</span>
-            <span class="aw-chip spec {c.teamType}"><Icon name={meta.icon} /> {meta.short} · {awaySpecLabel(c.spec)}</span>
+            <HelpTip label={`${meta.short} · ${awaySpecLabel(c.spec)}`} text={awaySpecDescription(c.spec)}
+              ><span class="aw-chip spec {c.teamType}"><Icon name={meta.icon} /> {meta.short} · {awaySpecLabel(c.spec)}</span></HelpTip
+            >
             {#if AUGMENT_AFFINITY_RACES.has(c.race)}
-              <span class="aw-chip aff" title="Augment affinity: a second implant slot">Augment affinity</span>
+              <HelpTip label="Augment affinity" text={AUGMENT_AFFINITY_TEXT}
+                ><span class="aw-chip aff">Augment affinity</span></HelpTip
+              >
             {/if}
           </div>
           <div class="rcand-traits">
             {#each traitRows(c) as t (t.id)}
-              <span class="rcand-trait" title={t.full}><b>{t.label}</b>: {t.effect}.</span>
+              <span class="rcand-trait"><HelpTip label={t.label} text={t.full}><b>{t.label}</b></HelpTip>: {t.effect}.</span>
             {/each}
           </div>
           <div class="rcand-foot">

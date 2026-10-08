@@ -63,6 +63,7 @@
     untrainedGearNote,
   } from "./awayGearDisplay";
   import { clampFloatingTip } from "./floatingTip";
+  import HelpTip from "./HelpTip.svelte";
   import {
     AUGMENT_AFFINITY_RACES,
     awayCrewBlockText,
@@ -76,6 +77,9 @@
   import { CREW_RANKS } from "./game/crewRank";
   import {
     SQUAD_META,
+    AUGMENT_AFFINITY_TEXT,
+    UNIQUE_TAG_TEXT,
+    awaySpecDescription,
     awaySpecLabel,
     awayRaceLabel,
     awayTargetLabel,
@@ -480,13 +484,18 @@
                 </div>
               </div>
 
+              <!-- Each chip explains itself on hover / tap / keyboard focus (the shared HelpTip, chip mode). -->
               <div class="aw-chips">
-                <span class="aw-chip spec">{awaySpecLabel(m.spec)}</span>
+                <HelpTip label={awaySpecLabel(m.spec)} text={awaySpecDescription(m.spec)}
+                  ><span class="aw-chip spec">{awaySpecLabel(m.spec)}</span></HelpTip
+                >
                 {#each traitChips(m) as t (t.id)}
-                  <span class="aw-chip" title={t.full}>{t.label}</span>
+                  <HelpTip label={t.label} text={t.full}><span class="aw-chip">{t.label}</span></HelpTip>
                 {/each}
                 {#if AUGMENT_AFFINITY_RACES.has(m.race)}
-                  <span class="aw-chip aff" title="Augment affinity: a second implant slot">Augment affinity</span>
+                  <HelpTip label="Augment affinity" text={AUGMENT_AFFINITY_TEXT}
+                    ><span class="aw-chip aff">Augment affinity</span></HelpTip
+                  >
                 {/if}
                 {#if mv.injuredFor > 0}
                   <span class="aw-chip inj">Injured</span>
@@ -645,7 +654,7 @@
       <span class="gm-tag">Installed</span>
       {#if f.installed !== null}
         <span class="gm-text">
-          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<span class="vh">, unique</span><span class="uniq-tag" aria-hidden="true">Unique</span>{/if}</span>
+          <span class="gm-name" style="color: {equipmentRarityColor(f.installed.rarity)};">{memberPieceName(f.installed)}{#if isUniqueEquippedPiece(f.installed)}<HelpTip label="Unique" text={UNIQUE_TAG_TEXT}><span class="uniq-tag">Unique</span></HelpTip>{/if}</span>
           <span class="gm-sub">{memberGradeText(f.installed, true)}</span>
           {#if untrainedGearNote(f.installed, f.member) !== null}<span class="gm-sub gm-train">{untrainedGearNote(f.installed, f.member)}</span>{/if}
         </span>
@@ -1174,18 +1183,6 @@
     border: 1px solid rgba(var(--color-accent-rgb), 0.3);
     border-radius: var(--corner);
     color: var(--color-text-secondary);
-  }
-  /* Visually hidden, still read by a screen reader (the Installed banner's ", unique"). */
-  .vh {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
   .gm-wearer {
     color: var(--color-warning);

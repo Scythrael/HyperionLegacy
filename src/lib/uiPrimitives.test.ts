@@ -152,4 +152,21 @@ describe("HelpTip: the ? explanation", () => {
     // And no backdrop-filter: Brave disables it, which is why the dialogs avoid it too.
     expect(HELPTIP).not.toMatch(/backdrop-filter:\s*blur/);
   });
+
+  it("closes on Escape and points the open trigger at its bubble for screen readers", () => {
+    expect(HELPTIP).toMatch(/on:keydown=\{onKeydown\}/);
+    expect(HELPTIP).toMatch(/event\.key === "Escape"/);
+    expect(HELPTIP).toMatch(/aria-describedby=\{open \? bubbleId : undefined\}/);
+    expect(HELPTIP).toMatch(/id=\{bubbleId\}/);
+  });
+
+  it("keeps ONE bubble open at a time (a tap stops propagation, so other tips cannot see it)", () => {
+    const showBody = HELPTIP.slice(HELPTIP.indexOf("async function show"), HELPTIP.indexOf("function hide"));
+    expect(showBody).toMatch(/activeHide\(\)/);
+  });
+
+  it("CHIP MODE: slotted content replaces the ? (the away-team chips), the ? stays the default", () => {
+    expect(HELPTIP).toMatch(/<slot>\?<\/slot>/);
+    expect(HELPTIP).toMatch(/class:help-chip=\{\$\$slots\.default\}/);
+  });
 });

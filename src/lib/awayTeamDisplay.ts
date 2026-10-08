@@ -7,7 +7,8 @@
 
 import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ShipInstance } from "./game/model";
 import { SHIP_TYPES } from "./game/model";
-import { CREW_RACES } from "./game/crewRaces";
+import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
+import { AUGMENT_AFFINITY_RACES, implantSlotsFor } from "./game/awayTeam";
 import type { IconName } from "./ui/icons";
 
 export interface SquadMeta {
@@ -39,6 +40,57 @@ const SPEC_LABEL: Record<AwayMemberSpec, string> = {
 export function awaySpecLabel(spec: AwayMemberSpec): string {
   return SPEC_LABEL[spec];
 }
+
+// ===== Chip explanations (the hover / tap / focus tooltips on the member and candidate cards) =====
+//
+// Each line says only what the engine actually does, and carries NO numbers of its own (a hand-typed
+// figure would go stale on the next tuning pass). EXHAUSTIVE over AwayMemberSpec, so a new spec is a
+// compile error until it is described. Sources:
+//   - Security specs: gambit.ts SECURITY_SPEC_BASE, added to the Security base line in
+//     buildRosterCombatants (Offense: power; Defense: HP + armor; Debuff: a base statusChance, the chance
+//     an `inflict` piece's statuses land on a hit, which is zero for the other specs without a bump).
+//   - Science specs: no engine reader yet (fieldwork reads no spec), so the line says so plainly instead
+//     of promising a bonus. Update these lines when fieldwork starts reading the spec.
+const SPEC_DESCRIPTION: Record<AwayMemberSpec, string> = {
+  offense: "Security specialty: hits harder in battle, with extra base power.",
+  defense: "Security specialty: lasts longer in battle, with extra base health and armor.",
+  debuff:
+    "Security specialty: lands afflictions. Gives a base chance for the statuses this member's gear inflicts to take hold on a hit.",
+  archaeology:
+    "Science specialty: ancient ruins and lost civilizations. Specialties do not change fieldwork results yet.",
+  xenobiology: "Science specialty: alien life and plant blooms. Specialties do not change fieldwork results yet.",
+  geology: "Science specialty: rock, minerals and deep caves. Specialties do not change fieldwork results yet.",
+  cryptography:
+    "Science specialty: old codes, locks and sealed vaults. Specialties do not change fieldwork results yet.",
+};
+
+export function awaySpecDescription(spec: AwayMemberSpec): string {
+  return SPEC_DESCRIPTION[spec];
+}
+
+// The "Augment affinity" chip. The slot counts are READ from implantSlotsFor (one affinity race vs one
+// without), so retuning the slot rule can never leave a stale number here.
+function affinitySlotCounts(): { withAffinity: number; without: number } {
+  const races: readonly CrewRace[] = CREW_RACE_IDS;
+  const aff = races.find((r) => AUGMENT_AFFINITY_RACES.has(r));
+  const plain = races.find((r) => !AUGMENT_AFFINITY_RACES.has(r));
+  return {
+    withAffinity: aff !== undefined ? implantSlotsFor({ race: aff }) : 0,
+    without: plain !== undefined ? implantSlotsFor({ race: plain }) : 0,
+  };
+}
+const SLOTS = affinitySlotCounts();
+export const AUGMENT_AFFINITY_TEXT = `This race integrates cybernetics well: ${SLOTS.withAffinity} implant slots instead of ${SLOTS.without}.`;
+
+// The "Unique" tag on a unique-equipped piece (the install gate's uniqueEquippedElsewhere rule: one WORN
+// copy in the whole fleet; spare copies may sit in storage).
+export const UNIQUE_TAG_TEXT = "Only one can be installed in the whole fleet. Spare copies can wait in storage.";
+
+// A recruit's rank label. Rank is rolled with the candidate (awayRecruitCandidates) and never changes; it
+// sets the trait count (traitCountForRank), and the Security battle multiplies it into base HP, power and
+// armor (rankMagnitudeFactor in buildRosterCombatants). Science reads rank only for the trait count.
+export const RANK_TEXT =
+  "Rolled at hiring and never changes. A higher rank carries more traits, and a Security member also gets a little more base health, power and armor from it.";
 
 // The visual emphasis band for a rank on the recruit board: a Lieutenant or Lieutenant Commander is the
 // rare find (hi), the upper enlisted through Ensign are mid, the first three ranks are lo.

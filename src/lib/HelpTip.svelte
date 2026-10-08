@@ -1,3 +1,12 @@
+<script context="module" lang="ts">
+  // One explanation open at a time, app-wide. A trigger's click stops propagation (so a tap that opens it
+  // is not undone by the document closer), which also hides that tap from every OTHER tip's document
+  // closer; without this, tapping two chips in a row would leave both bubbles open. Each show() closes
+  // whichever tip was open before it.
+  let activeHide: (() => void) | null = null;
+  let tipSeq = 0;
+</script>
+
 <script lang="ts">
   // ============================================================================
   // HelpTip: the `?` button and its floating explanation. 0.13.5, from the approved mockup.
@@ -42,6 +51,12 @@
   export let text: string;
   // Names the control this explains, so the button is not just an anonymous "?" to a screen reader.
   export let label: string;
+  // CHIP MODE (0.14.0, away-team chips): pass content in the default slot and the trigger IS that content
+  // (a spec / trait / affinity chip) instead of the round "?". Same open/close/flip/portal behavior; the
+  // trigger button just drops its circle styling so the slotted chip keeps its own look.
+
+  // The bubble's id, so the open trigger points at it (aria-describedby) and a screen reader reads it.
+  const bubbleId = `help-tip-${++tipSeq}`;
 
   let open = false;
   let btn: HTMLButtonElement | null = null;
@@ -60,6 +75,8 @@
   // the tooltip is transient (opens on hover/focus, closes on leave/tap-away), so it is never open
   // long enough to detach from its row.
   async function show(): Promise<void> {
+    if (activeHide !== null && activeHide !== hide) activeHide();
+    activeHide = hide;
     open = true;
     bubbleStyle = "";
     await svelteTick();
@@ -80,6 +97,15 @@
 
   function hide(): void {
     open = false;
+    if (activeHide === hide) activeHide = null;
+  }
+
+  // Escape closes it, the standard dismissal for a tooltip-like popup (focus stays on the trigger).
+  function onKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && open) {
+      event.stopPropagation();
+      hide();
+    }
   }
 
   function toggle(event: MouseEvent): void {
@@ -116,17 +142,20 @@
   <button
     type="button"
     class="help-btn"
+    class:help-chip={$$slots.default}
     bind:this={btn}
     aria-label={`What does "${label}" do?`}
     aria-expanded={open}
+    aria-describedby={open ? bubbleId : undefined}
     on:click={toggle}
+    on:keydown={onKeydown}
     on:pointerenter={hoverShow}
     on:pointerleave={hoverHide}
     on:focus={focusShow}
     on:blur={hide}
-  >?</button>
+  ><slot>?</slot></button>
   {#if open}
-    <div class="help-bubble" use:portal style={bubbleStyle} bind:this={bubble} role="note">
+    <div class="help-bubble" id={bubbleId} use:portal style={bubbleStyle} bind:this={bubble} role="note">
       {text}
     </div>
   {/if}
@@ -162,6 +191,24 @@
   .help-btn:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+  }
+  /* CHIP MODE: an unstyled trigger around slotted content (the chip paints itself). */
+  .help-btn.help-chip {
+    width: auto;
+    height: auto;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: help;
+    display: inline-flex;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .help-btn.help-chip:hover,
+  .help-btn.help-chip[aria-expanded="true"] {
+    background: none;
   }
   .help-bubble {
     /* ⚠️ FIXED, positioned from JS (see show()), so no ancestor overflow can clip it. top/left are

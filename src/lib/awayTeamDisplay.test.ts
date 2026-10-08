@@ -2,7 +2,9 @@
 
 import { describe, it, expect } from "vitest";
 import { AWAY_TEAM_TYPES, freshState } from "./game/model";
-import { specsFor } from "./game/awayTeam";
+import { AUGMENT_AFFINITY_RACES, implantSlotsFor, specsFor } from "./game/awayTeam";
+import { AWAY_TRAITS, traitDisplayText } from "./game/awayTraits";
+import { CREW_RACE_IDS } from "./game/crewRaces";
 import { CREW_RANK_ORDER } from "./game/crewRank";
 import { ICON_NAMES } from "./ui/icons";
 import {
@@ -14,6 +16,10 @@ import {
   awayRaceLabel,
   awayTargetLabel,
   pickedMoveTarget,
+  awaySpecDescription,
+  AUGMENT_AFFINITY_TEXT,
+  UNIQUE_TAG_TEXT,
+  RANK_TEXT,
 } from "./awayTeamDisplay";
 
 describe("awayTeamDisplay", () => {
@@ -64,5 +70,68 @@ describe("awayTeamDisplay", () => {
     expect(awayCountdownText(41 * 60)).toBe("41m");
     expect(awayCountdownText(3600)).toBe("1h");
     expect(awayCountdownText(3600 + 12 * 60)).toBe("1h 12m");
+  });
+});
+
+// The chip tooltips (hover / tap / focus) on the member and candidate cards.
+describe("awayTeamDisplay chip explanations", () => {
+  const EM_DASH = String.fromCharCode(0x2014);
+  // Player text rules: a sentence, no em dash, no "--" stand-in.
+  function expectCleanSentence(text: string): void {
+    expect(text.trim().length).toBeGreaterThan(10);
+    expect(text).toMatch(/^[A-Z]/);
+    expect(text.endsWith(".")).toBe(true);
+    expect(text).not.toContain(EM_DASH);
+    expect(text).not.toContain("--");
+  }
+
+  it("describes every spec of every squad type, with no invented numbers", () => {
+    // The Record is exhaustive at compile time; this walks the runtime spec sets too, so a spec the
+    // roll can produce always has a line.
+    let n = 0;
+    for (const t of AWAY_TEAM_TYPES) {
+      for (const spec of specsFor(t)) {
+        const text = awaySpecDescription(spec);
+        expectCleanSentence(text);
+        // No hand-typed figure: a number here would go stale on the next tuning pass.
+        expect(text).not.toMatch(/[0-9]/);
+        n++;
+      }
+    }
+    expect(n).toBe(7);
+  });
+
+  it("names the right squad in each spec line", () => {
+    for (const spec of specsFor("security")) expect(awaySpecDescription(spec)).toMatch(/^Security specialty/);
+    for (const spec of specsFor("science")) expect(awaySpecDescription(spec)).toMatch(/^Science specialty/);
+  });
+
+  it("states the augment-affinity slot counts the engine actually grants", () => {
+    expectCleanSentence(AUGMENT_AFFINITY_TEXT);
+    const aff = CREW_RACE_IDS.find((r) => AUGMENT_AFFINITY_RACES.has(r));
+    const plain = CREW_RACE_IDS.find((r) => !AUGMENT_AFFINITY_RACES.has(r));
+    expect(aff).toBeDefined();
+    expect(plain).toBeDefined();
+    const withAff = implantSlotsFor({ race: aff! });
+    const without = implantSlotsFor({ race: plain! });
+    expect(withAff).toBeGreaterThan(without);
+    expect(AUGMENT_AFFINITY_TEXT).toContain(`${withAff} implant slots instead of ${without}`);
+    // Only those two figures appear.
+    expect((AUGMENT_AFFINITY_TEXT.match(/[0-9]+/g) ?? []).sort()).toEqual([String(withAff), String(without)].sort());
+  });
+
+  it("explains the Unique tag and the rank label without numbers", () => {
+    for (const text of [UNIQUE_TAG_TEXT, RANK_TEXT]) {
+      expectCleanSentence(text);
+      expect(text).not.toMatch(/[0-9]/);
+    }
+    expect(UNIQUE_TAG_TEXT).toMatch(/whole fleet/);
+    expect(RANK_TEXT).toMatch(/never changes/);
+    // US English + the install vocabulary rule.
+    for (const text of [UNIQUE_TAG_TEXT, RANK_TEXT, AUGMENT_AFFINITY_TEXT]) expect(text).not.toMatch(/fit/i);
+  });
+
+  it("gives every trait chip a non-empty tooltip line", () => {
+    for (const trait of AWAY_TRAITS) expectCleanSentence(traitDisplayText(trait));
   });
 });
