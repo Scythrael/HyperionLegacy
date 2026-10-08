@@ -393,6 +393,19 @@ team withdraws, findings so far stay, the scan pauses until the next activity wi
 expedition), downed members recorded as injured (Task 16). A random EVENT (supply cache) uses the same step
 roll's second draw. Offline parity test: one big advance == many small advances.
 
+**Carry from Task 14 (built 2026-10-08):** rolls fire at the 9 INTERIOR boundaries per body (10%..90%), latched by
+`Expedition.scanStepCursor`; outcomes live in `Expedition.scanEvents` (`{bodyIndex, step, kind: "encounter" |
+"supplyCache", outcome?, downedMemberIds?, pauseSeconds?, findingId?}`), new finding sources `"encounter"` and
+`"supplyCache"`. `encounterSteps` (frozen at dispatch) is the feature flag: a run dispatched before Task 14 scans
+exactly as before. Activity window = the `ACTIVITY_SECONDS` grid in elapsed-in-scanning time; a loss pauses that body
+for (0, 600] s. Evasive Command is live for the encounter chance only (`officerBonusTotal(state, ship,
+"officer.evasion")`, snapshotted as `encounterEvasion`); ship-battle evasion stays Task 20.
+`FIELD_DEVICE_UNTRAINED_EFFECTIVENESS = 1` awaits the user (mockup 0.75); `fieldDeviceSpecialistAboard` is a
+false hook. Task 16: `GroundBattleResult.downedMemberIds` exists; scan events record it, but ACTIVITY battles do
+not yet (thread it through `resolveExpeditionActivity`), and a member downed mid-run still fights later battles of
+the same run (decide whether they sit out). Task 17: pips from `scanEvents`, battle log via
+`deriveScanEncounterLog`; `expeditionPhaseFraction` can step back when a loss adds a pause (show per-body progress).
+
 ### Task 15: Fieldwork from Science members
 
 **Files:** `expedition.ts` (`resolveActivitiesPhase` ~708), `gambit.ts` (`resolveExpeditionActivity` ~1309), tests.

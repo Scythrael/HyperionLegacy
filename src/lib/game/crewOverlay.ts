@@ -90,7 +90,7 @@ const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
   "officer.missionTurnaroundCut": CREW_STAT_KEYS.missionTurnaround, // dormant
   "officer.crewLossPrevention": CREW_STAT_KEYS.preventCrewLoss, // dormant
   "officer.crewRetention": null, // dormant (no attrition system yet)
-  "officer.evasion": null, // dormant (combat gear owns evasion)
+  "officer.evasion": null, // no crew.* stat: the expedition encounter chance reads it directly (officerBonusTotal, Task 14); ship-battle evasion is Task 20
   "officer.weaponEffectivenessMult": null, // dormant (crew never double-dips weapons)
   "officer.shieldEffectivenessMult": null, // dormant (crew never double-dips shields)
 };
@@ -248,6 +248,27 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
   }
 
   return out;
+}
+
+// The summed magnitude of every rolled officer bonus whose catalog statKey is `statKey`, across the officers
+// assigned to `ship`, amplified by the ship's bridge module exactly as rawShipCrewContribution amplifies
+// them (the stored magnitude is already rank-scaled; never re-scaled here). For an officer bonus whose
+// consumer reads it DIRECTLY rather than through the crew.* map: E-CREW Task 14 reads Evasive Command
+// ("officer.evasion") here for the expedition encounter chance (D12; Task 20 adds the ship-battle half).
+// 0 with no such officer. PURE.
+export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey: string): number {
+  const bridgeMod = installedBridgeModule(state, ship);
+  const hullSpec = hullSpecOf(ship);
+  let total = 0;
+  for (const officer of state.officers) {
+    if (officer.assignedShipId !== ship.id) continue;
+    for (const bonus of officer.bonuses) {
+      if (getSeniorStaffBonusById(bonus.id)?.statKey !== statKey) continue;
+      const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
+      total += bonus.magnitude * officerMult;
+    }
+  }
+  return total;
 }
 
 // ============================================================================

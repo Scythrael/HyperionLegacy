@@ -54,13 +54,17 @@ import type {
   ExpeditionActivity,
   ExpeditionFinding,
   ExpeditionScanParams,
+  ExpeditionScanEvent,
+  AwayRosterSnapshot,
+  SnapshotMember,
 } from "./model";
+import { memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } from "./sensorArrays";
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats } from "./crewOverlay";
+import { effectiveShipStats, officerBonusTotal } from "./crewOverlay";
 import {
   PLANET_TYPES,
   poisForPlanetType,
@@ -72,7 +76,13 @@ import type { ExpeditionPlanetType } from "./model";
 // dispatch; resolveExpeditionActivity is the real gambit-combat swap-in for the placeholder activity
 // resolver below. The gambit catalogs are static data touched ONLY on the activities path, so importing
 // them here keeps the no-expedition tick byte-identical (additive-neutral).
-import { deriveAwayTeam, resolveExpeditionActivity } from "./gambit";
+import {
+  deriveAwayTeam,
+  resolveExpeditionActivity,
+  resolveScanEncounter,
+  rollSupplyCache,
+  scanStepKey,
+} from "./gambit";
 // E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
 import { deployableMembers, snapshotAwayRoster } from "./awayTeam";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
@@ -135,6 +145,49 @@ export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before
 // ACTIVITIES: the placeholder resolver completes one task every ACTIVITY_SECONDS, granting one
 // placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
 export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
+
+// ============================================================================
+// E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10, FIRST-PASS TUNABLE)
+// ============================================================================
+//
+// STEP MATH. Each body's scan divides into ENCOUNTER_STEPS equal steps of scan WORK (so equal time: a body
+// scans at one constant rate). The rolls fire at the INTERIOR step boundaries, boundary N (1..STEPS-1) at
+// N / STEPS of the body's scan (10%, 20%, ... 90% at 10 steps): never at 0% (the team has not landed) or
+// 100% (the body is done and its discoveries take over). Each boundary rolls exactly ONCE, latched by the
+// expedition's scanStepCursor, from its own keyed stream makeRng(seed ^ ENCOUNTER_SALT ^ (bodyIndex * 100 +
+// N)), so the outcome never depends on how the elapsed span was chunked.
+//   draw 1: an ENCOUNTER, at scanEncounterChance (below). It runs one Security battle (gambit.ts
+//           resolveScanEncounter). WIN: the enemy drops become a finding and the scan continues. LOSS: the
+//           team withdraws to orbit (findings so far stay) and THIS body's scan PAUSES until the next
+//           activity window; the battle's downed members are recorded on the scan event (Task 16).
+//   draw 2: the supply-cache EVENT, at SUPPLY_CACHE_CHANCE. Always drawn (a fixed draw count per stream),
+//           but it only counts when draw 1 fired no encounter: one thing per boundary.
+//
+// ACTIVITY WINDOW. The away team's ground operations run on the ACTIVITY_SECONDS cadence (the same 10-minute
+// slot the activities phase gives each task). During scanning that cadence is a grid of windows every
+// ACTIVITY_SECONDS of elapsed-in-scanning time, counted from the scanning phase's anchor. A team that
+// withdraws at time t redeploys at the next window strictly after t (nextActivityWindow), so a loss pauses
+// the scan for (0, ACTIVITY_SECONDS] seconds. The pause is recorded on the scan event (pauseSeconds) and
+// the scanning phase lasts the bodies' scan time PLUS every recorded pause.
+//
+// ACTIVITIES ARE UNCHANGED. Encounters happen only in the SCANNING phase, on a body that has no
+// discoveries yet; the PoI ground tasks (and their guardian battles, resolveActivitiesPhase) run in the
+// ACTIVITIES phase afterwards, with their own keyed streams. The two never share a moment or a stream, so
+// nothing double-battles: a body's roaming encounters and its PoI guardian fights are separate events.
+export const ENCOUNTER_STEPS = 10;
+export const ENCOUNTER_BASE_CHANCE = 0.08; // per boundary, on a hazard-0 body
+export const ENCOUNTER_HAZARD_CHANCE = 0.2; // + this * the body's (resisted) hazard
+export const ENCOUNTER_CHANCE_MAX = 0.9; // the chance never exceeds this, whatever the dial
+export const SUPPLY_CACHE_CHANCE = 0.05; // the per-boundary supply-cache event (draw 2)
+
+// D20 FIELD DEVICES (Shroud Emitter / Lure Beacon): anyone can use them, at REDUCED ability unless a
+// category specialist is aboard. AWAITING THE USER: the untrained multiplier is the user's decision (the
+// mockup proposes 0.75). Until they answer it is 1 (no penalty). Flipping it is this ONE number: every
+// device bias is multiplied by fieldDeviceEffectiveness, which reads it (proven by a test).
+export const FIELD_DEVICE_UNTRAINED_EFFECTIVENESS = 1;
+// With a field-device specialist aboard the device works at full strength (the specialist's own 5%/6%
+// category boost, D20, is a later design: see fieldDeviceSpecialistAboard).
+export const FIELD_DEVICE_TRAINED_EFFECTIVENESS = 1;
 
 // ============================================================================
 // E2c: candidate targets + sensor-gated foreknowledge (FIRST-PASS TUNABLE)
@@ -210,6 +263,7 @@ const NEUTRAL_SCAN_PARAMS: ExpeditionScanParams = {
 const SYSTEM_SALT = 0x1b56c4f9;
 const ANOMALY_SALT = 0x7f4a7c15;
 const DISCOVERY_SALT = 0x2c1b3c6d;
+const ENCOUNTER_SALT = 0x3a8f05c5; // E-CREW Task 14: the per-boundary scan step roll
 
 // A small epsilon for phase-boundary comparisons: scan/return durations can be fractional
 // (scanTotal / rate), and gameTimeSeconds is float, so an "elapsed >= duration" check must tolerate a
@@ -591,6 +645,13 @@ export function startExpedition(
     relicFindBonus: museum.relicFindChance + gear.relicFindChance,
     hazardResist: museum.hazardResist + gear.hazardResist,
     roster,
+    // E-CREW (Task 14): random encounters during scanning. The step count and Evasive Command are frozen
+    // here (the same "the launch is what you saw at dispatch" contract), so retuning ENCOUNTER_STEPS or
+    // reseating the pilot never reshapes an in-flight run.
+    encounterSteps: ENCOUNTER_STEPS,
+    encounterEvasion: officerBonusTotal(state, ship, "officer.evasion"),
+    scanStepCursor: 0,
+    scanEvents: [],
   };
 
   return {
@@ -638,8 +699,10 @@ function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number {
   return (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
 }
 
-// Total time to scan the WHOLE system (all bodies, sequentially). The SCANNING phase's duration.
+// Total time to scan the WHOLE system (all bodies, sequentially). The SCANNING phase's duration. E-CREW
+// Task 14: an encounter-enabled run adds every recorded loss pause (encounterScanDurationSeconds).
 function scanningDurationSeconds(exp: Expedition): number {
+  if (hasScanEncounters(exp)) return encounterScanDurationSeconds(exp);
   let total = 0;
   for (const body of exp.bodies) total += body.scanTotal / scanRatePerSecond(exp, body);
   return total;
@@ -760,6 +823,186 @@ function resolveScanningPhase(exp: Expedition, consumed: number): void {
   }
 }
 
+// ============================================================================
+// E-CREW 0.14.0 (Task 14): scan-step encounters (see the constants block at the top for the rules)
+// ============================================================================
+
+// Does this run roll random encounters while scanning? Only one dispatched since Task 14 (it froze
+// encounterSteps); an older run scans exactly as before. Pure.
+function hasScanEncounters(exp: Expedition): boolean {
+  return (exp.encounterSteps ?? 0) >= 1;
+}
+
+// D20 hook: is a FIELD-DEVICE category specialist aboard (a member whose skills improve the efficacy of
+// field devices)? No such trait or skill exists yet (the category-efficacy specialists come with the D20
+// kit design), so it is false and every device runs at the untrained effectiveness. Pure.
+export function fieldDeviceSpecialistAboard(_roster: AwayRosterSnapshot | undefined): boolean {
+  return false;
+}
+
+// The multiplier on every field device's encounter bias for this roster. Pure.
+export function fieldDeviceEffectiveness(roster: AwayRosterSnapshot | undefined): number {
+  return fieldDeviceSpecialistAboard(roster) ? FIELD_DEVICE_TRAINED_EFFECTIVENESS : FIELD_DEVICE_UNTRAINED_EFFECTIVENESS;
+}
+
+// The Security squad's summed encounter dial: every worn piece's variety encounterBias (Shroud Emitter
+// -0.4, Lure Beacon +0.4; every other piece 0), times the field-device effectiveness. Pure.
+export function squadEncounterBias(security: readonly SnapshotMember[], effectiveness: number): number {
+  let bias = 0;
+  for (const m of security) {
+    for (const g of m.gear) bias += memberVariety(g.slotType, g.varietyKey)?.member.encounterBias ?? 0;
+  }
+  return bias * effectiveness;
+}
+
+// The plan's chance formula: (base + hazard * coeff) * (1 + device bias) * (1 - Evasive Command share),
+// clamped to [0, ENCOUNTER_CHANCE_MAX]. The evasion share is clamped to [0, 1] first. Pure.
+export function encounterChance(hazard: number, deviceBias: number, evasion: number): number {
+  const base = ENCOUNTER_BASE_CHANCE + Math.max(0, hazard) * ENCOUNTER_HAZARD_CHANCE;
+  const evade = Math.max(0, Math.min(1, evasion));
+  const chance = base * (1 + deviceBias) * (1 - evade);
+  return Math.max(0, Math.min(ENCOUNTER_CHANCE_MAX, chance));
+}
+
+// The per-boundary encounter chance on `body` for this run: the body's hazard as the run presents it
+// (museum hazardResist applied, as for its battles), the snapshotted Security squad's device dial, and the
+// snapshotted Evasive Command. 0 with no Security member (no team, no fight: only a pre-D18 run). Pure.
+export function scanEncounterChance(exp: Expedition, body: ExpeditionBody): number {
+  const security = exp.roster?.security ?? [];
+  if (security.length === 0) return 0;
+  return encounterChance(
+    resistedHazard(body.hazard, exp.hazardResist ?? 0),
+    squadEncounterBias(security, fieldDeviceEffectiveness(exp.roster)),
+    exp.encounterEvasion ?? 0,
+  );
+}
+
+// The step roll at `body` boundary `step`: draw 1 decides an encounter, draw 2 a supply cache (counted
+// only when no encounter fired). Its own keyed stream per boundary. Pure.
+export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number): { encounter: boolean; supplyCache: boolean } {
+  const rng = makeRng((exp.seed ^ ENCOUNTER_SALT ^ scanStepKey(bodyIndex, step)) >>> 0);
+  const body = exp.bodies[bodyIndex];
+  const encounter = body !== undefined && rng.chance(clampPermille(scanEncounterChance(exp, body)), 1000);
+  const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
+  return { encounter, supplyCache: !encounter && cache };
+}
+
+// The next activity window strictly after `elapsedInScan` seconds into the scanning phase (see the
+// constants block). Pure.
+export function nextActivityWindow(elapsedInScan: number): number {
+  return (Math.floor(elapsedInScan / ACTIVITY_SECONDS) + 1) * ACTIVITY_SECONDS;
+}
+
+// The recorded loss pause at `body` boundary `step`, 0 when none. Pure.
+function pauseAt(events: readonly ExpeditionScanEvent[], bodyIndex: number, step: number): number {
+  for (const ev of events) {
+    if (ev.bodyIndex === bodyIndex && ev.step === step) return ev.pauseSeconds ?? 0;
+  }
+  return 0;
+}
+
+// The scanning phase's length for an encounter-enabled run: every body's scan time plus its recorded
+// pauses, summed in EXACTLY the order resolveEncounterScanningPhase walks them (so the phase-end check and
+// the last body's completion agree to the bit). Only RESOLVED boundaries can carry a pause, and every
+// unresolved boundary lies later than any elapsed value the phase has reached, so this is exact wherever it
+// is read. Pure.
+function encounterScanDurationSeconds(exp: Expedition): number {
+  const steps = exp.encounterSteps ?? 1;
+  const events = exp.scanEvents ?? [];
+  let bodyStart = 0;
+  for (let i = 0; i < exp.bodies.length; i++) {
+    const body = exp.bodies[i];
+    let paused = 0;
+    for (let k = 1; k < steps; k++) paused += pauseAt(events, i, k);
+    bodyStart = bodyStart + body.scanTotal / scanRatePerSecond(exp, body) + paused;
+  }
+  return bodyStart;
+}
+
+// Roll ONE step boundary (the caller latches it via the cursor) and record what happened. `at` is the
+// boundary's elapsed-in-scanning time (for the loss pause). Mutates the working clone only.
+function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: ExpeditionBody, bodyIndex: number, step: number, at: number): void {
+  const roll = scanStepRoll(exp, bodyIndex, step);
+  if (roll.encounter) {
+    const res = resolveScanEncounter(exp, body, bodyIndex, step);
+    const ev: ExpeditionScanEvent = { bodyIndex, step, kind: "encounter", outcome: res.outcome, downedMemberIds: res.downedMemberIds };
+    if (res.finding) {
+      exp.findings.push(res.finding);
+      ev.findingId = res.finding.id;
+    }
+    if (res.outcome === "loss") ev.pauseSeconds = nextActivityWindow(at) - at;
+    events.push(ev);
+  } else if (roll.supplyCache) {
+    const finding = rollSupplyCache(exp, body, bodyIndex, step);
+    exp.findings.push(finding);
+    events.push({ bodyIndex, step, kind: "supplyCache", findingId: finding.id });
+  }
+}
+
+// Resolve SCANNING for an encounter-enabled run up to `elapsed` seconds into the phase. The timeline is a
+// walk over the stored run: body by body, boundary by boundary, each boundary's time = the body's start +
+// N step times + the pauses already recorded on earlier boundaries of this body. A boundary not yet rolled
+// (at or past the cursor) rolls the moment elapsed reaches it, in scan order; a recorded loss pause holds
+// the body's progress at that boundary until the pause ends. Every time is computed from stored values only
+// (never from `elapsed`), so one big advance and many small ones roll the same boundaries at the same
+// times with the same results (offline == live). Idempotent: rolled boundaries never roll again, and the
+// `scanned` latch assigns a body's discoveries once.
+function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
+  const steps = exp.encounterSteps ?? 1;
+  const perBody = Math.max(0, steps - 1);
+  const events = exp.scanEvents ?? [];
+  let cursor = exp.scanStepCursor ?? 0;
+  const commit = (): void => {
+    exp.scanStepCursor = cursor;
+    exp.scanEvents = events;
+  };
+  let bodyStart = 0;
+  for (let i = 0; i < exp.bodies.length; i++) {
+    const body = exp.bodies[i];
+    const rate = scanRatePerSecond(exp, body);
+    const bodyTime = body.scanTotal / rate;
+    const stepTime = bodyTime / steps;
+    let paused = 0;
+    for (let k = 1; k <= perBody; k++) {
+      const at = bodyStart + k * stepTime + paused;
+      const flat = i * perBody + (k - 1);
+      if (flat >= cursor) {
+        if (elapsed + PHASE_EPS < at) {
+          body.scanProgress = Math.min(body.scanTotal, Math.max(0, elapsed - bodyStart - paused) * rate);
+          commit();
+          return;
+        }
+        rollStepBoundary(exp, events, body, i, k, at);
+        cursor = flat + 1;
+      }
+      const pause = pauseAt(events, i, k);
+      if (pause > 0) {
+        if (elapsed + PHASE_EPS < at + pause) {
+          // The team is back in orbit: the scan holds at this boundary until the next activity window.
+          body.scanProgress = Math.min(body.scanTotal, k * stepTime * rate);
+          commit();
+          return;
+        }
+        paused += pause;
+      }
+    }
+    const bodyEnd = bodyStart + bodyTime + paused;
+    if (elapsed >= bodyEnd - PHASE_EPS) {
+      body.scanProgress = body.scanTotal;
+      if (!body.scanned) {
+        body.scanned = true;
+        assignDiscoveriesAndActivities(exp, body, i);
+      }
+      bodyStart = bodyEnd;
+    } else {
+      body.scanProgress = Math.min(body.scanTotal, Math.max(0, elapsed - bodyStart - paused) * rate);
+      commit();
+      return; // later bodies are not started yet (they stay at scanProgress 0)
+    }
+  }
+  commit();
+}
+
 // Resolve ACTIVITIES up to `consumed` seconds into the phase: the E3 GAMBIT resolver (swapped in for the
 // E2a placeholder). It completes one task per ACTIVITY_SECONDS in flat body/activity order, flipping `done`
 // and appending the task's REAL finding (materials + credits + a relic chance) from the away-team gambit
@@ -831,6 +1074,10 @@ function cloneExpedition(exp: Expedition): Expedition {
       activities: b.activities.map((a) => ({ ...a })),
     })),
     findings: exp.findings.map((f) => ({ ...f })),
+    // E-CREW (Task 14): the scan events (absent on a pre-Task-14 run stays absent).
+    ...(exp.scanEvents
+      ? { scanEvents: exp.scanEvents.map((ev) => (ev.downedMemberIds ? { ...ev, downedMemberIds: [...ev.downedMemberIds] } : { ...ev })) }
+      : {}),
   };
 }
 
@@ -845,9 +1092,15 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
   while (e.phase !== "complete" && guard++ < PHASE_ADVANCE_GUARD) {
     const elapsed = Math.max(0, nowSeconds - e.phaseAnchorSeconds);
     if (e.phase === "transit") maybeResolveAnomaly(e, elapsed);
+    // E-CREW (Task 14): an encounter-enabled scan resolves BEFORE its duration is read, because a loss
+    // pause rolled on the way lengthens the phase (see encounterScanDurationSeconds for why this is exact).
+    const encounterScan = e.phase === "scanning" && hasScanEncounters(e);
+    if (encounterScan) resolveEncounterScanningPhase(e, elapsed);
     const dur = phaseDurationSeconds(e);
     const consumed = Math.min(elapsed, dur);
-    if (e.phase === "scanning") resolveScanningPhase(e, consumed);
+    if (e.phase === "scanning") {
+      if (!encounterScan) resolveScanningPhase(e, consumed);
+    }
     else if (e.phase === "activities") resolveActivitiesPhase(e, consumed);
     // transit + return have no intra-phase state beyond the anomaly (handled above).
     if (elapsed + PHASE_EPS < dur) break; // still inside this phase

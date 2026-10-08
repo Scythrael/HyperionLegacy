@@ -6307,9 +6307,13 @@ export interface ExpeditionBody {
 // anomaly finding (and any pre-E3 placeholder finding on a mid-branch save) stays valid unchanged; E4
 // still owns the DEPOSIT + relic identification (claimExpedition only hands the findings back). `source`
 // records where the finding came from so E4 can route each provenance differently.
+//
+// E-CREW 0.14.0 (Task 14): two scan-phase sources join. "encounter" is the enemy drops of a WON random
+// encounter during scanning (materials + credits, never a relic); "supplyCache" is the scan-step random
+// EVENT (a small material + credit find). Both deposit exactly like an activity finding (no relic).
 export interface ExpeditionFinding {
   id: string; // stable, "<expeditionId>-find-<n>"
-  source: "anomaly" | "activity";
+  source: "anomaly" | "activity" | "encounter" | "supplyCache";
   // E3 activity-finding payload (all optional; unset on an anomaly / pre-E3 finding):
   poiId?: string; // the PoI the away-team task resolved (expeditionContent.ts POI_CATALOG id)
   materials?: Record<string, number>; // itemId -> quantity gathered (E4 deposits these)
@@ -6579,6 +6583,40 @@ export interface Expedition {
   // NO team (there is no anonymous stand-in any more) and evacuates without a battle (gambit.ts
   // resolveExpeditionActivity). The strengths above stay the squad-wide crew layer on top of the members.
   roster?: AwayRosterSnapshot;
+  // E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10).
+  // All OPTIONAL and additive (no SAVE_VERSION bump). `encounterSteps` is the number of equal steps each
+  // body's scan divides into, FROZEN at dispatch (expedition.ts ENCOUNTER_STEPS), and doubles as the
+  // feature flag: an expedition WITHOUT it (launched before Task 14) scans exactly as before, with no
+  // encounter rolls, so an old in-flight save loads and finishes unchanged. At every interior step
+  // boundary the keyed step roll may fire an encounter (a Security battle) or a supply-cache event.
+  encounterSteps?: number;
+  // Evasive Command (the pilot-seat officer bonus `officer.evasion`), summed over the ship's assigned
+  // officers at dispatch (crewOverlay.ts officerBonusTotal): the share it cuts off the encounter chance.
+  // Absent / 0 = no cut.
+  encounterEvasion?: number;
+  // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
+  // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
+  scanStepCursor?: number;
+  // The boundaries where something HAPPENED (an encounter or an event), in scan order. A boundary that
+  // rolled nothing is not listed. The UI (Task 17) draws its "random battle at step N" pips from this.
+  scanEvents?: ExpeditionScanEvent[];
+}
+
+// E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
+// number (1..encounterSteps - 1: boundary N sits at N / encounterSteps of the body's scan).
+//   encounter   : a Security battle. `outcome` win adds the enemy drops (`findingId`); loss withdraws the
+//                 team to orbit and pauses this body's scan for `pauseSeconds` (until the next activity
+//                 window). `downedMemberIds` lists the Security members down at the battle's end, win or
+//                 lose (Task 16 turns them into injuries at claim).
+//   supplyCache : the step roll's random EVENT, a small find (`findingId`).
+export interface ExpeditionScanEvent {
+  bodyIndex: number;
+  step: number;
+  kind: "encounter" | "supplyCache";
+  outcome?: "win" | "loss"; // encounter only
+  downedMemberIds?: string[]; // encounter only
+  pauseSeconds?: number; // encounter loss only
+  findingId?: string; // the finding this event added (an encounter win, a supply cache)
 }
 
 // E-CREW 0.14.0 (Task 12): ONE normalized ground effect on a snapshotted away-team member. The roster

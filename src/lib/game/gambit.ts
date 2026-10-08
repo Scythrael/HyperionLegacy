@@ -180,6 +180,11 @@ const DEBUFF_IDS: GambitStatusId[] = (Object.keys(GAMBIT_STATUSES) as GambitStat
 // --- Decorrelation salts (distinct from expedition.ts's salts; do NOT reuse across purposes) ---
 const COMBAT_SALT = 0x5a3c9d17; // the per-battle stream (encounter generation + the fight)
 const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + relic), independent of attempts
+// E-CREW (Task 14): the scan-step random ENCOUNTER battle (enemy generation + the fight) and its drops,
+// and the scan-step supply-cache haul. Distinct from every salt above (never reuse a salt across purposes).
+const SCAN_BATTLE_SALT = 0x6b43a9b5;
+const SCAN_DROP_SALT = 0x1d8e4b2f;
+const SUPPLY_CACHE_SALT = 0x4cf5ad43;
 
 // ============================================================================
 // Enemy roles + role behaviors
@@ -999,6 +1004,10 @@ export interface GroundBattleResult {
   teamAliveCount: number;
   enemyAliveCount: number;
   teamHpRemaining: number; // summed team HP at the end (a "how decisively" signal for tests/telemetry)
+  // E-CREW (Task 14, for Task 16 injuries): the named members (GroundCombatant.memberId) DOWN when the
+  // battle ended, win or lose, in combatant order. Unnamed combatants (enemies, hand-built test allies)
+  // never appear.
+  downedMemberIds: string[];
 }
 
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
@@ -1031,6 +1040,9 @@ export function resolveGroundBattle(
     teamAliveCount: teamAlive().length,
     enemyAliveCount: enemyAlive().length,
     teamHpRemaining: teamAlive().reduce((sum, c) => sum + c.hp, 0),
+    downedMemberIds: state.combatants
+      .filter((c) => c.side === "team" && c.downed && c.memberId !== undefined)
+      .map((c) => c.memberId as string),
   });
 
   while (state.round < MAX_ROUNDS) {
@@ -1627,4 +1639,110 @@ export function deriveExpeditionActivityLog(
   const events: GambitLogEvent[] = [];
   const res = resolveExpeditionActivity(exp, body, activity, globalIndex, events);
   return { outcome: res.outcome, attempts: res.attempts, events };
+}
+
+// ============================================================================
+// E-CREW (Task 14): RANDOM ENCOUNTERS during scan progress (design D10)
+// ============================================================================
+//
+// While a body scans, each step boundary may fire an encounter (expedition.ts owns the step roll + the
+// timeline). The encounter is ONE Security battle through the same Task 13 path as an activity
+// (expeditionTeamCombatants + generateEncounter + resolveGroundBattle), keyed off (exp.seed, its own salt,
+// the boundary key), never a live stream. It is not a PoI guardian fight: the body has no discoveries yet
+// while it scans, so the enemy set is the default roaming guard (generateEncounter's fallback roles for an
+// unknown PoI, striker + bruiser), scaled by the hazard the body presents (museum hazardResist applied, as
+// for an activity). ONE attempt only: a loss is a withdrawal (expedition.ts pauses the scan), never a retry.
+//
+// FIRST-PASS TUNABLE: a won encounter's drops REUSE the activity reward machinery (rollHaul: the planet-
+// flavored material table + hazard-scaled credits) at ENCOUNTER_DROP_SCALE, never a relic; a supply cache
+// is the same haul at SUPPLY_CACHE_SCALE.
+export const ENCOUNTER_DROP_SCALE = 0.5;
+export const SUPPLY_CACHE_SCALE = 0.3;
+
+// The PoI id a scan encounter passes to generateEncounter: none (the default roaming guard).
+const SCAN_ENCOUNTER_POI = "";
+
+// The stable integer key of one step boundary (the plan's bodyIndex * 100 + step). Pure.
+export function scanStepKey(bodyIndex: number, step: number): number {
+  return bodyIndex * 100 + step;
+}
+
+// The finding ids a scan event adds: one template shared by the resolver and the UI. Pure.
+export function scanEncounterFindingId(exp: Pick<Expedition, "id">, bodyIndex: number, step: number): string {
+  return `${exp.id}-find-enc-b${bodyIndex}-s${step}`;
+}
+export function supplyCacheFindingId(exp: Pick<Expedition, "id">, bodyIndex: number, step: number): string {
+  return `${exp.id}-find-cache-b${bodyIndex}-s${step}`;
+}
+
+export interface ScanEncounterResolution {
+  outcome: "win" | "loss";
+  rounds: number;
+  downedMemberIds: string[]; // Security members down at the battle's end (Task 16 injuries)
+  finding: ExpeditionFinding | null; // the enemy drops on a win, else null
+}
+
+// Resolve the random encounter at `body`'s step boundary `step`. PURE + deterministic (keyed seed; mints
+// fresh combatants). With no Security member in the roster (only an expedition launched before D18) there
+// is no team: the encounter is a loss with no battle (0 rounds), the same "no team, no fight" rule as an
+// activity. expedition.ts never rolls an encounter for such a run (its chance is 0), so this is defensive.
+export function resolveScanEncounter(
+  exp: Expedition,
+  body: ExpeditionBody,
+  bodyIndex: number,
+  step: number,
+  logSink?: GambitLogEvent[], // OPTIONAL: filled with the battle's transient log (display only)
+): ScanEncounterResolution {
+  const key = scanStepKey(bodyIndex, step);
+  const team = expeditionTeamCombatants(exp, `${exp.id}-scan-b${bodyIndex}-s${step}`);
+  if (team.length === 0) return { outcome: "loss", rounds: 0, downedMemberIds: [], finding: null };
+  const battleSeed = (exp.seed ^ SCAN_BATTLE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
+  const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), SCAN_ENCOUNTER_POI);
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(battleSeed), logSink);
+  if (result.result !== "win") {
+    return { outcome: "loss", rounds: result.rounds, downedMemberIds: result.downedMemberIds, finding: null };
+  }
+  // The drops keep the body's RAW hazard (resisting a world's danger does not make the find poorer).
+  const dropSeed = (exp.seed ^ SCAN_DROP_SALT ^ Math.imul(key + 1, 0x27d4eb2f)) >>> 0;
+  const haul = rollHaul(dropSeed, body.planetType, body.hazard, ENCOUNTER_DROP_SCALE);
+  return {
+    outcome: "win",
+    rounds: result.rounds,
+    downedMemberIds: result.downedMemberIds,
+    finding: {
+      id: scanEncounterFindingId(exp, bodyIndex, step),
+      source: "encounter",
+      materials: haul.materials,
+      credits: haul.credits,
+      relic: null,
+    },
+  };
+}
+
+// The supply-cache EVENT's finding at `body`'s step boundary `step`: a small keyed material + credit haul.
+// PURE.
+export function rollSupplyCache(exp: Expedition, body: ExpeditionBody, bodyIndex: number, step: number): ExpeditionFinding {
+  const seed = (exp.seed ^ SUPPLY_CACHE_SALT ^ Math.imul(scanStepKey(bodyIndex, step) + 1, 0x85ebca6b)) >>> 0;
+  const haul = rollHaul(seed, body.planetType, body.hazard, SUPPLY_CACHE_SCALE);
+  return {
+    id: supplyCacheFindingId(exp, bodyIndex, step),
+    source: "supplyCache",
+    materials: haul.materials,
+    credits: haul.credits,
+    relic: null,
+  };
+}
+
+// The transient battle log of one scan encounter, for the UI (Task 17). DISPLAY ONLY: re-runs the keyed
+// battle from the stored expedition, persists nothing, and the tick never calls it. Pure.
+export function deriveScanEncounterLog(
+  exp: Expedition,
+  bodyIndex: number,
+  step: number,
+): { outcome: "win" | "loss"; events: GambitLogEvent[] } | null {
+  const body = exp.bodies[bodyIndex];
+  if (!body) return null;
+  const events: GambitLogEvent[] = [];
+  const res = resolveScanEncounter(exp, body, bodyIndex, step, events);
+  return { outcome: res.outcome, events };
 }
