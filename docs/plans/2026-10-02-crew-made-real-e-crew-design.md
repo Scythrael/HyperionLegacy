@@ -92,6 +92,26 @@ teams).
   dangerously corrosive elements often found within a gas giant ... I want genuine science behind it." It is dropped
   from orbit (no landing) and improves the study. **Name (user, 2026-10-08): Galileo-Class Probe** (after NASA's real
   Galileo probe), replacing "Atmo Probe".
+- **Reward pool detail (user datadump, 2026-10-08, verbatim):**
+  - Samples: "Another category. Canisters of compressed gases. Deuterium Ice would fit this as well. Processed into a
+    canister-stored version. \"Gas Storage Canisters\" as the warehouse category. It's a whole new set of additional
+    items for crafting. Perhaps you'll be able to pull a bunch of gas, and it just happens to be a few different types
+    of gas that results in enough for a few different gas canisters depending on the location." So: a new warehouse
+    category GAS STORAGE CANISTERS; a study pulls a MIX of gas types that varies by location, enough for several
+    canisters; Deuterium Ice gets a processed, canister-stored version; the canisters are new crafting inputs.
+    Specific gas names are NOT yet chosen (proposals only).
+  - Research data: "it could result in different types of research data that can bestow research progress. Full on
+    specific research data types. Plus some that can be fed into another tab within the research lab that would be
+    used for studying data from an ancient race that can lead to special crafting blueprints being unlocked." So:
+    TYPED research data items that grant research progress, plus a second family fed into a NEW Research Lab tab that
+    studies an ancient race's data and unlocks special crafting blueprints. (The race is unnamed; never name it
+    without the user.)
+  - Lore readout home: a new **Survey Log** tab in the Archive (user chose 2026-10-08), the same home SUGGESTIONS
+    proposes for the ship-class lore compendium.
+  - Probe effect: faster and richer study (user chose option 1, 2026-10-08): "Because it's durable enough to go deeper
+    into the crushing gravity and can survive not being crushed by it. Could even involve larger and more dense gas
+    giants, increasing that further." So gas giants gain a SIZE / DENSITY property; bigger, denser giants make the
+    probe's depth matter more (on the D23 curve).
 - **Genuine science to build on:** gas giants have no solid surface; NASA's Galileo atmospheric probe (1995) survived
   about 58 minutes, descending to roughly 22 bar before heat and pressure ended it. Hazards: ammonia / ammonium
   hydrosulfide / water clouds, winds above 600 km/h, steeply rising pressure and temperature. "How close it came to
