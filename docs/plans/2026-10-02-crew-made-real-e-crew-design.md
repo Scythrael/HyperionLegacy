@@ -76,6 +76,14 @@ threat-first programs (Decapitate, Balanced) win ~35/60. Investigation showed it
 stall (that diagnosis was wrong; the attempted heal-priority rule made results worse and was reverted). User: change
 nothing; per D17 the player picks gambits. "Ally" selectors stay FFXII-faithful (they include the actor).
 
+**D22. GAS GIANTS ARE STUDIED FROM THE SHIP, NEVER LANDED ON (user, 2026-10-08).** "Gas Giants are a bad idea for
+local landing. It should only be from the ship. Probably something like studying the gas giant, and analyzing it.
+Things like figuring out how close it got to becoming a star, etc." Consequences: a gas-giant body gets NO ground
+activities (no surface PoIs, no away-team landing, no random ground battles while scanning it); instead it offers a
+ship-based STUDY / ANALYSIS of the giant itself (e.g. its near-star mass, composition, storms). This supersedes the
+mockup's "Atmo Probe lets fieldwork run on gas giants" line and today's code (gas giants currently get PoIs and land
+teams). What the study yields and the Atmo Probe's new role are open (asked 2026-10-08).
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
