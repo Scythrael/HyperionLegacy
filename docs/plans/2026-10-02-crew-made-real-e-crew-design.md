@@ -70,6 +70,12 @@ Implied model: kits belong to CATEGORIES (medical first aid, advanced medical, e
 has an optional REQUIRED skill (hard gate) and/or an UNTRAINED efficacy multiplier; members' traits/skills add
 category-efficacy boosts. Exact numbers are first-pass and tunable.
 
+**D21. SOLO-FIGHT DIFFICULTY IS A GAMBIT CHOICE, NOT A BUG (user, 2026-10-07).** A lone Security member running a
+"finish the weakest" program (Default, Triage, Turtle Club President) loses to two strikers on Crashed Ship, while
+threat-first programs (Decapitate, Balanced) win ~35/60. Investigation showed it is TARGET ORDER, not a self-heal
+stall (that diagnosis was wrong; the attempted heal-priority rule made results worse and was reverted). User: change
+nothing; per D17 the player picks gambits. "Ally" selectors stay FFXII-faithful (they include the actor).
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
