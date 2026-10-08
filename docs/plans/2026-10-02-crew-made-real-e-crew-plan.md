@@ -466,6 +466,11 @@ Gas giants lose all ground activity (no PoIs, landings, scan encounters, ground 
 that rolls ONE reward from a pool (atmospheric samples, research data, an Archive lore readout). The Atmo Probe becomes
 the **Galileo-Class Probe** (crush/heat/corrosion-hardened, dropped from orbit) and improves the study. Needs a short
 design + mockup before build (reward pool contents, how the probe helps, save handling of in-flight gas giant tasks).
+**Scope (user, 2026-10-08): "All of it in 0.14.0"** (offered: foundation now and lines later; declined). So 15b covers the
+study, giant size/density, probe depth, the Survey Log tab, the Gas Storage Canisters category + gas items + the
+Deuterium Ice canister process, typed research data, AND the Research Lab ancient-data tab with its special blueprints.
+It will split into sub-tasks once the design is approved. Crew curve compounding (mid crews keep ~78%) is left for the
+balance pass (user, 2026-10-08).
 
 ### Task 16: Injuries + Neural Backup + claim
 
