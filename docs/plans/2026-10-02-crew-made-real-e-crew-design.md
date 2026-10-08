@@ -90,12 +90,21 @@ teams).
 - **The probe (user, 2026-10-08):** keep the Atmo Probe's spirit with possibly a slightly different name: "A reinforced
   probe unit that can better survive the crushing gravity of a gas giant, resistant against the intense forces and
   dangerously corrosive elements often found within a gas giant ... I want genuine science behind it." It is dropped
-  from orbit (no landing) and improves the study.
+  from orbit (no landing) and improves the study. **Name (user, 2026-10-08): Galileo-Class Probe** (after NASA's real
+  Galileo probe), replacing "Atmo Probe".
 - **Genuine science to build on:** gas giants have no solid surface; NASA's Galileo atmospheric probe (1995) survived
   about 58 minutes, descending to roughly 22 bar before heat and pressure ended it. Hazards: ammonia / ammonium
   hydrosulfide / water clouds, winds above 600 km/h, steeply rising pressure and temperature. "How close it came to
   becoming a star": ~13 Jupiter masses = deuterium burning (brown dwarf threshold); ~75 to 80 Jupiter masses = hydrogen
   fusion (a true star). A study readout can express mass as a share of those thresholds.
+
+**D23. DIMINISHING RETURNS, NEVER HARD CAPS (user, 2026-10-08).** Asked whether the Science crew layer (a tier-2
+explorer's ~225 Science strength gave about +112% haul by itself, burying the party's gear, specs and traits) should
+get a haul cap: "Diminishing returns will 100% come into play, but without removing the entire ability to push past a
+certain point. Numbers get bigger and bigger and as you get more, they mean less and less. I plan on diminishing
+returns affecting quite a few things." Consequences: fieldwork's crew layer and total yield bonus pass through an
+UNBOUNDED concave curve (keeps growing, each point worth less), not a ceiling. This is a cross-cutting principle for
+future bonuses; existing asymptotic curves (model.ts, utilityGear.ts) are a balance-pass review item, not changed here.
 
 ## 3. Scope (rows this phase closes)
 

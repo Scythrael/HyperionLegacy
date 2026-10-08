@@ -434,6 +434,24 @@ is a normal gas-giant-tuned tool: gas giant fieldwork already runs without one, 
 A Security member's fieldwork / hazard lines (Assault Hardsuit's hazard resist) are inert. No Science member = neutral.
 Task 17: activity progress is now per-body variable; a fieldwork readout can call `fieldworkEffect`.
 
+### Task 15a: Fieldwork diminishing returns (D23) + Task 15 review follow-ups
+
+**Files:** `fieldwork.ts`, `fieldwork.test.ts`, `expedition.test.ts`, `gambit.ts`, `expedition.ts`.
+D23: the crew layer (scienceStrength) and the total yield bonus pass through an UNBOUNDED concave curve (a shared pure
+helper; keeps growing, each point worth less; no ceiling). Target: a tier-2 explorer's ~225 Science strength stops
+burying a geared party (crew comparable to, not several times, a well-geared two-member party), while a small
+bonus (<= +30%) loses little. Speed keeps its existing 3x pacing guard (flagged to the user). Review follow-ups:
+explicit timeout on the slow parity test (`expedition.test.ts` ~384), stale comments (gambit.ts ~1497,
+expedition.ts ~1042, fieldwork.ts ~44), type planetType as `ExpeditionPlanetType` (drop `as never`), a
+`fieldworkSpeedMult` helper, and a carry note that in-flight runs on staging resolve under the new curve.
+
+### Task 15b: Gas giant study (D22) [DESIGN PENDING]
+
+Gas giants lose all ground activity (no PoIs, landings, scan encounters, ground battles) and gain a ship-based study
+that rolls ONE reward from a pool (atmospheric samples, research data, an Archive lore readout). The Atmo Probe becomes
+the **Galileo-Class Probe** (crush/heat/corrosion-hardened, dropped from orbit) and improves the study. Needs a short
+design + mockup before build (reward pool contents, how the probe helps, save handling of in-flight gas giant tasks).
+
 ### Task 16: Injuries + Neural Backup + claim
 
 **Files:** `gambit.ts` (battle end), `expedition.ts` (`claimExpedition` ~924, `depositExpeditionFindings`),
