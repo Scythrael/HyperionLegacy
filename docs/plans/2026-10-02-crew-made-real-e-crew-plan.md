@@ -422,6 +422,18 @@ existing path. Discovery Instinct and the Science division's rare find feed the 
 values; this task adds the read). Tests: a Flora Scanner raises organics only on terrestrial/ocean/toxic bodies;
 spec match raises the matching PoI's yield.
 
+**Carry from Task 15 (built 2026-10-08):** new pure `fieldwork.ts` (the model + every coefficient in its header).
+The snapshot freezes each member's fieldwork as SOURCES (`SnapshotMember.fieldwork`: the untuned source, then one per
+planet-tuned tool). Speed divides each task's duration per body (`activityDurationSeconds`; tasks run back to back);
+yield scales the haul (win and evacuation); relic adds to the find bonus (`activityRelicFindBonus`); the party's
+hazard resist cuts the SCAN hazard slow only (encounters and battle guards keep the stored resist). Spec -> PoI is one
+partition (`SCIENCE_SPEC_POIS`); organics = the xeno-flora bloom, vaults = vault + civilization. `Expedition.crewRareFind`
+freezes `crew.rareFindChance` (Discovery Instinct already folds into it), so Discovery Instinct + Keen Analysis are
+LIVE for the relic roll now; Task 20 must not re-add an officer read (survey rare drops are still open). The Atmo Probe
+is a normal gas-giant-tuned tool: gas giant fieldwork already runs without one, and no repo text promises a gate.
+A Security member's fieldwork / hazard lines (Assault Hardsuit's hazard resist) are inert. No Science member = neutral.
+Task 17: activity progress is now per-body variable; a fieldwork readout can call `fieldworkEffect`.
+
 ### Task 16: Injuries + Neural Backup + claim
 
 **Files:** `gambit.ts` (battle end), `expedition.ts` (`claimExpedition` ~924, `depositExpeditionFindings`),

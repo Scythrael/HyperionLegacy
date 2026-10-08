@@ -72,6 +72,8 @@ import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
 // E4a: the PoI -> relic-set single source of truth (pure data; imports no engine module, so no cycle).
 import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } from "./relics";
+// E-CREW Task 15: the Science party's fieldwork (pure; imports only model + content, so no cycle).
+import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -1553,13 +1555,16 @@ export function resolveExpeditionActivity(
     if (result.result === "win") {
       commitLog(attemptLog);
       const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
-      const haul = rollHaul(rewardSeed, body.planetType, body.hazard, 1);
+      // E-CREW Task 15: the Science party scales the haul (yieldMult; exactly 1 without a party) and lifts
+      // the relic chance. Both only reshape the SAME keyed draws, so the draw order is unchanged.
+      const fw = fieldworkEffect(exp, body.planetType, activity.poiId);
+      const haul = rollHaul(rewardSeed, body.planetType, body.hazard, fw.yieldMult);
       const relic = rollRelicToken(
         (rewardSeed ^ 0x165667b1) >>> 0,
         body.hazard,
         activity.poiId,
         relicId,
-        exp.relicFindBonus ?? 0, // E4b: the snapshotted museum relicFindChance
+        activityRelicFindBonus(exp, fw),
       );
       return {
         finding: {
@@ -1580,6 +1585,19 @@ export function resolveExpeditionActivity(
   return evacuatedResolution(exp, body, activity, globalIndex, attempts, findingId);
 }
 
+// E-CREW Task 15: the relic roll's find bonus for one won task, the SUM of every frozen lift (each a
+// fraction; rollRelicToken multiplies the chance by 1 + this, capped at certain):
+//   relicFindBonus (E4b museum relicFindChance + E4d gear, snapshotted)
+//   + the Science party's relicFind on this body (fieldwork.ts: Keen Eye, Archaeo-Scanner, relic lines)
+//   + crewRareFind (Discovery Instinct + the Science division's rare find, snapshotted at dispatch)
+// Every term is 0 for a run launched before Task 15 without a party, so the bonus is the museum's
+// bit-for-bit. Pure.
+export function activityRelicFindBonus(exp: Expedition, fw: Pick<FieldworkEffect, "relicFind">): number {
+  const base = exp.relicFindBonus ?? 0;
+  const extra = fw.relicFind + Math.max(0, exp.crewRareFind ?? 0);
+  return extra > 0 ? base + extra : base;
+}
+
 // The stable id of the finding an activity resolves into: ONE template shared by the resolver and the UI
 // (ExpeditionPanel matches an activity to its finding by it). Pure.
 export function activityFindingId(exp: Pick<Expedition, "id">, activityId: string): string {
@@ -1598,7 +1616,10 @@ function evacuatedResolution(
   findingId: string,
 ): ActivityResolution {
   const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
-  const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION);
+  // E-CREW Task 15: what the Science party gathered before the pull-back is richer too (yieldMult is
+  // exactly 1 without a party, so EVAC_REWARD_FRACTION * 1 keeps an old run's haul bit-for-bit).
+  const yieldMult = fieldworkEffect(exp, body.planetType, activity.poiId).yieldMult;
+  const haul = rollHaul(rewardSeed, body.planetType, body.hazard, EVAC_REWARD_FRACTION * yieldMult);
   return {
     finding: {
       id: findingId,

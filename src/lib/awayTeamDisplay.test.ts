@@ -7,6 +7,8 @@ import { AWAY_TRAITS, traitDisplayText } from "./game/awayTraits";
 import { CREW_RACE_IDS } from "./game/crewRaces";
 import { CREW_RANK_ORDER } from "./game/crewRank";
 import { ICON_NAMES } from "./ui/icons";
+import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
+import { getPoiById } from "./game/expeditionContent";
 import {
   SQUAD_META,
   awaySpecLabel,
@@ -104,6 +106,18 @@ describe("awayTeamDisplay chip explanations", () => {
   it("names the right squad in each spec line", () => {
     for (const spec of specsFor("security")) expect(awaySpecDescription(spec)).toMatch(/^Security specialty/);
     for (const spec of specsFor("science")) expect(awaySpecDescription(spec)).toMatch(/^Science specialty/);
+  });
+
+  it("says what each Science spec now does: a bigger haul at the PoIs fieldwork maps to it (Task 15)", () => {
+    for (const spec of specsFor("science")) {
+      const text = awaySpecDescription(spec);
+      expect(text).not.toMatch(/yet/);
+      expect(text).toMatch(/bigger haul/);
+      // Every favored PoI is named by its catalog label, so the line can never drift from the mapping.
+      for (const poi of SCIENCE_SPEC_POIS[spec as keyof typeof SCIENCE_SPEC_POIS]) {
+        expect(text.toLowerCase()).toContain(getPoiById(poi)!.label.toLowerCase());
+      }
+    }
   });
 
   it("states the augment-affinity slot counts the engine actually grants", () => {

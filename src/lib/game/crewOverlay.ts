@@ -58,7 +58,8 @@ import { museumBonuses, type MuseumStat } from "./relics";
 // awayTeamProtection, crewOutputMult, craftDuplicateChance, missionTurnaround, preventCrewLoss,
 // counterInfiltration, droneHandling, rareFindChance, crewEffectiveness, reducedCrewLosses, triage,
 // powerEfficiency, hullRepairRate, endurance, ...) is a NO-OP for now: its system has not landed, so it
-// maps to NOTHING and lies dormant until it does. The mapping table:
+// maps to NOTHING and lies dormant until it does. (rareFindChance is no ship stat but is not dormant: the
+// expedition snapshots it at dispatch for the relic roll, E-CREW Task 15.) The mapping table:
 //
 //   crew.transitOutSpeed + crew.transitBackSpeed -> transitSpeedMult   (both legs share one speed mult)
 //   crew.rangeEfficiency  + crew.fuelEfficiency  -> engineEfficiency   (0-based additive fuel-burn bonus)
@@ -84,7 +85,7 @@ const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
   "officer.rangeMult": CREW_STAT_KEYS.rangeEfficiency,
   "officer.powerEfficiencyMult": CREW_STAT_KEYS.powerEfficiency, // dormant (no power-budget consumer yet)
   "officer.repairRateMult": CREW_STAT_KEYS.hullRepairRate, // dormant (repair is a Shipyard process)
-  "officer.rareFindMult": CREW_STAT_KEYS.rareFindChance, // dormant (no rare-find consumer yet)
+  "officer.rareFindMult": CREW_STAT_KEYS.rareFindChance, // no ship stat; the expedition relic roll reads crew.rareFindChance at dispatch (E-CREW Task 15, Expedition.crewRareFind)
   "officer.shipOutputMult": CREW_STAT_KEYS.crewOutputMult, // dormant (no ship-wide-output consumer yet)
   "officer.allStatsMult": CREW_STAT_KEYS.crewOutputMult, // dormant
   "officer.missionTurnaroundCut": CREW_STAT_KEYS.missionTurnaround, // dormant

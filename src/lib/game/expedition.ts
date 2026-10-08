@@ -64,7 +64,9 @@ import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } fr
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, officerBonusTotal } from "./crewOverlay";
+import { effectiveShipStats, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
+import { CREW_STAT_KEYS } from "./crewBuffs";
+import { fieldworkEffect, fieldworkHazardResist } from "./fieldwork";
 import {
   PLANET_TYPES,
   poisForPlanetType,
@@ -144,6 +146,8 @@ export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before
 
 // ACTIVITIES: the placeholder resolver completes one task every ACTIVITY_SECONDS, granting one
 // placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
+// E-CREW Task 15: ACTIVITY_SECONDS is a BARE party's pace; the Science party's fieldwork speed divides it
+// per body (activityDurationSeconds). Without a Science member every task still takes exactly this.
 export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
 
 // ============================================================================
@@ -652,6 +656,10 @@ export function startExpedition(
     // reseating the pilot never reshapes an in-flight run.
     encounterSteps: ENCOUNTER_STEPS,
     encounterEvasion: officerBonusTotal(state, ship, "officer.evasion"),
+    // E-CREW (Task 15): the crew rare find for the relic roll, frozen here like encounterEvasion. ONE read
+    // of the crew rollup, which already folds Discovery Instinct (officer.rareFindMult -> crew.rareFindChance)
+    // with the Science division's Keen Analysis; adding officerBonusTotal on top would count the officer twice.
+    crewRareFind: shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0,
     scanStepCursor: 0,
     scanEvents: [],
   };
@@ -694,9 +702,17 @@ function transitDurationSeconds(exp: Expedition): number {
 // hazard slow is computed. Both are stored on the expedition at dispatch, so the rate stays a pure
 // function of the stored run. Both are 0 for an empty museum: x * 1 is exact and resistedHazard returns
 // the hazard unchanged, so the rate is bit-identical to E4a.
+//
+// E-CREW Task 15: the Science party's hazard resist on THIS body (Hazard Suit, Environmental Adaptation,
+// Steady, a tuned tool's hazard line on its bodies; fieldwork.ts fieldworkHazardResist) ADDS to the stored
+// museum + gear resist before the cut (resistedHazard bounds the sum). It shapes the scan slowdown only:
+// encounter odds and battle guards keep the stored resist (Science never fights). 0 without a party, so
+// the sum is the stored value bit-for-bit.
 function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number {
   const sensorBoost = 1 + Math.max(0, exp.sensorPower) * SCAN_SENSOR_COEFF;
-  const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, exp.hazardResist ?? 0)) * SCAN_HAZARD_PENALTY;
+  const partyResist = fieldworkHazardResist(exp, body.planetType);
+  const resist = partyResist > 0 ? (exp.hazardResist ?? 0) + partyResist : exp.hazardResist ?? 0;
+  const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, resist)) * SCAN_HAZARD_PENALTY;
   const museumScan = 1 + (exp.scanSpeedBonus ?? 0);
   return (SCAN_BASE_RATE * exp.scanParams.scanRateMult * exp.scanParams.coverageWidth * sensorBoost * museumScan) / hazardSlow;
 }
@@ -717,9 +733,20 @@ function totalActivities(exp: Expedition): number {
   return n;
 }
 
-// The ACTIVITIES phase duration: one task per ACTIVITY_SECONDS.
+// E-CREW Task 15: how long ONE ground task on `body` takes: ACTIVITY_SECONDS divided by the Science party's
+// fieldwork speed on that body (fieldwork.ts fieldworkEffect speedMult; the PoI does not change the pace),
+// rounded to whole seconds. Exactly ACTIVITY_SECONDS without a Science member. Pure (reads the stored run).
+export function activityDurationSeconds(exp: Expedition, body: ExpeditionBody): number {
+  const speed = fieldworkEffect(exp, body.planetType, "").speedMult;
+  return speed === 1 ? ACTIVITY_SECONDS : Math.round(ACTIVITY_SECONDS / speed);
+}
+
+// The ACTIVITIES phase duration: every task's duration, in flat body/activity order (one task per
+// ACTIVITY_SECONDS for a run without a Science party).
 function activitiesDurationSeconds(exp: Expedition): number {
-  return totalActivities(exp) * ACTIVITY_SECONDS;
+  let total = 0;
+  for (const body of exp.bodies) total += body.activities.length * activityDurationSeconds(exp, body);
+  return total;
 }
 
 // The current phase's total duration in seconds (0 for "complete", which the loop never asks about).
@@ -1020,14 +1047,21 @@ function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
 // off exp.seed + a fixed salt + the activity's flat index, never a live stream position), so re-running at a
 // larger `consumed` yields the identical findings and the done-latch prevents any double-award. `seen` is
 // the activity's stable FLAT index across bodies, which is exactly the globalIndex the resolver seeds off.
+//
+// E-CREW Task 15: tasks run back to back, each taking its body's activityDurationSeconds, so a task is
+// complete once `consumed` reaches the running sum of the durations up to and including it. The sums are
+// whole seconds, so without a Science party (every task ACTIVITY_SECONDS) this is exactly the old
+// floor(consumed / ACTIVITY_SECONDS) count.
 function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
   const total = totalActivities(exp);
   if (total === 0) return;
-  const completedCount = Math.min(total, Math.floor((consumed + PHASE_EPS) / ACTIVITY_SECONDS));
   let seen = 0;
+  let endsAt = 0;
   for (const body of exp.bodies) {
+    const duration = activityDurationSeconds(exp, body);
     for (const act of body.activities) {
-      if (seen < completedCount && !act.done) {
+      endsAt += duration;
+      if (endsAt <= consumed + PHASE_EPS && !act.done) {
         act.done = true;
         exp.findings.push(resolveExpeditionActivity(exp, body, act, seen).finding);
       }

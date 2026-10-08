@@ -22,6 +22,7 @@ import type {
   CrewRace,
   CrewRank,
   EquipmentInstance,
+  ExpeditionPlanetType,
   GambitProgram,
   GambitStatusId,
   GameState,
@@ -29,6 +30,7 @@ import type {
   MemberGroundStatKey,
   ShipInstance,
   ShipTypeKey,
+  SnapshotFieldworkSource,
   SnapshotGearPiece,
   SnapshotMember,
 } from "./model";
@@ -114,10 +116,11 @@ export type AwayMemberStat =
 //   - Battle stats + resists (power / armor / accuracy / hp / statusChance, and groundStatusResist): the
 //     Security battle (Task 13) consumes the snapshot's converted values (and converts groundStatusResist).
 //   - Fieldwork yields + relic odds + hazard (fieldwork / relicFind / hazardResist, and the two yield
-//     lines): fieldwork (Task 15).
+//     lines): the snapshot freezes them per SOURCE (snapshotMember's fieldwork list, so a planet-tuned
+//     tool counts only on its bodies) and fieldwork.ts reads them (Task 15).
 //   - The three null keys: groundStatusResist becomes the member's chance to resist the statuses listed
-//     by its `resistStatus` pieces (Task 13); groundOrganicsYield / groundVaultYield become fieldwork
-//     yield multipliers toward organics / vault finds (Task 15).
+//     by its `resistStatus` pieces (Task 13); groundOrganicsYield / groundVaultYield convert through
+//     FIELDWORK_YIELD_PER_POINT into a yield FRACTION at the organics / vault finds (Task 15, below).
 // THE STATUS-CHANCE RULE: a piece's groundStatusChance ALWAYS folds into the member-wide statusChance (it
 // maps there like any other line), and an `inflict` piece applies its listed status with chance = that
 // member's statusChance. There is no separate per-piece chance read.
@@ -504,6 +507,15 @@ export const GEAR_POINT_BUMP: Readonly<Record<AwayMemberStat, number>> = {
   hazardResist: 0.01,
 };
 
+// The two fieldwork YIELD lines (GROUND_STAT_MEMBER_STAT maps both to null: no member card stat) convert
+// here, E-CREW Task 15:
+//   organicsYield = summed groundOrganicsYield points * FIELDWORK_YIELD_PER_POINT
+//   vaultYield    = summed groundVaultYield points    * FIELDWORK_YIELD_PER_POINT
+// each a FRACTION added to the haul multiplier at that find family's PoIs (fieldwork.ts ORGANICS_POIS /
+// VAULT_POIS): an iLevel 10 Bio-Analyzer (~16 organics points) adds +16% at a xeno-flora bloom.
+// FIRST-PASS TUNABLE.
+export const FIELDWORK_YIELD_PER_POINT = 0.01;
+
 // groundStatusResist has no member card stat (GROUND_STAT_MEMBER_STAT maps it to null): it converts to the
 // member's absolute chance to resist the statuses its resistStatus pieces list. FIRST-PASS TUNABLE.
 export const STATUS_RESIST_PER_POINT = 0.01;
@@ -525,7 +537,7 @@ const AWAY_MEMBER_STATS: readonly AwayMemberStat[] = [
 
 // THE conversion: summed ground line points (any subset of MEMBER_GROUND_STAT_KEYS) -> the member stat
 // bumps (every AwayMemberStat key present, 0 when nothing feeds it) and the status-resist chance.
-// groundOrganicsYield / groundVaultYield are fieldwork yields (Task 15) and are not converted here. Pure.
+// groundOrganicsYield / groundVaultYield are fieldwork yields, converted by fieldworkSource (Task 15). Pure.
 export function convertGroundPoints(points: Partial<Record<MemberGroundStatKey, number>>): {
   stats: Record<AwayMemberStat, number>;
   statusResist: number;
@@ -557,6 +569,25 @@ function pieceTotalPoints(piece: Pick<EquipmentInstance, "implicitStats" | "roll
   let total = 0;
   for (const v of Object.values(pieceGroundPoints(piece))) total += v ?? 0;
   return total;
+}
+
+// One fieldwork SOURCE (model.ts SnapshotFieldworkSource) from summed ground points: the three fieldwork
+// member stats through THE conversion (convertGroundPoints) and the two yield lines through
+// FIELDWORK_YIELD_PER_POINT. `planetTypes` marks a tuned tool's source. Pure.
+function fieldworkSource(
+  points: Partial<Record<MemberGroundStatKey, number>>,
+  planetTypes?: readonly ExpeditionPlanetType[]
+): SnapshotFieldworkSource {
+  const { stats } = convertGroundPoints(points);
+  const source: SnapshotFieldworkSource = {
+    fieldwork: stats.fieldwork,
+    relicFind: stats.relicFind,
+    hazardResist: stats.hazardResist,
+    organicsYield: (points.groundOrganicsYield ?? 0) * FIELDWORK_YIELD_PER_POINT,
+    vaultYield: (points.groundVaultYield ?? 0) * FIELDWORK_YIELD_PER_POINT,
+  };
+  if (planetTypes) source.planetTypes = [...planetTypes];
+  return source;
 }
 
 // ============================================================================
@@ -604,6 +635,10 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
   // 1) Gear: sum every worn piece's lines, convert once (the CONVERSION CONTRACT). Each piece's fixed
   // groundEffect normalizes into the effect list, carrying the piece's own points as its magnitude.
   const summed: Partial<Record<MemberGroundStatKey, number>> = {};
+  // Task 15: the same lines split for FIELDWORK: every untuned piece sums into one source, and each
+  // planet-tuned tool (its variety's planetTypes) keeps its own, so fieldwork can count it only on its bodies.
+  const untuned: Partial<Record<MemberGroundStatKey, number>> = {};
+  const tunedSources: SnapshotFieldworkSource[] = [];
   const gear: SnapshotGearPiece[] = [];
   const effects: MemberGroundEffect[] = [];
   const gearResistStatuses = new Set<GambitStatusId>();
@@ -616,7 +651,14 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
     const points = pieceTotalPoints(piece);
     const varietyKey = piece.moduleVariant ?? "";
     gear.push({ pieceId: piece.id, slotType: piece.slotType, varietyKey, points });
-    const effect = memberVariety(piece.slotType, varietyKey)?.member.groundEffect;
+    const variety = memberVariety(piece.slotType, varietyKey);
+    const planetTypes = variety?.member.planetTypes;
+    if (planetTypes && planetTypes.length > 0) {
+      tunedSources.push(fieldworkSource(lines, planetTypes));
+    } else {
+      for (const key of Object.keys(lines) as MemberGroundStatKey[]) untuned[key] = (untuned[key] ?? 0) + (lines[key] ?? 0);
+    }
+    const effect = variety?.member.groundEffect;
     if (!effect) continue;
     switch (effect.kind) {
       case "groupHit":
@@ -641,6 +683,7 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
   // 2) Traits: stat bumps ADD to the gear bumps (the STACKING RULE); the rest normalize into effects or
   // resists. An id the catalog no longer carries is skipped.
   const groundStats: Record<string, number> = { ...converted.stats };
+  const always = fieldworkSource(untuned);
   const resists: Partial<Record<GambitStatusId, number>> = {};
   for (const id of member.traits) {
     const trait = getAwayTrait(id);
@@ -649,6 +692,8 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
       switch (e.kind) {
         case "stat":
           groundStats[e.stat] = (groundStats[e.stat] ?? 0) + e.value;
+          // A trait's fieldwork stat is never planet-tuned: it joins the untuned source.
+          if (e.stat === "fieldwork" || e.stat === "relicFind" || e.stat === "hazardResist") always[e.stat] += e.value;
           break;
         case "resistStatus":
           resists[e.status] = (resists[e.status] ?? 0) + e.value;
@@ -693,6 +738,9 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
     // INERTLY: Science never enters a battle (design D2), so nothing executes it.
     gambit: cloneProgram(member.gambit ?? (member.teamType === "security" ? DEFAULT_MEMBER_GAMBIT : [])),
     effects,
+    // Task 15: the untuned source first, then one per planet-tuned tool (mint order). Every member carries
+    // it (a Security member's is simply never read: Science does the fieldwork, design D2).
+    fieldwork: [always, ...tunedSources],
   };
 }
 

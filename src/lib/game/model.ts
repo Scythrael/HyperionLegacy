@@ -6557,7 +6557,7 @@ export interface Expedition {
   // Nothing the player changes mid-flight alters an in-flight run, matching the sensor snapshot's "the
   // launch is what you saw at dispatch" contract.
   securityStrength: number; // Security division + tactical officers -> the squad-wide crew layer (power/HP)
-  scienceStrength: number; // Science division + science/medical officers -> party power (support/cure/secure)
+  scienceStrength: number; // Science division + science/medical officers -> the Science party's fieldwork crew layer (fieldwork.ts, Task 15; unread without a Science member)
   teamKit: number; // per-battle team-kit consumables (cures/stims) available for useItem
   // D19: INERT. It used to snapshot the account program pair for the anonymous detail; no battle reads it
   // now (members carry their own program in `roster`). startExpedition writes an empty pair; the field
@@ -6594,6 +6594,12 @@ export interface Expedition {
   // officers at dispatch (crewOverlay.ts officerBonusTotal): the share it cuts off the encounter chance.
   // Absent / 0 = no cut.
   encounterEvasion?: number;
+  // E-CREW 0.14.0 (Task 15): the ship's CREW RARE FIND at dispatch: crewOverlay.ts shipCrewContribution's
+  // crew.rareFindChance, which already folds the Science officer's Discovery Instinct (officer.rareFindMult,
+  // mapped through OFFICER_STATKEY_TO_CREW) with the Science division's Keen Analysis and any racial, scaled
+  // by the museum's crewBonuses. The relic roll adds it to the find bonus (gambit.ts activityRelicFindBonus).
+  // Absent / 0 = no lift (an expedition launched before Task 15).
+  crewRareFind?: number;
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;
@@ -6669,6 +6675,26 @@ export interface SnapshotMember {
   gear: SnapshotGearPiece[]; // every worn piece, in mint order
   gambit: GambitProgram;
   effects: MemberGroundEffect[];
+  // E-CREW 0.14.0 (Task 15): the member's FIELDWORK, frozen at dispatch as SOURCES so a planet-tuned tool
+  // counts only on its bodies (fieldwork.ts memberFieldworkOnBody sums the sources that apply). Entry 0 is
+  // always the untuned source (traits + every worn piece without planetTypes); then one entry per worn
+  // planet-tuned tool. OPTIONAL: a snapshot taken before Task 15 lacks it and reads its groundStats,
+  // untuned, with no yield lines.
+  fieldwork?: SnapshotFieldworkSource[];
+}
+
+// E-CREW 0.14.0 (Task 15): one source of a Science member's fieldwork, already CONVERTED at dispatch
+// (awayTeam.ts snapshotMember). fieldwork / relicFind / hazardResist are bumps on the awayTeam.ts
+// AwayMemberStat scale (convertGroundPoints); organicsYield / vaultYield are the two yield lines converted
+// by FIELDWORK_YIELD_PER_POINT (a fraction of the haul at that find family). planetTypes: a tuned tool's
+// bodies (absent = every body).
+export interface SnapshotFieldworkSource {
+  planetTypes?: ExpeditionPlanetType[];
+  fieldwork: number;
+  relicFind: number;
+  hazardResist: number;
+  organicsYield: number;
+  vaultYield: number;
 }
 
 // The away-team roster snapshot: the deployed members of each squad, in deploy order. An empty squad is [].

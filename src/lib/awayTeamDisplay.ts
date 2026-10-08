@@ -5,10 +5,12 @@
 // labels (and so the logic is node-testable: this repo has no Svelte component test harness). Nothing
 // here is game logic; the engine lives in game/awayTeam.ts and game/awayTraits.ts.
 
-import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ShipInstance } from "./game/model";
+import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ScienceSpec, ShipInstance } from "./game/model";
 import { SHIP_TYPES } from "./game/model";
 import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
 import { AUGMENT_AFFINITY_RACES, implantSlotsFor } from "./game/awayTeam";
+import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
+import { getPoiById } from "./game/expeditionContent";
 import type { IconName } from "./ui/icons";
 
 export interface SquadMeta {
@@ -49,19 +51,24 @@ export function awaySpecLabel(spec: AwayMemberSpec): string {
 //   - Security specs: gambit.ts SECURITY_SPEC_BASE, added to the Security base line in
 //     buildRosterCombatants (Offense: power; Defense: HP + armor; Debuff: a base statusChance, the chance
 //     an `inflict` piece's statuses land on a hit, which is zero for the other specs without a bump).
-//   - Science specs: no engine reader yet (fieldwork reads no spec), so the line says so plainly instead
-//     of promising a bonus. Update these lines when fieldwork starts reading the spec.
+//   - Science specs (E-CREW Task 15): fieldwork.ts SCIENCE_SPEC_POIS. A member whose spec favors a task's
+//     PoI raises that task's haul. The PoI names are READ from the mapping + the content catalog's labels,
+//     so remapping a PoI can never leave a stale name here.
+function scienceSpecLine(spec: ScienceSpec, subject: string): string {
+  const names = SCIENCE_SPEC_POIS[spec].map((id) => getPoiById(id)?.label ?? id);
+  const list = names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  return `Science specialty: ${subject}. Brings back a bigger haul from these finds: ${list}.`;
+}
+
 const SPEC_DESCRIPTION: Record<AwayMemberSpec, string> = {
   offense: "Security specialty: hits harder in battle, with extra base power.",
   defense: "Security specialty: lasts longer in battle, with extra base health and armor.",
   debuff:
     "Security specialty: lands afflictions. Gives a base chance for the statuses this member's gear inflicts to take hold on a hit.",
-  archaeology:
-    "Science specialty: ancient ruins and lost civilizations. Specialties do not change fieldwork results yet.",
-  xenobiology: "Science specialty: alien life and plant blooms. Specialties do not change fieldwork results yet.",
-  geology: "Science specialty: rock, minerals and deep caves. Specialties do not change fieldwork results yet.",
-  cryptography:
-    "Science specialty: old codes, locks and sealed vaults. Specialties do not change fieldwork results yet.",
+  archaeology: scienceSpecLine("archaeology", "ancient ruins, old wrecks and lost civilizations"),
+  xenobiology: scienceSpecLine("xenobiology", "alien life and plant blooms"),
+  geology: scienceSpecLine("geology", "rock, minerals and deep caves"),
+  cryptography: scienceSpecLine("cryptography", "old codes, locks and sealed vaults"),
 };
 
 export function awaySpecDescription(spec: AwayMemberSpec): string {
