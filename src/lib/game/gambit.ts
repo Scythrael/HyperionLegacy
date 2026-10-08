@@ -1734,7 +1734,9 @@ export function rollSupplyCache(exp: Expedition, body: ExpeditionBody, bodyIndex
 }
 
 // The transient battle log of one scan encounter, for the UI (Task 17). DISPLAY ONLY: re-runs the keyed
-// battle from the stored expedition, persists nothing, and the tick never calls it. Pure.
+// battle from the stored expedition, persists nothing, and the tick never calls it. Null unless the run's
+// scanEvents record an encounter at that boundary (so the UI can never show a battle that did not happen).
+// Pure.
 export function deriveScanEncounterLog(
   exp: Expedition,
   bodyIndex: number,
@@ -1742,6 +1744,8 @@ export function deriveScanEncounterLog(
 ): { outcome: "win" | "loss"; events: GambitLogEvent[] } | null {
   const body = exp.bodies[bodyIndex];
   if (!body) return null;
+  const recorded = (exp.scanEvents ?? []).some((ev) => ev.kind === "encounter" && ev.bodyIndex === bodyIndex && ev.step === step);
+  if (!recorded) return null;
   const events: GambitLogEvent[] = [];
   const res = resolveScanEncounter(exp, body, bodyIndex, step, events);
   return { outcome: res.outcome, events };

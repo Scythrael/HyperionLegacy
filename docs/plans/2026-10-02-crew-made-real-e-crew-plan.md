@@ -401,9 +401,16 @@ exactly as before. Activity window = the `ACTIVITY_SECONDS` grid in elapsed-in-s
 for (0, 600] s. Evasive Command is live for the encounter chance only (`officerBonusTotal(state, ship,
 "officer.evasion")`, snapshotted as `encounterEvasion`); ship-battle evasion stays Task 20.
 `FIELD_DEVICE_UNTRAINED_EFFECTIVENESS = 1` awaits the user (mockup 0.75); `fieldDeviceSpecialistAboard` is a
-false hook. Task 16: `GroundBattleResult.downedMemberIds` exists; scan events record it, but ACTIVITY battles do
-not yet (thread it through `resolveExpeditionActivity`), and a member downed mid-run still fights later battles of
-the same run (decide whether they sit out). Task 17: pips from `scanEvents`, battle log via
+false hook. Win drops REUSE `rollHaul` (the activity haul: planet material table + hazard credits) at
+`ENCOUNTER_DROP_SCALE` 0.5, never a relic; there is no separate salvage-pool roll. A Lure Beacon raises drops ONLY
+by raising the encounter count (no per-drop multiplier). Task 16: `GroundBattleResult.downedMemberIds` exists; scan
+events record it, but ACTIVITY battles do not yet (thread it through `resolveExpeditionActivity`).
+**NEW USER RULE (2026-10-07):** "a member downed in a random battle SITS OUT the rest of that expedition (later
+battles fight without them) and comes home injured." Task 16 MUST implement it: the roster snapshot is fixed at
+dispatch, so track the run's downed members on the expedition (derivable from `scanEvents` in scan order, plus the
+activity battles' downed lists) and exclude them from every LATER encounter and activity battle, deterministically
+and offline-safe (a pure function of the stored run, keyed in resolution order, parity-tested). Today a member
+downed mid-run still fights later battles. Task 17: pips from `scanEvents`, battle log via
 `deriveScanEncounterLog`; `expeditionPhaseFraction` can step back when a loss adds a pause (show per-body progress).
 
 ### Task 15: Fieldwork from Science members

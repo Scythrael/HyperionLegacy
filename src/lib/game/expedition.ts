@@ -174,6 +174,8 @@ export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
 // discoveries yet; the PoI ground tasks (and their guardian battles, resolveActivitiesPhase) run in the
 // ACTIVITIES phase afterwards, with their own keyed streams. The two never share a moment or a stream, so
 // nothing double-battles: a body's roaming encounters and its PoI guardian fights are separate events.
+// ENCOUNTER_STEPS must stay below 100: a boundary's stream key is gambit.ts scanStepKey (bodyIndex * 100 +
+// step), so 100 or more steps would collide one body's boundaries with the next body's (a test asserts it).
 export const ENCOUNTER_STEPS = 10;
 export const ENCOUNTER_BASE_CHANCE = 0.08; // per boundary, on a hazard-0 body
 export const ENCOUNTER_HAZARD_CHANCE = 0.2; // + this * the body's (resisted) hazard
@@ -808,7 +810,9 @@ function resolveScanningPhase(exp: Expedition, consumed: number): void {
     const body = exp.bodies[i];
     const rate = scanRatePerSecond(exp, body);
     const bodyTime = body.scanTotal / rate;
-    if (remaining >= bodyTime - PHASE_EPS) {
+    // Same form as the phase-end check (x + PHASE_EPS vs the duration), so a rounding sliver at the end of
+    // the phase still completes the body.
+    if (remaining + PHASE_EPS >= bodyTime) {
       body.scanProgress = body.scanTotal;
       remaining -= bodyTime;
       if (!body.scanned) {
@@ -882,7 +886,8 @@ export function scanEncounterChance(exp: Expedition, body: ExpeditionBody): numb
 export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number): { encounter: boolean; supplyCache: boolean } {
   const rng = makeRng((exp.seed ^ ENCOUNTER_SALT ^ scanStepKey(bodyIndex, step)) >>> 0);
   const body = exp.bodies[bodyIndex];
-  const encounter = body !== undefined && rng.chance(clampPermille(scanEncounterChance(exp, body)), 1000);
+  // Draw 1 is ALWAYS taken (chance 0 for a missing body), so draw 2 sits at the same stream position.
+  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body)) : 0, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   return { encounter, supplyCache: !encounter && cache };
 }
@@ -987,7 +992,10 @@ function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
       }
     }
     const bodyEnd = bodyStart + bodyTime + paused;
-    if (elapsed >= bodyEnd - PHASE_EPS) {
+    // The EXACT negation of advanceExpedition's phase-end check (elapsed + PHASE_EPS < dur), and the last
+    // bodyEnd equals encounterScanDurationSeconds bit for bit, so the phase can never end with its last body
+    // unscanned in a rounding sliver.
+    if (elapsed + PHASE_EPS >= bodyEnd) {
       body.scanProgress = body.scanTotal;
       if (!body.scanned) {
         body.scanned = true;
@@ -1100,8 +1108,9 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
     const consumed = Math.min(elapsed, dur);
     if (e.phase === "scanning") {
       if (!encounterScan) resolveScanningPhase(e, consumed);
+    } else if (e.phase === "activities") {
+      resolveActivitiesPhase(e, consumed);
     }
-    else if (e.phase === "activities") resolveActivitiesPhase(e, consumed);
     // transit + return have no intra-phase state beyond the anomaly (handled above).
     if (elapsed + PHASE_EPS < dur) break; // still inside this phase
     e.phaseAnchorSeconds += dur; // exact-duration advance so overflow carries to the next phase

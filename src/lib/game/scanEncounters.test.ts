@@ -46,6 +46,7 @@ import {
   resolveScanEncounter,
   rollSupplyCache,
   buildRosterCombatants,
+  deriveScanEncounterLog,
   generateEncounter,
 } from "./gambit";
 import { makeRng } from "./combat/rng";
@@ -489,5 +490,112 @@ describe("NEUTRALITY: a run dispatched before Task 14 scans exactly as before", 
     expect("scanStepCursor" in done).toBe(false);
     expect("encounterSteps" in done).toBe(false);
     expect(done.findings.every((f) => f.source === "activity" || f.source === "anomaly")).toBe(true);
+  });
+});
+
+// ============================================================================
+describe("review hardening", () => {
+  it("ENCOUNTER_STEPS stays below 100 (scanStepKey is bodyIndex * 100 + step)", () => {
+    expect(ENCOUNTER_STEPS).toBeLessThan(100);
+  });
+
+  it("deriveScanEncounterLog replays every recorded encounter's outcome, and is null where none happened", () => {
+    const s = withRoster(plainSquad(), [tool("equip-901", "lureBeacon", "member-1")]);
+    let checked = 0;
+    for (let seed = 1; seed <= 60; seed++) {
+      const done = advanceExpedition(scanExp(s, { seed, securityStrength: seed % 2 === 0 ? 40 : 0 }), BIG);
+      const evs = done.scanEvents ?? [];
+      for (const ev of evs) {
+        const log = deriveScanEncounterLog(done, ev.bodyIndex, ev.step);
+        if (ev.kind === "encounter") {
+          expect(log).not.toBeNull();
+          expect(log!.outcome).toBe(ev.outcome);
+          expect(log!.events.length).toBeGreaterThan(0);
+          checked++;
+        } else {
+          expect(log).toBeNull(); // a supply cache is not a battle
+        }
+      }
+      for (let k = 1; k < ENCOUNTER_STEPS; k++) {
+        if (!evs.some((ev) => ev.step === k)) expect(deriveScanEncounterLog(done, 0, k)).toBeNull();
+      }
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+
+  it("officerBonusTotal applies the bridge module's officer amplification", () => {
+    const s = withRoster(plainSquad());
+    const bridge: EquipmentInstance = {
+      id: "equip-bridge-mod",
+      slotType: "bridge",
+      rarity: "standard",
+      ascension: "none",
+      quality: 0,
+      iLevel: 1,
+      blueprintKey: null,
+      implicitStats: {},
+      rolledStats: {},
+      mass: 0,
+      powerDraw: 0,
+      durabilityMax: 110,
+      durability: 110,
+      fittedToShipId: "ship-1",
+      moduleVariant: "bridgeBalancedCommand",
+    };
+    const officer: SeniorStaffOfficer = {
+      id: "officer-1",
+      seat: "pilot",
+      name: "Test Pilot",
+      race: "earthBorn",
+      gender: "nonbinary",
+      rank: "ensign",
+      bonuses: [
+        { id: "pilot.evasion", magnitude: 0.15 },
+        { id: "pilot.transitCut", magnitude: 0.08 },
+      ],
+      missionsCompleted: 0,
+      assignedShipId: "ship-1",
+    };
+    const withBridge = { ...s, officers: [officer], equipment: [...s.equipment, bridge] };
+    // Balanced Command: amp 0.1 at scale 1.0 (standard, quality 0), the same lift the crew overlay applies.
+    expect(officerBonusTotal(withBridge, s.ships[0], "officer.evasion")).toBeCloseTo(0.15 * 1.1, 9);
+  });
+});
+
+// ============================================================================
+describe("the last body completes at the exact phase-end boundary (no rounding sliver)", () => {
+  // Two bodies, no Security member (no encounter, so no pause): the scanning phase lasts t1 + t2.
+  const bodies = (): ExpeditionBody[] => [
+    { id: "body-1", planetType: "toxic", scanTotal: 100, scanProgress: 0, hazard: 1, scanned: false, discoveries: [], activities: [] },
+    { id: "body-2", planetType: "terrestrial", scanTotal: 137, scanProgress: 0, hazard: 0.2, scanned: false, discoveries: [], activities: [] },
+  ];
+  const t = (b: ExpeditionBody) => b.scanTotal / (0.05 / (1 + b.hazard * 0.5));
+
+  function check(exp: Expedition): void {
+    const [b1, b2] = exp.bodies;
+    const dur = 0 + t(b1) + t(b2);
+    for (const now of [dur - 5e-7, dur, dur + 5e-7]) {
+      const e = advanceExpedition(exp, now);
+      expect(e.phase).toBe("activities");
+      expect(e.bodies.every((b) => b.scanned && b.activities.length > 0)).toBe(true);
+    }
+    const before = advanceExpedition(exp, dur - 2e-6);
+    expect(before.phase).toBe("scanning");
+    expect(before.bodies[1].scanned).toBe(false);
+  }
+
+  it("encounter-enabled run", () => {
+    const s = withRoster([member("member-2", "science")]);
+    check(scanExp(s, { bodies: bodies() }));
+  });
+
+  it("legacy run (dispatched before Task 14)", () => {
+    const s = withRoster([member("member-2", "science")]);
+    const legacy = scanExp(s, { bodies: bodies() });
+    delete legacy.encounterSteps;
+    delete legacy.scanStepCursor;
+    delete legacy.scanEvents;
+    delete legacy.encounterEvasion;
+    check(legacy);
   });
 });
