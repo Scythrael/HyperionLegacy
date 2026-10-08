@@ -1488,13 +1488,14 @@ function rollHaul(
 // gambit battles; the FIRST win yields the full haul (materials + credits + a relic chance). If EVERY
 // attempt loses, the task EVACUATES but still completes with a reduced "always win something" haul (no
 // relic). Deterministic: every draw is keyed off (exp.seed, a fixed salt, the activity's flat index, the
-// attempt index) -- see the module header. Returns { finding, outcome, attempts } so the tick appends the
+// attempt index); see the module header. Returns { finding, outcome, attempts } so the tick appends the
 // finding + tests can assert the outcome.
 //
 // ⚠️ WHY BOUNDED IN-RESOLUTION RETRIES (a documented judgment call): the design says a lost task
 // "evacuates + retries next pass", but the ExpeditionActivity record must NOT gain fields (its shape is
-// frozen: id/bodyId/poiId/done), and the activities phase gives each activity exactly ONE time slot
-// (phaseDuration = activities * ACTIVITY_SECONDS). A cross-pass retry with the SAME keyed seed would
+// frozen: id/bodyId/poiId/done), and the activities phase gives each activity exactly ONE time slot (the
+// phase duration is the sum of every task's activityDurationSeconds: ACTIVITY_SECONDS each without a
+// Science party, shorter with one, E-CREW Task 15). A cross-pass retry with the SAME keyed seed would
 // reproduce the SAME loss forever (an infinite stall). So the retry is realized DETERMINISTICALLY as
 // bounded attempts WITHIN the one resolution, each reseeded by the attempt index; after the cap the task
 // evacuates with a partial haul. This keeps the frozen record, the phase-duration/parity model, "always

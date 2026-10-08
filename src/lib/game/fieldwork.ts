@@ -11,7 +11,8 @@
 //
 // PURE + DETERMINISTIC: every function reads only the stored expedition (the roster snapshot and the
 // snapshotted scienceStrength), never live state, and draws no random number, so offline == live holds
-// by construction. Imports only model types/data and the content catalog (no engine module, no cycle).
+// by construction. Imports only model types/data, the content catalog and the pure diminishing.ts leaf
+// (no engine module, no cycle).
 //
 // THE MODEL (FIRST-PASS TUNABLE, every coefficient below):
 //   Per Science member m on a body of planet type P, at PoI X:
@@ -19,11 +20,13 @@
 //       (the untuned source always; a planet-tuned tool's source only when P is in its planetTypes)
 //     spec_m  = SPEC_POI_YIELD when m's spec favors X (SCIENCE_SPEC_POIS), else 0
 //     trait_m = the summed value of m's poiYield effects that list X
-//   Team (STACKING RULE: same-kind bumps ADD):
-//     F          = sum(fw_m) + scienceStrength * SCIENCE_STRENGTH_FIELDWORK   (the crew layer)
-//     speedMult  = min(FIELDWORK_SPEED_MAX_MULT, 1 + FIELDWORK_SPEED_PER_BUMP * F)
-//     yieldMult  = 1 + FIELDWORK_YIELD_PER_BUMP * F + sum(spec_m) + sum(trait_m)
+//   Team (STACKING RULE: same-kind bumps ADD; D23: DIMINISHING RETURNS, never a cap, diminishing.ts):
+//     crew       = diminishing(scienceStrength * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE)
+//     F          = sum(fw_m) + crew                                            (crew = the crew layer)
+//     speedMult  = min(FIELDWORK_SPEED_MAX_MULT, 1 + FIELDWORK_SPEED_PER_BUMP * F)   (fieldworkSpeedMult)
+//     bonus      = FIELDWORK_YIELD_PER_BUMP * F + sum(spec_m) + sum(trait_m)
 //                    + (X in ORGANICS_POIS ? sum(org_m) : 0) + (X in VAULT_POIS ? sum(vault_m) : 0)
+//     yieldMult  = 1 + diminishing(bonus, FIELDWORK_YIELD_KNEE)
 //     relicFind  = sum(relic_m)                       (multiplies the relic chance by 1 + bonus, with the
 //                                                      museum + gear + crew rare find; gambit.ts)
 //     hazardResist = sum(haz_m)                       (added to the museum + gear resist for the scan slow)
@@ -31,18 +34,43 @@
 // are the baseline a Science party improves on, never a penalty for bringing someone.
 // NEUTRALITY: no Science member (an expedition launched before D18, or a dev run with an empty Science
 // squad) is NEUTRAL_FIELDWORK: speed 1, yield 1, relic 0, hazard 0, so the run resolves exactly as before
-// (scienceStrength is NOT read without a party: it had no effect before Task 15).
+// (scienceStrength is NOT read without a party: it had no effect before Task 15). The curve is exactly 0
+// at 0, so a party with no bonus is still speed 1, yield 1.
+//
+// D23 DIMINISHING RETURNS (Task 15a, user 2026-10-08): "as you get more, they mean less and less", with no
+// ceiling. Two curves (diminishing.ts, the sqrt form: nearly 1:1 far below its knee, about 73% of the value
+// AT the knee, unbounded past it):
+//   - the CREW LAYER passes CREW_FIELDWORK_KNEE before it joins F, so a big ship's Science division no
+//     longer buries the party (it shapes the pace too, through F; the 3x speed guard is unchanged);
+//   - the TOTAL yield bonus passes FIELDWORK_YIELD_KNEE, so stacking everything also diminishes.
+// Relic odds and hazard resist are not curved here.
+// WORKED TABLE (yield bonus, and the pace multiplier, on an arid body at a mineral outcrop). "Party" = two
+// geologists (a spec match each), each wearing an iLevel 15 Standard Field Suit and Core Drill rolled from
+// the real catalog (raw bonus +66%: +30% from the two spec matches, the rest from about 0.72 F of gear):
+//     case                          before: yield / pace      after D23: yield / pace
+//     crew 20 alone                       +10.0% / 1.10           +9.1% / 1.09
+//     crew 100 alone                      +50.0% / 1.50          +34.9% / 1.38
+//     crew 225 alone (tier-2 explorer)   +112.5% / 2.13          +61.4% / 1.71
+//     crew 500 alone                     +250.0% / 3.00          +98.9% / 2.23
+//     party alone                         +66.0% / 1.36          +57.7% / 1.36
+//     party + crew 225                   +178.5% / 2.49         +107.7% / 2.07
+//     two spec matches only               +30.0% / 1.00          +28.0% / 1.00
+// So the tier-2 crew alone is comparable to (about 1.06x) a well-geared party instead of 1.7x it, the
+// party keeps about 80% of its value on top of that crew, and a total of +30% or less keeps over 90%.
+// (The party's own pace is unchanged: gear F is not curved, only the crew layer and the yield total.)
+// In-flight runs resolve under the curve (a pure function of the stored Expedition; no save migration).
 
-import type { Expedition, ScienceSpec, SnapshotMember } from "./model";
+import type { Expedition, ExpeditionPlanetType, ScienceSpec, SnapshotMember } from "./model";
 import type { ExpeditionPoiId } from "./expeditionContent";
+import { diminishing } from "./diminishing";
 
 // ===== The spec -> PoI mapping (one exhaustive partition of the PoI catalog) =====
 //
 // Each Science spec FAVORS a set of PoIs; a member whose spec favors the task's PoI raises that task's
 // yield. Every PoI is favored by exactly one spec (a test asserts the partition). Chosen to match the spec
 // tooltips (awayTeamDisplay.ts) and the Science trait catalog's groupings (awayTraits.ts):
-//   archaeology : "ancient ruins and lost civilizations" plus the crashed ship (old sites, the Patient
-//                 Hands grouping): ancientRuins, crashedShip, subterraneanCivilization
+//   archaeology : "ancient ruins, old wrecks and lost civilizations": ancientRuins, crashedShip,
+//                 subterraneanCivilization (the Patient Hands trait groups the ruins and the wreck too)
 //   xenobiology : "alien life and plant blooms": xenoFloraBloom
 //   geology     : "rock, minerals and deep caves": mineralOutcrop, caveNetwork, geothermalChamber
 //   cryptography: "old codes, locks and sealed vaults": buriedVault, derelictOutpost (its data and locked
@@ -73,8 +101,16 @@ export const FIELDWORK_SPEED_PER_BUMP = 0.5;
 // The fastest a party can work (a task never drops below ACTIVITY_SECONDS / this).
 export const FIELDWORK_SPEED_MAX_MULT = 3;
 // The crew layer: each point of the snapshotted scienceStrength (Science division + science/medical
-// officers, times the museum's scienceTeamPower) adds this to F. 20 strength = +20% fieldwork.
+// officers, times the museum's scienceTeamPower) adds this to F BEFORE the crew curve. 20 strength = a raw
+// +20% fieldwork (about +18.6% after the curve).
 export const SCIENCE_STRENGTH_FIELDWORK = 0.01;
+// D23: the crew layer's knee, in F units (1.2 = 120 Science strength). At 120 strength the crew layer keeps
+// about 73% of its raw value; a small crew keeps nearly all of it; a huge one keeps growing. FIRST-PASS
+// TUNABLE.
+export const CREW_FIELDWORK_KNEE = 1.2;
+// D23: the knee of the TOTAL yield bonus (yieldMult - 1), so +200%. A +30% total keeps about 93%; at +200%
+// it keeps about 73%; past it the haul keeps growing. FIRST-PASS TUNABLE.
+export const FIELDWORK_YIELD_KNEE = 2;
 
 // ===== Readers =====
 
@@ -87,7 +123,7 @@ export interface MemberFieldwork {
   organicsYield: number;
   vaultYield: number;
 }
-export function memberFieldworkOnBody(member: SnapshotMember, planetType: string): MemberFieldwork {
+export function memberFieldworkOnBody(member: SnapshotMember, planetType: ExpeditionPlanetType): MemberFieldwork {
   const out: MemberFieldwork = { fieldwork: 0, relicFind: 0, hazardResist: 0, organicsYield: 0, vaultYield: 0 };
   if (!member.fieldwork) {
     out.fieldwork = member.groundStats.fieldwork ?? 0;
@@ -96,7 +132,7 @@ export function memberFieldworkOnBody(member: SnapshotMember, planetType: string
     return out;
   }
   for (const src of member.fieldwork) {
-    if (src.planetTypes && !src.planetTypes.includes(planetType as never)) continue;
+    if (src.planetTypes && !src.planetTypes.includes(planetType)) continue;
     out.fieldwork += src.fieldwork;
     out.relicFind += src.relicFind;
     out.hazardResist += src.hazardResist;
@@ -122,13 +158,32 @@ export function specFavorsPoi(spec: string, poiId: string): boolean {
   return pois !== undefined && pois.includes(poiId);
 }
 
+// What the fieldwork readers need from the stored expedition.
+type FieldworkRun = Pick<Expedition, "roster" | "scienceStrength">;
+
+// The crew layer's contribution to F: the snapshotted scienceStrength through the D23 crew curve. Pure.
+function crewFieldwork(exp: FieldworkRun): number {
+  return diminishing(Math.max(0, exp.scienceStrength ?? 0) * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE);
+}
+
+// F to the pace multiplier, behind the 3x guard. The ONE place the speed math lives.
+function speedMultFromF(F: number): number {
+  return Math.min(FIELDWORK_SPEED_MAX_MULT, Math.max(1, 1 + FIELDWORK_SPEED_PER_BUMP * F));
+}
+
+// The Science party's pace on a body of `planetType` (the PoI never changes it): exactly fieldworkEffect's
+// speedMult at any PoI, without assembling the rest of the effect. 1 without a Science member. Pure.
+export function fieldworkSpeedMult(exp: FieldworkRun, planetType: ExpeditionPlanetType): number {
+  const party = exp.roster?.science ?? [];
+  if (party.length === 0) return 1;
+  let F = 0;
+  for (const m of party) F += memberFieldworkOnBody(m, planetType).fieldwork;
+  return speedMultFromF(F + crewFieldwork(exp));
+}
+
 // The Science party's effect on one task: a body of `planetType`, PoI `poiId` (see THE MODEL above).
 // Neutral without a Science member. Returns a fresh object. Pure.
-export function fieldworkEffect(
-  exp: Pick<Expedition, "roster" | "scienceStrength">,
-  planetType: string,
-  poiId: string
-): FieldworkEffect {
+export function fieldworkEffect(exp: FieldworkRun, planetType: ExpeditionPlanetType, poiId: string): FieldworkEffect {
   const party = exp.roster?.science ?? [];
   if (party.length === 0) return { ...NEUTRAL_FIELDWORK };
   let F = 0;
@@ -147,10 +202,12 @@ export function fieldworkEffect(
     if (specFavorsPoi(m.spec, poiId)) poiBonus += SPEC_POI_YIELD;
     for (const e of m.effects) if (e.kind === "poiYield" && e.pois.includes(poiId)) poiBonus += e.value;
   }
-  F += Math.max(0, exp.scienceStrength ?? 0) * SCIENCE_STRENGTH_FIELDWORK;
+  // The same additions, in the same order, as fieldworkSpeedMult, so the two speeds agree bit for bit.
+  F += crewFieldwork(exp);
   return {
-    speedMult: Math.min(FIELDWORK_SPEED_MAX_MULT, Math.max(1, 1 + FIELDWORK_SPEED_PER_BUMP * F)),
-    yieldMult: Math.max(1, 1 + FIELDWORK_YIELD_PER_BUMP * F + poiBonus),
+    speedMult: speedMultFromF(F),
+    // D23: the whole bonus diminishes (0 or less stays 0, so the multiplier is never below 1).
+    yieldMult: 1 + diminishing(FIELDWORK_YIELD_PER_BUMP * F + poiBonus, FIELDWORK_YIELD_KNEE),
     relicFind: Math.max(0, relicFind),
     hazardResist: Math.max(0, hazardResist),
   };
@@ -158,7 +215,7 @@ export function fieldworkEffect(
 
 // The party's hazard resist on a body of `planetType` (the PoI does not matter for it). 0 without a party.
 // Pure.
-export function fieldworkHazardResist(exp: Pick<Expedition, "roster" | "scienceStrength">, planetType: string): number {
+export function fieldworkHazardResist(exp: FieldworkRun, planetType: ExpeditionPlanetType): number {
   const party = exp.roster?.science ?? [];
   if (party.length === 0) return 0;
   let total = 0;

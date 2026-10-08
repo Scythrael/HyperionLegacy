@@ -445,6 +445,21 @@ explicit timeout on the slow parity test (`expedition.test.ts` ~384), stale comm
 expedition.ts ~1042, fieldwork.ts ~44), type planetType as `ExpeditionPlanetType` (drop `as never`), a
 `fieldworkSpeedMult` helper, and a carry note that in-flight runs on staging resolve under the new curve.
 
+**Carry from Task 15a (built 2026-10-08):** new shared pure `diminishing.ts`:
+`diminishing(x, knee) = knee * (sqrt(1 + 2x / knee) - 1)` (0 for x <= 0; f'(0) = 1; strictly concave; unbounded,
+growing like sqrt(2 knee x); keeps about 73% of a bonus AT the knee). Fieldwork knees (FIRST-PASS TUNABLE, worked table
+in the `fieldwork.ts` header): the crew layer `scienceStrength * SCIENCE_STRENGTH_FIELDWORK` passes
+`CREW_FIELDWORK_KNEE = 1.2` (120 Science strength) before it joins F; the total yield bonus passes
+`FIELDWORK_YIELD_KNEE = 2` (+200%). Gear F, relic odds and hazard resist are not curved; the 3x speed guard is unchanged
+(the crew curve slows a big crew's pace through F, as intended). Result: crew 225 alone +112.5% -> +61.4% (a well-geared
+two-geologist iLevel 15 party alone is +57.7%), party + crew 225 +178.5% -> +107.7%, a total of +30% or less keeps over
+90%. `fieldworkSpeedMult(exp, planetType)` is the one speed reader (`activityDurationSeconds` uses it; no more `""` PoI).
+**In-flight runs on staging resolve under the new curve:** the effect is a pure function of the stored Expedition (the
+roster snapshot + `scienceStrength`), so there is no save migration; a run dispatched before 15a simply hauls and paces by
+the curve from its next resolution on (offline == live still holds). Task 17: a readout calls `fieldworkEffect` /
+`fieldworkSpeedMult`. The D23 principle is cross-cutting; the existing asymptotic curves (model.ts, utilityGear.ts) are a
+balance-pass review item.
+
 ### Task 15b: Gas giant study (D22) [DESIGN PENDING]
 
 Gas giants lose all ground activity (no PoIs, landings, scan encounters, ground battles) and gain a ship-based study

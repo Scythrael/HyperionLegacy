@@ -66,7 +66,7 @@ import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
 import { effectiveShipStats, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
-import { fieldworkEffect, fieldworkHazardResist } from "./fieldwork";
+import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import {
   PLANET_TYPES,
   poisForPlanetType,
@@ -734,10 +734,10 @@ function totalActivities(exp: Expedition): number {
 }
 
 // E-CREW Task 15: how long ONE ground task on `body` takes: ACTIVITY_SECONDS divided by the Science party's
-// fieldwork speed on that body (fieldwork.ts fieldworkEffect speedMult; the PoI does not change the pace),
+// fieldwork speed on that body (fieldwork.ts fieldworkSpeedMult; the PoI does not change the pace),
 // rounded to whole seconds. Exactly ACTIVITY_SECONDS without a Science member. Pure (reads the stored run).
 export function activityDurationSeconds(exp: Expedition, body: ExpeditionBody): number {
-  const speed = fieldworkEffect(exp, body.planetType, "").speedMult;
+  const speed = fieldworkSpeedMult(exp, body.planetType);
   return speed === 1 ? ACTIVITY_SECONDS : Math.round(ACTIVITY_SECONDS / speed);
 }
 
@@ -1039,7 +1039,8 @@ function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
 }
 
 // Resolve ACTIVITIES up to `consumed` seconds into the phase: the E3 GAMBIT resolver (swapped in for the
-// E2a placeholder). It completes one task per ACTIVITY_SECONDS in flat body/activity order, flipping `done`
+// E2a placeholder). It completes tasks in flat body/activity order, each taking its body's
+// activityDurationSeconds (ACTIVITY_SECONDS without a Science party; see below), flipping `done`
 // and appending the task's REAL finding (materials + credits + a relic chance) from the away-team gambit
 // battle (gambit.ts resolveExpeditionActivity). The ExpeditionActivity record is UNCHANGED (still just
 // id/bodyId/poiId/done): `done` stays the completion flag and findings are still appended to exp.findings,

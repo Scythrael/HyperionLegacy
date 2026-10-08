@@ -38,8 +38,10 @@ import {
 } from "./expedition";
 import { snapshotAwayRoster, FIELDWORK_YIELD_PER_POINT, GEAR_POINT_BUMP } from "./awayTeam";
 import {
+  CREW_FIELDWORK_KNEE,
   FIELDWORK_SPEED_MAX_MULT,
   FIELDWORK_SPEED_PER_BUMP,
+  FIELDWORK_YIELD_KNEE,
   FIELDWORK_YIELD_PER_BUMP,
   NEUTRAL_FIELDWORK,
   ORGANICS_POIS,
@@ -49,8 +51,12 @@ import {
   VAULT_POIS,
   fieldworkEffect,
   fieldworkHazardResist,
+  fieldworkSpeedMult,
   memberFieldworkOnBody,
 } from "./fieldwork";
+import { diminishing } from "./diminishing";
+import { generateEquipment } from "./itemgen";
+import { makeRng } from "./combat/rng";
 import { resolveExpeditionActivity } from "./gambit";
 import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 import { shipCrewContribution } from "./crewOverlay";
@@ -164,6 +170,11 @@ function effectFor(sci: AwayMember[], gear: EquipmentInstance[], planetType: Exp
 
 const SCI = (over: Partial<AwayMember> = {}): AwayMember => member("member-2", "science", over);
 
+// D23 (Task 15a): the yield multiplier a raw summed yield BONUS becomes (the total passes the diminishing
+// curve). A small bonus keeps nearly all its value, so most expectations below differ from 1 + bonus by
+// well under a percent; they are written through this so each test still pins its exact model.
+const yieldOf = (bonus: number): number => 1 + diminishing(bonus, FIELDWORK_YIELD_KNEE);
+
 // ============================================================================
 describe("the Science spec -> PoI mapping", () => {
   it("is one exhaustive partition: every PoI is favored by exactly one Science spec", () => {
@@ -199,7 +210,7 @@ describe("spec match raises the matching PoI's yield and no other's", () => {
       for (const poi of POI_CATALOG) {
         const eff = effectFor([SCI({ spec })], [], "terrestrial", poi.id);
         const favored = (SCIENCE_SPEC_POIS as Record<string, readonly string[]>)[spec].includes(poi.id);
-        expect(eff.yieldMult, `${spec} at ${poi.id}`).toBeCloseTo(favored ? 1 + SPEC_POI_YIELD : 1, 12);
+        expect(eff.yieldMult, `${spec} at ${poi.id}`).toBeCloseTo(favored ? yieldOf(SPEC_POI_YIELD) : 1, 12);
         // A spec changes yield only, never pace or relic odds.
         expect(eff.speedMult).toBe(1);
         expect(eff.relicFind).toBe(0);
@@ -210,7 +221,7 @@ describe("spec match raises the matching PoI's yield and no other's", () => {
   it("two matching members stack additively", () => {
     const s = withRoster([SEC(), SCI({ spec: "geology" }), member("member-3", "science", { spec: "geology" })]);
     const eff = fieldworkEffect(exp(s, [body("volcanic", ["mineralOutcrop"])]), "volcanic", "mineralOutcrop");
-    expect(eff.yieldMult).toBeCloseTo(1 + 2 * SPEC_POI_YIELD, 12);
+    expect(eff.yieldMult).toBeCloseTo(yieldOf(2 * SPEC_POI_YIELD), 12);
   });
 
   it("the resolved activity hauls more credits at the favored PoI", () => {
@@ -242,8 +253,9 @@ describe("planet-tuned tools help only on their planet types", () => {
       const bare = effectFor([SCI()], [], pt, "xenoFloraBloom");
       const withTool = effectFor([SCI()], [scanner()], pt, "xenoFloraBloom");
       if (tuned.includes(pt)) {
-        const expected =
-          1 + 12 * FIELDWORK_YIELD_PER_POINT + FIELDWORK_YIELD_PER_BUMP * 6 * GEAR_POINT_BUMP.fieldwork;
+        const expected = yieldOf(
+          12 * FIELDWORK_YIELD_PER_POINT + FIELDWORK_YIELD_PER_BUMP * 6 * GEAR_POINT_BUMP.fieldwork
+        );
         expect(withTool.yieldMult, pt).toBeCloseTo(expected, 12);
         expect(withTool.yieldMult).toBeGreaterThan(bare.yieldMult);
       } else {
@@ -254,7 +266,7 @@ describe("planet-tuned tools help only on their planet types", () => {
 
   it("a Flora Scanner's organics line does nothing at a non-organics PoI (its fieldwork line still counts)", () => {
     const withTool = effectFor([SCI()], [scanner()], "ocean", "mineralOutcrop");
-    expect(withTool.yieldMult).toBeCloseTo(1 + FIELDWORK_YIELD_PER_BUMP * 6 * GEAR_POINT_BUMP.fieldwork, 12);
+    expect(withTool.yieldMult).toBeCloseTo(yieldOf(FIELDWORK_YIELD_PER_BUMP * 6 * GEAR_POINT_BUMP.fieldwork), 12);
   });
 
   it("a Flora Scanner raises the resolved haul on an ocean world, not on an arid one", () => {
@@ -296,7 +308,7 @@ describe("planet-tuned tools help only on their planet types", () => {
     const dec = piece("equip-904", "memberTool", "decryptor", "member-2", { groundVaultYield: 12 });
     for (const pt of ["arid", "frozen", "toxic"] as const) {
       for (const poi of ["buriedVault", "subterraneanCivilization"]) {
-        expect(effectFor([SCI({ spec: "geology" })], [dec], pt, poi).yieldMult).toBeCloseTo(1 + 12 * FIELDWORK_YIELD_PER_POINT, 12);
+        expect(effectFor([SCI({ spec: "geology" })], [dec], pt, poi).yieldMult).toBeCloseTo(yieldOf(12 * FIELDWORK_YIELD_PER_POINT), 12);
       }
       expect(effectFor([SCI({ spec: "geology" })], [dec], pt, "ancientRuins").yieldMult).toBe(1);
     }
@@ -419,7 +431,7 @@ describe("Science implants each do their documented thing", () => {
   it("Cipher Wetware: vault and civilization yield, nothing elsewhere", () => {
     const s = withRoster([SEC(), SCI({ spec: "xenobiology" })], [imp("cipherWetware", { groundVaultYield: 20 })]);
     const e = exp(s, []);
-    for (const poi of VAULT_POIS) expect(fieldworkEffect(e, "arid", poi).yieldMult).toBeCloseTo(1 + 20 * FIELDWORK_YIELD_PER_POINT, 12);
+    for (const poi of VAULT_POIS) expect(fieldworkEffect(e, "arid", poi).yieldMult).toBeCloseTo(yieldOf(20 * FIELDWORK_YIELD_PER_POINT), 12);
     expect(fieldworkEffect(e, "arid", "mineralOutcrop").yieldMult).toBe(1);
   });
 
@@ -427,9 +439,9 @@ describe("Science implants each do their documented thing", () => {
     const s = withRoster([SEC(), SCI({ spec: "geology" })], [imp("bioAnalyzer", { groundOrganicsYield: 20 })]);
     const e = exp(s, []);
     for (const pt of ["arid", "frozen", "ocean"] as const) {
-      expect(fieldworkEffect(e, pt, "xenoFloraBloom").yieldMult).toBeCloseTo(1 + 20 * FIELDWORK_YIELD_PER_POINT, 12);
+      expect(fieldworkEffect(e, pt, "xenoFloraBloom").yieldMult).toBeCloseTo(yieldOf(20 * FIELDWORK_YIELD_PER_POINT), 12);
     }
-    expect(fieldworkEffect(e, "arid", "caveNetwork").yieldMult).toBeCloseTo(1 + SPEC_POI_YIELD, 12);
+    expect(fieldworkEffect(e, "arid", "caveNetwork").yieldMult).toBeCloseTo(yieldOf(SPEC_POI_YIELD), 12);
   });
 });
 
@@ -438,16 +450,17 @@ describe("traits and the crew strength layer", () => {
   it("a poiYield trait raises yield at its PoIs only", () => {
     const s = withRoster([SEC(), SCI({ spec: "xenobiology", traits: ["deepSurvey" as AwayTraitId] })]);
     const e = exp(s, []);
-    expect(fieldworkEffect(e, "volcanic", "geothermalChamber").yieldMult).toBeCloseTo(1.1, 12);
-    expect(fieldworkEffect(e, "volcanic", "mineralOutcrop").yieldMult).toBeCloseTo(1.1, 12);
+    expect(fieldworkEffect(e, "volcanic", "geothermalChamber").yieldMult).toBeCloseTo(yieldOf(0.1), 12);
+    expect(fieldworkEffect(e, "volcanic", "mineralOutcrop").yieldMult).toBeCloseTo(yieldOf(0.1), 12);
     expect(fieldworkEffect(e, "volcanic", "caveNetwork").yieldMult).toBe(1);
   });
 
   it("scienceStrength (crew + officers + the museum's scienceTeamPower) adds a squad-wide fieldwork layer", () => {
     const s = withRoster([SEC(), SCI()]);
     const eff = fieldworkEffect(exp(s, [], { scienceStrength: 20 }), "arid", "caveNetwork");
-    const F = 20 * SCIENCE_STRENGTH_FIELDWORK;
-    expect(eff.yieldMult).toBeCloseTo(1 + FIELDWORK_YIELD_PER_BUMP * F, 12);
+    // D23: the crew layer passes its own curve before it joins F, then the yield bonus passes the total curve.
+    const F = diminishing(20 * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE);
+    expect(eff.yieldMult).toBeCloseTo(yieldOf(FIELDWORK_YIELD_PER_BUMP * F), 12);
     expect(eff.speedMult).toBeCloseTo(1 + FIELDWORK_SPEED_PER_BUMP * F, 12);
   });
 
@@ -496,6 +509,143 @@ describe("the snapshot carries each member's fieldwork sources", () => {
       organicsYield: 0,
       vaultYield: 0,
     });
+  });
+});
+
+// ============================================================================
+describe("D23 diminishing returns: the crew layer and the total yield bonus (Task 15a)", () => {
+  // A REAL-catalog piece (itemgen), worn by `wearer`: what a player actually installs.
+  let nextId = 950;
+  function real(slotType: MemberSlotType, varietyKey: string, iLevel: number, wearer: string, seed: number): EquipmentInstance {
+    const r = makeRng(seed);
+    const p = generateEquipment({
+      slotType,
+      varietyKey,
+      blueprintKey: null,
+      iLevel,
+      quality: 0,
+      rarity: "standard",
+      ascension: "none",
+      rng: () => r.next(),
+      allocateId: () => `equip-${nextId++}`,
+    });
+    return { ...p, fittedToShipId: null, fittedToMemberId: wearer };
+  }
+
+  // A well-geared two-member Science party on an arid body at a mineral outcrop: both geologists (a spec
+  // match each), each wearing an iLevel 15 Field Suit and an iLevel 15 Core Drill (tuned to arid).
+  function gearedParty(): GameState {
+    return withRoster(
+      [SEC(), SCI({ spec: "geology" }), member("member-3", "science", { spec: "geology" })],
+      [
+        real("memberArmor", "fieldSuit", 15, "member-2", 11),
+        real("memberTool", "coreDrill", 15, "member-2", 13),
+        real("memberArmor", "fieldSuit", 15, "member-3", 17),
+        real("memberTool", "coreDrill", 15, "member-3", 19),
+      ]
+    );
+  }
+  // The bare party (one member, a spec that does not favor the outcrop): only the crew layer counts.
+  const bare = (): GameState => withRoster([SEC(), SCI({ spec: "cryptography" })]);
+  const yieldAt = (state: GameState, scienceStrength: number): number =>
+    fieldworkEffect(exp(state, [], { scienceStrength }), "arid", "mineralOutcrop").yieldMult - 1;
+
+  it("a tier-2 explorer's ~225 Science strength is comparable to a well-geared party, not several times it", () => {
+    const crew = yieldAt(bare(), 225);
+    const party = yieldAt(gearedParty(), 0);
+    // Before D23 the crew alone was +112.5% (225 * 0.01 * 0.5), about 1.7x this party's raw +65%.
+    expect(crew).toBeLessThan(0.7);
+    expect(crew / party).toBeGreaterThan(0.8);
+    expect(crew / party).toBeLessThan(1.25);
+  });
+
+  it("the party's gear and specs still clearly matter with that crew on top", () => {
+    const crew = yieldAt(bare(), 225);
+    const both = yieldAt(gearedParty(), 225);
+    const party = yieldAt(gearedParty(), 0);
+    expect(both).toBeGreaterThan(crew);
+    // The party keeps most of its value on top of the crew (about 80% at these knees).
+    expect(both - crew).toBeGreaterThan(0.7 * party);
+  });
+
+  it("small bonuses lose little: a total of +30% or less keeps over 90% of its value", () => {
+    // Two spec matches: a raw +30% from the party alone.
+    const s = withRoster([SEC(), SCI({ spec: "geology" }), member("member-3", "science", { spec: "geology" })]);
+    const two = fieldworkEffect(exp(s, []), "volcanic", "mineralOutcrop").yieldMult - 1;
+    expect(two).toBeGreaterThan(0.9 * 0.3);
+    expect(two).toBeLessThan(0.3);
+    // A small crew (20 strength): a raw +10% keeps over 90% too.
+    expect(yieldAt(bare(), 20)).toBeGreaterThan(0.9 * 0.1);
+  });
+
+  it("NO cap: more Science strength always means more yield, each step worth less than the last", () => {
+    let prev = yieldAt(bare(), 0);
+    let prevStep = Number.POSITIVE_INFINITY;
+    expect(prev).toBe(0);
+    for (let strength = 50; strength <= 5000; strength += 50) {
+      const v = yieldAt(bare(), strength);
+      expect(v - prev).toBeGreaterThan(0);
+      expect(v - prev).toBeLessThan(prevStep);
+      prevStep = v - prev;
+      prev = v;
+    }
+    // It keeps going: a huge crew is many times the haul, and a bigger one is bigger still.
+    expect(yieldAt(bare(), 1e5)).toBeGreaterThan(5);
+    expect(yieldAt(bare(), 1e7)).toBeGreaterThan(yieldAt(bare(), 1e5));
+  });
+
+  it("stacking everything diminishes too, but is never capped", () => {
+    const big = withRoster(
+      [SEC(), SCI({ spec: "geology" })],
+      [piece("equip-940", "implant", "synapticAccelerator", "member-2", { groundFieldwork: 5000 })]
+    );
+    const raw = FIELDWORK_YIELD_PER_BUMP * 5000 * GEAR_POINT_BUMP.fieldwork + SPEC_POI_YIELD;
+    const eff = fieldworkEffect(exp(big, []), "arid", "mineralOutcrop");
+    expect(eff.yieldMult - 1).toBeLessThan(raw);
+    expect(eff.yieldMult - 1).toBeCloseTo(diminishing(raw, FIELDWORK_YIELD_KNEE), 12);
+    expect(eff.yieldMult).toBeGreaterThan(5);
+    // The 3x speed pacing guard is unchanged.
+    expect(eff.speedMult).toBe(FIELDWORK_SPEED_MAX_MULT);
+  });
+
+  it("the crew layer's curve also shapes the pace (F is shared), below the 3x guard", () => {
+    const eff = fieldworkEffect(exp(bare(), [], { scienceStrength: 225 }), "arid", "mineralOutcrop");
+    expect(eff.speedMult).toBeCloseTo(1 + FIELDWORK_SPEED_PER_BUMP * diminishing(2.25, CREW_FIELDWORK_KNEE), 12);
+    expect(eff.speedMult).toBeLessThan(1 + FIELDWORK_SPEED_PER_BUMP * 2.25);
+  });
+
+  it("is pure math: the same stored run gives the same effect and the same resolved finding", () => {
+    const s = gearedParty();
+    const b = body("arid", ["mineralOutcrop"]);
+    const e = exp(s, [b], { scienceStrength: 225 });
+    expect(fieldworkEffect(e, "arid", "mineralOutcrop")).toEqual(fieldworkEffect(e, "arid", "mineralOutcrop"));
+    expect(resolveExpeditionActivity(e, b, b.activities[0], 0)).toEqual(resolveExpeditionActivity(e, b, b.activities[0], 0));
+  });
+});
+
+// ============================================================================
+describe("fieldworkSpeedMult: the one speed reader", () => {
+  it("equals fieldworkEffect's speedMult at every PoI, and drives activityDurationSeconds", () => {
+    const s = withRoster(
+      [SEC(), SCI({ spec: "geology" })],
+      [piece("equip-945", "memberTool", "coreDrill", "member-2", { groundFieldwork: 30 })]
+    );
+    for (const pt of ["arid", "ocean"] as const) {
+      const e = exp(s, [body(pt, ["mineralOutcrop"])], { scienceStrength: 80 });
+      const speed = fieldworkSpeedMult(e, pt);
+      for (const poi of POI_CATALOG) expect(fieldworkEffect(e, pt, poi.id).speedMult).toBe(speed);
+      expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
+    }
+    // The tuned Core Drill counts on arid only.
+    expect(fieldworkSpeedMult(exp(s, [], { scienceStrength: 80 }), "arid")).toBeGreaterThan(
+      fieldworkSpeedMult(exp(s, [], { scienceStrength: 80 }), "ocean")
+    );
+  });
+
+  it("is exactly 1 without a Science party", () => {
+    const s = withRoster([SEC()]);
+    expect(fieldworkSpeedMult(exp(s, [], { scienceStrength: 225 }), "arid")).toBe(1);
+    expect(fieldworkSpeedMult(exp(s, [], { roster: undefined, scienceStrength: 225 }), "arid")).toBe(1);
   });
 });
 

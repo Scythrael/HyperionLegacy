@@ -381,6 +381,7 @@ describe("PARITY: one big offline window == many small live ticks", () => {
     };
   }
 
+  // 40,000 single-tick steps: slow on a loaded machine, so an explicit budget over the 5 s default.
   it("the expedition is byte-identical whether resolved in one jump or stepped per tick", () => {
     const base = dispatch(freshState()).next;
 
@@ -398,7 +399,7 @@ describe("PARITY: one big offline window == many small live ticks", () => {
     // And the run was non-trivial: it reached complete with findings.
     expect(big.expeditions[0].phase).toBe("complete");
     expect(big.expeditions[0].findings.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });
 
 // ============================================================================
