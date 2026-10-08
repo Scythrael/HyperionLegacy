@@ -19,8 +19,8 @@
 // x / (1 + x / knee) (bounded by the knee: a hard cap in disguise, which D23 rules out).
 // Scale-free: diminishing(c x, c knee) == c diminishing(x, knee), so a knee is stated in the input's unit.
 //
-// Computed as 2x / (sqrt(1 + 2x / knee) + 1), the same value without the cancellation the subtraction
-// suffers for a tiny x. PURE: no state, no random draw, so offline == live holds by construction.
+// Computed as x / ((sqrt(1 + 2x / knee) + 1) / 2), the same value without the cancellation the subtraction
+// suffers for a tiny x (and no 2x overflow for a huge one). PURE: no state, no random draw, so offline == live holds by construction.
 // Existing asymptotic curves (model.ts, utilityGear.ts) are a balance-pass review item, not changed here.
 
 export function diminishing(x: number, knee: number): number {
@@ -29,5 +29,8 @@ export function diminishing(x: number, knee: number): number {
   }
   if (!(x > 0)) return 0; // also 0 for NaN
   if (x === Number.POSITIVE_INFINITY) return x; // unbounded: infinity stays infinity (the form below is NaN)
-  return (2 * x) / (Math.sqrt(1 + (2 * x) / knee) + 1);
+  const r = x / knee;
+  // Far edge: 2r overflows, so use the asymptote sqrt(2 knee x) (never NaN, never 0, still rising).
+  if (!Number.isFinite(2 * r)) return Math.sqrt(2 * knee) * Math.sqrt(x);
+  return x / ((Math.sqrt(1 + 2 * r) + 1) / 2);
 }

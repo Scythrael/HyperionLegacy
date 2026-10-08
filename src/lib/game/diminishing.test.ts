@@ -78,4 +78,15 @@ describe("diminishing (D23: unbounded, concave, no cap)", () => {
     expect(() => diminishing(1, Number.NaN)).toThrow(RangeError);
     expect(() => diminishing(1, Number.POSITIVE_INFINITY)).toThrow(RangeError);
   });
+
+  it("stays finite, positive and rising at the far numeric edges (no overflow to NaN or 0)", () => {
+    const big = [1e300, 1e308, Number.MAX_VALUE];
+    for (const x of big) {
+      const v = diminishing(x, 2);
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThan(0);
+    }
+    expect(diminishing(1e308, 2)).toBeGreaterThan(diminishing(1e300, 2));
+    expect(diminishing(1e300, 1e-10)).toBeGreaterThan(diminishing(1e290, 1e-10));
+  });
 });

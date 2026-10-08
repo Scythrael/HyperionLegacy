@@ -553,7 +553,7 @@ describe("D23 diminishing returns: the crew layer and the total yield bonus (Tas
   it("a tier-2 explorer's ~225 Science strength is comparable to a well-geared party, not several times it", () => {
     const crew = yieldAt(bare(), 225);
     const party = yieldAt(gearedParty(), 0);
-    // Before D23 the crew alone was +112.5% (225 * 0.01 * 0.5), about 1.7x this party's raw +65%.
+    // Before D23 the crew alone was +112.5% (225 * 0.01 * 0.5), about 1.7x this party's raw +66%.
     expect(crew).toBeLessThan(0.7);
     expect(crew / party).toBeGreaterThan(0.8);
     expect(crew / party).toBeLessThan(1.25);
