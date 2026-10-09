@@ -677,6 +677,17 @@ repair, eight expedition runs + claims). Bonus descriptions in seniorStaffBonuse
 (data only; no UI renders them). OPEN: the dispatch forecast + Battle Rating readouts (App.svelte, shipRoster,
 ShipSystemsPanel) still build the combatant WITHOUT officers (pessimistic); direct reads skip the museum crewBonuses
 amp (Tasks 14/16 precedent); D24's "freeze medical factors at dispatch" is still a live read at claim (Ground Ops).
+**Task 20 review fixes (2026-10-09):** officer evasion now ADDS to the combatant's evasion (`applyOfficerCombat`,
+exported) so a future maneuver stat is never overwritten. Command Presence keeps whole amounts whole: a boosted
+amount that was an integer before Task 20 is rounded with salvage.ts `chanceRound` on a PRIVATE keyed stream (patrol:
+per wave, `deriveWaveSeed(masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT)`, materials in roll order then the
+bounty; missions: per delivered cycle, keyed on captain id + the new optional `CaptainMissionState.outputRoundCursor`
+(stamped only while the bonus is live) + the delivered cargo). Amounts that were ALREADY fractional before Task 20
+(any yield bonus makes an extraction haul fractional; a crew-boosted hold makes a transport margin fractional) are
+scaled exactly. Big == small patrol and mission parity are exact again. **Balance pass:** weapon damage is rounded per
+weapon, so a low-damage weapon (damage 1 or 4) gains nothing from +10% Weapons Command; and direct officer reads
+(combat, repair, output, triage, Fear, encounter evasion, injuries) skip the museum crewBonuses amp while the crew-map
+halves (Inspiring Leader's ship stats, Veteran Instincts' unload, Discovery Instinct) get it (user call pending).
 
 ### Task 21: Officer stat facets
 

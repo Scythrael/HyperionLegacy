@@ -33,10 +33,11 @@ import {
   installMissingCombatBaselines,
   processShipRepairs,
   shipRepairDurationTicks,
+  tickCaptainMission,
   tickCaptainPatrol,
 } from "./tick";
 import { replayPatrol } from "./combat/patrolReplay";
-import { foldedPlayerDefense, shipToCombatant, combatHullTypeOf } from "./combat/bridge";
+import { applyOfficerCombat, foldedPlayerDefense, shipToCombatant, combatHullTypeOf } from "./combat/bridge";
 import { equippedFor } from "./equipment";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import {
@@ -276,6 +277,13 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
     expect(patrolOf(r.next).playerShield).toBe(c.shieldMax);
   });
 
+  it("officer evasion ADDS to whatever evasion the combatant already has (never overwrites it)", () => {
+    const c = combatantOf(destroyer([]));
+    c.evasion = 5; // a future maneuver stat
+    applyOfficerCombat(c, { weaponDamage: 0, shield: 0, hull: 0, evasion: 0.1 });
+    expect(c.evasion).toBe(15);
+  });
+
   it("Evasive Command gives the ship whole evasion points (0.1 -> 10)", () => {
     expect(combatantOf(destroyer([])).evasion).toBe(0);
     expect(combatantOf(destroyer([officerWith("pilot.evasion")])).evasion).toBe(10);
@@ -371,13 +379,21 @@ describe("ship-battle bonuses (Weapons, Shield, Evasive Command; Inspiring Leade
     const big = tickCaptainPatrol(600, captain, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
     let c = captain;
     let credits = 0;
+    const loot: Record<string, Decimal> = {};
     for (let i = 0; i < 600; i++) {
       const step = tickCaptainPatrol(1, c, ship, 1e9, 0, 1e9, 1, gear, 1, effects);
       c = step.captain;
       credits += step.creditsDelta;
+      for (const [k, v] of Object.entries(step.homePlanetDelta)) loot[k] = (loot[k] ?? new Decimal(0)).plus(v);
     }
     expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
-    expect(credits).toBeCloseTo(big.creditsDelta, 9);
+    // Whole-unit rewards (Command Presence rounds per wave on a keyed stream), so the sums match EXACTLY.
+    expect(big.creditsDelta).toBeGreaterThan(0);
+    expect(credits).toBe(big.creditsDelta);
+    for (const [k, v] of Object.entries(big.homePlanetDelta)) {
+      expect(Number.isInteger(v.toNumber()), k).toBe(true);
+      expect((loot[k] ?? new Decimal(0)).toNumber(), k).toBe(v.toNumber());
+    }
   });
 });
 
@@ -459,33 +475,85 @@ describe("Shipyard repair (Rapid Recovery, Veteran Instincts)", () => {
 describe("Command Presence (mission output)", () => {
   const xo = () => [officerWith("xo.commandOutput")];
 
-  it("grows a run's delivered haul and credits by the share", () => {
+  // Each delivered cycle (or won wave) rounds its boosted amounts back to WHOLE units with chanceRound on a
+  // private keyed stream, so over C deliveries a total sits within C units of the exact x1.06.
+  const isWhole = (d: Decimal): boolean => Number.isInteger(d.toNumber());
+
+  it("grows a run's delivered haul and credits by the share, keeping whole amounts whole", () => {
     const N = 700;
     const plain = runTicks(missionState("shortOreRun"), N, lcg(7));
     const boosted = runTicks(missionState("shortOreRun", xo()), N, lcg(7));
     const s = missionState("shortOreRun", xo());
     expect(officerMissionOutputBonus(s, s.ships[0])).toBeCloseTo(0.06, 12);
+    const cycles = plain.lifetimeStats.missionsCompleted.shortOreRun.toNumber();
+    expect(cycles).toBeGreaterThan(0);
+    let grew = false;
     for (const key of Object.keys(plain.inventory)) {
       const a = itemTotal(plain.inventory, key);
       const b = itemTotal(boosted.inventory, key);
-      if (a.gt(0)) expect(b.toNumber()).toBeCloseTo(a.toNumber() * 1.06, 6);
+      expect(isWhole(a) && isWhole(b), key).toBe(true);
+      expect(Math.abs(b.toNumber() - a.toNumber() * 1.06), key).toBeLessThanOrEqual(cycles);
+      if (b.gt(a)) grew = true;
     }
+    expect(grew).toBe(true);
     const earnedPlain = plain.credits.minus(1_000_000).toNumber();
     const earnedBoosted = boosted.credits.minus(1_000_000).toNumber();
     expect(earnedPlain).toBeGreaterThan(0);
-    expect(earnedBoosted).toBeCloseTo(earnedPlain * 1.06, 6);
+    expect(Number.isInteger(earnedBoosted)).toBe(true);
+    expect(Math.abs(earnedBoosted - earnedPlain * 1.06)).toBeLessThanOrEqual(cycles);
+    // Deterministic: the same run twice lands on the same totals (the rounding stream is keyed, not shared).
+    expect(JSON.stringify(runTicks(missionState("shortOreRun", xo()), N, lcg(7)).inventory)).toBe(JSON.stringify(boosted.inventory));
+  });
+
+  it("closed form: one big mission advance equals many small ones with the output bonus", () => {
+    const captain = missionState("shortOreRun").captains[0];
+    const stats = effectiveShipStats(freshState(), freshState().ships[0]);
+    const bonuses = { missionOutputMult: 0.06 };
+    const big = tickCaptainMission(1000, captain, lcg(3), bonuses, stats);
+    let c = captain;
+    const rng = lcg(3);
+    let credits = 0;
+    const loot: Record<string, Decimal> = {};
+    for (let i = 0; i < 1000; i++) {
+      const step = tickCaptainMission(1, c, rng, bonuses, stats);
+      c = step.captain;
+      credits += step.creditsDelta;
+      for (const [k, v] of Object.entries(step.homePlanetDelta)) loot[k] = (loot[k] ?? new Decimal(0)).plus(v);
+    }
+    expect(big.creditsDelta).toBeGreaterThan(0);
+    expect(credits).toBe(big.creditsDelta);
+    for (const [k, v] of Object.entries(big.homePlanetDelta)) expect((loot[k] ?? new Decimal(0)).toNumber(), k).toBe(v.toNumber());
+    expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
+    expect((big.captain.mission as { outputRoundCursor?: number }).outputRoundCursor).toBeGreaterThan(0);
+  });
+
+  it("an amount that was ALREADY fractional (a yield bonus) is scaled exactly, not rounded", () => {
+    // Breakthrough Analysis (+10% yield) makes every extracting tick deliver a fractional amount, so the
+    // haul was fractional before Task 20 too: Command Presence then scales it exactly.
+    const yieldOfficer = officerWith("sci.yieldSurge", "science", "officer-2");
+    const N = 700;
+    const plain = runTicks(missionState("shortOreRun", [yieldOfficer]), N, lcg(7));
+    const boosted = runTicks(missionState("shortOreRun", [yieldOfficer, ...xo()]), N, lcg(7));
+    const a = itemTotal(plain.inventory, "commonOre");
+    expect(isWhole(a)).toBe(false);
+    expect(itemTotal(boosted.inventory, "commonOre").toNumber()).toBeCloseTo(a.toNumber() * 1.06, 6);
   });
 
   it("grows a transport run's net margin", () => {
     const N = 700;
     const plain = runTicks(missionState("frontierSupplyRun"), N, lcg(9));
     const boosted = runTicks(missionState("frontierSupplyRun", xo()), N, lcg(9));
+    const cycles = plain.lifetimeStats.missionsCompleted.frontierSupplyRun.toNumber();
     const earnedPlain = plain.credits.minus(1_000_000).toNumber();
+    const earnedBoosted = boosted.credits.minus(1_000_000).toNumber();
     expect(earnedPlain).toBeGreaterThan(0);
-    expect(boosted.credits.minus(1_000_000).toNumber()).toBeCloseTo(earnedPlain * 1.06, 6);
+    expect(Number.isInteger(earnedPlain)).toBe(true);
+    expect(Number.isInteger(earnedBoosted)).toBe(true);
+    expect(earnedBoosted).toBeGreaterThan(earnedPlain);
+    expect(Math.abs(earnedBoosted - earnedPlain * 1.06)).toBeLessThanOrEqual(cycles);
   });
 
-  it("grows a patrol's loot and bounty", () => {
+  it("grows a patrol's loot and bounty, in whole units", () => {
     const run = (officers: SeniorStaffOfficer[]) => {
       let s = dispatchCaptainOnPatrol(patrolState("destroyer", officers), 1, "crimsonReaverSweep", "balanced", false).next;
       for (let i = 0; i < 400; i++) s = economyTick(s, 1, () => 0.5);
@@ -493,9 +561,14 @@ describe("Command Presence (mission output)", () => {
     };
     const plain = run([]);
     const boosted = run(xo());
+    const waves = 3; // a non-repeat crimsonReaverSweep route fights at most 3 waves
     const earned = plain.credits.minus(100000).toNumber();
+    const earnedBoosted = boosted.credits.minus(100000).toNumber();
     expect(earned).toBeGreaterThan(0);
-    expect(boosted.credits.minus(100000).toNumber()).toBeCloseTo(earned * 1.06, 6);
+    expect(Number.isInteger(earnedBoosted)).toBe(true);
+    expect(earnedBoosted).toBeGreaterThan(earned);
+    expect(Math.abs(earnedBoosted - earned * 1.06)).toBeLessThanOrEqual(waves);
+    for (const key of Object.keys(boosted.inventory)) expect(isWhole(itemTotal(boosted.inventory, key)), key).toBe(true);
   });
 });
 

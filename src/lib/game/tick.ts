@@ -220,6 +220,7 @@ import { exceedsFreeSalvageUnits, isDuplicateSalvageTarget, salvageOrderUnits } 
 // evaluator. It reads state, draws NO rng and returns targets only; the enqueue and the
 // depth budget stay here, in autoSalvageOrders below.
 import {
+  chanceRound,
   salvageEquipment,
   salvageSalvagedMaterial,
   salvageShip,
@@ -252,6 +253,7 @@ import {
   WAVE_ENEMY_SEED_SALT,
   WAVE_BATTLE_SEED_SALT,
   WAVE_LOOT_SEED_SALT,
+  WAVE_OUTPUT_ROUNDING_SEED_SALT,
   RELAUNCH_SEED_SALT,
 } from "./combat/waveSeed";
 import type { CombatStance } from "./combat/positioning";
@@ -1732,6 +1734,27 @@ function rollBonusExtractionTick(
   return emptyLootTotals(); // all three missed, the bonus roll produces nothing this tick
 }
 
+// E-CREW 0.14.0 (Task 20 review): the PRIVATE stream that rounds one delivered cycle's Command Presence
+// boost back to whole units (salvage.ts chanceRound, the 0.13.9 salvage precedent). Keyed on the captain,
+// the run's outputRoundCursor (one step per delivered cycle, so cycles never share a roll) and the cycle's
+// delivered cargo, all fixed the instant the cycle completes however the time is chunked, so offline ==
+// live. It never draws from (or shifts) the shared economy rng. FNV-1a over the key, then the salt.
+const MISSION_OUTPUT_ROUNDING_SALT = 0x2f6b4a8d;
+function missionOutputRoundingStream(
+  captainId: number,
+  cursor: number,
+  cargo: Record<LootMaterialKey, Decimal>,
+): () => number {
+  const key = `${captainId}|${cursor}|${cargo.commonOre.toString()}|${cargo.uncommonMaterial.toString()}|${cargo.rareMaterial.toString()}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  const stream = makeRng((h ^ MISSION_OUTPUT_ROUNDING_SALT) >>> 0);
+  return () => stream.next();
+}
+
 // MUST be closed-form: calling this once with a large ticksElapsed must
 // produce the same result as calling it many times with a small ticksElapsed
 // summing to the same total. Generalized from "one continuous quantity
@@ -2083,8 +2106,16 @@ export function tickCaptainMission(
   // E-CREW 0.14.0 (Task 20): Command Presence's output share, a CALL-CONSTANT like the bonuses above (it is
   // read off the ship's seated officers by economyTick, which never reseats mid-call), applied at each
   // delivered cycle to the haul and to the cycle's credit award. 0 (the default) skips both multiplies.
+  // An amount that was a WHOLE number before the bonus stays whole: it is rounded with chanceRound on the
+  // cycle's PRIVATE stream (missionOutputRoundingStream, keyed on the captain, the run's cycle cursor and
+  // the delivered cargo; never the shared economy rng). An amount that was ALREADY fractional (any yield
+  // bonus makes the haul fractional, and a crew-boosted hold makes a transport margin fractional) is
+  // scaled exactly, as fractional amounts always were.
   const outputShare = Math.max(0, bonuses.missionOutputMult ?? 0);
-  const outputCredits = (credits: number): number => (outputShare === 0 ? credits : credits * (1 + outputShare));
+  const boostAmount = (amount: number, round: () => number): number => {
+    const scaled = amount * (1 + outputShare);
+    return Number.isInteger(amount) ? chanceRound(scaled, round) : scaled;
+  };
 
   // Computed ONCE per call, not per roll, bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
@@ -2230,6 +2261,9 @@ export function tickCaptainMission(
         // ship-adjusted def, which preserves lootTable unchanged (effectiveMissionDef
         // only rescales transit/cargo geometry).
         const loot = missionDef.lootTable;
+        // E-CREW (Task 20): this cycle's private output-rounding stream (only minted with Command Presence).
+        const round = outputShare === 0 ? null : missionOutputRoundingStream(captain.id, mission.outputRoundCursor ?? 0, cargo);
+        const outputCredits = (credits: number): number => (round === null ? credits : boostAmount(credits, round));
         // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
         // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
         // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
@@ -2239,7 +2273,11 @@ export function tickCaptainMission(
         // E-CREW (Task 20): Command Presence grows the delivered haul by `outputShare` (0 -> the cargo as-is,
         // no multiply at all, so a ship without the officer delivers byte-identically).
         if (missionDef.missionType !== "transport") {
-          const delivered = (amount: Decimal): Decimal => (outputShare === 0 ? amount : amount.times(1 + outputShare));
+          const delivered = (amount: Decimal): Decimal => {
+            if (round === null) return amount;
+            const n = amount.toNumber();
+            return Number.isInteger(n) ? new Decimal(boostAmount(n, round)) : amount.times(1 + outputShare);
+          };
           homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(delivered(cargo.commonOre));
           homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(delivered(cargo.uncommonMaterial));
           homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(delivered(cargo.rareMaterial));
@@ -2323,6 +2361,9 @@ export function tickCaptainMission(
             }
           }
           if (startNextCycle) {
+            // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
+            const prevCursor: number | undefined = mission!.outputRoundCursor;
+            const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -2331,6 +2372,7 @@ export function tickCaptainMission(
               cargo: emptyLootTotals(),
               recalled: false,
               refuelDelayTicks,
+              ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
             };
           }
         }
@@ -3046,13 +3088,16 @@ export function tickCaptainPatrol(
         // per itemId, exactly the shape tickCaptainMission builds for its homePlanetDelta.
         // E-CREW (Task 20): Command Presence grows THIS wave's loot + bounty (XP is not "output"). Per wave,
         // so a big call and many small ones scale the identical amounts; 0 skips the multiply entirely.
+        // Every amount stays a WHOLE unit: the boosted value is rounded with chanceRound on this wave's PRIVATE
+        // output-rounding stream (WAVE_OUTPUT_ROUNDING_SEED_SALT; materials in roll order, then the bounty).
+        const outputRng =
+          patrolOutputShare === 0 ? null : makeRng(deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT));
+        const boosted = (amount: number): number =>
+          outputRng === null ? amount : chanceRound(amount * (1 + patrolOutputShare), () => outputRng.next());
         for (const itemId of Object.keys(loot.materials)) {
-          const qty = new Decimal(loot.materials[itemId]);
-          lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(
-            patrolOutputShare === 0 ? loot.materials[itemId] : qty.times(1 + patrolOutputShare),
-          );
+          lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(boosted(loot.materials[itemId]));
         }
-        creditsAwarded += patrolOutputShare === 0 ? loot.credits : loot.credits * (1 + patrolOutputShare);
+        creditsAwarded += boosted(loot.credits);
         fleetAdminXpAwarded += loot.fleetAdminXp;
         captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).

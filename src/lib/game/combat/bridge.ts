@@ -709,10 +709,11 @@ export interface ShipToCombatantArgs {
 // (the combatant is fresh per call; scaled weapons are replaced with COPIES, so a caller's explicit
 // weaponLoadout is never mutated). Integer at the fold like every pool above: each weapon's damage band,
 // the shield pool + recharge and the hull pool are scaled by (1 + bonus) and ROUNDED; evasion becomes whole evasion points (0.1 -> 10, the integer percent
-// resolveBattle subtracts from a shot's accuracy). A zero bonus skips its stat entirely, so absent or
+// resolveBattle subtracts from a shot's accuracy), ADDED to whatever evasion the combatant already carries
+// (0 today; a future maneuver stat must never be overwritten). A zero bonus skips its stat entirely, so absent or
 // all-zero mods leave every number byte-identical. Linear, not a curve: each bonus has ONE source seat per
 // ship (Tactical / Pilot) plus the rare any-seat Inspiring Leader, so nothing here stacks without bound.
-function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undefined): void {
+export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undefined): void {
 	if (!mods) return;
 	if (mods.weaponDamage !== 0) {
 		const mult = 1 + mods.weaponDamage;
@@ -731,7 +732,7 @@ function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undefined): 
 		c.hullMax = Math.max(1, Math.round(c.hullMax * (1 + mods.hull)));
 		c.hull = c.hullMax;
 	}
-	if (mods.evasion !== 0) c.evasion = Math.max(0, Math.round(mods.evasion * 100));
+	if (mods.evasion !== 0) c.evasion = Math.max(0, c.evasion + Math.round(mods.evasion * 100));
 }
 
 // ---------------------------------------------------------------------------

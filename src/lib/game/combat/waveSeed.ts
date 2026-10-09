@@ -104,3 +104,10 @@ export const RELAUNCH_SEED_SALT = 0x27d4eb2f;
 // and tripled a magic literal. 0x165667b1 is xxHash's PRIME32_5, an odd 32-bit constant not
 // used anywhere in the mixer, so no term can cancel for any waveIndex.
 export const WAVE_LOOT_SEED_SALT = 0x165667b1; // xxHash PRIME32_5: odd, distinct from the 3 salts AND from every deriveWaveSeed/fmix32 constant
+
+// E-CREW 0.14.0 (Task 20 review): the OUTPUT-ROUNDING salt. Command Presence grows a won wave's loot + bounty
+// by a fraction; each boosted amount is rounded back to WHOLE units with salvage.ts chanceRound, drawing
+// from deriveWaveSeed(masterSeed, waveIndex, WAVE_OUTPUT_ROUNDING_SEED_SALT), a PRIVATE per-wave stream,
+// so no shared stream (and no other wave stream) moves. Only read when the bonus is non-zero. An odd
+// constant (murmur3's fmix64 multiplier, low word) distinct from every salt above and every mixer constant.
+export const WAVE_OUTPUT_ROUNDING_SEED_SALT = 0x51ed270b;

@@ -2419,6 +2419,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // squadFearResist are optional and ABSENT MEANS NO OFFICER BONUS (dispatch writes them only when
   // non-zero). An in-flight patrol from an older save fights its current cycle without the bonuses and
   // freezes the seated officers at its next relaunch; an in-flight expedition finishes without them.
+  // CaptainMissionState.outputRoundCursor (Task 20 review) is optional too: absent reads as 0 and it is
+  // written only while Command Presence is live.
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

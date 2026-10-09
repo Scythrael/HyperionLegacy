@@ -2924,6 +2924,12 @@ export interface CaptainMissionState {
   // OPTIONAL so pre-F3 saves (whose in-flight missions predate the field) rehydrate as absent
   // and are read as 0 (`?? 0`), no migration needed; a fresh cycle always sets it explicitly.
   refuelDelayTicks?: number;
+  // E-CREW 0.14.0 (Task 20 review): how many cycles of THIS run delivered under Command Presence. It keys
+  // the PRIVATE rounding stream that keeps a whole delivery whole (tick.ts tickCaptainMission), so no two
+  // cycles of a run share a rounding roll and no shared stream is touched. Stamped and carried forward
+  // ONLY while the bonus is non-zero, so a run without the officer never writes it (byte-identical; no
+  // SAVE_VERSION bump, absent reads as 0).
+  outputRoundCursor?: number;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
