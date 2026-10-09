@@ -613,6 +613,26 @@ unique conflict is skipped with a reason; cap shared with ship loadouts.
 Tests: candidate stats deterministic; existing bonus picks for a fixed seed: document the change in the test;
 promotion raises stats; migration gives the same stats for the same save every time.
 
+**Carry from Task 19 (built 2026-10-09):** SAVE_VERSION 66 (`MIGRATIONS[65]` re-rolls officers whose stats are
+missing or deep-equal neutral, keyed `officerStatSeed(seniorStaffSeed, id)`; the v64 -> v65 step now runs the real
+roll through the same call, so straight v64 -> v66 == v65-stub -> v66, tested). seniorStaff.ts exports
+`OFFICER_STAT_KEYS` (draw order + promotion tie-break), `OFFICER_STAT_ROLL_MAX` (20),
+`OFFICER_PROMOTION_STAT_POINTS` / `_STATS_RAISED` (2 / 2), `officerStats(officer)` (THE reader: absent = neutral;
+Task 21 facets must read through it), `isNeutralOfficerStats`, `applyPromotionStatPoints`, and
+`OFFICER_STAT_INFO` (label / abbr / facet / effect text, for the Task 34 Help topic). `rollOfficerStats(seed, rank)`
+= a cadet line plus one promotion bump per rank step. Candidate stats are drawn from the CANDIDATE rng after the
+bonus picks (not from officerStatSeed); hire copies them. `promoteOfficer` leaves a stats-less officer stats-less
+(so the v66 stub check still recognizes it). Weighted picks: `SeniorStaffBonusDef.rollTier` + seniorStaffBonuses.ts
+`OFFICER_BONUS_TIER_WEIGHTS` / `bonusRollWeight`, tiers from the mockup section 7 "Roll" column (common: Ace
+Navigator, Logistics Mastery, Cargo Optimization, Breakthrough Analysis, Range Mastery; rare: Discovery Instinct,
+Command Presence, Veteran Instincts; very rare: Inspiring Leader; the rest uncommon); still one draw per pick, so
+seat / race / identity rolls are byte-identical (pinned for seed 12345). UI: SeniorStaffPanel stat bars (mockup 7b,
+bar = value / 20, midline tick at 10) + compact STR/INT/CUN/CON chips on candidate and available rows, every label a
+HelpTip chip; the stat tooltips describe the Task 21 facets per department, so they read as promises until Task 21
+lands. **For Task 21:** the panel's display-only `SEAT_DEPARTMENT` + `CUNNING_EDGE` maps should be replaced by (or
+derived from) `officerStats.ts DEPARTMENT_OF_SEAT`; design section 7 names no Cunning over-delivery for Flight Deck,
+so the panel shows the generic line there (needs a call). Promoted stats can exceed 20 (max 28); the bar just fills.
+
 ### Task 20: Officer bonuses go live
 
 **Files:** `src/lib/game/crewOverlay.ts` (`OFFICER_STATKEY_TO_CREW` ~79), `src/lib/game/combat/bridge.ts`

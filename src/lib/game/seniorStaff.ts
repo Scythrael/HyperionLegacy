@@ -34,7 +34,8 @@ import type {
   OfficerStats,
 } from "./model";
 import { SENIOR_STAFF_ROSTER_BASE } from "./model";
-import { seniorStaffBonusesForSeat, getSeniorStaffBonusById } from "./seniorStaffBonuses";
+import { seniorStaffBonusesForSeat, getSeniorStaffBonusById, bonusRollWeight } from "./seniorStaffBonuses";
+import type { SeniorStaffBonusDef } from "./seniorStaffBonuses";
 import { CREW_RACES, CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { makeRng } from "./combat/rng";
@@ -223,7 +224,8 @@ function strengthenBonus(bonus: OfficerBonus, fromRank: OfficerRank, toRank: Off
   return { id: bonus.id, magnitude: bonus.magnitude * ratio };
 }
 
-// Promote an officer one rank up, strengthening both bonuses a step. Returns a NEW officer; the
+// Promote an officer one rank up, strengthening both bonuses a step and adding promotion points to
+// its two highest stats (E-CREW Task 19). Returns a NEW officer; the
 // input is never mutated. A no-op FRESH COPY when the objective checklist is not met (or already at the
 // top), so callers can always treat the result as the officer's current state. Pure.
 export function promoteOfficer(officer: SeniorStaffOfficer): SeniorStaffOfficer {
@@ -242,6 +244,10 @@ export function promoteOfficer(officer: SeniorStaffOfficer): SeniorStaffOfficer 
       strengthenBonus(officer.bonuses[0], officer.rank, next),
       strengthenBonus(officer.bonuses[1], officer.rank, next),
     ],
+    // E-CREW Task 19: promotion points (+2 on the two highest stats). An officer WITHOUT stats keeps
+    // none: readers already treat that as neutral, and the load migration fills it, so materializing a
+    // "promoted neutral" line here would only stop the v65 -> v66 re-roll from recognizing the stub.
+    ...(officer.stats ? { stats: applyPromotionStatPoints(officer.stats) } : {}),
   };
 }
 
@@ -279,12 +285,100 @@ export function officerStatSeed(baseSeed: number, officerId: string): number {
   return h >>> 0;
 }
 
-// Roll an officer's four stats from its stat seed and rank. STUB (E-CREW Task 2): returns a fresh copy
-// of NEUTRAL_OFFICER_STATS for every input, which keeps the v64->v65 backfill behavior-neutral while the
-// field is dormant. Task 19 replaces this body with the real seeded roll (1..20 plus promotion points);
-// the signature is final, so the migration and its callers will not change.
-export function rollOfficerStats(_seed: number, _rank: OfficerRank): OfficerStats {
-  return { ...NEUTRAL_OFFICER_STATS };
+// The four stat keys in their FIXED order. The order is load-bearing twice: it is the draw order of a
+// stat roll (strength first), and it is the tie-break when a promotion picks the two highest stats.
+export const OFFICER_STAT_KEYS: readonly (keyof OfficerStats)[] = ["strength", "integrity", "cunning", "constitution"];
+
+// A fresh stat rolls 1..OFFICER_STAT_ROLL_MAX (design section 7, mockup 7b). FIRST-PASS + TUNABLE.
+export const OFFICER_STAT_ROLL_MAX = 20;
+
+// Player-facing naming for the four stats (US English): the display label, a short abbreviation for
+// compact rows, the one-word facet (mockup 7b subtitle), and what it does for the department the officer
+// heads (design section 7; the consumers land in Task 21). Shared by the Senior Staff panel tooltips and
+// the coming Help topic so the wording lives in one place.
+export const OFFICER_STAT_INFO: Readonly<
+  Record<keyof OfficerStats, { label: string; abbr: string; facet: string; effect: string }>
+> = {
+  strength: {
+    label: "Strength",
+    abbr: "STR",
+    facet: "How hard the department works",
+    effect: "A stronger head makes every crew buff in the department stronger.",
+  },
+  integrity: {
+    label: "Integrity",
+    abbr: "INT",
+    facet: "Bravery",
+    effect:
+      "Steady under fire: when the ship drops below half hull in a battle or patrol, the department's crew buffs get a boost for holding firm.",
+  },
+  cunning: {
+    label: "Cunning",
+    abbr: "CUN",
+    facet: "Finds the edge",
+    effect: "Each mission, a chance for the department to over-deliver.",
+  },
+  constitution: {
+    label: "Constitution",
+    abbr: "CON",
+    facet: "Endurance",
+    effect:
+      "The department's crew buffs grow the longer an expedition or patrol runs (up to a cap), and turnaround after returning is shorter.",
+  },
+};
+
+// Each promotion adds OFFICER_PROMOTION_STAT_POINTS to the officer's OFFICER_PROMOTION_STATS_RAISED
+// highest stats (plan Task 19, first-pass), so the Cadet -> Commander climb grows the stats as well as
+// the two bonuses. Four promotions take a 20 to 28 at most. FIRST-PASS + TUNABLE.
+export const OFFICER_PROMOTION_STAT_POINTS = 2;
+export const OFFICER_PROMOTION_STATS_RAISED = 2;
+
+// An officer's stats, falling back to the NEUTRAL line when the officer carries none (an old fixture,
+// or a save between the v65 stub and the v66 re-roll). Every reader goes through here so "no stats"
+// always means "neutral", never "zero". Returns a fresh copy. Pure.
+export function officerStats(officer: SeniorStaffOfficer): OfficerStats {
+  return { ...(officer.stats ?? NEUTRAL_OFFICER_STATS) };
+}
+
+// True when a stat line is exactly the neutral 10/10/10/10 (the Task 2 stub's output). The v65 -> v66
+// migration re-rolls such a line; a genuine all-10 roll is vanishingly rare and harmless to re-roll
+// because the re-roll is deterministic. Pure.
+export function isNeutralOfficerStats(stats: OfficerStats): boolean {
+  return OFFICER_STAT_KEYS.every((k) => stats[k] === NEUTRAL_OFFICER_STATS[k]);
+}
+
+// Draw one fresh stat line from `rng`: four `1 + nextInt(OFFICER_STAT_ROLL_MAX)` draws in
+// OFFICER_STAT_KEYS order. Exactly FOUR draws, always, so a caller that appends this to an existing
+// stream knows how far it advances.
+function drawOfficerStatLine(rng: { nextInt(maxExclusive: number): number }): OfficerStats {
+  const strength = 1 + rng.nextInt(OFFICER_STAT_ROLL_MAX);
+  const integrity = 1 + rng.nextInt(OFFICER_STAT_ROLL_MAX);
+  const cunning = 1 + rng.nextInt(OFFICER_STAT_ROLL_MAX);
+  const constitution = 1 + rng.nextInt(OFFICER_STAT_ROLL_MAX);
+  return { strength, integrity, cunning, constitution };
+}
+
+// One promotion's stat growth: OFFICER_PROMOTION_STAT_POINTS onto the OFFICER_PROMOTION_STATS_RAISED
+// highest stats, ties broken in OFFICER_STAT_KEYS order (a stable sort keeps the key order among equal
+// values). Returns a NEW stat line; the input is never mutated. Pure.
+export function applyPromotionStatPoints(stats: OfficerStats): OfficerStats {
+  const ranked = [...OFFICER_STAT_KEYS].sort((a, b) => stats[b] - stats[a]);
+  const next: OfficerStats = { ...stats };
+  for (const k of ranked.slice(0, OFFICER_PROMOTION_STATS_RAISED)) next[k] += OFFICER_PROMOTION_STAT_POINTS;
+  return next;
+}
+
+// Roll an officer's four stats from its stat seed and rank (E-CREW Task 19; it replaced the Task 2
+// neutral stub behind the same signature). A cadet-level line (four 1..20 draws from makeRng(seed)),
+// then one applyPromotionStatPoints per rank step above cadet, so an officer that predates stats gets
+// the line a cadet hired with this roll and promoted to its rank would carry. Used by the save
+// migrations (keyed on officerStatSeed(seniorStaffSeed, officer id)); a NEWLY hired officer instead
+// keeps the stats its candidate rolled (rollCandidate). An unknown rank reads as cadet. Pure.
+export function rollOfficerStats(seed: number, rank: OfficerRank): OfficerStats {
+  let stats = drawOfficerStatLine(makeRng(seed >>> 0));
+  const steps = Math.max(0, OFFICER_RANK_ORDER.indexOf(rank));
+  for (let i = 0; i < steps; i += 1) stats = applyPromotionStatPoints(stats);
+  return stats;
 }
 
 // ============================================================================
@@ -324,7 +418,8 @@ function candidateId(windowIndex: number, slot: number): string {
 // Roll ONE fully-formed candidate officer for (windowIndex, slot): a rolled seat-type, an inclusive
 // identity (name/gender via generateCrewIdentity), a race (its strong racial is inherited via
 // `race`), cadet rank, and TWO distinct seat-appropriate bonuses (the seat's own pool + the "any"
-// sweeping bonuses) scaled to the cadet tier. No rarity (rarity is complement-only). Deterministic
+// sweeping bonuses, weighted by roll tier) scaled to the cadet tier, plus a rolled 1..20 stat line.
+// No officer rarity tier (rarity is complement-only; the roll tiers are odds only). Deterministic
 // in (baseSeed, windowIndex, slot). Pure.
 function rollCandidate(baseSeed: number, windowIndex: number, slot: number): SeniorStaffOfficer {
   const seed = candidateSeed(baseSeed, windowIndex, slot);
@@ -334,15 +429,22 @@ function rollCandidate(baseSeed: number, windowIndex: number, slot: number): Sen
   const race: CrewRace = CREW_RACE_IDS[rng.nextInt(CREW_RACE_IDS.length)];
 
   // Two DISTINCT bonuses from the seat's rollable pool (>= 4 entries: 2 seat-specific + 2 "any").
+  // E-CREW Task 19 (S4-C03): each pick is WEIGHTED by the bonus's roll tier (common 6 .. very rare 1),
+  // replacing the old uniform pick. Still exactly ONE draw per pick, so the draw count (and the stat
+  // draws appended below) is unchanged. This changes which bonuses FUTURE board candidates show (the
+  // board is ephemeral), never a hired officer's stored bonuses.
   const pool = seniorStaffBonusesForSeat(seat);
-  const i1 = rng.nextInt(pool.length);
-  let i2 = rng.nextInt(pool.length - 1);
-  if (i2 >= i1) i2 += 1; // shift past i1 so the second pick is always different
+  const i1 = pickWeightedBonusIndex(pool, rng, -1);
+  const i2 = pickWeightedBonusIndex(pool, rng, i1); // excludes i1, so the second pick always differs
   const cadetFactor = officerRankMagnitudeFactor("cadet");
   const bonuses: [OfficerBonus, OfficerBonus] = [
     { id: pool[i1].id, magnitude: pool[i1].magnitude * cadetFactor },
     { id: pool[i2].id, magnitude: pool[i2].magnitude * cadetFactor },
   ];
+
+  // E-CREW Task 19: the four stat draws come AFTER every existing draw (seat, race, both bonus picks),
+  // so appending them could not move any earlier roll. Never insert a draw above this line.
+  const stats = drawOfficerStatLine(rng);
 
   // Identity draws from a SEPARATE rng instance inside generateCrewIdentity, so it never perturbs
   // the seat/race/bonus rolls above. Seed it with the same per-candidate seed for reproducibility.
@@ -358,7 +460,29 @@ function rollCandidate(baseSeed: number, windowIndex: number, slot: number): Sen
     bonuses,
     missionsCompleted: 0,
     assignedShipId: null,
+    stats,
   };
+}
+
+// One WEIGHTED pick from a bonus pool (E-CREW Task 19): a single `rng.nextInt(totalWeight)` draw walked
+// across the pool's roll weights, skipping `excludeIndex` (pass -1 to exclude nothing). The weights are
+// positive integers, so the odds are exact and the pick costs exactly one draw, like the uniform pick it
+// replaced. Pure apart from advancing `rng`.
+function pickWeightedBonusIndex(
+  pool: readonly SeniorStaffBonusDef[],
+  rng: { nextInt(maxExclusive: number): number },
+  excludeIndex: number,
+): number {
+  let total = 0;
+  for (let i = 0; i < pool.length; i += 1) if (i !== excludeIndex) total += bonusRollWeight(pool[i]);
+  let r = rng.nextInt(total);
+  for (let i = 0; i < pool.length; i += 1) {
+    if (i === excludeIndex) continue;
+    r -= bonusRollWeight(pool[i]);
+    if (r < 0) return i;
+  }
+  // Unreachable with positive weights; keep the types total.
+  return excludeIndex === pool.length - 1 ? pool.length - 2 : pool.length - 1;
 }
 
 // The current candidate roster: `seniorStaffRosterSize` fully-rolled candidates, deterministic from
@@ -382,7 +506,7 @@ export function seniorStaffCandidates(state: GameState): SeniorStaffOfficer[] {
 
 // Hire a candidate from the CURRENT roster into GameState.officers. The candidate is re-ided to a
 // real officer id ("officer-N" from nextOfficerId, mirroring nextShipId), starts UNASSIGNED
-// (assignedShipId null), and keeps its rolled seat/identity/rank/bonuses. Refuses (returns the
+// (assignedShipId null), and keeps its rolled seat/identity/rank/bonuses/stats. Refuses (returns the
 // state unchanged) if no candidate with `candidateId` is in the current roster. Pure.
 export function hireOfficer(state: GameState, candidateIdToHire: string): GameState {
   const candidate = seniorStaffCandidates(state).find((c) => c.id === candidateIdToHire);
@@ -392,6 +516,9 @@ export function hireOfficer(state: GameState, candidateIdToHire: string): GameSt
     id: `officer-${state.nextOfficerId}`,
     assignedShipId: null,
     bonuses: [{ ...candidate.bonuses[0] }, { ...candidate.bonuses[1] }],
+    // E-CREW Task 19: the officer keeps the stats its candidate rolled (a copy, never shared), so no
+    // hired officer is ever missing them.
+    stats: officerStats(candidate),
   };
   return {
     ...state,

@@ -6081,10 +6081,11 @@ export interface SeniorStaffOfficer {
   // no field-level migration. Pure UI/curation flag; nothing mechanical reads it.
   favorite?: boolean;
   // E-CREW (D13, design section 7): the officer's four stats, each a FACET of the department the
-  // officer heads (they act on the ship + on-ship crew only, never ground teams). OPTIONAL only so
-  // existing fixtures and freshly rolled candidates still compile while the field is DORMANT: the
-  // v64->v65 migration (save.ts) fills it on load via seniorStaff.ts rollOfficerStats, which is a
-  // neutral stub until Task 19 lands the real roll. Nothing reads it yet.
+  // officer heads (they act on the ship + on-ship crew only, never ground teams). Rolled 1..20 per stat
+  // on the candidate board and copied on hire; each promotion adds points (E-CREW Task 19). OPTIONAL
+  // only so old fixtures still compile: the v64->v65 + v65->v66 migrations (save.ts) fill it on load via
+  // seniorStaff.ts rollOfficerStats, and readers go through seniorStaff.ts officerStats, which reads an
+  // absent value as the neutral line. The facets that consume it land in Task 21.
   stats?: OfficerStats;
 }
 
@@ -6147,8 +6148,8 @@ export interface AwayMember {
 }
 
 // An officer's four stats (D13, design section 7). Each is a FACET of the department the officer
-// heads and acts on the ship + on-ship crew only, never on ground teams. Rolled per officer (Task 19);
-// until then the migration backfills the neutral value (seniorStaff.ts NEUTRAL_OFFICER_STATS).
+// heads and acts on the ship + on-ship crew only, never on ground teams. Rolled per officer (Task 19,
+// seniorStaff.ts); 10 is the neutral point (NEUTRAL_OFFICER_STATS).
 export interface OfficerStats {
   strength: number;
   integrity: number;

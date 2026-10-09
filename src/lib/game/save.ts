@@ -7,9 +7,10 @@ import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
 import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
-// (a neutral stub until Task 19). One-way import: seniorStaff.ts is a pure leaf over model.ts and
-// never imports save.ts.
-import { officerStatSeed, rollOfficerStats } from "./seniorStaff";
+// (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
+// stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
+// model.ts and never imports save.ts.
+import { officerStatSeed, rollOfficerStats, isNeutralOfficerStats } from "./seniorStaff";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -44,7 +45,7 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 
-export const SAVE_VERSION = 65;
+export const SAVE_VERSION = 66;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2366,9 +2367,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // freshState uses, so a fresh save and a migrated save land on the identical value), the Armory squad
   // loadouts (empty) + their id counter (1), and each Senior Staff officer's `stats`. The recruit board
   // itself is derived, never stored, so it needs no backfill. The officer stats come from
-  // rollOfficerStats keyed on (seniorStaffSeed, officer id): today that is a stub returning the NEUTRAL
-  // line, so this step is behavior-neutral (and nothing reads stats yet); Task 19 swaps in the real roll
-  // behind the same call. Plain values only (no Decimals), so hydrateDecimals is unchanged. Idempotent:
+  // rollOfficerStats keyed on (seniorStaffSeed, officer id): until Task 19 that was a stub returning the
+  // NEUTRAL line; since Task 19 it is the real seeded roll behind the same call (and v65 -> v66 below
+  // re-rolls any stub line a pre-Task-19 load stamped). Plain values only (no Decimals), so hydrateDecimals is unchanged. Idempotent:
   // `??` only fills an absent field and an officer that already carries stats keeps them.
   // E-CREW Tasks 12 + 13 add NOTHING here, on purpose: AwayMember.gambit is optional and ABSENT MEANS the
   // built-in DEFAULT_MEMBER_GAMBIT (D19, user 2026-10-06; it superseded the design section 10 line that
@@ -2399,6 +2400,28 @@ const MIGRATIONS: Record<number, Migration> = {
           ? o
           : { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, String(o.id ?? "")), o.rank) },
       ),
+    };
+  },
+  // v65 -> v66 (0.14.0 E-CREW Task 19): the officer stat roll went LIVE. Any save that loaded at v65
+  // before Task 19 got the NEUTRAL 10/10/10/10 stub from the v64 -> v65 step, and an officer hired on a
+  // v65 build before Task 19 carries no stats at all (hireOfficer did not set them yet). Re-roll every
+  // officer whose stats are MISSING or deep-equal the neutral line, through the SAME rollOfficerStats
+  // keyed on (seniorStaffSeed, officer id) the v64 -> v65 step now uses, so a stub-era save lands on
+  // exactly the stats a save going straight v64 -> v66 gets. A genuine all-10 roll is vanishingly rare
+  // and harmless to re-roll (deterministic, so it re-rolls to itself on the straight path too). An
+  // officer with a real line (hired after Task 19, which copies the candidate's roll) keeps it. Plain
+  // numbers only (no Decimals). Idempotent: a re-rolled line is never neutral in practice, and a second
+  // pass over a neutral line would produce the identical roll anyway. Hardened like v64 -> v65: a
+  // non-array officers field reads as empty and a malformed entry passes through untouched.
+  65: (state: any): any => {
+    const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
+    return {
+      ...state,
+      officers: (Array.isArray(state.officers) ? state.officers : []).map((o: any) => {
+        if (!o || typeof o !== "object") return o;
+        const stub = !o.stats || typeof o.stats !== "object" || isNeutralOfficerStats(o.stats);
+        return stub ? { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, String(o.id ?? "")), o.rank) } : o;
+      }),
     };
   },
 };

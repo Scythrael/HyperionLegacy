@@ -21,19 +21,27 @@
   //     no separate mobile/desktop markup.
   //
   // SCOPE (phase 4a): the 7 typed bridge seats, a filled seat's officer detail (rank ladder,
-  // provided stats, the objective-gated promotion checklist, Reassign / Dismiss), and an
+  // provided stats, the four officer stat bars (E-CREW Task 19), the objective-gated promotion
+  // checklist, Reassign / Dismiss), and an
   // empty seat's fill options (already-hired unassigned officers of that seat type -> Assign,
   // plus the deterministic candidate roster filtered to that seat -> Hire). Complement + the
   // Stats/rosters/prestige surfaces are OTHER phases.
   // ============================================================================
 
   import ActionModal from "./ActionModal.svelte";
-  import type { GameState, SeniorStaffOfficer, SeniorStaffSeat, OfficerBonus, OfficerRank } from "./game/model";
+  import HelpTip from "./HelpTip.svelte";
+  import type { GameState, SeniorStaffOfficer, SeniorStaffSeat, OfficerBonus, OfficerRank, OfficerStats } from "./game/model";
   import {
     SENIOR_STAFF_SEATS,
     OFFICER_RANK_ORDER,
+    OFFICER_STAT_KEYS,
+    OFFICER_STAT_INFO,
+    OFFICER_STAT_ROLL_MAX,
+    OFFICER_PROMOTION_STAT_POINTS,
+    NEUTRAL_OFFICER_STATS,
     officerRankLabel,
     officerInSeat,
+    officerStats,
     seniorStaffCandidates,
     canPromoteOfficer,
     officerPromotionObjectives,
@@ -91,6 +99,29 @@
     tactical: "Tactical",
     medical: "Medical",
     engineering: "Engineering",
+  };
+
+  // E-CREW Task 19 (D13, mockup 7b): each officer HEADS a department, and its four stats are facets of
+  // how that department performs aboard the ship. Display-only naming for the stat tooltips; the
+  // engine mapping (officerStats.ts DEPARTMENT_OF_SEAT) lands with the facets in Task 21. The XO touches
+  // every department at a smaller share.
+  const SEAT_DEPARTMENT: Record<SeniorStaffSeat, string> = {
+    executive: "every department",
+    pilot: "Flight Deck",
+    operations: "Operations",
+    science: "Science",
+    tactical: "Security",
+    medical: "Medical",
+    engineering: "Engineering",
+  };
+  // What a Cunning over-delivery looks like per department (design section 7). Flight Deck and the XO
+  // have no single named effect, so they read the generic line.
+  const CUNNING_EDGE: Partial<Record<SeniorStaffSeat, string>> = {
+    science: "a bonus rare-find roll",
+    operations: "bonus cargo",
+    engineering: "a free repair tick",
+    tactical: "a softened enemy ambush",
+    medical: "a quicker recovery",
   };
 
   // --- Derived reads ----------------------------------------------------------
@@ -158,6 +189,37 @@
     const spaced = bare.replace(/([a-z])([A-Z])/g, "$1 $2");
     return spaced.charAt(0).toUpperCase() + spaced.slice(1);
   }
+  // The four stat rows for an officer (readers fall back to the neutral line when it carries none).
+  // `pct` is the bar fill against the 1..20 roll range; promotions can push a stat past 20, which simply
+  // fills the bar.
+  function statRows(
+    officer: SeniorStaffOfficer,
+  ): { key: keyof OfficerStats; label: string; abbr: string; value: number; pct: number; tip: string }[] {
+    const stats = officerStats(officer);
+    return OFFICER_STAT_KEYS.map((key) => ({
+      key,
+      label: OFFICER_STAT_INFO[key].label,
+      abbr: OFFICER_STAT_INFO[key].abbr,
+      value: stats[key],
+      pct: Math.max(0, Math.min(100, (stats[key] / OFFICER_STAT_ROLL_MAX) * 100)),
+      tip: statTip(key, officer.seat),
+    }));
+  }
+  // One stat's tooltip, worded for the department this officer heads.
+  function statTip(key: keyof OfficerStats, seat: SeniorStaffSeat): string {
+    const info = OFFICER_STAT_INFO[key];
+    const dept = SEAT_DEPARTMENT[seat];
+    const who = seat === "executive" ? "every department, at a smaller share" : `the ${dept} department`;
+    const edge = key === "cunning" && CUNNING_EDGE[seat] ? ` For ${dept}, that means ${CUNNING_EDGE[seat]}.` : "";
+    const facet = info.facet.charAt(0).toLowerCase() + info.facet.slice(1);
+    return `${info.label}: ${facet}. Applies to ${who}. ${info.effect}${edge} ${NEUTRAL_OFFICER_STATS[key]} is average.`;
+  }
+  // The block-level explainer behind the Stats "?".
+  const STATS_TIP =
+    "Each officer heads a department, and these four stats shape how that department performs aboard the ship. " +
+    `They roll 1 to ${OFFICER_STAT_ROLL_MAX} when the candidate appears, and each promotion adds ${OFFICER_PROMOTION_STAT_POINTS} to the two highest. ` +
+    "Officer stats never affect away teams on a planet.";
+
   // Where a rank sits on the ladder relative to the officer's current rank:
   // "done" (already reached), "current" (the officer's rank now), "future" (not yet).
   function rankState(rank: OfficerRank, current: OfficerRank): "done" | "current" | "future" {
@@ -279,11 +341,32 @@
             </div>
           </div>
 
+          <!-- OFFICER STATS (E-CREW Task 19, mockup 7b). Each label explains itself on hover / tap /
+               keyboard focus (the shared HelpTip, chip mode); the "?" explains the block. -->
+          <div class="sstaff-block">
+            <div class="sstaff-block-tag sstaff-tag-row">
+              <span>Stats</span>
+              <HelpTip label="Officer stats" text={STATS_TIP} />
+            </div>
+            <div class="sstaff-bars">
+              {#each statRows(officer) as row (row.key)}
+                <div class="sstaff-bar-row">
+                  <HelpTip label={row.label} text={row.tip}><span class="sstaff-bar-label">{row.label}</span></HelpTip>
+                  <div class="sstaff-bar" aria-hidden="true">
+                    <i style="width:{row.pct}%"></i>
+                    <span class="sstaff-bar-mid"></span>
+                  </div>
+                  <span class="sstaff-bar-val">{row.value}</span>
+                </div>
+              {/each}
+            </div>
+          </div>
+
           <!-- PROMOTION CHECKLIST -->
           <div class="sstaff-block">
             <div class="sstaff-block-tag">Promotion</div>
             {#if atTopRank}
-              <div class="sstaff-toprank">Commander — highest rank reached.</div>
+              <div class="sstaff-toprank">Commander: highest rank reached.</div>
             {:else}
               <div class="sstaff-objectives">
                 {#each promotionRows as row}
@@ -332,6 +415,13 @@
                         <span class="sstaff-chip">{row.label} {row.pct}</span>
                       {/each}
                     </div>
+                    <div class="sstaff-cand-stats">
+                      {#each statRows(officer) as row (row.key)}
+                        <HelpTip label={row.label} text={row.tip}
+                          ><span class="sstaff-stat-chip">{row.abbr} <b>{row.value}</b></span></HelpTip
+                        >
+                      {/each}
+                    </div>
                   </div>
                   <button type="button" class="sstaff-btn primary" on:click={() => onAssign(officer.id, shipId)}>
                     Assign
@@ -356,6 +446,13 @@
                     <div class="sstaff-cand-bonuses">
                       {#each bonusRows(candidate) as row}
                         <span class="sstaff-chip">{row.label} {row.pct}</span>
+                      {/each}
+                    </div>
+                    <div class="sstaff-cand-stats">
+                      {#each statRows(candidate) as row (row.key)}
+                        <HelpTip label={row.label} text={row.tip}
+                          ><span class="sstaff-stat-chip">{row.abbr} <b>{row.value}</b></span></HelpTip
+                        >
                       {/each}
                     </div>
                   </div>
@@ -632,6 +729,73 @@
   }
   .sstaff-stat-row.racial .sstaff-stat-val {
     color: var(--color-accent-bright);
+  }
+
+  /* OFFICER STATS (E-CREW Task 19): label | bar | value, the mockup 7b layout. The faint tick at the
+     bar's midpoint marks 10, the average roll. */
+  .sstaff-tag-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sstaff-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .sstaff-bar-row {
+    display: grid;
+    grid-template-columns: minmax(84px, 110px) 1fr 28px;
+    gap: 9px;
+    align-items: center;
+    font-size: var(--text-xs);
+  }
+  .sstaff-bar-label {
+    color: var(--color-text-secondary);
+    border-bottom: 1px dotted rgba(var(--color-accent-rgb), 0.45);
+  }
+  .sstaff-bar {
+    position: relative;
+    height: 7px;
+    border-radius: 4px;
+    background: rgba(var(--color-accent-rgb), 0.1);
+    overflow: hidden;
+  }
+  .sstaff-bar i {
+    display: block;
+    height: 100%;
+    background: var(--color-accent);
+  }
+  .sstaff-bar-mid {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: rgba(var(--color-accent-rgb), 0.45);
+  }
+  .sstaff-bar-val {
+    font-family: var(--font-mono);
+    color: var(--color-text-primary);
+    text-align: right;
+  }
+  .sstaff-cand-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .sstaff-stat-chip {
+    font-family: var(--font-mono);
+    font-size: calc(9px * var(--ui-scale));
+    padding: 1px 5px;
+    border-radius: var(--corner);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.18);
+    color: var(--color-text-dim);
+  }
+  .sstaff-stat-chip b {
+    color: var(--color-text-primary);
+    font-weight: 600;
   }
 
   /* PROMOTION */

@@ -547,6 +547,6 @@ describe("save: the Task 16 fields are optional and round-trip with no SAVE_VERS
     expect(loaded.awayMembers.find((m) => m.id === "member-1")).toMatchObject({ injuredUntilSeconds: 9000, injuredAtSeconds: 1800 });
     const exp = loaded.expeditions.find((e) => e.id === done.id)!;
     expect(expeditionDownedMemberIds(exp)).toEqual(expeditionDownedMemberIds(done));
-    expect(SAVE_VERSION).toBe(65);
+    expect(SAVE_VERSION).toBe(66);
   });
 });

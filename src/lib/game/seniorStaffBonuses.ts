@@ -21,42 +21,65 @@ export interface SeniorStaffBonusDef {
   statKey: string; // the ship-level effect this touches (own broader vocabulary than the crew buffs)
   magnitude: number; // FIRST-PASS base (Ensign-tier) magnitude; the officer engine scales by rank
   description: string; // flavor / intent (US English)
+  // E-CREW Task 19 (S4-C03, "some officer skills roll FAR RARER than others"): how often the candidate
+  // board rolls this bonus. The tiers are the Crew Made Real mockup's section 7 "Roll" column and the
+  // weights are OFFICER_BONUS_TIER_WEIGHTS. This is ROLL ODDS only, not an officer rarity tier (officers
+  // stay rarity-free; rarity is complement-only).
+  rollTier: OfficerBonusRollTier;
+}
+
+// How often a bonus rolls on the candidate board (E-CREW Task 19). FIRST-PASS + TUNABLE.
+export type OfficerBonusRollTier = "common" | "uncommon" | "rare" | "veryRare";
+
+// The relative weight of each roll tier (FIRST-PASS + TUNABLE, from the mockup table): a common bonus is
+// six times as likely as a very rare one in the same pool. Every weight is a positive integer so the
+// weighted pick stays a single integer draw (seniorStaff.ts pickWeightedBonusIndex).
+export const OFFICER_BONUS_TIER_WEIGHTS: Readonly<Record<OfficerBonusRollTier, number>> = {
+  common: 6,
+  uncommon: 3,
+  rare: 2,
+  veryRare: 1,
+};
+
+// A bonus's roll weight (its tier's weight). Pure reader.
+export function bonusRollWeight(def: SeniorStaffBonusDef): number {
+  return OFFICER_BONUS_TIER_WEIGHTS[def.rollTier];
 }
 
 // The catalog. Larger unique effects than the complement pools; grouped by seat here for reading,
 // exported as one flat array. Ids are seat-prefixed to stay globally unique.
 export const SENIOR_STAFF_BONUSES: SeniorStaffBonusDef[] = [
   // Executive Officer: fleet-wide command multipliers.
-  { id: "xo.commandOutput", label: "Command Presence", seat: "executive", statKey: "officer.shipOutputMult", magnitude: 0.06, description: "Lifts the ship's overall crew output while this officer sits the XO seat." },
-  { id: "xo.moraleAnchor", label: "Morale Anchor", seat: "executive", statKey: "officer.crewRetention", magnitude: 0.08, description: "Steadies the complement, cutting attrition across every division." },
+  { id: "xo.commandOutput", label: "Command Presence", seat: "executive", statKey: "officer.shipOutputMult", magnitude: 0.06, rollTier: "rare", description: "Lifts the ship's overall crew output while this officer sits the XO seat." },
+  { id: "xo.moraleAnchor", label: "Morale Anchor", seat: "executive", statKey: "officer.crewRetention", magnitude: 0.08, rollTier: "uncommon", description: "Steadies the complement, cutting attrition across every division." },
 
   // Pilot: transit and evasion.
-  { id: "pilot.transitCut", label: "Ace Navigator", seat: "pilot", statKey: "officer.transitTimeCut", magnitude: 0.08, description: "Shaves a sweeping cut off both legs of a mission's transit." },
-  { id: "pilot.evasion", label: "Evasive Command", seat: "pilot", statKey: "officer.evasion", magnitude: 0.1, description: "A large evasion edge in combat and hazardous transits." },
+  { id: "pilot.transitCut", label: "Ace Navigator", seat: "pilot", statKey: "officer.transitTimeCut", magnitude: 0.08, rollTier: "common", description: "Shaves a sweeping cut off both legs of a mission's transit." },
+  { id: "pilot.evasion", label: "Evasive Command", seat: "pilot", statKey: "officer.evasion", magnitude: 0.1, rollTier: "uncommon", description: "A large evasion edge in combat and hazardous transits." },
 
   // Operations: logistics and cargo.
-  { id: "ops.unloadSurge", label: "Logistics Mastery", seat: "operations", statKey: "officer.unloadTimeCut", magnitude: 0.1, description: "A big cut to homeworld unload time for the whole ship." },
-  { id: "ops.cargoExpand", label: "Cargo Optimization", seat: "operations", statKey: "officer.effectiveCargoMult", magnitude: 0.08, description: "Meaningfully raises the ship's effective cargo capacity." },
+  { id: "ops.unloadSurge", label: "Logistics Mastery", seat: "operations", statKey: "officer.unloadTimeCut", magnitude: 0.1, rollTier: "common", description: "A big cut to homeworld unload time for the whole ship." },
+  { id: "ops.cargoExpand", label: "Cargo Optimization", seat: "operations", statKey: "officer.effectiveCargoMult", magnitude: 0.08, rollTier: "common", description: "Meaningfully raises the ship's effective cargo capacity." },
 
   // Science: yield and discovery.
-  { id: "sci.yieldSurge", label: "Breakthrough Analysis", seat: "science", statKey: "officer.extractionYieldMult", magnitude: 0.1, description: "A sweeping lift to extraction yield across all missions." },
-  { id: "sci.discovery", label: "Discovery Instinct", seat: "science", statKey: "officer.rareFindMult", magnitude: 0.12, description: "A large boost to rare-find and discovery chance." },
+  { id: "sci.yieldSurge", label: "Breakthrough Analysis", seat: "science", statKey: "officer.extractionYieldMult", magnitude: 0.1, rollTier: "common", description: "A sweeping lift to extraction yield across all missions." },
+  { id: "sci.discovery", label: "Discovery Instinct", seat: "science", statKey: "officer.rareFindMult", magnitude: 0.12, rollTier: "rare", description: "A large boost to rare-find and discovery chance." },
 
   // Tactical: combat power.
-  { id: "tac.weaponCommand", label: "Weapons Command", seat: "tactical", statKey: "officer.weaponEffectivenessMult", magnitude: 0.1, description: "A sweeping lift to installed-weapon effectiveness in battle." },
-  { id: "tac.shieldCommand", label: "Shield Command", seat: "tactical", statKey: "officer.shieldEffectivenessMult", magnitude: 0.1, description: "A sweeping lift to shield effectiveness in battle." },
+  { id: "tac.weaponCommand", label: "Weapons Command", seat: "tactical", statKey: "officer.weaponEffectivenessMult", magnitude: 0.1, rollTier: "uncommon", description: "A sweeping lift to installed-weapon effectiveness in battle." },
+  { id: "tac.shieldCommand", label: "Shield Command", seat: "tactical", statKey: "officer.shieldEffectivenessMult", magnitude: 0.1, rollTier: "uncommon", description: "A sweeping lift to shield effectiveness in battle." },
 
   // Medical: crew survival.
-  { id: "med.fleetTriage", label: "Fleet Triage", seat: "medical", statKey: "officer.crewLossPrevention", magnitude: 0.15, description: "A large chance to prevent crew losses ship-wide." },
-  { id: "med.recovery", label: "Rapid Recovery", seat: "medical", statKey: "officer.repairRateMult", magnitude: 0.1, description: "Speeds hull and crew recovery between deployments." },
+  { id: "med.fleetTriage", label: "Fleet Triage", seat: "medical", statKey: "officer.crewLossPrevention", magnitude: 0.15, rollTier: "uncommon", description: "A large chance to prevent crew losses ship-wide." },
+  { id: "med.recovery", label: "Rapid Recovery", seat: "medical", statKey: "officer.repairRateMult", magnitude: 0.1, rollTier: "uncommon", description: "Speeds hull and crew recovery between deployments." },
 
   // Engineering: efficiency and repair.
-  { id: "eng.overdrive", label: "Reactor Overdrive", seat: "engineering", statKey: "officer.powerEfficiencyMult", magnitude: 0.1, description: "A sweeping power-efficiency lift for the whole ship." },
-  { id: "eng.rangeMaster", label: "Range Mastery", seat: "engineering", statKey: "officer.rangeMult", magnitude: 0.1, description: "A large lift to the ship's effective range." },
+  { id: "eng.overdrive", label: "Reactor Overdrive", seat: "engineering", statKey: "officer.powerEfficiencyMult", magnitude: 0.1, rollTier: "uncommon", description: "A sweeping power-efficiency lift for the whole ship." },
+  { id: "eng.rangeMaster", label: "Range Mastery", seat: "engineering", statKey: "officer.rangeMult", magnitude: 0.1, rollTier: "common", description: "A large lift to the ship's effective range." },
 
   // Any-seat sweeping bonuses (seat-agnostic, rarer flavor).
-  { id: "any.inspiringLeader", label: "Inspiring Leader", seat: "any", statKey: "officer.allStatsMult", magnitude: 0.04, description: "A small lift to every ship stat, regardless of seat." },
-  { id: "any.veteranInstincts", label: "Veteran Instincts", seat: "any", statKey: "officer.missionTurnaroundCut", magnitude: 0.06, description: "A sweeping cut to overall mission turnaround." },
+  { id: "any.inspiringLeader", label: "Inspiring Leader", seat: "any", statKey: "officer.allStatsMult", magnitude: 0.04, rollTier: "veryRare", description: "A small lift to every ship stat, regardless of seat." },
+  { id: "any.veteranInstincts", label: "Veteran Instincts", seat: "any", statKey: "officer.missionTurnaroundCut", magnitude: 0.06, rollTier: "rare", description: "A sweeping cut to overall mission turnaround." },
 ];
 
 // Every bonus rollable for a given seat: the seat's own bonuses plus the seat-agnostic "any" ones.

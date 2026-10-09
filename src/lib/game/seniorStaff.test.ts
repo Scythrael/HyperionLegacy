@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from "vitest";
 import { freshState, SENIOR_STAFF_ROSTER_BASE } from "./model";
-import type { GameState, SeniorStaffOfficer } from "./model";
+import type { GameState, SeniorStaffOfficer, OfficerStats } from "./model";
 import {
   SENIOR_STAFF_SEATS,
   OFFICER_RANK_ORDER,
@@ -33,8 +33,13 @@ import {
   NEUTRAL_OFFICER_STATS,
   officerStatSeed,
   rollOfficerStats,
+  officerStats,
+  OFFICER_STAT_KEYS,
+  OFFICER_STAT_ROLL_MAX,
+  OFFICER_PROMOTION_STAT_POINTS,
+  applyPromotionStatPoints,
 } from "./seniorStaff";
-import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
+import { getSeniorStaffBonusById, seniorStaffBonusesForSeat, bonusRollWeight } from "./seniorStaffBonuses";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -547,12 +552,192 @@ describe("officerStatSeed / rollOfficerStats (E-CREW data model)", () => {
     expect(officerStatSeed(1, "officer-1")).not.toBe(officerStatSeed(2, "officer-1"));
   });
 
-  it("the stub roll returns a fresh copy of the neutral stats for every rank", () => {
+  it("NEUTRAL_OFFICER_STATS is the all-10 line", () => {
     expect(NEUTRAL_OFFICER_STATS).toEqual({ strength: 10, integrity: 10, cunning: 10, constitution: 10 });
-    for (const rank of OFFICER_RANK_ORDER) {
-      const stats = rollOfficerStats(officerStatSeed(7, "officer-1"), rank);
-      expect(stats).toEqual(NEUTRAL_OFFICER_STATS);
-      expect(stats).not.toBe(NEUTRAL_OFFICER_STATS); // a copy, never the shared constant
-    }
   });
 });
+
+// ===== E-CREW Task 19: the real officer stat roll, promotion points, weighted bonus rolls =====
+const statSum = (s: OfficerStats): number => s.strength + s.integrity + s.cunning + s.constitution;
+
+describe("rollOfficerStats (Task 19 real roll)", () => {
+  it("is deterministic in (seed, rank) and returns a fresh object", () => {
+    const seed = officerStatSeed(7, "officer-1");
+    const a = rollOfficerStats(seed, "cadet");
+    const b = rollOfficerStats(seed, "cadet");
+    expect(a).toEqual(b);
+    expect(a).not.toBe(b);
+  });
+
+  it("rolls each cadet stat in 1..20 and is not the neutral stub", () => {
+    let anyNonNeutral = false;
+    for (let i = 1; i <= 50; i += 1) {
+      const s = rollOfficerStats(officerStatSeed(12345, `officer-${i}`), "cadet");
+      for (const k of OFFICER_STAT_KEYS) {
+        expect(Number.isInteger(s[k])).toBe(true);
+        expect(s[k]).toBeGreaterThanOrEqual(1);
+        expect(s[k]).toBeLessThanOrEqual(OFFICER_STAT_ROLL_MAX);
+      }
+      if (JSON.stringify(s) !== JSON.stringify(NEUTRAL_OFFICER_STATS)) anyNonNeutral = true;
+    }
+    expect(anyNonNeutral).toBe(true);
+  });
+
+  it("different officer ids roll different stat lines", () => {
+    const lines = new Set(
+      ["officer-1", "officer-2", "officer-3", "officer-4", "officer-5"].map((id) =>
+        JSON.stringify(rollOfficerStats(officerStatSeed(99, id), "cadet")),
+      ),
+    );
+    expect(lines.size).toBeGreaterThan(1);
+  });
+
+  it("a higher rank carries the promotion points it would have earned from cadet", () => {
+    const seed = officerStatSeed(4242, "officer-3");
+    let expected = rollOfficerStats(seed, "cadet");
+    for (const rank of ["ensign", "lieutenant", "lieutenantCommander", "commander"] as const) {
+      expected = applyPromotionStatPoints(expected);
+      expect(rollOfficerStats(seed, rank)).toEqual(expected);
+    }
+    // Four promotions, each adding the points to two stats.
+    expect(statSum(rollOfficerStats(seed, "commander"))).toBe(
+      statSum(rollOfficerStats(seed, "cadet")) + 4 * 2 * OFFICER_PROMOTION_STAT_POINTS,
+    );
+  });
+
+  it("officerStats falls back to the neutral line for an officer without stats", () => {
+    expect(officerStats(officer())).toEqual(NEUTRAL_OFFICER_STATS);
+    const own = { strength: 3, integrity: 18, cunning: 9, constitution: 12 };
+    expect(officerStats(officer({ stats: own }))).toEqual(own);
+  });
+});
+
+describe("applyPromotionStatPoints", () => {
+  it("adds the promotion points to the two highest stats", () => {
+    const s = { strength: 5, integrity: 17, cunning: 12, constitution: 9 };
+    expect(applyPromotionStatPoints(s)).toEqual({ strength: 5, integrity: 19, cunning: 14, constitution: 9 });
+    expect(s).toEqual({ strength: 5, integrity: 17, cunning: 12, constitution: 9 }); // input untouched
+  });
+
+  it("breaks ties in stat order (strength, integrity, cunning, constitution)", () => {
+    expect(applyPromotionStatPoints({ strength: 10, integrity: 10, cunning: 10, constitution: 10 })).toEqual({
+      strength: 12, integrity: 12, cunning: 10, constitution: 10,
+    });
+    expect(applyPromotionStatPoints({ strength: 4, integrity: 8, cunning: 15, constitution: 8 })).toEqual({
+      strength: 4, integrity: 10, cunning: 17, constitution: 8,
+    });
+  });
+});
+
+describe("promoteOfficer raises stats (Task 19)", () => {
+  const ready = { missionsCompleted: 10, promotionCounters: { crewHours: 50 } };
+
+  it("a promotion adds the promotion points to the officer's two highest stats", () => {
+    const stats = { strength: 6, integrity: 14, cunning: 11, constitution: 15 };
+    const promoted = promoteOfficer(officer({ ...ready, stats }));
+    expect(promoted.rank).toBe("ensign");
+    expect(promoted.stats).toEqual({ strength: 6, integrity: 16, cunning: 11, constitution: 17 });
+    expect(stats).toEqual({ strength: 6, integrity: 14, cunning: 11, constitution: 15 }); // input untouched
+  });
+
+  it("a refused promotion leaves the stats alone", () => {
+    const stats = { strength: 6, integrity: 14, cunning: 11, constitution: 15 };
+    expect(promoteOfficer(officer({ missionsCompleted: 0, stats })).stats).toEqual(stats);
+  });
+
+  it("an officer without stats stays without stats (readers fall back to neutral)", () => {
+    const promoted = promoteOfficer(officer(ready));
+    expect(promoted.rank).toBe("ensign");
+    expect(promoted.stats).toBeUndefined();
+  });
+});
+
+describe("candidate stats + weighted bonus rolls (Task 19)", () => {
+  it("every candidate carries a deterministic 1..20 stat line", () => {
+    const a = seniorStaffCandidates(stateWith({ seed: 777, rosterSize: 12, gameTimeSeconds: 0 }));
+    const b = seniorStaffCandidates(stateWith({ seed: 777, rosterSize: 12, gameTimeSeconds: 0 }));
+    for (let i = 0; i < a.length; i += 1) {
+      const s = a[i].stats!;
+      expect(s).toBeDefined();
+      for (const k of OFFICER_STAT_KEYS) {
+        expect(s[k]).toBeGreaterThanOrEqual(1);
+        expect(s[k]).toBeLessThanOrEqual(OFFICER_STAT_ROLL_MAX);
+      }
+      expect(b[i].stats).toEqual(s);
+    }
+  });
+
+  it("the stat draws come AFTER every existing draw: seat, race and identity are unchanged for a fixed seed", () => {
+    // Captured from the pre-Task-19 engine (seed 12345, window 0). Only the bonus PICKS changed (the
+    // uniform pick became weighted, still one draw each); the seat, race and identity are identical.
+    // Pre-Task-19 bonus picks, for the record: [inspiringLeader, shieldCommand], [inspiringLeader,
+    // veteranInstincts], [weaponCommand, veteranInstincts], [inspiringLeader, transitCut],
+    // [veteranInstincts, evasion], [fleetTriage, inspiringLeader]. Hired officers keep the bonuses
+    // they were hired with; only the ephemeral board rolls differently.
+    const before = [
+      { seat: "tactical", race: "stheni", name: "Kirra Ssovann", gender: "male" },
+      { seat: "pilot", race: "stationBorn", name: "Oscar Mwangi", gender: "nonbinary" },
+      { seat: "tactical", race: "stheni", name: "Kirra Nirriss", gender: "nonbinary" },
+      { seat: "pilot", race: "ossir", name: "Grokk Dragga", gender: "female" },
+      { seat: "pilot", race: "outerColony", name: "Oscar Silva", gender: "female" },
+      { seat: "medical", race: "stationBorn", name: "Rafael Dubois", gender: "male" },
+    ];
+    const now = seniorStaffCandidates(stateWith({ seed: 12345, rosterSize: 6, gameTimeSeconds: 0 }));
+    expect(now.map((c) => ({ seat: c.seat, race: c.race, name: c.name, gender: c.gender }))).toEqual(before);
+    expect(now.map((c) => c.bonuses.map((b) => b.id))).toEqual(WEIGHTED_PICKS_SEED_12345);
+  });
+
+  it("weighted picks: a very rare bonus rolls far less often than a common one", () => {
+    // Pilot pool: Ace Navigator (common 6), Evasive Command (uncommon 3), Veteran Instincts (rare 2),
+    // Inspiring Leader (very rare 1). Count first + second picks across many windows.
+    const counts: Record<string, number> = {};
+    let pilots = 0;
+    for (let w = 0; w < 400; w += 1) {
+      const roster = seniorStaffCandidates(
+        stateWith({ seed: 31337, rosterSize: 10, gameTimeSeconds: w * OFFICER_ROSTER_WINDOW_SECONDS }),
+      );
+      for (const c of roster) {
+        if (c.seat !== "pilot") continue;
+        pilots += 1;
+        for (const b of c.bonuses) counts[b.id] = (counts[b.id] ?? 0) + 1;
+      }
+    }
+    expect(pilots).toBeGreaterThan(300);
+    expect(counts["pilot.transitCut"]).toBeGreaterThan(counts["pilot.evasion"]);
+    expect(counts["pilot.evasion"]).toBeGreaterThan(counts["any.veteranInstincts"]);
+    expect(counts["any.veteranInstincts"]).toBeGreaterThan(counts["any.inspiringLeader"]);
+    expect(counts["pilot.transitCut"]).toBeGreaterThan(3 * counts["any.inspiringLeader"]);
+    // Every seat pool is fully weighted (no zero-weight entry that could never roll).
+    for (const seat of SENIOR_STAFF_SEATS) {
+      for (const def of seniorStaffBonusesForSeat(seat)) expect(bonusRollWeight(def)).toBeGreaterThan(0);
+    }
+  });
+
+  it("hireOfficer copies the candidate's rolled stats onto the hired officer", () => {
+    const state = stateWith({ seed: 2024 });
+    const candidate = seniorStaffCandidates(state)[0];
+    const hired = hireOfficer(state, candidate.id).officers[0];
+    expect(hired.stats).toEqual(candidate.stats);
+    expect(hired.stats).not.toBe(candidate.stats); // a copy, never shared
+  });
+
+  it("a hired officer keeps its bonuses and stats when the board re-rolls", () => {
+    const state = stateWith({ seed: 2024 });
+    const hiredState = hireOfficer(state, seniorStaffCandidates(state)[0].id);
+    const before = JSON.stringify(hiredState.officers[0]);
+    const later = { ...hiredState, gameTimeSeconds: OFFICER_ROSTER_WINDOW_SECONDS * 5 };
+    expect(seniorStaffCandidates(later)[0].id).not.toBe(seniorStaffCandidates(hiredState)[0].id);
+    expect(JSON.stringify(later.officers[0])).toBe(before);
+  });
+});
+
+// The Task 19 weighted picks for seed 12345, window 0, slots 0..5 (pinned so a change to the weights or
+// the pick order is a deliberate, visible test edit).
+const WEIGHTED_PICKS_SEED_12345: string[][] = [
+  ["tac.shieldCommand", "tac.weaponCommand"],
+  ["pilot.evasion", "any.inspiringLeader"],
+  ["tac.weaponCommand", "any.veteranInstincts"],
+  ["pilot.evasion", "pilot.transitCut"],
+  ["any.veteranInstincts", "pilot.transitCut"],
+  ["med.fleetTriage", "any.inspiringLeader"],
+];

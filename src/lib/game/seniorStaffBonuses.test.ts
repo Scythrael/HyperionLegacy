@@ -3,6 +3,8 @@ import {
   SENIOR_STAFF_BONUSES,
   seniorStaffBonusesForSeat,
   getSeniorStaffBonusById,
+  OFFICER_BONUS_TIER_WEIGHTS,
+  bonusRollWeight,
 } from "./seniorStaffBonuses";
 import type { SeniorStaffSeat } from "./model";
 
@@ -56,5 +58,41 @@ describe("seniorStaffBonuses: seat readers", () => {
     const first = SENIOR_STAFF_BONUSES[0];
     expect(getSeniorStaffBonusById(first.id)).toEqual(first);
     expect(getSeniorStaffBonusById("no.such.bonus")).toBeUndefined();
+  });
+});
+
+// ===== E-CREW Task 19 (S4-C03): some officer bonuses roll far rarer than others =====
+describe("seniorStaffBonuses: weighted roll tiers", () => {
+  it("weights the four tiers common 6, uncommon 3, rare 2, very rare 1", () => {
+    expect(OFFICER_BONUS_TIER_WEIGHTS).toEqual({ common: 6, uncommon: 3, rare: 2, veryRare: 1 });
+  });
+
+  it("assigns every bonus the tier from the Crew Made Real mockup (section 7 Roll column)", () => {
+    const tiers = Object.fromEntries(SENIOR_STAFF_BONUSES.map((b) => [b.id, b.rollTier]));
+    expect(tiers).toEqual({
+      "xo.commandOutput": "rare",
+      "xo.moraleAnchor": "uncommon",
+      "pilot.transitCut": "common",
+      "pilot.evasion": "uncommon",
+      "ops.unloadSurge": "common",
+      "ops.cargoExpand": "common",
+      "sci.yieldSurge": "common",
+      "sci.discovery": "rare",
+      "tac.weaponCommand": "uncommon",
+      "tac.shieldCommand": "uncommon",
+      "med.fleetTriage": "uncommon",
+      "med.recovery": "uncommon",
+      "eng.overdrive": "uncommon",
+      "eng.rangeMaster": "common",
+      "any.inspiringLeader": "veryRare",
+      "any.veteranInstincts": "rare",
+    });
+  });
+
+  it("bonusRollWeight reads the tier weight", () => {
+    expect(bonusRollWeight(getSeniorStaffBonusById("pilot.transitCut")!)).toBe(6);
+    expect(bonusRollWeight(getSeniorStaffBonusById("pilot.evasion")!)).toBe(3);
+    expect(bonusRollWeight(getSeniorStaffBonusById("any.veteranInstincts")!)).toBe(2);
+    expect(bonusRollWeight(getSeniorStaffBonusById("any.inspiringLeader")!)).toBe(1);
   });
 });
