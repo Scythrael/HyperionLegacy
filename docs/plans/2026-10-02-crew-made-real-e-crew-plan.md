@@ -815,6 +815,28 @@ Keys whose system is pending in this same release (power efficiency) live in an 
 allow-list with the phase name; the test fails if the list contains anything after E-MOD lands. This test is the
 guard that keeps the "nothing on screen does nothing" rule true.
 
+**Carry from Task 22 (built 2026-10-09):** `no-dead-stats.test.ts`, 92 entries in five categories: `officer:<statKey>`
+(16, every rollable Senior Staff bonus), `crew:<statKey>` (21: 18 profession buffs + 3 exclusive, Craft Duplicate left
+out per D14), `racial:<race>` (10, an officer of the race vs none), `gear:<team>:<groundKey>` (17 squad / key pairs a
+wearable variety can roll; live when ANY such variety moves a value) and `facet:<seat>:<stat>` (28, one seat's one stat
+at 70 in a full bridge + full complement context). Each entry is a with / baseline state pair differing by that effect
+alone, run through REAL consumers only (ship sheet, reach, repair, ship battle at full and below-half hull, the
+expedition readers, its scan and task battles, injury recovery, a full run + claim, three captain missions and a Repeat
+patrol through economyTick, a patrol defeat's repair), with inputs and frozen records stripped from the outcome, so a
+key that only lands in the crew map or a snapshot field stays dead. Magnitudes are exaggerated (bonus x5, 400-head
+buckets, 60-point lines). `PENDING_IN_RELEASE` lists 31 dead entries with a phase: Reactor Overdrive (imported from
+`OFFICER_BONUSES_PENDING_IN_RELEASE`) + Power Discipline + the Martian racial (E-MOD); **Task 23 must remove** Deck
+Handling, Damage Control, Counter-Infiltration, Away-Team Protection, Survey Aptitude, Triage, Crew Output Multiplier,
+Mission Turnaround, Prevent a Crew Loss, the Belter / Outer-Colony / Vael / Stheni racials and Tactical (Security)
+Strength as each goes live (the test fails while a live entry stays listed); the Pilot's Cunning
+(`CUNNING_PENDING_SEATS`; the XO's Cunning is live through its 0.4 share). **UNPLANNED, raised with the user** (dead,
+no plan owns them): Morale Anchor (wired, but nothing in the game inflicts Fear; the Iron Will trait and Cortex
+Shield's fear half are inert for the same reason), Rapid Loadout `crew.loadSpeed` (no loading phase), Boarding
+Defense `crew.boardingDefense` (S4-C21 deferred hook), Crew Effectiveness `crew.crewEffectiveness` (6.2 names no
+consumer), the Earth-born / Ossir / Spacer racials (`crewEffectiveness`, `boardingDefense`, `endurance`), the
+Security Assault Hardsuit's hazard line, and every Science combat line (Sidearm power / accuracy / status chance,
+Field Suit and Hazard Suit armor / HP: Science never fights). Runtime about 25 s (dead entries run every probe).
+
 ---
 
 ## Stage 8: Complement
