@@ -195,6 +195,47 @@ moves on to the next listed task. Other teams are never pulled back by one team'
   work, so it doesn't change my planned scope of 0.14.0."
 - **A member downed in a WON fight sits out until recovered** (injured on the spot; the team continues one short;
   rejoins when the recovery timer ends).
+- **Follow-up answers (user, 2026-10-09):**
+  - Multi-team: WIRE it (tasks can need N ground teams, several teams run in parallel); every current hull keeps 1
+    ground team for now.
+  - Escape hatch: a task retries until done or the player skips it by hand.
+  - Tasks are picked AFTER the planet's scan completes; if the player has not picked, a DEFAULT PLAN runs (editable
+    any time). Verbatim: "these tasks will ultimately be balanced to respect the player's choice to play them. They
+    will have to be weighed appropriately, include a proper number of tasks to do this, and then be able to set it and
+    run it while away. If you have 5 different things pop up and they take a minute each, that's not great. If you
+    have 200 things come up and they all take 5 minutes to complete, you can auto-assign randomly if you don't want to
+    pick and choose, otherwise, you will choose a queue of what you want each of the teams to do. So if you have an
+    A/B/C team, you can have the harder tasks assigned to the A team, the middling tasks to the B team, and the easy
+    tasks to the C team. Which might result in B and C finishing their assignments early, in which case they go back
+    to the ship and idle/recover. Or, we build in an option in the selection screen for ground teams that \"when
+    completing their assignment, this team can join other teams in progress\" which basically selects missions from
+    their list that they qualify for. However, this can run the risk of basically getting team C into a losing loop
+    forever. ... So perhaps if the team is set to try tasks for the team with tasks remaining, if they fail that task,
+    the team set to join other teams in progress once assignments are complete will skip and move on to the next one.
+    So they do what they can successfully complete, and leave the hard one to the team that was originally selected to
+    do so in the first place."
+  - **TASK PROGRESS PERSISTS (user reversed "no saved progress", 2026-10-09):** "these post-scan tasks aren't [a new
+    mission]. It's a list of things discovered during the scan, and you can't just repeat it on completion. When the
+    task is complete on that planet, it's done. You got all of the goodies. You get your % completion of the system,
+    and you move on from there. So perhaps the thing I discounted before is best. Post-scan tasks have a progress bar,
+    and they continue from where they left off if they lose."
+  - **THE MEDICAL BAY + TURNAROUND LOOP (verbatim):** "The team set to perform them goes back to the ship and are \"in
+    the medical bay recovering\". They will need to recover full health and heal all ailments and injuries (there we
+    go, ailments for non-physical debuffs like poisons and so forth) and injuries (fractures, concussion, etc). Each
+    type of injury should have a set number of ticks to cure while they're in the medical bay, and they all tick down
+    at the same time. So basically, if you have 1000 ailments and 1 fracture, and the fracture takes 10 ticks to cure
+    and your 1000 ailments take 9 ticks (there won't be 1000 different ailments), then you wait for 10 ticks and you're
+    ready to go. Health regen is probably something like 5 ticks. So between tasks you return to the ship, recover as
+    needed, and move to the next one. ... They've \"returned to the ship to recover from injuries and present their
+    report and offload their findings\" to not only heal up, but to return the items they received from their task.
+    Then they head out once that's all done. Tick count would apply to that as well. That'd be loading things up, so
+    perhaps crew compliment with the bonus impacting loading could be changed to improve offloading cargo and loading
+    cargo to impact stages like this as well. The faster you load the cargo from the last task, the faster your team
+    can deploy on the next."
+  - **TERMS (user):** AILMENTS = non-physical debuffs (poisons and so forth); INJURIES = physical (fractures,
+    concussion, etc). Each type has its own cure time in the medical bay; all tick down at once (wait = the longest).
+  - Ship patrols keep their per-wave loot (verified 2026-10-09: a patrol banks each WON wave; a lost wave earns
+    nothing), unchanged.
 
 ## 3. Scope (rows this phase closes)
 
