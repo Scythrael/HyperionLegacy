@@ -378,7 +378,7 @@ Operations -> Operations, Pilot -> Flight Deck); the XO applies to every departm
 | Strength | scales the department's complement buffs | homeworld staffing |
 | Integrity | "steady under fire": below 50% hull in a battle or patrol wave, the department's buffs get a boost (a bonus, never a new penalty) | boarding defense + boarding party; crew losses |
 | Cunning | per-mission chance the department over-delivers (Science bonus rare-find roll, Operations bonus cargo, Engineering free repair tick, Security softens ambush, Medical quicker recovery) | counter-infiltration |
-| Constitution | long-haul ramp on expeditions + patrols (capped) + shorter post-mission turnaround | fatigue, if it ever exists |
+| Constitution | long-haul ramp on expeditions + patrols (D23 curve, knee ~5 hours, no hard cap: user OK 2026-10-09, "Long voyages are all about crew morale.") + shorter post-mission turnaround | fatigue, if it ever exists |
 
 Migration rolls stats for existing officers from a deterministic per-officer seed, so a loaded save gets stable
 stats. With all stats at their neutral point the fold is byte-identical (additive-neutral test).
