@@ -2935,11 +2935,6 @@ export interface CaptainMissionState {
   // ONLY while the bonus is non-zero, so a run without the officer never writes it (byte-identical; no
   // SAVE_VERSION bump, absent reads as 0).
   outputRoundCursor?: number;
-  // E-CREW 0.14.0 (Task 21): the run's CUNNING cursor, one step per delivered cycle, so each cycle's
-  // over-delivery rolls (officerStats.ts captainCycleMissionSeed + cunningRollSeed) are keyed on their own
-  // value and never share a roll. Stamped and carried forward ONLY while an Operations or Science Cunning
-  // chance is live, so a run without one never writes it (byte-identical; no SAVE_VERSION bump, absent = 0).
-  cunningCursor?: number;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -3731,6 +3726,13 @@ export interface CaptainState {
   // it rides the `...captain` spread through serialize/hydrateDecimals untouched (NOT a
   // Decimal) and needs NO SAVE_VERSION bump / migration: an old save simply has it undefined.
   lastStopReason?: CaptainStopReason;
+  // E-CREW 0.14.0 (Task 21 review): this captain's LIFETIME count of delivered mission cycles that rolled the
+  // ship's Operations / Science CUNNING over-delivery (tick.ts tickCaptainMission). It keys each cycle's
+  // private roll (officerStats.ts captainCycleMissionSeed), and it lives on the CAPTAIN, never the run, so a
+  // recall + redispatch can never replay the same rolls. Never reset by dispatch; survives retirement (the
+  // successor is a spread of the captain). OPTIONAL, written only once a cycle has rolled (absent = 0, no
+  // SAVE_VERSION bump).
+  cunningCycles?: number;
 }
 
 // Combat 0.13.0 (Phase 9b.5a): narrow a captain's mission union to its EXTRACTION arm, or

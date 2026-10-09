@@ -53,7 +53,7 @@
 // keyed stream. Nothing reads Date.now() or Math.random.
 
 import type { CrewProfession, GameState, OfficerStats, SeniorStaffOfficer, SeniorStaffSeat, ShipInstance } from "./model";
-import { officerStats, SENIOR_STAFF_SEATS } from "./seniorStaff";
+import { officerStats, OFFICER_STAT_INFO, SENIOR_STAFF_SEATS } from "./seniorStaff";
 import { diminishing } from "./diminishing";
 import { makeRng, type Rng } from "./combat/rng";
 
@@ -194,9 +194,10 @@ export function cunningStream(missionSeed: number, seat: SeniorStaffSeat, chance
 }
 
 // A captain mission has no stored seed, so its per-cycle "mission seed" is an FNV-1a mix of the captain id and
-// the run's Cunning cursor (CaptainMissionState.cunningCursor, one step per delivered cycle). Pure.
-export function captainCycleMissionSeed(captainId: number, cursor: number): number {
-  const key = `${captainId}|cunning|${cursor}`;
+// the captain's LIFETIME Cunning cycle count (CaptainState.cunningCycles, one step per rolled delivered cycle,
+// never reset by a dispatch), so no two cycles of a captain's career share a key, across runs too. Pure.
+export function captainCycleMissionSeed(captainId: number, lifetimeCycle: number): number {
+  const key = `${captainId}|cunning|${lifetimeCycle}`;
   let h = 0x811c9dc5;
   for (let i = 0; i < key.length; i++) {
     h ^= key.charCodeAt(i);
@@ -233,13 +234,49 @@ export const CUNNING_EDGE_BY_DEPARTMENT: Readonly<Partial<Record<CrewProfession,
   medical: "a quicker recovery for the expedition's injured",
 };
 
-// What each department's Constitution touches (the ramp's in-run buffs and the turnaround). Every department
-// also ramps any Inspiring Leader its officer carries on a patrol.
+// What each department's Constitution touches: the ramp's in-run buffs, and for the three departments that
+// have one, the shorter post-mission TURNAROUND (Task 21 review: only those three promise it). Every
+// department also ramps any Inspiring Leader its officer carries on a patrol.
 export const CONSTITUTION_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, string>> = {
   security: "On a long patrol, Weapons Command and Shield Command keep growing",
   flightDeck: "On a long patrol or expedition, Evasive Command keeps growing",
   science: "On a long expedition, the Science crew's relic chance keeps growing",
-  operations: "After a mission, unloading at home is faster",
-  engineering: "After a patrol defeat, Shipyard repairs are faster",
-  medical: "After an expedition, injured away-team members recover sooner",
+  operations: "Turnaround: each point above 10 also makes unloading at home about 1% faster",
+  engineering: "Turnaround: each point above 10 also makes Shipyard repairs about 1% faster",
+  medical: "Turnaround: each point above 10 also helps injured away-team members recover about 1% sooner",
 };
+
+// The stats whose facet also reaches the XO's OWN bonuses in full (seatFacet's "all" branch): Integrity and
+// Constitution act on the officers' own battle bonuses. Strength acts on the Complement and Cunning on the
+// department rolls, so neither touches an officer's own bonus.
+const XO_OWN_BONUS_STATS: ReadonlySet<keyof OfficerStats> = new Set<keyof OfficerStats>(["integrity", "constitution"]);
+
+// One stat's tooltip for an officer in `seat`, worded for the department it heads (the Senior Staff panel and
+// the coming Help topic). Pure.
+export function officerStatTooltip(key: keyof OfficerStats, seat: SeniorStaffSeat): string {
+  const info = OFFICER_STAT_INFO[key];
+  const dept = DEPARTMENT_OF_SEAT[seat];
+  const xoShare = `${Math.round(XO_DEPARTMENT_SHARE * 100)}%`;
+  const who =
+    dept === "all"
+      ? `every department at ${xoShare} of its value${XO_OWN_BONUS_STATS.has(key) ? " (and the XO's own bonuses in full)" : ""}`
+      : `the ${DEPARTMENT_LABEL[dept]} department`;
+  const facet = info.facet.charAt(0).toLowerCase() + info.facet.slice(1);
+  return `${info.label}: ${facet}. Applies to ${who}. ${info.effect}${statDetail(key, dept)} ${OFFICER_STAT_NEUTRAL} or below adds nothing.`;
+}
+
+// The department-specific half of a tooltip: what a Cunning over-delivery is, and what Constitution's ramp or
+// turnaround touches. "" when nothing extra applies.
+function statDetail(key: keyof OfficerStats, dept: CrewProfession | "all"): string {
+  if (key === "cunning") {
+    if (dept === "all") return " Its share raises every department's chance; the XO has no over-delivery of its own yet.";
+    const edge = CUNNING_EDGE_BY_DEPARTMENT[dept];
+    return edge ? ` For ${DEPARTMENT_LABEL[dept]}, that means ${edge}.` : ` The ${DEPARTMENT_LABEL[dept]} has no over-delivery of its own yet.`;
+  }
+  if (key === "constitution") {
+    return dept === "all"
+      ? " Its share reaches every department's ramp and the Operations, Engineering and Medical turnarounds."
+      : ` ${CONSTITUTION_DETAIL_BY_DEPARTMENT[dept]}.`;
+  }
+  return "";
+}

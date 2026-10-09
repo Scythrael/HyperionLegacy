@@ -20,6 +20,7 @@ import {
   type ShipTypeKey,
 } from "./model";
 import {
+  dispatchCaptainOnMission,
   dispatchCaptainOnPatrol,
   economyTick,
   installMissingCombatBaselines,
@@ -62,6 +63,7 @@ import {
   cunningRollSeed,
   departmentFacet,
   officerStatFacet,
+  officerStatTooltip,
   seatFacet,
   seatOfDepartment,
 } from "./officerStats";
@@ -652,8 +654,8 @@ describe("Cunning: per-mission over-delivery", () => {
       if (b.gt(a)) grew = true;
     }
     expect(grew).toBe(true);
-    expect((cunning.captains[0].mission as { cunningCursor?: number }).cunningCursor).toBeGreaterThan(0);
-    expect("cunningCursor" in (plain.captains[0].mission as object)).toBe(false);
+    expect(cunning.captains[0].cunningCycles).toBeGreaterThan(0);
+    expect("cunningCycles" in plain.captains[0]).toBe(false);
   });
 
   it("Operations: bonus margin on a transport; Science never rolls on a transport", () => {
@@ -677,6 +679,59 @@ describe("Cunning: per-mission over-delivery", () => {
     expect(rare(sci.homePlanetDelta)).toBeGreaterThan(0);
   });
 
+  it("never replays a captain's rolls on a new dispatch (a LIFETIME cycle counter keys them, not the run)", () => {
+    const stats = effectiveShipStats(freshState(), freshState().ships[0]);
+    const bonuses = { cunningOperationsChance: 0.5, cunningScienceChance: 0.5 };
+    const fresh = missionState("surveyMineralAnomaly", []).captains[0];
+    const first = tickCaptainMission(3000, fresh, lcg(3), bonuses, stats);
+    const cycles = first.lifetimeStatsDelta.missionsCompleted.surveyMineralAnomaly.toNumber();
+    expect(cycles).toBeGreaterThan(5);
+    expect(first.captain.cunningCycles).toBe(cycles);
+    // Recall + redispatch: the run restarts from scratch, the captain keeps its history, so the same shared
+    // rng no longer replays the same over-deliveries.
+    const again = tickCaptainMission(3000, { ...first.captain, mission: fresh.mission }, lcg(3), bonuses, stats);
+    expect(JSON.stringify(again.homePlanetDelta)).not.toBe(JSON.stringify(first.homePlanetDelta));
+    expect(again.captain.cunningCycles).toBe(2 * cycles);
+    // A real dispatch keeps the counter on the captain; a captain that never rolled never writes it.
+    const s = missionState("shortOreRun", []);
+    s.captains[0] = { ...s.captains[0], mission: null, cunningCycles: 7 };
+    const d = dispatchCaptainOnMission(s, s.captains[0].id, "shortOreRun");
+    expect(d.success).toBe(true);
+    expect(d.next.captains[0].cunningCycles).toBe(7);
+    const plain = tickCaptainMission(3000, fresh, lcg(3), {}, stats);
+    expect("cunningCycles" in plain.captain).toBe(false);
+  });
+
+  it("the patrol and expedition rolls already differ per dispatch (fresh masterSeed / expedition seed)", () => {
+    // Patrols: every dispatch takes a new masterSeed from the never-reused counter, and each relaunch derives
+    // its own, so consecutive dispatches of one captain roll on different keys.
+    let s: GameState = patrolState("destroyer", bridgeWith({ engineering: { cunning: 28 } }));
+    const chance = departmentFacet(s, s.ships[0], "engineering", "cunning");
+    const seeds: number[] = [];
+    const rolls: boolean[] = [];
+    for (let i = 0; i < 40; i++) {
+      const next = dispatchCaptainOnPatrol(s, 1, "crimsonReaverSweep", "balanced", false).next;
+      const m = next.captains[0].mission as PatrolMissionState;
+      seeds.push(m.masterSeed);
+      rolls.push(m.freeRepairTicks === CUNNING_FREE_REPAIR_TICKS);
+      expect(rolls[i]).toBe(cunningProc(m.masterSeed, "engineering", chance));
+      s = { ...next, captains: next.captains.map((c, k) => (k === 0 ? { ...c, mission: null } : c)) };
+    }
+    expect(new Set(seeds).size).toBe(40);
+    expect(rolls.some((r) => r) && rolls.some((r) => !r)).toBe(true);
+    // Expeditions: a dispatch commits the candidate's seed and advances expeditionSeed, so the next run of
+    // the same ship rolls Security / Medical on a different seed.
+    let e: GameState = { ...withCrew(freshState(), bridgeWith({ tactical: { cunning: 28 }, medical: { cunning: 28 } })), awayMembers: ROSTER };
+    const expSeeds: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      const res = startExpedition(e, "ship-1", 1, expeditionCandidates(e, "ship-1")[0].id);
+      expect(res.success).toBe(true);
+      expSeeds.push(res.expedition!.seed);
+      e = { ...res.next, expeditions: [] };
+    }
+    expect(new Set(expSeeds).size).toBe(20);
+  });
+
   it("closed form: one big mission advance equals many small ones with both rolls live", () => {
     const captain = missionState("shortOreRun", []).captains[0];
     const stats = effectiveShipStats(freshState(), freshState().ships[0]);
@@ -696,6 +751,7 @@ describe("Cunning: per-mission over-delivery", () => {
     expect(credits).toBe(big.creditsDelta);
     for (const [k, v] of Object.entries(big.homePlanetDelta)) expect((loot[k] ?? new Decimal(0)).toNumber(), k).toBe(v.toNumber());
     expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
+    expect(c.cunningCycles).toBe(big.captain.cunningCycles);
   });
 
   it("Engineering: a free repair tick when a patrol cycle ends in defeat", () => {
@@ -895,5 +951,41 @@ describe("parity: every facet live, one big advance == many small advances", () 
   it("missions through economyTick: the same run twice lands identically (keyed streams, no shared draws)", () => {
     const run = () => runTicks(missionState("surveyMineralAnomaly", bridge(() => ALL_HIGH)), 700, lcg(21));
     expect(JSON.stringify(run())).toBe(JSON.stringify(run()));
+  });
+});
+
+// ============================================================================
+// Tooltips (the Senior Staff panel reads officerStatTooltip)
+// ============================================================================
+describe("stat tooltips match the mechanics", () => {
+  it("the XO's 'own bonuses in full' appears only where it is true (Integrity, Constitution)", () => {
+    expect(officerStatTooltip("integrity", "executive")).toContain("own bonuses in full");
+    expect(officerStatTooltip("constitution", "executive")).toContain("own bonuses in full");
+    expect(officerStatTooltip("strength", "executive")).not.toContain("own bonuses");
+    expect(officerStatTooltip("cunning", "executive")).not.toContain("own bonuses");
+  });
+
+  it("Constitution promises a shorter turnaround only to the departments that have one", () => {
+    for (const seat of ["operations", "engineering", "medical"] as SeniorStaffSeat[]) {
+      expect(officerStatTooltip("constitution", seat), seat).toMatch(/turnaround/i);
+    }
+    for (const seat of ["tactical", "science", "pilot"] as SeniorStaffSeat[]) {
+      expect(officerStatTooltip("constitution", seat), seat).not.toMatch(/turnaround/i);
+    }
+    expect(officerStatTooltip("constitution", "executive")).toMatch(/Operations, Engineering and Medical/);
+  });
+
+  it("Integrity names shield RECHARGE (the pool is not lifted below half hull)", () => {
+    const tip = officerStatTooltip("integrity", "tactical");
+    expect(tip).toContain("shield recharge");
+    expect(tip).not.toMatch(/Shield Command\) 1% stronger|Shield and Evasive Command/);
+  });
+
+  it("every tooltip is plain US English text with no em dash or double hyphen", () => {
+    for (const seat of SEATS) {
+      for (const key of ["strength", "integrity", "cunning", "constitution"] as const) {
+        expect(officerStatTooltip(key, seat)).not.toMatch(/\u2014|-{2}/);
+      }
+    }
   });
 });

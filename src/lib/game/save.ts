@@ -2422,7 +2422,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // CaptainMissionState.outputRoundCursor (Task 20 review) is optional too: absent reads as 0 and it is
   // written only while Command Presence is live.
   // E-CREW Task 21 (officer stat facets) adds NOTHING here either: every new field is optional and ABSENT
-  // MEANS NO FACET (written only when non-zero): CaptainMissionState.cunningCursor,
+  // MEANS NO FACET (written only when non-zero): CaptainState.cunningCycles (the captain's lifetime Cunning
+  // counter),
   // PatrolMissionState.freeRepairTicks, OfficerCombatMods.underFire (inside the frozen officerCombat),
   // ShipInstance.freeRepairTicks, and Expedition.ambushSoften / quickRecovery / recoveryTurnaround /
   // rampScience / rampFlightDeck. The facets read the stats this step already rolled (absent = neutral), so

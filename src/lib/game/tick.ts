@@ -1806,7 +1806,8 @@ export function tickCaptainMission(
     // (officerStats.ts departmentFacet), each the per-delivered-cycle chance its department over-delivers:
     // Operations adds CUNNING_BONUS_CARGO_SHARE bonus cargo (the haul, or a transport's margin), Science
     // takes one bonus rare-find roll for a non-transport haul. Rolled per cycle on PRIVATE keyed streams
-    // (captainCycleMissionSeed of the run's cunningCursor), never the shared rng. Absent / 0 = no roll.
+    // (captainCycleMissionSeed of the captain's LIFETIME CaptainState.cunningCycles), never the shared rng.
+    // Absent / 0 = no roll.
     cunningOperationsChance?: number;
     cunningScienceChance?: number;
     // Captain Specialization's flat addition to the bonus-roll TRIGGER chance
@@ -2140,6 +2141,11 @@ export function tickCaptainMission(
   const opsCunning = Math.max(0, bonuses.cunningOperationsChance ?? 0);
   const sciCunning = Math.max(0, bonuses.cunningScienceChance ?? 0);
   const cunningLive = opsCunning > 0 || sciCunning > 0;
+  // The captain's LIFETIME Cunning cycle counter (CaptainState.cunningCycles): one step per delivered cycle
+  // rolled, persisted on the CAPTAIN so a recall + redispatch never resets it (a per-run cursor would replay
+  // the same outcomes every dispatch, a farmable cycle-0 success). Undefined until the first rolled cycle,
+  // so a captain without a Cunning chance never writes it. Advanced in delivery order, so it is closed-form.
+  let cunningCycles: number | undefined = captain.cunningCycles;
   // Operations' bonus cargo on one delivered amount: a WHOLE amount gains a whole-unit bonus (chanceRound on
   // the department's private stream), an already fractional one gains the exact share.
   const bonusCargo = (amount: number, ops: { next(): number }): number =>
@@ -2294,11 +2300,14 @@ export function tickCaptainMission(
         // E-CREW (Task 20): this cycle's private output-rounding stream (only minted with Command Presence).
         const round = outputShare === 0 ? null : missionOutputRoundingStream(captain.id, mission.outputRoundCursor ?? 0, cargo);
         const outputCredits = (credits: number): number => (round === null ? credits : boostAmount(credits, round));
-        // E-CREW (Task 21): this cycle's CUNNING rolls, keyed on the run's cunning cursor (never the shared rng).
+        // E-CREW (Task 21): this cycle's CUNNING rolls, keyed on the captain's lifetime cycle counter (never the
+        // shared rng); the counter then steps so the next delivered cycle, on this run or any later one, rolls
+        // on a fresh key.
         // Science: on a proc, ONE bonus rare-find roll at this cycle's rare odds; a hit adds one rare tick's
         // amount to the haul (before Command Presence, so the officer's output share grows it too).
         // Operations: on a proc, its stream rounds the bonus cargo below. Both null without a proc.
-        const cycleSeed = cunningLive ? captainCycleMissionSeed(captain.id, mission.cunningCursor ?? 0) : 0;
+        const cycleSeed = cunningLive ? captainCycleMissionSeed(captain.id, cunningCycles ?? 0) : 0;
+        if (cunningLive) cunningCycles = (cunningCycles ?? 0) + 1;
         const opsStream = cunningLive && missionDef.missionType !== "transport" ? cunningStream(cycleSeed, "operations", opsCunning) : null;
         const marginStream = cunningLive && missionDef.missionType === "transport" ? cunningStream(cycleSeed, "operations", opsCunning) : null;
         const sciStream = cunningLive && missionDef.missionType !== "transport" ? cunningStream(cycleSeed, "science", sciCunning) : null;
@@ -2415,9 +2424,6 @@ export function tickCaptainMission(
             // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
             const prevCursor: number | undefined = mission!.outputRoundCursor;
             const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
-            // E-CREW (Task 21): advance the run's Cunning cursor (only while a Cunning chance is live).
-            const prevCunning: number | undefined = mission!.cunningCursor;
-            const cunningCursor: number | undefined = cunningLive ? (prevCunning ?? 0) + 1 : prevCunning;
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -2427,7 +2433,6 @@ export function tickCaptainMission(
               recalled: false,
               refuelDelayTicks,
               ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
-              ...(cunningCursor !== undefined ? { cunningCursor } : {}),
             };
           }
         }
@@ -2573,7 +2578,16 @@ export function tickCaptainMission(
   };
 
   return {
-    captain: { ...captain, mission, xp, level, statPoints, lastStopReason: stopReason ?? captain.lastStopReason },
+    captain: {
+      ...captain,
+      mission,
+      xp,
+      level,
+      statPoints,
+      lastStopReason: stopReason ?? captain.lastStopReason,
+      // E-CREW (Task 21): the lifetime Cunning counter, written only once a cycle has rolled.
+      ...(cunningCycles !== undefined ? { cunningCycles } : {}),
+    },
     homePlanetDelta,
     fleetAdminXpDelta,
     creditsDelta,

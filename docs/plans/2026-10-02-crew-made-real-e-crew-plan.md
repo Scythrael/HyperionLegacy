@@ -730,8 +730,12 @@ tooltip text maps. Every reader goes through `officerStats(officer)`. Per facet:
 - **Cunning:** private streams `cunningRollSeed(missionSeed, seat)` = missionSeed ^ `CUNNING_SALT` (0x4f1bbcdd, new,
   odd) ^ seat index; the first draw vs the department facet. Operations (bonus cargo +25% of a delivered haul or a
   transport margin, whole units via chanceRound on its stream) + Science (one bonus rare-find roll on a non-transport
-  haul) roll per delivered captain-mission cycle, keyed by the new optional `CaptainMissionState.cunningCursor`
-  (stamped only while a chance is live; the mission seed is `captainCycleMissionSeed(captainId, cursor)`).
+  haul) roll per delivered captain-mission cycle, keyed by the captain's LIFETIME counter, the new optional
+  `CaptainState.cunningCycles` (review fix: a per-run cursor reset on every dispatch replayed the same rolls, so a
+  cycle-0 success could be farmed by recall + redispatch; the counter lives on the captain, is never reset by a
+  dispatch, is written only once a cycle has rolled; the mission seed is `captainCycleMissionSeed(captainId,
+  lifetimeCycle)`). Patrol (fresh masterSeed per dispatch and relaunch) and expedition (expeditionSeed advances per
+  dispatch) rolls already differ per dispatch, now pinned by a test.
   Engineering rolls per patrol CYCLE on its masterSeed at dispatch / relaunch (`PatrolMissionState.freeRepairTicks`);
   a defeat's limp-home reports it, economyTick stamps `ShipInstance.freeRepairTicks`, the Shipyard repair is 1 tick
   shorter (floor 1), cleared with the damage. Security + Medical roll once per expedition at dispatch on exp.seed:
@@ -755,7 +759,15 @@ tooltip text maps. Every reader goes through `officerStats(officer)`. Per facet:
   `CUNNING_EDGE` from `DEPARTMENT_OF_SEAT` (+ per-department Constitution lines). **Task 22:** officer stat facets are
   not bonus keys; if it adds them, the Pilot's and XO's own Cunning are the known pending gap. **Balance pass:** 1% per
   point on a buff is small (Integrity 20 lifts a 10% Weapons Command to 11%, and per-shot integer damage can swallow
-  it); the facet numbers are all first-pass.
+  it); the facet numbers are all first-pass. More balance-pass lines (Task 21 review): a Repeat patrol's
+  Constitution ramp keeps climbing across relaunches, so at Constitution 20 it reaches about x4.6 on the battle
+  bonuses after a week offline (168 hours: 1 + 0.1 x diminishing(168, 5) = 4.63); Engineering's Cunning free repair
+  is a single tick, tiny next to a repair's length; Constitution's Operations turnaround share rides the crew map and
+  so gets the museum crewBonuses amp, while Engineering's (a direct read on the repair divisor) does not.
+  **Tooltips (review):** `officerStatTooltip` (officerStats.ts) now builds every stat tooltip (the panel calls it):
+  the XO's "own bonuses in full" shows only on Integrity and Constitution, Constitution promises a turnaround only to
+  Operations / Engineering / Medical, and Integrity names shield RECHARGE. Which seats Integrity / Constitution
+  affect is a pending user decision (unchanged).
 
 ### Task 22: The "no dead stats" standing test
 

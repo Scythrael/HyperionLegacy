@@ -313,7 +313,7 @@ export const OFFICER_STAT_INFO: Readonly<
     abbr: "ITG",
     facet: "Bravery",
     effect:
-      "Steady under fire: while the ship is below half hull in a patrol battle, each point above 10 makes the department's battle bonuses (Weapons, Shield and Evasive Command, Inspiring Leader) 1% stronger.",
+      "Steady under fire: while the ship is below half hull in a patrol battle, each point above 10 makes the department's battle bonuses 1% stronger: weapon damage (Weapons Command, Inspiring Leader), shield recharge (Shield Command, Inspiring Leader) and evasion (Evasive Command).",
   },
   cunning: {
     label: "Cunning",
@@ -326,7 +326,7 @@ export const OFFICER_STAT_INFO: Readonly<
     abbr: "CON",
     facet: "Endurance",
     effect:
-      "Each point above 10 grows the department's buffs by about 1% per hour out on a patrol or expedition, each hour adding a little less after the first 5, and shortens the department's turnaround after a mission by about 1%.",
+      "Each point above 10 grows the department's in-run buffs by about 1% per hour out on a patrol or expedition, each hour adding a little less after the first 5.",
   },
 };
 
