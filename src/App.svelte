@@ -680,6 +680,7 @@
     canDispatchPatrol,
     // 0.13.9: the ONE gear-inclusive reach reading the gates use, for every range readout.
     shipRangeLightYears,
+    shipTripRangeLightYears,
     shipReachesRoundTrip,
     dispatchCaptainOnPatrol,
     type PatrolDispatchBlockReason,
@@ -4337,7 +4338,17 @@
   function outOfReachText(distanceLy: number, captainId?: number | null): string {
     const ship = captainId == null ? null : state.ships.find((s) => s.assignedCaptainId === captainId) ?? null;
     if (ship === null) return "Out of reach for this ship";
-    return `Out of reach: this trip is ${formatNumber(Math.round(distanceLy))} LY, this ship reaches ${formatNumber(Math.floor(shipRangeLightYears(state, ship)))} LY`;
+    // E-CREW 0.14.0 (Task 21): the reach ON THIS TRIP (shipTripRangeLightYears: the gear-inclusive range plus
+    // the Engineering Constitution long-haul ramp the gate applies). Distance / LY_PER_TICK is the trip's ticks.
+    const tripLy = shipTripRangeLightYears(state, ship, distanceLy / LY_PER_TICK);
+    return `Out of reach: this trip is ${formatNumber(Math.round(distanceLy))} LY, this ship reaches ${formatNumber(Math.floor(tripLy))} LY`;
+  }
+
+  // E-CREW 0.14.0 (Task 21): the "(+N LY long-haul)" note beside a per-trip range, "" when the Engineering
+  // Constitution ramp adds nothing whole on this trip (so a ship without it reads exactly as before).
+  function longHaulNote(state: GameState, ship: GameState["ships"][number], roundTripTicks: number): string {
+    const extra = Math.floor(shipTripRangeLightYears(state, ship, roundTripTicks)) - Math.floor(shipRangeLightYears(state, ship));
+    return extra > 0 ? ` (+${formatNumber(extra)} LY long-haul)` : "";
   }
 
   // Maps a canDispatchPatrol PatrolDispatchBlockReason to a short player-facing string,
@@ -16790,8 +16801,9 @@
                        and the representative hull's REACH, instead of a fuel cost. LY numbers are
                        first-pass tunable (0.16.0 balance). -->
                   {@const distanceLy = distanceLightYears(missionDef)}
-                  <!-- 0.13.9: the GEAR-INCLUSIVE range (shipRangeLightYears), the same reach the dispatch gate reads. -->
-                  {@const shipRangeLy = representativeShip ? shipRangeLightYears(state, representativeShip) : null}
+                  <!-- 0.13.9: the GEAR-INCLUSIVE range, the same reach the dispatch gate reads. E-CREW 0.14.0 (Task 21):
+                       on THIS trip (shipTripRangeLightYears adds the Engineering Constitution long-haul ramp). -->
+                  {@const shipRangeLy = representativeShip ? shipTripRangeLightYears(state, representativeShip, missionDef.transitOutTicks + missionDef.transitBackTicks) : null}
                   <!-- This mission's ACTUAL loot triad (Task 1 rewired each mission's
                        lootTable), read the real item keys so drops read per-mission. -->
                   {@const loot = missionDef.lootTable}
@@ -17162,7 +17174,8 @@
                 {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
                 <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test (shipRangeLightYears /
                      shipReachesRoundTrip), so the red flag and canDispatchPatrol can never disagree. -->
-                {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+                <!-- E-CREW 0.14.0 (Task 21): the reach on THIS route (the long-haul ramp included). -->
+                {@const patrolReachLy = selectedShip ? shipTripRangeLightYears(state, selectedShip, def.transitOutTicks + def.transitBackTicks) : null}
                 {@const stance = patrolStanceByKey[patrolKey] ?? "balanced"}
                 {@const repeat = patrolRepeatByKey[patrolKey] ?? false}
                 <!-- Combat 1.0 (Unit 2.4): the combat hull class (null for a non-combat
@@ -19134,16 +19147,20 @@
                title (the button is disabled below). -->
           {@const selectedShip = state.ships.find((s) => s.assignedCaptainId === selectedCaptain.id) ?? null}
           {@const distanceLy = distanceLightYears(missionDef)}
-          {@const shipRangeLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+          {@const missionTripTicks = missionDef.transitOutTicks + missionDef.transitBackTicks}
+          {@const shipRangeLy = selectedShip ? shipTripRangeLightYears(state, selectedShip, missionTripTicks) : null}
           {@const missionOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, missionDef.transitOutTicks, missionDef.transitBackTicks)}
           <!-- 0.13.6 fuel-to-reach: range in lightyears, not a fuel tank. Reachable iff the ship's
                reach covers the trip distance (the canDispatch gate); flag red when it does not.
-               0.13.9: "Ship range" is GEAR-INCLUSIVE and the red flag is the gate's own reach test
-               (shipRangeLightYears / shipReachesRoundTrip), so the readout cannot contradict the gate. -->
+               0.13.9: "Ship range" is GEAR-INCLUSIVE and the red flag is the gate's own reach test.
+               E-CREW 0.14.0 (Task 21): the gate also applies the Engineering Constitution long-haul ramp
+               on this trip, so the figure shown is the reach ON THIS TRIP (shipTripRangeLightYears, the
+               same ramp shipReachesRoundTrip divides the need by), with the ramp's share noted. With
+               FUEL_PER_TICK 1 the two are one test, so the readout and the gate agree. -->
           <div class="panel-title">RANGE</div>
           <div class="research-cost">Trip distance: {formatNumber(Math.round(distanceLy))} LY</div>
           <div class="research-cost" style={missionOutOfReach ? "color: var(--color-danger)" : ""}>
-            Ship range: {shipRangeLy !== null ? `${formatNumber(Math.floor(shipRangeLy))} LY` : "no ship assigned"}
+            Ship range: {shipRangeLy !== null && selectedShip !== null ? `${formatNumber(Math.floor(shipRangeLy))} LY${longHaulNote(state, selectedShip, missionTripTicks)}` : "no ship assigned"}
           </div>
           {#if missionPopupGate !== null && !missionPopupGate.ok}
             <div class="research-cost" style="color: var(--color-danger)">⚠ {dispatchBlockMessage(missionPopupGate.reason, missionPopupKey, missionPopupCaptainId)}</div>
@@ -19193,8 +19210,10 @@
     {@const selectedShipDefense = selectedShip !== null && selectedShipDef !== null ? foldedPlayerDefense(selectedShipDef, equippedFor(state, selectedShip.id)) : null}
     {@const gate = selectedCaptainId !== null ? canDispatchPatrol(state, selectedCaptainId, patrolDispatchKey) : null}
     {@const patrolDistanceLy = (def.transitOutTicks + def.transitBackTicks) * LY_PER_TICK}
-    <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test, as on the patrol card. -->
-    {@const patrolReachLy = selectedShip ? shipRangeLightYears(state, selectedShip) : null}
+    <!-- 0.13.9: GEAR-INCLUSIVE range + the gate's own reach test, as on the patrol card. E-CREW 0.14.0
+         (Task 21): the reach on THIS route, the long-haul ramp included and noted. -->
+    {@const patrolTripTicks = def.transitOutTicks + def.transitBackTicks}
+    {@const patrolReachLy = selectedShip ? shipTripRangeLightYears(state, selectedShip, patrolTripTicks) : null}
     {@const patrolOutOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
     {@const stance = patrolStanceByKey[patrolDispatchKey] ?? "balanced"}
     {@const repeat = patrolRepeatByKey[patrolDispatchKey] ?? false}
@@ -19284,7 +19303,7 @@
 
         <div class="research-cost" style="margin-top: 20px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
           {#if patrolReachLy !== null}
-            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolOutOfReach ? "color: var(--color-danger)" : ""}>ship range {formatNumber(Math.floor(patrolReachLy))} LY</span></span>
+            <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY &middot; <span style={patrolOutOfReach ? "color: var(--color-danger)" : ""}>ship range {formatNumber(Math.floor(patrolReachLy))} LY{selectedShip ? longHaulNote(state, selectedShip, patrolTripTicks) : ""}</span></span>
           {:else}
             <span><strong>Distance</strong>: {formatNumber(Math.round(patrolDistanceLy))} LY</span>
             <HelpTip label="Range" text="Select a captain to check whether their hull has the range for this patrol." />

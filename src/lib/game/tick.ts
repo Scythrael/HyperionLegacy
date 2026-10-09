@@ -2460,7 +2460,7 @@ export function tickCaptainMission(
         // ⚠️ THIS IS A HOLD, NOT A NEW PHASE (design 5.2). Adding a `docking` phase would
         // lengthen EVERY mission cycle for EVERY existing save whether or not a berth is ever
         // contended, and it would silently move the LOCKED fuel-runway projection, which sums
-        // the same per-phase lengths through FUEL_CYCLE_PHASES. A phase also needs a duration,
+        // the same per-phase lengths through missionCycleTicks. A phase also needs a duration,
         // and "waiting for a berth" has no duration: it depends on other captains.
         //
         // THE POSTURE IS stepCraftLine's, VERBATIM: a blocked step survives unchanged and
@@ -4753,11 +4753,26 @@ export function shipReachesRoundTrip(
 ): boolean {
   const def = shipReachDef(state, ship);
   const need = fuelForRoundTrip(transitOutTicks, transitBackTicks, def);
-  const ramp = constitutionRamp(
-    departmentFacet(state, ship, "engineering", "constitution"),
-    ((transitOutTicks + transitBackTicks) * state.tickDurationSeconds) / 3600,
-  );
+  const ramp = tripReachRamp(state, ship, transitOutTicks + transitBackTicks);
   return def.fuelCapacity >= (ramp === 0 ? need : need / (1 + ramp));
+}
+
+// The Engineering Constitution long-haul ramp for ONE round trip of `roundTripTicks` (its own hours). 0 without
+// the facet. Shared by the gate above and the per-trip readout below, so the two cannot drift. Pure.
+export function tripReachRamp(state: GameState, ship: ShipInstance, roundTripTicks: number): number {
+  return constitutionRamp(
+    departmentFacet(state, ship, "engineering", "constitution"),
+    (roundTripTicks * state.tickDurationSeconds) / 3600,
+  );
+}
+
+// The reach on ONE trip, in lightyears: the gear-inclusive range x (1 + the trip's long-haul ramp), the exact
+// figure the gate compares the trip distance against (FUEL_PER_TICK 1 makes capacity >= need / (1 + ramp)
+// the same test as range x (1 + ramp) >= distance). Equals shipRangeLightYears without the facet. Pure.
+export function shipTripRangeLightYears(state: GameState, ship: ShipInstance, roundTripTicks: number): number {
+  const ramp = tripReachRamp(state, ship, roundTripTicks);
+  const base = shipRangeLightYears(state, ship);
+  return ramp === 0 ? base : base * (1 + ramp);
 }
 
 // The reach READOUT, in lightyears, gear included (what "Ship range" displays).
@@ -10553,12 +10568,11 @@ export function processFuelPipelines(state: GameState): GameState {
 // of truth in the engine module, right next to the production it is compared to.
 // ============================================================================
 
-// The five phases of one full mission round-trip, in order. Summing each phase's
-// required ticks (on the SHIP-ADJUSTED def) gives the real cadence a mission
-// burns its fuelNeeded over, so burn/tick = fuelNeeded / cycleTicks. Reuses
-// requiredTicksForPhase (the SAME per-phase length the tick engine advances on),
-// so this length cannot drift from the engine's actual cycle.
-const FUEL_CYCLE_PHASES: MissionPhase[] = ["ordersReceived", "transitOut", "extracting", "transitBack", "unloading"];
+// One full mission round-trip's five phases, summed (on the SHIP-ADJUSTED def) by
+// missionCycleTiming, give the real cadence a mission burns its fuelNeeded over, so
+// burn/tick = fuelNeeded / cycleTicks. missionCycleTiming reads the SAME per-phase
+// lengths the tick engine advances on (a full hold's unload included), so this length
+// cannot drift from the engine's actual cycle.
 
 // Total ticks in ONE full round-trip cycle of `baseMission` when flown at `shipStats`,
 // summed over all five phases of the ship-adjusted def (effectiveMissionDef rescales
@@ -10568,9 +10582,11 @@ const FUEL_CYCLE_PHASES: MissionPhase[] = ["ordersReceived", "transitOut", "extr
 // advances a mission on the EQUIPMENT-FOLDED transitSpeedMult (effectiveMissionDef with the
 // folded shipStats), so the cadence the burn is amortized over must be the folded one too, or
 // a geared hull's displayed burn/tick drifts from the burn the engine actually draws.
+// E-CREW 0.14.0 (Task 21 re-review): summed by missionCycleTiming, the SAME planned-cycle timing the dispatch
+// popup shows (a planned cycle fills its hold, so a packed-hold unload counts). This only feeds the DISPLAY
+// burn (fuelFlowSummary.burnPerTick); fuelRunwayProjection's measured-EMA two-phase math is untouched.
 function missionCycleTicks(baseMission: MissionDef, shipStats: ShipDerivedStats): number {
-  const eff = effectiveMissionDef(baseMission, shipStats);
-  return FUEL_CYCLE_PHASES.reduce((total, phase) => total + requiredTicksForPhase(phase, eff), 0);
+  return missionCycleTiming(effectiveMissionDef(baseMission, shipStats)).total;
 }
 
 // The shape the fuel UI reads. See the fields' inline notes for each meaning.

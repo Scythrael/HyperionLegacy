@@ -35,6 +35,7 @@ import {
   patrolReturnCutTicks,
   shipRangeLightYears,
   shipReachesRoundTrip,
+  shipTripRangeLightYears,
   processShipRepairs,
   shipRepairDurationTicks,
   tickCaptainMission,
@@ -65,6 +66,7 @@ import {
 } from "./crewOverlay";
 import { getSeniorStaffBonusById } from "./seniorStaffBonuses";
 import { CREW_STAT_KEYS } from "./crewBuffs";
+import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
@@ -1096,6 +1098,13 @@ describe("per-seat Integrity and Constitution rows", () => {
     // Short trips are unchanged, and the lightyear readout stays the voyage-free range.
     expect(shipReachesRoundTrip(eng, eng.ships[0], 1, 1)).toBe(true);
     expect(shipRangeLightYears(eng, eng.ships[0])).toBe(shipRangeLightYears(plain, ship));
+    // The per-trip readout is the figure the gate uses: it covers the trip exactly when the gate passes.
+    for (const l of [legs, legs + 1, legs + 2, legs * 2]) {
+      const distance = 2 * l * LY_PER_TICK;
+      expect(shipTripRangeLightYears(eng, eng.ships[0], 2 * l) >= distance, String(l)).toBe(shipReachesRoundTrip(eng, eng.ships[0], l, l));
+      expect(shipTripRangeLightYears(plain, ship, 2 * l) >= distance, String(l)).toBe(shipReachesRoundTrip(plain, ship, l, l));
+    }
+    expect(shipTripRangeLightYears(plain, ship, 2 * legs)).toBe(shipRangeLightYears(plain, ship));
   });
 
   it("Science Integrity: a hazardous world slows the scan less; a calm one is unchanged", () => {

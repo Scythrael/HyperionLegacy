@@ -792,8 +792,18 @@ tooltip text maps. Every reader goes through `officerStats(officer)`. Per facet:
     loading phase today, so only unloading is lifted.
   - Tooltips: `INTEGRITY_DETAIL_BY_DEPARTMENT` + `CONSTITUTION_DETAIL_BY_DEPARTMENT` state each seat's real effect.
   - Balance pass: today's captain missions and patrol routes are minutes long, so the mission-def ramps (return
-    leg, survey yield, reach) barely move there; expeditions and long Repeat patrols are where they show. The
-    fuel-runway projection (LOCKED, tick.ts) still sums the plain phase lengths.
+    leg, survey yield, reach) barely move there; expeditions and long Repeat patrols are where they show.
+  - Re-review follow-ups (2026-10-09): every per-trip range readout (mission and patrol cards, both dispatch popups,
+    the out-of-reach sentence) shows the reach ON THAT TRIP (tick.ts `shipTripRangeLightYears`, sharing
+    `tripReachRamp` with `shipReachesRoundTrip`, so readout and gate are one test with FUEL_PER_TICK 1) and the
+    popups note "(+N LY long-haul)"; the ship picker's general range stays the voyage-free figure. The display
+    burn's `missionCycleTicks` now sums `missionCycleTiming` (a planned cycle's packed-hold unload); it only feeds
+    `fuelFlowSummary.burnPerTick`, and the LOCKED `fuelRunwayProjection` math (measured EMA, two-phase) is
+    untouched.
+  - Known, cosmetic: the two ramp clocks differ in source (the mission-def ramps use the fixed
+    `RAMP_SECONDS_PER_TICK` 1 s, patrols use `state.tickDurationSeconds`), which only diverges if the fleet tick
+    length ever changes from 1 s; and a patrol's `runHours` counts full routes although a cut cycle ends
+    `returnCutTicks` early, so a long run's clock slightly overstates its hours.
 
 ### Task 22: The "no dead stats" standing test
 
