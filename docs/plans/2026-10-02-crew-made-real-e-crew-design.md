@@ -69,6 +69,18 @@ Not linked to an account-wide program.
 Implied model: kits belong to CATEGORIES (medical first aid, advanced medical, explosives, field devices, ...); each kit
 has an optional REQUIRED skill (hard gate) and/or an UNTRAINED efficacy multiplier; members' traits/skills add
 category-efficacy boosts. Exact numbers are first-pass and tunable.
+- **Field Kits mockup "Open for You" answers (user, 2026-10-09):**
+  1. Names: First Aid Kit, Antitoxin, Trauma Kit, Combat Stim, Hemorrhage, Neurotoxin are kept ("the rest are
+     fantastic"). ADD two conditions: **Concussion** ("May fail to take an action due to feeling disoriented") and
+     **Blindness** ("Enemy combatants could throw flash grenades and have a chance to cause a turn or two of
+     blindness"). So enemies gain a flash grenade action.
+  2. Explosives: usable by ANYONE (matches D20 "Pull a pin and toss it"): "It doesn't take a true amount of skill to
+     use a grenade. But it takes mastery to throw them. Velocity. Acceleration, timing, etc. So something should
+     improve use of grenades, but not prevent others from using them." (The mockup's Saboteur +6% was already a boost,
+     never a gate; Codebreaker for field devices was not separately answered.)
+  3. Untrained field devices: "How about a chance between 50-75%. The fluctuation might help to account for innate
+     knowledge, etc. Or would that cause problems later?" (Implementation shape asked, 2026-10-09.)
+  4. Fracture: after a Splint it heals in 3 rounds; untreated, the member comes home injured. Approved.
 
 **D21. SOLO-FIGHT DIFFICULTY IS A GAMBIT CHOICE, NOT A BUG (user, 2026-10-07).** A lone Security member running a
 "finish the weakest" program (Default, Triage, Turtle Club President) loses to two strikers on Crashed Ship, while
