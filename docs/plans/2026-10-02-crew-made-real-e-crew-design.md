@@ -380,6 +380,12 @@ Operations -> Operations, Pilot -> Flight Deck); the XO applies to every departm
 | Cunning | per-mission chance the department over-delivers (Science bonus rare-find roll, Operations bonus cargo, Engineering free repair tick, Security softens ambush, Medical quicker recovery) | counter-infiltration |
 | Constitution | long-haul ramp on expeditions + patrols (D23 curve, knee ~5 hours, no hard cap: user OK 2026-10-09, "Long voyages are all about crew morale.") + shorter post-mission turnaround | fatigue, if it ever exists |
 
+**Task 21 review calls (user, 2026-10-09):** (1) a stat at or below 10 gives NO penalty, just nothing (approved);
+(2) Cunning scopes approved as built: Security softens EXPEDITION scan ambushes, Engineering's free repair tick after
+a patrol loss, Science and Operations on captain mission cycles, Medical on expedition injuries; (3) Integrity and
+the patrol half of Constitution get PER-SEAT effects like Cunning (they only touched battle bonuses, which 4 of 7
+seats rarely carry). Table proposed to the user 2026-10-09.
+
 Migration rolls stats for existing officers from a deterministic per-officer seed, so a loaded save gets stable
 stats. With all stats at their neutral point the fold is byte-identical (additive-neutral test).
 
