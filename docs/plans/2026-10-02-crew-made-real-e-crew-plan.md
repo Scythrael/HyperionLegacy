@@ -709,6 +709,54 @@ the final mechanics (thresholds such as "below half hull", "up to a cap" wording
 - Constitution: expedition + patrol ramp (+facet per hour out, capped 5 hours) and shorter post-mission turnaround.
 Tests per facet + the neutrality test at all-10s.
 
+**Carry from Task 21 (built 2026-10-09):** new pure `officerStats.ts` owns ALL facet math: `DEPARTMENT_OF_SEAT`
+(XO = "all" at `XO_DEPARTMENT_SHARE` 0.4; the XO's OWN bonuses get its facet in full via `seatFacet`),
+`officerStatFacet` = 1% per point ABOVE 10, exactly 0 at 10 OR BELOW (no penalty for seating a weak officer; the plan
+read "(stat - 10) * 1%", flagged to the user), `departmentFacet` (head + 0.4 x XO), every first-pass constant, and the
+tooltip text maps. Every reader goes through `officerStats(officer)`. Per facet:
+- **Strength:** crewOverlay.ts `rawShipCrewContribution` multiplies each complement bucket (and assigned notable) by
+  1 + its department's facet, composed with the quarters module (NOT in `scaleCrewContribution`, which is the museum's
+  uniform pass and has lost the department). Every crew.* reader inherits it, so **Task 23's division pools need no
+  extra wiring**. Officers' own bonuses are never scaled. ShipSystemsPanel's Senior Staff bucket is now crew total
+  minus complement-only, so the two buckets still sum when Strength multiplies the complement.
+- **Integrity:** in-battle and live. `officerCombatProfile` (per seated officer, per combat bonus, with its seat's
+  Integrity + Constitution facets) folds via `officerCombatModsFromProfile` into Task 20's `OfficerCombatMods` plus an
+  optional `underFire` extra; bridge.ts copies it to the new optional `Combatant.underFire`; resolveBattle applies it
+  while `hull * 2 < hullMax` (projectile damage x(1 + extra), shield recharge x(1 + extra), extra evasion points in
+  fireWeapon AND fireSquadron); post-draw integer scaling, no draw. FROZEN with the cycle's `officerCombat`, so the
+  live loop and `replayPatrol` agree (tested on a fight Integrity changes). Only the battle bonuses (Weapons / Shield /
+  Evasive Command, Inspiring Leader) gain it; the Complement never feeds battle (D12). **Task 23:** when Flight Deck
+  drone handling goes live in battle, give it the Flight Deck's Integrity the same way.
+- **Cunning:** private streams `cunningRollSeed(missionSeed, seat)` = missionSeed ^ `CUNNING_SALT` (0x4f1bbcdd, new,
+  odd) ^ seat index; the first draw vs the department facet. Operations (bonus cargo +25% of a delivered haul or a
+  transport margin, whole units via chanceRound on its stream) + Science (one bonus rare-find roll on a non-transport
+  haul) roll per delivered captain-mission cycle, keyed by the new optional `CaptainMissionState.cunningCursor`
+  (stamped only while a chance is live; the mission seed is `captainCycleMissionSeed(captainId, cursor)`).
+  Engineering rolls per patrol CYCLE on its masterSeed at dispatch / relaunch (`PatrolMissionState.freeRepairTicks`);
+  a defeat's limp-home reports it, economyTick stamps `ShipInstance.freeRepairTicks`, the Shipyard repair is 1 tick
+  shorter (floor 1), cleared with the damage. Security + Medical roll once per expedition at dispatch on exp.seed:
+  `Expedition.ambushSoften` (scan-encounter enemies at 75% hp / power / heal, gambit.ts `softenAmbush`) and
+  `Expedition.quickRecovery` (+0.5 on the injury care divisor). **Flight Deck + XO: no over-delivery** (TODO +
+  `CUNNING_PENDING_SEATS`, pending the user's call); the XO's 0.4 share still raises the other departments' chances.
+- **Constitution:** ramp = facet x `diminishing(hours, CONSTITUTION_RAMP_KNEE_HOURS = 5)` (D23 knee, NOT the plan's
+  hard 5-hour cap; flagged). Patrols: economyTick passes `relaunchCombatProfile` + `secondsPerTick`, and each relaunch
+  folds the profile at the hours the run has flown (routesCompletedThisRun x route length); a dispatch is 0 hours, so
+  the first cycle equals Task 20. Expeditions freeze `rampScience` (crewRareFind on the relic roll, at the task's start
+  hours) and `rampFlightDeck` (encounterEvasion at each scan boundary's hours), each only when its buff is non-zero.
+  Turnaround: Operations rides `OFFICER_TURNAROUND_KEY` (faster unload), Engineering adds to
+  `officerRepairSpeedBonus` (repair divisor), Medical freezes `Expedition.recoveryTurnaround` (injury care divisor).
+- **Neutrality + parity:** golden hashes captured BEFORE the change (officerStatFacets.test.ts: a full 7-seat bridge
+  with a 6-division complement at 10/10/10/10 and stat-less; ship sheet, 3 missions via economyTick, 3 patrol hulls
+  with relaunches + replays, a repair, 8 expeditions + claims) are byte-identical; a bridge at or below 10 resolves
+  exactly like all-10. Big == small: tickCaptainMission and tickCaptainPatrol with every patrol / mission facet live,
+  and advanceExpedition chunked at 997 s with every facet live. No SAVE_VERSION bump (all new fields optional, absent
+  = neutral; note in save.ts under v66). Acceptance done: the "(arrives later in 0.14.0)" qualifier and its test are
+  gone, every `OFFICER_STAT_INFO.effect` states the final rule, and SeniorStaffPanel derives `SEAT_DEPARTMENT` /
+  `CUNNING_EDGE` from `DEPARTMENT_OF_SEAT` (+ per-department Constitution lines). **Task 22:** officer stat facets are
+  not bonus keys; if it adds them, the Pilot's and XO's own Cunning are the known pending gap. **Balance pass:** 1% per
+  point on a buff is small (Integrity 20 lifts a 10% Weapons Command to 11%, and per-shot integer damage can swallow
+  it); the facet numbers are all first-pass.
+
 ### Task 22: The "no dead stats" standing test
 
 **Files:** new `src/lib/game/no-dead-stats.test.ts`.

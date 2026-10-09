@@ -246,6 +246,12 @@ export interface Combatant {
 	// per-projectile hit chance (design S2.1). Higher = harder to hit. 0 = none.
 	// Phase 6 feeds this from maneuverability/speed + range; a flat field for now.
 	evasion: number;
+	// E-CREW 0.14.0 (Task 21): the Senior Staff INTEGRITY facet ("steady under fire"). While this
+	// combatant's hull is BELOW HALF its hullMax, each landed weapon projectile's damage is multiplied by
+	// (1 + weaponDamage), its shield recharge by (1 + shieldRecharge), and `evasion` whole points are
+	// added to its evasion. Post-draw integer scaling only (never a draw), so the draw schedule is
+	// unchanged. OPTIONAL: absent (enemies, ratings, an all-10 bridge) leaves the battle byte-identical.
+	underFire?: { weaponDamage: number; shieldRecharge: number; evasion: number };
 
 	// Per-family resists (design S5). Resistances are DUAL-purpose: they cut
 	// incoming DAMAGE of a family AND the chance + rank of that family's

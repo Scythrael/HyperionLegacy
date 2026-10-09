@@ -327,10 +327,22 @@ import {
   resolveCrew,
   foldOfficerMissionCompletions,
   officerCombatMods,
+  officerCombatModsFromProfile,
+  officerCombatProfile,
   officerMissionOutputBonus,
   officerRepairSpeedBonus,
   shipCrewContribution,
+  type OfficerCombatEntry,
 } from "./crewOverlay";
+// E-CREW 0.14.0 (Task 21): the officer stat facets (Cunning over-delivery rolls on private keyed streams).
+import {
+  CUNNING_BONUS_CARGO_SHARE,
+  CUNNING_FREE_REPAIR_TICKS,
+  captainCycleMissionSeed,
+  cunningProc,
+  cunningStream,
+  departmentFacet,
+} from "./officerStats";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 // Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
 // seam (same posture as resolveCrew). Deterministic + offline-safe; a same-reference no-op with no
@@ -1790,6 +1802,13 @@ export function tickCaptainMission(
     // mission grows by (crewOverlay.ts officerMissionOutputBonus). Applied at the delivery branch below,
     // ONCE per completed cycle, so it is a per-cycle constant (closed-form safe). Absent / 0 = no change.
     missionOutputMult?: number;
+    // E-CREW 0.14.0 (Task 21): the CUNNING facets of the ship's Operations and Science departments
+    // (officerStats.ts departmentFacet), each the per-delivered-cycle chance its department over-delivers:
+    // Operations adds CUNNING_BONUS_CARGO_SHARE bonus cargo (the haul, or a transport's margin), Science
+    // takes one bonus rare-find roll for a non-transport haul. Rolled per cycle on PRIVATE keyed streams
+    // (captainCycleMissionSeed of the run's cunningCursor), never the shared rng. Absent / 0 = no roll.
+    cunningOperationsChance?: number;
+    cunningScienceChance?: number;
     // Captain Specialization's flat addition to the bonus-roll TRIGGER chance
     // (CAPTAIN_SPEC_BONUS.resourcefulness), kept as its own field, NOT
     // merged into bonusRollChance, so the extraction loop below can add it
@@ -2116,6 +2135,17 @@ export function tickCaptainMission(
     const scaled = amount * (1 + outputShare);
     return Number.isInteger(amount) ? chanceRound(scaled, round) : scaled;
   };
+  // E-CREW 0.14.0 (Task 21): the Cunning chances, call-constants like the output share. cunningLive gates
+  // the per-cycle rolls AND the cursor stamp, so a run without them is byte-identical.
+  const opsCunning = Math.max(0, bonuses.cunningOperationsChance ?? 0);
+  const sciCunning = Math.max(0, bonuses.cunningScienceChance ?? 0);
+  const cunningLive = opsCunning > 0 || sciCunning > 0;
+  // Operations' bonus cargo on one delivered amount: a WHOLE amount gains a whole-unit bonus (chanceRound on
+  // the department's private stream), an already fractional one gains the exact share.
+  const bonusCargo = (amount: number, ops: { next(): number }): number =>
+    Number.isInteger(amount)
+      ? amount + chanceRound(amount * CUNNING_BONUS_CARGO_SHARE, () => ops.next())
+      : amount * (1 + CUNNING_BONUS_CARGO_SHARE);
 
   // Computed ONCE per call, not per roll, bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
@@ -2264,6 +2294,20 @@ export function tickCaptainMission(
         // E-CREW (Task 20): this cycle's private output-rounding stream (only minted with Command Presence).
         const round = outputShare === 0 ? null : missionOutputRoundingStream(captain.id, mission.outputRoundCursor ?? 0, cargo);
         const outputCredits = (credits: number): number => (round === null ? credits : boostAmount(credits, round));
+        // E-CREW (Task 21): this cycle's CUNNING rolls, keyed on the run's cunning cursor (never the shared rng).
+        // Science: on a proc, ONE bonus rare-find roll at this cycle's rare odds; a hit adds one rare tick's
+        // amount to the haul (before Command Presence, so the officer's output share grows it too).
+        // Operations: on a proc, its stream rounds the bonus cargo below. Both null without a proc.
+        const cycleSeed = cunningLive ? captainCycleMissionSeed(captain.id, mission.cunningCursor ?? 0) : 0;
+        const opsStream = cunningLive && missionDef.missionType !== "transport" ? cunningStream(cycleSeed, "operations", opsCunning) : null;
+        const marginStream = cunningLive && missionDef.missionType === "transport" ? cunningStream(cycleSeed, "operations", opsCunning) : null;
+        const sciStream = cunningLive && missionDef.missionType !== "transport" ? cunningStream(cycleSeed, "science", sciCunning) : null;
+        const rareFind =
+          sciStream !== null &&
+          sciStream.next() < museumRareChance(missionDef.rareChance * (1 + resolvedBonuses.rareChanceMult), resolvedBonuses.museumRareChanceMult);
+        const haul = rareFind
+          ? { ...cargo, rareMaterial: cargo.rareMaterial.plus(new Decimal(missionDef.extractionRatePerTick).times(1 + resolvedBonuses.rareYieldMult)) }
+          : cargo;
         // Exploration 0.14.0 (Phase E1b): TRANSPORT missions deposit NO extraction loot (a transport
         // is a pure credit loop, not a mining run). The cargo still ACCUMULATED during extracting (the
         // roll loop above is untouched, so the seeded rng stream stays byte-aligned live and offline),
@@ -2273,14 +2317,19 @@ export function tickCaptainMission(
         // E-CREW (Task 20): Command Presence grows the delivered haul by `outputShare` (0 -> the cargo as-is,
         // no multiply at all, so a ship without the officer delivers byte-identically).
         if (missionDef.missionType !== "transport") {
-          const delivered = (amount: Decimal): Decimal => {
+          const boosted = (amount: Decimal): Decimal => {
             if (round === null) return amount;
             const n = amount.toNumber();
             return Number.isInteger(n) ? new Decimal(boostAmount(n, round)) : amount.times(1 + outputShare);
           };
-          homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(delivered(cargo.commonOre));
-          homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(delivered(cargo.uncommonMaterial));
-          homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(delivered(cargo.rareMaterial));
+          // E-CREW (Task 21): Operations' bonus cargo, on top of the (output-boosted) delivered amount.
+          const delivered = (amount: Decimal): Decimal => {
+            const out = boosted(amount);
+            return opsStream === null ? out : new Decimal(bonusCargo(out.toNumber(), opsStream));
+          };
+          homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(delivered(haul.commonOre));
+          homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(delivered(haul.uncommonMaterial));
+          homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(delivered(haul.rareMaterial));
         }
         // Credits are still awarded once PER completed cycle (this branch can be
         // reached multiple times within one call's while loop, e.g. a big
@@ -2304,7 +2353,9 @@ export function tickCaptainMission(
         if (missionDef.missionType === "transport") {
           if (creditsRemaining >= transportLoadCost) {
             creditsRemaining -= transportLoadCost; // working capital committed this cycle (running balance)
-            creditsDelta += outputCredits(transportLoadCost * transportRewardMargin); // NET profit (cost returned, only margin is new)
+            // NET profit (cost returned, only margin is new); E-CREW (Task 21): plus Operations' bonus cargo.
+            const margin = outputCredits(transportLoadCost * transportRewardMargin);
+            creditsDelta += marginStream === null ? margin : bonusCargo(margin, marginStream);
             cyclesCompleted += 1;
           }
           // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
@@ -2364,6 +2415,9 @@ export function tickCaptainMission(
             // E-CREW (Task 20): advance the run's output-rounding cursor (only while Command Presence is live).
             const prevCursor: number | undefined = mission!.outputRoundCursor;
             const outputRoundCursor: number | undefined = outputShare === 0 ? prevCursor : (prevCursor ?? 0) + 1;
+            // E-CREW (Task 21): advance the run's Cunning cursor (only while a Cunning chance is live).
+            const prevCunning: number | undefined = mission!.cunningCursor;
+            const cunningCursor: number | undefined = cunningLive ? (prevCunning ?? 0) + 1 : prevCunning;
             mission = {
               kind: "extraction", // Combat 0.13.0 (9b.5a): tag the auto-repeated extraction cycle
               missionKey,
@@ -2373,6 +2427,7 @@ export function tickCaptainMission(
               recalled: false,
               refuelDelayTicks,
               ...(outputRoundCursor !== undefined ? { outputRoundCursor } : {}),
+              ...(cunningCursor !== undefined ? { cunningCursor } : {}),
             };
           }
         }
@@ -2730,6 +2785,10 @@ interface PatrolTickResult {
   // the hull reaches base so economyTick can stamp ShipInstance.repairDamage. 0 unless
   // shipDamaged is true this call (the only call that flags the ship).
   shipDamageTaken: number;
+  // E-CREW 0.14.0 (Task 21): the Engineering department's Cunning "free repair tick" of the defeated cycle
+  // (PatrolMissionState.freeRepairTicks), reported with shipDamageTaken so economyTick stamps it onto the
+  // ship. 0 unless shipDamaged is true this call AND that cycle's roll succeeded.
+  shipFreeRepairTicks: number;
   // Fuel drawn from the SHARED tank budget for RELAUNCH cycles this call (0 unless a
   // repeat-dispatch patrol completed a route and relaunched). economyTick subtracts it
   // from the Decimal tank exactly as it does tickCaptainMission's fuelSpent.
@@ -2830,12 +2889,28 @@ export function tickCaptainPatrol(
   //                    CURRENT cycle's stored value, never this, so a cycle stays a pure function of its
   //                    stored mission (the display replay reads the same field).
   // Default {} keeps every existing call + test byte-identical.
-  officerEffects: { outputShare?: number; relaunchCombat?: OfficerCombatMods } = {},
+  // E-CREW 0.14.0 (Task 21), the officer stat facets a RELAUNCH freezes onto its new cycle:
+  //   relaunchCombatProfile : the officers' combat profile (crewOverlay.ts officerCombatProfile). When present
+  //                    it REPLACES relaunchCombat: each relaunch folds it at the hours this run has flown so
+  //                    far (routesCompletedThisRun * route length * secondsPerTick), so the Constitution
+  //                    ramp grows cycle by cycle (a pure function of the stored run, so chunking cannot
+  //                    change it) and the Integrity extras ride along.
+  //   secondsPerTick : the fleet tick length for that clock (default 1).
+  //   freeRepairChance : the Engineering department's Cunning facet; each relaunch rolls it on the new
+  //                    cycle's masterSeed (officerStats.ts cunningProc) for a free repair tick on defeat.
+  officerEffects: {
+    outputShare?: number;
+    relaunchCombat?: OfficerCombatMods;
+    relaunchCombatProfile?: readonly OfficerCombatEntry[];
+    secondsPerTick?: number;
+    freeRepairChance?: number;
+  } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
     captain,
     shipDamaged: false,
     shipDamageTaken: 0,
+    shipFreeRepairTicks: 0,
     fuelSpent: 0,
     creditsSpentOnFuel: 0,
     // No wave fought => no reward (empty material delta, zero credits/FA XP, captain untouched).
@@ -2913,6 +2988,8 @@ export function tickCaptainPatrol(
   // limp-home completes this call (0 otherwise). Captured at the defeat instant, carried on
   // the mission through the limp, and read out here when the wreck reaches base.
   let shipDamageTaken = 0;
+  // E-CREW (Task 21): the defeated cycle's free repair ticks, reported with the damage (0 otherwise).
+  let shipFreeRepairTicks = 0;
   // Shared-budget locals, drawn down at relaunch cycle boundaries ONLY (like the
   // extraction engine's fuel/credits), reported back as the *Spent totals.
   let fuelRemaining = fuelBudget;
@@ -2980,6 +3057,7 @@ export function tickCaptainPatrol(
       if (mission.limpTicksRemaining <= 0) {
         shipDamaged = true;
         shipDamageTaken = mission.limpDamage ?? 0; // 0 only on a corrupt/absent capture
+        shipFreeRepairTicks = mission.freeRepairTicks ?? 0; // E-CREW (Task 21): Engineering's Cunning
         stopReason = "defeat"; // wall-stop: a defeated patrol limped home and ended damaged
         endReason = "defeat"; // 0.13.4 Phase 2: ending #1 of 4 in this function
         mission = null;
@@ -3191,6 +3269,12 @@ export function tickCaptainPatrol(
           // exactly the multi-patrol offline==live parity defect this derivation fixes.
           // Re-plan the wave schedule for the new seed and reset progress + carry-state to FULL.
           const newSeed = deriveWaveSeed(mission.masterSeed, 0, RELAUNCH_SEED_SALT);
+          // E-CREW (Task 21): the hours this run has flown before the new cycle (the Constitution ramp's clock)
+          // and the new cycle's frozen combat bonuses: the profile folded at those hours, else Task 20's value.
+          const hoursOut = (routesThisRun * routeLength * (officerEffects.secondsPerTick ?? 1)) / 3600;
+          const relaunchCombat = officerEffects.relaunchCombatProfile
+            ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
+            : officerEffects.relaunchCombat;
           // Mint the next cycle via the shared factory (THE single source of truth for a
           // new patrol, shared with dispatchCaptainOnPatrol so the two can never drift).
           // Relaunch reuses THIS mission's stance + repeatDispatch (they persist across a
@@ -3208,7 +3292,9 @@ export function tickCaptainPatrol(
             // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
             installedGear,
             // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
-            officerCombat: officerEffects.relaunchCombat,
+            officerCombat: relaunchCombat,
+            // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
+            freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
@@ -3328,6 +3414,7 @@ export function tickCaptainPatrol(
     captain: { ...captain, mission, xp, level, statPoints, lastStopReason: stopReason ?? captain.lastStopReason },
     shipDamaged,
     shipDamageTaken,
+    shipFreeRepairTicks,
     fuelSpent,
     creditsSpentOnFuel,
     // The rewards economyTick folds through the SAME deltas as extraction (materials into home
@@ -3688,6 +3775,9 @@ export function economyTick(
   // RELAUNCH_SEED_SALT), so there is no seed counter to thread here. Threading it would
   // reintroduce the multi-patrol parity defect (map-iteration-order-dependent seeds).
   const damagedShips = new Map<string, number>();
+  // E-CREW 0.14.0 (Task 21): the Engineering Cunning free repair ticks of a defeated cycle, keyed like
+  // damagedShips and stamped with it (absent for every ship whose roll did not succeed).
+  const freeRepairShips = new Map<string, number>();
   // 0.13.4 Phase 2 Unit 2.1: PATROL ENDINGS recorded during this captain map, drained into the
   // completion log by Unit 2.2 after the map. Same side-channel shape as `damagedShips` directly
   // above, which is the established idiom in this function for "the map noticed something the
@@ -3818,8 +3908,15 @@ export function economyTick(
           captainXpMult,
           // E-CREW 0.14.0 (Task 20): the seated officers' patrol effects, read live (Command Presence on each
           // won wave; the combat bonuses a relaunch freezes). Both zero / undefined without the officers.
+          // E-CREW 0.14.0 (Task 21): the relaunch now folds the officers' combat PROFILE (Constitution ramp +
+          // Integrity extras) at the run's hours, and rolls Engineering's Cunning for each new cycle.
           patrolShip
-            ? { outputShare: officerMissionOutputBonus(state, patrolShip), relaunchCombat: officerCombatMods(state, patrolShip) }
+            ? {
+                outputShare: officerMissionOutputBonus(state, patrolShip),
+                relaunchCombatProfile: officerCombatProfile(state, patrolShip),
+                secondsPerTick: state.tickDurationSeconds,
+                freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
+              }
             : {},
         );
         // Draw down the shared budgets so a later captain sees the reduced values (no
@@ -3830,7 +3927,11 @@ export function economyTick(
         totalCreditsSpentOnFuel += patrolResult.creditsSpentOnFuel;
         // Flag the ship when its defeated patrol finished limping home this call (folded into
         // state.ships once, below), recording the hull damage so the repair scales with it.
-        if (patrolResult.shipDamaged && patrolShip) damagedShips.set(patrolShip.id, patrolResult.shipDamageTaken);
+        if (patrolResult.shipDamaged && patrolShip) {
+          damagedShips.set(patrolShip.id, patrolResult.shipDamageTaken);
+          // E-CREW (Task 21): Engineering's Cunning free repair ticks ride with the damage (only when won).
+          if (patrolResult.shipFreeRepairTicks > 0) freeRepairShips.set(patrolShip.id, patrolResult.shipFreeRepairTicks);
+        }
         // 0.13.4 Phase 2: endings #1 to #3 (defeat / outOfFuel / ordersComplete-or-recalled).
         // Reading `endReason !== null` is the whole gate: the invariant on the field is that it
         // is non-null exactly when the patrol ended, so this records every ending the tick helper
@@ -4007,6 +4108,9 @@ export function economyTick(
       rareChanceMult: surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind,
       // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
       missionOutputMult: ship ? officerMissionOutputBonus(state, ship) : 0,
+      // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
+      cunningOperationsChance: ship ? departmentFacet(state, ship, "operations", "cunning") : 0,
+      cunningScienceChance: ship ? departmentFacet(state, ship, "science", "cunning") : 0,
       bonusRollChance: captainBonusRollChance(captain),
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
       specBonusRollChance: captainSpecBonusRollChance(captain),
@@ -4194,7 +4298,15 @@ export function economyTick(
     ships:
       damagedShips.size > 0
         ? state.ships.map((s) =>
-            damagedShips.has(s.id) ? { ...s, damaged: true, repairDamage: damagedShips.get(s.id) } : s,
+            damagedShips.has(s.id)
+              ? {
+                  ...s,
+                  damaged: true,
+                  repairDamage: damagedShips.get(s.id),
+                  // E-CREW (Task 21): stamped only when Engineering's Cunning succeeded for the defeated cycle.
+                  ...(freeRepairShips.has(s.id) ? { freeRepairTicks: freeRepairShips.get(s.id) } : {}),
+                }
+              : s,
           )
         : state.ships,
     gameTimeSeconds: state.gameTimeSeconds + deltaSeconds,
@@ -4826,8 +4938,12 @@ function freshPatrolMission(args: {
   // dispatch. Relaunch: the officers seated at the relaunch (economyTick's live read). Stored only when
   // present, so a no-officer cycle's mission is byte-identical to before.
   officerCombat?: OfficerCombatMods;
+  // E-CREW 0.14.0 (Task 21): the cycle's Engineering Cunning free repair ticks (rolled by the caller on this
+  // cycle's masterSeed). Stored only when > 0, so a cycle without the roll is byte-identical to before.
+  freeRepairTicks?: number;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat } = args;
+  const freeRepairTicks = args.freeRepairTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
@@ -4841,6 +4957,7 @@ function freshPatrolMission(args: {
   const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat);
   return {
     ...(officerCombat ? { officerCombat } : {}),
+    ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5198,7 +5315,21 @@ export function dispatchCaptainOnPatrol(
   // masterSeed / repeatDispatch.
   // E-CREW (Task 20): freeze the seated officers' combat bonuses onto the first cycle (undefined = none).
   const officerCombat = officerCombatMods(state, ship);
-  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat });
+  // E-CREW (Task 21): the first cycle's Engineering Cunning roll, keyed on its masterSeed (0 hours: no ramp).
+  const freeRepairTicks = cunningProc(masterSeed, "engineering", departmentFacet(state, ship, "engineering", "cunning"))
+    ? CUNNING_FREE_REPAIR_TICKS
+    : 0;
+  const mission = freshPatrolMission({
+    patrolKey,
+    stance,
+    masterSeed,
+    repeatDispatch,
+    shipDef,
+    hullType,
+    installedGear,
+    officerCombat,
+    freeRepairTicks,
+  });
 
   const captains = [...state.captains];
   // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh patrol dispatch,
@@ -6946,7 +7077,11 @@ export function shipRepairDurationTicks(
   // decided HERE at process creation (the duration is fixed on the TimedProcess, so an in-flight repair is
   // never re-timed and the closed-form countdown is untouched). Without the suite (or with gear unknown,
   // the pure ship-only overload) the reduction is exactly 0 and the base is returned unchanged.
-  return damageControlRepairTicks(baseTicks, damageControlEffect(installedGear).repairTimeReduction);
+  const ticks = damageControlRepairTicks(baseTicks, damageControlEffect(installedGear).repairTimeReduction);
+  // E-CREW 0.14.0 (Task 21): the Engineering department's Cunning "free repair tick" (stamped on the ship when
+  // its defeated patrol cycle's roll succeeded), never below 1 tick. Absent = the duration unchanged.
+  const free = ship.freeRepairTicks ?? 0;
+  return free > 0 ? Math.max(1, ticks - free) : ticks;
 }
 
 // The AUTO-START pass. For each DAMAGED hull not already in a repair bay, start a shipRepair
@@ -11437,7 +11572,15 @@ export function resolveProcesses(
       const shipId = process.effect.shipId;
       if (ships.some((s) => s.id === shipId)) {
         ships = ships.map((s) =>
-          s.id === shipId ? { ...s, damaged: undefined, repairDamage: undefined } : s,
+          s.id === shipId
+            ? {
+                ...s,
+                damaged: undefined,
+                repairDamage: undefined,
+                // E-CREW (Task 21): the free repair ticks are spent with the repair (cleared only if present).
+                ...(s.freeRepairTicks !== undefined ? { freeRepairTicks: undefined } : {}),
+              }
+            : s,
         );
       }
     } else if (process.effect.type === "salvageResolve") {

@@ -51,6 +51,10 @@ export function memberFallOutcome(_ctx: MemberFallContext): MemberFallOutcome {
 export interface InjuryRecoveryFactors {
   medicalShare: number; // the Medical division's injury buff (crew.reducedCrewLosses)
   rapidRecoveryShare: number; // the Rapid Recovery officer bonus (officer.repairRateMult)
+  // E-CREW Task 21: the Medical department's officer stat facets, FROZEN on the run at dispatch
+  // (Expedition.recoveryTurnaround, Constitution's shorter turnaround, + Expedition.quickRecovery, Cunning's
+  // quicker recovery). Optional: absent = 0, so a run without them recovers exactly as before.
+  officerFacetShare?: number;
 }
 
 // The ship's care for its injured away team, read live (at claim). Zero for a missing ship. Pure.
@@ -65,7 +69,9 @@ export function shipInjuryFactors(state: GameState, ship: ShipInstance | undefin
 // How long one injury lasts, in whole seconds (see the header). `treatmentShare` is the per-member hook
 // (the Injury Kit, Task 16b); 0 today. Pure.
 export function injuryRecoverySeconds(factors: InjuryRecoveryFactors, treatmentShare: number = 0): number {
-  const care = Math.max(0, factors.medicalShare) + Math.max(0, factors.rapidRecoveryShare) + Math.max(0, treatmentShare);
+  const facets = Math.max(0, factors.officerFacetShare ?? 0);
+  const base = Math.max(0, factors.medicalShare) + Math.max(0, factors.rapidRecoveryShare) + Math.max(0, treatmentShare);
+  const care = facets === 0 ? base : base + facets;
   return Math.max(INJURY_MIN_RECOVERY_SECONDS, Math.round(INJURY_BASE_RECOVERY_SECONDS / (1 + care)));
 }
 
@@ -85,7 +91,10 @@ export interface MemberInjury {
 export function applyExpeditionInjuries(state: GameState, exp: Expedition): { next: GameState; injuries: MemberInjury[] } {
   const downed = expeditionDownedMemberIds(exp);
   if (downed.length === 0) return { next: state, injuries: [] };
-  const factors = shipInjuryFactors(state, state.ships.find((s) => s.id === exp.shipId));
+  const shipFactors = shipInjuryFactors(state, state.ships.find((s) => s.id === exp.shipId));
+  // E-CREW (Task 21): the run's frozen Medical facets join the care (see InjuryRecoveryFactors).
+  const officerFacetShare = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0);
+  const factors = officerFacetShare > 0 ? { ...shipFactors, officerFacetShare } : shipFactors;
   const now = state.gameTimeSeconds;
   const injuries: MemberInjury[] = [];
   const byId = new Map<string, MemberInjury>();

@@ -67,6 +67,8 @@ import { equippedFor } from "./equipment";
 import { effectiveShipStats, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
+// E-CREW 0.14.0 (Task 21): the officer stat facets that reach a run (frozen at dispatch).
+import { CUNNING_AMBUSH_SOFTEN, CUNNING_QUICK_RECOVERY, constitutionRamp, cunningProc, departmentFacet } from "./officerStats";
 import {
   PLANET_TYPES,
   poisForPlanetType,
@@ -634,6 +636,20 @@ export function startExpedition(
   // resist) for the away team, read off the seated officers at the same dispatch instant.
   const squadTriage = officerBonusTotal(state, ship, "officer.crewLossPrevention");
   const squadFearResist = officerBonusTotal(state, ship, "officer.crewRetention");
+  const encounterEvasion = officerBonusTotal(state, ship, "officer.evasion");
+  const crewRareFind = shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0;
+  // E-CREW (Task 21): the officer stat FACETS that reach this run, frozen here like the bonuses above and
+  // written only when they do something (absent = none, so an all-10 bridge stores the pre-Task-21 record).
+  //   Cunning (this run is ONE mission: rolled once, keyed on the run's seed and the seat, private streams):
+  //     Security softens the run's ambushes; Medical brings the injured home with a quicker recovery.
+  //   Constitution: Medical's share of the turnaround (injury care); the long-haul ramps of the two buffs
+  //     this run carries, the Science crew's rare find (relic roll) and Evasive Command (encounter chance),
+  //     stored only when that buff is non-zero.
+  const ambushSoften = cunningProc(seed, "tactical", departmentFacet(state, ship, "security", "cunning")) ? CUNNING_AMBUSH_SOFTEN : 0;
+  const quickRecovery = cunningProc(seed, "medical", departmentFacet(state, ship, "medical", "cunning")) ? CUNNING_QUICK_RECOVERY : 0;
+  const recoveryTurnaround = departmentFacet(state, ship, "medical", "constitution");
+  const rampScience = crewRareFind > 0 ? departmentFacet(state, ship, "science", "constitution") : 0;
+  const rampFlightDeck = encounterEvasion > 0 ? departmentFacet(state, ship, "flightDeck", "constitution") : 0;
 
   const expedition: Expedition = {
     id,
@@ -665,17 +681,23 @@ export function startExpedition(
     // here (the same "the launch is what you saw at dispatch" contract), so retuning ENCOUNTER_STEPS or
     // reseating the pilot never reshapes an in-flight run.
     encounterSteps: ENCOUNTER_STEPS,
-    encounterEvasion: officerBonusTotal(state, ship, "officer.evasion"),
+    encounterEvasion,
     // E-CREW (Task 15): the crew rare find for the relic roll, frozen here like encounterEvasion. ONE read
     // of the crew rollup, which already folds Discovery Instinct (officer.rareFindMult -> crew.rareFindChance)
     // with the Science division's Keen Analysis; adding officerBonusTotal on top would count the officer twice.
-    crewRareFind: shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0,
+    crewRareFind,
     scanStepCursor: 0,
     scanEvents: [],
     // E-CREW (Task 20): the away team's two officer bonuses, frozen here like encounterEvasion and written
     // ONLY when non-zero, so a run without the officer stores exactly the pre-Task-20 record.
     ...(squadTriage > 0 ? { squadTriage } : {}),
     ...(squadFearResist > 0 ? { squadFearResist } : {}),
+    // E-CREW (Task 21): the officer stat facets (see above), each only when non-zero.
+    ...(ambushSoften > 0 ? { ambushSoften } : {}),
+    ...(quickRecovery > 0 ? { quickRecovery } : {}),
+    ...(recoveryTurnaround > 0 ? { recoveryTurnaround } : {}),
+    ...(rampScience > 0 ? { rampScience } : {}),
+    ...(rampFlightDeck > 0 ? { rampFlightDeck } : {}),
   };
 
   return {
@@ -916,26 +938,45 @@ export function encounterChance(hazard: number, deviceBias: number, evasion: num
 // E-CREW (Task 16): `sittingOut` (gambit.ts scanDownedBefore, the members downed at earlier boundaries)
 // leaves those members out of the squad: their worn devices stop counting, and with the whole squad out
 // the chance is 0 (nobody is on the ground to be found). scanStepRoll passes it; absent = the full squad.
-export function scanEncounterChance(exp: Expedition, body: ExpeditionBody, sittingOut?: ReadonlySet<string>): number {
+// E-CREW (Task 21): `hoursOut` (the boundary's hours since dispatch) drives the Flight Deck's Constitution
+// ramp on Evasive Command (exp.rampFlightDeck): the frozen evasion grows by constitutionRamp(ramp, hours).
+// Absent / 0 = the frozen evasion as is.
+export function scanEncounterChance(exp: Expedition, body: ExpeditionBody, sittingOut?: ReadonlySet<string>, hoursOut: number = 0): number {
   const deployed = exp.roster?.security ?? [];
   const security = sittingOut && sittingOut.size > 0 ? deployed.filter((m) => !sittingOut.has(m.memberId)) : deployed;
   if (security.length === 0) return 0;
   return encounterChance(
     resistedHazard(body.hazard, exp.hazardResist ?? 0),
     squadEncounterBias(security, fieldDeviceEffectiveness(exp.roster)),
-    exp.encounterEvasion ?? 0,
+    rampedEncounterEvasion(exp, hoursOut),
   );
+}
+
+// The run's Evasive Command at `hoursOut` hours since dispatch: the frozen encounterEvasion, grown by the
+// Flight Deck's Constitution ramp (E-CREW Task 21). Exactly the frozen value without a ramp. Pure.
+export function rampedEncounterEvasion(exp: Expedition, hoursOut: number): number {
+  const evasion = exp.encounterEvasion ?? 0;
+  const ramp = constitutionRamp(exp.rampFlightDeck ?? 0, hoursOut);
+  return ramp === 0 ? evasion : evasion * (1 + ramp);
+}
+
+// E-CREW (Task 21): hours since dispatch at `secondsIntoScan` seconds into the scanning phase (the transit,
+// detour included, is fully flown by then). Pure.
+export function expeditionHoursAtScan(exp: Expedition, secondsIntoScan: number): number {
+  return (transitDurationSeconds(exp) + secondsIntoScan) / 3600;
 }
 
 // The step roll at `body` boundary `step`: draw 1 decides an encounter, draw 2 a supply cache (counted
 // only when no encounter fired). Its own keyed stream per boundary. Pure.
-export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number): { encounter: boolean; supplyCache: boolean } {
+// E-CREW (Task 21): `hoursOut` is the boundary's hours since dispatch (the Constitution ramp's clock), passed
+// by the scan walk from the boundary's stored time. Default 0 = no ramp.
+export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, hoursOut: number = 0): { encounter: boolean; supplyCache: boolean } {
   const rng = makeRng((exp.seed ^ ENCOUNTER_SALT ^ scanStepKey(bodyIndex, step)) >>> 0);
   const body = exp.bodies[bodyIndex];
   // Draw 1 is ALWAYS taken (chance 0 for a missing body), so draw 2 sits at the same stream position.
   // E-CREW (Task 16): members downed at an earlier boundary are out of the squad (scanDownedBefore reads
   // only the boundaries before this one, so the roll is the same whenever it is evaluated).
-  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step))) : 0, 1000);
+  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut)) : 0, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   return { encounter, supplyCache: !encounter && cache };
 }
@@ -975,7 +1016,8 @@ function encounterScanDurationSeconds(exp: Expedition): number {
 // Roll ONE step boundary (the caller latches it via the cursor) and record what happened. `at` is the
 // boundary's elapsed-in-scanning time (for the loss pause). Mutates the working clone only.
 function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: ExpeditionBody, bodyIndex: number, step: number, at: number): void {
-  const roll = scanStepRoll(exp, bodyIndex, step);
+  // E-CREW (Task 21): the boundary's hours since dispatch, from its stored time (only a ramped run reads it).
+  const roll = scanStepRoll(exp, bodyIndex, step, exp.rampFlightDeck ? expeditionHoursAtScan(exp, at) : 0);
   if (roll.encounter) {
     const res = resolveScanEncounter(exp, body, bodyIndex, step);
     const ev: ExpeditionScanEvent = { bodyIndex, step, kind: "encounter", outcome: res.outcome, downedMemberIds: res.downedMemberIds };
@@ -1088,7 +1130,12 @@ function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
       endsAt += duration;
       if (endsAt <= consumed + PHASE_EPS && !act.done) {
         act.done = true;
-        const res = resolveExpeditionActivity(exp, body, act, seen);
+        // E-CREW (Task 21): a Science-ramped run reads the task's start in hours since dispatch (transit +
+        // the finished scan + the tasks before it, all stored), the clock of its relic roll's ramp.
+        const hoursOut = exp.rampScience
+          ? (transitDurationSeconds(exp) + scanningDurationSeconds(exp) + endsAt - duration) / 3600
+          : 0;
+        const res = resolveExpeditionActivity(exp, body, act, seen, undefined, hoursOut);
         exp.findings.push(res.finding);
         // E-CREW (Task 16): record who went down, so they sit out every later task and come home injured.
         // Tasks complete in flat order, so every lower index is already recorded when this one resolves.

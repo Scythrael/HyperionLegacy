@@ -76,6 +76,8 @@ import { rankMagnitudeFactor } from "./crewRank";
 import { RELIC_BEARING_POIS, isRelicBearingPoi, museumBonuses, resistedHazard } from "./relics";
 // E-CREW Task 15: the Science party's fieldwork (pure; imports only model + content, so no cycle).
 import { fieldworkEffect, type FieldworkEffect } from "./fieldwork";
+// E-CREW 0.14.0 (Task 21): the Constitution ramp (a pure leaf; no cycle).
+import { constitutionRamp } from "./officerStats";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -1699,6 +1701,9 @@ export function resolveExpeditionActivity(
   activity: ExpeditionActivity,
   globalIndex: number,
   logSink?: GambitLogEvent[], // OPTIONAL (E3b): when passed, filled with the DECIDING battle's transient log
+  // E-CREW (Task 21): the task's hours since dispatch (the Science Constitution ramp's clock on the relic
+  // roll, expedition.ts resolveActivitiesPhase). Default 0 = no ramp; the battle never reads it.
+  hoursOut: number = 0,
 ): ActivityResolution {
   const findingId = activityFindingId(exp, activity.id);
   const relicId = `${exp.id}-relic-${activity.id}`;
@@ -1760,7 +1765,7 @@ export function resolveExpeditionActivity(
         body.hazard,
         activity.poiId,
         relicId,
-        activityRelicFindBonus(exp, fw),
+        activityRelicFindBonus(exp, fw, hoursOut),
       );
       return {
         finding: {
@@ -1790,9 +1795,13 @@ export function resolveExpeditionActivity(
 //   + crewRareFind (Discovery Instinct + the Science division's rare find, snapshotted at dispatch)
 // Every term is 0 for a run launched before Task 15 without a party, so the bonus is the museum's
 // bit-for-bit. Pure.
-export function activityRelicFindBonus(exp: Expedition, fw: Pick<FieldworkEffect, "relicFind">): number {
+// E-CREW Task 21: the crew rare find grows by the Science department's Constitution ramp at `hoursOut` hours
+// since dispatch (exp.rampScience; constitutionRamp is exactly 0 without it, so the term is the frozen value).
+export function activityRelicFindBonus(exp: Expedition, fw: Pick<FieldworkEffect, "relicFind">, hoursOut: number = 0): number {
   const base = exp.relicFindBonus ?? 0;
-  const extra = fw.relicFind + Math.max(0, exp.crewRareFind ?? 0);
+  const crew = Math.max(0, exp.crewRareFind ?? 0);
+  const ramp = constitutionRamp(exp.rampScience ?? 0, hoursOut);
+  const extra = fw.relicFind + (ramp === 0 ? crew : crew * (1 + ramp));
   return extra > 0 ? base + extra : base;
 }
 
@@ -1920,7 +1929,10 @@ export function resolveScanEncounter(
   const team = expeditionTeamCombatants(exp, `${exp.id}-scan-b${bodyIndex}-s${step}`, scanDownedBefore(exp, bodyIndex, step));
   if (team.length === 0) return { outcome: "loss", rounds: 0, downedMemberIds: [], finding: null };
   const battleSeed = (exp.seed ^ SCAN_BATTLE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
-  const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), SCAN_ENCOUNTER_POI);
+  const enemies = softenAmbush(
+    generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), SCAN_ENCOUNTER_POI),
+    exp.ambushSoften ?? 0,
+  );
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(battleSeed), logSink, battleSeed);
   if (result.result !== "win") {
     return { outcome: "loss", rounds: result.rounds, downedMemberIds: result.downedMemberIds, finding: null };
@@ -1940,6 +1952,20 @@ export function resolveScanEncounter(
       relic: null,
     },
   };
+}
+
+// E-CREW 0.14.0 (Task 21): the Security department's CUNNING over-delivery ("softens an enemy ambush"):
+// a run whose dispatch roll succeeded (exp.ambushSoften) meets its random scan encounters with every enemy
+// at (1 - soften) of its health, power and healing (health stays a whole number, at least 1). A post-
+// generation scale, so generateEncounter's draws are untouched; 0 returns the SAME array. Pure.
+export function softenAmbush(enemies: GroundCombatant[], soften: number): GroundCombatant[] {
+  if (!(soften > 0)) return enemies;
+  const k = Math.max(0, 1 - soften);
+  return enemies.map((e) => {
+    const hp = Math.max(1, Math.round(e.hp * k));
+    const power = e.power * k;
+    return { ...e, hp, hpMax: hp, power, heal: e.heal * k, threat: power };
+  });
 }
 
 // The supply-cache EVENT's finding at `body`'s step boundary `step`: a small keyed material + credit haul.

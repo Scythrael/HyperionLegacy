@@ -1491,6 +1491,11 @@ export interface ShipInstance {
   // formula falls back to the hull's full integrity so the ship can still be repaired.
   // Cleared (back to undefined) together with `damaged` when the repair completes.
   repairDamage?: number;
+  // E-CREW 0.14.0 (Task 21): repair ticks the Engineering department's CUNNING over-delivery took off the
+  // NEXT Shipyard repair (stamped with repairDamage when a patrol limps home from a cycle whose roll
+  // succeeded, PatrolMissionState.freeRepairTicks). The repair duration subtracts it (never below 1 tick);
+  // cleared with the damage. OPTIONAL, absent = none (no SAVE_VERSION bump).
+  freeRepairTicks?: number;
   // Crew 0.14.0 (Phase 0, DORMANT): this ship's crew population (signature buckets + the
   // per-ship passive/active toggle). OPTIONAL + absent-is-default like `damaged`/`repairDamage`:
   // a pre-0.14.0 save (and any ship created off a path that does not seed it) reads as undefined,
@@ -2930,6 +2935,11 @@ export interface CaptainMissionState {
   // ONLY while the bonus is non-zero, so a run without the officer never writes it (byte-identical; no
   // SAVE_VERSION bump, absent reads as 0).
   outputRoundCursor?: number;
+  // E-CREW 0.14.0 (Task 21): the run's CUNNING cursor, one step per delivered cycle, so each cycle's
+  // over-delivery rolls (officerStats.ts captainCycleMissionSeed + cunningRollSeed) are keyed on their own
+  // value and never share a roll. Stamped and carried forward ONLY while an Operations or Science Cunning
+  // chance is live, so a run without one never writes it (byte-identical; no SAVE_VERSION bump, absent = 0).
+  cunningCursor?: number;
 }
 
 // --- Combat Patrol mission (Combat 0.13.0, Phase 9b.5a, design §S14) -----------
@@ -3133,6 +3143,12 @@ export interface PatrolMissionState {
   // such officer never writes it, so a no-officer patrol is byte-identical to before; an in-flight patrol
   // from an older save fights without it until its next relaunch freezes the current officers.
   officerCombat?: OfficerCombatMods;
+  // E-CREW 0.14.0 (Task 21): the Engineering department's CUNNING over-delivery for THIS cycle ("a free
+  // repair tick"), rolled when the cycle starts (dispatch / relaunch) from the cycle's masterSeed on its own
+  // keyed stream (officerStats.ts cunningProc) and frozen here. If the cycle ends in defeat, the limp-home
+  // reports it and the Shipyard repair runs this many ticks shorter (ShipInstance.freeRepairTicks). OPTIONAL,
+  // written only when the roll succeeds (absent = none, no SAVE_VERSION bump).
+  freeRepairTicks?: number;
 }
 
 // E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle
@@ -3149,6 +3165,13 @@ export interface OfficerCombatMods {
   shield: number;
   hull: number;
   evasion: number;
+  // E-CREW 0.14.0 (Task 21): the INTEGRITY facet ("steady under fire", officerStats.ts). The EXTRA the
+  // bonuses above gain while the ship is BELOW HALF HULL in the battle, folded per officer from each
+  // department's Integrity facet: weaponDamage / shield are extra MULTIPLIERS on top of the already scaled
+  // damage band and shield recharge (0.01 = +1%), evasion is an extra share (0.01 = 1 more evasion point).
+  // bridge.ts copies it onto Combatant.underFire and resolveBattle reads it live against the hull. OPTIONAL:
+  // absent (every all-10 bridge) leaves the battle byte-identical.
+  underFire?: { weaponDamage: number; shield: number; evasion: number };
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -6654,6 +6677,24 @@ export interface Expedition {
   //                     combined with each member's own Fear resist (gambit.ts buildRosterCombatants).
   squadTriage?: number;
   squadFearResist?: number;
+  // E-CREW 0.14.0 (Task 21): the OFFICER STAT FACETS that reach this run, frozen at dispatch like the fields
+  // above (officerStats.ts; small named fields for the Ground Operations redesign, D25, to carry forward).
+  // OPTIONAL, written only when non-zero (absent = no effect, no SAVE_VERSION bump).
+  //   ambushSoften        : Security's CUNNING over-delivery (rolled at dispatch): the run's random scan
+  //                         encounters field enemies at (1 - this) health and power (gambit.ts).
+  //   quickRecovery       : Medical's CUNNING over-delivery (rolled at dispatch): added to the care divisor
+  //                         of every injury this run brings home (injuries.ts).
+  //   recoveryTurnaround  : Medical's CONSTITUTION facet (shorter post-mission turnaround): also added to
+  //                         that care divisor.
+  //   rampScience         : Science's CONSTITUTION facet: the run's crew rare find (the relic roll) grows by
+  //                         constitutionRamp(this, hours since dispatch) at each task.
+  //   rampFlightDeck      : the Flight Deck's CONSTITUTION facet: encounterEvasion grows by
+  //                         constitutionRamp(this, hours since dispatch) at each scan step.
+  ambushSoften?: number;
+  quickRecovery?: number;
+  recoveryTurnaround?: number;
+  rampScience?: number;
+  rampFlightDeck?: number;
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;

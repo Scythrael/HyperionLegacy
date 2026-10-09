@@ -440,15 +440,14 @@
   // never fold crew in (that would double-count it). Only this readout display becomes crew-inclusive.
   $: effectiveStats = ship ? effectiveShipStats(safeState, ship) : null;
   // The crew delta split by SOURCE, folded through the EXACT engine functions (shipCrewContribution +
-  // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value. The
-  // fold ADDS both sources into one crew.* key, so folding each source ALONE off the same gear baseline
-  // splits the total exactly, with no cross term. Senior Staff carries its officers' RACIAL + any
-  // bridge-module amp; Complement carries any quarters-module amp: an honest coarse grouping, not a
-  // faked per-source (racial / module) split the exported functions do not expose separately.
+  // applyCrewOverlay) the live fold uses, so a source bucket can never drift from the shown value.
+  // Complement = the complement folded ALONE (no officers) off the gear baseline; Senior Staff = everything
+  // the officers add ON TOP of it (crewOnlyStats - complementOnlyStats): their bonuses, racials and lifts,
+  // any bridge-module amp, and (E-CREW Task 21) the Strength facet's lift of the complement's buffs. The two
+  // buckets therefore always sum to the crew total, even where an officer MULTIPLIES the complement (an
+  // honest coarse grouping, not a faked per-source split the exported functions do not expose).
   $: complementOnlyStats =
     ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution({ ...safeState, officers: [] }, ship)) : null;
-  $: officerOnlyStats =
-    ship && fitStats ? applyCrewOverlay(fitStats, shipCrewContribution(safeState, { ...ship, complement: undefined })) : null;
   // 0.14.0 E4b: the crew-inclusive stats WITHOUT the museum overlay (both crew sources folded, exactly the
   // value effectiveShipStats overlays the museum onto). The MUSEUM bucket is effective - this, so the
   // source buckets still sum to the shown value once the museum's ship-stat bonuses apply. (The museum's
@@ -531,8 +530,8 @@
     const out: SourceBucket[] = [{ label: "Base / hull", text: fmtStatUnit(d.kind, base), delta: false }];
     const gearDelta = gear - base;
     if (Math.abs(gearDelta) > 1e-9) out.push({ label: "Ship systems", text: fmtDeltaUnit(d.kind, gearDelta), delta: true });
-    if (officerOnlyStats) {
-      const od = d.get(officerOnlyStats) - gear;
+    if (crewOnlyStats && complementOnlyStats) {
+      const od = d.get(crewOnlyStats) - d.get(complementOnlyStats);
       if (Math.abs(od) > 1e-9) out.push({ label: "Senior Staff", text: fmtDeltaUnit(d.kind, od), delta: true });
     }
     if (complementOnlyStats) {

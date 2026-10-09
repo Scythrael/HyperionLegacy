@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods } from "./model";
+import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -47,6 +47,8 @@ import {
 // Exploration 0.14.0 (Phase E4b): the account-level MUSEUM bonuses (relics.ts). relics.ts imports only
 // TYPES from model.ts + the leaf PRNG, so this import adds no cycle.
 import { museumBonuses, type MuseumStat } from "./relics";
+// E-CREW 0.14.0 (Task 21): the officer stat facets (pure; imports no crew overlay code, so no cycle).
+import { constitutionRamp, departmentFacet, departmentStrengthMultipliers, seatFacet } from "./officerStats";
 
 // ============================================================================
 // crew.* -> ship-stat mapping (FIRST-PASS, TUNABLE)
@@ -84,6 +86,10 @@ import { museumBonuses, type MuseumStat } from "./relics";
 // They are deliberately NOT the Complement's crew.crewOutputMult / crew.missionTurnaround keys: those
 // exclusive-pool buffs go live with their own consumers in Task 23, and sharing a key would light them
 // early or count the officer twice once they do.
+//
+// E-CREW 0.14.0 (Task 21, officer stat facets, officerStats.ts): the Operations department's CONSTITUTION
+// facet (its share of a shorter turnaround) also rides officer.missionTurnaroundCut, and the STRENGTH facet
+// multiplies each complement bucket's contribution by its department's 1 + facet inside the rollup below.
 
 // E-CREW 0.14.0 (Task 20): the officer-only pass-through keys (see the mapping-table note above).
 export const OFFICER_ALL_STATS_KEY = "officer.allStatsMult";
@@ -292,17 +298,25 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
           })),
         ]
       : baseBuckets;
+  // E-CREW 0.14.0 (Task 21): the STRENGTH facet. Each department head's Strength (plus the XO's share)
+  // multiplies that division's complement buffs, composed with the quarters module's division multiplier.
+  // null when no department has a Strength facet (every all-10 bridge), so the fold below stays the exact
+  // pre-Task-21 path. Every crew.* consumer reads this one map, so a division pool that goes live later
+  // (Task 23) inherits the facet with no extra wiring.
+  const strength = buckets.length > 0 ? departmentStrengthMultipliers(state, ship) : null;
   if (buckets.length > 0) {
-    const contrib = quartersMod
-      ? (sig: CrewSignature): Record<string, number> => {
-          const mult = quartersProfessionMultiplier(quartersMod, sig.profession);
-          const base = contributionForSignature(sig);
-          if (mult === 1) return base; // no change for this division: keep the base map
-          const scaled: Record<string, number> = {};
-          for (const k of Object.keys(base)) scaled[k] = base[k] * mult;
-          return scaled;
-        }
-      : contributionForSignature;
+    const contrib =
+      quartersMod || strength
+        ? (sig: CrewSignature): Record<string, number> => {
+            const quarters = quartersMod ? quartersProfessionMultiplier(quartersMod, sig.profession) : 1;
+            const mult = strength ? quarters * strength[sig.profession] : quarters;
+            const base = contributionForSignature(sig);
+            if (mult === 1) return base; // no change for this division: keep the base map
+            const scaled: Record<string, number> = {};
+            for (const k of Object.keys(base)) scaled[k] = base[k] * mult;
+            return scaled;
+          }
+        : contributionForSignature;
     const rollup = rollupBuckets(buckets, contrib);
     for (const key of Object.keys(rollup)) add(key, rollup[key]);
   }
@@ -330,6 +344,11 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
     const racial = officerRacialBonus(officer);
     add(racial.statKey, racial.magnitude * officerMult);
   }
+
+  // E-CREW 0.14.0 (Task 21): the Operations department's CONSTITUTION facet, its share of a shorter
+  // post-mission turnaround: it rides the officer-only turnaround key (faster unloading, applyOfficerLifts)
+  // beside Veteran Instincts' unload half. add() skips a 0, so an all-10 bridge writes nothing.
+  add(OFFICER_TURNAROUND_KEY, departmentFacet(state, ship, "operations", "constitution"));
 
   return out;
 }
@@ -363,16 +382,88 @@ export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey:
 // amplification, the same as Task 14's Evasive Command and Task 16's Rapid Recovery reads. (The ship-stat
 // lifts above ride the crew map, so the museum does amplify those.) FIRST-PASS; a balance-pass question.
 
-// The ship's Senior Staff combat bonuses (model.ts OfficerCombatMods), or undefined when the ship has none
-// (so the caller never stores an all-zero record and a no-officer battle stays byte-identical). Weapons and
-// Shield Command read ONLY officers (D12: officers are EXEMPT from the "crew never double-dips weapons /
-// shields" rule; the Complement stays excluded). Inspiring Leader's "every ship stat" covers the combat
-// pools too, compounding with the seat bonus ((1 + w)(1 + i) - 1). PURE.
-export function officerCombatMods(state: GameState, ship: ShipInstance): OfficerCombatMods | undefined {
-  const weapons = officerBonusTotal(state, ship, "officer.weaponEffectivenessMult");
-  const shields = officerBonusTotal(state, ship, "officer.shieldEffectivenessMult");
-  const evasion = officerBonusTotal(state, ship, "officer.evasion");
-  const lift = officerBonusTotal(state, ship, OFFICER_ALL_STATS_KEY);
+// One officer combat bonus on the ship, with the facets of the department it belongs to (E-CREW Task 21): the
+// bonus `kind`, its magnitude (bridge-module amp included, exactly as officerBonusTotal sums it), and the
+// Integrity + Constitution facets of the carrier's seat (officerStats.ts seatFacet). The PROFILE of a ship is
+// these entries in officer order, then bonus order (the order officerBonusTotal sums in, so the folded totals
+// are bit-identical to the Task 20 fold).
+export type OfficerCombatKind = "weapons" | "shields" | "evasion" | "lift";
+export interface OfficerCombatEntry {
+  kind: OfficerCombatKind;
+  magnitude: number;
+  integrity: number;
+  constitution: number;
+}
+
+const OFFICER_COMBAT_KIND_OF: Readonly<Record<string, OfficerCombatKind>> = {
+  "officer.weaponEffectivenessMult": "weapons",
+  "officer.shieldEffectivenessMult": "shields",
+  "officer.evasion": "evasion",
+  [OFFICER_ALL_STATS_KEY]: "lift",
+};
+
+// The ship's officer combat PROFILE (see OfficerCombatEntry). Empty with no combat bonus aboard. PURE.
+export function officerCombatProfile(state: GameState, ship: ShipInstance): OfficerCombatEntry[] {
+  const bridgeMod = installedBridgeModule(state, ship);
+  const hullSpec = hullSpecOf(ship);
+  const out: OfficerCombatEntry[] = [];
+  const facets = new Map<SeniorStaffSeat, { integrity: number; constitution: number }>();
+  for (const officer of state.officers) {
+    if (officer.assignedShipId !== ship.id) continue;
+    for (const bonus of officer.bonuses) {
+      const statKey = getSeniorStaffBonusById(bonus.id)?.statKey;
+      const kind = statKey ? OFFICER_COMBAT_KIND_OF[statKey] : undefined;
+      if (!kind) continue;
+      const officerMult = bridgeMod ? bridgeOfficerMultiplier(bridgeMod, officer, hullSpec) : 1;
+      let f = facets.get(officer.seat);
+      if (!f) {
+        f = { integrity: seatFacet(state, ship, officer.seat, "integrity"), constitution: seatFacet(state, ship, officer.seat, "constitution") };
+        facets.set(officer.seat, f);
+      }
+      out.push({ kind, magnitude: bonus.magnitude * officerMult, integrity: f.integrity, constitution: f.constitution });
+    }
+  }
+  return out;
+}
+
+// Fold a combat profile into OfficerCombatMods `hoursOut` hours into a run (E-CREW Task 21). Each entry is
+// first RAMPED by its department's Constitution (x (1 + constitutionRamp(facet, hoursOut)); 0 hours or no
+// Constitution = the bare magnitude), then summed per kind exactly as Task 20 summed them. The INTEGRITY facet
+// becomes `underFire`: the extra the folded mods gain when every entry is also x (1 + its Integrity facet),
+// present only when it is non-zero. undefined when the profile has no non-zero combat bonus (so the caller
+// never stores an all-zero record). With every facet 0 the result is bit-identical to Task 20's fold. PURE.
+export function officerCombatModsFromProfile(profile: readonly OfficerCombatEntry[], hoursOut: number = 0): OfficerCombatMods | undefined {
+  const base = { weapons: 0, shields: 0, evasion: 0, lift: 0 };
+  const steady = { weapons: 0, shields: 0, evasion: 0, lift: 0 };
+  let anySteady = false;
+  for (const e of profile) {
+    const ramp = constitutionRamp(e.constitution, hoursOut);
+    const m = ramp === 0 ? e.magnitude : e.magnitude * (1 + ramp);
+    base[e.kind] += m;
+    if (e.integrity > 0 && m !== 0) {
+      anySteady = true;
+      steady[e.kind] += m * (1 + e.integrity);
+    } else {
+      steady[e.kind] += m;
+    }
+  }
+  const mods = foldCombatTotals(base);
+  if (!mods) return undefined;
+  if (!anySteady) return mods;
+  const s = foldCombatTotals(steady)!;
+  const underFire = {
+    weaponDamage: (1 + s.weaponDamage) / (1 + mods.weaponDamage) - 1,
+    shield: (1 + s.shield) / (1 + mods.shield) - 1,
+    evasion: s.evasion - mods.evasion,
+  };
+  if (underFire.weaponDamage === 0 && underFire.shield === 0 && underFire.evasion === 0) return mods;
+  return { ...mods, underFire };
+}
+
+// Task 20's fold of the four summed kinds into OfficerCombatMods (undefined when all four are 0). Inspiring
+// Leader's "every ship stat" covers the combat pools too, compounding with the seat bonus ((1 + w)(1 + i) - 1).
+function foldCombatTotals(t: { weapons: number; shields: number; evasion: number; lift: number }): OfficerCombatMods | undefined {
+  const { weapons, shields, evasion, lift } = t;
   if (weapons === 0 && shields === 0 && evasion === 0 && lift === 0) return undefined;
   return {
     weaponDamage: lift === 0 ? weapons : (1 + weapons) * (1 + lift) - 1,
@@ -382,11 +473,25 @@ export function officerCombatMods(state: GameState, ship: ShipInstance): Officer
   };
 }
 
+// The ship's Senior Staff combat bonuses (model.ts OfficerCombatMods), or undefined when the ship has none
+// (so the caller never stores an all-zero record and a no-officer battle stays byte-identical). Weapons and
+// Shield Command read ONLY officers (D12: officers are EXEMPT from the "crew never double-dips weapons /
+// shields" rule; the Complement stays excluded). Inspiring Leader's "every ship stat" covers the combat
+// pools too. E-CREW Task 21: folded through the officers' combat PROFILE at 0 hours (a dispatch: no
+// Constitution ramp yet), carrying the Integrity extras as `underFire`. PURE.
+export function officerCombatMods(state: GameState, ship: ShipInstance): OfficerCombatMods | undefined {
+  return officerCombatModsFromProfile(officerCombatProfile(state, ship), 0);
+}
+
 // The Shipyard repair speed-up from the ship's officers: Rapid Recovery ("faster Shipyard hull repair") +
 // Veteran Instincts (the repair half of "unload + repair windows"). tick.ts shipRepairDurationTicks divides
 // the repair by (1 + this), a D23 divisor (never 0, each point worth a little less). 0 with neither. PURE.
+// E-CREW 0.14.0 (Task 21): plus the Engineering department's CONSTITUTION facet (its share of a shorter
+// post-mission turnaround), added to the same divisor only when non-zero (an all-10 bridge is unchanged).
 export function officerRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
-  return officerBonusTotal(state, ship, "officer.repairRateMult") + officerBonusTotal(state, ship, OFFICER_TURNAROUND_KEY);
+  const bonus = officerBonusTotal(state, ship, "officer.repairRateMult") + officerBonusTotal(state, ship, OFFICER_TURNAROUND_KEY);
+  const constitution = departmentFacet(state, ship, "engineering", "constitution");
+  return constitution === 0 ? bonus : bonus + constitution;
 }
 
 // Command Presence ("the ship's mission output: materials and credits from its runs"): the share every

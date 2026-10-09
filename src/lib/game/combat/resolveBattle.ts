@@ -331,6 +331,19 @@ function advanceMovement(
 	);
 }
 
+// E-CREW 0.14.0 (Task 21): is `c` STEADY UNDER FIRE right now? True only for a combatant that carries the
+// Integrity facet's extras (Combatant.underFire, from its Senior Staff) while its hull is strictly BELOW HALF
+// its hullMax. A pure read of the live state: no draw, so the combat stream schedule never changes.
+function steadyUnderFire(c: Combatant): NonNullable<Combatant["underFire"]> | undefined {
+	return c.underFire !== undefined && c.hull * 2 < c.hullMax ? c.underFire : undefined;
+}
+
+// True when `c` is steady under fire with a non-zero weapon-damage extra (fireWeapon's per-projectile check).
+function attackerSteady(c: Combatant): boolean {
+	const steady = steadyUnderFire(c);
+	return steady !== undefined && steady.weaponDamage !== 0;
+}
+
 // Regenerate shields using the banked-tenths accumulator (per-second recharge
 // -> exact integer points per tick), clamped to shieldMax. Dead ships and full
 // shields do nothing. Design S2.5b: shields tick back during drawn-out fights,
@@ -343,7 +356,12 @@ function advanceShieldRegen(self: Combatant, acc: Accumulators): void {
 	// negative percent) before banking it. Pure integer scaling of an
 	// already-integer rate: no combat draw, so parity (offline == live) is intact.
 	const rechargeDelta = activeStatDelta(self.statusEffects, "shieldRecharge");
-	const effectiveRecharge = applyPercentDelta(self.shieldRecharge, rechargeDelta);
+	let effectiveRecharge = applyPercentDelta(self.shieldRecharge, rechargeDelta);
+	// E-CREW (Task 21): Integrity's steady-under-fire recharge (whole points, below half hull only).
+	const steady = steadyUnderFire(self);
+	if (steady !== undefined && steady.shieldRecharge !== 0) {
+		effectiveRecharge = Math.max(0, Math.round(effectiveRecharge * (1 + steady.shieldRecharge)));
+	}
 	acc.shield += effectiveRecharge * DT_DECISEC;
 	const wholePoints = Math.floor(acc.shield / TENTHS_PER_SECOND);
 	if (wholePoints <= 0) return;
@@ -763,8 +781,11 @@ export function fireWeapon(
 	// Zero delta => applyPercentDelta(evasion, 0) == evasion, so an unafflicted target
 	// is byte-identical (parity). This only moves the hit THRESHOLD, never the draw.
 	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
+	// E-CREW (Task 21): a target steady under fire (Integrity, below half hull) adds its extra evasion points
+	// before the debuff scalings. 0 extra (or no Integrity) leaves the nominal evasion untouched.
+	const targetEvasion = target.evasion + (steadyUnderFire(target)?.evasion ?? 0);
 	let effectiveEvasion =
-		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
+		maneuverDelta !== 0 ? applyPercentDelta(targetEvasion, maneuverDelta) : targetEvasion;
 	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive on the TARGET cuts its EVASION
 	// (a damaged drive cannot juke), making it easier to hit. Scale the (maneuver-
 	// adjusted) evasion DOWN by the ftl condition penalty (Degraded < Offline). Pure
@@ -875,6 +896,11 @@ export function fireWeapon(
 		}
 		if (reactorDamagePct !== 100) {
 			raw = Math.floor((raw * reactorDamagePct) / 100);
+		}
+		// E-CREW (Task 21): Integrity's steady-under-fire damage, while the ATTACKER is below half hull
+		// (checked per projectile, so a shot that drops it below half lifts the rest). Whole points; no draw.
+		if (attackerSteady(self)) {
+			raw = Math.round(raw * (1 + self.underFire!.weaponDamage));
 		}
 
 		// PHASE 7b INTERCEPT: each projectile pulls the NEXT available defender (one
@@ -1121,8 +1147,11 @@ function fireSquadron(
 	// delta => nominal evasion, so an unafflicted target is byte-identical. This
 	// only moves the hit THRESHOLD, never the draw count.
 	const maneuverDelta = activeStatDelta(target.statusEffects, "maneuver");
+	// E-CREW (Task 21): a target steady under fire (Integrity, below half hull) adds its extra evasion points
+	// before the debuff scalings. 0 extra (or no Integrity) leaves the nominal evasion untouched.
+	const targetEvasion = target.evasion + (steadyUnderFire(target)?.evasion ?? 0);
 	let effectiveEvasion =
-		maneuverDelta !== 0 ? applyPercentDelta(target.evasion, maneuverDelta) : target.evasion;
+		maneuverDelta !== 0 ? applyPercentDelta(targetEvasion, maneuverDelta) : targetEvasion;
 	// PHASE 12b UNIT B1 (design S9): a worn FTL/drive on the target cuts its evasion,
 	// same lever fireWeapon applies (so drone fire also lands more often on a ship whose
 	// drive is damaged). Only moves the hit THRESHOLD, no draw; nominal/absent => no-op.

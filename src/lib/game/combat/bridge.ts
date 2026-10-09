@@ -733,6 +733,16 @@ export function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undef
 		c.hull = c.hullMax;
 	}
 	if (mods.evasion !== 0) c.evasion = Math.max(0, c.evasion + Math.round(mods.evasion * 100));
+	// E-CREW (Task 21): the Integrity facet's "steady under fire" extras, read live by resolveBattle while the
+	// hull is below half. Evasion becomes whole points: the under-fire total rounded, minus the points the
+	// line above already added, so the two never drift by a rounding step. Absent (every all-10 bridge) = no-op.
+	const uf = mods.underFire;
+	if (uf) {
+		const evasionPoints = Math.round((mods.evasion + uf.evasion) * 100) - Math.round(mods.evasion * 100);
+		if (uf.weaponDamage !== 0 || uf.shield !== 0 || evasionPoints !== 0) {
+			c.underFire = { weaponDamage: uf.weaponDamage, shieldRecharge: uf.shield, evasion: evasionPoints };
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

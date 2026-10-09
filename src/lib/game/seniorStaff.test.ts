@@ -40,7 +40,6 @@ import {
   applyPromotionStatPoints,
   isCompleteOfficerStats,
   OFFICER_STAT_INFO,
-  OFFICER_STAT_PENDING_QUALIFIER,
 } from "./seniorStaff";
 import { getSeniorStaffBonusById, seniorStaffBonusesForSeat, bonusRollWeight } from "./seniorStaffBonuses";
 
@@ -641,8 +640,13 @@ describe("rollOfficerStats (Task 19 real roll)", () => {
     expect(promoted.stats).toEqual({ strength: 17, integrity: 12, cunning: 10, constitution: 10 });
   });
 
-  it("every stat effect line carries the pending qualifier until Task 21 lands", () => {
-    for (const k of OFFICER_STAT_KEYS) expect(OFFICER_STAT_INFO[k].effect).toContain(OFFICER_STAT_PENDING_QUALIFIER);
+  it("every stat effect line states the live mechanic (E-CREW Task 21: no pending qualifier left)", () => {
+    for (const k of OFFICER_STAT_KEYS) {
+      const effect = OFFICER_STAT_INFO[k].effect;
+      expect(effect).not.toContain("arrives later");
+      expect(effect).toContain("above 10");
+      expect(effect).not.toMatch(/\u2014|-{2}/); // no em dash, no double hyphen
+    }
   });
 
   it("Integrity abbreviates to ITG (INT reads as Intelligence)", () => {

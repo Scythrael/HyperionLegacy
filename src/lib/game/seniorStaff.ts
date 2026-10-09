@@ -294,13 +294,10 @@ export const OFFICER_STAT_ROLL_MAX = 20;
 
 // Player-facing naming for the four stats (US English): the display label, a short abbreviation for
 // compact rows, the one-word facet (mockup 7b subtitle), and what it does for the department the officer
-// heads (design section 7; the consumers land in Task 21). Shared by the Senior Staff panel tooltips and
-// the coming Help topic so the wording lives in one place.
-//
-// PENDING QUALIFIER: every effect line ends with OFFICER_STAT_PENDING_QUALIFIER because the facets are
-// not live until Task 21. TASK 21 REMOVES IT (delete the constant and its uses, then re-check each effect
-// line against the final mechanics).
-export const OFFICER_STAT_PENDING_QUALIFIER = "(arrives later in 0.14.0)";
+// heads (design section 7). Shared by the Senior Staff panel tooltips and the coming Help topic so the
+// wording lives in one place. E-CREW Task 21: every facet is LIVE (officerStats.ts), so each effect line
+// states the final mechanic (1% per point above 10; see officerStats.ts for the per-department detail the
+// panel appends).
 export const OFFICER_STAT_INFO: Readonly<
   Record<keyof OfficerStats, { label: string; abbr: string; facet: string; effect: string }>
 > = {
@@ -308,26 +305,28 @@ export const OFFICER_STAT_INFO: Readonly<
     label: "Strength",
     abbr: "STR",
     facet: "How hard the department works",
-    effect: `A stronger head makes every crew buff in the department stronger ${OFFICER_STAT_PENDING_QUALIFIER}.`,
+    effect: "Each point above 10 makes every crew buff in the department 1% stronger.",
   },
   integrity: {
     label: "Integrity",
     // "ITG", not "INT": INT reads as Intelligence (display only).
     abbr: "ITG",
     facet: "Bravery",
-    effect: `Steady under fire: when the ship drops below half hull in a battle or patrol, the department's crew buffs get a boost for holding firm ${OFFICER_STAT_PENDING_QUALIFIER}.`,
+    effect:
+      "Steady under fire: while the ship is below half hull in a patrol battle, each point above 10 makes the department's battle bonuses (Weapons, Shield and Evasive Command, Inspiring Leader) 1% stronger.",
   },
   cunning: {
     label: "Cunning",
     abbr: "CUN",
     facet: "Finds the edge",
-    effect: `Each mission, a chance for the department to over-deliver ${OFFICER_STAT_PENDING_QUALIFIER}.`,
+    effect: "Each point above 10 adds a 1% chance per mission that the department over-delivers.",
   },
   constitution: {
     label: "Constitution",
     abbr: "CON",
     facet: "Endurance",
-    effect: `The department's crew buffs grow the longer an expedition or patrol runs (up to a cap), and turnaround after returning is shorter ${OFFICER_STAT_PENDING_QUALIFIER}.`,
+    effect:
+      "Each point above 10 grows the department's buffs by about 1% per hour out on a patrol or expedition, each hour adding a little less after the first 5, and shortens the department's turnaround after a mission by about 1%.",
   },
 };
 

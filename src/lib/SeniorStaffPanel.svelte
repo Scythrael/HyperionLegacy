@@ -38,7 +38,6 @@
     OFFICER_STAT_INFO,
     OFFICER_STAT_ROLL_MAX,
     OFFICER_PROMOTION_STAT_POINTS,
-    NEUTRAL_OFFICER_STATS,
     officerRankLabel,
     officerInSeat,
     officerStats,
@@ -49,6 +48,14 @@
   } from "./game/seniorStaff";
   import { getSeniorStaffBonusById } from "./game/seniorStaffBonuses";
   import { CREW_RACES } from "./game/crewRaces";
+  import {
+    DEPARTMENT_OF_SEAT,
+    DEPARTMENT_LABEL,
+    XO_DEPARTMENT_SHARE,
+    OFFICER_STAT_NEUTRAL,
+    CUNNING_EDGE_BY_DEPARTMENT,
+    CONSTITUTION_DETAIL_BY_DEPARTMENT,
+  } from "./game/officerStats";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship whose bridge
@@ -102,27 +109,24 @@
   };
 
   // E-CREW Task 19 (D13, mockup 7b): each officer HEADS a department, and its four stats are facets of
-  // how that department performs aboard the ship. Display-only naming for the stat tooltips; the
-  // engine mapping (officerStats.ts DEPARTMENT_OF_SEAT) lands with the facets in Task 21. The XO touches
-  // every department at a smaller share.
-  const SEAT_DEPARTMENT: Record<SeniorStaffSeat, string> = {
-    executive: "every department",
-    pilot: "Flight Deck",
-    operations: "Operations",
-    science: "Science",
-    tactical: "Security",
-    medical: "Medical",
-    engineering: "Engineering",
-  };
-  // What a Cunning over-delivery looks like per department (design section 7). Flight Deck and the XO
-  // have no single named effect, so they read the generic line.
-  const CUNNING_EDGE: Partial<Record<SeniorStaffSeat, string>> = {
-    science: "a bonus rare-find roll",
-    operations: "bonus cargo",
-    engineering: "a free repair tick",
-    tactical: "a softened enemy ambush",
-    medical: "a quicker recovery",
-  };
+  // how that department performs aboard the ship. E-CREW Task 21: both maps are DERIVED from the engine's
+  // officerStats.ts DEPARTMENT_OF_SEAT (the one mapping the facets use), so the tooltips can never name a
+  // department the engine does not apply. The XO touches every department at XO_DEPARTMENT_SHARE.
+  const SEAT_DEPARTMENT: Record<SeniorStaffSeat, string> = Object.fromEntries(
+    SENIOR_STAFF_SEATS.map((seat) => {
+      const dept = DEPARTMENT_OF_SEAT[seat];
+      return [seat, dept === "all" ? "every department" : DEPARTMENT_LABEL[dept]];
+    }),
+  ) as Record<SeniorStaffSeat, string>;
+  // What a Cunning over-delivery looks like per department (design section 7, officerStats.ts). The Flight
+  // Deck and the XO have no decided effect yet (a pending user call), so they read the generic line.
+  const CUNNING_EDGE: Partial<Record<SeniorStaffSeat, string>> = Object.fromEntries(
+    SENIOR_STAFF_SEATS.flatMap((seat) => {
+      const dept = DEPARTMENT_OF_SEAT[seat];
+      const edge = dept === "all" ? undefined : CUNNING_EDGE_BY_DEPARTMENT[dept];
+      return edge ? [[seat, edge]] : [];
+    }),
+  );
 
   // --- Derived reads ----------------------------------------------------------
   $: ship = state.ships.find((s) => s.id === shipId) ?? null;
@@ -205,14 +209,33 @@
       tip: statTip(key, officer.seat),
     }));
   }
-  // One stat's tooltip, worded for the department this officer heads.
+  // One stat's tooltip, worded for the department this officer heads (E-CREW Task 21: the live mechanics).
   function statTip(key: keyof OfficerStats, seat: SeniorStaffSeat): string {
     const info = OFFICER_STAT_INFO[key];
-    const dept = SEAT_DEPARTMENT[seat];
-    const who = seat === "executive" ? "every department, at a smaller share" : `the ${dept} department`;
-    const edge = key === "cunning" && CUNNING_EDGE[seat] ? ` For ${dept}, that means ${CUNNING_EDGE[seat]}.` : "";
+    const dept = DEPARTMENT_OF_SEAT[seat];
+    const label = SEAT_DEPARTMENT[seat];
+    const xoShare = `${Math.round(XO_DEPARTMENT_SHARE * 100)}%`;
+    const who =
+      dept === "all"
+        ? `every department at ${xoShare} of its value (and the XO's own bonuses in full)`
+        : `the ${label} department`;
     const facet = info.facet.charAt(0).toLowerCase() + info.facet.slice(1);
-    return `${info.label}: ${facet}. Applies to ${who}. ${info.effect}${edge} ${NEUTRAL_OFFICER_STATS[key]} is average.`;
+    return `${info.label}: ${facet}. Applies to ${who}. ${info.effect}${statDetail(key, seat)} ${OFFICER_STAT_NEUTRAL} or below adds nothing.`;
+  }
+  // The department-specific half of a stat tooltip (officerStats.ts): what a Cunning over-delivery is and
+  // what Constitution's ramp or turnaround touches for this seat's department. "" when nothing extra applies.
+  function statDetail(key: keyof OfficerStats, seat: SeniorStaffSeat): string {
+    const dept = DEPARTMENT_OF_SEAT[seat];
+    if (key === "cunning") {
+      if (CUNNING_EDGE[seat]) return ` For ${SEAT_DEPARTMENT[seat]}, that means ${CUNNING_EDGE[seat]}.`;
+      return dept === "all"
+        ? " Its share raises every department's chance; the XO has no over-delivery of its own yet."
+        : ` The ${SEAT_DEPARTMENT[seat]} has no over-delivery of its own yet.`;
+    }
+    if (key === "constitution") {
+      return dept === "all" ? " Its share reaches every department's ramp and turnaround." : ` ${CONSTITUTION_DETAIL_BY_DEPARTMENT[dept]}.`;
+    }
+    return "";
   }
   // The block-level explainer behind the Stats "?".
   const STATS_TIP =
