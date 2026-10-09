@@ -81,6 +81,16 @@ category-efficacy boosts. Exact numbers are first-pass and tunable.
   3. Untrained field devices: "How about a chance between 50-75%. The fluctuation might help to account for innate
      knowledge, etc. Or would that cause problems later?" (Implementation shape asked, 2026-10-09.)
   4. Fracture: after a Splint it heals in 3 rounds; untreated, the member comes home injured. Approved.
+- **Follow-up answers (user, 2026-10-09):**
+  - Untrained field devices ROLL PER USE, uniformly 50% to 75% each time the effect fires (user corrected a
+    "fixed per member" pick, 2026-10-09: "I was thinking it would be calculated as a range on rolling the effect").
+    Safe for determinism: the roll comes from its OWN keyed stream (battle seed ^ salt ^ round ^ actor), never the
+    shared battle stream, so no other draw shifts and offline == live holds. Tooltips show "50 to 75%".
+  - Grenade mastery: **Saboteur** (+6% to grenade effects), never a gate.
+  - Treatment split by training: **Blindness** (from enemy flash grenades; attacks mostly miss for 1 to 2 turns) is
+    cleared by anyone's First Aid Kit. **Concussion** (from enemy heavy hits and explosions; first-pass 35% chance to
+    lose each action for 3 turns) needs Medical Training + a Trauma Kit to clear early; otherwise it wears off.
+  - Still a proposal, not separately answered: Codebreaker as the field-device specialist (+6%).
 
 **D21. SOLO-FIGHT DIFFICULTY IS A GAMBIT CHOICE, NOT A BUG (user, 2026-10-07).** A lone Security member running a
 "finish the weakest" program (Default, Triage, Turtle Club President) loses to two strikers on Crashed Ship, while
