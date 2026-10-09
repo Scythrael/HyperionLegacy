@@ -112,9 +112,14 @@ per-team-type loadouts (now per ground team).
 3. Default plan (hardest to strongest) + "Auto-assign randomly": approved.
 4. Helpers only borrow tasks rated at least "Favorable": approved.
 5. Cure and offload/reload times as proposed: approved.
-6. Scan watch: user asked what it means ("The ship's scanning would be done if someone's on a planet fighting");
-   clarification sent.
-7. Team labels: user asked "ABC?"; clarification sent.
+6. **Scan encounters become SHIP-SIDE EVENTS (user, 2026-10-09).** The ship scans from orbit, so nobody is on the
+   ground to fight: a random encounter during a scan is a ship event (e.g. debris, a hostile probe, a sensor ghost)
+   resolved by the ship and its officers, not a ground battle. This REPLACES Task 14's ground-battle scan encounters
+   (the keyed per-step roll and its timing can stay). Event types, how they resolve and their outcomes need a short
+   design (proposal to the user). Ground fights happen only during tasks. Note: Security Cunning's "softened ambush"
+   (Task 21) currently targets scan encounters and must move with them.
+7. **Team labels:** default names Alpha / Bravo / Charlie (user picked), renameable; the user also said "A, B, and C
+   is fine", so short labels A / B / C in compact UI.
 
 ## 10. OPEN CALLS for the user
 
