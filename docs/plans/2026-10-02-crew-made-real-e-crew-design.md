@@ -384,7 +384,18 @@ Operations -> Operations, Pilot -> Flight Deck); the XO applies to every departm
 (2) Cunning scopes approved as built: Security softens EXPEDITION scan ambushes, Engineering's free repair tick after
 a patrol loss, Science and Operations on captain mission cycles, Medical on expedition injuries; (3) Integrity and
 the patrol half of Constitution get PER-SEAT effects like Cunning (they only touched battle bonuses, which 4 of 7
-seats rarely carry). Table proposed to the user 2026-10-09.
+seats rarely carry). **Per-seat table APPROVED as-is (user, 2026-10-09):**
+
+| Seat | Integrity ("steady under pressure": trigger, effect) | Constitution ("the long haul": what ramps) |
+|---|---|---|
+| Tactical (Security) | hull below half: weapon damage (built) | battle bonuses on long patrols (built) |
+| Flight Deck | hull below half: evasion (built) | faster return trip the longer the run |
+| Engineering | hull below half: faster shield recharge | fuel efficiency (range) on long voyages |
+| Science | scanning a hazardous world: less hazard scan slow | rare-find odds (built) + survey yield |
+| Medical | a member returns INJURED (not just ailing): shorter med bay time for injuries | recovery turnaround (built) |
+| Operations | cargo hold at least 90% full: faster loading and unloading | unload turnaround (built) |
+
+The XO keeps its 0.4 share of every department. All effects stay ship-side (D13).
 
 Migration rolls stats for existing officers from a deterministic per-officer seed, so a loaded save gets stable
 stats. With all stats at their neutral point the fold is byte-identical (additive-neutral test).
