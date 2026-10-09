@@ -185,6 +185,16 @@ the combat forecast) compares a team's strength to the planet's threat; a Securi
 rewards), the team returns to the ship, its recovery timer runs, and it RETRIES the same task when recovered; success
 moves on to the next listed task. Other teams are never pulled back by one team's wipe. This supersedes the Task 16
 "sits out the rest of the run" behavior and redesigns how a run walks its tasks.
+- **Clarified (user, 2026-10-09):** "A ground team is one selected party (anywhere from 1 to the full team capacity)
+  for security and 1 for science. The thought is: equip your ground team members with their equipment set like you
+  would a ship. Then you equip those ground team members into their appropriate slot on the team you want them on. You
+  can pick and choose where they go in the overall assignment for which ground team members make up which squad in
+  which ground team (security squad and science squad)." So: GROUND TEAM = one Security squad (1 to capacity) + one
+  Science squad (1 to capacity); members are outfitted first, then SLOTTED into a squad of a chosen ground team.
+- **Scope (user, 2026-10-09): fold into 0.14.0.** "this was my originally envisioned plan for how this system would
+  work, so it doesn't change my planned scope of 0.14.0."
+- **A member downed in a WON fight sits out until recovered** (injured on the spot; the team continues one short;
+  rejoins when the recovery timer ends).
 
 ## 3. Scope (rows this phase closes)
 
