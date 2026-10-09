@@ -43,6 +43,7 @@ import {
   type PatrolKey,
   type PatrolSystemDurability,
   type EquipmentInstance,
+  type OfficerCombatMods,
 } from "../model";
 // Combat 1.0 (Unit 1.4): the SAME fitted-gear query the live tick loop uses (equippedFor), so the
 // display replay derives the player's installed combat gear byte-identically to the real fight and
@@ -208,6 +209,10 @@ export interface ResolvePatrolWavesInput {
   // the live loop carries it, so the replay's accumulating wear stays byte-identical to the
   // real fight (and the combat view's durability pips cannot drift). Read-only, never mutated.
   startSystemDurability: PatrolSystemDurability;
+  // E-CREW 0.14.0 (Task 20): the cycle's frozen Senior Staff combat bonuses (the mission's stored
+  // officerCombat), threaded into the folded carry pools AND every wave's player combatant exactly as the
+  // live loop threads them. OPTIONAL: absent = no officer bonus (byte-identical to before).
+  officerCombat?: OfficerCombatMods;
 }
 
 export interface ResolvePatrolWavesResult {
@@ -228,7 +233,7 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
   // loop folds the identical value (tick.ts foldedDefense), keeping the two paths byte-identical. For a
   // Standard-Issue set (or the low-level tests' absent gear) this folds to the authored stats exactly,
   // so no existing replay/parity outcome moves.
-  const foldedDefense = foldedPlayerDefense(stats, input.installedGear);
+  const foldedDefense = foldedPlayerDefense(stats, input.installedGear, input.officerCombat);
   // E4d: the Damage Control Suite's between-wave hull patch-up fraction (0 without the suite), the SAME
   // value the live loop computes from the same gear.
   const waveHullRegenFraction = damageControlEffect(input.installedGear).waveHullRegenFraction;
@@ -300,6 +305,8 @@ export function resolvePatrolWaves(input: ResolvePatrolWavesInput): ResolvePatro
       // loop does (same shared leaf), so the replayed wave opens with the same wear the real
       // fight had (parity), and Degraded/Offline pips in the combat view are truthful.
       carrySystemDurability,
+      // E-CREW (Task 20): the same frozen officer bonuses the live wave reads.
+      officerCombat: input.officerCombat,
     });
 
     // ENEMY team + labels, from the ENEMY-salt derivation with the SAME idPrefix the
@@ -449,7 +456,10 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
   // uses live), NOT the raw authored SHIP_TYPES stats. A Standard-Issue set folds to the authored stats
   // exactly, so an SI replay is byte-identical to before; a crafted-plated/emitter ship now opens the
   // replay at its real folded pools, matching the live cycle it is reproducing.
-  const startDefense = foldedPlayerDefense(shipDef, installedGear);
+  // E-CREW (Task 20): the cycle's FROZEN officer bonuses (stored on the mission when the cycle started),
+  // never the officers seated now, so the replay reproduces the fight the live loop actually resolved.
+  const officerCombat = mission.officerCombat;
+  const startDefense = foldedPlayerDefense(shipDef, installedGear, officerCombat);
 
   const resolved = resolvePatrolWaves({
     playerId: ship.id,
@@ -469,6 +479,7 @@ export function replayPatrol(state: GameState, captain: CaptainState): PatrolRep
     // from the initial no-wear state, exactly as freshPatrolMission seeded the live cycle, so
     // both accumulate identical wear across the waves.
     startSystemDurability: defaultSystemDurabilityForHull(hullType, shipDef, installedGear),
+    officerCombat,
   });
 
   return {

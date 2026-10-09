@@ -3118,6 +3118,31 @@ export interface PatrolMissionState {
   // mission state to seed it (see save.ts), which it does; the v43 step already walks
   // state.equipment, so walking captains is the same shape and not a new kind of risk.
   routesCompletedThisRun: number;
+  // E-CREW 0.14.0 (Task 20): the ship's Senior Staff COMBAT bonuses (Weapons Command, Shield Command,
+  // Evasive Command, Inspiring Leader), FROZEN when this patrol CYCLE starts (dispatch, and again at each
+  // repeat-dispatch relaunch, crewOverlay.ts officerCombatMods). Every wave of the cycle, the live loop and
+  // the display replay (patrolReplay.ts) all read THIS value, so the cycle stays a pure function of the
+  // stored mission (offline == live, replay == fight) even if an officer is reseated mid-patrol (Task 27
+  // locks that later). OPTIONAL and ABSENT MEANS NO OFFICER BONUS (no SAVE_VERSION bump): a cycle with no
+  // such officer never writes it, so a no-officer patrol is byte-identical to before; an in-flight patrol
+  // from an older save fights without it until its next relaunch freezes the current officers.
+  officerCombat?: OfficerCombatMods;
+}
+
+// E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle
+// (design 6.1 + D12: officers are EXEMPT from the "crew never double-dips weapons/shields" rule, which stays
+// Complement-only, so ONLY officers feed these). All FRACTIONS (0.1 = +10%), summed over the ship's seated
+// officers with the bridge-module amp (crewOverlay.ts officerCombatMods):
+//   weaponDamage : multiplies every installed weapon's damage band (Weapons Command, Inspiring Leader)
+//   shield       : multiplies the shield pool AND its recharge (Shield Command, Inspiring Leader)
+//   hull         : multiplies the hull pool (Inspiring Leader's "every ship stat")
+//   evasion      : the ship's combat evasion, as a share (0.1 = 10 evasion points; Evasive Command)
+// combat/bridge.ts shipToCombatant applies them; all 0 is never stored (absent instead).
+export interface OfficerCombatMods {
+  weaponDamage: number;
+  shield: number;
+  hull: number;
+  evasion: number;
 }
 
 // How many ticks a phase requires before advancing to the next one.
@@ -6612,6 +6637,17 @@ export interface Expedition {
   // by the museum's crewBonuses. The relic roll adds it to the find bonus (gambit.ts activityRelicFindBonus).
   // Absent / 0 = no lift (an expedition launched before Task 15).
   crewRareFind?: number;
+  // E-CREW 0.14.0 (Task 20): two Senior Staff bonuses for the AWAY TEAM, frozen here at dispatch like
+  // encounterEvasion (crewOverlay.ts officerBonusTotal), so every battle of the run stays a pure function of
+  // the stored expedition. Small named fields on purpose: the Ground Operations redesign (D25) carries them
+  // forward onto whatever record a team's task run becomes. OPTIONAL, written only when non-zero (absent =
+  // no bonus), so a run without the officer is byte-identical to before (no SAVE_VERSION bump).
+  //   squadTriage     : Fleet Triage (officer.crewLossPrevention), a share that strengthens the squad's
+  //                     in-battle healing (a medic's Aid / Heal) and first-aid cures (gambit.ts).
+  //   squadFearResist : Morale Anchor (officer.crewRetention), the squad's chance to shrug off Fear,
+  //                     combined with each member's own Fear resist (gambit.ts buildRosterCombatants).
+  squadTriage?: number;
+  squadFearResist?: number;
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;

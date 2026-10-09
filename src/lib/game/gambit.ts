@@ -276,6 +276,21 @@ export interface GroundCombatant {
   // E-CREW (Task 16): this member wears NEURAL BACKUP (D11). Once per battle, the FIRST ally downed rolls
   // `permille` / 1000 to come back at `hpFraction` of their max HP (resolveGroundBattle).
   revive?: { permille: number; hpFraction: number };
+  // E-CREW (Task 20): FLEET TRIAGE (the ship's Medical officer bonus, Expedition.squadTriage). The member's
+  // first-aid effectiveness (Use Item) is multiplied by this; its Aid / Heal amount is already scaled at
+  // build. Absent on enemies and on a squad without the officer (exactly the pre-Task-20 first aid).
+  careMult?: number;
+}
+
+// E-CREW (Task 20): the away team's frozen Senior Staff bonuses (stored on the Expedition at dispatch), as
+// buildRosterCombatants reads them. Both optional; absent / 0 leaves every combatant byte-identical.
+//   triage     : Fleet Triage. A medic's Aid / Heal and every member's first aid work at (1 + triage).
+//   fearResist : Morale Anchor. Each member's chance to shrug off Fear becomes 1 - (1 - own)(1 - this):
+//                independent chances, so it stacks with a member's own resist with diminishing returns
+//                (D23) and can never reach certainty without a hard cap.
+export interface SquadOfficerCare {
+  triage?: number;
+  fearResist?: number;
 }
 
 // ============================================================================
@@ -801,7 +816,16 @@ function applyAction(
       // Spend a team-kit consumable on FIRST AID for the target ally (D20: anyone may, at the user's
       // first-aid effectiveness). Only fires when kit remains AND there is something to cleanse (the
       // resolver gated the target already).
-      if (target && state.teamKit > 0 && applyFirstAid(target, firstAidEffectiveness(actor), state.pendingCureStatusId)) {
+      // E-CREW (Task 20): Fleet Triage (actor.careMult) strengthens the first aid; absent = unchanged.
+      if (
+        target &&
+        state.teamKit > 0 &&
+        applyFirstAid(
+          target,
+          actor.careMult === undefined ? firstAidEffectiveness(actor) : firstAidEffectiveness(actor) * actor.careMult,
+          state.pendingCureStatusId,
+        )
+      ) {
         state.teamKit -= 1;
       }
       return;
@@ -1288,9 +1312,13 @@ export function buildRosterCombatants(
   securityStrength: number,
   idPrefix: string,
   sittingOut?: ReadonlySet<string>,
+  care: SquadOfficerCare = {},
 ): GroundCombatant[] {
   if (members.length === 0) return [];
   const crewPer = securityStrength / members.length;
+  // E-CREW (Task 20): the squad's officer care (see SquadOfficerCare). Negative or absent reads as 0.
+  const triage = Math.max(0, care.triage ?? 0);
+  const fearResist = Math.max(0, Math.min(1, care.fearResist ?? 0));
   const team = members.map((m, i) => {
     const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
     const bump = (stat: string): number => m.groundStats[stat] ?? 0;
@@ -1337,7 +1365,9 @@ export function buildRosterCombatants(
       }
     }
     // D20: the Med Kit requires Medical Training. Untrained, the kit adds nothing and the member heals 0.
-    const heal = medicTrait ? (MEDIC_BASE_HEAL + healPoints * HEAL_PER_GEAR_POINT) * rf : 0;
+    // E-CREW (Task 20): Fleet Triage strengthens a medic's heal (0 stays 0: an untrained member never heals).
+    const baseHeal = medicTrait ? (MEDIC_BASE_HEAL + healPoints * HEAL_PER_GEAR_POINT) * rf : 0;
+    const heal = triage > 0 ? baseHeal * (1 + triage) : baseHeal;
     const permille = Math.round(statusChance * 1000);
 
     const c: GroundCombatant = {
@@ -1363,10 +1393,18 @@ export function buildRosterCombatants(
     if (groupHit > 0) c.groupHit = groupHit;
     const resists: Partial<Record<GambitStatusId, number>> = {};
     for (const [id, chance] of Object.entries(m.resists) as [GambitStatusId, number][]) {
-      const r = Math.round(chance * 1000);
+      // E-CREW (Task 20): Morale Anchor folds into a member's OWN Fear resist (independent chances).
+      const own = id === "fear" && fearResist > 0 ? 1 - (1 - chance) * (1 - fearResist) : chance;
+      const r = Math.round(own * 1000);
       if (r > 0) resists[id] = r;
     }
+    // E-CREW (Task 20): a member with no Fear resist of their own still gets Morale Anchor's.
+    if (fearResist > 0 && m.resists.fear === undefined) {
+      const r = Math.round(fearResist * 1000);
+      if (r > 0) resists.fear = r;
+    }
     if (Object.keys(resists).length > 0) c.resists = resists;
+    if (triage > 0) c.careMult = 1 + triage;
     if (firstStrike) c.firstStrike = true;
     if (guardBelow !== undefined) c.guardBelow = guardBelow;
     if (revive && revive.permille > 0) c.revive = revive;
@@ -1380,8 +1418,12 @@ export function buildRosterCombatants(
 // launched before D18) fields an EMPTY team, and the caller resolves the task without a battle. E-CREW
 // Task 16: members in `sittingOut` (downed earlier in the run) stay out; an all-out squad is an empty team
 // too. PURE.
+// E-CREW Task 20: the run's frozen officer care (Fleet Triage, Morale Anchor) rides along.
 export function expeditionTeamCombatants(exp: Expedition, idPrefix: string, sittingOut?: ReadonlySet<string>): GroundCombatant[] {
-  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix, sittingOut);
+  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix, sittingOut, {
+    triage: exp.squadTriage,
+    fearResist: exp.squadFearResist,
+  });
 }
 
 // ============================================================================

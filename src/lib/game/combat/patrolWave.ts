@@ -27,7 +27,7 @@ import { shipToCombatant, type CombatHullType, type CombatShipStats } from "./br
 import type { CombatStance } from "./positioning";
 import type { Combatant } from "./types";
 import type { DroneSquadron } from "./drones";
-import type { PatrolSystemDurability, EquipmentInstance } from "../model";
+import type { PatrolSystemDurability, EquipmentInstance, OfficerCombatMods } from "../model";
 // E4d: the Damage Control Suite's pure regen arithmetic (utilityGear.ts imports model only, so no cycle).
 import { damageControlWaveRegen } from "../utilityGear";
 
@@ -75,6 +75,10 @@ export function buildPatrolPlayerCombatant(args: {
   // Applied by OVERRIDING each fresh system's current durability, CLAMPED to that system's
   // fresh max (so a stale/hand-edited carry can never exceed the ceiling or go negative).
   carrySystemDurability?: PatrolSystemDurability;
+  // E-CREW 0.14.0 (Task 20): the patrol CYCLE's frozen Senior Staff combat bonuses
+  // (PatrolMissionState.officerCombat), passed straight to shipToCombatant. Both paths (live + replay)
+  // read the SAME stored value, so the combatants stay byte-identical. Absent = no officer bonus.
+  officerCombat?: OfficerCombatMods;
 }): Combatant {
   // FRESH per wave (weapons + cooldowns reset each wave). From the ship's INSTALLED gear when the
   // caller supplies it (Unit 1.4), else the hull defaults (the pre-1.4 build). shipToCombatant mints
@@ -87,6 +91,7 @@ export function buildPatrolPlayerCombatant(args: {
     hullType: args.hullType,
     stance: args.stance,
     installedGear: args.installedGear,
+    officerCombat: args.officerCombat,
   });
   // OVERRIDE with the carry-state so hull damage + drone losses persist across waves.
   player.hull = args.carryHull;

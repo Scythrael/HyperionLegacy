@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket } from "./model";
+import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -59,7 +59,9 @@ import { museumBonuses, type MuseumStat } from "./relics";
 // counterInfiltration, droneHandling, rareFindChance, crewEffectiveness, reducedCrewLosses, triage,
 // powerEfficiency, hullRepairRate, endurance, ...) is a NO-OP for now: its system has not landed, so it
 // maps to NOTHING and lies dormant until it does. (rareFindChance is no ship stat but is not dormant: the
-// expedition snapshots it at dispatch for the relic roll, E-CREW Task 15.) The mapping table:
+// expedition snapshots it at dispatch for the relic roll, E-CREW Task 15, and survey missions read it for
+// their rare-drop odds, Task 20. reducedCrewLosses is read at claim for injury recovery, Task 16.) The
+// mapping table:
 //
 //   crew.transitOutSpeed + crew.transitBackSpeed -> transitSpeedMult   (both legs share one speed mult)
 //   crew.rangeEfficiency  + crew.fuelEfficiency  -> engineEfficiency   (0-based additive fuel-burn bonus)
@@ -71,29 +73,65 @@ import { museumBonuses, type MuseumStat } from "./relics";
 // process (not a shipDerivedStats consumer) and combat power stays on installed combat gear so crew
 // never DOUBLE-DIPS weapons/shields (locked design). They become live when/if a derived-stats consumer
 // for them exists. All magnitudes above are first-pass; retuning happens in a later balance phase.
+//
+// E-CREW 0.14.0 (Task 20, "officer bonuses go live", design 6.1 + D12): two OFFICER-ONLY keys ride this
+// same map so the ship-stat readout's per-source split (ShipSystemsPanel) and the museum's crewBonuses
+// amplification treat them like every other officer bonus:
+//   officer.allStatsMult         (Inspiring Leader)  -> x (1 + b) on cargo, FTL speed, extraction yield,
+//                                                       sensors, range (fuelCapacity) and unload speed
+//   officer.missionTurnaroundCut (Veteran Instincts) -> unloadSpeedMult x (1 + b) (the unload half of
+//                                                       turnaround; the repair half is officerRepairSpeedBonus)
+// They are deliberately NOT the Complement's crew.crewOutputMult / crew.missionTurnaround keys: those
+// exclusive-pool buffs go live with their own consumers in Task 23, and sharing a key would light them
+// early or count the officer twice once they do.
+
+// E-CREW 0.14.0 (Task 20): the officer-only pass-through keys (see the mapping-table note above).
+export const OFFICER_ALL_STATS_KEY = "officer.allStatsMult";
+export const OFFICER_TURNAROUND_KEY = "officer.missionTurnaroundCut";
+
+// E-CREW 0.14.0 (Task 20): every officer bonus statKey has a live consumer EXCEPT these, whose system lands
+// later in this same release. The Task 22 "no dead stats" standing test reads this as its allow-list and
+// fails once the named phase lands and the entry is still here. Key -> the phase that brings it live.
+export const OFFICER_BONUSES_PENDING_IN_RELEASE: Readonly<Record<string, string>> = {
+  "officer.powerEfficiencyMult": "E-MOD power budget", // Reactor Overdrive
+};
 
 // Maps an OFFICER bonus's own broader `officer.*` stat vocabulary (seniorStaffBonuses.ts) onto the
 // crew.* key it corresponds to, so officer bonuses and complement buffs accumulate into ONE map. A
-// value of null means "no crew.* equivalent / no consumer yet" -> the officer bonus is dormant (its
-// system, e.g. combat or morale, is not wired to a derived stat). Unknown officer statKeys are treated
-// as null too (defensive).
+// value of null means "not through this map": since Task 20 every such bonus is read DIRECTLY by its
+// consumer (officerBonusTotal; listed below). Unknown officer statKeys are treated as null (defensive).
 const OFFICER_STATKEY_TO_CREW: Record<string, string | null> = {
   "officer.transitTimeCut": CREW_STAT_KEYS.transitOutSpeed, // a sweeping transit cut == a speed lift
   "officer.effectiveCargoMult": CREW_STAT_KEYS.effectiveCargo,
   "officer.extractionYieldMult": CREW_STAT_KEYS.extractionYield,
   "officer.unloadTimeCut": CREW_STAT_KEYS.unloadSpeed,
   "officer.rangeMult": CREW_STAT_KEYS.rangeEfficiency,
-  "officer.powerEfficiencyMult": CREW_STAT_KEYS.powerEfficiency, // dormant (no power-budget consumer yet)
-  "officer.repairRateMult": CREW_STAT_KEYS.hullRepairRate, // dormant (repair is a Shipyard process)
-  "officer.rareFindMult": CREW_STAT_KEYS.rareFindChance, // no ship stat; the expedition relic roll reads crew.rareFindChance at dispatch (E-CREW Task 15, Expedition.crewRareFind)
-  "officer.shipOutputMult": CREW_STAT_KEYS.crewOutputMult, // dormant (no ship-wide-output consumer yet)
-  "officer.allStatsMult": CREW_STAT_KEYS.crewOutputMult, // dormant
-  "officer.missionTurnaroundCut": CREW_STAT_KEYS.missionTurnaround, // dormant
-  "officer.crewLossPrevention": CREW_STAT_KEYS.preventCrewLoss, // dormant
-  "officer.crewRetention": null, // dormant (no attrition system yet)
-  "officer.evasion": null, // no crew.* stat: the expedition encounter chance reads it directly (officerBonusTotal, Task 14); ship-battle evasion is Task 20
-  "officer.weaponEffectivenessMult": null, // dormant (crew never double-dips weapons)
-  "officer.shieldEffectivenessMult": null, // dormant (crew never double-dips shields)
+  // Reactor Overdrive: shares the Engineering division's crew.powerEfficiency key, which has no consumer yet.
+  // LIVE WITH E-MOD power budget (listed in OFFICER_BONUSES_PENDING_IN_RELEASE for the Task 22 test).
+  "officer.powerEfficiencyMult": CREW_STAT_KEYS.powerEfficiency,
+  // Discovery Instinct: no ship stat; read off crew.rareFindChance by the expedition relic roll at dispatch
+  // (E-CREW Task 15, Expedition.crewRareFind) and by survey missions' rare-drop odds (Task 20, economyTick).
+  "officer.rareFindMult": CREW_STAT_KEYS.rareFindChance,
+  // Inspiring Leader + Veteran Instincts: officer-only pass-through keys folded by applyCrewOverlay (Task 20).
+  "officer.allStatsMult": OFFICER_ALL_STATS_KEY,
+  "officer.missionTurnaroundCut": OFFICER_TURNAROUND_KEY,
+  // The rest are read DIRECTLY by their consumers (officerBonusTotal), never through this map, so a
+  // Complement key that shares the theme can go live on its own later (Task 23) without counting an
+  // officer twice:
+  //   Rapid Recovery   -> injury recovery (injuries.ts, Task 16) + Shipyard repair (officerRepairSpeedBonus)
+  //   Command Presence -> mission output (economyTick: extraction / survey / transport deliveries + patrol loot)
+  //   Fleet Triage     -> away-team in-battle healing + first-aid cures (Expedition.squadTriage)
+  //   Morale Anchor    -> away-team Fear resist (Expedition.squadFearResist)
+  //   Evasive Command  -> expedition encounter chance (Task 14) + ship-battle evasion (officerCombatMods)
+  //   Weapons Command / Shield Command -> ship-battle weapon damage / shields (officerCombatMods). D12: an
+  //     EXEMPTION for officers only; the Complement still never feeds weapons or shields.
+  "officer.repairRateMult": null,
+  "officer.shipOutputMult": null,
+  "officer.crewLossPrevention": null,
+  "officer.crewRetention": null,
+  "officer.evasion": null,
+  "officer.weaponEffectivenessMult": null,
+  "officer.shieldEffectivenessMult": null,
 };
 
 // ============================================================================
@@ -113,10 +151,29 @@ export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, nu
   const cargo = crew[CREW_STAT_KEYS.effectiveCargo] ?? 0;
   const extraction = crew[CREW_STAT_KEYS.extractionYield] ?? 0;
   const unload = crew[CREW_STAT_KEYS.unloadSpeed] ?? 0;
+  // E-CREW Task 20: the officer-only lifts (Inspiring Leader, Veteran Instincts' unload half).
+  const lift = crew[OFFICER_ALL_STATS_KEY] ?? 0;
+  const turnaround = crew[OFFICER_TURNAROUND_KEY] ?? 0;
 
   // Neutral fast path: nothing mapped -> identity (same reference), the byte-identical guarantee.
-  if (transit === 0 && range === 0 && cargo === 0 && extraction === 0 && unload === 0) return base;
+  if (transit === 0 && range === 0 && cargo === 0 && extraction === 0 && unload === 0 && lift === 0 && turnaround === 0) {
+    return base;
+  }
 
+  return applyOfficerLifts(applyMappedCrewStats(base, transit, range, cargo, extraction, unload), lift, turnaround);
+}
+
+// The pre-Task-20 body of applyCrewOverlay (the five mapped crew keys), unchanged. With all five 0 it
+// returns `base` itself, so a lift-only map never rewrites a stat the lifts do not touch.
+function applyMappedCrewStats(
+  base: ShipDerivedStats,
+  transit: number,
+  range: number,
+  cargo: number,
+  extraction: number,
+  unload: number,
+): ShipDerivedStats {
+  if (transit === 0 && range === 0 && cargo === 0 && extraction === 0 && unload === 0) return base;
   return {
     ...base,
     cargoCapacity: base.cargoCapacity * (1 + cargo),
@@ -128,6 +185,32 @@ export function applyCrewOverlay(base: ShipDerivedStats, crew: Record<string, nu
     // unloadSpeedMult DIVIDES unloadTicks in effectiveMissionDef (>1 = faster). Compose multiplicatively
     // with whatever was already there (undefined -> 1).
     unloadSpeedMult: (base.unloadSpeedMult ?? 1) * (1 + unload),
+  };
+}
+
+// E-CREW 0.14.0 (Task 20): the officer-only ship-stat lifts, applied AFTER the mapped crew keys.
+//   Inspiring Leader ("a small lift to every ship stat"): x (1 + lift) on cargoCapacity, transitSpeedMult,
+//     extractionYieldMult, sensors (0 stays 0), fuelCapacity (so range rises by the same share, without also
+//     touching the 0-based engineEfficiency, which would count it twice) and unloadSpeedMult. NOT lifted:
+//     mass (a cost, lifting it would hurt) and powerOutput / powerDraw (the E-MOD power budget owns power).
+//     Its combat half (weapons, shields, hull) is officerCombatMods.
+//   Veteran Instincts ("shorter mission turnaround: unload + repair windows"): unloadSpeedMult x
+//     (1 + turnaround); the repair half is officerRepairSpeedBonus.
+// Each lift has a bounded source (at most one bonus per seated officer), so these stay linear (D23 is about
+// bonuses that stack without bound). Zero lifts return `base` unchanged.
+function applyOfficerLifts(base: ShipDerivedStats, lift: number, turnaround: number): ShipDerivedStats {
+  if (lift === 0 && turnaround === 0) return base;
+  const l = 1 + lift;
+  const unloadSpeedMult = (base.unloadSpeedMult ?? 1) * l * (1 + turnaround);
+  if (lift === 0) return { ...base, unloadSpeedMult };
+  return {
+    ...base,
+    cargoCapacity: base.cargoCapacity * l,
+    transitSpeedMult: base.transitSpeedMult * l,
+    extractionYieldMult: base.extractionYieldMult * l,
+    sensors: base.sensors * l,
+    fuelCapacity: base.fuelCapacity * l,
+    unloadSpeedMult,
   };
 }
 
@@ -255,8 +338,8 @@ function rawShipCrewContribution(state: GameState, ship: ShipInstance): Record<s
 // assigned to `ship`, amplified by the ship's bridge module exactly as rawShipCrewContribution amplifies
 // them (the stored magnitude is already rank-scaled; never re-scaled here). For an officer bonus whose
 // consumer reads it DIRECTLY rather than through the crew.* map: E-CREW Task 14 reads Evasive Command
-// ("officer.evasion") here for the expedition encounter chance (D12; Task 20 adds the ship-battle half).
-// 0 with no such officer. PURE.
+// ("officer.evasion") here for the expedition encounter chance, and Task 20 reads every direct bonus here
+// (see the OFFICER_STATKEY_TO_CREW null rows and the helpers below). 0 with no such officer. PURE.
 export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey: string): number {
   const bridgeMod = installedBridgeModule(state, ship);
   const hullSpec = hullSpecOf(ship);
@@ -270,6 +353,46 @@ export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey:
     }
   }
   return total;
+}
+
+// ============================================================================
+// E-CREW 0.14.0 (Task 20): the officer bonuses read DIRECTLY by their consumers
+// ============================================================================
+//
+// Direct reads (officerBonusTotal) carry the bridge-module amp but NOT the museum's crewBonuses
+// amplification, the same as Task 14's Evasive Command and Task 16's Rapid Recovery reads. (The ship-stat
+// lifts above ride the crew map, so the museum does amplify those.) FIRST-PASS; a balance-pass question.
+
+// The ship's Senior Staff combat bonuses (model.ts OfficerCombatMods), or undefined when the ship has none
+// (so the caller never stores an all-zero record and a no-officer battle stays byte-identical). Weapons and
+// Shield Command read ONLY officers (D12: officers are EXEMPT from the "crew never double-dips weapons /
+// shields" rule; the Complement stays excluded). Inspiring Leader's "every ship stat" covers the combat
+// pools too, compounding with the seat bonus ((1 + w)(1 + i) - 1). PURE.
+export function officerCombatMods(state: GameState, ship: ShipInstance): OfficerCombatMods | undefined {
+  const weapons = officerBonusTotal(state, ship, "officer.weaponEffectivenessMult");
+  const shields = officerBonusTotal(state, ship, "officer.shieldEffectivenessMult");
+  const evasion = officerBonusTotal(state, ship, "officer.evasion");
+  const lift = officerBonusTotal(state, ship, OFFICER_ALL_STATS_KEY);
+  if (weapons === 0 && shields === 0 && evasion === 0 && lift === 0) return undefined;
+  return {
+    weaponDamage: lift === 0 ? weapons : (1 + weapons) * (1 + lift) - 1,
+    shield: lift === 0 ? shields : (1 + shields) * (1 + lift) - 1,
+    hull: lift,
+    evasion,
+  };
+}
+
+// The Shipyard repair speed-up from the ship's officers: Rapid Recovery ("faster Shipyard hull repair") +
+// Veteran Instincts (the repair half of "unload + repair windows"). tick.ts shipRepairDurationTicks divides
+// the repair by (1 + this), a D23 divisor (never 0, each point worth a little less). 0 with neither. PURE.
+export function officerRepairSpeedBonus(state: GameState, ship: ShipInstance): number {
+  return officerBonusTotal(state, ship, "officer.repairRateMult") + officerBonusTotal(state, ship, OFFICER_TURNAROUND_KEY);
+}
+
+// Command Presence ("the ship's mission output: materials and credits from its runs"): the share every
+// delivered haul and credit award of this ship's runs grows by (economyTick). 0 without it. PURE.
+export function officerMissionOutputBonus(state: GameState, ship: ShipInstance): number {
+  return officerBonusTotal(state, ship, "officer.shipOutputMult");
 }
 
 // ============================================================================

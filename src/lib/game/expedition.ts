@@ -630,6 +630,10 @@ export function startExpedition(
   // expedition launched from here on carries a roster. (An OLD in-flight expedition may still lack one;
   // the battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.)
   const roster = snapshotAwayRoster(state, ship);
+  // E-CREW (Task 20): Fleet Triage (stronger in-battle healing + first-aid cures) and Morale Anchor (Fear
+  // resist) for the away team, read off the seated officers at the same dispatch instant.
+  const squadTriage = officerBonusTotal(state, ship, "officer.crewLossPrevention");
+  const squadFearResist = officerBonusTotal(state, ship, "officer.crewRetention");
 
   const expedition: Expedition = {
     id,
@@ -668,6 +672,10 @@ export function startExpedition(
     crewRareFind: shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0,
     scanStepCursor: 0,
     scanEvents: [],
+    // E-CREW (Task 20): the away team's two officer bonuses, frozen here like encounterEvasion and written
+    // ONLY when non-zero, so a run without the officer stores exactly the pre-Task-20 record.
+    ...(squadTriage > 0 ? { squadTriage } : {}),
+    ...(squadFearResist > 0 ? { squadFearResist } : {}),
   };
 
   return {

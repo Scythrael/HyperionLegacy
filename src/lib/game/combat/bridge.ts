@@ -28,7 +28,7 @@
 //      reshaping this function.
 // ============================================================================
 
-import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance } from "../model";
+import type { ShipTypeDef, ShipTypeKey, PatrolSystemDurability, EquipmentInstance, OfficerCombatMods } from "../model";
 // Combat-defense rework (2026-08-27, HYBRID model): the SI hull-plating floor + the shield REFERENCE
 // constants, imported as VALUES (model.ts owns the item-mint constants; a combat leaf importing model
 // values is the allowed direction, model never imports combat at runtime). hullDefenseComposition below
@@ -698,6 +698,40 @@ export interface ShipToCombatantArgs {
 	// Combat stance (design S6). Defaults to Balanced. The mission layer sets the
 	// player's chosen stance / the enemy's loadout-derived stance (Phase 9).
 	stance?: CombatStance;
+	// E-CREW 0.14.0 (Task 20): the ship's Senior Staff combat bonuses (model.ts OfficerCombatMods), applied
+	// ON TOP of the fold above by applyOfficerCombat below. OPTIONAL: absent (enemies, ratings, tests, a
+	// ship with no such officer) leaves the combatant byte-identical. D12: officers are EXEMPT from the
+	// "crew never double-dips weapons/shields" rule, so ONLY officers feed this; the Complement never does.
+	officerCombat?: OfficerCombatMods;
+}
+
+// E-CREW 0.14.0 (Task 20): fold the Senior Staff combat bonuses onto a freshly minted combatant, IN PLACE
+// (the combatant is fresh per call; scaled weapons are replaced with COPIES, so a caller's explicit
+// weaponLoadout is never mutated). Integer at the fold like every pool above: each weapon's damage band,
+// the shield pool + recharge and the hull pool are scaled by (1 + bonus) and ROUNDED; evasion becomes whole evasion points (0.1 -> 10, the integer percent
+// resolveBattle subtracts from a shot's accuracy). A zero bonus skips its stat entirely, so absent or
+// all-zero mods leave every number byte-identical. Linear, not a curve: each bonus has ONE source seat per
+// ship (Tactical / Pilot) plus the rare any-seat Inspiring Leader, so nothing here stacks without bound.
+function applyOfficerCombat(c: Combatant, mods: OfficerCombatMods | undefined): void {
+	if (!mods) return;
+	if (mods.weaponDamage !== 0) {
+		const mult = 1 + mods.weaponDamage;
+		c.weapons = c.weapons.map((w) => {
+			const yieldMin = Math.max(0, Math.round(w.yieldMin * mult));
+			return { ...w, yieldMin, yieldMax: Math.max(yieldMin, Math.round(w.yieldMax * mult)) };
+		});
+	}
+	if (mods.shield !== 0) {
+		const mult = 1 + mods.shield;
+		c.shieldMax = Math.max(0, Math.round(c.shieldMax * mult));
+		c.shield = c.shieldMax;
+		c.shieldRecharge = Math.max(0, Math.round(c.shieldRecharge * mult));
+	}
+	if (mods.hull !== 0) {
+		c.hullMax = Math.max(1, Math.round(c.hullMax * (1 + mods.hull)));
+		c.hull = c.hullMax;
+	}
+	if (mods.evasion !== 0) c.evasion = Math.max(0, Math.round(mods.evasion * 100));
 }
 
 // ---------------------------------------------------------------------------
@@ -854,7 +888,7 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 					)
 				: []);
 
-	return {
+	const combatant: Combatant = {
 		id,
 		team,
 
@@ -870,8 +904,9 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		// Attenuation resist <- the emitter's shieldCoherence affix (PLAYER) or 0 (ABSENT).
 		shieldCoherence,
 
-		// Hull-path mitigation <- the plating's affixes (PLAYER) or 0 (ABSENT). Evasion stays 0
-		// this unit on BOTH paths (no maneuver stat wired yet; TODO 1.6).
+		// Hull-path mitigation <- the plating's affixes (PLAYER) or 0 (ABSENT). Evasion starts at 0
+		// on BOTH paths (no maneuver stat wired yet; TODO 1.6); E-CREW Task 20's Evasive Command sets it
+		// through applyOfficerCombat below when the caller passes officerCombat.
 		ablativeArmor,
 		kineticDampening,
 		evasion: 0,
@@ -913,6 +948,9 @@ export function shipToCombatant(args: ShipToCombatantArgs): Combatant {
 		rapidChargeAfterAmbush: false,
 		particleTraceDetector: 0,
 	};
+	// E-CREW (Task 20): the seated officers' combat bonuses, on top of everything above (absent = no-op).
+	applyOfficerCombat(combatant, args.officerCombat);
+	return combatant;
 }
 
 // ---------------------------------------------------------------------------
@@ -946,12 +984,16 @@ export interface FoldedPlayerDefense {
 	shieldMax: number;
 	shieldRecharge: number;
 }
+// E-CREW (Task 20): `officerCombat` is the patrol cycle's frozen officer bonuses (Shield Command and
+// Inspiring Leader lift these pools), passed by EVERY patrol carry surface alongside the wave combatant's
+// own, so the carry pools and the fighting combatant stay one fold. Absent = the pre-Task-20 fold.
 export function foldedPlayerDefense(
 	stats: CombatShipStats,
 	installedGear?: EquipmentInstance[],
+	officerCombat?: OfficerCombatMods,
 ): FoldedPlayerDefense {
 	// A throwaway id/team: nothing is fought here, we only read the folded defense ceilings.
-	const combatant = shipToCombatant({ id: "defense-fold", team: "player", stats, installedGear });
+	const combatant = shipToCombatant({ id: "defense-fold", team: "player", stats, installedGear, officerCombat });
 	return {
 		hullMax: combatant.hullMax,
 		shieldMax: combatant.shieldMax,

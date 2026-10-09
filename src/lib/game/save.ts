@@ -2415,6 +2415,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // officer id, rank), so a second pass either keeps the line or re-rolls it to the identical value.
   // Hardened like v64 -> v65: a
   // non-array officers field reads as empty and a malformed entry passes through untouched.
+  // E-CREW Task 20 adds NOTHING here: PatrolMissionState.officerCombat and Expedition.squadTriage /
+  // squadFearResist are optional and ABSENT MEANS NO OFFICER BONUS (dispatch writes them only when
+  // non-zero). An in-flight patrol from an older save fights its current cycle without the bonuses and
+  // freezes the seated officers at its next relaunch; an in-flight expedition finishes without them.
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

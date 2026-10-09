@@ -647,6 +647,37 @@ excluded; comment the D12 exemption). Reactor Overdrive maps to `powerEfficiency
 with a `// LIVE WITH E-MOD power budget` marker and an entry in the Task 22 allow-list. Neutrality: no officer =
 byte-identical patrol and expedition replays.
 
+**Carry from Task 20 (built 2026-10-09):** the 11 dormant officer consumers per design 6.1 + the mockup section 7
+table. Ship-stat lifts ride the crew map as OFFICER-ONLY pass-through keys (`OFFICER_ALL_STATS_KEY`,
+`OFFICER_TURNAROUND_KEY` in crewOverlay.ts, so the ShipSystemsPanel source split and the museum's crewBonuses amp see
+them); every other bonus is read DIRECTLY via `officerBonusTotal` and its `OFFICER_STATKEY_TO_CREW` row is null, so
+the Complement's `crew.crewOutputMult` / `missionTurnaround` / `preventCrewLoss` / `hullRepairRate` stay UNLIT for
+Task 23 to wire without double-counting an officer. Consumers: Weapons / Shield Command + Evasive Command (ship
+evasion = whole points, 0.1 -> 10) + Inspiring Leader's combat half (weapons, shields, hull) -> model.ts
+`OfficerCombatMods` via `officerCombatMods(state, ship)` -> bridge.ts `shipToCombatant({ officerCombat })` and
+`foldedPlayerDefense(stats, gear, officerCombat)`; FROZEN per patrol CYCLE on the new optional
+`PatrolMissionState.officerCombat` (dispatch, and each repeat relaunch freezes the officers seated then via
+`tickCaptainPatrol`'s new trailing `officerEffects` param), read by the live waves, the carry pools and
+`replayPatrol` alike. D12 comment: Complement never feeds it. Inspiring Leader's ship half: x(1+b) on cargo, FTL,
+yield, sensors, fuelCapacity (range), unload; NOT mass or power. Veteran Instincts: unloadSpeedMult x(1+b) + the
+Shipyard repair divisor. Rapid Recovery: repair divisor `shipRepairDurationTicks(ship, gear, officerSpeedBonus)` =
+ceil(raw / (1 + RR + VI)) (D23 divisor; injuries unchanged from Task 16). Command Presence: delivered hauls + credit
+awards of extraction / survey / transport cycles (`bonuses.missionOutputMult`) and each won patrol wave's loot +
+bounty x(1+b) (XP untouched). Discovery Instinct: survey missions add `crew.rareFindChance` (officer + Keen Analysis,
+the same read the relic roll freezes) to rareChanceMult; this also lights the Science division's Keen Analysis for
+survey rare drops (the Task 15 precedent; Task 23 must not re-add it). Fleet Triage + Morale Anchor: frozen at
+dispatch as optional `Expedition.squadTriage` / `squadFearResist` (written only when non-zero) -> gambit.ts
+`buildRosterCombatants(..., care)` (medic heal x(1+t), `GroundCombatant.careMult` on first aid; Fear resist combined
+1 - (1-own)(1-f), which can pass the 0.9 `STATUS_RESIST_CAP` but never reaches 1). Reactor Overdrive keeps
+`crew.powerEfficiency` with a `LIVE WITH E-MOD power budget` marker and is the only entry in the exported
+`OFFICER_BONUSES_PENDING_IN_RELEASE` (Task 22 imports it as its allow-list). No SAVE_VERSION bump (all new fields
+optional, absent = neutral; note in save.ts under v66). Neutrality: golden hashes captured BEFORE the change
+(officerBonuses.test.ts: three mission types through economyTick, three patrol hulls incl. relaunch + replay, a
+repair, eight expedition runs + claims). Bonus descriptions in seniorStaffBonuses.ts updated to the real consumers
+(data only; no UI renders them). OPEN: the dispatch forecast + Battle Rating readouts (App.svelte, shipRoster,
+ShipSystemsPanel) still build the combatant WITHOUT officers (pessimistic); direct reads skip the museum crewBonuses
+amp (Tasks 14/16 precedent); D24's "freeze medical factors at dispatch" is still a live read at claim (Ground Ops).
+
 ### Task 21: Officer stat facets
 
 **Acceptance (added 2026-10-09 from the Task 19 review):** re-check every `OFFICER_STAT_INFO.effect` tooltip against

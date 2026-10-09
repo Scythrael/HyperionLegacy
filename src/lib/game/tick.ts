@@ -72,6 +72,7 @@ import {
   type CaptainStopReason,
   type CaptainMissionState,
   type PatrolMissionState,
+  type OfficerCombatMods,
   type PatrolKey,
   type PatrolDef,
   type PatrolPhase,
@@ -319,7 +320,16 @@ import { transitBerthsFree } from "./berths";
 // helper every consumer routes through, so live/offline/patrol/fuel all read identical crew-boosted
 // stats) + the per-tick crew engine (transports + auto-crew, run once per whole tick like the
 // process-line passes) + the officer mission-completion fold that feeds promotion gates.
-import { effectiveShipStats, resolveCrew, foldOfficerMissionCompletions } from "./crewOverlay";
+import {
+  effectiveShipStats,
+  resolveCrew,
+  foldOfficerMissionCompletions,
+  officerCombatMods,
+  officerMissionOutputBonus,
+  officerRepairSpeedBonus,
+  shipCrewContribution,
+} from "./crewOverlay";
+import { CREW_STAT_KEYS } from "./crewBuffs";
 // Exploration 0.14.0 (Phase E2a): the per-tick EXPEDITION engine, run once per whole tick at the tail
 // seam (same posture as resolveCrew). Deterministic + offline-safe; a same-reference no-op with no
 // active expedition (additive-neutral), so a save with no expedition is byte-identical to before.
@@ -1753,6 +1763,10 @@ export function tickCaptainMission(
     rareChanceMult?: number;
     bonusRollChance?: number;
     bonusRollChanceMult?: number;
+    // E-CREW 0.14.0 (Task 20): Command Presence, the share every DELIVERED haul and credit award of this
+    // mission grows by (crewOverlay.ts officerMissionOutputBonus). Applied at the delivery branch below,
+    // ONCE per completed cycle, so it is a per-cycle constant (closed-form safe). Absent / 0 = no change.
+    missionOutputMult?: number;
     // Captain Specialization's flat addition to the bonus-roll TRIGGER chance
     // (CAPTAIN_SPEC_BONUS.resourcefulness), kept as its own field, NOT
     // merged into bonusRollChance, so the extraction loop below can add it
@@ -2066,6 +2080,12 @@ export function tickCaptainMission(
     missionDef.missionType === "transport" ? missionDef.cargoCapacity * (missionDef.supplyCostPerCargo ?? 0) : 0;
   const transportRewardMargin = missionDef.rewardMargin ?? 0;
 
+  // E-CREW 0.14.0 (Task 20): Command Presence's output share, a CALL-CONSTANT like the bonuses above (it is
+  // read off the ship's seated officers by economyTick, which never reseats mid-call), applied at each
+  // delivered cycle to the haul and to the cycle's credit award. 0 (the default) skips both multiplies.
+  const outputShare = Math.max(0, bonuses.missionOutputMult ?? 0);
+  const outputCredits = (credits: number): number => (outputShare === 0 ? credits : credits * (1 + outputShare));
+
   // Computed ONCE per call, not per roll, bonuses are constant for the
   // whole call, so this stays closed-form (the "one big jump equals many
   // small ticks" test doesn't care how many rolls happen, only that each
@@ -2216,10 +2236,13 @@ export function tickCaptainMission(
         // but the DEPOSIT is suppressed here for a transport, so nothing lands in home inventory and
         // lifetimeStatsDelta.itemsGathered (which mirrors homePlanetDelta) stays empty for it. A
         // non-transport mission deposits exactly as before (byte-identical).
+        // E-CREW (Task 20): Command Presence grows the delivered haul by `outputShare` (0 -> the cargo as-is,
+        // no multiply at all, so a ship without the officer delivers byte-identically).
         if (missionDef.missionType !== "transport") {
-          homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(cargo.commonOre);
-          homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(cargo.uncommonMaterial);
-          homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(cargo.rareMaterial);
+          const delivered = (amount: Decimal): Decimal => (outputShare === 0 ? amount : amount.times(1 + outputShare));
+          homePlanetDelta[loot.common] = (homePlanetDelta[loot.common] ?? new Decimal(0)).plus(delivered(cargo.commonOre));
+          homePlanetDelta[loot.uncommon] = (homePlanetDelta[loot.uncommon] ?? new Decimal(0)).plus(delivered(cargo.uncommonMaterial));
+          homePlanetDelta[loot.rare] = (homePlanetDelta[loot.rare] ?? new Decimal(0)).plus(delivered(cargo.rareMaterial));
         }
         // Credits are still awarded once PER completed cycle (this branch can be
         // reached multiple times within one call's while loop, e.g. a big
@@ -2243,12 +2266,12 @@ export function tickCaptainMission(
         if (missionDef.missionType === "transport") {
           if (creditsRemaining >= transportLoadCost) {
             creditsRemaining -= transportLoadCost; // working capital committed this cycle (running balance)
-            creditsDelta += transportLoadCost * transportRewardMargin; // NET profit (cost returned, only margin is new)
+            creditsDelta += outputCredits(transportLoadCost * transportRewardMargin); // NET profit (cost returned, only margin is new)
             cyclesCompleted += 1;
           }
           // else: working-capital gate -> this cycle idles (nothing booked, no cycle counted).
         } else {
-          creditsDelta += missionDef.creditsPerCycle;
+          creditsDelta += outputCredits(missionDef.creditsPerCycle);
           // Task 6: one more completed cycle, counted in the SAME branch as the
           // credit award and the loot delivery above, so all three (loot,
           // credits, completion count) stay perfectly in sync per cycle.
@@ -2757,6 +2780,15 @@ export function tickCaptainPatrol(
   // test byte-identical, and it is EXACTLY 1 until a captain retires (every existing save), so the
   // patrol closed-form parity baseline cannot move because of this parameter's existence.
   captainXpMult: number = 1,
+  // E-CREW 0.14.0 (Task 20): the ship's Senior Staff effects on a patrol, read LIVE by economyTick:
+  //   outputShare    : Command Presence, the share each WON wave's loot materials + credit bounty grow by
+  //                    (applied per wave, so chunking cannot change it). 0 / absent = unchanged.
+  //   relaunchCombat : the officers' combat bonuses to FREEZE onto a repeat-dispatch RELAUNCH (the new
+  //                    cycle's PatrolMissionState.officerCombat). The waves themselves always read the
+  //                    CURRENT cycle's stored value, never this, so a cycle stays a pure function of its
+  //                    stored mission (the display replay reads the same field).
+  // Default {} keeps every existing call + test byte-identical.
+  officerEffects: { outputShare?: number; relaunchCombat?: OfficerCombatMods } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
     captain,
@@ -2805,7 +2837,12 @@ export function tickCaptainPatrol(
   // emitter's above-authored shield is stripped on the first quiet tick and a crafted-plated hull's
   // limp damage goes negative. Computed once (pure). For a Standard-Issue set (or absent gear) this
   // folds byte-identically to the authored stats, so parity + SI fixtures do not move.
-  const foldedDefense = foldedPlayerDefense(shipDef, installedGear);
+  // E-CREW (Task 20): folded WITH the current cycle's frozen officer bonuses (Shield Command / Inspiring
+  // Leader lift these pools), the SAME value every wave combatant below reads; re-folded on a relaunch,
+  // whose new cycle freezes its own. `let` for that reason only.
+  let foldedDefense = foldedPlayerDefense(shipDef, installedGear, captain.mission.officerCombat);
+  // Command Presence's per-wave reward share (0 = no multiply, byte-identical rewards).
+  const patrolOutputShare = Math.max(0, officerEffects.outputShare ?? 0);
   // Exploration 0.14.0 (E4d): the installed Damage Control Suite's between-wave hull patch-up fraction,
   // computed ONCE (pure, from the same installedGear). EXACTLY 0 without the suite, which makes the
   // per-wave damageControlBeforeWave call below a same-value no-op (byte-identical attrition).
@@ -2946,6 +2983,8 @@ export function tickCaptainPatrol(
         // Offline). Outcome-affecting + parity-critical: the wear is derived from the deterministic
         // combat stream, so big==stepped and offline==live still hold (locked by the parity tests).
         carrySystemDurability: mission.playerSystemDurability,
+        // E-CREW (Task 20): this cycle's FROZEN officer combat bonuses (absent = none).
+        officerCombat: mission.officerCombat,
       });
 
       // ENEMY team: deterministic from the ENEMY-salt derivation. idPrefix = faction id +
@@ -3005,10 +3044,15 @@ export function tickCaptainPatrol(
         const loot = rollWaveLoot(lootTable, lootSeed);
         // Accumulate materials as Decimal (the home-inventory representation), grow-on-demand
         // per itemId, exactly the shape tickCaptainMission builds for its homePlanetDelta.
+        // E-CREW (Task 20): Command Presence grows THIS wave's loot + bounty (XP is not "output"). Per wave,
+        // so a big call and many small ones scale the identical amounts; 0 skips the multiply entirely.
         for (const itemId of Object.keys(loot.materials)) {
-          lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(loot.materials[itemId]);
+          const qty = new Decimal(loot.materials[itemId]);
+          lootMaterials[itemId] = (lootMaterials[itemId] ?? new Decimal(0)).plus(
+            patrolOutputShare === 0 ? loot.materials[itemId] : qty.times(1 + patrolOutputShare),
+          );
         }
-        creditsAwarded += loot.credits;
+        creditsAwarded += patrolOutputShare === 0 ? loot.credits : loot.credits * (1 + patrolOutputShare);
         fleetAdminXpAwarded += loot.fleetAdminXp;
         captainXpAwarded += loot.captainXp;
         // CONTINUE: the patrol proceeds (later waves and/or transitBack still ahead).
@@ -3118,7 +3162,12 @@ export function tickCaptainPatrol(
             // Unit 2.3b: the SAME installed gear this tick already resolved, so a relaunched cycle's
             // drone carry-state seeds from the ship's installed pods identically to a fresh dispatch.
             installedGear,
+            // E-CREW (Task 20): the NEW cycle freezes the officers seated now (economyTick's live read).
+            officerCombat: officerEffects.relaunchCombat,
           });
+          // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
+          // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
+          foldedDefense = foldedPlayerDefense(shipDef, installedGear, mission.officerCombat);
           // ⚠️ 0.13.4 Phase 2: CARRY THE PER-RUN COUNT ACROSS THE RELAUNCH. freshPatrolMission
           // is the shared factory for a NEW patrol and seeds routesCompletedThisRun to 0, which
           // is right for a dispatch and WRONG here: a relaunch is the middle of a run, not the
@@ -3721,7 +3770,12 @@ export function economyTick(
           patrolGear,
           // Crew 0.14.0 (Phase C-3b): same fleet-wide retirement captain-XP multiplier as extraction
           // (x1 until a captain retires, so byte-identical for every existing save).
-          captainXpMult
+          captainXpMult,
+          // E-CREW 0.14.0 (Task 20): the seated officers' patrol effects, read live (Command Presence on each
+          // won wave; the combat bonuses a relaunch freezes). Both zero / undefined without the officers.
+          patrolShip
+            ? { outputShare: officerMissionOutputBonus(state, patrolShip), relaunchCombat: officerCombatMods(state, patrolShip) }
+            : {},
         );
         // Draw down the shared budgets so a later captain sees the reduced values (no
         // double-spend), and sum for the single Decimal tank/credits deductions below.
@@ -3890,12 +3944,24 @@ export function economyTick(
             engineEfficiency: shipStats.engineEfficiency,
           })
         : 0;
+    // E-CREW 0.14.0 (Task 20): Discovery Instinct's "rare drops on surveys". A SURVEY mission's rare-tier
+    // odds grow by the ship's crew rare find (crew.rareFindChance: the Science officer's Discovery Instinct
+    // plus the Science division's Keen Analysis, the SAME one read the expedition relic roll freezes at
+    // dispatch, so neither source is counted twice). Added to the captain's rareChanceMult, so the primary
+    // AND the bonus roll read it, and the existing min(1, ...) bound still holds. Only the THRESHOLD moves:
+    // the draw count per tick is unchanged. 0 for a non-survey mission or a ship without either source.
+    const surveyRareFind =
+      ship && MISSIONS[missionKey].missionType === "survey"
+        ? shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0
+        : 0;
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
       uncommonChanceMult: captainUncommonChanceMult(captain),
       rareYieldMult: fleetRareYield,
-      rareChanceMult: captainRareChanceMult(captain),
+      rareChanceMult: surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind,
+      // E-CREW 0.14.0 (Task 20): Command Presence (the ship's mission output; 0 without the officer).
+      missionOutputMult: ship ? officerMissionOutputBonus(state, ship) : 0,
       bonusRollChance: captainBonusRollChance(captain),
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
       specBonusRollChance: captainSpecBonusRollChance(captain),
@@ -4710,8 +4776,13 @@ function freshPatrolMission(args: {
   // Standard-Issue set is byte-identical to the installed-pod build. In normal play BOTH call sites
   // pass the ship's real fitted gear, so a Standard-Issue carrier is seeded byte-identically to before.
   installedGear?: EquipmentInstance[];
+  // E-CREW 0.14.0 (Task 20): the ship's Senior Staff combat bonuses to FREEZE onto this cycle
+  // (crewOverlay.ts officerCombatMods: undefined when the ship has none). Dispatch: the officers seated at
+  // dispatch. Relaunch: the officers seated at the relaunch (economyTick's live read). Stored only when
+  // present, so a no-officer cycle's mission is byte-identical to before.
+  officerCombat?: OfficerCombatMods;
 }): PatrolMissionState {
-  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear } = args;
+  const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat } = args;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
@@ -4721,8 +4792,10 @@ function freshPatrolMission(args: {
   // wave 1 below its real pool and the first buildPatrolPlayerCombatant override clamped it there.
   // For a Standard-Issue set (or absent gear) this folds byte-identically to the authored stats, so
   // no SI patrol fixture / parity outcome moves.
-  const folded = foldedPlayerDefense(shipDef, installedGear);
+  // E-CREW (Task 20): folded WITH the cycle's officer bonuses, the same pools its wave combatants carry.
+  const folded = foldedPlayerDefense(shipDef, installedGear, officerCombat);
   return {
+    ...(officerCombat ? { officerCombat } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5078,7 +5151,9 @@ export function dispatchCaptainOnPatrol(
   // wave schedule from masterSeed + def, seeds the full hull/shield/drone carry-state, and
   // keys the drone id prefix to masterSeed. Dispatch passes the dispatch-time stance /
   // masterSeed / repeatDispatch.
-  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear });
+  // E-CREW (Task 20): freeze the seated officers' combat bonuses onto the first cycle (undefined = none).
+  const officerCombat = officerCombatMods(state, ship);
+  const mission = freshPatrolMission({ patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat });
 
   const captains = [...state.captains];
   // Combat 0.13.0 (offline recap): CLEAR any stale wall-stop reason on a fresh patrol dispatch,
@@ -6807,12 +6882,21 @@ export function startShipBuild(
 // identical to before. For a Standard-Issue hull the folded max EQUALS hullIntegrity, so the
 // production path is unchanged there too; only upgraded plating (a bigger real hull) differs.
 // PURE: reads the ship + static SHIP_TYPES + the passed gear, mutates nothing.
-export function shipRepairDurationTicks(ship: ShipInstance, installedGear: EquipmentInstance[] = []): number {
+// E-CREW 0.14.0 (Task 20): `officerSpeedBonus` is the seated officers' repair speed-up (crewOverlay.ts
+// officerRepairSpeedBonus: Rapid Recovery + Veteran Instincts), decided at process creation like the suite
+// below. The base repair DIVIDES by (1 + bonus) (ceil, >= 1 tick): a D23 divisor, never 0 and each point
+// worth a little less. 0 (the default, and every ship without those officers) returns the base unchanged.
+export function shipRepairDurationTicks(
+  ship: ShipInstance,
+  installedGear: EquipmentInstance[] = [],
+  officerSpeedBonus: number = 0,
+): number {
   const shipDef = SHIP_TYPES[ship.typeKey];
   const damage =
     ship.repairDamage ??
     (installedGear.length > 0 ? foldedPlayerDefense(shipDef, installedGear).hullMax : shipDef.hullIntegrity);
-  const baseTicks = REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+  const rawTicks = REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+  const baseTicks = officerSpeedBonus > 0 ? Math.max(1, Math.ceil(rawTicks / (1 + officerSpeedBonus))) : rawTicks;
   // Exploration 0.14.0 (E4d): an installed Damage Control Suite shortens the repair (ceil, >= 1 tick),
   // decided HERE at process creation (the duration is fixed on the TimedProcess, so an in-flight repair is
   // never re-timed and the closed-form countdown is untouched). Without the suite (or with gear unknown,
@@ -6878,7 +6962,7 @@ export function processShipRepairs(state: GameState): GameState {
       working,
       "shipRepair",
       {},
-      shipRepairDurationTicks(ship, equippedFor(state, ship.id)),
+      shipRepairDurationTicks(ship, equippedFor(state, ship.id), officerRepairSpeedBonus(state, ship)),
       {
         type: "clearShipDamage",
         shipId: ship.id,
