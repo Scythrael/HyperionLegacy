@@ -245,7 +245,7 @@ moves on to the next listed task. Other teams are never pulled back by one team'
   and the Sidearm becomes a tool.
 - **Unowned keys, approved as proposed:** Crew Effectiveness (Medical) and the Earth-born racial = a small boost to
   ALL complement buffs ("healthy crew work better"); the Spacer racial `crew.endurance` = a complement long-haul
-  build-up like Constitution (D23 curve); Security's Hazard Suit hazard line = less planet-hazard slowdown on task
+  build-up like Constitution (D23 curve); the Security Assault Hardsuit's hazard line (the user saw it called "Hazard Suit"; the Hazard Suit is a Science piece) = less planet-hazard slowdown on task
   work (Ground Operations); Rapid Loadout `crew.loadSpeed` = the reload step of the Ground Operations return trip.
 - **Boarding:** BOARDING VIA SCAN EVENTS in 0.14.0: a ship-side scan event (the cloaked ship, or a hostile vessel) can
   attempt to board; `crew.boardingDefense` and the Ossir racial decide it. The player's own boarding party stays for
