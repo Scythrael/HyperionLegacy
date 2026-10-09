@@ -645,6 +645,11 @@ byte-identical patrol and expedition replays.
 
 ### Task 21: Officer stat facets
 
+**Acceptance (added 2026-10-09 from the Task 19 review):** re-check every `OFFICER_STAT_INFO.effect` tooltip against
+the final mechanics (thresholds such as "below half hull", "up to a cap" wording) and REMOVE the "(arrives later in
+0.14.0)" qualifiers Task 19 added; derive the panel's display-only `SEAT_DEPARTMENT` / `CUNNING_EDGE` maps from
+`DEPARTMENT_OF_SEAT`. Cunning for the Flight Deck officer and the XO is a USER call (asked 2026-10-09).
+
 **Files:** new `src/lib/game/officerStats.ts`, `crewOverlay.ts`, `combat/bridge.ts` or `resolveBattle.ts`
 (Integrity), `tick.ts` (Cunning procs, Constitution turnaround), `expedition.ts` (Constitution ramp), tests.
 - `DEPARTMENT_OF_SEAT`: tactical->security, science->science, medical->medical, engineering->engineering,
