@@ -118,6 +118,15 @@ per-team-type loadouts (now per ground team).
    (the keyed per-step roll and its timing can stay). Event types, how they resolve and their outcomes need a short
    design (proposal to the user). Ground fights happen only during tasks. Note: Security Cunning's "softened ambush"
    (Task 21) currently targets scan encounters and must move with them.
+   **Event set APPROVED (user, 2026-10-09: "Those scan events sound good to me"):**
+   - Debris field: resolved by the pilot's evasion. Pass: nothing. Fail: a short scan delay + minor hull wear.
+   - Hostile probe / drone: a quick ship battle on the existing combat engine. Win: salvage. Lose: the scan pauses
+     while the ship repairs. Security Cunning's softened ambush moves here.
+   - Sensor ghost: resolved by Science and sensors. Pass: a bonus discovery. Fail: lost scan progress. User idea:
+     "Sensor ghost could even be a spooky cloaked ship!" **[PROPOSAL]** a rare ghost IS a cloaked vessel: good sensors
+     unmask it (a hostile probe style fight, or a bonus find); ties to G6 (cloak / threat detection).
+   - Radiation storm: resolved by Engineering and shields. Pass: nothing. Fail: a scan slowdown.
+   All deterministic (keyed per scan step, private streams); officers matter.
 7. **Team labels:** default names Alpha / Bravo / Charlie (user picked), renameable; the user also said "A, B, and C
    is fine", so short labels A / B / C in compact UI.
 
