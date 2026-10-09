@@ -106,6 +106,7 @@
     PATROLS,
     FACTIONS,
     requiredTicksForPhase,
+    missionPhaseTicks,
     // 0.13.9: the dispatch popup's per-phase TIMING rows + total, one source so they add up.
     missionCycleTiming,
     // Fuel Economy v2 (F4 UI): effectiveMissionDef rescales a base mission's transit
@@ -16658,7 +16659,7 @@
                     {@const missionDef = missionShip
                       ? effectiveMissionDef(MISSIONS[mission.missionKey], effectiveShipStats(state, missionShip))
                       : MISSIONS[mission.missionKey]}
-                    {@const requiredTicks = requiredTicksForPhase(mission.phase, missionDef)}
+                    {@const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo)}
                     {@const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks)}
                     {@const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks))}
                     <div class="mission-card">

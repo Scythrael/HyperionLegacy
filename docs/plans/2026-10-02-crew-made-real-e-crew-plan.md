@@ -768,6 +768,32 @@ tooltip text maps. Every reader goes through `officerStats(officer)`. Per facet:
   the XO's "own bonuses in full" shows only on Integrity and Constitution, Constitution promises a turnaround only to
   Operations / Engineering / Medical, and Integrity names shield RECHARGE. Which seats Integrity / Constitution
   affect is a pending user decision (unchanged).
+- **Per-seat Integrity / Constitution rows (user-approved table, design section 7, built 2026-10-09):** built rows
+  unchanged (Tactical, Flight Deck Integrity, Science rare-find ramp, Medical and Operations turnaround); XO keeps
+  its 0.4 share; all ship-side. New:
+  - Flight Deck Constitution, a faster RETURN the longer the voyage: missions via `effectiveMissionDef` (the facet
+    rides `ShipDerivedStats.returnLegConstitution`, set by `effectiveShipStats`, so the engine, berths and every
+    readout agree; hours = orders + outbound + extracting phases at `RAMP_SECONDS_PER_TICK` 1); patrol cycles via
+    the frozen `PatrolMissionState.returnCutTicks` (tick.ts `patrolReturnCutTicks`, the run's hours when the leg
+    starts; the route ends that many ticks early); expeditions via the frozen `Expedition.rampReturn`
+    (`returnDurationSeconds`, hours since dispatch when the leg starts).
+  - Engineering Integrity: below half hull, faster shield RECHARGE: a `"recharge"` combat-profile entry folded into
+    `underFire.shield` (works with no combat bonus aboard; frozen in `officerCombat`).
+  - Engineering Constitution: fuel is no longer drained (0.13.6 fuel-to-reach), so "fuel efficiency (range)" acts
+    on the REACH GATE: `shipReachesRoundTrip` divides the trip's need by (1 + the ramp on the round trip's own
+    hours). The lightyear readout stays the voyage-free range.
+  - Science Integrity: `Expedition.hazardSteady` joins the scan's hazard resist (only a hazardous world has a slow
+    to cut). Science Constitution: also ramps a SURVEY mission's sensor yield lift on the cycle's planned hours
+    (`surveyYieldConstitution`).
+  - Medical Integrity: `Expedition.injurySteady` joins the care divisor of members who come home injured.
+  - Operations Integrity: a hold at least `FULL_HOLD_FRACTION` (0.9) full unloads x (1 + facet) faster:
+    `MissionDef.fullHoldUnloadTicks` read by the new `missionPhaseTicks(phase, def, cargo)` in the engine, the
+    mission card and the Home row (the dispatch popup's `missionCycleTiming` plans a full hold). There is no
+    loading phase today, so only unloading is lifted.
+  - Tooltips: `INTEGRITY_DETAIL_BY_DEPARTMENT` + `CONSTITUTION_DETAIL_BY_DEPARTMENT` state each seat's real effect.
+  - Balance pass: today's captain missions and patrol routes are minutes long, so the mission-def ramps (return
+    leg, survey yield, reach) barely move there; expeditions and long Repeat patrols are where they show. The
+    fuel-runway projection (LOCKED, tick.ts) still sums the plain phase lengths.
 
 ### Task 22: The "no dead stats" standing test
 

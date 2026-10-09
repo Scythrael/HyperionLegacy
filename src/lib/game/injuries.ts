@@ -93,7 +93,8 @@ export function applyExpeditionInjuries(state: GameState, exp: Expedition): { ne
   if (downed.length === 0) return { next: state, injuries: [] };
   const shipFactors = shipInjuryFactors(state, state.ships.find((s) => s.id === exp.shipId));
   // E-CREW (Task 21): the run's frozen Medical facets join the care (see InjuryRecoveryFactors).
-  const officerFacetShare = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0);
+  // Task 21 review calls: plus Medical's Integrity (exp.injurySteady), for members who come home INJURED.
+  const officerFacetShare = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0) + (exp.injurySteady ?? 0);
   const factors = officerFacetShare > 0 ? { ...shipFactors, officerFacetShare } : shipFactors;
   const now = state.gameTimeSeconds;
   const injuries: MemberInjury[] = [];

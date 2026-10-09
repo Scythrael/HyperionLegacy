@@ -23,7 +23,14 @@
 //                 department's battle buffs are x (1 + facet) (crewOverlay.ts officerCombatProfile ->
 //                 OfficerCombatMods.underFire -> Combatant.underFire, read live by resolveBattle). The battle
 //                 buffs today are the officers' own Weapons / Shield / Evasive Command and Inspiring Leader
-//                 (D12: the Complement never feeds weapons or shields).
+//                 (D12: the Complement never feeds weapons or shields). PER-SEAT ROWS (user-approved table,
+//                 design section 7, 2026-10-09; INTEGRITY_DETAIL_BY_DEPARTMENT):
+//                   Security / Flight Deck  the battle bonuses above (built first)
+//                   Engineering  below half hull: faster shield RECHARGE (a "recharge" profile entry)
+//                   Science      scanning a hazardous world: Expedition.hazardSteady joins the scan resist
+//                   Medical      a member who comes home INJURED: Expedition.injurySteady joins the care
+//                   Operations   a hold at least FULL_HOLD_FRACTION full: faster unload (MissionDef
+//                                fullHoldUnloadTicks via ShipDerivedStats.fullHoldUnloadIntegrity)
 //   CUNNING       a per-MISSION chance (= the facet) that the department OVER-DELIVERS, rolled from a PRIVATE
 //                 keyed stream (cunningRollSeed: mission seed ^ CUNNING_SALT ^ seat index), never a shared one:
 //                   Operations  bonus cargo: a delivered extraction / survey haul or transport margin gains
@@ -47,14 +54,22 @@
 //                 Plus a shorter post-mission TURNAROUND: Operations unloads faster (unloadSpeedMult),
 //                 Engineering repairs faster (the Shipyard repair divisor), Medical heals injuries sooner
 //                 (the injury recovery divisor). Each is x (1 + facet) or + facet on a D23 divisor.
+//                 PER-SEAT RAMPS added by the user-approved table (CONSTITUTION_DETAIL_BY_DEPARTMENT):
+//                   Flight Deck  a faster RETURN leg the longer the voyage ran: missions (effectiveMissionDef,
+//                                hours before the leg), patrol cycles (PatrolMissionState.returnCutTicks),
+//                                expeditions (Expedition.rampReturn, hours since dispatch)
+//                   Engineering  fuel efficiency (range) on a long voyage: the reach gate divides the trip's
+//                                need by (1 + the ramp on its round-trip hours) (tick.ts shipReachesRoundTrip)
+//                   Science      also the yield of a SURVEY, ramped on the survey cycle's planned hours
 //
 // PARITY: every value here is a pure function of state (the seated officers + their stats) or of the stored
 // run; expedition and patrol values are FROZEN at dispatch / relaunch, and every random draw is a private
 // keyed stream. Nothing reads Date.now() or Math.random.
 
 import type { CrewProfession, GameState, OfficerStats, SeniorStaffOfficer, SeniorStaffSeat, ShipInstance } from "./model";
+import { FULL_HOLD_FRACTION } from "./model";
 import { officerStats, OFFICER_STAT_INFO, SENIOR_STAFF_SEATS } from "./seniorStaff";
-import { diminishing } from "./diminishing";
+import { CONSTITUTION_RAMP_KNEE_HOURS, constitutionRamp } from "./constitutionRamp";
 import { makeRng, type Rng } from "./combat/rng";
 
 // ============================================================================
@@ -210,15 +225,8 @@ export function captainCycleMissionSeed(captainId: number, lifetimeCycle: number
 // Constitution
 // ============================================================================
 
-// The ramp's knee in hours (D23: a knee, never a cap; the plan's first-pass "capped 5 hours").
-export const CONSTITUTION_RAMP_KNEE_HOURS = 5;
-
-// The long-haul ramp share for a Constitution facet `facet` after `hoursOut` hours: facet *
-// diminishing(hoursOut, knee). Exactly 0 when either is 0, so a run with no Constitution is unchanged. Pure.
-export function constitutionRamp(facet: number, hoursOut: number): number {
-  if (!(facet > 0) || !(hoursOut > 0)) return 0;
-  return facet * diminishing(hoursOut, CONSTITUTION_RAMP_KNEE_HOURS);
-}
+// The ramp itself lives in the constitutionRamp.ts leaf (model.ts reads it for the return leg); re-exported.
+export { CONSTITUTION_RAMP_KNEE_HOURS, constitutionRamp };
 
 // ============================================================================
 // Player-facing text (the Senior Staff tooltips and the Task 34 Help topic)
@@ -238,12 +246,23 @@ export const CUNNING_EDGE_BY_DEPARTMENT: Readonly<Partial<Record<CrewProfession,
 // have one, the shorter post-mission TURNAROUND (Task 21 review: only those three promise it). Every
 // department also ramps any Inspiring Leader its officer carries on a patrol.
 export const CONSTITUTION_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, string>> = {
-  security: "On a long patrol, Weapons Command and Shield Command keep growing",
-  flightDeck: "On a long patrol or expedition, Evasive Command keeps growing",
-  science: "On a long expedition, the Science crew's relic chance keeps growing",
-  operations: "Turnaround: each point above 10 also makes unloading at home about 1% faster",
-  engineering: "Turnaround: each point above 10 also makes Shipyard repairs about 1% faster",
-  medical: "Turnaround: each point above 10 also helps injured away-team members recover about 1% sooner",
+  security: "Ramps: Weapons Command and Shield Command on a long patrol",
+  flightDeck: "Ramps: a faster return trip the longer the voyage, and Evasive Command on a long patrol or expedition",
+  science: "Ramps: the Science crew's relic chance on a long expedition and the yield of a long survey",
+  operations: "Turnaround: unloading at home is faster",
+  engineering: "Ramps: better fuel efficiency on a long voyage, so the ship reaches further on it. Turnaround: Shipyard repairs are faster",
+  medical: "Turnaround: injured away-team members recover sooner",
+};
+
+// What each department's Integrity does, trigger first (design section 7, the per-seat table approved by the
+// user 2026-10-09). The XO reads its own line.
+export const INTEGRITY_DETAIL_BY_DEPARTMENT: Readonly<Record<CrewProfession, string>> = {
+  security: "Below half hull in a patrol battle: weapon damage (Weapons Command, Inspiring Leader) and shield recharge (Shield Command)",
+  flightDeck: "Below half hull in a patrol battle: Evasive Command dodges more",
+  engineering: "Below half hull in a patrol battle: the shields recharge faster",
+  science: "While scanning a hazardous world: the hazard slows the scan less",
+  medical: "When away-team members come home injured: they recover sooner",
+  operations: `With the hold at least ${Math.round(FULL_HOLD_FRACTION * 100)}% full: unloading at home is faster`,
 };
 
 // The stats whose facet also reaches the XO's OWN bonuses in full (seatFacet's "all" branch): Integrity and
@@ -272,6 +291,11 @@ function statDetail(key: keyof OfficerStats, dept: CrewProfession | "all"): stri
     if (dept === "all") return " Its share raises every department's chance; the XO has no over-delivery of its own yet.";
     const edge = CUNNING_EDGE_BY_DEPARTMENT[dept];
     return edge ? ` For ${DEPARTMENT_LABEL[dept]}, that means ${edge}.` : ` The ${DEPARTMENT_LABEL[dept]} has no over-delivery of its own yet.`;
+  }
+  if (key === "integrity") {
+    return dept === "all"
+      ? " Its share reaches every department's trigger, and its own battle bonuses gain it in full below half hull."
+      : ` ${INTEGRITY_DETAIL_BY_DEPARTMENT[dept]}.`;
   }
   if (key === "constitution") {
     return dept === "all"

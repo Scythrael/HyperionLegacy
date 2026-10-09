@@ -650,6 +650,12 @@ export function startExpedition(
   const recoveryTurnaround = departmentFacet(state, ship, "medical", "constitution");
   const rampScience = crewRareFind > 0 ? departmentFacet(state, ship, "science", "constitution") : 0;
   const rampFlightDeck = encounterEvasion > 0 ? departmentFacet(state, ship, "flightDeck", "constitution") : 0;
+  // E-CREW (Task 21 review calls, the per-seat rows), frozen here too and written only when non-zero:
+  //   Flight Deck Constitution: a faster return the longer the run; Science Integrity: less hazard scan slow;
+  //   Medical Integrity: a shorter recovery for the members who come home injured.
+  const rampReturn = departmentFacet(state, ship, "flightDeck", "constitution");
+  const hazardSteady = departmentFacet(state, ship, "science", "integrity");
+  const injurySteady = departmentFacet(state, ship, "medical", "integrity");
 
   const expedition: Expedition = {
     id,
@@ -698,6 +704,9 @@ export function startExpedition(
     ...(recoveryTurnaround > 0 ? { recoveryTurnaround } : {}),
     ...(rampScience > 0 ? { rampScience } : {}),
     ...(rampFlightDeck > 0 ? { rampFlightDeck } : {}),
+    ...(rampReturn > 0 ? { rampReturn } : {}),
+    ...(hazardSteady > 0 ? { hazardSteady } : {}),
+    ...(injurySteady > 0 ? { injurySteady } : {}),
   };
 
   return {
@@ -744,9 +753,11 @@ function transitDurationSeconds(exp: Expedition): number {
 // museum + gear resist before the cut (resistedHazard bounds the sum). It shapes the scan slowdown only:
 // encounter odds and battle guards keep the stored resist (Science never fights). 0 without a party, so
 // the sum is the stored value bit-for-bit.
-function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number {
+// E-CREW (Task 21 review calls): the Science department's Integrity (exp.hazardSteady, frozen at dispatch) adds
+// to the resist too, so a HAZARDOUS world slows the scan less (a calm one has no slow to cut). 0 = unchanged.
+export function scanRatePerSecond(exp: Expedition, body: ExpeditionBody): number {
   const sensorBoost = 1 + Math.max(0, exp.sensorPower) * SCAN_SENSOR_COEFF;
-  const partyResist = fieldworkHazardResist(exp, body.planetType);
+  const partyResist = fieldworkHazardResist(exp, body.planetType) + (exp.hazardSteady ?? 0);
   const resist = partyResist > 0 ? (exp.hazardResist ?? 0) + partyResist : exp.hazardResist ?? 0;
   const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, resist)) * SCAN_HAZARD_PENALTY;
   const museumScan = 1 + (exp.scanSpeedBonus ?? 0);
@@ -786,6 +797,17 @@ function activitiesDurationSeconds(exp: Expedition): number {
   return total;
 }
 
+// E-CREW (Task 21 review calls, Flight Deck CONSTITUTION): the RETURN leg, divided by (1 + the ramp on the
+// hours since dispatch when it starts: the transit, the scan and the tasks, all fixed by then). Exactly the base
+// transit without exp.rampReturn. Pure.
+export function returnDurationSeconds(exp: Expedition): number {
+  const base = baseTransitSeconds(exp);
+  if (!exp.rampReturn) return base;
+  const hours = (transitDurationSeconds(exp) + scanningDurationSeconds(exp) + activitiesDurationSeconds(exp)) / 3600;
+  const ramp = constitutionRamp(exp.rampReturn, hours);
+  return ramp === 0 ? base : base / (1 + ramp);
+}
+
 // The current phase's total duration in seconds (0 for "complete", which the loop never asks about).
 function phaseDurationSeconds(exp: Expedition): number {
   switch (exp.phase) {
@@ -796,7 +818,7 @@ function phaseDurationSeconds(exp: Expedition): number {
     case "activities":
       return activitiesDurationSeconds(exp);
     case "return":
-      return baseTransitSeconds(exp);
+      return returnDurationSeconds(exp);
     case "complete":
       return 0;
   }

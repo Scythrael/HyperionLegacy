@@ -387,7 +387,10 @@ export function officerBonusTotal(state: GameState, ship: ShipInstance, statKey:
 // Integrity + Constitution facets of the carrier's seat (officerStats.ts seatFacet). The PROFILE of a ship is
 // these entries in officer order, then bonus order (the order officerBonusTotal sums in, so the folded totals
 // are bit-identical to the Task 20 fold).
-export type OfficerCombatKind = "weapons" | "shields" | "evasion" | "lift";
+// "recharge" (Task 21 review calls) is the Engineering department's INTEGRITY facet itself: no bonus behind it,
+// it only lifts the shield RECHARGE while the hull is below half (underFire.shield), so it never enters the
+// folded base mods.
+export type OfficerCombatKind = "weapons" | "shields" | "evasion" | "lift" | "recharge";
 export interface OfficerCombatEntry {
   kind: OfficerCombatKind;
   magnitude: number;
@@ -423,6 +426,10 @@ export function officerCombatProfile(state: GameState, ship: ShipInstance): Offi
       out.push({ kind, magnitude: bonus.magnitude * officerMult, integrity: f.integrity, constitution: f.constitution });
     }
   }
+  // E-CREW (Task 21 review calls): Engineering's Integrity, faster shield recharge below half hull. Appended
+  // only when non-zero, so an all-10 bridge's profile is the Task 20 one.
+  const engineering = departmentFacet(state, ship, "engineering", "integrity");
+  if (engineering > 0) out.push({ kind: "recharge", magnitude: engineering, integrity: 0, constitution: 0 });
   return out;
 }
 
@@ -436,7 +443,12 @@ export function officerCombatModsFromProfile(profile: readonly OfficerCombatEntr
   const base = { weapons: 0, shields: 0, evasion: 0, lift: 0 };
   const steady = { weapons: 0, shields: 0, evasion: 0, lift: 0 };
   let anySteady = false;
+  let recharge = 0;
   for (const e of profile) {
+    if (e.kind === "recharge") {
+      recharge += e.magnitude;
+      continue;
+    }
     const ramp = constitutionRamp(e.constitution, hoursOut);
     const m = ramp === 0 ? e.magnitude : e.magnitude * (1 + ramp);
     base[e.kind] += m;
@@ -447,16 +459,19 @@ export function officerCombatModsFromProfile(profile: readonly OfficerCombatEntr
       steady[e.kind] += m;
     }
   }
-  const mods = foldCombatTotals(base);
-  if (!mods) return undefined;
-  if (!anySteady) return mods;
-  const s = foldCombatTotals(steady)!;
+  const folded = foldCombatTotals(base);
+  if (!folded && !(recharge > 0)) return undefined;
+  if (!anySteady && !(recharge > 0)) return folded;
+  // Engineering's recharge alone (no combat bonus aboard) still needs a record to carry it: all-zero mods.
+  const mods = folded ?? { weaponDamage: 0, shield: 0, hull: 0, evasion: 0 };
+  const s = anySteady ? foldCombatTotals(steady)! : mods;
+  const shieldSteady = (1 + s.shield) / (1 + mods.shield);
   const underFire = {
     weaponDamage: (1 + s.weaponDamage) / (1 + mods.weaponDamage) - 1,
-    shield: (1 + s.shield) / (1 + mods.shield) - 1,
+    shield: recharge > 0 ? shieldSteady * (1 + recharge) - 1 : shieldSteady - 1,
     evasion: s.evasion - mods.evasion,
   };
-  if (underFire.weaponDamage === 0 && underFire.shield === 0 && underFire.evasion === 0) return mods;
+  if (underFire.weaponDamage === 0 && underFire.shield === 0 && underFire.evasion === 0) return folded;
   return { ...mods, underFire };
 }
 
@@ -520,7 +535,22 @@ export function effectiveShipStats(state: GameState, ship: ShipInstance): ShipDe
   const base = shipDerivedStats(ship, equippedFor(state, ship.id));
   const museum = museumBonuses(state);
   const crewed = applyCrewOverlay(base, shipCrewContribution(state, ship, museum));
-  return applyMuseumOverlay(crewed, museum);
+  return applyOfficerFacetStats(applyMuseumOverlay(crewed, museum), state, ship);
+}
+
+// E-CREW 0.14.0 (Task 21 review calls): the two officer stat facets effectiveMissionDef reads off the stats,
+// so the engine and every mission readout (which all route through effectiveShipStats) agree on the phase
+// lengths: the Flight Deck's Constitution (the return leg ramp) and the Operations Integrity (the full-hold
+// unload). Each is set only when non-zero, so the SAME object comes back for an all-10 bridge. PURE.
+function applyOfficerFacetStats(stats: ShipDerivedStats, state: GameState, ship: ShipInstance): ShipDerivedStats {
+  const returnLeg = departmentFacet(state, ship, "flightDeck", "constitution");
+  const fullHold = departmentFacet(state, ship, "operations", "integrity");
+  if (returnLeg === 0 && fullHold === 0) return stats;
+  return {
+    ...stats,
+    ...(returnLeg > 0 ? { returnLegConstitution: returnLeg } : {}),
+    ...(fullHold > 0 ? { fullHoldUnloadIntegrity: fullHold } : {}),
+  };
 }
 
 // ============================================================================

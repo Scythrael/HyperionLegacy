@@ -7,7 +7,15 @@ import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
 import {
   freshState,
+  effectiveMissionDef,
+  missionCycleTiming,
+  missionPhaseTicks,
+  MISSIONS,
+  PATROLS,
+  requiredTicksForPhase,
   SHIP_TYPES,
+  type Expedition,
+  type MissionDef,
   type AwayMember,
   type AwayTeamType,
   type CrewBucket,
@@ -24,6 +32,9 @@ import {
   dispatchCaptainOnPatrol,
   economyTick,
   installMissingCombatBaselines,
+  patrolReturnCutTicks,
+  shipRangeLightYears,
+  shipReachesRoundTrip,
   processShipRepairs,
   shipRepairDurationTicks,
   tickCaptainMission,
@@ -33,7 +44,17 @@ import { replayPatrol } from "./combat/patrolReplay";
 import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
 import { fireWeapon, resolveBattle } from "./combat/resolveBattle";
 import { makeRng } from "./combat/rng";
-import { advanceExpedition, claimExpedition, expeditionCandidates, rampedEncounterEvasion, startExpedition } from "./expedition";
+import {
+  SHAKEDOWN_TRANSIT_SECONDS,
+  advanceExpedition,
+  claimExpedition,
+  expeditionCandidates,
+  rampedEncounterEvasion,
+  returnDurationSeconds,
+  scanRatePerSecond,
+  startExpedition,
+  TRANSIT_SECONDS,
+} from "./expedition";
 import {
   effectiveShipStats,
   officerCombatMods,
@@ -47,7 +68,7 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
-import { injuryRecoverySeconds } from "./injuries";
+import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
   CONSTITUTION_RAMP_KNEE_HOURS,
   CUNNING_AMBUSH_SOFTEN,
@@ -986,6 +1007,199 @@ describe("stat tooltips match the mechanics", () => {
       for (const key of ["strength", "integrity", "cunning", "constitution"] as const) {
         expect(officerStatTooltip(key, seat)).not.toMatch(/\u2014|-{2}/);
       }
+    }
+  });
+});
+
+// ============================================================================
+// The per-seat Integrity / Constitution rows (user-approved table, 2026-10-09)
+// ============================================================================
+describe("per-seat Integrity and Constitution rows", () => {
+  const longDef: MissionDef = { ...MISSIONS.shortOreRun, transitOutTicks: 7200, transitBackTicks: 7200 };
+
+  it("Flight Deck Constitution: a mission's return leg is faster the longer the voyage ran (readouts agree)", () => {
+    const n = { ...freshState(), officers: bridgeWith({}) };
+    const plain = effectiveShipStats(n, n.ships[0]);
+    const s = { ...freshState(), officers: bridgeWith({ pilot: { constitution: 28 } }) };
+    const stats = effectiveShipStats(s, s.ships[0]);
+    expect(stats.returnLegConstitution).toBeCloseTo(0.18, 12);
+    expect("returnLegConstitution" in effectiveShipStats({ ...freshState(), officers: bridgeWith({}) }, freshState().ships[0])).toBe(false);
+    const a = effectiveMissionDef(longDef, plain);
+    const b = effectiveMissionDef(longDef, stats);
+    expect(b.transitOutTicks).toBe(a.transitOutTicks);
+    expect(b.transitBackTicks).toBeLessThan(a.transitBackTicks);
+    const outboundHours = (1 + b.transitOutTicks + requiredTicksForPhase("extracting", b)) / 3600;
+    expect(b.transitBackTicks).toBe(Math.ceil(longDef.transitBackTicks / (plain.transitSpeedMult * (1 + constitutionRamp(0.18, outboundHours)))));
+  });
+
+  it("Flight Deck Constitution: an expedition's return and a patrol's return leg shorten with the hours out", () => {
+    const s = { ...withCrew(freshState(), bridgeWith({ pilot: { constitution: 28 } })), awayMembers: ROSTER };
+    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    expect(exp.rampReturn).toBeCloseTo(0.18, 12);
+    const { rampReturn: _r, ...plainExp } = exp;
+    expect(returnDurationSeconds(exp)).toBeLessThan(returnDurationSeconds(plainExp as Expedition));
+    expect([TRANSIT_SECONDS, SHAKEDOWN_TRANSIT_SECONDS]).toContain(returnDurationSeconds(plainExp as Expedition));
+    // Patrols: the cut grows with the run's hours and ends the route early.
+    const def = PATROLS.crimsonReaverSweep;
+    expect(patrolReturnCutTicks(def, 0, 100)).toBe(0);
+    expect(patrolReturnCutTicks(def, 0.18, 0)).toBe(0);
+    expect(patrolReturnCutTicks(def, 0.18, 100)).toBeGreaterThan(0);
+    const r = dispatchCaptainOnPatrol(patrolState("destroyer", []), 1, "crimsonReaverSweep", "balanced", true);
+    const gear = equippedFor(r.next, "ship-1");
+    const effects = { secondsPerTick: 36000, returnConstitution: 0.18 };
+    let c = r.next.captains[0];
+    let cut = 0;
+    for (let i = 0; i < 400 && cut === 0; i++) {
+      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      cut = (c.mission as PatrolMissionState | null)?.returnCutTicks ?? 0;
+    }
+    expect(cut).toBeGreaterThan(0);
+    // The cut cycle completes its route `cut` ticks early: count its length.
+    const startSeed = (c.mission as PatrolMissionState).masterSeed;
+    let ticks = 0;
+    while ((c.mission as PatrolMissionState).masterSeed === startSeed && ticks < 400) {
+      c = tickCaptainPatrol(1, c, r.next.ships[0], 1e9, 0, 1e9, 1, gear, 1, effects).captain;
+      ticks++;
+    }
+    expect(ticks).toBe(def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks - cut);
+  });
+
+  it("Engineering Integrity: faster shield recharge below half hull, even with no combat bonus aboard", () => {
+    const eng = patrolState("destroyer", [officer("engineering", ["eng.rangeMaster", "eng.overdrive"], { integrity: 20 }, "o1")]);
+    expect(officerCombatMods(eng, eng.ships[0])).toEqual({
+      weaponDamage: 0,
+      shield: 0,
+      hull: 0,
+      evasion: 0,
+      underFire: { weaponDamage: 0, shield: expect.closeTo(0.1, 12), evasion: 0 },
+    });
+    // With a Tactical Shield Command lifted by its own Integrity, the two compound on the recharge.
+    const both = patrolState("destroyer", [
+      officer("tactical", ["tac.shieldCommand", "tac.weaponCommand"], { integrity: 20 }, "o1"),
+      officer("engineering", ["eng.rangeMaster", "eng.overdrive"], { integrity: 20 }, "o2"),
+    ]);
+    expect(officerCombatMods(both, both.ships[0])!.underFire!.shield).toBeCloseTo((1.11 / 1.1) * 1.1 - 1, 12);
+    const c = shipToCombatant({ id: "ship-1", team: "player", stats: SHIP_TYPES.destroyer, hullType: combatHullTypeOf("destroyer")!, officerCombat: officerCombatMods(eng, eng.ships[0]) });
+    expect(c.underFire!.shieldRecharge).toBeCloseTo(0.1, 12);
+    expect(dispatchCaptainOnPatrol(eng, 1, "crimsonReaverSweep", "balanced", false).next.captains[0].mission).toHaveProperty("officerCombat.underFire");
+  });
+
+  it("Engineering Constitution: better fuel efficiency on a long voyage lets the ship reach further on it", () => {
+    const plain = patrolState("destroyer", bridgeWith({}));
+    const eng = patrolState("destroyer", bridgeWith({ engineering: { constitution: 28 } }));
+    const ship = plain.ships[0];
+    // The longest symmetric round trip the plain ship reaches, then one tick further.
+    let legs = 1;
+    while (shipReachesRoundTrip(plain, ship, legs + 1, legs + 1)) legs++;
+    expect(shipReachesRoundTrip(plain, ship, legs + 1, legs + 1)).toBe(false);
+    expect(shipReachesRoundTrip(eng, eng.ships[0], legs + 1, legs + 1)).toBe(true);
+    // Short trips are unchanged, and the lightyear readout stays the voyage-free range.
+    expect(shipReachesRoundTrip(eng, eng.ships[0], 1, 1)).toBe(true);
+    expect(shipRangeLightYears(eng, eng.ships[0])).toBe(shipRangeLightYears(plain, ship));
+  });
+
+  it("Science Integrity: a hazardous world slows the scan less; a calm one is unchanged", () => {
+    const s = { ...withCrew(freshState(), bridgeWith({ science: { integrity: 28 } })), awayMembers: ROSTER };
+    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    expect(exp.hazardSteady).toBeCloseTo(0.18, 12);
+    const { hazardSteady: _h, ...plain } = exp;
+    const hot = { ...exp.bodies[0], hazard: 0.8 };
+    const calm = { ...exp.bodies[0], hazard: 0 };
+    expect(scanRatePerSecond(exp, hot)).toBeGreaterThan(scanRatePerSecond(plain as Expedition, hot));
+    expect(scanRatePerSecond(exp, calm)).toBe(scanRatePerSecond(plain as Expedition, calm));
+  });
+
+  it("Science Constitution: a survey's sensor yield grows with the voyage's hours", () => {
+    const captain = missionState("surveyMineralAnomaly", []).captains[0];
+    const stats = { ...effectiveShipStats(freshState(), freshState().ships[0]), sensors: 20 };
+    const plain = tickCaptainMission(2000, captain, lcg(4), {}, stats);
+    const sci = tickCaptainMission(2000, captain, lcg(4), { surveyYieldConstitution: 0.18 }, stats);
+    expect(sci.homePlanetDelta.commonOre.gt(plain.homePlanetDelta.commonOre)).toBe(true);
+    // A non-survey run ignores it.
+    const ore = missionState("shortOreRun", []).captains[0];
+    expect(JSON.stringify(tickCaptainMission(2000, ore, lcg(4), { surveyYieldConstitution: 0.18 }, stats).homePlanetDelta)).toBe(
+      JSON.stringify(tickCaptainMission(2000, ore, lcg(4), {}, stats).homePlanetDelta),
+    );
+  });
+
+  it("Medical Integrity: members who come home injured recover sooner (frozen at dispatch)", () => {
+    const s = { ...withCrew(freshState(), bridgeWith({ medical: { integrity: 28 } })), awayMembers: ROSTER };
+    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    expect(exp.injurySteady).toBeCloseTo(0.18, 12);
+    const downed: Expedition = { ...exp, phase: "complete", scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: ["member-1"] }] };
+    const { injurySteady: _i, ...plainExp } = downed;
+    const with_ = applyExpeditionInjuries(s, downed).injuries[0].recoverySeconds;
+    const without = applyExpeditionInjuries(s, plainExp as Expedition).injuries[0].recoverySeconds;
+    expect(with_).toBeLessThan(without);
+  });
+
+  it("Operations Integrity: a hold at least 90% full unloads faster (engine and readouts share missionPhaseTicks)", () => {
+    const base = effectiveShipStats(freshState(), freshState().ships[0]);
+    const def = effectiveMissionDef(MISSIONS.shortOreRun, { ...base, fullHoldUnloadIntegrity: 1 });
+    expect(def.fullHoldUnloadTicks).toBe(Math.max(1, Math.ceil(def.unloadTicks / 2)));
+    const full = { commonOre: new Decimal(def.cargoCapacity), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+    const partial = { commonOre: new Decimal(def.cargoCapacity * 0.5), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) };
+    expect(missionPhaseTicks("unloading", def, full)).toBe(def.fullHoldUnloadTicks);
+    expect(missionPhaseTicks("unloading", def, partial)).toBe(def.unloadTicks);
+    expect(missionPhaseTicks("transitBack", def, full)).toBe(def.transitBackTicks);
+    expect(missionCycleTiming(def).unloading).toBe(def.fullHoldUnloadTicks);
+    // The engine flies more cycles in the same time; the stats carry the facet from the Operations head.
+    const s = { ...freshState(), officers: bridgeWith({ operations: { integrity: 28 } }) };
+    expect(effectiveShipStats(s, s.ships[0]).fullHoldUnloadIntegrity).toBeCloseTo(0.18, 12);
+    const captain = missionState("shortOreRun", []).captains[0];
+    const fast = tickCaptainMission(5000, captain, lcg(8), {}, { ...base, fullHoldUnloadIntegrity: 1 });
+    const slow = tickCaptainMission(5000, captain, lcg(8), {}, base);
+    expect(fast.lifetimeStatsDelta.missionsCompleted.shortOreRun.toNumber()).toBeGreaterThan(slow.lifetimeStatsDelta.missionsCompleted.shortOreRun.toNumber());
+  });
+
+  it("closed form with the new rows live: missions and patrols, one big advance == many small ones", () => {
+    const captain = missionState("surveyMineralAnomaly", []).captains[0];
+    const stats = { ...effectiveShipStats(freshState(), freshState().ships[0]), sensors: 20, fullHoldUnloadIntegrity: 0.4, returnLegConstitution: 0.2 };
+    const bonuses = { surveyYieldConstitution: 0.18, cunningOperationsChance: 0.3 };
+    const big = tickCaptainMission(3000, captain, lcg(6), bonuses, stats);
+    let c = captain;
+    const rng = lcg(6);
+    const loot: Record<string, Decimal> = {};
+    for (let i = 0; i < 3000; i++) {
+      const step = tickCaptainMission(1, c, rng, bonuses, stats);
+      c = step.captain;
+      for (const [k, v] of Object.entries(step.homePlanetDelta)) loot[k] = (loot[k] ?? new Decimal(0)).plus(v);
+    }
+    for (const [k, v] of Object.entries(big.homePlanetDelta)) expect((loot[k] ?? new Decimal(0)).toNumber(), k).toBeCloseTo(v.toNumber(), 9);
+    expect(JSON.stringify(c.mission)).toBe(JSON.stringify(big.captain.mission));
+    const r = dispatchCaptainOnPatrol(patrolState("destroyer", bridgeWith({ engineering: { integrity: 25, constitution: 25 }, pilot: { constitution: 25 } })), 1, "crimsonReaverSweep", "balanced", true);
+    const ship = r.next.ships[0];
+    const gear = equippedFor(r.next, "ship-1");
+    const effects = {
+      relaunchCombatProfile: officerCombatProfile(r.next, ship),
+      secondsPerTick: 600,
+      returnConstitution: 0.15,
+    };
+    const pBig = tickCaptainPatrol(900, r.next.captains[0], ship, 1e9, 10, 1e9, 1, gear, 1, effects);
+    let pc = r.next.captains[0];
+    let fuel = 0;
+    for (let i = 0; i < 900; i++) {
+      const step = tickCaptainPatrol(1, pc, ship, 1e9, 10, 1e9, 1, gear, 1, effects);
+      pc = step.captain;
+      fuel += step.fuelSpent;
+    }
+    expect(JSON.stringify(pc.mission)).toBe(JSON.stringify(pBig.captain.mission));
+    expect(fuel).toBeCloseTo(pBig.fuelSpent, 9);
+  });
+
+  it("every seat's Integrity and Constitution tooltip names its real effect", () => {
+    const want: Record<SeniorStaffSeat, [RegExp, RegExp]> = {
+      tactical: [/weapon damage.*shield recharge/, /Weapons Command and Shield Command/],
+      pilot: [/Evasive Command/, /return trip/],
+      engineering: [/shields recharge faster/, /fuel efficiency.*Shipyard repairs/],
+      science: [/hazardous world/, /relic chance.*survey/],
+      medical: [/come home injured/, /recover sooner/],
+      operations: [/90% full/, /unloading at home/],
+      executive: [/every department's trigger/, /every department's ramp/],
+    };
+    for (const seat of SEATS) {
+      expect(officerStatTooltip("integrity", seat), seat).toMatch(want[seat][0]);
+      expect(officerStatTooltip("constitution", seat), seat).toMatch(want[seat][1]);
     }
   });
 });

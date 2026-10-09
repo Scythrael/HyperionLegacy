@@ -17,6 +17,8 @@ import type { CraftLine, CraftOrder, CraftLineKind, CraftLineMode } from "./allo
 // than each hard-coding 5/6. inventory.ts imports nothing from this file, so this value
 // import creates NO cycle (unlike the CraftLine type-only import above).
 import { QUALITY_TIERS } from "./inventory";
+// E-CREW 0.14.0 (Task 21): the Constitution ramp leaf (imports only diminishing.ts; no cycle).
+import { constitutionRamp, RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Combat 0.13.0 (Phase 9b.5a): the persisted Patrol mission shape (PatrolMissionState,
 // below) carries a player-chosen combat STANCE and the carry-state DRONE squadrons.
 // Both types live in the combat/ layer. Imported TYPE-ONLY (erased at compile time)
@@ -419,6 +421,11 @@ export interface MissionDef {
   // requiredTicksForPhase reads it in place of ceil(cargoCapacity / extractionRatePerTick); absent means
   // "derive it the usual way", so every existing def is byte-identical.
   extractionTicksOverride?: number;
+  // E-CREW 0.14.0 (Task 21, Operations INTEGRITY): the unload length when the hold arrives at least
+  // FULL_HOLD_FRACTION full ("steady under pressure": a packed hold unloads faster). Set by effectiveMissionDef
+  // only when the ship's Operations Integrity facet is non-zero; missionPhaseTicks reads it against the
+  // cargo. Absent = the plain unloadTicks (byte-identical).
+  fullHoldUnloadTicks?: number;
 }
 
 // Mission Rework (Task 1, docs/plans/2026-07-14-mission-rework-plan.md): 4 missions.
@@ -3144,6 +3151,10 @@ export interface PatrolMissionState {
   // reports it and the Shipyard repair runs this many ticks shorter (ShipInstance.freeRepairTicks). OPTIONAL,
   // written only when the roll succeeds (absent = none, no SAVE_VERSION bump).
   freeRepairTicks?: number;
+  // E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): ticks this cycle's RETURN leg is shortened by (the
+  // ramp on the hours the run has flown when the leg starts), frozen when the cycle starts. The route ends
+  // this many ticks early (tick.ts patrolRouteTicks). OPTIONAL, written only when > 0.
+  returnCutTicks?: number;
 }
 
 // E-CREW 0.14.0 (Task 20): the Senior Staff officer bonuses that act on a ship's COMBATANT in a ship battle
@@ -3202,7 +3213,8 @@ export function missionCycleTiming(missionDef: MissionDef): MissionCycleTiming {
   const transitOut = requiredTicksForPhase("transitOut", missionDef);
   const extracting = requiredTicksForPhase("extracting", missionDef);
   const transitBack = requiredTicksForPhase("transitBack", missionDef);
-  const unloading = requiredTicksForPhase("unloading", missionDef);
+  // E-CREW (Task 21): a planned cycle fills its hold, so it unloads at the full-hold length when one is set.
+  const unloading = missionDef.fullHoldUnloadTicks ?? requiredTicksForPhase("unloading", missionDef);
   return {
     ordersReceived,
     transitOut,
@@ -3266,6 +3278,14 @@ export interface ShipDerivedStats {
   // the overlay sets it only when the bonus is non-zero, and effectiveMissionDef reads absent as the
   // neutral 1 (byte-identical extraction timing).
   extractionSpeedMult?: number;
+  // E-CREW 0.14.0 (Task 21, officer stat facets read by effectiveMissionDef; set by crewOverlay.ts
+  // effectiveShipStats only when non-zero, so every existing stats object is unchanged):
+  //   returnLegConstitution  : the Flight Deck's CONSTITUTION facet: the return leg is faster the longer the
+  //                            voyage has run (constitutionRamp of the hours before the return starts).
+  //   fullHoldUnloadIntegrity: the Operations INTEGRITY facet: a hold at least FULL_HOLD_FRACTION full
+  //                            unloads x (1 + this) faster (MissionDef.fullHoldUnloadTicks).
+  returnLegConstitution?: number;
+  fullHoldUnloadIntegrity?: number;
 }
 
 // ----------------------------------------------------------------------------
@@ -3594,14 +3614,63 @@ export function effectiveMissionDef(base: MissionDef, ship: ShipDerivedStats): M
   );
   const unloadMult = ship.unloadSpeedMult ?? 1;
   const unloadTicks = Math.max(1, Math.ceil(cargoScaledUnload / unloadMult));
+  const transitOutTicks = Math.ceil(base.transitOutTicks / ship.transitSpeedMult);
+  const museumFold = museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult);
+  // E-CREW (Task 21): the Flight Deck's Constitution ramp on the return leg (absent facet = the plain divide)
+  // and the Operations Integrity full-hold unload (written only when the facet is non-zero).
+  const outbound =
+    1 +
+    transitOutTicks +
+    (museumFold.extractionTicksOverride ?? Math.ceil(ship.cargoCapacity / (museumFold.extractionRatePerTick ?? base.extractionRatePerTick)));
+  const transitBackTicks = ship.returnLegConstitution ? rampedReturnTicks(base, ship, outbound) : Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
+  const fullHold = ship.fullHoldUnloadIntegrity ?? 0;
   return {
     ...base,
-    transitOutTicks: Math.ceil(base.transitOutTicks / ship.transitSpeedMult),
-    transitBackTicks: Math.ceil(base.transitBackTicks / ship.transitSpeedMult),
+    transitOutTicks,
+    transitBackTicks,
     cargoCapacity: ship.cargoCapacity,
     unloadTicks,
-    ...museumExtractionSpeedFold(base.extractionRatePerTick, ship.cargoCapacity, ship.extractionSpeedMult),
+    ...museumFold,
+    ...(fullHold > 0 ? { fullHoldUnloadTicks: Math.max(1, Math.ceil(unloadTicks / (1 + fullHold))) } : {}),
   };
+}
+
+// E-CREW 0.14.0 (Task 21, Operations INTEGRITY): the hold share at which a hold counts as packed. FIRST-PASS.
+export const FULL_HOLD_FRACTION = 0.9;
+
+// How full a mission's hold is, 0..: the summed cargo over the (effective) capacity. 0 for no capacity. Pure.
+export function holdFillFraction(cargo: Record<LootMaterialKey, Decimal>, cargoCapacity: number): number {
+  if (!(cargoCapacity > 0)) return 0;
+  return cargo.commonOre.plus(cargo.uncommonMaterial).plus(cargo.rareMaterial).toNumber() / cargoCapacity;
+}
+
+// A phase's length for a mission IN FLIGHT: requiredTicksForPhase, except that the unloading phase of a hold at
+// least FULL_HOLD_FRACTION full takes the def's fullHoldUnloadTicks (E-CREW Task 21, Operations Integrity). The
+// cargo is fixed once the ship is unloading, so the length is constant across the phase (closed-form). The
+// engine (tickCaptainMission) and every in-flight readout read THIS, so they agree. Pure.
+export function missionPhaseTicks(
+  phase: MissionPhase,
+  missionDef: MissionDef,
+  cargo?: Record<LootMaterialKey, Decimal>,
+): number {
+  if (
+    phase === "unloading" &&
+    missionDef.fullHoldUnloadTicks !== undefined &&
+    cargo !== undefined &&
+    holdFillFraction(cargo, missionDef.cargoCapacity) >= FULL_HOLD_FRACTION
+  ) {
+    return missionDef.fullHoldUnloadTicks;
+  }
+  return requiredTicksForPhase(phase, missionDef);
+}
+
+// E-CREW 0.14.0 (Task 21, Flight Deck CONSTITUTION): the return leg's ticks after the ramp. The voyage's hours
+// before the return starts are its orders + outbound + extracting phases (RAMP_SECONDS_PER_TICK each); the leg
+// is divided by (transitSpeedMult * (1 + ramp)), ceil, at least 1 tick. Pure.
+function rampedReturnTicks(base: MissionDef, ship: ShipDerivedStats, outboundTicks: number): number {
+  const ramp = constitutionRamp(ship.returnLegConstitution ?? 0, (outboundTicks * RAMP_SECONDS_PER_TICK) / 3600);
+  if (ramp === 0) return Math.ceil(base.transitBackTicks / ship.transitSpeedMult);
+  return Math.max(1, Math.ceil(base.transitBackTicks / (ship.transitSpeedMult * (1 + ramp))));
 }
 
 // Exploration 0.14.0 (Phase E4b): the floor on a museum-shortened extracting phase (whole ticks).
@@ -6697,6 +6766,16 @@ export interface Expedition {
   recoveryTurnaround?: number;
   rampScience?: number;
   rampFlightDeck?: number;
+  // E-CREW 0.14.0 (Task 21 review calls, the per-seat rows):
+  //   rampReturn   : the Flight Deck's CONSTITUTION facet: the return leg is divided by (1 + the ramp on the
+  //                  hours since dispatch when it starts).
+  //   hazardSteady : the Science department's INTEGRITY facet: added to the run's hazard resist while
+  //                  SCANNING (a hazardous world slows the scan less; resistedHazard bounds the sum).
+  //   injurySteady : the Medical department's INTEGRITY facet: added to the care divisor of every member who
+  //                  comes home INJURED (injuries.ts).
+  rampReturn?: number;
+  hazardSteady?: number;
+  injurySteady?: number;
   // How many step boundaries (flat across bodies, in scan order) have been rolled. The once-only latch
   // that keeps a boundary from rolling twice however the advance is chunked. Absent = 0.
   scanStepCursor?: number;

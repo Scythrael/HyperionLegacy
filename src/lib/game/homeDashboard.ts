@@ -59,6 +59,7 @@ import {
   effectiveMissionDef,
   PATROL_PHASE_LABEL,
   requiredTicksForPhase,
+  missionPhaseTicks,
   extractionMissionOf,
   shipDisplayLabel,
 } from "./model";
@@ -695,7 +696,8 @@ function rowForExtraction(
   const missionDef = ship
     ? effectiveMissionDef(rawMissionDef, effectiveShipStats(state, ship))
     : rawMissionDef;
-  const requiredTicks = requiredTicksForPhase(mission.phase, missionDef);
+  // E-CREW (Task 21): the same phase length the engine advances on (a packed hold unloads faster).
+  const requiredTicks = missionPhaseTicks(mission.phase, missionDef, mission.cargo);
   const progress = Math.min(1, mission.phaseProgressTicks / requiredTicks);
   const remainingTicks = Math.max(0, Math.ceil(requiredTicks - mission.phaseProgressTicks));
   return {

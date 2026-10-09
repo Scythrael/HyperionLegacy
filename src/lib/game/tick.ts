@@ -11,6 +11,8 @@
 import Decimal from "break_infinity.js";
 import {
   requiredTicksForPhase,
+  missionPhaseTicks,
+  missionCycleTiming,
   effectiveMissionDef,
   // 0.13.4 Phase 3: the berth floor, for turning a stored rung level into a reported count.
   TRANSIT_BERTH_BASE,
@@ -291,6 +293,8 @@ import { computeItemLevel, generateEquipment, generateWeapon, generateDronePod, 
 // seeded from the save's inspectSeed + the blueprint key (NOT the fleet's threaded tick rng), so
 // the roll is a pure function of the save (reload-identical, server-reverifiable later).
 import { makeRng } from "./combat/rng";
+// E-CREW 0.14.0 (Task 21): the Constitution ramp's tick length for mission-def hours.
+import { RAMP_SECONDS_PER_TICK } from "./constitutionRamp";
 // Crafting 0.13.3 (Phase 3 Unit 3.2): the WEIGHTED crafting-XP award for a completed
 // process. Replaces the flat `CRAFTING_XP_PER_DURATION_TICK * durationTicks` lump that
 // paid bulk refining exactly as well per unit time as top-tier fabrication.
@@ -336,6 +340,7 @@ import {
 } from "./crewOverlay";
 // E-CREW 0.14.0 (Task 21): the officer stat facets (Cunning over-delivery rolls on private keyed streams).
 import {
+  constitutionRamp,
   CUNNING_BONUS_CARGO_SHARE,
   CUNNING_FREE_REPAIR_TICKS,
   captainCycleMissionSeed,
@@ -1810,6 +1815,9 @@ export function tickCaptainMission(
     // Absent / 0 = no roll.
     cunningOperationsChance?: number;
     cunningScienceChance?: number;
+    // E-CREW 0.14.0 (Task 21 review calls): the Science department's CONSTITUTION facet on a SURVEY: the
+    // survey's sensor yield lift grows by constitutionRamp(facet, the cycle's planned hours). A call-constant.
+    surveyYieldConstitution?: number;
     // Captain Specialization's flat addition to the bonus-roll TRIGGER chance
     // (CAPTAIN_SPEC_BONUS.resourcefulness), kept as its own field, NOT
     // merged into bonusRollChance, so the extraction loop below can add it
@@ -2105,10 +2113,17 @@ export function tickCaptainMission(
   // mults below alongside shipYieldBonus, so it scales the survey's material amount equally
   // regardless of which rarity tier a tick rolls (the design's "sensor-scaled yield"). It does
   // NOT touch the chance/bonus-roll fields (a survey's rarity ODDS are the mission def's own).
-  const surveySensorBonus =
+  const surveySensorBase =
     shipStats && missionDef.missionType === "survey"
       ? shipStats.sensors * SURVEY_SENSOR_YIELD_COEFF
       : 0;
+  // E-CREW (Task 21 review calls): Science's Constitution ramps the survey yield lift by the voyage's planned
+  // hours (the cycle's phase lengths, RAMP_SECONDS_PER_TICK each). A call-constant; 0 facet = unchanged.
+  const surveyRamp =
+    surveySensorBase > 0
+      ? constitutionRamp(bonuses.surveyYieldConstitution ?? 0, (missionCycleTiming(missionDef).total * RAMP_SECONDS_PER_TICK) / 3600)
+      : 0;
+  const surveySensorBonus = surveyRamp === 0 ? surveySensorBase : surveySensorBase * (1 + surveyRamp);
 
   // Exploration 0.14.0 (Phase E1b): the TRANSPORT load cost, a CALL-CONSTANT computed ONCE here
   // (exactly like surveySensorBonus / shipYieldBonus above), so the closed-form "one big jump ==
@@ -2185,8 +2200,10 @@ export function tickCaptainMission(
     // small ones summing to it cross the phase boundary at the identical point, the same
     // property every other requiredTicksForPhase read in this loop already relies on. Non-
     // ordersReceived phases add 0. `?? 0` tolerates a pre-F3 in-flight mission (field absent).
+    // E-CREW (Task 21): missionPhaseTicks = requiredTicksForPhase, except a packed hold's faster unload
+    // (Operations Integrity); the cargo is fixed while unloading, so the length is constant in the phase.
     const requiredTicks =
-      requiredTicksForPhase(mission.phase, missionDef) +
+      missionPhaseTicks(mission.phase, missionDef, mission.cargo) +
       (mission.phase === "ordersReceived" ? mission.refuelDelayTicks ?? 0 : 0);
     const ticksLeftInPhase = requiredTicks - mission.phaseProgressTicks;
     let ticksToApply = Math.min(remaining, ticksLeftInPhase);
@@ -2918,6 +2935,9 @@ export function tickCaptainPatrol(
     relaunchCombatProfile?: readonly OfficerCombatEntry[];
     secondsPerTick?: number;
     freeRepairChance?: number;
+    // E-CREW (Task 21 review calls): the Flight Deck's Constitution facet a relaunch reads (the new cycle's
+    // faster return, returnCutTicks).
+    returnConstitution?: number;
   } = {},
 ): PatrolTickResult {
   const noOp: PatrolTickResult = {
@@ -3033,6 +3053,9 @@ export function tickCaptainPatrol(
   // PER RUN and survives both a call boundary and a relaunch. A single variable cannot do both
   // jobs, which is why the persisted field exists.
   let routesThisRun = mission.routesCompletedThisRun ?? 0;
+  // E-CREW (Task 21): the hours a run has flown after `routes` full routes (the Constitution ramps' clock; the
+  // def's full route length per route, a stored-value function, so chunking cannot change it).
+  const runHours = (routes: number): number => (routes * routeLength * (officerEffects.secondsPerTick ?? 1)) / 3600;
   // 0.13.4 Phase 2: set at each ending path, read into the result at the end of the call.
   let endReason: PatrolEndReason | null = null;
 
@@ -3245,7 +3268,8 @@ export function tickCaptainPatrol(
     // ---- COMPLETION: the whole route is flown (all waves passed + player alive). --------
     // Reached only on a non-defeat tick (defeat broke out above). progress lands exactly
     // on routeLength (integer legs), so this fires precisely at route end.
-    if (progress >= routeLength) {
+    // E-CREW (Task 21): a Flight Deck Constitution cut ends this cycle's route early (patrolRouteTicks).
+    if (progress >= routeLength - (mission.returnCutTicks ?? 0)) {
       // A full route flown + player alive = one patrol COMPLETED (won). Count it (win-only: a
       // defeat broke out above and never reaches here), keyed into missionsCompleted below.
       routesCompleted += 1;
@@ -3285,7 +3309,7 @@ export function tickCaptainPatrol(
           const newSeed = deriveWaveSeed(mission.masterSeed, 0, RELAUNCH_SEED_SALT);
           // E-CREW (Task 21): the hours this run has flown before the new cycle (the Constitution ramp's clock)
           // and the new cycle's frozen combat bonuses: the profile folded at those hours, else Task 20's value.
-          const hoursOut = (routesThisRun * routeLength * (officerEffects.secondsPerTick ?? 1)) / 3600;
+          const hoursOut = runHours(routesThisRun);
           const relaunchCombat = officerEffects.relaunchCombatProfile
             ? officerCombatModsFromProfile(officerEffects.relaunchCombatProfile, hoursOut)
             : officerEffects.relaunchCombat;
@@ -3309,6 +3333,12 @@ export function tickCaptainPatrol(
             officerCombat: relaunchCombat,
             // E-CREW (Task 21): Engineering's Cunning roll for the new cycle, keyed on its own masterSeed.
             freeRepairTicks: cunningProc(newSeed, "engineering", officerEffects.freeRepairChance ?? 0) ? CUNNING_FREE_REPAIR_TICKS : 0,
+            // E-CREW (Task 21 review calls): the Flight Deck's Constitution, a faster return the longer the run.
+            returnCutTicks: patrolReturnCutTicks(
+              def,
+              officerEffects.returnConstitution ?? 0,
+              hoursOut + ((def.transitOutTicks + def.rollWindowTicks) * (officerEffects.secondsPerTick ?? 1)) / 3600,
+            ),
           });
           // The new cycle's frozen bonuses may differ from the old one's: re-fold the carry pools so the
           // between-wave regen and the limp damage read the SAME fold as this cycle's wave combatants.
@@ -3356,7 +3386,7 @@ export function tickCaptainPatrol(
   // routeLength here (the completion check relaunches/ends at route end), so they are untouched.
   if (mission !== null) {
     mission.progressTicks =
-      mission.phase === "limpingHome" ? Math.min(progress, routeLength) : progress;
+      mission.phase === "limpingHome" ? Math.min(progress, routeLength - (mission.returnCutTicks ?? 0)) : progress;
     // 0.13.4 Phase 2: persist the per-run count onto the SURVIVING mission, so the next call
     // resumes the accumulator instead of restarting it. This is the call-boundary half of the
     // "accumulates across calls AND across a relaunch" requirement; the relaunch half is the
@@ -3930,6 +3960,7 @@ export function economyTick(
                 relaunchCombatProfile: officerCombatProfile(state, patrolShip),
                 secondsPerTick: state.tickDurationSeconds,
                 freeRepairChance: departmentFacet(state, patrolShip, "engineering", "cunning"),
+                returnConstitution: departmentFacet(state, patrolShip, "flightDeck", "constitution"),
               }
             : {},
         );
@@ -4125,6 +4156,7 @@ export function economyTick(
       // E-CREW 0.14.0 (Task 21): the Operations / Science departments' Cunning (0 without a facet).
       cunningOperationsChance: ship ? departmentFacet(state, ship, "operations", "cunning") : 0,
       cunningScienceChance: ship ? departmentFacet(state, ship, "science", "cunning") : 0,
+      surveyYieldConstitution: ship ? departmentFacet(state, ship, "science", "constitution") : 0,
       bonusRollChance: captainBonusRollChance(captain),
       bonusRollChanceMult: captainBonusRollChanceMult(captain),
       specBonusRollChance: captainSpecBonusRollChance(captain),
@@ -4709,6 +4741,10 @@ export function shipReachDef(state: GameState, ship: ShipInstance): ShipTypeDef 
 }
 
 // The reach GATE for a round trip given by its two transit legs (a mission's or a patrol's).
+// E-CREW 0.14.0 (Task 21 review calls, Engineering CONSTITUTION): "fuel efficiency (range) on long voyages".
+// The trip's need is divided by (1 + the ramp on the round trip's own hours), so the longer the voyage the
+// further the same tank reaches on it. Exactly the plain need without the facet (every all-10 bridge). The
+// lightyear readout (shipRangeLightYears) stays the voyage-free base range.
 export function shipReachesRoundTrip(
   state: GameState,
   ship: ShipInstance,
@@ -4716,7 +4752,12 @@ export function shipReachesRoundTrip(
   transitBackTicks: number
 ): boolean {
   const def = shipReachDef(state, ship);
-  return def.fuelCapacity >= fuelForRoundTrip(transitOutTicks, transitBackTicks, def);
+  const need = fuelForRoundTrip(transitOutTicks, transitBackTicks, def);
+  const ramp = constitutionRamp(
+    departmentFacet(state, ship, "engineering", "constitution"),
+    ((transitOutTicks + transitBackTicks) * state.tickDurationSeconds) / 3600,
+  );
+  return def.fuelCapacity >= (ramp === 0 ? need : need / (1 + ramp));
 }
 
 // The reach READOUT, in lightyears, gear included (what "Ship range" displays).
@@ -4920,6 +4961,15 @@ export { patrolWaveParams } from "./combat/waveSchedule";
 // PURE: reads only the static PATROLS/def tables + the passed args, mutates nothing. The
 // factionId + wave schedule are both derived from PATROLS[patrolKey] INSIDE the factory,
 // so the pinned faction and the wave params can never come from a mismatched def.
+// E-CREW 0.14.0 (Task 21 review calls, Flight Deck CONSTITUTION): how many ticks a patrol cycle's return leg
+// is cut by, given the Flight Deck's facet and the run's hours when the leg starts: transitBack minus
+// ceil(transitBack / (1 + ramp)), the leg never below 1 tick. 0 without the facet. Pure.
+export function patrolReturnCutTicks(def: PatrolDef, facet: number, hoursBeforeLeg: number): number {
+  const ramp = constitutionRamp(facet, hoursBeforeLeg);
+  if (ramp === 0) return 0;
+  return Math.max(0, def.transitBackTicks - Math.max(1, Math.ceil(def.transitBackTicks / (1 + ramp))));
+}
+
 function freshPatrolMission(args: {
   // WHICH patrol (stored on the state AND used to look the def up, one source, no drift).
   patrolKey: PatrolKey;
@@ -4955,9 +5005,12 @@ function freshPatrolMission(args: {
   // E-CREW 0.14.0 (Task 21): the cycle's Engineering Cunning free repair ticks (rolled by the caller on this
   // cycle's masterSeed). Stored only when > 0, so a cycle without the roll is byte-identical to before.
   freeRepairTicks?: number;
+  // E-CREW 0.14.0 (Task 21 review calls): the cycle's Flight Deck Constitution return cut. Stored only when > 0.
+  returnCutTicks?: number;
 }): PatrolMissionState {
   const { patrolKey, stance, masterSeed, repeatDispatch, shipDef, hullType, installedGear, officerCombat } = args;
   const freeRepairTicks = args.freeRepairTicks ?? 0;
+  const returnCutTicks = args.returnCutTicks ?? 0;
   // factionId + wave params BOTH come from this one def lookup (no caller-passed def that
   // could disagree with patrolKey).
   const def = PATROLS[patrolKey];
@@ -4972,6 +5025,7 @@ function freshPatrolMission(args: {
   return {
     ...(officerCombat ? { officerCombat } : {}),
     ...(freeRepairTicks > 0 ? { freeRepairTicks } : {}),
+    ...(returnCutTicks > 0 ? { returnCutTicks } : {}),
     kind: "patrol",
     patrolKey,
     factionId: def.factionId, // pin the fought faction (def could be retuned mid-flight)
@@ -5333,6 +5387,13 @@ export function dispatchCaptainOnPatrol(
   const freeRepairTicks = cunningProc(masterSeed, "engineering", departmentFacet(state, ship, "engineering", "cunning"))
     ? CUNNING_FREE_REPAIR_TICKS
     : 0;
+  // E-CREW (Task 21 review calls): the first cycle's Flight Deck Constitution return cut (0 hours flown before).
+  const patrolDef = PATROLS[patrolKey];
+  const returnCutTicks = patrolReturnCutTicks(
+    patrolDef,
+    departmentFacet(state, ship, "flightDeck", "constitution"),
+    ((patrolDef.transitOutTicks + patrolDef.rollWindowTicks) * state.tickDurationSeconds) / 3600,
+  );
   const mission = freshPatrolMission({
     patrolKey,
     stance,
@@ -5343,6 +5404,7 @@ export function dispatchCaptainOnPatrol(
     installedGear,
     officerCombat,
     freeRepairTicks,
+    returnCutTicks,
   });
 
   const captains = [...state.captains];

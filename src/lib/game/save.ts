@@ -2426,7 +2426,9 @@ const MIGRATIONS: Record<number, Migration> = {
   // counter),
   // PatrolMissionState.freeRepairTicks, OfficerCombatMods.underFire (inside the frozen officerCombat),
   // ShipInstance.freeRepairTicks, and Expedition.ambushSoften / quickRecovery / recoveryTurnaround /
-  // rampScience / rampFlightDeck. The facets read the stats this step already rolled (absent = neutral), so
+  // rampScience / rampFlightDeck, then (the per-seat rows) Expedition.rampReturn / hazardSteady / injurySteady,
+  // PatrolMissionState.returnCutTicks and ShipDerivedStats.returnLegConstitution / fullHoldUnloadIntegrity
+  // (derived, never stored). The facets read the stats this step already rolled (absent = neutral), so
   // a loaded save's officers go live at once; an in-flight patrol keeps its frozen cycle until the next
   // relaunch and an in-flight expedition finishes without the run-frozen facets.
   65: (state: any): any => {
