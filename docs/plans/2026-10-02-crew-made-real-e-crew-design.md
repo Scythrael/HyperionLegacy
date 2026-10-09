@@ -237,6 +237,20 @@ moves on to the next listed task. Other teams are never pulled back by one team'
   - Ship patrols keep their per-wave loot (verified 2026-10-09: a patrol banks each WON wave; a lost wave earns
     nothing), unchanged.
 
+**D26. TASK 22 "NO DEAD STATS" FINDINGS, USER CALLS (2026-10-09).** The standing test found effects with no planned use:
+- **Fear:** nothing inflicts Fear, so Morale Anchor, Iron Will and Cortex Shield's fear resist were dead. Decision:
+  SOME ENEMIES CAUSE FEAR (a Field Kits condition: certain enemies can terrify a member, a chance to lose a turn).
+- **Science combat lines:** Science never fights, so the Sidearm and Science suits' armor/HP lines were dead.
+  Decision: SWAP THE LINES. Science gear stops rolling combat lines; those slots roll fieldwork / hazard / find lines,
+  and the Sidearm becomes a tool.
+- **Unowned keys, approved as proposed:** Crew Effectiveness (Medical) and the Earth-born racial = a small boost to
+  ALL complement buffs ("healthy crew work better"); the Spacer racial `crew.endurance` = a complement long-haul
+  build-up like Constitution (D23 curve); Security's Hazard Suit hazard line = less planet-hazard slowdown on task
+  work (Ground Operations); Rapid Loadout `crew.loadSpeed` = the reload step of the Ground Operations return trip.
+- **Boarding:** BOARDING VIA SCAN EVENTS in 0.14.0: a ship-side scan event (the cloaked ship, or a hostile vessel) can
+  attempt to board; `crew.boardingDefense` and the Ossir racial decide it. The player's own boarding party stays for
+  later (S4-C07).
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
