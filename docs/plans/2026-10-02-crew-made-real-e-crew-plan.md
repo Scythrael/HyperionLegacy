@@ -836,6 +836,27 @@ Defense `crew.boardingDefense` (S4-C21 deferred hook), Crew Effectiveness `crew.
 consumer), the Earth-born / Ossir / Spacer racials (`crewEffectiveness`, `boardingDefense`, `endurance`), the
 Security Assault Hardsuit's hazard line, and every Science combat line (Sidearm power / accuracy / status chance,
 Field Suit and Hazard Suit armor / HP: Science never fights). Runtime about 25 s (dead entries run every probe).
+**Task 22 review fixes (2026-10-09, after D26):** every former UNPLANNED entry now has its D26 owner (none may read
+UNPLANNED; a test enforces it): Morale Anchor -> Field Kits 16b (enemies inflict Fear); the Science combat lines ->
+the Science gear line swap; Crew Effectiveness + Earth-born -> Task 23 (small boost to all complement buffs); Spacer
+`crew.endurance` -> Task 23 (complement long-haul ramp); the Assault Hardsuit hazard line -> Ground Operations (less
+hazard slowdown on task work); `crew.loadSpeed` -> Ground Operations reload step (the FA talent logistics4 Efficient
+Stowage also targets loadSpeed); Boarding Defense + Ossir -> Ground Operations boarding scan events. Gear is now
+tested PER VARIETY (`gear:<team>:<variety>:<key>`, 74 entries, teams from each variety's `teamTypes`); a piece whose
+ground effect scales with its points (heal, inflict, group hit, revive) gets a baseline with the same points on an
+inert filler line (a fieldwork yield line on a Security wearer, proved inert by its own test), so effect scaling
+cancels. New per-variety finds: Cortex Shield's status resist (stun and fear are never inflicted on the squad) ->
+"Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]"; status chance on the Pulse
+Rifle, Scattergun and Targeting Optic (Security; status chance only feeds an inflict piece) -> UNOWNED, raised with
+the coordinator. Outcomes are explicit field allow-lists; a NaN / Infinity in a fingerprint throws. RELEASE GATE:
+`RELEASE_GATE=1` runs a block that fails while the allow-list holds anything not owned by a phase in
+`DEFERRED_PAST_0140` (empty today), so Task 35 cannot ship dead stats. Allow-list: 37 entries.
+
+### Task 22b: Extend no-dead-stats to away-member TRAITS and ground EFFECTS
+
+Add categories for every away-member trait effect (`awayTraits.ts`: stat bumps, resists, medic, first strike,
+guard, PoI yield) and every gear ground effect (resist / inflict / heal / group hit / revive) so a trait or effect
+that can never fire is caught the same way, e.g. Iron Will (resists Fear, which nothing inflicts until Field Kits 16b).
 
 ---
 
@@ -966,3 +987,4 @@ Two-stage review (bug-check subagent, then a full-ledger fix pass), holistic rev
 produces a delta + full QA sheet (desktop + mobile, steps + expected + regression) and deploys with
 `git push origin feat/crew-0.14.0:staging` only after the user confirms. Update the inventory rows to BUILT with
 commit hashes.
+Run `RELEASE_GATE=1 npx vitest run src/lib/game/no-dead-stats.test.ts`; it must pass.

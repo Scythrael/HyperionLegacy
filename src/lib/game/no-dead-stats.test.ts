@@ -14,10 +14,12 @@
 //                          buff; baseline = the same bucket carrying none.
 //   racial:<race>          every crew race's racial bonus (crewRaces.ts), as an officer of that race carrying no
 //                          bonus vs no officer (every officer and every crewmember shows a racial).
-//   gear:<team>:<groundKey> every member gear stat key (model.ts MEMBER_GROUND_STAT_KEYS) on each squad whose
-//                          gear can roll it. With = a piece of a variety that can roll the key, carrying ONLY
-//                          that line; baseline = the same piece with no lines. Live when ANY such variety moves
-//                          a value (a Security key needs a Security consumer: Science never fights, D2).
+//   gear:<team>:<variety>:<groundKey>  every wearable member gear VARIETY's every rollable line (model.ts
+//                          MEMBER_GROUND_STAT_KEYS), on its own, for every squad the variety's teamTypes list.
+//                          With = the piece carrying ONLY that line; baseline = the same piece with no lines, or,
+//                          for a piece whose ground effect scales with its points (heal, inflict, group hit,
+//                          revive), the same points on an inert FILLER line, so the effect cancels and only the
+//                          line's own consumer counts.
 //   facet:<seat>:<stat>    every officer stat facet per seat (Strength / Integrity / Cunning / Constitution x
 //                          the seven seats; design section 7 and the user-approved per-seat table). The context
 //                          is a full bridge (every seat carrying bonuses with live consumers) plus a complement
@@ -29,19 +31,20 @@
 // (scan rate, task length, encounter chance, fieldwork, relic odds, return leg), its battles (scan encounters +
 // every PoI's task), injury recovery at claim, a whole expedition run + claim, captain mission cycles through
 // economyTick (extraction, survey, transport), a Repeat patrol through economyTick, and a patrol defeat's repair.
-// Outcomes are compared with the INPUTS stripped (officers, member gear, complements, the roster snapshot and
-// the frozen per-cycle records), so only consequences count.
+// Outcomes are compared through explicit ALLOW-LISTS of consequence fields (state, captains, missions, patrols,
+// ships, expeditions), never the inputs (officers, member gear, complements, the roster snapshot, the frozen
+// per-cycle records), so only consequences count. A NaN or Infinity in any fingerprint throws.
 //
 // THE ALLOW-LIST: PENDING_IN_RELEASE names every effect that is dead TODAY, with the phase that brings it live
-// (or "UNPLANNED: raised with user" when no plan owns it). The test FAILS when an unlisted effect is dead (wire a
+// (D26 gave every first-run unowned entry an owner; none may read UNPLANNED). The test FAILS when an unlisted effect is dead (wire a
 // consumer or list it) AND when a listed effect turns out to be live (remove it: the list cannot rot). Reactor
 // Overdrive's entry comes from crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE; the Pilot's own Cunning from
 // officerStats.ts CUNNING_PENDING_SEATS. (The XO is in CUNNING_PENDING_SEATS too, but its Cunning is LIVE through
 // its 0.4 share of every department's over-delivery; only its OWN edge is pending, and that has no stat of its own
 // to test.)
 //
-// A gear line's points also strengthen its piece's ground effect (heal, inflict, group hit: gambit.ts scales an
-// effect with the piece's total points), so a line on an effect piece is live through that effect as well.
+// THE RELEASE GATE: with RELEASE_GATE set (plan Task 35), a further block fails while the allow-list holds any
+// entry not owned by a phase the user explicitly deferred past 0.14.0 (DEFERRED_PAST_0140, empty today).
 //
 // Magnitudes are deliberately exaggerated (bonus x5, stats at 70, 60-point gear lines, 400-head buckets): this
 // test is about WIRING, not balance, and an exaggerated effect cannot hide behind a rounding step. Every probe is
@@ -58,6 +61,8 @@ import {
   isMemberSlotType,
   type AwayMember,
   type AwayTeamType,
+  type CaptainMissionState,
+  type CaptainState,
   type CrewBucket,
   type CrewProfession,
   type CrewRace,
@@ -114,14 +119,28 @@ import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 // ============================================================================
 
 interface PendingEntry {
-  phase: string; // the phase that brings it live, or "UNPLANNED"
+  phase: string; // the phase that brings it live (D26 owns every former UNPLANNED entry)
   reason: string;
   note?: string;
 }
 
-const UNPLANNED = "UNPLANNED: raised with user";
 const TASK_23 = "E-CREW Task 23 (division pools + exclusive pool live, design 6.2)";
 const E_MOD = "E-MOD power budget";
+// D26 (user, 2026-10-09): the owners of what the first run of this test found unowned.
+const FIELD_KITS_FEAR = "Field Kits 16b: enemies inflict Fear (D26)";
+const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
+const TASK_23_ALL_BUFFS = "Task 23: small boost to all complement buffs (D26)";
+const TASK_23_LONG_HAUL = "Task 23: complement long-haul ramp (D26)";
+const GROUND_OPS_HAZARD = "Ground Operations: less planet-hazard slowdown on task work (D26)";
+const GROUND_OPS_RELOAD = "Ground Operations: reload step of the return trip (D26)";
+const GROUND_OPS_BOARDING = "Ground Operations scan events: boarding attempts (D26)";
+const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
+// Found by the per-variety pass (Task 22 review): Security lines with no owner yet, reported to the coordinator.
+const UNOWNED = "UNOWNED: reported to the coordinator for a user call (2026-10-09)";
+
+// The phases the user has EXPLICITLY deferred past 0.14.0. The release gate (below) fails while the allow-list
+// holds an entry owned by any other phase. Today: none (E-MOD is 0.14.0 scope, design G8).
+const DEFERRED_PAST_0140: readonly string[] = [];
 
 // Reactor Overdrive (and anything else crewOverlay.ts lists): the officer bonuses whose system lands later in
 // this release. Imported so the two lists can never disagree.
@@ -137,11 +156,10 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
 
   // Officer bonuses with no source to act on
   "officer:officer.crewRetention": {
-    phase: "UNPLANNED",
-    reason: UNPLANNED,
-    note:
-      "Morale Anchor: wired as the squad's Fear resist (Task 20), but nothing in the game inflicts Fear (enemy casters " +
-      "apply weakened or poison; no gear, trait or action applies fear), so the resist never rolls.",
+    phase: FIELD_KITS_FEAR,
+    reason:
+      "Morale Anchor: wired as the squad's Fear resist (Task 20), but nothing inflicts Fear yet (enemy casters apply " +
+      "weakened or poison), so the resist never rolls. The Iron Will trait and Cortex Shield's fear half wait the same way.",
   },
 
   // Complement buffs (design 6.2; Task 23 wires the division pools + exclusive pool)
@@ -155,20 +173,15 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "crew:crew.crewOutputMult": { phase: TASK_23, reason: "Crew Output Multiplier: output mult (exclusive pool)" },
   "crew:crew.missionTurnaround": { phase: TASK_23, reason: "Mission Turnaround: turnaround cut (exclusive pool)" },
   "crew:crew.preventCrewLoss": { phase: TASK_23, reason: "Prevent a Crew Loss: shorter injuries (exclusive pool)" },
+  "crew:crew.crewEffectiveness": { phase: TASK_23_ALL_BUFFS, reason: "Crew Effectiveness (Medical): healthy crew work better" },
   "crew:crew.loadSpeed": {
-    phase: "UNPLANNED",
-    reason: UNPLANNED,
-    note: "Rapid Loadout (Operations): there is no loading phase today (Task 21 note) and design 6.2 names no consumer.",
+    phase: GROUND_OPS_RELOAD,
+    reason: "Rapid Loadout (Operations): there is no loading phase today",
+    note: "The FA talent logistics4 Efficient Stowage (statMult loadSpeed) targets the same stat.",
   },
   "crew:crew.boardingDefense": {
-    phase: "UNPLANNED",
-    reason: UNPLANNED,
-    note: "Boarding Defense (Security): deferred hook S4-C21 / boarding party S4-C07 (blocked on user); no 0.14.0 consumer in design 6.2.",
-  },
-  "crew:crew.crewEffectiveness": {
-    phase: "UNPLANNED",
-    reason: UNPLANNED,
-    note: "Crew Effectiveness (Medical): design 6.2 gives Medical only squad healing + injury length; no consumer planned.",
+    phase: GROUND_OPS_BOARDING,
+    reason: "Boarding Defense (Security): a ship-side scan event can attempt to board; this buff decides it",
   },
 
   // Racial bonuses (every race's racial targets a crew.* key; the same consumers decide)
@@ -177,21 +190,38 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "racial:outerColony": { phase: TASK_23, reason: "racial crew.surveyAptitude (Science pool key)" },
   "racial:vael": { phase: TASK_23, reason: "racial crew.surveyAptitude (Science pool key)" },
   "racial:stheni": { phase: TASK_23, reason: "racial crew.hullRepairRate (Engineering pool key)" },
-  "racial:earthBorn": { phase: "UNPLANNED", reason: UNPLANNED, note: "racial crew.crewEffectiveness has no planned consumer (see crew:crew.crewEffectiveness)." },
-  "racial:ossir": { phase: "UNPLANNED", reason: UNPLANNED, note: "racial crew.boardingDefense has no 0.14.0 consumer (see crew:crew.boardingDefense)." },
-  "racial:spacer": { phase: "UNPLANNED", reason: UNPLANNED, note: "racial crew.endurance (a racial-only key) has no consumer anywhere." },
+  "racial:earthBorn": { phase: TASK_23_ALL_BUFFS, reason: "racial crew.crewEffectiveness (see crew:crew.crewEffectiveness)" },
+  "racial:spacer": { phase: TASK_23_LONG_HAUL, reason: "racial crew.endurance: a complement build-up like Constitution (D23 curve)" },
+  "racial:ossir": { phase: GROUND_OPS_BOARDING, reason: "racial crew.boardingDefense (see crew:crew.boardingDefense)" },
 
-  // Member gear lines that no consumer reads for that squad
-  "gear:security:groundHazardResist": {
-    phase: "UNPLANNED",
-    reason: UNPLANNED,
-    note: "Assault Hardsuit's hazard line: only the Science party's hazard resist is read (Task 15 carry: inert on Security).",
+  // Member gear lines, per variety
+  "gear:security:assaultHardsuit:groundHazardResist": {
+    phase: GROUND_OPS_HAZARD,
+    reason: "only the Science party's hazard resist is read today (Task 15 carry: inert on Security)",
   },
-  "gear:science:groundPower": { phase: "UNPLANNED", reason: UNPLANNED, note: "Sidearm power: Science never fights (D2, Task 13)." },
-  "gear:science:groundAccuracy": { phase: "UNPLANNED", reason: UNPLANNED, note: "Sidearm accuracy: Science never fights (D2, Task 13)." },
-  "gear:science:groundStatusChance": { phase: "UNPLANNED", reason: UNPLANNED, note: "Sidearm status chance: Science never fights (D2, Task 13)." },
-  "gear:science:groundArmor": { phase: "UNPLANNED", reason: UNPLANNED, note: "Field Suit / Hazard Suit armor: Science never fights (D2, Task 13)." },
-  "gear:science:groundHp": { phase: "UNPLANNED", reason: UNPLANNED, note: "Field Suit / Hazard Suit HP: Science never fights (D2, Task 13)." },
+  "gear:science:sidearm:groundPower": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
+  "gear:science:sidearm:groundAccuracy": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
+  "gear:science:sidearm:groundStatusChance": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
+  "gear:science:fieldSuit:groundArmor": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2)" },
+  "gear:science:fieldSuit:groundHp": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2)" },
+  "gear:science:hazardSuit:groundArmor": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2)" },
+  "gear:science:hazardSuit:groundHp": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2)" },
+  "gear:security:cortexShield:groundStatusResist": {
+    phase: CORTEX_RESIST,
+    reason: "its resist covers stun and fear, and no enemy inflicts either on the squad today",
+  },
+  "gear:security:pulseRifle:groundStatusChance": {
+    phase: UNOWNED,
+    reason: "status chance only feeds an INFLICT piece, and the Pulse Rifle inflicts nothing",
+  },
+  "gear:security:scattergun:groundStatusChance": {
+    phase: UNOWNED,
+    reason: "status chance only feeds an INFLICT piece; the Scattergun's group hit scales with points, not chance",
+  },
+  "gear:security:targetingOptic:groundStatusChance": {
+    phase: UNOWNED,
+    reason: "status chance only feeds an INFLICT piece, and the Targeting Optic inflicts nothing",
+  },
 
   // Officer stat facets
   "facet:pilot:cunning": {
@@ -202,7 +232,7 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
     phase: TASK_23,
     reason:
       "Strength scales the Security division's complement buffs: Away-Team Protection and Counter-Infiltration go live in " +
-      "Task 23 (Boarding Defense has no plan, see crew:crew.boardingDefense)",
+      "Task 23, Boarding Defense with the boarding scan events (D26)",
   },
 };
 
@@ -287,29 +317,82 @@ const ROSTER: AwayMember[] = [
   member("member-3", "security", { spec: "debuff", rank: 4, traits: ["fieldMedic"] }),
   member("member-4", "science", { rank: 3 }),
 ];
-const WEARER: Record<AwayTeamType, string> = { security: "member-3", science: "member-4", prospecting: "member-4" };
+const WEARER: Partial<Record<AwayTeamType, string>> = { security: "member-3", science: "member-4" };
 
 // ============================================================================
 // The probes (scaffold -> apply the transform -> run a real consumer -> a fingerprint)
 // ============================================================================
 
-// Strip the INPUTS from a state so only consequences are compared: officers (their bonuses / stats are the
-// effect under test), member gear (its lines are), ship complements (their buffs are), the bookkeeping counters
-// a live bonus stamps whether or not it pays out, and the frozen per-cycle records (officerCombat and the
-// other frozen fields are read by the consumers, whose results stay in the fingerprint).
+// Every fingerprint goes through this: plain JSON, except that a NaN or an Infinity THROWS (JSON.stringify would
+// write both as null, so a consumer that broke into NaN would compare equal to one that returned null).
+function fp(value: unknown): string {
+  return JSON.stringify(value, (key, v) => {
+    if (typeof v === "number" && !Number.isFinite(v)) throw new Error(`non-finite number at "${key}": ${v}`);
+    return v;
+  });
+}
+
+// The listed fields of `obj` only (an absent field stays absent).
+function pick<T extends object>(obj: T, keys: readonly (keyof T)[]): Partial<T> {
+  const out: Partial<T> = {};
+  for (const k of keys) if (k in obj) out[k] = obj[k];
+  return out;
+}
+
+// A state's OUTCOME, as an explicit ALLOW-LIST of consequence fields (like expeditionOutcome below), so a new
+// input or frozen record can never leak in and make a dead key look live: what the fleet holds and has earned,
+// what its captains and ships are doing, the Shipyard's processes, the Museum, and each away member's injury.
+// Officers, complements, member gear, the frozen per-cycle records (officerCombat, freeRepairTicks,
+// returnCutTicks) and the bookkeeping counters a live bonus stamps (cunningCycles, outputRoundCursor) are left
+// out by construction: their CONSUMERS' results are what this keeps.
+const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
+  "gameTimeSeconds",
+  "inventory",
+  "discovered",
+  "blanks",
+  "fleetAdminXp",
+  "fleetAdminLevel",
+  "credits",
+  "fuel",
+  "lifetimeStats",
+  "activeProcesses",
+  "archive",
+  "relicVault",
+  "relicMuseum",
+  "relicDiscovered",
+  "crewPool",
+];
+const CAPTAIN_OUTCOME_KEYS: readonly (keyof CaptainState)[] = ["id", "xp", "level", "lastStopReason"];
+const MISSION_OUTCOME_KEYS: readonly (keyof CaptainMissionState)[] = ["missionKey", "phase", "phaseProgressTicks", "cargo", "recalled", "refuelDelayTicks"];
+const PATROL_OUTCOME_KEYS: readonly (keyof PatrolMissionState)[] = [
+  "patrolKey",
+  "masterSeed",
+  "phase",
+  "progressTicks",
+  "nextWaveIndex",
+  "wavesWon",
+  "wavesLost",
+  "playerHull",
+  "playerShield",
+  "playerDrones",
+  "playerSystemDurability",
+  "recalled",
+  "limpTicksRemaining",
+  "limpDamage",
+  "routesCompletedThisRun",
+];
+const SHIP_OUTCOME_KEYS: readonly (keyof ShipInstance)[] = ["id", "typeKey", "damaged", "repairDamage"];
+
 function outcome(s: GameState): string {
-  return JSON.stringify({
-    ...s,
-    officers: [],
-    awayMembers: s.awayMembers.map((m) => ({ id: m.id, injuredUntilSeconds: m.injuredUntilSeconds, injuredAtSeconds: m.injuredAtSeconds })),
-    equipment: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)),
-    ships: s.ships.map(({ complement: _c, ...rest }) => rest),
-    captains: s.captains.map(({ cunningCycles: _cc, ...c }) => {
-      const m = c.mission as Record<string, unknown> | null;
-      if (!m) return c;
-      const { officerCombat: _o, freeRepairTicks: _f, returnCutTicks: _r, outputRoundCursor: _p, ...mission } = m;
-      return { ...c, mission };
-    }),
+  return fp({
+    state: pick(s, STATE_OUTCOME_KEYS),
+    captains: s.captains.map((c) => ({
+      ...pick(c, CAPTAIN_OUTCOME_KEYS),
+      mission: c.mission === null ? null : c.mission.kind === "patrol" ? pick(c.mission, PATROL_OUTCOME_KEYS) : pick(c.mission, MISSION_OUTCOME_KEYS),
+    })),
+    ships: s.ships.map((sh) => pick(sh, SHIP_OUTCOME_KEYS)),
+    shipGear: s.equipment.filter((e) => !e.fittedToMemberId && !isMemberSlotType(e.slotType)).map((e) => [e.id, e.fittedToShipId, e.durability]),
+    injuries: s.awayMembers.map((m) => [m.id, m.injuredUntilSeconds, m.injuredAtSeconds]),
     expeditions: s.expeditions.map(expeditionOutcome),
   });
 }
@@ -337,7 +420,7 @@ function shipScaffold(typeKey?: ShipTypeKey): GameState {
 
 function probeSheet(t: Transform): string {
   const s = t(shipScaffold());
-  return JSON.stringify(effectiveShipStats(s, shipOf(s)));
+  return fp(effectiveShipStats(s, shipOf(s)));
 }
 
 function probeReach(t: Transform): string {
@@ -353,12 +436,12 @@ function probeReach(t: Transform): string {
     else hi = mid;
   }
   const trips = [60, 3600, 36_000, 360_000].map((ticks) => shipTripRangeLightYears(s, ship, ticks));
-  return JSON.stringify({ maxLegs: lo, range: shipRangeLightYears(s, ship), trips });
+  return fp({ maxLegs: lo, range: shipRangeLightYears(s, ship), trips });
 }
 
 function probeRepair(t: Transform): string {
   const s = installMissingCombatBaselines(t(editShip(shipScaffold("destroyer"), { damaged: true, repairDamage: 437 })));
-  return JSON.stringify(processShipRepairs(s).activeProcesses);
+  return fp(processShipRepairs(s).activeProcesses);
 }
 
 function probeShipBattle(t: Transform): string {
@@ -376,7 +459,7 @@ function probeShipBattle(t: Transform): string {
       logs.push([r.outcome, r.log]);
     }
   }
-  return JSON.stringify(logs);
+  return fp(logs);
 }
 
 // expeditions
@@ -401,7 +484,7 @@ function dispatches(t: Transform): { state: GameState; exp: Expedition }[] {
 }
 
 function probeExpeditionReaders(t: Transform): string {
-  return JSON.stringify(
+  return fp(
     dispatches(t).map(({ exp }) => {
       const perBody = PLANET_IDS.flatMap((pt) =>
         [0, 0.9].map((hz) => {
@@ -425,7 +508,7 @@ function probeExpeditionReaders(t: Transform): string {
 }
 
 function probeExpeditionBattles(t: Transform): string {
-  return JSON.stringify(
+  return fp(
     dispatches(t).map(({ exp }) => {
       const hot = syntheticBody("volcanic", 0.9);
       const scans = [1, 2, 3, 4, 5, 6].map((step) => {
@@ -446,7 +529,7 @@ function probeExpeditionBattles(t: Transform): string {
 }
 
 function probeInjuries(t: Transform): string {
-  return JSON.stringify(
+  return fp(
     dispatches(t).map(({ state, exp }) => {
       const downed: Expedition = {
         ...exp,
@@ -459,7 +542,7 @@ function probeInjuries(t: Transform): string {
 }
 
 function probeExpeditionRun(t: Transform): string {
-  return JSON.stringify(
+  return fp(
     dispatches(t).map(({ state, exp }) => {
       const done = advanceExpedition(exp, 1_000_000);
       const claimed = claimExpedition({ ...state, expeditions: [done] }, done.id);
@@ -471,7 +554,7 @@ function probeExpeditionRun(t: Transform): string {
 // captain missions + patrols through economyTick
 
 function probeMissions(t: Transform): string {
-  return JSON.stringify(
+  return fp(
     (["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]).map((missionKey) => {
       let s = t(shipScaffold());
       s = {
@@ -522,7 +605,7 @@ function probePatrolDefeatRepair(t: Transform): string {
     const after = economyTick({ ...r.next, captains: [{ ...r.next.captains[0], mission: limping }, ...r.next.captains.slice(1)] }, 1, () => 0.5);
     out.push(processShipRepairs(after).activeProcesses);
   }
-  return JSON.stringify(out);
+  return fp(out);
 }
 
 interface Probe {
@@ -600,7 +683,7 @@ function racialEntry(race: CrewRace): StatEntry {
   };
 }
 
-// member gear: every (squad, ground key) a wearable variety can roll
+// member gear: every wearable VARIETY's every rollable line, on its own, for every squad its teamTypes list
 function rollableKeys(slotType: MemberSlotType, variety: { implicitStats?: string[]; affixPool?: { stat: string }[] }): Set<string> {
   const slot = EQUIPMENT_SLOTS[slotType];
   return new Set([...(variety.implicitStats ?? slot.implicitStats), ...(variety.affixPool ?? slot.affixPool).map((a) => a.stat)]);
@@ -627,19 +710,55 @@ function gearPiece(slotType: MemberSlotType, varietyKey: string, wearer: string,
   };
 }
 
+// A piece with a ground EFFECT (heal, inflict, group hit, revive) scales that effect with its TOTAL line points
+// (awayTeam.ts snapshotMember), so a line under test would also look live through the effect. Such a piece's
+// baseline therefore carries the SAME points on a FILLER line no consumer reads for the wearer, and the two
+// effects cancel: what is left is the tested line's own consumer. On a Security wearer the filler is a fieldwork
+// YIELD line (only the Science party's fieldwork is read, D2; "the filler is inert" below proves it). No other
+// squad wears an effect piece today: one that does fails loudly here until it gets its own filler.
+function effectFiller(team: AwayTeamType, key: MemberGroundStatKey): MemberGroundStatKey {
+  if (team !== "security") throw new Error(`no inert filler line for an effect piece worn by ${team}: extend no-dead-stats`);
+  return key === "groundOrganicsYield" ? "groundVaultYield" : "groundOrganicsYield";
+}
+
+// The wearer for a squad: the scaffold's Security medic or Science member; any other squad (prospecting is wired
+// only, D2) gets a member of its own added by the same transform, so base and with still differ by the line alone.
+function wearOn(team: AwayTeamType, slotType: MemberSlotType, varietyKey: string, lines: Record<string, number>): Transform {
+  const wearer = WEARER[team];
+  return (s) => ({
+    ...s,
+    awayMembers: wearer ? s.awayMembers : [...s.awayMembers, member("member-90", team)],
+    equipment: [...s.equipment, gearPiece(slotType, varietyKey, wearer ?? "member-90", lines)],
+  });
+}
+
 function gearEntries(): StatEntry[] {
   const out: StatEntry[] = [];
-  for (const team of ["security", "science"] as AwayTeamType[]) {
-    for (const key of MEMBER_GROUND_STAT_KEYS) {
-      const variants: Variant[] = [];
-      for (const slotType of MEMBER_SLOT_TYPES) {
-        for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
-          if (!v.member?.teamTypes.includes(team) || !rollableKeys(slotType, v).has(key)) continue;
-          const wear = (lines: Record<string, number>): Transform => (s) => ({ ...s, equipment: [...s.equipment, gearPiece(slotType, v.key, WEARER[team], lines)] });
-          variants.push({ label: `${slotType}/${v.key}`, baseKey: `bare-${team}-${slotType}-${v.key}`, base: wear({}), with: wear({ [key]: GEAR_POINTS }) });
+  for (const slotType of MEMBER_SLOT_TYPES) {
+    for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
+      if (!v.member) continue;
+      const rollable = rollableKeys(slotType, v);
+      for (const team of v.member.teamTypes) {
+        for (const key of MEMBER_GROUND_STAT_KEYS) {
+          if (!rollable.has(key)) continue;
+          const effect = v.member.groundEffect;
+          const scaled = effect !== undefined && effect.kind !== "resistStatus";
+          const baseLines = scaled ? { [effectFiller(team, key)]: GEAR_POINTS } : {};
+          out.push({
+            id: `gear:${team}:${v.key}:${key}`,
+            category: "gear",
+            label: `${v.label} (${slotType}) ${key} on ${team}${scaled ? `, ${effect.kind} effect balanced` : ""}`,
+            variants: [
+              {
+                label: `${slotType}/${v.key}`,
+                baseKey: `gear-${team}-${slotType}-${v.key}-${fp(baseLines)}`,
+                base: wearOn(team, slotType, v.key, baseLines),
+                with: wearOn(team, slotType, v.key, { [key]: GEAR_POINTS }),
+              },
+            ],
+          });
         }
       }
-      if (variants.length > 0) out.push({ id: `gear:${team}:${key}`, category: "gear", label: `${team} ${key} (${variants.map((x) => x.label).join(", ")})`, variants });
     }
   }
   return out;
@@ -743,6 +862,9 @@ function liveVia(entry: StatEntry): string | null {
   return null;
 }
 
+// The entry counts by category (the coverage test pins them; a new catalog entry changes one).
+const EXPECTED_COUNTS = { officer: 16, crew: 21, racial: 10, gear: 74, facet: 28 };
+
 // ============================================================================
 // The standing test
 // ============================================================================
@@ -772,14 +894,23 @@ describe("no dead stats: every rollable or installable effect moves a derived va
 });
 
 describe("the entry list and the allow-list stay honest", () => {
-  it("covers every rollable officer bonus, complement buff, racial, member gear key and seat facet", () => {
+  it("covers every rollable officer bonus, complement buff, racial, member gear line and seat facet", () => {
     const ids = new Set(ENTRIES.map((e) => e.id));
     expect(ids.size).toBe(ENTRIES.length);
     for (const def of SENIOR_STAFF_BONUSES) expect(ids.has(`officer:${def.statKey}`), def.id).toBe(true);
     for (const def of [...Object.values(CREW_PROFESSION_BUFFS).flat(), ...ROLLABLE_EXCLUSIVE]) expect(ids.has(`crew:${def.statKey}`), def.id).toBe(true);
     for (const race of Object.keys(CREW_RACES)) expect(ids.has(`racial:${race}`), race).toBe(true);
+    // Every wearable variety, for every squad its teamTypes list, for every line it can roll.
+    for (const slotType of MEMBER_SLOT_TYPES) {
+      for (const v of EQUIPMENT_SLOTS[slotType].varieties) {
+        if (!v.member) continue;
+        for (const team of v.member.teamTypes) {
+          for (const key of rollableKeys(slotType, v)) expect(ids.has(`gear:${team}:${v.key}:${key}`), `${v.key} ${team} ${key}`).toBe(true);
+        }
+      }
+    }
     for (const key of MEMBER_GROUND_STAT_KEYS as readonly MemberGroundStatKey[]) {
-      expect(ids.has(`gear:security:${key}`) || ids.has(`gear:science:${key}`), key).toBe(true);
+      expect(ENTRIES.some((e) => e.category === "gear" && e.id.endsWith(`:${key}`)), key).toBe(true);
     }
     for (const seat of SEATS) for (const stat of OFFICER_STAT_KEYS) expect(ids.has(`facet:${seat}:${stat}`), `${seat} ${stat}`).toBe(true);
     // The counts by category (a new catalog entry grows these; update them with the new key's verdict).
@@ -790,7 +921,7 @@ describe("the entry list and the allow-list stay honest", () => {
       racial: count("racial"),
       gear: count("gear"),
       facet: count("facet"),
-    }).toEqual({ officer: 16, crew: 21, racial: 10, gear: 17, facet: 28 });
+    }).toEqual(EXPECTED_COUNTS);
   });
 
   it("Craft Duplicate is held (D14) and is the only buff left out", () => {
@@ -798,12 +929,12 @@ describe("the entry list and the allow-list stay honest", () => {
     expect(ENTRIES.some((e) => e.id === `crew:${CREW_STAT_KEYS.craftDuplicateChance}`)).toBe(false);
   });
 
-  it("every allow-list entry names a real entry and carries a phase and a reason", () => {
+  it("every allow-list entry names a real entry, carries a phase and a reason, and none is left UNPLANNED (D26)", () => {
     const ids = new Set(ENTRIES.map((e) => e.id));
     for (const [id, p] of Object.entries(PENDING_IN_RELEASE)) {
       expect(ids.has(id), `stale allow-list entry ${id}`).toBe(true);
       expect(p.phase.length > 0 && p.reason.length > 0, id).toBe(true);
-      if (p.phase === "UNPLANNED") expect(p.reason).toBe(UNPLANNED);
+      expect(/UNPLANNED/.test(p.phase) || /UNPLANNED/.test(p.reason), id).toBe(false);
     }
   });
 
@@ -815,5 +946,45 @@ describe("the entry list and the allow-list stay honest", () => {
       if (DEPARTMENT_OF_SEAT[seat] === "all") expect(PENDING_IN_RELEASE[`facet:${seat}:cunning`], seat).toBeUndefined();
       else expect(PENDING_IN_RELEASE[`facet:${seat}:cunning`], seat).toBeDefined();
     }
+  });
+
+  it("the effect-piece filler lines are inert on a Security wearer (so balancing an effect hides nothing)", { timeout: 120_000 }, () => {
+    // A Security piece WITHOUT an effect, carrying only a filler line, must move nothing at all.
+    for (const filler of ["groundOrganicsYield", "groundVaultYield"]) {
+      const entry: StatEntry = {
+        id: `filler:${filler}`,
+        category: "gear",
+        label: filler,
+        variants: [
+          {
+            label: `memberArmor/ballisticWeave + ${filler}`,
+            baseKey: "filler-bare",
+            base: wearOn("security", "memberArmor", "ballisticWeave", {}),
+            with: wearOn("security", "memberArmor", "ballisticWeave", { [filler]: GEAR_POINTS }),
+          },
+        ],
+      };
+      expect(liveVia(entry), filler).toBeNull();
+    }
+  });
+
+  it("a NaN or an Infinity in a fingerprint throws instead of reading as null", () => {
+    expect(() => fp({ a: Number.NaN })).toThrow(/non-finite/);
+    expect(() => fp([1, Number.POSITIVE_INFINITY])).toThrow(/non-finite/);
+    expect(fp({ a: 1 })).toBe('{"a":1}');
+  });
+});
+
+// The 0.14.0 CLOSE-OUT gate (plan Task 35): `RELEASE_GATE=1 npx vitest run src/lib/game/no-dead-stats.test.ts`.
+// The release may ship only when every allow-list entry is owned by a phase the user EXPLICITLY deferred past
+// 0.14.0 (DEFERRED_PAST_0140); anything else is a stat on screen that does nothing in the shipped build.
+const RELEASE_GATE = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.RELEASE_GATE;
+
+describe.runIf(Boolean(RELEASE_GATE))("release gate: 0.14.0 ships with no dead stats", () => {
+  it("PENDING_IN_RELEASE holds only entries owned by a phase deferred past 0.14.0", () => {
+    const blocking = Object.entries(PENDING_IN_RELEASE)
+      .filter(([, p]) => !DEFERRED_PAST_0140.includes(p.phase))
+      .map(([id, p]) => `${id} (${p.phase})`);
+    expect(blocking, "dead stats still listed for 0.14.0: wire them or get the user to defer their phase").toEqual([]);
   });
 });
