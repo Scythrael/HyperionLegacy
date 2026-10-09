@@ -450,7 +450,7 @@ expedition.ts ~1042, fieldwork.ts ~44), type planetType as `ExpeditionPlanetType
 growing like sqrt(2 knee x); keeps about 73% of a bonus AT the knee). Fieldwork knees (FIRST-PASS TUNABLE, worked table
 in the `fieldwork.ts` header): the crew layer `scienceStrength * SCIENCE_STRENGTH_FIELDWORK` passes
 `CREW_FIELDWORK_KNEE = 1.2` (120 Science strength) before it joins F; the total yield bonus passes
-`FIELDWORK_YIELD_KNEE = 2` (+200%). Gear F, relic odds and hazard resist are not curved; the 3x speed guard is unchanged
+`FIELDWORK_YIELD_KNEE = 2` (+200%). Gear F, relic odds and hazard resist are not curved; the 3x speed guard was unchanged here, then REPLACED the same day by a pace curve (`FIELDWORK_SPEED_KNEE = 2`, no cap, tasks floored at 1 second; user 2026-10-08: "curve please!")
 (the crew curve slows a big crew's pace through F, as intended). Result: crew 225 alone +112.5% -> +61.4% (a well-geared
 two-geologist iLevel 15 party alone is +57.7%), party + crew 225 +178.5% -> +107.7%, a total of +30% or less keeps over
 90%. `fieldworkSpeedMult(exp, planetType)` is the one speed reader (`activityDurationSeconds` uses it; no more `""` PoI).

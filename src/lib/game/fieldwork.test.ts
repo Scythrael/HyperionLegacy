@@ -39,7 +39,7 @@ import {
 import { snapshotAwayRoster, FIELDWORK_YIELD_PER_POINT, GEAR_POINT_BUMP } from "./awayTeam";
 import {
   CREW_FIELDWORK_KNEE,
-  FIELDWORK_SPEED_MAX_MULT,
+  FIELDWORK_SPEED_KNEE,
   FIELDWORK_SPEED_PER_BUMP,
   FIELDWORK_YIELD_KNEE,
   FIELDWORK_YIELD_PER_BUMP,
@@ -174,6 +174,8 @@ const SCI = (over: Partial<AwayMember> = {}): AwayMember => member("member-2", "
 // curve). A small bonus keeps nearly all its value, so most expectations below differ from 1 + bonus by
 // well under a percent; they are written through this so each test still pins its exact model.
 const yieldOf = (bonus: number): number => 1 + diminishing(bonus, FIELDWORK_YIELD_KNEE);
+// The pace a raw speed bonus becomes (D23 pace curve, no cap; the old 3x cap is gone).
+const paceOf = (bonus: number): number => 1 + diminishing(bonus, FIELDWORK_SPEED_KNEE);
 
 // ============================================================================
 describe("the Science spec -> PoI mapping", () => {
@@ -413,7 +415,7 @@ describe("Science implants each do their documented thing", () => {
     const s = withRoster([SEC(), SCI()], [imp("synapticAccelerator", { groundFieldwork: 40 })]);
     const e = exp(s, [body("arid", ["ancientRuins"])]);
     const eff = fieldworkEffect(e, "arid", "ancientRuins");
-    expect(eff.speedMult).toBeCloseTo(1 + FIELDWORK_SPEED_PER_BUMP * 40 * GEAR_POINT_BUMP.fieldwork, 12);
+    expect(eff.speedMult).toBeCloseTo(paceOf(FIELDWORK_SPEED_PER_BUMP * 40 * GEAR_POINT_BUMP.fieldwork), 12);
     expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / eff.speedMult));
     expect(activityDurationSeconds(e, e.bodies[0])).toBeLessThan(ACTIVITY_SECONDS);
   });
@@ -461,14 +463,29 @@ describe("traits and the crew strength layer", () => {
     // D23: the crew layer passes its own curve before it joins F, then the yield bonus passes the total curve.
     const F = diminishing(20 * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE);
     expect(eff.yieldMult).toBeCloseTo(yieldOf(FIELDWORK_YIELD_PER_BUMP * F), 12);
-    expect(eff.speedMult).toBeCloseTo(1 + FIELDWORK_SPEED_PER_BUMP * F, 12);
+    expect(eff.speedMult).toBeCloseTo(paceOf(FIELDWORK_SPEED_PER_BUMP * F), 12);
   });
 
-  it("the speed is capped", () => {
-    const s = withRoster([SEC(), SCI()], [piece("equip-911", "implant", "synapticAccelerator", "member-2", { groundFieldwork: 5000 })]);
-    const e = exp(s, [body("arid", ["ancientRuins"])]);
-    expect(fieldworkEffect(e, "arid", "ancientRuins").speedMult).toBe(FIELDWORK_SPEED_MAX_MULT);
-    expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / FIELDWORK_SPEED_MAX_MULT));
+  it("the speed diminishes but is never capped (D23, the old 3x cap is gone), and a task never drops below 1 second", () => {
+    const at = (points: number) => {
+      const s = withRoster([SEC(), SCI()], [piece("equip-911", "implant", "synapticAccelerator", "member-2", { groundFieldwork: points })]);
+      return exp(s, [body("arid", ["ancientRuins"])]);
+    };
+    const e = at(5000);
+    const speed = fieldworkEffect(e, "arid", "ancientRuins").speedMult;
+    const raw = FIELDWORK_SPEED_PER_BUMP * 5000 * GEAR_POINT_BUMP.fieldwork;
+    expect(speed).toBeCloseTo(paceOf(raw), 12);
+    expect(speed).toBeGreaterThan(3); // past the old cap
+    expect(speed).toBeLessThan(1 + raw); // but diminished
+    expect(activityDurationSeconds(e, e.bodies[0])).toBe(Math.round(ACTIVITY_SECONDS / speed));
+    // More always helps, a little less each time.
+    const s1 = fieldworkEffect(at(1000), "arid", "ancientRuins").speedMult;
+    const s2 = fieldworkEffect(at(2000), "arid", "ancientRuins").speedMult;
+    const s3 = fieldworkEffect(at(3000), "arid", "ancientRuins").speedMult;
+    expect(s2).toBeGreaterThan(s1);
+    expect(s3 - s2).toBeLessThan(s2 - s1);
+    // An absurd pace still leaves a 1 second task.
+    expect(activityDurationSeconds(at(1e12), at(1e12).bodies[0])).toBe(1);
   });
 });
 
@@ -604,13 +621,14 @@ describe("D23 diminishing returns: the crew layer and the total yield bonus (Tas
     expect(eff.yieldMult - 1).toBeLessThan(raw);
     expect(eff.yieldMult - 1).toBeCloseTo(diminishing(raw, FIELDWORK_YIELD_KNEE), 12);
     expect(eff.yieldMult).toBeGreaterThan(5);
-    // The 3x speed pacing guard is unchanged.
-    expect(eff.speedMult).toBe(FIELDWORK_SPEED_MAX_MULT);
+    // The pace diminishes on its own curve, uncapped.
+    expect(eff.speedMult).toBeCloseTo(paceOf(FIELDWORK_SPEED_PER_BUMP * 5000 * GEAR_POINT_BUMP.fieldwork), 12);
+    expect(eff.speedMult).toBeGreaterThan(3);
   });
 
-  it("the crew layer's curve also shapes the pace (F is shared), below the 3x guard", () => {
+  it("the crew layer's curve also shapes the pace (F is shared), then the pace curve", () => {
     const eff = fieldworkEffect(exp(bare(), [], { scienceStrength: 225 }), "arid", "mineralOutcrop");
-    expect(eff.speedMult).toBeCloseTo(1 + FIELDWORK_SPEED_PER_BUMP * diminishing(2.25, CREW_FIELDWORK_KNEE), 12);
+    expect(eff.speedMult).toBeCloseTo(paceOf(FIELDWORK_SPEED_PER_BUMP * diminishing(2.25, CREW_FIELDWORK_KNEE)), 12);
     expect(eff.speedMult).toBeLessThan(1 + FIELDWORK_SPEED_PER_BUMP * 2.25);
   });
 

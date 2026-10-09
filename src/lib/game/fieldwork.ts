@@ -23,7 +23,7 @@
 //   Team (STACKING RULE: same-kind bumps ADD; D23: DIMINISHING RETURNS, never a cap, diminishing.ts):
 //     crew       = diminishing(scienceStrength * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE)
 //     F          = sum(fw_m) + crew                                            (crew = the crew layer)
-//     speedMult  = min(FIELDWORK_SPEED_MAX_MULT, 1 + FIELDWORK_SPEED_PER_BUMP * F)   (fieldworkSpeedMult)
+//     speedMult  = 1 + diminishing(FIELDWORK_SPEED_PER_BUMP * F, FIELDWORK_SPEED_KNEE)   (fieldworkSpeedMult)
 //     bonus      = FIELDWORK_YIELD_PER_BUMP * F + sum(spec_m) + sum(trait_m)
 //                    + (X in ORGANICS_POIS ? sum(org_m) : 0) + (X in VAULT_POIS ? sum(vault_m) : 0)
 //     yieldMult  = 1 + diminishing(bonus, FIELDWORK_YIELD_KNEE)
@@ -38,26 +38,28 @@
 // at 0, so a party with no bonus is still speed 1, yield 1.
 //
 // D23 DIMINISHING RETURNS (Task 15a, user 2026-10-08): "as you get more, they mean less and less", with no
-// ceiling. Two curves (diminishing.ts, the sqrt form: nearly 1:1 far below its knee, about 73% of the value
+// ceiling. Three curves (diminishing.ts, the sqrt form: nearly 1:1 far below its knee, about 73% of the value
 // AT the knee, unbounded past it):
 //   - the CREW LAYER passes CREW_FIELDWORK_KNEE before it joins F, so a big ship's Science division no
-//     longer buries the party (it shapes the pace too, through F; the 3x speed guard is unchanged);
-//   - the TOTAL yield bonus passes FIELDWORK_YIELD_KNEE, so stacking everything also diminishes.
+//     longer buries the party (it shapes the pace too, through F);
+//   - the TOTAL yield bonus passes FIELDWORK_YIELD_KNEE, so stacking everything also diminishes;
+//   - the PACE bonus passes FIELDWORK_SPEED_KNEE (user 2026-10-08, "curve please!"): the old 3x speed cap
+//     is gone, so more fieldwork always quickens a task a little more.
 // Relic odds and hazard resist are not curved here.
 // WORKED TABLE (yield bonus, and the pace multiplier, on an arid body at a mineral outcrop). "Party" = two
 // geologists (a spec match each), each wearing an iLevel 15 Standard Field Suit and Core Drill rolled from
 // the real catalog (raw bonus +66%: +30% from the two spec matches, the rest from about 0.72 F of gear):
 //     case                          before: yield / pace      after D23: yield / pace
 //     crew 20 alone                       +10.0% / 1.10           +9.1% / 1.09
-//     crew 100 alone                      +50.0% / 1.50          +34.9% / 1.38
-//     crew 225 alone (tier-2 explorer)   +112.5% / 2.13          +61.4% / 1.71
-//     crew 500 alone                     +250.0% / 3.00          +98.9% / 2.23
-//     party alone                         +66.0% / 1.36          +57.7% / 1.36
-//     party + crew 225                   +178.5% / 2.49         +107.7% / 2.07
+//     crew 100 alone                      +50.0% / 1.50          +34.9% / 1.34
+//     crew 225 alone (tier-2 explorer)   +112.5% / 2.13          +61.4% / 1.61
+//     crew 500 alone                     +250.0% / 3.00          +98.9% / 1.99
+//     party alone                         +66.0% / 1.36          +57.7% / 1.33
+//     party + crew 225                   +178.5% / 2.49         +107.7% / 1.88
 //     two spec matches only               +30.0% / 1.00          +28.0% / 1.00
 // So the tier-2 crew alone is comparable to (about 1.06x) a well-geared party instead of 1.7x it, the
 // party keeps about 80% of its value on top of that crew, and a total of +30% or less keeps over 90%.
-// (The party's own pace is unchanged: gear F is not curved, only the crew layer and the yield total.)
+// (Gear F itself is not curved before it joins F; the pace and yield totals are.)
 // In-flight runs resolve under the curve (a pure function of the stored Expedition; no save migration).
 
 import type { Expedition, ExpeditionPlanetType, ScienceSpec, SnapshotMember } from "./model";
@@ -98,8 +100,9 @@ export const SPEC_POI_YIELD = 0.15;
 // (~10 fieldwork points, +10%) makes the party's tasks ~5% richer and ~5% quicker.
 export const FIELDWORK_YIELD_PER_BUMP = 0.5;
 export const FIELDWORK_SPEED_PER_BUMP = 0.5;
-// The fastest a party can work (a task never drops below ACTIVITY_SECONDS / this).
-export const FIELDWORK_SPEED_MAX_MULT = 3;
+// The pace bonus's knee (D23, replacing the old 3x cap, user 2026-10-08): a +36% pace keeps about 92% of
+// itself, a +100% about 83%, and there is no ceiling (expedition.ts floors a task at 1 second).
+export const FIELDWORK_SPEED_KNEE = 2;
 // The crew layer: each point of the snapshotted scienceStrength (Science division + science/medical
 // officers, times the museum's scienceTeamPower) adds this to F BEFORE the crew curve. 20 strength = a raw
 // +20% fieldwork (about +18.6% after the curve).
@@ -166,9 +169,9 @@ function crewFieldwork(exp: FieldworkRun): number {
   return diminishing(Math.max(0, exp.scienceStrength ?? 0) * SCIENCE_STRENGTH_FIELDWORK, CREW_FIELDWORK_KNEE);
 }
 
-// F to the pace multiplier, behind the 3x guard. The ONE place the speed math lives.
+// F to the pace multiplier, on the D23 pace curve (no cap). The ONE place the speed math lives.
 function speedMultFromF(F: number): number {
-  return Math.min(FIELDWORK_SPEED_MAX_MULT, Math.max(1, 1 + FIELDWORK_SPEED_PER_BUMP * F));
+  return 1 + diminishing(FIELDWORK_SPEED_PER_BUMP * F, FIELDWORK_SPEED_KNEE);
 }
 
 // The Science party's pace on a body of `planetType` (the PoI never changes it): exactly fieldworkEffect's

@@ -738,7 +738,8 @@ function totalActivities(exp: Expedition): number {
 // rounded to whole seconds. Exactly ACTIVITY_SECONDS without a Science member. Pure (reads the stored run).
 export function activityDurationSeconds(exp: Expedition, body: ExpeditionBody): number {
   const speed = fieldworkSpeedMult(exp, body.planetType);
-  return speed === 1 ? ACTIVITY_SECONDS : Math.round(ACTIVITY_SECONDS / speed);
+  // D23: the pace has no cap, so floor a task at 1 second (never a zero-length task).
+  return speed === 1 ? ACTIVITY_SECONDS : Math.max(1, Math.round(ACTIVITY_SECONDS / speed));
 }
 
 // The ACTIVITIES phase duration: every task's duration, in flat body/activity order (one task per

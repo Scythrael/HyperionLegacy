@@ -125,6 +125,8 @@ certain point. Numbers get bigger and bigger and as you get more, they mean less
 returns affecting quite a few things." Consequences: fieldwork's crew layer and total yield bonus pass through an
 UNBOUNDED concave curve (keeps growing, each point worth less), not a ceiling. This is a cross-cutting principle for
 future bonuses; existing asymptotic curves (model.ts, utilityGear.ts) are a balance-pass review item, not changed here.
+Fieldwork SPEED follows too (user, 2026-10-08, asked whether the 3x pace limit should stay: "curve please!"): the
+cap is replaced by its own pace curve; a task is floored at 1 second.
 
 ## 3. Scope (rows this phase closes)
 
