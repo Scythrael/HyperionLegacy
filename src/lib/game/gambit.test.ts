@@ -415,7 +415,11 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
     expect(res.finding.evacuated).toBeUndefined();
   });
 
-  it("a bare team LOSES a brutal task on every attempt, EVACUATES, and still keeps a partial haul", () => {
+  // E-CREW Task 16 DELIBERATE CHANGE (user rule: a member downed in ANY battle sits out the rest of the
+  // run): the lone member wiped in attempt 1 is out, so there is nobody left for attempts 2 and 3 (before
+  // Task 16 the same member stood back up and lost all MAX_BATTLE_ATTEMPTS). Retries still happen when a
+  // lost attempt (a round-cap timeout) leaves someone standing.
+  it("a bare team LOSES a brutal task, EVACUATES (no retry once wiped), and still keeps a partial haul", () => {
     // A 0-strength team vs a very-high-hazard Subterranean Civilization (healer + caster + bruiser + striker).
     // D18 DELIBERATE FIXTURE CHANGE: one plain named member (the anonymous detail is gone); with NO member
     // at all the task would evacuate without fighting (0 attempts), which awayRoster.test.ts covers.
@@ -430,10 +434,27 @@ describe("resolveExpeditionActivity — win yields real findings; a lost task ev
     const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "subterraneanCivilization", done: false };
     const res = resolveExpeditionActivity(exp, body, activity, 0);
     expect(res.outcome).toBe("evacuated");
-    expect(res.attempts).toBe(MAX_BATTLE_ATTEMPTS); // it retried the full cap before evacuating
+    expect(res.attempts).toBe(1); // wiped in attempt 1: the downed member sits out the retries
+    expect(res.attempts).toBeLessThan(MAX_BATTLE_ATTEMPTS);
+    expect(res.downedMemberIds).toEqual(["member-1"]);
     expect(res.finding.evacuated).toBe(true);
     expect(res.finding.relic ?? null).toBeNull(); // no relic on an evacuation
     expect(Object.keys(res.finding.materials ?? {}).length).toBeGreaterThan(0); // always win SOMETHING
+  });
+
+  it("Task 16: a lost attempt that leaves the team STANDING (a round-cap timeout) still retries", () => {
+    // An unkillable member who cannot hurt anyone (power 0: every landed hit does the 1 HP minimum) against
+    // a pack with a healer: no clear, no wipe, so every attempt times out with the member up.
+    const tank = secSnap("member-1", {
+      groundStats: { hp: 200, power: -1, armor: 0, accuracy: 0, statusChance: 0, fieldwork: 0, relicFind: 0, hazardResist: 0 },
+      gambit: [{ target: "foeNearest", action: "attack" }],
+    });
+    const exp = makeExp({ securityStrength: 0, teamKit: 0, roster: { security: [tank], science: [] } });
+    const activity = { id: "expedition-1-body-1-act-0", bodyId: "body-1", poiId: "subterraneanCivilization", done: false };
+    const res = resolveExpeditionActivity(exp, exp.bodies[0], activity, 0);
+    expect(res.outcome).toBe("evacuated");
+    expect(res.attempts).toBe(MAX_BATTLE_ATTEMPTS);
+    expect(res.downedMemberIds).toEqual([]);
   });
 
   it("is deterministic: the same expedition + activity + index resolves identically", () => {

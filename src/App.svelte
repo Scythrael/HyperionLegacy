@@ -419,7 +419,7 @@
     canReassignAwayMember,
     awayCrewBlockText,
   } from "./lib/game/awayTeam";
-  import { awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
+  import { awayCountdownText, awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
   // E-CREW (Task 10): installing gear on away-team MEMBERS (the member card's install flow routes through
   // doInstallOnMember / doUninstallFromMember) and the item-side "Install on..." picker, which lists SHIPS
   // and MEMBERS from the one installTargetsFor. Plus the shared member-gear labels (awayGearDisplay), so
@@ -5348,8 +5348,13 @@
   function doClaimExpedition(expeditionId: string) {
     // Capture the system name before the claim removes the expedition (for the log line).
     const exp = state.expeditions.find((e) => e.id === expeditionId) ?? null;
-    const { next, success, findings } = claimExpedition(state, expeditionId);
+    const { next, success, findings, injuries } = claimExpedition(state, expeditionId);
     if (!success || next === state) return;
+    // E-CREW Task 16: name the members who came home injured (read off the pre-claim roster for names).
+    const injuredText = (injuries ?? []).map((inj) => {
+      const name = state.awayMembers.find((m) => m.id === inj.memberId)?.name ?? inj.memberId;
+      return `${name} (recovering ${awayCountdownText(inj.recoverySeconds)})`;
+    });
     state = next;
     // E4a: the claim now DEPOSITS (materials via the discovery-safe seam, credits, relic tokens into the
     // vault), so the log says what landed rather than only how many findings there were.
@@ -5358,6 +5363,9 @@
     if (sum.credits > 0) landed.push(`${formatNumber(sum.credits)} credits`);
     if (sum.relics > 0) landed.push(`${sum.relics} unidentified relic${sum.relics === 1 ? "" : "s"} to the vault`);
     pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Findings claimed from ${exp?.systemName ?? "the expedition"}: ${landed.length > 0 ? landed.join(", ") : "nothing to deposit"}.`);
+    if (injuredText.length > 0) {
+      pushLog(`[${exp ? devShipLabel(exp.shipId) : "Expedition"}] Came home injured: ${injuredText.join(", ")}.`);
+    }
     doSave();
   }
 

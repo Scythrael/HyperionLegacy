@@ -83,10 +83,14 @@ import {
   resolveExpeditionActivity,
   resolveScanEncounter,
   rollSupplyCache,
+  scanDownedBefore,
   scanStepKey,
 } from "./gambit";
 // E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
 import { deployableMembers, snapshotAwayRoster } from "./awayTeam";
+// E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
+// crewOverlay and crewBuffs only, never this module, so no cycle).
+import { applyExpeditionInjuries, type MemberInjury } from "./injuries";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -163,7 +167,9 @@ export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
 //   draw 1: an ENCOUNTER, at scanEncounterChance (below). It runs one Security battle (gambit.ts
 //           resolveScanEncounter). WIN: the enemy drops become a finding and the scan continues. LOSS: the
 //           team withdraws to orbit (findings so far stay) and THIS body's scan PAUSES until the next
-//           activity window; the battle's downed members are recorded on the scan event (Task 16).
+//           activity window. Win or lose, the battle's downed members are recorded on the scan event, and
+//           (Task 16) they sit out every later battle of the run and come home injured at claim. A
+//           boundary whose squad is entirely out rolls a 0 encounter chance (draw 1 is still taken).
 //   draw 2: the supply-cache EVENT, at SUPPLY_CACHE_CHANCE. Always drawn (a fixed draw count per stream),
 //           but it only counts when draw 1 fired no encounter: one thing per boundary.
 //
@@ -899,8 +905,12 @@ export function encounterChance(hazard: number, deviceBias: number, evasion: num
 // The per-boundary encounter chance on `body` for this run: the body's hazard as the run presents it
 // (museum hazardResist applied, as for its battles), the snapshotted Security squad's device dial, and the
 // snapshotted Evasive Command. 0 with no Security member (no team, no fight: only a pre-D18 run). Pure.
-export function scanEncounterChance(exp: Expedition, body: ExpeditionBody): number {
-  const security = exp.roster?.security ?? [];
+// E-CREW (Task 16): `sittingOut` (gambit.ts scanDownedBefore, the members downed at earlier boundaries)
+// leaves those members out of the squad: their worn devices stop counting, and with the whole squad out
+// the chance is 0 (nobody is on the ground to be found). scanStepRoll passes it; absent = the full squad.
+export function scanEncounterChance(exp: Expedition, body: ExpeditionBody, sittingOut?: ReadonlySet<string>): number {
+  const deployed = exp.roster?.security ?? [];
+  const security = sittingOut && sittingOut.size > 0 ? deployed.filter((m) => !sittingOut.has(m.memberId)) : deployed;
   if (security.length === 0) return 0;
   return encounterChance(
     resistedHazard(body.hazard, exp.hazardResist ?? 0),
@@ -915,7 +925,9 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number): 
   const rng = makeRng((exp.seed ^ ENCOUNTER_SALT ^ scanStepKey(bodyIndex, step)) >>> 0);
   const body = exp.bodies[bodyIndex];
   // Draw 1 is ALWAYS taken (chance 0 for a missing body), so draw 2 sits at the same stream position.
-  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body)) : 0, 1000);
+  // E-CREW (Task 16): members downed at an earlier boundary are out of the squad (scanDownedBefore reads
+  // only the boundaries before this one, so the roll is the same whenever it is evaluated).
+  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step))) : 0, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   return { encounter, supplyCache: !encounter && cache };
 }
@@ -984,6 +996,9 @@ function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
   const steps = exp.encounterSteps ?? 1;
   const perBody = Math.max(0, steps - 1);
   const events = exp.scanEvents ?? [];
+  // E-CREW (Task 16): the step roll and the encounter read who is already out from exp.scanEvents, so the
+  // working list must BE that array while boundaries roll (commit below re-stores it either way).
+  exp.scanEvents = events;
   let cursor = exp.scanStepCursor ?? 0;
   const commit = (): void => {
     exp.scanStepCursor = cursor;
@@ -1065,7 +1080,11 @@ function resolveActivitiesPhase(exp: Expedition, consumed: number): void {
       endsAt += duration;
       if (endsAt <= consumed + PHASE_EPS && !act.done) {
         act.done = true;
-        exp.findings.push(resolveExpeditionActivity(exp, body, act, seen).finding);
+        const res = resolveExpeditionActivity(exp, body, act, seen);
+        exp.findings.push(res.finding);
+        // E-CREW (Task 16): record who went down, so they sit out every later task and come home injured.
+        // Tasks complete in flat order, so every lower index is already recorded when this one resolves.
+        if (res.downedMemberIds.length > 0) act.downedMemberIds = res.downedMemberIds;
       }
       seen++;
     }
@@ -1115,7 +1134,7 @@ function cloneExpedition(exp: Expedition): Expedition {
     bodies: exp.bodies.map((b) => ({
       ...b,
       discoveries: b.discoveries.map((d) => ({ ...d })),
-      activities: b.activities.map((a) => ({ ...a })),
+      activities: b.activities.map((a) => (a.downedMemberIds ? { ...a, downedMemberIds: [...a.downedMemberIds] } : { ...a })),
     })),
     findings: exp.findings.map((f) => ({ ...f })),
     // E-CREW (Task 14): the scan events (absent on a pre-Task-14 run stays absent).
@@ -1179,6 +1198,9 @@ export interface ExpeditionClaimResult {
   success: boolean;
   reason?: string; // set only on failure
   findings?: ExpeditionFinding[]; // set only on success
+  // E-CREW (Task 16): the members who came home injured (every member downed during the run who is still
+  // on the roster), with their recovery. Set only on success; [] when nobody went down.
+  injuries?: MemberInjury[];
 }
 
 // DEPOSIT a list of expedition findings into the state (E4a, the claim-deposit foundation). Pure: returns
@@ -1283,15 +1305,21 @@ export function summarizeExpeditionFindings(findings: readonly ExpeditionFinding
 // for the caller's log. Pure: { next, success, reason?, findings? }. A CLAIM step (rather than
 // auto-deposit on completion) is deliberate: a claim keeps the completed expedition visible until the
 // player collects it. Fails (same-ref state) if not found or not complete.
+// E-CREW (Task 16): the claim also brings the away team home. Every member downed during the run comes
+// home INJURED (injuries.ts applyExpeditionInjuries: recovery timed by the ship's Medical share and Rapid
+// Recovery at this moment), so they miss the next dispatch until they recover.
 export function claimExpedition(state: GameState, expeditionId: string): ExpeditionClaimResult {
   const exp = state.expeditions.find((e) => e.id === expeditionId);
   if (!exp) return { next: state, success: false, reason: "notFound" };
   if (exp.phase !== "complete") return { next: state, success: false, reason: "notComplete" };
   const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
+  const deposited = depositExpeditionFindings(removed, exp.findings);
+  const { next, injuries } = applyExpeditionInjuries(deposited, exp);
   return {
-    next: depositExpeditionFindings(removed, exp.findings),
+    next,
     success: true,
     findings: exp.findings,
+    injuries,
   };
 }
 

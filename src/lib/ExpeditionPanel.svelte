@@ -295,6 +295,11 @@
   function eventLine(ev: GambitLogEvent): string {
     const who = `${ev.side === "enemy" ? "Enemy " : ""}${roleName(ev.role)}`;
     if (ev.action === "hold") return `${who} holds`;
+    // E-CREW Task 16: the Neural Backup roll on the first ally downed (hpDelta = the HP they came back with).
+    if (ev.action === "neuralBackup") {
+      const ally = roleName(ev.targetRole ?? "security");
+      return ev.missed ? `Neural Backup fails to revive ${ally}` : `Neural Backup revives ${ally}: +${ev.hpDelta ?? 0} HP`;
+    }
     const verb = EVENT_VERB[ev.action] ?? ev.action;
     let line = `${who} ${verb}`;
     if (ev.targetRole) line += ` ${ev.targetSide === "enemy" ? "enemy " : ""}${roleName(ev.targetRole)}`;

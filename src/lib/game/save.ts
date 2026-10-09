@@ -2379,6 +2379,10 @@ const MIGRATIONS: Record<number, Migration> = {
   // no team and each of its ground tasks evacuates without a battle (gambit.ts resolveExpeditionActivity);
   // nothing to backfill. An old save's Science program stays stored as-is (GambitPrograms keeps its
   // shape); nothing executes it.
+  // E-CREW Task 16 adds NOTHING here either: ExpeditionActivity.downedMemberIds and
+  // AwayMember.injuredAtSeconds are optional and ABSENT MEANS the neutral value (nobody went down in that
+  // task; an injury with no recorded start, whose recovery bar measures against the 2h base). A task an
+  // in-flight run resolved before Task 16 simply records no one, so nothing can be backfilled truthfully.
   64: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
     return {

@@ -27,10 +27,11 @@
   //   - RESPONSIVE via container queries only: ONE DOM, the member grid reflows by the panel's own
   //     width. No isMobile branch, no separate mobile markup.
   //
-  // NOT YET (later E-CREW tasks): the member stat line waits on member power (design 5.3), and
-  // injuries are only ever set by the expedition claim (Task 16). The injury bar renders now if a
-  // member carries injuredUntilSeconds. The compare is a plain per-stat sum of the two pieces (member
-  // power has no fold yet); a member-level compare-preview helper can replace it when power lands.
+  // NOT YET (later E-CREW tasks): the member stat line waits on member power (design 5.3). Injuries
+  // are set by the expedition claim (Task 16, injuries.ts): an injured member shows the Injured chip and
+  // a recovery bar measured against that injury's own span (injuryRecoveredFraction). The compare is a
+  // plain per-stat sum of the two pieces (member power has no fold yet); a member-level compare-preview
+  // helper can replace it when power lands.
   // ============================================================================
 
   import { onDestroy, tick } from "svelte";
@@ -74,6 +75,7 @@
   } from "./game/awayTeam";
   import type { AwayCrewGate } from "./game/awayTeam";
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
+  import { injuryRecoveredFraction } from "./game/injuries";
   import { CREW_RANKS } from "./game/crewRank";
   import {
     SQUAD_META,
@@ -127,16 +129,12 @@
     tip = null;
   }
 
-  // FIRST-PASS recovery base the injury bar scales against (design: 2h before Medical shortens it).
-  // Task 16 owns the real duration; until a member stores when its recovery began, the bar shows the
-  // share of this nominal span already recovered. PROVISIONAL, replaced when Task 16 lands.
-  const NOMINAL_RECOVERY_SECONDS = 2 * 3600;
-
   interface MemberView {
     member: AwayMember;
     fire: AwayCrewGate;
     moveTargets: { shipId: string; label: string; gate: AwayCrewGate }[];
     injuredFor: number; // seconds of recovery left, 0 when ready
+    recoveredPct: number; // Task 16: the share of THIS injury already recovered, 0..100 (the recovery bar)
     // The worn piece per singleton cell (Armor, Weapon, Tool in MEMBER_GEAR_CELLS order), null = empty.
     gear: { slot: Exclude<MemberSlotType, "implant">; piece: EquipmentInstance | null }[];
     implants: EquipmentInstance[]; // worn implants, memberSlotPieces order
@@ -174,6 +172,7 @@
             gate: canReassignAwayMember(s, member.id, x.id),
           })),
         injuredFor: Math.max(0, (member.injuredUntilSeconds ?? 0) - s.gameTimeSeconds),
+        recoveredPct: Math.round(injuryRecoveredFraction(member, s.gameTimeSeconds) * 100),
         ...gearView(member, worn.get(member.id) ?? []),
       }));
       out.push({ teamType, slots, members, open: Math.max(0, slots - members.length) });
@@ -202,10 +201,6 @@
       if (def) out.push({ id, label: def.label, full: traitDisplayText(def) });
     }
     return out;
-  }
-  function recoveredPct(injuredFor: number): number {
-    const left = Math.min(injuredFor, NOMINAL_RECOVERY_SECONDS);
-    return Math.round((1 - left / NOMINAL_RECOVERY_SECONDS) * 100);
   }
   function gateText(gate: AwayCrewGate): string | undefined {
     return gate.ok ? undefined : awayCrewBlockText(gate.reason);
@@ -565,7 +560,7 @@
                 <div class="recov">
                   <Icon name="injury" />
                   <span class="recov-t">Recovering {awayCountdownText(mv.injuredFor)}</span>
-                  <span class="recov-bar" aria-hidden="true"><i style="width:{recoveredPct(mv.injuredFor)}%"></i></span>
+                  <span class="recov-bar" aria-hidden="true"><i style="width:{mv.recoveredPct}%"></i></span>
                 </div>
               {/if}
 

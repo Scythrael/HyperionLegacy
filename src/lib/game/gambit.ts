@@ -19,7 +19,9 @@
 //      roster (Expedition.roster: each member's converted stats, effects and OWN program, which since D19
 //      is DEFAULT_MEMBER_GAMBIT when the member has none). No battle reads the account program pair.
 //      Resolution reads ONLY the stored expedition, so advanceExpedition needs no GameState and one-big ==
-//      many-small holds.
+//      many-small holds. E-CREW Task 16: who SITS OUT a battle (downed earlier in the run) is read off the
+//      stored run too (scanDownedBefore / activityDownedBefore), and Neural Backup rolls on its own keyed
+//      stream, never the battle's.
 //
 // E-CREW 0.14.0 (Task 13), THE SQUAD SPLIT (design D2 / D16 / section 10): SECURITY FIGHTS, SCIENCE NEVER
 // ENTERS A BATTLE. Each Security member runs its OWN program; curing (cure / aidHeal) comes from a member
@@ -187,6 +189,9 @@ const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + rel
 const SCAN_BATTLE_SALT = 0x6b43a9b5;
 const SCAN_DROP_SALT = 0x1d8e4b2f;
 const SUPPLY_CACHE_SALT = 0x4cf5ad43;
+// E-CREW (Task 16): Neural Backup's revive roll. Its OWN stream (the battle's seed ^ this salt), never a
+// draw on the battle's shared stream, so adding the implant shifts no other roll in any battle.
+const NEURAL_BACKUP_SALT = 0x2f6e9c31;
 
 // ============================================================================
 // Enemy roles + role behaviors
@@ -268,6 +273,9 @@ export interface GroundCombatant {
   resists?: Partial<Record<GambitStatusId, number>>; // permille chance to shrug off each status
   firstStrike?: boolean; // acts before the other team members on the opening round
   guardBelow?: number; // takes enemy strikes meant for an ally below this HP fraction
+  // E-CREW (Task 16): this member wears NEURAL BACKUP (D11). Once per battle, the FIRST ally downed rolls
+  // `permille` / 1000 to come back at `hpFraction` of their max HP (resolveGroundBattle).
+  revive?: { permille: number; hpFraction: number };
 }
 
 // ============================================================================
@@ -821,7 +829,10 @@ export interface GambitLogEvent {
   side: "team" | "enemy";
   role: GroundRole; // the acting combatant's role
   memberId?: string; // E-CREW (Task 13): the acting named member, when the actor is one
-  action: GambitActionId | "hold"; // "hold" == no rule matched this round
+  // "hold" == no rule matched this round. "neuralBackup" (E-CREW Task 16) == the Neural Backup roll on the
+  // first ally downed: the actor is the wearer, the target the downed ally, hpDelta the HP they came back
+  // with, `missed` when the roll failed.
+  action: GambitActionId | "hold" | "neuralBackup";
   targetSide?: "team" | "enemy";
   targetRole?: GroundRole;
   targetMemberId?: string; // E-CREW (Task 13): the target named member, when the target is one
@@ -1010,6 +1021,10 @@ export interface GroundBattleResult {
   // battle ended, win or lose, in combatant order. Unnamed combatants (enemies, hand-built test allies)
   // never appear.
   downedMemberIds: string[];
+  // E-CREW (Task 16): present ONLY when a Neural Backup roll happened this battle: whom it rolled for (the
+  // first ally downed) and whether they came back. Absent in every battle without a wearer or a down, so
+  // such a battle's result is exactly the pre-Task-16 shape.
+  neuralBackup?: { memberId?: string; revived: boolean };
 }
 
 // Run ONE ground battle to completion. Deterministic in (combatants, programs, rng). WIN when every enemy
@@ -1018,12 +1033,24 @@ export interface GroundBattleResult {
 // own program (GroundCombatant.program; see programFor). D19: no program pair is passed in. Mutates
 // the passed combatants' clones inside a fresh BattleState (the caller owns cloning if it must preserve
 // inputs; buildRosterCombatants + generateEncounter both mint fresh combatants, so callers here pass throwaways).
+//
+// E-CREW (Task 16) NEURAL BACKUP (D11): when a team combatant carries `revive` (the wearer, the first such
+// in combatant order; the implant is unique-equipped, so there is at most one), the FIRST team member
+// downed (the wearer included; on a tick that downs several at once, the first in combatant order) rolls
+// ONCE, from its own keyed stream makeRng(reviveSeed ^ NEURAL_BACKUP_SALT): on a hit they stand back up at
+// hpFraction of their max HP with their statuses cleared. Win or lose, the backup is then spent for this
+// battle, so it never fires twice and never on a second member. The check runs after every action and
+// after the end-of-round upkeep, reads state only, and draws NOTHING from `rng`: a battle without a wearer
+// (or one where nobody goes down) is identical to the pre-Task-16 battle, and a failed roll changes
+// nothing but one log line. `reviveSeed` defaults to 0 (a hand-built battle); the expedition callers pass
+// the battle's own keyed seed.
 export function resolveGroundBattle(
   team: GroundCombatant[],
   enemies: GroundCombatant[],
   teamKit: number,
   rng: Rng,
   log?: GambitLogEvent[], // OPTIONAL transient sink (E3b); undefined => byte-identical no-log behavior
+  reviveSeed: number = 0,
 ): GroundBattleResult {
   const state: BattleState = {
     combatants: [...team, ...enemies],
@@ -1036,16 +1063,49 @@ export function resolveGroundBattle(
   const teamAlive = () => state.combatants.filter((c) => c.side === "team" && !c.downed);
   const enemyAlive = () => state.combatants.filter((c) => c.side === "enemy" && !c.downed);
 
-  const summarize = (result: "win" | "loss"): GroundBattleResult => ({
-    result,
-    rounds: state.round,
-    teamAliveCount: teamAlive().length,
-    enemyAliveCount: enemyAlive().length,
-    teamHpRemaining: teamAlive().reduce((sum, c) => sum + c.hp, 0),
-    downedMemberIds: state.combatants
-      .filter((c) => c.side === "team" && c.downed && c.memberId !== undefined)
-      .map((c) => c.memberId as string),
-  });
+  // Neural Backup: the wearer (if any) and the once-per-battle latch.
+  const wearer = state.combatants.find((c) => c.side === "team" && c.revive !== undefined) ?? null;
+  let backup: GroundBattleResult["neuralBackup"] | undefined;
+  const checkNeuralBackup = (): void => {
+    if (!wearer || backup) return;
+    const fallen = state.combatants.find((c) => c.side === "team" && c.downed);
+    if (!fallen) return;
+    const spec = wearer.revive!;
+    const revived = makeRng((reviveSeed ^ NEURAL_BACKUP_SALT) >>> 0).chance(spec.permille, 1000);
+    backup = fallen.memberId !== undefined ? { memberId: fallen.memberId, revived } : { revived };
+    let hp = 0;
+    if (revived) {
+      hp = Math.max(1, Math.round(fallen.hpMax * spec.hpFraction));
+      fallen.hp = hp;
+      fallen.downed = false;
+      fallen.statuses = [];
+    }
+    if (state.log) {
+      const ev: GambitLogEvent = { round: state.round + 1, side: "team", role: wearer.role, action: "neuralBackup" };
+      if (wearer.memberId) ev.memberId = wearer.memberId;
+      ev.targetSide = "team";
+      ev.targetRole = fallen.role;
+      if (fallen.memberId) ev.targetMemberId = fallen.memberId;
+      if (revived) ev.hpDelta = hp;
+      else ev.missed = true;
+      state.log.push(ev);
+    }
+  };
+
+  const summarize = (result: "win" | "loss"): GroundBattleResult => {
+    const out: GroundBattleResult = {
+      result,
+      rounds: state.round,
+      teamAliveCount: teamAlive().length,
+      enemyAliveCount: enemyAlive().length,
+      teamHpRemaining: teamAlive().reduce((sum, c) => sum + c.hp, 0),
+      downedMemberIds: state.combatants
+        .filter((c) => c.side === "team" && c.downed && c.memberId !== undefined)
+        .map((c) => c.memberId as string),
+    };
+    if (backup) out.neuralBackup = backup;
+    return out;
+  };
 
   while (state.round < MAX_ROUNDS) {
     // Fixed acting order: team first (by id), then enemies (by id). Stable => deterministic. On the
@@ -1069,13 +1129,16 @@ export function resolveGroundBattle(
         // Enemies obey a live taunt (an offensive strike retargets onto the taunter) and a guard (a strike
         // at a hurt ally is taken by a Bulwark member). With neither in play this is evaluateAndAct exactly.
         evaluateEnemy(program, actor, state, rng);
+        checkNeuralBackup();
         continue;
       }
       evaluateAndAct(program, actor, state, rng);
+      checkNeuralBackup();
     }
 
     // End-of-round upkeep: DoT ticks + status duration decrement + taunt decrement.
     tickEndOfRound(state);
+    checkNeuralBackup();
 
     // Win/loss checks: a clear wins, a wipe loses. Nothing else ends a fight.
     if (enemyAlive().length === 0) return summarize("win");
@@ -1215,14 +1278,20 @@ export function deriveAwayTeam(state: GameState, ship: ShipInstance): AwayTeamSn
 // weaponRange is positioning only and changes no number here). Each member carries its OWN program.
 // PURE: mints fresh combatants from plain snapshot data. An empty list yields [] (no team: see
 // resolveExpeditionActivity).
+// E-CREW (Task 16): `sittingOut` names the members DOWNED in an earlier battle of the run (user rule,
+// 2026-10-07: they sit out the rest of the run). They are left out of the team, but the crew layer share
+// and every combatant id stay as at dispatch (the share is split over the whole deployed squad, the id is
+// the member's deploy index), so a member's numbers never change because a squadmate is out, and a battle
+// with nobody out is exactly the pre-Task-16 battle. Neural Backup (a `revive` effect) becomes `revive`.
 export function buildRosterCombatants(
   members: readonly SnapshotMember[],
   securityStrength: number,
   idPrefix: string,
+  sittingOut?: ReadonlySet<string>,
 ): GroundCombatant[] {
   if (members.length === 0) return [];
   const crewPer = securityStrength / members.length;
-  return members.map((m, i) => {
+  const team = members.map((m, i) => {
     const spec = SECURITY_SPEC_BASE[m.spec as SecuritySpec] ?? { hp: 0, power: 0, armor: 0, statusChance: 0 };
     const bump = (stat: string): number => m.groundStats[stat] ?? 0;
     const rf = m.rankFactor;
@@ -1237,6 +1306,7 @@ export function buildRosterCombatants(
     let groupPoints = 0;
     let firstStrike = false;
     let guardBelow: number | undefined;
+    let revive: GroundCombatant["revive"];
     const inflicts: GambitStatusId[] = [];
     for (const e of m.effects) {
       switch (e.kind) {
@@ -1258,7 +1328,12 @@ export function buildRosterCombatants(
         case "guard":
           guardBelow = Math.max(guardBelow ?? 0, e.allyHpBelow);
           break;
-        // poiYield (fieldwork, Task 15) and revive (Neural Backup, Task 16) are not battle stats here.
+        case "revive":
+          // Neural Backup (Task 16): the catalog's fixed chance and HP share (D11, "~50%" at 30% HP). The
+          // implant has no free Quartermaster floor, so a worn one always carries rolled lines.
+          revive = { permille: Math.round(e.chance * 1000), hpFraction: e.hpFraction };
+          break;
+        // poiYield (fieldwork, Task 15) is not a battle stat.
       }
     }
     // D20: the Med Kit requires Medical Training. Untrained, the kit adds nothing and the member heals 0.
@@ -1294,15 +1369,76 @@ export function buildRosterCombatants(
     if (Object.keys(resists).length > 0) c.resists = resists;
     if (firstStrike) c.firstStrike = true;
     if (guardBelow !== undefined) c.guardBelow = guardBelow;
+    if (revive && revive.permille > 0) c.revive = revive;
     return c;
   });
+  return sittingOut && sittingOut.size > 0 ? team.filter((c) => !sittingOut.has(c.memberId as string)) : team;
 }
 
 // The team an expedition activity fields: the named Security roster. Science NEVER fights. D18: there is
 // no anonymous stand-in, so an expedition with no Security member in its roster (only possible for one
-// launched before D18) fields an EMPTY team, and the caller resolves the task without a battle. PURE.
-export function expeditionTeamCombatants(exp: Expedition, idPrefix: string): GroundCombatant[] {
-  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix);
+// launched before D18) fields an EMPTY team, and the caller resolves the task without a battle. E-CREW
+// Task 16: members in `sittingOut` (downed earlier in the run) stay out; an all-out squad is an empty team
+// too. PURE.
+export function expeditionTeamCombatants(exp: Expedition, idPrefix: string, sittingOut?: ReadonlySet<string>): GroundCombatant[] {
+  return buildRosterCombatants(exp.roster?.security ?? [], exp.securityStrength, idPrefix, sittingOut);
+}
+
+// ============================================================================
+// E-CREW (Task 16): who SITS OUT (user rule, 2026-10-07, "Sits out the rest" chosen 2026-10-09)
+// ============================================================================
+//
+// A member DOWNED at the end of any battle of a run (a scan encounter, an activity battle, or an earlier
+// attempt of the same task) takes no part in any later battle of that run, and comes home injured. The
+// record is the run itself: ExpeditionScanEvent.downedMemberIds (in scan order) and
+// ExpeditionActivity.downedMemberIds (in flat task order). The run resolves in ONE fixed order however the
+// time is chunked: every scan boundary (body by body, step by step) before any task, then the tasks in flat
+// order. So "everyone downed before this battle" is a pure function of the stored run, keyed by the
+// battle's place in that order, and reads the same live, offline, and in a later display re-derivation
+// (offline == live by construction).
+//
+// FIELDWORK is untouched on purpose: only Security fights, so only Security goes down, and a Security
+// member does no fieldwork (fieldwork.ts reads roster.science only). If a later mechanic could down a
+// Science member, note that fieldwork pace sets the activities phase length: a mid-phase change there would
+// need the phase math reworked first.
+
+// Everyone downed at a scan boundary STRICTLY BEFORE `body` boundary `step` (scan order). Pure.
+export function scanDownedBefore(exp: Pick<Expedition, "scanEvents">, bodyIndex: number, step: number): Set<string> {
+  const out = new Set<string>();
+  const key = scanStepKey(bodyIndex, step);
+  for (const ev of exp.scanEvents ?? []) {
+    if (scanStepKey(ev.bodyIndex, ev.step) >= key) continue;
+    for (const id of ev.downedMemberIds ?? []) out.add(id);
+  }
+  return out;
+}
+
+// Everyone downed before the task at flat index `globalIndex`: every scan boundary (all of scanning
+// precedes the tasks) plus every task with a lower flat index. Pure.
+export function activityDownedBefore(exp: Pick<Expedition, "scanEvents" | "bodies">, globalIndex: number): Set<string> {
+  const out = new Set<string>();
+  for (const ev of exp.scanEvents ?? []) for (const id of ev.downedMemberIds ?? []) out.add(id);
+  let i = 0;
+  for (const body of exp.bodies) {
+    for (const act of body.activities) {
+      if (i >= globalIndex) return out;
+      for (const id of act.downedMemberIds ?? []) out.add(id);
+      i++;
+    }
+  }
+  return out;
+}
+
+// Everyone downed anywhere in the run so far, in order of first going down (scan boundaries, then tasks).
+// At claim this is the list of members who come home injured. Pure.
+export function expeditionDownedMemberIds(exp: Pick<Expedition, "scanEvents" | "bodies">): string[] {
+  const out: string[] = [];
+  const add = (ids: readonly string[] | undefined): void => {
+    for (const id of ids ?? []) if (!out.includes(id)) out.push(id);
+  };
+  for (const ev of exp.scanEvents ?? []) add(ev.downedMemberIds);
+  for (const body of exp.bodies) for (const act of body.activities) add(act.downedMemberIds);
+  return out;
 }
 
 // ============================================================================
@@ -1500,10 +1636,19 @@ function rollHaul(
 // bounded attempts WITHIN the one resolution, each reseeded by the attempt index; after the cap the task
 // evacuates with a partial haul. This keeps the frozen record, the phase-duration/parity model, "always
 // win something", and offline==live parity all intact.
+//
+// E-CREW (Task 16): members downed EARLIER in the run sit this task out (activityDownedBefore), and a member
+// downed in one attempt sits out the task's later attempts too ("any battle", user rule). An attempt with
+// nobody left to field does not happen: the task evacuates after the attempts already fought (0 when the
+// whole squad was out before the task began, with no battle, like the D18 no-team path). Each attempt's
+// battle passes its own seed as Neural Backup's reviveSeed.
 export interface ActivityResolution {
   finding: ExpeditionFinding;
   outcome: "win" | "evacuated";
   attempts: number;
+  // E-CREW (Task 16): the members down at the end of this task's battles, every attempt, in order of first
+  // going down (resolveActivitiesPhase stores it on the activity when non-empty).
+  downedMemberIds: string[];
 }
 
 export function resolveExpeditionActivity(
@@ -1529,12 +1674,18 @@ export function resolveExpeditionActivity(
   // for an old in-flight save (it can never crash on an empty team or stall the activities phase).
   if ((exp.roster?.security ?? []).length === 0) {
     commitLog([]);
-    return evacuatedResolution(exp, body, activity, globalIndex, 0, findingId);
+    return evacuatedResolution(exp, body, activity, globalIndex, 0, findingId, []);
   }
 
+  // E-CREW (Task 16): who is already out before this task, and who goes down during it.
+  const out = activityDownedBefore(exp, globalIndex);
+  const downed: string[] = [];
   let attempts = 0;
   let lastAttemptLog: GambitLogEvent[] | undefined;
   for (let attempt = 0; attempt < MAX_BATTLE_ATTEMPTS; attempt++) {
+    // E-CREW (Task 13): the named Security roster. Never Science. Task 16: minus everyone out.
+    const team = expeditionTeamCombatants(exp, `${exp.id}-${activity.id}-a${attempt}`, out);
+    if (team.length === 0) break; // nobody left to field: no battle, the task evacuates
     attempts = attempt + 1;
     const battleSeed =
       (exp.seed ^
@@ -1543,16 +1694,18 @@ export function resolveExpeditionActivity(
         Math.imul(attempt + 1, 0x85ebca6b)) >>>
       0;
     const rng = makeRng(battleSeed);
-    // E-CREW (Task 13): the named Security roster. Never Science.
-    const team = expeditionTeamCombatants(exp, `${exp.id}-${activity.id}-a${attempt}`);
     // E4b: the guard is scaled by the hazard the body PRESENTS to this run (the snapshotted museum
     // hazardResist shrinks it, bounded + never negative; 0 -> the raw hazard, bit-identical). The REWARD
     // rolls below keep the body's RAW hazard on purpose: resisting a world's danger makes the fight
     // easier, it does not make the find poorer.
     const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), activity.poiId);
     const attemptLog = logSink ? [] : undefined;
-    const result = resolveGroundBattle(team, enemies, exp.teamKit, rng, attemptLog);
+    const result = resolveGroundBattle(team, enemies, exp.teamKit, rng, attemptLog, battleSeed);
     if (attemptLog) lastAttemptLog = attemptLog;
+    for (const id of result.downedMemberIds) {
+      out.add(id);
+      if (!downed.includes(id)) downed.push(id);
+    }
     if (result.result === "win") {
       commitLog(attemptLog);
       const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
@@ -1578,12 +1731,14 @@ export function resolveExpeditionActivity(
         },
         outcome: "win",
         attempts,
+        downedMemberIds: downed,
       };
     }
   }
-  // Every attempt lost: EVACUATE with a reduced haul (always win something), no relic.
-  commitLog(lastAttemptLog);
-  return evacuatedResolution(exp, body, activity, globalIndex, attempts, findingId);
+  // Every attempt lost (or nobody was left to field): EVACUATE with a reduced haul (always win something),
+  // no relic.
+  commitLog(lastAttemptLog ?? []);
+  return evacuatedResolution(exp, body, activity, globalIndex, attempts, findingId, downed);
 }
 
 // E-CREW Task 15: the relic roll's find bonus for one won task, the SUM of every frozen lift (each a
@@ -1615,6 +1770,7 @@ function evacuatedResolution(
   globalIndex: number,
   attempts: number,
   findingId: string,
+  downedMemberIds: string[],
 ): ActivityResolution {
   const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
   // E-CREW Task 15: what the Science party gathered before the pull-back is richer too (yieldMult is
@@ -1633,6 +1789,7 @@ function evacuatedResolution(
     },
     outcome: "evacuated",
     attempts,
+    downedMemberIds,
   };
 }
 
@@ -1705,9 +1862,10 @@ export interface ScanEncounterResolution {
 }
 
 // Resolve the random encounter at `body`'s step boundary `step`. PURE + deterministic (keyed seed; mints
-// fresh combatants). With no Security member in the roster (only an expedition launched before D18) there
-// is no team: the encounter is a loss with no battle (0 rounds), the same "no team, no fight" rule as an
-// activity. expedition.ts never rolls an encounter for such a run (its chance is 0), so this is defensive.
+// fresh combatants). With no Security member in the roster (only an expedition launched before D18), or
+// with every Security member already downed earlier in the run (Task 16), there is no team: the encounter
+// is a loss with no battle (0 rounds), the same "no team, no fight" rule as an activity. expedition.ts never
+// rolls an encounter for such a run or boundary (its chance is 0), so this is defensive.
 export function resolveScanEncounter(
   exp: Expedition,
   body: ExpeditionBody,
@@ -1716,11 +1874,12 @@ export function resolveScanEncounter(
   logSink?: GambitLogEvent[], // OPTIONAL: filled with the battle's transient log (display only)
 ): ScanEncounterResolution {
   const key = scanStepKey(bodyIndex, step);
-  const team = expeditionTeamCombatants(exp, `${exp.id}-scan-b${bodyIndex}-s${step}`);
+  // E-CREW (Task 16): members downed at an earlier boundary sit this one out.
+  const team = expeditionTeamCombatants(exp, `${exp.id}-scan-b${bodyIndex}-s${step}`, scanDownedBefore(exp, bodyIndex, step));
   if (team.length === 0) return { outcome: "loss", rounds: 0, downedMemberIds: [], finding: null };
   const battleSeed = (exp.seed ^ SCAN_BATTLE_SALT ^ Math.imul(key + 1, 0x9e3779b9)) >>> 0;
   const enemies = generateEncounter(battleSeed, resistedHazard(body.hazard, exp.hazardResist ?? 0), SCAN_ENCOUNTER_POI);
-  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(battleSeed), logSink);
+  const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(battleSeed), logSink, battleSeed);
   if (result.result !== "win") {
     return { outcome: "loss", rounds: result.rounds, downedMemberIds: result.downedMemberIds, finding: null };
   }

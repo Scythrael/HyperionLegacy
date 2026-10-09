@@ -6129,6 +6129,11 @@ export interface AwayMember {
   traits: AwayTraitId[]; // rolled trait ids; the count follows rank
   assignedShipId: string | null; // the ship whose squad holds the member (the authority, like officers); null = unassigned
   injuredUntilSeconds?: number; // gameTimeSeconds the member recovers at (D9); absent = ready
+  // E-CREW 0.14.0 (Task 16): gameTimeSeconds the current injury began (the expedition claim), so the
+  // recovery bar can show the share already recovered of THIS injury's own span (Medical shortens spans).
+  // Written with injuredUntilSeconds; absent on a member injured before Task 16 (the bar then measures
+  // against the 2h base, injuries.ts injuryRecoveredFraction). Optional and absent-safe: no SAVE_VERSION bump.
+  injuredAtSeconds?: number;
   // The member's OWN gambit program (D16, Security only). ABSENT = the built-in DEFAULT_MEMBER_GAMBIT (D19,
   // user 2026-10-06: full targeting / attack / defense coverage, NO automatic kit use), frozen into the
   // roster snapshot at dispatch. NOT linked to the account-level state.gambitPrograms.
@@ -6283,6 +6288,12 @@ export interface ExpeditionActivity {
   bodyId: string;
   poiId: string; // the PoI this task came from (expeditionContent.ts POI_CATALOG id)
   done: boolean; // set by the resolver when the task completes
+  // E-CREW 0.14.0 (Task 16): the Security members DOWN at the end of this task's battles (every attempt,
+  // in order of first going down), written when the task resolves and only when someone went down. With
+  // ExpeditionScanEvent.downedMemberIds it is the run's record of who SITS OUT the rest of the run (user
+  // rule, 2026-10-07) and who comes home injured at claim (injuries.ts). OPTIONAL and absent-safe (absent =
+  // nobody went down), so no SAVE_VERSION bump: a task resolved before Task 16 simply records no one.
+  downedMemberIds?: string[];
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
@@ -6613,7 +6624,8 @@ export interface Expedition {
 //   encounter   : a Security battle. `outcome` win adds the enemy drops (`findingId`); loss withdraws the
 //                 team to orbit and pauses this body's scan for `pauseSeconds` (until the next activity
 //                 window). `downedMemberIds` lists the Security members down at the battle's end, win or
-//                 lose (Task 16 turns them into injuries at claim).
+//                 lose (Task 16: they sit out every later battle of the run, gambit.ts scanDownedBefore,
+//                 and come home injured at claim, injuries.ts).
 //   supplyCache : the step roll's random EVENT, a small find (`findingId`).
 export interface ExpeditionScanEvent {
   bodyIndex: number;

@@ -484,6 +484,32 @@ balance pass (user, 2026-10-08).
 Tests: Neural Backup fires at most once per battle; never on two members; injury timer shortened by Medical;
 injured member excluded from the next dispatch snapshot.
 
+**Carry from Task 16 (built 2026-10-09):** new pure `injuries.ts` (recovery, `memberFallOutcome`, claim, the bar).
+SIT OUT (user chose "Sits out the rest", 2026-10-09): a member down at the END of any battle (scan encounter,
+activity battle, or an earlier ATTEMPT of the same task) is out of every later battle of the run. The record is
+`ExpeditionScanEvent.downedMemberIds` plus the NEW optional `ExpeditionActivity.downedMemberIds`; gambit.ts
+`scanDownedBefore` / `activityDownedBefore` derive "out before this battle" from the stored run in its one fixed
+resolution order (all scan boundaries, then tasks in flat order), so live, offline and the display re-derivations
+agree. Out members leave the team but keep their dispatch-time crew share and combatant id (a battle with nobody out
+is byte-identical); an all-out squad means a 0 encounter chance (draw 1 still taken) and tasks evacuate with no
+battle (0 attempts). Their worn Shroud / Lure stop counting. DELIBERATE CHANGE: a lone member wiped in attempt 1 no
+longer retries (2 and 3 had nobody); a timeout loss with someone standing still retries. Fieldwork is untouched:
+only Security fights and Security does no fieldwork (a later mechanic that downs Science would have to rework the
+activities phase length first, since pace sets it). NEURAL BACKUP: `GroundCombatant.revive` from the snapshot's
+revive effect; the first team member down (wearer included) rolls ONCE from `makeRng(reviveSeed ^
+NEURAL_BACKUP_SALT)` (callers pass the battle seed), never the battle stream; revived at max(1, round(hpMax * 0.3))
+with statuses cleared; logged as action `"neuralBackup"` (missed = failed); `GroundBattleResult.neuralBackup` is
+present only when it rolled. A holder-less battle is pinned by golden hashes captured before the change. INJURY:
+claim injures every downed member still on the roster: `injuredUntilSeconds = now + recovery`, NEW optional
+`AwayMember.injuredAtSeconds = now` (the bar's span). Recovery = max(15m, round(2h / (1 + Medical + Rapid Recovery
++ treatment))): a DIVISOR, not the plan's "1 - shares", so care follows D23 (no cap, never 0; flagged to the user).
+Medical = `crew.reducedCrewLosses` (the Medical division's "Reduced Crew Losses", live at claim); Rapid Recovery =
+`officerBonusTotal(..., "officer.repairRateMult")`; Fleet Triage is NOT read (in-battle healing, design 6.1); Task 23
+may refine the Medical read when division pools land. `treatmentShare` is the Injury Kit hook (Task 16b step 5);
+Fracture's "untreated comes home injured" (16b step 3) can add members to the claim list the same way. No
+SAVE_VERSION bump (both new fields optional, absent = neutral, the Task 12-14 precedent; save.ts note under v65).
+Task 17: pips can mark downs from `downedMemberIds`; the log line exists for `"neuralBackup"`.
+
 ### Task 16b: Field Kits (D20 full; mockup answers 2026-10-09)
 
 Source of truth: D20 and its two answer blocks in the design doc, plus the Field Kits mockup (artifact

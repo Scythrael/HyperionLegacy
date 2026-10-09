@@ -244,7 +244,10 @@ describe("step boundaries roll exactly once each", () => {
       expect(new Set(keys).size).toBe(keys.length); // never two events at one boundary
       const expected: string[] = [];
       for (let k = 1; k < ENCOUNTER_STEPS; k++) {
-        const roll = scanStepRoll(start, 0, k);
+        // Task 16 DELIBERATE CHANGE: a boundary's roll reads who was downed at EARLIER boundaries (they sit
+        // out, so their devices stop counting), so it is replayed against the finished run, whose earlier
+        // events are exactly what the live roll saw. (It was the fresh start, before anyone could sit out.)
+        const roll = scanStepRoll(e, 0, k);
         if (roll.encounter || roll.supplyCache) expected.push(`0:${k}`);
       }
       expect(keys).toEqual(expected);
