@@ -23,6 +23,40 @@ marked **[PROPOSAL]** is mine and is the user's to accept, rename or reject. Sou
   further."
 - D23: diminishing returns, never hard caps.
 
+## 1b. User answers, 2026-10-09 (verbatim anchors; these override the proposals below where they differ)
+
+1. **Classes:** Ice Giant and Brown Dwarf are kept. "Are the middle 3 scientific classifications, or are they
+   effectively ways of trying to squeeze what is effectively \"gas giant\" into additional categories? If so, perhaps
+   we can consider other options in there. Replace that with the scientific description of what Saturn/Jupiter/
+   Super-Jupiter classes represent, and add in other possible options. One being spacial phenomena like a nebula.
+   Something real. Something you could gather gaseous clouds from."
+2. (Answered as research-data processing.) "I was thinking the research facility could do so. Where the data is
+   collected and returned. As that data is collected and returned, as each one completes (kinda like a set of items
+   that you can have your team study) you gain various types of things to help you. Possibly learning a new recipe
+   for crafting (rarely), and then something like some of those boosts to learning different types of research.
+   Research may be expanded as well into different categories and so forth. Perhaps. Might need more fleshing out, or
+   more condensing if I'm overcomplicating it." So: the SHIP collects and returns data; the RESEARCH LAB studies each
+   data item (a study lane); each completed study grants research boosts by type and, rarely, a new crafting recipe.
+3. **Reward pool reshaped:** "100% gas cannisters (in a range) depending on what you're trying to get. Maybe the type
+   of gas you can grab is where the % of chance to get something is (similar to regular mission drops of
+   standard/augmented/stellar qualities. Gases can do this too. But in addition, you have the 40% chance of research
+   data and the 15% survey readout." So: canisters ALWAYS (amount in a range), the gas TYPE rolls by quality band;
+   plus independent 40% research data and 15% survey readout rolls.
+4. **Six canisters by quality band:** "2 standard, 2 augmented, 1 stellar and 1 radiant. Yep, the first radiant
+   quality option. Not a gas, but it will require its own specialized container to be able to store ... my thought
+   for the radiant quality item makes sense: ANTIMATTER. The balancing patch will add in more options, but this is the
+   first, and I like antimatter!" More gas types will be added later.
+5. **Research data types:** the six work; open to more that fit prod and in-development systems.
+6. **Ancient races (verbatim):** "with jump gates not going to every place, a lot of planets are unexplored. So we will
+   want to have plenty of different ancient races. That as we learn more and more about them, we might change the
+   names of artifacts. So at first it might be \"Relic Sample A34\" or something and as you get more lore and
+   discoveries about the race that lived on that planet, the name will appear when the research into that culture
+   identifies what the object is. Because there could be millions of different races that died out before humanity.
+   But some of these relics would match the current pool. So one race relic type should be able to match up with
+   another. Because most races will have their own version of a given thing. If it's a pottery shard, all races will
+   have some form of pottery shard. Something like that. So that way, we're not pushing more unnecessary relic sets.
+   Unless we should have more."
+
 ## 2. The science we build on (so every number has a real anchor)
 
 - Gas giants have no surface. NASA's Galileo probe (Dec 1995) entered Jupiter at about 47 km/s, sent data for about
