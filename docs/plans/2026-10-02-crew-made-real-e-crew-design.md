@@ -150,6 +150,23 @@ future bonuses; existing asymptotic curves (model.ts, utilityGear.ts) are a bala
 Fieldwork SPEED follows too (user, 2026-10-08, asked whether the 3x pace limit should stay: "curve please!"): the
 cap is replaced by its own pace curve; a task is floored at 1 second.
 
+**D24. TASK 16 REVIEW CALLS (user, 2026-10-09).**
+- **Squad wipe (answer recorded verbatim, shape being clarified):** "If the squad goes down, then the entire team for
+  that specific mission returns to the ship, not impacting any of the others going on in the area. Since ships can
+  have multiple ground teams, this wouldn't make any sense to have perfectly healthy teams retreat because one other
+  one lost." So a wiped team must never drag healthy teams down with it.
+- **Injury clock starts when the run FINISHED** (not at claim), so unclaimed time counts as recovery; "unless a team
+  member's physical traits have something like \"can slowly recover from [ailment] within combat\" or a specific class
+  of ailment."
+- **RACIAL PHYSICAL TRAITS for members (user datadump):** "Something that might help a given senior staff/ground team
+  member like a racial perk or something. The stony friends have stone skin and even more durable bones. Chances of
+  receiving physical ailments is reduced by 25%, but if they do land, they last for 25% longer. Imagine trying to mend
+  stone." So the **Ossir** (the existing stone race, crewRaces.ts) get a racial perk: physical ailments (Fracture,
+  Bleed, Hemorrhage, Concussion: the bodily conditions) land 25% less often but last 25% longer (in battle and as
+  injury recovery). Name proposal: **Stoneskin**. Other races' physical perks: the user's to name later.
+- **Recovery formula:** keep 2h / (1 + Medical + Rapid Recovery + treatment), floor 15m (D23), but FREEZE the ship's
+  medical factors at DISPATCH like the run's other crew bonuses.
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
