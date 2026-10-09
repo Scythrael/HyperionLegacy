@@ -484,6 +484,26 @@ balance pass (user, 2026-10-08).
 Tests: Neural Backup fires at most once per battle; never on two members; injury timer shortened by Medical;
 injured member excluded from the next dispatch snapshot.
 
+### Task 16b: Field Kits (D20 full; mockup answers 2026-10-09)
+
+Source of truth: D20 and its two answer blocks in the design doc, plus the Field Kits mockup (artifact
+VFJ3UZGYmzAgF3tLJ1uxoV). Build order (one implementer + review per step):
+1. **Kit categories + skill rules (engine, pure):** First Aid (untrained 50%, Medical Training 125%), Advanced
+   Medical (requires Medical Training), Explosives (anyone, full effect; Saboteur on the squad +6%), Field Devices
+   (untrained effect rolls 50% to 75% PER USE from its own keyed stream; Codebreaker +6% is still a proposal). Replace
+   `FIELD_DEVICE_UNTRAINED_EFFECTIVENESS = 1`.
+2. **Consumable items + Fabricator "Field Kits" group:** First Aid Kit, Antitoxin, Splint, Injury Kit, Trauma Kit,
+   Combat Stim, grenades, Shroud Emitter, Lure Beacon (stackable, Logistics). SVG glyphs via icons.ts + ICON_SEMANTICS.
+3. **Conditions:** Fracture (Splint: heals in 3 rounds; untreated: comes home injured), Hemorrhage, Neurotoxin,
+   **Concussion** (35% to lose each action for 3 turns; from enemy heavy hits and explosions; Trauma Kit + Medical
+   Training clears early), **Blindness** (attacks mostly miss for 1 to 2 turns; from a NEW enemy flash grenade action;
+   anyone's First Aid Kit clears it). Which enemies inflict what, per the mockup.
+4. **Squad Kit at dispatch:** packed per expedition (default "pack what the squad can use"), free floor of basic
+   First Aid Kits from the ship's crew, unused kits come home, saved with Squad Loadouts (Task 18).
+5. **Gambit kit rules:** never in the default program (D19); a rule for a kit the member cannot use does not fire.
+   Injury Kit on a downed ally shortens their recovery (Task 16 hook).
+6. **Logistics stock view + Help.**
+
 ### Task 17: Expedition + gambit UI
 
 **Files:** `ExpeditionPanel.svelte`, `GambitEditorPanel.svelte`, `App.svelte`.
