@@ -102,6 +102,20 @@ haul (now: progress persists, retry after the bay), the flat 2h injury on claim 
 (now: per-condition bay times during the run, remainder carried home), Task 17's single-squad gambit UI and Task 18's
 per-team-type loadouts (now per ground team).
 
+## 9b. User answers (2026-10-09)
+
+1. Rewards on a lost task: keep the haul from finished segments, relic at 100%. User: "Only if we don't go with a
+   progress marker. If the progress meter is there, then they can't re-farm the same portion over and over and over.
+   They would hit the same wall that killed them last time!" (Progress persists, so a kept segment can never be farmed
+   again; the team resumes at the fight that beat it.)
+2. Fight points along the bar set by the site's threat, a fresh encounter per retry: approved.
+3. Default plan (hardest to strongest) + "Auto-assign randomly": approved.
+4. Helpers only borrow tasks rated at least "Favorable": approved.
+5. Cure and offload/reload times as proposed: approved.
+6. Scan watch: user asked what it means ("The ship's scanning would be done if someone's on a planet fighting");
+   clarification sent.
+7. Team labels: user asked "ABC?"; clarification sent.
+
 ## 10. OPEN CALLS for the user
 
 1. Rewards on a lost task: haul kept per completed segment, relic only at completion (section 3)?
