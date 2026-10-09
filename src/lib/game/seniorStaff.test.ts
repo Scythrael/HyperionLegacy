@@ -38,6 +38,9 @@ import {
   OFFICER_STAT_ROLL_MAX,
   OFFICER_PROMOTION_STAT_POINTS,
   applyPromotionStatPoints,
+  isCompleteOfficerStats,
+  OFFICER_STAT_INFO,
+  OFFICER_STAT_PENDING_QUALIFIER,
 } from "./seniorStaff";
 import { getSeniorStaffBonusById, seniorStaffBonusesForSeat, bonusRollWeight } from "./seniorStaffBonuses";
 
@@ -609,6 +612,41 @@ describe("rollOfficerStats (Task 19 real roll)", () => {
     expect(officerStats(officer())).toEqual(NEUTRAL_OFFICER_STATS);
     const own = { strength: 3, integrity: 18, cunning: 9, constitution: 12 };
     expect(officerStats(officer({ stats: own }))).toEqual(own);
+  });
+
+  it("officerStats always returns a complete finite line, filling bad or missing keys from neutral", () => {
+    const partial = officerStats(officer({ stats: { strength: 14 } as any }));
+    expect(partial).toEqual({ strength: 14, integrity: 10, cunning: 10, constitution: 10 });
+    const junk = officerStats(
+      officer({ stats: { strength: "x", integrity: NaN, cunning: Infinity, constitution: null } as any }),
+    );
+    expect(junk).toEqual(NEUTRAL_OFFICER_STATS);
+    expect(officerStats(officer({ stats: "corrupt" as any }))).toEqual(NEUTRAL_OFFICER_STATS);
+    for (const k of OFFICER_STAT_KEYS) expect(Number.isFinite(partial[k])).toBe(true);
+  });
+
+  it("isCompleteOfficerStats is true only when all four keys are finite numbers", () => {
+    expect(isCompleteOfficerStats({ strength: 1, integrity: 2, cunning: 3, constitution: 4 })).toBe(true);
+    expect(isCompleteOfficerStats({ strength: 10 })).toBe(false);
+    expect(isCompleteOfficerStats({ strength: "x", integrity: 2, cunning: 3, constitution: 4 })).toBe(false);
+    expect(isCompleteOfficerStats({ strength: NaN, integrity: 2, cunning: 3, constitution: 4 })).toBe(false);
+    expect(isCompleteOfficerStats(null)).toBe(false);
+    expect(isCompleteOfficerStats("corrupt")).toBe(false);
+  });
+
+  it("a promotion on a half-formed stat line still yields a complete line", () => {
+    const promoted = promoteOfficer(
+      officer({ missionsCompleted: 10, promotionCounters: { crewHours: 50 }, stats: { strength: 15 } as any }),
+    );
+    expect(promoted.stats).toEqual({ strength: 17, integrity: 12, cunning: 10, constitution: 10 });
+  });
+
+  it("every stat effect line carries the pending qualifier until Task 21 lands", () => {
+    for (const k of OFFICER_STAT_KEYS) expect(OFFICER_STAT_INFO[k].effect).toContain(OFFICER_STAT_PENDING_QUALIFIER);
+  });
+
+  it("Integrity abbreviates to ITG (INT reads as Intelligence)", () => {
+    expect(OFFICER_STAT_KEYS.map((k) => OFFICER_STAT_INFO[k].abbr)).toEqual(["STR", "ITG", "CUN", "CON"]);
   });
 });
 

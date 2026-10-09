@@ -10,7 +10,7 @@ import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, r
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
 // model.ts and never imports save.ts.
-import { officerStatSeed, rollOfficerStats, isNeutralOfficerStats } from "./seniorStaff";
+import { officerStatSeed, rollOfficerStats, isNeutralOfficerStats, isCompleteOfficerStats } from "./seniorStaff";
 // Combat 0.13.0 (Phase 12b Unit B2): the v32->v33 migration backfills a full per-system
 // durability carry-state onto any in-flight patrol. combatHullTypeOf resolves the assigned
 // hull's combat class and defaultSystemDurabilityForHull builds its FULL (no-wear) durability
@@ -2405,13 +2405,15 @@ const MIGRATIONS: Record<number, Migration> = {
   // v65 -> v66 (0.14.0 E-CREW Task 19): the officer stat roll went LIVE. Any save that loaded at v65
   // before Task 19 got the NEUTRAL 10/10/10/10 stub from the v64 -> v65 step, and an officer hired on a
   // v65 build before Task 19 carries no stats at all (hireOfficer did not set them yet). Re-roll every
-  // officer whose stats are MISSING or deep-equal the neutral line, through the SAME rollOfficerStats
+  // officer whose stats are MISSING, HALF-FORMED (any of the four keys absent or not a finite number) or
+  // deep-equal the neutral line, through the SAME rollOfficerStats
   // keyed on (seniorStaffSeed, officer id) the v64 -> v65 step now uses, so a stub-era save lands on
   // exactly the stats a save going straight v64 -> v66 gets. A genuine all-10 roll is vanishingly rare
   // and harmless to re-roll (deterministic, so it re-rolls to itself on the straight path too). An
   // officer with a real line (hired after Task 19, which copies the candidate's roll) keeps it. Plain
-  // numbers only (no Decimals). Idempotent: a re-rolled line is never neutral in practice, and a second
-  // pass over a neutral line would produce the identical roll anyway. Hardened like v64 -> v65: a
+  // numbers only (no Decimals). Idempotent BY DETERMINISM: the roll is a pure function of (seniorStaffSeed,
+  // officer id, rank), so a second pass either keeps the line or re-rolls it to the identical value.
+  // Hardened like v64 -> v65: a
   // non-array officers field reads as empty and a malformed entry passes through untouched.
   65: (state: any): any => {
     const seniorStaffSeed = state.seniorStaffSeed ?? SENIOR_STAFF_DEFAULT_SEED;
@@ -2419,7 +2421,7 @@ const MIGRATIONS: Record<number, Migration> = {
       ...state,
       officers: (Array.isArray(state.officers) ? state.officers : []).map((o: any) => {
         if (!o || typeof o !== "object") return o;
-        const stub = !o.stats || typeof o.stats !== "object" || isNeutralOfficerStats(o.stats);
+        const stub = !isCompleteOfficerStats(o.stats) || isNeutralOfficerStats(o.stats);
         return stub ? { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, String(o.id ?? "")), o.rank) } : o;
       }),
     };

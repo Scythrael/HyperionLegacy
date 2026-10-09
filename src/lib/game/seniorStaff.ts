@@ -38,7 +38,7 @@ import { seniorStaffBonusesForSeat, getSeniorStaffBonusById, bonusRollWeight } f
 import type { SeniorStaffBonusDef } from "./seniorStaffBonuses";
 import { CREW_RACES, CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
-import { makeRng } from "./combat/rng";
+import { makeRng, weightedPick, type Rng } from "./combat/rng";
 
 // The 7 typed bridge seats, in a fixed order (matches the SeniorStaffSeat union). Exported for
 // iteration (rolling a candidate seat, enumerating a hull's seats). One of each per hull.
@@ -247,7 +247,7 @@ export function promoteOfficer(officer: SeniorStaffOfficer): SeniorStaffOfficer 
     // E-CREW Task 19: promotion points (+2 on the two highest stats). An officer WITHOUT stats keeps
     // none: readers already treat that as neutral, and the load migration fills it, so materializing a
     // "promoted neutral" line here would only stop the v65 -> v66 re-roll from recognizing the stub.
-    ...(officer.stats ? { stats: applyPromotionStatPoints(officer.stats) } : {}),
+    ...(officer.stats ? { stats: applyPromotionStatPoints(officerStats(officer)) } : {}),
   };
 }
 
@@ -296,6 +296,11 @@ export const OFFICER_STAT_ROLL_MAX = 20;
 // compact rows, the one-word facet (mockup 7b subtitle), and what it does for the department the officer
 // heads (design section 7; the consumers land in Task 21). Shared by the Senior Staff panel tooltips and
 // the coming Help topic so the wording lives in one place.
+//
+// PENDING QUALIFIER: every effect line ends with OFFICER_STAT_PENDING_QUALIFIER because the facets are
+// not live until Task 21. TASK 21 REMOVES IT (delete the constant and its uses, then re-check each effect
+// line against the final mechanics).
+export const OFFICER_STAT_PENDING_QUALIFIER = "(arrives later in 0.14.0)";
 export const OFFICER_STAT_INFO: Readonly<
   Record<keyof OfficerStats, { label: string; abbr: string; facet: string; effect: string }>
 > = {
@@ -303,27 +308,26 @@ export const OFFICER_STAT_INFO: Readonly<
     label: "Strength",
     abbr: "STR",
     facet: "How hard the department works",
-    effect: "A stronger head makes every crew buff in the department stronger.",
+    effect: `A stronger head makes every crew buff in the department stronger ${OFFICER_STAT_PENDING_QUALIFIER}.`,
   },
   integrity: {
     label: "Integrity",
-    abbr: "INT",
+    // "ITG", not "INT": INT reads as Intelligence (display only).
+    abbr: "ITG",
     facet: "Bravery",
-    effect:
-      "Steady under fire: when the ship drops below half hull in a battle or patrol, the department's crew buffs get a boost for holding firm.",
+    effect: `Steady under fire: when the ship drops below half hull in a battle or patrol, the department's crew buffs get a boost for holding firm ${OFFICER_STAT_PENDING_QUALIFIER}.`,
   },
   cunning: {
     label: "Cunning",
     abbr: "CUN",
     facet: "Finds the edge",
-    effect: "Each mission, a chance for the department to over-deliver.",
+    effect: `Each mission, a chance for the department to over-deliver ${OFFICER_STAT_PENDING_QUALIFIER}.`,
   },
   constitution: {
     label: "Constitution",
     abbr: "CON",
     facet: "Endurance",
-    effect:
-      "The department's crew buffs grow the longer an expedition or patrol runs (up to a cap), and turnaround after returning is shorter.",
+    effect: `The department's crew buffs grow the longer an expedition or patrol runs (up to a cap), and turnaround after returning is shorter ${OFFICER_STAT_PENDING_QUALIFIER}.`,
   },
 };
 
@@ -333,11 +337,30 @@ export const OFFICER_STAT_INFO: Readonly<
 export const OFFICER_PROMOTION_STAT_POINTS = 2;
 export const OFFICER_PROMOTION_STATS_RAISED = 2;
 
-// An officer's stats, falling back to the NEUTRAL line when the officer carries none (an old fixture,
-// or a save between the v65 stub and the v66 re-roll). Every reader goes through here so "no stats"
-// always means "neutral", never "zero". Returns a fresh copy. Pure.
+// An officer's stats as a COMPLETE line: starts from the NEUTRAL line and takes only the keys the
+// officer carries as finite numbers, so an absent, partial or corrupt stats object (an old fixture, a save
+// between the v65 stub and the v66 re-roll, a hand-edited save) can never surface `undefined` or NaN. Every
+// reader goes through here so "no stat" always means "neutral", never "zero". Returns a fresh copy. Pure.
 export function officerStats(officer: SeniorStaffOfficer): OfficerStats {
-  return { ...(officer.stats ?? NEUTRAL_OFFICER_STATS) };
+  const out: OfficerStats = { ...NEUTRAL_OFFICER_STATS };
+  const raw: unknown = officer.stats;
+  if (raw && typeof raw === "object") {
+    for (const k of OFFICER_STAT_KEYS) {
+      const v = (raw as Record<string, unknown>)[k];
+      if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    }
+  }
+  return out;
+}
+
+// True only when `stats` is an object whose four keys are ALL finite numbers. The v65 -> v66 migration
+// treats anything else as a stub and re-rolls it. Pure.
+export function isCompleteOfficerStats(stats: unknown): stats is OfficerStats {
+  if (!stats || typeof stats !== "object") return false;
+  return OFFICER_STAT_KEYS.every((k) => {
+    const v = (stats as Record<string, unknown>)[k];
+    return typeof v === "number" && Number.isFinite(v);
+  });
 }
 
 // True when a stat line is exactly the neutral 10/10/10/10 (the Task 2 stub's output). The v65 -> v66
@@ -464,25 +487,18 @@ function rollCandidate(baseSeed: number, windowIndex: number, slot: number): Sen
   };
 }
 
-// One WEIGHTED pick from a bonus pool (E-CREW Task 19): a single `rng.nextInt(totalWeight)` draw walked
-// across the pool's roll weights, skipping `excludeIndex` (pass -1 to exclude nothing). The weights are
-// positive integers, so the odds are exact and the pick costs exactly one draw, like the uniform pick it
-// replaced. Pure apart from advancing `rng`.
+// One WEIGHTED pick from a bonus pool (E-CREW Task 19), through the shared single-draw `weightedPick`
+// (combat/rng.ts): the pool's roll weights, with the excluded index (pass -1 for none) weighted 0 so it can
+// never be picked. A zero weight leaves the total and the walk exactly as if the entry were skipped, so this
+// is byte-identical to the local walk it replaced (the pinned seed-12345 picks prove it). Exactly one draw.
 function pickWeightedBonusIndex(
   pool: readonly SeniorStaffBonusDef[],
-  rng: { nextInt(maxExclusive: number): number },
+  rng: Rng,
   excludeIndex: number,
 ): number {
-  let total = 0;
-  for (let i = 0; i < pool.length; i += 1) if (i !== excludeIndex) total += bonusRollWeight(pool[i]);
-  let r = rng.nextInt(total);
-  for (let i = 0; i < pool.length; i += 1) {
-    if (i === excludeIndex) continue;
-    r -= bonusRollWeight(pool[i]);
-    if (r < 0) return i;
-  }
-  // Unreachable with positive weights; keep the types total.
-  return excludeIndex === pool.length - 1 ? pool.length - 2 : pool.length - 1;
+  const indices = pool.map((_, i) => i);
+  const weights = pool.map((def, i) => (i === excludeIndex ? 0 : bonusRollWeight(def)));
+  return weightedPick(rng, indices, weights);
 }
 
 // The current candidate roster: `seniorStaffRosterSize` fully-rolled candidates, deterministic from

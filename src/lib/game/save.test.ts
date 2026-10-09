@@ -6508,6 +6508,23 @@ describe("SAVE migration v65 -> v66 (E-CREW Task 19 officer stats)", () => {
     expect(migrated.officers[1].stats).toEqual(rolled(migrated.officers[1]));
   });
 
+  it("re-rolls a half-formed stats object (any key missing or not a finite number)", () => {
+    const bad = [
+      { strength: 10 },
+      { strength: "x", integrity: 12, cunning: 7, constitution: 9 },
+      { strength: 14, integrity: null, cunning: 7, constitution: 9 },
+      { strength: 14, integrity: 12, cunning: NaN, constitution: 9 },
+      "corrupt",
+    ];
+    const s = v65StubState();
+    s.officers = bad.map((stats, i) => officerFixture(`officer-${i + 1}`, { stats }));
+    const migrated = migrateFrom(65, s);
+    for (const o of migrated.officers) {
+      expect(o.stats).toEqual(rolled(o));
+      for (const k of ["strength", "integrity", "cunning", "constitution"]) expect(Number.isFinite(o.stats[k])).toBe(true);
+    }
+  });
+
   it("gives the same stats for the same save every time, and a second pass changes nothing", () => {
     const once = migrateFrom(65, v65StubState());
     const again = migrateFrom(65, v65StubState());

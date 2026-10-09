@@ -632,6 +632,10 @@ HelpTip chip; the stat tooltips describe the Task 21 facets per department, so t
 lands. **For Task 21:** the panel's display-only `SEAT_DEPARTMENT` + `CUNNING_EDGE` maps should be replaced by (or
 derived from) `officerStats.ts DEPARTMENT_OF_SEAT`; design section 7 names no Cunning over-delivery for Flight Deck,
 so the panel shows the generic line there (needs a call). Promoted stats can exceed 20 (max 28); the bar just fills.
+Review fixes: `officerStats` always returns a complete finite line (neutral fills bad keys) and
+`isCompleteOfficerStats` makes v66 re-roll half-formed objects; every `OFFICER_STAT_INFO.effect` ends with
+`OFFICER_STAT_PENDING_QUALIFIER` "(arrives later in 0.14.0)", which **Task 21 removes**; Integrity shows as "ITG";
+the weighted pick now routes through the shared `weightedPick` (pinned picks unchanged).
 
 ### Task 20: Officer bonuses go live
 

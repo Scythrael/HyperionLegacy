@@ -786,6 +786,9 @@
     margin-top: 2px;
   }
   .sstaff-stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
     font-family: var(--font-mono);
     font-size: calc(9px * var(--ui-scale));
     padding: 1px 5px;
@@ -796,6 +799,17 @@
   .sstaff-stat-chip b {
     color: var(--color-text-primary);
     font-weight: 600;
+  }
+  /* Touch: a ~24px tap target per chip (taller chip, roomier gaps) so a finger opens the right tooltip,
+     while the chip text stays the same compact size. Mouse layouts keep the slim chip. */
+  @media (pointer: coarse) {
+    .sstaff-cand-stats {
+      gap: 6px;
+    }
+    .sstaff-stat-chip {
+      min-height: 24px;
+      padding: 2px 8px;
+    }
   }
 
   /* PROMOTION */
