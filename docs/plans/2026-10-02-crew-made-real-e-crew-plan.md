@@ -17,6 +17,42 @@ Mockup: https://claude.ai/artifact/UYTkL2q9PyDHKGbeERcvuj.
 
 ---
 
+## 0.14.0 SCOPE ADDITIONS (user ruling 2026-10-09) + BUILD ORDER
+
+User: "If something I've said here is not part of the scope (within reason), make it part of the scope of 0.14.0."
+A reconciliation of the user's re-stated vision (`2026-10-09-relics-v2-and-expedition-tiers-capture.md` section 4)
+against code and plans found these TRUE GAPS, now 0.14.0 scope (each needs a short design before build):
+- **G1 Short-Range Missions:** randomized templates (refugees needing guest quarters / secondary personnel, supply
+  pickup and drop-off, phenomenon survey, telescope repair, comm booster), per-run transit and constraints, stat
+  requirements per category; activates the reserved `colonistCapacity`.
+- **G2 Expedition tiers:** galaxy-region unlocks (proposed real regions, Local Bubble to Galactic Core), distance and
+  difficulty, the reach gate, recall (A4 had no task).
+- **G3 Relics v2:** unidentified relics, Research Lab identification into per-tier pools with exceptional per-tier
+  sets, short-mission drops at lower rates, cultures with revealed names, soft cap (~1000) and D23 diminishing
+  returns on the museum. The endless-only bonus line waits for endless mode (deferred to 0.14.x); 0.14.0 keeps
+  counting past the cap.
+- **G4 Chat-event ledger:** record chat-worthy events (first: a relic set completed) for when chat lands; pairs with
+  the unowned S19 milestone ledger.
+- **G5 Bridge and Crew Quarters ship-type bonuses** (beyond Focused Command), plus bridge and quarters blueprints.
+- **G6 Sensor roles:** explorer base sensors (S4-B04), frontier gating, combat cloak / threat detection, Science crew
+  and officer sensor amplification (S4-I29/30/31).
+- **G7 Per-planet / per-system completion %** (S2-65; D25 "% completion of the system").
+- **G8 Phase-level items with no tasks yet:** E-MOD universal modules, E-CAP captain identity + achievements, the
+  power grid (S4-A03), deuterium as a reach-crafting input (S4-A05), Material Lines, gas giant study (15b).
+- **G9 Blocked on user input:** E-SUS roles (8 to name), boarding party (S4-C07).
+Still deferred (not gaps): the 1,017 hull (D15), endless mode, trading, fleet ops, new combat/prospecting mission
+sets, chaotic gear, the Archive AI body (Quests patch), Leviathans.
+
+**BUILD ORDER (proposal, dependency-driven):**
+1. Ground Operations (D25: teams, task queues, medical bay, threat indicator; absorbs Task 16 rework, Task 17 UI,
+   Task 18 per-team loadouts), then Field Kits (16b).
+2. Officers and complement (Tasks 19-27), with G5 and Task 28 + G6.
+3. Exploration depth: G2 expedition tiers, then the gas giant study (15b, with nebulae), then G3 Relics v2 with
+   cultures, G7 completion %, G4 ledger.
+4. G1 Short-Range Missions.
+5. G8 remaining phase items (Material Lines, E-MOD, E-CAP, power grid, deuterium reach input).
+6. Small fixes (29-33), Help (34), chores (34b/c/e), close-out (35).
+
 ## Standing rules for every task (read once, apply always)
 
 - **Gate** after every task: `npm run check` (expect `0 ERRORS`, the 2 known RadialWeb warnings are fine) and
