@@ -167,6 +167,25 @@ cap is replaced by its own pace curve; a task is floored at 1 second.
 - **Recovery formula:** keep 2h / (1 + Medical + Rapid Recovery + treatment), floor 15m (D23), but FREEZE the ship's
   medical factors at DISPATCH like the run's other crew bonuses.
 
+**D25. GROUND TEAMS ARE ASSIGNED TO TASKS; A WIPE FAILS THE TASK AND IT IS RETRIED AFTER RECOVERY (user datadump,
+2026-10-09, verbatim).** "If you have 3 ground teams, and a task requires 1 (note that tasks should be built to be able
+to scale to include multiple ground teams if that wasn't already apparent) of those ground teams, and another task
+requires 2, this should answer the question. I hope. If you're doing a mission that involves 1 team and the security
+team is incapacitated, you fail that task, and it must be redone. You don't gain any of the rewards from the task that
+you had gotten up to that point. The task stops, it is reported as failed, and you have to wait to send someone out
+again. (note, this will require a system similar to combat to provide an indicator of whether or not your security
+team is strong enough to handle threats of that level on the planet), so you don't send your B team where the A team
+should go because they have the best stuff. You choose which ground team to send, and they go through the mission,
+and if the entire security force is wiped, the mission ends and your team returns to teh ship, the recovery timer
+starts, and when recovered and ready to go, they retry the mission. If it completes, then you move on to the next one
+in the list that has been selected by the player before starting."
+Implied model (to confirm before design): a ship fields SEVERAL ground teams; each TASK requires N ground teams
+(scalable); the player picks WHICH team(s) go and an ORDERED TASK LIST before the run starts; a THREAT INDICATOR (like
+the combat forecast) compares a team's strength to the planet's threat; a Security wipe FAILS the task (no partial
+rewards), the team returns to the ship, its recovery timer runs, and it RETRIES the same task when recovered; success
+moves on to the next listed task. Other teams are never pulled back by one team's wipe. This supersedes the Task 16
+"sits out the rest of the run" behavior and redesigns how a run walks its tasks.
+
 ## 3. Scope (rows this phase closes)
 
 - **Away team (A1):** S1-106, S2-43, S4-C06, S4-C09, S4-C11 (superseded by D3), S4-C12, S4-I19 (wiring), S79, S94, S4-EX12.
