@@ -250,6 +250,9 @@ moves on to the next listed task. Other teams are never pulled back by one team'
 - **Boarding:** BOARDING VIA SCAN EVENTS in 0.14.0: a ship-side scan event (the cloaked ship, or a hostile vessel) can
   attempt to board; `crew.boardingDefense` and the Ossir racial decide it. The player's own boarding party stays for
   later (S4-C07).
+- **Status chance on the Pulse Rifle, Scattergun and Targeting Optic: LEAVE AS IS (user, 2026-10-09).** It looked dead
+  in the test, but status chance is member-wide and powers any inflict piece the member also wears (e.g. a grenade);
+  the user declined adding signature statuses to those three weapons.
 
 ## 3. Scope (rows this phase closes)
 
