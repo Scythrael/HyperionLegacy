@@ -1,0 +1,887 @@
+# Ground Operations (0.14.0, D25) Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task
+> (the user's standing workflow: fresh subagent per task, two-stage review per task, holistic review at the end).
+> superpowers:executing-plans is the fallback for a separate session.
+
+**Goal:** Turn the expedition's ground phase into GROUND OPERATIONS: per-ship ground teams (a slotted Security squad +
+a slotted Science squad each), per-planet task queues with a default plan, tasks as progress bars with fight points
+whose progress persists across wipes, a return trip after every task (offload, medical bay, reload), a display-only
+threat indicator, and ship-side scan events in place of the scan-time ground battles.
+
+**Architecture:** A run stays a PURE function of its stored Expedition record. New runs carry a `groundOps` record
+(its presence is the feature flag, like `encounterSteps`); runs launched before it resolve on the legacy path,
+byte-identical. The activities phase of a flagged run becomes an event schedule of per-team timelines (deploy, work,
+fight, return, offload, bay, reload), advanced step by step in (end time, team index) order from stored values only,
+so one big offline advance equals many small live ones. Every roll comes from a private keyed stream (`makeRng(seed ^
+SALT ^ key)`); nothing draws on a shared stream. Live queue edits first advance the run to "now", then mutate the
+stored queue. One SAVE_VERSION bump (66 -> 67) adds the per-ship ground-team slot state.
+
+**Tech Stack:** Svelte 5 (legacy mode) + TypeScript, Vitest. Engine in `src/lib/game/*.ts` (pure), UI in `src/lib/*.svelte`
++ `src/App.svelte` handlers.
+
+**Sources (authority order: user decisions > design > code):**
+- `docs/plans/2026-10-09-ground-operations-design.md`, especially section 9b (user answers 1 to 7, 2026-10-09).
+- `docs/plans/2026-10-02-crew-made-real-e-crew-design.md` D18 to D26 (D24 injury/recovery, D25 ground teams, D26 Ground
+  Ops items, D23 diminishing returns, D13 officers never act on ground-team stats).
+- `docs/plans/2026-10-02-crew-made-real-e-crew-plan.md`: standing rules, carry notes of Tasks 14 to 22, Tasks 16b,
+  17, 18, the G-list + BUILD ORDER (Ground Ops is item 1, then Field Kits 16b), Task 35 release gate.
+- Mockup: **Ground Operations** https://claude.ai/artifact/RmbGiWspWHUEaRGnGDz6LR (sections 1 to 4 referenced as GO-M1..M4).
+  Whole-build mockup: https://claude.ai/artifact/UYTkL2q9PyDHKGbeERcvuj (E-CREW, referenced as EC-M).
+
+---
+
+## 0. Standing rules (inherited from the E-CREW plan, apply to every task)
+
+- **Gate** after every task: `npm run check` (0 ERRORS; the 2 known RadialWeb warnings are fine) and `npx vitest run`
+  (all files pass). A task is not done until both are green.
+- **Legacy-neutral:** a run WITHOUT `groundOps` (any run dispatched before GO-7) advances, resolves and claims
+  byte-identically. Pin it with golden hashes captured BEFORE the change (the Task 20 / 21 precedent), in the same
+  commit that changes the engine.
+- **Determinism:** randomness only via `makeRng((seed ^ SALT ^ key) >>> 0)`; never `Math.random`, never `Date.now()`
+  in engine code; never add a draw to a SHARED stream (the economy stream, a battle stream another roll reads). New
+  salts are odd, distinct from every salt in `expedition.ts` and `gambit.ts`; GO-4 adds a test listing them all.
+- **Mutation pattern:** UI handler `do*` in `src/App.svelte` calls a pure engine fn, then `state = next`, `pushLog`,
+  `doSave`, with a same-ref guard (`if (next === state) return`).
+- **Text rules:** US English; no em dashes and no "--" anywhere (text, comments, code: write `i -= 1`, never a
+  decrement operator); "install", never "fit/fitting/fitment". Graphics are SVG glyphs in `src/lib/ui/icons.ts`,
+  classified in `src/lib/ui/iconPacks.ts` `ICON_SEMANTICS`, reviewed at 16 / 28 / 56 px. No emoji in new UI.
+- **Responsive:** one DOM, container queries; no isMobile branch; 375 px with no horizontal page scroll.
+- **Explicit actions:** a `<select>` never acts on change (WCAG 3.2.2, the AwayTeamPanel posture): pick, then a button.
+- **Commits:** one per task, message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push
+  the branch; dev deploys are the controller's call (`git push origin feat/crew-0.14.0:staging`, ONE command).
+- **No dead stats:** `no-dead-stats.test.ts` fails while a LIVE key stays in `PENDING_IN_RELEASE`. The task that makes
+  a Ground Ops entry live removes it in the same commit (GO-7b, GO-9; table in section 3).
+- **[PROVISIONAL]** marks a first-pass value or behavior this plan had to pick so the build stays green while an open
+  question (section 5) waits on the user. Each lives in ONE named constant or function so the answer is a one-line
+  change. Do not present a PROVISIONAL behavior to the user as decided.
+
+---
+
+## 1. What this plan supersedes (call out in each affected commit body)
+
+| Existing item | Superseded by | Notes |
+|---|---|---|
+| E-CREW Task 14: scan-step ground-battle encounters (`resolveScanEncounter`), the loss pause "until the next activity window", scan-time downs | GO-8 ship-side events | The keyed step roll, its timing, `scanStepCursor`, `scanEvents` and the supply cache STAY (user 9b.6). Legacy runs keep the old battles. |
+| Task 21 Security Cunning "softens scan ambushes" (`Expedition.ambushSoften` -> `softenAmbush` on ground enemies) | GO-8: softens the hostile probe | Also resolves a D13 tension (an officer stat reached a ground battle). |
+| Task 16 "a downed member sits out the rest of the RUN" (`scanDownedBefore` / `activityDownedBefore`) | GO-7: rest of the TASK; healed in the bay | Legacy runs keep it. |
+| `MAX_BATTLE_ATTEMPTS` in-resolution retries + the 40% evacuation haul (`EVAC_REWARD_FRACTION`, `evacuatedResolution`) | GO-7: progress persists, retry after the bay | Legacy runs keep it. |
+| Task 16 flat 2h injury on claim; D24 "clock starts at run end"; D24 recovery formula 2h / (1 + care), floor 15m | GO-3 + GO-7: per-condition bay times during the run, frozen medical factors, remainder carried home | Legacy runs keep `applyExpeditionInjuries`. Closes the Task 20 OPEN line "D24's freeze medical factors at dispatch is still a live read at claim". |
+| Ground Ops design section 6 "Team A stands scan watch" + open call 6 | moot | 9b.6 removed ground fights from scanning. |
+| E-CREW design 5.5 / D10 "ground battles are random encounters during scan progress" | 9b.6 + GO-8 | |
+| Dispatch = "first N ready members in hire order" (`deployableMembers` in `snapshotAwayRoster` / `expeditionAwayTeamCheck`) | GO-2 / GO-7a: slotted ready members per ground team | `deployableMembers` stays for legacy readers. |
+| Task 17 (scan track pips, encounter dial readout, log lines, per-member gambit editor, Science tab removal) | GO-14, GO-15, GO-16 | Task 17 is fully absorbed. |
+| Task 18 (squad loadouts per team TYPE, `memberRole?` question, roster-linked loadout S4-CP39) | GO-17 (per GROUND TEAM) | S4-CP39 wiring carried into GO-17 so Task 18 retires. |
+| Task 16b step 4 "Squad Kit ... saved with Squad Loadouts (Task 18)" and step 5 "Injury Kit shortens recovery (Task 16 hook)" | GO-17 loadout kit slot; GO-3 per-member bay `treatmentShare` hook | 16b still owns the kits themselves. |
+| Task 6 AwayTeamPanel header copy ("Security fights the random battles, Science does fieldwork while scanning") | GO-11 | |
+
+Carried to **Task 16b (Field Kits)**, not built here: the Stoneskin IN-BATTLE half (physical conditions land 25% less
+often, last 25% longer; D24), since Fracture / Hemorrhage / Concussion arrive with 16b and only Bleed exists today. GO-3
+builds the BAY half (x1.25 on injury cure times) and the member perk hook both halves use.
+
+---
+
+## 2. Data model (all of it, so tasks can reference it)
+
+```ts
+// == model.ts: per-ship slot state (persisted; SAVE v67) ==
+export interface ShipGroundTeam {
+  name?: string;                    // custom name; absent = default by index (GROUND_TEAM_DEFAULT_NAMES)
+  security: (string | null)[];      // member id per slot; length = the hull's Security squad size
+  science: (string | null)[];       // length = the hull's Science squad size
+  helpOthers: boolean;              // "When done, help other teams" default for the next dispatch
+}
+ShipInstance.groundTeams?: ShipGroundTeam[];   // length = groundTeamCount(typeKey); v67 backfills every ship
+
+// == model.ts: Squad Loadouts reshaped per ground team (Task 18 was never built; squadLoadouts is always []) ==
+export interface GroundTeamLoadout {
+  id: string; name: string;
+  security: SquadLoadoutKit[];      // one kit per Security slot, slot order
+  science: SquadLoadoutKit[];
+  checkedOutTo: { shipId: string; teamIndex: number } | null;
+}
+GameState.squadLoadouts: GroundTeamLoadout[];  // v67 coerces any stored value to [] (none can exist)
+
+// == model.ts: the snapshot gains the member's physical perks (Stoneskin), frozen at dispatch ==
+SnapshotMember.perks?: MemberPerkId[];         // absent = none; "stoneskin" for Ossir (GO-3)
+
+// == model.ts: task fields, OPTIONAL on ExpeditionActivity (absent on legacy runs) ==
+ExpeditionActivity.requiredTeams?: number;     // default 1; content may ask for 2+
+ExpeditionActivity.fightPoints?: number[];     // ascending fractions in (0, 1)
+ExpeditionActivity.progress?: number;          // 0..1, persists across losses
+ExpeditionActivity.pointsCleared?: number;     // fights won; the next fight is fightPoints[pointsCleared]
+ExpeditionActivity.segmentsBanked?: number;    // segments finished (haul earned), 0..fightPoints.length + 1
+ExpeditionActivity.segmentsOffloaded?: number; // segments already offloaded into exp.findings
+ExpeditionActivity.fightCount?: number;        // fights started on this task (keys "a fresh encounter per attempt")
+ExpeditionActivity.status?: "queued" | "active" | "done" | "skipped";
+ExpeditionActivity.assignedTeamIds?: number[]; // owner team index(es)
+// `done` stays the completion flag and mirrors status === "done".
+
+// == model.ts: the run's ground operations record; PRESENCE = the feature flag ==
+Expedition.groundOps?: GroundOpsState;
+export interface GroundOpsState {
+  version: 1;
+  teams: GroundTeamRun[];           // deployed teams only, ascending ship team index
+  factors: GroundOpsFactors;        // frozen at dispatch
+  shipEventProfile: ShipEventProfile; // frozen at dispatch (GO-8)
+  startedAt?: number;               // gameTimeSeconds the activities phase began (set at the phase boundary)
+  endedAt?: number;                 // set once every task is done/skipped and every team is aboard
+  editCount: number;                // player edits so far (keys the auto-assign stream)
+  history: GroundStepRecord[];      // DISPLAY ONLY, capped (GROUND_HISTORY_CAP per team); resolution never reads it
+}
+export interface GroundTeamRun {
+  index: number;                    // ship team index (0 = Alpha); the name is read live from the ship
+  securityIds: string[]; scienceIds: string[]; // members of exp.roster (the union snapshot)
+  helpOthers: boolean;
+  queue: string[];                  // own ordered task (activity) ids
+  step: GroundStepKind; stepStartedAt: number; stepEndsAt: number | null; // null = open-ended (idle, staging)
+  taskId?: string; borrowed?: boolean;
+  workFrom?: number; workTo?: number;           // progress span of the current work step
+  pendingFight?: GroundFightRecord;             // resolved at fight start, applied at fight end
+  skippedBorrowed: string[];                    // a helper's give-up list (never re-borrowed)
+  downedThisTask: string[];                     // Security members out for the rest of the current task
+  conditions: Record<string, string[]>;         // memberId -> condition ids gathered on the current trip
+  bayEnds: Record<string, number>;              // memberId -> absolute bay end of the latest bay (carried home)
+  bayStart?: number;
+}
+export type GroundStepKind = "idle" | "staging" | "deploy" | "work" | "fight" | "return" | "offload" | "bay" | "reload";
+export interface GroundOpsFactors {
+  medicalShare: number; rapidRecoveryShare: number;   // crew.reducedCrewLosses, officer.repairRateMult at dispatch
+  officerFacetShare: number;                          // recoveryTurnaround + quickRecovery (all conditions)
+  injurySteady: number;                               // Medical Integrity (injury-class conditions only)
+  offloadMult: number;                                // effectiveShipStats(...).unloadSpeedMult at dispatch (>= 1 faster)
+  reloadMult: number;                                 // 1 + crew.loadSpeed + logistics4 (captain secondary talent)
+  securityShare: number[]; scienceShare: number[];    // per team: its share of the crew layers (see GO-7a)
+}
+```
+
+`ExpeditionScanEvent` gains (GO-8): `kind: "shipEvent"`, `event: "debris" | "probe" | "ghost" | "cloaked" | "storm"`,
+`outcome: "pass" | "fail" | "win" | "loss"`, `bonusDiscovery?: true`, `hullWear?: number`, `boarding?: { repelled:
+boolean }`, reusing `pauseSeconds` and `findingId`.
+
+Module graph (no cycles): `groundTeams.ts` (model, awayTeam) <- `medicalBay.ts` (model, crewRaces) <- `groundTasks.ts`
+(model, fieldwork, relics) <- `groundFight.ts` (gambit) <- `groundThreat.ts` (groundFight, combat/threatAssessment) <-
+`groundOps.ts` (all of the above) <- `expedition.ts`. `shipScanEvents.ts` (combat/*, gambit rollHaul) <- `expedition.ts`.
+**`groundOps.ts` and `shipScanEvents.ts` never import `expedition.ts`**; expedition passes in what they need
+(hours since dispatch, the reward seed helpers).
+
+---
+
+## 3. no-dead-stats entries Ground Operations owns
+
+| Entry | Goes live in | How the test sees it |
+|---|---|---|
+| `crew:crew.loadSpeed` (Rapid Loadout; FA talent logistics4 targets the same stat) | GO-7b | reload step length -> the run's timeline (task start times, `endedAt`) |
+| `gear:security:assaultHardsuit:groundHazardResist` | GO-7b | task work time on a hazardous body |
+| `crew:crew.boardingDefense` | GO-9 | boarding repel outcome -> scan pause / scan end time |
+| `racial:ossir` | GO-9 | same consumer (the racial targets crew.boardingDefense) |
+| `facet:tactical:strength` (reason names boarding) | GO-9 if it turns live there (Strength scales the Security division's Boarding Defense); otherwise leave it to Task 23 and update its reason text | the test tells you: it fails "now LIVE, remove the entry" |
+
+GO-7b also re-points the test's expedition probes ("a full run + claim", "injury recovery") at the Ground Ops path:
+`crew.reducedCrewLosses`, Rapid Recovery, `facet:medical:*` must stay LIVE through the bay (fingerprint the timeline
+and the claimed injuries, never the frozen `factors`).
+
+---
+
+## 4. Tasks
+
+Order keeps the build green after every task: data + pure modules first, the engine switch (GO-7b) only when every
+piece it calls exists, then scan events, then UI. Mockup-bearing UI tasks come last so the engine is QA-able first.
+
+### GO-0 (recommended chore, Task 34b pulled forward): consolidate SAVE_VERSION pins
+
+`save.test.ts` pins `toBe(66)` 39 times. Do Task 34b now (ONE canonical pin; per-migration blocks assert migrated
+fields and use the imported `SAVE_VERSION` for "current") so GO-1's bump edits one line. Behavior-neutral; separate
+commit `chore(0.14.0): one SAVE_VERSION pin (Task 34b)`. The controller may skip it and edit the pins in GO-1 instead.
+
+---
+
+### Stage A: Ground teams (data + slotting)
+
+### GO-1: Ground-team data model + SAVE v67
+
+**Files:**
+- Modify: `src/lib/game/model.ts` (types of section 2; `freshState` gives the starting ship its `groundTeams`)
+- Create: `src/lib/game/groundTeams.ts` (pure helpers)
+- Modify: `src/lib/game/save.ts` (`SAVE_VERSION` 66 -> 67; `MIGRATIONS[66]`)
+- Test: `src/lib/game/groundTeams.test.ts` (new), `src/lib/game/save.test.ts` (append)
+
+**Behavior (groundTeams.ts):**
+```ts
+export const GROUND_TEAM_DEFAULT_NAMES = ["Alpha", "Bravo", "Charlie"] as const; // user 9b.7
+export function groundTeamCount(typeKey: ShipTypeKey): number        // the Security entry's `count` (1:1 with Science); 0 if absent
+export function groundSquadSize(typeKey: ShipTypeKey, teamType: "security" | "science"): number // the entry's `size`
+export function emptyGroundTeams(typeKey: ShipTypeKey): ShipGroundTeam[]   // count teams, null-filled slots, helpOthers false
+export function groundTeamName(ship: ShipInstance, index: number): string  // custom name, else default, else "Team N" [PROVISIONAL]
+export function groundTeamShortLabel(index: number): string                // "A" / "B" / "C", by INDEX even after a rename [PROVISIONAL]
+export function shipGroundTeams(ship: ShipInstance): ShipGroundTeam[]      // stored value, else emptyGroundTeams (absent-safe reader)
+```
+**Migration `MIGRATIONS[66]`:** for every ship, if `groundTeams` is not a well-formed array, build `emptyGroundTeams` and
+fill team 0 (then team 1, ...) Security / Science slots with that ship's members of the matching `teamType`, in HIRE
+order (the same `idNumber` order `deployableMembers` uses, ignoring injury: an injured member stays slotted and simply
+does not deploy while injured), up to each squad's size; overflow members stay aboard unslotted. This reproduces
+today's "first N members in hire order". `squadLoadouts`: keep if an array of well-formed `GroundTeamLoadout`, else
+`[]` (no build ever created a squad loadout). Plain data only; idempotent (a second pass keeps well-formed values).
+
+**Tests:**
+- `groundTeamCount` is 1 on every SHIP_TYPES hull today; a synthetic hull with `count: 3` gives 3 teams with the
+  entry's sizes; a hull missing `awayTeams` gives 0.
+- Names: index 0/1/2 -> Alpha/Bravo/Charlie; a custom name wins; short labels A/B/C by index.
+- v66 fixture with a ship holding 4 Security (size 3) + 2 Science members, one injured: migrates to slots holding
+  the first 3 Security by hire order (injured included) and both Science; the 4th Security stays unslotted.
+- Migrating twice is idempotent; JSON round-trip keeps `groundTeams`; `freshState()` has well-formed teams.
+
+**Determinism:** no randomness. **Acceptance:** gate green; no engine reads `groundTeams` yet (behavior-neutral).
+Commit `feat(0.14.0): ground team slot state + save v67 (Ground Ops GO-1)`.
+
+### GO-2: Slotting engine + crew-action sync
+
+**Files:** `src/lib/game/groundTeams.ts`, `src/lib/game/awayTeam.ts` (hire / fire / reassign), `src/lib/game/salvage.ts`
+(bench on salvage, if it benches members; else leave a TODO pointing at Task 27), test `groundTeams.test.ts`.
+
+**Behavior:**
+```ts
+export type GroundSlotBlockReason = "noShip" | "noMember" | "onMission" | "wrongShip" | "wrongTeamType" | "noSuchSlot" | "noSuchTeam";
+export function canSlotMember(state, shipId, teamIndex, teamType, slotIndex, memberId): { ok: true } | { ok: false; reason: GroundSlotBlockReason }
+export function slotMember(state, shipId, teamIndex, teamType, slotIndex, memberId): GameState  // moves the member out of any other slot first; an occupant is unslotted (stays aboard)
+export function unslotMember(state, shipId, memberId): GameState
+export function renameGroundTeam(state, shipId, teamIndex, name: string | null): GameState     // trimmed, max 24 chars, "" or null clears; allowed while on a mission (cosmetic) [PROVISIONAL]
+export function setGroundTeamHelp(state, shipId, teamIndex, on: boolean): GameState            // the ship default for the next dispatch
+export function groundSlotBlockText(reason: GroundSlotBlockReason): string                     // exhaustive switch, no default
+export function deployableGroundTeams(state, ship): { index: number; security: AwayMember[]; science: AwayMember[] }[]
+// slotted members who are ready (isMemberReady), slot order; a team deploys only with >= MIN_SECURITY_MEMBERS
+// Security AND >= MIN_SCIENCE_MEMBERS Science (D18 per team). Teams that miss it are left out.
+```
+Every slot change refuses while `shipCrewLocked(state, shipId)` (except rename). Sync: `hireAwayMember` auto-slots the
+new member into the FIRST empty slot of the matching squad, lowest team index first (QoL: set-and-forget); `fireAwayMember`
+and `reassignAwayMember` unslot first; benching (assignedShipId null) unslots.
+
+**Tests:** invariant helper `assertSlotInvariants(state)` (a member sits in at most one slot fleet-wide; a slot only
+holds a member aboard that ship with the matching team type; slot array lengths equal the hull sizes) run after every
+action in the file; hire auto-slots; a full team leaves the hire unslotted (aboard, reserve); fire / reassign leave no
+dangling id; slotting onto an occupied slot unslots the occupant; on-mission refuses with the same state reference;
+`deployableGroundTeams` skips an injured slotted member and drops a team with no ready Science member.
+
+**Acceptance:** gate green; dispatch unchanged (still `deployableMembers`). Commit
+`feat(0.14.0): ground team slotting engine (Ground Ops GO-2)`.
+
+---
+
+### Stage B: Pure building blocks (no engine switch yet)
+
+### GO-3: Medical bay math + member perks (Stoneskin bay half)
+
+**Files:** Create `src/lib/game/medicalBay.ts`, test `medicalBay.test.ts`; modify `src/lib/game/awayTeam.ts`
+(`snapshotMember` writes `perks` for Ossir), `src/lib/game/model.ts` (`MemberPerkId = "stoneskin"`).
+
+**Behavior:**
+```ts
+export type ConditionClass = "health" | "ailment" | "injury";
+export interface GroundConditionDef { id: string; label: string; cls: ConditionClass; cureSeconds: number }
+// User 9b.5 approved times (1 tick = 1 second). Class per D24's physical list; see open question Q6.
+export const GROUND_CONDITIONS: Readonly<Record<string, GroundConditionDef>> = {
+  health:     { id: "health",     label: "Health",     cls: "health",  cureSeconds: 60 },
+  poison:     { id: "poison",     label: "Poison",     cls: "ailment", cureSeconds: 60 },
+  bleed:      { id: "bleed",      label: "Bleed",      cls: "injury",  cureSeconds: 60 },   // D24 lists Bleed as physical [PROVISIONAL class]
+  blindness:  { id: "blindness",  label: "Blindness",  cls: "ailment", cureSeconds: 60 },   // arrives with 16b [PROVISIONAL class]
+  neurotoxin: { id: "neurotoxin", label: "Neurotoxin", cls: "ailment", cureSeconds: 300 },  // 16b
+  hemorrhage: { id: "hemorrhage", label: "Hemorrhage", cls: "injury",  cureSeconds: 300 },  // 16b
+  concussion: { id: "concussion", label: "Concussion", cls: "injury",  cureSeconds: 900 },  // 16b
+  fracture:   { id: "fracture",   label: "Fracture",   cls: "injury",  cureSeconds: 1800 }, // 16b
+  downed:     { id: "downed",     label: "Downed",     cls: "injury",  cureSeconds: 1200 }, // D9: a downed member is injured [PROVISIONAL class]
+};
+// Battle statuses NOT in this table (stun, weakened, suppressed, corroded, fear, buffs) end with the battle [PROVISIONAL, Q6].
+export const STONESKIN_INJURY_MULT = 1.25;          // D24, user
+export const BAY_MIN_SECONDS = 1;                   // D23 style floor [PROVISIONAL, Q8]
+export interface BayCare { medicalShare: number; rapidRecoveryShare: number; officerFacetShare: number; injurySteady: number }
+export function conditionCureSeconds(cond: GroundConditionDef, perks: readonly MemberPerkId[], care: BayCare, treatmentShare = 0): number
+//   care_c = medicalShare + rapidRecoveryShare + officerFacetShare + treatmentShare (+ injurySteady when cls === "injury"), each clamped >= 0
+//   t = cureSeconds * (cls === "injury" && perks has stoneskin ? 1.25 : 1) / (1 + care_c); max(BAY_MIN_SECONDS, round(t))
+export function memberBaySeconds(conditionIds: readonly string[], perks, care, treatmentShare = 0): number  // the LONGEST of its conditions; 0 for none
+export function teamBaySeconds(members: { conditionIds: string[]; perks: MemberPerkId[]; treatmentShare?: number }[], care): number // the longest member (user: "you wait for 10 ticks")
+export function memberPerksFor(race: CrewRace): MemberPerkId[]      // ossir -> ["stoneskin"]; others [] (the user names other races' perks later)
+```
+`treatmentShare` is the Injury Kit hook (Task 16b step 5); always 0 here.
+
+**Tests:** the mockup's bay (GO-M4): Health 60, Poison 60, Fracture on an Ossir member 2250, Concussion 900 -> team bay
+2250 with zero care; "1000 ailments and 1 fracture" takes the fracture's time; Stoneskin touches injuries only (Poison
+on an Ossir member stays 60); `injurySteady` shortens injuries only; care divides (1 + 1 halves); unknown condition ids
+are ignored (0); `snapshotMember` writes `perks: ["stoneskin"]` for an Ossir member and omits `perks` otherwise (so every
+existing snapshot test stays deep-equal).
+
+**Determinism:** pure arithmetic. **Acceptance:** gate green; nothing calls it yet. Commit
+`feat(0.14.0): medical bay cure-time math + Stoneskin bay half (Ground Ops GO-3)`.
+
+### GO-4: Ground task model (fight points, segments, work time) + salt registry
+
+**Files:** Create `src/lib/game/groundTasks.ts`, tests `groundTasks.test.ts`, `salts.test.ts` (new: reads the exported
+salt constants of expedition.ts, gambit.ts, groundTasks.ts and later groundOps.ts / shipScanEvents.ts; asserts all distinct
+and odd); modify `gambit.ts` (export `rollHaul`, `REWARD_SALT`-keyed `taskRewardSeed(exp, flatIndex)` so legacy and Ground
+Ops share ONE reward seed definition; legacy output unchanged).
+
+**Behavior:**
+```ts
+// Fight points from the SITE'S THREAT (user 9b.2). FIRST-PASS TUNABLE counts (mockup GO-M2 values where shown).
+export const FIGHT_POINTS_BY_POI: Readonly<Record<string, number>> = {
+  mineralOutcrop: 1, caveNetwork: 2, ancientRuins: 2, xenoFloraBloom: 2,
+  crashedShip: 3, geothermalChamber: 3, buriedVault: 3, derelictOutpost: 4, subterraneanCivilization: 4,
+};
+export const FIGHT_POINTS_DEFAULT = 2, FIGHT_POINTS_HAZARD_STEP = 0.6, FIGHT_POINTS_MAX = 5;
+export function fightPointCount(poiId: string, hazard: number): number   // table (default 2) + 1 at hazard >= 0.6, clamped [1, 5]
+export function fightPointFractions(n: number): number[]                 // evenly spaced k / (n + 1), k = 1..n (mockup GO-M4 shows 3 points)
+export function segmentCount(task): number                                // fightPoints.length + 1
+// Haul per finished segment: the task's FULL haul is rolled once (rollHaul(taskRewardSeed, planet, RAW hazard, yieldMult of
+// the team(s) banking it)), then split exactly across segments: share(total, N, s) = floor(total*(s+1)/N) - floor(total*s/N).
+export function segmentHaul(full: { materials: Record<string, number>; credits: number }, N: number, s: number)
+// Work time (D25 + D26): the task's full work seconds for a team set on a body:
+//   ACTIVITY_SECONDS / fieldworkSpeedMult(teamRun, planetType) * (1 + resistedHazard(hazard, museumResist + teamHazardResist) * TASK_HAZARD_PENALTY)
+// teamRun = { roster: { security: [], science: teamScience }, scienceStrength: exp.scienceStrength * scienceShare } (fieldwork.ts readers, unchanged)
+// teamHazardResist = fieldworkHazardResist(teamRun, planetType) + the Security members' groundStats.hazardResist (THE Assault Hardsuit line, D26)
+export const TASK_HAZARD_PENALTY = 0.5;  // [PROVISIONAL, Q10] mirrors SCAN_HAZARD_PENALTY
+export function taskWorkSeconds(exp, teams: GroundTeamRun[], body): number   // floored at 1 second (D23)
+```
+**Tests:** counts per table + hazard step + clamp; fractions for n = 1, 3; segment shares sum exactly to the total for
+odd totals and N = 2..6; a Science member with fieldwork shortens work; an Assault Hardsuit on a SECURITY member
+shortens work on a hazardous body and does nothing on a hazard-0 body; legacy `resolveExpeditionActivity` output is
+unchanged after the `taskRewardSeed` extraction (existing tests stay green); salts test passes.
+
+**Determinism:** no draws here except the reused task reward stream (same key as legacy). **Acceptance:** gate green.
+Commit `feat(0.14.0): ground task model (fight points, segments, work time) (Ground Ops GO-4)`.
+
+### GO-5: One task fight (pure)
+
+**Files:** Create `src/lib/game/groundFight.ts`, test `groundFight.test.ts`.
+
+**Behavior:**
+```ts
+export const GROUND_FIGHT_SALT = 0x4d2a7e1b;  // new, odd, add to salts.test.ts
+export const GROUND_ROUND_SECONDS = 6;        // a fight step lasts rounds * this [PROVISIONAL, Q9]
+export interface GroundFightRecord {
+  pointIndex: number; fightNumber: number;    // fightNumber = the task's fightCount at the start (the key)
+  outcome: "win" | "loss"; rounds: number;
+  downedMemberIds: string[];
+  memberConditions: Record<string, string[]>; // memberId -> condition ids at the battle's end (GROUND_CONDITIONS ids only):
+                                              // "health" when hp < hpMax, each remaining status that is in the table, "downed" when downed
+  neuralBackup?: { memberId?: string; revived: boolean };
+}
+export function resolveTaskFight(exp: Expedition, teams: GroundTeamRun[], body: ExpeditionBody, task: ExpeditionActivity,
+  flatIndex: number, logSink?: GambitLogEvent[]): GroundFightRecord
+// seed = (exp.seed ^ GROUND_FIGHT_SALT ^ imul(flatIndex + 1, 0x9e3779b9) ^ imul((task.fightCount ?? 0) + 1, 0x85ebca6b)) >>> 0
+// team = buildRosterCombatants(union of teams' Security snapshot members, exp.securityStrength * sum(securityShare),
+//        idPrefix `${exp.id}-${task.id}-f${fightNumber}`, sittingOut = union of teams' downedThisTask,
+//        { triage: exp.squadTriage, fearResist: exp.squadFearResist })
+// enemies = generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId)   (NO ambush soften: D13 + GO-8)
+// result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed); conditions read off the mutated team combatants
+```
+**Tests:** same inputs -> deep-equal record; a different `fightCount` -> a different enemy set or course ("a fresh
+encounter per attempt"); a member in `downedThisTask` never appears in the team; a wiped squad records every member
+"downed"; a survivor below max HP gets "health"; poison remaining at the end is recorded, weakened is not; the log sink
+does not change the record; a Neural Backup wearer's revive rolls on its own stream (record identical with and without
+a log).
+
+**Determinism:** one private stream per fight, keyed by (task flat index, fight number); never the legacy COMBAT_SALT
+stream. **Acceptance:** gate green. Commit `feat(0.14.0): ground task fight resolver (Ground Ops GO-5)`.
+
+### GO-6: Threat indicator (display only)
+
+**Files:** Create `src/lib/game/groundThreat.ts`, test `groundThreat.test.ts`; modify `combat/threatAssessment.ts`
+(add `THREAT_TIER_ORDER` and `tierAtLeast(tier, floor)`; add a `shortName` per tier [PROVISIONAL text, Q17]).
+
+**Behavior:**
+```ts
+export const GROUND_THREAT_SALT = 0x6e5b3c27;  // new, odd
+export const GROUND_THREAT_SAMPLES = 32;       // TUNABLE (cost vs precision); ship combat uses DEFAULT_SAMPLES 64
+export function groundTaskClearOdds(exp, teams: GroundTeamRun[], body, task, flatIndex, samples = GROUND_THREAT_SAMPLES): { wins: number; samples: number }
+// sample s simulates the task's REMAINING fights (pointsCleared .. n-1) in order with seeds
+// (exp.seed ^ GROUND_THREAT_SALT ^ imul(flatIndex + 1, 0x9e3779b9) ^ imul(s + 1, 0x85ebca6b) ^ imul(j + 1, 0x27d4eb2f)),
+// members downed in an earlier fight of the SAME sample sit out its later fights (the in-task rule); a sample wins
+// only when every remaining fight wins ("clear the WHOLE task in one go", design 7). 0 remaining fights -> all wins.
+export function groundTaskThreat(...same args): ThreatAssessment   // threatAssessment(wins, samples): the 7 named tiers
+export const HELPER_MIN_TIER: ThreatTier = "likely";             // "Favorable" (user 9b.4) [PROVISIONAL mapping, Q2]
+```
+**Tests:** deterministic; a strong geared squad vs a 1-fight Mineral Outcrop reads Guaranteed or Likely, a lone
+bare-handed member vs a 4-fight Subterranean Civilization reads Extreme or Impossible; computing it changes nothing
+(the run passed in is deep-equal afterwards, and resolving the real fight after a threat read gives the same record
+as without it); `tierAtLeast` ordering.
+
+**Determinism:** samples use their own salt, so a threat read can never shift a real fight. Display only, EXCEPT the
+two uses the user approved: the default plan (GO-7c) and the helper floor (GO-7c). **Acceptance:** gate green. Commit
+`feat(0.14.0): ground threat indicator on the 7 tiers (Ground Ops GO-6)`.
+
+---
+
+### Stage C: The engine
+
+### GO-7a: Dispatch snapshot for ground teams (written, not yet read)
+
+**Files:** `src/lib/game/groundOps.ts` (create: `snapshotGroundOps(state, ship)` and types re-exported), `expedition.ts`
+(no behavior change yet), test `groundOps.test.ts`.
+
+**Behavior:** `snapshotGroundOps` returns `{ teams, factors, shipEventProfile: NEUTRAL_SHIP_EVENT_PROFILE }` from
+`deployableGroundTeams` and the ship at dispatch:
+- teams: index, member ids (slot order), `helpOthers` from the ship, empty queues, `step: "idle"`.
+- `securityShare[i]` = team i's Security count / all deployed Security; `scienceShare` likewise. With one team both are
+  `[1]`, so every crew-layer read equals today's [PROPOSAL, flagged in Q20: splits the ship's crew layer across teams].
+- factors: `medicalShare` / `rapidRecoveryShare` = `shipInjuryFactors(state, ship)` (D24: FROZEN at dispatch);
+  `officerFacetShare` = the run's `recoveryTurnaround + quickRecovery`; `injurySteady`; `offloadMult` =
+  `effectiveShipStats(state, ship).unloadSpeedMult ?? 1`; `reloadMult` = `1 + crew.loadSpeed (shipCrewContribution)
+  + (captain.unlockedSecondaryTalents includes "logistics4" ? 0.08 : 0)` (D26; the secondary tree is otherwise dormant,
+  note it in a comment).
+Also the union roster: `snapshotAwayRosterForTeams(state, ship, teams)` = Security then Science members of the deployed
+teams, team order then slot order (scan readers keep reading `exp.roster`).
+
+**Tests:** one team: shares [1]; three-team synthetic hull: shares sum to 1; a team missing a ready Science member is
+left out; frozen factors match the live readers at dispatch and do not change when the ship's officers change later;
+`reloadMult` rises with Rapid Loadout and with logistics4.
+
+**Acceptance:** gate green, still behavior-neutral (startExpedition does not call it). Commit
+`feat(0.14.0): ground ops dispatch snapshot (Ground Ops GO-7a)`.
+
+### GO-7b: The timeline engine, single team, own queue (THE SWITCH)
+
+**Files:** `src/lib/game/groundOps.ts`, `expedition.ts` (`startExpedition`, `advanceExpedition`, phase durations, scan
+completion hook, `claimExpedition`), `injuries.ts` (`applyGroundOpsInjuries`), `no-dead-stats.test.ts` (probes +
+remove `crew:crew.loadSpeed` and the Assault Hardsuit entry), tests `groundOps.test.ts`, `groundOpsParity.test.ts`,
+`groundOpsLegacy.test.ts` (golden hashes FIRST).
+
+**Step 1 (before any engine edit):** capture golden hashes of legacy runs (no `groundOps`): plain pre-Task-14 run,
+Task-14 encounter run with a loss pause, a run with wipes + evacuation, each advanced in one call and in 997 s chunks,
+plus their claims. Commit them inside this task's commit; they must stay green.
+
+**Behavior:**
+- `startExpedition`: D18 now reads `deployableGroundTeams` (at least one team deploys); `roster` = the union snapshot;
+  writes `groundOps = { version: 1, ...snapshotGroundOps(...), editCount: 0, history: [] }`. Update
+  `expeditionDispatchBlockText("needsAwayTeam")` to "Needs a ground team with at least 1 Security and 1 Science member
+  slotted and ready: set it up on the ship's Away Team tab".
+- Scan completion (both scan resolvers, right after `assignDiscoveriesAndActivities` for a flagged run):
+  `initGroundTasks(exp, bodyIndex)` stamps each new activity (`requiredTeams: 1`, `fightPoints`, `progress: 0`,
+  `pointsCleared: 0`, `segmentsBanked: 0`, `segmentsOffloaded: 0`, `fightCount: 0`, `status: "queued"`) and
+  `planNewTasks(exp, bodyIndex)` appends them to queues. One team: its queue gets the body's tasks EASIEST FIRST by
+  `groundTaskClearOdds` (ties: discovery order) [PROVISIONAL, Q3].
+- Activities phase of a flagged run: at the boundary set `startedAt = anchor`. `advanceGroundOps(exp, now, hoursAt)`
+  processes step ends in (stepEndsAt, team index) order while `stepEndsAt <= now + PHASE_EPS`, then runs
+  `assignIdleTeams(t)` (team index order) after every batch of ends at the same instant:
+  - idle -> pick the first `queued` task in its own queue -> `deploy` (DEPLOY_SECONDS) [PROVISIONAL, Q7], status `active`.
+  - deploy end -> pending fight at `progress` (pointsCleared < n and progress == fightPoints[pointsCleared]) ? `fight`
+    : `work` to the next point or 1, lasting `(to - from) * taskWorkSeconds`.
+  - work end -> `progress = to`; bank the segment just finished (`segmentsBanked += 1`); if `to === 1`: status
+    `done`, `done = true`, relic rolled now (rollRelicToken on the legacy relic seed, find bonus with the team's
+    fieldwork relicFind + `crewRareFind` ramped at `hoursAt(t)`), -> `return`; else -> `fight`.
+  - fight START: `resolveTaskFight` (GO-5), `fightCount += 1`, store `pendingFight`, step length `rounds *
+    GROUND_ROUND_SECONDS` (min 1). Fight END: merge `memberConditions` into `conditions`, add downed to
+    `downedThisTask`; win -> `pointsCleared += 1`, -> `work`; loss -> progress stays at the point, -> `return`.
+  - return (RETURN_SECONDS) -> offload (`OFFLOAD_BASE_SECONDS / offloadMult`) -> at offload END append one finding per
+    offloaded batch: id `${exp.id}-find-task-${task.id}-s${from}-${to}`, source `"activity"`, `poiId`, the summed
+    `segmentHaul` of segments `segmentsOffloaded..segmentsBanked-1` (yieldMult of the team that banked them), the relic
+    on the completing batch; `segmentsOffloaded = segmentsBanked`.
+  - bay: per member `memberBaySeconds(conditions[m], perks, factors care)`; step length = the longest (0 -> straight to
+    reload); record `bayEnds[m] = t + own`, `bayStart = t`. -> reload (`RELOAD_BASE_SECONDS / reloadMult`) -> idle;
+    clear `conditions`, `downedThisTask`, `taskId`.
+  - Run end: when no task is `queued` / `active` / `staging` and every team is `idle`, `bay` or `reload`, set
+    `endedAt = t`. Activities duration = `endedAt - startedAt` (unknown before: the phase does not end).
+- `expedition.ts`: `phaseDurationSeconds("activities")` for a flagged run = `endedAt - startedAt` when set, else
+  `Infinity` (the loop breaks); `activitiesDurationSeconds` (return-leg ramp) reads the same; the legacy branches are
+  untouched. `expeditionPhaseFraction` in activities reads `groundOpsProgress(exp, now)` (tasks done / total, plus the
+  working team's interpolated progress).
+- Claim of a flagged run: deposit findings (already offloaded), then `applyGroundOpsInjuries`: every member whose
+  latest `bayEnds` is after `now` becomes injured until it (injuredAtSeconds = that team's `bayStart`); everyone else is
+  ready ("anyone still in the bay comes home with the remaining time"; the bay keeps running through the return leg, so
+  unclaimed time counts, matching D24's intent). Never the flat 2h.
+- `GROUND_HISTORY_CAP` = 200 records per team, display only (the timeline UI). Resolution never reads history.
+- Constants [PROVISIONAL, Q7]: `DEPLOY_SECONDS = 60`, `RETURN_SECONDS = 60`, `OFFLOAD_BASE_SECONDS = 120`,
+  `RELOAD_BASE_SECONDS = 120`.
+
+**Tests (`groundOps.test.ts`, one team, hand-built rosters via `awayTeamTestFixtures.ts`):**
+- A 3-fight task with a strong squad: work, fight, work, fight, work, fight, work, done; 4 segments banked; findings
+  offloaded only at offload end; the relic only on the completing batch.
+- A wipe at fight 2 (weak squad, then a strong retry fixture): progress held at fightPoints[1]; segments 0..1 banked
+  and offloaded on that return; the retry re-fights point 2 with `fightCount` 3 (a different encounter); no segment is
+  ever banked twice (user 9b.1: no farming).
+- A member downed in a WON fight is absent from the task's later fights, present again after the bay.
+- Bay length = the longest member condition; the mockup bay (Fracture on an Ossir member) gives 2250 s with no care.
+- Reload shortens with Rapid Loadout and logistics4; offload shortens with the unload bonus.
+- Run end: `endedAt` set, the return leg runs, claim injures exactly the members still in the bay.
+- An Assault Hardsuit on Security shortens task work on a hazardous body (the D26 consumer).
+
+**Tests (`groundOpsParity.test.ts`):** a two-body run with a wipe and a retry: one big advance == 997 s chunks == 1 s
+chunks over the first 2 hours (deep-equal, with an explicit timeout like the slow parity test). Each `stepEndsAt` is a
+pure function of stored values.
+
+**no-dead-stats:** point the expedition probes at a flagged run (fingerprint `endedAt`, each task's completion time,
+the claim's injuries); remove `crew:crew.loadSpeed` and `gear:security:assaultHardsuit:groundHazardResist`; confirm
+Medical, Rapid Recovery and the Medical facets stay live.
+
+**Acceptance:** gate green; legacy golden hashes unchanged; new dispatches run Ground Ops (the old ExpeditionPanel still
+works: `done` flags flip as tasks finish). Commit `feat(0.14.0): ground ops timeline engine, single team (Ground Ops GO-7b)`.
+
+### GO-7c: Multi-team, default plan, helpers, multi-team tasks
+
+**Files:** `groundOps.ts`, tests `groundOpsTeams.test.ts` (synthetic 3-team hull fixture; every real hull stays at 1).
+
+**Behavior:**
+- Default plan (user 9b.3) when a body completes with 2+ deployed teams: rank teams by their mean clear rate over the
+  body's tasks (strongest first); sort tasks hardest first by the strongest team's clear rate; give team A the hardest
+  ceil(n / teams) tasks, B the next, and so on ("harder tasks to A, middling to B, easy to C"); each team's new tasks are
+  appended EASIEST FIRST [PROVISIONAL, Q3]. One team skips the ranking.
+- Helpers (user D25 + 9b.4): an idle team with `helpOthers` and an empty own queue borrows the first task (other teams
+  in index order, their queue order) that is `queued`, `requiredTeams === 1`, not in its `skippedBorrowed`, and rates at
+  least `HELPER_MIN_TIER` for the helper from the task's current progress. A helper LOSS adds the task to
+  `skippedBorrowed`, returns it to `queued` for its owner, keeps its progress; the helper takes the return trip and
+  moves on. A helper win finishes it normally; the owner skips a `done` task.
+- `requiredTeams` N (wired, no content uses it): a team that picks it goes `staging`; when every team in
+  `assignedTeamIds` is staging they deploy together; the LEAD (lowest index) carries the joint work / fight steps
+  (Security squads fight as one side, Science fieldwork sums via the union `teamRun`), partners mirror the lead's
+  `taskId` with step `"staging"` until the joint return, then each team runs its own return trip, offload and bay. A task
+  needing more teams than deployed is `skipped` at planning with a log line [PROVISIONAL, Q20].
+
+**Tests:** default plan on a 3-team hull matches the A/B/C split; two teams work in parallel and their steps interleave
+by time; a helper borrows only at or above the floor, fails, skips, and never loops on that task (the mockup GO-M3 Team C
+lane); a 2-team task runs both squads in one fight; parity (big == chunked) on the 3-team run.
+
+**Acceptance:** gate green. Commit `feat(0.14.0): ground ops multi-team, default plan, helpers (Ground Ops GO-7c)`.
+
+### GO-7d: Live queue edits ("apply from now")
+
+**Files:** `groundOps.ts` (edit API), `App.svelte` (no UI yet; handlers land with GO-13), tests `groundOpsEdits.test.ts`.
+
+**Behavior:**
+```ts
+export type GroundOpsEdit =
+  | { kind: "assign"; taskId: string; teamIndex: number; position?: number } // move into a team's queue (from any queue)
+  | { kind: "reorder"; teamIndex: number; taskId: string; delta: -1 | 1 }
+  | { kind: "skip"; taskId: string }
+  | { kind: "requeue"; taskId: string; teamIndex: number }                    // a skipped task back into a queue
+  | { kind: "defaultPlan"; bodyIndex: number }
+  | { kind: "autoAssign"; bodyIndex: number }                                // user's "Auto-assign randomly"
+  | { kind: "setHelp"; teamIndex: number; on: boolean };
+export type GroundOpsEditBlockReason = "noExpedition" | "notGroundOps" | "runFinished" | "noSuchTask" | "taskDone" | "noSuchTeam" | "notEnoughTeams";
+export function canEditGroundOps(state, expeditionId, edit): { ok: true } | { ok: false; reason: GroundOpsEditBlockReason }
+export function editGroundOps(state, expeditionId, edit): GameState
+// 1) advance the run to state.gameTimeSeconds (advanceExpedition); 2) validate; 3) apply to the stored queues;
+// 4) editCount += 1; 5) if in the activities phase, assignIdleTeams(now). Same state reference on refusal.
+```
+- Allowed during scanning (queues of scanned bodies) and activities; refused after `endedAt` (`runFinished`).
+- Editing an ACTIVE task [PROVISIONAL, Q14]: `skip` or `assign` away during deploy / work stops the team at the edit
+  instant (progress = the interpolated value, no partial segment haul), the team takes the return trip; during a fight
+  the edit waits for the fight to end. Reorder never interrupts the current task.
+- `autoAssign`: the body's unfinished, non-active tasks to deployed teams uniformly at random, on
+  `makeRng((exp.seed ^ AUTO_ASSIGN_SALT ^ imul(editCount + 1, 0x9e3779b9)) >>> 0)` (new odd salt), appended in drawn order.
+- `defaultPlan`: re-runs GO-7c's plan for that body's unfinished, non-active tasks.
+
+**Tests:** EDIT PARITY: (advance to T in one call, edit, advance to end) deep-equals (advance to T in chunks, edit,
+chunks to end); skip of the active task returns the team and keeps progress; requeue resumes from the kept progress;
+autoAssign is deterministic for a given editCount and differs for the next; refused edits return the same state.
+
+**Acceptance:** gate green. Commit `feat(0.14.0): ground ops live queue edits (Ground Ops GO-7d)`.
+
+---
+
+### Stage D: Ship-side scan events
+
+### GO-8: Ship-side scan events replace scan-time ground battles (flagged runs)
+
+**Files:** Create `src/lib/game/shipScanEvents.ts`, test `shipScanEvents.test.ts`; modify `expedition.ts`
+(`rollStepBoundary` branches on `exp.groundOps`), `groundOps.ts` (`snapshotShipEventProfile` at dispatch),
+`model.ts` (`ExpeditionScanEvent` fields, `ShipEventProfile`), `gambit.ts` (no change to `resolveScanEncounter`; it
+stays for legacy runs).
+
+**Behavior:** the step roll is unchanged (draw 1 = event chance via the existing `scanEncounterChance` formula, draw 2 =
+supply cache) [PROVISIONAL: the Shroud / Lure dial keeps scaling it, Q11]. On a flagged run draw 1 fires
+`resolveShipScanEvent(exp, body, bodyIndex, step)` instead of a ground battle. Its own stream
+`makeRng((exp.seed ^ SHIP_EVENT_SALT ^ imul(scanStepKey + 1, 0x9e3779b9)) >>> 0)` with a FIXED draw layout so later
+additions shift nothing: draw 1 kind (weights debris 35, probe 25, ghost 25, storm 15), draw 2 the check, draw 3 cloaked
+(a ghost is a cloaked vessel at 10%), draw 4 boarding attempt, draw 5 boarding repel (draws 4 and 5 are taken and
+ignored until GO-9). All numbers FIRST-PASS TUNABLE.
+- `ShipEventProfile` frozen at dispatch: `evasion` (the ship combatant's evasion with officer combat applied), `sensors`
+  (`exp.sensorPower`), `shieldCapacity` (combatant), `engineering` (`departmentFacet(state, ship, "engineering",
+  "integrity")`, first-pass), `boardingDefense` (GO-9), and the frozen ship battle inputs `{ hullType, installedGear
+  (deep copies of equippedFor), officerCombat }`.
+- Debris field (pilot's evasion): pass chance from `evasion`; fail -> `pauseSeconds` DEBRIS_DELAY_SECONDS and a recorded
+  `hullWear` (display only) [PROVISIONAL, Q12].
+- Hostile probe / drone: `resolveBattle` on the existing combat engine: the frozen player ship vs a small probe enemy
+  built through `shipToCombatant` from a new data entry (stats scaled by the body's hazard), the probe SOFTENED by
+  `exp.ambushSoften` (Security Cunning moves here: hull, shield and weapon damage x (1 - soften)); battle seed on its own
+  salt PROBE_BATTLE_SALT. Win -> salvage finding (`rollHaul` at PROBE_SALVAGE_SCALE, source `"encounter"`); loss ->
+  `pauseSeconds` PROBE_REPAIR_SECONDS (the ship repairs in the field) [PROVISIONAL, Q12].
+- Sensor ghost (Science + sensors): pass -> `bonusDiscovery: true` (when the body completes, ONE extra discovery is
+  appended from its own stream GHOST_FIND_SALT, never the body's discovery stream); fail -> lost scan progress expressed
+  as `pauseSeconds` (re-scanning) [PROVISIONAL amount, Q19]. Cloaked vessel (rare ghost, user idea + D26): a probe-style
+  fight against a stronger cloaked hull, sensors add to the player's opening odds (first-pass: the check passes = the
+  player strikes first); win -> a bonus find, loss -> repair pause.
+- Radiation storm (Engineering + shields): pass chance from `shieldCapacity * (1 + engineering)`; fail -> slowdown
+  as `pauseSeconds` STORM_SLOW_SECONDS.
+Every negative outcome is a `pauseSeconds`, so the existing scan walk (`pauseAt`, `encounterScanDurationSeconds`) times
+it exactly and offline == live holds unchanged. Nobody is downed during scanning (no ground fight), so
+`scanDownedBefore` stays legacy-only.
+
+**Tests:** each kind fires on some boundary over a seed sweep; legacy (unflagged) runs still fight ground encounters
+(golden hashes from GO-7b stay green); the probe battle is deterministic and softer with `ambushSoften`; a ghost's bonus
+discovery adds exactly one task and does not change the body's other discoveries; parity (big == chunked) on a flagged
+scan with a pause; the fixed draw layout (stubbing boarding draws changes nothing else).
+
+**Acceptance:** gate green. Commit `feat(0.14.0): ship-side scan events replace scan ground battles (Ground Ops GO-8)`.
+
+### GO-9: Boarding attempts (D26)
+
+**Files:** `shipScanEvents.ts`, `groundOps.ts` (profile), `no-dead-stats.test.ts`, test `shipScanEvents.test.ts`.
+
+**Behavior:** on a probe or cloaked event, draw 4 decides an attempt (BOARDING_ATTEMPT_CHANCE 0.25), draw 5 the repel:
+chance = clamp(BOARDING_REPEL_BASE 0.5 + `boardingDefense` * BOARDING_DEFENSE_COEFF, 0.05, 0.95), where `boardingDefense`
+= `shipCrewContribution(state, ship)[crew.boardingDefense]` frozen at dispatch (the Security division's Boarding
+Defense, the Ossir racial, Strength's facet through the crew rollup). Repelled -> recorded only. Not repelled ->
+`pauseSeconds` BOARDING_PAUSE_SECONDS [PROVISIONAL, Q13]. Record `boarding: { repelled }` on the event.
+
+**no-dead-stats:** add a scan-event probe (a flagged run seeded to hit a boarding attempt) and remove
+`crew:crew.boardingDefense`, `racial:ossir`; handle `facet:tactical:strength` per section 3.
+
+**Tests:** more boarding defense, higher repel rate over a seed sweep; a boarding-free run is identical with and without
+the profile value; draws 1 to 3 unchanged by this task.
+
+**Acceptance:** gate green, including `no-dead-stats`. Commit `feat(0.14.0): boarding attempts on ship scan events (Ground Ops GO-9)`.
+
+---
+
+### Stage E: UI (mockup-referenced; each verifies in the preview, desktop + 375 px)
+
+Preview loop: `preview_start({name:"dev"})` -> localhost:5173, `?dev` for Debug (Offline sim, grants). Origin must be
+HyperionLegacy.git. Console clean. Screenshot desktop and mobile for the controller.
+
+### GO-10: Shared ground-ops UI atoms
+
+**Files:** `src/lib/ui/icons.ts` + `iconPacks.ts` (glyphs: `groundTeam`, `fightPoint`, `medBay`, `offload`, `reload`,
+`deploy`, `shipDebris`, `shipProbe`, `sensorGhost`, `radiationStorm`, `boarding`, `threatDot`), new
+`src/lib/ui/ThreatChip.svelte` (tier `colorHex` + dot glyph + `shortName`, full name + `fuzzyRange` + `voice` in a HelpTip;
+NO emoji, unlike the patrol chip, see Q17), new `src/lib/ui/TeamBadge.svelte` (A / B / C badge, GO-M1 `.badge`).
+**Acceptance:** glyphs reviewed at 16 / 28 / 56 px (screenshot); gate green. Commit `feat(0.14.0): ground ops glyphs + threat chip (Ground Ops GO-10)`.
+
+### GO-11: Ground team slotting in AwayTeamPanel (mockup GO-M1)
+
+**Files:** `src/lib/AwayTeamPanel.svelte`, `src/App.svelte` (`doSlotMember`, `doUnslotMember`, `doRenameGroundTeam`,
+`doSetGroundTeamHelp`).
+**Behavior:** one card per ground team (badge + name + Rename; Security squad slots then Science squad slots, empty slots
+dashed "Empty slot"; GO-M1 layout); each filled slot shows the member (existing member card condensed) with Unslot;
+an empty slot opens a picker of that ship's unslotted members of the matching type (pick, then Slot button); an
+"Aboard, not slotted" reserve section lists unslotted members (they do not deploy, said in plain words); "When done, help
+other teams" toggle per team (ship default for the next dispatch). Locked while on a mission (reason text from
+`groundSlotBlockText`; rename stays enabled). Header copy replaces the Task 6 line (Security fights during TASKS, Science
+does the task fieldwork; scanning is ship-side). The member gear install flow is unchanged.
+**Verify:** slot / unslot / rename / toggle on the Aurora; reload keeps them; mobile slot grid is 2 columns (GO-M1 rule).
+Commit `feat(0.14.0): ground team slotting UI (Ground Ops GO-11)`.
+
+### GO-12: Dispatch console: ground teams that will deploy
+
+**Files:** `src/lib/ExpeditionPanel.svelte`.
+**Behavior:** the dispatch strip lists each team that will deploy (badge, name, Security / Science ready counts) and
+each team that will not, with why (no ready Science, and so on); the block reason text from GO-7b.
+Commit `feat(0.14.0): dispatch shows deploying ground teams (Ground Ops GO-12)`.
+
+### GO-13: Per-planet task queue screen with odds per team (mockup GO-M2)
+
+**Files:** new `src/lib/GroundTaskQueue.svelte`, `ExpeditionPanel.svelte` (in-progress view, per scanned body),
+`App.svelte` (`doEditGroundOps(expeditionId, edit)` through `editGroundOps`).
+**Behavior:** per body: title (body name + planet type), task count; table: Task, Fights, one odds column per deployed
+team (ThreatChip from `groundTaskThreat`, memoized per (expedition, task, team, pointsCleared)), Assigned (select +
+Apply, or Skip / Re-queue), up / down reorder within the team's queue; header buttons "Default plan" and
+"Auto-assign randomly" (user's words); note line "Nothing ever waits for you; reorder, reassign or skip at any time".
+Table scrolls horizontally inside its own wrapper on a phone (GO-M2 `.tw`), never the page.
+**Verify:** with Debug grants, dispatch, Offline-sim to a scanned body; reassign, skip, auto-assign; odds render;
+console clean. Commit `feat(0.14.0): per-planet task queue screen (Ground Ops GO-13)`.
+
+### GO-14: Team timelines + task cards + bay card (mockups GO-M3, GO-M4)
+
+**Files:** new `src/lib/GroundTeamTimeline.svelte`, new `src/lib/GroundTaskCard.svelte`, `ExpeditionPanel.svelte`.
+**Behavior:** one lane per team from `groundOps.history` + the live step (segments: working, fight, wipe, travel,
+offload / reload, medical bay, idle; key row; GO-M3 colors as theme tokens). Task card: title, state chip (Queued, In
+progress, Paused: team in med bay, Done, Skipped), progress bar with fight pips (won / pending / wiped here), haul
+banked vs offloaded line, the assigned team badge (GO-M4 left). Bay card for a team in the bay: one bar per member
+condition with time, the longest highlighted, "Bay time: N (the longest one)", the Stoneskin note on Ossir members (GO-M4
+right). The activities phase label reads "Ground Operations" [PROVISIONAL copy]. Battle log per fight via a lazy
+re-derivation (`resolveTaskFight` with a log sink; display only).
+Commit `feat(0.14.0): team timelines, task cards, med bay card (Ground Ops GO-14)`.
+
+### GO-15: Scan track: ship-event pips + log lines (absorbs Task 17's scan track)
+
+**Files:** `ExpeditionPanel.svelte`.
+**Behavior:** per-body scan track with pips from `scanEvents` (debris, probe, ghost / cloaked, storm, supply cache,
+boarding), each with its outcome and pause; log lines in plain words. Legacy runs keep the ground-encounter pips
+(`deriveScanEncounterLog`). Uses EC-M section 5 layout; new glyphs from GO-10.
+Commit `feat(0.14.0): ship-event scan track (Ground Ops GO-15)`.
+
+### GO-16: Per-member gambit editor by ground team (absorbs Task 17's editor)
+
+**Files:** `src/lib/GambitEditorPanel.svelte`, `App.svelte`.
+**Behavior:** pick a ship, a ground team, then a Security member; edit that member's program; "Apply preset"; "Copy to
+squad" (that team's Security squad); the Science tab is removed; the inert account pair gets a one-line notice (Task 17
+must "decide the account pair's future": keep it stored and hidden, flagged in Q21). EC-M gambit section.
+Commit `feat(0.14.0): per-member gambit editor by ground team (Ground Ops GO-16)`.
+
+### GO-17: Squad Loadouts per ground team (reshaped Task 18)
+
+**Needs a sketch first** (no mockup covers it; feedback rule "visual UI needs mockup"). Do not build the UI half until
+the user signs off; the engine half can land first.
+
+**Files:** `src/lib/game/armory.ts`, `App.svelte` (Armory tab "Squad Loadouts"), `personnelRosters.ts` (S4-CP39), tests
+`armory.test.ts`.
+**Behavior:** `createGroundTeamLoadout(state, shipId, teamIndex, name)` snapshots the team's slotted members' installed
+pieces into kits in slot order (committing them like ship loadouts); `applyGroundTeamLoadout(state, loadoutId, shipId,
+teamIndex)` installs kits onto the slotted members in slot order, skipping and REPORTING missing / locked /
+unique-conflict / wrong-team pieces (never forcing); `checkInGroundTeamLoadout`. Counts against the shared `loadoutCap`.
+`SquadLoadoutKit` gains an optional `consumables?` slot left empty for Task 16b's Squad Kit. Carried from Task 18:
+`applyRoster` applies its linked SHIP loadout (S4-CP39).
+**Tests:** round trip restores the same kits; a unique conflict is skipped with a reason; the cap is shared; refused
+while the ship is on a mission.
+Commit `feat(0.14.0): ground team loadouts (Ground Ops GO-17, reshapes Task 18)`.
+
+### GO-18: Help topics
+
+**Files:** `src/lib/helpTopics.ts` (+ the existing shape test).
+**Behavior:** new topic `groundOperations`: ground teams (Alpha / Bravo / Charlie, rename, slotting, reserve aboard), the
+D18 minimum per team, tasks appear after a planet's scan, queues + default plan + Auto-assign randomly + edits apply
+from now, progress persists and the team resumes at the fight that stopped it, haul kept per finished segment and the
+relic at 100%, the return trip (offload, medical bay, reload) and what speeds each (unload bonus; Rapid Loadout and
+Efficient Stowage; Medical crew, Rapid Recovery, the Medical officer), the cure-time table, Stoneskin, helpers and their
+floor, the 7 threat tiers (chance to clear the whole task in one go; display only). New topic `scanEvents`: the four
+ship-side events, what resolves each, boarding. Text rules apply (no em dashes, US English, "install").
+Commit `docs(0.14.0): Ground Operations help topics (Ground Ops GO-18)`.
+
+### GO-19: Close-out (docs + review + QA)
+
+1. Annotate the E-CREW plan: Tasks 14, 16, 17, 18 and the 16b steps of section 1 get a "SUPERSEDED / ABSORBED by Ground
+   Operations (plan 2026-10-09)" note; the Task 22 carry notes list which entries GO removed; add a Task 16b carry note
+   for the Stoneskin battle half and the `treatmentShare` / loadout `consumables` hooks.
+2. Update the design doc section 10 (open calls answered by 9b; call 6 moot) and add any answers to section 5 below.
+3. Holistic review (bug-check subagent, then full-ledger fix pass), then the QA sheet below to the user. Deploy only
+   after the user confirms.
+Commit `docs(0.14.0): Ground Operations close-out notes`.
+
+---
+
+## 5. Open questions (the user's to decide; each has a [PROVISIONAL] build default)
+
+1. **Q1 Scanning vs operations overlap.** Do teams start a planet's tasks as soon as its scan completes while the ship
+   scans the next body (design section 1 reads that way), or does the ground work wait until every body is scanned
+   (today's phase order, the plan's default)? Overlap needs the ops engine to start during scanning.
+2. **Q2 "Favorable" is not one of the 7 tiers.** Which tier is the helper floor: Likely Victory (80%+, plan default) or
+   A Worthy Adversary (60%+)? (The mockup used a 5-tier set: Guaranteed, Favorable, Even, Unfavorable, Impossible.)
+3. **Q3 Queue order inside a team.** Default plan appends a team's tasks easiest first (so an unwinnable task cannot block
+   the rest, given "retry until done"). Alternatives: hardest first, or discovery order.
+4. **Q4 A task nobody can win never ends the run.** By the rule "retries until done or skipped by hand", an Impossible
+   task loops through the bay forever and holds the ship out (the run never reaches its return leg). Want a safety
+   (a recall action, a notice, an auto-skip after N failures), or keep it pure?
+5. **Q5 HP between fights of one task.** Plan default: every fight starts at full HP (today's engine); damage and statuses
+   only matter for the bay. Alternative: survivors carry HP and statuses from fight to fight within a task.
+6. **Q6 Condition classes.** Plan: injuries = Bleed, Hemorrhage, Concussion, Fracture (D24's physical list) + Downed;
+   ailments = Poison, Neurotoxin, Blindness. Combat-only statuses (Stun, Weakened, Suppressed, Corroded, Fear) end with
+   the battle and need no bay time. Confirm (design section 5 grouped Bleed with the 60 s ailments).
+7. **Q7 Offload, reload and travel times.** 9b.5 approved "offload / reload times as proposed", but no number was written.
+   Plan: offload 120 s, reload 120 s (each divided by its bonus), drop 60 s, return 60 s.
+8. **Q8 Bay floor.** Plan: 1 second (D23 style). The old injury floor was 15 minutes.
+9. **Q9 Fight length and fight counts.** Plan: a fight takes rounds x 6 s; fight points per site from the table in GO-4
+   (+1 on hazardous worlds, 1 to 5).
+10. **Q10 Task-work hazard slowdown.** D26 gives the Assault Hardsuit "less planet-hazard slowdown on task work", which
+    implies task work slows on hazardous worlds; plan uses the scan's 0.5 coefficient. Also: should the Science Hazard
+    Suit keep cutting the ORBITAL scan slowdown now that scanning is ship-side (plan: yes, unchanged), or move to task work?
+11. **Q11 The encounter dial (Shroud Emitter / Lure Beacon).** With no scan-time ground fights, plan keeps it scaling the
+    ship-event chance. Alternative: it changes a task's fight-point count (Lure more fights and more drops, Shroud fewer).
+12. **Q12 Ship damage from events.** Plan: a debris "minor hull wear" and a lost probe fight only pause the scan (field
+    repair); the wear is shown, never carried to the Shipyard. Alternative: they leave the ship damaged after the run.
+13. **Q13 Boarding consequences.** Plan: an unrepelled boarding pauses the scan (no lost findings, nobody hurt); a repelled
+    one is logged. Attempt chance 25%. Confirm or name the consequence.
+14. **Q14 Editing an active task.** Plan: skipping or reassigning the task a team is working stops it at once (progress
+    kept, no partial-segment haul) and sends the team back; a fight in progress finishes first.
+15. **Q15 Team names past Charlie.** No hull has a 4th team yet; plan falls back to "Team 4". Short labels stay A / B / C
+    by position even after a rename.
+16. **Q16 Squad Loadouts shape.** Plan: one loadout per whole ground team (Security + Science kits), gear only (who is
+    slotted stays a Personnel choice). Needs a sketch before the UI.
+17. **Q17 Threat chip text and icons.** The 7 tier names are long for a table cell; plan adds short names (Guaranteed,
+    Likely, Worthy, Even, Not Advised, Extreme, Impossible) and SVG dots instead of the patrol chip's emoji. Should the
+    patrol chip move off emoji too (outside this plan)?
+18. **Q18 Supply cache.** It is not in the approved four events; plan keeps it as the step roll's second draw.
+19. **Q19 Sensor ghost amounts.** A pass adds one extra discovery (one more task) on that body; a fail loses N seconds of
+    scan progress. Confirm, and whether the cloaked-vessel fight result should differ from the probe's.
+20. **Q20 Several teams on one ship.** Plan splits the ship's Security and Science crew layers across the deployed teams
+    (one team = exactly today), and skips a task that needs more teams than deployed. Confirm both.
+21. **Q21 The inert account gambit pair.** Task 17 had to decide its future; plan keeps it stored and hidden with a notice.
+22. **Q22 Rapid Turnaround (captain secondary talent logistics3, unload speed).** D26 wires logistics4 into the reload; the
+    secondary tree is otherwise dormant. Should logistics3 join the offload the same way?
+
+---
+
+## 6. QA checklist (desktop + mobile at 375 px; produce the curated sheet from this at GO-19)
+
+Setup: `?dev`, Debug grants, a ship with a hired Security + Science squad, Offline sim for time.
+
+**Ground teams (Away Team tab)**
+- [ ] Each hull shows one ground team card "Alpha" with badge A; Security and Science slot counts match the hull.
+- [ ] Existing members appear slotted after the update (hire order); extra members show under "Aboard, not slotted".
+- [ ] Slot, unslot, swap into an occupied slot; rename (and clear back to Alpha); the help toggle persists after reload.
+- [ ] All slot controls are disabled with a reason while the ship is on an expedition; rename still works.
+- [ ] Hiring auto-slots into the first empty slot; firing frees the slot.
+- [ ] Mobile: slot grid in 2 columns, no horizontal page scroll.
+
+**Dispatch**
+- [ ] The strip lists the teams that will deploy and why any will not; Launch is blocked with the new text when no team
+      has a ready Security and Science member.
+
+**Scanning (ship-side events)**
+- [ ] Scan pips show debris / probe / ghost / storm / supply cache with outcomes; pauses visibly hold the scan bar.
+- [ ] No ground battle appears during scanning on a new run; an expedition launched before the update still shows its
+      old scan battles and finishes normally.
+- [ ] A boarding attempt shows repelled or not; Help explains it.
+
+**Task queues**
+- [ ] A body's tasks appear when its scan completes, already assigned by the default plan.
+- [ ] Odds chips per team show a tier name and color, tooltip has the fuzzy range and officer line; no emoji.
+- [ ] Reassign (pick, then Apply), reorder, Skip, Re-queue, Default plan, Auto-assign randomly all work and persist.
+- [ ] Mobile: the table scrolls inside its frame only.
+
+**Running tasks**
+- [ ] Team lane shows deploy, work, fight, return, offload, medical bay, reload in order; idle when the queue is done.
+- [ ] Task card progress bar with fight pips; after a wipe the card reads "Paused: team in med bay", the bar holds at the
+      fight, and the retry resumes there; the haul line shows banked vs offloaded segments.
+- [ ] Findings arrive only after an offload; the relic only when a task reaches 100%.
+- [ ] Bay card lists each member's conditions with times; bay time equals the longest; an Ossir member's injury reads 25%
+      longer.
+- [ ] With "help other teams" on (Debug multi-team hull, if available): a helper borrows, fails, and moves on.
+
+**Claim**
+- [ ] Members still in the bay at run end come home injured with the remaining time; everyone else is ready; no flat
+      2-hour injuries on new runs.
+
+**Gambits + loadouts**
+- [ ] Gambit editor: ship, team, member; edit, apply preset, copy to squad; no Science tab.
+- [ ] Squad Loadouts (after the sketch is approved): save, apply with skipped-piece report, check in.
+
+**Regression**
+- [ ] Patrols, captain missions, the Shipyard repair, Armory ship loadouts unchanged.
+- [ ] Offline catch-up of a long run matches leaving the tab open (spot-check the task list and findings).
+- [ ] Console clean on every screen; light and dark themes; colorblind-safe palette on the threat chips.
+- [ ] `RELEASE_GATE=1 npx vitest run src/lib/game/no-dead-stats.test.ts` lists no Ground Ops entry.
+
+---
+
+## 7. Task list (one line each)
+
+- GO-0: (recommended chore) one SAVE_VERSION pin in save.test.ts (Task 34b pulled forward).
+- GO-1: ground-team slot state on ShipInstance, GroundTeamLoadout reshape, names, SAVE 66 -> 67 migration.
+- GO-2: slotting engine (slot / unslot / rename / help toggle), hire-fire-reassign sync, deployableGroundTeams.
+- GO-3: medical bay cure-time math with frozen medical factors, condition table, Stoneskin bay half, member perks.
+- GO-4: ground task model: fight points from site threat, segment haul split, work time with the task hazard slowdown; salt registry test.
+- GO-5: one task fight resolver on a private keyed stream with end-of-fight conditions.
+- GO-6: Monte Carlo threat indicator on resolveGroundBattle mapped to the 7 tiers; helper floor constant.
+- GO-7a: dispatch snapshot for ground teams (members, shares, frozen bay / offload / reload factors).
+- GO-7b: the timeline engine for one team (the switch): work, fights, wipes, return trip, offload findings, bay, reload, run end, claim; legacy golden hashes; no-dead-stats loadSpeed + Hardsuit live.
+- GO-7c: multi-team timelines, default plan (hardest to strongest), helpers with skip-on-fail, requiredTeams N.
+- GO-7d: live queue edits applied from now, auto-assign randomly, edit parity.
+- GO-8: ship-side scan events (debris, hostile probe on the combat engine with Security Cunning's softening, sensor ghost / cloaked vessel, radiation storm).
+- GO-9: boarding attempts decided by crew.boardingDefense + the Ossir racial; no-dead-stats entries removed.
+- GO-10: SVG glyphs, ThreatChip, TeamBadge.
+- GO-11: ground team slotting UI in AwayTeamPanel (GO-M1).
+- GO-12: dispatch console lists deploying teams.
+- GO-13: per-planet task queue screen with per-team odds (GO-M2).
+- GO-14: team timelines, task cards with segment progress, med bay card (GO-M3, GO-M4).
+- GO-15: ship-event scan track pips and log lines.
+- GO-16: per-member gambit editor by ground team.
+- GO-17: Squad Loadouts per ground team (sketch first) + S4-CP39 roster-linked loadout.
+- GO-18: Help topics (Ground Operations, scan events).
+- GO-19: close-out notes in the E-CREW plan and design, holistic review, QA sheet.
