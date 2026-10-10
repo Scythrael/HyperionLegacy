@@ -135,8 +135,6 @@ const GROUND_OPS_HAZARD = "Ground Operations: less planet-hazard slowdown on tas
 const GROUND_OPS_RELOAD = "Ground Operations: reload step of the return trip (D26)";
 const GROUND_OPS_BOARDING = "Ground Operations scan events: boarding attempts (D26)";
 const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
-// Found by the per-variety pass (Task 22 review): Security lines with no owner yet, reported to the coordinator.
-const UNOWNED = "UNOWNED: reported to the coordinator for a user call (2026-10-09)";
 
 // The phases the user has EXPLICITLY deferred past 0.14.0. The release gate (below) fails while the allow-list
 // holds an entry owned by any other phase. Today: none (E-MOD is 0.14.0 scope, design G8).
@@ -209,18 +207,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "gear:security:cortexShield:groundStatusResist": {
     phase: CORTEX_RESIST,
     reason: "its resist covers stun and fear, and no enemy inflicts either on the squad today",
-  },
-  "gear:security:pulseRifle:groundStatusChance": {
-    phase: UNOWNED,
-    reason: "status chance only feeds an INFLICT piece, and the Pulse Rifle inflicts nothing",
-  },
-  "gear:security:scattergun:groundStatusChance": {
-    phase: UNOWNED,
-    reason: "status chance only feeds an INFLICT piece; the Scattergun's group hit scales with points, not chance",
-  },
-  "gear:security:targetingOptic:groundStatusChance": {
-    phase: UNOWNED,
-    reason: "status chance only feeds an INFLICT piece, and the Targeting Optic inflicts nothing",
   },
 
   // Officer stat facets
@@ -689,9 +675,9 @@ function rollableKeys(slotType: MemberSlotType, variety: { implicitStats?: strin
   return new Set([...(variety.implicitStats ?? slot.implicitStats), ...(variety.affixPool ?? slot.affixPool).map((a) => a.stat)]);
 }
 
-function gearPiece(slotType: MemberSlotType, varietyKey: string, wearer: string, lines: Record<string, number>): EquipmentInstance {
+function gearPiece(slotType: MemberSlotType, varietyKey: string, wearer: string, lines: Record<string, number>, id = "equip-90001"): EquipmentInstance {
   return {
-    id: "equip-90001",
+    id,
     slotType,
     moduleVariant: varietyKey,
     rarity: "standard",
@@ -732,6 +718,16 @@ function wearOn(team: AwayTeamType, slotType: MemberSlotType, varietyKey: string
   });
 }
 
+// MEMBER-WIDE lines that only pay out through ANOTHER piece the member wears (awayTeam.ts: the summed lines convert
+// once per member). groundStatusChance is the chance every INFLICT piece the member wears lands its status, so a
+// status-chance line on a piece that inflicts nothing (Pulse Rifle, Scattergun, Targeting Optic) is live in the
+// real pairing with an inflict tool. Each such entry gets a second variant in which BOTH states also wear the bare
+// paired piece (no lines, so it adds nothing of its own). Skipped when the tested piece sits in the paired piece's
+// slot. groundStatusResist is deliberately NOT paired here: Cortex Shield's line stays owned by Field Kits 16b.
+const MEMBER_WIDE_PAIRING: Partial<Record<MemberGroundStatKey, { slotType: MemberSlotType; varietyKey: string; team: AwayTeamType }>> = {
+  groundStatusChance: { slotType: "memberTool", varietyKey: "stunGrenade", team: "security" },
+};
+
 function gearEntries(): StatEntry[] {
   const out: StatEntry[] = [];
   for (const slotType of MEMBER_SLOT_TYPES) {
@@ -744,18 +740,32 @@ function gearEntries(): StatEntry[] {
           const effect = v.member.groundEffect;
           const scaled = effect !== undefined && effect.kind !== "resistStatus";
           const baseLines = scaled ? { [effectFiller(team, key)]: GEAR_POINTS } : {};
+          const variants: Variant[] = [
+            {
+              label: `${slotType}/${v.key}`,
+              baseKey: `gear-${team}-${slotType}-${v.key}-${fp(baseLines)}`,
+              base: wearOn(team, slotType, v.key, baseLines),
+              with: wearOn(team, slotType, v.key, { [key]: GEAR_POINTS }),
+            },
+          ];
+          const pair = MEMBER_WIDE_PAIRING[key];
+          if (pair && pair.team === team && pair.slotType !== slotType) {
+            const withPair = (t: Transform): Transform => (s0) => {
+              const s = t(s0);
+              return { ...s, equipment: [...s.equipment, gearPiece(pair.slotType, pair.varietyKey, WEARER[team]!, {}, "equip-90002")] };
+            };
+            variants.push({
+              label: `${slotType}/${v.key} + bare ${pair.varietyKey}`,
+              baseKey: `gear-${team}-${slotType}-${v.key}-${fp(baseLines)}+${pair.varietyKey}`,
+              base: withPair(wearOn(team, slotType, v.key, baseLines)),
+              with: withPair(wearOn(team, slotType, v.key, { [key]: GEAR_POINTS })),
+            });
+          }
           out.push({
             id: `gear:${team}:${v.key}:${key}`,
             category: "gear",
             label: `${v.label} (${slotType}) ${key} on ${team}${scaled ? `, ${effect.kind} effect balanced` : ""}`,
-            variants: [
-              {
-                label: `${slotType}/${v.key}`,
-                baseKey: `gear-${team}-${slotType}-${v.key}-${fp(baseLines)}`,
-                base: wearOn(team, slotType, v.key, baseLines),
-                with: wearOn(team, slotType, v.key, { [key]: GEAR_POINTS }),
-              },
-            ],
+            variants,
           });
         }
       }

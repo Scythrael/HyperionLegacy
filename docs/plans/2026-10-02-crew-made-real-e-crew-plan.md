@@ -846,11 +846,12 @@ tested PER VARIETY (`gear:<team>:<variety>:<key>`, 74 entries, teams from each v
 ground effect scales with its points (heal, inflict, group hit, revive) gets a baseline with the same points on an
 inert filler line (a fieldwork yield line on a Security wearer, proved inert by its own test), so effect scaling
 cancels. New per-variety finds: Cortex Shield's status resist (stun and fear are never inflicted on the squad) ->
-"Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]"; status chance on the Pulse
-Rifle, Scattergun and Targeting Optic (Security; status chance only feeds an inflict piece) -> UNOWNED, raised with
-the coordinator. Outcomes are explicit field allow-lists; a NaN / Infinity in a fingerprint throws. RELEASE GATE:
+"Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]"; status chance is
+MEMBER-WIDE (it lands every inflict piece the member wears), so a status-chance entry also gets a variant pairing a
+bare Stun Grenade on both states (`MEMBER_WIDE_PAIRING`); the Pulse Rifle, Scattergun and Targeting Optic lines are
+live that way (status resist is deliberately not paired, so Cortex Shield stays owned by Field Kits). Outcomes are explicit field allow-lists; a NaN / Infinity in a fingerprint throws. RELEASE GATE:
 `RELEASE_GATE=1` runs a block that fails while the allow-list holds anything not owned by a phase in
-`DEFERRED_PAST_0140` (empty today), so Task 35 cannot ship dead stats. Allow-list: 37 entries.
+`DEFERRED_PAST_0140` (empty today), so Task 35 cannot ship dead stats. Allow-list: 34 entries.
 
 ### Task 22b: Extend no-dead-stats to away-member TRAITS and ground EFFECTS
 
