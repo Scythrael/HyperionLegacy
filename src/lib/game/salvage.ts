@@ -233,7 +233,8 @@ export const SALVAGE_QUALITY_BONUS_PER_TIER = 0.02;
 // they are fully deterministic (offline == live) and cost the shared stream nothing.
 // salvageRoundingStream mints it; chanceRound always draws ONCE per amount, even when the
 // leftover fraction is 0, so the private draw count is fixed per recipe.
-const SALVAGE_ROUNDING_SEED_SALT = 0x5a17a9e1; // arbitrary fixed nonzero mixing constant
+// Exported (Ground Ops GO-5) only so salts.test.ts can check it against every other engine salt.
+export const SALVAGE_ROUNDING_SEED_SALT = 0x5a17a9e1; // arbitrary fixed nonzero mixing constant
 
 export function salvageRoundingStream(bandDraw: number): () => number {
   const stream = makeRng((Math.floor(bandDraw * 2 ** 32) ^ SALVAGE_ROUNDING_SEED_SALT) >>> 0);

@@ -324,6 +324,20 @@ describe("task work time (D25 + D26)", () => {
     expect(taskWorkSeconds(e, [wholeTeam(e)], body("toxic", 1))).toBe(815);
   });
 
+  it("never returns NaN: corrupt stored values read as calm, no resist, or the bare pace (GO-4 review)", () => {
+    const e = exp({ roster: { security: [snap("member-1", "security")], science: [] } });
+    const t = [wholeTeam(e)];
+    expect(taskWorkSeconds(e, t, body("toxic", NaN))).toBe(ACTIVITY_SECONDS);
+    expect(taskWorkSeconds(e, t, body("toxic", Infinity))).toBe(ACTIVITY_SECONDS);
+    expect(taskWorkSeconds(exp({ hazardResist: NaN, roster: e.roster }), t, body("toxic", 1))).toBe(taskWorkSeconds(e, t, body("toxic", 1)));
+    const nanSci = exp({ roster: { security: [], science: [sciWith("member-2", NaN, NaN)] } });
+    for (const h of [0, 0.5, 1, NaN]) {
+      const secs = taskWorkSeconds(nanSci, [wholeTeam(nanSci)], body("toxic", h));
+      expect(Number.isInteger(secs), `hazard ${h}`).toBe(true);
+      expect(secs).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   it("is floored at 1 second (D23: the pace has no cap)", () => {
     const e = exp({ roster: { security: [], science: [sciWith("member-2", 1e9)] } });
     expect(taskWorkSeconds(e, [wholeTeam(e)], body("terrestrial", 0))).toBe(1);

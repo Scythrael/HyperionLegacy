@@ -1756,7 +1756,8 @@ function rollBonusExtractionTick(
 // the run's outputRoundCursor (one step per delivered cycle, so cycles never share a roll) and the cycle's
 // delivered cargo, all fixed the instant the cycle completes however the time is chunked, so offline ==
 // live. It never draws from (or shifts) the shared economy rng. FNV-1a over the key, then the salt.
-const MISSION_OUTPUT_ROUNDING_SALT = 0x2f6b4a8d;
+// Exported (Ground Ops GO-5) only so salts.test.ts can check it against every other engine salt.
+export const MISSION_OUTPUT_ROUNDING_SALT = 0x2f6b4a8d;
 function missionOutputRoundingStream(
   captainId: number,
   cursor: number,

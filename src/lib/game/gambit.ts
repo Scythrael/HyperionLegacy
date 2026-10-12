@@ -136,7 +136,7 @@ const TEAM_KIT_MAX = 8;
 const OFFICER_STRENGTH = 3; // a relevant assigned officer adds this much strength (before rank scaling)
 
 // --- Battle loop ---
-const MAX_ROUNDS = 40; // hard bound so a stalemate can never loop forever (a timeout counts as a loss)
+export const MAX_ROUNDS = 40; // hard bound so a stalemate can never loop forever (a timeout counts as a loss)
 export const MAX_BATTLE_ATTEMPTS = 3; // deterministic retries before an activity EVACUATES (see resolveExpeditionActivity)
 
 // --- Damage / action tuning ---
@@ -1666,6 +1666,10 @@ export function rollHaul(
 // and relic roll, an evacuation's haul) and Ground Ops (groundTasks.ts taskFullHaul, GO-7b's relic at 100%).
 // Keyed by the task's FLAT index across bodies and independent of attempts, so one task keeps one reward roll
 // whichever engine resolves it. The extraction is byte-identical (groundTasks.test.ts pins legacy outputs).
+// The flat-index MULTIPLIER 0x27d4eb2f is the same constant as combat/waveSeed.ts RELAUNCH_SEED_SALT, in a
+// different role (here it spreads the index inside the key; there it is a top-level salt on the wave seed).
+// Harmless: REWARD_SALT and the base seed differ, so the streams never meet. Never change it (every task
+// reward roll would move).
 export function taskRewardSeed(exp: Pick<Expedition, "seed">, flatIndex: number): number {
   return (exp.seed ^ REWARD_SALT ^ Math.imul(flatIndex + 1, 0x27d4eb2f)) >>> 0;
 }

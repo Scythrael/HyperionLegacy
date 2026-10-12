@@ -485,7 +485,8 @@ export const RELIC_RARITY_WEIGHTS_BY_TIER: Readonly<Record<SkewTier, Readonly<Re
 const RELIC_RARITY_ORDER: readonly RelicRarity[] = ["common", "uncommon", "rare", "capstone"];
 
 // A fixed decorrelation salt for the identification roll (do NOT reuse across purposes).
-const RELIC_STUDY_SALT = 0x6a09e667;
+// Exported (Ground Ops GO-5) only so salts.test.ts can check it against every other engine salt.
+export const RELIC_STUDY_SALT = 0x6a09e667;
 
 // Derive the identification roll's seed from (relicSeed, salt, studyIndex, tokenId). Mixing the token
 // id in means the study ORDER cannot launder a preferred result onto a different token (the same hole

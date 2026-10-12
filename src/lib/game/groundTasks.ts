@@ -116,11 +116,12 @@ export interface GroundTaskTeam {
 }
 
 // The snapshot members of `pool` named by the teams' ids, team order then slot order, each member once
-// (a repeat id is skipped). An id not in the pool is skipped. Pure.
-function teamMembers(
+// (a repeat id is skipped). An id not in the pool is skipped. Exported (GO-5) so the task fight builds its
+// Security squad by the same rule (groundFight.ts). Pure.
+export function teamSnapshotMembers<T>(
   pool: readonly SnapshotMember[] | undefined,
-  teams: readonly GroundTaskTeam[],
-  ids: (team: GroundTaskTeam) => readonly string[],
+  teams: readonly T[],
+  ids: (team: T) => readonly string[],
 ): SnapshotMember[] {
   const byId = new Map<string, SnapshotMember>();
   for (const m of pool ?? []) if (!byId.has(m.memberId)) byId.set(m.memberId, m);
@@ -148,7 +149,7 @@ export function taskFieldworkRun(
   let share = 0;
   for (const team of teams) share += Math.max(0, team.scienceShare);
   return {
-    roster: { security: [], science: teamMembers(exp.roster?.science, teams, (t) => t.scienceIds) },
+    roster: { security: [], science: teamSnapshotMembers(exp.roster?.science, teams, (t) => t.scienceIds) },
     scienceStrength: (exp.scienceStrength ?? 0) * share,
   };
 }
@@ -158,7 +159,7 @@ export function taskFieldworkRun(
 // snapshot's converted groundStats.hazardResist. Never negative. Pure.
 export function taskSecurityHazardResist(exp: Pick<Expedition, "roster">, teams: readonly GroundTaskTeam[]): number {
   let total = 0;
-  for (const m of teamMembers(exp.roster?.security, teams, (t) => t.securityIds)) total += m.groundStats.hazardResist ?? 0;
+  for (const m of teamSnapshotMembers(exp.roster?.security, teams, (t) => t.securityIds)) total += m.groundStats.hazardResist ?? 0;
   return Math.max(0, total);
 }
 
@@ -194,11 +195,17 @@ export function taskWorkSeconds(
   body: Pick<ExpeditionBody, "planetType" | "hazard">,
 ): number {
   const run = taskFieldworkRun(exp, teams);
-  const speed = fieldworkSpeedMult(run, body.planetType);
+  const rawSpeed = fieldworkSpeedMult(run, body.planetType);
+  // NaN guard (GO-4 review): a corrupt stored value must never stall the timeline with a NaN step length. A
+  // pace that is not a positive finite number reads as the bare pace (1); a resist that is not a positive
+  // number reads as none (resistedHazard already treats NaN that way); a hazard that is not a finite number
+  // >= 0 after resist reads as calm (no slowdown). So the result is always a whole number >= 1.
+  const speed = rawSpeed > 0 && Number.isFinite(rawSpeed) ? rawSpeed : 1;
   const teamResist = fieldworkHazardResist(run, body.planetType) + taskSecurityHazardResist(exp, teams);
   const museumResist = exp.hazardResist ?? 0;
   const resist = teamResist > 0 ? museumResist + teamResist : museumResist;
-  const hazardSlow = 1 + Math.max(0, resistedHazard(body.hazard, resist)) * TASK_HAZARD_PENALTY;
+  const presented = resistedHazard(body.hazard, resist);
+  const hazardSlow = 1 + (presented > 0 && Number.isFinite(presented) ? presented : 0) * TASK_HAZARD_PENALTY;
   return Math.max(TASK_MIN_WORK_SECONDS, Math.round((ACTIVITY_SECONDS / speed) * hazardSlow));
 }
 

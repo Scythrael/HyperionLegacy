@@ -273,7 +273,8 @@ export const NEUTRAL_OFFICER_STATS: OfficerStats = { strength: 10, integrity: 10
 // the officer's own id (not its array position) means a roster reorder or a fire can never reshuffle
 // another officer's stats. Same inputs => same seed. A small FNV-style string mix over the
 // candidateSeed-style keyed base, with its own salt so it stays decorrelated from the roster seeds. Pure.
-const OFFICER_STAT_SEED_SALT = 0x3c6ef372;
+// Exported (Ground Ops GO-5) only so salts.test.ts can check it against every other engine salt.
+export const OFFICER_STAT_SEED_SALT = 0x3c6ef372;
 export function officerStatSeed(baseSeed: number, officerId: string): number {
   let h = Math.imul(((baseSeed >>> 0) ^ OFFICER_STAT_SEED_SALT) >>> 0, 0x85ebca6b) >>> 0;
   for (let i = 0; i < officerId.length; i++) {

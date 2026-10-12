@@ -4,11 +4,18 @@
 // collects the salts from the module namespaces, so a new exported salt in any listed module is checked
 // automatically. Ground Ops modules join the list as they land (groundFight.ts at GO-5, groundOps.ts at GO-7,
 // shipScanEvents.ts at GO-8). A salt that is not exported is invisible here: keep engine salts exported.
+// GO-5 (GO-4 review) exported and registered the four that were not: tick.ts MISSION_OUTPUT_ROUNDING_SALT,
+// relics.ts RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT.
 
 import { describe, it, expect } from "vitest";
 import * as expedition from "./expedition";
 import * as gambit from "./gambit";
 import * as groundTasks from "./groundTasks";
+import * as groundFight from "./groundFight";
+import * as relics from "./relics";
+import * as salvage from "./salvage";
+import * as seniorStaff from "./seniorStaff";
+import * as tick from "./tick";
 import * as officerStats from "./officerStats";
 import * as waveSeed from "./combat/waveSeed";
 import * as model from "./model";
@@ -18,14 +25,21 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "expedition.ts": expedition,
   "gambit.ts": gambit,
   "groundTasks.ts": groundTasks,
+  "groundFight.ts": groundFight,
   "officerStats.ts": officerStats,
+  "relics.ts": relics,
+  "salvage.ts": salvage,
+  "tick.ts": tick,
   "combat/waveSeed.ts": waveSeed,
 };
 
 // Legacy salts checked for DISTINCTNESS only. model.ts AWAY_RECRUIT_SEED_SALT (0x5a17c0de) predates the odd
 // rule and is even; changing it would reroll every recruit offer, so it stays (it still must not collide).
+// seniorStaff.ts OFFICER_STAT_SEED_SALT (0x3c6ef372) is EVEN for the same reason: changing it would reroll
+// every officer's stats. Registered at GO-5, distinct-only.
 const DISTINCT_ONLY: Record<string, Record<string, unknown>> = {
   "model.ts": model,
+  "seniorStaff.ts": seniorStaff,
 };
 
 interface Salt {
@@ -61,6 +75,10 @@ describe("salt registry (GO-4)", () => {
       "gambit.ts SCAN_DROP_SALT",
       "gambit.ts SUPPLY_CACHE_SALT",
       "gambit.ts NEURAL_BACKUP_SALT",
+      "groundFight.ts GROUND_FIGHT_SALT",
+      "relics.ts RELIC_STUDY_SALT",
+      "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
+      "tick.ts MISSION_OUTPUT_ROUNDING_SALT",
       "officerStats.ts CUNNING_SALT",
       "combat/waveSeed.ts WAVE_ENEMY_SEED_SALT",
       "combat/waveSeed.ts WAVE_BATTLE_SEED_SALT",
@@ -72,6 +90,9 @@ describe("salt registry (GO-4)", () => {
     }
     // groundTasks.ts adds no salt: its only roll is the reused legacy task reward stream (gambit.ts REWARD_SALT).
     expect(names.filter((n) => n.startsWith("groundTasks.ts"))).toEqual([]);
+    // The legacy even salts are on the distinct-only list.
+    const legacy = ALL.filter((s) => !STRICT.includes(s)).map((s) => s.where);
+    expect(legacy.sort()).toEqual(["model.ts AWAY_RECRUIT_SEED_SALT", "seniorStaff.ts OFFICER_STAT_SEED_SALT"]);
   });
 
   it("every salt is a 32-bit unsigned integer", () => {

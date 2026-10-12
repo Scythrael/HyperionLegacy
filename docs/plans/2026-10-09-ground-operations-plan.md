@@ -553,6 +553,53 @@ a log).
 **Determinism:** one private stream per fight, keyed by (task flat index, fight number); never the legacy COMBAT_SALT
 stream. **Acceptance:** gate green. Commit `feat(0.14.0): ground task fight resolver (Ground Ops GO-5)`.
 
+**Carry from GO-5 (built 2026-10-12, commits `feat(0.14.0): hazard resist curves toward the 75% cap (Ground Ops GO-5)`
+then `feat(0.14.0): ground task fight resolver (Ground Ops GO-5)`):**
+- **`groundFight.ts`** (imports model types, combat/rng, gambit, medicalBay, relics, groundTasks; never expedition.ts):
+  `GROUND_FIGHT_SALT` 0x4d2a7e1b, `GROUND_ROUND_SECONDS` 6 [PROVISIONAL, Q9], `taskFightSeed(exp, flatIndex,
+  fightNumber)` (the spec formula; pinned, and pinned to differ from the legacy COMBAT_SALT battle seed),
+  `taskFightTeam(exp, teams, task, carried?)` (the squad as fresh combatants: the teams' Security members, team then
+  slot order, each once, minus every team's `downedThisTask`; crew layer `securityStrength * sum(securityShare > 0)`;
+  idPrefix `${exp.id}-${task.id}-f${fightNumber}`; the run's officer care; then the carry. **GO-6 should build its
+  sample squads with it**), `resolveTaskFight(exp, teams, body, task, flatIndex, carried?, logSink?)`,
+  `memberEndConditions(c)`, `isCarriedStatus(id)` (own key in GROUND_CONDITIONS AND GAMBIT_STATUSES: Poison and
+  Bleed today), `taskFightSeconds(record)` = max(1, rounds * 6).
+- **Deviation: the team input is `GroundFightTeam { securityIds, downedThisTask?, securityShare }`** (GroundTeamRun
+  does not exist yet; the share lives in `GroundOpsFactors.securityShare`). GO-7b passes `{ ...teamRun,
+  securityShare: factors.securityShare[pos] }`. `groundTasks.ts teamMembers` became the exported generic
+  `teamSnapshotMembers<T>` so both modules pick members by one rule.
+- **Carry damage (user Q5):** `carried` is a `Record<memberId, GroundMemberCarry { hp, statuses }>`; a carried member
+  is fielded at its HP clamped to [1, hpMax] (a non-finite HP is ignored) with only its persisting statuses (live
+  duration, finite magnitude, first of each id, fresh copies). Combat-only statuses end with the battle
+  [PROVISIONAL, Q6]; a carried status resumes with the rounds it had left (the battle clock stops between fights)
+  [PROVISIONAL]; the team kit refills each fight (`exp.teamKit` per battle, the legacy rule) [PROVISIONAL]. The record
+  gains **`memberEnd: Record<memberId, GroundMemberEnd { hp, hpMax, statuses }>`** for every member still STANDING
+  (downed members are left out: they sit out the task). **GO-7b threads `pendingFight.memberEnd` into the task's next
+  fight as `carried`, drops it after a wipe and after the bay**, and needs a place on GroundTeamRun for it between
+  fights (suggestion: `carry?: Record<string, GroundMemberCarry>`, cleared with `conditions` at reload).
+- **Record details:** `rounds` = rounds FOUGHT (resolveGroundBattle reports the 0-based round a fight ended in, or
+  MAX_ROUNDS at the cap; `MAX_ROUNDS` is now exported from gambit.ts); 0 only when nobody can be fielded, which is a
+  loss with no battle and no draw. `memberConditions` lists only members with a condition: "health" when below max
+  (always when downed), each persisting status once, "downed" when downed. `pointIndex` = `pointsCleared ?? 0`,
+  `fightNumber` = `fightCount ?? 0`. The log sink is appended to (never cleared) and never changes the record.
+- **Hazard resist curve (user ruling, D23 exception):** `relics.ts effectiveHazardResist(raw)` = 0.75 x tanh(raw /
+  0.75), held one ulp under the cap where tanh rounds to 1; `resistedHazard` uses it instead of the clamp. tanh over
+  the exp form because its slope is 1 with zero curvature at 0 (raw 0.1 keeps 99.4%; the exp form keeps 93.6%), and
+  over diminishing() because it is bounded by construction. Before / after: 0.1 -> 0.0994 (was 0.1), 0.3 -> 0.2850
+  (0.3), 0.5 -> 0.4371 (0.5), 0.75 -> 0.5712 (0.75), 1.5 -> 0.7230 (0.75). Every run with a resist moves (legacy too:
+  scan rate, scan encounter odds, battle guards, task work; section 1 row); no-resist runs are bit-identical; a new
+  parity test (one advance == 997 s chunks, resists 0.3 and 2). Moved expectations: museum-bonuses 0.8 -> 0.8046,
+  fieldwork scan progress x2 (0.3 cuts 0.2850), groundTasks 720 -> 735 and 810 -> 815.
+- **GO-4 review items:** tick.ts `MISSION_OUTPUT_ROUNDING_SALT`, relics.ts `RELIC_STUDY_SALT`, salvage.ts
+  `SALVAGE_ROUNDING_SEED_SALT` exported and on the strict list; seniorStaff.ts `OFFICER_STAT_SEED_SALT` (EVEN)
+  exported and on the distinct-only list beside `AWAY_RECRUIT_SEED_SALT` (a test pins exactly those two);
+  `GROUND_FIGHT_SALT` registered (20 strict + 2 distinct-only salts, no clash). `taskRewardSeed` comments that its multiplier
+  0x27d4eb2f equals RELAUNCH_SEED_SALT in another role. `taskWorkSeconds` NaN guard: a pace that is not a positive
+  finite number reads 1, a presented hazard that is not a finite number > 0 reads calm, so it is always a whole
+  number >= 1.
+- Tests: `groundFight.test.ts` (21), +1 NaN test (groundTasks), +2 hazard curve tests (museum-bonuses: the table,
+  the parity). Suite 4120 -> 4144 passed; `npm run check` 0 errors.
+
 ### GO-6: Threat indicator (display only)
 
 **Files:** Create `src/lib/game/groundThreat.ts`, test `groundThreat.test.ts`; modify `combat/threatAssessment.ts`
