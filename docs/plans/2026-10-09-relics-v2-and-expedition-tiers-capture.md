@@ -60,6 +60,62 @@ revealed by studying a culture ("Relic Sample A34" first); relic TYPES shared ac
 That way it could keep it fresh. Plus, it gives options for people to choose if they main-line expeditions that
 require a bit more micromanagement, or if they just set everyone on the lower survey missions, and call it good."
 
+## 3b. Expedition Tiers mockup answers (user, 2026-10-12, verbatim where quoted)
+
+Mockup: https://claude.ai/artifact/MYMAwEVVpnnH62Mscmju1A (open calls 1-11).
+1. **Ladder:** approved ("The ladder looks great to me!"). Tiers I to VII, Roman numerals, Tier VII the top.
+2. **Unlocking:** "T1 open from the start, absolutely. But other tiers will indeed require additional upgrades to
+   propulsion technology. So higher tiers will require ships capable of traveling faster and further than each before
+   it. Much like Star Trek, the FTL scale will be exponential, so each decimal place of something like Warp 9.995 is
+   unbelievably fast." So a tier needs a PROPULSION threshold (speed and range), on an EXPONENTIAL FTL scale.
+3. **Distances:** real ones: "there will be a location for your system on the map in comparison to the different
+   locations, and the lightyear distance makes sense. The combination of better ships and further distances could turn
+   the hardest content into a week long wait to get there."
+4. **Transit:** "Let's start T1 at a start time of 2 hours and go up from there. These are meant to be long missions,
+   and once you start, you don't want to stop them and come back to the homeworld until it's done. It's meant to be a
+   painful choice if you start it at the wrong point. Of course, make sure you can cancel mid-transit too. Or you can
+   indeed bring your ship back home mid-mission and you retain your progress, but you'd really have to feel
+   hard-pressed to return home mid-mission."
+5. **Looking around:** "could find the nearest options within that region of the galaxy, within a band of distances
+   between the homeworld and your stop."
+6. **System names:** generated catalog names "Complete with famous options that exist in reality too. I 100% want
+   Wolf-359 to be one of them. With a nice easter egg. But we need to figure out precisely where our homeworld is. But
+   just in case, every homeworld system should be different for each player, just in case that gets to be an online
+   option between players, and you can travel around." So: real named stars mixed in (Wolf 359 with an easter egg;
+   keep the nod original, no franchise names); each player's HOMEWORLD sits at a different galactic location.
+7. **Recall:** confirmed: fly home in real time, "Based on distance traveled 1:1".
+8. **Set and forget at high tiers:** "the higher level content will have new issues thrown into the mix, that will make
+   you want to hand-hold the system otherwise, you might automatically deploy to something where you stand absolutely
+   no chance in completing it. This will likely need some additional figuring out though."
+9. **Relic odds:** a per-tier rarity mix, "somewhere in the realm between \"don't give away the house\" and \"don't
+   make this system feel like a chore, and reward the player enough to keep them coming back for more\"."
+10. **Completion math + SQUAD COMPOSITION (verbatim):** "Completion math is based on the task, and tasks should honestly
+    have a difficulty rating to them (based on what is involved. A simple scan with no combat and a scan with huge risk
+    for example) that can impact completion. For all you know, there might be an enemy colony on a planet, and you might
+    have to use multiple teams (I want to look into this one as well, because we might want to consider strike teams as
+    options too. Which means a slight redesign, but at the same time, it makes sense for the system to be reusable.
+    Strike team = 2 combat squads. Survey team = 2 science squads. Ground team = one of each. The change would be the
+    requirements for these, as well as the ability to mix-match layouts and so forth. The first ones likely won't have
+    many situations where combat is required. This might inflate the system a bit, but perhaps you can have a maximum
+    number of squads, and mix and match them as you see fit. Because it would make sense. If the planet has no
+    indigenous life and no hostile entities around, going survey squad heavy makes sense. But that brings with it a
+    need to be able to plan ahead (going back to base to change ground crews around would suck). So perhaps it might be
+    based on a set of \"risk factors\" or something. If it's in a known enemy territory, the combat risk is high. Fauna
+    and flora from deep-space telescopy could indicate the general \"atmosphere\" to expect. This system could also be
+    reused for things like combat campaigns later on. But this makes more sense to me. Closer lower tier systems are
+    high in safer missions, with the hardest ones maybe requiring a security team because you're exploring some caverns
+    that contain indigenous life, while later options require multiple strike teams to clear an enemy fortification
+    that are harassing the local population or something. This one definitely requires additional tweaking and
+    tooling, but it will help in the end."
+    So: tasks carry a DIFFICULTY rating that weights completion; teams become MIX-AND-MATCH SQUADS (a ship has a max
+    number of squads; each squad is Security or Science; Strike = 2 Security, Survey = 2 Science, Ground = 1 + 1);
+    tasks state squad REQUIREMENTS; systems show RISK FACTORS before you commit (known enemy territory = combat risk;
+    deep-space telescope readings hint at fauna/flora) so you plan the loadout BEFORE launch; reusable later for combat
+    campaigns. Lower tiers mostly safe; high tiers need multiple strike teams.
+11. **100% reward:** "based on the tier you get a roll with certain benefits to it. Let's say you finish a T1 planet up,
+    the bonus roll increases the chance of better relics or higher quality relics for completion. As well as the full
+    planetary report that should 100% have a reward behind full completion."
+
 ## 4. The 0.14.0 vision, re-stated by the user (verbatim, for scope reconciliation)
 
 PART 1: Crew!
