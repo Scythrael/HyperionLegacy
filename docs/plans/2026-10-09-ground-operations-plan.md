@@ -428,6 +428,10 @@ existing snapshot test stays deep-equal).
   same-ref no-ops are unchanged (a primitive that changes no slot returns the SAME ships, even over corrupt ids).
   `renameGroundTeam` cuts to `GROUND_TEAM_NAME_MAX` 24 CODE POINTS (`Array.from`, never splitting a surrogate
   pair) and clears on the team's own default name in any case ("ALPHA"); another team's default stays custom.
+- **GO-3 review fix (`fix(0.14.0): ground-team gates read cleaned slots (GO-3 review)`):** the `can*` gates
+  (`canSlotMember`, `canUnslotMember`, `canSwapGroundMembers`) read the same cleaned teams the writes edit, so a
+  member held only in a corrupt slot reads `notSlotted` (same-ref refusal; `unslotMember` used to throw there) and
+  a corrupt duplicate of a member in the target slot no longer reads `alreadyThere`. +3 tests (suite 4093).
 - Tests: `medicalBay.test.ts` (20) + 7 in `groundTeams.test.ts`. Suite 4063 -> 4090 passed; `npm run check` 0 errors.
 - **For GO-7b (suggestion, not decided):** the bay reads condition ids from `GroundTeamRun.conditions`; the
   natural recording is "health" for a member who ends a trip below full HP (Q5 carry damage) and "downed" for a

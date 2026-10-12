@@ -976,3 +976,46 @@ describe("GO-3 (GO-2 review b): renameGroundTeam matches the default case-insens
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(mixed)).toBe(false); // no lone high surrogate
   });
 });
+
+describe("GO-3 review: the gates read the CLEANED slots", () => {
+  // ship-1: member-3 (Security, reserve) sits ONLY in a Science slot (a corrupt wrong-squad slot).
+  const wrongSquad = (): GameState => {
+    const base = crewState({ awayMembers: [...crewState().awayMembers, named("member-4", "security", "ship-1")] });
+    return {
+      ...base,
+      ships: [
+        { ...base.ships[0], groundTeams: [{ security: ["member-1", "member-2", null], science: ["member-11", "member-3", null], helpOthers: false }] },
+        base.ships[1],
+      ],
+    };
+  };
+
+  it("unslotting a member held only in a corrupt slot is a notSlotted refusal (SAME state, no throw)", () => {
+    const s = wrongSquad();
+    expect(canUnslotMember(s, "ship-1", "member-3")).toEqual({ ok: false, reason: "notSlotted" });
+    expect(unslotMember(s, "ship-1", "member-3")).toBe(s);
+  });
+
+  it("swapping two members held only in corrupt slots / the reserve is a notSlotted refusal (SAME state)", () => {
+    const s = wrongSquad();
+    expect(canSwapGroundMembers(s, "ship-1", "member-3", "member-4")).toEqual({ ok: false, reason: "notSlotted" });
+    expect(swapGroundMembers(s, "ship-1", "member-3", "member-4")).toBe(s);
+  });
+
+  it("slotting into a slot that holds a corrupt duplicate of the same member succeeds", () => {
+    const base = crewState();
+    const s: GameState = {
+      ...base,
+      ships: [
+        { ...base.ships[0], groundTeams: [{ security: ["member-1", "member-2", "member-1"], science: ["member-11", null, null], helpOthers: false }] },
+        base.ships[1],
+      ],
+    };
+    expect(canSlotMember(s, "ship-1", 0, "security", 2, "member-1")).toEqual({ ok: true });
+    const next = slotMember(s, "ship-1", 0, "security", 2, "member-1");
+    expect(slotsOf(next, "ship-1")[0].security).toEqual([null, "member-2", "member-1"]);
+    assertSlotInvariants(next);
+    // the member's valid (first) slot still reads alreadyThere
+    expect(canSlotMember(s, "ship-1", 0, "security", 0, "member-1")).toEqual({ ok: false, reason: "alreadyThere" });
+  });
+});

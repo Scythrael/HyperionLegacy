@@ -106,11 +106,14 @@ describe("conditionCureSeconds", () => {
   });
 
   it("matches the legacy injury care divisor (injuries.ts) for an injury above the old floor", () => {
-    // Legacy folds all three Medical facets into one officerFacetShare (every legacy condition is an injury).
-    const care = bayCareFrom({ medicalShare: 0.3, rapidRecoveryShare: 0.1 }, { recoveryTurnaround: 0.05, quickRecovery: 0.5, injurySteady: 0.02 });
+    // Legacy folds all three Medical facets into one officerFacetShare (every legacy condition is an injury),
+    // summed exactly as injuries.ts applyExpeditionInjuries sums them.
+    const ship = { medicalShare: 0.3, rapidRecoveryShare: 0.1 };
+    const exp = { recoveryTurnaround: 0.05, quickRecovery: 0.5, injurySteady: 0.02 };
+    const legacyFacets = (exp.recoveryTurnaround ?? 0) + (exp.quickRecovery ?? 0) + (exp.injurySteady ?? 0);
     const twoHours: GroundConditionDef = { id: "legacy", label: "Legacy", cls: "injury", cureSeconds: 7200 };
-    expect(conditionCureSeconds(twoHours, [], care)).toBe(
-      injuryRecoverySeconds({ medicalShare: 0.3, rapidRecoveryShare: 0.1, officerFacetShare: 0.57 }),
+    expect(conditionCureSeconds(twoHours, [], bayCareFrom(ship, exp))).toBe(
+      injuryRecoverySeconds({ ...ship, officerFacetShare: legacyFacets }),
     );
   });
 });

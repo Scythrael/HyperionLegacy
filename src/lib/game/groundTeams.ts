@@ -172,8 +172,9 @@ export function backfillShipGroundTeams(ship: Pick<ShipInstance, "id" | "typeKey
 // The invariant every action keeps (groundTeams.test.ts assertSlotInvariants): a member sits in at most one
 // slot fleet-wide; a slot only holds a member aboard THAT ship with the matching team type; every stored
 // slot list is the hull's size. Members aboard but in no slot are the ship's RESERVE: they do not deploy.
-// Every write starts from writableTeams (cleanShipGroundTeams: corrupt ids nulled, GO-3), so a write also
-// leaves the ship clean.
+// Every gate AND every write reads writableTeams (cleanShipGroundTeams: corrupt ids nulled, GO-3 + its
+// review), so a gate judges the same slots the write edits (a member held only in a corrupt slot is
+// notSlotted) and a write also leaves the ship clean.
 // Every slot change refuses while the ship's crew is locked (awayTeam.ts shipCrewLocked: the ship is out on
 // a mission or an expedition, so its members are busy on that run). Renaming and the help toggle do not
 // (see each).
@@ -272,7 +273,7 @@ export function canSlotMember(
 ): GroundSlotGate {
   const s = shipGate(state, shipId);
   if ("gate" in s) return s.gate;
-  const team = teamAt(shipGroundTeams(s.ship), teamIndex);
+  const team = teamAt(writableTeams(state, s.ship), teamIndex);
   if (!team) return refuse("noSuchTeam");
   const slots = isGroundSquadType(teamType) ? team[teamType] : [];
   if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= slots.length) return refuse("noSuchSlot");
@@ -309,7 +310,7 @@ export function canUnslotMember(state: GameState, shipId: string, memberId: stri
   if ("gate" in s) return s.gate;
   const a = aboardGate(state, shipId, memberId);
   if ("gate" in a) return a.gate;
-  if (!findGroundSlot(shipGroundTeams(s.ship), memberId)) return refuse("notSlotted");
+  if (!findGroundSlot(writableTeams(state, s.ship), memberId)) return refuse("notSlotted");
   return { ok: true };
 }
 
@@ -337,7 +338,7 @@ export function canSwapGroundMembers(state: GameState, shipId: string, memberIdA
   const b = aboardGate(state, shipId, memberIdB);
   if ("gate" in b) return b.gate;
   if (a.member.teamType !== b.member.teamType || !isGroundSquadType(a.member.teamType)) return refuse("wrongTeamType");
-  const teams = shipGroundTeams(s.ship);
+  const teams = writableTeams(state, s.ship);
   if (!findGroundSlot(teams, memberIdA) && !findGroundSlot(teams, memberIdB)) return refuse("notSlotted");
   return { ok: true };
 }
