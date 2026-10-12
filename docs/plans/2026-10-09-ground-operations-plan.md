@@ -881,6 +881,13 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   lifts the cap to allow reserves (a member aboard but unslotted). `shipGroundTeams` should return a normalized copy
   (lengths match the hull) and callers never mutate it; ships built after v67 get their teams through it.
 
+- **GO-2 review (2026-10-12), carried forward:** (a) PROVISIONAL, surfaced to the user: the "help other teams" toggle
+  may change while the ship is out (it is only the next dispatch's default). (b) GO-3 folds in two minors: write paths
+  null out slot ids that do not name a member aboard (so auto-slot never skips a corrupt slot), and the default-name
+  match in `renameGroundTeam` is case-insensitive with a code-point-safe 24 character cut. (c) GO-11 wording: when a
+  member was deliberately unslotted, hire says "Squad is full" while an empty slot shows, because reserves count toward
+  the hire cap; explain that in the UI. (d) The GO-1-window staging fix is: bench, then unbench (re-slots the member).
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
