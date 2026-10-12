@@ -292,7 +292,8 @@ describe("task work time (D25 + D26)", () => {
     expect(taskWorkSeconds(e, t, body("toxic", 1))).toBe(900);
     expect(taskWorkSeconds(e, t, body("toxic", 0.8))).toBe(840);
     const museum = exp({ hazardResist: 0.5, roster: e.roster });
-    expect(taskWorkSeconds(museum, t, body("toxic", 0.8))).toBe(720); // 0.8 * (1 - 0.5) = 0.4 -> 600 * 1.2
+    // GO-5 hazard curve: a 0.5 resist cuts 0.4371 (was 0.5): 0.8 * (1 - 0.4371) = 0.4503 -> 600 * 1.2252 = 735 (was 720)
+    expect(taskWorkSeconds(museum, t, body("toxic", 0.8))).toBe(735);
   });
 
   it("an Assault Hardsuit on a SECURITY member shortens work on a hazardous body and does nothing on a calm one (D26)", () => {
@@ -319,8 +320,8 @@ describe("task work time (D25 + D26)", () => {
     const sec = snap("member-1", "security", { groundStats: { ...ZERO_STATS, hazardResist: 0.1 } });
     const e = exp({ roster: { security: [sec], science: [sciWith("member-2", 0, 0.2)] } });
     expect(taskTeamHazardResist(e, [wholeTeam(e)], body("toxic", 1))).toBeCloseTo(0.3, 12);
-    // 1 * (1 - 0.3) = 0.7 -> 600 * 1.35 = 810
-    expect(taskWorkSeconds(e, [wholeTeam(e)], body("toxic", 1))).toBe(810);
+    // GO-5 hazard curve: a 0.3 resist cuts 0.2850 (was 0.3): 1 * (1 - 0.285) = 0.715 -> 600 * 1.3575 = 815 (was 810)
+    expect(taskWorkSeconds(e, [wholeTeam(e)], body("toxic", 1))).toBe(815);
   });
 
   it("is floored at 1 second (D23: the pace has no cap)", () => {

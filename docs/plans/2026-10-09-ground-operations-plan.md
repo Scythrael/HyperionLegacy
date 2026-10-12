@@ -74,6 +74,7 @@ stored queue. One SAVE_VERSION bump (66 -> 67) adds the per-ship ground-team slo
 | Task 18 (squad loadouts per team TYPE, `memberRole?` question, roster-linked loadout S4-CP39) | GO-17 (per GROUND TEAM) | S4-CP39 wiring carried into GO-17 so Task 18 retires. |
 | Task 16b step 4 "Squad Kit ... saved with Squad Loadouts (Task 18)" and step 5 "Injury Kit shortens recovery (Task 16 hook)" | GO-17 loadout kit slot; GO-3 per-member bay `treatmentShare` hook | 16b still owns the kits themselves. |
 | Task 6 AwayTeamPanel header copy ("Security fights the random battles, Science does fieldwork while scanning") | GO-11 | |
+| E4b `relics.ts resistedHazard` hard clamp of the summed hazard resist at `MUSEUM_HAZARD_RESIST_MAX` (0.75) | GO-5: `effectiveHazardResist` = 0.75 x tanh(raw / 0.75), approaching the cap and never reaching it (user 2026-10-12, D23 "Hazard resist exception") | Every run, legacy included (scan rate, scan encounter odds, battle guards, task work): the user's ruling, the one deliberate exception to legacy-neutral. Pure, so offline == live parity holds; an in-flight run with a resist reads the curve for whatever it has not yet resolved (scan time still to come, steps not yet rolled). No-resist runs are bit-identical. |
 
 Carried to **Task 16b (Field Kits)**, not built here: the Stoneskin IN-BATTLE half (physical conditions land 25% less
 often, last 25% longer; D24), since Fracture / Hemorrhage / Concussion arrive with 16b and only Bleed exists today. GO-3

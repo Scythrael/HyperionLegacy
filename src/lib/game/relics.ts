@@ -684,17 +684,46 @@ export function museumBonuses(state: GameState): Record<MuseumStat, number> {
 // E4b: hazard resistance (pure, bounded)
 // ============================================================================
 
-// The most a museum hazardResist can shave off a body's hazard, as a fraction (0.75 = a hazard-1.0 body
-// reads at worst 0.25). Keeps danger meaningful no matter how big the museum grows. FIRST-PASS TUNABLE.
+// The ceiling the summed hazard resist APPROACHES, as a fraction (0.75 = a hazard-1.0 body never reads
+// below 0.25). Keeps danger meaningful no matter how big the museum grows. FIRST-PASS TUNABLE.
 export const MUSEUM_HAZARD_RESIST_MAX = 0.75;
 
-// The hazard a body PRESENTS to an expedition with the given (snapshotted) museum hazardResist:
-// hazard * (1 - clamp(resist, 0, MUSEUM_HAZARD_RESIST_MAX)), floored at 0 so it can never go negative.
-// Multiplicative on purpose: a safe body (hazard 0) stays 0, and the reduction scales with the danger.
-// resist 0 (an empty museum) returns `hazard` UNCHANGED (same value, no float op), so every hazard read
-// is bit-identical to E4a. Pure.
+// The largest double strictly below the ceiling: the curve's float guard (see effectiveHazardResist).
+const HAZARD_RESIST_BELOW_MAX = MUSEUM_HAZARD_RESIST_MAX * (1 - Number.EPSILON);
+
+// Ground Operations GO-5 (user ruling 2026-10-12, design D23 "Hazard resist exception": "Curve it, but keep
+// the cap for now. 100% resistance is never something you ever want to reach."): the EFFECTIVE resist a
+// summed raw resist (museum + gear + the party's resists) buys. It used to be a hard clamp at the ceiling;
+// it is now a diminishing curve that approaches the ceiling and never reaches it:
+//
+//   effective = MAX * tanh(raw / MAX)        (raw > 0; 0 otherwise)
+//
+// Why tanh (over MAX * (1 - exp(-raw / MAX)) and the D23 diminishing() curve):
+//   - f(0) = 0 and f'(0) = 1 with f''(0) = 0, so a SMALL resist barely changes: the loss is about
+//     (raw / MAX)^2 / 3 of its value (raw 0.1 keeps 99.4%, raw 0.3 keeps 95%). The exp form loses about
+//     raw / (2 MAX) from the first point (raw 0.1 would keep only 93.6%), so every existing small resist
+//     would visibly weaken.
+//   - Strictly increasing and concave: more resist always helps, each point a little less (D23).
+//   - BOUNDED by MAX and never equal to it: the one place D23 keeps a ceiling, because full immunity
+//     must never happen. diminishing() is unbounded by design, so it would need its own clamp (a hard cap
+//     again); tanh is bounded by construction.
+//   Before / after (raw -> effective): 0.1 -> 0.0994 (was 0.1), 0.3 -> 0.2850 (0.3), 0.5 -> 0.4371 (0.5),
+//   0.75 -> 0.5712 (0.75), 1.5 -> 0.7230 (0.75, the old clamp).
+// Float guard: Math.tanh rounds to exactly 1 past raw / MAX of about 19, so the result is held one ulp
+// under the ceiling; "never reaches" stays true in floating point too. NaN, 0 and negatives read 0. Pure.
+export function effectiveHazardResist(raw: number): number {
+  if (!(raw > 0)) return 0;
+  const r = MUSEUM_HAZARD_RESIST_MAX * Math.tanh(raw / MUSEUM_HAZARD_RESIST_MAX);
+  return r < MUSEUM_HAZARD_RESIST_MAX ? r : HAZARD_RESIST_BELOW_MAX;
+}
+
+// The hazard a body PRESENTS to an expedition with the given summed (snapshotted) hazard resist:
+// hazard * (1 - effectiveHazardResist(resist)), floored at 0 so it can never go negative. Multiplicative
+// on purpose: a safe body (hazard 0) stays 0, and the reduction scales with the danger. resist 0 (an empty
+// museum) returns `hazard` UNCHANGED (same value, no float op), so every no-resist hazard read is
+// bit-identical to E4a. GO-5: the resist passes the curve above (it used to clamp at the ceiling), so a
+// hazardous body always keeps more than (1 - MUSEUM_HAZARD_RESIST_MAX) of its hazard. Pure.
 export function resistedHazard(hazard: number, resist: number): number {
   if (!(resist > 0)) return hazard;
-  const r = Math.min(MUSEUM_HAZARD_RESIST_MAX, resist);
-  return Math.max(0, hazard * (1 - r));
+  return Math.max(0, hazard * (1 - effectiveHazardResist(resist)));
 }

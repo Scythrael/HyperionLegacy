@@ -56,7 +56,7 @@ export const PF_SCAN_SPEED_B = 0.015;
 export const PF_SCAN_SPEED_R = 0.95;
 export const PF_SCAN_SPEED_MAX = 0.3;
 // hazardResist -> an additive hazard-resist fraction (the snapshot's hazardResist; relics.ts resistedHazard
-// still bounds the COMBINED museum + gear value at MUSEUM_HAZARD_RESIST_MAX). Asymptote 0.30, cap 0.3.
+// curves the COMBINED museum + gear value toward MUSEUM_HAZARD_RESIST_MAX, never reaching it, since GO-5). Asymptote 0.30, cap 0.3.
 export const PF_HAZARD_RESIST_B = 0.015;
 export const PF_HAZARD_RESIST_R = 0.95;
 export const PF_HAZARD_RESIST_MAX = 0.3;

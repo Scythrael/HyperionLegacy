@@ -58,6 +58,7 @@ import { diminishing } from "./diminishing";
 import { generateEquipment } from "./itemgen";
 import { makeRng } from "./combat/rng";
 import { resolveExpeditionActivity } from "./gambit";
+import { effectiveHazardResist } from "./relics";
 import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 import { shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -329,8 +330,9 @@ describe("hazard: the Hazard Suit and groundHazardResist cut the scan hazard slo
     const bare = advanceExpedition(scanning(withRoster([SEC(), SCI()]), "toxic"), 600);
     const suited = advanceExpedition(scanning(withRoster([SEC(), SCI()], [suit]), "toxic"), 600);
     expect(suited.bodies[0].scanProgress).toBeGreaterThan(bare.bodies[0].scanProgress);
-    // The rate: hazard 1 * (1 - 0.3) -> slow 1 + 0.7 * 0.5 instead of 1.5.
-    expect(suited.bodies[0].scanProgress).toBeCloseTo((600 * 0.05) / (1 + 0.7 * 0.5), 9);
+    // The rate: hazard 1 * (1 - eff(0.3)) -> slow 1 + (1 - eff) * 0.5 instead of 1.5. GO-5 hazard curve: a 0.3
+    // resist cuts effectiveHazardResist(0.3) = 0.2850 (the old clamp cut exactly 0.3).
+    expect(suited.bodies[0].scanProgress).toBeCloseTo((600 * 0.05) / (1 + (1 - effectiveHazardResist(0.3)) * 0.5), 9);
   });
 
   it("the Steady trait's hazardResist cuts it too, and adds to the museum's resist", () => {
@@ -340,7 +342,8 @@ describe("hazard: the Hazard Suit and groundHazardResist cut the scan hazard slo
       { ...scanning(steady, "toxic"), hazardResist: 0.2 },
       600
     );
-    expect(run.bodies[0].scanProgress).toBeCloseTo((600 * 0.05) / (1 + 0.7 * 0.5), 9);
+    // GO-5 hazard curve: the summed 0.1 + 0.2 resist passes the curve like any other (0.2850, was 0.3).
+    expect(run.bodies[0].scanProgress).toBeCloseTo((600 * 0.05) / (1 + (1 - effectiveHazardResist(0.3)) * 0.5), 9);
   });
 });
 

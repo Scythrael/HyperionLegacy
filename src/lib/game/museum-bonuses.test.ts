@@ -48,6 +48,7 @@ import {
   museumBonusesFromRecord,
   zeroMuseumBonuses,
   resistedHazard,
+  effectiveHazardResist,
   relicStudyDurationTicks,
 } from "./relics";
 import {
@@ -522,12 +523,56 @@ describe("EXPEDITION: museum bonuses snapshotted at dispatch", () => {
     expect(advanceExpedition(scanningExp({ scanSpeedBonus: 0, hazardResist: 0 }), 100)).toEqual(advanceExpedition(scanningExp({}), 100));
   });
 
-  it("resistedHazard: unchanged at 0, bounded by MUSEUM_HAZARD_RESIST_MAX, never negative", () => {
+  it("the hazard resist curve keeps offline == live parity: one big advance equals 997 s chunks (GO-5)", () => {
+    for (const hazardResist of [0.3, 2]) {
+      const start = scanningExp({ hazardResist });
+      const big = advanceExpedition(start, 20000);
+      let chunked = start;
+      for (let t = 997; t < 20000; t += 997) chunked = advanceExpedition(chunked, t);
+      chunked = advanceExpedition(chunked, 20000);
+      expect(chunked).toEqual(big);
+    }
+    // Past the old clamp (0.75) more resist still scans faster: the curve keeps rising.
+    const at1 = advanceExpedition(scanningExp({ hazardResist: 1 }), 100).bodies[0].scanProgress;
+    const at2 = advanceExpedition(scanningExp({ hazardResist: 2 }), 100).bodies[0].scanProgress;
+    expect(at2).toBeGreaterThan(at1);
+  });
+
+  it("resistedHazard: unchanged at 0, approaches MUSEUM_HAZARD_RESIST_MAX without reaching it, never negative", () => {
     expect(resistedHazard(0.8, 0)).toBe(0.8);
-    expect(resistedHazard(1, 0.2)).toBeCloseTo(0.8, 12);
+    // GO-5 (user hazard ruling 2026-10-12): the resist passes MAX * tanh(raw / MAX) instead of a clamp, so a
+    // 0.2 resist cuts 0.1954 (was exactly 0.2) and no resist ever reaches the 0.75 ceiling.
+    expect(resistedHazard(1, 0.2)).toBeCloseTo(1 - 0.75 * Math.tanh(0.2 / 0.75), 12);
+    expect(resistedHazard(1, 0.2)).toBeCloseTo(0.8046, 4);
+    expect(resistedHazard(1, 1e6)).toBeGreaterThan(1 - MUSEUM_HAZARD_RESIST_MAX);
     expect(resistedHazard(1, 1e6)).toBeCloseTo(1 - MUSEUM_HAZARD_RESIST_MAX, 12);
+    expect(resistedHazard(1, Infinity)).toBeGreaterThan(1 - MUSEUM_HAZARD_RESIST_MAX);
     expect(resistedHazard(0, 1e6)).toBe(0);
     for (const h of [0, 0.3, 1, 5]) for (const r of [0, 0.1, 0.75, 2, 1e9]) expect(resistedHazard(h, r)).toBeGreaterThanOrEqual(0);
+  });
+
+  it("effectiveHazardResist: the before / after table, ~linear when small, rising, never at the ceiling (GO-5)", () => {
+    // raw -> effective (the old clamp read min(raw, 0.75)).
+    const table: [number, number][] = [
+      [0.1, 0.0994],
+      [0.3, 0.285],
+      [0.5, 0.4371],
+      [0.75, 0.5712],
+      [1.5, 0.723],
+    ];
+    for (const [raw, eff] of table) expect(effectiveHazardResist(raw), `raw ${raw}`).toBeCloseTo(eff, 4);
+    // Small resists barely change (a 0.05 resist keeps over 99.5% of its value).
+    expect(effectiveHazardResist(0.05) / 0.05).toBeGreaterThan(0.995);
+    // Strictly rising, always under the ceiling, even where tanh rounds to 1 in floating point.
+    let prev = 0;
+    for (const raw of [0.01, 0.1, 0.5, 1, 2, 5, 10]) {
+      const eff = effectiveHazardResist(raw);
+      expect(eff).toBeGreaterThan(prev);
+      expect(eff).toBeLessThan(MUSEUM_HAZARD_RESIST_MAX);
+      prev = eff;
+    }
+    for (const raw of [20, 1e6, Infinity]) expect(effectiveHazardResist(raw)).toBeLessThan(MUSEUM_HAZARD_RESIST_MAX);
+    for (const raw of [0, -1, NaN]) expect(effectiveHazardResist(raw)).toBe(0);
   });
 
   it("relicFindChance raises the token chance (capped at certain) without changing the draw order", () => {
