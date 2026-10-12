@@ -1,7 +1,8 @@
 // Ground Operations 0.14.0 (D25): the run-side engine of a Ground Ops expedition.
 //
 // GO-7a: the DISPATCH SNAPSHOT (below). GO-7b: startExpedition stores it as Expedition.groundOps (the flag) and
-// the TIMELINE ENGINE further down resolves the run (see "GO-7b: THE TIMELINE ENGINE").
+// the TIMELINE ENGINE further down resolves the run (see "GO-7b: THE TIMELINE ENGINE"). GO-7c: several teams,
+// the default plan, helpers and joint tasks (see "SEVERAL TEAMS" there).
 //
 //   snapshotGroundOps(state, ship, run) -> { teams, factors, shipEventProfile }
 //     teams   : the ship's DEPLOYING ground teams (groundTeams.ts deployableGroundTeams: every slotted member
@@ -41,10 +42,12 @@ import {
   type ExpeditionFinding,
   type GameState,
   type GroundOpsFactors,
+  type GroundOpsLogEntry,
   type GroundOpsState,
   type GroundShipLeg,
   type GroundStepKind,
   type GroundStepRecord,
+  type GroundMemberEnd,
   type GroundTeamRun,
   type ShipEventProfile,
   type ShipInstance,
@@ -69,11 +72,13 @@ import {
   type TaskHaul,
 } from "./groundTasks";
 import { resolveTaskFight, taskFightSeconds, type GroundFightTeam } from "./groundFight";
-import { groundTaskClearOdds } from "./groundThreat";
+import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
+import { tierAtLeast } from "./combat/threatAssessment";
+import { getPoiById } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { fieldworkEffect } from "./fieldwork";
 
-export type { GroundOpsFactors, GroundOpsState, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTeamRun, ShipEventProfile };
+export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTeamRun, ShipEventProfile };
 
 // What snapshotGroundOps returns; GO-7b wraps it into the stored GroundOpsState.
 export interface GroundOpsSnapshot {
@@ -200,7 +205,7 @@ export function snapshotAwayRosterForTeams(
 }
 
 // ============================================================================
-// GO-7b: THE TIMELINE ENGINE (one combined operations window; single-team planning)
+// GO-7b: THE TIMELINE ENGINE (one combined operations window), GO-7c: several teams
 // ============================================================================
 //
 // A flagged run (Expedition.groundOps present) resolves its ground work as an EVENT SCHEDULE over absolute game
@@ -253,8 +258,28 @@ export function snapshotAwayRosterForTeams(
 //   (user, GO-7b answers); its streak resets when it is tried again, and its progress is kept as always. It
 //   never gives up on its own (user Q4: HOLD AND FLAG; groundOpsStuck is the flag).
 //
-// PLANNING (one team, GO-7b): a body's new tasks go to the lowest-index deployed team's queue, EASIEST FIRST
-// by groundTaskClearOdds (ties: discovery order) [PROVISIONAL, Q3]. GO-7c replaces this for 2+ teams.
+// PLANNING (planTasksForTeams): one team takes a body's new tasks EASIEST FIRST by groundTaskClearOdds (ties:
+// discovery order) [PROVISIONAL, Q3]. 2+ teams (GO-7c, user 9b.3): THE DEFAULT PLAN, harder tasks to the
+// stronger teams (see planTasksForTeams). A task needing more teams than the ship deployed is skipped with a
+// log line (GroundOpsState.log, display only) [PROVISIONAL, Q20].
+//
+// SEVERAL TEAMS (GO-7c): every team runs its own step machine; ends at one instant are one batch in team index
+// order, FIXED before any team moves (a step that moves a partner never makes it end mid-batch).
+//   HELPERS (user D25 + 9b.4): a team with "help other teams" and nothing of its own to do borrows another
+//     team's queued one-team task that rates at least HELPER_MIN_TIER for it (groundThreat.ts, the display
+//     odds' stream). A helper win finishes the task; a helper LOSS never touches the owner's loss streak or
+//     queue: the helper lists the task in skippedBorrowed (never borrowed again) and the owner gets it back,
+//     progress kept.
+//   JOINT TASKS (requiredTeams N, D25 "tasks scale to multiple ground teams"; wired, no content asks yet): a
+//     team that picks one goes STAGING; when every team it is assigned to is staging, the LEAD (lowest index)
+//     deploys and carries the joint work and fight steps for the whole crew (the Security squads fight as one
+//     side, the Science fieldwork sums); partners mirror the lead's task in "staging" until the joint return,
+//     then every team runs its own return trip, offload and bay. A segment is banked for the crew's team set
+//     (segmentBankers), and the offload pays that set's yield. A loss counts once; at GROUND_STUCK_LOSSES the
+//     task goes to the back of every crew team's queue.
+//   RECOVERY LEGS: the ship flies one leg at a time; when several teams wipe, each waits for its own pickup in
+//     wipe order (a joint wipe: one leg per wiped team, team index order) [PROVISIONAL]; a helper is a team
+//     like any other.
 //
 // DETERMINISM: no new salt. A task fight rolls on its keyed stream (groundFight.ts), the haul on the task's
 // reward stream and the relic on its relic stream (gambit.ts), the plan's odds on the threat stream
@@ -410,15 +435,16 @@ function bankingTeams(ops: GroundOpsState, task: ExpeditionActivity, s: number, 
 
 // ===== Task stamping and planning (a body's scan completes) =====
 
-// Stamp every activity of body `bodyIndex` as a Ground Ops task (plan section 2): one team, its fight points
-// from the site's threat on the body's RAW hazard, nothing done yet, queued. Idempotent (a stamped task is
-// left alone). Mutates the working clone.
+// Stamp every activity of body `bodyIndex` as a Ground Ops task (plan section 2): the teams it needs (a
+// content value that is a whole number >= 1 is kept, else 1; GO-7c wiring, no content asks for more yet), its
+// fight points from the site's threat on the body's RAW hazard, nothing done yet, queued. Idempotent (a stamped
+// task is left alone). Mutates the working clone.
 export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const body = exp.bodies[bodyIndex];
   if (!body) return;
   for (const task of body.activities) {
     if (isGroundTask(task)) continue;
-    task.requiredTeams = 1;
+    task.requiredTeams = requiredTeamsOf(task);
     task.fightPoints = fightPointFractions(fightPointCount(task.poiId, body.hazard));
     task.progress = 0;
     task.pointsCleared = 0;
@@ -429,30 +455,107 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   }
 }
 
-// Queue body `bodyIndex`'s new tasks (see the header: one team, easiest first). With no deployed team the
-// tasks are skipped (nobody could ever work them; unreachable past the D18 gate). Mutates the working clone.
-export function planNewTasks(exp: Expedition, bodyIndex: number): void {
+// The ground teams a task needs together: its requiredTeams when that is a whole number >= 1, else 1. Pure.
+export function requiredTeamsOf(task: Pick<ExpeditionActivity, "requiredTeams">): number {
+  const n = task.requiredTeams;
+  return typeof n === "number" && Number.isInteger(n) && n >= 1 ? n : 1;
+}
+
+// Queue body `bodyIndex`'s new tasks at `t` (see the header: PLANNING). A task needing more teams than the ship
+// deployed is skipped with a log line [PROVISIONAL, Q20]; with no deployed team every task is skipped (nobody
+// could ever work them; unreachable past the D18 gate). Mutates the working clone.
+export function planNewTasks(exp: Expedition, bodyIndex: number, t: number): void {
   const ops = exp.groundOps;
   const body = exp.bodies[bodyIndex];
   if (!ops || !body) return;
-  const queued = new Set(ops.teams.flatMap((t) => t.queue));
+  const queued = new Set(ops.teams.flatMap((team) => team.queue));
   const fresh = body.activities.filter((task) => task.status === "queued" && !queued.has(task.id));
   if (fresh.length === 0) return;
-  const team = ops.teams[0];
-  if (!team) {
+  if (ops.teams.length === 0) {
     for (const task of fresh) task.status = "skipped";
     return;
   }
-  const side = [fightTeamOf(ops, team, true)];
-  const rated = fresh.map((task, order) => {
+  const playable: GroundTaskRef[] = [];
+  for (const task of fresh) {
+    const required = requiredTeamsOf(task);
+    if (required > ops.teams.length) {
+      task.status = "skipped";
+      pushLog(ops, { at: t, kind: "skippedNeedsTeams", taskId: task.id, requiredTeams: required, deployedTeams: ops.teams.length });
+      continue;
+    }
     const ref = findGroundTask(exp, task.id);
-    const wins = ref ? groundTaskClearOdds(exp, side, body, task, ref.flatIndex).wins : 0;
-    return { task, order, wins };
-  });
-  rated.sort((a, b) => b.wins - a.wins || a.order - b.order);
-  for (const { task } of rated) {
-    team.queue.push(task.id);
-    task.assignedTeamIds = [team.index];
+    if (ref) playable.push(ref);
+  }
+  planTasksForTeams(exp, playable);
+}
+
+// Append one display line to the run's log. Mutates.
+function pushLog(ops: GroundOpsState, entry: GroundOpsLogEntry): void {
+  (ops.log ??= []).push(entry);
+}
+
+// A log line in plain words (the UI shows it). Pure.
+export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundOpsLogEntry): string {
+  switch (entry.kind) {
+    case "skippedNeedsTeams": {
+      const task = findGroundTask(exp, entry.taskId)?.task;
+      const name = (task && getPoiById(task.poiId)?.label) ?? "A task";
+      return `Skipped ${name}: needs ${entry.requiredTeams} ground teams, ${entry.deployedTeams} deployed`;
+    }
+  }
+}
+
+// How many of the threat samples `teams` (fresh: full HP, nobody sitting out) clear `ref` in one go (the
+// display odds' stream, groundThreat.ts; a read never shifts a real fight). Pure.
+function freshWins(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef): number {
+  return groundTaskClearOdds(exp, teams.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex).wins;
+}
+
+// THE DEFAULT PLAN (user 9b.3) for `refs` (one body's new, playable tasks, discovery order): appends them to the
+// deployed teams' queues and records each task's owner team(s) (assignedTeamIds). Exported so GO-7d's
+// "Default plan" edit can re-run it. Mutates the working clone.
+//   One team: every task to it, EASIEST FIRST by its clear odds (ties: discovery order) [PROVISIONAL, Q3].
+//   2+ teams: teams ranked by their MEAN clear rate over the tasks, strongest first (ties: team index); the
+//     one-team tasks sorted HARDEST first by the strongest team's odds (ties: discovery order); the strongest
+//     team takes the hardest ceil(n / teams), the next team the next ones, and so on ("harder tasks to A,
+//     middling to B, easy to C"). A task needing N teams goes to the N strongest [PROVISIONAL]. Each team's
+//     new tasks are appended EASIEST FIRST by its own odds (a joint task's odds are its whole team set's).
+export function planTasksForTeams(exp: Expedition, refs: readonly GroundTaskRef[]): void {
+  const ops = exp.groundOps;
+  if (!ops || ops.teams.length === 0 || refs.length === 0) return;
+  const order = new Map(refs.map((ref, k) => [ref.task.id, k] as const));
+  const give = new Map<GroundTeamRun, { ref: GroundTaskRef; wins: number }[]>(ops.teams.map((team) => [team, []] as const));
+  if (ops.teams.length === 1) {
+    const team = ops.teams[0];
+    for (const ref of refs) give.get(team)!.push({ ref, wins: freshWins(exp, ops, [team], ref) });
+  } else {
+    const wins = new Map<GroundTeamRun, number[]>(ops.teams.map((team) => [team, refs.map((ref) => freshWins(exp, ops, [team], ref))] as const));
+    const mean = (team: GroundTeamRun) => wins.get(team)!.reduce((a, b) => a + b, 0) / refs.length;
+    const ranked = [...ops.teams].sort((a, b) => mean(b) - mean(a) || a.index - b.index);
+    const strongest = wins.get(ranked[0])!;
+    const solo = refs.map((ref, k) => ({ ref, k })).filter(({ ref }) => requiredTeamsOf(ref.task) === 1);
+    solo.sort((a, b) => strongest[a.k] - strongest[b.k] || a.k - b.k);
+    const per = Math.ceil(solo.length / ranked.length);
+    solo.forEach(({ ref, k }, n) => {
+      const team = ranked[Math.min(ranked.length - 1, Math.floor(n / per))];
+      give.get(team)!.push({ ref, wins: wins.get(team)![k] });
+    });
+    for (const ref of refs) {
+      const required = requiredTeamsOf(ref.task);
+      if (required === 1) continue;
+      const crew = ranked.slice(0, required).sort((a, b) => a.index - b.index);
+      const joint = freshWins(exp, ops, crew, ref);
+      for (const team of crew) give.get(team)!.push({ ref, wins: joint });
+    }
+  }
+  for (const team of ops.teams) {
+    const mine = give.get(team)!;
+    mine.sort((a, b) => b.wins - a.wins || order.get(a.ref.task.id)! - order.get(b.ref.task.id)!);
+    for (const { ref } of mine) team.queue.push(ref.task.id);
+  }
+  for (const ref of refs) {
+    const owners = ops.teams.filter((team) => give.get(team)!.some((g) => g.ref === ref)).map((team) => team.index);
+    ref.task.assignedTeamIds = owners;
   }
 }
 
@@ -466,7 +569,7 @@ export function groundOpsBodyScanned(exp: Expedition, bodyIndex: number, t: numb
     for (const team of ops.teams) if (team.step === "idle") team.stepStartedAt = t;
   }
   initGroundTasks(exp, bodyIndex);
-  planNewTasks(exp, bodyIndex);
+  planNewTasks(exp, bodyIndex, t);
 }
 
 // ===== The window loop =====
@@ -495,25 +598,40 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     } else {
       // The batch is fixed before any team moves: an end at `t` that processing creates (a zero-length step,
       // or GO-7c's joint steps touching a partner) waits for the next pass at the same instant, never mid-loop.
-      const batch = ops.teams.filter((team) => team.stepEndsAt === t);
-      for (const team of batch) endStep(exp, team, t, driver);
+      // A team a batch-mate's step moved (a joint return moves the partners) is left for the next pass too.
+      const batch = ops.teams.filter((team) => team.stepEndsAt === t).map((team) => ({ team, step: team.step, from: team.stepStartedAt }));
+      for (const { team, step, from } of batch) if (team.step === step && team.stepStartedAt === from) endStep(exp, team, t, driver);
     }
     groundOpsAssignIdle(exp, t);
     checkRunEnd(exp, t);
   }
 }
 
-// Every idle team (team index order) takes the first queued task of its own queue: deploy at `t`. The window
-// runs it after every event; GO-7d's live edits run it at the edit instant. Mutates the working clone.
+// Every idle team picks its next work at `t`, in two passes (team index order each). The window runs it after
+// every event; GO-7d's live edits run it at the edit instant. Mutates the working clone.
+//   Pass 1, OWN WORK: a team first JOINS a joint task a partner is already staging for (so two joint tasks can
+//     never wait on each other: a team only starts staging when no staged partner waits for it), else takes
+//     the first queued task of its own queue: a one-team task deploys at once; a joint task (requiredTeams 2+)
+//     goes to STAGING, and when every team it is assigned to is staging the LEAD (lowest index) deploys.
+//   Pass 2, HELPERS (user D25 + 9b.4): a team still idle (nothing of its own to do) with helpOthers BORROWS the
+//     first task (other teams in index order, their queue order) that is queued, needs one team, is not on its
+//     skippedBorrowed list and rates at least HELPER_MIN_TIER for it from the task's current progress. Own
+//     work goes first, so a helper never takes a task from an owner who is free to work it.
 export function groundOpsAssignIdle(exp: Expedition, t: number): void {
   const ops = exp.groundOps;
   if (!ops) return;
   for (const team of ops.teams) {
     if (team.step !== "idle") continue;
+    const join = joinableTask(exp, ops, team);
+    if (join) {
+      stageOn(ops, team, join, t);
+      continue;
+    }
     let next: GroundTaskRef | null = null;
     for (const id of team.queue) {
       const ref = findGroundTask(exp, id);
-      if (ref && ref.task.status === "queued") {
+      // A joint task this team is not assigned to is never staged by it (it could wait forever).
+      if (ref && ref.task.status === "queued" && (requiredTeamsOf(ref.task) === 1 || (ref.task.assignedTeamIds ?? []).includes(team.index))) {
         next = ref;
         break;
       }
@@ -522,10 +640,98 @@ export function groundOpsAssignIdle(exp: Expedition, t: number): void {
     next.task.status = "active";
     // Tried again after going to the back of the line: a fresh streak (user, GO-7b answers).
     if ((next.task.lossStreak ?? 0) >= GROUND_STUCK_LOSSES) delete next.task.lossStreak;
+    if (requiredTeamsOf(next.task) > 1) {
+      stageOn(ops, team, next, t);
+      continue;
+    }
     team.taskId = next.task.id;
     team.attemptPoints = next.task.pointsCleared ?? 0;
     moveTo(ops, team, "deploy", t, t + DEPLOY_SECONDS);
   }
+  for (const team of ops.teams) {
+    if (team.step !== "idle" || !team.helpOthers) continue;
+    const ref = borrowableTask(exp, ops, team);
+    if (!ref) continue;
+    ref.task.status = "active";
+    team.taskId = ref.task.id;
+    team.borrowed = true;
+    team.attemptPoints = ref.task.pointsCleared ?? 0;
+    moveTo(ops, team, "deploy", t, t + DEPLOY_SECONDS);
+  }
+}
+
+// Is joint task `taskId` still WAITING for its teams (somebody is staging on it and nobody has deployed on it
+// yet)? Pure.
+function jointWaiting(ops: GroundOpsState, taskId: string): boolean {
+  let staging = false;
+  for (const team of ops.teams) {
+    if (team.taskId !== taskId) continue;
+    if (team.step === "staging") staging = true;
+    else if (team.step === "deploy" || team.step === "work" || team.step === "fight") return false;
+  }
+  return staging;
+}
+
+// The joint task a partner is staging for that lists `team` and still waits for it: its own queue order first,
+// then by the staging team's index. Pure.
+function joinableTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun): GroundTaskRef | null {
+  const ids = [...team.queue, ...ops.teams.filter((x) => x.step === "staging" && x.taskId !== undefined).map((x) => x.taskId as string)];
+  for (const id of ids) {
+    const ref = findGroundTask(exp, id);
+    if (!ref || ref.task.status !== "active" || requiredTeamsOf(ref.task) < 2) continue;
+    if (!(ref.task.assignedTeamIds ?? []).includes(team.index) || !jointWaiting(ops, id)) continue;
+    return ref;
+  }
+  return null;
+}
+
+// `team` stages on joint task `ref` at `t`; once every team the task is assigned to is staging on it (at least
+// requiredTeams of them), the LEAD (the lowest index) deploys and the partners stay "staging" (mirroring the
+// lead's task) until the joint return. Mutates.
+function stageOn(ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  team.taskId = ref.task.id;
+  team.attemptPoints = ref.task.pointsCleared ?? 0;
+  moveTo(ops, team, "staging", t, null);
+  const assigned = ref.task.assignedTeamIds ?? [];
+  const crew = ops.teams.filter((x) => assigned.includes(x.index));
+  if (crew.length < requiredTeamsOf(ref.task)) return;
+  if (!crew.every((x) => x.step === "staging" && x.taskId === ref.task.id)) return;
+  moveTo(ops, crew[0], "deploy", t, t + DEPLOY_SECONDS);
+}
+
+// The task a helper borrows (see groundOpsAssignIdle pass 2), or null. Pure (the odds read is memoized).
+function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeamRun): GroundTaskRef | null {
+  const side = [fightTeamOf(ops, helper, true)];
+  for (const owner of ops.teams) {
+    if (owner === helper) continue;
+    for (const id of owner.queue) {
+      if (helper.skippedBorrowed.includes(id)) continue;
+      const ref = findGroundTask(exp, id);
+      if (!ref || ref.task.status !== "queued" || requiredTeamsOf(ref.task) !== 1) continue;
+      if (tierAtLeast(groundTaskThreat(exp, side, ref.body, ref.task, ref.flatIndex).tier, HELPER_MIN_TIER)) return ref;
+    }
+  }
+  return null;
+}
+
+// The teams ON the task `lead` carries: the lead plus the partners mirroring it ("staging" on the same task),
+// ascending index. A one-team task: just the lead. Pure.
+function crewOf(ops: GroundOpsState, lead: GroundTeamRun): GroundTeamRun[] {
+  if (lead.taskId === undefined) return [lead];
+  return ops.teams.filter((team) => team === lead || (team.step === "staging" && team.taskId === lead.taskId));
+}
+
+// The crew team a member belongs to (its Security or Science squad), else the lead. Pure.
+function memberTeam(crew: readonly GroundTeamRun[], memberId: string): GroundTeamRun {
+  return crew.find((team) => team.securityIds.includes(memberId) || team.scienceIds.includes(memberId)) ?? crew[0];
+}
+
+// The crew's in-task carry as one record (a one-team crew: its own, unchanged). Pure.
+function crewCarry(crew: readonly GroundTeamRun[]): GroundTeamRun["carry"] {
+  if (crew.length === 1) return crew[0].carry;
+  let out: GroundTeamRun["carry"];
+  for (const team of crew) if (team.carry) out = { ...(out ?? {}), ...team.carry };
+  return out;
 }
 
 // The run-end condition (see the header); sets endedAt once. Mutates.
@@ -542,7 +748,7 @@ function checkRunEnd(exp: Expedition, t: number): void {
 
 // ===== The team step machine =====
 
-// Close the team's current step at `t` into the display history (a zero-length idle is not recorded) and
+// Close the team's current step at `t` into the display history (a zero-length idle or staging is not recorded) and
 // start `step`, ending at `endsAt` (null = open-ended). `rec` adds to the CLOSED step's record. Mutates.
 function moveTo(
   ops: GroundOpsState,
@@ -552,7 +758,7 @@ function moveTo(
   endsAt: number | null,
   rec: Partial<GroundStepRecord> = {},
 ): void {
-  if (!(team.step === "idle" && team.stepStartedAt === t)) {
+  if (!((team.step === "idle" || team.step === "staging") && team.stepStartedAt === t)) {
     pushHistory(ops, {
       teamIndex: team.index,
       step: team.step,
@@ -614,27 +820,29 @@ function beginOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
 }
 
 // Work from the task's progress to its next fight point (or 100%): (to - from) of the task's full work time
-// for the members still standing, whole seconds, at least 1.
+// for the crew's members still standing (a joint task: every team's, the Science fieldwork summed), whole
+// seconds, at least 1. `team` is the crew's lead.
 function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number, rec: Partial<GroundStepRecord> = {}): void {
   const points = ref.task.fightPoints ?? [];
   const cleared = ref.task.pointsCleared ?? 0;
   const from = ref.task.progress ?? 0;
   const to = cleared < points.length ? points[cleared] : 1;
-  const full = taskWorkSeconds(exp, [workTeamOf(ops, team)], ref.body);
+  const full = taskWorkSeconds(exp, crewOf(ops, team).map((member) => workTeamOf(ops, member)), ref.body);
   team.workFrom = from;
   team.workTo = to;
   moveTo(ops, team, "work", t, t + Math.max(1, Math.round((to - from) * full)), rec);
 }
 
-// Work reached its target: bank the segment just finished (segment index = the points cleared so far), then
-// the task is done at 100% (return) or a fight waits at the point.
+// Work reached its target: bank the segment just finished (segment index = the points cleared so far) for the
+// crew's team set, then the task is done at 100% (every crew team returns) or a fight waits at the point.
 function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
   const task = ref.task;
+  const crew = crewOf(ops, team);
   const to = team.workTo ?? task.progress ?? 0;
   task.progress = to;
   const segment = task.pointsCleared ?? 0;
   const bankers = task.segmentBankers ?? [];
-  bankers[segment] = [team.index];
+  bankers[segment] = crew.map((member) => member.index);
   task.segmentBankers = bankers;
   task.segmentsBanked = Math.max(task.segmentsBanked ?? 0, segment + 1);
   delete team.workFrom;
@@ -643,51 +851,80 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     task.status = "done";
     task.done = true;
     task.completedAt = t;
-    return startReturn(exp, ops, team, ref, t, false);
+    for (const member of crew) startReturn(exp, ops, member, ref, t, false);
+    return;
   }
   startFight(exp, ops, team, ref, t);
 }
 
-// A fight starts: resolved now on its keyed stream, with the team's carry (user Q5); applied at its end.
+// A fight starts: resolved now on its keyed stream, with the crew's carry (user Q5); applied at its end. A
+// joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order).
 function startFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
-  const record = resolveTaskFight(exp, [fightTeamOf(ops, team)], ref.body, ref.task, ref.flatIndex, team.carry);
+  const crew = crewOf(ops, team);
+  const record = resolveTaskFight(exp, crew.map((member) => fightTeamOf(ops, member)), ref.body, ref.task, ref.flatIndex, crewCarry(crew));
   ref.task.fightCount = (ref.task.fightCount ?? 0) + 1;
   team.pendingFight = record;
   moveTo(ops, team, "fight", t, t + taskFightSeconds(record));
 }
 
-// A fight ends: apply its record (see the header).
+// A fight ends: apply its record (see the header). Each member's conditions, downed state and carry land on
+// the crew team it belongs to. A loss sends every crew team back on its own return trip: a team whose own
+// Security squad is all down waits for the ship (a recovery leg each, serialized). A HELPER's loss never counts
+// toward the owner's loss streak or moves the task in the owner's queue: the helper puts it on its
+// skippedBorrowed list (never borrowed again) and the task is queued for its owner, progress kept.
 function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
   const record = team.pendingFight;
   delete team.pendingFight;
-  if (!record) return startReturn(exp, ops, team, ref, t, false);
-  for (const [memberId, ids] of Object.entries(record.memberConditions)) {
-    const merged = team.conditions[memberId] ?? [];
-    for (const id of ids) if (!merged.includes(id)) merged.push(id);
-    team.conditions[memberId] = merged;
+  const crew = crewOf(ops, team);
+  if (!record) {
+    for (const member of crew) startReturn(exp, ops, member, ref, t, false);
+    return;
   }
-  for (const id of record.downedMemberIds) if (!team.downedThisTask.includes(id)) team.downedThisTask.push(id);
+  for (const [memberId, ids] of Object.entries(record.memberConditions)) {
+    const owner = memberTeam(crew, memberId);
+    const merged = owner.conditions[memberId] ?? [];
+    for (const id of ids) if (!merged.includes(id)) merged.push(id);
+    owner.conditions[memberId] = merged;
+  }
+  for (const id of record.downedMemberIds) {
+    const owner = memberTeam(crew, id);
+    if (!owner.downedThisTask.includes(id)) owner.downedThisTask.push(id);
+  }
   const task = ref.task;
   if (record.outcome === "win") {
     task.pointsCleared = (task.pointsCleared ?? 0) + 1;
     delete task.lossStreak;
     delete task.sentBack;
-    team.carry = structuredClone(record.memberEnd);
+    if (crew.length === 1) team.carry = structuredClone(record.memberEnd);
+    else {
+      for (const member of crew) {
+        const mine: Record<string, GroundMemberEnd> = {};
+        for (const [id, end] of Object.entries(record.memberEnd)) if (memberTeam(crew, id) === member) mine[id] = structuredClone(end);
+        member.carry = mine;
+      }
+    }
     return startWork(exp, ops, team, ref, t, { outcome: "win" });
   }
-  delete team.carry;
+  for (const member of crew) delete member.carry;
   task.status = "queued";
-  const progressed = (task.pointsCleared ?? 0) > (team.attemptPoints ?? 0);
-  const streak = progressed ? 0 : (task.lossStreak ?? 0) + 1;
-  if (streak > 0) task.lossStreak = streak;
-  else delete task.lossStreak;
-  if (streak >= GROUND_STUCK_LOSSES) {
-    // BACK OF THE LINE (user, GO-7b answers): easier tasks in the queue go first; this one comes around again.
-    team.queue = [...team.queue.filter((id) => id !== task.id), task.id];
-    task.sentBack = (task.sentBack ?? 0) + 1;
+  if (team.borrowed) {
+    if (!team.skippedBorrowed.includes(task.id)) team.skippedBorrowed.push(task.id);
+  } else {
+    const progressed = (task.pointsCleared ?? 0) > (team.attemptPoints ?? 0);
+    const streak = progressed ? 0 : (task.lossStreak ?? 0) + 1;
+    if (streak > 0) task.lossStreak = streak;
+    else delete task.lossStreak;
+    if (streak >= GROUND_STUCK_LOSSES) {
+      // BACK OF THE LINE (user, GO-7b answers): easier tasks in the owner's queue go first; this one comes
+      // around again. A joint task moves in every crew team's queue.
+      for (const member of crew) if (member.queue.includes(task.id)) member.queue = [...member.queue.filter((id) => id !== task.id), task.id];
+      task.sentBack = (task.sentBack ?? 0) + 1;
+    }
   }
-  const out = new Set(team.downedThisTask);
-  startReturn(exp, ops, team, ref, t, team.securityIds.every((id) => out.has(id)), { outcome: "loss" });
+  for (const member of crew) {
+    const out = new Set(member.downedThisTask);
+    startReturn(exp, ops, member, ref, t, member.securityIds.every((id) => out.has(id)), member === team ? { outcome: "loss" } : {});
+  }
 }
 
 // Back to the ship. A WIPE is a RECOVERY LEG (see the header): the team's return ends when the ship arrives;
@@ -839,6 +1076,7 @@ function finishBay(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
 function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
   moveTo(ops, team, "idle", t, null);
   delete team.taskId;
+  delete team.borrowed;
   delete team.attemptPoints;
   delete team.workFrom;
   delete team.workTo;

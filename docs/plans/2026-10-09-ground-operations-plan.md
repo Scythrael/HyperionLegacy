@@ -966,6 +966,66 @@ lane); a 2-team task runs both squads in one fight; parity (big == chunked) on t
 
 **Acceptance:** gate green. Commit `feat(0.14.0): ground ops multi-team, default plan, helpers (Ground Ops GO-7c)`.
 
+**Carry from GO-7c (built 2026-10-12, commit `feat(0.14.0): ground ops multi-team, default plan, helpers (Ground Ops
+GO-7c)`):**
+- **Planning (`planNewTasks(exp, bodyIndex, t)` -> `planTasksForTeams(exp, refs)`, exported for GO-7d's "Default
+  plan").** One team: unchanged (easiest first). 2+ teams: the 9b.3 default plan as specified; a team's rank = its mean
+  fresh-squad wins over the body's playable tasks (ties: team index); one-team tasks hardest first by the strongest
+  team (ties: discovery order), chunks of ceil(n / teams); each team's new tasks appended easiest first by its OWN odds
+  (ties: discovery order). **[PROVISIONAL]** a joint task (requiredTeams N) goes to the N STRONGEST teams, appended into
+  each of their queues, ordered by the whole set's odds. A task needing more teams than deployed is `skipped` at
+  planning with a log line **[PROVISIONAL, Q20]**: new optional `GroundOpsState.log?: GroundOpsLogEntry[]` (display
+  only, absent until a line is written, so a run without one keeps its exact shape; kind `skippedNeedsTeams`), worded
+  by `groundOpsLogText` ("Skipped Crashed Ship: needs 4 ground teams, 3 deployed"). `initGroundTasks` keeps a content
+  `requiredTeams` that is a whole number >= 1 (`requiredTeamsOf`), else 1; no content sets it yet.
+- **Assignment (`groundOpsAssignIdle`), two passes in team index order.** Pass 1, own work: an idle team first JOINS a
+  joint task a partner is staging for that lists it (own queue order first), else takes its first queued task (a joint
+  task it is not assigned to is passed over). Joining first is the no-deadlock rule: a team only starts staging when
+  no staged partner waits for it, so two joint tasks can never wait on each other (tested with two joint tasks queued
+  in opposite orders). Pass 2, HELPERS: a team still idle (no queued task of its own) with `helpOthers` borrows the
+  first task of the other teams' queues (index order, queue order) that is queued, needs one team, is not in its
+  `skippedBorrowed` and reads at least `HELPER_MIN_TIER` (`tierAtLeast(groundTaskThreat(fresh helper squad, task as it
+  stands))`). Own work goes first, so a helper never takes a task from an owner who is free at the same instant.
+  **Interpretation:** "an empty own queue" = no queued task of its own (an own task a helper is working, or a done /
+  skipped one, does not keep it from helping).
+- **Helpers (user rulings):** `borrowed` is set on the helper and cleared at idle. A helper LOSS never touches the
+  owner's `lossStreak` / `sentBack` and never moves the task in the owner's queue; the helper adds the task to
+  `skippedBorrowed` (never borrowed again), the task goes back to `queued` with its progress and banked segments kept,
+  and the helper takes its return trip (a WIPE while the ship scans is a recovery leg like any team's; tested). A
+  borrowed deploy does not reset the owner's streak either. **Note:** a fight point a helper WINS still clears the
+  streak and `sentBack` (the task progressed), as any point win does.
+- **Joint tasks (requiredTeams N, wired):** the first assigned team to pick it sets it `active` and goes `staging`
+  (open-ended); when every assigned team is staging on it the LEAD (lowest index) deploys; partners stay `staging`
+  with the lead's `taskId` until the joint return. `crewOf(lead)` = the lead plus the teams staging on its task. The
+  lead's work step uses `taskWorkSeconds` over the whole crew's standing members (Science fieldwork summed); a fight
+  is ONE side (`resolveTaskFight` over every crew team, team then slot order) with the crew's merged carry; each
+  member's conditions, downed state and carry land on its own team; `segmentBankers[s]` = the crew's indices and the
+  offload pays that set's yield (`bankingTeams`, unchanged). At the joint return every crew team runs its own return,
+  offload, bay and reload. A loss counts ONCE (the lead's `attemptPoints`); at 3 it goes to the back of every crew
+  team's queue. A zero-length staging is not written to history (the last joiner who is also the lead).
+- **Recovery legs:** unchanged machinery; one leg at a time, so several wiped teams queue and each waits for its own
+  pickup (tested: the second leg starts at the first leg's end, its team's return ends on its own arrival). A team is
+  WIPED when its OWN Security squad is all down, so a joint wipe gives one leg per wiped team in team index order
+  **[PROVISIONAL]** (they share a body; one shared pickup would be the alternative), and a joint round-cap loss gives
+  a leg only to a team whose own squad is all down.
+- **Batch rule:** the same-instant batch is fixed before any team moves AND each entry is skipped if a batch-mate's
+  processing changed its step (step + start captured), so a joint return moving partners can never process a partner
+  mid-loop.
+- **Offload note:** an offload still delivers every banked segment not yet offloaded at its END, whoever banked it (at
+  that team set's yield, never twice), so a helper's segment banked while the owner is still offloading arrives with
+  the owner's batch. Totals are exact; only the arrival moment differs.
+- **For GO-7d:** `crewOf` (internal) gives the teams to stop when an active joint task is skipped or reassigned;
+  `planTasksForTeams` re-runs the plan; validate `notEnoughTeams` for a joint task (a joint task whose assigned,
+  deployed teams are fewer than `requiredTeams` would stage forever).
+- Tests: `groundOpsTeams.test.ts` (17, synthetic 3-team hull via `registerSyntheticHull`; every real hull keeps 1
+  team): the hull, the default plan split + parallel interleave, helper floor / win / loss / no loop / owner streak
+  untouched / leg while scanning / no-help and own-work-first, two wiped teams queue for the ship, joint stamping, a
+  2-team task end to end (one fight side, union work time, team-set banking and yield), a staged team waiting for a
+  busy partner, opposite-order joint tasks, a joint wipe (a leg each, counted once, back of both queues), the skip log
+  line, and parity (big == 997 s == 1 s chunks over 2 h) on a hand-built 3-team run with a joint task, a helper and
+  wipes, and on a REAL dispatched 3-team run (plus big == 997 s over 150 000 s), explicit timeouts. Legacy goldens and
+  every GO-7b test unchanged. Suite 4231 -> 4248 passed (1 skipped); `npm run check` 0 errors.
+
 ### GO-7d: Live queue edits ("apply from now")
 
 **Files:** `groundOps.ts` (edit API), `App.svelte` (no UI yet; handlers land with GO-13), tests `groundOpsEdits.test.ts`.

@@ -7035,7 +7035,7 @@ export interface GroundTeamRun {
   stepStartedAt: number;
   stepEndsAt: number | null; // null = open-ended (idle, staging)
   taskId?: string; // the task the team is on
-  borrowed?: boolean; // true when that task is another team's (a helper, GO-7c)
+  borrowed?: boolean; // true when that task is another team's (a helper, GO-7c); cleared at idle
   workFrom?: number; // progress span of the current work step
   workTo?: number;
   pendingFight?: GroundFightRecord; // resolved at fight start, applied at fight end (groundFight.ts)
@@ -7095,6 +7095,20 @@ export interface GroundOpsState {
   editCount: number; // player edits so far (GO-7d keys the auto-assign stream)
   history: GroundStepRecord[]; // DISPLAY ONLY, capped per team
   shipLegs: GroundShipLeg[]; // recovery legs, in time order
+  // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
+  // written, so a run without one keeps its exact shape.
+  log?: GroundOpsLogEntry[];
+}
+
+// GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it). Today the only kind:
+// a task that needs more ground teams than the ship deployed is skipped when its body is planned
+// [PROVISIONAL, Q20].
+export interface GroundOpsLogEntry {
+  at: number; // gameTimeSeconds of the planning
+  kind: "skippedNeedsTeams";
+  taskId: string;
+  requiredTeams: number;
+  deployedTeams: number;
 }
 
 // The run's factors, FROZEN at dispatch (D24: the medical factors too). Shares are per DEPLOYED team, in
