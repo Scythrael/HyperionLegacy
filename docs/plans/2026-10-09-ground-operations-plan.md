@@ -1084,6 +1084,11 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   (or "raw X, effective Y"), not the raw sum. (c) GO-19's list of defaults for the user adds: carried statuses keep
   their remaining rounds between fights, the team kit refills every fight, the carried HP floor is 1.
 
+- **GO-6 notes (2026-10-12):** GO-10 converts the patrol threat chips' EMOJI to SVG glyphs (standing rule: graphics are
+  SVG via icons.ts + ICON_SEMANTICS, never emoji; this is an existing prod gap, fixed alongside the new ground chip).
+  GO-18 Help says hazard resist sources combine BEFORE the diminishing curve, so several sources add up to slightly
+  less than their individual readouts.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
