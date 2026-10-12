@@ -116,6 +116,18 @@ Mockup: https://claude.ai/artifact/MYMAwEVVpnnH62Mscmju1A (open calls 1-11).
     the bonus roll increases the chance of better relics or higher quality relics for completion. As well as the full
     planetary report that should 100% have a reward behind full completion."
 
+## 3c. Squad redesign: timing, limits, Subspace Telescope (user, 2026-10-12, verbatim)
+
+- **Timing: in 0.14.0.** "Let's get this done in 0.14.0. Because it makes sense for when we create the actual content.
+  We want to make sure that we're able to make use of it. The universe is not a safe place, but we want to be able to
+  practice our skills and grow in a place that feels safer before everything starts to try to kill us."
+- **Squad limits:** "Basically, it'd be doubling the number of ground team totals." (Reading to confirm: see below.)
+- **NEW FACILITY, SUBSPACE TELESCOPE:** "Upgrading it increases range, and sensor effectiveness, so as you upgrade it,
+  the scans become refined enough to be able to determine details like \"yeah, you need more strike teams than science
+  teams for this one\" where you even potentially get a recommendation on the expedition card on what to launch with.
+  So you don't run the risk of mis-speccing to get there and suddenly wind up with a poorly made team."
+- **Minimum:** "Always require one of each type minimum." (D18 stands: at least one Security and one Science squad.)
+
 ## 4. The 0.14.0 vision, re-stated by the user (verbatim, for scope reconciliation)
 
 PART 1: Crew!
