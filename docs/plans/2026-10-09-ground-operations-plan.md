@@ -1221,6 +1221,15 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   GO-18 Help says hazard resist sources combine BEFORE the diminishing curve, so several sources add up to slightly
   less than their individual readouts.
 
+- **GO-7b answers (user, 2026-10-12):** (a) BACK OF THE LINE: after 3 losses in a row on a task, it moves to the back
+  of that team's queue so easier tasks get done first; it comes back around later; the Stuck flag shows when only
+  such tasks remain. (b) LATE WIPES: after the system is fully scanned, a wiped team still waits for the ship to come
+  get them (the 5 minute leg), consistent with "can't leave them to die"; nothing else is delayed. (c) Leg length:
+  keep 300 s each way.
+- **GO-7b review gating (2026-10-12):** do NOT deploy to staging between GO-7b and GO-7d: there is no skip / recall
+  action yet, so a run whose every remaining task is unwinnable holds its ship, crew and captain. GO-7d lands the
+  skip; consider a dev-only recall if staging is needed sooner.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
