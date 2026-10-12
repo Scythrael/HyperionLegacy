@@ -1514,8 +1514,8 @@ export interface ShipInstance {
   // slotted Science squad (see ShipGroundTeam). Length = groundTeamCount(typeKey) (1 on every hull today).
   // freshState seeds the starting hull; the v66 -> v67 migration backfills every ship by hire order.
   // OPTIONAL + absent-safe: a ship minted without it (shipBuild, the captain-unlock grant) reads as the
-  // hull's empty teams through groundTeams.ts shipGroundTeams. NOTHING in the engine reads it yet
-  // (dispatch still uses deployableMembers until Ground Ops GO-7b).
+  // hull's empty teams through groundTeams.ts shipGroundTeams. GO-2's slot actions and the hire / fire /
+  // reassign sync write it; dispatch does NOT read it yet (still deployableMembers until Ground Ops GO-7b).
   groundTeams?: ShipGroundTeam[];
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }

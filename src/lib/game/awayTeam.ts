@@ -50,6 +50,9 @@ import { generateCrewIdentity } from "./crew";
 import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./seniorStaff";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { onMissionLock } from "./equipment";
+// Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
+// model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
+import { shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
 
 // ============================================================================
 // Squad sizes (design section 5.2)
@@ -399,7 +402,9 @@ export function hireTargetsForCandidate(
 // Hire a candidate from the CURRENT board into `shipId`'s squad of the candidate's team type. Refuses
 // (returns the SAME state) whenever canHireAwayMember does. The hire is re-ided to "member-N" from
 // nextAwayMemberId (mirroring hireOfficer), records the candidate id in hiredFrom, and keeps its rolled
-// squad / spec / identity / rank / traits. Builds the board once. Pure.
+// squad / spec / identity / rank / traits. Builds the board once.
+// Ground Ops (GO-2): the new member is AUTO-SLOTTED into the ship's first empty slot of their squad, lowest
+// ground team first (set-and-forget); with no empty slot they stay aboard unslotted (the reserve). Pure.
 export function hireAwayMember(state: GameState, candidateId: string, shipId: string): GameState {
   const candidate = boardCandidate(state, candidateId);
   if (!candidate || !hireGateFor(state, candidate, shipId).ok) return state;
@@ -412,6 +417,7 @@ export function hireAwayMember(state: GameState, candidateId: string, shipId: st
   };
   return {
     ...state,
+    ships: shipsWithMemberAutoSlotted(state.ships, shipId, hired.id, hired.teamType),
     awayMembers: [...state.awayMembers, hired],
     nextAwayMemberId: state.nextAwayMemberId + 1,
   };
@@ -434,11 +440,13 @@ export function canFireAwayMember(state: GameState, memberId: string): AwayCrewG
 // removes the member, so no piece is ever left pointing at a member who no longer exists. Every returned
 // piece gets its auto-salvage grace restarted (startAutoSalvageGrace, model.ts), like every other uninstall
 // route (equipment.ts, memberEquipment.ts): worn gear is never an auto-salvage candidate, so without the
-// stamp a fired member's kit would be exposed the instant it reached storage. Pure.
+// stamp a fired member's kit would be exposed the instant it reached storage. Ground Ops (GO-2): the member
+// is also UNSLOTTED from every ground team, so no slot ever names a member who no longer exists. Pure.
 export function fireAwayMember(state: GameState, memberId: string): GameState {
   if (!canFireAwayMember(state, memberId).ok) return state;
   return {
     ...state,
+    ships: shipsWithMemberUnslotted(state.ships, memberId),
     equipment: state.equipment.map((e) =>
       e.fittedToMemberId === memberId
         ? startAutoSalvageGrace({ ...e, fittedToMemberId: null }, state.gameTimeSeconds)
@@ -469,11 +477,17 @@ export function canReassignAwayMember(state: GameState, memberId: string, shipId
 // Move a member to another ship's squad of the member's own team type, or bench them (shipId null =
 // unassigned). Refuses (returns the SAME state) whenever canReassignAwayMember does, which includes the
 // same-ref no-op of moving a member to where they already are. Gear travels with the member (it is
-// keyed to the member, not the ship). Pure.
+// keyed to the member, not the ship). Ground Ops (GO-2): the member leaves every ground-team slot first;
+// arriving aboard a ship (a move, or an unbench) AUTO-SLOTS them into that ship's first empty slot of their
+// squad, lowest team first, else they stay aboard unslotted (the reserve). Benching leaves them unslotted.
+// Pure.
 export function reassignAwayMember(state: GameState, memberId: string, shipId: string | null): GameState {
   if (!canReassignAwayMember(state, memberId, shipId).ok) return state;
+  const member = state.awayMembers.find((m) => m.id === memberId) as AwayMember;
+  const unslotted = shipsWithMemberUnslotted(state.ships, memberId);
   return {
     ...state,
+    ships: shipId === null ? unslotted : shipsWithMemberAutoSlotted(unslotted, shipId, memberId, member.teamType),
     awayMembers: state.awayMembers.map((m) => (m.id === memberId ? { ...m, assignedShipId: shipId } : m)),
   };
 }

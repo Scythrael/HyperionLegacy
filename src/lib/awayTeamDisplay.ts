@@ -7,6 +7,7 @@
 
 import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ScienceSpec, ShipInstance } from "./game/model";
 import { SHIP_TYPES } from "./game/model";
+import { formatCountdown } from "./game/format";
 import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
 import { AUGMENT_AFFINITY_RACES, implantSlotsFor } from "./game/awayTeam";
 import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
@@ -137,13 +138,10 @@ export function pickedMoveTarget<T extends { shipId: string; gate: { ok: boolean
 }
 
 // A short countdown for a span in seconds: "1h 12m", "41m", "35s". A non-positive span reads "0s".
-// Minutes round UP so "refreshes in 1m" never shows while a full minute is still left to wait.
+// Minutes round UP so "refreshes in 1m" never shows while a full minute is still left to wait. The ONE
+// implementation lives in game/format.ts formatCountdown (Ground Ops GO-2 moved it there so the engine's
+// UI-free wait text, groundTeams.ts groundTeamWaitText, reads the same countdown); this name stays for the
+// Away Team tab and the Recruitment Board.
 export function awayCountdownText(seconds: number): string {
-  if (!(seconds > 0)) return "0s";
-  if (seconds < 60) return `${Math.ceil(seconds)}s`;
-  const totalMinutes = Math.ceil(seconds / 60);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  return formatCountdown(seconds);
 }

@@ -230,3 +230,21 @@ export function formatClock(ticks: number, secondsPerTick: number): string {
   if (hours > 0) return `${hours}:${pad2(minutes)}:${pad2(seconds)}`;
   return `${pad2(minutes)}:${pad2(seconds)}`;
 }
+
+// ============================================================================
+// formatCountdown, a short EXACT countdown for a span in SECONDS.
+//
+// "1h 12m", "41m", "35s"; a non-positive (or NaN) span reads "0s". Minutes round UP so "returns in 1m"
+// never shows while a full minute is still left to wait. Seconds-based, unlike the two tick-based helpers
+// above. Moved here from awayTeamDisplay.ts awayCountdownText (Ground Ops GO-2) so the engine's UI-free
+// wait text (groundTeams.ts groundTeamWaitText, "Grokk returns to duty in 12m") and the Away Team tab
+// share one countdown.
+export function formatCountdown(seconds: number): string {
+  if (!(seconds > 0)) return "0s";
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const totalMinutes = Math.ceil(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+}

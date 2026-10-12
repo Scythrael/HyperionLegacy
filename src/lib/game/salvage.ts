@@ -791,6 +791,10 @@ export function salvageShip(
   // Drop the ship from state.ships (a plain array), freeing a docks slot IMMEDIATELY, since
   // canStartShipBuild's storage gate reads state.ships.length. Fresh ships/equipment arrays +
   // a fresh inventory + the updated credits keep the input state untouched (immutability).
+  // Ground Ops (GO-2): the hull's ground-team slots (ShipInstance.groundTeams) leave WITH the ship, so no
+  // slot can name a member of a salvaged hull. TODO(E-CREW Task 27): salvage does not bench the hull's away
+  // members yet (they keep pointing at the removed ship); when Task 27 benches them, bench through
+  // awayTeam.ts reassignAwayMember-style sync (shipsWithMemberUnslotted) and list them in the Reserve.
   const ships = state.ships.filter((s) => s.id !== shipId);
   return {
     ok: true,

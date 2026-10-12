@@ -90,6 +90,10 @@ import {
 } from "./gambit";
 // E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
 import { deployableMembers, snapshotAwayRoster } from "./awayTeam";
+// Ground Ops (GO-2): the D18 minimums live in groundTeams.ts (its deployable reader applies them per ground
+// team); imported for the dispatch gate below and re-exported so existing callers keep their import.
+import { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS } from "./groundTeams";
+export { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS };
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
 // crewOverlay and crewBuffs only, never this module, so no cycle).
 import { applyExpeditionInjuries, type MemberInjury } from "./injuries";
@@ -356,9 +360,8 @@ export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReaso
 // expedition launches only with at least this many DEPLOYABLE members in each squad (ready, within the
 // hull's squad cap: awayTeam.ts deployableMembers, the same rule the dispatch snapshot uses, so the gate
 // and the snapshot can never disagree). There is no anonymous stand-in team. Composition beyond the
-// minimum is the player's choice (D17: no rails).
-export const MIN_SECURITY_MEMBERS = 1;
-export const MIN_SCIENCE_MEMBERS = 1;
+// minimum is the player's choice (D17: no rails). MIN_SECURITY_MEMBERS / MIN_SCIENCE_MEMBERS (both 1) are
+// defined in groundTeams.ts and re-exported at the imports above.
 
 // Does `ship` field the minimum away team right now? Returns the deployable head counts so the dispatch
 // UI can say what is missing. Pure.

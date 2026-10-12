@@ -302,6 +302,57 @@ dangling id; slotting onto an occupied slot unslots the occupant; on-mission ref
 **Acceptance:** gate green; dispatch unchanged (still `deployableMembers`). Commit
 `feat(0.14.0): ground team slotting engine (Ground Ops GO-2)`.
 
+**Carry from GO-2 (built 2026-10-12, commit `feat(0.14.0): ground-team slotting engine + crew sync (GO-2)`):**
+- **New module `groundTeamSlots.ts`** (imports model.ts ONLY): `shipGroundTeams`, `findGroundSlot`,
+  `firstEmptyGroundSlot`, `shipsWithMemberAutoSlotted`, `shipsWithMemberUnslotted`, `GroundSquadType` /
+  `GROUND_SQUAD_TYPES` / `isGroundSquadType`. It exists so awayTeam.ts can sync slots without a cycle
+  (groundTeams.ts imports awayTeam.ts). Graph: model <- groundTeamSlots <- awayTeam <- groundTeams; groundTeams.ts
+  re-exports all of it, so callers import from groundTeams.ts.
+- **`shipGroundTeams` now returns a NORMALIZED COPY** (GO-1 review): exactly `groundTeamCount` teams, slot lists sized
+  to the hull (extra dropped, missing null, non-string ids null), boolean help, string name only. Fresh arrays every
+  call; "never mutate the result" is documented. Every action edits a copy and writes it onto a new ship object, so a
+  ship minted after v67 (no field) gets its teams on its first slot write.
+- **Actions (groundTeams.ts), each with a same-ref guard on refusal / no-op:** `canSlotMember` / `slotMember` (moves
+  the member out of any slot first; an occupant goes to the reserve), `canUnslotMember` / `unslotMember`,
+  `canSwapGroundMembers` / `swapGroundMembers` (same ship, same team type, at least one slotted; works across teams;
+  a reserve member swapped with a slotted one takes the slot), `renameGroundTeam` (trimmed, `GROUND_TEAM_NAME_MAX` 24
+  [PROVISIONAL]; blank, null or the team's own default name clears it), `setGroundTeamHelp`. Reasons
+  (`GroundSlotBlockReason`, exhaustive `groundSlotBlockText`): noShip, onMission (the crew lock: the ship is out, its
+  members busy on the run), noSuchTeam, noSuchSlot, noMember, wrongShip, wrongTeamType, alreadyThere, notSlotted.
+- **[PROVISIONAL] deviation:** rename AND the help toggle are allowed while the ship is out (the plan exempted only
+  rename). The help toggle is the ship default for the NEXT dispatch and touches no slot or live run. One-line change in
+  `setGroundTeamHelp` if the user wants it locked.
+- **Crew sync (awayTeam.ts):** `hireAwayMember` and `reassignAwayMember` (a move or an unbench) AUTO-SLOT on arrival
+  into the first empty slot of the member's squad, lowest team first; `fireAwayMember`, `reassignAwayMember` (away or
+  bench) unslot first. No every-load reconcile (it would undo a deliberate unslot). **The hire cap stays**
+  (`squadGate` at `squadSlots`): a ship's reserve exists only by a deliberate unslot (or a pre-GO-2 save), and the
+  Task 27 Reserve list is the BENCHED members (`assignedShipId === null`); moving a member between ships is reassign +
+  auto-slot. Salvage does not bench members yet: the hull's slots leave with it (TODO in `salvage.ts` for Task 27).
+- **Accepted as staging-only (controller ruling):** a member hired or reassigned on a GO-1 build sits aboard UNSLOTTED.
+  Until GO-11 ships the slotting UI, the only fix is to move them away and back (reassign auto-slots). GO-7b switches
+  dispatch to slots, so a staging save from that window can be unable to dispatch until the player re-slots.
+- **The deployable reader** `deployableGroundTeams(state, shipId): GroundDeployCheck` (NO automatic stand-ins, user
+  2026-10-12): `{ ok, reason?: "noShip" | "noGroundTeams" | "noTeamReady", teams: GroundTeamReadiness[], security,
+  science, readyAtSeconds }`. Per team: `{ index, name, security, science (slotted members, slot order), staffed,
+  deploys, waits, readyAtSeconds }`; a `GroundTeamWait` is `injured` (memberId, memberName, teamType, readyAtSeconds,
+  secondsLeft) or `needSecurity` / `needScience` (fewer than `MIN_SECURITY_MEMBERS` / `MIN_SCIENCE_MEMBERS` slotted:
+  D18 per team). A team deploys only when every slotted member is ready AND each squad meets D18; a ready RESERVE
+  member never stands in. The ship is ok when at least one team deploys and the deploying teams meet D18 in total.
+  `readyAtSeconds`: per team, the last injured member's return (null when it needs the player to slot someone); per
+  ship, the soonest team. The crew lock is NOT part of the reader (dispatch has its own gates). UI-free formatters:
+  `groundTeamWaitText` ("Grokk returns to duty in 12m") and `groundDeployBlockText(check, now)`. Dispatch still reads
+  `deployableMembers` (a test pins it: an unslotted ready member still counts for the legacy gate).
+- `MIN_SECURITY_MEMBERS` / `MIN_SCIENCE_MEMBERS` moved to groundTeams.ts (expedition.ts imports and re-exports them).
+  `awayTeamDisplay.ts awayCountdownText` now delegates to the new `format.ts formatCountdown` (the one seconds
+  countdown, shared with the wait text).
+- **For GO-7a / GO-7b:** `awayTeamTestFixtures.ts withMinimumAwayTeam` adds members WITHOUT slotting them; when dispatch
+  switches to slots, route it through the slot sync (or slot the pair) so every dispatching test keeps testing what it
+  tested. "Busy" today means only the ship lock; a future per-member busy state (training, another run) would be a new
+  `GroundTeamWait` kind.
+- Removed the duplicate `roundTripped!.version` assertion in `save.test.ts` (GO-1 review minor).
+- Tests: `groundTeams.test.ts` 16 -> 58 (the `assertSlotInvariants` helper runs after every action). Suite 4021 -> 4063
+  passed; `npm run check` 0 errors.
+
 ---
 
 ### Stage B: Pure building blocks (no engine switch yet)

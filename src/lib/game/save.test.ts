@@ -3922,7 +3922,6 @@ describe("migrate, item-catalog reconciliation (v28 -> v29)", () => {
     // nextCaptainId backfill at v30->v31).
     const roundTripped = deserialize(serialize(migrated, 0));
     expect(roundTripped!.version).toBe(SAVE_VERSION);
-    expect(roundTripped!.version).toBe(SAVE_VERSION);
 
     // Task B1 (equipment storage cap): the SAME v28->v29 body seeds the new
     // `equipmentStorageLevel` field to 0 on an old save that lacks it (the makeV28Save
