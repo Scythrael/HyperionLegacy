@@ -756,6 +756,39 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
 
 ---
 
+## 4b. USER ANSWERS (2026-10-12), override the matching Q below and the GO tasks that use them
+
+- **Q1 Overlap: YES**, with a rule (verbatim): "If a task is lost while the ship is off scanning, the ship should
+  have to return and retrieve the ground team that ran into trouble, delaying the scanning steps. Rightfully so, of
+  course. Can't leave them to die." So teams work a scanned planet while the ship scans the next; a WIPE while the
+  ship is elsewhere makes the ship break off, fly back and recover the team (a recovery leg), and scanning resumes
+  after. GO-7b/7c must model the ship's position and the recovery leg.
+- **Q4 Stuck run: HOLD AND FLAG.** Keep retrying as decided, but the expedition card shows a clear "Stuck: needs a
+  stronger team or a skip" flag. No automatic giving up.
+- **Q5 HP: CARRY DAMAGE** between the fights of one task; full recovery only in the ship's medical bay on the return
+  trip. Medics and first aid matter mid-task.
+- **Q12/Q13 Event stakes: LIGHT SHIP DAMAGE** (debris and a lost probe fight leave a little hull damage; a failed
+  boarding repel = a scan pause plus a small cargo or credit loss) PLUS a new requirement, **EXPEDITION FIELD REPAIR**
+  (verbatim): "if the ship gets too heavily damaged, then basically having to limp home at a reduced speed for 6+
+  hours sucks. Here's an idea. WWVD. What Would Voyager Do? They'd find a planet with atmosphere nearby and set a
+  course. Then land and conduct repairs and so forth. I think we'd have to do the same in this case. Because returning
+  home wouldn't make any sense. So we'd not want to soft-lock or force someone to return home. That'd feel awful. I'd
+  never want to touch a mission without a 100% chance of succeeding, if I risked wasting so much time like that."
+  So: a damaged ship on an expedition NEVER has to go home; it sets down at a suitable in-system body (a rocky world
+  with an atmosphere; never a gas giant, D22) for a timed field repair (Engineering crew/officers speed it), then
+  resumes the run. **[PROPOSAL, to confirm]** it triggers automatically past a damage threshold (or by the player any
+  time), and if the system has no suitable world the ship repairs in orbit, slower. New task **GO-8b** below.
+- Remaining Q2, Q3, Q6-Q11, Q14-Q22: build with the plan's [PROVISIONAL] defaults (each in one named constant or
+  function); they are surfaced to the user as a list of defaults to override.
+
+### GO-8b: Expedition field repair (WWVD)
+Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
+Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
+repair legs, frozen at the moment they start), ExpeditionPanel (a "Setting down for repairs at <body>" state).
+Behavior: past the threshold (or player-ordered), the ship diverts to the nearest suitable body, repairs on a timer,
+then resumes where it was; ground teams on other bodies keep working only if the ship can still recover them (Q1
+rule). Pure function of the stored record; parity tests. Never forces a return home.
+
 ## 5. Open questions (the user's to decide; each has a [PROVISIONAL] build default)
 
 1. **Q1 Scanning vs operations overlap.** Do teams start a planet's tasks as soon as its scan completes while the ship
