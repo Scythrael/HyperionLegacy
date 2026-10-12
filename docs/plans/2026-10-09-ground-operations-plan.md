@@ -1032,6 +1032,12 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   ruling: `resistedHazard`'s summed resist approaches the 0.75 cap on a diminishing curve instead of clamping (affects
   scans and task work; update affected expectations with a justification, parity stays exact).
 
+- **GO-5 review (2026-10-12):** (a) the hazard curve (15d3c37) is a NAMED EXCEPTION to section 0's "legacy-neutral"
+  rule (user-ruled); GO-7b's legacy goldens are captured WITH the curve. (b) GO-6 folds in a display fix: the museum
+  relic readout (relicIcons.ts ~109) and the EquipmentTooltip "Hazard Resist" label (~218) show the EFFECTIVE resist
+  (or "raw X, effective Y"), not the raw sum. (c) GO-19's list of defaults for the user adds: carried statuses keep
+  their remaining rounds between fights, the team kit refills every fight, the carried HP floor is 1.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
