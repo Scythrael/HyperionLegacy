@@ -147,6 +147,10 @@ certain point. Numbers get bigger and bigger and as you get more, they mean less
 returns affecting quite a few things." Consequences: fieldwork's crew layer and total yield bonus pass through an
 UNBOUNDED concave curve (keeps growing, each point worth less), not a ceiling. This is a cross-cutting principle for
 future bonuses; existing asymptotic curves (model.ts, utilityGear.ts) are a balance-pass review item, not changed here.
+**Hazard resist exception (user, 2026-10-12):** "Curve it, but keep the cap for now. 100% resistance is never something
+you ever want to reach." So planet-hazard resist (museum + team gear) follows a diminishing curve that approaches the
+existing 75% ceiling (MUSEUM_HAZARD_RESIST_MAX) and never reaches it: the one place a ceiling stays, because full
+immunity must never happen.
 Fieldwork SPEED follows too (user, 2026-10-08, asked whether the 3x pace limit should stay: "curve please!"): the
 cap is replaced by its own pace curve; a task is floored at 1 second.
 

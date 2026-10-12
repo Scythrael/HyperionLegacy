@@ -978,6 +978,12 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT) and adds them to
   salts.test.ts.
 
+- **GO-4 review, carried to GO-5 (2026-10-12):** export the four unregistered salts and add their modules to
+  salts.test.ts (OFFICER_STAT_SEED_SALT is EVEN: distinct-only list, like AWAY_RECRUIT); comment that taskRewardSeed's
+  multiplier 0x27d4eb2f equals RELAUNCH_SEED_SALT in a different role; NaN-guard taskWorkSeconds; and the user's hazard
+  ruling: `resistedHazard`'s summed resist approaches the 0.75 cap on a diminishing curve instead of clamping (affects
+  scans and task work; update affected expectations with a justification, parity stays exact).
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
