@@ -5,8 +5,9 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type GameState, type ShipTypeDef, type ShipTypeKey } from "./model";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipTypeDef, type ShipTypeKey } from "./model";
 import { expeditionAwayTeamCheck } from "./expedition";
+import { backfillShipGroundTeams } from "./groundTeams";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -39,6 +40,23 @@ export function withoutGroundTeams(state: GameState): GameState {
       return rest;
     }),
   };
+}
+
+// Ground Ops (GO-7b): the run WITHOUT its `groundOps` record, i.e. the LEGACY run the same dispatch would have
+// produced before the switch (the record's presence is the feature flag; nothing else in the dispatch record
+// differs for a ship whose one ground team is slotted in hire order). Tests that pin legacy behavior dispatch,
+// then strip the flag with this. Pure: a shallow copy (the input is never touched).
+export function withoutGroundOps(exp: Expedition): Expedition {
+  const rest = { ...exp } as Expedition & { groundOps?: unknown };
+  delete rest.groundOps;
+  return rest;
+}
+
+// Ground Ops (GO-7b): every ship's ground-team slots refilled from its members in HIRE order (the v67
+// backfill, groundTeams.ts backfillShipGroundTeams), so a test that builds `awayMembers` by hand dispatches
+// the same team the pre-switch "first N ready members in hire order" rule picked. Pure.
+export function withSlottedAwayTeams(state: GameState): GameState {
+  return { ...state, ships: state.ships.map((ship) => ({ ...ship, groundTeams: backfillShipGroundTeams(ship, state.awayMembers) })) };
 }
 
 // A plain away-team member assigned to `shipId`. Pure.
