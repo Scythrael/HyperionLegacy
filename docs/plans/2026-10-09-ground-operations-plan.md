@@ -818,6 +818,18 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
 - Remaining Q2, Q3, Q6-Q11, Q14-Q22: build with the plan's [PROVISIONAL] defaults (each in one named constant or
   function); they are surfaced to the user as a list of defaults to override.
 
+- **Not-ready slotted members (user, 2026-10-12, verbatim):** "You will have to swap one member out for another if
+  that member is not ready. Otherwise, the team will not dispatch. The attempt to dispatch can show what we're waiting
+  on in order to dispatch (x turns until this member returns to duty, etc)." So: NO automatic stand-ins. A ground team
+  with any slotted member who is not ready (injured or otherwise) does not deploy; the dispatch attempt lists what it
+  is waiting on with the time remaining ("Grokk returns to duty in 12m"). The player swaps members by hand. A ship
+  whose ground teams cannot meet D18's minimum cannot launch, and says why.
+- **GO-1 review (2026-10-12):** GO-2 auto-slots a member into the first empty slot on EVERY arrival aboard (hire,
+  reassign, unbench), never by an every-load reconcile (which would undo a deliberate unslot). Reconcile the plan's
+  "a full team leaves the hire unslotted (reserve)" with the existing hire cap (`squadGate`): decide whether GO-2
+  lifts the cap to allow reserves (a member aboard but unslotted). `shipGroundTeams` should return a normalized copy
+  (lengths match the hull) and callers never mutate it; ships built after v67 get their teams through it.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
