@@ -27,6 +27,7 @@
   // E-CREW 0.14.0 (Task 10): the one member-piece namer ("Standard-Issue Pulse Rifle"), shared with every
   // away-team gear surface so the tooltip and the rows can never name a piece two ways.
   import { memberPieceName } from "./awayGearDisplay";
+  import { pieceHazardResistText } from "./ui/hazardResistText";
   import { previewCraftOutcome, type CraftPreview } from "./game/itemgen";
   // Weapon combat stats (damage / accuracy / etc.) do NOT live on the EquipmentInstance's rolled
   // lines — they come from the weapon's base def, scaled by the rolled weaponYield/accuracy. We
@@ -378,6 +379,8 @@
         weaponCombat: { label: string; value: string }[] | null;
         implicit: [string, number][];
         primaries: [string, number][];
+        // GO-6: the piece's EFFECTIVE hazard resist on the curve toward the cap, or null (no hazard line).
+        hazardResist: string | null;
         flavor: string | null;
         piece: EquipmentInstance;
       }
@@ -447,6 +450,7 @@
             : null,
         implicit: Object.entries(p.implicitStats),
         primaries: Object.entries(p.rolledStats),
+        hazardResist: pieceHazardResistText(p),
         flavor: equipmentFlavor(p),
         piece: p,
       };
@@ -600,6 +604,11 @@
             <div class="et-prim">{fmtStat(value)} {statLabel(key)}</div>
           {/each}
         </div>
+      {/if}
+      <!-- GO-6: the Hazard Resist lines above are stat POINTS; this is what they buy in a run (the effective
+           resist on the curve toward the 75% cap, never full immunity). -->
+      {#if view.hazardResist}
+        <div class="et-detail">{view.hazardResist}</div>
       {/if}
     {:else if view.kind === "ship"}
       <div class="et-stats">

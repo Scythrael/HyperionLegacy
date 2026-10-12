@@ -44,6 +44,7 @@
     RELIC_RARITY_LABEL,
     MUSEUM_STAT_LABEL,
     formatMuseumPct,
+    formatMuseumStatBonus,
   } from "./ui/relicIcons";
 
   // --- Props ------------------------------------------------------------------
@@ -100,7 +101,8 @@
     const labels = t.stats.map((s) => MUSEUM_STAT_LABEL[s]);
     if (t.locked) return t.capstone ? "capstone bonus" : labels.join(" + ");
     const each = setTierBonus(t);
-    return labels.map((l) => `${formatMuseumPct(each)} ${l}`).join(", ");
+    // GO-6: hazard resist reads its EFFECTIVE value on the curve toward the cap (formatMuseumStatBonus).
+    return t.stats.map((s) => formatMuseumStatBonus(s, each)).join(", ");
   }
 
   function buildSetView(set: RelicSetDef, m: Record<string, number>, d: Set<string>) {

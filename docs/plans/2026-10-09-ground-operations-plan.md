@@ -626,6 +626,52 @@ as without it); `tierAtLeast` ordering.
 two uses the user approved: the default plan (GO-7c) and the helper floor (GO-7c). **Acceptance:** gate green. Commit
 `feat(0.14.0): ground threat indicator on the 7 tiers (Ground Ops GO-6)`.
 
+**Carry from GO-6 (built 2026-10-12, commit `feat(0.14.0): ground threat indicator on the 7 tiers (Ground Ops GO-6)`):**
+- **`groundThreat.ts`** (imports model types, groundFight, groundTasks, combat/threatAssessment; never expedition.ts):
+  `GROUND_THREAT_SALT` 0x6e5b3c27 (registered in salts.test.ts: 21 strict + 2 distinct-only, no clash),
+  `GROUND_THREAT_SAMPLES` 32, `HELPER_MIN_TIER` "likely" [PROVISIONAL mapping, Q2], `groundThreatSampleSeed(exp,
+  flatIndex, sample, pointIndex)` (the spec formula; j = the fight point's ABSOLUTE index, so a retry with an
+  unchanged squad reads the same guards), `remainingTaskFights(task, body)` (stamped fightPoints, else
+  `fightPointCount(poiId, RAW hazard)`; minus pointsCleared, floored at 0), `groundThreatSampleFights(...)` (one
+  sample's fight records, for tests and a future "how it would go" readout), `groundTaskClearOdds(exp, teams, body,
+  task, flatIndex, samples = 32, carried?)` and `groundTaskThreat(...same)` = threatAssessment(wins, samples).
+- **Samples follow carry damage (user Q5):** each fight of a sample starts from the previous fight's `memberEnd`
+  (resolveTaskFight's carry); the sample's FIRST fight starts from the optional `carried` argument (GO-7b passes the
+  team's current in-task carry, e.g. the suggested `GroundTeamRun.carry`), so a hurt team reads its real odds; members
+  downed earlier in the sample sit out its later fights (added to every team's `downedThisTask` for the sample). A
+  sample fight carries `fightCount + (j - pointsCleared)`, the fight number a real fight there would have, so the
+  combatant ids match. Squads are built by `taskFightTeam` (same squad as a real fight).
+- **groundFight.ts refactor (real fights unchanged, GO-5 tests green):** the fight body moved to
+  `resolveTaskFightOnSeed(exp, teams, body, task, seed, carried?, logSink?)`; `resolveTaskFight` = it on
+  `taskFightSeed`. Engine code resolves real fights through `resolveTaskFight` only. New `TaskFightExp` type = every
+  Expedition field a fight reads after its seed (id, roster, securityStrength, squadTriage, squadFearResist,
+  hazardResist, teamKit). **A new read in the fight must widen `TaskFightExp`**, which then fails to compile in
+  groundThreat.ts's memo key list until listed.
+- **Measured cost (vitest, this machine):** a decisive 5-fight task about 2 ms (32 samples x 5 fights); the slowest
+  squad in a grid sweep (tanky, zero damage, fights grinding long) about 15 ms per task; a cold 20-task planet of
+  those about 180 ms (mixed planet about 15 ms). Too slow to recompute on every reactive update of a queue screen
+  (tasks x teams), so `groundTaskClearOdds` is **memoized on its WHOLE input** (`groundThreatOddsKey`: the
+  TaskFightExp fields + seed, each team's securityIds / downedThisTask / securityShare, body hazard, the task fields,
+  flat index, sample count, carried; NaN / Infinity / undefined spelled out), bounded at `GROUND_THREAT_MEMO_SIZE`
+  256 (least recently used evicted), returning a fresh object. Because the key is the full input, a hit equals a
+  fresh computation for any save: nothing can leak across saves, runs or edits (an in-place edit is a miss, tested).
+  Warm 20-task pass: about 0.6 ms. The key lists use `satisfies Record<keyof T, true>`, so a field added to
+  TaskFightExp / GroundFightTeam / the task Pick is a compile error until keyed.
+- **threatAssessment.ts:** `THREAT_TIER_ORDER` (best first), `tierAtLeast(tier, floor)`, and `shortName` per tier
+  (Guaranteed, Likely, Worthy, Even, Not Advised, Extreme, Impossible) [PROVISIONAL text, Q17]. Patrol chips untouched
+  (they still read `icon`, the emoji; GO-10 owns the SVG dots).
+- **Display fix (GO-5 review b):** new `src/lib/ui/hazardResistText.ts` (`hazardResistEffectParts / Text`,
+  `pieceHazardResist`, `pieceHazardResistText`). The museum's Deep Earth 4-piece tier now reads "+2.5% hazard resist
+  (diminishing)" (relicIcons.ts `formatMuseumStatBonus`, used by MuseumPanel's tier line); the item tooltip adds a
+  line under the stat lines for any piece with a hazard line that a run reads ("Hazard resist 28.5% (diminishing from
+  30.0%)": a Pathfinder Suite through its own curve, a member piece through convertGroundPoints). The "+30 Hazard
+  Resist" stat lines stay as POINTS (every tooltip stat line is points). Each readout curves its own source; in a
+  run the curve applies to the combined sum. Verified in the dev preview by mounting the real MuseumPanel and
+  EquipmentTooltip on an injected save (Deep Earth at 160 copies each, a Pathfinder Suite, an Assault Hardsuit); the
+  save was restored byte-identical. Console clean.
+- Tests: `groundThreat.test.ts` (21), threatAssessment +3, `hazardResistText.test.ts` (6), relicIcons +2. Suite 4144
+  -> 4176 passed; `npm run check` 0 errors.
+
 ---
 
 ### Stage C: The engine

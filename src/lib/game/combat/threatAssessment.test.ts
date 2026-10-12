@@ -13,7 +13,7 @@
 // ============================================================================
 
 import { describe, it, expect } from "vitest";
-import { threatAssessment, type ThreatTier } from "./threatAssessment";
+import { threatAssessment, THREAT_TIER_ORDER, tierAtLeast, type ThreatTier } from "./threatAssessment";
 
 // Shorthand: assert (wins, samples) maps to the expected tier id.
 function expectTier(wins: number, samples: number, tier: ThreatTier): void {
@@ -151,5 +151,50 @@ describe("threatAssessment -- defensive clamps", () => {
 
 	it("negative wins clamps to 0 (Impossible)", () => {
 		expectTier(-5, 64, "impossible");
+	});
+});
+
+// Ground Operations GO-6: the tier ORDER (best first), the at-least comparison the helper floor and the
+// default plan read, and a short chip name per tier [PROVISIONAL text, Q17].
+describe("threatAssessment: tier order, tierAtLeast, short names (GO-6)", () => {
+	it("THREAT_TIER_ORDER lists all seven tiers once, best first", () => {
+		expect(THREAT_TIER_ORDER).toEqual(["guaranteed", "likely", "worthy", "dice", "notAdvised", "extreme", "impossible"]);
+		expect(new Set(THREAT_TIER_ORDER).size).toBe(7);
+	});
+
+	it("tierAtLeast is true at or above the floor, false below it", () => {
+		expect(tierAtLeast("guaranteed", "likely")).toBe(true);
+		expect(tierAtLeast("likely", "likely")).toBe(true);
+		expect(tierAtLeast("worthy", "likely")).toBe(false);
+		expect(tierAtLeast("impossible", "impossible")).toBe(true);
+		expect(tierAtLeast("impossible", "extreme")).toBe(false);
+		expect(tierAtLeast("dice", "guaranteed")).toBe(false);
+		// Every tier is at least the worst and at least itself; only Guaranteed is at least Guaranteed.
+		for (const t of THREAT_TIER_ORDER) {
+			expect(tierAtLeast(t, "impossible")).toBe(true);
+			expect(tierAtLeast(t, t)).toBe(true);
+			expect(tierAtLeast(t, "guaranteed")).toBe(t === "guaranteed");
+		}
+		// The relation follows the order exactly.
+		THREAT_TIER_ORDER.forEach((a, i) => {
+			THREAT_TIER_ORDER.forEach((b, j) => expect(tierAtLeast(a, b)).toBe(i <= j));
+		});
+	});
+
+	it("every tier carries a short chip name (Q17 provisional text)", () => {
+		const cases: Array<[number, number, string]> = [
+			[64, 64, "Guaranteed"],
+			[90, 100, "Likely"],
+			[70, 100, "Worthy"],
+			[50, 100, "Even"],
+			[30, 100, "Not Advised"],
+			[10, 100, "Extreme"],
+			[0, 64, "Impossible"],
+		];
+		for (const [wins, samples, short] of cases) {
+			const a = threatAssessment(wins, samples);
+			expect(a.shortName).toBe(short);
+			expect(a.shortName.length).toBeLessThanOrEqual(a.name.length);
+		}
 	});
 });

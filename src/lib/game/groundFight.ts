@@ -189,13 +189,36 @@ export function resolveTaskFight(
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
 ): GroundFightRecord {
+  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink);
+}
+
+// Every Expedition field a task fight reads once its seed is chosen: the squad (taskFightTeam), the guard's
+// hazard (the museum resist) and the team kit. groundThreat.ts keys its memo on exactly these, so a new read
+// here must widen this type first (TypeScript then flags the memo's key list until it is listed too).
+export type TaskFightExp = Pick<
+  Expedition,
+  "id" | "roster" | "securityStrength" | "squadTriage" | "squadFearResist" | "hazardResist" | "teamKit"
+>;
+
+// THE fight body on a given stream seed. resolveTaskFight passes the real fight's keyed seed (above); the
+// threat indicator (groundThreat.ts, GO-6) passes its OWN salted sample seeds, so its samples field the same
+// squad and the same guard rules as a real fight while never touching a real fight's stream. Engine code
+// resolves a real fight through resolveTaskFight only. Pure; never mutates its inputs.
+export function resolveTaskFightOnSeed(
+  exp: TaskFightExp,
+  teams: readonly GroundFightTeam[],
+  body: Pick<ExpeditionBody, "hazard">,
+  task: Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared">,
+  seed: number,
+  carried?: Readonly<Record<string, GroundMemberCarry>>,
+  logSink?: GambitLogEvent[],
+): GroundFightRecord {
   const fightNumber = task.fightCount ?? 0;
   const pointIndex = task.pointsCleared ?? 0;
   const team = taskFightTeam(exp, teams, task, carried);
   if (team.length === 0) {
     return { pointIndex, fightNumber, outcome: "loss", rounds: 0, downedMemberIds: [], memberConditions: {}, memberEnd: {} };
   }
-  const seed = taskFightSeed(exp, flatIndex, fightNumber);
   const enemies = generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId);
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 

@@ -13,6 +13,7 @@
 // remaps them for free. Icons take their color from `currentColor`, so callers tint the WRAPPER.
 
 import type { IconName } from "./icons";
+import { hazardResistEffectParts } from "./hazardResistText";
 import type { RelicSetId } from "../game/model";
 import {
   RELIC_SETS,
@@ -114,6 +115,17 @@ export function formatMuseumPct(fraction: number): string {
   if (!(fraction > 0)) return "+0%";
   const pct = Math.round(fraction * 1000) / 10; // one decimal, float noise removed
   return `+${pct.toFixed(1)}%`;
+}
+
+// A museum bonus as its player-facing line ("+1.5% research speed"). Hazard resist reads EFFECTIVE (GO-6, the
+// GO-5 review display fix): the summed resist passes the diminishing curve toward the 75% cap (relics.ts
+// effectiveHazardResist), so it shows "+28.5% hazard resist (diminishing from +30.0%)", never the raw sum.
+export function formatMuseumStatBonus(stat: MuseumStat, fraction: number): string {
+  if (stat === "hazardResist" && fraction > 0) {
+    const { effective, note } = hazardResistEffectParts(fraction, true);
+    return `${effective} ${MUSEUM_STAT_LABEL[stat]} ${note}`;
+  }
+  return `${formatMuseumPct(fraction)} ${MUSEUM_STAT_LABEL[stat]}`;
 }
 
 // The canonical set order (RELIC_SETS), re-exported for UI iteration without a second import.

@@ -65,6 +65,9 @@ export interface ThreatAssessment {
 	tier: ThreatTier;
 	// The player-facing band name shown on the chip (e.g. "A Worthy Adversary").
 	name: string;
+	// Ground Operations GO-6: a SHORT name for a table cell (e.g. "Worthy"), since the full names are long
+	// for the per-planet task queue [PROVISIONAL text, Q17].
+	shortName: string;
 	// The chip accent color: a LITERAL hex from the mockup's band ramp (NOT a theme
 	// token, by design; see the header). Named colorHex because it stores a literal hex
 	// value (e.g. "#fbbf24"); the App consumer feeds it into the chip's --threat-color.
@@ -83,6 +86,7 @@ export interface ThreatAssessment {
 const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	guaranteed: {
 		name: "Guaranteed Victory",
+		shortName: "Guaranteed",
 		// Warm gold, distinct from the paler Dice yellow below (the crown tier).
 		colorHex: "#fbbf24",
 		icon: "👑",
@@ -92,6 +96,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	likely: {
 		name: "Likely Victory",
+		shortName: "Likely",
 		colorHex: "#86efac",
 		icon: "🛡️",
 		fuzzyRange: "Roughly 4 in 5 or better fall in your favor",
@@ -100,6 +105,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	worthy: {
 		name: "A Worthy Adversary",
+		shortName: "Worthy",
 		colorHex: "#bef264",
 		icon: "⚔️",
 		fuzzyRange: "Closer to 3 in 5 in your favor",
@@ -108,6 +114,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	dice: {
 		name: "It's Time to Toss the Dice",
+		shortName: "Even",
 		colorHex: "#fde047",
 		icon: "🎲",
 		fuzzyRange: "About a coin toss either way",
@@ -116,6 +123,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	notAdvised: {
 		name: "Not Advised",
+		shortName: "Not Advised",
 		colorHex: "#fb923c",
 		icon: "⚠️",
 		fuzzyRange: "Only about 1 in 3 ends in a win",
@@ -124,6 +132,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	extreme: {
 		name: "Extreme Challenge",
+		shortName: "Extreme",
 		colorHex: "#ef4444",
 		icon: "🔥",
 		fuzzyRange: "Fewer than 1 in 5 come back a victory",
@@ -132,6 +141,7 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	},
 	impossible: {
 		name: "Impossible",
+		shortName: "Impossible",
 		colorHex: "#7f1d1d",
 		icon: "💀",
 		fuzzyRange: "No simulated engagement was won",
@@ -139,6 +149,23 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 			"We cannot win this as we stand, Admiral. Install stronger gear before you commit the crew.",
 	},
 };
+
+// Ground Operations GO-6: the seven tiers BEST FIRST. The one order every comparison reads (tierAtLeast), so
+// the helper floor and the default plan (GO-7c) never compare tier ids by hand.
+export const THREAT_TIER_ORDER: readonly ThreatTier[] = [
+	"guaranteed",
+	"likely",
+	"worthy",
+	"dice",
+	"notAdvised",
+	"extreme",
+	"impossible",
+];
+
+// Is `tier` at least as favorable as `floor` (the same tier counts)? Pure.
+export function tierAtLeast(tier: ThreatTier, floor: ThreatTier): boolean {
+	return THREAT_TIER_ORDER.indexOf(tier) <= THREAT_TIER_ORDER.indexOf(floor);
+}
 
 // Band boundaries on the win RATE (r = wins / samples). Each boundary belongs to the
 // HIGHER tier (r >= boundary), so exactly 0.80 is "Likely", exactly 0.60 is "Worthy",

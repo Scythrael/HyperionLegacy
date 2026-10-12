@@ -11,6 +11,7 @@ import {
   RELIC_RARITY_LABEL,
   MUSEUM_STAT_LABEL,
   formatMuseumPct,
+  formatMuseumStatBonus,
   RELIC_SET_IDS,
 } from "./relicIcons";
 
@@ -73,6 +74,19 @@ describe("relic display vocabulary", () => {
     expect(formatMuseumPct(0.126)).toBe("+12.6%");
     // Float noise from an accumulated sum does not leak into the label.
     expect(formatMuseumPct(0.1 + 0.2)).toBe("+30.0%");
+  });
+});
+
+describe("museum stat bonus text (GO-6: the hazard resist reads EFFECTIVE)", () => {
+  it("every stat but hazard resist reads its plain bonus", () => {
+    expect(formatMuseumStatBonus("researchSpeed", 0.015)).toBe("+1.5% research speed");
+    expect(formatMuseumStatBonus("rareMaterialChance", 0.3)).toBe("+30.0% rare material chance");
+  });
+
+  it("hazard resist shows the effective resist on the curve toward the cap, never the raw sum", () => {
+    expect(formatMuseumStatBonus("hazardResist", 0.3)).toBe("+28.5% hazard resist (diminishing from +30.0%)");
+    expect(formatMuseumStatBonus("hazardResist", 0.01)).toBe("+1.0% hazard resist (diminishing)");
+    expect(formatMuseumStatBonus("hazardResist", 0)).toBe("+0% hazard resist");
   });
 });
 
