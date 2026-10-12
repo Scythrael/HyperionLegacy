@@ -456,6 +456,9 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
 }
 
 // The ground teams a task needs together: its requiredTeams when that is a whole number >= 1, else 1. Pure.
+// SQUAD REDESIGN AHEAD: ground teams become mix-and-match SQUADS and tasks will state SQUAD requirements instead
+// of a team count (docs/plans/2026-10-09-relics-v2-and-expedition-tiers-capture.md section 3b item 10). The
+// joint-task wiring here carries forward into that redesign (several strike squads on one task).
 export function requiredTeamsOf(task: Pick<ExpeditionActivity, "requiredTeams">): number {
   const n = task.requiredTeams;
   return typeof n === "number" && Number.isInteger(n) && n >= 1 ? n : 1;
@@ -685,6 +688,9 @@ function joinableTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun)
   return null;
 }
 
+// SQUAD REDESIGN AHEAD: ground teams become mix-and-match SQUADS and tasks will state SQUAD requirements instead
+// of a team count (docs/plans/2026-10-09-relics-v2-and-expedition-tiers-capture.md section 3b item 10). The
+// joint-task wiring here carries forward into that redesign (several strike squads on one task).
 // `team` stages on joint task `ref` at `t`; once every team the task is assigned to is staging on it (at least
 // requiredTeams of them), the LEAD (the lowest index) deploys and the partners stay "staging" (mirroring the
 // lead's task) until the joint return. Mutates.
