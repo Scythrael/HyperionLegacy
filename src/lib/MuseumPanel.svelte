@@ -45,6 +45,7 @@
     MUSEUM_STAT_LABEL,
     formatMuseumPct,
     formatMuseumStatBonus,
+    museumPerCopyText,
   } from "./ui/relicIcons";
 
   // --- Props ------------------------------------------------------------------
@@ -156,7 +157,7 @@
         <span class="mu-set-count">{v.completion.collected} of {v.completion.total} discovered</span>
       </div>
       <div class="mu-set-sub">
-        Per copy: {formatMuseumPct(MUSEUM_PER_COPY_BONUS)} {MUSEUM_STAT_LABEL[v.set.perCopyStat]}{#if v.completion.totalCopies > 0} · {v.completion.totalCopies} {v.completion.totalCopies === 1 ? "copy" : "copies"}, total {formatMuseumPct(v.perCopyTotal)}{/if}
+        {museumPerCopyText(v.set.perCopyStat, v.completion.totalCopies, v.perCopyTotal)}
       </div>
       <div class="mu-set-src">From: {v.sources}</div>
 

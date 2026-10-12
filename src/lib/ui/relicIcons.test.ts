@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { ICON_NAMES } from "./icons";
-import { RELICS, RELIC_SETS, MUSEUM_STATS, getRelicById } from "../game/relics";
+import { RELICS, RELIC_SETS, MUSEUM_STATS, MUSEUM_PER_COPY_BONUS, getRelicById } from "../game/relics";
 import {
   RELIC_ICON,
   relicIcon,
@@ -12,6 +12,7 @@ import {
   MUSEUM_STAT_LABEL,
   formatMuseumPct,
   formatMuseumStatBonus,
+  museumPerCopyText,
   RELIC_SET_IDS,
 } from "./relicIcons";
 
@@ -87,6 +88,24 @@ describe("museum stat bonus text (GO-6: the hazard resist reads EFFECTIVE)", () 
     expect(formatMuseumStatBonus("hazardResist", 0.3)).toBe("+28.5% hazard resist (diminishing from +30.0%)");
     expect(formatMuseumStatBonus("hazardResist", 0.01)).toBe("+1.0% hazard resist (diminishing)");
     expect(formatMuseumStatBonus("hazardResist", 0)).toBe("+0% hazard resist");
+  });
+});
+
+describe("museum per-copy line (GO-6 review: the total routes through formatMuseumStatBonus)", () => {
+  it("reads the per-copy rate, then the copies and the total once there are copies", () => {
+    expect(museumPerCopyText("researchSpeed", 0, 0)).toBe(`Per copy: ${formatMuseumPct(MUSEUM_PER_COPY_BONUS)} research speed`);
+    expect(museumPerCopyText("researchSpeed", 1, 0.001)).toBe(
+      `Per copy: ${formatMuseumPct(MUSEUM_PER_COPY_BONUS)} research speed · 1 copy, total +0.1% research speed`,
+    );
+    expect(museumPerCopyText("cargoCapacity", 5, 0.005)).toBe(
+      `Per copy: ${formatMuseumPct(MUSEUM_PER_COPY_BONUS)} cargo capacity · 5 copies, total ${formatMuseumStatBonus("cargoCapacity", 0.005)}`,
+    );
+  });
+
+  it("a hazard resist per-copy total would read EFFECTIVE (diminishing), never the raw sum", () => {
+    const line = museumPerCopyText("hazardResist", 300, 0.3);
+    expect(line.endsWith("total +28.5% hazard resist (diminishing from +30.0%)")).toBe(true);
+    expect(line).toContain(formatMuseumStatBonus("hazardResist", 0.3));
   });
 });
 

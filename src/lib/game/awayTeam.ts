@@ -770,6 +770,14 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
 // reads state.awayMembers and state.equipment (fittedToMemberId, the member-gear authority); returns fresh
 // data with no live references. D19: it never reads state.gambitPrograms.
 export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRosterSnapshot {
+  const worn = wornByMember(state);
+  const squad = (teamType: AwayTeamType): SnapshotMember[] =>
+    deployableMembers(state, ship, teamType).map((m) => snapshotMember(m, worn.get(m.id) ?? []));
+  return { security: squad("security"), science: squad("science") };
+}
+
+// Every member's worn pieces (fittedToMemberId, the member-gear authority), each list in mint order. Pure.
+function wornByMember(state: GameState): Map<string, EquipmentInstance[]> {
   const worn = new Map<string, EquipmentInstance[]>();
   for (const e of state.equipment) {
     if (!e.fittedToMemberId) continue;
@@ -778,7 +786,13 @@ export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRo
     else worn.set(e.fittedToMemberId, [e]);
   }
   for (const list of worn.values()) list.sort(byIdNumber);
-  const squad = (teamType: AwayTeamType): SnapshotMember[] =>
-    deployableMembers(state, ship, teamType).map((m) => snapshotMember(m, worn.get(m.id) ?? []));
-  return { security: squad("security"), science: squad("science") };
+  return worn;
+}
+
+// Ground Operations (GO-7a): freeze `members` in the GIVEN order, by the same rule as snapshotAwayRoster
+// (groundOps.ts snapshotAwayRosterForTeams picks the members: deployed ground teams, team then slot order).
+// Pure: fresh data, no live references.
+export function snapshotMembers(state: GameState, members: readonly AwayMember[]): SnapshotMember[] {
+  const worn = wornByMember(state);
+  return members.map((m) => snapshotMember(m, worn.get(m.id) ?? []));
 }

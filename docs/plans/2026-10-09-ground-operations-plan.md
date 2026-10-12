@@ -701,6 +701,50 @@ left out; frozen factors match the live readers at dispatch and do not change wh
 **Acceptance:** gate green, still behavior-neutral (startExpedition does not call it). Commit
 `feat(0.14.0): ground ops dispatch snapshot (Ground Ops GO-7a)`.
 
+**Carry from GO-7a (built 2026-10-12, commit `feat(0.14.0): ground ops dispatch snapshot (Ground Ops GO-7a)`):**
+- **Types (model.ts, plain data, nothing stores them yet):** `GroundStepKind`, `GroundTeamRun` (section 2 plus
+  **`carry?: Record<memberId, GroundMemberCarry>`**, the GO-5 in-task carry: absent = full HP; GO-7b sets it from a won
+  fight's `memberEnd`, drops it after a wipe and after the bay), `GroundOpsFactors`, `ShipEventProfile` (evasion,
+  sensors, shieldCapacity, engineering, boardingDefense; GO-8 adds the frozen ship battle inputs). model.ts takes
+  `GroundFightRecord` / `GroundMemberCarry` by a TYPE-ONLY import from groundFight.ts (erased; no runtime cycle).
+  **Not added (GO-7b owns them):** `GroundOpsState`, `GroundStepRecord`, `Expedition.groundOps`.
+- **`groundOps.ts`** (imports model, awayTeam, groundTeams, medicalBay, injuries, crewOverlay, crewBuffs; never
+  expedition.ts) re-exports those types and holds:
+  `snapshotGroundOps(state, ship, run) -> { teams, factors, shipEventProfile }` (`GroundOpsSnapshot`);
+  `snapshotAwayRosterForTeams(state, ship, teams)`; `groundOpsBayCare(factors)` (the frozen BayCare GO-7b passes to
+  `memberBaySeconds`); `groundReloadMult(state, ship)`; `NEUTRAL_SHIP_EVENT_PROFILE` (all zeros, `Object.freeze`d; the
+  snapshot writes a fresh copy); `EFFICIENT_STOWAGE_RELOAD` (0.08, READ from `SECONDARY_CAPTAIN_TALENTS.logistics4`).
+- **Deviation: a third argument `run: Pick<Expedition, "recoveryTurnaround" | "quickRecovery" | "injurySteady">`.**
+  `quickRecovery` is rolled on the run's seed in startExpedition, so the snapshot cannot read it from the ship; GO-7b
+  computes the facets first, then calls `snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery,
+  injurySteady })`. The bay factors are `bayCareFrom(shipInjuryFactors(state, ship), run)`: the mapping stays written
+  once (medicalBay.ts).
+- **Teams:** `deployableGroundTeams(state, ship.id).teams.filter(t => t.deploys)` (a team with ANY not-ready slotted
+  member stays aboard; no stand-ins), ascending index, ids in SLOT order, `helpOthers` from `shipGroundTeams(ship)`,
+  `queue: []`, `step: "idle"`, `stepStartedAt: state.gameTimeSeconds`, `stepEndsAt: null`, empty `skippedBorrowed` /
+  `downedThisTask` / `conditions` / `bayEnds`, no `carry`. No deploying team = `teams: []` and empty shares (the D18
+  gate in startExpedition must refuse first; the snapshot does not gate).
+- **Factors:** `medicalShare` / `rapidRecoveryShare` = `shipInjuryFactors`; `officerFacetShare` = recoveryTurnaround +
+  quickRecovery; `injurySteady`; `offloadMult` = `effectiveShipStats(...).unloadSpeedMult` (crew Efficient Unloading x
+  the officer turnaround cut); `reloadMult` = 1 + crew.loadSpeed (Rapid Loadout) + 0.08 when the ship's ASSIGNED
+  captain owns logistics4 (a parked captain or logistics3 alone adds nothing; Q22 still open). Both multipliers read 1
+  for a non-finite or non-positive value, so a bad value can never stall a step. Shares = squad size / every DEPLOYED
+  squad of that type (a held team is out of the split).
+- **Union roster:** `snapshotAwayRosterForTeams` = Security then Science, team then slot order, each member once,
+  only members aboard that ship with the squad's type; frozen by new `awayTeam.ts snapshotMembers(state, members)`
+  (the same freeze as `snapshotAwayRoster`, which now shares the private `wornByMember`). One team slotted in hire
+  order deep-equals today's `snapshotAwayRoster` (tested), so GO-7b's switch keeps every one-team roster read.
+- **GO-6 review minors folded in:** (1) `groundThreat.ts keyReplacer` is a TYPED encoding: every string value is
+  tagged `s:`, undefined is `u`, a non-finite number `n:NaN` / `n:Infinity` / `n:-Infinity`, so a real string
+  ("#u", "u", "n:NaN") can never read as a sentinel (tested pairwise). (4) MuseumPanel's per-copy line goes through
+  new `relicIcons.ts museumPerCopyText(stat, copies, total)`, whose total is `formatMuseumStatBonus` (a hazard resist
+  per-copy total would read effective). Visible copy change: the total now names its stat ("total +0.5% research
+  speed", was "total +0.5%").
+- **For GO-7b:** `withMinimumAwayTeam` still adds UNSLOTTED members (GO-2 note); after the switch every dispatching
+  test must slot them (or route through the hire / reassign auto-slot), or the snapshot deploys no team.
+- Tests: `groundOps.test.ts` (17), groundThreat +1, relicIcons +2. Suite 4176 -> 4196 passed (1 skipped, unchanged);
+  `npm run check` 0 errors. No golden or parity test moved.
+
 ### GO-7b: The timeline engine, single team, own queue (THE SWITCH)
 
 **Files:** `src/lib/game/groundOps.ts`, `expedition.ts` (`startExpedition`, `advanceExpedition`, phase durations, scan

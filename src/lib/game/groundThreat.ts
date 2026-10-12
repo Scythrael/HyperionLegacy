@@ -176,10 +176,14 @@ function pick(o: object, fields: object): unknown[] {
 }
 
 // JSON drops undefined and writes NaN / Infinity as null; spell them out so two different inputs never share
-// a key (a shared key would only ever be a cache miss's opposite: a wrong hit).
+// a key (a shared key would only ever be a cache miss's opposite: a wrong hit). TYPED encoding (GO-6 review):
+// every string VALUE is tagged "s:", undefined is "u", a non-finite number is "n:NaN" / "n:Infinity" /
+// "n:-Infinity", so a real string ("#u", "u", "n:NaN") can never read as a sentinel. Object keys (member ids
+// in `carried`) are never passed through a replacer; they stay as written and are unambiguous as keys.
 function keyReplacer(_k: string, v: unknown): unknown {
-  if (v === undefined) return "#u";
-  if (typeof v === "number" && !Number.isFinite(v)) return `#${v}`;
+  if (typeof v === "string") return `s:${v}`;
+  if (v === undefined) return "u";
+  if (typeof v === "number" && !Number.isFinite(v)) return `n:${v}`;
   return v;
 }
 

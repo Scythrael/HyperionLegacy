@@ -16,6 +16,7 @@ import type { IconName } from "./icons";
 import { hazardResistEffectParts } from "./hazardResistText";
 import type { RelicSetId } from "../game/model";
 import {
+  MUSEUM_PER_COPY_BONUS,
   RELIC_SETS,
   getRelicById,
   getRelicSetById,
@@ -126,6 +127,15 @@ export function formatMuseumStatBonus(stat: MuseumStat, fraction: number): strin
     return `${effective} ${MUSEUM_STAT_LABEL[stat]} ${note}`;
   }
   return `${formatMuseumPct(fraction)} ${MUSEUM_STAT_LABEL[stat]}`;
+}
+
+// A set's per-copy line in the museum ("Per copy: +0.1% research speed · 5 copies, total +0.5% research
+// speed"). The TOTAL routes through formatMuseumStatBonus (GO-6 review), so a hazard resist per-copy stat would
+// read its EFFECTIVE value on the curve toward the cap, never the raw sum. Pure.
+export function museumPerCopyText(stat: MuseumStat, totalCopies: number, perCopyTotal: number): string {
+  const head = `Per copy: ${formatMuseumPct(MUSEUM_PER_COPY_BONUS)} ${MUSEUM_STAT_LABEL[stat]}`;
+  if (!(totalCopies > 0)) return head;
+  return `${head} · ${totalCopies} ${totalCopies === 1 ? "copy" : "copies"}, total ${formatMuseumStatBonus(stat, perCopyTotal)}`;
 }
 
 // The canonical set order (RELIC_SETS), re-exported for UI iteration without a second import.

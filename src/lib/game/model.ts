@@ -42,6 +42,9 @@ import type { PirateHullId } from "./combat/enemyHulls";
 // crafted weapon. TYPE-ONLY import (compile-erased), so no runtime cycle, same posture as the
 // combat type imports above (combat/weapons imports only combat/types + statusEffects).
 import type { WeaponId } from "./combat/weapons";
+// Ground Operations (GO-7a): the run-side ground team record carries a fight record and the in-task carry.
+// TYPE-ONLY (erased at build), so the runtime module graph stays model.ts <- groundFight.ts.
+import type { GroundFightRecord, GroundMemberCarry } from "./groundFight";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -6956,6 +6959,65 @@ export interface SnapshotFieldworkSource {
 export interface AwayRosterSnapshot {
   security: SnapshotMember[];
   science: SnapshotMember[];
+}
+
+// ===== Ground Operations 0.14.0 (GO-7a, D25): the run-side records of a Ground Ops run =====
+// groundOps.ts snapshotGroundOps writes the dispatch values (GO-7a); the timeline engine (GO-7b) moves them.
+// GO-7b adds the GroundOpsState wrapper (version, startedAt / endedAt, editCount, history) and
+// Expedition.groundOps; nothing stores or reads these yet. Plain data only (no live refs, JSON-safe).
+
+// A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
+export type GroundStepKind = "idle" | "staging" | "deploy" | "work" | "fight" | "return" | "offload" | "bay" | "reload";
+
+// One DEPLOYED ground team on a run (plan section 2). Members are ids into the run's union roster
+// (Expedition.roster, groundOps.ts snapshotAwayRosterForTeams), slot order. The team's NAME is read live from
+// the ship (groundTeams.ts groundTeamName), never stored here.
+export interface GroundTeamRun {
+  index: number; // ship ground-team index (0 = Alpha)
+  securityIds: string[];
+  scienceIds: string[];
+  helpOthers: boolean; // "When done, help other teams" (the ship's default at dispatch)
+  queue: string[]; // own ordered task (activity) ids
+  step: GroundStepKind;
+  stepStartedAt: number;
+  stepEndsAt: number | null; // null = open-ended (idle, staging)
+  taskId?: string; // the task the team is on
+  borrowed?: boolean; // true when that task is another team's (a helper, GO-7c)
+  workFrom?: number; // progress span of the current work step
+  workTo?: number;
+  pendingFight?: GroundFightRecord; // resolved at fight start, applied at fight end (groundFight.ts)
+  // The in-task carry (user Q5, GO-5): the last won fight's memberEnd, passed as the next fight's `carried`.
+  // Absent = everyone at full HP. Dropped after a wipe and after the bay (GO-7b).
+  carry?: Record<string, GroundMemberCarry>;
+  skippedBorrowed: string[]; // a helper's give-up list (never re-borrowed)
+  downedThisTask: string[]; // Security members out for the rest of the current task
+  conditions: Record<string, string[]>; // memberId -> condition ids gathered on the current trip (medicalBay.ts)
+  bayEnds: Record<string, number>; // memberId -> absolute bay end of the latest bay (carried home at claim)
+  bayStart?: number;
+}
+
+// The run's factors, FROZEN at dispatch (D24: the medical factors too). Shares are per DEPLOYED team, in
+// GroundOpsSnapshot.teams order (groundOps.ts snapshotGroundOps documents each source).
+export interface GroundOpsFactors {
+  medicalShare: number;
+  rapidRecoveryShare: number;
+  officerFacetShare: number;
+  injurySteady: number;
+  offloadMult: number; // >= 1 is faster; divides the offload step
+  reloadMult: number; // >= 1 is faster; divides the reload step
+  securityShare: number[];
+  scienceShare: number[];
+}
+
+// The ship-side scan event inputs, frozen at dispatch (GO-8 fills them; GO-9 boardingDefense). Until GO-8 a
+// run carries groundOps.ts NEUTRAL_SHIP_EVENT_PROFILE and nothing reads it. GO-8 adds the frozen ship battle
+// inputs (hull type, installed gear, officer combat) for the probe and cloaked-vessel fights.
+export interface ShipEventProfile {
+  evasion: number;
+  sensors: number;
+  shieldCapacity: number;
+  engineering: number;
+  boardingDefense: number;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

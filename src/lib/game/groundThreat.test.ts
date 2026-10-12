@@ -372,6 +372,28 @@ describe("the threat memo (GO-6 performance)", () => {
     expect(groundThreatOddsKey(elsewhere, teams, body(0.2), t, 2, 32)).toBe(base);
   });
 
+  it("the key encoding is unambiguous: a real string never collides with the undefined / NaN / Infinity sentinels (GO-6 review)", () => {
+    const e = midExp();
+    const teams = [wholeTeam(e)];
+    const t = task("derelictOutpost", 4);
+    const as = <T,>(v: unknown): T => v as T;
+    const pairs: [string, string][] = [
+      // a task id spelled like the undefined / non-finite sentinels vs the real undefined / NaN / Infinity
+      [groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "#u" }, 2, 32), groundThreatOddsKey(e, teams, body(0.2), { ...t, id: as<string>(undefined) }, 2, 32)],
+      [groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "#NaN" }, 2, 32), groundThreatOddsKey(e, teams, body(0.2), { ...t, id: as<string>(Number.NaN) }, 2, 32)],
+      [groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "#Infinity" }, 2, 32), groundThreatOddsKey(e, teams, body(0.2), { ...t, id: as<string>(Number.POSITIVE_INFINITY) }, 2, 32)],
+      [groundThreatOddsKey({ ...e, id: "#-Infinity" }, teams, body(0.2), t, 2, 32), groundThreatOddsKey({ ...e, id: as<string>(Number.NEGATIVE_INFINITY) }, teams, body(0.2), t, 2, 32)],
+      // a carried member id is a VALUE in downedThisTask: the string "#u" vs a hole
+      [groundThreatOddsKey(e, [{ ...teams[0], downedThisTask: ["#u"] }], body(0.2), t, 2, 32), groundThreatOddsKey(e, [{ ...teams[0], downedThisTask: [as<string>(undefined)] }], body(0.2), t, 2, 32)],
+      // a string that looks like a number vs the number, and a string that looks like an encoded string
+      [groundThreatOddsKey({ ...e, securityStrength: as<number>("10") }, teams, body(0.2), t, 2, 32), groundThreatOddsKey({ ...e, securityStrength: 10 }, teams, body(0.2), t, 2, 32)],
+      [groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "s:act-1" }, 2, 32), groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "act-1" }, 2, 32)],
+    ];
+    for (const [a, b] of pairs) expect(a).not.toBe(b);
+    // and each spelling is stable (the same input gives the same key)
+    expect(groundThreatOddsKey(e, teams, body(0.2), { ...t, id: "#u" }, 2, 32)).toBe(pairs[0][0]);
+  });
+
   it("an input edited in place is a recompute with the new answer (no identity caching)", () => {
     const e = midExp();
     const t = task("derelictOutpost", 4);
