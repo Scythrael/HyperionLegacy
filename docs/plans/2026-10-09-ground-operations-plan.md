@@ -473,6 +473,51 @@ unchanged after the `taskRewardSeed` extraction (existing tests stay green); sal
 **Determinism:** no draws here except the reused task reward stream (same key as legacy). **Acceptance:** gate green.
 Commit `feat(0.14.0): ground task model (fight points, segments, work time) (Ground Ops GO-4)`.
 
+**Carry from GO-4 (built 2026-10-12, commit `feat(0.14.0): ground task model (fight points, segments, work time) (Ground Ops GO-4)`):**
+- **`groundTasks.ts`** (imports model types, expeditionContent types, fieldwork, relics, gambit; NEVER expedition.ts):
+  `FIGHT_POINTS_BY_POI` (a Record over `ExpeditionPoiId`, so a new PoI is a compile error until rated),
+  `FIGHT_POINTS_DEFAULT` 2, `FIGHT_POINTS_HAZARD_STEP` 0.6, `FIGHT_POINTS_MIN` 1 / `FIGHT_POINTS_MAX` 5,
+  `fightPointCount(poiId, hazard)` (own-key lookup; the caller passes the body's RAW hazard; NaN adds nothing),
+  `fightPointFractions(n)` (k / (n + 1); [] for n < 1 or non-integer), `segmentCount(task)`, `segmentHaul(full, N, s)`
+  (exact telescoping split per material and credits; a zero share is LEFT OUT of `materials`; out-of-range s or bad N
+  = empty haul), `TASK_HAZARD_PENALTY` 0.5 [PROVISIONAL, Q10], `TASK_MIN_WORK_SECONDS` 1, `taskWorkSeconds(exp, teams,
+  body)` (ACTIVITY_SECONDS / pace * (1 + resistedHazard(hazard, museum + team resist) * 0.5), ROUNDED to whole seconds
+  like the legacy `activityDurationSeconds`, floored at 1 s; equals it exactly on a hazard-0 body with one team holding
+  the whole roster, tested). Plus helpers GO-5 / GO-7b reuse: `taskFieldworkRun(exp, teams)` (the union Science party,
+  `scienceStrength * sum(max(0, scienceShare))`), `taskSecurityHazardResist` (the Security members'
+  `groundStats.hazardResist`: THE Assault Hardsuit line, plus any Security trait resist), `taskTeamHazardResist`, and
+  `taskFullHaul(exp, teams, body, poiId, flatIndex)` (rollHaul on `taskRewardSeed`, RAW hazard, the team set's
+  yieldMult; equals the legacy win haul for one whole-roster team, tested).
+- **Deviation: the team input is `GroundTaskTeam { securityIds, scienceIds, scienceShare }`**, not `GroundTeamRun[]`:
+  the run-side types do not exist yet and the share lives in `GroundOpsFactors.scienceShare` (per team), not on the
+  run. GO-7b passes each team as `{ ...teamRun, scienceShare: factors.scienceShare[pos] }` (GroundTeamRun satisfies the
+  id fields structurally). Repeat / unknown ids are skipped, so a member never counts twice.
+- **`ACTIVITY_SECONDS` MOVED to groundTasks.ts** (expedition.ts re-exports it unchanged) so groundTasks.ts never imports
+  expedition.ts (expedition.ts will import groundOps.ts which imports this).
+- **`ExpeditionActivity` gains the section 2 task fields**, all optional (requiredTeams, fightPoints, progress,
+  pointsCleared, segmentsBanked, segmentsOffloaded, fightCount, status, assignedTeamIds). No save bump; legacy records
+  keep their shape. The other run-side types (GroundOpsState, GroundTeamRun, ...) still land with GO-7a / GO-7b.
+- **gambit.ts:** `rollHaul` exported; new `taskRewardSeed(exp, flatIndex)` = `(seed ^ REWARD_SALT ^ imul(flatIndex + 1,
+  0x27d4eb2f)) >>> 0` and `taskRelicSeed(exp, flatIndex)` = reward seed ^ `TASK_RELIC_SEED_MIX` (0x165667b1, the old
+  inline literal, unexported, NOT a top-level salt; it equals waveSeed's `WAVE_LOOT_SEED_SALT`, harmless since the base
+  seeds differ). The legacy win haul, relic roll and evacuation haul all read them now. **Proof of byte-identity:**
+  `groundTasks.test.ts` pins five `resolveExpeditionActivity` outputs captured BEFORE the extraction (two wins, a
+  relic win with a Science party and an hours-out ramp, an evacuation, the D18 no-team path) plus literal seed values;
+  every existing test stayed green. **GO-7b's relic at 100% must call `taskRelicSeed`.**
+- **Salt registry `salts.test.ts`:** collects every exported `*_SALT` of expedition.ts, gambit.ts, groundTasks.ts,
+  officerStats.ts, combat/waveSeed.ts (distinct, odd, uint32) plus model.ts (distinct only: `AWAY_RECRUIT_SEED_SALT`
+  0x5a17c0de is EVEN, predates the rule; changing it would reroll recruit offers). The expedition.ts (4) and gambit.ts
+  (6) salts are now exported for it. Not covered (not exported): tick.ts `MISSION_OUTPUT_ROUNDING_SALT`, relics.ts
+  `RELIC_STUDY_SALT`, salvage.ts `SALVAGE_ROUNDING_SEED_SALT`, seniorStaff.ts `OFFICER_STAT_SEED_SALT`. **GO-5 / GO-7 /
+  GO-8 add their module namespace to `MODULES`** (and the expected-names list). 16 strict salts today, no clash.
+- **no-dead-stats:** `gear:security:assaultHardsuit:groundHazardResist` STAYS in `PENDING_IN_RELEASE` until GO-7b reads
+  `taskWorkSeconds` inside a run (nothing calls it yet); GO-7b removes it in the same commit.
+- **Not included, for the user / GO-7b:** the scan's Science Integrity resist (`exp.hazardSteady`) is NOT in the task
+  hazard resist (the spec lists museum + Science fieldwork + Security only); a one-line add in `taskWorkSeconds` if
+  wanted. Downed Security members still count their suit toward the task's work time (the time is per task, set when
+  the team works it).
+- Tests: `groundTasks.test.ts` (23) + `salts.test.ts` (4). Suite 4093 -> 4120 passed; `npm run check` 0 errors.
+
 ### GO-5: One task fight (pure)
 
 **Files:** Create `src/lib/game/groundFight.ts`, test `groundFight.test.ts`.

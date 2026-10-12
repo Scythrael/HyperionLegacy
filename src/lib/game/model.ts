@@ -6475,6 +6475,19 @@ export interface ExpeditionActivity {
   // rule, 2026-10-07) and who comes home injured at claim (injuries.ts). OPTIONAL and absent-safe (absent =
   // nobody went down), so no SAVE_VERSION bump: a task resolved before Task 16 simply records no one.
   downedMemberIds?: string[];
+  // Ground Operations 0.14.0 (GO-4, D25): the TASK fields of a Ground Ops run (groundTasks.ts reads them;
+  // GO-7b stamps them when a body's scan completes). ALL OPTIONAL and absent on a legacy run's activities, so
+  // no SAVE_VERSION bump and every legacy record keeps its exact shape. `done` stays the completion flag and
+  // mirrors status === "done".
+  requiredTeams?: number; // ground teams the task needs together; default 1 (content may ask for 2+)
+  fightPoints?: number[]; // ascending progress fractions in (0, 1) (groundTasks.ts fightPointFractions)
+  progress?: number; // 0..1, PERSISTS across losses (user 9b.1)
+  pointsCleared?: number; // fights won; the next fight is fightPoints[pointsCleared]
+  segmentsBanked?: number; // segments finished (haul earned), 0..fightPoints.length + 1
+  segmentsOffloaded?: number; // segments already offloaded into exp.findings
+  fightCount?: number; // fights started on this task (keys "a fresh encounter per attempt", user 9b.2)
+  status?: "queued" | "active" | "done" | "skipped";
+  assignedTeamIds?: number[]; // owner ground team index(es) on the ship
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which

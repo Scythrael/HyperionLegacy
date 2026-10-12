@@ -184,16 +184,17 @@ const DEBUFF_IDS: GambitStatusId[] = (Object.keys(GAMBIT_STATUSES) as GambitStat
 );
 
 // --- Decorrelation salts (distinct from expedition.ts's salts; do NOT reuse across purposes) ---
-const COMBAT_SALT = 0x5a3c9d17; // the per-battle stream (encounter generation + the fight)
-const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + relic), independent of attempts
+// Exported (GO-4) so salts.test.ts can assert every engine salt is odd and distinct; read-only constants.
+export const COMBAT_SALT = 0x5a3c9d17; // the per-battle stream (encounter generation + the fight)
+export const REWARD_SALT = 0x3f27b1e5; // the per-activity reward roll (materials + relic), independent of attempts
 // E-CREW (Task 14): the scan-step random ENCOUNTER battle (enemy generation + the fight) and its drops,
 // and the scan-step supply-cache haul. Distinct from every salt above (never reuse a salt across purposes).
-const SCAN_BATTLE_SALT = 0x6b43a9b5;
-const SCAN_DROP_SALT = 0x1d8e4b2f;
-const SUPPLY_CACHE_SALT = 0x4cf5ad43;
+export const SCAN_BATTLE_SALT = 0x6b43a9b5;
+export const SCAN_DROP_SALT = 0x1d8e4b2f;
+export const SUPPLY_CACHE_SALT = 0x4cf5ad43;
 // E-CREW (Task 16): Neural Backup's revive roll. Its OWN stream (the battle's seed ^ this salt), never a
 // draw on the battle's shared stream, so adding the implant shifts no other roll in any battle.
-const NEURAL_BACKUP_SALT = 0x2f6e9c31;
+export const NEURAL_BACKUP_SALT = 0x2f6e9c31;
 
 // ============================================================================
 // Enemy roles + role behaviors
@@ -1645,8 +1646,9 @@ export function rollRelicToken(
 
 // Roll the full material + credit haul for a task, seeded. Materials are planet-type flavored; credits
 // scale with hazard. `scale` reduces the haul on an evacuation (keep-what-you-gathered). PURE. Draw order:
-// material item, then material quantity -- fixed.
-function rollHaul(
+// material item, then material quantity (fixed). Exported (GO-4): Ground Ops rolls a task's full haul with it
+// (groundTasks.ts taskFullHaul) on the same taskRewardSeed.
+export function rollHaul(
   seed: number,
   planetType: string,
   hazard: number,
@@ -1658,6 +1660,24 @@ function rollHaul(
   const qty = Math.max(1, Math.round(rng.nextRange(MATERIAL_QTY_MIN, MATERIAL_QTY_MAX) * scale));
   const credits = Math.max(0, Math.round((CREDITS_BASE + CREDITS_HAZARD_COEFF * Math.max(0, hazard)) * scale));
   return { materials: { [item.itemId]: qty }, credits };
+}
+
+// Ground Operations (GO-4): THE task reward seed, one definition shared by the legacy resolver (a win's haul
+// and relic roll, an evacuation's haul) and Ground Ops (groundTasks.ts taskFullHaul, GO-7b's relic at 100%).
+// Keyed by the task's FLAT index across bodies and independent of attempts, so one task keeps one reward roll
+// whichever engine resolves it. The extraction is byte-identical (groundTasks.test.ts pins legacy outputs).
+export function taskRewardSeed(exp: Pick<Expedition, "seed">, flatIndex: number): number {
+  return (exp.seed ^ REWARD_SALT ^ Math.imul(flatIndex + 1, 0x27d4eb2f)) >>> 0;
+}
+
+// The relic roll's sub-stream of a task's reward seed (rollRelicToken's seed): a fixed mix on the reward
+// seed, so the relic chance never shares a draw with the haul. The mix is NOT a top-level salt (it never
+// meets exp.seed alone), which is why salts.test.ts does not list it; it happens to equal combat/waveSeed.ts
+// WAVE_LOOT_SEED_SALT, harmless because the two mix different base seeds. Never change it (it would move
+// every relic roll).
+const TASK_RELIC_SEED_MIX = 0x165667b1;
+export function taskRelicSeed(exp: Pick<Expedition, "seed">, flatIndex: number): number {
+  return (taskRewardSeed(exp, flatIndex) ^ TASK_RELIC_SEED_MIX) >>> 0;
 }
 
 // ============================================================================
@@ -1755,13 +1775,13 @@ export function resolveExpeditionActivity(
     }
     if (result.result === "win") {
       commitLog(attemptLog);
-      const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
+      const rewardSeed = taskRewardSeed(exp, globalIndex);
       // E-CREW Task 15: the Science party scales the haul (yieldMult; exactly 1 without a party) and lifts
       // the relic chance. Both only reshape the SAME keyed draws, so the draw order is unchanged.
       const fw = fieldworkEffect(exp, body.planetType, activity.poiId);
       const haul = rollHaul(rewardSeed, body.planetType, body.hazard, fw.yieldMult);
       const relic = rollRelicToken(
-        (rewardSeed ^ 0x165667b1) >>> 0,
+        taskRelicSeed(exp, globalIndex),
         body.hazard,
         activity.poiId,
         relicId,
@@ -1823,7 +1843,7 @@ function evacuatedResolution(
   findingId: string,
   downedMemberIds: string[],
 ): ActivityResolution {
-  const rewardSeed = (exp.seed ^ REWARD_SALT ^ Math.imul(globalIndex + 1, 0x27d4eb2f)) >>> 0;
+  const rewardSeed = taskRewardSeed(exp, globalIndex);
   // E-CREW Task 15: what the Science party gathered before the pull-back is richer too (yieldMult is
   // exactly 1 without a party, so EVAC_REWARD_FRACTION * 1 keeps an old run's haul bit-for-bit).
   const yieldMult = fieldworkEffect(exp, body.planetType, activity.poiId).yieldMult;

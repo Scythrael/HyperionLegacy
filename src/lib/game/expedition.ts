@@ -67,6 +67,7 @@ import { equippedFor } from "./equipment";
 import { effectiveShipStats, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
+import { ACTIVITY_SECONDS } from "./groundTasks";
 // E-CREW 0.14.0 (Task 21): the officer stat facets that reach a run (frozen at dispatch).
 import { CUNNING_AMBUSH_SOFTEN, CUNNING_QUICK_RECOVERY, constitutionRamp, cunningProc, departmentFacet } from "./officerStats";
 import {
@@ -158,7 +159,9 @@ export const BASE_DISCOVERY_PERMILLE = 500; // 50% base per-attempt odds, before
 // placeholder finding each. (E3's real gambit combat replaces the resolver, not this cadence.)
 // E-CREW Task 15: ACTIVITY_SECONDS is a BARE party's pace; the Science party's fieldwork speed divides it
 // per body (activityDurationSeconds). Without a Science member every task still takes exactly this.
-export const ACTIVITY_SECONDS = 600; // ~10 min IRL per ground-team task
+// Ground Operations (GO-4): the constant now LIVES in groundTasks.ts (the task model; it must not import this
+// module) and is re-exported here unchanged, so every existing importer keeps working.
+export { ACTIVITY_SECONDS };
 
 // ============================================================================
 // E-CREW 0.14.0 (Task 14): RANDOM ENCOUNTERS during scan progress (design D10, FIRST-PASS TUNABLE)
@@ -278,10 +281,11 @@ const NEUTRAL_SCAN_PARAMS: ExpeditionScanParams = {
 // Fixed decorrelation salts, so the several seeded draws an expedition makes (system pick, anomaly,
 // per-body discoveries) come from independent, reproducible streams. Arbitrary-but-fixed nonzero
 // constants (the exact values only have to be stable). ⚠️ Do NOT reuse a salt across purposes.
-const SYSTEM_SALT = 0x1b56c4f9;
-const ANOMALY_SALT = 0x7f4a7c15;
-const DISCOVERY_SALT = 0x2c1b3c6d;
-const ENCOUNTER_SALT = 0x3a8f05c5; // E-CREW Task 14: the per-boundary scan step roll
+// Exported (GO-4) so salts.test.ts can assert every engine salt is odd and distinct; read-only constants.
+export const SYSTEM_SALT = 0x1b56c4f9;
+export const ANOMALY_SALT = 0x7f4a7c15;
+export const DISCOVERY_SALT = 0x2c1b3c6d;
+export const ENCOUNTER_SALT = 0x3a8f05c5; // E-CREW Task 14: the per-boundary scan step roll
 
 // A small epsilon for phase-boundary comparisons: scan/return durations can be fractional
 // (scanTotal / rate), and gameTimeSeconds is float, so an "elapsed >= duration" check must tolerate a
