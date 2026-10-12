@@ -57,6 +57,23 @@ marked **[PROPOSAL]** is mine and is the user's to accept, rename or reject. Sou
    have some form of pottery shard. Something like that. So that way, we're not pushing more unnecessary relic sets.
    Unless we should have more."
 
+## 1c. User answers, 2026-10-12
+
+- **Expedition tiers:** the I to VII ladder is approved (Local Bubble, Orion Arm, Perseus Arm, Sagittarius Arm,
+  Scutum-Centaurus Arm, Galactic Bulge, Galactic Core); **Tier VII is the top** ("7 is my favorite number"). "The best
+  part is that the distance requires that you can travel further than ever before. Still not worthwhile to do T1
+  content in a T7 ... ship, but you can do it if you want. But if you have 10 captains on long range assignments,
+  imagine the goodies you could get."
+- **ROMAN NUMERALS for every tier number shown in the game** ("Roman numerals are clean. Tier X just has a nice ring
+  to it.").
+- **Annihilation Core / burning antimatter (verbatim):** "with fuel being something more like a stat, what would the
+  antimatter containment cells do if burnt? Perhaps those can be used to speed up the trip, but this can cause the
+  need for a maintenance period to ensure that the extra wear on the ship doesn't cause damage, etc. Making that rare
+  would be good too. Though, we'd want to consider the ramifications of something like this. We'd have to balance it,
+  because we'd want to ensure that it's not overused and abused, so to speak haha." So: burning an Antimatter
+  Containment Cell in an Annihilation Core speeds a trip, then the ship needs a MAINTENANCE PERIOD (extra wear); the
+  cells stay rare; anti-abuse balance required (design pending).
+
 ## 2. The science we build on (so every number has a real anchor)
 
 - Gas giants have no surface. NASA's Galileo probe (Dec 1995) entered Jupiter at about 47 km/s, sent data for about
