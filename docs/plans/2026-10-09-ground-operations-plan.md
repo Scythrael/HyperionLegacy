@@ -970,6 +970,14 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   member was deliberately unslotted, hire says "Squad is full" while an empty slot shows, because reserves count toward
   the hire cap; explain that in the UI. (d) The GO-1-window staging fix is: bench, then unbench (re-slots the member).
 
+- **GO-4 questions, coordinator rulings (2026-10-12):** (a) Science Integrity (`exp.hazardSteady`) stays SCAN-only, as
+  the user-approved per-seat table says ("scanning a hazardous world"); task work does not read it. (b) The even
+  `AWAY_RECRUIT_SEED_SALT` stays as a documented exception (changing it would reroll recruit offers). (c) GO-7b passes
+  only members still standing in the task to `taskWorkSeconds` (a downed member sits out the rest of the task, so their
+  suit stops counting). (d) GO-5 exports the four unregistered salts (tick.ts MISSION_OUTPUT_ROUNDING_SALT, relics.ts
+  RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT) and adds them to
+  salts.test.ts.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
