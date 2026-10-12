@@ -194,6 +194,13 @@ piece it calls exists, then scan events, then UI. Mockup-bearing UI tasks come l
 fields and use the imported `SAVE_VERSION` for "current") so GO-1's bump edits one line. Behavior-neutral; separate
 commit `chore(0.14.0): one SAVE_VERSION pin (Task 34b)`. The controller may skip it and edit the pins in GO-1 instead.
 
+**Carry from GO-0 (built 2026-10-12, commit `chore(0.14.0): consolidate SAVE_VERSION pins (GO-0)`):** the ONE literal
+pin is the top `describe("SAVE_VERSION")` block of `save.test.ts`; a bump edits that line only. Removed: 24 per-describe
+`it("SAVE_VERSION is pinned ...")` blocks (including `it("SAVE_VERSION is 66")` in the v65 -> v66 block), 9 inline
+`expect(SAVE_VERSION).toBe(66)` / duplicate `.version).toBe(66)` lines, and the stray pin in `injuries.test.ts`;
+6 `.version).toBe(66)` lines now read `.toBe(SAVE_VERSION)`. Test count 4019 -> 3996 (23 fewer duplicate pins), no
+behavior change. Also closes E-CREW Task 34b.
+
 ---
 
 ### Stage A: Ground teams (data + slotting)

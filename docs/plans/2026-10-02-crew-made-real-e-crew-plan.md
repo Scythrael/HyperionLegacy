@@ -957,6 +957,7 @@ A8; wrong in prod since 0.13.6). Test: the existing help-topic shape test passes
 `save.test.ts` repeats `expect(SAVE_VERSION).toBe(N)` about 25 times and `.version).toBe(N)` about 11 times, so
 every bump edits ~36 lines. Keep ONE canonical pin; per-migration blocks assert the migrated fields (and use the
 imported `SAVE_VERSION` where they need "current"). Separate chore commit, no behavior change.
+**DONE 2026-10-12 as Ground Ops GO-0** (see the GO-0 carry note in `2026-10-09-ground-operations-plan.md`).
 
 ### Task 34d: Merge 0.13.9 into feat/crew-0.14.0 (do as soon as the user promotes it)
 Known conflicts (from the hotfix + Task 1/8 reviews): `spareEquipmentCount` -> `isSparePiece(p) && blueprintKey !== null`;
