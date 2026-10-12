@@ -1320,6 +1320,11 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   action yet, so a run whose every remaining task is unwinnable holds its ship, crew and captain. GO-7d lands the
   skip; consider a dev-only recall if staging is needed sooner.
 
+- **GO-7c review (2026-10-12), carried forward:** (a) rank teams on SOLO tasks only in planTasksForTeams; (b) cache an
+  idle helper's threat reads per (task, fightCount, pointsCleared) if long catch-ups get slow; (c) a joint return makes
+  every crew team spend offload time though one pays: revisit in the squad redesign; (d) ask the user (with Q20): one
+  shared pickup leg for a joint wipe on one body, or one leg per wiped team (built). The staging gate until GO-7d stands.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
