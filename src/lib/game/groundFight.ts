@@ -30,7 +30,15 @@
 //
 // Module graph: model (types), combat/rng, gambit, medicalBay, relics, groundTasks; never expedition.ts.
 
-import type { Expedition, ExpeditionActivity, ExpeditionBody, GambitStatusId } from "./model";
+import type {
+  Expedition,
+  ExpeditionActivity,
+  ExpeditionBody,
+  GambitStatusId,
+  GroundFightRecord,
+  GroundMemberCarry,
+  GroundMemberEnd,
+} from "./model";
 import { makeRng } from "./combat/rng";
 import {
   GAMBIT_STATUSES,
@@ -65,33 +73,9 @@ export interface GroundFightTeam {
   securityShare: number;
 }
 
-// One member's state carried into a fight (user Q5): HP and the persisting statuses.
-export interface GroundMemberCarry {
-  hp: number;
-  statuses: readonly GroundStatus[];
-}
-
-// One standing member's state at the end of a fight: the carry for the task's next fight, plus the max HP
-// for display ("72 / 90"). A GroundFightRecord's memberEnd passes straight in as the next fight's carry.
-export interface GroundMemberEnd extends GroundMemberCarry {
-  hpMax: number;
-  statuses: GroundStatus[];
-}
-
-export interface GroundFightRecord {
-  pointIndex: number; // the fight point fought for (the task's pointsCleared at the start)
-  fightNumber: number; // the task's fightCount at the start: the stream key
-  outcome: "win" | "loss";
-  rounds: number; // rounds FOUGHT (0 only when nobody could be fielded)
-  downedMemberIds: string[]; // the named members down at the end, combatant order
-  // memberId -> the bay conditions at the battle's end (GROUND_CONDITIONS ids only, see memberEndConditions).
-  // A member with none is left out.
-  memberConditions: Record<string, string[]>;
-  // memberId -> end state of every member still STANDING (user Q5 carry damage; GO-7b threads it into the
-  // task's next fight). A downed member is left out: they sit out the rest of the task.
-  memberEnd: Record<string, GroundMemberEnd>;
-  neuralBackup?: { memberId?: string; revived: boolean };
-}
+// The fight record types (GroundMemberCarry, GroundMemberEnd, GroundFightRecord) live in model.ts since GO-7b
+// (GroundTeamRun stores them; model.ts must not import this module, GO-7a review) and are re-exported here.
+export type { GroundFightRecord, GroundMemberCarry, GroundMemberEnd } from "./model";
 
 // ===== Pure helpers =====
 

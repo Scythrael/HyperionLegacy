@@ -42,9 +42,6 @@ import type { PirateHullId } from "./combat/enemyHulls";
 // crafted weapon. TYPE-ONLY import (compile-erased), so no runtime cycle, same posture as the
 // combat type imports above (combat/weapons imports only combat/types + statusEffects).
 import type { WeaponId } from "./combat/weapons";
-// Ground Operations (GO-7a): the run-side ground team record carries a fight record and the in-task carry.
-// TYPE-ONLY (erased at build), so the runtime module graph stays model.ts <- groundFight.ts.
-import type { GroundFightRecord, GroundMemberCarry } from "./groundFight";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -6965,6 +6962,46 @@ export interface AwayRosterSnapshot {
 // groundOps.ts snapshotGroundOps writes the dispatch values (GO-7a); the timeline engine (GO-7b) moves them.
 // GO-7b adds the GroundOpsState wrapper (version, startedAt / endedAt, editCount, history) and
 // Expedition.groundOps; nothing stores or reads these yet. Plain data only (no live refs, JSON-safe).
+
+// One active status on a ground combatant (a copy of a catalog entry's magnitude / duration, decremented in
+// place during the battle on the working clone). Moved here from gambit.ts at GO-7b (gambit.ts re-exports it):
+// a ground team's in-task carry stores it.
+export interface GroundStatus {
+  id: GambitStatusId;
+  magnitude: number;
+  remaining: number; // rounds left (ticked down at end of round; pruned at 0)
+}
+
+// The task fight record types (groundFight.ts resolves them; moved here at GO-7b so GroundTeamRun can store
+// them without model.ts importing groundFight.ts, GO-7a review; groundFight.ts re-exports them).
+
+// One member's state carried into a fight (user Q5): HP and the persisting statuses.
+export interface GroundMemberCarry {
+  hp: number;
+  statuses: readonly GroundStatus[];
+}
+
+// One standing member's state at the end of a fight: the carry for the task's next fight, plus the max HP
+// for display ("72 / 90"). A GroundFightRecord's memberEnd passes straight in as the next fight's carry.
+export interface GroundMemberEnd extends GroundMemberCarry {
+  hpMax: number;
+  statuses: GroundStatus[];
+}
+
+export interface GroundFightRecord {
+  pointIndex: number; // the fight point fought for (the task's pointsCleared at the start)
+  fightNumber: number; // the task's fightCount at the start: the stream key
+  outcome: "win" | "loss";
+  rounds: number; // rounds FOUGHT (0 only when nobody could be fielded)
+  downedMemberIds: string[]; // the named members down at the end, combatant order
+  // memberId -> the bay conditions at the battle's end (GROUND_CONDITIONS ids only, see memberEndConditions).
+  // A member with none is left out.
+  memberConditions: Record<string, string[]>;
+  // memberId -> end state of every member still STANDING (user Q5 carry damage; GO-7b threads it into the
+  // task's next fight). A downed member is left out: they sit out the rest of the task.
+  memberEnd: Record<string, GroundMemberEnd>;
+  neuralBackup?: { memberId?: string; revived: boolean };
+}
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
 export type GroundStepKind = "idle" | "staging" | "deploy" | "work" | "fight" | "return" | "offload" | "bay" | "reload";

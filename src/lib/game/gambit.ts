@@ -67,6 +67,7 @@ import type {
   SeniorStaffSeat,
   SecuritySpec,
   SnapshotMember,
+  GroundStatus,
 } from "./model";
 import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
@@ -240,13 +241,9 @@ export const ENEMY_ROLE_PROGRAMS: Record<EnemyRole, GambitProgram> = {
 // The ground combatant model (a lighter shape than the ship Combatant, on purpose)
 // ============================================================================
 
-// One active status on a combatant (a copy of a catalog entry's magnitude/duration, decremented in place
-// during the battle on the working clone).
-export interface GroundStatus {
-  id: GambitStatusId;
-  magnitude: number;
-  remaining: number; // rounds left (ticked down at end of round; pruned at 0)
-}
+// One active status on a combatant: GroundStatus lives in model.ts since GO-7b (the run-side carry stores it;
+// model.ts must not import this module) and is re-exported here unchanged.
+export type { GroundStatus } from "./model";
 
 // A single fighter in a ground battle. Team members carry a security/science role; enemies carry an enemy
 // role. `threat` drives foeHighestThreat; `groupTag` drives foeLargestGroup; `statusOnHit` lets a caster's
