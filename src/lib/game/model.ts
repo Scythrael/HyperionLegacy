@@ -1510,7 +1510,60 @@ export interface ShipInstance {
   // seeds it on the starting hull; the v54->v55 migration backfills the same default onto existing
   // ships. NOTHING reads or writes it yet (auto-crew + rollup are later phases).
   complement?: ShipComplement;
+  // Ground Operations 0.14.0 (GO-1, D25): this ship's GROUND TEAMS, each a slotted Security squad + a
+  // slotted Science squad (see ShipGroundTeam). Length = groundTeamCount(typeKey) (1 on every hull today).
+  // freshState seeds the starting hull; the v66 -> v67 migration backfills every ship by hire order.
+  // OPTIONAL + absent-safe: a ship minted without it (shipBuild, the captain-unlock grant) reads as the
+  // hull's empty teams through groundTeams.ts shipGroundTeams. NOTHING in the engine reads it yet
+  // (dispatch still uses deployableMembers until Ground Ops GO-7b).
+  groundTeams?: ShipGroundTeam[];
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
+}
+
+// Ground Operations 0.14.0 (GO-1, D25, plan 2026-10-09 section 2): one ground team's slot state on a ship.
+// Members are outfitted first, then SLOTTED into a squad of a chosen ground team (user, D25 clarified).
+// Each slot holds an AwayMember id (a member aboard THIS ship with the matching teamType) or null for an
+// empty slot; slot order is deploy order. A member sits in at most one slot fleet-wide (GO-2 enforces it).
+// Members aboard but in no slot are the ship's reserve: they do not deploy.
+export interface ShipGroundTeam {
+  // Player-chosen name. ABSENT (or blank) = the default by index (groundTeams.ts GROUND_TEAM_DEFAULT_NAMES:
+  // Alpha / Bravo / Charlie, user 9b.7). The short label (A / B / C) always goes by index.
+  name?: string;
+  security: (string | null)[]; // length = groundSquadSize(typeKey, "security")
+  science: (string | null)[]; // length = groundSquadSize(typeKey, "science")
+  // "When done, help other teams" (D25): the ship's default for the NEXT dispatch (GO-7c reads it).
+  helpOthers: boolean;
+}
+
+// The first away-team entry of `teamType` on a hull (ground teams pair one Security squad with one Science
+// squad, so the per-team size is that entry's `size`). Undefined for an unknown hull or a missing entry.
+function firstAwayTeamEntry(typeKey: ShipTypeKey, teamType: AwayTeamType) {
+  return (SHIP_TYPES[typeKey]?.awayTeams ?? []).find((t) => t.teamType === teamType);
+}
+
+// How many GROUND TEAMS a hull fields (D25 / design section 2): its Security entry's `count`, paired 1:1
+// with Science. 1 on every hull today; 0 for a hull with no away-team data. Pure. Lives here (not in
+// groundTeams.ts, which re-exports it) because freshState seeds the starting hull's teams and model.ts
+// must not import groundTeams.ts (that module imports this one).
+export function groundTeamCount(typeKey: ShipTypeKey): number {
+  return Math.max(0, firstAwayTeamEntry(typeKey, "security")?.count ?? 0);
+}
+
+// The member slots in ONE ground team's `teamType` squad on a hull: the matching entry's `size`; 0 when the
+// hull lists no such squad. Pure.
+export function groundSquadSize(typeKey: ShipTypeKey, teamType: "security" | "science"): number {
+  return Math.max(0, firstAwayTeamEntry(typeKey, teamType)?.size ?? 0);
+}
+
+// A hull's ground teams with every slot empty, no custom names, help toggles off. Fresh arrays per call. Pure.
+export function emptyGroundTeams(typeKey: ShipTypeKey): ShipGroundTeam[] {
+  const sec = groundSquadSize(typeKey, "security");
+  const sci = groundSquadSize(typeKey, "science");
+  return Array.from({ length: groundTeamCount(typeKey) }, () => ({
+    security: Array.from({ length: sec }, () => null),
+    science: Array.from({ length: sci }, () => null),
+    helpOthers: false,
+  }));
 }
 
 // --- Ship repair tunables (Combat 0.13.0, Phase 11, design S13) ------------------
@@ -6291,16 +6344,18 @@ export interface SquadLoadoutKit {
   implants: string[];
 }
 
-// A saved SQUAD LOADOUT in the Armory (design section 5.7): a named set of member kits for one squad
-// type, the away-team counterpart to a ship Loadout. checkedOutToShipId marks the squad currently
-// wearing it (null = in the Armory). Ids are minted from GameState.nextSquadLoadoutId (the Armory
-// task picks the prefix); never reused.
-export interface SquadLoadout {
+// A saved SQUAD LOADOUT in the Armory, reshaped PER GROUND TEAM by Ground Operations GO-1 (D25: "Squad
+// Loadouts (Task 18) save per ground team, not per team type"; it replaces the Task 2 per-team-TYPE
+// SquadLoadout, which no build ever created). A named set of member kits for one whole ground team: one
+// kit per Security slot and one per Science slot, in slot order. Gear only: who is slotted stays a
+// Personnel choice. `checkedOutTo` marks the ground team currently wearing it (null = in the Armory). Ids
+// are minted from GameState.nextSquadLoadoutId (the GO-17 Armory task picks the prefix); never reused.
+export interface GroundTeamLoadout {
   id: string;
   name: string;
-  teamType: AwayTeamType;
-  kits: SquadLoadoutKit[];
-  checkedOutToShipId: string | null;
+  security: SquadLoadoutKit[];
+  science: SquadLoadoutKit[];
+  checkedOutTo: { shipId: string; teamIndex: number } | null;
 }
 
 // The base size of the Senior Staff candidate roster (Phase 1; user 2026-09-23, "base 10,
@@ -7291,7 +7346,7 @@ export interface GameState {
   // identification roll mixes in). freshState seeds 1; never reused.
   nextRelicStudyIndex: number;
   // ===== E-CREW "Crew Made Real" (Task 2, DORMANT) =====
-  // The away-team roster and the Armory squad loadouts (see the AwayMember / SquadLoadout block above).
+  // The away-team roster and the Armory squad loadouts (see the AwayMember / GroundTeamLoadout block above).
   // freshState seeds the clean-slate defaults; the v64->v65 migration (save.ts) backfills the IDENTICAL
   // values, so a fresh save and a migrated save stay indistinguishable. All plain values (no Decimals),
   // so hydrateDecimals is unchanged. NOTHING reads or writes these yet.
@@ -7300,8 +7355,8 @@ export interface GameState {
   awayMembers: AwayMember[]; // the named away-team members, keyed to a ship by assignedShipId
   nextAwayMemberId: number; // monotonic id source for "member-N"; never reused, mirrors nextOfficerId
   awayRecruitSeed: number; // stable per-save PRNG seed for the derived recruit board (awayRecruitSeedFrom)
-  squadLoadouts: SquadLoadout[]; // the Armory squad loadouts
-  nextSquadLoadoutId: number; // monotonic id source for a new SquadLoadout id; never reused
+  squadLoadouts: GroundTeamLoadout[]; // the Armory squad loadouts, one per ground team (GO-1 reshape; v67 coerces to [])
+  nextSquadLoadoutId: number; // monotonic id source for a new GroundTeamLoadout id; never reused
 }
 
 // RecipeKey / RecipeDef / RECIPES (the legacy INSTANT Homeworld craft path) were
@@ -12226,7 +12281,9 @@ export function freshState(): GameState {
     // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
     // exactly one hull, the universal General Freighter. nextShipId starts at 2
     // because "ship-1" is already taken by this seeded hull.
-    ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, complement: { buckets: [], mode: "passive" } }],
+    // Ground Ops GO-1: the starting hull also gets its (empty) ground teams, the same shape the v66 -> v67
+    // migration gives a ship with no members.
+    ships: [{ id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, complement: { buckets: [], mode: "passive" }, groundTeams: emptyGroundTeams("generalFreighter") }],
     shipStorageCapacity: 8,
     // 0.13.4 Phase 0: rung LEVEL 0, so a fresh game starts on the BASE berth count that
     // Phase 3 derives (TRANSIT_BERTH_BASE = 2) and has bought nothing. Level, not count:

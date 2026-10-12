@@ -606,7 +606,8 @@ function idNumber(id: string): number {
   return m ? Number(m[1]) : Number.POSITIVE_INFINITY;
 }
 
-function byIdNumber<T extends { id: string }>(a: T, b: T): number {
+// Exported for groundTeams.ts (the v67 slot backfill fills slots in this SAME hire order).
+export function byIdNumber<T extends { id: string }>(a: T, b: T): number {
   const x = idNumber(a.id);
   const y = idNumber(b.id);
   return x === y ? 0 : x - y;

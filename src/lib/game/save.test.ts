@@ -32,6 +32,14 @@ import { defaultSystemDurabilityForHull, COMBAT_DEFAULT_LOADOUT, defaultWeaponsF
 // recruit seed with the model.ts helper.
 import { NEUTRAL_OFFICER_STATS, officerStatSeed, rollOfficerStats } from "./seniorStaff";
 import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
+// Ground Operations GO-1: the v66 -> v67 block checks the slot backfill against the hull's empty teams and
+// today's hire-order dispatch, and proves a migrated save plays byte-identically (expedition + economy).
+import { emptyGroundTeams } from "./groundTeams";
+import { deployableMembers } from "./awayTeam";
+import { plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { tick } from "./tick";
+import type { GameState } from "./model";
 
 // ⚠️ 0.13.5 F5: how many Standard-Issue pieces a hull ships with, DERIVED rather than hardcoded.
 // Every hardpoint and drone bay now ships filled, so these counts move whenever a hull is retuned.
@@ -72,7 +80,7 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(66);
+    expect(SAVE_VERSION).toBe(67);
   });
 });
 
@@ -6300,9 +6308,11 @@ describe("SAVE migration v64 -> v65 (E-CREW data model)", () => {
       id: "member-1", teamType: "security", spec: "offense", name: "Kade", race: "belter", gender: "male",
       rank: 3, traits: ["steady"], assignedShipId: "ship-1",
     };
+    // The per-ground-team shape (Ground Ops GO-1): the full chain runs on through v66 -> v67, which keeps a
+    // well-formed GroundTeamLoadout list and clears anything else.
     const loadout = {
-      id: "squad-1", name: "Alpha", teamType: "security",
-      kits: [{ armor: null, weapon: "eq-1", tool: null, implants: [] }], checkedOutToShipId: null,
+      id: "squad-1", name: "Alpha",
+      security: [{ armor: null, weapon: "eq-1", tool: null, implants: [] }], science: [], checkedOutTo: null,
     };
     const s = { ...v64State(), awayMembers: [member], nextAwayMemberId: 2, awayRecruitSeed: 99, squadLoadouts: [loadout], nextSquadLoadoutId: 2 };
     const once = migrate64(s);
@@ -6322,7 +6332,7 @@ describe("SAVE migration v64 -> v65 (E-CREW data model)", () => {
       ...base,
       awayMembers: [{ id: "member-1", teamType: "science", spec: "geology", name: "Ilo", race: "vael", gender: "nonbinary", rank: 2, traits: [], assignedShipId: null, injuredUntilSeconds: 500, favorite: true }],
       nextAwayMemberId: 2,
-      squadLoadouts: [{ id: "squad-1", name: "Survey", teamType: "science", kits: [{ armor: "eq-2", weapon: null, tool: "eq-3", implants: ["eq-4"] }], checkedOutToShipId: "ship-1" }],
+      squadLoadouts: [{ id: "squad-1", name: "Survey", security: [], science: [{ armor: "eq-2", weapon: null, tool: "eq-3", implants: ["eq-4"] }], checkedOutTo: { shipId: "ship-1", teamIndex: 0 } }],
       nextSquadLoadoutId: 2,
     };
     const save = deserialize(serialize(withData, 0)) as SaveFile;
@@ -6463,5 +6473,166 @@ describe("SAVE migration v65 -> v66 (E-CREW Task 19 officer stats)", () => {
     expect(save.version).toBe(SAVE_VERSION);
     const restored: any = migrate(save);
     expect(restored.officers.map((o: any) => o.stats)).toEqual(base.officers.map((o: any) => o.stats));
+  });
+});
+
+// Ground Operations GO-1 (plan 2026-10-09 section 2, D25): v66 -> v67 adds the per-ship ground-team slot
+// state. Every ship gets groundTeamCount(typeKey) teams (1 on every hull today), its members slotted by
+// HIRE order up to each squad's size (injured included), so the slots reproduce today's "first N members
+// in hire order". squadLoadouts is reshaped per ground team; no build ever created one, so any stored value
+// that is not a well-formed GroundTeamLoadout list becomes []. Nothing in the engine reads the slots yet.
+describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
+  const migrateFrom = (version: number, state: any): any =>
+    migrate({ version, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state } as SaveFile);
+  const stripGroundTeams = (state: any): any => ({
+    ...state,
+    ships: state.ships.map((ship: any) => {
+      const rest = { ...ship };
+      delete rest.groundTeams;
+      return rest;
+    }),
+  });
+  const withoutInjury = (m: any): any => {
+    const rest = { ...m };
+    delete rest.injuredUntilSeconds;
+    delete rest.injuredAtSeconds;
+    return rest;
+  };
+  // A genuine v66 shape: the JSON of a current save with the ships' groundTeams removed.
+  const v66State = (state: GameState = freshState()): any =>
+    stripGroundTeams((deserialize(serialize(state, 0)) as SaveFile).state);
+
+  // ship-1 (General Freighter, 3 Security / 3 Science) holds 4 Security, one injured, listed out of hire
+  // order, and 2 Science; ship-2 (a Destroyer, 4 / 3) holds 1 Security; a member is unassigned.
+  const crewed = (): GameState => {
+    const base = freshState();
+    return {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null }],
+      awayMembers: [
+        plainAwayMember("member-9", "security", "ship-1"),
+        { ...plainAwayMember("member-3", "security", "ship-1"), injuredUntilSeconds: 50_000, injuredAtSeconds: 10 },
+        plainAwayMember("member-12", "security", "ship-1"),
+        plainAwayMember("member-5", "security", "ship-1"),
+        plainAwayMember("member-8", "science", "ship-1"),
+        plainAwayMember("member-4", "science", "ship-1"),
+        plainAwayMember("member-1", "security", "ship-2"),
+        { ...plainAwayMember("member-2", "science", "ship-1"), assignedShipId: null },
+      ],
+      nextAwayMemberId: 13,
+    };
+  };
+
+  it("slots each ship's members by hire order (injured included); the overflow member stays aboard unslotted", () => {
+    const migrated = migrateFrom(66, v66State(crewed()));
+    const [s1, s2] = migrated.ships;
+    expect(s1.groundTeams).toEqual([
+      { security: ["member-3", "member-5", "member-9"], science: ["member-4", "member-8", null], helpOthers: false },
+    ]);
+    expect(s2.groundTeams).toEqual([
+      { security: ["member-1", null, null, null], science: [null, null, null], helpOthers: false },
+    ]);
+    // member-12 (4th Security by hire order) is unslotted but still aboard; no member record changes
+    const slotted = migrated.ships.flatMap((s: any) => s.groundTeams.flatMap((t: any) => [...t.security, ...t.science]));
+    expect(slotted).not.toContain("member-12");
+    expect(migrated.awayMembers).toEqual(v66State(crewed()).awayMembers);
+  });
+
+  it("reproduces today's dispatch: with everyone ready, the slots hold deployableMembers' first N in hire order", () => {
+    const ready = { ...crewed(), awayMembers: crewed().awayMembers.map(withoutInjury) };
+    const migrated = migrateFrom(66, v66State(ready));
+    const ship = migrated.ships[0];
+    expect(ship.groundTeams[0].security).toEqual(deployableMembers(migrated, ship, "security").map((m) => m.id));
+    expect(ship.groundTeams[0].science.filter((id: string | null) => id !== null)).toEqual(
+      deployableMembers(migrated, ship, "science").map((m) => m.id),
+    );
+  });
+
+  it("gives a ship with no members the hull's empty teams, the same shape freshState seeds", () => {
+    const migrated = migrateFrom(66, v66State());
+    expect(migrated.ships[0].groundTeams).toEqual(emptyGroundTeams("generalFreighter"));
+    expect(migrated.ships[0].groundTeams).toEqual(freshState().ships[0].groundTeams);
+  });
+
+  it("is idempotent: a second pass keeps the slots, and a well-formed custom value survives", () => {
+    const once = migrateFrom(66, v66State(crewed()));
+    const twice = migrateFrom(66, JSON.parse(JSON.stringify(once)));
+    expect(twice.ships).toEqual(once.ships);
+    const custom = JSON.parse(JSON.stringify(once));
+    custom.ships[0].groundTeams = [
+      { name: "Red Squad", security: [null, "member-12", "member-9"], science: ["member-8", null, null], helpOthers: true },
+    ];
+    expect(migrateFrom(66, custom).ships[0].groundTeams).toEqual(custom.ships[0].groundTeams);
+  });
+
+  it("rebuilds a malformed value (wrong length, bad entries, not an array) from hire order", () => {
+    const expected = migrateFrom(66, v66State(crewed())).ships[0].groundTeams;
+    for (const bad of [
+      "corrupt",
+      null,
+      [],
+      [{ security: ["member-3"], science: [null, null, null], helpOthers: false }],
+      [{ security: [null, null, null], science: [null, null, null], helpOthers: "no" }],
+    ]) {
+      const s = v66State(crewed());
+      s.ships[0].groundTeams = bad;
+      expect(migrateFrom(66, s).ships[0].groundTeams).toEqual(expected);
+    }
+  });
+
+  it("squadLoadouts: keeps a well-formed ground team loadout list, coerces anything else to []", () => {
+    const kit = { armor: null, weapon: "equip-1", tool: null, implants: [] };
+    const good = [{ id: "squad-1", name: "Alpha kit", security: [kit], science: [], checkedOutTo: null }];
+    expect(migrateFrom(66, { ...v66State(), squadLoadouts: good }).squadLoadouts).toEqual(good);
+    const oldShape = [{ id: "squad-1", name: "Survey", teamType: "science", kits: [kit], checkedOutToShipId: null }];
+    expect(migrateFrom(66, { ...v66State(), squadLoadouts: oldShape }).squadLoadouts).toEqual([]);
+    expect(migrateFrom(66, { ...v66State(), squadLoadouts: [...good, ...oldShape] }).squadLoadouts).toEqual([]);
+    expect(migrateFrom(66, { ...v66State(), squadLoadouts: "corrupt" }).squadLoadouts).toEqual([]);
+    const missing = v66State();
+    delete missing.squadLoadouts;
+    expect(migrateFrom(66, missing).squadLoadouts).toEqual([]);
+    // the id counter is untouched
+    expect(migrateFrom(66, { ...v66State(), nextSquadLoadoutId: 4 }).nextSquadLoadoutId).toBe(4);
+  });
+
+  it("is hardened: a non-array awayMembers field does not throw and leaves every slot empty", () => {
+    expect(() => migrateFrom(66, { ...v66State(), awayMembers: "corrupt" })).not.toThrow();
+    expect(migrateFrom(66, { ...v66State(), awayMembers: "corrupt" }).ships[0].groundTeams).toEqual(
+      emptyGroundTeams("generalFreighter"),
+    );
+  });
+
+  it("a JSON round trip keeps groundTeams at the current version", () => {
+    const migrated = migrateFrom(66, v66State(crewed()));
+    const save = deserialize(serialize(migrated, 0)) as SaveFile;
+    expect(save.version).toBe(SAVE_VERSION);
+    const restored = migrate(save);
+    expect(restored.ships.map((s) => s.groundTeams)).toEqual(migrated.ships.map((s: any) => s.groundTeams));
+  });
+
+  it("plays byte-identically: the step only ADDS groundTeams (in-flight expedition, claim, economy ticks)", () => {
+    let s = withMinimumAwayTeam(crewed());
+    s = { ...s, awayMembers: s.awayMembers.map(withoutInjury) };
+    const launched = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    expect(launched.success).toBe(true);
+    const raw = v66State(launched.next);
+    const viaStep = migrateFrom(66, JSON.parse(JSON.stringify(raw)));
+    const noStep = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(raw)));
+    expect(noStep.ships[0].groundTeams).toBeUndefined();
+    expect(viaStep.ships[0].groundTeams).toBeDefined();
+    expect(stripGroundTeams(viaStep)).toEqual(noStep);
+    // the run resolves and claims identically
+    const expA = advanceExpedition(viaStep.expeditions[0], 1_000_000);
+    const expB = advanceExpedition(noStep.expeditions[0], 1_000_000);
+    expect(expA.phase).toBe("complete");
+    expect(JSON.stringify(expA)).toBe(JSON.stringify(expB));
+    const claimA = claimExpedition({ ...viaStep, expeditions: [expA] }, expA.id);
+    const claimB = claimExpedition({ ...noStep, expeditions: [expB] }, expB.id);
+    expect(claimA.success).toBe(true);
+    expect(JSON.stringify(stripGroundTeams(claimA.next))).toBe(JSON.stringify(claimB.next));
+    // and the whole economy steps identically for an hour
+    const tickedA = tick(3600, viaStep, () => 0.5);
+    const tickedB = tick(3600, noStep, () => 0.5);
+    expect(JSON.stringify(stripGroundTeams(tickedA))).toBe(JSON.stringify(tickedB));
   });
 });

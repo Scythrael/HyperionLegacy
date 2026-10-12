@@ -241,6 +241,36 @@ today's "first N members in hire order". `squadLoadouts`: keep if an array of we
 **Determinism:** no randomness. **Acceptance:** gate green; no engine reads `groundTeams` yet (behavior-neutral).
 Commit `feat(0.14.0): ground team slot state + save v67 (Ground Ops GO-1)`.
 
+**Carry from GO-1 (built 2026-10-12, commit `feat(0.14.0): ground-team data model + SAVE v67 (GO-1)`; GO-0 = `4477337`):**
+- Added ONLY the persisted part of section 2: `ShipGroundTeam`, `ShipInstance.groundTeams?`, and `GroundTeamLoadout`
+  (replaces the never-built Task 2 `SquadLoadout`; `SquadLoadoutKit` unchanged, GO-17 adds `consumables?`). The run-side
+  types (`SnapshotMember.perks`, the `ExpeditionActivity` task fields, `GroundOpsState` and friends) are all optional on
+  stored records, so they land with GO-3 / GO-4 / GO-7a / GO-7b with no save bump.
+- `groundTeamCount` / `groundSquadSize` / `emptyGroundTeams` LIVE IN `model.ts` (freshState needs them and model.ts
+  must not import groundTeams.ts); `groundTeams.ts` re-exports them. Count = the FIRST Security entry's `count`, size =
+  the first matching entry's `size` (every hull lists one of each). `groundTeams.ts` also holds the migration helpers
+  `backfillShipGroundTeams(ship, members)`, `isWellFormedShipGroundTeams(value, typeKey)` (shape only: hull-sized slot
+  lists, boolean help, optional string name; it does NOT check that ids name members aboard, that is GO-2's invariant)
+  and `isWellFormedGroundTeamLoadout`. `awayTeam.ts byIdNumber` is now exported (the one hire order).
+- `groundTeamName`: a blank custom name reads as the default; past Charlie "Team N". `groundTeamShortLabel`: A..Z by
+  index, then the number [PROVISIONAL, Q15].
+- `MIGRATIONS[66]` (SAVE 67): a ship whose `groundTeams` is not well-formed for its hull is backfilled by hire order
+  (injured members included, overflow unslotted); `squadLoadouts` is kept only if EVERY entry is a well-formed
+  GroundTeamLoadout, else `[]`. Hardened (non-array ships pass through, malformed ship entries untouched, non-array
+  awayMembers = no members). Proven byte-identical: a migrated save equals the no-step load except `groundTeams`, and
+  its in-flight run, claim and an hour of `tick` serialize identically.
+- Ships minted after v67 (shipBuild completion and the captain-unlock grant in `tick.ts`) are NOT seeded; they read as
+  empty teams through `shipGroundTeams`. **For GO-2 / GO-7b:** a member hired or reassigned onto a ship on a GO-1 build
+  (before GO-2's hire auto-slot) is aboard but UNSLOTTED. GO-7b switches dispatch to slots before GO-11 ships the
+  slotting UI, so a staging save from that window could be unable to dispatch. GO-2 should decide: an every-load,
+  no-bump reconcile that auto-slots unslotted members into empty slots (hire order), or accept it as staging-only.
+- Test support: `awayTeamTestFixtures.ts` gains `registerSyntheticHull(key, awayTeams)` (returns its cleanup; GO-7c's
+  3-team fixture) and `withoutGroundTeams(state)`. The whole-state golden hashes in `officerBonuses.test.ts` and
+  `officerStatFacets.test.ts` now hash through `withoutGroundTeams`; their golden VALUES are unchanged (still the
+  pre-Task-20 / pre-Task-21 captures), which is the proof nothing else moved. Two old-shape `squadLoadouts` fixtures in
+  the v64 -> v65 block of `save.test.ts` were rewritten to the GroundTeamLoadout shape (the full chain now runs v67).
+- Tests: `groundTeams.test.ts` (16) + the v66 -> v67 block in `save.test.ts` (9). Suite 3996 -> 4021 passed.
+
 ### GO-2: Slotting engine + crew-action sync
 
 **Files:** `src/lib/game/groundTeams.ts`, `src/lib/game/awayTeam.ts` (hire / fire / reassign), `src/lib/game/salvage.ts`

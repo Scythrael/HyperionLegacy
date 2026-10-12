@@ -44,8 +44,12 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // way import (salvageConfirmPreference imports only game/inventory + safeStorage, never
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
+// Ground Operations GO-1: the v66 -> v67 step backfills each ship's ground-team slots through the same
+// hire-order fill and shape guards the engine uses. One-way import (groundTeams.ts imports only model.ts
+// and awayTeam.ts, never save.ts), so no module cycle.
+import { backfillShipGroundTeams, isWellFormedGroundTeamLoadout, isWellFormedShipGroundTeams } from "./groundTeams";
 
-export const SAVE_VERSION = 66;
+export const SAVE_VERSION = 67;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2440,6 +2444,33 @@ const MIGRATIONS: Record<number, Migration> = {
         const stub = !isCompleteOfficerStats(o.stats) || isNeutralOfficerStats(o.stats);
         return stub ? { ...o, stats: rollOfficerStats(officerStatSeed(seniorStaffSeed, String(o.id ?? "")), o.rank) } : o;
       }),
+    };
+  },
+  // v66 -> v67 (0.14.0 Ground Operations GO-1, D25): per-ship GROUND TEAMS. Every ship whose groundTeams is
+  // not a well-formed list for its hull (absent on every v66 save) gets groundTeamCount(typeKey) teams (1 on
+  // every hull today) with its members SLOTTED by hire order: team 0's Security / Science slots first, then
+  // team 1's, up to each squad's size (groundTeams.ts backfillShipGroundTeams). Injury is ignored (an injured
+  // member stays slotted and does not deploy while injured); overflow members stay aboard unslotted. With
+  // everyone ready this is exactly today's "first N members in hire order", and NOTHING in the engine reads
+  // the slots yet (dispatch keeps deployableMembers until GO-7b), so a migrated save plays byte-identically.
+  // squadLoadouts is reshaped per ground team (GroundTeamLoadout); no build ever created a Task 2
+  // per-team-type loadout, so the list is kept only when every entry is a well-formed GroundTeamLoadout,
+  // else []. nextSquadLoadoutId is untouched. Plain data only (no Decimals). Idempotent: a second pass keeps
+  // every well-formed value. Hardened: a non-array ships field passes through, a malformed ship entry is left
+  // untouched, a non-array awayMembers field reads as no members.
+  66: (state: any): any => {
+    const members: unknown[] = Array.isArray(state.awayMembers) ? state.awayMembers : [];
+    return {
+      ...state,
+      ships: Array.isArray(state.ships)
+        ? state.ships.map((ship: any) =>
+            !ship || typeof ship !== "object" || isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)
+              ? ship
+              : { ...ship, groundTeams: backfillShipGroundTeams(ship, members) },
+          )
+        : state.ships,
+      squadLoadouts:
+        Array.isArray(state.squadLoadouts) && state.squadLoadouts.every(isWellFormedGroundTeamLoadout) ? state.squadLoadouts : [],
     };
   },
 };
