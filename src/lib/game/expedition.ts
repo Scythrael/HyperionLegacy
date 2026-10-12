@@ -1642,6 +1642,12 @@ export function expeditionPhaseFraction(exp: Expedition, nowSeconds: number): nu
   if (exp.phase === "complete") return 1;
   // Ground Ops (GO-7b): the activities phase has no known length until it ends; its bar is the tasks' progress.
   if (exp.groundOps && exp.phase === "activities") return groundOpsProgress(exp, nowSeconds);
+  // GO-7b review: a flagged scan reads its SCAN CLOCK over the whole scan, so a recovery leg (which lengthens the
+  // phase in wall time) holds the bar instead of pulling it backward.
+  if (exp.groundOps && exp.phase === "scanning" && exp.groundOps.startedAt !== undefined) {
+    const total = encounterScanDurationSeconds(exp);
+    return total > 0 ? Math.max(0, Math.min(1, scanClockAt(exp.groundOps, nowSeconds) / total)) : 1;
+  }
   const dur = phaseDurationSeconds(exp);
   if (dur <= 0) return 1;
   const elapsed = Math.max(0, nowSeconds - exp.phaseAnchorSeconds);

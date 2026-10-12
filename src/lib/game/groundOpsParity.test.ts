@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition } from "./model";
-import { advanceExpedition, expeditionCandidates, scanRatePerSecond, startExpedition } from "./expedition";
+import { advanceExpedition, expeditionCandidates, expeditionPhaseFraction, scanRatePerSecond, startExpedition } from "./expedition";
 import { IN_SYSTEM_LEG_SECONDS, groundShipPosition, scanClockAt, scanClockToTime } from "./groundOps";
 import { plainAwayMember, withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize, type SaveFile } from "./save";
@@ -86,6 +86,7 @@ describe("GO-7b the combined operations window (user Q1) on a real run", () => {
     const scanning = before.bodies.findIndex((b) => !b.scanned);
     expect(during.bodies[scanning].scanProgress).toBe(before.bodies[scanning].scanProgress);
     // Every leg is one recovered return; an ordinary return never delays the scan.
+    expect(ops.shipLegs.every((l) => l.scanBodyIndex !== null)).toBe(true); // within 2 h the scan is still running
     expect(ops.history.filter((r) => r.recovered).length).toBe(ops.shipLegs.length);
   });
 
@@ -93,7 +94,9 @@ describe("GO-7b the combined operations window (user Q1) on a real run", () => {
     const far = advanceExpedition(exp, open + 200_000).groundOps!;
     const bodyTime = exp.bodies.reduce((sum, b) => sum + b.scanTotal / scanRatePerSecond(exp, b), 0);
     const scanEnd = scanClockToTime(far, bodyTime);
-    expect(scanEnd - open).toBeCloseTo(bodyTime + far.shipLegs.length * 2 * IN_SYSTEM_LEG_SECONDS, 6);
+    // Only the legs flown WHILE scanning pause it (a late wipe's leg delays nothing else).
+    const scanLegs = far.shipLegs.filter((l) => l.scanBodyIndex !== null).length;
+    expect(scanEnd - open).toBeCloseTo(bodyTime + scanLegs * 2 * IN_SYSTEM_LEG_SECONDS, 6);
     const justBefore = advanceExpedition(exp, scanEnd - 1);
     expect(justBefore.phase).toBe("scanning");
     expect(justBefore.bodies.some((b) => !b.scanned)).toBe(true);
@@ -101,6 +104,34 @@ describe("GO-7b the combined operations window (user Q1) on a real run", () => {
     expect(justAfter.bodies.every((b) => b.scanned)).toBe(true);
     expect(justAfter.phase).not.toBe("scanning");
     if (justAfter.phase === "activities") expect(justAfter.phaseAnchorSeconds).toBeCloseTo(scanEnd, 6);
+  });
+
+  it("the scanning bar never moves backward, a recovery leg holds it (the scan clock over the whole scan)", () => {
+    const leg = ops.shipLegs[0];
+    let last = -1;
+    for (let t = open; t <= open + TWO_HOURS; t += 13) {
+      const e = advanceExpedition(exp, t);
+      if (e.phase !== "scanning") break;
+      const f = expeditionPhaseFraction(e, t);
+      expect(f).toBeGreaterThanOrEqual(last);
+      last = f;
+    }
+    const a = advanceExpedition(exp, leg.startsAt + 1);
+    const b = advanceExpedition(exp, leg.endsAt - 1);
+    expect(expeditionPhaseFraction(b, leg.endsAt - 1)).toBe(expeditionPhaseFraction(a, leg.startsAt + 1));
+  });
+
+  it("LATE WIPES: once the system is fully scanned, a wiped team still waits for the ship's leg (nothing else delayed)", () => {
+    const far = advanceExpedition(exp, open + 150_000);
+    const late = far.groundOps!.shipLegs.filter((l) => l.scanBodyIndex === null);
+    expect(late.length).toBeGreaterThan(0);
+    const oldest = far.groundOps!.history[0].startedAt; // the display history is capped
+    const shown = late.filter((l) => l.startsAt > oldest);
+    expect(shown.length).toBeGreaterThan(0);
+    for (const leg of shown) {
+      expect(far.groundOps!.history.find((r) => r.step === "return" && r.endedAt === leg.arrivesAt)).toMatchObject({ recovered: true });
+      expect(leg.arrivesAt - leg.startsAt).toBe(IN_SYSTEM_LEG_SECONDS);
+    }
   });
 
   it("a flagged run rolls no scan-time ground battle (user 9b.6); its supply caches sit on the same step draws", () => {
@@ -147,6 +178,9 @@ describe("GO-7b PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
     chunked = advanceExpedition(chunked, END);
     expect(chunked).toEqual(big);
     expect(exp).toEqual(frozen);
+    // The whole run includes late wipes (recovery legs after the scan) and tasks sent to the back of the line.
+    expect(big.groundOps!.shipLegs.some((l) => l.scanBodyIndex === null)).toBe(true);
+    expect(big.bodies.some((b) => b.activities.some((a) => (a.sentBack ?? 0) > 0))).toBe(true);
   });
 
   it("a save mid-run (in a recovery leg, a team mid-step) reloads and resolves identically", { timeout: 120_000 }, () => {

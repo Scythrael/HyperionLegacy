@@ -869,14 +869,15 @@ review)`, then `feat(0.14.0): ground ops timeline engine, single team (Ground Op
   the literal rule would never flag it. `groundOpsStuck(exp)` is therefore: the window is open and EVERY team that still
   has work is blocked by a stuck head task (`groundTeamStuck` / `groundTeamHeadTask`), which includes the literal case.
   `GROUND_OPS_STUCK_TEXT` = "Stuck: needs a stronger team or a skip"; the old ExpeditionPanel shows it. Also
-  `groundOpsStuckTaskIds` for per-card flags.
+  `groundOpsStuckTaskIds` for per-card flags. **SUPERSEDED by the follow-up below (user: back of the line).**
 - **Planning:** GO-7b gives a body's new tasks to the LOWEST-index deployed team, easiest first by
   `groundTaskClearOdds` on a fresh squad (ties: discovery order); 2+ teams all land in team 0 until GO-7c. No team
   deployed: the tasks are `skipped`. The first scanned body resets every idle team's `stepStartedAt` (GO-7a review).
 - **Scan encounters on a flagged run (user 9b.6):** `scanStepRoll` takes draw 1 at chance 0 when `exp.groundOps` is
   present, so the supply cache (draw 2) reads the same stream position; legacy runs keep Task 14 exactly. NOTE for GO-8:
   `rollStepBoundary` receives the boundary's SCAN-CLOCK time, so `expeditionHoursAtScan` (the Flight Deck ramp) ignores
-  recovery legs; convert through `scanClockToTime` if GO-8's events read the ramp.
+  recovery legs; convert through `scanClockToTime` if GO-8's events read the ramp (see the follow-up: GO-8 MUST pass
+  wall time).
 - **Dispatch:** `expeditionAwayTeamCheck` IS `deployableGroundTeams` now (`{ ok, security, science, ground }`); the
   roster is `snapshotAwayRosterForTeams`; `groundOps = newGroundOpsState(snapshotGroundOps(...))`. Block text per the
   plan. The ExpeditionPanel block lists every team's waits ("Alpha: Grokk returns to duty in 12m"). `deployableMembers`
@@ -901,14 +902,43 @@ review)`, then `feat(0.14.0): ground ops timeline engine, single team (Ground Op
 - **[PROVISIONAL] constants, each one line in groundOps.ts:** `DEPLOY_SECONDS` 60, `RETURN_SECONDS` 60,
   `OFFLOAD_BASE_SECONDS` 120, `RELOAD_BASE_SECONDS` 120 (Q7); `IN_SYSTEM_LEG_SECONDS` 300 (a recovery leg pauses the scan
   600 s); `GROUND_STUCK_LOSSES` 3 (Q4); `GROUND_HISTORY_CAP` 200; behaviors: a return with nothing new banked skips the
-  offload; a wipe after the scan is done takes the ordinary return (the ship holds station); a round-cap retreat with
-  someone standing is not a wipe (no leg); queue easiest first (Q3).
+  offload; a round-cap retreat with someone standing is not a wipe (no leg); queue easiest first (Q3). (The late-wipe
+  default was answered by the user: see the follow-up below.)
 - **For GO-7c:** the step machine is per team and already batches same-instant ends in team order; joint tasks need
   `startFight` / `startWork` to take the lead's union team set and `finishWork` to bank `[...assignedTeamIds]`.
   `planNewTasks` is the one place the default plan replaces. **For GO-7d:** advance, edit, then
   `groundOpsAssignIdle(exp, now)`; `groundTaskProgressAt` gives the interpolated progress for a mid-work stop.
   **For GO-8b:** a repair leg can be a new `GroundShipLeg.kind` (the scan clock already stops for every leg; legs are
   serialized) and the "can the ship still recover them" rule reads `groundShipPosition`.
+
+**Carry from the GO-7b follow-up (user answers 2026-10-12 + review minors; commit `feat(0.14.0): back of the line after 3
+losses, ship recovers late wipes (Ground Ops GO-7b follow-up)`):**
+- **BACK OF THE LINE.** On the `GROUND_STUCK_LOSSES`-th (3rd) loss in a row (no new point cleared), the task moves to the
+  BACK of its team's queue and `sentBack` (new optional task field) counts it; easier tasks behind it go first. Its
+  `lossStreak` resets when it is deployed again; its progress, points and banked segments are kept as always; a point won
+  clears `sentBack`. `groundTaskStuck(task)` = streak at 3 OR `sentBack > 0` (and not done / skipped).
+  `groundTeamStuck(exp, team)` = the team still has tasks (`groundTeamRemainingTasks`) and EVERY one is stuck;
+  `groundOpsStuck(exp)` = the window is open and every team with tasks is stuck. So a hard task no longer blocks easier
+  ones, and a run of only hard tasks reads stuck continuously while it keeps retrying (it never gives up).
+  `groundTeamHeadTask` stays as a display reader ("next up"). This replaces the head-of-queue deviation above.
+- **LATE WIPES.** A wipe AFTER the system is fully scanned also gets a recovery leg (`scanBodyIndex: null`): the team's
+  return ends when the ship arrives (`IN_SYSTEM_LEG_SECONDS` 300 each way, unchanged), nothing else is delayed. The scan
+  clock (`scanClockToTime` / `scanClockAt`) skips legs with `scanBodyIndex === null`, so a late leg can never touch the
+  scan's end even at a float edge. Legs stay serialized. Only a round-cap retreat with someone standing is an ordinary
+  60 s return now.
+- **Scanning bar is monotonic.** `expeditionPhaseFraction` on a flagged run's scanning phase reads the SCAN CLOCK over
+  the whole scan (`scanClockAt(now) / encounterScanDurationSeconds`), so a recovery leg holds the bar instead of pulling
+  it back (a GO-8 pause rolled mid-scan still grows the total, the same as a legacy Task 14 pause).
+- **For GO-8 (required):** `rollStepBoundary` is handed the boundary's SCAN-CLOCK time. Ramped ship events (the Flight
+  Deck Constitution ramp, `expeditionHoursAtScan`) MUST read WALL time: pass `flaggedHoursAt(exp, scanClockToTime(ops,
+  at))` (expedition.ts) for a flagged run, never the scan clock.
+- **For GO-7c (required):** a same-instant batch is now FIXED before any team moves (`advanceGroundOpsWindow` filters
+  the teams ending at `t`, then processes that list); an end at `t` that processing creates (a zero-length step, or a
+  joint step touching a partner) is picked up by the next pass at the same instant, never mid-loop. Keep that when joint
+  tasks start moving partner teams. Guard test: `groundOpsTimeline.test.ts` "same-instant batch" (synthetic 2-team hull).
+- Tests: `groundOpsTimeline.test.ts` 19 -> 22 (back of the line with an easy task behind, only-hard runs stuck and
+  retrying, late wipe legs, the batch guard), `groundOpsParity.test.ts` 8 -> 10 (monotonic bar through a leg, late legs
+  on the pinned run; the whole-run parity now covers late legs and tasks sent back). Suite 4226 -> 4231 passed.
 
 ### GO-7c: Multi-team, default plan, helpers, multi-team tasks
 

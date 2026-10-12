@@ -3,7 +3,7 @@
 // whose tasks are stamped and planned, so each test controls the sites, the hazard and the squad's strength.
 // The scan side (overlap, recovery legs) and the parity suite are in groundOpsParity.test.ts.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   freshState,
   type AwayMember,
@@ -22,6 +22,7 @@ import {
   GROUND_HISTORY_CAP,
   GROUND_OPS_STUCK_TEXT,
   GROUND_STUCK_LOSSES,
+  IN_SYSTEM_LEG_SECONDS,
   OFFLOAD_BASE_SECONDS,
   RELOAD_BASE_SECONDS,
   RETURN_SECONDS,
@@ -33,10 +34,12 @@ import {
   groundTaskStuck,
   groundTeamBaySeconds,
   groundTeamStuck,
+  scanClockToTime,
 } from "./groundOps";
 import { fightPointFractions, segmentHaul, taskFullHaul, taskWorkSeconds } from "./groundTasks";
 import { resolveTaskFight, taskFightSeconds } from "./groundFight";
-import { plainAwayMember, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { plainAwayMember, registerSyntheticHull, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import type { ShipTypeKey } from "./model";
 
 // ===== fixtures =====
 
@@ -462,40 +465,135 @@ describe("GO-7b task work (D26 Assault Hardsuit, standing members)", () => {
   });
 });
 
-describe("GO-7b hold and flag (user Q4)", () => {
-  it("an unwinnable task is retried forever (never given up), flagged stuck after GROUND_STUCK_LOSSES, and blocks the queue behind it", () => {
-    const { exp } = opsRun({ poiIds: ["subterraneanCivilization", "mineralOutcrop"], members: LONER, securityStrength: 0, hazard: 0.9 });
-    // Put the hard task at the head (the plan would put it last; the head is what blocks).
-    const e = structuredClone(exp);
-    const [hard, easy] = tasksOf(e);
-    teamOf(e).queue = [hard.id, easy.id];
-    Object.assign(teamOf(e), { taskId: hard.id });
-    hard.status = "active";
-    easy.status = "queued";
-    const done = advanceExpedition(e, T0 + 300_000);
-    const held = tasksOf(done)[0];
-    expect(held.status === "queued" || held.status === "active").toBe(true);
-    expect(held.lossStreak).toBeGreaterThanOrEqual(GROUND_STUCK_LOSSES);
-    expect(groundTaskStuck(held)).toBe(true);
-    expect(groundTeamStuck(done, teamOf(done))).toBe(true);
-    expect(groundOpsStuck(done)).toBe(true); // the easy task waits behind it, so nothing can move on
+describe("GO-7b hold and flag (user Q4) + back of the line (user, GO-7b answers)", () => {
+  it("after GROUND_STUCK_LOSSES losses in a row a task goes to the BACK of the line: the easier task behind it gets done, progress is kept", () => {
+    // Force the hard task to the head (the plan would queue it last) and find a squad that wins the easy one.
+    const setup = (securityStrength: number) => {
+      const run = opsRun({ poiIds: ["subterraneanCivilization", "mineralOutcrop"], securityStrength, hazard: 0.3 });
+      const e = structuredClone(run.exp);
+      const [hard, easy] = tasksOf(e);
+      teamOf(e).queue = [hard.id, easy.id];
+      teamOf(e).taskId = hard.id;
+      hard.status = "active";
+      easy.status = "queued";
+      return e;
+    };
+    let found: Expedition | null = null;
+    for (const strength of [0, 2, 4, 6, 8, 12]) {
+      const e = setup(strength);
+      const done = advanceExpedition(e, T0 + 60_000);
+      const [hard, easy] = tasksOf(done);
+      if (easy.done && !hard.done && (hard.sentBack ?? 0) >= 1) {
+        found = e;
+        break;
+      }
+    }
+    expect(found).not.toBeNull();
+    const e = found!;
+    const losses = historyOf(advanceExpedition(e, T0 + 60_000)).filter((r) => r.outcome === "loss" && r.taskId === tasksOf(e)[0].id);
+    // After the third loss in a row: the hard task is at the back, flagged, but the run is NOT stuck (the easy one remains).
+    const third = advanceExpedition(e, losses[GROUND_STUCK_LOSSES - 1].endedAt);
+    const [hard3, easy3] = tasksOf(third);
+    expect(teamOf(third).queue).toEqual([easy3.id, hard3.id]);
+    expect(hard3).toMatchObject({ status: "queued", lossStreak: GROUND_STUCK_LOSSES, sentBack: 1 });
+    expect(groundTaskStuck(hard3)).toBe(true);
+    expect(groundTeamStuck(third, teamOf(third))).toBe(false);
+    expect(groundOpsStuck(third)).toBe(false);
+    expect(advanceExpedition(e, losses[GROUND_STUCK_LOSSES - 2].endedAt).bodies[0].activities[0].sentBack).toBeUndefined();
+    // The next deploy takes the easy task, which gets done.
+    const nextDeploy = historyOf(advanceExpedition(e, T0 + 60_000)).find((r) => r.step === "deploy" && r.startedAt > losses[GROUND_STUCK_LOSSES - 1].endedAt)!;
+    expect(nextDeploy.taskId).toBe(easy3.id);
+    const later = advanceExpedition(e, T0 + 60_000);
+    expect(tasksOf(later)[1].done).toBe(true);
+    // The hard task comes around again with a FRESH streak and its progress kept; only now is the run stuck.
+    const retry = historyOf(later).find((r) => r.step === "deploy" && r.taskId === hard3.id && r.startedAt > nextDeploy.startedAt)!;
+    const onRetry = advanceExpedition(e, retry.startedAt + 0.5);
+    expect(tasksOf(onRetry)[0].lossStreak).toBeUndefined();
+    expect(tasksOf(onRetry)[0].progress).toBe(hard3.progress);
+    expect(tasksOf(onRetry)[0].pointsCleared).toBe(hard3.pointsCleared);
+    expect(groundOpsStuck(onRetry)).toBe(true);
+  });
+
+  it("a run of only unwinnable tasks reads stuck and keeps retrying (never gives up); the history stays capped", () => {
+    const { exp } = opsRun({ poiIds: ["subterraneanCivilization", "derelictOutpost"], members: LONER, securityStrength: 0, hazard: 0.9 });
+    const early = advanceExpedition(exp, T0 + 30_000);
+    const losses = historyOf(early).filter((r) => r.outcome === "loss");
+    expect(losses.length).toBeGreaterThan(2 * GROUND_STUCK_LOSSES);
+    // Not stuck while a task has not hit the streak yet.
+    expect(groundOpsStuck(advanceExpedition(exp, losses[0].endedAt))).toBe(false);
+    // Once both have hit it, stuck from then on (through the retries, whose streaks start fresh).
+    const both = losses.findIndex((_, i) => {
+      const at = advanceExpedition(exp, losses[i].endedAt);
+      return tasksOf(at).every((t) => (t.sentBack ?? 0) > 0);
+    });
+    expect(both).toBeGreaterThanOrEqual(0);
+    for (const t of [losses[both].endedAt, losses[both].endedAt + 333, T0 + 30_000]) expect(groundOpsStuck(advanceExpedition(exp, t))).toBe(true);
     expect(GROUND_OPS_STUCK_TEXT).toBe("Stuck: needs a stronger team or a skip");
-    expect(tasksOf(done)[1].fightCount).toBe(0);
+    const done = advanceExpedition(exp, T0 + 300_000);
+    expect(tasksOf(done).every((t) => !t.done && (t.fightCount ?? 0) > 3 * GROUND_STUCK_LOSSES)).toBe(true);
     expect(done.groundOps!.endedAt).toBeUndefined();
     expect(done.phase).toBe("activities");
-    // The display history stays capped per team.
+    expect(groundOpsStuck(done)).toBe(true);
     expect(historyOf(done).length).toBe(GROUND_HISTORY_CAP);
-    // Before the third loss it is not stuck yet.
-    const losses = historyOf(advanceExpedition(e, T0 + 30_000)).filter((r) => r.outcome === "loss");
-    expect(losses.length).toBeGreaterThanOrEqual(GROUND_STUCK_LOSSES);
-    expect(groundOpsStuck(advanceExpedition(e, losses[GROUND_STUCK_LOSSES - 2].endedAt))).toBe(false);
-    expect(groundOpsStuck(advanceExpedition(e, losses[GROUND_STUCK_LOSSES - 1].endedAt))).toBe(true);
   });
 
   it("a run whose team works on is not stuck; a finished window never is", () => {
     const { exp } = opsRun({ poiIds: ["mineralOutcrop"], securityStrength: 400 });
     expect(groundOpsStuck(exp)).toBe(false);
     expect(groundOpsStuck(advanceExpedition(exp, FAR))).toBe(false);
+  });
+});
+
+describe("GO-7b late wipes (user, GO-7b answers): the ship still comes for them", () => {
+  it("a wipe after the system is fully scanned waits for the ship's recovery leg; no scan is paused", () => {
+    const { exp } = opsRun({ poiIds: ["subterraneanCivilization"], members: LONER, securityStrength: 0, hazard: 0.9 });
+    const e = advanceExpedition(exp, T0 + 20_000);
+    const ops = e.groundOps!;
+    const loss = historyOf(e).find((r) => r.outcome === "loss")!;
+    const leg = ops.shipLegs[0];
+    expect(leg).toMatchObject({ kind: "recovery", teamIndex: 0, bodyIndex: 0, scanBodyIndex: null, startsAt: loss.endedAt });
+    expect(leg.arrivesAt).toBe(leg.startsAt + IN_SYSTEM_LEG_SECONDS);
+    expect(leg.endsAt).toBe(leg.startsAt + 2 * IN_SYSTEM_LEG_SECONDS);
+    const ret = historyOf(e).find((r) => r.step === "return" && r.startedAt === loss.endedAt)!;
+    expect(ret).toMatchObject({ endedAt: leg.arrivesAt, recovered: true });
+    // Every wipe got its leg, serialized, and none of them touches the scan clock.
+    expect(ops.shipLegs.length).toBe(historyOf(e).filter((r) => r.outcome === "loss").length);
+    for (let i = 1; i < ops.shipLegs.length; i++) expect(ops.shipLegs[i].startsAt).toBeGreaterThanOrEqual(ops.shipLegs[i - 1].endsAt);
+    expect(scanClockToTime(ops, 5)).toBe(T0 + 5);
+  });
+});
+
+describe("GO-7b same-instant batch (GO-7c guard)", () => {
+  const KEY = "syntheticOpsPair" as ShipTypeKey;
+  let cleanup: (() => void) | null = null;
+  afterEach(() => {
+    cleanup?.();
+    cleanup = null;
+  });
+
+  it("team ends at one instant run as one batch in team index order, and each team takes its own queue", () => {
+    cleanup = registerSyntheticHull(KEY, [
+      { teamType: "security", size: 1, count: 2 },
+      { teamType: "science", size: 1, count: 2 },
+    ]);
+    const members = [member("member-1", "security"), member("member-2", "security"), member("member-11", "science"), member("member-12", "science")];
+    const pair = (s: GameState): GameState => withSlottedAwayTeams({ ...s, ships: s.ships.map((sh) => ({ ...sh, typeKey: KEY })) });
+    const { exp } = opsRun({ poiIds: ["mineralOutcrop", "caveNetwork"], members, securityStrength: 400, state: pair });
+    const e = structuredClone(exp);
+    const ops = e.groundOps!;
+    expect(ops.teams.map((t) => t.index)).toEqual([0, 1]);
+    const [a, b] = tasksOf(e);
+    for (const task of [a, b]) task.status = "queued";
+    Object.assign(ops.teams[0], { queue: [a.id], step: "reload", stepStartedAt: T0, stepEndsAt: T0 + 5, taskId: undefined });
+    Object.assign(ops.teams[1], { queue: [b.id], step: "reload", stepStartedAt: T0, stepEndsAt: T0 + 5 });
+    delete ops.teams[0].taskId;
+    const after = advanceExpedition(e, T0 + 5);
+    expect(after.groundOps!.teams.map((t) => [t.step, t.taskId, t.stepStartedAt])).toEqual([
+      ["deploy", a.id, T0 + 5],
+      ["deploy", b.id, T0 + 5],
+    ]);
+    const closed = after.groundOps!.history.filter((r) => r.step === "reload" && r.endedAt === T0 + 5).map((r) => r.teamIndex);
+    expect(closed).toEqual([0, 1]);
   });
 });
 
@@ -521,6 +619,7 @@ describe("GO-7b readers", () => {
       const len = r.endedAt - r.startedAt;
       if (r.step === "deploy") expect(len).toBe(DEPLOY_SECONDS);
       if (r.step === "return" && !r.recovered) expect(len).toBe(RETURN_SECONDS);
+      if (r.step === "return" && r.recovered) expect(len).toBe(IN_SYSTEM_LEG_SECONDS); // no leg queued ahead on one team
       if (r.step === "offload") expect(len).toBe(OFFLOAD_BASE_SECONDS / ops.factors.offloadMult);
       if (r.step === "reload") expect(len).toBe(RELOAD_BASE_SECONDS / ops.factors.reloadMult);
       if (r.step === "fight") expect(len).toBe(taskFightSeconds(records[fight++].rec));

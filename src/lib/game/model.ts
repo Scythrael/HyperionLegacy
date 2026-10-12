@@ -6492,11 +6492,15 @@ export interface ExpeditionActivity {
   //   segmentBankers : per finished segment s, the ground team index(es) that banked it (the yield of THAT
   //                    team set scales the segment's haul at offload, GO-7a review); absent until a bank.
   //   completedAt    : gameTimeSeconds the task reached 100% (its relic roll's clock; display).
-  //   lossStreak     : consecutive failed attempts that cleared no new fight point (groundOps.ts
-  //                    groundTaskStuck); absent = 0.
+  //   lossStreak     : consecutive failed attempts that cleared no new fight point; absent = 0. At
+  //                    GROUND_STUCK_LOSSES the task goes to the BACK of its team's queue (user 2026-10-12) and the
+  //                    streak resets when the task is tried again.
+  //   sentBack       : how many times the task went to the back of the line since it last cleared a new fight
+  //                    point (groundOps.ts groundTaskStuck reads it); absent = 0, cleared by a point won.
   segmentBankers?: number[][];
   completedAt?: number;
   lossStreak?: number;
+  sentBack?: number;
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
@@ -7061,16 +7065,17 @@ export interface GroundStepRecord {
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
 }
 
-// GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A team WIPED while the ship scans another body cannot leave it
-// there: the ship breaks off its scan, flies to the team's body, picks it up and flies back. The scan makes
-// no progress from startsAt to endsAt (groundOps.ts scanClockAt), the team's return ends when the ship
-// arrives (arrivesAt). Legs never overlap (a second one waits for the first). Stored at the wipe, so every
-// later time is a pure function of stored values.
+// GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A WIPED team cannot leave on its own ("can't leave them to die"):
+// the ship flies to the team's body, picks it up and flies back. During the scan it breaks off its scan, which
+// makes no progress from startsAt to endsAt (groundOps.ts scanClockAt); after the scan (user, GO-7b answers) it
+// flies out from holding station and nothing else is delayed (scanBodyIndex null). The team's return ends when
+// the ship arrives (arrivesAt). Legs never overlap (a second one waits for the first). Stored at the wipe, so
+// every later time is a pure function of stored values.
 export interface GroundShipLeg {
   kind: "recovery";
   teamIndex: number;
   bodyIndex: number; // the body the team was on
-  scanBodyIndex: number; // the body the ship broke off scanning
+  scanBodyIndex: number | null; // the body the ship broke off scanning; null = the scan was already done
   startsAt: number;
   arrivesAt: number;
   endsAt: number;

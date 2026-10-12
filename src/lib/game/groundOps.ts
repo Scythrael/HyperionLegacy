@@ -216,13 +216,13 @@ export function snapshotAwayRosterForTeams(
 //   SHIP POSITION + THE RECOVERY LEG (user Q1 rule: "the ship should have to return and retrieve the ground
 //   team that ran into trouble, delaying the scanning steps"): while scanning, the ship is at the first body
 //   not yet scanned; teams only work SCANNED bodies, so a working team is always elsewhere. A team WIPED in a
-//   fight while the ship is still scanning (every Security member down) cannot shuttle up on its own: the ship
-//   breaks off, flies IN_SYSTEM_LEG_SECONDS to the team's body (the team's return step ends when it arrives),
-//   and flies IN_SYSTEM_LEG_SECONDS back. The scan makes no progress for the whole leg (the SCAN CLOCK below
-//   stops), then resumes. Legs never overlap: a wipe during a leg starts its leg when that one ends. An
-//   ordinary return (the team shuttles up itself: a win, a retreat at the round cap, or any loss once the
-//   scan is done) takes RETURN_SECONDS and never delays the scan [PROVISIONAL: a wipe after the scan is done
-//   also takes the ordinary return, since the ship is holding station in the system with nothing to delay].
+//   fight (every Security member down) cannot shuttle up on its own: the ship flies IN_SYSTEM_LEG_SECONDS to the
+//   team's body (the team's return step ends when it arrives) and IN_SYSTEM_LEG_SECONDS back. While scanning it
+//   breaks off its scan, which makes no progress for the whole leg (the SCAN CLOCK below stops), then resumes.
+//   After the scan (user, GO-7b answers: "can't leave them to die") the ship still flies out from holding
+//   station; nothing else is delayed. Legs never overlap: a wipe during a leg starts its leg when that one
+//   ends. An ordinary return (the team shuttles up itself: a win, or a retreat at the round cap with someone
+//   standing) takes RETURN_SECONDS and never delays the scan.
 //
 //   THE SCAN CLOCK: scan progress runs on clock seconds since the window opened, minus every leg. A scan event
 //   at clock c happens at time startedAt + c + (the length of every leg that started before c). Recorded
@@ -248,7 +248,9 @@ export function snapshotAwayRosterForTeams(
 //                the COMPLETING batch only (gambit.ts taskRelicSeed, the legacy relic stream of that task).
 //     bay      : each member's own time (medicalBay.ts memberBaySeconds on the frozen factors); everyone is
 //                healed at its end (conditions, the task's downed list and the carry are cleared).
-//   A lost task is retried by its team after the bay, from the held progress, against a fresh encounter. It
+//   A lost task is retried by its team after the bay, from the held progress, against a fresh encounter. After
+//   GROUND_STUCK_LOSSES losses in a row it goes to the BACK of the team's queue so easier tasks get done first
+//   (user, GO-7b answers); its streak resets when it is tried again, and its progress is kept as always. It
 //   never gives up on its own (user Q4: HOLD AND FLAG; groundOpsStuck is the flag).
 //
 // PLANNING (one team, GO-7b): a body's new tasks go to the lowest-index deployed team's queue, EASIEST FIRST
@@ -268,7 +270,8 @@ export const RELOAD_BASE_SECONDS = 120; // divided by GroundOpsFactors.reloadMul
 // One in-system leg of the ship (its scan position to a team's body, or back) [PROVISIONAL]. A recovery leg is
 // two of these, so the scan pauses 2 x this per wipe while scanning.
 export const IN_SYSTEM_LEG_SECONDS = 300;
-// A task is STUCK after this many consecutive failed attempts that cleared no new fight point [PROVISIONAL, Q4].
+// After this many consecutive failed attempts that cleared no new fight point a task goes to the back of its
+// team's queue and counts as stuck (user, GO-7b answers: 3).
 export const GROUND_STUCK_LOSSES = 3;
 // Display history records kept per team (oldest dropped). Resolution never reads history.
 export const GROUND_HISTORY_CAP = 200;
@@ -308,6 +311,7 @@ export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLeg
   const start = ops.startedAt ?? 0;
   let shift = 0;
   for (const leg of ops.shipLegs) {
+    if (leg.scanBodyIndex === null) continue; // a leg after the scan pauses nothing
     if (leg.startsAt - start - shift < c) shift += leg.endsAt - leg.startsAt;
     else break;
   }
@@ -319,6 +323,7 @@ export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs">,
   const start = ops.startedAt ?? 0;
   let away = 0;
   for (const leg of ops.shipLegs) {
+    if (leg.scanBodyIndex === null) continue; // a leg after the scan pauses nothing
     if (leg.startsAt >= t) break;
     away += Math.min(t, leg.endsAt) - leg.startsAt;
   }
@@ -488,7 +493,10 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     if (tScan !== null && (tTeam === null || tScan <= tTeam)) {
       driver.processScanEvent(exp);
     } else {
-      for (const team of ops.teams) if (team.stepEndsAt === t) endStep(exp, team, t, driver);
+      // The batch is fixed before any team moves: an end at `t` that processing creates (a zero-length step,
+      // or GO-7c's joint steps touching a partner) waits for the next pass at the same instant, never mid-loop.
+      const batch = ops.teams.filter((team) => team.stepEndsAt === t);
+      for (const team of batch) endStep(exp, team, t, driver);
     }
     groundOpsAssignIdle(exp, t);
     checkRunEnd(exp, t);
@@ -512,6 +520,8 @@ export function groundOpsAssignIdle(exp: Expedition, t: number): void {
     }
     if (!next) continue;
     next.task.status = "active";
+    // Tried again after going to the back of the line: a fresh streak (user, GO-7b answers).
+    if ((next.task.lossStreak ?? 0) >= GROUND_STUCK_LOSSES) delete next.task.lossStreak;
     team.taskId = next.task.id;
     team.attemptPoints = next.task.pointsCleared ?? 0;
     moveTo(ops, team, "deploy", t, t + DEPLOY_SECONDS);
@@ -661,6 +671,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   if (record.outcome === "win") {
     task.pointsCleared = (task.pointsCleared ?? 0) + 1;
     delete task.lossStreak;
+    delete task.sentBack;
     team.carry = structuredClone(record.memberEnd);
     return startWork(exp, ops, team, ref, t, { outcome: "win" });
   }
@@ -670,12 +681,17 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   const streak = progressed ? 0 : (task.lossStreak ?? 0) + 1;
   if (streak > 0) task.lossStreak = streak;
   else delete task.lossStreak;
+  if (streak >= GROUND_STUCK_LOSSES) {
+    // BACK OF THE LINE (user, GO-7b answers): easier tasks in the queue go first; this one comes around again.
+    team.queue = [...team.queue.filter((id) => id !== task.id), task.id];
+    task.sentBack = (task.sentBack ?? 0) + 1;
+  }
   const out = new Set(team.downedThisTask);
   startReturn(exp, ops, team, ref, t, team.securityIds.every((id) => out.has(id)), { outcome: "loss" });
 }
 
-// Back to the ship. A WIPE while the ship is still scanning is a RECOVERY LEG (see the header): the scan pauses
-// and the team's return ends when the ship arrives. Anything else is an ordinary RETURN_SECONDS shuttle.
+// Back to the ship. A WIPE is a RECOVERY LEG (see the header): the team's return ends when the ship arrives;
+// while scanning the scan pauses for the leg. Anything else is an ordinary RETURN_SECONDS shuttle.
 function startReturn(
   exp: Expedition,
   ops: GroundOpsState,
@@ -686,14 +702,14 @@ function startReturn(
   rec: Partial<GroundStepRecord> = {},
 ): void {
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
-  if (wiped && scanning >= 0) {
+  if (wiped) {
     const last = ops.shipLegs[ops.shipLegs.length - 1];
     const startsAt = last !== undefined && last.endsAt > t ? last.endsAt : t;
     const leg: GroundShipLeg = {
       kind: "recovery",
       teamIndex: team.index,
       bodyIndex: ref.bodyIndex,
-      scanBodyIndex: scanning,
+      scanBodyIndex: scanning >= 0 ? scanning : null,
       startsAt,
       arrivesAt: startsAt + IN_SYSTEM_LEG_SECONDS,
       endsAt: startsAt + 2 * IN_SYSTEM_LEG_SECONDS,
@@ -830,10 +846,11 @@ function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
 
 // ===== Readers (display + the UI flag) =====
 
-// Is `task` STUCK (user Q4: hold and flag): GROUND_STUCK_LOSSES consecutive failed attempts that cleared no new
-// fight point, and not finished. Pure.
-export function groundTaskStuck(task: Pick<ExpeditionActivity, "lossStreak" | "status">): boolean {
-  return (task.lossStreak ?? 0) >= GROUND_STUCK_LOSSES && task.status !== "done" && task.status !== "skipped";
+// Is `task` STUCK (user Q4: hold and flag): it hit GROUND_STUCK_LOSSES losses in a row (now, or before it went to
+// the back of the line) and has cleared no new fight point since, and is not finished. Pure.
+export function groundTaskStuck(task: Pick<ExpeditionActivity, "lossStreak" | "sentBack" | "status">): boolean {
+  if (task.status === "done" || task.status === "skipped") return false;
+  return (task.lossStreak ?? 0) >= GROUND_STUCK_LOSSES || (task.sentBack ?? 0) > 0;
 }
 
 // The stuck tasks of a run (ids, flat order), for a per-task flag. Pure.
@@ -842,8 +859,8 @@ export function groundOpsStuckTaskIds(exp: Pick<Expedition, "groundOps" | "bodie
   return exp.bodies.flatMap((b) => b.activities.filter((task) => isGroundTask(task) && groundTaskStuck(task)).map((task) => task.id));
 }
 
-// The task a team is held on: the one it is on (taskId), else the first queued task of its own queue (the one
-// it takes next), or null when its queue has nothing left. Pure.
+// The task a team is on (taskId), else the first queued task of its own queue (the one it takes next), or null
+// when its queue has nothing left (display: "next up"). Pure.
 export function groundTeamHeadTask(exp: Pick<Expedition, "bodies">, team: Pick<GroundTeamRun, "taskId" | "queue">): ExpeditionActivity | null {
   if (team.taskId !== undefined) {
     const on = findGroundTask(exp, team.taskId)?.task;
@@ -856,24 +873,33 @@ export function groundTeamHeadTask(exp: Pick<Expedition, "bodies">, team: Pick<G
   return null;
 }
 
-// Is this team BLOCKED: the task it is on or takes next is stuck. A lost task is retried before the rest of the
-// queue (D25: "when recovered and ready to go, they retry the mission"), so a stuck head holds every task
-// queued behind it. Pure.
-export function groundTeamStuck(exp: Pick<Expedition, "bodies">, team: Pick<GroundTeamRun, "taskId" | "queue">): boolean {
-  const head = groundTeamHeadTask(exp, team);
-  return head !== null && groundTaskStuck(head);
+// The tasks a team still has (its queue's queued or active tasks, queue order). Pure.
+export function groundTeamRemainingTasks(exp: Pick<Expedition, "bodies">, team: Pick<GroundTeamRun, "queue">): ExpeditionActivity[] {
+  const out: ExpeditionActivity[] = [];
+  for (const id of team.queue) {
+    const task = findGroundTask(exp, id)?.task;
+    if (task && (task.status === "queued" || task.status === "active")) out.push(task);
+  }
+  return out;
+}
+
+// Is this team STUCK: it still has tasks and EVERY one of them has hit the loss streak (groundTaskStuck). A stuck
+// task goes to the back of the line, so it never holds up an easier task behind it (user, GO-7b answers); the
+// team reads stuck only once nothing but such tasks remains. Pure.
+export function groundTeamStuck(exp: Pick<Expedition, "bodies">, team: Pick<GroundTeamRun, "queue">): boolean {
+  const remaining = groundTeamRemainingTasks(exp, team);
+  return remaining.length > 0 && remaining.every((task) => groundTaskStuck(task));
 }
 
 // Is the RUN stuck ("Stuck: needs a stronger team or a skip", user Q4): its window is open, at least one team
-// still has work, and EVERY team with work is blocked by a stuck task (groundTeamStuck), so nothing can move on
-// without a stronger team or a skip. This covers "every remaining task is stuck" and also the common case of
-// easier tasks queued behind a stuck one. The engine never gives up on its own. Pure.
+// still has tasks, and every such team is stuck (groundTeamStuck). The teams keep retrying; the engine never
+// gives up on its own. Pure.
 export function groundOpsStuck(exp: Pick<Expedition, "groundOps" | "bodies">): boolean {
   const ops = exp.groundOps;
   if (!ops || ops.endedAt !== undefined) return false;
   let working = 0;
   for (const team of ops.teams) {
-    if (groundTeamHeadTask(exp, team) === null) continue;
+    if (groundTeamRemainingTasks(exp, team).length === 0) continue;
     working += 1;
     if (!groundTeamStuck(exp, team)) return false;
   }
