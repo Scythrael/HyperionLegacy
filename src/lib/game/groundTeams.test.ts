@@ -679,10 +679,10 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
   it("an arrival with no empty slot stays aboard in the reserve (the primitive returns the SAME ships)", () => {
     const s = crewState();
     const full = slotMember(s, "ship-1", 0, "security", 2, "member-3").ships;
-    expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-9", "security")).toBe(full);
-    expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-21", "prospecting")).toBe(full);
-    expect(shipsWithMemberAutoSlotted(full, "ship-x", "member-9", "science")).toBe(full);
-    expect(shipsWithMemberUnslotted(full, "member-404")).toBe(full);
+    expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-9", "security", s.awayMembers)).toBe(full);
+    expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-21", "prospecting", s.awayMembers)).toBe(full);
+    expect(shipsWithMemberAutoSlotted(full, "ship-x", "member-9", "science", s.awayMembers)).toBe(full);
+    expect(shipsWithMemberUnslotted(full, "member-404", s.awayMembers)).toBe(full);
   });
 
   it("onMission refusals still return the SAME state", () => {
@@ -862,5 +862,117 @@ describe("GO-2 formatCountdown (the shared seconds countdown)", () => {
     expect(formatCountdown(720)).toBe("12m");
     expect(formatCountdown(721)).toBe("13m");
     expect(formatCountdown(7200)).toBe("2h");
+  });
+});
+
+describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a member aboard", () => {
+  // ship-1 Security holds only CORRUPT ids: a member who no longer exists, a member aboard ship-2, and a
+  // Science member in a Security slot. Only member-11 (Science) and member-31 (ship-2) are members.
+  const corrupt = (extra: Partial<GameState> = {}): GameState => {
+    const base = freshState();
+    return {
+      ...base,
+      ships: [
+        {
+          ...base.ships[0],
+          groundTeams: [{ security: ["member-404", "member-31", "member-11"], science: ["member-11", "member-11", null], helpOthers: false }],
+        },
+        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null, groundTeams: [{ security: ["member-31", null, null], science: [null, null, null], helpOthers: false }] },
+      ],
+      awayMembers: [named("member-11", "science", "ship-1"), named("member-31", "security", "ship-2"), named("member-41", "security", null)],
+      nextAwayMemberId: 100,
+      ...extra,
+    };
+  };
+
+  it("hire auto-slots into a corrupt slot instead of skipping it (and clears the rest)", () => {
+    const s = corrupt();
+    const sec = awayRecruitCandidates(s).find((c) => c.teamType === "security");
+    expect(sec).toBeDefined();
+    const next = hireAwayMember(s, sec!.id, "ship-1");
+    expect(slotsOf(next, "ship-1")[0]).toEqual({
+      security: ["member-100", null, null],
+      science: ["member-11", null, null], // the duplicate of member-11 is cleared too (first slot kept)
+      helpOthers: false,
+    });
+    assertSlotInvariants(next);
+  });
+
+  it("reassign and unbench auto-slot into a corrupt slot", () => {
+    const next = reassignAwayMember(corrupt(), "member-41", "ship-1");
+    expect(slotsOf(next, "ship-1")[0].security).toEqual(["member-41", null, null]);
+    assertSlotInvariants(next);
+    const moved = reassignAwayMember(corrupt(), "member-31", "ship-1");
+    expect(slotsOf(moved, "ship-2")[0].security).toEqual([null, null, null]);
+    expect(slotsOf(moved, "ship-1")[0].security).toEqual(["member-31", null, null]);
+    assertSlotInvariants(moved);
+  });
+
+  it("the unslot sync (fire / reassign away) also clears the ship's corrupt ids", () => {
+    const fired = fireAwayMember(corrupt(), "member-11");
+    expect(slotsOf(fired, "ship-1")[0]).toEqual({ security: [null, null, null], science: [null, null, null], helpOthers: false });
+    assertSlotInvariants(fired);
+  });
+
+  it("the player actions write cleaned teams (slot, unslot, swap, rename, help)", () => {
+    const s = corrupt({
+      awayMembers: [...corrupt().awayMembers, named("member-1", "security", "ship-1"), named("member-2", "security", "ship-1")],
+    });
+    const slotted = slotMember(s, "ship-1", 0, "security", 2, "member-1");
+    expect(slotsOf(slotted, "ship-1")[0].security).toEqual([null, null, "member-1"]);
+    assertSlotInvariants(slotted);
+    const dirty: GameState = {
+      ...slotted,
+      ships: [
+        { ...slotted.ships[0], groundTeams: [{ security: ["member-404", "member-2", "member-1"], science: [null, null, null], helpOthers: false }] },
+        slotted.ships[1],
+      ],
+    };
+    const unslotted = unslotMember(dirty, "ship-1", "member-1");
+    expect(slotsOf(unslotted, "ship-1")[0].security).toEqual([null, "member-2", null]);
+    assertSlotInvariants(unslotted);
+    const swapped = swapGroundMembers(slotted, "ship-1", "member-1", "member-2");
+    expect(slotsOf(swapped, "ship-1")[0].security).toEqual([null, null, "member-2"]);
+    assertSlotInvariants(swapped);
+    for (const next of [renameGroundTeam(s, "ship-1", 0, "Red"), setGroundTeamHelp(s, "ship-1", 0, true)]) {
+      expect(slotsOf(next, "ship-1")[0].security).toEqual([null, null, null]);
+      expect(slotsOf(next, "ship-1")[0].science).toEqual(["member-11", null, null]);
+      assertSlotInvariants(next);
+    }
+  });
+
+  it("a ship whose slots are all valid keeps them exactly (and the no-op primitives keep the SAME ships)", () => {
+    const s = crewState();
+    const next = slotMember(s, "ship-1", 0, "security", 2, "member-3");
+    expect(slotsOf(next, "ship-1")[0].security).toEqual(["member-1", "member-2", "member-3"]);
+    expect(slotsOf(next, "ship-1")[0].science).toEqual(["member-11", null, null]);
+    const ships = next.ships;
+    expect(shipsWithMemberAutoSlotted(ships, "ship-1", "member-9", "security", next.awayMembers)).toBe(ships);
+  });
+});
+
+describe("GO-3 (GO-2 review b): renameGroundTeam matches the default case-insensitively, cuts by code point", () => {
+  it("the team's own default name in any case clears the custom name", () => {
+    const named1 = renameGroundTeam(crewState(), "ship-1", 0, "Red Squad");
+    for (const clear of ["ALPHA", "alpha", " aLpHa "]) {
+      const next = renameGroundTeam(named1, "ship-1", 0, clear);
+      expect("name" in next.ships[0].groundTeams![0], clear).toBe(false);
+      expect(groundTeamName(next.ships[0], 0)).toBe("Alpha");
+    }
+    const s = crewState();
+    expect(renameGroundTeam(s, "ship-1", 0, "alpha")).toBe(s);
+    // another team's default is a custom name here
+    expect(slotsOf(renameGroundTeam(s, "ship-1", 0, "bravo"), "ship-1")[0].name).toBe("bravo");
+  });
+
+  it("cuts to GROUND_TEAM_NAME_MAX code points, never splitting a surrogate pair", () => {
+    const rocket = "\u{1F680}";
+    const rockets = renameGroundTeam(crewState(), "ship-1", 0, rocket.repeat(30));
+    const name = slotsOf(rockets, "ship-1")[0].name as string;
+    expect(Array.from(name)).toHaveLength(GROUND_TEAM_NAME_MAX);
+    expect(name).toBe(rocket.repeat(GROUND_TEAM_NAME_MAX));
+    const mixed = slotsOf(renameGroundTeam(crewState(), "ship-1", 0, "x".repeat(23) + rocket + rocket), "ship-1")[0].name as string;
+    expect(mixed).toBe("x".repeat(23) + rocket);
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(mixed)).toBe(false); // no lone high surrogate
   });
 });

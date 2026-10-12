@@ -8,7 +8,8 @@
 // bench unslot) lives in awayTeam.ts on the groundTeamSlots.ts primitives.
 //
 // Module graph: model.ts <- groundTeamSlots.ts <- awayTeam.ts <- groundTeams.ts, and nothing imports this
-// module from below (medicalBay / groundTasks / groundOps / expedition sit above it, plan section 2).
+// module from below (groundTasks / groundOps / expedition sit above it, plan section 2; medicalBay.ts sits
+// BELOW awayTeam.ts since GO-3: it imports model.ts types only, and snapshotMember reads its memberPerksFor).
 // Every function is pure.
 
 import type {
@@ -24,12 +25,14 @@ import { emptyGroundTeams, groundSquadSize, groundTeamCount } from "./model";
 import { byIdNumber, isMemberReady, shipCrewLocked } from "./awayTeam";
 import {
   GROUND_SQUAD_TYPES,
+  cleanShipGroundTeams,
   findGroundSlot,
   firstEmptyGroundSlot,
   isGroundSquadType,
   shipGroundTeams,
   shipsWithMemberAutoSlotted,
   shipsWithMemberUnslotted,
+  type GroundSlotMember,
   type GroundSlotRef,
   type GroundSquadType,
 } from "./groundTeamSlots";
@@ -42,12 +45,14 @@ import { formatCountdown } from "./format";
 export { emptyGroundTeams, groundSquadSize, groundTeamCount };
 export {
   GROUND_SQUAD_TYPES,
+  cleanShipGroundTeams,
   findGroundSlot,
   firstEmptyGroundSlot,
   isGroundSquadType,
   shipGroundTeams,
   shipsWithMemberAutoSlotted,
   shipsWithMemberUnslotted,
+  type GroundSlotMember,
   type GroundSlotRef,
   type GroundSquadType,
 };
@@ -167,6 +172,8 @@ export function backfillShipGroundTeams(ship: Pick<ShipInstance, "id" | "typeKey
 // The invariant every action keeps (groundTeams.test.ts assertSlotInvariants): a member sits in at most one
 // slot fleet-wide; a slot only holds a member aboard THAT ship with the matching team type; every stored
 // slot list is the hull's size. Members aboard but in no slot are the ship's RESERVE: they do not deploy.
+// Every write starts from writableTeams (cleanShipGroundTeams: corrupt ids nulled, GO-3), so a write also
+// leaves the ship clean.
 // Every slot change refuses while the ship's crew is locked (awayTeam.ts shipCrewLocked: the ship is out on
 // a mission or an expedition, so its members are busy on that run). Renaming and the help toggle do not
 // (see each).
@@ -237,6 +244,12 @@ function aboardGate(state: GameState, shipId: string, memberId: string): { membe
   return { member };
 }
 
+// The copy of `ship`'s teams a write edits: normalized, with every slot id that does not name a member
+// aboard this ship with the slot's type nulled (GO-2 review, carried to GO-3). Pure.
+function writableTeams(state: GameState, ship: ShipInstance): ShipGroundTeam[] {
+  return cleanShipGroundTeams(ship, state.awayMembers);
+}
+
 // `state` with `shipId`'s ground teams replaced by `teams` (a normalized copy the caller edited). Pure.
 function withShipTeams(state: GameState, shipId: string, teams: ShipGroundTeam[]): GameState {
   return { ...state, ships: state.ships.map((s) => (s.id === shipId ? { ...s, groundTeams: teams } : s)) };
@@ -282,7 +295,7 @@ export function slotMember(
 ): GameState {
   if (!canSlotMember(state, shipId, teamIndex, teamType, slotIndex, memberId).ok) return state;
   const ship = state.ships.find((s) => s.id === shipId) as ShipInstance;
-  const teams = shipGroundTeams(ship);
+  const teams = writableTeams(state, ship);
   const from = findGroundSlot(teams, memberId);
   if (from) teams[from.teamIndex][from.teamType][from.slotIndex] = null;
   teams[teamIndex][teamType][slotIndex] = memberId;
@@ -305,7 +318,7 @@ export function canUnslotMember(state: GameState, shipId: string, memberId: stri
 export function unslotMember(state: GameState, shipId: string, memberId: string): GameState {
   if (!canUnslotMember(state, shipId, memberId).ok) return state;
   const ship = state.ships.find((s) => s.id === shipId) as ShipInstance;
-  const teams = shipGroundTeams(ship);
+  const teams = writableTeams(state, ship);
   const at = findGroundSlot(teams, memberId) as GroundSlotRef;
   teams[at.teamIndex][at.teamType][at.slotIndex] = null;
   return withShipTeams(state, shipId, teams);
@@ -335,7 +348,7 @@ export function canSwapGroundMembers(state: GameState, shipId: string, memberIdA
 export function swapGroundMembers(state: GameState, shipId: string, memberIdA: string, memberIdB: string): GameState {
   if (!canSwapGroundMembers(state, shipId, memberIdA, memberIdB).ok) return state;
   const ship = state.ships.find((s) => s.id === shipId) as ShipInstance;
-  const teams = shipGroundTeams(ship);
+  const teams = writableTeams(state, ship);
   const atA = findGroundSlot(teams, memberIdA);
   const atB = findGroundSlot(teams, memberIdB);
   if (atA) teams[atA.teamIndex][atA.teamType][atA.slotIndex] = memberIdB;
@@ -343,21 +356,24 @@ export function swapGroundMembers(state: GameState, shipId: string, memberIdA: s
   return withShipTeams(state, shipId, teams);
 }
 
-// The longest custom team name, in characters after trimming. [PROVISIONAL]
+// The longest custom team name, in Unicode CODE POINTS after trimming (a surrogate pair counts once and is
+// never split). [PROVISIONAL]
 export const GROUND_TEAM_NAME_MAX = 24;
 
-// Rename a team. The name is trimmed and cut to GROUND_TEAM_NAME_MAX; a blank name, null, or the team's own
-// default name CLEARS the custom name (the team reads as Alpha / Bravo / Charlie again). Allowed while the
-// ship is out (cosmetic). [PROVISIONAL] Refuses (SAME state) for an unknown ship or team index, and returns
-// the SAME state when the stored name would not change. Pure.
+// Rename a team. The name is trimmed and cut to GROUND_TEAM_NAME_MAX code points (GO-3: never splitting a
+// surrogate pair); a blank name, null, or the team's own default name in ANY case ("alpha", "ALPHA") CLEARS
+// the custom name (the team reads as Alpha / Bravo / Charlie again). Allowed while the ship is out
+// (cosmetic). [PROVISIONAL] Refuses (SAME state) for an unknown ship or team index, and returns the SAME
+// state when the stored name would not change. Pure.
 export function renameGroundTeam(state: GameState, shipId: string, teamIndex: number, name: string | null): GameState {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return state;
-  const teams = shipGroundTeams(ship);
+  const teams = writableTeams(state, ship);
   const team = teamAt(teams, teamIndex);
   if (!team) return state;
-  const trimmed = (name ?? "").trim().slice(0, GROUND_TEAM_NAME_MAX).trim();
-  const custom = trimmed === "" || trimmed === groundTeamDefaultName(teamIndex) ? undefined : trimmed;
+  const trimmed = Array.from((name ?? "").trim()).slice(0, GROUND_TEAM_NAME_MAX).join("").trim();
+  const isDefault = trimmed.toLowerCase() === groundTeamDefaultName(teamIndex).toLowerCase();
+  const custom = trimmed === "" || isDefault ? undefined : trimmed;
   if (custom === team.name) return state;
   if (custom === undefined) delete team.name;
   else team.name = custom;
@@ -372,7 +388,7 @@ export function renameGroundTeam(state: GameState, shipId: string, teamIndex: nu
 export function setGroundTeamHelp(state: GameState, shipId: string, teamIndex: number, on: boolean): GameState {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return state;
-  const teams = shipGroundTeams(ship);
+  const teams = writableTeams(state, ship);
   const team = teamAt(teams, teamIndex);
   if (!team || team.helpOthers === on) return state;
   team.helpOthers = on;

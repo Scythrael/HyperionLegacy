@@ -400,6 +400,39 @@ existing snapshot test stays deep-equal).
 **Determinism:** pure arithmetic. **Acceptance:** gate green; nothing calls it yet. Commit
 `feat(0.14.0): medical bay cure-time math + Stoneskin bay half (Ground Ops GO-3)`.
 
+**Carry from GO-3 (built 2026-10-12, commit `feat(0.14.0): medical bay cure-time math + Stoneskin bay half (Ground Ops GO-3)`):**
+- **`medicalBay.ts`** (imports model.ts TYPES only) as specified: `ConditionClass`, `GroundConditionDef`,
+  `GROUND_CONDITIONS` (9 rows, the [PROVISIONAL, Q6] classes marked; lookups are own-key only, so "toString" is
+  never a condition), `STONESKIN_INJURY_MULT` 1.25 (injury class only), `BAY_MIN_SECONDS` 1 [PROVISIONAL, Q8],
+  `BayCare`, `conditionCureSeconds`, `memberBaySeconds` (longest condition, unknown ids ignored, 0 for none),
+  `teamBaySeconds` (longest member, per-member `treatmentShare`), `memberPerksFor` (ossir -> ["stoneskin"], a
+  fresh array). `model.ts` gains `MemberPerkId = "stoneskin"` and `SnapshotMember.perks?`; `snapshotMember`
+  writes `perks` ONLY when non-empty (Ossir), so every other snapshot is deep-equal to before (tested: an Ossir
+  snapshot equals the human one minus `perks`). No golden moved. Module graph note: medicalBay.ts sits BELOW
+  awayTeam.ts (awayTeam imports `memberPerksFor`; medicalBay imports model.ts types only), not above groundTeams.ts
+  as section 2 drew it; no cycle.
+- **BayCare mapping (written once, `bayCareFrom(ship, run)`; GO-7a freezes the two ship shares into
+  `GroundOpsFactors`, GO-7b passes `bayCareFrom(factors, exp)` in):** `medicalShare` = crew.reducedCrewLosses
+  (injuries.ts `shipInjuryFactors.medicalShare`); `rapidRecoveryShare` = officerBonusTotal(officer.repairRateMult);
+  `officerFacetShare` = `exp.recoveryTurnaround` (Medical Constitution) + `exp.quickRecovery` (Medical Cunning),
+  every class; `injurySteady` = `exp.injurySteady` (Medical Integrity), injury class only. A test pins that an
+  injury-class condition with the legacy 2h base gives exactly `injuryRecoverySeconds` (same care divisor; only
+  the per-condition base and the floor differ).
+- **GO-2 review (b) folded in:** new `groundTeamSlots.ts cleanShipGroundTeams(ship, members)` (re-exported by
+  groundTeams.ts with the `GroundSlotMember` type): the normalized copy with every slot id nulled that does not
+  name a member aboard THIS ship with the slot's type, and any repeat of a member within the ship (first slot
+  kept). EVERY write path starts from it: `shipsWithMemberAutoSlotted` / `shipsWithMemberUnslotted` now take a
+  REQUIRED `members` argument (awayTeam.ts passes `state.awayMembers`), and `slotMember`, `unslotMember`,
+  `swapGroundMembers`, `renameGroundTeam`, `setGroundTeamHelp` write through a local `writableTeams`. So a hire or
+  reassign onto a ship with a corrupt slot fills that slot instead of leaving the member in the reserve. The
+  same-ref no-ops are unchanged (a primitive that changes no slot returns the SAME ships, even over corrupt ids).
+  `renameGroundTeam` cuts to `GROUND_TEAM_NAME_MAX` 24 CODE POINTS (`Array.from`, never splitting a surrogate
+  pair) and clears on the team's own default name in any case ("ALPHA"); another team's default stays custom.
+- Tests: `medicalBay.test.ts` (20) + 7 in `groundTeams.test.ts`. Suite 4063 -> 4090 passed; `npm run check` 0 errors.
+- **For GO-7b (suggestion, not decided):** the bay reads condition ids from `GroundTeamRun.conditions`; the
+  natural recording is "health" for a member who ends a trip below full HP (Q5 carry damage) and "downed" for a
+  member downed on the trip. Battle-only statuses may be recorded or not: the bay ignores ids it does not hold.
+
 ### GO-4: Ground task model (fight points, segments, work time) + salt registry
 
 **Files:** Create `src/lib/game/groundTasks.ts`, tests `groundTasks.test.ts`, `salts.test.ts` (new: reads the exported

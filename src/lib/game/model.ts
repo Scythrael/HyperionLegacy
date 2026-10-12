@@ -6913,7 +6913,17 @@ export interface SnapshotMember {
   // planet-tuned tool. OPTIONAL: a snapshot taken before Task 15 lacks it and reads its groundStats,
   // untuned, with no yield lines.
   fieldwork?: SnapshotFieldworkSource[];
+  // Ground Operations 0.14.0 (GO-3, D24): the member's PHYSICAL PERKS (racial), frozen at dispatch
+  // (medicalBay.ts memberPerksFor). OPTIONAL and written only when non-empty (today: Stoneskin for an Ossir
+  // member), so every other snapshot keeps its exact pre-GO-3 shape. Absent = none.
+  perks?: MemberPerkId[];
 }
+
+// Ground Operations 0.14.0 (GO-3, D24): a member's racial physical perk.
+//   stoneskin : the Ossir. Physical conditions (the "injury" class) take 25% longer to cure in the medical
+//               bay (medicalBay.ts STONESKIN_INJURY_MULT). The IN-BATTLE half (land 25% less often) arrives
+//               with Task 16b Field Kits. Other races' perks: the user's to name later.
+export type MemberPerkId = "stoneskin";
 
 // E-CREW 0.14.0 (Task 15): one source of a Science member's fieldwork, already CONVERTED at dispatch
 // (awayTeam.ts snapshotMember). fieldwork / relicFind / hazardResist are bumps on the awayTeam.ts

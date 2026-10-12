@@ -6,7 +6,7 @@
 //
 // Module graph: model.ts <- groundTeamSlots.ts <- awayTeam.ts <- groundTeams.ts. Every function is pure.
 
-import type { AwayTeamType, ShipGroundTeam, ShipInstance } from "./model";
+import type { AwayMember, AwayTeamType, ShipGroundTeam, ShipInstance } from "./model";
 import { groundSquadSize, groundTeamCount } from "./model";
 
 // The two squad types a ground team slots (Prospecting is wired only and fields no ground squad).
@@ -55,6 +55,38 @@ export function shipGroundTeams(ship: Pick<ShipInstance, "typeKey" | "groundTeam
   });
 }
 
+// What a slot WRITE needs to know about a member: who they are, which ship they are aboard, their squad.
+export type GroundSlotMember = Pick<AwayMember, "id" | "assignedShipId" | "teamType">;
+
+// `ship`'s ground teams as a normalized copy (shipGroundTeams) with every CORRUPT slot id nulled: an id that
+// does not name a member of `members` aboard THIS ship with the slot's squad type (a member who no longer
+// exists, one aboard another ship, a wrong-type member), and any repeat of a member already seen in an
+// earlier slot of this ship (the first slot is kept). Every slot WRITE goes through this before it chooses a
+// slot (GO-2 review, carried to GO-3), so a corrupt id can never make auto-slot skip a slot and the write
+// leaves the ship clean. A ship whose slots are all valid comes back exactly as shipGroundTeams reads it.
+// Same contract as shipGroundTeams: a fresh copy, never stored state. Pure.
+export function cleanShipGroundTeams(
+  ship: Pick<ShipInstance, "id" | "typeKey" | "groundTeams">,
+  members: readonly GroundSlotMember[],
+): ShipGroundTeam[] {
+  const aboard = new Map<string, AwayTeamType>();
+  for (const m of members) if (m.assignedShipId === ship.id) aboard.set(m.id, m.teamType);
+  const seen = new Set<string>();
+  const teams = shipGroundTeams(ship);
+  for (const team of teams) {
+    for (const teamType of GROUND_SQUAD_TYPES) {
+      const slots = team[teamType];
+      for (let i = 0; i < slots.length; i += 1) {
+        const id = slots[i];
+        if (id === null) continue;
+        if (aboard.get(id) !== teamType || seen.has(id)) slots[i] = null;
+        else seen.add(id);
+      }
+    }
+  }
+  return teams;
+}
+
 // The slot `memberId` occupies in `teams` (team order, Security before Science, slot order), or null. Pure.
 export function findGroundSlot(teams: readonly ShipGroundTeam[], memberId: string): GroundSlotRef | null {
   for (let teamIndex = 0; teamIndex < teams.length; teamIndex += 1) {
@@ -88,13 +120,18 @@ function storedHoldsMember(ship: ShipInstance, memberId: string): boolean {
 }
 
 // `ships` with `memberId` removed from every slot fleet-wide (a member LEAVING a ship: fired, reassigned
-// away, benched). A ship holding the member gets a normalized copy with those slots null; every other ship
-// keeps its reference, and the SAME array comes back when no ship held the member. Pure.
-export function shipsWithMemberUnslotted(ships: ShipInstance[], memberId: string): ShipInstance[] {
+// away, benched). A ship holding the member gets its CLEANED teams (cleanShipGroundTeams over `members`, the
+// state's awayMembers before the move) with those slots null; every other ship keeps its reference, and the
+// SAME array comes back when no ship held the member. Pure.
+export function shipsWithMemberUnslotted(
+  ships: ShipInstance[],
+  memberId: string,
+  members: readonly GroundSlotMember[],
+): ShipInstance[] {
   if (!ships.some((s) => storedHoldsMember(s, memberId))) return ships;
   return ships.map((ship) => {
     if (!storedHoldsMember(ship, memberId)) return ship;
-    const teams = shipGroundTeams(ship).map((t) => ({
+    const teams = cleanShipGroundTeams(ship, members).map((t) => ({
       ...t,
       security: t.security.map((id) => (id === memberId ? null : id)),
       science: t.science.map((id) => (id === memberId ? null : id)),
@@ -105,22 +142,24 @@ export function shipsWithMemberUnslotted(ships: ShipInstance[], memberId: string
 
 // `ships` with `memberId` AUTO-SLOTTED into `shipId`'s first empty slot of the member's squad type (lowest
 // team index first: set-and-forget, D25 QoL), the sync for every ARRIVAL aboard (hire, reassign to the ship,
-// unbench). The member must already be out of every other slot (the callers unslot first). No empty slot (a
-// full squad, or a type the hull fields no ground squad of, Prospecting) leaves the member aboard unslotted
-// (the ship's reserve) and returns the SAME array; so does an unknown ship or a member already slotted
-// there. Pure.
+// unbench). The member must already be out of every other slot (the callers unslot first). The ship's slots
+// are CLEANED first (cleanShipGroundTeams over `members`, the other members of the state; the arriving
+// member need not be in it), so a corrupt id never hides an empty slot. No empty slot (a full squad, or a
+// type the hull fields no ground squad of, Prospecting) leaves the member aboard unslotted (the ship's
+// reserve) and returns the SAME array; so does an unknown ship or a member already slotted there. Pure.
 export function shipsWithMemberAutoSlotted(
   ships: ShipInstance[],
   shipId: string,
   memberId: string,
   teamType: AwayTeamType,
+  members: readonly GroundSlotMember[],
 ): ShipInstance[] {
   if (!isGroundSquadType(teamType)) return ships;
   const index = ships.findIndex((s) => s.id === shipId);
   if (index < 0) return ships;
   const ship = ships[index];
-  const teams = shipGroundTeams(ship);
-  if (findGroundSlot(teams, memberId)) return ships;
+  if (findGroundSlot(shipGroundTeams(ship), memberId)) return ships;
+  const teams = cleanShipGroundTeams(ship, members);
   const open = firstEmptyGroundSlot(teams, teamType);
   if (!open) return ships;
   teams[open.teamIndex][teamType][open.slotIndex] = memberId; // the fresh copy, never stored state

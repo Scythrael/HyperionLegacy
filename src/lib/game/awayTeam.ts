@@ -53,6 +53,8 @@ import { onMissionLock } from "./equipment";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
 import { shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
+// Ground Ops (GO-3): the racial physical perks the snapshot freezes. medicalBay.ts imports model.ts types only.
+import { memberPerksFor } from "./medicalBay";
 
 // ============================================================================
 // Squad sizes (design section 5.2)
@@ -417,7 +419,7 @@ export function hireAwayMember(state: GameState, candidateId: string, shipId: st
   };
   return {
     ...state,
-    ships: shipsWithMemberAutoSlotted(state.ships, shipId, hired.id, hired.teamType),
+    ships: shipsWithMemberAutoSlotted(state.ships, shipId, hired.id, hired.teamType, state.awayMembers),
     awayMembers: [...state.awayMembers, hired],
     nextAwayMemberId: state.nextAwayMemberId + 1,
   };
@@ -446,7 +448,7 @@ export function fireAwayMember(state: GameState, memberId: string): GameState {
   if (!canFireAwayMember(state, memberId).ok) return state;
   return {
     ...state,
-    ships: shipsWithMemberUnslotted(state.ships, memberId),
+    ships: shipsWithMemberUnslotted(state.ships, memberId, state.awayMembers),
     equipment: state.equipment.map((e) =>
       e.fittedToMemberId === memberId
         ? startAutoSalvageGrace({ ...e, fittedToMemberId: null }, state.gameTimeSeconds)
@@ -484,10 +486,10 @@ export function canReassignAwayMember(state: GameState, memberId: string, shipId
 export function reassignAwayMember(state: GameState, memberId: string, shipId: string | null): GameState {
   if (!canReassignAwayMember(state, memberId, shipId).ok) return state;
   const member = state.awayMembers.find((m) => m.id === memberId) as AwayMember;
-  const unslotted = shipsWithMemberUnslotted(state.ships, memberId);
+  const unslotted = shipsWithMemberUnslotted(state.ships, memberId, state.awayMembers);
   return {
     ...state,
-    ships: shipId === null ? unslotted : shipsWithMemberAutoSlotted(unslotted, shipId, memberId, member.teamType),
+    ships: shipId === null ? unslotted : shipsWithMemberAutoSlotted(unslotted, shipId, memberId, member.teamType, state.awayMembers),
     awayMembers: state.awayMembers.map((m) => (m.id === memberId ? { ...m, assignedShipId: shipId } : m)),
   };
 }
@@ -737,6 +739,9 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
   for (const status of Object.keys(resists) as GambitStatusId[]) {
     resists[status] = Math.min(STATUS_RESIST_CAP, resists[status] ?? 0);
   }
+  // 4) Ground Ops (GO-3, D24): the member's racial physical perks (Stoneskin for the Ossir), written only
+  // when there are any, so every other snapshot keeps its exact pre-GO-3 shape.
+  const perks = memberPerksFor(member.race);
 
   return {
     memberId: member.id,
@@ -756,6 +761,7 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
     // Task 15: the untuned source first, then one per planet-tuned tool (mint order). Every member carries
     // it (a Security member's is simply never read: Science does the fieldwork, design D2).
     fieldwork: [always, ...tunedSources],
+    ...(perks.length > 0 ? { perks } : {}),
   };
 }
 
