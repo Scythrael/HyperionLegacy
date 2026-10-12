@@ -840,10 +840,11 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
     expect(check.teams[0].waits).toEqual([{ kind: "needSecurity" }]);
   });
 
-  it("dispatch is UNCHANGED: the legacy gate still counts ready members by hire order, slotted or not", () => {
+  it("GO-7b: the dispatch gate IS this reader: an unslotted ready member never stands in", () => {
     const s = unslotMember(unslotMember(at(crewState()), "ship-1", "member-1"), "ship-1", "member-11");
-    expect(deployableGroundTeams(s, "ship-1").ok).toBe(false);
-    expect(expeditionAwayTeamCheck(s, s.ships[0])).toEqual({ ok: true, security: 3, science: 1 });
+    const check = deployableGroundTeams(s, "ship-1");
+    expect(check.ok).toBe(false);
+    expect(expeditionAwayTeamCheck(s, s.ships[0])).toEqual({ ok: false, security: check.security, science: check.science, ground: check });
   });
 
   it("the reader is pure", () => {

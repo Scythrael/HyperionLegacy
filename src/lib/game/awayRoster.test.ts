@@ -66,6 +66,7 @@ import {
   type GambitProgram,
   type SnapshotMember,
 } from "./model";
+import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -116,7 +117,8 @@ function worn(
 // A fresh state (ship-1 is a General Freighter: 3 Security + 3 Science slots) with the given members + gear.
 function withRoster(members: AwayMember[], gear: EquipmentInstance[] = [], gameTimeSeconds = 1000): GameState {
   const base = freshState();
-  return { ...base, gameTimeSeconds, awayMembers: members, equipment: [...base.equipment, ...gear] };
+  // Ground Ops (GO-7b): dispatch reads the slotted ground teams; slot the members in hire order.
+  return withSlottedAwayTeams({ ...base, gameTimeSeconds, awayMembers: members, equipment: [...base.equipment, ...gear] });
 }
 
 const ship = (s: GameState) => s.ships[0];
@@ -549,8 +551,10 @@ describe("D19: the built-in default member program", () => {
     const hold: GameState = { ...base, gambitPrograms: { security: [{ target: "self", action: "hold" }], science: [] } };
     const lazy: GameState = { ...base, gambitPrograms: { security: [{ target: "foeNearest", action: "attack" }], science: [] } };
     expect(snapshotAwayRoster(hold, ship(hold))).toEqual(snapshotAwayRoster(lazy, ship(lazy)));
+    // A legacy run (asLegacyDispatch): it must reach "complete" with a lone plain member, which only the legacy
+    // evacuation path guarantees (a Ground Ops run holds a task it cannot win, user Q4).
     const run = (s: GameState) => {
-      const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
       expect(res.success).toBe(true);
       return advanceExpedition(res.expedition!, 1_000_000);
     };

@@ -332,12 +332,15 @@ describe("GO-7a snapshotAwayRosterForTeams (the union roster)", () => {
   });
 });
 
-describe("GO-7a is behavior-neutral", () => {
-  it("startExpedition does not write a ground ops record yet", () => {
+describe("GO-7b: startExpedition writes the ground ops record (the flag)", () => {
+  it("the stored record is the dispatch snapshot plus an empty timeline, and the roster is the teams' union", () => {
     const s = basic();
     const candidate = expeditionCandidates(s, "ship-1")[0];
     const res = startExpedition(s, "ship-1", ship1(s).assignedCaptainId as number, candidate.id);
     expect(res.success).toBe(true);
-    expect("groundOps" in (res.expedition as object)).toBe(false);
+    const exp = res.expedition!;
+    const snap = snapshotGroundOps(s, ship1(s), exp);
+    expect(exp.groundOps).toEqual({ version: 1, ...snap, editCount: 0, history: [], shipLegs: [] });
+    expect(exp.roster).toEqual(snapshotAwayRosterForTeams(s, ship1(s), snap.teams));
   });
 });

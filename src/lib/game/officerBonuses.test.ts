@@ -55,7 +55,12 @@ import { snapshotAwayRoster } from "./awayTeam";
 import { makeRng } from "./combat/rng";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { withoutGroundTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundTeams } from "./awayTeamTestFixtures";
+
+// Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
+// slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
+// flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
+const legacyStart: typeof startExpedition = (state, ...rest) => asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest));
 
 // ===== fixtures =====
 
@@ -220,7 +225,7 @@ describe("neutrality: no officer = byte-identical to before Task 20 (golden)", (
     const runs: string[] = [];
     for (let i = 0; i < 8; i++) {
       const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-      const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      const res = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
       expect(res.success).toBe(true);
       const done = advanceExpedition(res.expedition!, 1_000_000);
       const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
@@ -610,7 +615,7 @@ describe("away-team bonuses (Fleet Triage, Morale Anchor)", () => {
     nextAwayMemberId: 100,
     officers,
   });
-  const dispatch = (s: GameState) => startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+  const dispatch = (s: GameState) => legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
 
   it("freezes squadTriage / squadFearResist at dispatch (only when non-zero)", () => {
     const plain = dispatch(withOfficers([])).expedition!;
@@ -714,7 +719,7 @@ describe("every officer bonus is live (or pending in this release)", () => {
     const shipValues = (s: GameState) => {
       const ship = s.ships[0];
       const rosterState = { ...s, awayMembers: GOLDEN_ROSTER, nextAwayMemberId: 100 };
-      const exp = startExpedition(rosterState, "ship-1", 1, expeditionCandidates(rosterState, "ship-1")[0].id).expedition!;
+      const exp = legacyStart(rosterState, "ship-1", 1, expeditionCandidates(rosterState, "ship-1")[0].id).expedition!;
       return JSON.stringify({
         stats: effectiveShipStats(s, ship),
         combat: officerCombatMods(s, ship) ?? null,

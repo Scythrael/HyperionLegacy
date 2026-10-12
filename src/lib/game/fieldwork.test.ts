@@ -62,6 +62,7 @@ import { effectiveHazardResist } from "./relics";
 import { POI_CATALOG, PLANET_TYPES } from "./expeditionContent";
 import { shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
+import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -114,7 +115,8 @@ const SEC = (): AwayMember => member("member-1", "security");
 
 function withRoster(members: AwayMember[], gear: EquipmentInstance[] = []): GameState {
   const base = freshState();
-  return { ...base, awayMembers: members, equipment: [...base.equipment, ...gear], nextAwayMemberId: 100 };
+  // Ground Ops (GO-7b): dispatch reads the slotted ground teams; slot the members in hire order.
+  return withSlottedAwayTeams({ ...base, awayMembers: members, equipment: [...base.equipment, ...gear], nextAwayMemberId: 100 });
 }
 
 function body(planetType: ExpeditionPlanetType, poiIds: string[], over: Partial<ExpeditionBody> = {}): ExpeditionBody {
@@ -736,7 +738,9 @@ describe("DETERMINISM + offline == live with a real Science roster", () => {
   it("a full dispatched run with a kitted Science party completes identically offline and live", () => {
     const base = kitted();
     const s = { ...base, expeditionSeed: 0x51ed270b };
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    // A legacy run (asLegacyDispatch): this pins the Task 15 activities-phase pace; the Ground Ops timeline has
+    // its own parity suite (groundOpsParity.test.ts).
+    const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(res.success).toBe(true);
     const BIG = 1_000_000;
     const big = advanceExpedition(res.expedition!, BIG);

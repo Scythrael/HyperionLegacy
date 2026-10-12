@@ -60,7 +60,7 @@ import {
   SENSOR_REVEAL_RELIC,
   SENSOR_REVEAL_HAZARD,
 } from "./expedition";
-import { ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, ensureMinimumAwayTeam } from "./awayTeamTestFixtures";
 import {
   tick,
   economyTick,
@@ -231,7 +231,8 @@ describe("PoI -> relic set: ONE source of truth for the reward roll AND the fore
       expect(fk.relicSets).not.toBeNull();
       expect(fk.relicSignature).toBe(fk.relicSets!.length > 0);
       // Commit this candidate and run it to completion; derive the sets from its real discoveries.
-      const res = startExpedition(s, "ship-1", 1, cand.id);
+      // A legacy run (asLegacyDispatch) always completes; the discoveries are the same on either engine.
+      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, cand.id));
       const done = advanceExpedition(res.expedition!, 10_000_000);
       expect(done.phase).toBe("complete");
       const found = new Set<RelicSetId>();

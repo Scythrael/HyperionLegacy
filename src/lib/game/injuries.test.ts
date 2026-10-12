@@ -55,6 +55,7 @@ import {
   shipInjuryFactors,
 } from "./injuries";
 import { fieldworkEffect } from "./fieldwork";
+import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { deserialize, migrate, serialize } from "./save";
 
 // ===== fixtures =====
@@ -144,8 +145,10 @@ const GOLDEN = [
 // `pred`, searched over the per-save expedition seed. Throws when none does (a vacuous test fails loudly).
 function findRun(base: GameState, pred: (done: Expedition) => boolean, limit = 400): { state: GameState; start: Expedition; done: Expedition } {
   for (let i = 0; i < limit; i++) {
-    const s = { ...base, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    // Ground Ops (GO-7b): this file pins the LEGACY Task 16 rules (sit out the rest of the RUN, the flat claim
+    // injury), so the run is dispatched from slotted teams and resolved as a legacy run (no groundOps flag).
+    const s = withSlottedAwayTeams({ ...base, expeditionSeed: (0x2468ace + i * 7919) >>> 0 });
+    const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     if (!res.success) continue;
     const done = advanceExpedition(res.expedition!, BIG);
     if (pred(done)) return { state: res.next, start: res.expedition!, done };

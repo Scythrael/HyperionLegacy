@@ -45,6 +45,10 @@
     type ExpeditionCandidate,
   } from "./game/expedition";
   import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
+  // Ground Ops (GO-7b): a flagged run's offloaded findings, its stuck flag, and what each ground team waits on at
+  // dispatch. The full Ground Ops screens (queues, timelines, bay) are GO-13 / GO-14.
+  import { GROUND_OPS_STUCK_TEXT, groundOpsStuck, groundTaskFindingPrefix } from "./game/groundOps";
+  import { groundTeamWaitText } from "./game/groundTeams";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
@@ -153,6 +157,11 @@
   // Launch button can never offer a dispatch the engine would refuse. Null outside the dispatch view.
   $: chosenTeamCheck = chosenShip && !chosenExpedition ? expeditionAwayTeamCheck(state, chosenShip) : null;
   $: needsAwayTeam = chosenTeamCheck !== null && !chosenTeamCheck.ok;
+  // Ground Ops (GO-7b, user 2026-10-12): no automatic stand-ins, so the block lists what each ground team waits on
+  // ("Alpha: Grokk returns to duty in 12m").
+  $: groundWaitLines = chosenTeamCheck
+    ? chosenTeamCheck.ground.teams.flatMap((t) => t.waits.map((w) => `${t.name}: ${groundTeamWaitText(w)}`))
+    : [];
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
@@ -223,8 +232,25 @@
   // finding id. Present exactly when the activity is done (the resolver flips done + appends the finding
   // together), so `done` <=> a finding exists.
   function findingFor(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
+    if (exp.groundOps) return groundTaskFindings(exp, activity);
     const id = activityFindingId(exp, activity.id);
     return exp.findings.find((f) => f.id === id) ?? null;
+  }
+  // Ground Ops (GO-7b): a task offloads one finding per return trip (groundOps.ts groundTaskFindingId), so the
+  // card shows their SUM (display only); the relic rides the completing batch. Null until the first offload.
+  function groundTaskFindings(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
+    const prefix = groundTaskFindingPrefix(exp, activity.id);
+    const parts = exp.findings.filter((f) => f.id.startsWith(prefix));
+    if (parts.length === 0) return null;
+    const materials: Record<string, number> = {};
+    let credits = 0;
+    let relic: ExpeditionFinding["relic"] = null;
+    for (const f of parts) {
+      for (const [itemId, qty] of Object.entries(f.materials ?? {})) materials[itemId] = (materials[itemId] ?? 0) + qty;
+      credits += f.credits ?? 0;
+      if (f.relic) relic = f.relic;
+    }
+    return { id: prefix, source: "activity", poiId: activity.poiId, materials, credits, relic };
   }
   // The activity's stable FLAT index across bodies (== the resolver's globalIndex), needed to re-derive its
   // deterministic battle log.
@@ -479,9 +505,13 @@
                         <span class="exp-find-chip relic"><Icon name="relic" size={11} /> Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
                       {/if}
                     </div>
+                    <!-- The re-derived battle log reads the legacy resolver; a Ground Ops task's fights get their own
+                         readout with the task cards (GO-14). -->
+                    {#if !exp.groundOps}
                     <button type="button" class="exp-log-toggle" on:click={() => toggleLog(exp, body, act)}>
                       {expandedLogs[act.id] ? "Hide battle log" : "View battle log"}
                     </button>
+                    {/if}
                     {#if expandedLogs[act.id]}
                       <div class="exp-log">
                         {#if staleLogs[act.id]}
@@ -509,7 +539,14 @@
               {/each}
             {/each}
           </div>
-          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
+          {#if exp.groundOps}
+            {#if groundOpsStuck(exp)}
+              <div class="exp-block" role="status">{GROUND_OPS_STUCK_TEXT}.</div>
+            {/if}
+            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every task the team returns to the ship to offload, recover in the medical bay and reload; a lost task keeps its progress and is retried after the bay.</div>
+          {:else}
+            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
+          {/if}
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -548,6 +585,9 @@
           <div class="exp-block" role="status">
             {expeditionDispatchBlockText("needsAwayTeam")}.
             <span class="exp-block-counts">Ready now: {chosenTeamCheck.security} Security, {chosenTeamCheck.science} Science.</span>
+            {#each groundWaitLines as line (line)}
+              <span class="exp-block-counts">{line}.</span>
+            {/each}
           </div>
         {/if}
 

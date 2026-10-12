@@ -7,7 +7,7 @@
 
 import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipTypeDef, type ShipTypeKey } from "./model";
 import { expeditionAwayTeamCheck } from "./expedition";
-import { backfillShipGroundTeams } from "./groundTeams";
+import { backfillShipGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -52,6 +52,19 @@ export function withoutGroundOps(exp: Expedition): Expedition {
   return rest;
 }
 
+// Ground Ops (GO-7b): a dispatch result turned into the LEGACY run it would have been before the switch: the
+// returned expedition and every expedition in `next` lose their groundOps flag. Tests that pin legacy behavior
+// (the activities-phase battles, retries, evacuation, Task 16 injuries) dispatch through this. A refusal is
+// returned unchanged. Pure.
+export function asLegacyDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return {
+    ...res,
+    expedition: withoutGroundOps(res.expedition),
+    next: { ...res.next, expeditions: res.next.expeditions.map(withoutGroundOps) },
+  };
+}
+
 // Ground Ops (GO-7b): every ship's ground-team slots refilled from its members in HIRE order (the v67
 // backfill, groundTeams.ts backfillShipGroundTeams), so a test that builds `awayMembers` by hand dispatches
 // the same team the pre-switch "first N ready members in hire order" rule picked. Pure.
@@ -75,18 +88,17 @@ export function plainAwayMember(id: string, teamType: AwayTeamType, shipId: stri
 }
 
 // The state with one plain Security and one plain Science member added to `shipId`'s squads (ids from
-// nextAwayMemberId, which advances by two). Pure: returns a new state.
+// nextAwayMemberId, which advances by two). Ground Ops (GO-7b): both are SLOTTED into the first empty slot
+// of their squad (the hire auto-slot, groundTeamSlots.ts shipsWithMemberAutoSlotted), since dispatch now reads
+// the slotted ground teams. Pure: returns a new state.
 export function withMinimumAwayTeam(state: GameState, shipId = "ship-1"): GameState {
   const n = state.nextAwayMemberId;
-  return {
-    ...state,
-    awayMembers: [
-      ...state.awayMembers,
-      plainAwayMember(`member-${n}`, "security", shipId),
-      plainAwayMember(`member-${n + 1}`, "science", shipId),
-    ],
-    nextAwayMemberId: n + 2,
-  };
+  const security = plainAwayMember(`member-${n}`, "security", shipId);
+  const science = plainAwayMember(`member-${n + 1}`, "science", shipId);
+  const awayMembers = [...state.awayMembers, security, science];
+  let ships = shipsWithMemberAutoSlotted(state.ships, shipId, security.id, "security", awayMembers);
+  ships = shipsWithMemberAutoSlotted(ships, shipId, science.id, "science", awayMembers);
+  return { ...state, ships, awayMembers, nextAwayMemberId: n + 2 };
 }
 
 // withMinimumAwayTeam only when `shipId` does not already field the D18 minimum (so a state that already

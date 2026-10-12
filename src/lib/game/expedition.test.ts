@@ -47,7 +47,7 @@ import {
   MIN_SECURITY_MEMBERS,
   MIN_SCIENCE_MEMBERS,
 } from "./expedition";
-import { ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, ensureMinimumAwayTeam, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { tick } from "./tick";
 import { migrate, type SaveFile } from "./save";
 import {
@@ -134,10 +134,13 @@ function makeExpedition(over: Partial<Expedition> = {}): Expedition {
 // 0). Mirrors how the E2c UI dispatches (pick a candidate -> startExpedition).
 // D18: the ship gets the minimum away team (1 Security + 1 Science) first when it lacks one, so these tests
 // keep testing the expedition engine, not the dispatch gate (which has its own block below).
+// Ground Ops (GO-7b): this file pins the LEGACY expedition machine (one finding per activity, the activities
+// phase's in-resolution battles), so its dispatches resolve as legacy runs (asLegacyDispatch strips the
+// groundOps flag). The Ground Ops timeline has its own files (groundOps*.test.ts).
 function dispatch(s: GameState, shipId = "ship-1", captainId = 1, idx = 0, anomalyOptIn = true) {
   const ready = ensureMinimumAwayTeam(s, shipId);
   const cands = expeditionCandidates(ready, shipId);
-  return startExpedition(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn);
+  return asLegacyDispatch(startExpedition(ready, shipId, captainId, cands[idx]?.id ?? `cand-${idx}`, anomalyOptIn));
 }
 
 // ============================================================================
@@ -797,7 +800,8 @@ describe("E2c dispatch — commit a chosen candidate; the launch MATCHES its pre
 // expedition needs at least 1 Security AND 1 Science member, ready, to launch. No anonymous stand-in.
 describe("D18: an expedition needs at least 1 Security + 1 Science away-team member", () => {
   function launchWith(members: ReturnType<typeof plainAwayMember>[], gameTimeSeconds = 0) {
-    const s: GameState = { ...freshState(), gameTimeSeconds, awayMembers: members };
+    // Ground Ops (GO-7b): dispatch reads the slotted ground teams; slot the members in hire order.
+    const s: GameState = withSlottedAwayTeams({ ...freshState(), gameTimeSeconds, awayMembers: members });
     return { s, res: startExpedition(s, "ship-1", 1, "cand-0") };
   }
   const sec = (id = "member-1") => plainAwayMember(id, "security", "ship-1");
@@ -846,9 +850,11 @@ describe("D18: an expedition needs at least 1 Security + 1 Science away-team mem
 
   it("expeditionAwayTeamCheck reports the deployable counts the UI shows", () => {
     const s = withMinimumAwayTeam(freshState());
-    expect(expeditionAwayTeamCheck(s, s.ships[0])).toEqual({ ok: true, security: 1, science: 1 });
+    expect(expeditionAwayTeamCheck(s, s.ships[0])).toMatchObject({ ok: true, security: 1, science: 1 });
     const bare = freshState();
-    expect(expeditionAwayTeamCheck(bare, bare.ships[0])).toEqual({ ok: false, security: 0, science: 0 });
+    expect(expeditionAwayTeamCheck(bare, bare.ships[0])).toMatchObject({ ok: false, security: 0, science: 0 });
+    // Ground Ops (GO-7b): the check is the slotted ground teams' reader, so the UI can list what each waits on.
+    expect(expeditionAwayTeamCheck(bare, bare.ships[0]).ground.teams[0].waits.map((w) => w.kind)).toEqual(["needSecurity", "needScience"]);
   });
 
   it("the older guards report first: a bad candidate, captain or ship is named before the away team", () => {

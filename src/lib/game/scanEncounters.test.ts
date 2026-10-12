@@ -50,6 +50,7 @@ import {
   generateEncounter,
 } from "./gambit";
 import { makeRng } from "./combat/rng";
+import { asLegacyDispatch, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -92,7 +93,8 @@ function tool(id: string, variety: string, wearer: string): EquipmentInstance {
 
 function withRoster(members: AwayMember[], gear: EquipmentInstance[] = []): GameState {
   const base = freshState();
-  return { ...base, awayMembers: members, equipment: [...base.equipment, ...gear], nextAwayMemberId: 100 };
+  // Ground Ops (GO-7b): dispatch reads the slotted ground teams; slot the members in hire order.
+  return withSlottedAwayTeams({ ...base, awayMembers: members, equipment: [...base.equipment, ...gear], nextAwayMemberId: 100 });
 }
 
 const plainSquad = (): AwayMember[] => [member("member-1", "security"), member("member-2", "science")];
@@ -455,7 +457,8 @@ describe("PARITY: one big advance == many small advances, with a real roster", (
     let found: Expedition | null = null;
     for (let i = 0; i < 300 && !found; i++) {
       const s = { ...base, expeditionSeed: (0x1234567 + i * 7919) >>> 0 };
-      const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+      // A legacy run (asLegacyDispatch): Task 14's scan battles; a Ground Ops run rolls none (GO-7b).
+      const res = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
       if (!res.success) continue;
       const done = advanceExpedition(res.expedition!, BIG);
       const evs = done.scanEvents ?? [];

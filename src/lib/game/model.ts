@@ -6488,6 +6488,15 @@ export interface ExpeditionActivity {
   fightCount?: number; // fights started on this task (keys "a fresh encounter per attempt", user 9b.2)
   status?: "queued" | "active" | "done" | "skipped";
   assignedTeamIds?: number[]; // owner ground team index(es) on the ship
+  // Ground Operations (GO-7b), the timeline engine's bookkeeping, all optional and absent on legacy records:
+  //   segmentBankers : per finished segment s, the ground team index(es) that banked it (the yield of THAT
+  //                    team set scales the segment's haul at offload, GO-7a review); absent until a bank.
+  //   completedAt    : gameTimeSeconds the task reached 100% (its relic roll's clock; display).
+  //   lossStreak     : consecutive failed attempts that cleared no new fight point (groundOps.ts
+  //                    groundTaskStuck); absent = 0.
+  segmentBankers?: number[][];
+  completedAt?: number;
+  lossStreak?: number;
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
@@ -6850,6 +6859,10 @@ export interface Expedition {
   // The boundaries where something HAPPENED (an encounter or an event), in scan order. A boundary that
   // rolled nothing is not listed. The UI (Task 17) draws its "random battle at step N" pips from this.
   scanEvents?: ExpeditionScanEvent[];
+  // Ground Operations 0.14.0 (GO-7b, D25): the run's ground operations record. Its PRESENCE is the feature flag
+  // (like encounterSteps): a run dispatched since GO-7b carries it and resolves on the Ground Ops timeline
+  // (groundOps.ts); a run without it resolves on the legacy path, byte-identically. Optional, no SAVE bump.
+  groundOps?: GroundOpsState;
 }
 
 // E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
@@ -6959,9 +6972,8 @@ export interface AwayRosterSnapshot {
 }
 
 // ===== Ground Operations 0.14.0 (GO-7a, D25): the run-side records of a Ground Ops run =====
-// groundOps.ts snapshotGroundOps writes the dispatch values (GO-7a); the timeline engine (GO-7b) moves them.
-// GO-7b adds the GroundOpsState wrapper (version, startedAt / endedAt, editCount, history) and
-// Expedition.groundOps; nothing stores or reads these yet. Plain data only (no live refs, JSON-safe).
+// groundOps.ts snapshotGroundOps writes the dispatch values (GO-7a); the timeline engine (GO-7b) moves them,
+// stored in the GroundOpsState wrapper below (Expedition.groundOps). Plain data only (no live refs, JSON-safe).
 
 // One active status on a ground combatant (a copy of a catalog entry's magnitude / duration, decremented in
 // place during the battle on the working clone). Moved here from gambit.ts at GO-7b (gambit.ts re-exports it):
@@ -7023,14 +7035,61 @@ export interface GroundTeamRun {
   workFrom?: number; // progress span of the current work step
   workTo?: number;
   pendingFight?: GroundFightRecord; // resolved at fight start, applied at fight end (groundFight.ts)
-  // The in-task carry (user Q5, GO-5): the last won fight's memberEnd, passed as the next fight's `carried`.
-  // Absent = everyone at full HP. Dropped after a wipe and after the bay (GO-7b).
-  carry?: Record<string, GroundMemberCarry>;
+  // The in-task carry (user Q5, GO-5): the last won fight's memberEnd (standing members only, with hpMax for
+  // display), passed as the next fight's `carried`. Absent = everyone at full HP. Dropped after a wipe and after
+  // the bay (GO-7b).
+  carry?: Record<string, GroundMemberEnd>;
   skippedBorrowed: string[]; // a helper's give-up list (never re-borrowed)
   downedThisTask: string[]; // Security members out for the rest of the current task
   conditions: Record<string, string[]>; // memberId -> condition ids gathered on the current trip (medicalBay.ts)
   bayEnds: Record<string, number>; // memberId -> absolute bay end of the latest bay (carried home at claim)
   bayStart?: number;
+  // Ground Operations (GO-7b): the current attempt's starting pointsCleared (set at deploy), so a loss knows
+  // whether the attempt cleared a new fight point (the stuck count, groundOps.ts groundTaskStuck).
+  attemptPoints?: number;
+}
+
+// GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
+// it. Capped per team (groundOps.ts GROUND_HISTORY_CAP, oldest dropped).
+export interface GroundStepRecord {
+  teamIndex: number;
+  step: GroundStepKind;
+  startedAt: number;
+  endedAt: number;
+  taskId?: string;
+  outcome?: "win" | "loss"; // a fight step
+  recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
+}
+
+// GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A team WIPED while the ship scans another body cannot leave it
+// there: the ship breaks off its scan, flies to the team's body, picks it up and flies back. The scan makes
+// no progress from startsAt to endsAt (groundOps.ts scanClockAt), the team's return ends when the ship
+// arrives (arrivesAt). Legs never overlap (a second one waits for the first). Stored at the wipe, so every
+// later time is a pure function of stored values.
+export interface GroundShipLeg {
+  kind: "recovery";
+  teamIndex: number;
+  bodyIndex: number; // the body the team was on
+  scanBodyIndex: number; // the body the ship broke off scanning
+  startsAt: number;
+  arrivesAt: number;
+  endsAt: number;
+}
+
+// GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window
+// (user Q1): it opens when the scanning phase begins (startedAt), task work overlaps the scan of later bodies,
+// and it closes (endedAt) once every body is scanned, no task is queued or active, and every team is idle, in
+// the bay or reloading. The return phase starts then.
+export interface GroundOpsState {
+  version: 1;
+  teams: GroundTeamRun[]; // deployed teams only, ascending ship team index
+  factors: GroundOpsFactors; // frozen at dispatch
+  shipEventProfile: ShipEventProfile; // frozen at dispatch (GO-8 reads it)
+  startedAt?: number; // gameTimeSeconds the window opened (the scanning phase anchor)
+  endedAt?: number; // gameTimeSeconds the window closed
+  editCount: number; // player edits so far (GO-7d keys the auto-assign stream)
+  history: GroundStepRecord[]; // DISPLAY ONLY, capped per team
+  shipLegs: GroundShipLeg[]; // recovery legs, in time order
 }
 
 // The run's factors, FROZEN at dispatch (D24: the medical factors too). Shares are per DEPLOYED team, in

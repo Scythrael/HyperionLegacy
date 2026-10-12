@@ -822,6 +822,94 @@ Medical, Rapid Recovery and the Medical facets stay live.
 **Acceptance:** gate green; legacy golden hashes unchanged; new dispatches run Ground Ops (the old ExpeditionPanel still
 works: `done` flags flip as tasks finish). Commit `feat(0.14.0): ground ops timeline engine, single team (Ground Ops GO-7b)`.
 
+**Carry from GO-7b (built 2026-10-12, three commits: `test(0.14.0): legacy expedition golden hashes before the switch
+(Ground Ops GO-7b step 1)`, `refactor(0.14.0): ground fight record types live in model.ts (Ground Ops GO-7b, GO-7a
+review)`, then `feat(0.14.0): ground ops timeline engine, single team (Ground Ops GO-7b)`):**
+- **THE COMBINED OPERATIONS WINDOW (user Q1, overrides the plan's activities-phase-only engine).** A flagged run's
+  scanning and task work share ONE window (`GroundOpsState.startedAt` = the scanning phase anchor). A team starts a
+  body's tasks the moment THAT body's scan completes while the ship scans the rest. The window closes (`endedAt`) only
+  when every body is scanned AND no task is queued / active AND every team is idle, in the bay or reloading; the return
+  phase starts then. The expedition's `phase` still reads "scanning" until the last body is scanned (its end time is
+  exact, recovery legs included) and "activities" after, until `endedAt`; both ends are LATCHES the window sets, so the
+  phase math never disagrees with the event schedule. `phaseDurationSeconds("activities")` is Infinity until `endedAt`;
+  `expeditionPhaseFraction` in activities reads `groundOpsProgress`; `returnDurationSeconds` reads `endedAt - startedAt`.
+- **Ship position + the RECOVERY LEG.** While scanning, the ship is at the first unscanned body (teams only work
+  scanned bodies, so a working team is always elsewhere). A team WIPED (every Security member down) while the ship
+  still scans gets a `GroundShipLeg` (`kind: "recovery"`, stored at the wipe): the ship breaks off at `startsAt`,
+  arrives at `arrivesAt = startsAt + IN_SYSTEM_LEG_SECONDS` (the team's return step ends there, history record
+  `recovered: true`) and is back on its scan at `endsAt = startsAt + 2 x IN_SYSTEM_LEG_SECONDS`. Legs never overlap
+  (a second waits for the first). The scan runs on a SCAN CLOCK (`scanClockToTime` / `scanClockAt`: seconds since the
+  window opened minus every leg), so a leg pauses scan progress for exactly its length and shifts only LATER scan
+  events; recorded pauses (Task 14 / GO-8) stay on the clock (they freeze during a leg). Ordinary returns (a win, a
+  round-cap retreat with someone standing, or any loss once the scan is done) take RETURN_SECONDS and never delay the
+  scan. `groundShipPosition(exp, t)` reads scanning / recovery / holding for the UI.
+- **Event schedule (groundOps.ts `advanceGroundOpsWindow(exp, now, driver)`).** The earliest pending event goes first;
+  at one instant scan events (a step boundary, a body's completion) precede team step ends; team ends at the same
+  instant run as a batch in team index order; after every event / batch `groundOpsAssignIdle(exp, t)` (exported for
+  GO-7d) and the run-end check run. The scan side stays in expedition.ts behind `GroundOpsScanDriver`
+  (`nextScanEventAt`, `processScanEvent`, `hoursAt`): `flaggedScanNext` walks the SAME boundary times as
+  `resolveEncounterScanningPhase`, mapped through the legs. Every stepEndsAt is written from the step's own start and
+  stored values. A non-finite `now` is ignored (a NaN once looped the guard in a scratch run).
+- **Step machine** as specified, with: work steps rounded to whole seconds (`max(1, round((to - from) x
+  taskWorkSeconds(standing members)))`); the segment a work step finishes is index `pointsCleared` (`segmentBankers[s] =
+  [team index]`, GO-7a review: `number[][]` for GO-7c's joint tasks, the banking team set's yield at offload); a fight is
+  resolved at its START with the team's `carry` and applied at its END; a win clears the point and sets `carry =
+  memberEnd` (`GroundTeamRun.carry` is now typed `Record<id, GroundMemberEnd>`, so it holds hpMax for display); a loss
+  drops the carry, puts the task back to `queued` (progress held) and returns the team; the bay clears conditions, the
+  task's downed list and the carry at its END; `taskId` / `attemptPoints` clear at the reload's end. The relic rolls at
+  the completing batch's offload on `taskRelicSeed` with the completing team's fieldwork find and the crew rare find
+  ramped at `completedAt` (new optional task field). Findings: one per offloaded batch, id
+  `groundTaskFindingId(exp, taskId, first, last)` = `<exp>-find-task-<task>-s<first>-<last>` (inclusive); only the
+  completing batch carries a `relic` key.
+- **Hold and flag (user Q4).** `lossStreak` (new optional task field) counts consecutive failed attempts that cleared no
+  new point (a point win resets it; `GroundTeamRun.attemptPoints` = pointsCleared at deploy). `groundTaskStuck(task)` at
+  `GROUND_STUCK_LOSSES` (3). **Deviation from the brief's "the run is stuck when every remaining task is stuck":** a lost
+  task is retried BEFORE the rest of its team's queue (D25 "when recovered ... they retry the mission"), so a stuck task
+  at the head blocks easier tasks queued behind it (the common case: a hard task on body 1 holds body 2's easy ones), and
+  the literal rule would never flag it. `groundOpsStuck(exp)` is therefore: the window is open and EVERY team that still
+  has work is blocked by a stuck head task (`groundTeamStuck` / `groundTeamHeadTask`), which includes the literal case.
+  `GROUND_OPS_STUCK_TEXT` = "Stuck: needs a stronger team or a skip"; the old ExpeditionPanel shows it. Also
+  `groundOpsStuckTaskIds` for per-card flags.
+- **Planning:** GO-7b gives a body's new tasks to the LOWEST-index deployed team, easiest first by
+  `groundTaskClearOdds` on a fresh squad (ties: discovery order); 2+ teams all land in team 0 until GO-7c. No team
+  deployed: the tasks are `skipped`. The first scanned body resets every idle team's `stepStartedAt` (GO-7a review).
+- **Scan encounters on a flagged run (user 9b.6):** `scanStepRoll` takes draw 1 at chance 0 when `exp.groundOps` is
+  present, so the supply cache (draw 2) reads the same stream position; legacy runs keep Task 14 exactly. NOTE for GO-8:
+  `rollStepBoundary` receives the boundary's SCAN-CLOCK time, so `expeditionHoursAtScan` (the Flight Deck ramp) ignores
+  recovery legs; convert through `scanClockToTime` if GO-8's events read the ramp.
+- **Dispatch:** `expeditionAwayTeamCheck` IS `deployableGroundTeams` now (`{ ok, security, science, ground }`); the
+  roster is `snapshotAwayRosterForTeams`; `groundOps = newGroundOpsState(snapshotGroundOps(...))`. Block text per the
+  plan. The ExpeditionPanel block lists every team's waits ("Alpha: Grokk returns to duty in 12m"). `deployableMembers`
+  stays for legacy readers (the AwayTeamPanel "N ready" counts still read it: GO-12's console should switch them).
+- **Claim:** `injuries.ts applyGroundOpsInjuries`: every member whose latest `bayEnds` is after the claim comes home
+  injured until it (`injuredAtSeconds` = that team's `bayStart`); never the flat 2h.
+- **Other UI (minimal, GO-13 / GO-14 replace it):** an activity card sums the task's offloaded batches
+  (`groundTaskFindingPrefix`); the legacy battle-log toggle is hidden on flagged runs; the notes line explains the return
+  trip.
+- **Tests:** `groundOpsLegacy.test.ts` (3: pre-Task-14 plain, Task-14 loss pause, activities wipes + evacuation; 16
+  checkpoints + claim each, captured on the pre-switch commit), `groundOpsTimeline.test.ts` (19: plan's one-team list +
+  carry threading against `resolveTaskFight`, stuck, step-length purity, segment split; it is a new file rather than
+  appended to groundOps.test.ts), `groundOpsParity.test.ts` (8: overlap, a recovery leg while scanning on a pinned seed,
+  the scan pause = 2 legs, no scan battles on a flagged run, big == 997 s == 1 s chunks over the first 2 h of the window
+  with carry damage and a retry, whole-run big == 997 s, a mid-leg save round trip). Every test that pins LEGACY behavior
+  now dispatches through new fixtures `asLegacyDispatch` / `withSlottedAwayTeams` / `withoutGroundOps`
+  (awayTeamTestFixtures.ts; `withMinimumAwayTeam` now auto-slots its pair); every existing golden (officerBonuses,
+  officerStatFacets, injuries) is unchanged. no-dead-stats: the dispatch scaffold is slotted; "injury recovery" adds the
+  Ground Ops bay (`groundTeamBaySeconds` on a full condition set) and its claim; "expedition run + claim" fingerprints the
+  flagged run (horizon 200 000 s: a held run is fingerprinted where it stands) AND its legacy twin; `crew:crew.loadSpeed`
+  and `gear:security:assaultHardsuit:groundHazardResist` removed (live). Suite 4196 -> 4226 passed (1 skipped).
+- **[PROVISIONAL] constants, each one line in groundOps.ts:** `DEPLOY_SECONDS` 60, `RETURN_SECONDS` 60,
+  `OFFLOAD_BASE_SECONDS` 120, `RELOAD_BASE_SECONDS` 120 (Q7); `IN_SYSTEM_LEG_SECONDS` 300 (a recovery leg pauses the scan
+  600 s); `GROUND_STUCK_LOSSES` 3 (Q4); `GROUND_HISTORY_CAP` 200; behaviors: a return with nothing new banked skips the
+  offload; a wipe after the scan is done takes the ordinary return (the ship holds station); a round-cap retreat with
+  someone standing is not a wipe (no leg); queue easiest first (Q3).
+- **For GO-7c:** the step machine is per team and already batches same-instant ends in team order; joint tasks need
+  `startFight` / `startWork` to take the lead's union team set and `finishWork` to bank `[...assignedTeamIds]`.
+  `planNewTasks` is the one place the default plan replaces. **For GO-7d:** advance, edit, then
+  `groundOpsAssignIdle(exp, now)`; `groundTaskProgressAt` gives the interpolated progress for a mid-work stop.
+  **For GO-8b:** a repair leg can be a new `GroundShipLeg.kind` (the scan clock already stops for every leg; legs are
+  serialized) and the "can the ship still recover them" rule reads `groundShipPosition`.
+
 ### GO-7c: Multi-team, default plan, helpers, multi-team tasks
 
 **Files:** `groundOps.ts`, tests `groundOpsTeams.test.ts` (synthetic 3-team hull fixture; every real hull stays at 1).

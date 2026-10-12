@@ -70,7 +70,7 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { withoutGroundTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundTeams } from "./awayTeamTestFixtures";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -92,6 +92,11 @@ import {
   seatFacet,
   seatOfDepartment,
 } from "./officerStats";
+
+// Ground Ops (GO-7b): this file pins LEGACY expedition runs (goldens captured before Ground Ops): every dispatch
+// slots the members in hire order (dispatch reads the slotted ground teams) and resolves without the groundOps
+// flag (asLegacyDispatch), exactly the record the pre-switch dispatch produced.
+const legacyStart: typeof startExpedition = (state, ...rest) => asLegacyDispatch(startExpedition(withSlottedAwayTeams(state), ...rest));
 
 // ===== fixtures =====
 
@@ -257,7 +262,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
   const runs: string[] = [];
   for (let i = 0; i < 8; i++) {
     const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-    const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const res = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.success).toBe(true);
     const done = advanceExpedition(res.expedition!, 1_000_000);
     const claimed = claimExpedition({ ...res.next, expeditions: [done] }, done.id);
@@ -473,8 +478,8 @@ describe("facet value and departments", () => {
     expect(outcomeJson(a)).toBe(outcomeJson(b));
     const ea = { ...withCrew(freshState(), low), awayMembers: ROSTER };
     const eb = { ...withCrew(freshState(), neutral), awayMembers: ROSTER };
-    const ra = startExpedition(ea, "ship-1", 1, expeditionCandidates(ea, "ship-1")[0].id);
-    const rb = startExpedition(eb, "ship-1", 1, expeditionCandidates(eb, "ship-1")[0].id);
+    const ra = legacyStart(ea, "ship-1", 1, expeditionCandidates(ea, "ship-1")[0].id);
+    const rb = legacyStart(eb, "ship-1", 1, expeditionCandidates(eb, "ship-1")[0].id);
     expect(JSON.stringify(advanceExpedition(ra.expedition!, 1_000_000))).toBe(JSON.stringify(advanceExpedition(rb.expedition!, 1_000_000)));
   });
 });
@@ -749,7 +754,7 @@ describe("Cunning: per-mission over-delivery", () => {
     let e: GameState = { ...withCrew(freshState(), bridgeWith({ tactical: { cunning: 28 }, medical: { cunning: 28 } })), awayMembers: ROSTER };
     const expSeeds: number[] = [];
     for (let i = 0; i < 20; i++) {
-      const res = startExpedition(e, "ship-1", 1, expeditionCandidates(e, "ship-1")[0].id);
+      const res = legacyStart(e, "ship-1", 1, expeditionCandidates(e, "ship-1")[0].id);
       expect(res.success).toBe(true);
       expSeeds.push(res.expedition!.seed);
       e = { ...res.next, expeditions: [] };
@@ -826,7 +831,7 @@ describe("Cunning: per-mission over-delivery", () => {
     let seen = { soft: false, notSoft: false, quick: false };
     for (let i = 0; i < 120 && !(seen.soft && seen.notSoft && seen.quick); i++) {
       const s = { ...s0, expeditionSeed: (0x13579 + i * 7919) >>> 0 };
-      const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+      const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
       const soft = cunningProc(exp.seed, "tactical", departmentFacet(s, s.ships[0], "security", "cunning"));
       const quick = cunningProc(exp.seed, "medical", departmentFacet(s, s.ships[0], "medical", "cunning"));
       expect(exp.ambushSoften).toBe(soft ? CUNNING_AMBUSH_SOFTEN : undefined);
@@ -855,8 +860,8 @@ describe("Cunning: per-mission over-delivery", () => {
     }
     const a = { ...withCrew(freshState(), pilot), awayMembers: ROSTER };
     const b = { ...withCrew(freshState(), neutral), awayMembers: ROSTER };
-    expect(JSON.stringify(startExpedition(a, "ship-1", 1, expeditionCandidates(a, "ship-1")[0].id).expedition)).toBe(
-      JSON.stringify(startExpedition(b, "ship-1", 1, expeditionCandidates(b, "ship-1")[0].id).expedition),
+    expect(JSON.stringify(legacyStart(a, "ship-1", 1, expeditionCandidates(a, "ship-1")[0].id).expedition)).toBe(
+      JSON.stringify(legacyStart(b, "ship-1", 1, expeditionCandidates(b, "ship-1")[0].id).expedition),
     );
   });
 });
@@ -921,7 +926,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
       ...withCrew(freshState(), bridgeWith({ pilot: { constitution: 28 }, science: { constitution: 28 } })),
       awayMembers: ROSTER,
     };
-    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
     expect(exp.rampFlightDeck).toBeCloseTo(0.18, 12);
     expect(exp.rampScience).toBeCloseTo(0.18, 12);
     expect(rampedEncounterEvasion(exp, 0)).toBe(exp.encounterEvasion);
@@ -933,7 +938,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     const bare = { ...freshState(), officers: bridgeWith({ science: { constitution: 28 } }), awayMembers: ROSTER };
     const plainBridge = bare.officers.map((o) => (o.seat === "science" ? { ...o, bonuses: [{ id: "sci.yieldSurge", magnitude: 0.1 }, { id: "test.none", magnitude: 0 }] as SeniorStaffOfficer["bonuses"] } : o));
     const noBuffState = { ...bare, officers: plainBridge };
-    const noBuff = startExpedition(noBuffState, "ship-1", 1, expeditionCandidates(noBuffState, "ship-1")[0].id).expedition!;
+    const noBuff = legacyStart(noBuffState, "ship-1", 1, expeditionCandidates(noBuffState, "ship-1")[0].id).expedition!;
     expect("rampScience" in noBuff).toBe(false);
   });
 
@@ -943,7 +948,7 @@ describe("Constitution: long-haul ramp and shorter turnaround", () => {
     expect(effectiveShipStats(b, b.ships[0]).unloadSpeedMult!).toBeGreaterThan(effectiveShipStats(a, a.ships[0]).unloadSpeedMult!);
     expect(officerRepairSpeedBonus(b, b.ships[0]) - officerRepairSpeedBonus(a, a.ships[0])).toBeCloseTo(0.1, 12);
     const bs = { ...b, awayMembers: ROSTER };
-    const e = startExpedition(bs, "ship-1", 1, expeditionCandidates(bs, "ship-1")[0].id).expedition!;
+    const e = legacyStart(bs, "ship-1", 1, expeditionCandidates(bs, "ship-1")[0].id).expedition!;
     expect(e.recoveryTurnaround).toBeCloseTo(0.1, 12);
     expect(injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0, officerFacetShare: 0.1 })).toBeLessThan(
       injuryRecoverySeconds({ medicalShare: 0, rapidRecoveryShare: 0 }),
@@ -962,7 +967,7 @@ describe("parity: every facet live, one big advance == many small advances", () 
     let ramped = 0;
     for (let i = 0; i < 6; i++) {
       const s = { ...s0, expeditionSeed: (0x2468ace + i * 7919) >>> 0 };
-      const start = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+      const start = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
       if (start.rampFlightDeck && start.rampScience) ramped++;
       const big = advanceExpedition(start, 1_000_000);
       let small = start;
@@ -1038,7 +1043,7 @@ describe("per-seat Integrity and Constitution rows", () => {
 
   it("Flight Deck Constitution: an expedition's return and a patrol's return leg shorten with the hours out", () => {
     const s = { ...withCrew(freshState(), bridgeWith({ pilot: { constitution: 28 } })), awayMembers: ROSTER };
-    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
     expect(exp.rampReturn).toBeCloseTo(0.18, 12);
     const { rampReturn: _r, ...plainExp } = exp;
     expect(returnDurationSeconds(exp)).toBeLessThan(returnDurationSeconds(plainExp as Expedition));
@@ -1111,7 +1116,7 @@ describe("per-seat Integrity and Constitution rows", () => {
 
   it("Science Integrity: a hazardous world slows the scan less; a calm one is unchanged", () => {
     const s = { ...withCrew(freshState(), bridgeWith({ science: { integrity: 28 } })), awayMembers: ROSTER };
-    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
     expect(exp.hazardSteady).toBeCloseTo(0.18, 12);
     const { hazardSteady: _h, ...plain } = exp;
     const hot = { ...exp.bodies[0], hazard: 0.8 };
@@ -1135,7 +1140,7 @@ describe("per-seat Integrity and Constitution rows", () => {
 
   it("Medical Integrity: members who come home injured recover sooner (frozen at dispatch)", () => {
     const s = { ...withCrew(freshState(), bridgeWith({ medical: { integrity: 28 } })), awayMembers: ROSTER };
-    const exp = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
+    const exp = legacyStart(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id).expedition!;
     expect(exp.injurySteady).toBeCloseTo(0.18, 12);
     const downed: Expedition = { ...exp, phase: "complete", scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: ["member-1"] }] };
     const { injurySteady: _i, ...plainExp } = downed;

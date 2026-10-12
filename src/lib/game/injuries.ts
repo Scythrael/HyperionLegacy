@@ -118,6 +118,36 @@ export function applyExpeditionInjuries(state: GameState, exp: Expedition): { ne
   return { next: { ...state, awayMembers }, injuries };
 }
 
+// Ground Operations (GO-7b, D24 + D25): bring a claimed GROUND OPS run's teams home. There is no flat injury:
+// the medical bay ran during the run (groundOps.ts: each member's own cure time on the run's FROZEN medical
+// factors), and it keeps running through the return leg, so at the claim only a member whose latest bay end
+// (GroundTeamRun.bayEnds) is still in the future comes home injured, with exactly the time left
+// (injuredUntilSeconds = that bay end, injuredAtSeconds = that bay's start). Everyone else is ready ("anyone
+// still in the bay comes home with the remaining time"). A member no longer on the roster is skipped; a member
+// somehow already injured keeps the LATER timer. Returns the SAME state when nobody is still in the bay. Pure.
+export function applyGroundOpsInjuries(state: GameState, exp: Expedition): { next: GameState; injuries: MemberInjury[] } {
+  const now = state.gameTimeSeconds;
+  const injuries: MemberInjury[] = [];
+  const startOf = new Map<string, number>();
+  for (const team of exp.groundOps?.teams ?? []) {
+    for (const [memberId, until] of Object.entries(team.bayEnds)) {
+      if (!(until > now) || startOf.has(memberId)) continue;
+      if (!state.awayMembers.some((m) => m.id === memberId)) continue;
+      injuries.push({ memberId, recoverySeconds: until - now, untilSeconds: until });
+      startOf.set(memberId, team.bayStart ?? now);
+    }
+  }
+  if (injuries.length === 0) return { next: state, injuries };
+  const byId = new Map(injuries.map((i) => [i.memberId, i] as const));
+  const awayMembers = state.awayMembers.map((m): AwayMember => {
+    const injury = byId.get(m.id);
+    if (!injury) return m;
+    if (m.injuredUntilSeconds !== undefined && m.injuredUntilSeconds >= injury.untilSeconds) return m;
+    return { ...m, injuredUntilSeconds: injury.untilSeconds, injuredAtSeconds: startOf.get(m.id) ?? now };
+  });
+  return { next: { ...state, awayMembers }, injuries };
+}
+
 // ===== Display =====
 
 // The share of the current injury already recovered, 0..1, for the recovery bar. Reads the injury's own

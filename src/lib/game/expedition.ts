@@ -89,15 +89,30 @@ import {
   scanDownedBefore,
   scanStepKey,
 } from "./gambit";
-// E-CREW (Task 12): the named away-team ROSTER snapshot, frozen at dispatch beside the strength snapshot.
-import { deployableMembers, snapshotAwayRoster } from "./awayTeam";
 // Ground Ops (GO-2): the D18 minimums live in groundTeams.ts (its deployable reader applies them per ground
 // team); imported for the dispatch gate below and re-exported so existing callers keep their import.
-import { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS } from "./groundTeams";
+// GO-7b: dispatch reads the slotted ground teams (deployableGroundTeams), no automatic stand-ins (user
+// 2026-10-12); the named roster is the deployed teams' union snapshot (groundOps.ts).
+import { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS, deployableGroundTeams, type GroundDeployCheck } from "./groundTeams";
 export { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS };
+// Ground Operations (GO-7b): the timeline engine of a flagged run (Expedition.groundOps). groundOps.ts never
+// imports this module: the scan side reaches it through GROUND_OPS_SCAN_DRIVER below.
+import {
+  advanceGroundOpsWindow,
+  cloneGroundOps,
+  groundOpsBodyScanned,
+  groundOpsProgress,
+  newGroundOpsState,
+  scanClockAt,
+  scanClockToTime,
+  snapshotAwayRosterForTeams,
+  snapshotGroundOps,
+  type GroundOpsScanDriver,
+} from "./groundOps";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
-// crewOverlay and crewBuffs only, never this module, so no cycle).
-import { applyExpeditionInjuries, type MemberInjury } from "./injuries";
+// crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
+// members still in the medical bay instead (applyGroundOpsInjuries).
+import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -356,28 +371,31 @@ export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReaso
     case "noSuchCandidate":
       return "Select a target system";
     case "needsAwayTeam":
-      return "Needs at least 1 Security and 1 Science away-team member: hire them on the ship's Away Team tab";
+      return "Needs a ground team with at least 1 Security and 1 Science member slotted and ready: set it up on the ship's Away Team tab";
   }
 }
 
 // D18 MINIMUM AWAY TEAM (user, 2026-10-06): "A ship with no roster should not be able to fight." An
-// expedition launches only with at least this many DEPLOYABLE members in each squad (ready, within the
-// hull's squad cap: awayTeam.ts deployableMembers, the same rule the dispatch snapshot uses, so the gate
-// and the snapshot can never disagree). There is no anonymous stand-in team. Composition beyond the
-// minimum is the player's choice (D17: no rails). MIN_SECURITY_MEMBERS / MIN_SCIENCE_MEMBERS (both 1) are
-// defined in groundTeams.ts and re-exported at the imports above.
+// expedition launches only with at least this many DEPLOYABLE members in each squad. There is no anonymous
+// stand-in team. Composition beyond the minimum is the player's choice (D17: no rails).
+// MIN_SECURITY_MEMBERS / MIN_SCIENCE_MEMBERS (both 1) are defined in groundTeams.ts and re-exported above.
+// Ground Ops (GO-7b): "deployable" now means the ship's SLOTTED ground teams (groundTeams.ts
+// deployableGroundTeams: a team deploys only when every slotted member is ready and each squad meets D18; a
+// ready reserve member never stands in, user 2026-10-12). The dispatch snapshot (groundOps.ts
+// snapshotGroundOps) reads the same reader, so the gate and the snapshot can never disagree.
 
-// Does `ship` field the minimum away team right now? Returns the deployable head counts so the dispatch
-// UI can say what is missing. Pure.
+// Does `ship` field the minimum away team right now? Returns the deploying head counts and the full per-team
+// readiness (`ground`: what each team waits on, groundTeams.ts groundTeamWaitText) so the dispatch UI can say
+// what is missing. Pure.
 export interface ExpeditionAwayTeamCheck {
   ok: boolean;
-  security: number; // deployable Security members (ready, capped)
-  science: number; // deployable Science members (ready, capped)
+  security: number; // Security members across the deploying ground teams
+  science: number; // Science members across the deploying ground teams
+  ground: GroundDeployCheck;
 }
 export function expeditionAwayTeamCheck(state: GameState, ship: ShipInstance): ExpeditionAwayTeamCheck {
-  const security = deployableMembers(state, ship, "security").length;
-  const science = deployableMembers(state, ship, "science").length;
-  return { ok: security >= MIN_SECURITY_MEMBERS && science >= MIN_SCIENCE_MEMBERS, security, science };
+  const ground = deployableGroundTeams(state, ship.id);
+  return { ok: ground.ok, security: ground.security, science: ground.science, ground };
 }
 
 // Generate the target system + its 1..3 generic bodies from the expedition seed. Deterministic. The
@@ -634,11 +652,6 @@ export function startExpedition(
   // D19: Expedition.gambitPrograms is INERT (no battle reads it; each member carries its own program in the
   // roster). Written empty so the stored shape stays loadable, and so no one mistakes it for a live input.
   const gambitPrograms = { security: [], science: [] };
-  // E-CREW (Task 12): snapshot the ship's READY named members (converted gear, traits, implants, programs)
-  // at the same dispatch instant. D18: the gate above guarantees both squads are non-empty, so every
-  // expedition launched from here on carries a roster. (An OLD in-flight expedition may still lack one;
-  // the battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.)
-  const roster = snapshotAwayRoster(state, ship);
   // E-CREW (Task 20): Fleet Triage (stronger in-battle healing + first-aid cures) and Morale Anchor (Fear
   // resist) for the away team, read off the seated officers at the same dispatch instant.
   const squadTriage = officerBonusTotal(state, ship, "officer.crewLossPrevention");
@@ -663,6 +676,14 @@ export function startExpedition(
   const rampReturn = departmentFacet(state, ship, "flightDeck", "constitution");
   const hazardSteady = departmentFacet(state, ship, "science", "integrity");
   const injurySteady = departmentFacet(state, ship, "medical", "integrity");
+  // E-CREW (Task 12) + Ground Ops (GO-7b): the deploying ground teams with their frozen bay / offload / reload
+  // factors (GO-7a), and the named ROSTER = those teams' union snapshot (converted gear, traits, implants,
+  // programs), at the same dispatch instant. D18: the gate above guarantees a deploying team with both
+  // squads, so every expedition launched from here on carries a roster. (An OLD in-flight expedition may still
+  // lack one; the legacy battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.) One
+  // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
+  const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
+  const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
 
   const expedition: Expedition = {
     id,
@@ -714,6 +735,8 @@ export function startExpedition(
     ...(rampReturn > 0 ? { rampReturn } : {}),
     ...(hazardSteady > 0 ? { hazardSteady } : {}),
     ...(injurySteady > 0 ? { injurySteady } : {}),
+    // Ground Operations (GO-7b): the flag. This run resolves on the Ground Ops timeline (groundOps.ts).
+    groundOps: newGroundOpsState(groundSnapshot),
   };
 
   return {
@@ -810,7 +833,9 @@ function activitiesDurationSeconds(exp: Expedition): number {
 export function returnDurationSeconds(exp: Expedition): number {
   const base = baseTransitSeconds(exp);
   if (!exp.rampReturn) return base;
-  const hours = (transitDurationSeconds(exp) + scanningDurationSeconds(exp) + activitiesDurationSeconds(exp)) / 3600;
+  // Ground Ops (GO-7b): a flagged run's scan and tasks share one window (flaggedWindowSeconds).
+  const outbound = exp.groundOps ? flaggedWindowSeconds(exp) : scanningDurationSeconds(exp) + activitiesDurationSeconds(exp);
+  const hours = (transitDurationSeconds(exp) + outbound) / 3600;
   const ramp = constitutionRamp(exp.rampReturn, hours);
   return ramp === 0 ? base : base / (1 + ramp);
 }
@@ -821,8 +846,11 @@ function phaseDurationSeconds(exp: Expedition): number {
     case "transit":
       return transitDurationSeconds(exp);
     case "scanning":
-      return scanningDurationSeconds(exp);
+      // Ground Ops (GO-7b): a flagged run's scan ends at its clock's end mapped through the recovery legs.
+      return exp.groundOps ? flaggedScanEndAt(exp) - exp.phaseAnchorSeconds : scanningDurationSeconds(exp);
     case "activities":
+      // Ground Ops (GO-7b): unknown until the window closes (the phase does not end before endedAt).
+      if (exp.groundOps) return exp.groundOps.endedAt === undefined ? Infinity : Math.max(0, exp.groundOps.endedAt - exp.phaseAnchorSeconds);
       return activitiesDurationSeconds(exp);
     case "return":
       return returnDurationSeconds(exp);
@@ -1005,7 +1033,11 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, h
   // Draw 1 is ALWAYS taken (chance 0 for a missing body), so draw 2 sits at the same stream position.
   // E-CREW (Task 16): members downed at an earlier boundary are out of the squad (scanDownedBefore reads
   // only the boundaries before this one, so the roll is the same whenever it is evaluated).
-  const encounter = rng.chance(body ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut)) : 0, 1000);
+  // Ground Ops (GO-7b, user 9b.6): a FLAGGED run rolls no scan-time ground battle (nobody is on the ground
+  // while the ship scans; GO-8's ship-side events take this draw). The draw is still taken at chance 0, so the
+  // supply cache (draw 2) reads the same stream position as on a legacy run.
+  const chance = body && !exp.groundOps ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut)) : 0;
+  const encounter = rng.chance(chance, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   return { encounter, supplyCache: !encounter && cache };
 }
@@ -1133,6 +1165,136 @@ function resolveEncounterScanningPhase(exp: Expedition, elapsed: number): void {
   commit();
 }
 
+// ============================================================================
+// Ground Operations (GO-7b): the SCAN side of a flagged run's combined operations window
+// ============================================================================
+//
+// A flagged run (Expedition.groundOps) scans on the SAME boundary walk as an encounter-enabled legacy run
+// (resolveEncounterScanningPhase: body by body, boundary by boundary, recorded pauses on the clock), but the
+// walk runs on the SCAN CLOCK (groundOps.ts scanClockToTime / scanClockAt: seconds since the window opened
+// minus every recovery leg), and it is advanced ONE EVENT AT A TIME by groundOps.ts advanceGroundOpsWindow,
+// interleaved in time order with the ground teams' step ends. So a team's wipe that sends the ship on a
+// recovery leg shifts every LATER scan event, and nothing earlier. A completed body hands its new tasks to the
+// teams (groundOps.ts groundOpsBodyScanned) at that body's completion time.
+
+type FlaggedScanEvent =
+  | { kind: "boundary"; clock: number; bodyIndex: number; step: number; flat: number }
+  | { kind: "body"; clock: number; bodyIndex: number };
+
+// The next scan event of a flagged run on the scan clock: the first boundary not yet rolled (at or past the
+// cursor), or the completion of the first body not yet scanned, whichever the walk reaches first. Every time
+// is computed from stored values exactly as resolveEncounterScanningPhase computes it. Pure.
+function flaggedScanNext(exp: Expedition): FlaggedScanEvent | null {
+  const steps = exp.encounterSteps ?? 1;
+  const perBody = Math.max(0, steps - 1);
+  const events = exp.scanEvents ?? [];
+  const cursor = exp.scanStepCursor ?? 0;
+  let bodyStart = 0;
+  for (let i = 0; i < exp.bodies.length; i++) {
+    const body = exp.bodies[i];
+    const bodyTime = body.scanTotal / scanRatePerSecond(exp, body);
+    const stepTime = bodyTime / steps;
+    let paused = 0;
+    for (let k = 1; k <= perBody; k++) {
+      const at = bodyStart + k * stepTime + paused;
+      const flat = i * perBody + (k - 1);
+      if (flat >= cursor) return { kind: "boundary", clock: at, bodyIndex: i, step: k, flat };
+      paused += pauseAt(events, i, k);
+    }
+    const bodyEnd = bodyStart + bodyTime + paused;
+    if (!body.scanned) return { kind: "body", clock: bodyEnd, bodyIndex: i };
+    bodyStart = bodyEnd;
+  }
+  return null;
+}
+
+// Hours since dispatch at absolute time `t` of a flagged run's window (the transit is fully flown). Pure.
+function flaggedHoursAt(exp: Expedition, t: number): number {
+  const start = exp.groundOps?.startedAt ?? t;
+  return (transitDurationSeconds(exp) + (t - start)) / 3600;
+}
+
+// The scan side handed to groundOps.ts advanceGroundOpsWindow. processScanEvent rolls the boundary (a flagged
+// run's encounter chance is 0: scanStepRoll) or completes the body (discoveries, then the ground tasks).
+const GROUND_OPS_SCAN_DRIVER: GroundOpsScanDriver = {
+  nextScanEventAt(exp) {
+    const ops = exp.groundOps;
+    const ev = flaggedScanNext(exp);
+    return ev && ops ? scanClockToTime(ops, ev.clock) : null;
+  },
+  processScanEvent(exp) {
+    const ops = exp.groundOps;
+    const ev = flaggedScanNext(exp);
+    if (!ops || !ev) return;
+    const body = exp.bodies[ev.bodyIndex];
+    if (ev.kind === "boundary") {
+      const events = exp.scanEvents ?? [];
+      exp.scanEvents = events; // the step roll reads exp.scanEvents (Task 16), so the working list must BE it
+      rollStepBoundary(exp, events, body, ev.bodyIndex, ev.step, ev.clock);
+      exp.scanStepCursor = ev.flat + 1;
+      return;
+    }
+    body.scanProgress = body.scanTotal;
+    body.scanned = true;
+    assignDiscoveriesAndActivities(exp, body, ev.bodyIndex);
+    groundOpsBodyScanned(exp, ev.bodyIndex, scanClockToTime(ops, ev.clock));
+  },
+  hoursAt: flaggedHoursAt,
+};
+
+// The scan's display progress at `now` on a flagged run: the body being scanned shows the scan clock's
+// progress, held at a boundary through a recorded pause (the resolveEncounterScanningPhase rule); scanned
+// bodies are full and later bodies untouched (0). Display only: the window owns every latch. Mutates the clone.
+function setFlaggedScanProgress(exp: Expedition, now: number): void {
+  const ops = exp.groundOps;
+  if (!ops || ops.startedAt === undefined) return;
+  const clock = scanClockAt(ops, now);
+  const steps = exp.encounterSteps ?? 1;
+  const perBody = Math.max(0, steps - 1);
+  const events = exp.scanEvents ?? [];
+  let bodyStart = 0;
+  for (let i = 0; i < exp.bodies.length; i++) {
+    const body = exp.bodies[i];
+    const rate = scanRatePerSecond(exp, body);
+    const bodyTime = body.scanTotal / rate;
+    const stepTime = bodyTime / steps;
+    let paused = 0;
+    for (let k = 1; k <= perBody; k++) {
+      if (!body.scanned) {
+        const at = bodyStart + k * stepTime + paused;
+        if (clock + PHASE_EPS < at) break;
+        const pause = pauseAt(events, i, k);
+        if (pause > 0 && clock + PHASE_EPS < at + pause) {
+          body.scanProgress = Math.min(body.scanTotal, k * stepTime * rate);
+          return;
+        }
+      }
+      paused += pauseAt(events, i, k);
+    }
+    if (!body.scanned) {
+      body.scanProgress = Math.min(body.scanTotal, Math.max(0, clock - bodyStart - paused) * rate);
+      return;
+    }
+    bodyStart = bodyStart + bodyTime + paused;
+  }
+}
+
+// When a flagged run's scan ends (absolute time): the whole scan on the clock (every body plus its recorded
+// pauses, encounterScanDurationSeconds) mapped through the recovery legs. Exact once every body is scanned. Pure.
+function flaggedScanEndAt(exp: Expedition): number {
+  const ops = exp.groundOps;
+  const clock = encounterScanDurationSeconds(exp);
+  return ops && ops.startedAt !== undefined ? scanClockToTime(ops, clock) : exp.phaseAnchorSeconds + clock;
+}
+
+// The seconds a flagged run's operations window lasts: endedAt - startedAt once it has closed, else the scan
+// alone (an estimate, for the readers that ask before the end). Pure.
+function flaggedWindowSeconds(exp: Expedition): number {
+  const ops = exp.groundOps;
+  if (ops && ops.startedAt !== undefined && ops.endedAt !== undefined) return ops.endedAt - ops.startedAt;
+  return encounterScanDurationSeconds(exp);
+}
+
 // Resolve ACTIVITIES up to `consumed` seconds into the phase: the E3 GAMBIT resolver (swapped in for the
 // E2a placeholder). It completes tasks in flat body/activity order, each taking its body's
 // activityDurationSeconds (ACTIVITY_SECONDS without a Science party; see below), flipping `done`
@@ -1218,14 +1380,28 @@ function cloneExpedition(exp: Expedition): Expedition {
     bodies: exp.bodies.map((b) => ({
       ...b,
       discoveries: b.discoveries.map((d) => ({ ...d })),
-      activities: b.activities.map((a) => (a.downedMemberIds ? { ...a, downedMemberIds: [...a.downedMemberIds] } : { ...a })),
+      activities: b.activities.map(cloneActivity),
     })),
     findings: exp.findings.map((f) => ({ ...f })),
     // E-CREW (Task 14): the scan events (absent on a pre-Task-14 run stays absent).
     ...(exp.scanEvents
       ? { scanEvents: exp.scanEvents.map((ev) => (ev.downedMemberIds ? { ...ev, downedMemberIds: [...ev.downedMemberIds] } : { ...ev })) }
       : {}),
+    // Ground Operations (GO-7b): the run's operations record (absent on a legacy run stays absent).
+    ...(exp.groundOps ? { groundOps: cloneGroundOps(exp.groundOps) } : {}),
   };
+}
+
+// One activity, its arrays copied (a legacy record has only downedMemberIds; a Ground Ops task also carries its
+// fight points, owner teams and segment bankers). Keys keep their order, so a legacy clone serializes exactly
+// as before.
+function cloneActivity(a: ExpeditionActivity): ExpeditionActivity {
+  const c = { ...a };
+  if (a.downedMemberIds) c.downedMemberIds = [...a.downedMemberIds];
+  if (a.fightPoints) c.fightPoints = [...a.fightPoints];
+  if (a.assignedTeamIds) c.assignedTeamIds = [...a.assignedTeamIds];
+  if (a.segmentBankers) c.segmentBankers = a.segmentBankers.map((ids) => [...ids]);
+  return c;
 }
 
 // Advance ONE expedition to the given game time. Pure: returns the SAME reference when nothing changes
@@ -1239,6 +1415,26 @@ export function advanceExpedition(exp: Expedition, nowSeconds: number): Expediti
   while (e.phase !== "complete" && guard++ < PHASE_ADVANCE_GUARD) {
     const elapsed = Math.max(0, nowSeconds - e.phaseAnchorSeconds);
     if (e.phase === "transit") maybeResolveAnomaly(e, elapsed);
+    // Ground Operations (GO-7b): a flagged run's scanning and activities phases are ONE operations window
+    // (groundOps.ts advanceGroundOpsWindow, see the scan-side block above). The window opens at the scanning
+    // anchor; the scanning phase ends once every body is scanned (its exact end time, recovery legs included),
+    // the activities phase once the window has closed (endedAt). Both ends are latches the window sets, so the
+    // phase math never disagrees with the event schedule.
+    if (e.groundOps && (e.phase === "scanning" || e.phase === "activities")) {
+      const ops = e.groundOps;
+      if (e.phase === "scanning" && ops.startedAt === undefined) ops.startedAt = e.phaseAnchorSeconds;
+      advanceGroundOpsWindow(e, nowSeconds, GROUND_OPS_SCAN_DRIVER);
+      setFlaggedScanProgress(e, nowSeconds);
+      if (e.phase === "scanning") {
+        if (!e.bodies.every((b) => b.scanned)) break;
+        e.phaseAnchorSeconds += flaggedScanEndAt(e) - e.phaseAnchorSeconds;
+      } else {
+        if (ops.endedAt === undefined) break;
+        e.phaseAnchorSeconds += Math.max(0, ops.endedAt - e.phaseAnchorSeconds);
+      }
+      e.phase = PHASE_NEXT[e.phase];
+      continue;
+    }
     // E-CREW (Task 14): an encounter-enabled scan resolves BEFORE its duration is read, because a loss
     // pause rolled on the way lengthens the phase (see encounterScanDurationSeconds for why this is exact).
     const encounterScan = e.phase === "scanning" && hasScanEncounters(e);
@@ -1398,7 +1594,9 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   if (exp.phase !== "complete") return { next: state, success: false, reason: "notComplete" };
   const removed: GameState = { ...state, expeditions: state.expeditions.filter((e) => e.id !== expeditionId) };
   const deposited = depositExpeditionFindings(removed, exp.findings);
-  const { next, injuries } = applyExpeditionInjuries(deposited, exp);
+  // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
+  // left (never the flat 2h); a legacy run keeps Task 16's injuries.
+  const { next, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
   return {
     next,
     success: true,
@@ -1442,6 +1640,8 @@ export function expeditionActivitiesTotal(exp: Expedition): number {
 // expedition reads 1. A zero-length phase (e.g. no activities) reads 1 so the UI shows it filled/skipped.
 export function expeditionPhaseFraction(exp: Expedition, nowSeconds: number): number {
   if (exp.phase === "complete") return 1;
+  // Ground Ops (GO-7b): the activities phase has no known length until it ends; its bar is the tasks' progress.
+  if (exp.groundOps && exp.phase === "activities") return groundOpsProgress(exp, nowSeconds);
   const dur = phaseDurationSeconds(exp);
   if (dur <= 0) return 1;
   const elapsed = Math.max(0, nowSeconds - exp.phaseAnchorSeconds);

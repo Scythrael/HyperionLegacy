@@ -105,7 +105,9 @@ import {
 } from "./expedition";
 import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter, type GambitLogEvent } from "./gambit";
 import { fieldworkEffect } from "./fieldwork";
-import { applyExpeditionInjuries } from "./injuries";
+import { applyExpeditionInjuries, applyGroundOpsInjuries } from "./injuries";
+import { groundTeamBaySeconds } from "./groundOps";
+import { withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 import { OFFICER_BONUSES_PENDING_IN_RELEASE, effectiveShipStats, officerCombatMods } from "./crewOverlay";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
@@ -131,8 +133,6 @@ const FIELD_KITS_FEAR = "Field Kits 16b: enemies inflict Fear (D26)";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 const TASK_23_ALL_BUFFS = "Task 23: small boost to all complement buffs (D26)";
 const TASK_23_LONG_HAUL = "Task 23: complement long-haul ramp (D26)";
-const GROUND_OPS_HAZARD = "Ground Operations: less planet-hazard slowdown on task work (D26)";
-const GROUND_OPS_RELOAD = "Ground Operations: reload step of the return trip (D26)";
 const GROUND_OPS_BOARDING = "Ground Operations scan events: boarding attempts (D26)";
 const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
 
@@ -172,11 +172,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "crew:crew.missionTurnaround": { phase: TASK_23, reason: "Mission Turnaround: turnaround cut (exclusive pool)" },
   "crew:crew.preventCrewLoss": { phase: TASK_23, reason: "Prevent a Crew Loss: shorter injuries (exclusive pool)" },
   "crew:crew.crewEffectiveness": { phase: TASK_23_ALL_BUFFS, reason: "Crew Effectiveness (Medical): healthy crew work better" },
-  "crew:crew.loadSpeed": {
-    phase: GROUND_OPS_RELOAD,
-    reason: "Rapid Loadout (Operations): there is no loading phase today",
-    note: "The FA talent logistics4 Efficient Stowage (statMult loadSpeed) targets the same stat.",
-  },
   "crew:crew.boardingDefense": {
     phase: GROUND_OPS_BOARDING,
     reason: "Boarding Defense (Security): a ship-side scan event can attempt to board; this buff decides it",
@@ -193,10 +188,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "racial:ossir": { phase: GROUND_OPS_BOARDING, reason: "racial crew.boardingDefense (see crew:crew.boardingDefense)" },
 
   // Member gear lines, per variety
-  "gear:security:assaultHardsuit:groundHazardResist": {
-    phase: GROUND_OPS_HAZARD,
-    reason: "only the Science party's hazard resist is read today (Task 15 carry: inert on Security)",
-  },
   "gear:science:sidearm:groundPower": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
   "gear:science:sidearm:groundAccuracy": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
   "gear:science:sidearm:groundStatusChance": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
@@ -393,6 +384,11 @@ function expeditionOutcome(e: Expedition): unknown {
     bodies: e.bodies.map((b) => ({ scanProgress: b.scanProgress, scanned: b.scanned, discoveries: b.discoveries, activities: b.activities })),
     scanEvents: e.scanEvents,
     findings: e.findings,
+    // Ground Ops (GO-7b): when the operations window closed, the recovery legs, and each team's bay ends (the
+    // timeline's consequences; the frozen factors are inputs and stay out).
+    groundOps: e.groundOps
+      ? { endedAt: e.groundOps.endedAt, shipLegs: e.groundOps.shipLegs, bayEnds: e.groundOps.teams.map((t) => t.bayEnds) }
+      : null,
   };
 }
 
@@ -460,7 +456,9 @@ function syntheticBody(planetType: ExpeditionPlanetType, hazard: number): Expedi
 
 // Dispatch the expedition scaffold (the roster above + the transform) once per seed.
 function dispatches(t: Transform): { state: GameState; exp: Expedition }[] {
-  const scaffold = t({ ...shipScaffold(), awayMembers: ROSTER.map((m) => ({ ...m })), nextAwayMemberId: 100 });
+  // Ground Ops (GO-7b): dispatch reads the slotted ground teams, so the roster is slotted in hire order after
+  // the transform (which may add members, gear or crew).
+  const scaffold = withSlottedAwayTeams(t({ ...shipScaffold(), awayMembers: ROSTER.map((m) => ({ ...m })), nextAwayMemberId: 100 }));
   return EXPEDITION_SEEDS.map((seed) => {
     const s = { ...scaffold, expeditionSeed: seed };
     const res = startExpedition(s, SHIP_ID, 1, expeditionCandidates(s, SHIP_ID)[0].id);
@@ -514,26 +512,57 @@ function probeExpeditionBattles(t: Transform): string {
   );
 }
 
+// Injury recovery, both engines: a LEGACY run's claim injuries (every Security member downed in a scan battle,
+// timed by the ship's care at claim), and a GROUND OPS run's medical bay (every member carrying a full set of
+// conditions, timed by the run's frozen care: groundTeamBaySeconds) and its claim (each member still in the bay
+// comes home with the time left).
+const BAY_PROBE_CONDITIONS = ["health", "poison", "bleed", "downed", "fracture"];
 function probeInjuries(t: Transform): string {
   return fp(
     dispatches(t).map(({ state, exp }) => {
+      const legacy = withoutGroundOps(exp);
       const downed: Expedition = {
-        ...exp,
+        ...legacy,
         phase: "complete",
         scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: (exp.roster?.security ?? []).map((m) => m.memberId) }],
       };
-      return applyExpeditionInjuries(state, downed).injuries;
+      const ops = exp.groundOps!;
+      const hurt = ops.teams.map((team) => ({
+        ...team,
+        conditions: Object.fromEntries([...team.securityIds, ...team.scienceIds].map((id) => [id, BAY_PROBE_CONDITIONS])),
+      }));
+      const bay = hurt.map((team) => groundTeamBaySeconds(exp, team));
+      const inBay: Expedition = {
+        ...exp,
+        phase: "complete",
+        groundOps: {
+          ...ops,
+          teams: hurt.map((team, i) => ({
+            ...team,
+            bayStart: state.gameTimeSeconds,
+            bayEnds: Object.fromEntries(Object.entries(bay[i]).map(([id, secs]) => [id, state.gameTimeSeconds + secs])),
+          })),
+        },
+      };
+      return [applyExpeditionInjuries(state, downed).injuries, bay, applyGroundOpsInjuries({ ...state, gameTimeSeconds: state.gameTimeSeconds + 60 }, inBay).injuries];
     }),
   );
 }
 
+// A whole run + claim on BOTH engines: the dispatched Ground Ops run (the timeline: task work with the
+// Security suits' hazard resist, fights, the bay on the frozen care, offload and reload, the window's end) and
+// its legacy twin (no groundOps flag: the activities phase's battles and Task 16 injuries). A Ground Ops run
+// that holds a task it cannot win is fingerprinted where it stands at the horizon (user Q4: it never gives up).
+const RUN_PROBE_HORIZON = 200_000;
 function probeExpeditionRun(t: Transform): string {
   return fp(
-    dispatches(t).map(({ state, exp }) => {
-      const done = advanceExpedition(exp, 1_000_000);
-      const claimed = claimExpedition({ ...state, expeditions: [done] }, done.id);
-      return [expeditionOutcome(done), outcome(claimed.next)];
-    }),
+    dispatches(t).map(({ state, exp }) =>
+      [exp, withoutGroundOps(exp)].map((start) => {
+        const done = advanceExpedition(start, RUN_PROBE_HORIZON);
+        const claimed = claimExpedition({ ...state, expeditions: [done] }, done.id);
+        return [expeditionOutcome(done), claimed.success ? outcome(claimed.next) : null];
+      }),
+    ),
   );
 }
 

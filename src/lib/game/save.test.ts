@@ -36,7 +36,7 @@ import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
 // today's hire-order dispatch, and proves a migrated save plays byte-identically (expedition + economy).
 import { emptyGroundTeams } from "./groundTeams";
 import { deployableMembers } from "./awayTeam";
-import { plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { tick } from "./tick";
 import type { GameState } from "./model";
@@ -6612,7 +6612,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
   it("plays byte-identically: the step only ADDS groundTeams (in-flight expedition, claim, economy ticks)", () => {
     let s = withMinimumAwayTeam(crewed());
     s = { ...s, awayMembers: s.awayMembers.map(withoutInjury) };
-    const launched = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    // A v66 save predates Ground Ops (GO-7b), so its in-flight run is a legacy one (no groundOps flag).
+    const launched = asLegacyDispatch(startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id));
     expect(launched.success).toBe(true);
     const raw = v66State(launched.next);
     const viaStep = migrateFrom(66, JSON.parse(JSON.stringify(raw)));
