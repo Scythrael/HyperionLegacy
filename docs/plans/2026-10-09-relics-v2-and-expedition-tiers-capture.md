@@ -121,7 +121,12 @@ Mockup: https://claude.ai/artifact/MYMAwEVVpnnH62Mscmju1A (open calls 1-11).
 - **Timing: in 0.14.0.** "Let's get this done in 0.14.0. Because it makes sense for when we create the actual content.
   We want to make sure that we're able to make use of it. The universe is not a safe place, but we want to be able to
   practice our skills and grow in a place that feels safer before everything starts to try to kill us."
-- **Squad limits:** "Basically, it'd be doubling the number of ground team totals." (Reading to confirm: see below.)
+- **Squad limits:** "Basically, it'd be doubling the number of ground team totals." CONFIRMED (2026-10-12): DOUBLE
+  EVERY HULL: every hull gets 4 squads (2 teams' worth); bigger hulls get more later.
+- **Team shape CONFIRMED:** PAIRS of squads, named by content: Strike (2 Security), Survey (2 Science), Ground (1 + 1).
+- **Telescope range CONFIRMED:** range = which systems it can pre-survey before launch (nearer regions first); sensor
+  effectiveness = how much detail it reads (risk factors, then the squad recommendation); out-of-range systems launch
+  "blind".
 - **NEW FACILITY, SUBSPACE TELESCOPE:** "Upgrading it increases range, and sensor effectiveness, so as you upgrade it,
   the scans become refined enough to be able to determine details like \"yeah, you need more strike teams than science
   teams for this one\" where you even potentially get a recommendation on the expedition card on what to launch with.
