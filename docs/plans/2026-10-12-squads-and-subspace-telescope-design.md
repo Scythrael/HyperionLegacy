@@ -757,3 +757,7 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
   (berths = one squad's worth, capacity totals, the one-squad-change property); save.test.ts 205 -> 206 (the frozen
   migrations, plus the Bravo assertions); expedition.test.ts wait kinds. Suite 4285 -> 4303 passed (1 skipped);
   `npm run check` 0 errors. Legacy goldens, parity and every engine test unchanged.
+- **Direct Strike <-> Survey switch (user, 2026-10-13):** "You have reserve squad members that don't belong to a given
+  squad, so it shouldn't really matter too much." So KEEP AS BUILT: the switch is allowed; the reserve is a general pool
+  not tied to a squad; a temporary over-capacity reserve is fine (hiring that type pauses until members move; dispatch
+  unaffected). The SQ-7 picker shows it plainly, no confirm, no forced benching.
