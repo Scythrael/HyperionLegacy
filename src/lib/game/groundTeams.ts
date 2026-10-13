@@ -25,7 +25,13 @@ import type {
   SquadLoadoutKit,
 } from "./model";
 import { emptyGroundTeams, groundSquadSize, groundTeamCount } from "./model";
-import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, squadsOfType, teamSlotCount } from "./groundComposition";
+import {
+  DEFAULT_GROUND_TEAM_KIND,
+  isGroundTeamKind,
+  isValidComposition,
+  squadsOfType,
+  teamSlotCount,
+} from "./groundComposition";
 import { byIdNumber, isMemberReady, shipCrewLocked } from "./awayTeam";
 import {
   GROUND_SQUAD_TYPES,
@@ -64,11 +70,16 @@ export {
 // The default team names by index (user 9b.7: "Alpha / Bravo / Charlie", renameable).
 export const GROUND_TEAM_DEFAULT_NAMES = ["Alpha", "Bravo", "Charlie"] as const;
 
-// D18 MINIMUM AWAY TEAM (user, 2026-10-06): at least 1 Security AND 1 Science member. Ground Ops applies it
-// PER GROUND TEAM (D25: a ground team is a Security squad of 1 to capacity + a Science squad of 1 to
-// capacity). expedition.ts re-exports both for its dispatch gate.
+// D18 MINIMUM AWAY TEAM (user, 2026-10-06): at least 1 Security AND 1 Science member. Squads SQ-2 (user,
+// capture 3c: D18 stands across what deploys): it applies ACROSS THE DEPLOYING TEAMS, since a Strike team (2
+// Security squads) or a Survey team (2 Science squads) can never hold both types alone. expedition.ts
+// re-exports both for its dispatch gate.
 export const MIN_SECURITY_MEMBERS = 1;
 export const MIN_SCIENCE_MEMBERS = 1;
+
+// The fewest members EACH SQUAD of a deploying team must have slotted (Squads SQ-2, design 2.4: a "Strike
+// team" with an empty second squad would be a mislabel). Replaces GO-2's per-team D18 check.
+export const MIN_SQUAD_MEMBERS = 1;
 
 // A team's display name: its custom name when set and not blank, else the default by index (Alpha /
 // Bravo / Charlie), else "Team N" past the third team. [PROVISIONAL, Q15: no hull has a 4th team yet.]
@@ -318,6 +329,10 @@ export function v68ShipGroundTeamsFromV67(
 //   wrongTeamType: the member's team type does not match the squad (or the two members of a swap differ)
 //   alreadyThere:  a no-op (slotting a member into their own slot, swapping a member with themselves)
 //   notSlotted:    unslotting a member in no slot, or a swap where neither member is slotted
+//   noSuchKind:    a team type change to something that is not Ground / Strike / Survey (SQ-2)
+//   sameKind:      a no-op team type change: the team already is that type and needs no confirm (SQ-2)
+//   needsBothTypes: the change would leave the ship without a Security squad or without a Science squad
+//                  (user: "Always require one of each type minimum"; Strike + Strike, Survey + Survey) (SQ-2)
 export type GroundSlotBlockReason =
   | "noShip"
   | "onMission"
@@ -327,7 +342,10 @@ export type GroundSlotBlockReason =
   | "wrongShip"
   | "wrongTeamType"
   | "alreadyThere"
-  | "notSlotted";
+  | "notSlotted"
+  | "noSuchKind"
+  | "sameKind"
+  | "needsBothTypes";
 
 export type GroundSlotGate = { ok: true } | { ok: false; reason: GroundSlotBlockReason };
 
@@ -353,6 +371,12 @@ export function groundSlotBlockText(reason: GroundSlotBlockReason): string {
       return "Already in this slot";
     case "notSlotted":
       return "Not in a ground team slot";
+    case "noSuchKind":
+      return "No such team type";
+    case "sameKind":
+      return "Already this team type";
+    case "needsBothTypes":
+      return "A ship needs at least one Security squad and one Science squad";
   }
 }
 
@@ -526,16 +550,120 @@ export function setGroundTeamHelp(state: GameState, shipId: string, teamIndex: n
 }
 
 // ============================================================================
+// Team type change (Squads SQ-2, design 2.6 + the user's rulings 2026-10-12)
+// ============================================================================
+//
+// setGroundTeamKind turns one team into a Ground (Security + Science), Strike (2 Security) or Survey (2
+// Science) team. Rules:
+// - Refuses while the ship's crew is locked (out on a run), like every slot write.
+// - Refuses a composition without a Security squad or without a Science squad (needsBothTypes).
+// - Members whose type the new kind still holds keep their slots, in place (Ground -> Strike keeps the
+//   Security squad as squad 1; Strike -> Ground keeps squad 1 and drops squad 2). Members of a DROPPED squad
+//   go to the ship's RESERVE (aboard, unslotted). Nobody leaves the ship: the reserve berths are one squad's
+//   worth (groundComposition.ts shipReserveBerths), so a change from a full reserve-free ship always fits;
+//   a ship whose reserve was already in use can end up OVER CAPACITY, which only blocks hiring that type
+//   (awayTeam.ts squadGate overCapacity) until members leave.
+// - The NEW squad (the slots the new kind adds) auto-fills from the reserve of its type, first by hire
+//   order (the GO-2 auto-slot QoL). Gaps the player left in a kept squad stay as they are.
+// - Clears `kindPending` (the migration's "Pick a type" prompt); choosing the type a pending team already
+//   has is that confirm ("Keep Ground"), so it is not a no-op.
+
+// What a type change would move: the members of dropped squads (to the reserve, slot order) and the reserve
+// members the new squad takes (hire order). The UI names them before the player confirms ("Sho and Vela
+// move to the reserve"). On refusal, the reason. Pure.
+export type GroundTeamKindPreview =
+  | { ok: true; toReserve: string[]; fromReserve: string[] }
+  | { ok: false; reason: GroundSlotBlockReason };
+
+// The gate plus the planned teams (a normalized, cleaned copy with the change applied). Checked in order:
+// noShip, onMission, noSuchTeam, noSuchKind, sameKind, needsBothTypes. Pure.
+function planGroundTeamKind(
+  state: GameState,
+  shipId: string,
+  teamIndex: number,
+  kind: GroundTeamKind,
+): { gate: GroundSlotGate } | { teams: ShipGroundTeam[]; toReserve: string[]; fromReserve: string[] } {
+  const s = shipGate(state, shipId);
+  if ("gate" in s) return { gate: s.gate };
+  const teams = writableTeams(state, s.ship);
+  const team = teamAt(teams, teamIndex);
+  if (!team) return { gate: refuse("noSuchTeam") };
+  if (!isGroundTeamKind(kind)) return { gate: refuse("noSuchKind") };
+  if (team.kind === kind && team.kindPending !== true) return { gate: refuse("sameKind") };
+  const kinds = teams.map((t) => t.kind);
+  kinds[teamIndex] = kind;
+  if (!isValidComposition(kinds)) return { gate: refuse("needsBothTypes") };
+
+  const next: ShipGroundTeam = { ...team, kind, security: [], science: [] };
+  delete next.kindPending;
+  const toReserve: string[] = [];
+  const fromReserve: string[] = [];
+  const opened: [GroundSquadType, number][] = [];
+  for (const teamType of GROUND_SQUAD_TYPES) {
+    const old = team[teamType];
+    const length = teamSlotCount(s.ship.typeKey, kind, teamType);
+    next[teamType] = Array.from({ length }, (_, i) => (i < old.length ? old[i] : null));
+    for (let i = length; i < old.length; i += 1) {
+      const id = old[i];
+      if (id !== null) toReserve.push(id);
+    }
+    if (length > old.length) opened.push([teamType, old.length]);
+  }
+  teams[teamIndex] = next;
+  for (const [teamType, from] of opened) {
+    const slotted = new Set<string>();
+    for (const t of teams) for (const id of [...t.security, ...t.science]) if (id !== null) slotted.add(id);
+    const reserve = state.awayMembers
+      .filter((m) => m.assignedShipId === shipId && m.teamType === teamType && !slotted.has(m.id))
+      .sort(byIdNumber);
+    const slots = next[teamType];
+    for (let i = from, r = 0; i < slots.length && r < reserve.length; i += 1, r += 1) {
+      slots[i] = reserve[r].id;
+      fromReserve.push(reserve[r].id);
+    }
+  }
+  return { teams, toReserve, fromReserve };
+}
+
+// Can team `teamIndex` of `shipId` become `kind`? Pure.
+export function canSetGroundTeamKind(state: GameState, shipId: string, teamIndex: number, kind: GroundTeamKind): GroundSlotGate {
+  const plan = planGroundTeamKind(state, shipId, teamIndex, kind);
+  return "gate" in plan ? plan.gate : { ok: true };
+}
+
+// Who a type change would move (see GroundTeamKindPreview). Pure.
+export function previewGroundTeamKind(
+  state: GameState,
+  shipId: string,
+  teamIndex: number,
+  kind: GroundTeamKind,
+): GroundTeamKindPreview {
+  const plan = planGroundTeamKind(state, shipId, teamIndex, kind);
+  if ("gate" in plan) return plan.gate.ok ? { ok: true, toReserve: [], fromReserve: [] } : plan.gate;
+  return { ok: true, toReserve: plan.toReserve, fromReserve: plan.fromReserve };
+}
+
+// Change a team's type (the rules above). Refuses (SAME state) whenever canSetGroundTeamKind does. Never
+// changes an awayMembers record (nobody leaves the ship; only slots move). Pure.
+export function setGroundTeamKind(state: GameState, shipId: string, teamIndex: number, kind: GroundTeamKind): GameState {
+  const plan = planGroundTeamKind(state, shipId, teamIndex, kind);
+  if ("gate" in plan) return state;
+  return withShipTeams(state, shipId, plan.teams);
+}
+
+// ============================================================================
 // The deployable reader (GO-2; GO-7b switches dispatch to it). NO AUTOMATIC STAND-INS (user, 2026-10-12):
 // a ground team with any slotted member who is not ready does not deploy, and the dispatch attempt shows
 // what it is waiting on with the time remaining. The player swaps members by hand.
 // ============================================================================
 
 // Why one ground team does not deploy right now:
-//   injured:      a slotted member is not ready (D24 recovery); carries the member's name, the absolute
-//                 return time and the seconds left, so the wait text needs no state
-//   needSecurity: fewer than MIN_SECURITY_MEMBERS Security members slotted (D18, per team)
-//   needScience:  fewer than MIN_SCIENCE_MEMBERS Science members slotted
+//   injured:    a slotted member is not ready (D24 recovery); carries the member's name, the absolute return
+//               time and the seconds left, so the wait text needs no state
+//   emptySquad: one of the team's squads has fewer than MIN_SQUAD_MEMBERS members slotted (Squads SQ-2:
+//               PER SQUAD, replacing GO-2's per-team needSecurity / needScience). `squadIndex` is the squad's
+//               place in the team (Security squads first, then Science: the flat slot lists' order),
+//               `typeSquadIndex` its place among the team's `typeSquads` squads of that type.
 export type GroundTeamWait =
   | {
       kind: "injured";
@@ -545,48 +673,81 @@ export type GroundTeamWait =
       readyAtSeconds: number;
       secondsLeft: number;
     }
-  | { kind: "needSecurity" }
-  | { kind: "needScience" };
+  | { kind: "emptySquad"; squadIndex: number; teamType: GroundSquadType; typeSquadIndex: number; typeSquads: number };
+
+// One squad of a team, as the deploy check read it (Squads SQ-2).
+export interface GroundSquadReadiness {
+  index: number; // the squad's place in the team: Security squads first, then Science
+  teamType: GroundSquadType;
+  members: AwayMember[]; // the slotted members (aboard, matching type), slot order
+}
 
 export interface GroundTeamReadiness {
   index: number; // ship team index (0 = Alpha)
   name: string; // groundTeamName: the custom name, else the default
-  security: AwayMember[]; // the slotted Security members (aboard, matching type), slot order
-  science: AwayMember[]; // the slotted Science members, slot order
+  kind: GroundTeamKind; // the team's type (SQ-2)
+  squads: GroundSquadReadiness[]; // the team's squads by its kind (Ground: Security then Science)
+  security: AwayMember[]; // every slotted Security member across its squads, slot order
+  science: AwayMember[]; // every slotted Science member, slot order
   staffed: boolean; // at least one member slotted (an unstaffed team simply stays aboard)
-  deploys: boolean; // every slotted member ready AND the D18 minimum in each squad
-  waits: GroundTeamWait[]; // [] exactly when it deploys; injuries first (Security then Science, slot order)
+  deploys: boolean; // every slotted member ready AND every squad holds at least MIN_SQUAD_MEMBERS
+  waits: GroundTeamWait[]; // [] exactly when it deploys; injuries first (squad then slot order), then empty squads
   // When the team deploys by WAITING alone: now when it deploys; the last slotted member's return when the
-  // only waits are injuries; null when the player must slot someone first (needSecurity / needScience).
+  // only waits are injuries; null when the player must slot someone first (an empty squad).
   readyAtSeconds: number | null;
 }
 
 // Why the ship cannot launch ground operations right now:
 //   noShip:        the ship does not exist
 //   noGroundTeams: the hull fields no ground teams
-//   noTeamReady:   no ground team deploys, so what deploys cannot meet D18 (1 Security AND 1 Science)
-export type GroundDeployBlockReason = "noShip" | "noGroundTeams" | "noTeamReady";
+//   noTeamReady:   no ground team deploys
+//   missingType:   at least one team deploys, but what deploys lacks D18's Security or Science member (a
+//                  Strike team ready while the only Science squads wait, SQ-2); `missingType` names it
+export type GroundDeployBlockReason = "noShip" | "noGroundTeams" | "noTeamReady" | "missingType";
 
 export interface GroundDeployCheck {
   ok: boolean; // at least one team deploys and the deploying teams meet D18 in total
   reason?: GroundDeployBlockReason; // set only when not ok
+  missingType?: GroundSquadType; // set only with reason missingType
   teams: GroundTeamReadiness[]; // every team of the hull, index order
   security: number; // Security members across the deploying teams
   science: number; // Science members across the deploying teams
-  // The soonest time the ship can launch by waiting alone: now when ok; the earliest team readyAtSeconds
-  // otherwise; null when no team gets there without the player slotting someone.
+  // The soonest time the ship can launch by waiting alone: now when ok; otherwise the first time the teams
+  // that are ready by then (each team's readyAtSeconds) hold D18's Security AND Science member between them;
+  // null when no wait gets there without the player slotting someone.
   readyAtSeconds: number | null;
 }
 
-// Per-team readiness for `shipId` at state.gameTimeSeconds. A slot naming an id that is not a member aboard
-// this ship with the matching type (impossible through the actions; defensive) reads as empty. The crew
-// lock is NOT part of this reader (dispatch's own gates refuse a ship that is already out). Pure.
+// The soonest time the waitable teams cover D18 between them: teams in readyAtSeconds order (ties by index),
+// summing each one's slotted Security / Science members, the first readyAtSeconds at which both minimums
+// hold; null when they never do. Pure.
+function launchReadyAt(teams: readonly GroundTeamReadiness[]): number | null {
+  const waitable = teams
+    .filter((t): t is GroundTeamReadiness & { readyAtSeconds: number } => t.readyAtSeconds !== null)
+    .sort((a, b) => a.readyAtSeconds - b.readyAtSeconds || a.index - b.index);
+  let security = 0;
+  let science = 0;
+  for (const t of waitable) {
+    security += t.security.length;
+    science += t.science.length;
+    if (security >= MIN_SECURITY_MEMBERS && science >= MIN_SCIENCE_MEMBERS) return t.readyAtSeconds;
+  }
+  return null;
+}
+
+// Per-team readiness for `shipId` at state.gameTimeSeconds (Squads SQ-2: per SQUAD). A team deploys only
+// when EACH of its squads has at least MIN_SQUAD_MEMBERS slotted and every slotted member is ready (no
+// automatic stand-ins, user 2026-10-12: a ready reserve member never stands in); the ship is ok when at
+// least one team deploys and the deploying teams hold D18 (MIN_SECURITY_MEMBERS AND MIN_SCIENCE_MEMBERS)
+// between them. A slot naming an id that is not a member aboard this ship with the matching type
+// (impossible through the actions; defensive) reads as empty. The crew lock is NOT part of this reader
+// (dispatch's own gates refuse a ship that is already out). Pure.
 export function deployableGroundTeams(state: GameState, shipId: string): GroundDeployCheck {
   const now = state.gameTimeSeconds;
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { ok: false, reason: "noShip", teams: [], security: 0, science: 0, readyAtSeconds: null };
   const byId = new Map(state.awayMembers.map((m) => [m.id, m] as const));
-  const slotted = (ids: (string | null)[], teamType: GroundSquadType): AwayMember[] => {
+  const slotted = (ids: readonly (string | null)[], teamType: GroundSquadType): AwayMember[] => {
     const out: AwayMember[] = [];
     for (const id of ids) {
       const m = id === null ? undefined : byId.get(id);
@@ -595,33 +756,42 @@ export function deployableGroundTeams(state: GameState, shipId: string): GroundD
     return out;
   };
   const teams: GroundTeamReadiness[] = shipGroundTeams(ship).map((t, index) => {
-    const squads: Record<GroundSquadType, AwayMember[]> = {
-      security: slotted(t.security, "security"),
-      science: slotted(t.science, "science"),
-    };
+    const squads: GroundSquadReadiness[] = [];
+    const empties: GroundTeamWait[] = [];
+    for (const teamType of GROUND_SQUAD_TYPES) {
+      const typeSquads = squadsOfType(t.kind, teamType);
+      const size = groundSquadSize(ship.typeKey, teamType);
+      for (let k = 0; k < typeSquads; k += 1) {
+        const members = slotted(t[teamType].slice(k * size, (k + 1) * size), teamType);
+        const squadIndex = squads.length;
+        squads.push({ index: squadIndex, teamType, members });
+        if (members.length < MIN_SQUAD_MEMBERS) empties.push({ kind: "emptySquad", squadIndex, teamType, typeSquadIndex: k, typeSquads });
+      }
+    }
     const waits: GroundTeamWait[] = [];
     let latestReturn = now;
-    for (const teamType of GROUND_SQUAD_TYPES) {
-      for (const m of squads[teamType]) {
+    for (const squad of squads) {
+      for (const m of squad.members) {
         if (isMemberReady(m, now)) continue;
         const readyAtSeconds = m.injuredUntilSeconds as number; // not ready = a future injuredUntilSeconds
         latestReturn = Math.max(latestReturn, readyAtSeconds);
-        waits.push({ kind: "injured", memberId: m.id, memberName: m.name, teamType, readyAtSeconds, secondsLeft: readyAtSeconds - now });
+        waits.push({ kind: "injured", memberId: m.id, memberName: m.name, teamType: squad.teamType, readyAtSeconds, secondsLeft: readyAtSeconds - now });
       }
     }
-    const shortSecurity = squads.security.length < MIN_SECURITY_MEMBERS;
-    const shortScience = squads.science.length < MIN_SCIENCE_MEMBERS;
-    if (shortSecurity) waits.push({ kind: "needSecurity" });
-    if (shortScience) waits.push({ kind: "needScience" });
+    waits.push(...empties);
+    const security = squads.filter((q) => q.teamType === "security").flatMap((q) => q.members);
+    const science = squads.filter((q) => q.teamType === "science").flatMap((q) => q.members);
     return {
       index,
       name: groundTeamName(ship, index),
-      security: squads.security,
-      science: squads.science,
-      staffed: squads.security.length + squads.science.length > 0,
+      kind: t.kind,
+      squads,
+      security,
+      science,
+      staffed: security.length + science.length > 0,
       deploys: waits.length === 0,
       waits,
-      readyAtSeconds: shortSecurity || shortScience ? null : latestReturn,
+      readyAtSeconds: empties.length > 0 ? null : latestReturn,
     };
   });
   const deploying = teams.filter((t) => t.deploys);
@@ -631,31 +801,32 @@ export function deployableGroundTeams(state: GameState, shipId: string): GroundD
   if (deploying.length > 0 && security >= MIN_SECURITY_MEMBERS && science >= MIN_SCIENCE_MEMBERS) {
     return { ok: true, teams, security, science, readyAtSeconds: now };
   }
-  const waitable = teams.map((t) => t.readyAtSeconds).filter((v): v is number => v !== null);
+  const readyAtSeconds = launchReadyAt(teams);
+  if (deploying.length === 0) return { ok: false, reason: "noTeamReady", teams, security, science, readyAtSeconds };
   return {
     ok: false,
-    reason: "noTeamReady",
+    reason: "missingType",
+    missingType: security < MIN_SECURITY_MEMBERS ? "security" : "science",
     teams,
     security,
     science,
-    readyAtSeconds: waitable.length > 0 ? Math.min(...waitable) : null,
+    readyAtSeconds,
   };
 }
 
 // The player-facing line for one wait (US English, UI-free: every number it needs rides on the wait), e.g.
-// "Grokk returns to duty in 12m". EXHAUSTIVE with no default. Pure.
+// "Grokk returns to duty in 12m", "Needs a Science member in a slot" (a Ground team's one Science squad),
+// "Security squad 2 needs a member in a slot" (a Strike team). EXHAUSTIVE with no default. Pure.
 export function groundTeamWaitText(wait: GroundTeamWait): string {
   switch (wait.kind) {
     case "injured":
       return `${wait.memberName} returns to duty in ${formatCountdown(wait.secondsLeft)}`;
-    case "needSecurity":
-      return MIN_SECURITY_MEMBERS === 1
-        ? "Needs a Security member in a slot"
-        : `Needs at least ${MIN_SECURITY_MEMBERS} Security members in slots`;
-    case "needScience":
-      return MIN_SCIENCE_MEMBERS === 1
-        ? "Needs a Science member in a slot"
-        : `Needs at least ${MIN_SCIENCE_MEMBERS} Science members in slots`;
+    case "emptySquad": {
+      const type = wait.teamType === "security" ? "Security" : "Science";
+      return wait.typeSquads === 1
+        ? `Needs a ${type} member in a slot`
+        : `${type} squad ${wait.typeSquadIndex + 1} needs a member in a slot`;
+    }
   }
 }
 
@@ -680,7 +851,13 @@ export function groundDeployBlockText(check: GroundDeployCheck, gameTimeSeconds:
       return "This ship fields no ground teams";
     case "noTeamReady":
       return check.readyAtSeconds === null
-        ? `No ground team is ready: slot at least ${MIN_SECURITY_MEMBERS} Security and ${MIN_SCIENCE_MEMBERS} Science member into one team`
+        ? `No ground team is ready: slot at least ${MIN_SQUAD_MEMBERS} member into each squad of a team`
         : `No ground team is ready: the first is ready in ${formatCountdown(check.readyAtSeconds - gameTimeSeconds)}`;
+    case "missingType": {
+      const type = check.missingType === "security" ? "Security" : "Science";
+      return check.readyAtSeconds === null
+        ? `Nothing ready covers ${type}: a team with a ${type} squad must deploy too`
+        : `Nothing ready covers ${type}: ready in ${formatCountdown(check.readyAtSeconds - gameTimeSeconds)}`;
+    }
   }
 }

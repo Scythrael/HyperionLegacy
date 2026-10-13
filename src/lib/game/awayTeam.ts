@@ -2,10 +2,11 @@
 //
 // Each ship fields a persistent roster of NAMED away-team members (model.ts AwayMember), stored flat in
 // GameState.awayMembers and keyed to a ship by assignedShipId, exactly like Senior Staff officers.
-// Squads are typed (D2): Security fights, Science does fieldwork, Prospecting is WIRED ONLY (every hull
-// lists it with count 0, so no ship fields one). Squad sizes come from SHIP_TYPES[typeKey].awayTeams
-// (design section 5.2), never from a hard-coded per-type switch, so a future hull can list two Security
-// details with no engine change (S4-I19).
+// Squads are typed (D2): Security fights, Science does fieldwork, Prospecting is WIRED ONLY (no ship fields
+// one). Squad SIZES come from SHIP_TYPES[typeKey].awayTeams[].size (design section 5.2), never from a
+// hard-coded per-type switch. Squads SQ-2: how MANY squads of each type a ship fields comes from ONE
+// authority, the hull's groundSquads (team count) plus the ship's team KINDS (groundComposition.ts); the
+// awayTeams[].count field is no longer read anywhere.
 //
 // Every function is pure: it reads its inputs and returns fresh values, never mutating an input in place.
 // Task 12 adds the ROSTER SNAPSHOT (snapshotAwayRoster): startExpedition freezes the ship's ready members,
@@ -38,7 +39,7 @@ import {
   DEFAULT_MEMBER_GAMBIT,
   MEMBER_GROUND_STAT_KEYS,
   SENIOR_STAFF_ROSTER_BASE,
-  SHIP_TYPES,
+  groundSquadSize,
   isMemberSlotType,
   memberVariety,
   startAutoSalvageGrace,
@@ -52,24 +53,23 @@ import { makeRng, weightedPick, type Rng } from "./combat/rng";
 import { onMissionLock } from "./equipment";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
-import { shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
+import { isGroundSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
+// Squads SQ-2: the composition-following hire cap. groundComposition.ts imports model.ts only.
+import { reserveBerthsUsed, shipCrewCapacity, shipTeamKinds, type ShipCrewCapacity } from "./groundComposition";
 // Ground Ops (GO-3): the racial physical perks the snapshot freezes. medicalBay.ts imports model.ts types only.
 import { memberPerksFor } from "./medicalBay";
 
 // ============================================================================
-// Squad sizes (design section 5.2)
+// Squad capacity (design section 5.2; Squads SQ-2: the composition-following cap)
 // ============================================================================
 
-// How many members a hull's squads of `teamType` hold in total: size * count, summed over every entry
-// of that type (a hull may list more than one squad of a type). 0 when the hull lists no such squad,
-// has no awayTeams data at all, or the type key is unknown. Pure.
-export function squadSlots(typeKey: ShipTypeKey, teamType: AwayTeamType): number {
-  const teams = SHIP_TYPES[typeKey]?.awayTeams ?? [];
-  let slots = 0;
-  for (const t of teams) {
-    if (t.teamType === teamType) slots += t.size * t.count;
-  }
-  return slots;
+// How many member SLOTS `ship` fields of `teamType` across its ground teams: the hull's squad size for the
+// type x the squads of that type its composition holds (groundComposition.ts shipCrewCapacity over the
+// ship's team kinds: Ground + Ground on a 3 / 3 hull is 6 / 6, Strike + Ground 9 / 3). 0 for Prospecting
+// (wired only), an unknown hull, or a hull with no ground teams. Pure.
+export function shipSquadSlots(ship: Pick<ShipInstance, "typeKey" | "groundTeams">, teamType: AwayTeamType): number {
+  if (!isGroundSquadType(teamType)) return 0;
+  return shipCrewCapacity(ship.typeKey, shipTeamKinds(ship))[teamType];
 }
 
 // The members currently on `shipId`'s `teamType` squad, in roster order. Pure read (fresh array).
@@ -77,12 +77,31 @@ export function membersInSquad(state: GameState, shipId: string, teamType: AwayT
   return state.awayMembers.filter((m) => m.assignedShipId === shipId && m.teamType === teamType);
 }
 
-// Whether `shipId`'s `teamType` squad has an open slot. False for a ship that does not exist and for any
-// squad type the hull does not field (Prospecting today). Pure.
+// A ship's crew room (Squads SQ-2, the hire cap): its fixed crew for the current composition (slots per type
+// plus the shared reserve berths, one squad's worth), the Security / Science members aboard (slotted or in
+// the reserve; benched members are not aboard), and the reserve berths they fill (members of each type past
+// that type's slots, summed). berthsUsed > capacity.reserveBerths means the ship is OVER CAPACITY, possible
+// only after a type change (groundTeams.ts setGroundTeamKind never forces anyone off the ship). Pure.
+export interface ShipCrewRoom {
+  capacity: ShipCrewCapacity;
+  aboard: { security: number; science: number };
+  berthsUsed: number;
+}
+
+export function shipCrewRoom(state: GameState, ship: ShipInstance): ShipCrewRoom {
+  const capacity = shipCrewCapacity(ship.typeKey, shipTeamKinds(ship));
+  const aboard = { security: 0, science: 0 };
+  for (const m of state.awayMembers) {
+    if (m.assignedShipId === ship.id && isGroundSquadType(m.teamType)) aboard[m.teamType] += 1;
+  }
+  return { capacity, aboard, berthsUsed: reserveBerthsUsed(aboard, capacity) };
+}
+
+// Whether one more `teamType` member fits aboard `shipId` (the hire / move cap, Squads SQ-2; the crew lock is
+// not part of it). False for a ship that does not exist and for any squad type the hull does not field
+// (Prospecting today). Pure.
 export function squadHasRoom(state: GameState, shipId: string, teamType: AwayTeamType): boolean {
-  const ship = state.ships.find((s) => s.id === shipId);
-  if (!ship) return false;
-  return membersInSquad(state, shipId, teamType).length < squadSlots(ship.typeKey, teamType);
+  return squadGate(state, shipId, teamType).ok;
 }
 
 // ============================================================================
@@ -310,7 +329,10 @@ export function shipCrewLocked(state: GameState, shipId: string): boolean {
 //   onMission:    a ship involved is crew-locked (shipCrewLocked); Task 27 unifies every crew lock on it
 //   noSquad:      the target hull fields no squad of the member's team type at all (0 slots), so the
 //                 player is never told "Squad is full" about a squad that does not exist
-//   squadFull:    the target squad of the member's team type has no open slot
+//   squadFull:    every slot of the member's type is taken (aboard counts, reserve included) and every
+//                 shared reserve berth is full (Squads SQ-2: the composition's slots + one squad's worth)
+//   overCapacity: every slot of the member's type is taken and the ship already carries MORE reserve
+//                 members than it has berths (only after a type change; it clears as members leave)
 //   alreadyThere: a reassign to where the member already is (same ship, or benching a benched member)
 export type AwayCrewBlockReason =
   | "noCandidate"
@@ -319,6 +341,7 @@ export type AwayCrewBlockReason =
   | "onMission"
   | "noSquad"
   | "squadFull"
+  | "overCapacity"
   | "alreadyThere";
 
 export type AwayCrewGate = { ok: true } | { ok: false; reason: AwayCrewBlockReason };
@@ -339,20 +362,32 @@ export function awayCrewBlockText(reason: AwayCrewBlockReason): string {
     case "noSquad":
       return "This ship fields no such squad";
     case "squadFull":
-      return "Squad is full";
+      return "No open slot or reserve berth";
+    case "overCapacity":
+      return "Reserve is over capacity";
     case "alreadyThere":
       return "Already on this ship";
   }
 }
 
-// The squad half of a hire / move gate: noShip, noSquad (the hull fields none of this type), squadFull,
-// or ok. The caller has already checked the crew lock. Pure.
+// The squad half of a hire / move gate (Squads SQ-2, the composition-following cap): noShip, noSquad (the
+// ship fields no slot of this type), then the cap. A member of type T fits when T still has a slot's worth
+// of room (aboard T < T's slots: the arrival auto-slots, or the reserve was a deliberate unslot) OR one more
+// reserve member still fits the SHARED berths (berths used after the arrival <= the berths). Otherwise
+// overCapacity when the ship is already past its berths (a type change), else squadFull. Reserves count
+// toward the cap (GO-2), benched members do not. The caller has already checked the crew lock. Pure.
+//   Example, a General Freighter (3 / 3 squads, 3 berths): Ground + Ground holds 6 Security + 6 Science
+//   slots + 3 berths (15); Strike + Ground 9 + 3 + 3 (15). A Destroyer (4 / 3, 4 berths): Ground + Ground
+//   8 + 6 + 4 (18).
 function squadGate(state: GameState, shipId: string, teamType: AwayTeamType): AwayCrewGate {
   const ship = state.ships.find((s) => s.id === shipId);
   if (!ship) return { ok: false, reason: "noShip" };
-  if (squadSlots(ship.typeKey, teamType) === 0) return { ok: false, reason: "noSquad" };
-  if (!squadHasRoom(state, shipId, teamType)) return { ok: false, reason: "squadFull" };
-  return { ok: true };
+  if (!isGroundSquadType(teamType) || shipSquadSlots(ship, teamType) === 0) return { ok: false, reason: "noSquad" };
+  const room = shipCrewRoom(state, ship);
+  if (room.aboard[teamType] < room.capacity[teamType]) return { ok: true };
+  const after = { ...room.aboard, [teamType]: room.aboard[teamType] + 1 };
+  if (reserveBerthsUsed(after, room.capacity) <= room.capacity.reserveBerths) return { ok: true };
+  return { ok: false, reason: room.berthsUsed > room.capacity.reserveBerths ? "overCapacity" : "squadFull" };
 }
 
 // The board candidate with this id, or undefined when it is not on the current board. Builds the board
@@ -372,7 +407,7 @@ function hireGateFor(state: GameState, candidate: AwayMember | undefined, shipId
 }
 
 // Can this board candidate be hired into `shipId`'s squad of the candidate's team type? Checked in order:
-// noCandidate, noShip, onMission, noSquad, squadFull. Pure.
+// noCandidate, noShip, onMission, noSquad, then the cap (squadFull / overCapacity). Pure.
 export function canHireAwayMember(state: GameState, candidateId: string, shipId: string): AwayCrewGate {
   return hireGateFor(state, boardCandidate(state, candidateId), shipId);
 }
@@ -460,7 +495,7 @@ export function fireAwayMember(state: GameState, memberId: string): GameState {
 
 // Can this member move to `shipId`'s squad of their own team type, or be benched (shipId null)? Checked
 // in order: noMember, alreadyThere, onMission (the ship they leave), then for a real target noShip,
-// onMission (the ship they join), noSquad and squadFull. Pure.
+// onMission (the ship they join), noSquad and the cap (squadFull / overCapacity). Pure.
 export function canReassignAwayMember(state: GameState, memberId: string, shipId: string | null): AwayCrewGate {
   const target = state.awayMembers.find((m) => m.id === memberId);
   if (!target) return { ok: false, reason: "noMember" };
@@ -629,11 +664,12 @@ export function byIdNumber<T extends { id: string }>(a: T, b: T): number {
   return x === y ? 0 : x - y;
 }
 
-// The members of `ship`'s `teamType` squad who DEPLOY: ready ones only, in hire order, capped at the hull's
-// squadSlots. An injured member, or one past the cap (possible only if a hull's squad size ever shrank),
-// stays aboard. Pure.
+// The members of `ship`'s `teamType` squad who DEPLOY under the PRE-GROUND-OPS rule: ready ones only, in hire
+// order, capped at ONE squad of the type (the hull's squad size, what a ship fielded before Squads SQ-1).
+// An injured member, or one past the cap, stays aboard. Dispatch has read the slotted ground teams since
+// GO-7b; this stays as the legacy reference snapshotAwayRoster (and its tests) freeze. Pure.
 export function deployableMembers(state: GameState, ship: ShipInstance, teamType: AwayTeamType): AwayMember[] {
-  const cap = squadSlots(ship.typeKey, teamType);
+  const cap = isGroundSquadType(teamType) ? groundSquadSize(ship.typeKey, teamType) : 0;
   return membersInSquad(state, ship.id, teamType)
     .filter((m) => isMemberReady(m, state.gameTimeSeconds))
     .sort(byIdNumber)
@@ -765,8 +801,8 @@ export function snapshotMember(member: AwayMember, worn: readonly EquipmentInsta
   };
 }
 
-// The ship's away-team ROSTER SNAPSHOT at dispatch: each squad's deployable members (ready, hire order,
-// capped), frozen with their converted gear, traits, implants and programs. An empty squad is []. Pure:
+// The ship's away-team ROSTER SNAPSHOT under the pre-GO-7b rule: each squad's deployable members (ready,
+// hire order, one squad's worth), frozen with their converted gear, traits, implants and programs. An empty squad is []. Pure:
 // reads state.awayMembers and state.equipment (fittedToMemberId, the member-gear authority); returns fresh
 // data with no live references. D19: it never reads state.gambitPrograms.
 export function snapshotAwayRoster(state: GameState, ship: ShipInstance): AwayRosterSnapshot {

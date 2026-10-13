@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SHIP_TYPES, type GroundTeamKind, type ShipInstance, type ShipTypeKey } from "./model";
 import {
   DEFAULT_GROUND_TEAM_KIND,
-  GROUND_RESERVE_BERTHS,
   GROUND_TEAM_KINDS,
   compositionLabel,
   compositionSquads,
@@ -183,27 +182,62 @@ describe("shipTeamKinds / shipComposition (absent-safe reads of the stored kinds
   });
 });
 
-describe("the backup roster (user follow-up: a fixed crew per ship plus ~2 reserve berths, PROVISIONAL)", () => {
-  it("one named constant, 2 berths per ship that fields ground teams", () => {
-    expect(GROUND_RESERVE_BERTHS).toBe(2);
-    for (const key of HULLS) expect(shipReserveBerths(key), key).toBe(GROUND_RESERVE_BERTHS);
+describe("the backup roster (user 2026-10-12: a fixed crew per ship plus ONE SQUAD'S WORTH of reserve berths)", () => {
+  it("berths = the larger of the hull's Security and Science squad sizes, 0 without ground teams", () => {
+    for (const key of HULLS) {
+      expect(shipReserveBerths(key), key).toBe(Math.max(groundSquadSize(key, "security"), groundSquadSize(key, "science")));
+    }
+    expect(shipReserveBerths("generalFreighter")).toBe(3);
+    expect(shipReserveBerths("destroyer")).toBe(4); // 4 / 3
+    expect(shipReserveBerths("orion")).toBe(4); // 3 / 4
     expect(shipReserveBerths("noSuchHull" as ShipTypeKey)).toBe(0);
   });
 
   it("the fixed crew follows the composition: slots per type plus the shared reserve berths", () => {
     // General Freighter 3 / 3
     expect(shipCrewCapacity("generalFreighter", ["ground", "ground"])).toEqual({
-      security: 6, science: 6, reserveBerths: 2, total: 14,
+      security: 6, science: 6, reserveBerths: 3, total: 15,
     });
     expect(shipCrewCapacity("generalFreighter", ["strike", "ground"])).toEqual({
-      security: 9, science: 3, reserveBerths: 2, total: 14,
+      security: 9, science: 3, reserveBerths: 3, total: 15,
     });
     expect(shipCrewCapacity("generalFreighter", ["survey", "ground"])).toEqual({
-      security: 3, science: 9, reserveBerths: 2, total: 14,
+      security: 3, science: 9, reserveBerths: 3, total: 15,
     });
     // every valid composition of a hull holds the SAME fixed crew (4 squads + the berths) when sizes match
     const totals = validCompositions("generalFreighter").map((c) => shipCrewCapacity("generalFreighter", c).total);
     expect(new Set(totals).size).toBe(1);
+    // a Destroyer (4 / 3): Ground + Ground 8 + 6 + 4
+    expect(shipCrewCapacity("destroyer", ["ground", "ground"]).total).toBe(18);
+  });
+
+  it("a change that moves ONE squad from a reserve-free ship always fits the berths (nobody is forced off)", () => {
+    for (const key of HULLS) {
+      for (const from of validCompositions(key)) {
+        for (const to of validCompositions(key)) {
+          // change ONE team: the two compositions differ in exactly one team
+          const diff = [...from];
+          for (const k of to) {
+            const at = diff.indexOf(k);
+            if (at >= 0) diff.splice(at, 1);
+          }
+          if (diff.length !== 1) continue;
+          const full = shipCrewCapacity(key, from);
+          const after = shipCrewCapacity(key, to);
+          const used = reserveBerthsUsed({ security: full.security, science: full.science }, after);
+          const moved = Math.abs(compositionSquads(from).security - compositionSquads(to).security);
+          if (moved === 1) {
+            // Ground <-> Strike, Ground <-> Survey: one squad to the reserve, always within the berths
+            expect(used, `${key} ${from} -> ${to}`).toBeLessThanOrEqual(after.reserveBerths);
+          } else {
+            // Strike <-> Survey in one step drops BOTH squads of the team: two squads' worth, past the berths
+            // (setGroundTeamKind allows it: nobody leaves, the ship reads over capacity until members move)
+            expect(moved, `${key} ${from} -> ${to}`).toBe(2);
+            expect(used, `${key} ${from} -> ${to}`).toBeGreaterThan(after.reserveBerths);
+          }
+        }
+      }
+    }
   });
 
   it("reserve berths used = the members of each type past that type's slots, summed", () => {

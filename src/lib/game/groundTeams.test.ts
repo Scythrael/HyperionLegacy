@@ -11,6 +11,7 @@ import {
   type AwayTeamType,
   type Expedition,
   type GameState,
+  type GroundTeamKind,
   type ShipGroundTeam,
   type ShipInstance,
   type ShipTypeKey,
@@ -21,13 +22,13 @@ import {
   fireAwayMember,
   hireAwayMember,
   reassignAwayMember,
-  squadSlots,
 } from "./awayTeam";
 import {
   GROUND_SQUAD_TYPES,
   GROUND_TEAM_DEFAULT_NAMES,
   GROUND_TEAM_NAME_MAX,
   backfillV67ShipGroundTeams,
+  canSetGroundTeamKind,
   canSlotMember,
   canSwapGroundMembers,
   canUnslotMember,
@@ -44,8 +45,10 @@ import {
   isWellFormedGroundTeamLoadout,
   isWellFormedShipGroundTeams,
   isWellFormedV67ShipGroundTeams,
+  previewGroundTeamKind,
   renameGroundTeam,
   setGroundTeamHelp,
+  setGroundTeamKind,
   shipGroundTeams,
   shipsWithMemberAutoSlotted,
   shipsWithMemberUnslotted,
@@ -83,9 +86,9 @@ describe("groundTeamCount / groundSquadSize (Squads SQ-1: a team is a PAIR of sq
     for (const key of HULLS) {
       expect(groundTeamCount(key), key).toBe(2);
       expect(groundTeamCount(key), key).toBe(SHIP_TYPES[key].groundSquads / 2);
-      // the awayTeams count is still 1, so a squad's size is the hull's per-type squad capacity
-      expect(groundSquadSize(key, "security"), key).toBe(squadSlots(key, "security"));
-      expect(groundSquadSize(key, "science"), key).toBe(squadSlots(key, "science"));
+      // a squad's size is the hull's awayTeams entry size
+      expect(groundSquadSize(key, "security"), key).toBe(SHIP_TYPES[key].awayTeams?.find((t) => t.teamType === "security")?.size);
+      expect(groundSquadSize(key, "science"), key).toBe(SHIP_TYPES[key].awayTeams?.find((t) => t.teamType === "science")?.size);
     }
   });
 
@@ -715,6 +718,7 @@ describe("GO-2 groundSlotBlockText", () => {
   it("has a clean line for every reason", () => {
     const reasons = [
       "noShip", "onMission", "noSuchTeam", "noSuchSlot", "noMember", "wrongShip", "wrongTeamType", "alreadyThere", "notSlotted",
+      "noSuchKind", "sameKind", "needsBothTypes",
     ] as const;
     for (const r of reasons) {
       const text = groundSlotBlockText(r);
@@ -769,12 +773,23 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
     assertSlotInvariants(s);
   });
 
-  it("KEEPS the hire cap: a squad with every place taken refuses the hire, even with a member in the reserve", () => {
+  it("SQ-2: the hire cap follows the composition (6 Security slots + 3 berths on a Ground + Ground freighter); reserves count", () => {
     const s = crewState(); // ship-1 Security: member-1, member-2 slotted + member-3 in the reserve = 3 aboard
     const sec = awayRecruitCandidates(s).find((c) => c.teamType === "security");
     expect(sec).toBeDefined();
-    expect(canHireAwayMember(s, sec!.id, "ship-1")).toEqual({ ok: false, reason: "squadFull" });
-    expect(hireAwayMember(s, sec!.id, "ship-1")).toBe(s);
+    const hired = hireAwayMember(s, sec!.id, "ship-1");
+    expect(slotsOf(hired, "ship-1")[0].security).toEqual(["member-1", "member-2", "member-100"]); // Alpha's gap first
+    assertSlotInvariants(hired);
+    // 9 Security aboard (6 slots + 3 berths) is full; the reserve counts toward it
+    const extra = ["member-4", "member-5", "member-6", "member-7", "member-8", "member-9"].map((id) => named(id, "security", "ship-1"));
+    const full = crewState({ awayMembers: [...crewState().awayMembers, ...extra] });
+    expect(canHireAwayMember(full, sec!.id, "ship-1")).toEqual({ ok: false, reason: "squadFull" });
+    expect(hireAwayMember(full, sec!.id, "ship-1")).toBe(full);
+    // one fewer and the hire goes through, into the empty Bravo slot first
+    const room = crewState({ awayMembers: [...crewState().awayMembers, ...extra.slice(0, 5)] });
+    const into = hireAwayMember(room, sec!.id, "ship-1");
+    expect(slotsOf(into, "ship-1").flatMap((t) => t.security)).toContain("member-100");
+    assertSlotInvariants(into);
   });
 
   it("fire unslots (no dangling id); firing a reserve member leaves the ships untouched", () => {
@@ -856,6 +871,11 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
   });
 });
 
+// A Ground team's empty Security / Science squad wait (Squads SQ-2: per squad, replacing needSecurity /
+// needScience).
+const SEC_EMPTY = { kind: "emptySquad", squadIndex: 0, teamType: "security", typeSquadIndex: 0, typeSquads: 1 } as const;
+const SCI_EMPTY = { kind: "emptySquad", squadIndex: 1, teamType: "science", typeSquadIndex: 0, typeSquads: 1 } as const;
+
 describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member holds the team)", () => {
   const NOW = 10_000;
   const at = (state: GameState): GameState => ({ ...state, gameTimeSeconds: NOW });
@@ -916,15 +936,13 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
     const s = unslotMember(at(crewState()), "ship-1", "member-11");
     const check = deployableGroundTeams(s, "ship-1");
     expect(check.ok).toBe(false);
-    expect(check.teams[0].waits).toEqual([{ kind: "needScience" }]);
+    expect(check.teams[0].waits).toEqual([SCI_EMPTY]);
     expect(check.teams[0].staffed).toBe(true);
     expect(check.teams[0].readyAtSeconds).toBeNull();
     expect(check.readyAtSeconds).toBeNull();
-    expect(groundTeamWaitText({ kind: "needScience" })).toBe("Needs a Science member in a slot");
-    expect(groundTeamWaitText({ kind: "needSecurity" })).toBe("Needs a Security member in a slot");
-    expect(groundDeployBlockText(check, NOW)).toBe(
-      "No ground team is ready: slot at least 1 Security and 1 Science member into one team",
-    );
+    expect(groundTeamWaitText(SCI_EMPTY)).toBe("Needs a Science member in a slot");
+    expect(groundTeamWaitText(SEC_EMPTY)).toBe("Needs a Security member in a slot");
+    expect(groundDeployBlockText(check, NOW)).toBe("No ground team is ready: slot at least 1 member into each squad of a team");
   });
 
   it("a ship minted without groundTeams reads as unstaffed teams", () => {
@@ -933,7 +951,7 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
     expect(check.teams).toHaveLength(2);
     for (const t of check.teams) {
       expect(t.staffed).toBe(false);
-      expect(t.waits).toEqual([{ kind: "needSecurity" }, { kind: "needScience" }]);
+      expect(t.waits).toEqual([SEC_EMPTY, SCI_EMPTY]);
     }
   });
 
@@ -944,7 +962,7 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
     // nobody slotted anywhere (a ship minted without the field): Alpha alone says what to slot
     const empty = deployableGroundTeams(at(crewState()), "ship-2");
     expect(groundWaitTeams(empty).map((t) => t.name)).toEqual(["Alpha"]);
-    expect(groundWaitTeams(empty)[0].waits).toEqual([{ kind: "needSecurity" }, { kind: "needScience" }]);
+    expect(groundWaitTeams(empty)[0].waits).toEqual([SEC_EMPTY, SCI_EMPTY]);
     // both staffed: both listed
     const key = "syntheticWaitPair" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [
@@ -1037,7 +1055,7 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
     };
     const check = deployableGroundTeams(s, "ship-1");
     expect(check.teams[0].security).toEqual([]);
-    expect(check.teams[0].waits).toEqual([{ kind: "needSecurity" }]);
+    expect(check.teams[0].waits).toEqual([SEC_EMPTY]);
   });
 
   it("GO-7b: the dispatch gate IS this reader: an unslotted ready member never stands in", () => {
@@ -1232,5 +1250,246 @@ describe("GO-3 review: the gates read the CLEANED slots", () => {
     assertSlotInvariants(next);
     // the member's valid (first) slot still reads alreadyThere
     expect(canSlotMember(s, "ship-1", 0, "security", 0, "member-1")).toEqual({ ok: false, reason: "alreadyThere" });
+  });
+});
+
+// ============================================================================
+// Squads SQ-2: team type change, per-squad deploy check
+// ============================================================================
+
+describe("SQ-2 setGroundTeamKind (design 2.6: kept members stay put, dropped squads go to the reserve, the new squad auto-fills)", () => {
+  // ship-1 (General Freighter, 3 / 3): Alpha Ground with member-1, member-2 Security and member-11 Science;
+  // member-3 (Security) and member-12, member-13 (Science) in the reserve; Bravo Ground, empty.
+  const kindState = (): GameState =>
+    crewState({
+      awayMembers: [
+        ...crewState().awayMembers,
+        named("member-13", "science", "ship-1", "Vela"),
+        named("member-12", "science", "ship-1", "Sho"),
+      ],
+    });
+
+  it("Ground -> Strike: Security squad 1 stays in place, the new squad 2 fills from the Security reserve, Science goes to the reserve", () => {
+    const s = kindState();
+    expect(previewGroundTeamKind(s, "ship-1", 0, "strike")).toEqual({ ok: true, toReserve: ["member-11"], fromReserve: ["member-3"] });
+    const next = setGroundTeamKind(s, "ship-1", 0, "strike");
+    expect(slotsOf(next, "ship-1")[0]).toEqual({
+      kind: "strike",
+      security: ["member-1", "member-2", null, "member-3", null, null],
+      science: [],
+      helpOthers: false,
+    });
+    expect(slotsOf(next, "ship-1")[1]).toEqual(emptyFreighterTeam()); // Bravo untouched
+    expect(next.awayMembers).toBe(s.awayMembers); // nobody leaves the ship
+    assertSlotInvariants(next);
+  });
+
+  it("Ground -> Survey on Bravo (empty): the new Science squad fills from the reserve in HIRE order", () => {
+    const s = kindState();
+    const next = setGroundTeamKind(s, "ship-1", 1, "survey");
+    expect(slotsOf(next, "ship-1")[1]).toEqual({ kind: "survey", security: [], science: [null, null, null, "member-12", "member-13", null], helpOthers: false });
+    expect(previewGroundTeamKind(s, "ship-1", 1, "survey")).toEqual({ ok: true, toReserve: [], fromReserve: ["member-12", "member-13"] });
+    assertSlotInvariants(next);
+  });
+
+  it("Strike -> Ground: squad 2 drops to the reserve, the new Science squad fills (name and help kept)", () => {
+    let s = setGroundTeamKind(kindState(), "ship-1", 0, "strike");
+    s = renameGroundTeam(setGroundTeamHelp(s, "ship-1", 0, true), "ship-1", 0, "Red");
+    const next = setGroundTeamKind(s, "ship-1", 0, "ground");
+    expect(slotsOf(next, "ship-1")[0]).toEqual({
+      name: "Red",
+      kind: "ground",
+      security: ["member-1", "member-2", null],
+      science: ["member-11", "member-12", "member-13"],
+      helpOthers: true,
+    });
+    expect(previewGroundTeamKind(s, "ship-1", 0, "ground")).toEqual({
+      ok: true, toReserve: ["member-3"], fromReserve: ["member-11", "member-12", "member-13"],
+    });
+    assertSlotInvariants(next);
+  });
+
+  it("refuses with a reason, in order, and returns the SAME state", () => {
+    const s = kindState();
+    const strikeAlpha = setGroundTeamKind(s, "ship-1", 0, "strike");
+    const surveyAlpha = setGroundTeamKind(s, "ship-1", 0, "survey");
+    const cases: [GameState, number, string, string][] = [
+      [s, 0, "strike", "noShip"], // asked of ship-x below
+      [locked(s), 0, "strike", "onMission"],
+      [s, 2, "strike", "noSuchTeam"],
+      [s, -1, "strike", "noSuchTeam"],
+      [s, 0, "elite", "noSuchKind"],
+      [s, 0, "ground", "sameKind"],
+      [strikeAlpha, 1, "strike", "needsBothTypes"], // Strike + Strike: no Science squad
+      [surveyAlpha, 1, "survey", "needsBothTypes"], // Survey + Survey: no Security squad
+    ];
+    for (const [state, team, kind, reason] of cases) {
+      const shipId = reason === "noShip" ? "ship-x" : "ship-1";
+      const k = kind as GroundTeamKind;
+      expect(canSetGroundTeamKind(state, shipId, team, k), reason).toEqual({ ok: false, reason });
+      expect(previewGroundTeamKind(state, shipId, team, k), reason).toEqual({ ok: false, reason });
+      expect(setGroundTeamKind(state, shipId, team, k), reason).toBe(state);
+    }
+    expect(groundSlotBlockText("needsBothTypes")).toBe("A ship needs at least one Security squad and one Science squad");
+    // Strike + Survey keeps one of each: allowed
+    expect(canSetGroundTeamKind(strikeAlpha, "ship-1", 1, "survey")).toEqual({ ok: true });
+  });
+
+  it("clears kindPending: confirming the pending pair's own type is not a no-op, a second confirm is", () => {
+    const base = kindState();
+    const s: GameState = {
+      ...base,
+      ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, groundTeams: [sh.groundTeams![0], { ...emptyFreighterTeam(), kindPending: true }] } : sh)),
+    };
+    const kept = setGroundTeamKind(s, "ship-1", 1, "ground"); // "Keep Ground"
+    expect(kept).not.toBe(s);
+    expect(slotsOf(kept, "ship-1")[1]).toEqual(emptyFreighterTeam());
+    expect("kindPending" in kept.ships[0].groundTeams![1]).toBe(false);
+    expect(setGroundTeamKind(kept, "ship-1", 1, "ground")).toBe(kept);
+    const strike = setGroundTeamKind(s, "ship-1", 1, "strike");
+    expect(slotsOf(strike, "ship-1")[1].kindPending).toBeUndefined();
+    expect(slotsOf(strike, "ship-1")[1].security).toEqual([null, null, null, "member-3", null, null]);
+  });
+
+  it("over capacity is allowed (nobody is forced off); only hiring that type is refused", () => {
+    // 9 Security aboard (6 slotted + 3 in the berths) and Alpha's Science; Bravo turns Survey: 3 Security slots
+    const extra = ["member-4", "member-5", "member-6", "member-7", "member-8", "member-9"].map((id) => named(id, "security", "ship-1"));
+    let s = crewState({ awayMembers: [...crewState().awayMembers, ...extra] });
+    s = slotMember(s, "ship-1", 0, "security", 2, "member-3");
+    s = slotMember(s, "ship-1", 1, "security", 0, "member-4");
+    s = slotMember(s, "ship-1", 1, "security", 1, "member-5");
+    s = slotMember(s, "ship-1", 1, "security", 2, "member-6");
+    const next = setGroundTeamKind(s, "ship-1", 1, "survey");
+    expect(next).not.toBe(s);
+    expect(next.awayMembers).toBe(s.awayMembers);
+    expect(previewGroundTeamKind(s, "ship-1", 1, "survey")).toEqual({ ok: true, toReserve: ["member-4", "member-5", "member-6"], fromReserve: [] });
+    const sec = awayRecruitCandidates(next).find((c) => c.teamType === "security")!;
+    expect(canHireAwayMember(next, sec.id, "ship-1")).toEqual({ ok: false, reason: "overCapacity" });
+    const sci = awayRecruitCandidates(next).find((c) => c.teamType === "science")!;
+    expect(canHireAwayMember(next, sci.id, "ship-1")).toEqual({ ok: true }); // 8 empty Science slots
+    assertSlotInvariants(next);
+  });
+
+  it("works on a ship minted without groundTeams, and never mutates its input", () => {
+    const s = crewState();
+    const before = JSON.stringify(s);
+    const next = setGroundTeamKind(s, "ship-2", 0, "strike");
+    expect(slotsOf(next, "ship-2")[0].security).toEqual([null, null, null, "member-31", null, null]);
+    setGroundTeamKind(s, "ship-1", 0, "strike");
+    expect(JSON.stringify(s)).toBe(before);
+    assertSlotInvariants(next);
+  });
+
+  it("hire and reassign auto-slot into the new squads (lowest team first)", () => {
+    const strike = setGroundTeamKind(crewState(), "ship-2", 0, "strike"); // ship-2: Strike + Ground, member-31 in Alpha
+    const moved = reassignAwayMember(strike, "member-41", "ship-2");
+    expect(slotsOf(moved, "ship-2")[0].security).toEqual(["member-41", null, null, "member-31", null, null]);
+    assertSlotInvariants(moved);
+  });
+});
+
+describe("SQ-2 deployableGroundTeams per squad (no stand-ins; D18 across the deploying teams)", () => {
+  const NOW = 10_000;
+  const at = (state: GameState): GameState => ({ ...state, gameTimeSeconds: NOW });
+  // ship-7 on a 1 / 1 synthetic hull with 2 teams of the given kinds, slotted as listed.
+  const pairState = (teams: ShipGroundTeam[], members: AwayMember[]): GameState => {
+    cleanup = registerSyntheticHull("syntheticSquadPair" as ShipTypeKey, [
+      { teamType: "security", size: 1, count: 1 },
+      { teamType: "science", size: 1, count: 1 },
+    ], 4);
+    return at({
+      ...freshState(),
+      ships: [{ id: "ship-7", typeKey: "syntheticSquadPair" as ShipTypeKey, assignedCaptainId: null, groundTeams: teams }],
+      awayMembers: members,
+    });
+  };
+  const sec = (id: string) => named(id, "security", "ship-7");
+  const sci = (id: string) => named(id, "science", "ship-7");
+  const strike = (a: string | null, b: string | null): ShipGroundTeam => ({ kind: "strike", security: [a, b], science: [], helpOthers: false });
+  const survey = (a: string | null, b: string | null): ShipGroundTeam => ({ kind: "survey", security: [], science: [a, b], helpOthers: false });
+  const ground = (a: string | null, b: string | null): ShipGroundTeam => ({ kind: "ground", security: [a], science: [b], helpOthers: false });
+  const injure = (state: GameState, id: string, until: number): GameState => ({
+    ...state,
+    awayMembers: state.awayMembers.map((m) => (m.id === id ? { ...m, injuredUntilSeconds: until } : m)),
+  });
+  const fullStrikeSurvey = (): GameState =>
+    pairState([strike("member-1", "member-2"), survey("member-3", "member-4")], [sec("member-1"), sec("member-2"), sci("member-3"), sci("member-4")]);
+
+  it("Strike + Survey, both full: each team deploys and the ship meets D18 across them", () => {
+    const check = deployableGroundTeams(fullStrikeSurvey(), "ship-7");
+    expect(check.ok).toBe(true);
+    expect([check.security, check.science]).toEqual([2, 2]);
+    const [a, b] = check.teams;
+    expect(a.kind).toBe("strike");
+    expect(a.squads.map((q) => [q.index, q.teamType, q.members.map((m) => m.id)])).toEqual([
+      [0, "security", ["member-1"]],
+      [1, "security", ["member-2"]],
+    ]);
+    expect(b.squads.map((q) => [q.index, q.teamType, q.members.map((m) => m.id)])).toEqual([
+      [0, "science", ["member-3"]],
+      [1, "science", ["member-4"]],
+    ]);
+    expect(a.deploys && b.deploys).toBe(true);
+  });
+
+  it("a Strike team with its second squad empty does not deploy and says which squad", () => {
+    const s = pairState([strike("member-1", null), ground("member-2", "member-3")], [sec("member-1"), sec("member-2"), sci("member-3")]);
+    const check = deployableGroundTeams(s, "ship-7");
+    const [a, b] = check.teams;
+    expect(a.deploys).toBe(false);
+    expect(a.waits).toEqual([{ kind: "emptySquad", squadIndex: 1, teamType: "security", typeSquadIndex: 1, typeSquads: 2 }]);
+    expect(groundTeamWaitText(a.waits[0])).toBe("Security squad 2 needs a member in a slot");
+    expect(a.readyAtSeconds).toBeNull();
+    // Bravo (Ground) deploys alone and meets D18, so the ship launches without Alpha
+    expect(b.deploys).toBe(true);
+    expect(check.ok).toBe(true);
+    expect([check.security, check.science]).toEqual([1, 1]);
+  });
+
+  it("a ready Strike team alone cannot launch: missingType Science, and the wait names when Science is back", () => {
+    const s = injure(fullStrikeSurvey(), "member-4", NOW + 600);
+    const check = deployableGroundTeams(s, "ship-7");
+    expect(check.ok).toBe(false);
+    expect(check.reason).toBe("missingType");
+    expect(check.missingType).toBe("science");
+    expect([check.security, check.science]).toEqual([2, 0]);
+    expect(check.readyAtSeconds).toBe(NOW + 600);
+    expect(groundDeployBlockText(check, NOW)).toBe("Nothing ready covers Science: ready in 10m");
+    // no stand-in: a ready Science member in the reserve does not help
+    const reserve: GameState = { ...s, awayMembers: [...s.awayMembers, sci("member-5")] };
+    expect(deployableGroundTeams(reserve, "ship-7").ok).toBe(false);
+    // the Survey team's second squad emptied: no wait gets there
+    const empty: GameState = { ...s, ships: s.ships.map((sh) => ({ ...sh, groundTeams: [strike("member-1", "member-2"), survey("member-3", null)] })) };
+    const blocked = deployableGroundTeams(empty, "ship-7");
+    expect(blocked.reason).toBe("missingType");
+    expect(blocked.readyAtSeconds).toBeNull();
+    expect(groundDeployBlockText(blocked, NOW)).toBe("Nothing ready covers Science: a team with a Science squad must deploy too");
+  });
+
+  it("missingType Security mirrors it (the Survey team ready, the Strike team waiting)", () => {
+    const check = deployableGroundTeams(injure(fullStrikeSurvey(), "member-2", NOW + 30), "ship-7");
+    expect([check.reason, check.missingType, check.readyAtSeconds]).toEqual(["missingType", "security", NOW + 30]);
+  });
+
+  it("noTeamReady waits for the first time the ready teams cover BOTH types, not just the first team back", () => {
+    const s = injure(injure(fullStrikeSurvey(), "member-1", NOW + 60), "member-3", NOW + 900);
+    const check = deployableGroundTeams(s, "ship-7");
+    expect(check.reason).toBe("noTeamReady");
+    // the Strike team is back in 1m but launches nothing alone; the Survey team in 15m completes D18
+    expect(check.readyAtSeconds).toBe(NOW + 900);
+    expect(groundDeployBlockText(check, NOW)).toBe("No ground team is ready: the first is ready in 15m");
+  });
+
+  it("an injured member in any squad holds the whole team (no stand-ins)", () => {
+    const s = injure(
+      pairState([ground("member-1", "member-2"), strike("member-3", "member-4")], [sec("member-1"), sci("member-2"), sec("member-3"), sec("member-4")]),
+      "member-4",
+      NOW + 5,
+    );
+    const check = deployableGroundTeams(s, "ship-7");
+    expect(check.teams[1].deploys).toBe(false);
+    expect(check.teams[1].waits.map((w) => w.kind)).toEqual(["injured"]);
+    expect(check.ok).toBe(true); // Alpha (Ground) alone meets D18
+    expect([check.security, check.science]).toEqual([1, 1]);
   });
 });

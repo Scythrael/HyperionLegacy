@@ -89,8 +89,8 @@ import {
   scanDownedBefore,
   scanStepKey,
 } from "./gambit";
-// Ground Ops (GO-2): the D18 minimums live in groundTeams.ts (its deployable reader applies them per ground
-// team); imported for the dispatch gate below and re-exported so existing callers keep their import.
+// Ground Ops (GO-2): the D18 minimums live in groundTeams.ts (its deployable reader applies them across the
+// deploying ground teams since Squads SQ-2); imported for the dispatch gate below and re-exported so existing callers keep their import.
 // GO-7b: dispatch reads the slotted ground teams (deployableGroundTeams), no automatic stand-ins (user
 // 2026-10-12); the named roster is the deployed teams' union snapshot (groundOps.ts).
 import { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS, deployableGroundTeams, type GroundDeployCheck } from "./groundTeams";
@@ -380,8 +380,9 @@ export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReaso
 // stand-in team. Composition beyond the minimum is the player's choice (D17: no rails).
 // MIN_SECURITY_MEMBERS / MIN_SCIENCE_MEMBERS (both 1) are defined in groundTeams.ts and re-exported above.
 // Ground Ops (GO-7b): "deployable" now means the ship's SLOTTED ground teams (groundTeams.ts
-// deployableGroundTeams: a team deploys only when every slotted member is ready and each squad meets D18; a
-// ready reserve member never stands in, user 2026-10-12). The dispatch snapshot (groundOps.ts
+// deployableGroundTeams: a team deploys only when every slotted member is ready and each of its squads has a
+// member slotted (Squads SQ-2), D18 holds across the deploying teams; a ready reserve member never stands
+// in, user 2026-10-12). The dispatch snapshot (groundOps.ts
 // snapshotGroundOps) reads the same reader, so the gate and the snapshot can never disagree.
 
 // Does `ship` field the minimum away team right now? Returns the deploying head counts and the full per-team
@@ -678,8 +679,9 @@ export function startExpedition(
   const injurySteady = departmentFacet(state, ship, "medical", "integrity");
   // E-CREW (Task 12) + Ground Ops (GO-7b): the deploying ground teams with their frozen bay / offload / reload
   // factors (GO-7a), and the named ROSTER = those teams' union snapshot (converted gear, traits, implants,
-  // programs), at the same dispatch instant. D18: the gate above guarantees a deploying team with both
-  // squads, so every expedition launched from here on carries a roster. (An OLD in-flight expedition may still
+  // programs), at the same dispatch instant. D18: the gate above guarantees deploying teams that hold a
+  // Security AND a Science member between them (Squads SQ-2), so every expedition launched from here on
+  // carries a roster. (An OLD in-flight expedition may still
   // lack one; the legacy battle resolver handles that safely, see gambit.ts resolveExpeditionActivity.) One
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });

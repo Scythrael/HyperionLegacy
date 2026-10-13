@@ -5,10 +5,14 @@
 // yet).
 
 import { beforeAll, describe, it, expect } from "vitest";
-import { freshState, isSparePiece, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
+import { emptyGroundTeams, freshState, groundSquadSize, isSparePiece, SHIP_TYPES, SENIOR_STAFF_ROSTER_BASE } from "./model";
+import { setGroundTeamKind } from "./groundTeams";
+import { registerSyntheticHull } from "./awayTeamTestFixtures";
 import type { AwayMember, AwayTeamType, CaptainMissionState, EquipmentInstance, GameState, ShipTypeKey } from "./model";
 import {
-  squadSlots,
+  shipSquadSlots,
+  shipCrewRoom,
+  deployableMembers,
   membersInSquad,
   squadHasRoom,
   traitCountForRank,
@@ -64,25 +68,20 @@ function stateWithShips(ships: { id: string; typeKey: ShipTypeKey }[], members: 
 
 const ALL_TYPE_KEYS = Object.keys(SHIP_TYPES) as ShipTypeKey[];
 
+// `n` Science members (member-1 ..) aboard `shipId`. A Ground + Ground Destroyer (4 / 3) holds 6 Science
+// slots plus 4 shared reserve berths (one squad's worth), so 10 Science fill it when no Security sits in
+// the reserve (Squads SQ-2).
+function scientists(n: number, shipId: string | null, from = 1): AwayMember[] {
+  return Array.from({ length: n }, (_, i) => member(`member-${from + i}`, "science", shipId));
+}
+
 // ===== Task 3: squad sizes =====
 
-describe("squadSlots (design section 5.2)", () => {
-  it("Eir fields 4 Security and 4 Science", () => {
-    expect(squadSlots("eir", "security")).toBe(4);
-    expect(squadSlots("eir", "science")).toBe(4);
-  });
+describe("squad sizes (design section 5.2) and shipSquadSlots (Squads SQ-2: the composition's slots)", () => {
+  // A ship of `typeKey` with its fresh (Ground + Ground) teams.
+  const ship = (typeKey: ShipTypeKey) => ({ typeKey, groundTeams: emptyGroundTeams(typeKey) });
 
-  it("Destroyer fields 4 Security and 3 Science", () => {
-    expect(squadSlots("destroyer", "security")).toBe(4);
-    expect(squadSlots("destroyer", "science")).toBe(3);
-  });
-
-  it("Orion fields 3 Security and 4 Science", () => {
-    expect(squadSlots("orion", "security")).toBe(3);
-    expect(squadSlots("orion", "science")).toBe(4);
-  });
-
-  it("matches the whole design table", () => {
+  it("matches the whole design table of squad sizes", () => {
     const table: Record<ShipTypeKey, [number, number]> = {
       generalFreighter: [3, 3],
       prospectorHauler: [3, 3],
@@ -96,27 +95,55 @@ describe("squadSlots (design section 5.2)", () => {
       eir: [4, 4],
     };
     for (const key of ALL_TYPE_KEYS) {
-      expect([squadSlots(key, "security"), squadSlots(key, "science")], key).toEqual(table[key]);
+      expect([groundSquadSize(key, "security"), groundSquadSize(key, "science")], key).toEqual(table[key]);
+      // Ground + Ground: two squads of each type
+      expect([shipSquadSlots(ship(key), "security"), shipSquadSlots(ship(key), "science")], key).toEqual([2 * table[key][0], 2 * table[key][1]]);
     }
+  });
+
+  it("follows the composition: Strike + Ground on a Destroyer (4 / 3) is 12 Security / 3 Science slots", () => {
+    const strike = { typeKey: "destroyer" as ShipTypeKey, groundTeams: [{ kind: "strike" as const, security: [], science: [], helpOthers: false }] };
+    expect(shipSquadSlots(strike, "security")).toBe(12);
+    expect(shipSquadSlots(strike, "science")).toBe(3);
+    // a ship minted without teams reads as Ground + Ground
+    expect(shipSquadSlots({ typeKey: "eir" }, "security")).toBe(8);
   });
 
   it("prospecting is wired on every hull but never fielded (0 slots)", () => {
     for (const key of ALL_TYPE_KEYS) {
-      expect(squadSlots(key, "prospecting"), key).toBe(0);
+      expect(shipSquadSlots(ship(key), "prospecting"), key).toBe(0);
       expect(SHIP_TYPES[key].awayTeams?.some((t) => t.teamType === "prospecting"), key).toBe(true);
     }
   });
 
-  it("every ship type lists a Security and a Science squad", () => {
+  it("every ship type lists a Security and a Science squad size", () => {
     for (const key of ALL_TYPE_KEYS) {
-      const teams = SHIP_TYPES[key].awayTeams ?? [];
-      expect(teams.some((t) => t.teamType === "security" && t.count >= 1), key).toBe(true);
-      expect(teams.some((t) => t.teamType === "science" && t.count >= 1), key).toBe(true);
+      expect(groundSquadSize(key, "security"), key).toBeGreaterThanOrEqual(1);
+      expect(groundSquadSize(key, "science"), key).toBeGreaterThanOrEqual(1);
     }
   });
 
   it("an unknown type key returns 0 rather than throwing", () => {
-    expect(squadSlots("noSuchHull" as ShipTypeKey, "security")).toBe(0);
+    expect(shipSquadSlots({ typeKey: "noSuchHull" as ShipTypeKey }, "security")).toBe(0);
+  });
+
+  it("ONE authority (SQ-1 review): the awayTeams[].count field is no longer read for any cap or team count", () => {
+    const key = "syntheticCountIgnored" as ShipTypeKey;
+    const cleanup = registerSyntheticHull(key, [
+      { teamType: "security", size: 3, count: 7 },
+      { teamType: "science", size: 2, count: 0 },
+    ], 4);
+    try {
+      const host = { typeKey: key, groundTeams: emptyGroundTeams(key) };
+      expect(host.groundTeams).toHaveLength(2); // groundSquads 4 = 2 teams, whatever count says
+      expect(shipSquadSlots(host, "security")).toBe(6); // size x Security squads in Ground + Ground
+      expect(shipSquadSlots(host, "science")).toBe(4); // count 0 does not zero it
+      const s = stateWithShips([{ id: "ship-a", typeKey: key }], [member("member-1", "science", "ship-a")]);
+      expect(squadHasRoom(s, "ship-a", "science")).toBe(true);
+      expect(deployableMembers(s, s.ships[0], "science").map((m) => m.id)).toEqual(["member-1"]);
+    } finally {
+      cleanup();
+    }
   });
 });
 
@@ -139,13 +166,28 @@ describe("membersInSquad / squadHasRoom", () => {
     expect(membersInSquad(s, "ship-b", "science")).toEqual([]);
   });
 
-  it("has room until the squad reaches its size, then refuses", () => {
-    const three = [1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a"));
-    const s = stateWithShips([{ id: "ship-a", typeKey: "destroyer" }], three); // Destroyer Science = 3
+  it("has room until the composition's slots AND the shared reserve berths are full, then refuses", () => {
+    // Destroyer (4 / 3), Ground + Ground: 6 Science slots + 4 berths (one squad's worth: the larger size)
+    const ten = scientists(10, "ship-a");
+    const s = stateWithShips([{ id: "ship-a", typeKey: "destroyer" }], ten);
     expect(squadHasRoom(s, "ship-a", "science")).toBe(false);
-    expect(squadHasRoom(s, "ship-a", "security")).toBe(true);
-    const two = stateWithShips([{ id: "ship-a", typeKey: "destroyer" }], three.slice(0, 2));
-    expect(squadHasRoom(two, "ship-a", "science")).toBe(true);
+    expect(squadHasRoom(s, "ship-a", "security")).toBe(true); // 8 empty Security slots
+    const nine = stateWithShips([{ id: "ship-a", typeKey: "destroyer" }], ten.slice(0, 9));
+    expect(squadHasRoom(nine, "ship-a", "science")).toBe(true);
+    expect(shipCrewRoom(s, s.ships[0])).toEqual({
+      capacity: { security: 8, science: 6, reserveBerths: 4, total: 18 },
+      aboard: { security: 0, science: 10 },
+      berthsUsed: 4,
+    });
+  });
+
+  it("the berths are SHARED: Security in the reserve leaves fewer berths for Science", () => {
+    const crew = [...scientists(8, "ship-a"), ...[21, 22, 23, 24, 25, 26, 27, 28, 29, 30].map((n) => member(`member-${n}`, "security", "ship-a"))];
+    // 8 Science (2 over the 6 slots) + 10 Security (2 over the 8 slots) = all 4 berths used
+    const s = stateWithShips([{ id: "ship-a", typeKey: "destroyer" }], crew);
+    expect(shipCrewRoom(s, s.ships[0]).berthsUsed).toBe(4);
+    expect(squadHasRoom(s, "ship-a", "science")).toBe(false);
+    expect(squadHasRoom(s, "ship-a", "security")).toBe(false);
   });
 
   it("never has room on a prospecting squad, or on a ship that does not exist", () => {
@@ -370,24 +412,50 @@ describe("hireAwayMember", () => {
     expect(s.awayMembers).toEqual([]); // input untouched
   });
 
-  it("fills the squad, then refuses with the same state ref once it is full", () => {
-    // Destroyer Science holds 3: seed it full, then try to hire a 4th scientist.
-    const full = [1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a"));
-    const s = hireState(full);
+  it("fills the slots and the reserve berths, then refuses with the same state ref once it is full", () => {
+    // Destroyer Ground + Ground: 6 Science slots + 4 berths. Seed it full, then try to hire an 11th scientist.
+    const s = hireState(scientists(10, "ship-a"));
     const cand = candidateOf(s, "science");
     expect(hireAwayMember(s, cand.id, "ship-a")).toBe(s);
     // The same candidate still fits the other Destroyer.
-    expect(hireAwayMember(s, cand.id, "ship-b").awayMembers).toHaveLength(4);
+    expect(hireAwayMember(s, cand.id, "ship-b").awayMembers).toHaveLength(11);
   });
 
-  it("hires one by one until the squad is full", () => {
-    let s = hireState();
-    const scientists = awayRecruitCandidates(s).filter((c) => c.teamType === "science");
-    expect(scientists.length).toBeGreaterThanOrEqual(4); // the fixture board has enough to overfill
-    for (const c of scientists.slice(0, 3)) s = hireAwayMember(s, c.id, "ship-a");
-    expect(membersInSquad(s, "ship-a", "science")).toHaveLength(3);
+  it("hires one by one: the slots fill first (auto-slot), then the reserve berths, then it refuses", () => {
+    let s = hireState(scientists(7, "ship-a", 100)); // 7 aboard: the 6 slots plus 1 berth
+    const board = awayRecruitCandidates(s).filter((c) => c.teamType === "science");
+    expect(board.length).toBeGreaterThanOrEqual(4); // the fixture board has enough to overfill
+    for (const c of board.slice(0, 3)) s = hireAwayMember(s, c.id, "ship-a");
+    expect(membersInSquad(s, "ship-a", "science")).toHaveLength(10);
     expect(squadHasRoom(s, "ship-a", "science")).toBe(false);
-    expect(hireAwayMember(s, scientists[3].id, "ship-a")).toBe(s);
+    expect(hireAwayMember(s, board[3].id, "ship-a")).toBe(s);
+  });
+
+  it("the cap follows the composition: a Strike + Ground Destroyer holds 12 + 4 Security, 3 + 4 Science", () => {
+    const strike = (state: GameState): GameState => setGroundTeamKind(state, "ship-a", 1, "strike");
+    const sec = Array.from({ length: 16 }, (_, i) => member(`member-${i + 1}`, "security", "ship-a"));
+    const full = strike(hireState(sec));
+    expect(full.ships[0].groundTeams?.[1].kind).toBe("strike");
+    expect(squadHasRoom(full, "ship-a", "security")).toBe(false);
+    expect(squadHasRoom(strike(hireState(sec.slice(0, 15))), "ship-a", "security")).toBe(true);
+    // Science: 3 slots; the 4 berths are free, so 7 Science fit
+    expect(squadHasRoom(strike(hireState(scientists(6, "ship-a"))), "ship-a", "science")).toBe(true);
+    expect(squadHasRoom(strike(hireState(scientists(7, "ship-a"))), "ship-a", "science")).toBe(false);
+  });
+
+  it("OVER CAPACITY after a type change: nobody leaves, the over-full type cannot hire, the other still can", () => {
+    // A Ground + Ground Destroyer with 10 Science (6 slotted, 4 in the berths); Bravo turns Strike: 3 Science
+    // slots, so 7 of the 10 sit in the reserve against 4 berths
+    let s = hireState(scientists(10, "ship-a"));
+    s = { ...s, ships: s.ships.map((sh) => (sh.id === "ship-a" ? { ...sh, groundTeams: emptyGroundTeams("destroyer") } : sh)) };
+    const changed = setGroundTeamKind(s, "ship-a", 1, "strike");
+    expect(changed).not.toBe(s);
+    expect(changed.awayMembers).toBe(s.awayMembers); // nobody leaves the ship
+    expect(shipCrewRoom(changed, changed.ships[0]).berthsUsed).toBe(7);
+    const sci = candidateOf(changed, "science");
+    expect(canHireAwayMember(changed, sci.id, "ship-a")).toEqual({ ok: false, reason: "overCapacity" });
+    // Security has 12 empty slots: hiring it is fine (it fills a slot, never a berth)
+    expect(canHireAwayMember(changed, candidateOf(changed, "security").id, "ship-a")).toEqual({ ok: true });
   });
 
   it("refuses a candidate not on the current board, and a ship that does not exist", () => {
@@ -457,8 +525,8 @@ describe("reassignAwayMember", () => {
     expect(membersInSquad(next, "ship-b", "science")).toHaveLength(1);
   });
 
-  it("refuses (same ref) when the target squad is full", () => {
-    const fullB = [2, 3, 4].map((n) => member(`member-${n}`, "science", "ship-b"));
+  it("refuses (same ref) when the target ship's slots and berths are full", () => {
+    const fullB = scientists(10, "ship-b", 2);
     const s = hireState([member("member-1", "science", "ship-a"), ...fullB]);
     expect(reassignAwayMember(s, "member-1", "ship-b")).toBe(s);
   });
@@ -498,7 +566,7 @@ describe("canHireAwayMember", () => {
     expect(canHireAwayMember(s, "away-candidate-999-0", "ship-a")).toEqual({ ok: false, reason: "noCandidate" });
     expect(canHireAwayMember(s, sci.id, "ship-missing")).toEqual({ ok: false, reason: "noShip" });
     expect(canHireAwayMember(onMission(s), sci.id, "ship-a")).toEqual({ ok: false, reason: "onMission" });
-    const full = hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a")));
+    const full = hireState(scientists(10, "ship-a"));
     expect(canHireAwayMember(full, candidateOf(full, "science").id, "ship-a")).toEqual({
       ok: false,
       reason: "squadFull",
@@ -524,10 +592,7 @@ describe("canReassignAwayMember", () => {
     expect(canReassignAwayMember(s, "member-1", "ship-a")).toEqual({ ok: false, reason: "alreadyThere" });
     expect(canReassignAwayMember(s, "member-1", "ship-missing")).toEqual({ ok: false, reason: "noShip" });
     expect(canReassignAwayMember(onMission(s), "member-1", "ship-b")).toEqual({ ok: false, reason: "onMission" });
-    const fullB = hireState([
-      member("member-1", "science", "ship-a"),
-      ...[2, 3, 4].map((n) => member(`member-${n}`, "science", "ship-b")),
-    ]);
+    const fullB = hireState([member("member-1", "science", "ship-a"), ...scientists(10, "ship-b", 2)]);
     expect(canReassignAwayMember(fullB, "member-1", "ship-b")).toEqual({ ok: false, reason: "squadFull" });
   });
 
@@ -566,6 +631,7 @@ describe("awayCrewBlockText", () => {
       onMission: true,
       noSquad: true,
       squadFull: true,
+      overCapacity: true,
       alreadyThere: true,
     };
     const texts = (Object.keys(all) as AwayCrewBlockReason[]).map((r) => awayCrewBlockText(r));
@@ -575,7 +641,8 @@ describe("awayCrewBlockText", () => {
       expect(t).not.toMatch(/-{2}/);
     }
     expect(new Set(texts).size).toBe(texts.length);
-    expect(awayCrewBlockText("squadFull")).toBe("Squad is full");
+    expect(awayCrewBlockText("squadFull")).toBe("No open slot or reserve berth");
+    expect(awayCrewBlockText("overCapacity")).toBe("Reserve is over capacity");
     expect(awayCrewBlockText("onMission")).toBe("Ship is out on a mission");
     expect(awayCrewBlockText("noCandidate")).toBe("No longer on the board");
     expect(awayCrewBlockText("alreadyThere")).toBe("Already on this ship");
@@ -584,8 +651,8 @@ describe("awayCrewBlockText", () => {
 
 describe("hire paths agree", () => {
   it("hireTargetsFor and hireAwayMember agree with canHireAwayMember per ship", () => {
-    // ship-a's Science squad is full (Destroyer: 3), so the science candidates block there and not on ship-b.
-    const s = hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-a")));
+    // ship-a's Science is full (Destroyer: 6 slots + 4 berths), so the science candidates block there and not on ship-b.
+    const s = hireState(scientists(10, "ship-a"));
     const seen = new Set<string>();
     for (const cand of awayRecruitCandidates(s)) {
       const targets = hireTargetsFor(s, cand.id);
@@ -605,7 +672,7 @@ describe("hire paths agree", () => {
 
 describe("hireTargetsForCandidate", () => {
   it("equals hireTargetsFor for every board candidate, and for an unknown one", () => {
-    const s = onMission(hireState([1, 2, 3].map((n) => member(`member-${n}`, "science", "ship-b"))));
+    const s = onMission(hireState(scientists(10, "ship-b")));
     for (const cand of awayRecruitCandidates(s)) {
       expect(hireTargetsForCandidate(s, cand)).toEqual(hireTargetsFor(s, cand.id));
     }

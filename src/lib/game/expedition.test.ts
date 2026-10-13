@@ -854,7 +854,10 @@ describe("D18: an expedition needs at least 1 Security + 1 Science away-team mem
     const bare = freshState();
     expect(expeditionAwayTeamCheck(bare, bare.ships[0])).toMatchObject({ ok: false, security: 0, science: 0 });
     // Ground Ops (GO-7b): the check is the slotted ground teams' reader, so the UI can list what each waits on.
-    expect(expeditionAwayTeamCheck(bare, bare.ships[0]).ground.teams[0].waits.map((w) => w.kind)).toEqual(["needSecurity", "needScience"]);
+    // Squads SQ-2: one wait per empty SQUAD (Alpha is Ground: its Security squad, then its Science squad).
+    expect(
+      expeditionAwayTeamCheck(bare, bare.ships[0]).ground.teams[0].waits.map((w) => (w.kind === "emptySquad" ? `${w.kind}:${w.teamType}` : w.kind)),
+    ).toEqual(["emptySquad:security", "emptySquad:science"]);
   });
 
   it("the older guards report first: a bad candidate, captain or ship is named before the away team", () => {

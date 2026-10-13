@@ -1153,6 +1153,9 @@ other teams" toggle per team (ship default for the next dispatch). Locked while 
 does the task fieldwork; scanning is ship-side). The member gear install flow is unchanged.
 **Verify:** slot / unslot / rename / toggle on the Aurora; reload keeps them; mobile slot grid is 2 columns (GO-M1 rule).
 Commit `feat(0.14.0): ground team slotting UI (Ground Ops GO-11)`.
+**Squads SQ-2 note (2026-10-12):** GO-11 lands AFTER SQ-2 (squads design doc, SQ-2 carry note): every team is now
+kind-sized (Ground / Strike / Survey), the slot / swap actions already respect each team's kind, and the composition
+picker builds on `setGroundTeamKind` / `previewGroundTeamKind` with `shipCrewRoom` for the per-type caps.
 
 ### GO-12: Dispatch console: ground teams that will deploy
 

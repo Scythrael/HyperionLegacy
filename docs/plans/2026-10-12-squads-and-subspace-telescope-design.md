@@ -679,3 +679,81 @@ New entries **[PROPOSAL]**: "Team types and squads", "Risk factors", "Subspace T
 - **Backup roster size (user, 2026-10-12): ONE SQUAD'S WORTH.** Reserve berths = the larger of the hull's Security and
   Science squad sizes (3 or 4 today), so a single type change always fits aboard and nobody is forced off the ship.
   Supersedes GROUND_RESERVE_BERTHS = 2 (SQ-2 changes it).
+
+**Carry from SQ-2 (built 2026-10-12, commits `fix(0.14.0): freeze the v67 / v68 migration helpers + Bravo proof (SQ-1
+review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy check (SQ-2)`):**
+- **SQ-1 review fixes.** (1) FROZEN migrations: `MIGRATIONS[66]` / `[67]` read only `groundTeams.ts`
+  `FROZEN_GROUND_SQUAD_SIZES` (the per-hull squad sizes when v67 / v68 shipped), `V67_GROUND_TEAM_COUNT` 1 and
+  `V68_GROUND_TEAM_COUNT` 2; `v67GroundTeamCount`, `isWellFormedV67ShipGroundTeams`, `backfillV67ShipGroundTeams`,
+  `v68ShipGroundTeamsFromV67` are frozen and the new `isWellFormedV68ShipGroundTeams` is both steps' pass-through /
+  idempotency guard (the live `isWellFormedShipGroundTeams` is no longer used by save.ts). A hull unknown at v67 / v68
+  gets no teams from the steps (the live normalizer builds them on first read). Proof: save.test.ts "the v66 -> v67 and
+  v67 -> v68 steps are FROZEN" retunes the live General Freighter and Destroyer (groundSquads 6, sizes 5 / 2, count 4)
+  and the raw v66 / v67 / malformed v67 saves migrate to the same teams. The fixture `withSlottedAwayTeams(state,
+  fillTeams = 1)` now fills over the LIVE empty teams (it serves synthetic hulls the frozen fill does not know); the
+  GO-7c tests pass their team count. (2) ONE AUTHORITY for team and squad counts: `groundSquads` (team count) + the
+  ship's team kinds; `awayTeams[].count` is read by nothing (model.ts documents it; kept in the data for Prospecting's
+  "wired only" marker, design 2.2; awayTeam.test.ts "ONE authority" retunes count and nothing moves). The only
+  remaining count reader is the test fixture `registerSyntheticHull`'s default `groundSquads` (test code).
+  `awayTeam.ts squadSlots` is GONE; `deployableMembers` (the legacy pre-GO-7b reference behind `snapshotAwayRoster`,
+  read only by tests) caps at ONE squad (`groundSquadSize`), exactly what count 1 gave. (3) The v67 -> v68 parity test
+  asserts Bravo is still the empty `kindPending` Ground pair after the migration, the claim and the hour of ticks.
+- **`setGroundTeamKind(state, shipId, teamIndex, kind)`** (groundTeams.ts) with `canSetGroundTeamKind` and
+  `previewGroundTeamKind` (`{ ok, toReserve, fromReserve }`: who moves, for the SQ-7 confirm "Sho and Vela move to the
+  reserve"). Gate order: noShip, onMission (crew lock), noSuchTeam, noSuchKind, sameKind, needsBothTypes; every refusal
+  returns the SAME state. Kept members stay IN PLACE (squad 1 stays squad 1); members of a dropped squad go to the
+  RESERVE (aboard, unslotted, slot order); the slots the new kind ADDS auto-fill from the reserve of their type, first
+  by hire order (gaps the player left in a kept squad stay). Clears `kindPending`; picking the type a pending team
+  already has is the "Keep Ground" confirm (a real change), a second pick is `sameKind`. No `awayMembers` record ever
+  changes (nobody leaves the ship). New reasons + text: `noSuchKind` "No such team type", `sameKind` "Already this team
+  type", `needsBothTypes` "A ship needs at least one Security squad and one Science squad".
+- **Hire cap = the composition + the backup roster.** `groundComposition.ts shipReserveBerths(typeKey)` = ONE SQUAD'S
+  WORTH = max(Security size, Science size) (3 on the 3 / 3 hulls, 4 on Destroyer / Battleship / Carrier / Orion /
+  Aurora / Eir), 0 without teams; `GROUND_RESERVE_BERTHS` is gone. `awayTeam.ts squadGate`: type T fits when aboard(T)
+  < T's composition slots (`shipSquadSlots(ship, T)`) OR one more reserve member still fits the SHARED berths
+  (`reserveBerthsUsed` after the arrival <= berths). Reserves count, benched members do not. Example, General Freighter
+  (3 / 3, 3 berths): Ground + Ground 6 Security + 6 Science slots + 3 berths = 15 crew; Strike + Ground 9 + 3 + 3 = 15
+  (so 12 Security if no Science sits in the reserve, or 9 Security and 6 Science); Survey + Ground 3 + 9 + 3. Destroyer
+  (4 / 3, 4 berths): Ground + Ground 8 + 6 + 4 = 18; Strike + Ground 12 + 3 + 4 = 19. New readers `shipSquadSlots`,
+  `shipCrewRoom(state, ship)` (`{ capacity, aboard, berthsUsed }`, for the SQ-7 "Security 6 / 6" line); `squadHasRoom`
+  kept (now the cap). Reasons: `squadFull` text changed to "No open slot or reserve berth"; NEW `overCapacity`
+  "Reserve is over capacity" (all slots of T taken and the ship already past its berths). Hire / reassign / bench
+  auto-slot and unslot as before (lowest team first, so Bravo fills once Alpha is full).
+- **Over capacity is allowed, never forced.** A change from a ship with an empty reserve that moves ONE squad (Ground
+  <-> Strike, Ground <-> Survey) always fits the berths (property test over every hull and composition). It can go
+  over when the reserve was already in use, or on a direct **Strike <-> Survey** change, which drops BOTH squads of
+  the team (6 to 8 members) into the reserve. Built per design 2.6: allowed, nobody leaves, hiring that type reads
+  `overCapacity` until members move or the composition changes back. **Question for the user:** keep that, have the
+  picker route Strike <-> Survey through Ground, or confirm-and-bench the overflow?
+- **Per-squad deploy check** (`deployableGroundTeams`). A team deploys only when EACH of its squads has at least
+  `MIN_SQUAD_MEMBERS` (1) slotted and every slotted member is ready (no stand-ins). Readiness gains `kind` and
+  `squads: { index, teamType, members }[]` (Security squads first, then Science: the flat lists' order); `security` /
+  `science` stay the flattened lists. Waits: `injured` (unchanged) and NEW `emptySquad { squadIndex, teamType,
+  typeSquadIndex, typeSquads }` replacing `needSecurity` / `needScience` ("Needs a Science member in a slot" for a
+  team's only squad of a type, so Ground text is unchanged; "Security squad 2 needs a member in a slot" for a Strike
+  team). Ship level: D18 (`MIN_SECURITY_MEMBERS` / `MIN_SCIENCE_MEMBERS`) across the deploying teams, unchanged sum;
+  reasons `noTeamReady` and NEW `missingType` (+ `missingType: "security" | "science"`) when something deploys but
+  lacks a type. `readyAtSeconds` is now the first time the waitable teams cover D18 BETWEEN them (a Strike team back
+  in 1m does not make the ship ready; the Survey team in 15m does); identical to before on Ground-only ships. Texts:
+  "No ground team is ready: slot at least 1 member into each squad of a team" (was "... 1 Security and 1 Science member
+  into one team"), "Nothing ready covers Science: ready in 10m", "Nothing ready covers Science: a team with a Science
+  squad must deploy too".
+- **Engine between SQ-2 and SQ-3 (heads up, not reachable by players):** the engine can now be handed a Strike or
+  Survey team, but nothing in the game sets a kind yet (no UI until GO-11 / SQ-7, no dev hook). If one were deployed
+  today, GO-7c planning would still give a Survey team fight tasks (its fights resolve as losses with no Security) and
+  a Strike team fieldwork at the bare pace; SQ-3's `needs` planning is what makes that correct. Do not expose the
+  picker on staging before SQ-3.
+- **For GO-11 (slotting UI):** the player's slot / swap actions into a second team must respect the composition:
+  `slotMember` / `swapGroundMembers` / `canSlotMember` already read each team's KIND-sized slot lists (a Strike team has
+  no Science slot, so `noSuchSlot` / `wrongTeamType`), so they are engine-correct after SQ-2; GO-11 lands AFTER SQ-2
+  and builds the composition picker on `setGroundTeamKind` / `previewGroundTeamKind`, with `shipCrewRoom` for the caps.
+  AwayTeamPanel's squad header now reads `shipSquadSlots` (so "0 of 6" on a fresh Ground + Ground freighter; members in
+  the berths can read "8 of 6" until GO-11 / SQ-7 redraws it per team).
+- Tests: groundTeams.test.ts 78 -> 92 (setGroundTeamKind: Ground -> Strike, Ground -> Survey, Strike -> Ground,
+  refusals, pending, over capacity, minted-without-teams, auto-slot after a change; per-squad deploy: Strike + Survey,
+  empty squad 2, missingType both ways, D18-covering readyAt, an injured member holds a Strike team; frozen helpers);
+  awayTeam.test.ts 49 -> 51 (squadSlots tests replaced by shipSquadSlots / sizes / ONE authority; the caps at 10
+  Science on a Destroyer, shared berths, Strike + Ground caps, overCapacity); groundComposition.test.ts 17 -> 18
+  (berths = one squad's worth, capacity totals, the one-squad-change property); save.test.ts 205 -> 206 (the frozen
+  migrations, plus the Bravo assertions); expedition.test.ts wait kinds. Suite 4285 -> 4303 passed (1 skipped);
+  `npm run check` 0 errors. Legacy goldens, parity and every engine test unchanged.

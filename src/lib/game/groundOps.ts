@@ -6,7 +6,8 @@
 //
 //   snapshotGroundOps(state, ship, run) -> { teams, factors, shipEventProfile }
 //     teams   : the ship's DEPLOYING ground teams (groundTeams.ts deployableGroundTeams: every slotted member
-//               ready AND the D18 minimum in each squad; no automatic stand-ins, user 2026-10-12), ascending
+//               ready AND a member in each of its squads, Squads SQ-2; no automatic stand-ins, user 2026-10-12;
+//               D18 across the deploying teams is the dispatch gate's), ascending
 //               ship team index, member ids in slot order, `helpOthers` from the ship, an empty queue, idle.
 //     factors : FROZEN at dispatch (D24), so a ship whose crew, officers or captain change mid-run never
 //               reshapes it (the same contract as the run's other snapshots):

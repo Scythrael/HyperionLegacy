@@ -9,8 +9,9 @@
 //
 // Imports model.ts ONLY (groundTeamSlots.ts normalizes slot lists with the kind sizes here, and awayTeam.ts
 // sits above that). Module graph: model.ts <- groundComposition.ts <- groundTeamSlots.ts <- awayTeam.ts <-
-// groundTeams.ts. Every function is pure. Nothing here changes engine behavior on its own: SQ-2 wires the
-// kind change action, the composition-following hire cap and the per-squad deploy check.
+// groundTeams.ts. Every function is pure. SQ-2 builds on it: the kind change action (groundTeams.ts
+// setGroundTeamKind), the composition-following hire cap (awayTeam.ts squadGate) and the per-squad deploy
+// check (groundTeams.ts deployableGroundTeams).
 
 import type { GroundTeamKind, ShipInstance, ShipTypeKey } from "./model";
 import { SHIP_TYPES, groundSquadSize, groundTeamCount } from "./model";
@@ -151,22 +152,23 @@ export function shipComposition(ship: Pick<ShipInstance, "typeKey" | "groundTeam
 }
 
 // ============================================================================
-// The BACKUP ROSTER (user follow-up 2026-10-12: "a fixed crew per ship plus about 2 reserve berths aboard,
-// so changing a team's type never forces benching"). [PROVISIONAL count]
+// The BACKUP ROSTER (user follow-up 2026-10-12: a fixed crew per ship plus reserve berths aboard, so changing
+// a team's type never forces benching; SIZE ruled by the user 2026-10-12: ONE SQUAD'S WORTH)
 // ============================================================================
 //
 // Data shape: DERIVED, not stored. The reserve is what GO-2 already calls the ship's reserve: members aboard
 // with a ground squad type who sit in no slot. The backup roster is how many of them a ship may carry past its
-// slots: GROUND_RESERVE_BERTHS berths, shared by both types. A ship's fixed crew is then its composition's
-// slots per type plus those berths. SQ-2 wires the hire cap and the kind change on top of this; nothing reads
-// it yet.
+// slots: shipReserveBerths berths, SHARED by both types. A ship's fixed crew is then its composition's slots
+// per type plus those berths. awayTeam.ts squadGate (the hire / move cap, SQ-2) and groundTeams.ts
+// setGroundTeamKind read this.
 
-// The reserve berths aboard every ship that fields ground teams. [PROVISIONAL: the user said "about 2".]
-export const GROUND_RESERVE_BERTHS = 2;
-
-// Reserve berths aboard a ship of `typeKey`: GROUND_RESERVE_BERTHS when the hull fields ground teams, else 0.
+// Reserve berths aboard a ship of `typeKey`: ONE SQUAD'S WORTH (user, 2026-10-12), the LARGER of the hull's
+// Security and Science squad sizes (3 or 4 today), so a single type change, which drops at most one squad
+// into the reserve, always fits aboard and nobody is forced off the ship. 0 when the hull fields no ground
+// teams. Supersedes SQ-1's provisional 2 berths. Pure.
 export function shipReserveBerths(typeKey: ShipTypeKey): number {
-  return groundTeamCount(typeKey) > 0 ? GROUND_RESERVE_BERTHS : 0;
+  if (groundTeamCount(typeKey) <= 0) return 0;
+  return Math.max(groundSquadSize(typeKey, "security"), groundSquadSize(typeKey, "science"));
 }
 
 // A ship's fixed crew for a composition: the slots of each type, the shared reserve berths, and the total.

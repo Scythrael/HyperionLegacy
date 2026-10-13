@@ -197,10 +197,13 @@ export interface ShipTypeDef {
   // researching it grants build access, nothing is fabricated.
   requiresBlueprint?: string;
   // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
-  // its `teamType`, the member count per squad (`size`, 3 or 4) and how many such squads (`count`, so a
-  // future hull can list two Security details with no engine change). Every SHIP_TYPES entry lists a
-  // Security and a Science squad plus a wired-only Prospecting entry (count 0). OPTIONAL so a hull
-  // without the data simply fields no squads (awayTeam.ts squadSlots reads it as 0).
+  // its `teamType` and the member count per squad (`size`, 3 or 4: model.ts groundSquadSize reads it).
+  // Every SHIP_TYPES entry lists a Security and a Science squad plus a wired-only Prospecting entry.
+  // `count` (how many squads of the type) is NO LONGER READ by anything since Squads SQ-2: how many squads a
+  // ship fields comes from ONE authority, `groundSquads` below (the team count) plus each ship's team KINDS
+  // (groundComposition.ts), and the v66 -> v67 migration reads its own frozen constants. The field stays in
+  // the data (design 2.2: Prospecting's count 0 still marks it wired only); awayTeam.test.ts pins that a
+  // retuned count changes nothing. OPTIONAL so a hull without the data simply fields no squads.
   awayTeams?: { teamType: AwayTeamType; size: number; count: number }[];
   // Squads SQ-1 (0.14.0, design docs/plans/2026-10-12-squads-and-subspace-telescope-design.md section 2.2; user
   // 2026-10-12 "DOUBLE EVERY HULL"): how many ground SQUADS this hull fields, grouped into TEAMS of 2 squads

@@ -71,7 +71,7 @@
     canFireAwayMember,
     canReassignAwayMember,
     membersInSquad,
-    squadSlots,
+    shipSquadSlots,
   } from "./game/awayTeam";
   import type { AwayCrewGate } from "./game/awayTeam";
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
@@ -159,7 +159,7 @@
     const worn = memberWornIndex(s);
     const out: SquadView[] = [];
     for (const teamType of AWAY_TEAM_TYPES) {
-      const slots = squadSlots(host.typeKey, teamType);
+      const slots = shipSquadSlots(host, teamType); // Squads SQ-2: the composition's slots of this type
       if (slots === 0) continue; // a squad the hull does not field (Prospecting today)
       const members = membersInSquad(s, id, teamType).map((member) => ({
         member,
