@@ -40,14 +40,16 @@ const member = (id: string, teamType: AwayMember["teamType"], shipId = "ship-1",
   ...over,
 });
 
-// ship-1 (General Freighter, one ground team) with the given slots and members.
+// ship-1 (General Freighter) with the given slots in Alpha and members; Bravo (Squads SQ-1: every hull fields
+// 2 teams) stays empty, so it never deploys.
 function oneTeam(team: Partial<ShipGroundTeam>, members: AwayMember[], extra: Partial<ShipInstance> = {}): GameState {
   const base = freshState();
-  const slots: ShipGroundTeam = { security: [null, null, null], science: [null, null, null], helpOthers: false, ...team };
+  const slots: ShipGroundTeam = { kind: "ground", security: [null, null, null], science: [null, null, null], helpOthers: false, ...team };
+  const bravo: ShipGroundTeam = { kind: "ground", security: [null, null, null], science: [null, null, null], helpOthers: false };
   return {
     ...base,
     gameTimeSeconds: NOW,
-    ships: [{ ...base.ships[0], groundTeams: [slots], ...extra }],
+    ships: [{ ...base.ships[0], groundTeams: [slots, bravo], ...extra }],
     awayMembers: members,
     nextAwayMemberId: 100,
   };
@@ -182,9 +184,9 @@ describe("GO-7a snapshotGroundOps: several ground teams (synthetic 3-team hull)"
         {
           id: "ship-7", typeKey: KEY, assignedCaptainId: null,
           groundTeams: [
-            { security: ["member-1", "member-2"], science: ["member-11", null], helpOthers: false },
-            { name: "Night Shift", security: ["member-3", null], science: ["member-12", null], helpOthers: true },
-            { security: [null, "member-4"], science: ["member-13", "member-14"], helpOthers: false },
+            { kind: "ground", security: ["member-1", "member-2"], science: ["member-11", null], helpOthers: false },
+            { name: "Night Shift", kind: "ground", security: ["member-3", null], science: ["member-12", null], helpOthers: true },
+            { kind: "ground", security: [null, "member-4"], science: ["member-13", "member-14"], helpOthers: false },
           ],
         },
       ],

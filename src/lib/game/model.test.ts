@@ -289,6 +289,9 @@ describe("Phase 1, facility/process reservation fields (additive)", () => {
       // like warehouseT1 / fuelStorage, and level 0 here means OPERATIONAL (salvageSlotCount
       // yields one lane off its base), NOT locked the way refinery / shipyard level 0 does.
       salvageBay: { level: 0 },
+      // Squads SQ-1 (SAVE v68): the Subspace Telescope is pre-granted at its founding Level 1 (design 6.2),
+      // like the Research Lab and Mission Control, so Tier I is never a blind launch.
+      subspaceTelescope: { level: 1 },
     });
   });
 

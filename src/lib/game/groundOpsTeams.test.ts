@@ -2,8 +2,8 @@
 // HELPERS (user D25 + 9b.4) with the HELPER_MIN_TIER floor and the skippedBorrowed no-loop rule, JOINT tasks
 // (requiredTeams N: staging, a LEAD carrying the joint steps, one fight side, the team set banking and paying),
 // recovery legs for several wiped teams (user Q1: one leg at a time, each team waits for its own pickup), and
-// offline == live parity on a 3-team run. Every REAL hull fields exactly 1 ground team, so these tests run on a
-// SYNTHETIC 3-team hull (awayTeamTestFixtures.ts registerSyntheticHull), registered per test and removed after.
+// offline == live parity on a 3-team run. Every REAL hull fields 2 ground teams since Squads SQ-1 (its second pair
+// empty until SQ-2 opens the hire cap), so these tests run on a SYNTHETIC 3-team hull (awayTeamTestFixtures.ts registerSyntheticHull), registered per test and removed after.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {

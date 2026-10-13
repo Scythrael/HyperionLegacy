@@ -44,12 +44,19 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 // way import (salvageConfirmPreference imports only game/inventory + safeStorage, never
 // save.ts), so this introduces no module cycle.
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
-// Ground Operations GO-1: the v66 -> v67 step backfills each ship's ground-team slots through the same
-// hire-order fill and shape guards the engine uses. One-way import (groundTeams.ts imports only model.ts
-// and awayTeam.ts, never save.ts), so no module cycle.
-import { backfillShipGroundTeams, isWellFormedGroundTeamLoadout, isWellFormedShipGroundTeams } from "./groundTeams";
+// Ground Operations GO-1: the v66 -> v67 step backfills each ship's ground-team slots through GO-1's
+// hire-order fill and shape guard (frozen under their v67 names since Squads SQ-1); the v67 -> v68 step
+// (SQ-1) upgrades them to the kinded shape through the live guard. One-way import (groundTeams.ts imports
+// model.ts, groundComposition.ts and awayTeam.ts, never save.ts), so no module cycle.
+import {
+  backfillV67ShipGroundTeams,
+  isWellFormedGroundTeamLoadout,
+  isWellFormedShipGroundTeams,
+  isWellFormedV67ShipGroundTeams,
+  v68ShipGroundTeamsFromV67,
+} from "./groundTeams";
 
-export const SAVE_VERSION = 67;
+export const SAVE_VERSION = 68;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2458,19 +2465,66 @@ const MIGRATIONS: Record<number, Migration> = {
   // else []. nextSquadLoadoutId is untouched. Plain data only (no Decimals). Idempotent: a second pass keeps
   // every well-formed value. Hardened: a non-array ships field passes through, a malformed ship entry is left
   // untouched, a non-array awayMembers field reads as no members.
+  // (Squads SQ-1 froze this step: it reads GO-1's v67 guard and fill under their v67 names, so it still
+  // writes exactly the one-team v67 shape and the v67 -> v68 step below upgrades it. A value already in the
+  // v68 shape, which no real v66 save holds, passes through untouched rather than being rebuilt, so a
+  // fixture made from a current freshState keeps its teams through the whole chain.)
   66: (state: any): any => {
     const members: unknown[] = Array.isArray(state.awayMembers) ? state.awayMembers : [];
     return {
       ...state,
       ships: Array.isArray(state.ships)
         ? state.ships.map((ship: any) =>
-            !ship || typeof ship !== "object" || isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)
+            !ship ||
+            typeof ship !== "object" ||
+            isWellFormedV67ShipGroundTeams(ship.groundTeams, ship.typeKey) ||
+            isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)
               ? ship
-              : { ...ship, groundTeams: backfillShipGroundTeams(ship, members) },
+              : { ...ship, groundTeams: backfillV67ShipGroundTeams(ship, members) },
           )
         : state.ships,
       squadLoadouts:
         Array.isArray(state.squadLoadouts) && state.squadLoadouts.every(isWellFormedGroundTeamLoadout) ? state.squadLoadouts : [],
+    };
+  },
+  // v67 -> v68 (0.14.0 Squads SQ-1, design docs/plans/2026-10-12-squads-and-subspace-telescope-design.md
+  // section 2.7; user: DOUBLE EVERY HULL, teams are PAIRS of squads, the migrated second pair defaults to
+  // Ground). Every hull now fields 4 squads = 2 teams, and each team carries a KIND (Ground / Strike /
+  // Survey). Per ship (groundTeams.ts v68ShipGroundTeamsFromV67):
+  // - a value already in the v68 shape is kept (idempotent);
+  // - a well-formed v67 list keeps every team, stamped kind "ground" (GO-1's 1 + 1 shape IS Ground) with its
+  //   slots, name and help toggle untouched; a malformed one is first backfilled by hire order exactly as
+  //   the v66 -> v67 step does (one team; overflow stays in the reserve, never in the new pair);
+  // - an EMPTY Ground team is appended to reach the hull's 2 teams, marked `kindPending: true` so the Away
+  //   Team tab can prompt "Pick a type" (it reads and deploys as Ground meanwhile).
+  // NO MEMBER MOVES: the old cap was one squad per type, so every member aboard already sat in team 0 or in
+  // the reserve; both stay where they are, and no awayMembers record changes. Nothing in the engine deploys
+  // an empty team, so dispatch, an in-flight run (its GroundOpsState records member ids per deployed team and
+  // never reads a ship's teams) and every claim resolve byte-identically.
+  // Also seeds the Subspace Telescope at its FOUNDING Level 1 (design section 6.2: pre-granted, like the
+  // Research Lab and Mission Control; an existing value is kept). No FACILITIES entry reads it until SQ-5,
+  // and nothing iterates state.facilities, so the key is inert until then.
+  // squadLoadouts: GroundTeamLoadout gains an OPTIONAL `kind` (absent = Ground), so nothing to write (the list
+  // is always [] in real saves; GO-17 is not built). Plain data only (no Decimals). Hardened like v66 -> v67:
+  // a non-array ships field passes through, a malformed ship entry is left untouched, a non-array
+  // awayMembers field reads as no members.
+  67: (state: any): any => {
+    const members: unknown[] = Array.isArray(state.awayMembers) ? state.awayMembers : [];
+    return {
+      ...state,
+      ships: Array.isArray(state.ships)
+        ? state.ships.map((ship: any) => {
+            if (!ship || typeof ship !== "object" || isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)) return ship;
+            const v67 = isWellFormedV67ShipGroundTeams(ship.groundTeams, ship.typeKey)
+              ? ship.groundTeams
+              : backfillV67ShipGroundTeams(ship, members);
+            return { ...ship, groundTeams: v68ShipGroundTeamsFromV67(ship, v67, true) };
+          })
+        : state.ships,
+      facilities: {
+        ...state.facilities,
+        subspaceTelescope: state.facilities?.subspaceTelescope ?? { level: 1 },
+      },
     };
   },
 };

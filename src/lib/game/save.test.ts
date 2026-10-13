@@ -34,9 +34,10 @@ import { NEUTRAL_OFFICER_STATS, officerStatSeed, rollOfficerStats } from "./seni
 import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
 // Ground Operations GO-1: the v66 -> v67 block checks the slot backfill against the hull's empty teams and
 // today's hire-order dispatch, and proves a migrated save plays byte-identically (expedition + economy).
-import { emptyGroundTeams } from "./groundTeams";
+import { emptyGroundTeams, isWellFormedShipGroundTeams, shipGroundTeams } from "./groundTeams";
+import { isValidComposition, shipTeamKinds } from "./groundComposition";
 import { deployableMembers } from "./awayTeam";
-import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { tick } from "./tick";
 import type { GameState } from "./model";
@@ -80,7 +81,7 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(67);
+    expect(SAVE_VERSION).toBe(68);
   });
 });
 
@@ -2164,6 +2165,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
       // migrated save and a fresh save carry the identical facilities SHAPE.
       salvageBay: { level: 0 },
+      // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
+      subspaceTelescope: { level: 1 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -2264,6 +2267,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
       // migrated save and a fresh save carry the identical facilities SHAPE.
       salvageBay: { level: 0 },
+      // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
+      subspaceTelescope: { level: 1 },
     });
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(1);
@@ -2314,6 +2319,8 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
       // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
       // migrated save and a fresh save carry the identical facilities SHAPE.
       salvageBay: { level: 0 },
+      // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
+      subspaceTelescope: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
     expect(migrated.activeProcesses).toEqual([]);
@@ -2400,7 +2407,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
     // level 0) AND MIGRATIONS[41] (v41->v42, Salvage Lanes, seeds salvageBay level 0). So
     // the FINAL facilities map holds all NINE keys, not the three MIGRATIONS[18] alone
     // produces.
-    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "refinery", "research", "salvageBay", "shipyard", "warehouseT1", "warehouseT2"]);
+    expect(Object.keys(migrated.facilities).sort()).toEqual(["fabricator", "fuelStorage", "missionControl", "refinery", "research", "salvageBay", "shipyard", "subspaceTelescope", "warehouseT1", "warehouseT2"]);
     expect(migrated.facilities.refinery).toEqual({ level: 2 }); // untouched
     expect(migrated.facilities.warehouseT1).toEqual({ level: 0 }); // seeded
     expect(migrated.facilities.warehouseT2).toEqual({ level: 0 }); // seeded (locked)
@@ -2520,6 +2527,8 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
       // one-lane bay, not an unfounded one, so this seed changes no behavior; it exists so a
       // migrated save and a fresh save carry the identical facilities SHAPE.
       salvageBay: { level: 0 },
+      // Squads SQ-1 (MIGRATIONS[67]): the Subspace Telescope's founding Level 1, pre-granted.
+      subspaceTelescope: { level: 1 },
     });
     expect(migrated.facilities).toEqual(original.facilities);
   });
@@ -2581,7 +2590,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     // (v22->v23, Fabricator Task F6, seeds fabricator level 1) AND MIGRATIONS[24] (v24->v25,
     // Shipyard Task S6, seeds shipyard level 0), so the FINAL facilities map carries those five
     // in addition to the three the pre-existing v19 shape held (all preserved value-for-value).
-    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } });
+    expect(migrated.facilities).toEqual({ refinery: { level: 1 }, warehouseT1: { level: 2 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 } });
     expect(itemTotal(migrated.inventory, "commonOre").equals(750)).toBe(true);
     // ITEM-MERGE (0.11.0 Tasks A1/A2, v28->v29): refinedMaterial (20) folds into titaniumIngot
     // and components (2) is dropped; the itemsRefined lifetimeStats tally below is NOT touched.
@@ -6476,13 +6485,16 @@ describe("SAVE migration v65 -> v66 (E-CREW Task 19 officer stats)", () => {
 });
 
 // Ground Operations GO-1 (plan 2026-10-09 section 2, D25): v66 -> v67 adds the per-ship ground-team slot
-// state. Every ship gets groundTeamCount(typeKey) teams (1 on every hull today), its members slotted by
+// state. Every ship gets the v67 team count (1 on every hull; Squads SQ-1 froze this step's guard and fill), its members slotted by
 // HIRE order up to each squad's size (injured included), so the slots reproduce today's "first N members
 // in hire order". squadLoadouts is reshaped per ground team; no build ever created one, so any stored value
 // that is not a well-formed GroundTeamLoadout list becomes []. Nothing in the engine reads the slots yet.
 describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
   const migrateFrom = (version: number, state: any): any =>
     migrate({ version, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state } as SaveFile);
+  // Squads SQ-1: the chain now continues through v67 -> v68, which stamps every v67 team Ground and appends
+  // an empty Ground pair marked kindPending. The GO-1 expectations below read through that upgrade.
+  const pendingPair = (typeKey: ShipTypeKey): any => ({ ...emptyGroundTeams(typeKey)[1], kindPending: true });
   const stripGroundTeams = (state: any): any => ({
     ...state,
     ships: state.ships.map((ship: any) => {
@@ -6526,10 +6538,12 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     const migrated = migrateFrom(66, v66State(crewed()));
     const [s1, s2] = migrated.ships;
     expect(s1.groundTeams).toEqual([
-      { security: ["member-3", "member-5", "member-9"], science: ["member-4", "member-8", null], helpOthers: false },
+      { kind: "ground", security: ["member-3", "member-5", "member-9"], science: ["member-4", "member-8", null], helpOthers: false },
+      pendingPair("generalFreighter"),
     ]);
     expect(s2.groundTeams).toEqual([
-      { security: ["member-1", null, null, null], science: [null, null, null], helpOthers: false },
+      { kind: "ground", security: ["member-1", null, null, null], science: [null, null, null], helpOthers: false },
+      pendingPair("destroyer"),
     ]);
     // member-12 (4th Security by hire order) is unslotted but still aboard; no member record changes
     const slotted = migrated.ships.flatMap((s: any) => s.groundTeams.flatMap((t: any) => [...t.security, ...t.science]));
@@ -6547,10 +6561,11 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     );
   });
 
-  it("gives a ship with no members the hull's empty teams, the same shape freshState seeds", () => {
+  it("gives a ship with no members the hull's empty teams (freshState's shape, plus the v68 pending flag)", () => {
     const migrated = migrateFrom(66, v66State());
-    expect(migrated.ships[0].groundTeams).toEqual(emptyGroundTeams("generalFreighter"));
-    expect(migrated.ships[0].groundTeams).toEqual(freshState().ships[0].groundTeams);
+    const [alpha, bravo] = emptyGroundTeams("generalFreighter");
+    expect(migrated.ships[0].groundTeams).toEqual([alpha, { ...bravo, kindPending: true }]);
+    expect(migrated.ships[0].groundTeams[0]).toEqual(freshState().ships[0].groundTeams![0]);
   });
 
   it("is idempotent: a second pass keeps the slots, and a well-formed custom value survives", () => {
@@ -6561,7 +6576,10 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     custom.ships[0].groundTeams = [
       { name: "Red Squad", security: [null, "member-12", "member-9"], science: ["member-8", null, null], helpOthers: true },
     ];
-    expect(migrateFrom(66, custom).ships[0].groundTeams).toEqual(custom.ships[0].groundTeams);
+    expect(migrateFrom(66, custom).ships[0].groundTeams).toEqual([
+      { ...custom.ships[0].groundTeams[0], kind: "ground" },
+      pendingPair("generalFreighter"),
+    ]);
   });
 
   it("rebuilds a malformed value (wrong length, bad entries, not an array) from hire order", () => {
@@ -6596,9 +6614,10 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
 
   it("is hardened: a non-array awayMembers field does not throw and leaves every slot empty", () => {
     expect(() => migrateFrom(66, { ...v66State(), awayMembers: "corrupt" })).not.toThrow();
-    expect(migrateFrom(66, { ...v66State(), awayMembers: "corrupt" }).ships[0].groundTeams).toEqual(
-      emptyGroundTeams("generalFreighter"),
-    );
+    expect(migrateFrom(66, { ...v66State(), awayMembers: "corrupt" }).ships[0].groundTeams).toEqual([
+      emptyGroundTeams("generalFreighter")[0],
+      pendingPair("generalFreighter"),
+    ]);
   });
 
   it("a JSON round trip keeps groundTeams at the current version", () => {
@@ -6610,6 +6629,8 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
   });
 
   it("plays byte-identically: the step only ADDS groundTeams (in-flight expedition, claim, economy ticks)", () => {
+    // (Squads SQ-1: viaStep now also runs v67 -> v68, which seeds the founding Subspace Telescope; noStep is
+    // handed the same seed, so the comparison still isolates GO-1's groundTeams addition.)
     let s = withMinimumAwayTeam(crewed());
     s = { ...s, awayMembers: s.awayMembers.map(withoutInjury) };
     // A v66 save predates Ground Ops (GO-7b), so its in-flight run is a legacy one (no groundOps flag).
@@ -6617,7 +6638,9 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     expect(launched.success).toBe(true);
     const raw = v66State(launched.next);
     const viaStep = migrateFrom(66, JSON.parse(JSON.stringify(raw)));
-    const noStep = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(raw)));
+    const seeded = JSON.parse(JSON.stringify(raw));
+    seeded.facilities = { ...seeded.facilities, subspaceTelescope: { level: 1 } };
+    const noStep = migrateFrom(SAVE_VERSION, seeded);
     expect(noStep.ships[0].groundTeams).toBeUndefined();
     expect(viaStep.ships[0].groundTeams).toBeDefined();
     expect(stripGroundTeams(viaStep)).toEqual(noStep);
@@ -6634,5 +6657,193 @@ describe("migrate, v66 -> v67 ground-team slots (Ground Ops GO-1)", () => {
     const tickedA = tick(3600, viaStep, () => 0.5);
     const tickedB = tick(3600, noStep, () => 0.5);
     expect(JSON.stringify(stripGroundTeams(tickedA))).toBe(JSON.stringify(tickedB));
+  });
+});
+
+describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads SQ-1)", () => {
+  const migrateFrom = (version: number, state: any): any =>
+    migrate({ version, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state } as SaveFile);
+  // A genuine v67 shape: the JSON of a current state with exactly the SQ-1 additions taken off (one team per
+  // ship, no kinds, no telescope).
+  const v67State = (state: GameState): any => asV67GroundState((deserialize(serialize(state, 0)) as SaveFile).state);
+  const pendingPair = (typeKey: ShipTypeKey): any => ({ ...emptyGroundTeams(typeKey)[1], kindPending: true });
+
+  // ship-1 (General Freighter, 3 / 3) holds 3 Security slotted + 1 in the reserve (a deliberate unslot) and
+  // 2 Science, Alpha renamed with help on; ship-2 (Destroyer) holds 1 Security; ship-3 was minted after v67
+  // without the field (no members).
+  const crewed = (): GameState => {
+    const base = freshState();
+    return {
+      ...base,
+      ships: [
+        {
+          ...base.ships[0],
+          groundTeams: [
+            { name: "Red Squad", kind: "ground", security: ["member-3", "member-5", "member-9"], science: ["member-4", null, "member-8"], helpOthers: true },
+            emptyGroundTeams("generalFreighter")[1],
+          ],
+        },
+        { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null, groundTeams: [{ ...emptyGroundTeams("destroyer")[0], security: ["member-1", null, null, null] }, emptyGroundTeams("destroyer")[1]] },
+        { id: "ship-3", typeKey: "generalFreighter", assignedCaptainId: null },
+      ],
+      awayMembers: [
+        plainAwayMember("member-9", "security", "ship-1"),
+        { ...plainAwayMember("member-3", "security", "ship-1"), injuredUntilSeconds: 50_000, injuredAtSeconds: 10 },
+        plainAwayMember("member-12", "security", "ship-1"), // the reserve
+        plainAwayMember("member-5", "security", "ship-1"),
+        plainAwayMember("member-8", "science", "ship-1"),
+        plainAwayMember("member-4", "science", "ship-1"),
+        plainAwayMember("member-1", "security", "ship-2"),
+        { ...plainAwayMember("member-2", "science", "ship-1"), assignedShipId: null },
+      ],
+      nextAwayMemberId: 13,
+    };
+  };
+
+  it("the v67 fixture really is the v67 shape (one kindless team per ship, no telescope)", () => {
+    const raw = v67State(crewed());
+    expect(raw.ships[0].groundTeams).toEqual([
+      { name: "Red Squad", security: ["member-3", "member-5", "member-9"], science: ["member-4", null, "member-8"], helpOthers: true },
+    ]);
+    expect(raw.ships[2].groundTeams).toBeUndefined();
+    expect(raw.facilities.subspaceTelescope).toBeUndefined();
+  });
+
+  it("each ship's existing team becomes Ground in place; an empty Ground pair is added, marked pending; NO member moves", () => {
+    const raw = v67State(crewed());
+    const migrated = migrateFrom(67, raw);
+    const [s1, s2, s3] = migrated.ships;
+    expect(s1.groundTeams).toEqual([{ ...raw.ships[0].groundTeams[0], kind: "ground" }, pendingPair("generalFreighter")]);
+    expect(s2.groundTeams).toEqual([{ ...raw.ships[1].groundTeams[0], kind: "ground" }, pendingPair("destroyer")]);
+    // ship-3 had no field: backfilled by hire order exactly as v67 did (nobody aboard), then extended
+    expect(s3.groundTeams).toEqual([emptyGroundTeams("generalFreighter")[0], pendingPair("generalFreighter")]);
+    // the reserve member stays in the reserve, nobody lands in the new pair, and no member record changes
+    const slotted = migrated.ships.flatMap((s: any) => s.groundTeams.flatMap((t: any) => [...t.security, ...t.science]));
+    expect(slotted).not.toContain("member-12");
+    for (const s of migrated.ships) {
+      expect(s.groundTeams[1].security.every((id: unknown) => id === null)).toBe(true);
+      expect(s.groundTeams[1].science.every((id: unknown) => id === null)).toBe(true);
+    }
+    expect(migrated.awayMembers).toEqual(raw.awayMembers);
+    for (const s of migrated.ships) expect(isWellFormedShipGroundTeams(s.groundTeams, s.typeKey)).toBe(true);
+  });
+
+  it("every migrated ship reads Ground + Ground (a valid composition) and the pending pair still reads as Ground", () => {
+    const migrated = migrateFrom(67, v67State(crewed()));
+    for (const s of migrated.ships) {
+      expect(shipTeamKinds(s)).toEqual(["ground", "ground"]);
+      expect(isValidComposition(shipTeamKinds(s))).toBe(true);
+      expect(shipGroundTeams(s)[1].kindPending).toBe(true);
+    }
+  });
+
+  it("a malformed v67 value is rebuilt by hire order (one team, overflow to the reserve), then extended", () => {
+    for (const bad of ["corrupt", null, [], [{ security: ["member-3"], science: [null, null, null], helpOthers: false }]]) {
+      const raw = v67State(crewed());
+      raw.ships[0].groundTeams = bad;
+      expect(migrateFrom(67, raw).ships[0].groundTeams).toEqual([
+        { kind: "ground", security: ["member-3", "member-5", "member-9"], science: ["member-4", "member-8", null], helpOthers: false },
+        pendingPair("generalFreighter"),
+      ]);
+    }
+  });
+
+  it("seeds the Subspace Telescope at its founding Level 1, keeping any stored level", () => {
+    expect(migrateFrom(67, v67State(crewed())).facilities.subspaceTelescope).toEqual({ level: 1 });
+    const raw = v67State(crewed());
+    raw.facilities.subspaceTelescope = { level: 3 };
+    expect(migrateFrom(67, raw).facilities.subspaceTelescope).toEqual({ level: 3 });
+    // every other facility is untouched, and the migrated shape is freshState's
+    const migrated = migrateFrom(67, v67State(crewed()));
+    expect(Object.keys(migrated.facilities).sort()).toEqual(Object.keys(freshState().facilities).sort());
+  });
+
+  it("is idempotent, and a v68 value (custom kinds, no pending flag) survives untouched", () => {
+    const once = migrateFrom(67, v67State(crewed()));
+    const twice = migrateFrom(67, JSON.parse(JSON.stringify(once)));
+    expect(twice.ships).toEqual(once.ships);
+    expect(twice.facilities).toEqual(once.facilities);
+    const custom = JSON.parse(JSON.stringify(once));
+    custom.ships[0].groundTeams = [
+      { kind: "strike", security: ["member-3", "member-5", "member-9", "member-12", null, null], science: [], helpOthers: false },
+      { kind: "ground", security: [null, null, null], science: ["member-4", "member-8", null], helpOthers: false },
+    ];
+    expect(migrateFrom(67, custom).ships[0].groundTeams).toEqual(custom.ships[0].groundTeams);
+  });
+
+  it("squadLoadouts and its id counter ride through untouched (GroundTeamLoadout.kind is optional)", () => {
+    const kit = { armor: null, weapon: "equip-1", tool: null, implants: [] };
+    const good = [{ id: "squad-1", name: "Alpha kit", security: [kit], science: [], checkedOutTo: null }];
+    const migrated = migrateFrom(67, { ...v67State(crewed()), squadLoadouts: good, nextSquadLoadoutId: 4 });
+    expect(migrated.squadLoadouts).toEqual(good);
+    expect(migrated.nextSquadLoadoutId).toBe(4);
+  });
+
+  it("is hardened: non-array ships / awayMembers and malformed ship entries do not throw", () => {
+    expect(() => migrateFrom(67, { ...v67State(crewed()), awayMembers: "corrupt" })).not.toThrow();
+    const raw = v67State(crewed());
+    raw.ships[0].groundTeams = "corrupt";
+    expect(migrateFrom(67, { ...raw, awayMembers: "corrupt" }).ships[0].groundTeams).toEqual([
+      emptyGroundTeams("generalFreighter")[0],
+      pendingPair("generalFreighter"),
+    ]);
+    const withJunk = v67State(crewed());
+    withJunk.ships = [...withJunk.ships, null, 7];
+    expect(() => migrateFrom(67, withJunk)).not.toThrow();
+  });
+
+  it("a JSON round trip keeps the v68 teams and the telescope at the current version", () => {
+    const migrated = migrateFrom(67, v67State(crewed()));
+    const save = deserialize(serialize(migrated, 0)) as SaveFile;
+    expect(save.version).toBe(SAVE_VERSION);
+    const restored = migrate(save);
+    expect(restored.ships.map((s) => s.groundTeams)).toEqual(migrated.ships.map((s: any) => s.groundTeams));
+    expect(restored.facilities.subspaceTelescope).toEqual({ level: 1 });
+  });
+
+  it("plays byte-identically: an in-flight Ground Ops run, its claim, the next dispatch and an hour of ticks", { timeout: 120_000 }, () => {
+    // A v67 build dispatched a FLAGGED run (GO-7b) with one team; the migrated save must resolve it unchanged.
+    const END_AT = 2_000_000;
+    // A full 3 + 3 Alpha (hire order) so the run completes on this seed; Bravo is the empty pair.
+    const members = [
+      ...[1, 2, 3].map((i) => plainAwayMember(`member-${i}`, "security", "ship-1")),
+      ...[11, 12, 13].map((i) => plainAwayMember(`member-${i}`, "science", "ship-1")),
+    ];
+    let s = withSlottedAwayTeams({ ...freshState(), awayMembers: members, nextAwayMemberId: 100, expeditionSeed: 1, gameTimeSeconds: 1_000 });
+    const launched = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    expect(launched.success).toBe(true);
+    expect(launched.expedition?.groundOps).toBeDefined();
+    const raw = v67State(launched.next);
+    const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
+    const noStep = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(raw)));
+    expect(viaStep.ships[0].groundTeams).toHaveLength(2);
+    expect(noStep.ships[0].groundTeams).toHaveLength(1); // the raw v67 list, read through the normalizer
+    // the step only ADDS the SQ-1 fields: take them off and the two loads are byte-identical
+    expect(JSON.stringify(asV67GroundState(viaStep))).toBe(JSON.stringify(noStep));
+    // the in-flight run resolves identically (big advance and 997 s chunks agree as well)
+    const expA = advanceExpedition(viaStep.expeditions[0], END_AT);
+    const expB = advanceExpedition(noStep.expeditions[0], END_AT);
+    expect(expA.phase).toBe("complete");
+    expect(JSON.stringify(expA)).toBe(JSON.stringify(expB));
+    let chunked = viaStep.expeditions[0];
+    for (let t = 1_000 + 997; t < END_AT; t += 997) chunked = advanceExpedition(chunked, t);
+    expect(advanceExpedition(chunked, END_AT)).toEqual(expA);
+    // the claim lands identically
+    const claimA = claimExpedition({ ...viaStep, gameTimeSeconds: END_AT, expeditions: [expA] }, expA.id);
+    const claimB = claimExpedition({ ...noStep, gameTimeSeconds: END_AT, expeditions: [expB] }, expB.id);
+    expect(claimA.success).toBe(true);
+    expect(JSON.stringify(asV67GroundState(claimA.next))).toBe(JSON.stringify(asV67GroundState(claimB.next)));
+    // the NEXT dispatch is the same expedition on both (the empty pending pair never deploys)
+    s = { ...claimA.next, gameTimeSeconds: END_AT + 100_000 };
+    const t = { ...claimB.next, gameTimeSeconds: END_AT + 100_000 };
+    const nextA = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
+    const nextB = startExpedition(t, "ship-1", 1, expeditionCandidates(t, "ship-1")[0].id);
+    expect(nextA.success).toBe(true);
+    expect(nextA.expedition?.groundOps?.teams.map((x) => x.index)).toEqual([0]);
+    expect(JSON.stringify(nextA.expedition)).toBe(JSON.stringify(nextB.expedition));
+    // and the whole economy steps identically for an hour
+    const tickedA = tick(3600, viaStep, () => 0.5);
+    const tickedB = tick(3600, noStep, () => 0.5);
+    expect(JSON.stringify(asV67GroundState(tickedA))).toBe(JSON.stringify(asV67GroundState(tickedB)));
   });
 });

@@ -5,35 +5,43 @@
 // through withMinimumAwayTeam so it keeps testing what it tested before (sensors, museum, relics, phases)
 // rather than the gate. The members are plain: rank 1, no traits, no gear, no own program.
 
-import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipTypeDef, type ShipTypeKey } from "./model";
+import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
 import { expeditionAwayTeamCheck } from "./expedition";
-import { backfillShipGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
+import { backfillV67ShipGroundTeams, shipsWithMemberAutoSlotted, v67GroundTeamCount, v68ShipGroundTeamsFromV67 } from "./groundTeams";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
-// with no away-team data). Every real hull fields exactly 1 ground team, so a multi-team test needs one of
-// these. Returns the cleanup that removes the entry again; call it in afterEach so no other test sees it.
+// with no away-team data). Returns the cleanup that removes the entry again; call it in afterEach so no other
+// test sees it. Squads SQ-1: the team count is `groundSquads` / 2 now (every real hull fields 2 teams), so
+// `groundSquads` defaults to 2 x the Security entry's `count` (0 without one): a pre-SQ-1 fixture written as
+// "count 3" still fields 3 teams, and its v67 shape (the count) matches its v68 shape.
 export function registerSyntheticHull(
   key: ShipTypeKey,
   awayTeams: ShipTypeDef["awayTeams"],
+  groundSquads?: number,
 ): () => void {
   const table = SHIP_TYPES as Record<string, ShipTypeDef>;
   const def: ShipTypeDef = { ...SHIP_TYPES.generalFreighter };
   if (awayTeams === undefined) delete def.awayTeams;
   else def.awayTeams = awayTeams;
+  def.groundSquads = groundSquads ?? 2 * (awayTeams?.find((t) => t.teamType === "security")?.count ?? 0);
   table[key] = def;
   return () => {
     delete table[key];
   };
 }
 
-// The state with every ship's `groundTeams` (Ground Ops GO-1, SAVE v67) removed. Golden hashes of a WHOLE
-// state captured before GO-1 hash through this, so they keep proving that nothing else changed: the slot
-// state is new, inert data (no engine reads it until GO-7b), and stripping it leaves every other key in its
-// original order. Pure.
-export function withoutGroundTeams(state: GameState): GameState {
+// The state with every ship's `groundTeams` (Ground Ops GO-1, SAVE v67; team kinds since Squads SQ-1, v68)
+// and the founding Subspace Telescope facility (`facilities.subspaceTelescope`, SQ-1, v68) removed. Golden
+// hashes of a WHOLE state captured before GO-1 hash through this, so they keep proving that nothing else
+// changed: the slot state and the telescope seed are inert data to those runs, and stripping them leaves
+// every other key in its original order. Pure.
+export function withoutGroundSquadState(state: GameState): GameState {
+  const facilities = { ...state.facilities };
+  delete facilities.subspaceTelescope;
   return {
     ...state,
+    facilities,
     ships: state.ships.map((ship) => {
       const rest = { ...ship };
       delete rest.groundTeams;
@@ -65,11 +73,43 @@ export function asLegacyDispatch<R extends { next: GameState; expedition?: Exped
   };
 }
 
+// The state as a v67 build held it (Squads SQ-1): every ship's groundTeams cut back to the v67 team count
+// (groundTeams.ts v67GroundTeamCount) with each team's `kind` / `kindPending` removed, and the founding
+// `facilities.subspaceTelescope` removed. Exactly the SQ-1 (v68) additions come off and every other key keeps
+// its order, so a whole-state golden captured on v67 (groundOpsLegacy.test.ts claims) still proves nothing
+// else moved. A ship without groundTeams is left as it is. Pure.
+export function asV67GroundState(state: GameState): GameState {
+  const facilities = { ...state.facilities };
+  delete facilities.subspaceTelescope;
+  return {
+    ...state,
+    facilities,
+    ships: state.ships.map((ship) => {
+      if (!Array.isArray(ship.groundTeams)) return ship;
+      const teams = ship.groundTeams.slice(0, v67GroundTeamCount(ship.typeKey)).map((t) => {
+        const rest: Partial<ShipGroundTeam> = { ...t };
+        delete rest.kind;
+        delete rest.kindPending;
+        return rest as ShipGroundTeam;
+      });
+      return { ...ship, groundTeams: teams };
+    }),
+  };
+}
+
 // Ground Ops (GO-7b): every ship's ground-team slots refilled from its members in HIRE order (the v67
-// backfill, groundTeams.ts backfillShipGroundTeams), so a test that builds `awayMembers` by hand dispatches
-// the same team the pre-switch "first N ready members in hire order" rule picked. Pure.
+// backfill, groundTeams.ts backfillV67ShipGroundTeams), so a test that builds `awayMembers` by hand dispatches
+// the same team the pre-switch "first N ready members in hire order" rule picked. Squads SQ-1: the v67 teams
+// are stamped Ground and padded with empty Ground teams to the hull's v68 count (no pending flag), so the
+// extra pair stays empty exactly as a migrated save's does. Pure.
 export function withSlottedAwayTeams(state: GameState): GameState {
-  return { ...state, ships: state.ships.map((ship) => ({ ...ship, groundTeams: backfillShipGroundTeams(ship, state.awayMembers) })) };
+  return {
+    ...state,
+    ships: state.ships.map((ship) => ({
+      ...ship,
+      groundTeams: v68ShipGroundTeamsFromV67(ship, backfillV67ShipGroundTeams(ship, state.awayMembers), false),
+    })),
+  };
 }
 
 // A plain away-team member assigned to `shipId`. Pure.

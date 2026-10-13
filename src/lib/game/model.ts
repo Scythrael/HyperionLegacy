@@ -202,6 +202,12 @@ export interface ShipTypeDef {
   // Security and a Science squad plus a wired-only Prospecting entry (count 0). OPTIONAL so a hull
   // without the data simply fields no squads (awayTeam.ts squadSlots reads it as 0).
   awayTeams?: { teamType: AwayTeamType; size: number; count: number }[];
+  // Squads SQ-1 (0.14.0, design docs/plans/2026-10-12-squads-and-subspace-telescope-design.md section 2.2; user
+  // 2026-10-12 "DOUBLE EVERY HULL"): how many ground SQUADS this hull fields, grouped into TEAMS of 2 squads
+  // (groundTeamCount = groundSquads / 2). 4 on every hull today (2 teams); bigger hulls get more later. Must be
+  // EVEN (an odd value is a data error a test catches). The squad SIZE per type stays awayTeams[].size; the
+  // team KINDS (Ground / Strike / Survey) decide how many squads of each type (groundComposition.ts).
+  groundSquads: number;
   // FORWARD (not populated this pass): reactorTier?: number  // reactorTier <= tier; gates equip/module tiers
 }
 
@@ -1052,6 +1058,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1071,6 +1078,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1090,6 +1098,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1109,6 +1118,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1145,6 +1155,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // build. ⚠️ FIRST-PASS TUNABLE. (9b re-tunes alongside the research gate.)
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 5, structuralAssembly: 2 }, credits: 2000, durationTicks: 600 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1171,6 +1182,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Heaviest BOM + longest build of any hull (a capital ship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 14, powerCoupling: 10, structuralAssembly: 5 }, credits: 5000, durationTicks: 1200 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1199,6 +1211,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4, count: 1 },
       { teamType: "science", size: 3, count: 1 },
@@ -1259,6 +1272,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 4, count: 1 },
@@ -1280,6 +1294,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 3, count: 1 },
       { teamType: "science", size: 4, count: 1 },
@@ -1303,6 +1318,7 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting wired, never fielded.
+    groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
       { teamType: "security", size: 4, count: 1 },
       { teamType: "science", size: 4, count: 1 },
@@ -1510,12 +1526,13 @@ export interface ShipInstance {
   // seeds it on the starting hull; the v54->v55 migration backfills the same default onto existing
   // ships. NOTHING reads or writes it yet (auto-crew + rollup are later phases).
   complement?: ShipComplement;
-  // Ground Operations 0.14.0 (GO-1, D25): this ship's GROUND TEAMS, each a slotted Security squad + a
-  // slotted Science squad (see ShipGroundTeam). Length = groundTeamCount(typeKey) (1 on every hull today).
-  // freshState seeds the starting hull; the v66 -> v67 migration backfills every ship by hire order.
+  // Ground Operations 0.14.0 (GO-1, D25): this ship's GROUND TEAMS (see ShipGroundTeam). Length =
+  // groundTeamCount(typeKey) (2 on every hull since Squads SQ-1 / SAVE v68; 1 before). freshState seeds the
+  // starting hull; the v66 -> v67 migration backfilled every ship by hire order and the v67 -> v68 step
+  // stamps each existing team Ground and appends an empty Ground pair marked kindPending.
   // OPTIONAL + absent-safe: a ship minted without it (shipBuild, the captain-unlock grant) reads as the
-  // hull's empty teams through groundTeams.ts shipGroundTeams. GO-2's slot actions and the hire / fire /
-  // reassign sync write it; dispatch does NOT read it yet (still deployableMembers until Ground Ops GO-7b).
+  // hull's empty teams (Ground + Ground, no pending flag) through groundTeams.ts shipGroundTeams. GO-2's slot
+  // actions and the hire / fire / reassign sync write it; dispatch reads it since Ground Ops GO-7b.
   groundTeams?: ShipGroundTeam[];
   // FORWARD (not this pass): modules?, equipment?, reactorCore?, tierOverride?
 }
@@ -1525,28 +1542,44 @@ export interface ShipInstance {
 // Each slot holds an AwayMember id (a member aboard THIS ship with the matching teamType) or null for an
 // empty slot; slot order is deploy order. A member sits in at most one slot fleet-wide (GO-2 enforces it).
 // Members aboard but in no slot are the ship's reserve: they do not deploy.
+// Squads SQ-1 (SAVE v68, design section 2.3, user-approved "flat slots + team kind"): a team is a PAIR of
+// typed squads and its KIND names the pair: Ground = 1 Security + 1 Science (GO-1's exact shape), Strike = 2
+// Security, Survey = 2 Science (user names). The slot lists stay FLAT and squad-major, sized by the kind:
+//   security.length = securitySquadsOf(kind) * groundSquadSize(hull, "security")
+//   science.length  = scienceSquadsOf(kind)  * groundSquadSize(hull, "science")
+// Squad k of a type holds slots [k * size, (k + 1) * size); a Strike team's science list is empty, a Survey
+// team's security list is empty. groundComposition.ts holds the kind math.
+export type GroundTeamKind = "ground" | "strike" | "survey";
+
 export interface ShipGroundTeam {
   // Player-chosen name. ABSENT (or blank) = the default by index (groundTeams.ts GROUND_TEAM_DEFAULT_NAMES:
   // Alpha / Bravo / Charlie, user 9b.7). The short label (A / B / C) always goes by index.
   name?: string;
-  security: (string | null)[]; // length = groundSquadSize(typeKey, "security")
-  science: (string | null)[]; // length = groundSquadSize(typeKey, "science")
+  kind: GroundTeamKind; // the team type (SQ-1, v68); a missing or unknown stored kind reads as "ground"
+  security: (string | null)[]; // length = securitySquadsOf(kind) * groundSquadSize(typeKey, "security")
+  science: (string | null)[]; // length = scienceSquadsOf(kind) * groundSquadSize(typeKey, "science")
   // "When done, help other teams" (D25): the ship's default for the NEXT dispatch (GO-7c reads it).
   helpOthers: boolean;
+  // SQ-1 (v68): set ONLY on the pair the v67 -> v68 migration adds, so the Away Team tab can prompt "Pick a
+  // type"; cleared the first time the player confirms or changes this team's kind (SQ-2 / SQ-7). It still
+  // reads and deploys as Ground (user: the migrated second pair defaults to Ground). Absent = no prompt.
+  kindPending?: true;
 }
 
-// The first away-team entry of `teamType` on a hull (ground teams pair one Security squad with one Science
-// squad, so the per-team size is that entry's `size`). Undefined for an unknown hull or a missing entry.
+// The first away-team entry of `teamType` on a hull (every squad of a type shares that entry's `size`).
+// Undefined for an unknown hull or a missing entry.
 function firstAwayTeamEntry(typeKey: ShipTypeKey, teamType: AwayTeamType) {
   return (SHIP_TYPES[typeKey]?.awayTeams ?? []).find((t) => t.teamType === teamType);
 }
 
-// How many GROUND TEAMS a hull fields (D25 / design section 2): its Security entry's `count`, paired 1:1
-// with Science. 1 on every hull today; 0 for a hull with no away-team data. Pure. Lives here (not in
-// groundTeams.ts, which re-exports it) because freshState seeds the starting hull's teams and model.ts
-// must not import groundTeams.ts (that module imports this one).
+// How many GROUND TEAMS a hull fields: its groundSquads / 2 (Squads SQ-1: a team is a pair of squads; 2 on
+// every hull today). Before SQ-1 this read the Security entry's `count` (1 everywhere); the frozen v67 shape
+// guard in groundTeams.ts still reads that count for the v66 -> v67 step. 0 for an unknown hull. Pure.
+// Lives here (not in groundTeams.ts, which re-exports it) because freshState seeds the starting hull's teams
+// and model.ts must not import groundTeams.ts (that module imports this one).
 export function groundTeamCount(typeKey: ShipTypeKey): number {
-  return Math.max(0, firstAwayTeamEntry(typeKey, "security")?.count ?? 0);
+  const squads = SHIP_TYPES[typeKey]?.groundSquads ?? 0;
+  return Number.isFinite(squads) ? Math.max(0, Math.floor(squads / 2)) : 0;
 }
 
 // The member slots in ONE ground team's `teamType` squad on a hull: the matching entry's `size`; 0 when the
@@ -1555,11 +1588,13 @@ export function groundSquadSize(typeKey: ShipTypeKey, teamType: "security" | "sc
   return Math.max(0, firstAwayTeamEntry(typeKey, teamType)?.size ?? 0);
 }
 
-// A hull's ground teams with every slot empty, no custom names, help toggles off. Fresh arrays per call. Pure.
+// A hull's ground teams with every slot empty: every team GROUND (1 + 1, the default composition, SQ-1), no
+// custom names, help toggles off, no pending flag. Fresh arrays per call. Pure.
 export function emptyGroundTeams(typeKey: ShipTypeKey): ShipGroundTeam[] {
   const sec = groundSquadSize(typeKey, "security");
   const sci = groundSquadSize(typeKey, "science");
   return Array.from({ length: groundTeamCount(typeKey) }, () => ({
+    kind: "ground" as const,
     security: Array.from({ length: sec }, () => null),
     science: Array.from({ length: sci }, () => null),
     helpOthers: false,
@@ -6353,6 +6388,9 @@ export interface SquadLoadoutKit {
 export interface GroundTeamLoadout {
   id: string;
   name: string;
+  // Squads SQ-1 (v68): the team KIND this loadout's kit lists are shaped for. ABSENT = "ground". A loadout
+  // applies only to a team of the same kind (GO-17 wires it; squadLoadouts is always [] in real saves).
+  kind?: GroundTeamKind;
   security: SquadLoadoutKit[];
   science: SquadLoadoutKit[];
   checkedOutTo: { shipId: string; teamIndex: number } | null;
@@ -12554,7 +12592,7 @@ export function freshState(): GameState {
     // this identical shape through the v41->v42 migration (save.ts, MIGRATIONS[41]), and
     // would behave identically even without it (facilityLevel reads an absent key as 0); the
     // migration exists so a fresh save and a migrated save stay indistinguishable in SHAPE.
-    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 } },
+    facilities: { refinery: { level: 0 }, warehouseT1: { level: 0 }, warehouseT2: { level: 0 }, fuelStorage: { level: 0 }, missionControl: { level: 1 }, research: { level: 1 }, fabricator: { level: 1 }, shipyard: { level: 0 }, salvageBay: { level: 0 }, subspaceTelescope: { level: 1 } },
     activeProcesses: [],
     nextProcessId: 1,
     // Crafting Allocation Redesign Task C2: no production lines on a fresh save; the

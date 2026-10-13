@@ -607,3 +607,72 @@ New entries **[PROPOSAL]**: "Team types and squads", "Risk factors", "Subspace T
   Survey team RETREATS with light injuries instead of fighting (the task pauses, they come back later; Survey never
   becomes a combat team); (13) ONE SHARED pickup trip when several teams wipe together on one body. (8) Telescope
   falloff: explained; no answer yet, so build FLAT detail across the whole range [PROVISIONAL].
+
+## Carry notes
+
+**Carry from SQ-1 (built 2026-10-12, commit `feat(0.14.0): squad composition data + SAVE v68 (SQ-1)`):**
+- **Hull data.** `ShipTypeDef.groundSquads: number` (REQUIRED), 4 on all 10 SHIP_TYPES hulls. `groundTeamCount(typeKey)`
+  (model.ts) = `floor(groundSquads / 2)` = 2 everywhere; a test pins every hull at 4 and even. `awayTeams[].size` is the
+  per-type squad size, unchanged. `awayTeams[].count` is still in the data and still read in two places: the hire cap
+  (`awayTeam.ts squadSlots` = size x count = ONE squad per type, deliberately untouched: SQ-2 replaces it with the
+  composition cap) and the FROZEN v67 shape (`groundTeams.ts v67GroundTeamCount`). The section 2.2 "count no longer
+  read" pin belongs to SQ-2.
+- **Persisted shape (model.ts).** `GroundTeamKind = "ground" | "strike" | "survey"`; `ShipGroundTeam.kind` (required)
+  and `kindPending?: true`; flat squad-major slot lists sized by kind (`teamSlotCount`). `GroundTeamLoadout.kind?`
+  (absent = Ground; `isWellFormedGroundTeamLoadout` accepts absent or a known kind). `emptyGroundTeams` = Ground +
+  Ground, no pending flag (fresh ships, ships minted without the field).
+- **`groundComposition.ts`** (imports model.ts only; graph model <- groundComposition <- groundTeamSlots <- awayTeam <-
+  groundTeams): `GROUND_TEAM_KINDS`, `DEFAULT_GROUND_TEAM_KIND`, `isGroundTeamKind`, `squadsOfType` /
+  `securitySquadsOf` / `scienceSquadsOf`, `teamKindName` ("Strike"), `teamKindLabel` ("Strike team"), `teamSlotCount`,
+  `groundSquadsOf`, `compositionSquads`, `isValidComposition` (>= 1 Security AND >= 1 Science squad, every kind known,
+  at least one team), `validCompositions(typeKey)` (multisets in kind order, Ground + Ground first: Ground + Ground,
+  Strike + Ground, Survey + Ground, Strike + Survey), `compositionLabel` (Strike, then Survey, then Ground, whatever
+  the team order), `shipTeamKinds(ship)` (the one kind reader: stored known kind, else Ground, sized to the team
+  count) and `shipComposition(ship)`.
+- **BACKUP ROSTER (user follow-up (4)) [PROVISIONAL count].** Data shape is DERIVED, not stored: the reserve stays what
+  GO-2 calls it (members aboard with a ground squad type in no slot), and `GROUND_RESERVE_BERTHS = 2` (one constant)
+  is how many of them a ship may carry past its slots, SHARED by both types. `shipReserveBerths(typeKey)` (2 when the
+  hull fields teams, else 0), `shipCrewCapacity(typeKey, kinds)` = `{ security, science, reserveBerths, total }` (the
+  fixed crew: 14 on a 3 / 3 freighter for every composition), `reserveBerthsUsed(aboard, capacity)` (members past each
+  type's slots, summed; may exceed the berths, the caller decides). Nothing reads them yet: SQ-2 wires the hire cap
+  and `setGroundTeamKind` on top. **Question for the user (SQ-2):** one type change drops a whole squad (3 or 4
+  members) into the reserve, more than 2 berths, so "changing a team's type never forces benching" needs either more
+  berths, a confirm that names who is benched, or allowing over-capacity until the player sorts it (design 2.6).
+- **Normalization.** `groundTeamSlots.ts shipGroundTeams` sizes each team by its kind (a v67 kindless team reads as
+  Ground) and keeps `kindPending` only when stored `true`. `isWellFormedShipGroundTeams` is the v68 shape guard (known
+  kind, kind-sized lists, optional name, optional `kindPending: true`); shape only, it does not check the composition.
+- **Frozen v67 helpers.** `isWellFormedV67ShipGroundTeams`, `backfillV67ShipGroundTeams` (GO-1's guard and fill under
+  their v67 names; `backfillShipGroundTeams` is gone) and `V67ShipGroundTeam`, so `MIGRATIONS[66]` keeps writing the
+  one-team v67 shape. It now also passes a v68-shaped value through (no real v66 save has one; a fixture built from a
+  current `freshState` keeps its teams through the whole chain).
+- **SAVE v68 (`MIGRATIONS[67]`).** Per ship: a v68 value is kept (idempotent); a v67 value keeps every team, stamped
+  Ground (slots, name, help untouched); a malformed or absent one is backfilled by hire order exactly as v67 did (one
+  team, overflow stays in the reserve), then `v68ShipGroundTeamsFromV67(ship, v67, true)` appends an EMPTY Ground pair
+  with `kindPending: true`. No member moves, no `awayMembers` record changes, nobody lands in the new pair.
+  `facilities.subspaceTelescope = { level: 1 }` is seeded (an existing value kept) and `freshState` seeds it too; there
+  is NO `FACILITIES` entry until SQ-5 and nothing iterates `state.facilities`, so it is inert. Hardened like v67.
+- **Behavior neutrality.** The second pair is always empty on a real save (the hire / reassign cap is still one squad
+  per type, so auto-slot never reaches team 1), and an empty team never deploys, so dispatch, the GO-7a snapshot, the
+  plan and every run are unchanged. Proof (save.test.ts v67 -> v68 block): a v67 save with an in-flight FLAGGED run
+  loads via the step and via no step; with exactly the SQ-1 fields taken off (`asV67GroundState`) the two loads are
+  byte-identical; the run resolves identically (one call == 997 s chunks), the claim lands identically, the NEXT
+  dispatch is the same expedition (one deployed team), and an hour of `tick` serializes identically. Legacy goldens
+  (groundOpsLegacy): checkpoints untouched; the whole-state claim hash now reads through `asV67GroundState` and
+  matches the pre-switch capture unchanged. The officer goldens hash through `withoutGroundSquadState` (renamed from
+  `withoutGroundTeams`; also drops the telescope), golden values unchanged. Every parity test unchanged.
+- **One visible text fix.** The dispatch block listed every team's waits, so the empty Bravo would add "Bravo: Needs a
+  Security member in a slot" noise. New pure `groundTeams.ts groundWaitTeams(check)`: the staffed teams, else the first
+  team alone. ExpeditionPanel uses it, so the block reads as it did before SQ-1.
+- **Fixtures.** `registerSyntheticHull(key, awayTeams, groundSquads?)` (default 2 x the Security `count`, so the GO-7c
+  3-team hulls still field 3 teams and their v67 count matches); `withSlottedAwayTeams` = the v67 hire-order fill
+  stamped Ground plus an empty Ground pair (no pending), i.e. the team the pre-switch rule picked; new
+  `asV67GroundState(state)`.
+- **For SQ-2:** `setGroundTeamKind` clears `kindPending`; the per-squad deploy check replaces the per-team D18 check
+  (a Strike or Survey team cannot pass today's `needSecurity` / `needScience`); the composition-following hire cap
+  replaces `squadSlots` in `squadGate` (only then can team 1 fill), and needs the backup roster answer above. A
+  primitive-level note: `shipsWithMemberAutoSlotted` already reaches team 1 when team 0 is full (tested), so the cap
+  is the only thing keeping the pair empty today.
+- Tests: new `groundComposition.test.ts` (17); `groundTeams.test.ts` 68 -> 78 (v68 shapes, kind sizing, frozen v67
+  guard, the upgrade helper, `groundWaitTeams`, the empty pair); `save.test.ts` +10 (the v67 -> v68 block) with the
+  v66 -> v67 block and facility lists updated for the chain. Suite 4248 -> 4285 passed (1 skipped); `npm run check` 0
+  errors.

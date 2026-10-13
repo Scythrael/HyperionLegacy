@@ -1,9 +1,11 @@
 // Ground Operations 0.14.0 (D25, plan docs/plans/2026-10-09-ground-operations-plan.md): GROUND TEAMS.
 //
-// A ship fields groundTeamCount(typeKey) ground teams (1 on every hull today; the engine supports N). Each
-// team is one Security squad + one Science squad whose members the player SLOTS (model.ts ShipGroundTeam,
-// persisted on ShipInstance.groundTeams since SAVE v67). This module holds the pure readers, the shape
-// guards the v66 -> v67 migration uses, the player's SLOTTING ACTIONS (GO-2) and the DEPLOYABLE READER
+// A ship fields groundTeamCount(typeKey) ground teams (2 on every hull since Squads SQ-1; the engine supports
+// N). Each team is a PAIR of squads whose members the player SLOTS, named by its kind (Ground = Security +
+// Science, Strike = 2 Security, Survey = 2 Science; model.ts ShipGroundTeam, persisted on
+// ShipInstance.groundTeams since SAVE v67, kinds since v68; the kind math is groundComposition.ts). This
+// module holds the pure readers, the shape guards the v66 -> v67 and v67 -> v68 migrations use, the player's
+// SLOTTING ACTIONS (GO-2) and the DEPLOYABLE READER
 // (GO-2; GO-7b switches dispatch to it). The crew-action sync (hire / reassign auto-slot, fire / reassign /
 // bench unslot) lives in awayTeam.ts on the groundTeamSlots.ts primitives.
 //
@@ -15,13 +17,15 @@
 import type {
   AwayMember,
   GameState,
+  GroundTeamKind,
   GroundTeamLoadout,
   ShipGroundTeam,
   ShipInstance,
   ShipTypeKey,
   SquadLoadoutKit,
 } from "./model";
-import { emptyGroundTeams, groundSquadSize, groundTeamCount } from "./model";
+import { SHIP_TYPES, emptyGroundTeams, groundSquadSize, groundTeamCount } from "./model";
+import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, teamSlotCount } from "./groundComposition";
 import { byIdNumber, isMemberReady, shipCrewLocked } from "./awayTeam";
 import {
   GROUND_SQUAD_TYPES,
@@ -86,18 +90,52 @@ export function groundTeamShortLabel(index: number): string {
 }
 
 // ============================================================================
-// Shape guards (the v66 -> v67 migration keeps a value only when it passes)
+// Shape guards (the v66 -> v67 and v67 -> v68 migrations keep a value only when it passes)
 // ============================================================================
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 const isSlotList = (v: unknown, length: number): v is (string | null)[] =>
   Array.isArray(v) && v.length === length && v.every((id) => id === null || typeof id === "string");
 
-// Whether `value` is a ship's ground-team list in the CURRENT shape for `typeKey`: groundTeamCount teams,
-// each with hull-sized Security / Science slot lists of member ids or null, a boolean help toggle and an
-// optional string name. Shape only: it does not check that the ids name members aboard (GO-2's invariant).
+// Whether `value` is a ship's ground-team list in the CURRENT (v68) shape for `typeKey`: groundTeamCount
+// teams, each with a known `kind`, Security / Science slot lists of member ids or null sized to that kind on
+// this hull (groundComposition.ts teamSlotCount), a boolean help toggle, an optional string name and an
+// optional `kindPending: true`. Shape only: it does not check that the ids name members aboard (GO-2's
+// invariant) nor that the composition keeps one squad of each type (groundComposition.ts isValidComposition;
+// no build can store a refused one, SQ-2's kind change refuses it).
 export function isWellFormedShipGroundTeams(value: unknown, typeKey: ShipTypeKey): value is ShipGroundTeam[] {
   if (!Array.isArray(value) || value.length !== groundTeamCount(typeKey)) return false;
+  return value.every(
+    (t) =>
+      isRecord(t) &&
+      isGroundTeamKind(t.kind) &&
+      (t.name === undefined || typeof t.name === "string") &&
+      isSlotList(t.security, teamSlotCount(typeKey, t.kind, "security")) &&
+      isSlotList(t.science, teamSlotCount(typeKey, t.kind, "science")) &&
+      typeof t.helpOthers === "boolean" &&
+      (t.kindPending === undefined || t.kindPending === true),
+  );
+}
+
+// ---- The FROZEN v67 shape (GO-1). The v66 -> v67 migration step must keep producing exactly what it
+// produced when it shipped, so its guard and fill live here under their own names, independent of the live
+// (v68) shape: one Security squad + one Science squad per team, no kind, and the team count GO-1 read (the
+// hull's Security awayTeams entry `count`, 1 on every hull).
+
+// One v67 ground team: the v68 team without `kind` / `kindPending`.
+export type V67ShipGroundTeam = Omit<ShipGroundTeam, "kind" | "kindPending">;
+
+// The team count the v67 shape used: the hull's FIRST Security awayTeams entry `count` (1 on every hull).
+export function v67GroundTeamCount(typeKey: ShipTypeKey): number {
+  const entry = (SHIP_TYPES[typeKey]?.awayTeams ?? []).find((t) => t.teamType === "security");
+  return Math.max(0, entry?.count ?? 0);
+}
+
+// Whether `value` is a ship's ground-team list in the v67 shape for `typeKey` (GO-1's guard, frozen):
+// v67GroundTeamCount teams, each with hull-sized Security / Science slot lists (one squad each) of member
+// ids or null, a boolean help toggle and an optional string name. Shape only.
+export function isWellFormedV67ShipGroundTeams(value: unknown, typeKey: ShipTypeKey): value is V67ShipGroundTeam[] {
+  if (!Array.isArray(value) || value.length !== v67GroundTeamCount(typeKey)) return false;
   const sec = groundSquadSize(typeKey, "security");
   const sci = groundSquadSize(typeKey, "science");
   return value.every(
@@ -119,14 +157,16 @@ const isKit = (v: unknown): v is SquadLoadoutKit =>
   Array.isArray(v.implants) &&
   v.implants.every((id) => typeof id === "string");
 
-// Whether `value` is a GroundTeamLoadout (model.ts): string id + name, Security / Science kit lists, and a
-// null or { shipId, teamIndex } check-out. The never-built Task 2 per-team-TYPE shape fails it.
+// Whether `value` is a GroundTeamLoadout (model.ts): string id + name, an optional known team `kind` (SQ-1;
+// absent = Ground), Security / Science kit lists, and a null or { shipId, teamIndex } check-out. The
+// never-built Task 2 per-team-TYPE shape fails it.
 export function isWellFormedGroundTeamLoadout(value: unknown): value is GroundTeamLoadout {
   if (!isRecord(value)) return false;
   const out = value.checkedOutTo;
   return (
     typeof value.id === "string" &&
     typeof value.name === "string" &&
+    (value.kind === undefined || isGroundTeamKind(value.kind)) &&
     Array.isArray(value.security) &&
     value.security.every(isKit) &&
     Array.isArray(value.science) &&
@@ -137,17 +177,24 @@ export function isWellFormedGroundTeamLoadout(value: unknown): value is GroundTe
 }
 
 // ============================================================================
-// The v67 backfill
+// The v67 backfill (frozen) and the v67 -> v68 upgrade
 // ============================================================================
 
-// A ship's ground teams filled from its members: the hull's empty teams, then team 0's Security / Science
-// slots (then team 1's, ...) take that ship's members of the matching teamType in HIRE order (byIdNumber,
-// the same order deployableMembers uses), up to each squad's size. Injury is IGNORED: an injured member
-// stays slotted and simply does not deploy while injured. Members past the slots stay aboard unslotted (the
-// reserve). Reads raw save data, so malformed member entries (not an object, no string id) are skipped.
-// With every member ready this reproduces today's dispatch ("first N members in hire order"). Pure.
-export function backfillShipGroundTeams(ship: Pick<ShipInstance, "id" | "typeKey">, members: readonly unknown[]): ShipGroundTeam[] {
-  const teams = emptyGroundTeams(ship.typeKey);
+// A ship's ground teams in the v67 shape, filled from its members (GO-1's fill, frozen): v67GroundTeamCount
+// empty teams (one squad of each type, no kind), then team 0's Security / Science slots (then team 1's, ...)
+// take that ship's members of the matching teamType in HIRE order (byIdNumber, the same order
+// deployableMembers uses), up to each squad's size. Injury is IGNORED: an injured member stays slotted and
+// simply does not deploy while injured. Members past the slots stay aboard unslotted (the reserve). Reads raw
+// save data, so malformed member entries (not an object, no string id) are skipped. With every member ready
+// this reproduces the pre-Ground-Ops dispatch ("first N members in hire order"). Pure.
+export function backfillV67ShipGroundTeams(ship: Pick<ShipInstance, "id" | "typeKey">, members: readonly unknown[]): V67ShipGroundTeam[] {
+  const sec = groundSquadSize(ship.typeKey, "security");
+  const sci = groundSquadSize(ship.typeKey, "science");
+  const teams: V67ShipGroundTeam[] = Array.from({ length: v67GroundTeamCount(ship.typeKey) }, () => ({
+    security: Array.from({ length: sec }, () => null),
+    science: Array.from({ length: sci }, () => null),
+    helpOthers: false,
+  }));
   const aboard = members.filter(
     (m): m is AwayMember => isRecord(m) && typeof m.id === "string" && m.assignedShipId === ship.id,
   );
@@ -161,6 +208,33 @@ export function backfillShipGroundTeams(ship: Pick<ShipInstance, "id" | "typeKey
         next += 1;
       }
     }
+  }
+  return teams;
+}
+
+// The v67 -> v68 team upgrade (Squads SQ-1, design section 2.7): every v67 team becomes a GROUND team with its
+// slots, name and help toggle untouched (GO-1's shape IS Ground), and empty Ground teams are appended up to
+// the hull's v68 groundTeamCount (2 on every hull, so one pair). With `markAdded` the appended teams carry
+// `kindPending: true` (the migration's "Pick a type" prompt); without it they are plain (a test fixture
+// standing in for a fresh ship). NO MEMBER MOVES: every slotted id stays in its slot and nobody lands in the
+// new pair. A v67 list longer than the v68 count (no hull has one) keeps its first teams. Fresh arrays. Pure.
+export function v68ShipGroundTeamsFromV67(
+  ship: Pick<ShipInstance, "typeKey">,
+  v67Teams: readonly V67ShipGroundTeam[],
+  markAdded: boolean,
+): ShipGroundTeam[] {
+  const count = groundTeamCount(ship.typeKey);
+  const kind: GroundTeamKind = DEFAULT_GROUND_TEAM_KIND;
+  const teams: ShipGroundTeam[] = v67Teams.slice(0, count).map((t) => {
+    const team: ShipGroundTeam = { kind, security: [...t.security], science: [...t.science], helpOthers: t.helpOthers };
+    if (typeof t.name === "string") team.name = t.name;
+    return team;
+  });
+  const empty = emptyGroundTeams(ship.typeKey);
+  while (teams.length < count) {
+    const added: ShipGroundTeam = empty[teams.length];
+    if (markAdded) added.kindPending = true;
+    teams.push(added);
   }
   return teams;
 }
@@ -528,6 +602,15 @@ export function groundTeamWaitText(wait: GroundTeamWait): string {
         ? "Needs a Science member in a slot"
         : `Needs at least ${MIN_SCIENCE_MEMBERS} Science members in slots`;
   }
+}
+
+// The teams whose waits a blocked dispatch should list (Squads SQ-1): the STAFFED teams (at least one member
+// slotted), or, when nobody is slotted anywhere, the first team alone (what to slot to launch at all). Every
+// hull fields 2 teams since SQ-1, and the empty pair (the v68 migration's, or a fresh ship's Bravo) would
+// otherwise add "needs a member" lines to a block that is really about Alpha. Pure.
+export function groundWaitTeams(check: Pick<GroundDeployCheck, "teams">): GroundTeamReadiness[] {
+  const staffed = check.teams.filter((t) => t.staffed);
+  return staffed.length > 0 ? staffed : check.teams.slice(0, 1);
 }
 
 // The player-facing line for a ship that cannot launch, or null when it can. The per-team reasons ride on

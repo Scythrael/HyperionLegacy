@@ -48,7 +48,7 @@
   // Ground Ops (GO-7b): a flagged run's offloaded findings, its stuck flag, and what each ground team waits on at
   // dispatch. The full Ground Ops screens (queues, timelines, bay) are GO-13 / GO-14.
   import { GROUND_OPS_STUCK_TEXT, groundOpsStuck, groundTaskFindingPrefix } from "./game/groundOps";
-  import { groundTeamWaitText } from "./game/groundTeams";
+  import { groundTeamWaitText, groundWaitTeams } from "./game/groundTeams";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
@@ -158,10 +158,11 @@
   $: chosenTeamCheck = chosenShip && !chosenExpedition ? expeditionAwayTeamCheck(state, chosenShip) : null;
   $: needsAwayTeam = chosenTeamCheck !== null && !chosenTeamCheck.ok;
   // Ground Ops (GO-7b, user 2026-10-12): no automatic stand-ins, so the block lists what each ground team waits on
-  // ("Alpha: Grokk returns to duty in 12m").
-  $: groundWaitLines = chosenTeamCheck
-    ? chosenTeamCheck.ground.teams.flatMap((t) => t.waits.map((w) => `${t.name}: ${groundTeamWaitText(w)}`))
-    : [];
+  // ("Alpha: Grokk returns to duty in 12m"). Squads SQ-1: groundWaitTeams leaves out a team nobody is slotted
+  // into (every hull fields 2 teams now; the empty pair would only add noise).
+  $: groundWaitLines = (chosenTeamCheck ? groundWaitTeams(chosenTeamCheck.ground) : []).flatMap((t) =>
+    t.waits.map((w) => `${t.name}: ${groundTeamWaitText(w)}`),
+  );
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;

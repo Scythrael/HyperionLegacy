@@ -1,6 +1,7 @@
 // Ground Operations GO-1: the per-ship ground-team slot state (D25, plan section 2) and its pure readers.
 // GO-2 adds the slotting actions, the crew-action sync and the deployable reader (dispatch still reads
-// deployableMembers until GO-7b).
+// deployableMembers until GO-7b). Squads SQ-1 (SAVE v68): every hull fields 2 teams, each with a kind;
+// the stored fixtures below are v68 Ground + Ground unless a test says otherwise.
 
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -10,6 +11,7 @@ import {
   type AwayTeamType,
   type Expedition,
   type GameState,
+  type ShipGroundTeam,
   type ShipInstance,
   type ShipTypeKey,
 } from "./model";
@@ -25,7 +27,7 @@ import {
   GROUND_SQUAD_TYPES,
   GROUND_TEAM_DEFAULT_NAMES,
   GROUND_TEAM_NAME_MAX,
-  backfillShipGroundTeams,
+  backfillV67ShipGroundTeams,
   canSlotMember,
   canSwapGroundMembers,
   canUnslotMember,
@@ -38,8 +40,10 @@ import {
   groundTeamName,
   groundTeamShortLabel,
   groundTeamWaitText,
+  groundWaitTeams,
   isWellFormedGroundTeamLoadout,
   isWellFormedShipGroundTeams,
+  isWellFormedV67ShipGroundTeams,
   renameGroundTeam,
   setGroundTeamHelp,
   shipGroundTeams,
@@ -48,6 +52,8 @@ import {
   slotMember,
   swapGroundMembers,
   unslotMember,
+  v67GroundTeamCount,
+  v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
 import { expeditionAwayTeamCheck } from "./expedition";
 import { formatCountdown } from "./format";
@@ -61,32 +67,52 @@ afterEach(() => {
   cleanup = null;
 });
 
-describe("groundTeamCount / groundSquadSize (D25: one ground team = a Security squad + a Science squad)", () => {
-  it("is 1 on every hull today, with the squad sizes the hull lists", () => {
+// An empty GROUND team for the General Freighter (3 / 3), the shape of a team nobody is slotted into.
+const emptyFreighterTeam = () => ({
+  kind: "ground" as const,
+  security: [null, null, null] as (string | null)[],
+  science: [null, null, null] as (string | null)[],
+  helpOthers: false,
+});
+
+describe("groundTeamCount / groundSquadSize (Squads SQ-1: a team is a PAIR of squads, groundSquads / 2 teams)", () => {
+  it("is 2 on every hull (4 squads), with the squad sizes the hull lists", () => {
     for (const key of HULLS) {
-      expect(groundTeamCount(key), key).toBe(1);
-      // count 1, so a team's squad size is the hull's whole squad capacity
+      expect(groundTeamCount(key), key).toBe(2);
+      expect(groundTeamCount(key), key).toBe(SHIP_TYPES[key].groundSquads / 2);
+      // the awayTeams count is still 1, so a squad's size is the hull's per-type squad capacity
       expect(groundSquadSize(key, "security"), key).toBe(squadSlots(key, "security"));
       expect(groundSquadSize(key, "science"), key).toBe(squadSlots(key, "science"));
     }
   });
 
-  it("a synthetic hull with count 3 fields 3 teams with the entry's sizes", () => {
+  it("a synthetic hull with 6 squads fields 3 Ground teams with the entry's sizes", () => {
     const key = "syntheticTriple" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [
       { teamType: "security", size: 4, count: 3 },
       { teamType: "science", size: 2, count: 3 },
     ]);
+    expect(SHIP_TYPES[key].groundSquads).toBe(6); // the fixture default: 2 x the Security count
     expect(groundTeamCount(key)).toBe(3);
     expect(groundSquadSize(key, "security")).toBe(4);
     expect(groundSquadSize(key, "science")).toBe(2);
     const teams = emptyGroundTeams(key);
     expect(teams).toHaveLength(3);
     for (const t of teams) {
-      expect(t).toEqual({ security: [null, null, null, null], science: [null, null], helpOthers: false });
+      expect(t).toEqual({ kind: "ground", security: [null, null, null, null], science: [null, null], helpOthers: false });
     }
     // fresh arrays per team (never aliased)
     expect(teams[0].security).not.toBe(teams[1].security);
+  });
+
+  it("the team count reads groundSquads, not the awayTeams count", () => {
+    const key = "syntheticSquadsOnly" as ShipTypeKey;
+    cleanup = registerSyntheticHull(key, [
+      { teamType: "security", size: 3, count: 1 },
+      { teamType: "science", size: 3, count: 1 },
+    ], 8);
+    expect(groundTeamCount(key)).toBe(4);
+    expect(v67GroundTeamCount(key)).toBe(1); // the frozen v67 shape still reads the count
   });
 
   it("a hull missing awayTeams (or an unknown key) fields 0 teams", () => {
@@ -102,7 +128,15 @@ describe("groundTeamCount / groundSquadSize (D25: one ground team = a Security s
   it("a hull with Security but no Science entry gets empty Science slot lists", () => {
     const key = "syntheticNoScience" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [{ teamType: "security", size: 2, count: 1 }]);
-    expect(emptyGroundTeams(key)).toEqual([{ security: [null, null], science: [], helpOthers: false }]);
+    expect(emptyGroundTeams(key)).toEqual([{ kind: "ground", security: [null, null], science: [], helpOthers: false }]);
+  });
+
+  it("emptyGroundTeams is Ground + Ground on every hull, with no pending flag", () => {
+    for (const key of HULLS) {
+      const teams = emptyGroundTeams(key);
+      expect(teams.map((t) => t.kind), key).toEqual(["ground", "ground"]);
+      expect(teams.some((t) => "kindPending" in t), key).toBe(false);
+    }
   });
 });
 
@@ -124,11 +158,10 @@ describe("ground team names (user 9b.7: Alpha / Bravo / Charlie, renameable; sho
   });
 
   it("a custom name wins; a blank one reads as the default", () => {
-    const teams = [
-      { name: "Red Squad", security: [null, null, null], science: [null, null, null], helpOthers: false },
-    ];
+    const teams = [{ ...emptyFreighterTeam(), name: "Red Squad" }, emptyFreighterTeam()];
     expect(groundTeamName(ship(teams), 0)).toBe("Red Squad");
-    const blank = [{ name: "   ", security: [null, null, null], science: [null, null, null], helpOthers: false }];
+    expect(groundTeamName(ship(teams), 1)).toBe("Bravo");
+    const blank = [{ ...emptyFreighterTeam(), name: "   " }, emptyFreighterTeam()];
     expect(groundTeamName(ship(blank), 0)).toBe("Alpha");
   });
 
@@ -140,7 +173,10 @@ describe("ground team names (user 9b.7: Alpha / Bravo / Charlie, renameable; sho
 
 describe("shipGroundTeams (absent-safe reader, a NORMALIZED COPY since GO-2)", () => {
   it("returns an equal COPY of a well-formed stored value, never the stored arrays", () => {
-    const groundTeams = [{ security: ["member-1", null, null], science: [null, null, null], helpOthers: true }];
+    const groundTeams: ShipGroundTeam[] = [
+      { kind: "ground", security: ["member-1", null, null], science: [null, null, null], helpOthers: true },
+      { ...emptyFreighterTeam(), kindPending: true },
+    ];
     const s: ShipInstance = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, groundTeams };
     const read = shipGroundTeams(s);
     expect(read).toEqual(groundTeams);
@@ -150,7 +186,7 @@ describe("shipGroundTeams (absent-safe reader, a NORMALIZED COPY since GO-2)", (
     // a write to the copy never reaches the ship
     read[0].security[1] = "member-9";
     read[0].helpOthers = false;
-    expect(groundTeams[0]).toEqual({ security: ["member-1", null, null], science: [null, null, null], helpOthers: true });
+    expect(groundTeams[0]).toEqual({ kind: "ground", security: ["member-1", null, null], science: [null, null, null], helpOthers: true });
   });
 
   it("reads an absent value as the hull's empty teams", () => {
@@ -160,51 +196,102 @@ describe("shipGroundTeams (absent-safe reader, a NORMALIZED COPY since GO-2)", (
 
   it("sizes slot lists to the hull (extra slots dropped, missing ones null) and the team count too", () => {
     const stored = [
-      { name: "Red", security: ["member-1", "member-2", "member-3", "member-4"], science: ["member-5"], helpOthers: true },
-      { security: ["member-6"], science: [], helpOthers: false }, // a 2nd team the hull does not field
+      { name: "Red", kind: "ground", security: ["member-1", "member-2", "member-3", "member-4"], science: ["member-5"], helpOthers: true },
+      { kind: "ground", security: ["member-6"], science: [], helpOthers: false },
+      { kind: "ground", security: ["member-7"], science: [], helpOthers: false }, // a 3rd team the hull does not field
     ];
     const s = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, groundTeams: stored } as ShipInstance;
     expect(shipGroundTeams(s)).toEqual([
-      { name: "Red", security: ["member-1", "member-2", "member-3"], science: ["member-5", null, null], helpOthers: true },
+      { name: "Red", kind: "ground", security: ["member-1", "member-2", "member-3"], science: ["member-5", null, null], helpOthers: true },
+      { kind: "ground", security: ["member-6", null, null], science: [null, null, null], helpOthers: false },
     ]);
   });
 
-  it("reads malformed entries as empty (non-string ids, a non-object team, a non-boolean toggle, a bad name)", () => {
+  it("a v67 team (no kind) reads as Ground; a missing second team reads as an empty Ground team", () => {
+    const stored = [{ security: ["member-1", null, null], science: [null, null, null], helpOthers: false }];
+    const s = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, groundTeams: stored } as unknown as ShipInstance;
+    expect(shipGroundTeams(s)).toEqual([
+      { kind: "ground", security: ["member-1", null, null], science: [null, null, null], helpOthers: false },
+      emptyFreighterTeam(),
+    ]);
+  });
+
+  it("sizes each team's slot lists by its KIND (Strike = 2 Security squads, Survey = 2 Science squads)", () => {
+    const stored = [
+      { kind: "strike", security: ["member-1", null, null, "member-4"], science: ["member-9"], helpOthers: false },
+      { kind: "survey", security: ["member-2"], science: ["member-5", null, null, null, null, null, "member-x"], helpOthers: false },
+    ];
+    const s = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1, groundTeams: stored } as ShipInstance;
+    expect(shipGroundTeams(s)).toEqual([
+      { kind: "strike", security: ["member-1", null, null, "member-4", null, null], science: [], helpOthers: false },
+      { kind: "survey", security: [], science: ["member-5", null, null, null, null, null], helpOthers: false },
+    ]);
+  });
+
+  it("reads malformed entries as empty (non-string ids, a non-object team, a non-boolean toggle, a bad name, a bad kind)", () => {
     const key = "syntheticPairRead" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [
       { teamType: "security", size: 2, count: 2 },
       { teamType: "science", size: 1, count: 2 },
     ]);
-    const stored = [{ name: 7, security: [3, "member-1"], science: "x", helpOthers: "yes" }, null] as unknown;
+    const stored = [{ name: 7, kind: "elite", security: [3, "member-1"], science: "x", helpOthers: "yes", kindPending: "yes" }, null] as unknown;
     const s = { id: "ship-1", typeKey: key, assignedCaptainId: 1, groundTeams: stored } as ShipInstance;
     expect(shipGroundTeams(s)).toEqual([
-      { security: [null, "member-1"], science: [null], helpOthers: false },
-      { security: [null, null], science: [null], helpOthers: false },
+      { kind: "ground", security: [null, "member-1"], science: [null], helpOthers: false },
+      { kind: "ground", security: [null, null], science: [null], helpOthers: false },
     ]);
   });
 });
 
-describe("well-formedness guards (what the v66 -> v67 migration keeps)", () => {
-  it("accepts the hull-sized shape, with or without a custom name", () => {
+describe("well-formedness guards (what the migrations keep)", () => {
+  it("accepts the v68 shape, with or without a custom name or the pending flag", () => {
     expect(isWellFormedShipGroundTeams(emptyGroundTeams("generalFreighter"), "generalFreighter")).toBe(true);
-    const named = [{ name: "Red", security: ["member-1", null, null], science: [null, "member-2", null], helpOthers: true }];
+    const named = [
+      { name: "Red", kind: "ground", security: ["member-1", null, null], science: [null, "member-2", null], helpOthers: true },
+      { ...emptyFreighterTeam(), kindPending: true },
+    ];
     expect(isWellFormedShipGroundTeams(named, "generalFreighter")).toBe(true);
+    const strikeSurvey = [
+      { kind: "strike", security: [null, null, null, null, null, null], science: [], helpOthers: false },
+      { kind: "survey", security: [], science: [null, null, null, null, null, null], helpOthers: false },
+    ];
+    expect(isWellFormedShipGroundTeams(strikeSurvey, "generalFreighter")).toBe(true);
   });
 
-  it("rejects wrong team counts, wrong slot lengths, bad entries and non-arrays", () => {
-    const ok = () => ({ security: [null, null, null] as (string | null)[], science: [null, null, null] as (string | null)[], helpOthers: false });
+  it("rejects wrong team counts, a missing or unknown kind, kind-mismatched lengths, bad entries and non-arrays", () => {
+    const ok = emptyFreighterTeam;
     expect(isWellFormedShipGroundTeams(undefined, "generalFreighter")).toBe(false);
     expect(isWellFormedShipGroundTeams("x", "generalFreighter")).toBe(false);
     expect(isWellFormedShipGroundTeams([], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([ok(), ok()], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([{ ...ok(), security: [null, null] }], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([{ ...ok(), science: [null, 7, null] }], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([{ ...ok(), helpOthers: "yes" }], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([{ ...ok(), name: 5 }], "generalFreighter")).toBe(false);
-    expect(isWellFormedShipGroundTeams([null], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([ok()], "generalFreighter")).toBe(false); // the v67 count
+    expect(isWellFormedShipGroundTeams([ok(), ok(), ok()], "generalFreighter")).toBe(false);
+    const noKind = { ...ok() } as Record<string, unknown>;
+    delete noKind.kind;
+    expect(isWellFormedShipGroundTeams([noKind, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), kind: "elite" }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), kind: "strike" }, ok()], "generalFreighter")).toBe(false); // Ground lengths
+    expect(isWellFormedShipGroundTeams([{ ...ok(), security: [null, null] }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), science: [null, 7, null] }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), helpOthers: "yes" }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), name: 5 }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([{ ...ok(), kindPending: false }, ok()], "generalFreighter")).toBe(false);
+    expect(isWellFormedShipGroundTeams([null, ok()], "generalFreighter")).toBe(false);
   });
 
-  it("accepts a well-formed ground team loadout and rejects the never-built per-type shape", () => {
+  it("the FROZEN v67 guard keeps GO-1's shape: one team (the Security count), one squad of each type, no kind needed", () => {
+    const v67 = () => ({ security: [null, null, null] as (string | null)[], science: [null, null, null] as (string | null)[], helpOthers: false });
+    expect(v67GroundTeamCount("generalFreighter")).toBe(1);
+    expect(isWellFormedV67ShipGroundTeams([v67()], "generalFreighter")).toBe(true);
+    expect(isWellFormedV67ShipGroundTeams([{ ...v67(), name: "Red" }], "generalFreighter")).toBe(true);
+    expect(isWellFormedV67ShipGroundTeams([v67(), v67()], "generalFreighter")).toBe(false);
+    expect(isWellFormedV67ShipGroundTeams(emptyGroundTeams("generalFreighter"), "generalFreighter")).toBe(false);
+    expect(isWellFormedV67ShipGroundTeams([{ ...v67(), security: [null, null] }], "generalFreighter")).toBe(false);
+    expect(isWellFormedV67ShipGroundTeams([{ ...v67(), helpOthers: "yes" }], "generalFreighter")).toBe(false);
+    expect(isWellFormedV67ShipGroundTeams([{ ...v67(), name: 5 }], "generalFreighter")).toBe(false);
+    expect(isWellFormedV67ShipGroundTeams("x", "generalFreighter")).toBe(false);
+  });
+
+  it("accepts a well-formed ground team loadout (kind absent or known) and rejects the never-built per-type shape", () => {
     const kit = { armor: null, weapon: "equip-1", tool: null, implants: [] };
     expect(
       isWellFormedGroundTeamLoadout({ id: "squad-1", name: "Alpha kit", security: [kit], science: [], checkedOutTo: null }),
@@ -215,6 +302,13 @@ describe("well-formedness guards (what the v66 -> v67 migration keeps)", () => {
         checkedOutTo: { shipId: "ship-1", teamIndex: 0 },
       }),
     ).toBe(true);
+    // SQ-1: GroundTeamLoadout.kind is optional (absent = Ground); a known kind passes, anything else fails
+    expect(
+      isWellFormedGroundTeamLoadout({ id: "squad-1", name: "Strike kit", kind: "strike", security: [kit, kit], science: [], checkedOutTo: null }),
+    ).toBe(true);
+    expect(
+      isWellFormedGroundTeamLoadout({ id: "squad-1", name: "x", kind: "elite", security: [], science: [], checkedOutTo: null }),
+    ).toBe(false);
     // The old Task 2 SquadLoadout shape (per team TYPE): never created by any build
     expect(
       isWellFormedGroundTeamLoadout({ id: "squad-1", name: "Survey", teamType: "science", kits: [kit], checkedOutToShipId: null }),
@@ -229,7 +323,7 @@ describe("well-formedness guards (what the v66 -> v67 migration keeps)", () => {
   });
 });
 
-describe("backfillShipGroundTeams (the v67 slot fill: hire order, today's first N members)", () => {
+describe("backfillV67ShipGroundTeams (the frozen v67 slot fill: hire order, the first N members)", () => {
   it("fills Security and Science slots by hire order, injured included; overflow stays unslotted", () => {
     const ship: ShipInstance = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 };
     const members = [
@@ -243,7 +337,7 @@ describe("backfillShipGroundTeams (the v67 slot fill: hire order, today's first 
       plainAwayMember("member-2", "science", null as unknown as string), // unassigned
       plainAwayMember("member-6", "prospecting", "ship-1"), // no ground squad of this type
     ];
-    expect(backfillShipGroundTeams(ship, members)).toEqual([
+    expect(backfillV67ShipGroundTeams(ship, members)).toEqual([
       { security: ["member-3", "member-5", "member-9"], science: ["member-4", "member-7", null], helpOthers: false },
     ]);
   });
@@ -259,7 +353,7 @@ describe("backfillShipGroundTeams (the v67 slot fill: hire order, today's first 
       plainAwayMember(id, "security", "ship-7"),
     );
     members.push(plainAwayMember("member-6", "science", "ship-7"));
-    expect(backfillShipGroundTeams(ship, members)).toEqual([
+    expect(backfillV67ShipGroundTeams(ship, members)).toEqual([
       { security: ["member-1", "member-2"], science: ["member-6"], helpOthers: false },
       { security: ["member-3", "member-4"], science: [null], helpOthers: false },
     ]);
@@ -268,17 +362,56 @@ describe("backfillShipGroundTeams (the v67 slot fill: hire order, today's first 
   it("skips malformed member entries", () => {
     const ship: ShipInstance = { id: "ship-1", typeKey: "generalFreighter", assignedCaptainId: 1 };
     const members = [null, 7, { id: 3 }, plainAwayMember("member-2", "science", "ship-1")] as unknown[];
-    expect(backfillShipGroundTeams(ship, members)).toEqual([
+    expect(backfillV67ShipGroundTeams(ship, members)).toEqual([
       { security: [null, null, null], science: ["member-2", null, null], helpOthers: false },
     ]);
   });
 });
 
+describe("v68ShipGroundTeamsFromV67 (Squads SQ-1: the v67 -> v68 team upgrade)", () => {
+  const v67Team = { name: "Red", security: ["member-3", "member-5", null], science: ["member-4", null, null], helpOthers: true };
+
+  it("stamps each v67 team Ground (slots, name and help untouched) and appends an empty Ground pair", () => {
+    const ship = { typeKey: "generalFreighter" as ShipTypeKey };
+    expect(v68ShipGroundTeamsFromV67(ship, [v67Team], true)).toEqual([
+      { ...v67Team, kind: "ground" },
+      { ...emptyFreighterTeam(), kindPending: true },
+    ]);
+    // without markAdded the appended pair is a plain Ground team (a fresh ship's shape)
+    expect(v68ShipGroundTeamsFromV67(ship, [v67Team], false)).toEqual([{ ...v67Team, kind: "ground" }, emptyFreighterTeam()]);
+    // the result is v68 well-formed either way
+    expect(isWellFormedShipGroundTeams(v68ShipGroundTeamsFromV67(ship, [v67Team], true), "generalFreighter")).toBe(true);
+  });
+
+  it("never moves a member and never aliases the input arrays", () => {
+    const input = [{ ...v67Team, security: [...v67Team.security], science: [...v67Team.science] }];
+    const out = v68ShipGroundTeamsFromV67({ typeKey: "generalFreighter" }, input, true);
+    expect(out[0].security).toEqual(input[0].security);
+    expect(out[0].security).not.toBe(input[0].security);
+    expect(out[1].security.every((id) => id === null) && out[1].science.every((id) => id === null)).toBe(true);
+  });
+
+  it("a hull whose v67 count already matches gains nothing; an over-long v67 list keeps its first teams", () => {
+    const key = "syntheticUpgradeTriple" as ShipTypeKey;
+    cleanup = registerSyntheticHull(key, [
+      { teamType: "security", size: 1, count: 3 },
+      { teamType: "science", size: 1, count: 3 },
+    ]);
+    const t = (id: string) => ({ security: [id], science: [null], helpOthers: false });
+    const out = v68ShipGroundTeamsFromV67({ typeKey: key }, [t("member-1"), t("member-2"), t("member-3")], true);
+    expect(out.map((x) => x.security)).toEqual([["member-1"], ["member-2"], ["member-3"]]);
+    expect(out.some((x) => x.kindPending)).toBe(false);
+    const cut = v68ShipGroundTeamsFromV67({ typeKey: "generalFreighter" }, [t("member-1"), t("member-2"), t("member-3")], true);
+    expect(cut).toHaveLength(2);
+  });
+});
+
 describe("freshState ground teams", () => {
-  it("gives the starting ship well-formed, empty ground teams", () => {
+  it("gives the starting ship well-formed, empty Ground + Ground teams (no pending prompt)", () => {
     const s = freshState();
     const ship = s.ships[0];
     expect(ship.groundTeams).toEqual(emptyGroundTeams(ship.typeKey));
+    expect(ship.groundTeams).toEqual([emptyFreighterTeam(), emptyFreighterTeam()]);
     expect(isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)).toBe(true);
     expect(s.squadLoadouts).toEqual([]);
   });
@@ -323,14 +456,21 @@ const named = (id: string, teamType: AwayTeamType, shipId: string | null, name =
   name,
 });
 
-// ship-1 (General Freighter, 3 + 3 slots): s1, s2 slotted Security, s3 aboard in the reserve, c1 slotted
-// Science, p1 a Prospecting member aboard. ship-2 (minted after v67, no groundTeams field): x1 Security.
+// ship-1 (General Freighter, 3 + 3 slots per team, Ground + Ground): s1, s2 slotted Security in Alpha, s3
+// aboard in the reserve, c1 slotted Science, p1 a Prospecting member aboard; Bravo empty. ship-2 (minted after
+// v67, no groundTeams field): x1 Security.
 function crewState(extra: Partial<GameState> = {}): GameState {
   const base = freshState();
   return {
     ...base,
     ships: [
-      { ...base.ships[0], groundTeams: [{ security: ["member-1", "member-2", null], science: ["member-11", null, null], helpOthers: false }] },
+      {
+        ...base.ships[0],
+        groundTeams: [
+          { kind: "ground", security: ["member-1", "member-2", null], science: ["member-11", null, null], helpOthers: false },
+          emptyFreighterTeam(),
+        ],
+      },
       { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null },
     ],
     awayMembers: [
@@ -359,7 +499,7 @@ describe("GO-2 canSlotMember / slotMember", () => {
     const cases: [Parameters<typeof canSlotMember>, string][] = [
       [[s, "ship-x", 0, "security", 2, "member-3"], "noShip"],
       [[locked(s), "ship-1", 0, "security", 2, "member-3"], "onMission"],
-      [[s, "ship-1", 1, "security", 2, "member-3"], "noSuchTeam"],
+      [[s, "ship-1", 2, "security", 2, "member-3"], "noSuchTeam"],
       [[s, "ship-1", -1, "security", 2, "member-3"], "noSuchTeam"],
       [[s, "ship-1", 0.5, "security", 2, "member-3"], "noSuchTeam"],
       [[s, "ship-1", 0, "security", 3, "member-3"], "noSuchSlot"],
@@ -402,7 +542,10 @@ describe("GO-2 canSlotMember / slotMember", () => {
 
   it("writes a ship minted without the field through the normalized copy", () => {
     const next = slotMember(crewState(), "ship-2", 0, "security", 1, "member-31");
-    expect(next.ships[1].groundTeams).toEqual([{ security: [null, "member-31", null], science: [null, null, null], helpOthers: false }]);
+    expect(next.ships[1].groundTeams).toEqual([
+      { kind: "ground", security: [null, "member-31", null], science: [null, null, null], helpOthers: false },
+      emptyFreighterTeam(),
+    ]);
     assertSlotInvariants(next);
   });
 
@@ -466,8 +609,8 @@ describe("GO-2 canSwapGroundMembers / swapGroundMembers", () => {
         {
           id: "ship-1", typeKey: key, assignedCaptainId: 1,
           groundTeams: [
-            { security: ["member-1"], science: [null], helpOthers: false },
-            { security: ["member-2"], science: [null], helpOthers: false },
+            { kind: "ground", security: ["member-1"], science: [null], helpOthers: false },
+            { kind: "ground", security: ["member-2"], science: [null], helpOthers: false },
           ],
         },
       ],
@@ -527,7 +670,7 @@ describe("GO-2 renameGroundTeam (blank restores the default name)", () => {
     const named1 = renameGroundTeam(s, "ship-1", 0, "Red");
     expect(renameGroundTeam(named1, "ship-1", 0, " Red ")).toBe(named1);
     expect(renameGroundTeam(s, "ship-x", 0, "Red")).toBe(s);
-    expect(renameGroundTeam(s, "ship-1", 1, "Red")).toBe(s);
+    expect(renameGroundTeam(s, "ship-1", 2, "Red")).toBe(s);
     expect(renameGroundTeam(s, "ship-1", -1, "Red")).toBe(s);
   });
 
@@ -582,6 +725,7 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
     s = hireAwayMember(s, sci[0].id, "ship-1");
     s = hireAwayMember(s, sec[1].id, "ship-1");
     expect(slotsOf(s, "ship-1")[0]).toEqual({
+      kind: "ground",
       security: ["member-1", "member-3", null],
       science: ["member-2", null, null],
       helpOthers: false,
@@ -606,7 +750,10 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
     const base = freshState();
     let s: GameState = { ...base, ships: [...base.ships, { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null }] };
     s = hireAwayMember(s, board(s, "science")[0].id, "ship-2");
-    expect(s.ships[1].groundTeams).toEqual([{ security: [null, null, null], science: ["member-1", null, null], helpOthers: false }]);
+    expect(s.ships[1].groundTeams).toEqual([
+      { kind: "ground", security: [null, null, null], science: ["member-1", null, null], helpOthers: false },
+      emptyFreighterTeam(),
+    ]);
     assertSlotInvariants(s);
   });
 
@@ -676,9 +823,14 @@ describe("GO-2 crew sync: every arrival aboard auto-slots, every departure unslo
     assertSlotInvariants(s);
   });
 
-  it("an arrival with no empty slot stays aboard in the reserve (the primitive returns the SAME ships)", () => {
-    const s = crewState();
-    const full = slotMember(s, "ship-1", 0, "security", 2, "member-3").ships;
+  it("an arrival with no empty slot in ANY team stays aboard in the reserve (the primitive returns the SAME ships)", () => {
+    const extra = ["member-4", "member-5", "member-6"].map((id) => named(id, "security", "ship-1"));
+    let s = crewState({ awayMembers: [...crewState().awayMembers, ...extra] });
+    s = slotMember(s, "ship-1", 0, "security", 2, "member-3");
+    s = slotMember(s, "ship-1", 1, "security", 0, "member-4");
+    s = slotMember(s, "ship-1", 1, "security", 1, "member-5");
+    s = slotMember(s, "ship-1", 1, "security", 2, "member-6");
+    const full = s.ships;
     expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-9", "security", s.awayMembers)).toBe(full);
     expect(shipsWithMemberAutoSlotted(full, "ship-1", "member-21", "prospecting", s.awayMembers)).toBe(full);
     expect(shipsWithMemberAutoSlotted(full, "ship-x", "member-9", "science", s.awayMembers)).toBe(full);
@@ -766,9 +918,45 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
   it("a ship minted without groundTeams reads as unstaffed teams", () => {
     const check = deployableGroundTeams(at(crewState()), "ship-2");
     expect(check.ok).toBe(false);
-    expect(check.teams).toHaveLength(1);
-    expect(check.teams[0].staffed).toBe(false);
-    expect(check.teams[0].waits).toEqual([{ kind: "needSecurity" }, { kind: "needScience" }]);
+    expect(check.teams).toHaveLength(2);
+    for (const t of check.teams) {
+      expect(t.staffed).toBe(false);
+      expect(t.waits).toEqual([{ kind: "needSecurity" }, { kind: "needScience" }]);
+    }
+  });
+
+  it("SQ-1 groundWaitTeams: a blocked dispatch lists the staffed teams, else the first team alone", () => {
+    // Alpha staffed (Grokk injured), Bravo empty: only Alpha's waits are listed
+    const blocked = deployableGroundTeams(injure(at(crewState()), "member-2", NOW + 60), "ship-1");
+    expect(groundWaitTeams(blocked).map((t) => t.name)).toEqual(["Alpha"]);
+    // nobody slotted anywhere (a ship minted without the field): Alpha alone says what to slot
+    const empty = deployableGroundTeams(at(crewState()), "ship-2");
+    expect(groundWaitTeams(empty).map((t) => t.name)).toEqual(["Alpha"]);
+    expect(groundWaitTeams(empty)[0].waits).toEqual([{ kind: "needSecurity" }, { kind: "needScience" }]);
+    // both staffed: both listed
+    const key = "syntheticWaitPair" as ShipTypeKey;
+    cleanup = registerSyntheticHull(key, [
+      { teamType: "security", size: 1, count: 2 },
+      { teamType: "science", size: 1, count: 2 },
+    ]);
+    const s: GameState = {
+      ...at(freshState()),
+      ships: [{ id: "ship-7", typeKey: key, assignedCaptainId: null, groundTeams: [
+        { kind: "ground", security: ["member-1"], science: [null], helpOthers: false },
+        { kind: "ground", security: [null], science: ["member-2"], helpOthers: false },
+      ] }],
+      awayMembers: [named("member-1", "security", "ship-7"), named("member-2", "science", "ship-7")],
+    };
+    expect(groundWaitTeams(deployableGroundTeams(s, "ship-7")).map((t) => t.name)).toEqual(["Alpha", "Bravo"]);
+    expect(groundWaitTeams({ teams: [] })).toEqual([]);
+  });
+
+  it("SQ-1: the empty second pair never deploys and never changes the ship's answer", () => {
+    const check = deployableGroundTeams(at(crewState()), "ship-1");
+    expect(check.teams.map((t) => [t.name, t.staffed, t.deploys])).toEqual([["Alpha", true, true], ["Bravo", false, false]]);
+    expect(check.teams[1].readyAtSeconds).toBeNull();
+    // the ship's totals and readiness are Alpha's alone
+    expect([check.ok, check.security, check.science, check.readyAtSeconds]).toEqual([true, 2, 1, NOW]);
   });
 
   it("multi-team: a waiting Alpha does not hold a ready Bravo; the ship reports the soonest team", () => {
@@ -790,8 +978,8 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
         {
           id: "ship-7", typeKey: key, assignedCaptainId: null,
           groundTeams: [
-            { name: "Vanguard", security: ["member-1", null], science: ["member-3"], helpOthers: false },
-            { security: ["member-2", null], science: ["member-4"], helpOthers: false },
+            { name: "Vanguard", kind: "ground", security: ["member-1", null], science: ["member-3"], helpOthers: false },
+            { kind: "ground", security: ["member-2", null], science: ["member-4"], helpOthers: false },
           ],
         },
       ],
@@ -831,7 +1019,7 @@ describe("GO-2 deployableGroundTeams (no automatic stand-ins: a not-ready member
       ...base,
       ships: base.ships.map((sh) =>
         sh.id === "ship-1"
-          ? { ...sh, groundTeams: [{ security: ["member-404", "member-31", "member-11"], science: ["member-11", null, null], helpOthers: false }] }
+          ? { ...sh, groundTeams: [{ kind: "ground", security: ["member-404", "member-31", "member-11"], science: ["member-11", null, null], helpOthers: false }, emptyFreighterTeam()] }
           : sh,
       ),
     };
@@ -876,9 +1064,15 @@ describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a
       ships: [
         {
           ...base.ships[0],
-          groundTeams: [{ security: ["member-404", "member-31", "member-11"], science: ["member-11", "member-11", null], helpOthers: false }],
+          groundTeams: [
+            { kind: "ground", security: ["member-404", "member-31", "member-11"], science: ["member-11", "member-11", null], helpOthers: false },
+            emptyFreighterTeam(),
+          ],
         },
-        { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null, groundTeams: [{ security: ["member-31", null, null], science: [null, null, null], helpOthers: false }] },
+        {
+          id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null,
+          groundTeams: [{ kind: "ground", security: ["member-31", null, null], science: [null, null, null], helpOthers: false }, emptyFreighterTeam()],
+        },
       ],
       awayMembers: [named("member-11", "science", "ship-1"), named("member-31", "security", "ship-2"), named("member-41", "security", null)],
       nextAwayMemberId: 100,
@@ -892,6 +1086,7 @@ describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a
     expect(sec).toBeDefined();
     const next = hireAwayMember(s, sec!.id, "ship-1");
     expect(slotsOf(next, "ship-1")[0]).toEqual({
+      kind: "ground",
       security: ["member-100", null, null],
       science: ["member-11", null, null], // the duplicate of member-11 is cleared too (first slot kept)
       helpOthers: false,
@@ -911,7 +1106,7 @@ describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a
 
   it("the unslot sync (fire / reassign away) also clears the ship's corrupt ids", () => {
     const fired = fireAwayMember(corrupt(), "member-11");
-    expect(slotsOf(fired, "ship-1")[0]).toEqual({ security: [null, null, null], science: [null, null, null], helpOthers: false });
+    expect(slotsOf(fired, "ship-1")[0]).toEqual(emptyFreighterTeam());
     assertSlotInvariants(fired);
   });
 
@@ -925,7 +1120,10 @@ describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a
     const dirty: GameState = {
       ...slotted,
       ships: [
-        { ...slotted.ships[0], groundTeams: [{ security: ["member-404", "member-2", "member-1"], science: [null, null, null], helpOthers: false }] },
+        {
+          ...slotted.ships[0],
+          groundTeams: [{ kind: "ground", security: ["member-404", "member-2", "member-1"], science: [null, null, null], helpOthers: false }, emptyFreighterTeam()],
+        },
         slotted.ships[1],
       ],
     };
@@ -948,7 +1146,11 @@ describe("GO-3 (GO-2 review b): write paths null out slot ids that do not name a
     expect(slotsOf(next, "ship-1")[0].security).toEqual(["member-1", "member-2", "member-3"]);
     expect(slotsOf(next, "ship-1")[0].science).toEqual(["member-11", null, null]);
     const ships = next.ships;
-    expect(shipsWithMemberAutoSlotted(ships, "ship-1", "member-9", "security", next.awayMembers)).toBe(ships);
+    // member-1 is already slotted there: the primitive keeps the SAME ships
+    expect(shipsWithMemberAutoSlotted(ships, "ship-1", "member-1", "security", next.awayMembers)).toBe(ships);
+    // SQ-1: with Alpha's Security squad full, a new arrival lands in Bravo's first slot (team 0 first, then 1)
+    const into = shipsWithMemberAutoSlotted(ships, "ship-1", "member-9", "security", next.awayMembers);
+    expect(shipGroundTeams(into[0]).map((t) => t.security)).toEqual([["member-1", "member-2", "member-3"], ["member-9", null, null]]);
   });
 });
 
@@ -985,7 +1187,7 @@ describe("GO-3 review: the gates read the CLEANED slots", () => {
     return {
       ...base,
       ships: [
-        { ...base.ships[0], groundTeams: [{ security: ["member-1", "member-2", null], science: ["member-11", "member-3", null], helpOthers: false }] },
+        { ...base.ships[0], groundTeams: [{ kind: "ground", security: ["member-1", "member-2", null], science: ["member-11", "member-3", null], helpOthers: false }, emptyFreighterTeam()] },
         base.ships[1],
       ],
     };
@@ -1008,7 +1210,7 @@ describe("GO-3 review: the gates read the CLEANED slots", () => {
     const s: GameState = {
       ...base,
       ships: [
-        { ...base.ships[0], groundTeams: [{ security: ["member-1", "member-2", "member-1"], science: ["member-11", null, null], helpOthers: false }] },
+        { ...base.ships[0], groundTeams: [{ kind: "ground", security: ["member-1", "member-2", "member-1"], science: ["member-11", null, null], helpOthers: false }, emptyFreighterTeam()] },
         base.ships[1],
       ],
     };

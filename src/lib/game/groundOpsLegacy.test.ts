@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
-import { plainAwayMember, withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
+import { asV67GroundState, plainAwayMember, withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -115,7 +115,9 @@ describe("legacy runs (no groundOps) stay byte-identical across the GO-7b switch
       expect(chunked(exp, START, END, 997)).toEqual(done);
       const claimed = claimExpedition({ ...state, expeditions: [done] }, done.id);
       expect(claimed.success).toBe(true);
-      hashes.push(fnv(JSON.stringify(claimed.next)));
+      // Squads SQ-1 (v68): the claim hash reads the state as v67 held it (asV67GroundState strips exactly the
+      // team kinds, the added empty pair and the telescope seed), so the capture still proves nothing else moved.
+      hashes.push(fnv(JSON.stringify(asV67GroundState(claimed.next))));
       expect(hashes).toEqual(GOLDEN[c.name]);
     });
   }

@@ -1,13 +1,15 @@
 // Ground Operations 0.14.0 (GO-2, D25): the LOW-LEVEL slot primitives for per-ship ground teams.
 //
-// This module imports model.ts ONLY, so awayTeam.ts (hire / fire / reassign) can keep a ship's slots in sync
-// without importing groundTeams.ts (which imports awayTeam.ts: that would be a cycle). groundTeams.ts
-// re-exports what callers need and builds the player actions + the deployable reader on top.
+// This module imports model.ts and groundComposition.ts ONLY (the latter imports model.ts only), so
+// awayTeam.ts (hire / fire / reassign) can keep a ship's slots in sync without importing groundTeams.ts
+// (which imports awayTeam.ts: that would be a cycle). groundTeams.ts re-exports what callers need and builds
+// the player actions + the deployable reader on top.
 //
-// Module graph: model.ts <- groundTeamSlots.ts <- awayTeam.ts <- groundTeams.ts. Every function is pure.
+// Module graph: model.ts <- groundComposition.ts <- groundTeamSlots.ts <- awayTeam.ts <- groundTeams.ts.
+// Every function is pure.
 
 import type { AwayMember, AwayTeamType, ShipGroundTeam, ShipInstance } from "./model";
-import { groundSquadSize, groundTeamCount } from "./model";
+import { shipTeamKinds, teamSlotCount } from "./groundComposition";
 
 // The two squad types a ground team slots (Prospecting is wired only and fields no ground squad).
 export type GroundSquadType = "security" | "science";
@@ -33,24 +35,26 @@ function normalizedSlots(stored: unknown, length: number): (string | null)[] {
 }
 
 // A ship's ground teams as a NORMALIZED COPY: exactly groundTeamCount(typeKey) teams (extra teams dropped,
-// missing ones empty), each slot list sized to the hull's squad size (extra slots dropped, missing ones
-// null), a boolean help toggle and a string name only when one is stored. A ship minted without the field
-// (shipBuild, the captain-unlock grant) reads as the hull's empty teams.
+// missing ones empty Ground teams), each team's KIND the stored one when known, else Ground (Squads SQ-1,
+// groundComposition.ts shipTeamKinds), each slot list sized to that kind on this hull (teamSlotCount: extra
+// slots dropped, missing ones null), a boolean help toggle, a string name only when one is stored, and
+// `kindPending: true` only when that is stored. A ship minted without the field (shipBuild, the
+// captain-unlock grant) reads as the hull's empty teams (Ground + Ground).
 // NEVER MUTATE THE RESULT IN PLACE AS A WAY TO CHANGE STATE: it is a fresh copy (fresh arrays every call),
 // so a write to it changes nothing. The slot actions edit a copy and write it back onto a new ship object.
 // Pure.
 export function shipGroundTeams(ship: Pick<ShipInstance, "typeKey" | "groundTeams">): ShipGroundTeam[] {
   const stored: unknown[] = Array.isArray(ship.groundTeams) ? ship.groundTeams : [];
-  const sec = groundSquadSize(ship.typeKey, "security");
-  const sci = groundSquadSize(ship.typeKey, "science");
-  return Array.from({ length: groundTeamCount(ship.typeKey) }, (_, i) => {
+  return shipTeamKinds(ship).map((kind, i) => {
     const t = isRecord(stored[i]) ? stored[i] : {};
     const team: ShipGroundTeam = {
-      security: normalizedSlots(t.security, sec),
-      science: normalizedSlots(t.science, sci),
+      kind,
+      security: normalizedSlots(t.security, teamSlotCount(ship.typeKey, kind, "security")),
+      science: normalizedSlots(t.science, teamSlotCount(ship.typeKey, kind, "science")),
       helpOthers: t.helpOthers === true,
     };
     if (typeof t.name === "string") team.name = t.name;
+    if (t.kindPending === true) team.kindPending = true;
     return team;
   });
 }

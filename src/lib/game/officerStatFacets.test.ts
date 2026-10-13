@@ -70,7 +70,7 @@ import { LY_PER_TICK } from "./fuel";
 import { equippedFor } from "./equipment";
 import { itemTotal } from "./inventory";
 // Ground Ops GO-1: whole-state goldens hash without the new, inert ground-team slots (captured before them).
-import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, withSlottedAwayTeams, withoutGroundSquadState } from "./awayTeamTestFixtures";
 import { activityRelicFindBonus, generateEncounter, softenAmbush } from "./gambit";
 import { applyExpeditionInjuries, injuryRecoverySeconds } from "./injuries";
 import {
@@ -237,7 +237,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
   const sheet = withCrew(freshState(), officers());
   out.sheet = fnv(JSON.stringify([effectiveShipStats(sheet, sheet.ships[0]), shipCrewContribution(sheet, sheet.ships[0])]));
   for (const key of ["shortOreRun", "surveyMineralAnomaly", "frontierSupplyRun"] as MissionKey[]) {
-    out[`mission:${key}`] = fnv(JSON.stringify(withoutGroundTeams(runTicks(missionState(key, officers()), 700, lcg(0xbeef)))));
+    out[`mission:${key}`] = fnv(JSON.stringify(withoutGroundSquadState(runTicks(missionState(key, officers()), 700, lcg(0xbeef)))));
   }
   for (const typeKey of ["destroyer", "carrier", "battleship"] as ShipTypeKey[]) {
     const r = dispatchCaptainOnPatrol(patrolState(typeKey, officers()), 1, "crimsonReaverSweep", "balanced", true);
@@ -249,7 +249,7 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
       s = economyTick(s, 1, () => 0.5);
       if (i % 150 === 0) replays.push(fnv(JSON.stringify(replayPatrol(s, s.captains[0]))));
     }
-    out[`patrol:${typeKey}:state`] = fnv(JSON.stringify(withoutGroundTeams(s)));
+    out[`patrol:${typeKey}:state`] = fnv(JSON.stringify(withoutGroundSquadState(s)));
     out[`patrol:${typeKey}:replays`] = replays;
   }
   const base = installMissingCombatBaselines(withCrew(freshState(), officers()));
