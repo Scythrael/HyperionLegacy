@@ -602,3 +602,8 @@ New entries **[PROPOSAL]**: "Team types and squads", "Risk factors", "Subspace T
    Speaking of: required completion to unlock new options that are behind some different tasks. Like clearing out some
    fortifications and then unlocking new things that are hidden behind that." So completing a task can REVEAL a
    follow-up task (e.g. a relic cache behind a cleared fortification).
+- **Follow-up answers (user, 2026-10-12):** (4) YES to a small BACKUP ROSTER: a fixed crew per ship plus about 2
+  reserve berths aboard, so changing a team's type never forces benching [count PROVISIONAL]; (5) YES: an ambushed
+  Survey team RETREATS with light injuries instead of fighting (the task pauses, they come back later; Survey never
+  becomes a combat team); (13) ONE SHARED pickup trip when several teams wipe together on one body. (8) Telescope
+  falloff: explained; no answer yet, so build FLAT detail across the whole range [PROVISIONAL].
