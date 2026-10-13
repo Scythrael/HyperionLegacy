@@ -676,3 +676,6 @@ New entries **[PROPOSAL]**: "Team types and squads", "Risk factors", "Subspace T
   guard, the upgrade helper, `groundWaitTeams`, the empty pair); `save.test.ts` +10 (the v67 -> v68 block) with the
   v66 -> v67 block and facility lists updated for the chain. Suite 4248 -> 4285 passed (1 skipped); `npm run check` 0
   errors.
+- **Backup roster size (user, 2026-10-12): ONE SQUAD'S WORTH.** Reserve berths = the larger of the hull's Security and
+  Science squad sizes (3 or 4 today), so a single type change always fits aboard and nobody is forced off the ship.
+  Supersedes GROUND_RESERVE_BERTHS = 2 (SQ-2 changes it).
