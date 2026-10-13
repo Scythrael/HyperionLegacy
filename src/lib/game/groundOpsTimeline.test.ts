@@ -577,7 +577,7 @@ describe("GO-7b same-instant batch (GO-7c guard)", () => {
       { teamType: "science", size: 1, count: 2 },
     ]);
     const members = [member("member-1", "security"), member("member-2", "security"), member("member-11", "science"), member("member-12", "science")];
-    const pair = (s: GameState): GameState => withSlottedAwayTeams({ ...s, ships: s.ships.map((sh) => ({ ...sh, typeKey: KEY })) });
+    const pair = (s: GameState): GameState => withSlottedAwayTeams({ ...s, ships: s.ships.map((sh) => ({ ...sh, typeKey: KEY })) }, 2);
     const { exp } = opsRun({ poiIds: ["mineralOutcrop", "caveNetwork"], members, securityStrength: 400, state: pair });
     const e = structuredClone(exp);
     const ops = e.groundOps!;

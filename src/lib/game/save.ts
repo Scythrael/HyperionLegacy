@@ -46,13 +46,15 @@ import { safeGetItem, safeSetItem, safeRemoveItem } from "../safeStorage";
 import { loadSalvageConfirmQualities } from "../salvageConfirmPreference";
 // Ground Operations GO-1: the v66 -> v67 step backfills each ship's ground-team slots through GO-1's
 // hire-order fill and shape guard (frozen under their v67 names since Squads SQ-1); the v67 -> v68 step
-// (SQ-1) upgrades them to the kinded shape through the live guard. One-way import (groundTeams.ts imports
+// (SQ-1) upgrades them to the kinded shape. Both steps read ONLY frozen constants (groundTeams.ts
+// FROZEN_GROUND_SQUAD_SIZES, V67_GROUND_TEAM_COUNT, V68_GROUND_TEAM_COUNT; SQ-2 froze the v68 guard and
+// upgrade too), never live hull data, so retuning a hull can never reshape an old save as it migrates. One-way import (groundTeams.ts imports
 // model.ts, groundComposition.ts and awayTeam.ts, never save.ts), so no module cycle.
 import {
   backfillV67ShipGroundTeams,
   isWellFormedGroundTeamLoadout,
-  isWellFormedShipGroundTeams,
   isWellFormedV67ShipGroundTeams,
+  isWellFormedV68ShipGroundTeams,
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
 
@@ -2454,8 +2456,8 @@ const MIGRATIONS: Record<number, Migration> = {
     };
   },
   // v66 -> v67 (0.14.0 Ground Operations GO-1, D25): per-ship GROUND TEAMS. Every ship whose groundTeams is
-  // not a well-formed list for its hull (absent on every v66 save) gets groundTeamCount(typeKey) teams (1 on
-  // every hull today) with its members SLOTTED by hire order: team 0's Security / Science slots first, then
+  // not a well-formed list for its hull (absent on every v66 save) gets one team (the frozen
+  // V67_GROUND_TEAM_COUNT, at the frozen squad sizes) with its members SLOTTED by hire order: team 0's Security / Science slots first, then
   // team 1's, up to each squad's size (groundTeams.ts backfillShipGroundTeams). Injury is ignored (an injured
   // member stays slotted and does not deploy while injured); overflow members stay aboard unslotted. With
   // everyone ready this is exactly today's "first N members in hire order", and NOTHING in the engine reads
@@ -2478,7 +2480,7 @@ const MIGRATIONS: Record<number, Migration> = {
             !ship ||
             typeof ship !== "object" ||
             isWellFormedV67ShipGroundTeams(ship.groundTeams, ship.typeKey) ||
-            isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)
+            isWellFormedV68ShipGroundTeams(ship.groundTeams, ship.typeKey)
               ? ship
               : { ...ship, groundTeams: backfillV67ShipGroundTeams(ship, members) },
           )
@@ -2490,8 +2492,8 @@ const MIGRATIONS: Record<number, Migration> = {
   // v67 -> v68 (0.14.0 Squads SQ-1, design docs/plans/2026-10-12-squads-and-subspace-telescope-design.md
   // section 2.7; user: DOUBLE EVERY HULL, teams are PAIRS of squads, the migrated second pair defaults to
   // Ground). Every hull now fields 4 squads = 2 teams, and each team carries a KIND (Ground / Strike /
-  // Survey). Per ship (groundTeams.ts v68ShipGroundTeamsFromV67):
-  // - a value already in the v68 shape is kept (idempotent);
+  // Survey). Per ship (groundTeams.ts v68ShipGroundTeamsFromV67; every size and count FROZEN, SQ-2):
+  // - a value already in the v68 shape (the frozen isWellFormedV68ShipGroundTeams) is kept (idempotent);
   // - a well-formed v67 list keeps every team, stamped kind "ground" (GO-1's 1 + 1 shape IS Ground) with its
   //   slots, name and help toggle untouched; a malformed one is first backfilled by hire order exactly as
   //   the v66 -> v67 step does (one team; overflow stays in the reserve, never in the new pair);
@@ -2514,7 +2516,7 @@ const MIGRATIONS: Record<number, Migration> = {
       ...state,
       ships: Array.isArray(state.ships)
         ? state.ships.map((ship: any) => {
-            if (!ship || typeof ship !== "object" || isWellFormedShipGroundTeams(ship.groundTeams, ship.typeKey)) return ship;
+            if (!ship || typeof ship !== "object" || isWellFormedV68ShipGroundTeams(ship.groundTeams, ship.typeKey)) return ship;
             const v67 = isWellFormedV67ShipGroundTeams(ship.groundTeams, ship.typeKey)
               ? ship.groundTeams
               : backfillV67ShipGroundTeams(ship, members);

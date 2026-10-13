@@ -52,6 +52,9 @@ import {
   slotMember,
   swapGroundMembers,
   unslotMember,
+  isWellFormedV68ShipGroundTeams,
+  V67_GROUND_TEAM_COUNT,
+  V68_GROUND_TEAM_COUNT,
   v67GroundTeamCount,
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
@@ -112,7 +115,9 @@ describe("groundTeamCount / groundSquadSize (Squads SQ-1: a team is a PAIR of sq
       { teamType: "science", size: 3, count: 1 },
     ], 8);
     expect(groundTeamCount(key)).toBe(4);
-    expect(v67GroundTeamCount(key)).toBe(1); // the frozen v67 shape still reads the count
+    // the frozen v67 shape reads no hull data at all: a hull unknown at v67 fields no v67 team
+    expect(v67GroundTeamCount(key)).toBe(0);
+    expect(v67GroundTeamCount("generalFreighter")).toBe(V67_GROUND_TEAM_COUNT);
   });
 
   it("a hull missing awayTeams (or an unknown key) fields 0 teams", () => {
@@ -342,20 +347,20 @@ describe("backfillV67ShipGroundTeams (the frozen v67 slot fill: hire order, the 
     ]);
   });
 
-  it("fills team 0 first, then team 1, ...", () => {
+  it("is FROZEN: one team at the v67 squad sizes whatever the live hull says; a hull unknown at v67 gets none", () => {
     const key = "syntheticPair" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [
       { teamType: "security", size: 2, count: 2 },
       { teamType: "science", size: 1, count: 2 },
     ]);
-    const ship: ShipInstance = { id: "ship-7", typeKey: key, assignedCaptainId: null };
     const members = ["member-1", "member-2", "member-3", "member-4", "member-5"].map((id) =>
       plainAwayMember(id, "security", "ship-7"),
     );
     members.push(plainAwayMember("member-6", "science", "ship-7"));
-    expect(backfillV67ShipGroundTeams(ship, members)).toEqual([
-      { security: ["member-1", "member-2"], science: ["member-6"], helpOthers: false },
-      { security: ["member-3", "member-4"], science: [null], helpOthers: false },
+    expect(backfillV67ShipGroundTeams({ id: "ship-7", typeKey: key }, members)).toEqual([]);
+    // a Destroyer (4 / 3 at v67): one team, the frozen sizes
+    expect(backfillV67ShipGroundTeams({ id: "ship-7", typeKey: "destroyer" }, members)).toEqual([
+      { security: ["member-1", "member-2", "member-3", "member-4"], science: ["member-6", null, null], helpOthers: false },
     ]);
   });
 
@@ -391,18 +396,25 @@ describe("v68ShipGroundTeamsFromV67 (Squads SQ-1: the v67 -> v68 team upgrade)",
     expect(out[1].security.every((id) => id === null) && out[1].science.every((id) => id === null)).toBe(true);
   });
 
-  it("a hull whose v67 count already matches gains nothing; an over-long v67 list keeps its first teams", () => {
+  it("is FROZEN: always 2 teams at the v68 squad sizes; an over-long v67 list keeps its first teams; a hull unknown at v68 gets none", () => {
     const key = "syntheticUpgradeTriple" as ShipTypeKey;
     cleanup = registerSyntheticHull(key, [
       { teamType: "security", size: 1, count: 3 },
       { teamType: "science", size: 1, count: 3 },
     ]);
     const t = (id: string) => ({ security: [id], science: [null], helpOthers: false });
-    const out = v68ShipGroundTeamsFromV67({ typeKey: key }, [t("member-1"), t("member-2"), t("member-3")], true);
-    expect(out.map((x) => x.security)).toEqual([["member-1"], ["member-2"], ["member-3"]]);
-    expect(out.some((x) => x.kindPending)).toBe(false);
+    expect(v68ShipGroundTeamsFromV67({ typeKey: key }, [t("member-1"), t("member-2"), t("member-3")], true)).toEqual([]);
     const cut = v68ShipGroundTeamsFromV67({ typeKey: "generalFreighter" }, [t("member-1"), t("member-2"), t("member-3")], true);
-    expect(cut).toHaveLength(2);
+    expect(cut).toHaveLength(V68_GROUND_TEAM_COUNT);
+    expect(cut.some((x) => x.kindPending)).toBe(false);
+    // the frozen v68 guard accepts exactly that shape on the hulls of the day
+    const up = v68ShipGroundTeamsFromV67({ typeKey: "destroyer" }, [], true);
+    expect(isWellFormedV68ShipGroundTeams(up, "destroyer")).toBe(true);
+    expect(up.map((x) => [x.security.length, x.science.length])).toEqual([[4, 3], [4, 3]]);
+    expect(isWellFormedV68ShipGroundTeams([], key)).toBe(true);
+    expect(isWellFormedV68ShipGroundTeams(up, key)).toBe(false);
+    expect(isWellFormedV68ShipGroundTeams([{ ...up[0], kind: "strike" }, up[1]], "destroyer")).toBe(false); // Ground lengths
+    expect(isWellFormedV68ShipGroundTeams([{ ...up[0], kind: "strike", security: Array(8).fill(null), science: [] }, up[1]], "destroyer")).toBe(true);
   });
 });
 

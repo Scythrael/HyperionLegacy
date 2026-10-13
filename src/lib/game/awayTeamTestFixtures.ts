@@ -7,7 +7,8 @@
 
 import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type GameState, type ShipGroundTeam, type ShipTypeDef, type ShipTypeKey } from "./model";
 import { expeditionAwayTeamCheck } from "./expedition";
-import { backfillV67ShipGroundTeams, shipsWithMemberAutoSlotted, v67GroundTeamCount, v68ShipGroundTeamsFromV67 } from "./groundTeams";
+import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
+import { byIdNumber } from "./awayTeam";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -74,7 +75,7 @@ export function asLegacyDispatch<R extends { next: GameState; expedition?: Exped
 }
 
 // The state as a v67 build held it (Squads SQ-1): every ship's groundTeams cut back to the v67 team count
-// (groundTeams.ts v67GroundTeamCount) with each team's `kind` / `kindPending` removed, and the founding
+// (groundTeams.ts V67_GROUND_TEAM_COUNT, 1) with each team's `kind` / `kindPending` removed, and the founding
 // `facilities.subspaceTelescope` removed. Exactly the SQ-1 (v68) additions come off and every other key keeps
 // its order, so a whole-state golden captured on v67 (groundOpsLegacy.test.ts claims) still proves nothing
 // else moved. A ship without groundTeams is left as it is. Pure.
@@ -86,7 +87,7 @@ export function asV67GroundState(state: GameState): GameState {
     facilities,
     ships: state.ships.map((ship) => {
       if (!Array.isArray(ship.groundTeams)) return ship;
-      const teams = ship.groundTeams.slice(0, v67GroundTeamCount(ship.typeKey)).map((t) => {
+      const teams = ship.groundTeams.slice(0, V67_GROUND_TEAM_COUNT).map((t) => {
         const rest: Partial<ShipGroundTeam> = { ...t };
         delete rest.kind;
         delete rest.kindPending;
@@ -97,18 +98,34 @@ export function asV67GroundState(state: GameState): GameState {
   };
 }
 
-// Ground Ops (GO-7b): every ship's ground-team slots refilled from its members in HIRE order (the v67
-// backfill, groundTeams.ts backfillV67ShipGroundTeams), so a test that builds `awayMembers` by hand dispatches
-// the same team the pre-switch "first N ready members in hire order" rule picked. Squads SQ-1: the v67 teams
-// are stamped Ground and padded with empty Ground teams to the hull's v68 count (no pending flag), so the
-// extra pair stays empty exactly as a migrated save's does. Pure.
-export function withSlottedAwayTeams(state: GameState): GameState {
+// Ground Ops (GO-7b): every ship's ground-team slots refilled from its members in HIRE order, so a test that
+// builds `awayMembers` by hand dispatches the same team the pre-switch "first N ready members in hire order"
+// rule picked. Each ship gets its LIVE empty teams (model.ts emptyGroundTeams: Ground + Ground on every real
+// hull, no pending flag), then the first `fillTeams` teams (default 1, the one team the pre-switch rule
+// filled) take that ship's members of each type in hire order, team 0 first, up to each squad's size; the
+// rest stay aboard unslotted (the reserve). Injury is ignored (as the v67 backfill did). Squads SQ-2: this is
+// a test fixture and reads live hull data on purpose (the frozen migration fill, groundTeams.ts
+// backfillV67ShipGroundTeams, knows only the hulls that existed at v67, never a synthetic test hull).
+// The GO-7c multi-team tests pass the synthetic hull's team count. Pure.
+export function withSlottedAwayTeams(state: GameState, fillTeams = 1): GameState {
   return {
     ...state,
-    ships: state.ships.map((ship) => ({
-      ...ship,
-      groundTeams: v68ShipGroundTeamsFromV67(ship, backfillV67ShipGroundTeams(ship, state.awayMembers), false),
-    })),
+    ships: state.ships.map((ship) => {
+      const teams = emptyGroundTeams(ship.typeKey);
+      const aboard = state.awayMembers.filter((m) => m.assignedShipId === ship.id);
+      for (const teamType of ["security", "science"] as const) {
+        const queue = aboard.filter((m) => m.teamType === teamType).sort(byIdNumber);
+        let next = 0;
+        for (const team of teams.slice(0, fillTeams)) {
+          const slots = team[teamType];
+          for (let i = 0; i < slots.length && next < queue.length; i += 1) {
+            slots[i] = queue[next].id;
+            next += 1;
+          }
+        }
+      }
+      return { ...ship, groundTeams: teams };
+    }),
   };
 }
 

@@ -80,7 +80,7 @@ function trioState(help: boolean[] = [false, false, false], members: AwayMember[
     awayMembers: members.map((m) => ({ ...m })),
     nextAwayMemberId: 100,
     ships: base.ships.map((sh) => ({ ...sh, typeKey: KEY })),
-  });
+  }, 3); // fill all 3 teams in hire order
   return { ...s, ships: s.ships.map((sh) => ({ ...sh, groundTeams: sh.groundTeams!.map((t, i) => ({ ...t, helpOthers: help[i] === true })) })) };
 }
 

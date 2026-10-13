@@ -6845,5 +6845,82 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     const tickedA = tick(3600, viaStep, () => 0.5);
     const tickedB = tick(3600, noStep, () => 0.5);
     expect(JSON.stringify(asV67GroundState(tickedA))).toBe(JSON.stringify(asV67GroundState(tickedB)));
+    // (SQ-1 review) and through all of it the appended Bravo stays the EMPTY, pending Ground pair: the claim and
+    // the hour of ticks never slot anyone into it nor clear its flag
+    expect(viaStep.ships[0].groundTeams[1]).toEqual(pendingPair("generalFreighter"));
+    expect(claimA.next.ships[0].groundTeams?.[1]).toEqual(pendingPair("generalFreighter"));
+    expect(tickedA.ships[0].groundTeams?.[1]).toEqual(pendingPair("generalFreighter"));
+  });
+});
+
+describe("the v66 -> v67 and v67 -> v68 steps are FROZEN (SQ-1 review: they never read live hull data)", () => {
+  const migrateFrom = (version: number, state: any): any =>
+    migrate({ version, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state } as SaveFile);
+  const stripGroundTeams = (state: any): any => ({
+    ...state,
+    ships: state.ships.map((ship: any) => {
+      const rest = { ...ship };
+      delete rest.groundTeams;
+      return rest;
+    }),
+  });
+  // A General Freighter (ship-1) and a Destroyer (ship-2), with more members than one squad holds.
+  const crewed = (): GameState => {
+    const base = freshState();
+    return {
+      ...base,
+      ships: [...base.ships, { id: "ship-2", typeKey: "destroyer", assignedCaptainId: null }],
+      awayMembers: [
+        ...[1, 2, 3, 4, 5].map((i) => plainAwayMember(`member-${i}`, "security", "ship-1")),
+        ...[6, 7].map((i) => plainAwayMember(`member-${i}`, "science", "ship-1")),
+        ...[8, 9, 10, 11, 12].map((i) => plainAwayMember(`member-${i}`, "science", "ship-2")),
+      ],
+      nextAwayMemberId: 13,
+    };
+  };
+  const json = (state: GameState): any => (deserialize(serialize(state, 0)) as SaveFile).state;
+  const v66 = (): any => stripGroundTeams(json(crewed()));
+  const v67 = (): any => asV67GroundState(json(crewed()));
+  const v67Malformed = (): any => {
+    const raw = v67();
+    raw.ships[1].groundTeams = "corrupt";
+    return raw;
+  };
+  const teamsOf = (migrated: any): string => JSON.stringify(migrated.ships.map((s: any) => s.groundTeams));
+
+  it("retuning the live hulls (squad count, squad sizes, the awayTeams count) never reshapes an old save", () => {
+    // the raw old saves are built BEFORE the hulls change (they are stored data, not live reads)
+    const inputs = [[66, v66()], [67, v67()], [67, v67Malformed()]] as const;
+    const run = (): string[] => inputs.map(([version, raw]) => teamsOf(migrateFrom(version, JSON.parse(JSON.stringify(raw)))));
+    const before = run();
+    const table = SHIP_TYPES as Record<string, any>;
+    const original = { generalFreighter: table.generalFreighter, destroyer: table.destroyer };
+    try {
+      for (const key of ["generalFreighter", "destroyer"] as const) {
+        table[key] = {
+          ...original[key],
+          groundSquads: 6,
+          awayTeams: [
+            { teamType: "security", size: 5, count: 4 },
+            { teamType: "science", size: 2, count: 4 },
+            { teamType: "prospecting", size: 3, count: 0 },
+          ],
+        };
+      }
+      expect(run()).toEqual(before);
+    } finally {
+      table.generalFreighter = original.generalFreighter;
+      table.destroyer = original.destroyer;
+    }
+    // and the frozen output is the shape the steps shipped with: one v67 team stamped Ground plus the pending pair
+    const migrated = migrateFrom(66, v66());
+    expect(migrated.ships[0].groundTeams).toEqual([
+      { kind: "ground", security: ["member-1", "member-2", "member-3"], science: ["member-6", "member-7", null], helpOthers: false },
+      { kind: "ground", security: [null, null, null], science: [null, null, null], helpOthers: false, kindPending: true },
+    ]);
+    expect(migrated.ships[1].groundTeams).toEqual([
+      { kind: "ground", security: [null, null, null, null], science: ["member-8", "member-9", "member-10"], helpOthers: false },
+      { kind: "ground", security: [null, null, null, null], science: [null, null, null], helpOthers: false, kindPending: true },
+    ]);
   });
 });
