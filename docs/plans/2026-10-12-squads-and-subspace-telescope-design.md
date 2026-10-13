@@ -561,3 +561,44 @@ New entries **[PROPOSAL]**: "Team types and squads", "Risk factors", "Subspace T
 13. **Joint offload once (section 3.5)**, and still open from GO-7c (d): one shared pickup leg for a joint wipe on one
     body, or one leg per wiped team (built)?
 14. **Strike pace:** a crew with no Science squad works a clearing task at the bare pace (no fieldwork bonus); OK?
+
+## USER ANSWERS (2026-10-12, verbatim where quoted; these override the proposals above)
+
+- **Telescope lore:** "the lore behind the way the upgrades work is that we're funding a new development cycle to
+  improve the telescope, in the hopes that we can find a jump gate that wasn't destroyed, etc etc." So each upgrade
+  is a funded DEVELOPMENT CYCLE, motivated by the search for an intact jump gate.
+- **Mockup:** sections 1 and 2 approved; on the expedition card "The difficulty rating should match up alignments
+  between each of the lines. The bars look great though!" (align the grade labels in one column).
+1. Data shape (flat slots + team kind): approved; "Testing will ensure that all is well!"
+2. The migrated second pair defaults to Ground: approved.
+3. Enemy Fortification: "the first one should be at a point that you can build a ship that includes a third squad. It
+   would make sense, because without a science squad, you'd be unable to continue if you don't have someone capable of
+   doing the job. You could softlock it if you're not careful. Then waste hours going back." So a squad-heavy task only
+   appears once hulls can field it AND still keep Science aboard; task generation must never require a mix the
+   deployed ship cannot field (no softlock).
+4. Changing type with too many members: "I feel like you should have a set number of crew. otherwise, the teams option
+   wouldn't make a whole lot of sense. Unless you feel like we should have a backup roster that allows for a bit of
+   customization. I'm open to that option." (A fixed crew count per ship; a small backup roster is welcome: proposal
+   pending.)
+5. Survey teams and fights: "Survey teams shouldn't face any fights. But realistically, you could be ambushed by
+   something you don't know. So we can always consider that option, but they're not going to be great, and they won't
+   be able to spec themselves into some sort of high-powered support type team who can murder with specialty tech.
+   Maybe. I don't know." (Survey tasks have no fight points; an ambush from unknown risk is possible but weak: proposal
+   pending.)
+6. Difficulty raises the haul and relic odds: YES, "The greater the risk, the greater the reward."
+7. Blind launches: a WARNING that this is truly unknown territory, "Are you sure you wish to go"; idea: an achievement
+   for going in blind. (Overrides "notice, no confirm".)
+8. Telescope falloff: the user asked what it means (explanation sent).
+9. Telescope costs: "we should ultimately revisit the credits. Unless we can find a proper sink for credits. Something
+   that needs a bit of additional planning." (Costs are placeholders; credit sinks need their own planning.)
+10. Ship sensors 40+ add one detail level: keep, balance later.
+11. Risk factor names, the None to Extreme scale and the per-tier odds: approved.
+12. "Enemy Colony" and "Enemy Fortification": approved for now.
+13. Joint crew tasks: "that should end the same way the rest should. Once you finish. So everyone has to finish the
+   portion of their task(s) before it completes, and only once." A joint task completes ONCE when the whole crew is
+   done and pays ONCE. (The shared-pickup vs per-team pickup question is restated to the user.)
+14. Clearing tasks without Science work at the base speed: approved. PLUS TASK CHAINS: "That task could lead to a new
+   task that could need a science team to explore a cache of rare relics stored by the enemies you just took out.
+   Speaking of: required completion to unlock new options that are behind some different tasks. Like clearing out some
+   fortifications and then unlocking new things that are hidden behind that." So completing a task can REVEAL a
+   follow-up task (e.g. a relic cache behind a cleared fortification).
