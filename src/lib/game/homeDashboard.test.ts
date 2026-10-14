@@ -451,6 +451,9 @@ describe("buildHomeDashboard, needs-orders + caught-up (Unit 2)", () => {
         research: { level: 1 },
         fabricator: { level: 1 },
         shipyard: { level: 0 },
+        // Squads SQ-7.4: the Subspace Telescope is pre-granted at level 1 (its real seed); its next cycle wants
+        // 4,000 credits + FA level 3, so it is not startable here. Level 0 would expose the free founding rung.
+        subspaceTelescope: { level: 1 },
       },
     };
     const model = buildHomeDashboard(blank);

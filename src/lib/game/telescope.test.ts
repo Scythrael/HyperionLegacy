@@ -166,12 +166,15 @@ describe("telescope upgrades run like every facility upgrade", () => {
     expect(canBuildFacilityUpgrade(top, SUBSPACE_TELESCOPE_FACILITY_KEY)).toEqual({ ok: false, reason: "Subspace Telescope is fully upgraded" });
   });
 
-  it("Home never offers a telescope upgrade until its Facilities card exists (SQ-7)", () => {
+  it("Home offers a startable telescope upgrade now that its Facilities card exists (SQ-7.4)", () => {
     const rich = { ...freshState(), credits: new Decimal(1e12), fleetAdminLevel: 30 };
     expect(canBuildFacilityUpgrade(rich, SUBSPACE_TELESCOPE_FACILITY_KEY).ok).toBe(true);
     const prompt = buildHomeDashboard(rich).needsOrders.find((p) => p.id === "idle-facility-upgrade");
-    expect(prompt?.facilityKeys ?? []).not.toContain(SUBSPACE_TELESCOPE_FACILITY_KEY);
-    expect(prompt?.facilityKey).not.toBe(SUBSPACE_TELESCOPE_FACILITY_KEY);
+    expect(prompt?.facilityKeys ?? []).toContain(SUBSPACE_TELESCOPE_FACILITY_KEY);
+    // Not startable (FA gate unmet): never offered.
+    const gated = { ...freshState(), credits: new Decimal(1e12), fleetAdminLevel: 1 };
+    const none = buildHomeDashboard(gated).needsOrders.find((p) => p.id === "idle-facility-upgrade");
+    expect(none?.facilityKeys ?? []).not.toContain(SUBSPACE_TELESCOPE_FACILITY_KEY);
   });
 });
 

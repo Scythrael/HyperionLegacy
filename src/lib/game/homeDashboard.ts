@@ -49,7 +49,6 @@ import {
   SHIP_TYPES,
   type ShipSpec,
   FACILITIES,
-  SUBSPACE_TELESCOPE_FACILITY_KEY,
   FACTIONS,
   MISSIONS,
   PATROLS,
@@ -388,11 +387,10 @@ function shipDisplayName(state: GameState, ship: ShipInstance): string {
 // skips it wherever it would otherwise offer a prompt or a link into the hidden console.
 export const RETIRED_FUEL_DEPOT_KEY = "fuelStorage";
 
-// Squads SQ-5: facilities whose upgrade Home must not offer because no Facilities card can start it yet. The
-// Subspace Telescope's track exists (FACILITIES.subspaceTelescope) but its card is SQ-7; until then a "Subspace
-// Telescope upgrade ready" prompt would land on an overview with nothing to press. SQ-7 removes it from this set
-// in the change that adds the card (and maps it in App.svelte jumpToFacilityUpgrade / facilityCardForFacilityKey).
-export const CARDLESS_FACILITY_KEYS: ReadonlySet<string> = new Set([RETIRED_FUEL_DEPOT_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY]);
+// Squads SQ-5: facilities whose upgrade Home must not offer because no Facilities card can start it. The Subspace
+// Telescope sat here until SQ-7 section 7.4 gave it its Facilities card (App.svelte jumpToFacilityUpgrade /
+// facilityCardForFacilityKey map it), so only the retired Fuel Depot remains.
+export const CARDLESS_FACILITY_KEYS: ReadonlySet<string> = new Set([RETIRED_FUEL_DEPOT_KEY]);
 
 // Map a facility KEY (the string carried by a facilityLevelUp effect) to its Section-8
 // jump destination, or null when the facility has no Section-8 tab (Warehouse tiers
@@ -998,7 +996,7 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
     // 0.13.9 hotfix: skip the RETIRED Fuel Depot. Its record stays in FACILITIES for 0.14.0's
     // fuel-economy cleanup, but it has no card and does nothing, so "Fuel Depot upgrade ready"
     // (and its deep link into the hidden console) must never be offered.
-    // Squads SQ-5: also skip a facility with no card yet (CARDLESS_FACILITY_KEYS: the Subspace Telescope until SQ-7).
+    // Squads SQ-5: also skip any facility with no card (CARDLESS_FACILITY_KEYS).
     if (CARDLESS_FACILITY_KEYS.has(facilityKey)) continue;
     if (canBuildFacilityUpgrade(state, facilityKey).ok) {
       upgradeKeys.push(facilityKey);

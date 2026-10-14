@@ -42,6 +42,9 @@
   // expedition.ts engine (candidates + foreknowledge + phase readers), routes Launch / Claim to the
   // do* handlers below (which own startExpedition / claimExpedition + doSave + pushLog).
   import ExpeditionPanel from "./lib/ExpeditionPanel.svelte";
+  // Squads SQ-7.4: the Subspace Telescope Facilities card (its words and galaxy map are telescopeCardDisplay.ts).
+  import TelescopeMap from "./lib/TelescopeMap.svelte";
+  import { telescopeCardView, telescopeMapView } from "./lib/telescopeCardDisplay";
   // Exploration 0.14.0 (E4c): the Research facility's Relics sub-tab + the Archive's Museum sub-tab.
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
@@ -232,6 +235,8 @@
     // Upgrades sub-tab + level/lane reads reference (never the raw string), mirroring
     // RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY.
     SALVAGE_BAY_FACILITY_KEY,
+    // Squads SQ-7.4: the stable "subspaceTelescope" facility key the telescope card's upgrade wiring reads.
+    SUBSPACE_TELESCOPE_FACILITY_KEY,
     // Shipyard (Phase 5, Task S5 UI), the stable "shipyard" facility key the Shipyard
     // rail entry + Build/Upgrades panel + founding/upgrade wiring reference (never the raw
     // string), mirroring RESEARCH_FACILITY_KEY / FABRICATOR_FACILITY_KEY. Drives the
@@ -1601,7 +1606,7 @@
   // stored) rather than the Salvage Bay's "seeded at level 0" posture, because the bay has
   // lanes to sell and this has nothing to sell. See quartermaster.ts for why it ships in the
   // same release that made Standard-Issue baselines auto-salvageable.
-  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory" | "archive" | "personnelRosters";
+  type FoundryFacilityKey = "refinery" | "fabricator" | "research" | "fuelStorage" | "warehouse" | "salvageBay" | "shipyard" | "docks" | "quartermaster" | "armory" | "archive" | "personnelRosters" | "subspaceTelescope";
   // 0.12.0 "Console" nav (Facilities, CN4a): the LEFT RAIL that this key used to
   // drive is RETIRED. Facilities is the BUILDING perspective and now lands on a
   // DASHBOARD (a responsive grid of building cards, the SAME .roster-grid model
@@ -1631,6 +1636,7 @@
     armory: "Armory",
     archive: "Archive",
     personnelRosters: "Personnel Rosters",
+    subspaceTelescope: "Subspace Telescope",
   };
 
   // (0.12.0 Console, CN4b: the DRYDOCK program is RETIRED. Its two facilities
@@ -3798,6 +3804,9 @@
       // it names is the one the Facilities grid renders.
       case "salvageBay":
         return "salvageBay";
+      // Squads SQ-7.4: the telescope's development cycles are bought on its own card.
+      case "subspaceTelescope":
+        return "subspaceTelescope";
       case "warehouseT1":
       case "warehouseT2":
         return "warehouse";
@@ -4050,6 +4059,12 @@
         facilitiesView = "console";
         activeFoundryFacility = "salvageBay";
         activeSalvageBaySubTab = "upgrades";
+        break;
+      // Squads SQ-7.4: the telescope's card has no sub-tabs; its Upgrade button is on the one view.
+      case "subspaceTelescope":
+        activeTab = "facilities";
+        facilitiesView = "console";
+        activeFoundryFacility = "subspaceTelescope";
         break;
       case "warehouseT1":
       case "warehouseT2":
@@ -9666,6 +9681,20 @@
       p.effect.facility === SALVAGE_BAY_FACILITY_KEY
   );
 
+  // Squads SQ-7.4: the Subspace Telescope card. Its words, ladder and map come from telescopeCardDisplay.ts (pure,
+  // tested); the Upgrade button is the shared canBuildFacilityUpgrade / doStartFacilityUpgrade pair like every card.
+  // The map is rebuilt only when the LEVEL changes (a primitive, so a tick that leaves it alone does not redraw).
+  $: telescopeView = telescopeCardView(state, { duration: (t) => durationReadout(t, showTickCounts, state.tickDurationSeconds) });
+  $: telescopeLevelNow = telescopeView.level;
+  $: telescopeMap = telescopeMapView(telescopeLevelNow);
+  $: telescopeUpgradeCheck = canBuildFacilityUpgrade(state, SUBSPACE_TELESCOPE_FACILITY_KEY);
+  $: telescopeUpgradeInFlight = state.activeProcesses.find(
+    (p) =>
+      p.kind === "facilityUpgrade" &&
+      p.effect.type === "facilityLevelUp" &&
+      p.effect.facility === SUBSPACE_TELESCOPE_FACILITY_KEY
+  );
+
   // Fabricable count: researched blueprints whose tier the fabricator's LEVEL has reached
   // (the STABLE "you have the capability to craft this" count, NOT the transient
   // canFabricate.ok which flickers with live materials/slots). Paired with
@@ -10125,6 +10154,8 @@
   type FacilityPaneVM = {
     key: FoundryFacilityKey; glyph: string; label: string; sub: string;
     attention: boolean; action: FacilityRow | null; upgrade: FacilityRow | null; idle: string | null;
+    // Squads SQ-7.4: an SVG glyph (icons.ts) drawn in place of the emoji `glyph` (new cards use SVG).
+    icon?: IconName;
   };
   function procFrac(p: TimedProcess | null | undefined): number {
     if (!p) return 0;
@@ -10231,6 +10262,12 @@
       facilityUpgrade(salvageBayUpgradeInFlight, FACILITY_LABELS.salvageBay),
       bayJobsInFlight.length > 0 ? null : `${spareEquipmentCount(state)} spare system${spareEquipmentCount(state) === 1 ? "" : "s"} to salvage`,
       facilityAttention.has("salvageBay")),
+    // Squads SQ-7.4: the Subspace Telescope (pre-granted at Level 1). No action row: it reads, it does not run jobs.
+    { ...fpane("subspaceTelescope", "", FACILITY_LABELS.subspaceTelescope, `Level ${telescopeView.level}`,
+      null,
+      facilityUpgrade(telescopeUpgradeInFlight, FACILITY_LABELS.subspaceTelescope),
+      `Range ${telescopeView.rangeText} · ${telescopeView.reachText}`,
+      facilityAttention.has("subspaceTelescope")), icon: "telescope" as IconName },
     fpane("warehouse", "📦", FACILITY_LABELS.warehouse, `Level ${warehouseT1Level}`,
       null, null,
       warehouseItemsAtCap.length === 0 ? "No items at cap" : `${warehouseItemsAtCap.length} item${warehouseItemsAtCap.length === 1 ? "" : "s"} at cap`,
@@ -11268,7 +11305,7 @@
               on:click={() => { activeFoundryFacility = p.key; facilitiesView = "console"; }}
             >
               <span class="fpane-id">
-                <span class="fpane-glyph" aria-hidden="true">{p.glyph}</span>
+                <span class="fpane-glyph" aria-hidden="true">{#if p.icon}<Icon name={p.icon} size={18} />{:else}{p.glyph}{/if}</span>
                 <span class="fpane-stack">
                   <span class="fpane-name">
                     {p.label}{#if p.attention}<span class="roster-card-attention-dot" aria-hidden="true"></span><span class="sr-only"> (needs attention)</span>{/if}
@@ -14570,6 +14607,94 @@
                 {/if}
               </Panel>
             {/if}
+          {:else if activeFoundryFacility === "subspaceTelescope"}
+            <!-- SUBSPACE TELESCOPE (0.14.0, Squads SQ-7 section 7.4; the approved squads-telescope mockup's
+                 section 2). No sub-tabs: one view holds the reading, the next development cycle with its Upgrade
+                 button, the ladder of every level and the galaxy map. Every word and the map geometry come from
+                 telescopeCardDisplay.ts (pure, tested); the Upgrade button is the SHARED facilityUpgradeButton on
+                 canBuildFacilityUpgrade / doStartFacilityUpgrade, so its disabled reasons and the in-flight swap
+                 behave exactly as at the Salvage Bay. Credits and an FA gate only (design 6.1: no materials, no
+                 talent gates, so the card can show every gate). Light-years are measured from the PROVISIONAL
+                 homeworld near the Sun's position until G2 places each player's homeworld. -->
+            <div class="telescope-grid">
+              <Panel>
+                <div class="telescope-head">
+                  <span class="telescope-badge" aria-hidden="true"><Icon name="telescope" size={20} /></span>
+                  <div class="telescope-head-text">
+                    <div class="panel-title">SUBSPACE TELESCOPE</div>
+                    <div class="telescope-sub">{telescopeView.subtitle}</div>
+                  </div>
+                </div>
+                <p class="telescope-lore">{telescopeView.lore}</p>
+                <div class="telescope-stats">
+                  <div class="telescope-stat"><div class="k">Range</div><div class="v">{telescopeView.rangeText}</div></div>
+                  <div class="telescope-stat"><div class="k">Reaches</div><div class="v">{telescopeView.reachText}</div><div class="s">{telescopeView.reachNames}</div></div>
+                  <div class="telescope-stat"><div class="k">Detail</div><div class="v">{telescopeView.detailText}</div></div>
+                </div>
+
+                {#if telescopeView.maxed || !telescopeView.next}
+                  <p class="research-status">Fully upgraded.</p>
+                {:else}
+                  {@const nx = telescopeView.next}
+                  {@const creditsMet = state.credits.gte(nx.credits)}
+                  <div class="research-name">Next: Level {telescopeView.level} → {nx.level}</div>
+                  <div class="research-cost">{nx.gainLine}</div>
+                  <div class="research-cost">
+                    Range: {telescopeView.rangeText} → {nx.rangeText}{nx.sameRange ? " (unchanged)" : ""}
+                    · Detail: {nx.detailName}{nx.detailUp ? "" : " (unchanged)"}
+                  </div>
+                  <!-- While this cycle builds, its credits are already paid: the readiness rows and the button
+                       give way to the in-progress block below (no red "have" line for a cost already met). -->
+                  {#if !telescopeUpgradeInFlight}
+                  <div class="research-cost">Duration: {durationReadout(nx.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                  <div class="research-cost" style="color: {creditsMet ? 'var(--color-success)' : 'var(--color-danger)'}">
+                    {#if creditsMet}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Cost: ◈ {formatNumber(nx.credits)} (have {formatNumber(state.credits)})
+                  </div>
+                  {#if nx.fleetAdminLevel !== null}
+                    {@const faMet = state.fleetAdminLevel >= nx.fleetAdminLevel}
+                    <div class="research-cost" style="color: {faMet ? 'var(--color-success)' : 'var(--color-danger)'}">
+                      {#if faMet}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} Requires Fleet Admiral level {nx.fleetAdminLevel} (current: {state.fleetAdminLevel})
+                    </div>
+                  {/if}
+                  {@render facilityUpgradeButton(
+                    SUBSPACE_TELESCOPE_FACILITY_KEY,
+                    telescopeUpgradeCheck,
+                    `Upgrade · Level ${telescopeView.level} → ${nx.level}`,
+                    () => doStartFacilityUpgrade(SUBSPACE_TELESCOPE_FACILITY_KEY)
+                  )}
+                  {/if}
+                {/if}
+
+                {#if telescopeUpgradeInFlight}
+                  {@const progress = telescopeUpgradeInFlight.durationTicks > 0
+                    ? (telescopeUpgradeInFlight.durationTicks - telescopeUpgradeInFlight.remainingTicks) / telescopeUpgradeInFlight.durationTicks
+                    : 1}
+                  <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Development cycle {telescopeView.level + 1} in progress…</div>
+                  <div class="research-bar-track">
+                    <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
+                  </div>
+                  <div class="research-readout">{remainingReadout(telescopeUpgradeInFlight.remainingTicks, telescopeUpgradeInFlight.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
+                {/if}
+
+                <div class="telescope-ladder-title">Development cycles</div>
+                <ol class="telescope-ladder">
+                  {#each telescopeView.ladder as row (row.level)}
+                    <li class="telescope-rung st-{row.status}">
+                      <span class="telescope-rung-lv">{row.level}</span>
+                      <span class="telescope-rung-what">
+                        {row.rangeText} ({row.reachText}) · {row.detailName}{#if row.statusText}<span class="telescope-rung-status">{row.statusText}</span>{/if}
+                      </span>
+                      <span class="telescope-rung-cost">{row.costText}</span>
+                    </li>
+                  {/each}
+                </ol>
+              </Panel>
+              <Panel>
+                <div class="panel-title">RANGE OVER THE GALAXY</div>
+                <div class="telescope-sub">Centered on your homeworld, on a square-root distance scale so the near rings stay readable. Badges I to VII are the regions.</div>
+                <TelescopeMap map={telescopeMap} />
+              </Panel>
+            </div>
           {:else if activeFoundryFacility === "docks"}
               <!-- DOCKS storage management (0.12.0 Console, CN4b). The Docks is a
                    BUILDING the player manages, so under the perspective model it
@@ -21014,6 +21139,35 @@
   }
   .research-name { font-size: var(--text-md); font-weight: 600; margin-bottom: 6px; }
   .research-cost { font-size: var(--text-sm); color: var(--color-text-secondary); margin-bottom: 10px; }
+  /* Squads SQ-7.4: the Subspace Telescope card (mockup section 2: reading + ladder beside the galaxy map). */
+  .telescope-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap: 12px; align-items: start; }
+  .telescope-head { display: flex; align-items: center; gap: 10px; }
+  .telescope-head .panel-title { margin-bottom: 0; }
+  .telescope-head-text { min-width: 0; }
+  .telescope-badge { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--corner); color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.06); }
+  .telescope-sub { font-size: var(--text-xs); color: var(--color-text-dim); }
+  .telescope-lore { margin: 10px 0 0; font-size: var(--text-sm); font-style: italic; color: var(--color-text-secondary); }
+  .telescope-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 8px; margin: 12px 0; }
+  .telescope-stat { border: 1px solid var(--color-border); background: rgba(var(--color-accent-rgb), 0.03); border-radius: var(--corner); padding: 8px 10px; min-width: 0; }
+  .telescope-stat .k { font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 600; }
+  .telescope-stat .v { font-family: var(--font-mono); font-weight: 600; font-size: var(--text-md); color: var(--color-text-primary); }
+  .telescope-stat .s { font-size: var(--text-2xs); color: var(--color-text-dim); }
+  .telescope-ladder-title { margin-top: 14px; font-size: var(--text-2xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-text-dim); font-weight: 600; }
+  .telescope-ladder { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; }
+  .telescope-rung { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; font-size: var(--text-xs); padding: 5px 8px; border: 1px solid var(--color-border); border-radius: var(--corner); color: var(--color-text-secondary); }
+  .telescope-rung-lv { font-family: var(--font-mono); font-weight: 700; color: var(--color-text-dim); }
+  .telescope-rung-what { min-width: 0; overflow-wrap: anywhere; }
+  .telescope-rung-cost { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-dim); text-align: right; }
+  .telescope-rung-status { margin-left: 6px; font-size: var(--text-2xs); font-weight: 600; border: 1px solid currentColor; border-radius: 999px; padding: 0 6px; white-space: nowrap; }
+  .telescope-rung.st-reached { border-color: rgba(var(--color-accent-rgb), 0.4); }
+  .telescope-rung.st-current { border-color: var(--color-accent); background: rgba(var(--color-accent-rgb), 0.08); color: var(--color-text-primary); }
+  .telescope-rung.st-current .telescope-rung-lv, .telescope-rung.st-current .telescope-rung-status { color: var(--color-accent); }
+  .telescope-rung.st-next .telescope-rung-status, .telescope-rung.st-building .telescope-rung-status { color: var(--color-warning); }
+  .telescope-rung.st-building { border-style: dashed; border-color: var(--color-warning); }
+  @media (max-width: 560px) {
+    .telescope-rung { grid-template-columns: 26px minmax(0, 1fr); }
+    .telescope-rung-cost { grid-column: 2; text-align: left; }
+  }
   .research-status { font-size: var(--text-md); color: var(--color-success); margin: 0; }
   .research-bar-track {
     height: 10px;

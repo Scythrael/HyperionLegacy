@@ -1371,3 +1371,40 @@ Squads", "Risk Factors", "Subspace Telescope" and "Objective Difficulty" (7.5's 
 objectives), beside GO-18's Ground Operations, Return Trip and Medical Bay and Scan Events; full notes in the Ground
 Operations plan's "Carry from GO-18 + SQ-7 section 7.5". Every number is read from its engine constant. Still open:
 7.4 the Facilities card (the telescope topic does not say where to upgrade; revisit it with 7.4 and G2).
+
+**Carry from SQ-7 section 7.4 (built 2026-10-14, commit `feat(0.14.0): Subspace Telescope Facilities card (SQ-7.4)`):**
+- **Engine untouched.** `FACILITIES.subspaceTelescope` and its 8-rung track were already SQ-5's (credits + FA gate,
+  timed `facilityUpgrade`, no materials, no talent gates); the card reuses `canBuildFacilityUpgrade` /
+  `doStartFacilityUpgrade` / the shared `facilityUpgradeButton`, so no new handler and no SAVE bump.
+- **Where it lives.** A Facilities dashboard pane (after the Salvage Bay; SVG `telescope` glyph via a new optional
+  `FacilityPaneVM.icon`; "Level N", "Range 3,000 ly · Tiers I to II", the amber upgrade bar while a cycle runs) and a
+  console with no sub-tabs (`FoundryFacilityKey` "subspaceTelescope"). Home now offers its upgrade:
+  `CARDLESS_FACILITY_KEYS` holds only the retired Fuel Depot, and App.svelte `jumpToFacilityUpgrade` /
+  `facilityCardForFacilityKey` map the key (the card's attention dot lights).
+- **The card (mockup section 2).** Left: header (Level N of 8 · detail), the user's lore line (`TELESCOPE_LORE`), stats
+  Range / Reaches (tiers + region names) / Detail, the next cycle (the derived `TELESCOPE_DEVELOPMENT_CYCLES` line,
+  range and detail before and after, duration, credits and FA readiness rows, "Upgrade · Level N → N+1"), the
+  in-progress block ("Development cycle N in progress", bar, remaining; the readiness rows hide while it builds since
+  the credits are paid), and the ladder of all 8 rungs with a worded status chip (Reached / Current / In progress /
+  Next). Right: the galaxy map, its legend and a region key ("In range" / "Beyond range").
+- **The map (`TelescopeMap.svelte` over `telescopeCardDisplay.ts telescopeMapView`).** The mockup's geometry: centered
+  on the homeworld, square-root radial scale, disk, three arms plus the Orion spur, bulge, core; badges I to VII at
+  the mockup's spots (each pinned inside its region's band by a test; the Local Bubble badge sits beside the
+  homeworld); current ring solid accent, next ring dashed amber only when the next rung grows the range (a detail-only
+  rung says "Level N adds detail, not range" instead); reached badges solid, unreached dashed; `role="img"` with an
+  aria-label naming the level, its reach and the next reach. Fits 375 px with no sideways scroll.
+- **⚠️ PROVISIONAL (G2 not built):** light-years and badge positions use `PROVISIONAL_HOMEWORLD` (near the Sun's
+  position, 26,500 ly from the core); `telescopeCardView` / `telescopeMapView` take the homeworld as a parameter so
+  G2 swaps in each player's placement. The Level 8 ring reaches the core exactly (tested).
+- **Deviations from the mockup:** no level-picker buttons (a mockup preview device; the card shows the real level);
+  the map's ring legend is HTML under the SVG instead of SVG text, plus a region key list; the ladder's cost reads
+  "Fleet Admiral level N" (the facility cards' wording) and the duration honors the tick-count preference.
+- **For the user [PROPOSAL]:** the button caption "Upgrade" (alternative "Fund development cycle"), the pane's place
+  after the Salvage Bay, and the credit costs (still placeholders, user #9). Help (`helpTopics.ts` "Subspace
+  Telescope") still does not say the card is under Facilities: a one-line follow-up for whoever owns Help.
+- Tests: new `telescopeCardDisplay.test.ts` (18: headline numbers per level, reach text, the next cycle against
+  FACILITIES at every level, detail-only rung, maxed, ladder statuses and wording, the duration reader, the building
+  state, no em dash or double hyphen, rings on the square-root scale, the Level 8 ring at the core, badges in band,
+  reached per level, the aria summary, the legend, path data inside the view box); telescope.test.ts's Home test now
+  expects the offer (and none when the FA gate is unmet); homeDashboard.test.ts's nothing-actionable fixture seeds the
+  telescope at its real level 1. Suite 4792 passed (1 skipped); `npm run check` 0 errors.
