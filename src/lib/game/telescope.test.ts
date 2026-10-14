@@ -24,6 +24,7 @@ import {
   SENSOR_REVEAL_HAZARD,
   advanceExpedition,
   claimExpedition,
+  editGroundOps,
   expeditionCandidates,
   expeditionLaunchView,
   expeditionRiskPreview,
@@ -48,6 +49,7 @@ import {
 } from "./telescope";
 import { buildHomeDashboard } from "./homeDashboard";
 import { plainAwayMember } from "./awayTeamTestFixtures";
+import { groundOpsStuck, groundOpsStuckTaskIds } from "./groundOps";
 
 const TELESCOPE = FACILITIES[SUBSPACE_TELESCOPE_FACILITY_KEY];
 
@@ -328,9 +330,11 @@ const T0 = 100_000;
 const SEC = ["member-1", "member-2", "member-3"];
 const SCI = ["member-11", "member-12", "member-13"];
 const CREW: AwayMember[] = [
-  // Rank 10, so the run finishes (a weak crew holds and flags forever, GO-7b) and the claim is compared too.
-  ...SEC.map((id) => ({ ...plainAwayMember(id, "security", "ship-1"), rank: 10 as AwayMember["rank"] })),
-  ...SCI.map((id) => ({ ...plainAwayMember(id, "science", "ship-1"), rank: 10 as AwayMember["rank"] })),
+  // Rank 8, the top of the ladder (GO-12 review: no out-of-ladder ranks in fixtures). A crew that still stalls
+  // skips its stuck tasks at a checkpoint (the GO-13 escape hatch, the same edits at every level), so the run
+  // finishes and the claim is compared too.
+  ...SEC.map((id) => ({ ...plainAwayMember(id, "security", "ship-1"), rank: 8 as AwayMember["rank"] })),
+  ...SCI.map((id) => ({ ...plainAwayMember(id, "science", "ship-1"), rank: 8 as AwayMember["rank"] })),
 ];
 
 function crewedState(): GameState {
@@ -393,8 +397,15 @@ describe("the candidate carries the telescope reading", () => {
       expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
       expect(blindLaunchCount(res.next), `blind launch counted at level ${level}`).toBe(level === 0 ? 1 : 0);
       const now: string[] = [JSON.stringify(strip(res.next))];
+      let run = res.expedition!;
       for (const t of CHECKPOINTS) {
-        const exp = advanceExpedition(res.expedition!, t);
+        let exp = advanceExpedition(run, t);
+        if (groundOpsStuck(exp)) {
+          let edited: GameState = { ...res.next, gameTimeSeconds: t, expeditions: [exp] };
+          for (const id of groundOpsStuckTaskIds(exp)) edited = editGroundOps(edited, exp.id, { kind: "skip", taskId: id });
+          exp = edited.expeditions[0];
+        }
+        run = exp;
         now.push(JSON.stringify(exp));
         if (exp.phase === "complete") {
           const withRun = { ...res.next, expeditions: res.next.expeditions.map((e) => (e.id === exp.id ? exp : e)) };

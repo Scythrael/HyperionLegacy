@@ -199,6 +199,17 @@ export function candidateRegionText(t: Pick<ExpeditionCandidate["telescope"], "r
   return `Tier ${regionTierNumeral(t.regionTier)} · ${REGION_TIER_NAMES[t.regionTier]} · ${ly(t.distanceLy)}`;
 }
 
+// GO-12 review minor: the hint beside "Beyond sensor range" / "Contents hidden" when the telescope still reads the
+// system (any detail above Blind), so the two readings never look contradictory. Null when the ship's sensors
+// reach it, or when the telescope is blind there too. Pure.
+export const SENSOR_SPLIT_HINT = "The telescope reads risk; ship sensors read what is there.";
+export function sensorSplitHint(
+  t: Pick<ExpeditionCandidate["telescope"], "blind" | "detail">,
+  fk: Pick<ExpeditionCandidate["foreknowledge"], "inRange">,
+): string | null {
+  return !fk.inRange && !t.blind && t.detail > TELESCOPE_DETAIL.blind ? SENSOR_SPLIT_HINT : null;
+}
+
 // The telescope block of `candidate` (its telescope reading and the ship's foreknowledge, which names the planet
 // types when the ship's sensors read them), for a telescope at `level`. Hazard reads the higher of the telescope's
 // grade and the ship's own hazard read (design 6.4: "whichever is higher wins"). Pure.
@@ -426,7 +437,10 @@ export function launchViewInputs(
     state.notableCrew,
     state.relicMuseum,
     state.facilities,
-    captain ? JSON.stringify([captain.id, captain.spec, captain.unlockedSecondaryTalents]) : null,
+    // GO-12 review minor: the fleet's talent unlocks BY REFERENCE (the review named `unlockedSkillNodes`, the retired
+    // skill tree's field; GameState's live talent list is unlockedHomeworldTalents, replaced only on a purchase).
+    state.unlockedHomeworldTalents,
+    captain ? JSON.stringify([captain.id, captain.spec, captain.unlockedSecondaryTalents, captain.unlockedCaptainTalents]) : null,
     deploys.join(","),
   ];
 }

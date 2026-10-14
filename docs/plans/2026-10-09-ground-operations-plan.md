@@ -1521,6 +1521,77 @@ Table scrolls horizontally inside its own wrapper on a phone (GO-M2 `.tw`), neve
 **Verify:** with Debug grants, dispatch, Offline-sim to a scanned body; reassign, skip, auto-assign; odds render;
 console clean. Commit `feat(0.14.0): per-planet task queue screen (Ground Ops GO-13)`.
 
+**Carry from GO-13 + SQ-7 section 7.3 (built 2026-10-14, commit `feat(0.14.0): per-planet task queue screen with skip
+(Ground Ops GO-13, SQ-7)`):**
+- **New `src/lib/groundTaskQueueDisplay.ts`** (+ `groundTaskQueueDisplay.test.ts`, 16): every display decision of the
+  queue screen over the tested engine; no rule lives there. **New `src/lib/GroundTaskQueue.svelte`** draws it, inside
+  the in-progress expedition view (ExpeditionPanel, a flagged run only), between the scan cards and the GO-7b activity
+  readout (GO-14 replaces that readout with the task cards and timelines).
+- **Per scanned body** holding Ground Ops tasks: the title "<system> <numeral> · <planet type>" ("Lyra's Wake I ·
+  Volcanic": bodies have no stored name, so the astronomer's numeral by position), "9 tasks discovered", the user's
+  "Auto-assign randomly" and "Default plan" (off with a reason when the body has no queued task), then the table:
+  Task, Fights ("1 / 3", "None"), one odds column per deployed team (TeamBadge sm + name, "Strike · odds"),
+  Assigned, Queue. The note line "Nothing ever waits for you; reorder, reassign or skip at any time." closes it.
+- **The task card (SQ-7 7.3)** in the Task cell: name + status chip; a status line (what the crew does: "Alpha
+  working", "Bravo gathering the crew"; "3 losses in a row: back of the line"; "Ambushed once"); difficulty pips +
+  grade + "counts x3 toward completion" (none on an unrated pre-SQ-4 task); the requirement chips in squads with a
+  check (met) or a cross on a dashed chip (unmet) by the deployed squads summed; "Needs: <design 3.2 phrase>. Covered
+  by Alpha (Strike) + Bravo (Survey)." or "No deployed crew covers it: needs 3 Security squads, 2 deployed"; the
+  fight-point bar (fill = progress interpolated along a work step, a pip per fight point, won ones green) with "75% ·
+  2 of 3 fights won" or "No fights expected"; for a JOINT crew, the crew's own tier ("Joint crew odds").
+- **Status** (`queueTaskStatus`): Done / Skipped as stored; Active while a crew holds it; for a task at the loss
+  streak (`groundTaskStuck`): **Stuck** when every team holding it has nothing else left (`groundTeamStuck`), else
+  **Sent back** (back of the line, other work first); else Queued.
+- **Odds** (design 3.6): a column reads that team ALONE on the task (`groundCrewThreat`, fresh) as a sm ThreatChip
+  ("Alpha odds: ..."), "Needs a partner" when its squads cannot cover the task alone, "-" once done or skipped. A
+  display memo (`createOddsMemo`, bounded 512, LRU) keys each read by (expedition, task, crew, pointsCleared,
+  **fightCount**): fightCount joins the plan's key because the fresh read numbers its sample fights from it (the
+  engine key has it too), and nothing else a fresh read depends on changes during a run, so a tick never re-reads.
+- **Assigned**: a select (never acts on change) of `groundTaskCrews` (the smallest covering crews; joint ones read
+  "Alpha + Bravo (joint)") plus the row's current crew when it is not among them; Apply (off while the pick is the
+  current crew) sends `assign` with `partners`; Skip sends `skip` (an ACTIVE task too: the engine's Q14 stop); a
+  skipped task offers the same crews and Re-queue (`requeue`, partners included). **Queue**: "2nd of 5 in Bravo's
+  queue" (the lead's queue, REMAINING tasks only, as the engine's reorder counts) with up / down (`reorder`).
+- **Run-level stuck flag** (user Q4) on top: "Stuck: needs a stronger team or a skip." + "Skip a stuck task and the
+  rest of the run carries on." + one "Skip <task>" button per stuck task: the escape hatch, right there. It replaces
+  the GO-7b one-line flag in the activity readout. **The GO-7b review staging gate (waiting on this skip button) is
+  met.**
+- **Lock**: once the window has closed, a lock line ("The ground operations are over: the ship is heading home.")
+  and every control off.
+- **Host** `doEditGroundOps(expeditionId, edit)` (App.svelte): `editGroundOps`; on the same-ref refusal it reads
+  `canEditGroundOps` ONCE (the click, never per rendered button), logs "[Ship] Cannot change the ground plan: <reason>."
+  and returns the reason; else state, pushLog ("[Wayfarer] Buried Vault re-queued for Alpha + Bravo.", from
+  `groundOpsEditLogText`), doSave, null. The screen shows the result in a polite status line ("Skipped Buried
+  Vault.", or "Not changed: <reason>.") and puts focus back on the row (a Skip lands on Re-queue and back; a reorder
+  keeps its arrow, or the other one at an edge).
+- **Phone**: the table (min 760 px) scrolls inside its `.gq-tw` wrapper (a named, focusable region, so the keyboard
+  can scroll it); the page never scrolls sideways (375 px: page 375, wrapper 305 of 887).
+- **GO-12 review minors folded in**: (1) rank-10 fixtures are rank 8 (launchPreview, telescope and
+  expeditionDispatchDisplay tests). At rank 8 the telescope "identical at every level" run stalled (rank 10 was
+  out-of-ladder strength), so it now skips the stuck tasks at a checkpoint (the GO-13 escape hatch, the same edits at
+  every level) and still claims at all nine levels. (2) `crewRank.ts crewRankLabel(rank)`: a whole rank past either
+  end reads as that end, anything else "Crewman"; every `CREW_RANKS[...].label` UI site uses it (AwayTeamPanel,
+  installOnPicker, App.svelte, plus ComplementPanel, PersonnelRostersPanel, RecruitmentBoard). The dev console still
+  held the pre-fix AwayTeamPanel "reading 'label'" crash from a rank-10 save. (3) **Deviation**: GameState has no
+  `unlockedSkillNodes` (the retired skill tree's field, only in a save migration); the launch view's input list now
+  carries `state.unlockedHomeworldTalents` BY REFERENCE and the captain's `unlockedCaptainTalents` in its string
+  (deploys stays the LAST entry). (4) `sensorSplitHint`: "The telescope reads risk; ship sensors read what is
+  there." under "Contents hidden" whenever the telescope still reads the system (detail above Blind).
+- Verified in the dev preview on a seeded save (General Freighter Ground + Ground, rank 8; a second ship "Wayfarer"
+  Strike + Survey): dispatch both, sim to scanned bodies; reassign by keyboard (select, Tab, Enter: Crashed Ship to
+  Bravo); reorder by click and keyboard; Auto-assign randomly; Default plan; skip an ACTIVE task (progress kept,
+  Re-queue focused) and re-queue it; a Sent back task turned Stuck once its team had nothing else, the flag appeared,
+  "Skip Subterranean Civilization" let the window close and the ship head home (lock line); on Strike + Survey every
+  `{ 1, 1 }` task reads "Needs a partner" in both columns with the joint crew's tier, and an active joint task was
+  skipped and re-queued with its partner; log lines read right; 1280 px and 375 px; no new console errors.
+  localStorage restored byte-identical (SHA-256). Suite 4567 -> 4587 passed (1 skipped); `npm run check` 0 errors.
+- **Observed for the user (balance, not changed):** a rank 8 Ground team reads "Impossible" on Deadly Derelict
+  Outposts yet clears them over several trips, because the tier is "clear the WHOLE task in one go" while progress
+  persists across wipes. The column may read harsher than the run plays; GO-18 Help should say what the tier means.
+- **Open for the user:** the Assigned select offers only the SMALLEST covering crews (plus the current one). The
+  engine also accepts a LARGER crew (both Ground teams on one hard task); should the select offer "Alpha + Bravo
+  (joint)" on a Ground + Ground ship too?
+
 ### GO-14: Team timelines + task cards + bay card (mockups GO-M3, GO-M4)
 
 **Files:** new `src/lib/GroundTeamTimeline.svelte`, new `src/lib/GroundTaskCard.svelte`, `ExpeditionPanel.svelte`.

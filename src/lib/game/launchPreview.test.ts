@@ -62,7 +62,7 @@ const RESERVE: [string, AwayMember["teamType"]][] = [
 ];
 function crewedState(seedShift = 0): GameState {
   const base = freshState();
-  const strong = (id: string, type: AwayMember["teamType"]): AwayMember => ({ ...plainAwayMember(id, type, "ship-1"), rank: 10 as AwayMember["rank"] });
+  const strong = (id: string, type: AwayMember["teamType"]): AwayMember => ({ ...plainAwayMember(id, type, "ship-1"), rank: 8 as AwayMember["rank"] });
   const teams: ShipGroundTeam[] = [
     { kind: "ground", security: SEC.slice(0, 3), science: SCI.slice(0, 3), helpOthers: false },
     { kind: "ground", security: SEC.slice(3), science: SCI.slice(3), helpOthers: false },

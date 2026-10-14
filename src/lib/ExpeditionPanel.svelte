@@ -50,7 +50,10 @@
   import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
   // Ground Ops (GO-7b): a flagged run's offloaded findings, its stuck flag, and what each ground team waits on at
   // dispatch. The full Ground Ops screens (queues, timelines, bay) are GO-13 / GO-14.
-  import { GROUND_OPS_STUCK_TEXT, groundOpsStuck, groundTaskFindingPrefix } from "./game/groundOps";
+  import { groundTaskFindingPrefix, type GroundOpsEdit } from "./game/groundOps";
+  // GO-13 + Squads SQ-7 section 7.3: the per-planet task queue screen (queues, per-team odds, task cards, the stuck
+  // flag and its Skip). Its display decisions are in groundTaskQueueDisplay.ts (tested).
+  import GroundTaskQueue from "./GroundTaskQueue.svelte";
   // GO-12 + Squads SQ-7 section 7.2: the dispatch strip (which ground teams deploy) and the Subspace Telescope block.
   // Every display decision is in expeditionDispatchDisplay.ts (tested); the expensive launch view (recommendation,
   // forecast) is read only for the EXPANDED candidate and only when its inputs change (launchViewInputs).
@@ -64,6 +67,7 @@
     dispatchTeamsView,
     expandedLaunchView,
     launchViewInputs,
+    sensorSplitHint,
     telescopeBlockView,
     type ExpandedLaunchView,
   } from "./expeditionDispatchDisplay";
@@ -92,6 +96,9 @@
   // Squads SQ-7 section 7.2: "Set composition" on the telescope's recommendation. Host: applyComposition -> doSave ->
   // pushLog (doApplyComposition).
   export let onSetComposition: (shipId: string, kinds: GroundTeamKind[]) => void = () => {};
+  // GO-13: a live queue edit (assign, reorder, skip, re-queue, Default plan, Auto-assign). Host: editGroundOps ->
+  // doSave -> pushLog (doEditGroundOps); returns null when applied, else the refusal in plain words.
+  export let onEditGroundOps: (expeditionId: string, edit: GroundOpsEdit) => string | null = () => null;
 
   // --- Local UI state ---------------------------------------------------------
   // The ship whose console is open. null until the first eligible ship defaults in below.
@@ -547,6 +554,12 @@
           {/each}
         </div>
 
+        <!-- GO-13: the per-planet TASK QUEUES (a flagged run only): reassign, reorder, skip, re-queue, Default plan,
+             Auto-assign, per-team odds, the stuck flag with its Skip. GO-14 adds the timelines and the bay card. -->
+        {#if exp.groundOps}
+          <GroundTaskQueue {exp} ship={chosenShip} {now} onEdit={(edit) => onEditGroundOps(exp.id, edit)} />
+        {/if}
+
         <!-- ACTIVITY BATTLE READOUT: each resolved away-team task shows its OUTCOME (secured vs evacuated) +
              the finding it yielded (materials / credits / an unidentified relic), with an expandable, re-
              derived round log so the player can see their gambits at work and tune them. -->
@@ -619,9 +632,6 @@
             {/each}
           </div>
           {#if exp.groundOps}
-            {#if groundOpsStuck(exp)}
-              <div class="exp-block" role="status">{GROUND_OPS_STUCK_TEXT}.</div>
-            {/if}
             <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every task the team returns to the ship to offload, recover in the medical bay and reload; a lost task keeps its progress and is retried after the bay.</div>
           {:else}
             <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
@@ -726,6 +736,10 @@
                   </div>
                 {:else if !fk.inRange && !tel.blind}
                   <div class="exp-target-hidden">Contents hidden. A stronger sensor array reveals more.</div>
+                  {#if sensorSplitHint(tel, fk)}
+                    <!-- GO-12 review minor: the telescope still reads this system's risk; only the contents are hidden. -->
+                    <div class="exp-target-hint">{sensorSplitHint(tel, fk)}</div>
+                  {/if}
                 {/if}
               </button>
               {#if selectedCandidateId === cand.id && selectedBlock}
@@ -1439,6 +1453,10 @@
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
     font-style: italic;
+  }
+  .exp-target-hint {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
   }
 
   /* CHIPS */

@@ -16,7 +16,7 @@ import type { EquipmentInstance, GameState } from "./game/model";
 import { SHIP_TYPES, isMemberSlotType, shipDisplayLabels } from "./game/model";
 import type { EquipFitBlockReason } from "./game/equipment";
 import { canFitToMember, installTargetsFor, memberPieceInSlot, memberSlotPieces, uniqueWearer } from "./game/memberEquipment";
-import { CREW_RANKS } from "./game/crewRank";
+import { crewRankLabel } from "./game/crewRank";
 import { SQUAD_META, awayTargetLabel } from "./awayTeamDisplay";
 import { memberFitReasonText, memberPieceName } from "./awayGearDisplay";
 
@@ -113,7 +113,7 @@ export function buildInstallOnRows(
       kind: "member",
       targetId: t.memberId,
       label: m ? m.name : t.memberId,
-      sub: m ? `${CREW_RANKS[m.rank].label} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
+      sub: m ? `${crewRankLabel(m.rank)} · ${where}${occupant ? ` · wears ${memberPieceName(occupant)}` : ""}` : "",
       ok: t.ok,
       reason: t.ok || t.reason === undefined ? "" : memberFitReasonText(s, pieceId, t.reason, t.memberId),
       replace,

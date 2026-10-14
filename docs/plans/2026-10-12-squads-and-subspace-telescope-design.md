@@ -1355,3 +1355,12 @@ the forecast line at detail 5; a blind candidate shows name, region, distance an
 on it asks "This is truly unknown territory. Are you sure you wish to go?" (Cancel focused). The launch view is read
 lazily (selected card only, only when its inputs change). Still open: 7.3 task cards (GO-13 / GO-14), 7.4 the
 Facilities card, 7.5 Help.
+
+**Carry from SQ-7 section 7.3 (built 2026-10-14 with GO-13, commit `feat(0.14.0): per-planet task queue screen with
+skip (Ground Ops GO-13, SQ-7)`):** the task cards live in the queue screen's Task cell (GroundTaskQueue.svelte, display
+decisions in groundTaskQueueDisplay.ts); full notes in the Ground Operations plan's "Carry from GO-13 + SQ-7 section
+7.3". In short: name, status, difficulty pips + grade + "counts xN toward completion", requirement chips in squads
+marked met / unmet by the deployed squads, the 3.2 team-type phrase with who covers it ("Alpha (Strike) + Bravo
+(Survey)"), the fight-point bar (zero pips: "No fights expected"), "Needs a partner" in a team's odds column when it
+cannot cover alone, and the joint crew's own tier (3.6). GO-14 reuses the card beside the timelines. Still open: 7.4
+the Facilities card, 7.5 Help.

@@ -38,7 +38,7 @@
   import type { AwayCrewBlockReason } from "./game/awayTeam";
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
   import { officerRosterWindowIndex } from "./game/seniorStaff";
-  import { CREW_RANKS } from "./game/crewRank";
+  import { crewRankLabel } from "./game/crewRank";
   import HelpTip from "./HelpTip.svelte";
   import {
     SQUAD_META,
@@ -202,8 +202,8 @@
           <div class="rcand-row">
             <!-- Rank, spec, affinity and each trait explain themselves on hover / tap / keyboard focus
                  (the shared HelpTip, chip mode). -->
-            <HelpTip label={CREW_RANKS[c.rank].label} text={RANK_TEXT}
-              ><span class="rcand-rank rk-{rankTier(c.rank)}">{CREW_RANKS[c.rank].label}</span></HelpTip
+            <HelpTip label={crewRankLabel(c.rank)} text={RANK_TEXT}
+              ><span class="rcand-rank rk-{rankTier(c.rank)}">{crewRankLabel(c.rank)}</span></HelpTip
             >
             <span class="aw-chip">{awayRaceLabel(c.race)}</span>
             <HelpTip label={`${meta.short} · ${awaySpecLabel(c.spec)}`} text={awaySpecDescription(c.spec)}

@@ -30,6 +30,15 @@ export const CREW_RANKS: Record<CrewRank, CrewRankDef> = {
   8: { id: 8, label: "Lieutenant Commander", enlisted: false },
 };
 
+// A rank's display label that never throws (GO-12 review minor): a whole rank past the ladder reads as the
+// nearest end of it (a rank 10 reads "Lieutenant Commander", a rank 0 "Crewman"); anything else (NaN, a
+// fraction, a missing field) reads "Crewman". Every UI label goes through here instead of CREW_RANKS[r].label.
+export function crewRankLabel(rank: number | null | undefined): string {
+  if (typeof rank !== "number" || !Number.isInteger(rank)) return CREW_RANKS[1].label;
+  const clamped = Math.max(1, Math.min(8, rank)) as CrewRank;
+  return CREW_RANKS[clamped].label;
+}
+
 // The ranks in ascending order, handy for iteration / caps tables.
 export const CREW_RANK_ORDER: readonly CrewRank[] = [1, 2, 3, 4, 5, 6, 7, 8];
 

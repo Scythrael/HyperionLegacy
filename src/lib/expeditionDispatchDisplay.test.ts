@@ -26,8 +26,10 @@ import {
   expandedLaunchView,
   factorFlavor,
   forecastView,
+  SENSOR_SPLIT_HINT,
   launchViewInputs,
   recommendationView,
+  sensorSplitHint,
   telescopeBlockView,
 } from "./expeditionDispatchDisplay";
 
@@ -39,7 +41,7 @@ const SCI = ["member-11", "member-12", "member-13", "member-14", "member-15", "m
 // Science member in the reserve (the launchPreview.test.ts crew), at telescope `level`.
 function crewed(level = 1, mutate: (m: AwayMember) => AwayMember = (m) => m): GameState {
   const base = freshState();
-  const member = (id: string, type: AwayMember["teamType"]): AwayMember => mutate({ ...plainAwayMember(id, type, "ship-1"), name: id.replace("member-", "M"), rank: 10 as AwayMember["rank"] });
+  const member = (id: string, type: AwayMember["teamType"]): AwayMember => mutate({ ...plainAwayMember(id, type, "ship-1"), name: id.replace("member-", "M"), rank: 8 as AwayMember["rank"] });
   const teams: ShipGroundTeam[] = [
     { kind: "ground", security: SEC.slice(0, 3), science: SCI.slice(0, 3), helpOthers: false },
     { kind: "ground", security: SEC.slice(3), science: SCI.slice(3), helpOthers: false },
@@ -356,5 +358,25 @@ describe("the LAZY launch view: built once per input change, never per tick", ()
     const after = launchViewInputs(later, "ship-1", c, deployableGroundTeams(later, "ship-1").teams.map((t) => t.deploys));
     expect(before.slice(0, -1)).toEqual(after.slice(0, -1));
     expect(before[before.length - 1]).not.toBe(after[after.length - 1]);
+  });
+});
+
+describe("GO-12 review minors (folded into GO-13)", () => {
+  it("the sensor split hint shows beside 'Contents hidden' only when the telescope still reads the system", () => {
+    expect(sensorSplitHint({ blind: false, detail: 2 }, { inRange: false })).toBe(SENSOR_SPLIT_HINT);
+    expect(sensorSplitHint({ blind: false, detail: 1 }, { inRange: false })).toBe(SENSOR_SPLIT_HINT);
+    expect(sensorSplitHint({ blind: false, detail: 3 }, { inRange: true })).toBeNull();
+    expect(sensorSplitHint({ blind: true, detail: 0 }, { inRange: false })).toBeNull();
+    expect(SENSOR_SPLIT_HINT).toBe("The telescope reads risk; ship sensors read what is there.");
+  });
+
+  it("the launch view's inputs carry the fleet's talent unlocks by reference", () => {
+    const s = crewed(7);
+    const c = expeditionCandidates(s, "ship-1")[0];
+    const inputs = launchViewInputs(s, "ship-1", c, [true, true]);
+    expect(inputs).toContain(s.unlockedHomeworldTalents);
+    const bought = { ...s, unlockedHomeworldTalents: [...s.unlockedHomeworldTalents] };
+    const again = launchViewInputs(bought, "ship-1", c, [true, true]);
+    expect(again.some((v, i) => !Object.is(v, inputs[i]))).toBe(true);
   });
 });

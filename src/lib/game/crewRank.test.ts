@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CREW_RANKS, CREW_RANK_ORDER, buffCountForRank, rankMagnitudeFactor } from "./crewRank";
+import { CREW_RANKS, CREW_RANK_ORDER, buffCountForRank, crewRankLabel, rankMagnitudeFactor } from "./crewRank";
 import type { CrewRank } from "./model";
 
 describe("crewRank: ladder", () => {
@@ -56,5 +56,20 @@ describe("crewRank: rankMagnitudeFactor", () => {
         rankMagnitudeFactor(CREW_RANK_ORDER[i - 1] as CrewRank),
       );
     }
+  });
+});
+
+describe("crewRankLabel (GO-12 review minor: a rank label never throws)", () => {
+  it("names every ladder rank as CREW_RANKS does", () => {
+    for (const r of CREW_RANK_ORDER) expect(crewRankLabel(r)).toBe(CREW_RANKS[r].label);
+  });
+  it("a whole rank past either end reads as that end; anything else reads Crewman", () => {
+    expect(crewRankLabel(10)).toBe("Lieutenant Commander");
+    expect(crewRankLabel(0)).toBe("Crewman");
+    expect(crewRankLabel(-3)).toBe("Crewman");
+    expect(crewRankLabel(Number.NaN)).toBe("Crewman");
+    expect(crewRankLabel(2.5)).toBe("Crewman");
+    expect(crewRankLabel(undefined)).toBe("Crewman");
+    expect(crewRankLabel(null)).toBe("Crewman");
   });
 });

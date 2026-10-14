@@ -45,7 +45,7 @@
   } from "./game/model";
   import { SHIP_TYPES } from "./game/model";
   import { SENIOR_STAFF_SEATS, officerRankLabel } from "./game/seniorStaff";
-  import { CREW_RANKS } from "./game/crewRank";
+  import { crewRankLabel } from "./game/crewRank";
   import { complementTotalCap } from "./game/commandStructure";
   import { CREW_RACES } from "./game/crewRaces";
 
@@ -466,7 +466,7 @@
                       on:click={() => onToggleNotableFavorite(n.id)}
                     >{n.favorite ? "★" : "☆"}</button>
                   </span>
-                  <span class="pr-pin-sub">{CREW_RANKS[n.rank].label} · {raceLabel(n.race)}</span>
+                  <span class="pr-pin-sub">{crewRankLabel(n.rank)} · {raceLabel(n.race)}</span>
                 </span>
                 <span class="pr-reorder">
                   <button
@@ -508,7 +508,7 @@
                   >{n.favorite ? "★" : "☆"}</button>
                   <span class="pr-pin">
                     <span class="pr-pin-name">{n.name}</span>
-                    <span class="pr-pin-sub">{CREW_RANKS[n.rank].label} · {raceLabel(n.race)}</span>
+                    <span class="pr-pin-sub">{crewRankLabel(n.rank)} · {raceLabel(n.race)}</span>
                   </span>
                   <button type="button" class="pr-mini" on:click={() => pinNotable(n.id)}>add ↓</button>
                 </div>

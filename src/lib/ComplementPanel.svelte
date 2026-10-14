@@ -39,7 +39,7 @@
     divisionCap,
     rankAllocation,
   } from "./game/commandStructure";
-  import { CREW_RANKS } from "./game/crewRank";
+  import { crewRankLabel } from "./game/crewRank";
   import { quartersCapacityBonus, installedQuartersModule } from "./game/crewModules";
   import { CREW_RACES } from "./game/crewRaces";
   import { getCrewBuffById } from "./game/crewBuffs";
@@ -166,7 +166,7 @@
       return {
         rank,
         abbr: RANK_ABBR[rank],
-        name: CREW_RANKS[rank].label,
+        name: crewRankLabel(rank),
         cur,
         cap,
         uncapped: false,
@@ -185,7 +185,7 @@
     columns.push({
       rank: CREWMAN_RANK,
       abbr: RANK_ABBR[CREWMAN_RANK],
-      name: CREW_RANKS[CREWMAN_RANK].label,
+      name: crewRankLabel(CREWMAN_RANK),
       cur: crewCur,
       cap: 0,
       uncapped: true,
@@ -356,7 +356,7 @@
                 >{n.favorite ? "★" : "☆"}</button>
               </div>
               <div class="comp-nc-sub">
-                {CREW_RANKS[n.rank].label} · {DIVISION_LABEL[n.profession]} · {raceLabel(n.race)}
+                {crewRankLabel(n.rank)} · {DIVISION_LABEL[n.profession]} · {raceLabel(n.race)}
               </div>
               <div class="comp-nc-buff">{buffLabel(n.buff1Id)}</div>
             </div>

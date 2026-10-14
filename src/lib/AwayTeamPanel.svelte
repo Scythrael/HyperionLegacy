@@ -101,7 +101,7 @@
   import type { AwayCrewGate } from "./game/awayTeam";
   import { getAwayTrait, traitDisplayText } from "./game/awayTraits";
   import { injuryRecoveredFraction } from "./game/injuries";
-  import { CREW_RANKS } from "./game/crewRank";
+  import { crewRankLabel } from "./game/crewRank";
   import {
     SQUAD_META,
     AUGMENT_AFFINITY_TEXT,
@@ -794,7 +794,7 @@
                         {@const m = sl.member}
                         <div class="gt-slot filled" class:injured={sl.readyInSeconds > 0}>
                           <span class="gt-slot-name">{m.name}</span>
-                          <span class="gt-slot-sub">{awaySpecLabel(m.spec)} · {CREW_RANKS[m.rank].label}</span>
+                          <span class="gt-slot-sub">{awaySpecLabel(m.spec)} · {crewRankLabel(m.rank)}</span>
                           {#if sl.readyInSeconds > 0}
                             <span class="gt-slot-wait"><Icon name="injury" /> Back in {awayCountdownText(sl.readyInSeconds)}</span>
                           {/if}
@@ -871,7 +871,7 @@
                 <li class="gt-res-m">
                   <Icon name={SQUAD_META[m.teamType].icon} />
                   <span class="gt-res-name">{m.name}</span>
-                  <span class="gt-res-sub">{SQUAD_META[m.teamType].short} · {awaySpecLabel(m.spec)} · {CREW_RANKS[m.rank].label}</span>
+                  <span class="gt-res-sub">{SQUAD_META[m.teamType].short} · {awaySpecLabel(m.spec)} · {crewRankLabel(m.rank)}</span>
                 </li>
               {/each}
             </ul>
@@ -909,7 +909,7 @@
                 <span class="mem-av"><Icon name={meta.icon} /></span>
                 <div class="mem-idn">
                   <div class="mem-name">{m.name}</div>
-                  <div class="mem-sub">{awayRaceLabel(m.race)} · {CREW_RANKS[m.rank].label}</div>
+                  <div class="mem-sub">{awayRaceLabel(m.race)} · {crewRankLabel(m.rank)}</div>
                 </div>
               </div>
 
@@ -1058,7 +1058,7 @@
 {#if fireTarget !== null}
   <ActionModal title="Fire Member" onClose={() => (confirmFireId = null)}>
     <p class="away-confirm">
-      Fire <strong>{fireTarget.name}</strong> ({CREW_RANKS[fireTarget.rank].label}, {awayRaceLabel(fireTarget.race)})?
+      Fire <strong>{fireTarget.name}</strong> ({crewRankLabel(fireTarget.rank)}, {awayRaceLabel(fireTarget.race)})?
       Their gear and implants go back to storage first, then they leave the fleet.
     </p>
     <svelte:fragment slot="footer">
@@ -1101,7 +1101,7 @@
             <span class="gm-ic"><Icon name={SQUAD_META[c.member.teamType].icon} /></span>
             <span class="gm-text">
               <span class="gm-name">{c.member.name}</span>
-              <span class="gm-sub">{awaySpecLabel(c.member.spec)} · {CREW_RANKS[c.member.rank].label} · {awayRaceLabel(c.member.race)}</span>
+              <span class="gm-sub">{awaySpecLabel(c.member.spec)} · {crewRankLabel(c.member.rank)} · {awayRaceLabel(c.member.race)}</span>
               <span class="gm-sub">{c.where === null ? "In the reserve" : `Slotted: ${c.where}`}</span>
               {#if c.readyInSeconds > 0}
                 <span class="gm-sub gm-wearer">Recovering: back in {awayCountdownText(c.readyInSeconds)}. The team waits for them.</span>

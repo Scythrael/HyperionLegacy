@@ -46,7 +46,11 @@
   import RelicStudyPanel from "./lib/RelicStudyPanel.svelte";
   import MuseumPanel from "./lib/MuseumPanel.svelte";
   // The pure dispatch + claim engine fns the Expedition Console's do* handlers call (expedition.ts).
-  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText } from "./lib/game/expedition";
+  import { startExpedition, claimExpedition, summarizeExpeditionFindings, expeditionDispatchBlockText, canEditGroundOps, editGroundOps } from "./lib/game/expedition";
+  // Ground Operations GO-13: the queue screen's live edits (assign, reorder, skip, re-queue, Default plan,
+  // Auto-assign), their refusal words and log lines.
+  import { groundOpsEditBlockText, type GroundOpsEdit } from "./lib/game/groundOps";
+  import { groundOpsEditLogText } from "./lib/groundTaskQueueDisplay";
   // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
   // Exploration Ops tab (under the Expedition Console). Same posture: reads state.gambitPrograms, routes
   // every edit to the do* handlers below (which write state.gambitPrograms + doSave). gambitPresetPrograms
@@ -471,7 +475,7 @@
     uniqueWearerLabel,
     type GearCategory,
   } from "./lib/awayGearDisplay";
-  import { CREW_RANKS } from "./lib/game/crewRank";
+  import { crewRankLabel } from "./lib/game/crewRank";
   // Crew 0.14.0 (phase 4e): the DORMANT captain PRESTIGE secondary-tree allocation engine + the captain
   // RETIREMENT / XO-succession loop, both pure. buySecondaryTalent returns a CaptainState (spliced back
   // into state.captains by doBuySecondaryTalent); retireCaptain returns a whole GameState (same-ref no-op
@@ -5201,7 +5205,7 @@
     state = next;
     if (hired) {
       pushLog(
-        `Hired ${hired.name} (${CREW_RANKS[hired.rank].label}) to the ${awayShipLabel(shipId)} ${SQUAD_META[hired.teamType].name}.`,
+        `Hired ${hired.name} (${crewRankLabel(hired.rank)}) to the ${awayShipLabel(shipId)} ${SQUAD_META[hired.teamType].name}.`,
       );
     }
     doSave();
@@ -5340,6 +5344,28 @@
       `[${devShipLabel(shipId)}] Ground teams set to ${compositionLabel(kinds)}.${moved.length > 0 ? ` To the reserve: ${moved.join(", ")}.` : ""}`,
     );
     doSave();
+  }
+
+  // Ground Operations GO-13: a live queue edit from the per-planet task queue screen. editGroundOps advances the run
+  // to now, validates, applies at now and settles; a refusal returns the SAME state, so the reason is read only
+  // then (canEditGroundOps advances a copy of the run: called on the click, never per rendered button) and logged.
+  // Returns null when applied, else the refusal in plain words for the screen's status line.
+  function doEditGroundOps(expeditionId: string, edit: GroundOpsEdit): string | null {
+    const exp = state.expeditions.find((e) => e.id === expeditionId);
+    const ship = exp ? state.ships.find((s) => s.id === exp.shipId) ?? null : null;
+    const label = exp ? `[${devShipLabel(exp.shipId)}]` : "[Expedition]";
+    const next = editGroundOps(state, expeditionId, edit);
+    if (next === state) {
+      const gate = canEditGroundOps(state, expeditionId, edit);
+      const why = gate.ok ? groundOpsEditBlockText("noChange") : groundOpsEditBlockText(gate.reason);
+      pushLog(`${label} Cannot change the ground plan: ${why}.`);
+      return why;
+    }
+    const line = exp ? groundOpsEditLogText(exp, ship, edit) : "Ground plan changed.";
+    state = next;
+    pushLog(`${label} ${line}`);
+    doSave();
+    return null;
   }
 
   // INSTALL a spare piece on an away-team MEMBER (E-CREW Task 10). Shared by the member card's install flow
@@ -17193,7 +17219,7 @@
           <span class="home-sec-count">{state.expeditions.length}</span>
           <span class="home-sec-rule"></span>
         </div>
-        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} onSetComposition={doApplyComposition} />
+        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} onSetComposition={doApplyComposition} onEditGroundOps={doEditGroundOps} />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
              discoverable from dispatch (the console's dispatch view points here). Edits the ACCOUNT-LEVEL
              gambit program pair via the do* handlers; account-level so it is reachable independently of any
