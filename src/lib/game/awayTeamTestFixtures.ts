@@ -98,6 +98,7 @@ export function withoutAffixes(exp: Expedition): Expedition {
   if (!exp.risk) return exp;
   const risk = { ...exp.risk } as Record<string, unknown>;
   delete risk.difficultyTier;
+  delete risk.affixCatalog; // AF-2: a run before AF-1 never carried the catalog version either
   return {
     ...exp,
     risk: risk as unknown as Expedition["risk"],
@@ -110,6 +111,16 @@ export function withoutAffixes(exp: Expedition): Expedition {
       }),
     })),
   };
+}
+
+// Objective affixes (AF-2): the run WITHOUT its affix CATALOG version, i.e. the affix-aware run the same dispatch
+// produced between AF-1 and AF-2 (its objectives stamp from AF-1's catalog, Reinforcing only, on AF-1's draw
+// layout). Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
+export function withoutAffixCatalog(exp: Expedition): Expedition {
+  if (!exp.risk) return exp;
+  const risk = { ...exp.risk } as Record<string, unknown>;
+  delete risk.affixCatalog;
+  return { ...exp, risk: risk as unknown as Expedition["risk"] };
 }
 
 // A dispatch result whose expedition (and every expedition in `next`) lost its risk profile: the pre-SQ-4 flagged
