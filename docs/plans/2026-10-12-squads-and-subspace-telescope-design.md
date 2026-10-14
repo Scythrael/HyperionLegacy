@@ -1345,3 +1345,13 @@ plain line, no extra confirm, no forced benching); refused options disabled with
 one-click "Keep Ground" on a pending team. The 7.1 recruitment-board "Security 6 / 6" line lives in the Composition
 block instead (the board itself is unchanged and already shows "No open slot or reserve berth" / "Reserve is over
 capacity"). The telescope block, task cards, Facilities card and Help (7.2 to 7.5) are still open.
+
+**Carry from SQ-7 section 7.2 (built 2026-10-14 with GO-12, commit `feat(0.14.0): dispatch shows deploying teams +
+telescope block (Ground Ops GO-12, SQ-7)`):** the expedition card's telescope block is built in ExpeditionPanel; full notes
+in the Ground Operations plan's "Carry from GO-12 + SQ-7 section 7.2". In short: detail chip and region line on every
+candidate; the selected candidate expands the four factor rows (5-step meter, flavor, grades aligned in one column),
+the per-body strip at detail 3, the recommendation box with an explicit "Set composition: X" and who moves at detail 4,
+the forecast line at detail 5; a blind candidate shows name, region, distance and the "Blind launch" chip, and Launch
+on it asks "This is truly unknown territory. Are you sure you wish to go?" (Cancel focused). The launch view is read
+lazily (selected card only, only when its inputs change). Still open: 7.3 task cards (GO-13 / GO-14), 7.4 the
+Facilities card, 7.5 Help.

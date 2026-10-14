@@ -750,6 +750,7 @@
                     type="button"
                     class="aw-btn primary"
                     disabled={gv.locked}
+                    aria-describedby={gv.locked ? lockId : undefined}
                     on:click={() => applyKind(t, t.kind)}
                   >Keep {t.options.find((o) => o.kind === t.kind)?.name ?? "Ground"}</button>
                 </div>
@@ -761,9 +762,18 @@
                 <div class="gt-change" role="group" aria-label="Change {t.name} to {toName}">
                   {#if change.ok}
                     <p class="gt-change-line">Change {t.name} to {toName}? {change.moves}</p>
-                    {#if change.overCapacity !== null}<p class="gt-change-line gt-over-line">{change.overCapacity}</p>{/if}
+                    {#if change.overCapacity !== null}
+                      <!-- Two short lines (GO-11 review): stacked on a narrow card, one sentence run on a wide one. -->
+                      <p class="gt-change-line gt-over-line"><span class="gt-over-part">{change.overCapacity[0]}</span> <span class="gt-over-part">{change.overCapacity[1]}</span></p>
+                    {/if}
                     <div class="gt-change-acts">
-                      <button type="button" class="aw-btn primary" on:click={() => applyKind(t, to)}>Change to {toName}</button>
+                      <button
+                        type="button"
+                        class="aw-btn primary"
+                        disabled={gv.locked}
+                        aria-describedby={gv.locked ? lockId : undefined}
+                        on:click={() => applyKind(t, to)}
+                      >Change to {toName}</button>
                       <button type="button" class="aw-btn" on:click={() => cancelKind(t)}>Cancel</button>
                     </div>
                   {:else}
@@ -2103,6 +2113,12 @@
   }
   .gt-over-line {
     color: var(--color-warning);
+  }
+  /* The over-capacity preview's two sentences: one line each on a narrow card (GO-11 review). */
+  @container (max-width: 439px) {
+    .gt-over-part {
+      display: block;
+    }
   }
   .gt-change-acts {
     display: flex;

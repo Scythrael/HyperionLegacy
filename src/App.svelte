@@ -424,12 +424,14 @@
   // Ground Operations GO-11 + Squads SQ-7: the ground team slot / type actions behind the AwayTeamPanel's
   // team cards (doSlotGroundMember and friends). Same refusal contract: the SAME state on refusal.
   import {
+    applyComposition,
     canSetGroundTeamKind,
     canSlotMember,
     canSwapGroundMembers,
     canUnslotMember,
     groundSlotBlockText,
     groundTeamName,
+    planComposition,
     previewGroundTeamKind,
     renameGroundTeam,
     setGroundTeamHelp,
@@ -439,7 +441,7 @@
     unslotMember,
     type GroundSquadType,
   } from "./lib/game/groundTeams";
-  import { teamKindLabel } from "./lib/game/groundComposition";
+  import { compositionLabel, teamKindLabel } from "./lib/game/groundComposition";
   import type { GroundTeamKind } from "./lib/game/model";
   // E-CREW (Task 10): installing gear on away-team MEMBERS (the member card's install flow routes through
   // doInstallOnMember / doUninstallFromMember) and the item-side "Install on..." picker, which lists SHIPS
@@ -5318,6 +5320,24 @@
     state = next;
     pushLog(
       `${team} is now a ${teamKindLabel(kind)}.${moved.length > 0 ? ` To the reserve: ${moved.join(", ")}.` : ""}`,
+    );
+    doSave();
+  }
+
+  // Squads SQ-7 section 7.2: the expedition card's "Set composition" (the telescope's launch recommendation).
+  // applyComposition changes the fewest teams (Alpha stays put on a tie) and confirms an open "Pick a type"
+  // prompt on a team whose kind already matches; a refusal returns the SAME state and logs the gate's text.
+  function doApplyComposition(shipId: string, kinds: GroundTeamKind[]) {
+    const plan = planComposition(state, shipId, kinds);
+    const next = applyComposition(state, shipId, kinds);
+    if (next === state) {
+      if (!plan.ok && plan.reason !== "sameKind") pushLog(`[${devShipLabel(shipId)}] Cannot set the composition: ${groundSlotBlockText(plan.reason)}.`);
+      return;
+    }
+    const moved = plan.ok ? plan.changes.flatMap((c) => c.toReserve).map(groundMemberName) : [];
+    state = next;
+    pushLog(
+      `[${devShipLabel(shipId)}] Ground teams set to ${compositionLabel(kinds)}.${moved.length > 0 ? ` To the reserve: ${moved.join(", ")}.` : ""}`,
     );
     doSave();
   }
@@ -16977,7 +16997,7 @@
                         <!-- Actions: "More info" toggles the in-place expandedMissionKey reveal;
                              "Assign" opens the unchanged openMissionPopup dispatch flow. -->
                         <div class="mpane-actions">
-                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
+                          <button class="dev-btn" aria-expanded={expanded} on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
                           <button class="buy-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
                         </div>
                       </div>
@@ -17173,7 +17193,7 @@
           <span class="home-sec-count">{state.expeditions.length}</span>
           <span class="home-sec-rule"></span>
         </div>
-        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} />
+        <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} onSetComposition={doApplyComposition} />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
              discoverable from dispatch (the console's dispatch view points here). Edits the ACCOUNT-LEVEL
              gambit program pair via the do* handlers; account-level so it is reachable independently of any
@@ -17348,7 +17368,7 @@
                       {/if}
                     </div>
                     <div class="mpane-actions">
-                      <button class="dev-btn" on:click={() => (expandedPatrolKey = expanded ? null : patrolKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
+                      <button class="dev-btn" aria-expanded={expanded} on:click={() => (expandedPatrolKey = expanded ? null : patrolKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
                       <button class="buy-btn" on:click={() => (patrolDispatchKey = patrolKey)}>Dispatch</button>
                     </div>
                   </div>

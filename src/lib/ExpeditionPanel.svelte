@@ -31,7 +31,7 @@
   // only shows the activities the placeholder resolver completes); relics are E4.
   // ============================================================================
 
-  import type { GameState, Expedition, ExpeditionBody, ExpeditionActivity, ExpeditionFinding, CaptainState } from "./game/model";
+  import type { GameState, Expedition, ExpeditionBody, ExpeditionActivity, ExpeditionFinding, CaptainState, GroundTeamKind } from "./game/model";
   import { SHIP_TYPES, ITEMS } from "./game/model";
   import {
     expeditionCandidates,
@@ -42,6 +42,8 @@
     expeditionAnomalyMarkerFraction,
     expeditionAwayTeamCheck,
     expeditionDispatchBlockText,
+    expeditionLaunchView,
+    expeditionShipDamaged,
     expeditionShipRepairText,
     type ExpeditionCandidate,
   } from "./game/expedition";
@@ -49,7 +51,27 @@
   // Ground Ops (GO-7b): a flagged run's offloaded findings, its stuck flag, and what each ground team waits on at
   // dispatch. The full Ground Ops screens (queues, timelines, bay) are GO-13 / GO-14.
   import { GROUND_OPS_STUCK_TEXT, groundOpsStuck, groundTaskFindingPrefix } from "./game/groundOps";
-  import { groundTeamWaitText, groundWaitTeams } from "./game/groundTeams";
+  // GO-12 + Squads SQ-7 section 7.2: the dispatch strip (which ground teams deploy) and the Subspace Telescope block.
+  // Every display decision is in expeditionDispatchDisplay.ts (tested); the expensive launch view (recommendation,
+  // forecast) is read only for the EXPANDED candidate and only when its inputs change (launchViewInputs).
+  import {
+    BLIND_LAUNCH_DETAIL,
+    BLIND_LAUNCH_TITLE,
+    BLIND_LAUNCH_WARNING,
+    RISK_METER_STEPS,
+    candidateRegionText,
+    createInputCache,
+    dispatchTeamsView,
+    expandedLaunchView,
+    launchViewInputs,
+    telescopeBlockView,
+    type ExpandedLaunchView,
+  } from "./expeditionDispatchDisplay";
+  import { telescopeLevel } from "./game/telescope";
+  import { tick } from "svelte";
+  import ActionModal from "./ActionModal.svelte";
+  import TeamBadge from "./ui/TeamBadge.svelte";
+  import ThreatChip from "./ui/ThreatChip.svelte";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
@@ -67,6 +89,9 @@
   export let onStart: (shipId: string, captainId: number, candidateId: string, anomalyOptIn: boolean) => void;
   // Claim: collect a COMPLETE expedition's findings. Host: claimExpedition -> doSave -> pushLog.
   export let onClaim: (expeditionId: string) => void;
+  // Squads SQ-7 section 7.2: "Set composition" on the telescope's recommendation. Host: applyComposition -> doSave ->
+  // pushLog (doApplyComposition).
+  export let onSetComposition: (shipId: string, kinds: GroundTeamKind[]) => void = () => {};
 
   // --- Local UI state ---------------------------------------------------------
   // The ship whose console is open. null until the first eligible ship defaults in below.
@@ -75,6 +100,8 @@
   let selectedCandidateId: string | null = null;
   // The dispatch-time anomaly-chart opt-in (default ON: chart an anomaly if sensors flag one).
   let anomalyOptIn = true;
+  // The blind launch confirm (user #7: "this is truly unknown territory. Are you sure you wish to go?") is open.
+  let confirmBlind = false;
 
   // --- Static display metadata ------------------------------------------------
   const HAZARD_LABEL: Record<HazardTier, string> = {
@@ -115,12 +142,13 @@
     return state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
   }
 
-  // A ship is DISPATCHABLE when it has an assigned, IDLE captain (no mission), no active
-  // expedition, and is not damaged. Explorer hulls shine (higher base sensors -> more
-  // foreknowledge), but any assigned idle ship may go.
+  // A ship is LISTED for dispatch when it has an assigned, IDLE captain (no mission) and no active expedition.
+  // Explorer hulls shine (higher base sensors -> more foreknowledge), but any assigned idle ship may go. GO-12 (the
+  // GO-8 review rule, user 2026-10-14 "Must be repaired first"): a damaged ship, or one in a Shipyard repair bay, is
+  // listed too, with Launch off and the repair line saying when it is ready (it used to vanish from the console,
+  // which hid the reason).
   $: dispatchableShips = state.ships.filter((s) => {
     if (expeditionByShip.has(s.id)) return false;
-    if (s.damaged) return false;
     const cap = captainOf(s.id);
     return cap !== null && cap.mission === null;
   });
@@ -164,9 +192,27 @@
   // Ground Ops (GO-7b, user 2026-10-12): no automatic stand-ins, so the block lists what each ground team waits on
   // ("Alpha: Grokk returns to duty in 12m"). Squads SQ-1: groundWaitTeams leaves out a team nobody is slotted
   // into (every hull fields 2 teams now; the empty pair would only add noise).
-  $: groundWaitLines = (chosenTeamCheck ? groundWaitTeams(chosenTeamCheck.ground) : []).flatMap((t) =>
-    t.waits.map((w) => `${t.name}: ${groundTeamWaitText(w)}`),
-  );
+  // GO-12: the dispatch strip, one row per ground team: who WILL deploy (ready counts) and who will NOT (why, with
+  // the time left), plus the ship-level reason when it cannot launch.
+  $: teamsView = chosenTeamCheck ? dispatchTeamsView(chosenTeamCheck.ground, now) : null;
+
+  // SQ-7 section 7.2: the telescope level (the blind range line) and the selected candidate's telescope block.
+  $: scopeLevel = telescopeLevel(state);
+  $: selectedBlock = selectedCandidate ? telescopeBlockView(selectedCandidate, scopeLevel) : null;
+  // The LAZY launch view (recommendation + forecast): only for the expanded (selected) candidate, only from detail 4,
+  // and only when an input that shapes it changes (expeditionDispatchDisplay.ts launchViewInputs), so a tick that just
+  // moves time never re-reads it. The engine memoizes too; this keeps the panel from even asking.
+  const launchCache = createInputCache<ExpandedLaunchView>();
+  $: deploySig = chosenTeamCheck ? chosenTeamCheck.ground.teams.map((t) => t.deploys) : [];
+  $: expanded =
+    chosenShip && selectedCandidate && selectedBlock?.wantsLaunchView
+      ? launchCache.get(launchViewInputs(state, chosenShip.id, selectedCandidate, deploySig), () =>
+          expandedLaunchView(state, chosenShip!.id, selectedCandidate!, expeditionLaunchView),
+        )
+      : null;
+  // How many times the panel has built the launch view (data-launch-view-computes on the telescope block): the dev
+  // preview's check that opening a card computes it once, not on every tick.
+  $: launchViewComputes = expanded === undefined ? 0 : launchCache.computes();
 
   // IN-PROGRESS-view derives.
   $: scanPct = chosenExpedition ? Math.round(expeditionScanFraction(chosenExpedition) * 100) : 0;
@@ -345,13 +391,39 @@
   }
 
   // --- Actions (all route to the host) ----------------------------------------
+  // Launch: a BLIND candidate (beyond the telescope's range) asks first (user #7); any other launches at once.
   function launch(): void {
+    if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
+    if (selectedCandidate.telescope.blind) {
+      confirmBlind = true;
+      return;
+    }
+    commitLaunch();
+  }
+  function commitLaunch(): void {
+    confirmBlind = false;
     if (!chosenShip || !selectedCandidate || !chosenCaptain) return;
     onStart(chosenShip.id, chosenCaptain.id, selectedCandidate.id, anomalyOptIn);
     // The host reassigns state; the chosen ship now has an active expedition and this view swaps to
     // in-progress on the next reactive pass. Reset the dispatch-only local toggles for the next dispatch.
     selectedCandidateId = null;
     anomalyOptIn = true;
+  }
+  // The recommendation's headline, where focus lands after "Set composition" (the button itself goes away once the
+  // ship fields the mix, which would otherwise drop focus to the page).
+  let recHeadEl: HTMLElement | null = null;
+  async function setComposition(kinds: GroundTeamKind[]): Promise<void> {
+    if (!chosenShip) return;
+    onSetComposition(chosenShip.id, kinds);
+    await tick();
+    recHeadEl?.focus();
+  }
+  // The blind confirm's default focus is Cancel (the safe answer). Deferred a microtask so it lands after the
+  // ActionModal portal and its focusTrap (which focuses the first control only when focus is not already inside).
+  function focusSafe(node: HTMLElement) {
+    queueMicrotask(() => {
+      if (node.isConnected) node.focus();
+    });
   }
 </script>
 
@@ -380,6 +452,8 @@
           <span class="exp-ship-status">
             {#if exp}
               {exp.phase === "complete" ? "Findings ready" : `On expedition · ${exp.phase}`}
+            {:else if expeditionShipDamaged(state, s)}
+              Repair first
             {:else}
               Ready to dispatch
             {/if}
@@ -582,8 +656,10 @@
               : !selectedCandidate
                 ? expeditionDispatchBlockText("noSuchCandidate")
                 : needsAwayTeam
-                  ? expeditionDispatchBlockText("needsAwayTeam")
-                  : "Launch the expedition"}
+                  ? teamsView?.blockText ?? expeditionDispatchBlockText("needsAwayTeam")
+                  : selectedCandidate.telescope.blind
+                    ? "Launch blind: asks you to confirm first"
+                    : "Launch the expedition"}
             on:click={launch}
           >Launch</button>
         </div>
@@ -593,14 +669,12 @@
             <span class="exp-block-counts">{shipRepairLine}.</span>
           </div>
         {/if}
-        {#if needsAwayTeam && chosenTeamCheck}
-          <!-- D18: say plainly why Launch is off and where to fix it (not only in a hover title). -->
+        {#if needsAwayTeam && teamsView?.blockText}
+          <!-- D18 + GO-12: the ship-level reason Launch is off (not only in a hover title); each team's own wait, with
+               the time left, is in the Ground teams strip below. -->
           <div class="exp-block" role="status">
-            {expeditionDispatchBlockText("needsAwayTeam")}.
-            <span class="exp-block-counts">Ready now: {chosenTeamCheck.security} Security, {chosenTeamCheck.science} Science.</span>
-            {#each groundWaitLines as line (line)}
-              <span class="exp-block-counts">{line}.</span>
-            {/each}
+            {teamsView.blockText}
+            <span class="exp-block-counts">{teamsView.blockHint}</span>
           </div>
         {/if}
 
@@ -610,17 +684,24 @@
             <div class="exp-section-tag">Candidate targets</div>
             {#each candidates as cand (cand.id)}
               {@const fk = cand.foreknowledge}
+              {@const tel = cand.telescope}
               <button
                 type="button"
                 class="exp-target"
                 class:active={selectedCandidateId === cand.id}
+                aria-pressed={selectedCandidateId === cand.id}
                 on:click={() => (selectedCandidateId = cand.id)}
               >
                 <div class="exp-target-top">
                   <span class="exp-target-name">{cand.systemName}</span>
-                  {#if !fk.inRange}
+                  {#if tel.blind}
+                    <!-- SQ-7 7.2: a blind candidate shows only its name, region, distance and this chip. -->
+                    <span class="exp-chip blind"><Icon name="blindLaunch" size={12} /> Blind launch</span>
+                  {:else if !fk.inRange}
+                    <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
                     <span class="exp-chip range">Beyond sensor range</span>
                   {:else}
+                    <span class="exp-chip scope"><Icon name="telescope" size={12} /> {tel.detailName}</span>
                     <span class="exp-chip">{fk.bodyCount} {fk.bodyCount === 1 ? "body" : "bodies"}</span>
                     <!-- E4c: name WHICH relic sets the system's would-be discoveries source (the engine's
                          relicSets projection, canonical set order) instead of a bare "Relic signature". Revealed
@@ -630,6 +711,7 @@
                     {/if}
                   {/if}
                 </div>
+                <div class="exp-target-region">{candidateRegionText(tel)}</div>
                 {#if fk.inRange && fk.bodies}
                   <div class="exp-target-bodies">
                     {#each fk.bodies as b, i}
@@ -642,10 +724,106 @@
                       </span>
                     {/each}
                   </div>
-                {:else if !fk.inRange}
+                {:else if !fk.inRange && !tel.blind}
                   <div class="exp-target-hidden">Contents hidden. A stronger sensor array reveals more.</div>
                 {/if}
               </button>
+              {#if selectedCandidateId === cand.id && selectedBlock}
+                {@const block = selectedBlock}
+                <!-- SQ-7 section 7.2: the SUBSPACE TELESCOPE block, under the selected candidate's foreknowledge. -->
+                <section class="exp-scope" class:blind={block.blind} aria-label="Subspace Telescope: {cand.systemName}" data-launch-view-computes={launchViewComputes}>
+                  <div class="exp-scope-head">
+                    <span class="exp-scope-title"><Icon name="telescope" size={16} /> Subspace Telescope</span>
+                    {#if block.blind}
+                      <span class="exp-chip blind"><Icon name="blindLaunch" size={12} /> {block.chipText}</span>
+                    {:else}
+                      <span class="exp-chip scope">{block.chipText}</span>
+                    {/if}
+                  </div>
+                  {#if block.blind}
+                    <div class="exp-scope-note">{block.rangeText}</div>
+                  {:else}
+                    {#if block.liftText}<div class="exp-scope-note">{block.liftText}</div>{/if}
+                    {#if block.enemyTerritory}
+                      <div class="exp-scope-flag"><Icon name="warning" size={14} /> Known enemy territory</div>
+                    {/if}
+                    <!-- The four risk factors: glyph, name + flavor, a 5-step meter, the grade. Every row shares one fixed
+                         meter column and one fixed grade column, so the grades line up (user, mockup section 3). -->
+                    <ul class="exp-risks">
+                      {#each block.factors as f (f.id)}
+                        <li class="exp-risk" aria-label={f.ariaLabel}>
+                          <span class="exp-risk-glyph" aria-hidden="true"><Icon name={f.glyph} size={16} /></span>
+                          <span class="exp-risk-text" aria-hidden="true">
+                            <span class="exp-risk-label">{f.label}</span>
+                            {#if f.flavor}<span class="exp-risk-flavor">{f.flavor}</span>{/if}
+                          </span>
+                          <span class="exp-meter" aria-hidden="true" style={f.color ? `--risk-color: ${f.color};` : undefined}>
+                            {#if f.grade !== null}
+                              {#each Array(RISK_METER_STEPS) as _, i (i)}<i class:on={i < f.lit}></i>{/each}
+                            {/if}
+                          </span>
+                          <span class="exp-risk-grade" class:dim={f.grade === null && !f.present} aria-hidden="true">{f.gradeName}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                    {#if block.bodies}
+                      <div class="exp-scope-sub">Per body</div>
+                      {#if block.demandText}<div class="exp-scope-demand">{block.demandText}</div>{/if}
+                      <div class="exp-scope-bodies">
+                        {#each block.bodies as b, bi (bi)}
+                          <div class="exp-scope-body">
+                            <span class="exp-scope-body-name">{b.label}</span>
+                            {#each b.grades as g (g.id)}
+                              <span class="exp-scope-gr"><span>{g.label}</span><span>{g.gradeName}</span></span>
+                            {/each}
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                    {#if expanded?.recommendation}
+                      {@const r = expanded.recommendation}
+                      {@const act = r.action}
+                      <div class="exp-rec">
+                        <div class="exp-rec-kicker">Recommendation</div>
+                        <div class="exp-rec-head" tabindex="-1" bind:this={recHeadEl}><Icon name="groundTeam" size={20} /> <span>{r.headline}</span></div>
+                        <div class="exp-rec-reason">{r.reason}</div>
+                        {#if r.unfinishedText}<div class="exp-rec-warn">{r.unfinishedText}</div>{/if}
+                        {#if r.stillUnfinishedText}<div class="exp-rec-warn">{r.stillUnfinishedText}</div>{/if}
+                        {#if r.riskyFightsText}<div class="exp-rec-warn">{r.riskyFightsText}</div>{/if}
+                        <div class="exp-rec-row"><span class="exp-chip">{r.currentText}</span></div>
+                        {#if act}
+                          <div class="exp-rec-moves" id="exp-rec-moves-{cand.id}">
+                            {#each act.moves as m, mi (mi)}<span>{m}</span>{/each}
+                            {#if act.overCapacity}<span class="warn">{act.overCapacity}</span>{/if}
+                          </div>
+                          <button
+                            type="button"
+                            class="exp-btn primary exp-rec-btn"
+                            aria-describedby="exp-rec-moves-{cand.id}"
+                            on:click={() => setComposition(act.kinds)}
+                          >{act.label}</button>
+                        {:else if r.actionBlocked}
+                          <div class="exp-rec-warn">{r.actionBlocked}</div>
+                        {/if}
+                      </div>
+                    {/if}
+                    {#if expanded?.forecast}
+                      {@const fc = expanded.forecast}
+                      <div class="exp-forecast">
+                        <div><span class="exp-forecast-lead">{fc.lead}:</span> {fc.tasksText}.{#if fc.unfinishedText} {fc.unfinishedText}{/if}</div>
+                        {#if fc.hardestText}
+                          <div class="exp-forecast-hard">
+                            <span>{fc.hardestText}</span>
+                            {#if fc.threat}<ThreatChip assessment={fc.threat} full context="Forecast odds" />{/if}
+                          </div>
+                        {/if}
+                        {#if fc.note}<div class="exp-forecast-note">{fc.note}.</div>{/if}
+                      </div>
+                    {/if}
+                    {#if block.nextNote}<div class="exp-scope-note">{block.nextNote}</div>{/if}
+                  {/if}
+                </section>
+              {/if}
             {/each}
           </div>
 
@@ -662,22 +840,47 @@
               {/if}
             </div>
 
-            <div class="exp-section-tag">Away team</div>
+            <!-- GO-12: the ground teams this launch sends. Each that WILL deploy (badge, name, kind, ready counts) and each
+                 that will NOT, with why and the time left. Nobody stands in: the player swaps members by hand. -->
+            {#if teamsView}
+              <div class="exp-section-tag">Ground teams · {teamsView.summary}</div>
+              <ul class="exp-gteams">
+                {#each teamsView.rows as row (row.index)}
+                  <li class="exp-gteam {row.status}">
+                    <TeamBadge index={row.index} kind={row.kind} name={row.name} />
+                    <div class="exp-gteam-main">
+                      <div class="exp-gteam-top">
+                        <span class="exp-gteam-name">{row.name}</span>
+                        <span class="exp-gteam-kind">{row.kindLabel}</span>
+                      </div>
+                      <div class="exp-gteam-status">
+                        <Icon name={row.status === "deploys" ? "check" : row.status === "waits" ? "clock" : "team"} size={13} />
+                        {row.statusText}
+                      </div>
+                      {#if row.countsText}<div class="exp-gteam-counts">{row.countsText}</div>{/if}
+                      {#each row.waits as w, wi (wi)}<div class="exp-gteam-wait">{w}</div>{/each}
+                    </div>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+
+            <div class="exp-section-tag">Away team strength</div>
             <div class="exp-teams">
               <div class="exp-team">
                 <span class="exp-team-name">Security<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.securityStrength) : "-"}</span></span>
-                <span class="exp-team-role">Fights planetary encounters. {chosenTeamCheck?.security ?? 0} ready. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
+                <span class="exp-team-role">Fights during tasks. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
-                <span class="exp-team-role">Does the fieldwork and never fights. {chosenTeamCheck?.science ?? 0} ready.</span>
+                <span class="exp-team-role">Does the task fieldwork and never fights.</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>
                 <span class="exp-team-role">Per-battle cure/stim consumables carried by the away team.</span>
               </div>
             </div>
-            <div class="exp-note">Hire Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength and team kit. The team and its programs are snapshotted at launch.</div>
+            <div class="exp-note">Hire, slot and swap Security and Science members on the ship's Away Team tab; the ship's crew (Security / Science / support) adds strength and team kit. The teams and their programs are snapshotted at launch.</div>
 
             <div class="exp-section-tag">Anomaly chart</div>
             <label class="exp-toggle">
@@ -693,6 +896,21 @@
     {/if}
   {/if}
 </div>
+
+{#if confirmBlind && selectedCandidate}
+  <!-- SQ-7 + user #7: a BLIND launch asks first. Cancel is the default focus (the safe answer). -->
+  <ActionModal title={BLIND_LAUNCH_TITLE} ariaLabel="{BLIND_LAUNCH_TITLE}: {selectedCandidate.systemName}" onClose={() => (confirmBlind = false)}>
+    <div class="exp-blind-confirm">
+      <p class="exp-blind-warn"><Icon name="blindLaunch" size={18} /> <strong>{BLIND_LAUNCH_WARNING}</strong></p>
+      <p>{selectedCandidate.systemName} · {candidateRegionText(selectedCandidate.telescope)} from your homeworld.</p>
+      <p class="exp-blind-detail">{BLIND_LAUNCH_DETAIL}</p>
+    </div>
+    <svelte:fragment slot="footer">
+      <button type="button" class="exp-btn" use:focusSafe on:click={() => (confirmBlind = false)}>Cancel</button>
+      <button type="button" class="exp-btn primary" on:click={commitLaunch}>Launch blind</button>
+    </svelte:fragment>
+  </ActionModal>
+{/if}
 
 <style>
   /* CONTAINER-QUERY layout (mirrors SeniorStaffPanel / ShipSystemsPanel). The wrap is the container the
@@ -1314,6 +1532,339 @@
   }
   .exp-toggle-note {
     font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  /* GO-12: the GROUND TEAMS strip (dispatch): one row per team, a badge, then its status and waits. */
+  .exp-gteams {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .exp-gteam {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.14);
+    border-radius: var(--corner);
+  }
+  .exp-gteam.deploys {
+    border-color: rgba(var(--color-accent-rgb), 0.4);
+  }
+  .exp-gteam.waits {
+    border-color: rgba(var(--color-warning-rgb), 0.45);
+  }
+  .exp-gteam-main {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .exp-gteam-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .exp-gteam-name {
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-gteam-kind {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-gteam-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-gteam.deploys .exp-gteam-status {
+    color: var(--color-success);
+  }
+  .exp-gteam.waits .exp-gteam-status {
+    color: var(--color-warning);
+  }
+  .exp-gteam-counts {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .exp-gteam-wait {
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+    line-height: 1.4;
+  }
+
+  /* SQ-7 7.2: the candidate's region line and the telescope chips. */
+  .exp-target-region {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-chip.scope,
+  .exp-chip.blind {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .exp-chip.blind {
+    background: rgba(var(--color-warning-rgb), 0.16);
+    color: var(--color-warning);
+  }
+
+  /* SQ-7 7.2: the SUBSPACE TELESCOPE block under the selected candidate. */
+  .exp-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: -4px;
+    padding: 10px 11px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid var(--color-accent);
+    border-top-style: dashed;
+    border-radius: var(--corner);
+    min-width: 0;
+  }
+  .exp-scope.blind {
+    border-color: rgba(var(--color-warning-rgb), 0.55);
+  }
+  .exp-scope-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .exp-scope-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+  }
+  .exp-scope-note {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .exp-scope-flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--text-xs);
+    color: var(--color-danger);
+  }
+  /* The factor rows: glyph | name + flavor | meter | grade. The meter and grade columns are FIXED widths on every
+     row, so the grade labels align in one column (user, mockup section 3). */
+  .exp-risks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .exp-risk {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) calc(76px * var(--ui-scale)) 9ch;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(var(--color-accent-rgb), 0.1);
+  }
+  .exp-risk:last-child {
+    border-bottom: 0;
+  }
+  .exp-risk-glyph {
+    display: inline-flex;
+    color: var(--color-text-secondary);
+  }
+  .exp-risk-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .exp-risk-label {
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .exp-risk-flavor {
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+    overflow-wrap: anywhere;
+  }
+  .exp-meter {
+    display: flex;
+    gap: 3px;
+  }
+  .exp-meter i {
+    flex: 1 1 0;
+    height: calc(8px * var(--ui-scale));
+    border-radius: 2px;
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.22);
+  }
+  .exp-meter i.on {
+    background: var(--risk-color);
+    border-color: var(--risk-color);
+  }
+  .exp-risk-grade {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-primary);
+    white-space: nowrap;
+  }
+  .exp-risk-grade.dim {
+    color: var(--color-text-dim);
+  }
+  .exp-scope-sub {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent-bright);
+  }
+  .exp-scope-demand {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.4;
+  }
+  .exp-scope-bodies {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 118px), 1fr));
+    gap: 6px;
+  }
+  .exp-scope-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 6px 8px;
+    font-size: var(--text-2xs);
+    background: rgba(var(--color-accent-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.12);
+    border-radius: var(--corner);
+    min-width: 0;
+  }
+  .exp-scope-body-name {
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+    margin-bottom: 2px;
+  }
+  .exp-scope-gr {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+    color: var(--color-text-secondary);
+  }
+  .exp-scope-gr > span:first-child {
+    color: var(--color-text-dim);
+  }
+  /* The recommendation box (detail 4). */
+  .exp-rec {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 9px 11px;
+    border: 1px solid rgba(var(--color-accent-rgb), 0.5);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border-radius: var(--corner);
+  }
+  .exp-rec-kicker {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-dim);
+  }
+  .exp-rec-head:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .exp-rec-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
+  }
+  .exp-rec-reason {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .exp-rec-warn {
+    font-size: var(--text-xs);
+    color: var(--color-warning);
+    line-height: 1.45;
+  }
+  .exp-rec-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .exp-rec-moves {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .exp-rec-moves .warn {
+    color: var(--color-warning);
+  }
+  .exp-rec-btn {
+    align-self: flex-start;
+    white-space: normal;
+    text-align: left;
+  }
+  /* The forecast line (detail 5). */
+  .exp-forecast {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 2px 0 2px 10px;
+    border-left: 2px solid var(--color-accent);
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .exp-forecast-lead {
+    color: var(--color-text-primary);
+  }
+  .exp-forecast-hard {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .exp-forecast-note {
+    color: var(--color-text-dim);
+  }
+  /* The blind launch confirm (inside ActionModal). */
+  .exp-blind-confirm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+  .exp-blind-confirm p {
+    margin: 0;
+  }
+  .exp-blind-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--color-warning);
+  }
+  .exp-blind-detail {
+    font-size: var(--text-xs);
     color: var(--color-text-dim);
   }
 </style>

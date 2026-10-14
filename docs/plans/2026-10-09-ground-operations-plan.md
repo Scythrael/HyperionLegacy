@@ -1443,6 +1443,72 @@ picker UI (Ground Ops GO-11, SQ-7)`):**
 each team that will not, with why (no ready Science, and so on); the block reason text from GO-7b.
 Commit `feat(0.14.0): dispatch shows deploying ground teams (Ground Ops GO-12)`.
 
+**Carry from GO-12 + SQ-7 section 7.2 (built 2026-10-14, commit `feat(0.14.0): dispatch shows deploying teams +
+telescope block (Ground Ops GO-12, SQ-7)`):**
+- **New `src/lib/expeditionDispatchDisplay.ts`** (+ `expeditionDispatchDisplay.test.ts`, 17): every display decision of
+  the dispatch view, over the tested engine; no rule lives there.
+- **GO-12, the Ground teams strip** (setup rail, "Ground teams · 1 of 2 teams will deploy"): one row per team of the
+  hull, TeamBadge (md, kind glyph) + name + kind label, then "Will deploy" with the ready counts per squad type the kind
+  holds ("3 Security, 3 Science ready"; a Strike team "4 Security ready"), or "Will not deploy" with "Ready: 2 of 3
+  Security, 3 of 3 Science" and every wait with its time left ("Hurrn returns to duty in 59m", "Science squad 2 needs
+  a member in a slot"; no stand-ins), or "Stays aboard: nobody is slotted." The ship-level block is now
+  `groundDeployBlockText` ("No ground team is ready: the first is ready in 12m.") plus "Slot or swap members on the
+  ship's Away Team tab."; the old "Ready now: N Security, N Science" line and the per-team wait lines in the block are
+  gone (the strip carries them). The strength rows stay as "Away team strength" with the GO-11 role copy (Security
+  fights during tasks; Science does the task fieldwork).
+- **Damaged ships are listed now** (GO-8 review rule): the console used to filter out `ship.damaged`, so the GO-8
+  repair line could never show. A damaged / repairing ship is listed with "Repair first" on its picker chip, Launch
+  off, and "Ship is damaged, repair it first. Repairing: ready in 5m." The candidates still read.
+- **SQ-7 7.2, the telescope block.** Every candidate shows its detail chip (telescope glyph + "Graded") and its region
+  line ("Tier I · Local Bubble · 23 ly"); a BLIND candidate shows only name, region, distance and the "Blind launch"
+  chip (blindLaunch glyph; the sensor "Contents hidden" line is dropped there). The SELECTED candidate expands a
+  "Subspace Telescope" section under its card: the chip "Detail 3 · Per body", the ship-lift line when the sensors
+  raised it, "Known enemy territory" when graded so, then the four factor rows (glyph, name, flavor line, a 5-step
+  meter lit grade + 1 in the mockup's green-to-red ramp `RISK_GRADE_COLORS`, the grade). Each row is a grid with a
+  FIXED meter column and a FIXED 9ch grade column, so the grade labels align in one column (user, mockup section 3).
+  Contact (1) shows "Present" / "Not detected" with no meter. Per body (3): "Per body", the task demand line, then a
+  body card each (Combat / Fauna / Flora / Hazard grades; the planet type when the ship's sensors read it). Hazard
+  takes the higher of the telescope's grade and the ship's own hazard read (design 6.4). A "next detail" note says what
+  the next level adds. A blind expanded card shows only the range gap ("Beyond the Subspace Telescope's range: Level 1
+  reads 150 ly; this system is 6,420 ly." / "The Subspace Telescope reads nothing yet; ...").
+- **[PROPOSAL wording, display only]** the flavor lines the engine leaves null come from the approved mockup: None
+  reads "No hostile signs" / "No life signs" / "No growth", Hazard reads Calm / Mild / Harsh / Severe / Lethal.
+- **Recommendation box (detail 4):** the headline, the one-line reason, the current mix's unfinished line, the "nothing
+  on this hull" line, the risky-fights line, the chip "Your ship: Ground + Ground", then, when `applyComposition` would
+  change something, the moving-members preview from `planComposition` ("Bravo changes from Ground to Survey." "Brask,
+  Hurrn and Kel move to the reserve." "Tess joins from the reserve." plus the plain over-capacity line) and an explicit
+  button "Set composition: Survey + Ground" (a matching pending team reads "Confirm Ground + Ground", "Bravo keeps
+  Ground (confirms its type)."). A crew-locked ship says why instead. No extra confirm (the GO-11 posture: the preview
+  names who moves). Host `doApplyComposition` (App.svelte): applyComposition, same-ref refusal logs the gate text, else
+  state, pushLog ("[General Freighter] Ground teams set to Survey + Ground. To the reserve: Brask, Hurrn, Kel."),
+  doSave. Focus moves to the recommendation headline after the button goes away.
+- **Forecast line (detail 5):** "Forecast with Survey + Ground: 5 tasks: 3 Simple, 2 Standard." + "Leaves N tasks
+  unfinished." + "Hardest fight: Buried Vault (Standard, 1 fight), crew Alpha (Ground)" with a full ThreatChip, or the
+  engine's note ("No fights expected").
+- **LAZY launch view.** The panel calls `expeditionLaunchView` only for the SELECTED candidate, only from detail 4, and
+  only when `launchViewInputs` changes (a one-entry `createInputCache`): the ship, members, gear, officers, notable
+  crew, museum and facilities BY REFERENCE (a tick keeps them), the captain as id / spec / talents (a tick replaces
+  that record), and which teams deploy now as a string (an injury running out changes it with no record changing).
+  The section carries `data-launch-view-computes`; in the dev preview it stayed at 1 over 30 s of ticks, rose by one
+  per card opened and by one after Set composition. The candidate list itself is unchanged (it still builds the Per
+  body demand per candidate per state change, SQ-6's cheap path).
+- **Blind launch confirm (user #7):** Launch on a blind candidate opens an ActionModal "Blind launch" with the user's
+  words "This is truly unknown territory. Are you sure you wish to go?", the system and distance, and one plain detail
+  line; Cancel has the default focus (a microtask after the portal and the focusTrap), Escape cancels and focus returns
+  to Launch; "Launch blind" launches (the SQ-6 counter counts it). Launch's title says "Launch blind: asks you to
+  confirm first".
+- **GO-11 review minors folded in:** "Change to X" (and "Keep Ground") are `disabled` with the lock line as their
+  description while the ship is crew-locked (the refusal text already replaced the button; this is the backstop);
+  `aria-expanded` on the Gathering and Combat Patrol "More info / Less" toggles (App.svelte); the over-capacity preview
+  is two short sentences (`kindChangeView().overCapacity` is now a `[string, string]` pair) stacked on a team card
+  under 440 px, run on as one line wider.
+- **Observed for the user (balance, not changed):** a rank 8 to 10 Ground + Ground crew forecast "Impossible" on a Tier I
+  Deadly Derelict Outpost (4 fights) in the preview; this is the SQ-6 balance note (Tier I guard strength).
+- Verified in the dev preview on a seeded freighter (15 members, ranks 8 / 10): telescope Level 0 (blind), 1 (Graded),
+  3 (Per body), 5 and 7 (Recommendation, Forecast); Set composition by click and by keyboard; the blind confirm by
+  keyboard; a team that will not deploy; a damaged ship in a repair bay; 1280 px and 375 px (no horizontal scroll); no
+  new console errors. Suite 4550 -> 4567 passed (1 skipped); `npm run check` 0 errors.
+
 ### GO-13: Per-planet task queue screen with odds per team (mockup GO-M2)
 
 **Files:** new `src/lib/GroundTaskQueue.svelte`, `ExpeditionPanel.svelte` (in-progress view, per scanned body),

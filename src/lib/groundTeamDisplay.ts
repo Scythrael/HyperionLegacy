@@ -231,9 +231,12 @@ export function overCapacityText(room: ShipCrewRoom): string | null {
 }
 
 // What changing team `teamIndex` to `kind` would do, for the line beside the Change button: who moves (named,
-// from previewGroundTeamKind) and, when the reserve would end up past its berths, that plainly. On a refusal
-// the gate's text. Pure.
-export type KindChangeView = { ok: true; moves: string; overCapacity: string | null } | { ok: false; reason: string };
+// from previewGroundTeamKind) and, when the reserve would end up past its berths, that plainly, as TWO short
+// lines (the count, then what it means) so a phone wraps them as two lines, not one long one (GO-11 review). On a
+// refusal the gate's text. Pure.
+export type KindChangeView =
+  | { ok: true; moves: string; overCapacity: readonly [string, string] | null }
+  | { ok: false; reason: string };
 
 export function kindChangeView(state: GameState, shipId: string, teamIndex: number, kind: GroundTeamKind): KindChangeView {
   const preview = previewGroundTeamKind(state, shipId, teamIndex, kind);
@@ -248,9 +251,12 @@ export function kindChangeView(state: GameState, shipId: string, teamIndex: numb
   const next = setGroundTeamKind(state, shipId, teamIndex, kind);
   const ship = next.ships.find((s) => s.id === shipId);
   const room = ship ? shipCrewRoom(next, ship) : null;
-  const overCapacity =
+  const overCapacity: readonly [string, string] | null =
     room !== null && room.berthsUsed > room.capacity.reserveBerths
-      ? `The reserve will be over capacity: ${room.berthsUsed} members for ${room.capacity.reserveBerths} berths. Nobody has to leave; hiring pauses until it fits again.`
+      ? [
+          `The reserve will be over capacity: ${room.berthsUsed} members for ${room.capacity.reserveBerths} berths.`,
+          "Nobody has to leave; hiring pauses until it fits again.",
+        ]
       : null;
   return { ok: true, moves, overCapacity };
 }

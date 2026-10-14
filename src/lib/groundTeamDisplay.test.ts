@@ -166,9 +166,11 @@ describe("kind change preview", () => {
     expect(v.ok).toBe(true);
     if (!v.ok) return;
     expect(v.moves).toBe("S4, S5, S6, S7, S8 and S9 move to the reserve.");
-    expect(v.overCapacity).toBe(
-      "The reserve will be over capacity: 6 members for 3 berths. Nobody has to leave; hiring pauses until it fits again.",
-    );
+    // Two short lines (GO-11 review: the long line breaks in two at narrow widths).
+    expect(v.overCapacity).toEqual([
+      "The reserve will be over capacity: 6 members for 3 berths.",
+      "Nobody has to leave; hiring pauses until it fits again.",
+    ]);
     const after = setGroundTeamKind(s, "ship-1", 1, "survey");
     expect(after).not.toBe(s);
     const view = groundTeamsPanelView(after, "ship-1");
