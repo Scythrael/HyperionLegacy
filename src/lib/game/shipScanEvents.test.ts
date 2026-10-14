@@ -10,6 +10,10 @@ import { scanClockToTime } from "./groundOps";
 import { plainAwayMember, withSlottedAwayTeams, withoutGroundOps, withoutShipEvents } from "./awayTeamTestFixtures";
 import { processShipRepairs } from "./tick";
 import {
+  BOARDING_ATTEMPT_CHANCE,
+  BOARDING_CREDIT_LOSS_SHARE,
+  BOARDING_PAUSE_SECONDS,
+  CLOAKED_REPAIR_SECONDS,
   CLOAKED_VESSEL_HULL,
   DEBRIS_DELAY_SECONDS,
   GHOST_CLOAKED_CHANCE,
@@ -19,6 +23,8 @@ import {
   SHIP_EVENT_WEIGHTS,
   SHIP_EVENT_WEIGHT_TOTAL,
   applyShipEventDamage,
+  boardingRepelChance,
+  takeBoardingLoss,
   resolveShipScanEvent,
   resolveShipScanEventFromDraws,
   shipEventCheckChance,
@@ -78,7 +84,7 @@ describe("GO-8 the fixed draw layout", () => {
     expect(share("cloaked") / (share("ghost") + share("cloaked"))).toBeCloseTo(GHOST_CLOAKED_CHANCE, 1);
   });
 
-  it("all five draws are always taken; the boarding draws (4, 5) never move draws 1 to 3 or the GO-8 outcome", () => {
+  it("all five draws are always taken; the boarding draws (4, 5) never move draws 1 to 3 or what they decide", () => {
     const { exp } = dispatch(PINNED[0]);
     const e = advanceExpedition(exp, windowOpen(exp) + 1);
     const body = e.bodies[0];
@@ -88,7 +94,11 @@ describe("GO-8 the fixed draw layout", () => {
       const stubbed: ShipEventDraws = { ...d, boardingAttempt: 0.999, boardingRepel: 0.999 };
       const a = resolveShipScanEventFromDraws(e, body, 0, step, 0, d);
       const b = resolveShipScanEventFromDraws(e, body, 0, step, 0, stubbed);
-      expect({ ...b.event, boarding: undefined }).toEqual({ ...a.event, boarding: undefined });
+      // GO-9: a boarding the crew did not repel adds its pause on top; everything else is draws 1 to 3's.
+      const boarded = a.event.boarding && !a.event.boarding.repelled ? BOARDING_PAUSE_SECONDS : 0;
+      const pause = (a.event.pauseSeconds ?? 0) - boarded;
+      expect({ ...b.event, boarding: undefined, pauseSeconds: b.event.pauseSeconds ?? 0 }).toEqual({ ...a.event, boarding: undefined, pauseSeconds: pause });
+      expect(b.event.boarding).toBeUndefined();
       expect(b.finding).toEqual(a.finding);
       expect(resolveShipScanEvent(e, body, 0, step, 0)).toEqual(a);
     }
@@ -150,7 +160,8 @@ describe("GO-8 the events on real runs", () => {
 
   it("every negative outcome is a pause; light hull damage comes only from debris and a lost battle (user Q12)", () => {
     for (const ev of all) {
-      const negative = ev.outcome === "fail" || ev.outcome === "loss";
+      // GO-9: a boarding the crew did not repel is a negative outcome too.
+      const negative = ev.outcome === "fail" || ev.outcome === "loss" || ev.boarding?.repelled === false;
       expect((ev.pauseSeconds ?? 0) > 0).toBe(negative);
       const wears = (ev.event === "debris" && ev.outcome === "fail") || ev.outcome === "loss";
       expect((ev.hullWear ?? 0) > 0).toBe(wears);
@@ -292,4 +303,110 @@ describe("GO-8 PARITY: one call == 997 s chunks == 1 s chunks over the scan", ()
       expect(exp).toEqual(frozen);
     });
   }
+});
+
+describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial decide them)", () => {
+  const { exp } = dispatch(PINNED[3]);
+  const e = advanceExpedition(exp, windowOpen(exp) + 1);
+  const hot = { ...e.bodies[0], hazard: 0.5 };
+  const withDefense = (x: Expedition, boardingDefense: number): Expedition => ({
+    ...x,
+    groundOps: { ...x.groundOps!, shipEventProfile: { ...x.groundOps!.shipEventProfile, boardingDefense } },
+  });
+
+  it("the repel chance: half with no defense, rising with it on the D23 curve, never certain", () => {
+    expect(boardingRepelChance(0)).toBe(0.5);
+    expect(boardingRepelChance(0.1)).toBeGreaterThan(0.5);
+    expect(boardingRepelChance(0.5)).toBeGreaterThan(boardingRepelChance(0.1));
+    expect(boardingRepelChance(1e6)).toBeLessThan(1);
+  });
+
+  it("the dispatch freezes crew.boardingDefense: an Ossir officer aboard (the racial) raises it", () => {
+    expect(exp.groundOps!.shipEventProfile.boardingDefense).toBe(0);
+    const s = crewed(PINNED[3]);
+    const none = { id: "test.none", magnitude: 0 };
+    const ossir = {
+      id: "officer-9",
+      seat: "tactical",
+      name: "Officer",
+      race: "ossir",
+      gender: "nonbinary",
+      rank: "ensign",
+      bonuses: [none, none],
+      missionsCompleted: 0,
+      assignedShipId: "ship-1",
+    };
+    const s2 = { ...s, officers: [ossir] } as unknown as GameState;
+    const res = startExpedition(s2, "ship-1", 1, expeditionCandidates(s2, "ship-1")[0].id);
+    expect(res.expedition!.groundOps!.shipEventProfile.boardingDefense).toBeGreaterThan(0);
+  });
+
+  it("only a probe or a cloaked vessel tries to board, on draw 4; more defense repels more often (seed sweep)", () => {
+    let attempts = 0;
+    const repels = [0, 0.25, 1].map((bd) => {
+      let n = 0;
+      for (let step = 1; step <= 99; step++) {
+        for (const kind of [0, SHIP_EVENT_WEIGHTS.debris, SHIP_EVENT_WEIGHTS.debris + SHIP_EVENT_WEIGHTS.probe + SHIP_EVENT_WEIGHTS.ghost]) {
+          const d = { ...shipEventDraws(e, 1, step), kind };
+          const r = resolveShipScanEventFromDraws(withDefense(e, bd), hot, 1, step, 0, d).event;
+          const boards = r.event === "probe" || r.event === "cloaked";
+          expect(r.boarding !== undefined).toBe(boards && d.boardingAttempt < BOARDING_ATTEMPT_CHANCE);
+          if (r.boarding) {
+            if (bd === 0) attempts += 1;
+            if (r.boarding.repelled) n += 1;
+          }
+        }
+      }
+      return n;
+    });
+    expect(attempts).toBeGreaterThan(10);
+    expect(repels[1]).toBeGreaterThan(repels[0]);
+    expect(repels[2]).toBeGreaterThan(repels[1]);
+  });
+
+  it("not repelled: a scan pause plus a small credit loss from the run's findings, never below zero (user Q13)", () => {
+    const d = { ...shipEventDraws(e, 0, 4), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: 0.99 };
+    const rich: Expedition = {
+      ...e,
+      findings: [
+        { id: "f1", source: "supplyCache", credits: 100 },
+        { id: "f2", source: "supplyCache", credits: 7 },
+      ],
+    };
+    const r = resolveShipScanEventFromDraws(rich, hot, 0, 4, 0, d);
+    expect(r.event.boarding!.repelled).toBe(false);
+    const base = r.event.outcome === "loss" ? (r.event.event === "cloaked" ? CLOAKED_REPAIR_SECONDS : PROBE_REPAIR_SECONDS) : 0;
+    expect(r.event.pauseSeconds).toBe(base + BOARDING_PAUSE_SECONDS);
+    expect(r.event.boarding!.creditsLost).toBe(Math.floor(BOARDING_CREDIT_LOSS_SHARE * (107 + (r.finding?.credits ?? 0))));
+    // Repelled: recorded only.
+    const held = resolveShipScanEventFromDraws(rich, hot, 0, 4, 0, { ...d, boardingRepel: 0 });
+    expect(held.event.boarding).toEqual({ repelled: true });
+    expect(held.event.pauseSeconds ?? 0).toBe(base);
+    // The loss comes off the newest findings first, never below zero.
+    const fs: { credits?: number }[] = [{ credits: 100 }, { credits: 7 }, {}, { credits: 3 }];
+    takeBoardingLoss(fs, 12);
+    expect(fs).toEqual([{ credits: 98 }, { credits: 0 }, {}, { credits: 0 }]);
+    takeBoardingLoss(fs, 1000);
+    expect(fs.every((f) => (f.credits ?? 0) === 0)).toBe(true);
+  });
+
+  it("on a real run the boarders' share leaves the run's findings; a strong defense keeps it", () => {
+    const done = advanceExpedition(exp, FAR);
+    const boarded = shipEvents(done).filter((ev) => ev.boarding);
+    expect(boarded.some((ev) => ev.boarding!.repelled)).toBe(true);
+    expect(boarded.some((ev) => !ev.boarding!.repelled && (ev.boarding!.creditsLost ?? 0) > 0)).toBe(true);
+    const strong = advanceExpedition(withDefense(exp, 1e9), FAR);
+    expect(shipEvents(strong).filter((ev) => ev.boarding).every((ev) => ev.boarding!.repelled)).toBe(true);
+    const credits = (x: Expedition) => x.findings.reduce((sum, f) => sum + (f.credits ?? 0), 0);
+    expect(credits(strong)).toBeGreaterThan(credits(done));
+    for (const f of done.findings) expect(f.credits ?? 0).toBeGreaterThanOrEqual(0);
+  });
+
+  it("a run with no boarding attempt resolves identically whatever its frozen boarding defense", () => {
+    const quiet = PINNED.map((seed) => dispatch(seed).exp).find((x) => !shipEvents(advanceExpedition(x, FAR)).some((ev) => ev.boarding))!;
+    expect(quiet).toBeDefined();
+    const a = advanceExpedition(quiet, FAR);
+    const b = advanceExpedition(withDefense(quiet, 0.8), FAR);
+    expect({ ...b, groundOps: { ...b.groundOps!, shipEventProfile: a.groundOps!.shipEventProfile } }).toEqual(a);
+  });
 });

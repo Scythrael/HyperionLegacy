@@ -1257,6 +1257,34 @@ the profile value; draws 1 to 3 unchanged by this task.
 
 **Acceptance:** gate green, including `no-dead-stats`. Commit `feat(0.14.0): boarding attempts on ship scan events (Ground Ops GO-9)`.
 
+**Carry from GO-9 (built 2026-10-13, commit `feat(0.14.0): boarding attempts (Ground Ops GO-9)`):**
+- **The profile.** `ShipEventProfile.boardingDefense` = `shipCrewContribution(state, ship)[crew.boardingDefense]`
+  (floored at 0), frozen at dispatch by `snapshotShipEventProfile`: the Security division's Boarding Defense buff,
+  the Ossir racial, and the Tactical officer's Strength through the Security division rollup. No new flag: draws 4
+  and 5 were always taken (GO-8), so a ship-event run's other outcomes are unchanged; only the boarding record and its
+  pause and loss are new (no GO-8-only run was ever deployed).
+- **The rule [PROVISIONAL numbers].** On a PROBE or CLOAKED-VESSEL event (whatever the battle's result), draw 4 <
+  `BOARDING_ATTEMPT_CHANCE` 0.25 is an attempt; draw 5 < `boardingRepelChance(bd)` repels it, where the chance is
+  the odds-form check `1 - (1 - 0.5) / (1 + diminishing(bd x BOARDING_DEFENSE_SCALE 4, 1))` (0.5 with no defense,
+  rising on the D23 curve, never certain; the plan's clamp(0.5 + bd x coeff, 0.05, 0.95) was replaced by the D23 form:
+  "diminishing returns, not caps"). Repelled: `boarding: { repelled: true }`, recorded only. Not repelled (user Q13):
+  the event's `pauseSeconds` grows by `BOARDING_PAUSE_SECONDS` 300, and `boarding.creditsLost` =
+  floor(`BOARDING_CREDIT_LOSS_SHARE` 0.1 x the credits the run's findings hold, the event's own salvage included),
+  taken off the newest findings first by `takeBoardingLoss` (expedition.ts rollStepBoundary, after appending the
+  salvage), never below zero and never the player's bank. Credits only [PROVISIONAL: the user said "cargo or
+  credit"; materials are never taken].
+- **no-dead-stats:** new probe "ship scan events" (per dispatch: `boardingRepelChance` on the frozen profile and one
+  forced boarding event). Removed `crew:crew.boardingDefense`, `racial:ossir` and `facet:tactical:strength` (section
+  3: it turned live through Boarding Defense; Away-Team Protection and Counter-Infiltration, the other Security
+  division buffs it scales, still wait on Task 23 under their own entries); the `GROUND_OPS_BOARDING` phase constant
+  is gone.
+- Tests: `shipScanEvents.test.ts` 17 -> 23 (the repel curve, the Ossir racial in the frozen profile, attempts only on
+  probe / cloaked events and more defense repelling more over a sweep, a not-repelled boarding's pause and newest-first
+  credit loss (repelled: recorded only), a real run losing credits that a strong defense keeps, a boarding-free run
+  identical at any defense); the GO-8 layout and pause tests now account for a boarding's pause. The GO-8 parity
+  seeds include a run with a repelled and a not-repelled boarding (one call == 997 s == 1 s over the scan). Suite
+  4510 -> 4516 passed (1 skipped); `npm run check` 0 errors; `RELEASE_GATE` lists no Ground Ops entry from GO-9.
+
 ---
 
 ### Stage E: UI (mockup-referenced; each verifies in the preview, desktop + 375 px)

@@ -30,7 +30,8 @@
 // readouts), the Shipyard repair duration, a ship battle at full and below-half hull, the expedition's readers
 // (scan rate, task length, encounter chance, fieldwork, relic odds, return leg), its battles (scan encounters +
 // every PoI's task), injury recovery at claim, a whole expedition run + claim, captain mission cycles through
-// economyTick (extraction, survey, transport), a Repeat patrol through economyTick, and a patrol defeat's repair.
+// economyTick (extraction, survey, transport), a Repeat patrol through economyTick, a patrol defeat's repair, and
+// (Ground Ops GO-9) the ship-side scan events' boarding decision.
 // Outcomes are compared through explicit ALLOW-LISTS of consequence fields (state, captains, missions, patrols,
 // ships, expeditions), never the inputs (officers, member gear, complements, the roster snapshot, the frozen
 // per-cycle records), so only consequences count. A NaN or Infinity in any fingerprint throws.
@@ -107,6 +108,7 @@ import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter
 import { fieldworkEffect } from "./fieldwork";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "./injuries";
 import { groundTeamBaySeconds } from "./groundOps";
+import { SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "./shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 import { OFFICER_BONUSES_PENDING_IN_RELEASE, effectiveShipStats, officerCombatMods } from "./crewOverlay";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "./crewBuffs";
@@ -133,7 +135,6 @@ const FIELD_KITS_FEAR = "Field Kits 16b: enemies inflict Fear (D26)";
 const SCIENCE_LINE_SWAP = "Science gear line swap (D26): Science gear rolls fieldwork/hazard/find lines instead";
 const TASK_23_ALL_BUFFS = "Task 23: small boost to all complement buffs (D26)";
 const TASK_23_LONG_HAUL = "Task 23: complement long-haul ramp (D26)";
-const GROUND_OPS_BOARDING = "Ground Operations scan events: boarding attempts (D26)";
 const CORTEX_RESIST = "Field Kits 16b: Fear (D26) + stun resist covers Concussion [proposal, pending user]";
 
 // The phases the user has EXPLICITLY deferred past 0.14.0. The release gate (below) fails while the allow-list
@@ -172,10 +173,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "crew:crew.missionTurnaround": { phase: TASK_23, reason: "Mission Turnaround: turnaround cut (exclusive pool)" },
   "crew:crew.preventCrewLoss": { phase: TASK_23, reason: "Prevent a Crew Loss: shorter injuries (exclusive pool)" },
   "crew:crew.crewEffectiveness": { phase: TASK_23_ALL_BUFFS, reason: "Crew Effectiveness (Medical): healthy crew work better" },
-  "crew:crew.boardingDefense": {
-    phase: GROUND_OPS_BOARDING,
-    reason: "Boarding Defense (Security): a ship-side scan event can attempt to board; this buff decides it",
-  },
 
   // Racial bonuses (every race's racial targets a crew.* key; the same consumers decide)
   "racial:martian": { phase: E_MOD, reason: "racial crew.powerEfficiency waits for the power budget" },
@@ -185,7 +182,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "racial:stheni": { phase: TASK_23, reason: "racial crew.hullRepairRate (Engineering pool key)" },
   "racial:earthBorn": { phase: TASK_23_ALL_BUFFS, reason: "racial crew.crewEffectiveness (see crew:crew.crewEffectiveness)" },
   "racial:spacer": { phase: TASK_23_LONG_HAUL, reason: "racial crew.endurance: a complement build-up like Constitution (D23 curve)" },
-  "racial:ossir": { phase: GROUND_OPS_BOARDING, reason: "racial crew.boardingDefense (see crew:crew.boardingDefense)" },
 
   // Member gear lines, per variety
   "gear:science:sidearm:groundPower": { phase: SCIENCE_LINE_SWAP, reason: "Science never fights (D2); the Sidearm becomes a tool" },
@@ -204,12 +200,6 @@ const PENDING_IN_RELEASE: Readonly<Record<string, PendingEntry>> = {
   "facet:pilot:cunning": {
     phase: "pending user decision (officerStats.ts CUNNING_PENDING_SEATS)",
     reason: "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
-  },
-  "facet:tactical:strength": {
-    phase: TASK_23,
-    reason:
-      "Strength scales the Security division's complement buffs: Away-Team Protection and Counter-Infiltration go live in " +
-      "Task 23, Boarding Defense with the boarding scan events (D26)",
   },
 };
 
@@ -566,6 +556,20 @@ function probeExpeditionRun(t: Transform): string {
   );
 }
 
+// Ground Ops GO-9: the ship-side scan events' BOARDING (D26): per dispatch, the repel decision on the run's frozen
+// profile (shipScanEvents.ts boardingRepelChance, the chance draw 5 is compared against) and one forced boarding
+// event (a hostile probe, an attempt, the repel draw at one half), so a defense that moves the odds, or flips the
+// event, reads live.
+function probeShipScanEvents(t: Transform): string {
+  return fp(
+    dispatches(t).map(({ exp }) => {
+      const body = syntheticBody("terrestrial", 0.4);
+      const draws = { ...shipEventDraws(exp, 0, 1), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: 0.5 };
+      return [boardingRepelChance(exp.groundOps!.shipEventProfile.boardingDefense), resolveShipScanEventFromDraws(exp, body, 0, 1, 0, draws).event];
+    }),
+  );
+}
+
 // captain missions + patrols through economyTick
 
 function probeMissions(t: Transform): string {
@@ -641,6 +645,7 @@ const PROBES: readonly Probe[] = [
   { name: "mission cycles", run: probeMissions },
   { name: "patrol run", run: probePatrol },
   { name: "patrol defeat repair", run: probePatrolDefeatRepair },
+  { name: "ship scan events", run: probeShipScanEvents },
 ];
 
 // ============================================================================

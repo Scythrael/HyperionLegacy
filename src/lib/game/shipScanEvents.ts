@@ -55,7 +55,8 @@ import type { CombatStance } from "./combat/positioning";
 import type { Combatant } from "./combat/types";
 import { rollHaul, scanStepKey } from "./gambit";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, officerRepairSpeedBonus } from "./crewOverlay";
+import { effectiveShipStats, officerCombatModsFromProfile, officerCombatProfile, officerRepairSpeedBonus, shipCrewContribution } from "./crewOverlay";
+import { CREW_STAT_KEYS } from "./crewBuffs";
 import { departmentFacet } from "./officerStats";
 import { diminishing } from "./diminishing";
 import { resistedHazard } from "./relics";
@@ -105,6 +106,20 @@ export const CLOAKED_SALVAGE_SCALE = 0.8;
 // The enemy hull grows with the body's hazard as the run presents it (the museum resist applied).
 export const PROBE_HAZARD_SCALE = 1;
 
+// GO-9 BOARDING (D26: "a ship-side scan event (the cloaked ship, or a hostile vessel) can attempt to board;
+// crew.boardingDefense and the Ossir racial decide it"). On a probe or cloaked-vessel event draw 4 decides an
+// attempt; draw 5 the repel, at the odds-form check on the frozen boardingDefense (the Security division's
+// Boarding Defense, the Ossir racial, Strength's facet through the crew rollup): base BOARDING_REPEL_BASE, power =
+// boardingDefense x BOARDING_DEFENSE_SCALE (the D23 curve: more defense always helps, never certain). Repelled:
+// recorded only. Not repelled (user Q13, 2026-10-12): a scan pause PLUS a small loss from the RUN'S findings
+// (BOARDING_CREDIT_LOSS_SHARE of the credits the run holds so far, newest findings first, never below zero, never
+// the player's bank) [PROVISIONAL numbers].
+export const BOARDING_ATTEMPT_CHANCE = 0.25;
+export const BOARDING_REPEL_BASE = 0.5;
+export const BOARDING_DEFENSE_SCALE = 4; // boardingDefense 0.25 = power 1
+export const BOARDING_PAUSE_SECONDS = 300;
+export const BOARDING_CREDIT_LOSS_SHARE = 0.1;
+
 // The two enemy hulls (combat content, the PIRATE_HULLS shape: a stat line + weapon ids + a stance).
 export interface ShipEventEnemyHull {
   name: string;
@@ -153,7 +168,9 @@ export function snapshotShipEventProfile(state: GameState, ship: ShipInstance): 
     sensors: effectiveShipStats(state, ship).sensors,
     shieldCapacity: c.shieldMax,
     engineering: departmentFacet(state, ship, "engineering", "integrity"),
-    boardingDefense: 0,
+    // GO-9: the crew rollup's Boarding Defense (the Security division's buff, the Ossir racial; Strength scales the
+    // Security division), frozen here like every other input.
+    boardingDefense: Math.max(0, shipCrewContribution(state, ship)[CREW_STAT_KEYS.boardingDefense] ?? 0),
     battle,
   };
 }
@@ -285,10 +302,39 @@ export function resolveShipScanEventFromDraws(
         event.pauseSeconds = cloaked ? CLOAKED_REPAIR_SECONDS : PROBE_REPAIR_SECONDS;
         event.hullWear = wear(cloaked ? CLOAKED_HULL_SHARE : PROBE_HULL_SHARE);
       }
+      // GO-9: the vessel may attempt to board (draws 4 and 5, see BOARDING_ATTEMPT_CHANCE).
+      if (draws.boardingAttempt < BOARDING_ATTEMPT_CHANCE) {
+        const repelled = draws.boardingRepel < boardingRepelChance(profile.boardingDefense);
+        event.boarding = { repelled };
+        if (!repelled) {
+          event.pauseSeconds = (event.pauseSeconds ?? 0) + BOARDING_PAUSE_SECONDS;
+          const held = exp.findings.reduce((sum, f) => sum + Math.max(0, f.credits ?? 0), 0) + Math.max(0, finding?.credits ?? 0);
+          const lost = Math.floor(BOARDING_CREDIT_LOSS_SHARE * held);
+          if (lost > 0) event.boarding.creditsLost = lost;
+        }
+      }
       break;
     }
   }
   return { event, finding };
+}
+
+// The chance the crew repels a boarding attempt (see BOARDING_ATTEMPT_CHANCE). Pure.
+export function boardingRepelChance(boardingDefense: number): number {
+  return shipEventCheckChance(BOARDING_REPEL_BASE, boardingDefense * BOARDING_DEFENSE_SCALE);
+}
+
+// The boarders' haul (user Q13): `credits` taken from the run's findings, newest first, each never below zero.
+// Mutates the working clone's findings (the caller appends the event's own finding first).
+export function takeBoardingLoss(findings: { credits?: number }[], credits: number): void {
+  let left = Math.max(0, Math.floor(credits));
+  for (let i = findings.length - 1; i >= 0 && left > 0; i -= 1) {
+    const have = Math.max(0, findings[i].credits ?? 0);
+    if (have <= 0) continue;
+    const take = Math.min(have, left);
+    findings[i].credits = have - take;
+    left -= take;
+  }
 }
 
 // The sensor check (a ghost, and the cloaked vessel's first strike). Pure.

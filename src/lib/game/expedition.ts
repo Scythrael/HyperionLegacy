@@ -128,7 +128,7 @@ import {
 import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
 // Ground Ops GO-8 (user 9b.6): the ship-side scan events of a flagged run (shipScanEvents.ts never imports this
 // module), their bonus-discovery stream, and the light hull damage brought home at claim (user Q12).
-import { applyShipEventDamage, ghostFindSeed, resolveShipScanEvent, shipEventsLive } from "./shipScanEvents";
+import { applyShipEventDamage, ghostFindSeed, resolveShipScanEvent, shipEventsLive, takeBoardingLoss } from "./shipScanEvents";
 // Squads SQ-4: the risk profile drawn at dispatch, flora's Bloom lift and the hostile-site gate.
 import {
   DIFFICULTY_NAMES,
@@ -1580,6 +1580,8 @@ function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: 
     if (roll.encounter) {
       const res = resolveShipScanEvent(exp, body, bodyIndex, step, hoursOut);
       if (res.finding) exp.findings.push(res.finding);
+      // GO-9: boarders who were not repelled take a small share of the run's credits (never the player's bank).
+      if (res.event.boarding?.creditsLost) takeBoardingLoss(exp.findings, res.event.boarding.creditsLost);
       events.push(res.event);
       if (res.event.hullWear) {
         ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
