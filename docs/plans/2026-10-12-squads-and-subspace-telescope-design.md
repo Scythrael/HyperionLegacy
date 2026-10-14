@@ -948,3 +948,7 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
   needs the uncapped needs can call `generatedTaskNeeds` on the same preview (the stamped `needs` are capped per
   ship). **For SQ-7 / GO-13:** `difficultyName(task.difficulty)`, `difficultyWeight` ("counts x3"), `riskFlavor`,
   `RISK_FACTOR_NAMES`, `RISK_GRADE_NAMES`, `groundSiteLabel`.
+- **Needs cap (user, 2026-10-13): SAFE TIERS ADAPT, LATER SKIP.** Tiers I and II never ask for more than one squad of
+  each type (the "practice somewhere safer" rule), so nothing is ever skipped early; from Tier III a task the deployed
+  ship cannot field is left unfinished on the planet with a log line (no softlock: the run continues), which is what
+  makes the telescope's launch recommendation matter. Replaces SQ-4's always-adapt `fieldableNeeds` cap.
