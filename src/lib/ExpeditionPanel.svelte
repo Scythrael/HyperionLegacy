@@ -48,12 +48,17 @@
     type ExpeditionCandidate,
   } from "./game/expedition";
   import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
-  // Ground Ops (GO-7b): a flagged run's offloaded findings, its stuck flag, and what each ground team waits on at
-  // dispatch. The full Ground Ops screens (queues, timelines, bay) are GO-13 / GO-14.
-  import { groundTaskFindingPrefix, type GroundOpsEdit } from "./game/groundOps";
+  import type { GroundOpsEdit } from "./game/groundOps";
   // GO-13 + Squads SQ-7 section 7.3: the per-planet task queue screen (queues, per-team odds, task cards, the stuck
   // flag and its Skip). Its display decisions are in groundTaskQueueDisplay.ts (tested).
   import GroundTaskQueue from "./GroundTaskQueue.svelte";
+  // GO-14: the team timelines (each team's steps and the ship's legs), the task progress cards and the medical bay
+  // cards of a flagged run; they replace the GO-7b activity readout. Display decisions in
+  // groundOpsTimelineDisplay.ts (tested).
+  import GroundTeamTimeline from "./GroundTeamTimeline.svelte";
+  import GroundTaskCard from "./GroundTaskCard.svelte";
+  import GroundBayCard from "./GroundBayCard.svelte";
+  import { activitiesPhaseLabel, bayCardsView, taskCardsView } from "./groundOpsTimelineDisplay";
   // GO-12 + Squads SQ-7 section 7.2: the dispatch strip (which ground teams deploy) and the Subspace Telescope block.
   // Every display decision is in expeditionDispatchDisplay.ts (tested); the expensive launch view (recommendation,
   // forecast) is read only for the EXPANDED candidate and only when its inputs change (launchViewInputs).
@@ -227,6 +232,9 @@
   $: activitiesTotal = chosenExpedition ? expeditionActivitiesTotal(chosenExpedition) : 0;
   $: legFraction = chosenExpedition ? expeditionPhaseFraction(chosenExpedition, now) : 0;
   $: anomalyMarker = chosenExpedition ? expeditionAnomalyMarkerFraction(chosenExpedition) : null;
+  // GO-14 (a flagged run): the task progress cards and the medical bay cards, recomputed per tick (time left).
+  $: taskCards = chosenExpedition?.groundOps ? taskCardsView(chosenExpedition, chosenShip, now) : null;
+  $: bayCards = chosenExpedition?.groundOps ? bayCardsView(chosenExpedition, chosenShip, now, state.awayMembers) : [];
 
   // --- Display helpers --------------------------------------------------------
   function shipName(shipId: string): string {
@@ -289,26 +297,10 @@
   // The activity's stored finding (materials/credits/relic/evacuated), matched by the resolver's stable
   // finding id. Present exactly when the activity is done (the resolver flips done + appends the finding
   // together), so `done` <=> a finding exists.
+  // A legacy run only: a Ground Ops run's task cards sum their offloaded batches (groundOpsTimelineDisplay.ts).
   function findingFor(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
-    if (exp.groundOps) return groundTaskFindings(exp, activity);
     const id = activityFindingId(exp, activity.id);
     return exp.findings.find((f) => f.id === id) ?? null;
-  }
-  // Ground Ops (GO-7b): a task offloads one finding per return trip (groundOps.ts groundTaskFindingId), so the
-  // card shows their SUM (display only); the relic rides the completing batch. Null until the first offload.
-  function groundTaskFindings(exp: Expedition, activity: ExpeditionActivity): ExpeditionFinding | null {
-    const prefix = groundTaskFindingPrefix(exp, activity.id);
-    const parts = exp.findings.filter((f) => f.id.startsWith(prefix));
-    if (parts.length === 0) return null;
-    const materials: Record<string, number> = {};
-    let credits = 0;
-    let relic: ExpeditionFinding["relic"] = null;
-    for (const f of parts) {
-      for (const [itemId, qty] of Object.entries(f.materials ?? {})) materials[itemId] = (materials[itemId] ?? 0) + qty;
-      credits += f.credits ?? 0;
-      if (f.relic) relic = f.relic;
-    }
-    return { id: prefix, source: "activity", poiId: activity.poiId, materials, credits, relic };
   }
   // The activity's stable FLAT index across bodies (== the resolver's globalIndex), needed to re-derive its
   // deterministic battle log.
@@ -458,7 +450,7 @@
           <span class="exp-ship-name">{shipName(s.id)}</span>
           <span class="exp-ship-status">
             {#if exp}
-              {exp.phase === "complete" ? "Findings ready" : `On expedition · ${exp.phase}`}
+              {exp.phase === "complete" ? "Findings ready" : `On expedition · ${exp.phase === "activities" ? activitiesPhaseLabel(exp).toLowerCase() : exp.phase}`}
             {:else if expeditionShipDamaged(state, s)}
               Repair first
             {:else}
@@ -491,7 +483,7 @@
             {@const st = stepState(step.key, exp.phase)}
             <div class="exp-step" class:done={st === "done"} class:active={st === "active"}>
               <span class="exp-step-dot" aria-hidden="true">{st === "done" ? "✓" : i + 1}</span>
-              <span class="exp-step-label">{step.label}</span>
+              <span class="exp-step-label">{step.key === "activities" ? activitiesPhaseLabel(exp) : step.label}</span>
             </div>
             {#if i < PHASE_STEPS.length - 1}
               <span class="exp-step-link" class:done={stepState(step.key, exp.phase) === "done"} aria-hidden="true"></span>
@@ -555,15 +547,32 @@
         </div>
 
         <!-- GO-13: the per-planet TASK QUEUES (a flagged run only): reassign, reorder, skip, re-queue, Default plan,
-             Auto-assign, per-team odds, the stuck flag with its Skip. GO-14 adds the timelines and the bay card. -->
+             Auto-assign, per-team odds, the stuck flag with its Skip. -->
         {#if exp.groundOps}
           <GroundTaskQueue {exp} ship={chosenShip} {now} onEdit={(edit) => onEditGroundOps(exp.id, edit)} />
-        {/if}
 
-        <!-- ACTIVITY BATTLE READOUT: each resolved away-team task shows its OUTCOME (secured vs evacuated) +
-             the finding it yielded (materials / credits / an unidentified relic), with an expandable, re-
-             derived round log so the player can see their gambits at work and tune them. -->
-        {#if activitiesTotal > 0}
+          <!-- GO-14: each team's timeline and the ship's lane, the medical bay cards, the task progress cards. -->
+          <GroundTeamTimeline {exp} ship={chosenShip} {now} />
+          {#if bayCards.length > 0}
+            <div class="exp-cards">
+              {#each bayCards as card (card.teamIndex)}<GroundBayCard {card} />{/each}
+            </div>
+          {/if}
+          {#if taskCards && taskCards.total > 0}
+            <div class="exp-section-tag">Task progress · {taskCards.done} of {taskCards.total} done</div>
+            {#if taskCards.cards.length === 0}
+              <div class="exp-note">No task started yet: the queues above show what each team takes first.</div>
+            {:else}
+              <div class="exp-cards">
+                {#each taskCards.cards as card (card.id)}<GroundTaskCard {card} />{/each}
+              </div>
+            {/if}
+            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every task the team returns to the ship to offload, recover in the medical bay and reload; a lost task keeps its progress and is retried after the bay.</div>
+          {/if}
+        {:else if activitiesTotal > 0}
+          <!-- ACTIVITY BATTLE READOUT (a legacy run): each resolved away-team task shows its OUTCOME (secured vs
+               evacuated) + the finding it yielded (materials / credits / an unidentified relic), with an
+               expandable, re-derived round log so the player can see their gambits at work and tune them. -->
           <div class="exp-section-tag">Away-team activities · {activitiesDone}/{activitiesTotal}</div>
           <div class="exp-acts">
             {#each exp.bodies as body (body.id)}
@@ -597,13 +606,9 @@
                         <span class="exp-find-chip relic"><Icon name="relic" size={11} /> Unidentified relic · {rarityLabel(finding.relic.tier)}</span>
                       {/if}
                     </div>
-                    <!-- The re-derived battle log reads the legacy resolver; a Ground Ops task's fights get their own
-                         readout with the task cards (GO-14). -->
-                    {#if !exp.groundOps}
                     <button type="button" class="exp-log-toggle" on:click={() => toggleLog(exp, body, act)}>
                       {expandedLogs[act.id] ? "Hide battle log" : "View battle log"}
                     </button>
-                    {/if}
                     {#if expandedLogs[act.id]}
                       <div class="exp-log">
                         {#if staleLogs[act.id]}
@@ -631,11 +636,7 @@
               {/each}
             {/each}
           </div>
-          {#if exp.groundOps}
-            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every task the team returns to the ship to offload, recover in the medical bay and reload; a lost task keeps its progress and is retried after the bay.</div>
-          {:else}
-            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
-          {/if}
+          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -1208,6 +1209,12 @@
   }
 
   /* ACTIVITY LIST */
+  /* GO-14: the bay cards and the task progress cards, one column on a phone, two or three wide. */
+  .exp-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+    gap: 10px;
+  }
   .exp-acts {
     display: flex;
     flex-direction: column;

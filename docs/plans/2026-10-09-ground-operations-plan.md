@@ -1604,6 +1604,70 @@ right). The activities phase label reads "Ground Operations" [PROVISIONAL copy].
 re-derivation (`resolveTaskFight` with a log sink; display only).
 Commit `feat(0.14.0): team timelines, task cards, med bay card (Ground Ops GO-14)`.
 
+**Carry from GO-14 (built 2026-10-14, commit `feat(0.14.0): team timelines, task progress, medical bay card (Ground Ops
+GO-14)`):**
+- **New `src/lib/groundOpsTimelineDisplay.ts`** (+ `groundOpsTimelineDisplay.test.ts`, 19): every display decision of
+  the running window, pure, over the stored run. DISPLAY ONLY: it reads `GroundOpsState.history` (resolution never
+  does), each team's live step, the stored legs and the scan walk; no rule changed. New components
+  `GroundTeamTimeline.svelte`, `GroundTaskCard.svelte`, `GroundBayCard.svelte`; ExpeditionPanel shows them on a flagged
+  run under the GO-13 queues (timelines, then the bay cards, then "Task progress · N of M done"), REPLACING the GO-7b
+  activity readout (legacy runs keep their readout and battle log unchanged; the GO-7b `groundTaskFindings` helper in
+  the panel is gone, the cards sum a task's offloaded batches themselves).
+- **Reading the history.** A lost fight was a WIPE when the team's next step is a return marked `recovered`, or, live,
+  a return waiting on a recovery leg (`awaitingPickup`: a leg listing the team that arrives when the return ends); a
+  loss followed by an ordinary return is "lost, the team fell back" (a round-cap retreat). A work step marked
+  `ambushed` followed by a return is an ambush RETREAT; followed by a `surprise` fight, the crew stood and fought.
+  `stopped` steps are hatched ("stopped by your edit" in the key, shown only when one is on screen).
+- **Lanes (GO-M3).** One per deployed team: TeamBadge (md, kind glyph) + name + "Strike team", what it does now with
+  the time left ("Working on Crashed Ship · 4m 12s left", "Waiting for the ship: pickup in 3m 2s", "In the medical
+  bay · 18m left", "Idle: queue done"), the steps as absolutely positioned segments on ONE shared time axis (SVG glyph
+  per step kind; words when the segment is at least 12% wide, the glyph from 3.5%), the live step outlined. Then the
+  SHIP's lane: each body's scan (`expedition.ts flaggedScanTimeline`, new, display only: the flaggedScanNext walk over
+  the rolled boundaries mapped to wall time) and holding station, drawn only where no leg covers them, the recorded
+  scan pauses (debris / probe / ghost / cloaked / storm glyphs, `boarding` when boarders got aboard), recovery legs
+  ("pickup: Alpha", "shared pickup: Alpha + Bravo") and field repairs; only what the ship does now is outlined. Key
+  row with swatches + glyphs (GO-M3 colors as theme tokens: `--lane-*` mixes of the theme colors). **Axis:** "Recent"
+  (default) starts at the 8th-latest step (`TIMELINE_RECENT_STEPS`) of the BUSY lanes (an idle lane would stretch it
+  over its own wait; all idle: the earliest), "Whole run" at the window's start; the end is now, or `endedAt` once
+  closed. Each lane's steps are also a `<details>` list in words, most recent first (keyboard and screen readers; the
+  track is one `role="img"` with a summary name). Narrow container (560 px): name above the track.
+- **Task cards (GO-M4 left).** Every task the run has TOUCHED (a crew on it, progress, a fight, an ambush, a banked
+  segment); untouched queued tasks live only in the queue table. In progress first, then paused, done, skipped. State
+  chip: "In progress" ("In progress: gathering the crew" while staging), "Paused: Alpha waiting for the ship / heading
+  back / offloading / in the med bay / reloading", "Paused: back of the line / stuck / queued to resume", Done,
+  Skipped. The crew's badges; the bar with a pip per fight point: won (green), under way (amber), LOST or WIPED here
+  (hatched; "wiped here, resumes here") when the last point fight on the task was lost and the bar sits at that
+  point; the held line "Progress held at 60%: Security wiped at fight 3; the retry resumes there"; "Haul: 3 of 5
+  segments banked, 1 offloaded; the rest on the next offload. The relic roll waits for 100%"; notes "Retreated from 2
+  ambushes", "Won / Lost a surprise fight", "Skipped mid-task: progress kept at 6%", the back-of-the-line line; the
+  haul offloaded so far (materials, credits, the relic tier).
+- **Bay card (GO-M4 right).** Per team while it carries conditions home (return, offload: "Starts once the team is
+  aboard" / "Starts after the offload") and through its bay ("18m left"); after the window closes only while the bay
+  still runs. One bar per condition (members with the same condition and time share a row: "Grokk, Hurrn (health)",
+  "everyone (health)"), its class (health / ailment / injury), Stoneskin on an Ossir member's INJURY rows, the times
+  from `medicalBay.ts conditionCureSeconds` on the frozen care and perks (battle-only statuses skipped), sorted
+  longest first, the longest highlighted; "Bay time: 25m (the longest one)"; "Grokk Kholmm is Ossir: Stoneskin makes
+  injuries last 25% longer."; "Times include the ship's medical care." when care shortens anything.
+- **Phase label [PROVISIONAL copy]:** the stepper's third step and the ship chip read "Ground Operations" on a flagged
+  run (`activitiesPhaseLabel`); legacy runs keep "Activities".
+- **GO-13 review follow-ups folded in.** (1) GroundTaskQueue is a container; at 480 px and below each task row stacks
+  as a card (the task card, then Fights and each team's odds labelled by `data-label`, then Assigned / Apply / Skip,
+  then the queue position), no sideways scroll (375 px: page 375, table 305 = its wrapper); the table stays on wide
+  screens. (2) The edit result line (`role="status"`, polite) is never `display: none` now: an empty one is only
+  visually hidden, so it stays in the accessibility tree, and it is cleared before each result so the same words twice
+  are announced again.
+- **Not built (deviation, for the user):** the plan's "battle log per fight via a lazy re-derivation" is not in
+  GO-14: a task fight's inputs (the carry from the previous fight, who sat out) are not in the display history, so a
+  re-derivation after the first fight of a trip would tell the wrong story. It needs the fight record kept (a display
+  field) or a replay from the trip's start; proposal: GO-15 or later.
+- Verified in the dev preview on a seeded run (General Freighter, Alpha Ground with an Ossir Security member, Bravo
+  Survey; crew layer 40): wipes with late recovery legs (live "awaiting pickup" and after the pickup), an ordered field
+  repair in orbit on the ship lane, two ambush retreats by Bravo on a calm task (ambush chance raised in the seed), an
+  active task skipped mid-work (hatched step, "Skipped mid-task"), a bay with Downed (Stoneskin, 25m) + Downed (20m) +
+  Health; Recent / Whole run and the step lists by keyboard; 1280 px and 375 px (no page scroll, queue rows stacked);
+  no new console errors. localStorage restored byte-identical (SHA-256). Suite 4587 -> 4606 passed (1 skipped);
+  `npm run check` 0 errors.
+
 ### GO-15: Scan track: ship-event pips + log lines (absorbs Task 17's scan track)
 
 **Files:** `ExpeditionPanel.svelte`.

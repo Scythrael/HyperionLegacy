@@ -1756,6 +1756,56 @@ function flaggedScanNext(exp: Expedition): FlaggedScanEvent | null {
   return null;
 }
 
+// GO-14 (display only, the ship lane of the team timelines): a flagged run's scan as WALL-time spans, one per body
+// the walk has reached (endsAt null while that body is still being scanned), plus every recorded scan PAUSE (a
+// ship event's delay, GO-8 / GO-9) with its wall-time span. The same walk as flaggedScanNext over the boundaries
+// already rolled (the cursor), mapped through scanClockToTime, so a recovery or repair leg inside a body's scan
+// widens that body's span and a pause lands where the window applied it. Resolution never reads it. Pure.
+export interface FlaggedScanSpan {
+  bodyIndex: number;
+  startsAt: number;
+  endsAt: number | null; // null = this body is still being scanned
+}
+export interface FlaggedScanPause {
+  bodyIndex: number;
+  step: number;
+  startsAt: number;
+  endsAt: number;
+  event: ExpeditionScanEvent;
+}
+export function flaggedScanTimeline(exp: Expedition): { bodies: FlaggedScanSpan[]; pauses: FlaggedScanPause[] } {
+  const ops = exp.groundOps;
+  const bodies: FlaggedScanSpan[] = [];
+  const pauses: FlaggedScanPause[] = [];
+  if (!ops || ops.startedAt === undefined) return { bodies, pauses };
+  const steps = exp.encounterSteps ?? 1;
+  const perBody = Math.max(0, steps - 1);
+  const events = exp.scanEvents ?? [];
+  const cursor = exp.scanStepCursor ?? 0;
+  let bodyStart = 0;
+  for (let i = 0; i < exp.bodies.length; i++) {
+    const body = exp.bodies[i];
+    const bodyTime = body.scanTotal / scanRatePerSecond(exp, body);
+    const stepTime = bodyTime / steps;
+    let paused = 0;
+    for (let k = 1; k <= perBody; k++) {
+      if (i * perBody + (k - 1) >= cursor) break; // not rolled yet
+      const at = bodyStart + k * stepTime + paused;
+      const pause = pauseAt(events, i, k);
+      const event = events.find((ev) => ev.bodyIndex === i && ev.step === k);
+      if (pause > 0 && event) {
+        pauses.push({ bodyIndex: i, step: k, startsAt: scanClockToTime(ops, at), endsAt: scanClockToTime(ops, at + pause), event });
+      }
+      paused += pause;
+    }
+    const bodyEnd = bodyStart + bodyTime + paused;
+    bodies.push({ bodyIndex: i, startsAt: scanClockToTime(ops, bodyStart), endsAt: body.scanned ? scanClockToTime(ops, bodyEnd) : null });
+    if (!body.scanned) break;
+    bodyStart = bodyEnd;
+  }
+  return { bodies, pauses };
+}
+
 // Hours since dispatch at absolute time `t` of a flagged run's window (the transit is fully flown). Pure.
 function flaggedHoursAt(exp: Expedition, t: number): number {
   const start = exp.groundOps?.startedAt ?? t;

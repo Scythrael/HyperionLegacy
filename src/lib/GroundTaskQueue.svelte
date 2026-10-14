@@ -12,7 +12,11 @@
   // through `onEdit` to App.svelte doEditGroundOps (editGroundOps: advance to now, validate, apply). A select never
   // acts on change (WCAG 3.2.2): pick, then Apply. The handler validates on the click (canEditGroundOps advances a
   // copy of the run, so it is never called per rendered button) and returns the refusal text, shown in the status
-  // line. The table scrolls inside its own wrapper on a phone, never the page.
+  // line. The table scrolls inside its own wrapper when it is a little too wide, never the page; on a NARROW
+  // container (480 px and below, GO-13 review) each row stacks as a card (the task card, then Fights and the odds
+  // with their column names, then Assigned / Apply / Skip and the queue under it), so nothing scrolls sideways.
+  // The result line is a live region that is always in the page (an empty one is only visually hidden), so the
+  // next result is announced (GO-13 review).
 
   import type { Expedition, ShipInstance } from "./game/model";
   import type { GroundOpsEdit } from "./game/groundOps";
@@ -74,6 +78,9 @@
   // gone: a Skip becomes a Re-queue).
   async function send(edit: GroundOpsEdit, done: string, focusKey: string | null, fallbackKey: string | null = null): Promise<void> {
     const refusal = onEdit(edit);
+    // Clear first, so the same words twice in a row are announced again by the live region.
+    message = null;
+    await tick();
     message = refusal === null ? { text: done, refused: false } : { text: `Not changed: ${refusal}.`, refused: true };
     await tick();
     for (const key of [focusKey, fallbackKey]) {
@@ -230,9 +237,9 @@
                     {/if}
                   </div>
                 </th>
-                <td class="gq-num"><span aria-hidden="true">{row.bar.fightsText}</span><span class="sr">{row.bar.label}</span></td>
+                <td class="gq-num" data-label="Fights"><span aria-hidden="true">{row.bar.fightsText}</span><span class="sr">{row.bar.label}</span></td>
                 {#each row.odds as cell, ci (ci)}
-                  <td class="gq-odds">
+                  <td class="gq-odds" data-label="{view.teams[ci]?.name ?? ''} odds">
                     {#if cell.kind === "chip"}
                       <ThreatChip assessment={cell.assessment} size="sm" context={cell.context} />
                     {:else if cell.kind === "partner"}
@@ -242,7 +249,7 @@
                     {/if}
                   </td>
                 {/each}
-                <td class="gq-assign">
+                <td class="gq-assign" data-label="Assigned">
                   {#if row.status === "done"}
                     <span class="gq-dim">{row.crewText}</span>
                   {:else}
@@ -288,7 +295,7 @@
                     {/if}
                   {/if}
                 </td>
-                <td class="gq-queue">
+                <td class="gq-queue" data-label="Queue">
                   {#if row.queue}
                     <div class="gq-queue-in">
                       <span class="gq-queue-text">{row.queue.text}</span>
@@ -332,6 +339,7 @@
 
 <style>
   .gq {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -361,8 +369,14 @@
   .gq-msg .refused {
     color: var(--color-warning);
   }
+  /* An empty live region stays in the accessibility tree (display: none would drop it, and a region that appears
+     with its text is often not announced); it is only visually hidden. */
   .gq-msg:empty {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
   }
   .gq-stuck {
     display: flex;
@@ -727,6 +741,64 @@
   .gq-row.s-skipped .gq-task-name {
     color: var(--color-text-secondary);
   }
+  /* GO-13 review: on a NARROW container each row is a card; the cells stack under the task card with their column
+     names, so Assigned / Apply / Skip sit under it and nothing scrolls sideways. The table stays on wide screens. */
+  @container (max-width: 480px) {
+    .gq-tw {
+      overflow-x: visible;
+    }
+    .gq-table {
+      min-width: 0;
+    }
+    .gq-table thead {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+    }
+    .gq-table,
+    .gq-table tbody {
+      display: block;
+    }
+    .gq-table tr.gq-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      padding: 8px;
+      margin-bottom: 8px;
+      border: 1px solid rgba(var(--color-accent-rgb), 0.16);
+      border-radius: var(--corner);
+    }
+    .gq-table tr.gq-row > th,
+    .gq-table tr.gq-row > td {
+      display: block;
+      padding: 0;
+      border-bottom: 0;
+      min-width: 0;
+      max-width: none;
+    }
+    .gq-table .gq-task,
+    .gq-table .gq-assign,
+    .gq-table .gq-queue {
+      flex: 1 1 100%;
+      width: auto;
+    }
+    .gq-table td[data-label]::before {
+      content: attr(data-label);
+      display: block;
+      margin-bottom: 2px;
+      font-family: var(--font-mono);
+      font-size: var(--text-2xs);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-text-dim);
+    }
+    .gq-assign-row {
+      flex-wrap: wrap;
+    }
+  }
+
   .sr {
     position: absolute;
     width: 1px;
