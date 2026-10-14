@@ -91,16 +91,28 @@ function findingOf(run: ScanTrackRun, event: ExpeditionScanEvent): ExpeditionFin
   return event.findingId === undefined ? undefined : run.findings.find((f) => f.id === event.findingId);
 }
 
-// GO-15 review: boarders who got aboard take their credits from the run's finds IN PLACE, newest first, the event's own
-// salvage included (shipScanEvents.ts takeBoardingLoss), so a find recorded at or before such a boarding now reads as
-// the boarders left it. The original cannot be rebuilt with certainty, so the words say "after boarders" instead of
-// guessing. True when a boarding at or after `event` (scan order: body, then step) took credits. Pure.
-function boardersTookAfter(run: ScanTrackRun, event: ExpeditionScanEvent): boolean {
-  return (run.scanEvents ?? []).some(
-    (ev) =>
-      (ev.boarding?.creditsLost ?? 0) > 0 &&
-      (ev.bodyIndex > event.bodyIndex || (ev.bodyIndex === event.bodyIndex && ev.step >= event.step)),
-  );
+// GO-15 review: boarders who got aboard take their credits from the run's finds IN PLACE, newest first, their own
+// salvage included, and stop once the take is covered (shipScanEvents.ts takeBoardingLoss), so a find they reached now
+// reads as they left it. The original cannot be rebuilt with certainty, so the words say "after boarders" instead of
+// guessing, but ONLY for a find the take could have reached: credits only go down, so boarding B reached find F only
+// if every find newer than F that existed when B struck (up to and including B's own salvage, or, with no salvage, up
+// to the newest find of an event at or before B) holds 0 credits now. A find with no credits field never held any
+// (boarders take credits only), so it is never labeled. Ambiguous zero cases stay labeled. Pure.
+function boardersMayHaveReached(run: ScanTrackRun, event: ExpeditionScanEvent): boolean {
+  const findings = run.findings;
+  const at = event.findingId === undefined ? -1 : findings.findIndex((f) => f.id === event.findingId);
+  if (at < 0 || findings[at].credits === undefined) return false;
+  const events = run.scanEvents ?? [];
+  const indexOf = (ev: ExpeditionScanEvent): number => (ev.findingId === undefined ? -1 : findings.findIndex((f) => f.id === ev.findingId));
+  const atOrBefore = (x: ExpeditionScanEvent, y: ExpeditionScanEvent): boolean => x.bodyIndex < y.bodyIndex || (x.bodyIndex === y.bodyIndex && x.step <= y.step);
+  return events.some((boarding) => {
+    if (!((boarding.boarding?.creditsLost ?? 0) > 0) || !atOrBefore(event, boarding)) return false;
+    const own = indexOf(boarding);
+    const bound = own >= 0 ? own : Math.max(-1, ...events.filter((ev) => atOrBefore(ev, boarding)).map(indexOf));
+    if (bound < at) return false;
+    for (let i = at + 1; i <= bound; i++) if ((findings[i].credits ?? 0) > 0) return false;
+    return true;
+  });
 }
 
 // A find's contents with its label ("Salvage: ..." / "Salvage (after boarders): ..."); `emptied` when boarders took
@@ -108,7 +120,7 @@ function boardersTookAfter(run: ScanTrackRun, event: ExpeditionScanEvent): boole
 function findWords(run: ScanTrackRun, event: ExpeditionScanEvent, label: string): { text: string } | { emptied: true } | null {
   const finding = findingOf(run, event);
   if (!finding) return null;
-  const after = boardersTookAfter(run, event);
+  const after = boardersMayHaveReached(run, event);
   const held = findingContentsText(finding);
   if (held === null) return after ? { emptied: true } : null;
   return { text: `${label}${after ? " (after boarders)" : ""}: ${held}` };

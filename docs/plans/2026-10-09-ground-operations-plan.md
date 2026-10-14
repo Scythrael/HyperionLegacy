@@ -1713,6 +1713,12 @@ Commit `feat(0.14.0): ship-event scan track (Ground Ops GO-15)`.
   it names the bonus discovery it earned (the engine appends one per true ghost, last, in event order, unless both
   planet pools are empty) or says nothing extra. (4) The key row is `role="group"`. (5) Pips are 24 px (the minimum
   target); 375 px still has no sideways scroll with six pips on one body. Tests 14 -> 17.
+- **Re-review (commit `fix(0.14.0): scan track labels only finds boarders could have reached (GO-15 review)`):** the
+  "(after boarders)" label now marks only a find the take could have reached. Boarders take newest first and stop
+  once covered, and credits only go down, so boarding B reached find F only if every find newer than F that existed
+  when B struck (through B's own salvage, or with none, through the newest find of an event at or before B) holds 0
+  credits now. A find with no credits field never held credits and is never labeled; ambiguous zeros stay labeled.
+  Tests 17 -> 18.
 
 ### GO-16: Per-member gambit editor by ground team (absorbs Task 17's editor)
 

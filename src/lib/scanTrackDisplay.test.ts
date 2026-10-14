@@ -189,7 +189,8 @@ describe("scanTrackView: GO-15 review follow-ups", () => {
     );
     const [early, cache, own] = scanTrackView(run, 0)!.pips;
     expect(early.sentence).toContain("Salvage (after boarders): Titanium Ore x1, 10 credits.");
-    expect(cache.sentence).toBe("Supply cache (after boarders): Titanium Ore x2.");
+    // A find that never held credits (no credits field) is never labeled: boarders take only credits.
+    expect(cache.sentence).toBe("Supply cache: Titanium Ore x2.");
     expect(own.sentence).toContain("Salvage (after boarders): Titanium Ore x1.");
     // A cache AFTER the last boarding reads plainly.
     expect(scanTrackView(run, 1)!.pips[0].sentence).toBe("Supply cache: Titanium Ore x3, 12 credits.");
@@ -218,6 +219,56 @@ describe("scanTrackView: GO-15 review follow-ups", () => {
       [{ id: "c-1", source: "supplyCache", credits: 0, relic: null }],
     );
     expect(scanTrackView(emptied, 0)!.pips[0].sentence).toBe("Supply cache: boarders later took what it held.");
+  });
+
+  it("re-review: a boarding reaches a find only when every find newer than it, up to the boarding, holds 0 credits now", () => {
+    // An earlier body's find stays plain: the boarders' own salvage still holds credits, so the take stopped there.
+    const earlier = shipRun(
+      [
+        { bodyIndex: 0, step: 3, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 1, step: 3, kind: "shipEvent", event: "probe", outcome: "win", findingId: "f-1", boarding: { repelled: false, creditsLost: 19 } },
+      ],
+      [
+        { id: "c-1", source: "supplyCache", materials: { commonOre: 1 }, credits: 5, relic: null },
+        { id: "f-1", source: "encounter", materials: { commonOre: 1 }, credits: 28, relic: null },
+      ],
+    );
+    expect(scanTrackView(earlier, 0)!.pips[0].sentence).toBe("Supply cache: Titanium Ore x1, 5 credits.");
+    expect(scanTrackView(earlier, 1)!.pips[0].sentence).toContain("Salvage (after boarders): Titanium Ore x1, 28 credits.");
+
+    // A find past a newer find that still holds credits stays plain; the newer one (all the take reached) is labeled.
+    // A find added AFTER a boarding with no salvage of its own never counts as proof (it did not exist yet).
+    const past = shipRun(
+      [
+        { bodyIndex: 0, step: 1, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 0, step: 2, kind: "supplyCache", findingId: "c-2" },
+        { bodyIndex: 0, step: 5, kind: "shipEvent", event: "probe", outcome: "loss", boarding: { repelled: false, creditsLost: 20 } },
+        { bodyIndex: 0, step: 7, kind: "supplyCache", findingId: "c-3" },
+      ],
+      [
+        { id: "c-1", source: "supplyCache", materials: { commonOre: 1 }, credits: 10, relic: null },
+        { id: "c-2", source: "supplyCache", materials: { commonOre: 2 }, credits: 7, relic: null },
+        { id: "c-3", source: "supplyCache", materials: { commonOre: 3 }, credits: 9, relic: null },
+      ],
+    );
+    const [first, second, , later] = scanTrackView(past, 0)!.pips;
+    expect(first.sentence).toBe("Supply cache: Titanium Ore x1, 10 credits.");
+    expect(second.sentence).toBe("Supply cache (after boarders): Titanium Ore x2, 7 credits.");
+    expect(later.sentence).toBe("Supply cache: Titanium Ore x3, 9 credits.");
+
+    // Ambiguous zeros stay labeled: every newer find before the boarding is empty, so the take may have reached it.
+    const ambiguous = shipRun(
+      [
+        { bodyIndex: 0, step: 1, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 0, step: 2, kind: "supplyCache", findingId: "c-2" },
+        { bodyIndex: 0, step: 3, kind: "shipEvent", event: "probe", outcome: "loss", boarding: { repelled: false, creditsLost: 20 } },
+      ],
+      [
+        { id: "c-1", source: "supplyCache", materials: { commonOre: 1 }, credits: 4, relic: null },
+        { id: "c-2", source: "supplyCache", materials: { commonOre: 2 }, credits: 0, relic: null },
+      ],
+    );
+    expect(scanTrackView(ambiguous, 0)!.pips[0].sentence).toBe("Supply cache (after boarders): Titanium Ore x1, 4 credits.");
   });
 
   it("a ghost read true: future tense only while the body scans; on a scanned body it names the discovery it earned, or nothing extra", () => {
