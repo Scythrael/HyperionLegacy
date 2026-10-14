@@ -1003,6 +1003,8 @@
   // icon-only queue row controls (move up / move down / remove). Those are stable BUTTONS,
   // never tooltip actions, per the 0.13.2 display-only-tooltip rule.
   import Icon from "./lib/ui/Icon.svelte";
+  // GO-10: the shared threat tier chip (SVG tier dot, HelpTip bubble), used by the patrol card + dispatch popup.
+  import ThreatChip from "./lib/ui/ThreatChip.svelte";
   import type { IconName } from "./lib/ui/icons";
   // Whole-unit arithmetic for the batch-quantity controls (2026-09-10 fractional-quantity
   // fix). Presentation/input only, never consulted by a gate: see the module header.
@@ -17208,35 +17210,21 @@
                         <span>Route <b>{def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks} ticks</b></span>
                         <span>Distance <b class:bad={outOfReach}>{formatNumber(Math.round(patrolDistanceLy))} LY</b>{#if patrolReachLy !== null} / range <b class:bad={outOfReach}>{formatNumber(Math.floor(patrolReachLy))} LY</b>{/if}</span>
                       </div>
-                      <!-- THREAT readout: the EXISTING tappable threat chip + tooltip once a captain
-                           is selected (and a forecast exists), else a dim "pick a captain" prompt.
-                           The chip name is capped + ellipsized on the row (see .mpane .threat-chip*)
-                           so a long label like "Guaranteed Victory" cannot grow the row; the full
-                           advisory stays in the tap tooltip. -->
+                      <!-- THREAT readout: the shared ThreatChip (GO-10: SVG tier dot, no emoji) once a
+                           captain is selected (and a forecast exists), else a dim "pick a captain"
+                           prompt. The chip is capped at 190px and its name ellipsized (maxWidth) so a
+                           long label like "Guaranteed Victory" cannot grow the row; the full advisory
+                           stays in the chip's tap / hover bubble. -->
                       <div class="statline">
                         {#if selectedCaptainId !== null}
                           {#if forecast !== null}
-                            <span class="threat-chip-wrap">
-                              <button
-                                type="button"
-                                class="threat-chip"
-                                style="--threat-color: {forecast.assessment.colorHex}"
-                                aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
-                              >
-                                <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
-                                <span class="threat-chip-name">{forecast.assessment.name}</span>
-                              </button>
-                              <span class="threat-tooltip info-pop" role="tooltip">
-                                <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
-                                <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
-                              </span>
-                            </span>
+                            <ThreatChip assessment={forecast.assessment} full maxWidth="190px" />
                           {/if}
                           {#if selectedCaptain !== null}
                             <span class="mpane-cap">{selectedCaptain.label}{#if selectedShipDef} &middot; {selectedShipDef.label}{/if}</span>
                           {/if}
                         {:else}
-                          <span class="threat-chip-placeholder">Threat &mdash; pick a captain to assess</span>
+                          <span class="threat-chip-placeholder">Threat: pick a captain to assess</span>
                         {/if}
                       </div>
                       <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
@@ -19250,8 +19238,8 @@
         {/if}
 
         <!-- Battle Rating + Threat assessment (the existing advisory block). The Threat label
-             carries a HelpTip ? explaining the reading is a FUZZY advisory; the chip keeps its
-             own existing tap tooltip too. -->
+             carries a HelpTip ? explaining the reading is a FUZZY advisory; the chip (the shared
+             ThreatChip, GO-10) opens its own bubble with the odds phrase and the officer's line. -->
         {#if forecast !== null}
           <div class="patrol-readouts">
             <div class="patrol-readout-row">
@@ -19263,21 +19251,7 @@
                 <span class="mission-col-label" style="margin: 0">Threat assessment</span>
                 <HelpTip label="Threat assessment" text="A fuzzy advisory from a seeded simulation of this patrol: an estimate, not a promise. It can read high or low; treat it as guidance, and know you can dispatch regardless of what it shows." />
               </span>
-              <span class="threat-chip-wrap">
-                <button
-                  type="button"
-                  class="threat-chip"
-                  style="--threat-color: {forecast.assessment.colorHex}"
-                  aria-label={`Threat Assessment: ${forecast.assessment.name}. ${forecast.assessment.fuzzyRange}. ${forecast.assessment.voice}`}
-                >
-                  <span class="threat-chip-icon" aria-hidden="true">{forecast.assessment.icon}</span>
-                  <span class="threat-chip-name">{forecast.assessment.name}</span>
-                </button>
-                <span class="threat-tooltip info-pop" role="tooltip">
-                  <span class="threat-tooltip-range">{forecast.assessment.fuzzyRange}</span>
-                  <span class="threat-tooltip-voice">{forecast.assessment.voice}</span>
-                </span>
-              </span>
+              <ThreatChip assessment={forecast.assessment} full />
             </div>
             <div class="patrol-readout-note">Advisory only. You can dispatch regardless.</div>
           </div>
@@ -20946,11 +20920,8 @@
   .mpane-warn { font-size: var(--text-xs); color: var(--color-warning); }
   .mpane-warn.danger { color: var(--color-danger); }
   .mpane-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
-  /* ⚠️ LONG THREAT LABELS on the ROW: names like "Guaranteed Victory" are long. Cap the chip
-     name + ellipsize it so the chip can never grow the row taller or push the other stats into
-     a new panel; the full advisory stays in the chip's tap tooltip. */
-  .mpane .threat-chip { max-width: 190px; }
-  .mpane .threat-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* (LONG THREAT LABELS on the ROW: the 190px cap + name ellipsis moved into the shared ThreatChip,
+     GO-10, passed as its maxWidth prop at the call site.) */
   /* The reveal opens attached under the row (no top gap/border); it hosts the app's existing
      .mission-detail idiom. */
   .mpane-reveal { border: 1px solid var(--color-border); border-top: none; border-radius: 0 0 var(--corner) var(--corner); background: rgba(0, 0, 0, 0.2); padding: 11px 14px; }
@@ -21040,62 +21011,9 @@
     font-style: italic;
     color: var(--color-text-secondary);
   }
-  /* Chip + tooltip. The wrap is the positioning context + the hover/focus target; the
-     tooltip is shown on wrap :hover AND :focus-within (tap focuses the chip on mobile,
-     which has no hover), so the fuzzy range + tactical-officer voice reach both inputs. */
-  .threat-chip-wrap { position: relative; display: inline-flex; }
-  .threat-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 9px;
-    /* Reset the native <button> chrome so the chip renders from our tokens only. */
-    font-family: inherit;
-    appearance: none;
-    -webkit-appearance: none;
-    border: 1px solid var(--threat-color);
-    /* A faint wash of the band color behind the solid-color border + text. */
-    background: color-mix(in srgb, var(--threat-color) 16%, transparent);
-    color: var(--threat-color);
-    font-size: var(--text-sm);
-    font-weight: 600;
-    cursor: help;
-    white-space: nowrap;
-    border-radius: var(--corner);
-  }
-  .threat-chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
-  .threat-chip-icon { font-size: var(--text-md); line-height: 1; }
-  .threat-tooltip {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    right: 0;
-    /* High z-index resolved INSIDE the wrap's own stacking context (elevated on hover/
-       focus-within below). Was z-index:20 against the ROOT, where later-painted sibling
-       cards (Stance row and everything below) painted over it; scoping it to the elevated
-       wrap makes it paint above them. */
-    z-index: 60;
-    width: max-content;
-    max-width: 240px;
-    /* Surface (bg/border/shadow/padding/radius) comes from .info-pop now; this keeps only the
-       positioning + the hover-reveal (display:none until the wrap is hovered/focused). */
-    display: none;
-    flex-direction: column;
-    gap: 4px;
-    text-align: left;
-    white-space: normal;
-  }
-  /* Elevate the wrap into its OWN stacking context (z-index != auto) ONLY while the
-     tooltip is open, so the tooltip's z-index:60 resolves against the wrap and paints
-     ABOVE later-painted sibling cards. Off-hover the wrap stays z-index:auto (no stacking
-     context, so nothing about the normal paint order changes). No transformed/overflow-
-     hidden ancestor clips it (.patrol-readouts/.mission-card/.tab-scroll-area/.tab-body/
-     .frame set no transform or z-index), so this elevation is sufficient. */
-  .threat-chip-wrap:hover,
-  .threat-chip-wrap:focus-within { z-index: 40; }
-  .threat-chip-wrap:hover .threat-tooltip,
-  .threat-chip-wrap:focus-within .threat-tooltip { display: flex; }
-  .threat-tooltip-range { font-size: var(--text-sm); font-weight: 600; color: var(--color-text-primary); }
-  .threat-tooltip-voice { font-size: var(--text-sm); font-style: italic; color: var(--color-text-secondary); }
+  /* (GO-10: the threat chip + its tooltip rules moved into src/lib/ui/ThreatChip.svelte, which draws
+     the SVG tier dot instead of the old emoji and opens the shared HelpTip bubble, portaled so no card
+     clips it. Deleted here so svelte-check sees no dead selector.) */
   /* (0.13.5 mission-pane redesign: .mission-card-header, its descendant portrait rule,
      .mission-card-heading, .mission-card-heading .research-name, and .mission-xp-line were
      REMOVED with the Gathering AVAILABLE card. The row's id block is .mpane-id / .mpane-glyph

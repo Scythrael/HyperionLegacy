@@ -1327,6 +1327,48 @@ HyperionLegacy.git. Console clean. Screenshot desktop and mobile for the control
 NO emoji, unlike the patrol chip, see Q17), new `src/lib/ui/TeamBadge.svelte` (A / B / C badge, GO-M1 `.badge`).
 **Acceptance:** glyphs reviewed at 16 / 28 / 56 px (screenshot); gate green. Commit `feat(0.14.0): ground ops glyphs + threat chip (Ground Ops GO-10)`.
 
+**Carry from GO-10 (built 2026-10-14, commit `feat(0.14.0): ground ops glyphs + threat chip (Ground Ops GO-10)`):**
+- **Glyphs (icons.ts, each classified in ICON_SEMANTICS).** The plan's twelve: `groundTeam`, `fightPoint`, `medBay`,
+  `offload`, `reload`, `deploy`, `shipDebris`, `shipProbe`, `sensorGhost`, `radiationStorm`, `boarding`, `threatDot`.
+  The squad redesign's (SQ-7): `strikeTeam`, `surveyTeam`, `telescope` (a radio dish: the Precursor Lens relic already
+  owns the tripod telescope), `riskCombat` (crosshair), `riskFauna` (paw), `riskFlora` (leaf), `riskHazard` (a hazard
+  diamond, kept apart from `warning`'s triangle), `blindLaunch` (eye struck through), `lock`, `flag` ("Pick a type").
+  For GO-15's scan pips: `cloakedVessel` (the delta in broken strokes) and `supplyCache` (a lidded crate).
+  Classes: `threatDot`, `lock`, `flag` are `alert`; `offload`, `reload`, `deploy` are `action`; the rest `subject`.
+- **Team kind glyphs** are the PAIR of squads they hold: a front emblem lower left, a back emblem upper right with its
+  hidden part knocked out (shield = Security, flask = Science). Ground = shield + flask, Strike = two shields, Survey =
+  two flasks. `groundOpsAtoms.ts TEAM_KIND_GLYPHS` maps `GroundTeamKind` to them (exhaustive).
+- **`threatDot`** is a solid disc drawn stroke-only (concentric rings closer than the stroke width), so the
+  stroke-only contract holds and the dot takes the tier color through currentColor.
+- **Redrawn during the 16 px review:** `boarding` (a grappling hook read as an anchor; now an arrow driving into the
+  delta's flank), `fightPoint` (pommels and wide guards turned it into a hash mark; kept blades + short guards),
+  `deploy` (an exhaust trail made a stick figure; dropped), the team kind pairs (emblems enlarged), `threatDot` (center
+  pinhole plugged). Sheets reviewed at 16 / 28 / 56 px on the dark theme, the white accent theme and a light ground.
+- **ThreatChip.svelte** (`assessment`, `full`, `context`, `size` md / sm, `maxWidth`): band color border + wash, the SVG
+  dot, the short name (or the full name with `full`); the shared HelpTip bubble shows the full name (when the face is
+  short), the odds phrase and the officer's line; the trigger's accessible name is the whole readout ("Team A odds: A
+  Worthy Adversary. ..."). GO-13 cells: `<ThreatChip assessment={...} size="sm" context="Team A odds" />`.
+- **HelpTip gained two optional props, back-compatible:** a named `tip` slot (rich bubble content; `text` stays the
+  fallback) and `buttonLabel` (overrides "What does X do?" for a chip that is a readout).
+- **TeamBadge.svelte** (`index`, `kind?`, `name?`, `size` md / sm): the GO-M1 `.badge` square (display font, accent
+  letter, the app's `--corner`), the letter by position (`groundTeamShortLabel`), the kind glyph beside it when given;
+  `role="img"` with "Bravo, Strike team" / "Team A" as the name.
+- **Patrol chip converted (GO-6 note):** both App.svelte sites (the patrol row statline, capped at 190 px via
+  `maxWidth`, and the Dispatch popup's Threat assessment row) now render `<ThreatChip ... full />`. The old
+  `.threat-chip*` / `.threat-tooltip*` CSS is deleted; the bubble is now HelpTip's (portaled, flips above near the
+  fold) instead of the hand-rolled absolute tooltip. The `ThreatAssessment.icon` emoji field is REMOVED (no reader
+  left; standing rule). Same visible name, same accessible name, same odds phrase and voice. In passing: the patrol
+  placeholder "Threat &mdash; pick a captain to assess" now reads "Threat: pick a captain to assess" (no em dash).
+- **Not converted (existing prod emoji, outside GO-10):** the patrol row's leading glyph (`mpane-glyph`, a crossed
+  swords emoji) could take `fightPoint` in a later pass.
+- **Contrast note for the user:** the Impossible tier's literal `#7f1d1d` reads dim on the dark panel (an existing
+  ramp color, unchanged here; the ramp is user-approved and theme-independent by design).
+- Tests: `icons.test.ts` +2 (the GO / SQ set is registered; no two names draw identically), new
+  `groundOpsAtoms.test.ts` (8: every tier's chip view has the dot, the band color and no emoji or em dash; short vs
+  full; the patrol accessible name; badge letters by position, kind glyphs, names), `threatAssessment.test.ts` shape
+  test asserts `shortName` and that no `icon` field remains. Suite 4519 -> 4529 passed (1 skipped); `npm run check` 0
+  errors (the 2 known RadialWeb warnings).
+
 ### GO-11: Ground team slotting in AwayTeamPanel (mockup GO-M1)
 
 **Files:** `src/lib/AwayTeamPanel.svelte`, `src/App.svelte` (`doSlotMember`, `doUnslotMember`, `doRenameGroundTeam`,

@@ -54,6 +54,12 @@
   // CHIP MODE (0.14.0, away-team chips): pass content in the default slot and the trigger IS that content
   // (a spec / trait / affinity chip) instead of the round "?". Same open/close/flip/portal behavior; the
   // trigger button just drops its circle styling so the slotted chip keeps its own look.
+  // RICH BUBBLE (0.14.0 GO-10, the ThreatChip): a named `tip` slot replaces the plain `text` inside the
+  // bubble when given (several styled lines); `text` stays the fallback and every existing caller is
+  // unchanged.
+  // Overrides the trigger's accessible name when given. The default ("What does X do?") suits a `?` and a
+  // trait chip; a chip that IS a readout (a threat tier) names itself instead.
+  export let buttonLabel: string | undefined = undefined;
 
   // The bubble's id, so the open trigger points at it (aria-describedby) and a screen reader reads it.
   const bubbleId = `help-tip-${++tipSeq}`;
@@ -144,7 +150,7 @@
     class="help-btn"
     class:help-chip={$$slots.default}
     bind:this={btn}
-    aria-label={`What does "${label}" do?`}
+    aria-label={buttonLabel ?? `What does "${label}" do?`}
     aria-expanded={open}
     aria-describedby={open ? bubbleId : undefined}
     on:click={toggle}
@@ -156,7 +162,7 @@
   ><slot>?</slot></button>
   {#if open}
     <div class="help-bubble" id={bubbleId} use:portal style={bubbleStyle} bind:this={bubble} role="note">
-      {text}
+      {#if $$slots.tip}<slot name="tip" />{:else}{text}{/if}
     </div>
   {/if}
 </span>

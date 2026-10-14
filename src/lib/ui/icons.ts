@@ -195,6 +195,105 @@ export const ICON_PATHS = {
   injury: ["M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"],
   // Recruit: a figure with a plus, the "hire someone" verb (the board and an open squad slot).
   recruit: ["M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z", "M3.5 20c.6-3.6 3.2-6 6.5-6s5.9 2.4 6.5 6", "M19 8v6M16 11h6"],
+
+  // Ground Operations + Squads (0.14.0, GO-10).
+  // The shared atoms for the ground-ops screens (GO-11 to GO-18) and the squad redesign (SQ-7).
+
+  // Team kinds (Squads design 2.1): each is the PAIR of squads it holds, drawn as two small squad emblems,
+  // the front one lower left and the back one upper right with its hidden part knocked out (a 2 unit gap
+  // from the front outline, so the two never merge at 16px). Shield = a Security squad, flask = a Science
+  // squad (the same two marks as `security` and `research`, shrunk). Ground = Security + Science.
+  groundTeam: [
+    "M8 8l6 2.2v4.3c0 3.3-2.5 5.9-6 7.1-3.5-1.2-6-3.8-6-7.1v-4.3z",
+    "M13.76 8l.84-1.5V2M13.5 2h5M17.4 2v4.5l4.3 7.7a1.2 1.2 0 0 1-1.05 1.8H15.8",
+  ],
+  // Strike = Security + Security.
+  strikeTeam: [
+    "M8 8l6 2.2v4.3c0 3.3-2.5 5.9-6 7.1-3.5-1.2-6-3.8-6-7.1v-4.3z",
+    "M10 7V4.6l6-2.2 6 2.2v4.3c0 3.3-2.5 5.9-6 7.1l-.9-.35",
+  ],
+  // Survey = Science + Science.
+  surveyTeam: [
+    "M5.5 7.5h5M6.6 7.5V12L2.3 19.7a1.2 1.2 0 0 0 1.05 1.8h9.3a1.2 1.2 0 0 0 1.05-1.8L9.4 12V7.5",
+    "M11.44 12.16L14.6 6.5V2M13.5 2h5M17.4 2v4.5l4.3 7.7a1.2 1.2 0 0 1-1.05 1.8H13.7",
+  ],
+  // Fight point: two crossed swords (blade and grip in one stroke, a guard across each), the "a fight
+  // happens here" mark on a task bar. The guards are what keep it from reading as `close`; pommel caps and
+  // wider guards were tried and turned it into a hash mark at 16px.
+  fightPoint: ["M4 4l15.5 15.5", "M20 4L4.5 19.5", "M12.5 17.5l5-5", "M6.5 12.5l5 5"],
+  // Medical bay: a rounded panel bearing a cross (the bay), kept apart from `injury` (a bare outline cross,
+  // the member's state).
+  medBay: ["M7 4h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z", "M12 8v8M8 12h8"],
+  // Offload: haul dropping into the ship's hold (an arrow down into a tray). `reload` is its mirror.
+  offload: ["M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14", "M12 3.5v11", "M7.5 10l4.5 4.5 4.5-4.5"],
+  // Reload: the team's kit coming back up out of the hold (an arrow up out of the same tray).
+  reload: ["M4 14v4.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V14", "M12 15V4", "M7.5 8.5L12 4l4.5 4.5"],
+  // Deploy: a lander (the fleet delta, nose down) descending to a planet's horizon. An exhaust trail above
+  // it was tried and turned the glyph into a stick figure at 16px.
+  deploy: ["M12 16L7.5 5l4.5 2.5L16.5 5z", "M3 21c2.5-1.6 5.6-2.5 9-2.5s6.5.9 9 2.5"],
+
+  // Ship-side scan events (GO-8 / GO-9; the GO-15 scan track pips).
+  // Debris field: the fleet delta broken into two drifting shards, with loose fragments.
+  shipDebris: ["M10.5 3.5L3.5 18.5l4.5-2.2.8-5.6z", "M14.2 6.5l6.3 13.5-5-2.4-.6-5.4z", "M17.5 3.5l1.5-.5", "M5 6l-.5-1.5"],
+  // Hostile probe: a satellite body between two solar panels, with an antenna dish on top.
+  shipProbe: ["M9.5 10h5v5h-5z", "M2.5 9h4v7h-4z", "M17.5 9h4v7h-4z", "M6.5 12.5h3M14.5 12.5h3", "M12 10V6.5", "M9.5 5c1.4 1 3.6 1 5 0"],
+  // Sensor ghost: a sheet ghost (a reading that may not be real).
+  sensorGhost: ["M6 20.5V11a6 6 0 0 1 12 0v9.5l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z", "M10 10.5v1.5M14 10.5v1.5"],
+  // Cloaked vessel: the fleet delta drawn in broken strokes (a ship you can only half see). The ghost that
+  // turns out to be a real, hidden ship.
+  cloakedVessel: ["M9.8 7.7L12 3l2.2 4.7", "M15.3 10.1l1.8 3.8M8.7 10.1l-1.8 3.8", "M18.3 16.5L20 20l-3.2-1.6M5.7 16.5L4 20l3.2-1.6", "M14 17l-2-1-2 1"],
+  // Radiation storm: the radiation trefoil (three blades around a core).
+  radiationStorm: [
+    "M13.65 14.86L16.75 20.23A9.5 9.5 0 0 1 7.25 20.23L10.35 14.86A3.3 3.3 0 0 0 13.65 14.86z",
+    "M13.65 9.14L16.75 3.77A9.5 9.5 0 0 1 21.5 12H15.3A3.3 3.3 0 0 0 13.65 9.14z",
+    "M8.7 12H2.5A9.5 9.5 0 0 1 7.25 3.77L10.35 9.14A3.3 3.3 0 0 0 8.7 12z",
+    "M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
+  ],
+  // Boarding: an arrow driving into the fleet delta's flank (hostiles forcing their way aboard). A grappling
+  // hook was tried first and read as an anchor ("docked") at 16px.
+  boarding: ["M9 3l6.5 16-6.5-3.5L2.5 19z", "M22 11.5h-7", "M18 8.5l-3 3 3 3"],
+  // Supply cache: a lidded supply crate with a handle slot (the scan step's small find).
+  supplyCache: ["M4 9h16v11H4z", "M3 5h18v4H3z", "M10 13h4"],
+
+  // Threat dot: the tier marker on a threat chip (GO-10 ThreatChip; replaces the patrol chip's emoji). A
+  // SOLID disc drawn stroke-only: concentric rings 1.5 apart under the 1.75 stroke overlap with no gap, so
+  // the contract (stroke only, currentColor) holds and the dot still takes the tier color; the last hair
+  // segment plugs the pinhole the innermost ring leaves at 56px.
+  threatDot: [
+    "M12 6.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z",
+    "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+    "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z",
+    "M12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
+    "M12 11.9v.2",
+  ],
+
+  // Subspace Telescope (Squads design 6): a radio dish with its feed, a stand and two signal arcs. Not the
+  // optical tripod telescope, which is the Precursor Lens relic.
+  telescope: ["M5 8a7 7 0 0 0 9 9z", "M9.5 12.5l4-4", "M7 16l1.5 4.5", "M5 20.5h7", "M16 4.5a3.5 3.5 0 0 1 3.5 3.5", "M16.5 1.5a6.5 6.5 0 0 1 6 6"],
+  // Risk factors (Squads design 5.1): Combat risk, Fauna, Flora, Hazard.
+  // Combat risk: a crosshair (known enemy territory).
+  riskCombat: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M12 2v5M12 17v5M2 12h5M17 12h5", "M12 11.9v.2"],
+  // Fauna: a paw print (four toes over a pad).
+  riskFauna: [
+    "M8.5 16.5c0-2.5 1.6-4.5 3.5-4.5s3.5 2 3.5 4.5c0 1.7-1.4 2.7-3.5 2.7s-3.5-1-3.5-2.7z",
+    "M6.5 8.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM9.8 4.9a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM14.2 4.9a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2zM17.5 8.4a1.6 1.6 0 1 0 0 3.2 1.6 1.6 0 0 0 0-3.2z",
+  ],
+  // Flora: a leaf on its stem.
+  riskFlora: ["M5 19c0-7.5 5-13 14.5-14.5C18.5 13.5 13 19 5 19z", "M3 21l10-10"],
+  // Hazard: a hazard-label diamond with a bang. A diamond, not `warning`'s triangle, so "this body is
+  // hazardous" never reads as a UI warning.
+  riskHazard: ["M12 2.5l9.5 9.5-9.5 9.5L2.5 12z", "M12 8v5", "M12 16.4v.2"],
+  // Blind launch (Squads design 6.6): an eye struck through (beyond the telescope's range).
+  blindLaunch: [
+    "M3 3l18 18",
+    "M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4.5 9.5 6-.5.8-1.6 2.3-3.2 3.6",
+    "M6.4 7.6C4.6 8.9 3.2 10.6 2.5 12c1 1.5 4.5 6 9.5 6 1.4 0 2.7-.3 3.8-.9",
+    "M9.9 9.9a3 3 0 0 0 4.2 4.2",
+  ],
+  // Lock: a padlock (crew locked while out; "no crew covers it").
+  lock: ["M6 11h12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1z", "M8 11V8a4 4 0 0 1 8 0v3"],
+  // Flag: a pennant on a pole (something waits on your choice, e.g. "Pick a type").
+  flag: ["M5 21V4", "M5 4h12l-2.5 4 2.5 4H5"],
 } as const satisfies Record<string, readonly string[]>;
 
 /**

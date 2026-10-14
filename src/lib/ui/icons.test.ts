@@ -68,6 +68,33 @@ describe("ICON_PATHS", () => {
   });
 });
 
+describe("Ground Operations glyphs (0.14.0 GO-10)", () => {
+  // The set the ground-ops plan (GO-10) and the squads design (SQ-7) name. Same guard as the crafting set
+  // above: a later rename fails here instead of rendering nothing.
+  it("covers the ground ops + squads set", () => {
+    const required: IconName[] = [
+      "groundTeam", "fightPoint", "medBay", "offload", "reload", "deploy",
+      "shipDebris", "shipProbe", "sensorGhost", "radiationStorm", "boarding", "threatDot",
+      "strikeTeam", "surveyTeam", "telescope", "riskCombat", "riskFauna", "riskFlora", "riskHazard",
+      "cloakedVessel", "supplyCache", "blindLaunch", "lock", "flag",
+    ];
+    for (const name of required) {
+      expect(ICON_NAMES, `missing icon: ${name}`).toContain(name);
+    }
+  });
+
+  // One concept, one glyph: no two names may share the same drawing (a copy-paste slip would make two
+  // different things read the same).
+  it("never draws two names identically", () => {
+    const seen = new Map<string, IconName>();
+    for (const name of ICON_NAMES) {
+      const key = (ICON_PATHS[name] as readonly string[]).join("|");
+      expect(seen.get(key), `${name} draws the same as ${seen.get(key)}`).toBeUndefined();
+      seen.set(key, name);
+    }
+  });
+});
+
 describe("iconA11y", () => {
   it("is decorative when no title is given", () => {
     // The default case, and the important one: an icon beside a visible label

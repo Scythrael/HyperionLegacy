@@ -72,8 +72,8 @@ export interface ThreatAssessment {
 	// token, by design; see the header). Named colorHex because it stores a literal hex
 	// value (e.g. "#fbbf24"); the App consumer feeds it into the chip's --threat-color.
 	colorHex: string;
-	// A short glyph shown on the chip (emoji, rendered as the chip's leading icon).
-	icon: string;
+	// (GO-10: the old `icon` emoji field is gone. The chip's leading mark is the SVG `threatDot` glyph in
+	// the tier color, drawn by src/lib/ui/ThreatChip.svelte; standing rule: graphics are SVG, never emoji.)
 	// A COARSE, decimals-free phrase for the tooltip (never the exact percent). It
 	// conveys the rough shape of the odds without the false precision of a number.
 	fuzzyRange: string;
@@ -89,7 +89,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		shortName: "Guaranteed",
 		// Warm gold, distinct from the paler Dice yellow below (the crown tier).
 		colorHex: "#fbbf24",
-		icon: "👑",
 		fuzzyRange: "Not one simulated engagement was lost",
 		voice:
 			"Every projection comes back clean, Admiral. Not a hull lost across the board. Give the order.",
@@ -98,7 +97,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "Likely Victory",
 		shortName: "Likely",
 		colorHex: "#86efac",
-		icon: "🛡️",
 		fuzzyRange: "Roughly 4 in 5 or better fall in your favor",
 		voice:
 			"The odds sit firmly with us, Admiral. Expect a win, though I would not promise it bloodless.",
@@ -107,7 +105,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "A Worthy Adversary",
 		shortName: "Worthy",
 		colorHex: "#bef264",
-		icon: "⚔️",
 		fuzzyRange: "Closer to 3 in 5 in your favor",
 		voice:
 			"A real fight, Admiral. We hold the edge, but this crew will have to earn it.",
@@ -116,7 +113,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "It's Time to Toss the Dice",
 		shortName: "Even",
 		colorHex: "#fde047",
-		icon: "🎲",
 		fuzzyRange: "About a coin toss either way",
 		voice:
 			"Too close to call, Admiral. This one turns on the rolls. Your order, your risk.",
@@ -125,7 +121,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "Not Advised",
 		shortName: "Not Advised",
 		colorHex: "#fb923c",
-		icon: "⚠️",
 		fuzzyRange: "Only about 1 in 3 ends in a win",
 		voice:
 			"I would counsel against it, Admiral. The numbers favor them more often than not.",
@@ -134,7 +129,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "Extreme Challenge",
 		shortName: "Extreme",
 		colorHex: "#ef4444",
-		icon: "🔥",
 		fuzzyRange: "Fewer than 1 in 5 come back a victory",
 		voice:
 			"This is a long shot, Admiral. Most projections end with us adrift and burning.",
@@ -143,7 +137,6 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 		name: "Impossible",
 		shortName: "Impossible",
 		colorHex: "#7f1d1d",
-		icon: "💀",
 		fuzzyRange: "No simulated engagement was won",
 		voice:
 			"We cannot win this as we stand, Admiral. Install stronger gear before you commit the crew.",

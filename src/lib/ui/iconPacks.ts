@@ -71,6 +71,12 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   check: "alert",
   // Injury marks a member who cannot deploy, an ATTENTION meaning a pack must keep readable.
   injury: "alert",
+  // Ground Ops / Squads (0.14.0 GO-10). The threat dot carries the tier color, the one read of how risky a
+  // fight is; the lock marks something blocked (crew lock, "no crew covers it"); the flag marks a choice
+  // still waiting on the player ("Pick a type"). A pack must keep all three readable as what they are.
+  threatDot: "alert",
+  lock: "alert",
+  flag: "alert",
 
   // SUBJECT: names a thing. Restyling freely is the whole point of a pack.
   refinery: "subject",
@@ -115,6 +121,27 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   weaponHand: "subject",
   tool: "subject",
   implant: "subject",
+  // Ground Ops / Squads (0.14.0 GO-10): team kinds, the scan events, the telescope and the four risk
+  // factors each NAME a thing (a team type, an event, a facility, a factor).
+  groundTeam: "subject",
+  strikeTeam: "subject",
+  surveyTeam: "subject",
+  medBay: "subject",
+  shipDebris: "subject",
+  shipProbe: "subject",
+  sensorGhost: "subject",
+  cloakedVessel: "subject",
+  radiationStorm: "subject",
+  boarding: "subject",
+  supplyCache: "subject",
+  telescope: "subject",
+  riskCombat: "subject",
+  riskFauna: "subject",
+  riskFlora: "subject",
+  riskHazard: "subject",
+  blindLaunch: "subject",
+  // A fight point marks WHERE a fight happens on a task bar: a thing on the bar, not an action.
+  fightPoint: "subject",
 
   // ACTION: something the player does. Should stay recognisable as that action.
   salvage: "action",
@@ -122,6 +149,10 @@ export const ICON_SEMANTICS: Record<IconName, IconSemantic> = {
   close: "action",
   study: "action",
   recruit: "action",
+  // Ground Ops (0.14.0 GO-10): the team's return-trip and outbound steps.
+  offload: "action",
+  reload: "action",
+  deploy: "action",
 
   // ORNAMENT: structure and direction. Least restricted.
   clock: "ornament",

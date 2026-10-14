@@ -87,7 +87,7 @@ describe("threatAssessment -- rate bands + boundary values", () => {
 });
 
 describe("threatAssessment -- returned content shape", () => {
-	it("every tier returns a non-empty name, color, icon, fuzzyRange, voice", () => {
+	it("every tier returns a non-empty name, shortName, color, fuzzyRange, voice and no emoji", () => {
 		// Drive one representative sample into each of the seven tiers and assert the
 		// content fields are all populated (no blank chip / tooltip anywhere).
 		const cases: Array<[number, number, ThreatTier]> = [
@@ -104,7 +104,9 @@ describe("threatAssessment -- returned content shape", () => {
 			expect(a.tier).toBe(tier);
 			expect(a.name.length).toBeGreaterThan(0);
 			expect(a.colorHex.length).toBeGreaterThan(0);
-			expect(a.icon.length).toBeGreaterThan(0);
+			expect(a.shortName.length).toBeGreaterThan(0);
+			// GO-10: the chip mark is the SVG threatDot glyph; no tier carries an emoji field any more.
+			expect("icon" in a).toBe(false);
 			expect(a.fuzzyRange.length).toBeGreaterThan(0);
 			expect(a.voice.length).toBeGreaterThan(0);
 		}
