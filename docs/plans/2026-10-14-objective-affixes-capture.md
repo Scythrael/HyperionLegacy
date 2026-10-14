@@ -17,11 +17,11 @@ the doubled crew pools its squads but works one objective at a time (throughput 
 smash an unprepared team against a wall until the wall breaks. Some missions should wall the player. So I present a new
 system that we should honestly make use of elsewhere in the project too. Hopefully this addition shouldn't be too
 crazy. Affixes. In this case, a deadly rating should have a default affix applied to it for combat-related missions. An
-affix that states \"The faction occupying this point is quick to reinforce their teams. This will lead to a random
+affix that states "The faction occupying this point is quick to reinforce their teams. This will lead to a random
 chance of additional battles to clear out this objective. (I like objectives over tasks honestly). In addition, should
-you retreat or fail this mission, the compliment of enemy forces will be reinforced before your next visit.\" Or
+you retreat or fail this mission, the compliment of enemy forces will be reinforced before your next visit." Or
 something to that end. Perhaps more concise in the tooltip, but the help menu that will define things (that will still
-exist, of course) will better explain that this affix (perhaps the affix could be named \"Reinforcing\"). Affixes can be
+exist, of course) will better explain that this affix (perhaps the affix could be named "Reinforcing"). Affixes can be
 required for specific difficulty ratings, and as things grow harder, you can roll affixes (good and bad) for various
 things. An affix that makes an already dangerous task more dangerous (even if it's not of deadly rating, even easier
 combat-related options can roll the Reinforcing affix. In addition, there can be new affixes that can roll with higher
