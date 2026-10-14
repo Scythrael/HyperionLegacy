@@ -86,3 +86,20 @@ Coordinator reading:
 - **Future difficulty tiers:** affix pools keyed by (tier, difficulty, difficultyTier) with difficultyTier fixed at the
   base tier today; nothing else built.
 - **Deterministic, pure:** the alert level is a pure function of stored attempt outcomes and times (offline == live).
+
+## 5. Reinforcing ranks up to X and failure escalation (user, 2026-10-14, verbatim)
+
+"With higher rankings of Reinforcing, it not only increases the chance of battle, higher ranks can increase the number
+of possible battles it can roll too. So if we go up as high as Reinforcing X (I think we might, and other affixes won't
+have a ton of different levels for balancing reasons), you might get something stupid like 50% chance of 5 additional
+battles and if you fail, we have to discuss that particular part. How does it become harder? Additional enemies, and
+they gain a heightened senses buff that gives them additional stacking damage until the alert wears off?"
+
+Coordinator proposal (PROVISIONAL, sent to the user to confirm):
+- Ranks I to X. Extra-battle chance per visit: I 25%, II 35%, III 40% (user), then rising to X 50% (user's example).
+  Maximum extra battles per visit: I-II 1, III-IV 2, V-VI 3, VII-VIII 4, IX-X 5 (X = up to 5, user's example).
+- Each retreat or wipe raises the ALERT level until it decays: per level, each fight fields +1 more enemy, and the
+  enemies gain a stacking "Heightened Senses" damage buff (per alert level, on the D23 diminishing curve: never capped,
+  each stack worth a bit less). Both clear when the alert resets ("the threat appears to have retreated"). This
+  replaces section 4's generic "enemy strength up".
+- Other affixes keep only a few ranks (user: "for balancing reasons").
