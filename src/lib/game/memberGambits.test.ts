@@ -14,6 +14,7 @@ import {
   memberHasOwnGambit,
   memberSecuritySquadmates,
   moveMemberGambitRule,
+  squadmatesCopyWouldChange,
   removeMemberGambitRule,
   resetMemberGambit,
   setMemberGambitRule,
@@ -207,6 +208,18 @@ describe("copy to squad", () => {
     expect("gambit" in byId(next, "member-2")).toBe(false);
   });
 
+  it("squadmatesCopyWouldChange names only the squadmates whose program a copy changes", () => {
+    let s = applyMemberGambitPreset(crew(), "member-4", "triage");
+    expect(squadmatesCopyWouldChange(s, "ship-1", "member-4")).toEqual(["member-5"]);
+    s = copyMemberGambitToSquad(s, "ship-1", "member-4");
+    expect(squadmatesCopyWouldChange(s, "ship-1", "member-4")).toEqual([]);
+    // both on the default: nobody changes
+    expect(squadmatesCopyWouldChange(crew(), "ship-1", "member-1")).toEqual([]);
+    // a squadmate with their own program changes when the source is on the default
+    s = applyMemberGambitPreset(crew(), "member-2", "triage");
+    expect(squadmatesCopyWouldChange(s, "ship-1", "member-1")).toEqual(["member-2"]);
+  });
+
   it("refuses with the same state when nobody would change", () => {
     const s = crew();
     expect(copyMemberGambitToSquad(s, "ship-1", "member-1")).toBe(s); // both on the default
@@ -220,6 +233,15 @@ describe("combat reads the edited program", () => {
   it("the dispatch snapshot freezes the member's own program (an edit reaches the next launch only)", () => {
     const s = applyMemberGambitPreset(crew(), "member-1", "decapitate");
     const snap = snapshotMember(byId(s, "member-1"), []);
-    expect(snap.gambit).toEqual(byId(s, "member-1").gambit);
+    const stored = byId(s, "member-1").gambit as GambitProgram;
+    expect(snap.gambit).toEqual(stored);
+    expect(snap.gambit).not.toBe(stored);
+    const frozen = JSON.parse(JSON.stringify(snap.gambit));
+    // a later edit (a new rule, a preset, a reset) never reaches the frozen program
+    let later = addMemberGambitRule(s, "member-1", { target: "self", action: "hold" });
+    later = applyMemberGambitPreset(later, "member-1", "triage");
+    later = resetMemberGambit(later, "member-1");
+    expect(later).not.toBe(s);
+    expect(snap.gambit).toEqual(frozen);
   });
 });

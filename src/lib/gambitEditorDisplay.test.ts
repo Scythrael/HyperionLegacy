@@ -109,6 +109,20 @@ describe("gambitEditorView", () => {
     expect(v.member?.presetId).toBeNull();
   });
 
+  it("the copy is off with a reason when every squadmate already runs the program", () => {
+    let s = applyMemberGambitPreset(crew(), "member-1", "triage");
+    let v = gambitEditorView(s, { shipId: "ship-1", teamIndex: 0, memberId: "member-1" });
+    expect(v.member?.copyBlockedText).toBeNull();
+    expect(v.member?.copyTargets).toEqual(["Ossra"]);
+    s = applyMemberGambitPreset(s, "member-2", "triage");
+    v = gambitEditorView(s, { shipId: "ship-1", teamIndex: 0, memberId: "member-1" });
+    expect(v.member?.copyBlockedText).toBe("Everyone in this squad already runs it.");
+    expect(v.member?.copyTargets).toEqual([]);
+    // both on the default
+    v = gambitEditorView(crew(), { shipId: "ship-1", teamIndex: 0, memberId: "member-1" });
+    expect(v.member?.copyBlockedText).toBe("Everyone in this squad already runs it.");
+  });
+
   it("a lone member has nobody to copy to and says so", () => {
     const v = gambitEditorView(crew(), { shipId: "ship-1", teamIndex: 1, memberId: "member-3" });
     expect(v.member?.squadmates).toEqual([]);
@@ -146,6 +160,21 @@ describe("gambitEditorView", () => {
       "This ship is on an expedition: its teams fight with the programs they launched with. Changes apply from the next launch.",
     );
     expect(gambitEditorView(s, {}).launchedText).toBeNull();
+  });
+
+  it("a finished run awaiting its claim reads as back, not out on an expedition", () => {
+    const s = crew();
+    const back = { ...s, expeditions: [{ id: "exp-1", shipId: "ship-1", phase: "complete" } as unknown as Expedition] };
+    expect(gambitEditorView(back, {}).launchedText).toBe(
+      "This ship is back from an expedition, awaiting its claim. Changes apply from the next launch.",
+    );
+  });
+
+  it("a ship pick that falls back drops the team pick of the old ship", () => {
+    const v = gambitEditorView(crew(), { shipId: "ship-9", teamIndex: 1, memberId: "member-4" });
+    expect(v.shipId).toBe("ship-1");
+    expect(v.teamIndex).toBe(0);
+    expect(v.member?.id).toBe("member-1");
   });
 
   it("player-facing text has no em dashes or double hyphens", () => {

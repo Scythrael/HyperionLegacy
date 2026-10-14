@@ -62,6 +62,15 @@
   let pickMemberId: string | null = null;
 
   $: view = gambitEditorView(state, { shipId: pickShipId, teamIndex: pickTeamIndex, memberId: pickMemberId });
+  // The picked ship fell back to another (sold, gone): drop the old ship's team and member picks too. A
+  // function, so the writes are not a reactive cycle (view reads the picks); the view converges next flush.
+  function syncPickToView(shipId: string | null): void {
+    if (pickShipId === null || shipId === pickShipId) return;
+    pickShipId = shipId;
+    pickTeamIndex = null;
+    pickMemberId = null;
+  }
+  $: syncPickToView(view.shipId);
   $: member = view.member;
   $: showAccountNotice = accountPairNoticeShown(state);
 
@@ -426,7 +435,7 @@
           on:click={() => member && view.shipId && onCopyToSquad(view.shipId, member.id)}
         >{member.copyLabel}</button>
         <span class="ge-note">
-          {#if member.copyBlockedText}{member.copyBlockedText}{:else}Gives {nameList(member.squadmates)} a copy of this program.{/if}
+          {#if member.copyBlockedText}{member.copyBlockedText}{:else}Gives {nameList(member.copyTargets)} a copy of this program.{/if}
         </span>
       </div>
       <div class="ge-squad-row">
@@ -623,12 +632,15 @@
     text-transform: uppercase;
     color: var(--color-text-dim);
   }
+  /* NARROW (stacked) row: the arrow takes its own line between Target and Action and points DOWN, so the
+     stacked row still reads target, then arrow, then action. The wide container query turns it back. */
   .ge-arrow {
-    flex: 0 0 auto;
+    flex: 1 0 100%;
     display: inline-flex;
+    justify-content: center;
     color: var(--color-accent-bright);
     align-self: center;
-    padding-top: 12px;
+    transform: rotate(90deg);
   }
   .ge-select {
     width: 100%;
@@ -814,7 +826,8 @@
       flex: 1 1 40%;
     }
     .ge-arrow {
-      padding-top: 0;
+      flex: 0 0 auto;
+      transform: none;
     }
   }
 </style>

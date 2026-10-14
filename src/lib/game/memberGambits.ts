@@ -154,6 +154,16 @@ export function memberSecuritySquadmates(state: GameState, shipId: string, membe
     .filter((id): id is string => id !== null && id !== memberId);
 }
 
+// The squadmates (memberSecuritySquadmates) whose stored program a COPY TO SQUAD would actually change, in
+// slot order: empty when every squadmate already runs the member's program (or the member is not Security).
+// The editor disables the copy on empty; the host's log names exactly these. Pure.
+export function squadmatesCopyWouldChange(state: GameState, shipId: string, memberId: string): string[] {
+  const source = securityMember(state, memberId);
+  if (!source) return [];
+  const program = Array.isArray(source.gambit) ? source.gambit : null;
+  return memberSecuritySquadmates(state, shipId, memberId).filter((id) => writeMemberGambit(state, id, program) !== state);
+}
+
 // COPY TO SQUAD: give each squadmate (memberSecuritySquadmates) the member's program as their own copy. A
 // member on the default puts the squadmates back on the default (their own programs cleared), so they keep
 // following the built-in one. Refuses (same state) when nobody would change. Pure.

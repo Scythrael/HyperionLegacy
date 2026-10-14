@@ -63,11 +63,11 @@
     addMemberGambitRule,
     applyMemberGambitPreset,
     copyMemberGambitToSquad,
-    memberSecuritySquadmates,
     moveMemberGambitRule,
     removeMemberGambitRule,
     resetMemberGambit,
     setMemberGambitRule,
+    squadmatesCopyWouldChange,
   } from "./lib/game/memberGambits";
   import { nameList } from "./lib/groundTeamDisplay";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
@@ -5688,7 +5688,7 @@
   }
   // COPY TO SQUAD: the member's program to the rest of their own Security squad.
   function doCopyMemberGambitToSquad(shipId: string, memberId: string) {
-    const mates = memberSecuritySquadmates(state, shipId, memberId);
+    const mates = squadmatesCopyWouldChange(state, shipId, memberId); // only those whose program changes
     const next = copyMemberGambitToSquad(state, shipId, memberId);
     if (next === state) return; // nobody else in the squad, or they already run it
     state = next;

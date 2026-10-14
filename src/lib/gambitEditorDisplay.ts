@@ -16,6 +16,7 @@ import {
   memberGambitProgram,
   memberHasOwnGambit,
   memberSecuritySquadmates,
+  squadmatesCopyWouldChange,
 } from "./game/memberGambits";
 import { awayShipName } from "./awayTeamDisplay";
 
@@ -50,7 +51,8 @@ export interface GambitMemberEditView {
   presetId: string | null; // the preset their own program matches, else null
   hasOwn: boolean; // false = running the built-in default
   squadLabel: string;
-  squadmates: string[]; // names of the other members a "Copy to squad" reaches
+  squadmates: string[]; // names of the other members of the squad
+  copyTargets: string[]; // names of the squadmates a copy would actually change
   copyLabel: string;
   copyBlockedText: string | null; // why the copy is off, or null
 }
@@ -90,6 +92,8 @@ export function accountPairNoticeShown(state: Pick<GameState, "gambitPrograms">)
 
 export const LAUNCHED_TEXT =
   "This ship is on an expedition: its teams fight with the programs they launched with. Changes apply from the next launch.";
+// A finished run still waiting for its claim (phase "complete"): nobody fights any more, the ship is back.
+export const AWAITING_CLAIM_TEXT = "This ship is back from an expedition, awaiting its claim. Changes apply from the next launch.";
 
 function programLabel(member: Parameters<typeof matchedMemberPreset>[0]): string {
   if (!memberHasOwnGambit(member)) return "Default";
@@ -116,9 +120,12 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
     kind: t.kind,
     securityMembers: securityIds(index).length,
   }));
-  const picked = typeof pick.teamIndex === "number" ? teams[pick.teamIndex] : undefined;
+  // A ship pick that fell back (sold, gone) drops the old ship's team and member picks too.
+  const sameShip = pick.shipId === ship.id;
+  const picked = sameShip && typeof pick.teamIndex === "number" ? teams[pick.teamIndex] : undefined;
   const team = picked ?? teams.find((t) => t.securityMembers > 0) ?? teams[0];
-  const launchedText = state.expeditions.some((e) => e.shipId === ship.id) ? LAUNCHED_TEXT : null;
+  const run = state.expeditions.find((e) => e.shipId === ship.id);
+  const launchedText = !run ? null : run.phase === "complete" ? AWAITING_CLAIM_TEXT : LAUNCHED_TEXT;
 
   const squadCount = squadsOfType(team.kind, "security");
   const squads: GambitSquadOption[] = [];
@@ -138,14 +145,16 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
     return { ...base, member: null, emptyText: `${team.name} is a ${teamKindName(team.kind)} team: it fields no Security squad, so nobody on it fights.` };
   }
   const all = squads.flatMap((q, k) => q.members.map((m) => ({ ...m, k })));
-  const chosen = all.find((m) => m.id === pick.memberId) ?? all[0];
+  const chosen = (sameShip ? all.find((m) => m.id === pick.memberId) : undefined) ?? all[0];
   if (!chosen) {
     return { ...base, member: null, emptyText: `No Security member is slotted in ${team.name}. Slot one on the ship's Away Team tab.` };
   }
   const m = byId.get(chosen.id);
   if (!m) return { ...base, member: null, emptyText: null };
   const squadLabel = squads[chosen.k].label;
-  const squadmates = memberSecuritySquadmates(state, ship.id, m.id).map((id) => byId.get(id)?.name ?? id);
+  const nameOf = (id: string) => byId.get(id)?.name ?? id;
+  const squadmates = memberSecuritySquadmates(state, ship.id, m.id).map(nameOf);
+  const copyTargets = squadmatesCopyWouldChange(state, ship.id, m.id).map(nameOf);
   return {
     ...base,
     emptyText: null,
@@ -158,8 +167,14 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
       hasOwn: memberHasOwnGambit(m),
       squadLabel,
       squadmates,
+      copyTargets,
       copyLabel: squadmates.length === 0 || squadCount === 1 ? "Copy to squad" : `Copy to ${squadLabel}`,
-      copyBlockedText: squadmates.length === 0 ? "Nobody else is slotted in this squad." : null,
+      copyBlockedText:
+        squadmates.length === 0
+          ? "Nobody else is slotted in this squad."
+          : copyTargets.length === 0
+            ? "Everyone in this squad already runs it."
+            : null,
     },
   };
 }
