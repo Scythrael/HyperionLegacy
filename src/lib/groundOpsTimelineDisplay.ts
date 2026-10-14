@@ -575,7 +575,7 @@ export function shipNowText(exp: Expedition, ship: ShipInstance | null | undefin
       const who = crewText(ship, groundLegTeams(pos.leg));
       return now < pos.leg.arrivesAt
         ? `Flying to pick up ${who} · arrives in ${spanText(Math.ceil(pos.leg.arrivesAt - now))}`
-        : `Bringing ${who} back · ${leftText(pos.leg.endsAt, now)}`;
+        : `${who} aboard · returning to ${pos.leg.scanBodyIndex === null ? "station" : "the scan"} · ${leftText(pos.leg.endsAt, now)}`;
     }
     case "repair": {
       const leg = pos.leg;

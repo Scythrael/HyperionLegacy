@@ -511,6 +511,11 @@ describe("GO-14 the ship's lane", () => {
     expect(pickup.label).toBe(`shared pickup: ${runTeamName(ship, 0)} + ${runTeamName(ship, 1)}`);
     expect(pickup.current).toBe(true);
     expect(view.ship.nowText).toBe(`Flying to pick up ${runTeamName(ship, 0)} + ${runTeamName(ship, 1)} · arrives in 3m 20s`);
+    // After pickup the crew is aboard while the ship flies back: say so, not "bringing back".
+    expect(shipNowText(e, ship, T0 + 1400)).toBe(`${runTeamName(ship, 0)} + ${runTeamName(ship, 1)} aboard · returning to the scan · 3m 20s left`);
+    const late = structuredClone(e);
+    late.groundOps!.shipLegs[0].scanBodyIndex = null;
+    expect(shipNowText(late, ship, T0 + 1400)).toBe(`${runTeamName(ship, 0)} + ${runTeamName(ship, 1)} aboard · returning to station · 3m 20s left`);
     // The repair (future, past the axis end) is not drawn yet; later it is, with its legs in words.
     expect(segs.some((s) => s.category === "repair")).toBe(false);
     const later = timelineView(e, ship, T0 + 2500, "whole", stub)!;

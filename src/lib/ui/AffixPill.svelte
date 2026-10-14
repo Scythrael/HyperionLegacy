@@ -34,7 +34,7 @@
     border: 1px solid var(--affix-color);
     border-radius: 999px;
     overflow: hidden;
-    font-size: var(--text-2xs);
+    font-size: var(--text-xs);
     line-height: 1.3;
     white-space: nowrap;
   }
