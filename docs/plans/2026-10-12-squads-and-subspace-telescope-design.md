@@ -1316,3 +1316,22 @@ memo key (SQ-6 follow-up 2)`):**
   winner gives way and says so, coverage first, null skips); launchPreview.test.ts 18 -> 20 (the lazy list, the
   memo key); the candidate tests read the view through `expeditionLaunchView`. Suite 4449 -> 4452 passed (1
   skipped); `npm run check` 0 errors. Every golden and parity test unchanged.
+
+**Carry from SQ-6 follow-up 3 (built 2026-10-13, commit `feat(0.14.0): launch odds weigh in from Tier III (SQ-6
+follow-up 3)`; coordinator applied option (a), the user's "Tiers I and II stay simple"):**
+- `recommendLaunch` weighs the fight odds only when `preview.tier > SAFE_NEEDS_MAX_TIER` (riskFactors.ts, the same
+  boundary as tierNeeds' safe tiers, reused so the two can never drift apart). At Tiers I and II the odds reader is
+  never called: the pure coverage / solo share / balance / fewest changes / Ground + Ground ranking stands and no
+  launch is simulated. The GO-6 "clear in one go" threat semantics are unchanged (option (b) not built).
+- Sweep re-run (400 systems each, current Ground + Ground): Tier I at rank 10, 5 and 3 alike: Ground + Ground 322,
+  Survey + Ground 78; odds decided 0, simulated launches 0. Tier II at rank 10, 5 and 3 alike: Ground + Ground 353,
+  Survey + Ground 46, Strike + Ground 1; odds decided 0, simulated launches 0. Tier IV in enemy territory unchanged
+  from follow-up 2 (rank 10: 226 / 117 / 41 / 16, odds decided 20; rank 5: 187 / 163 / 40 / 10, 71; rank 3: 164 /
+  185 / 42 / 9, 95; Ground + Ground / Strike + Survey / Strike + Ground / Survey + Ground).
+- **Balance-pass item:** Tier I and II fight odds read low (below A Worthy Adversary on many tasks) for ordinary crews,
+  even rank 10; the gate hides it from the recommendation, but the Tier I guard strength still needs the check the
+  balance note above asks for.
+- Tests: launchRecommendation.test.ts 20 -> 21 (the odds tests moved to a Tier III twin of the mixed system; Tiers I
+  and II never call the reader and equal the odds-free recommendation); launchPreview.test.ts Level 5 (today's Tier I
+  systems read no odds). Suite 4452 -> 4453 passed (1 skipped); `npm run check` 0 errors; every golden and parity
+  test unchanged.

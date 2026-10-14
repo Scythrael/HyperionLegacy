@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BodyRiskGrades, GroundTaskNeeds, GroundTeamKind, RegionTier } from "./model";
+import { SAFE_NEEDS_MAX_TIER } from "./riskFactors";
 import {
   compositionChanges,
   gateLaunchView,
@@ -234,7 +235,10 @@ describe("the detail gate (design 6.3): nothing is computed or shown below its l
   });
 });
 
-describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13)", () => {
+describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13), and only from Tier III", () => {
+  // The mixed system, as if it lay in Tier III (the odds step's first tier).
+  const MIXED_T3: SystemTaskPreview = { ...MIXED_T2, tier: 3 };
+
   // A reader keyed by the sorted kinds, counting its calls.
   function reader(table: Record<string, number | null>) {
     const calls: string[] = [];
@@ -248,7 +252,7 @@ describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13)", () => {
 
   it("the winner at A Worthy Adversary or better stays, and only its odds are read", () => {
     const { oddsOf, calls } = reader({ "ground+ground": 0.62, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
-    const rec = recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!;
+    const rec = recommendLaunch(MIXED_T3, "generalFreighter", GG, oddsOf)!;
     expect(rec).toMatchObject({ kinds: GG, isCurrent: true, oddsDecided: false, riskyFightsText: null });
     expect(calls).toEqual(["ground+ground"]);
     expect(rec.ranked[0]).toMatchObject({ fightOdds: 0.62, oddsTier: "worthy", oddsName: "A Worthy Adversary" });
@@ -257,7 +261,7 @@ describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13)", () => {
 
   it("a risky winner gives way to the covering mix with the best better band, and says so", () => {
     const { oddsOf, calls } = reader({ "ground+ground": 0.45, "ground+strike": 0.7, "ground+survey": 0.3, "strike+survey": 0.85 });
-    const rec = recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!;
+    const rec = recommendLaunch(MIXED_T3, "generalFreighter", GG, oddsOf)!;
     expect(rec.kinds).toEqual(SV); // Likely Victory beats A Worthy Adversary
     expect(rec.oddsDecided).toBe(true);
     expect(rec.headline).toBe("Launch with Strike + Survey");
@@ -273,9 +277,20 @@ describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13)", () => {
     expect(rec.riskyFightsText).toBe("The fights read risky (Not Advised) and no mix on this hull reads better.");
   });
 
+  it("Tiers I and II stay simple: the odds reader is never called there, however risky the fights", () => {
+    for (const p of [CALM_T1, MIXED_T2]) {
+      const { oddsOf, calls } = reader({ "ground+ground": 0, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
+      const rec = recommendLaunch(p, "generalFreighter", GG, oddsOf)!;
+      expect(calls).toEqual([]);
+      expect(rec).toEqual(recommendLaunch(p, "generalFreighter", GG));
+      expect(rec).toMatchObject({ oddsDecided: false, riskyFightsText: null });
+    }
+    expect(SAFE_NEEDS_MAX_TIER).toBe(2); // the gate reuses the safe tiers' boundary
+  });
+
   it("unknown odds (null) leave the ranking as it is", () => {
     const { oddsOf } = reader({ "ground+ground": null, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
-    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!).toMatchObject({ kinds: GG, oddsDecided: false, riskyFightsText: null });
+    expect(recommendLaunch(MIXED_T3, "generalFreighter", GG, oddsOf)!).toMatchObject({ kinds: GG, oddsDecided: false, riskyFightsText: null });
   });
 });
 

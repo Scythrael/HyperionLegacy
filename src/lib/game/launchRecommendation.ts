@@ -24,7 +24,8 @@
 //   the weighted mean clear rate of the crews its plan would send on the previewed fights) are read; when they fall
 //   below ODDS_RISKY_BELOW ("A Worthy Adversary"), the covering mix (the same coverage) with the best band strictly
 //   above the winner's takes its place (ties: the ranking's order). The simplest mix stays whenever the fights are
-//   not risky, so Tiers I and II stay simple; only the winner's odds are read then (one simulated launch).
+//   not risky; only the winner's odds are read then (one simulated launch). The odds weigh in only from Tier III
+//   (beyond riskFactors.ts SAFE_NEEDS_MAX_TIER): at Tiers I and II the ranking above stands, no launch simulated.
 //   Output: the best composition, a headline and a one-line reason, and what the CURRENT composition would leave
 //   unfinished (only possible from Tier III: tierNeeds keeps Tiers I and II fieldable by every valid
 //   composition). Applying it is groundTeams.ts applyComposition (SQ-7's "Set composition").
@@ -35,7 +36,7 @@
 
 import type { BodyRiskGrades, GroundTaskNeeds, GroundTeamKind, RegionTier, ShipTypeKey } from "./model";
 import { compositionLabel, compositionSquads, securitySquadsOf, squadsOfType, validCompositions } from "./groundComposition";
-import { DIFFICULTY_NAMES, difficultyWeight, hostileSiteFieldable, isHostileSiteId } from "./riskFactors";
+import { DIFFICULTY_NAMES, SAFE_NEEDS_MAX_TIER, difficultyWeight, hostileSiteFieldable, isHostileSiteId } from "./riskFactors";
 import { TELESCOPE_DETAIL, type SystemTelescopeReading } from "./telescope";
 import { groundSiteLabel } from "./expeditionContent";
 import { THREAT_TIER_ORDER, threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
@@ -391,7 +392,10 @@ export function recommendLaunch(
   let oddsDecided = false;
   let riskyFightsText: string | null = null;
   let oddsReason: string | null = null;
-  if (oddsOf) {
+  // Follow-up 3 (user: "Tiers I and II stay simple"): the odds weigh in only beyond the safe tiers (riskFactors.ts
+  // SAFE_NEEDS_MAX_TIER, the same boundary as tierNeeds, so the two never drift apart). At Tiers I and II the
+  // reader is never called: the pure ranking stands and no launch is simulated.
+  if (oddsOf && preview.tier > SAFE_NEEDS_MAX_TIER) {
     const withOdds = (r: CompositionScore): CompositionScore => scoreComposition(preview, r.kinds, current, oddsOf(r.kinds));
     const top = withOdds(ranked[0]);
     ranked = [top, ...ranked.slice(1)];

@@ -167,8 +167,8 @@ describe("the candidate carries only what its detail shows", () => {
       const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
       const oddsOf = (kinds: readonly GroundTeamKind[]) => compositionFightOdds(s5, "ship-1", c.seed, kinds, preview);
       expect(c.telescope.recommendation).toEqual(recommendLaunch(preview, "generalFreighter", ["ground", "ground"], oddsOf));
-      // The winner's odds are always read (one simulated launch); the rest only when they read risky.
-      expect(c.telescope.recommendation!.ranked[0].fightOdds === null && preview.tasks.some((t) => t.fightPoints > 0)).toBe(false);
+      // Today's systems are Tier I: the odds never weigh in there (follow-up 3), so no launch is simulated.
+      expect(c.telescope.recommendation!.ranked.every((r) => r.fightOdds === null)).toBe(true);
       expect(c.telescope.forecast).toBeNull();
     }
   });
