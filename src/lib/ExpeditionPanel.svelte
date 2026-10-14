@@ -539,7 +539,7 @@
         <div class="exp-section-tag">System scan · {scanPct}%</div>
         {#if scanKey && scanKey.entries.length > 0}
           <!-- GO-15: the scan tracks' key row (SVG glyphs, the words beside them). -->
-          <div class="exp-scan-key" aria-label="Scan event key">
+          <div class="exp-scan-key" role="group" aria-label="Scan event key">
             {#each scanKey.entries as entry (entry.glyph)}
               <span class="exp-scan-key-one"><Icon name={entry.glyph} size={12} /> {entry.text}</span>
             {/each}

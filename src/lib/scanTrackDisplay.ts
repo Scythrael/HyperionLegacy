@@ -20,6 +20,7 @@
 import type { Expedition, ExpeditionFinding, ExpeditionScanEvent, ShipScanEventKind } from "./game/model";
 import { ITEMS } from "./game/model";
 import { BOARDING_PAUSE_SECONDS } from "./game/shipScanEvents";
+import { groundSiteLabel, poisForPlanetType } from "./game/expeditionContent";
 import { spanText } from "./groundOpsTimelineDisplay";
 import type { IconName } from "./ui/icons";
 
@@ -41,6 +42,7 @@ export interface ScanPipView {
   pauseText: string | null; // "Scan paused 5m"
   sentence: string; // the log line
   ariaLabel: string; // "At 30% of the scan: Debris field, Hit. <sentence>"
+  title: string; // the pip's tooltip: "30%: Debris field, Hit. Scan paused 2m" (outcome and pause)
   battleLog: boolean; // a legacy ground battle: the panel can re-derive its round log
 }
 
@@ -89,6 +91,45 @@ function findingOf(run: ScanTrackRun, event: ExpeditionScanEvent): ExpeditionFin
   return event.findingId === undefined ? undefined : run.findings.find((f) => f.id === event.findingId);
 }
 
+// GO-15 review: boarders who got aboard take their credits from the run's finds IN PLACE, newest first, the event's own
+// salvage included (shipScanEvents.ts takeBoardingLoss), so a find recorded at or before such a boarding now reads as
+// the boarders left it. The original cannot be rebuilt with certainty, so the words say "after boarders" instead of
+// guessing. True when a boarding at or after `event` (scan order: body, then step) took credits. Pure.
+function boardersTookAfter(run: ScanTrackRun, event: ExpeditionScanEvent): boolean {
+  return (run.scanEvents ?? []).some(
+    (ev) =>
+      (ev.boarding?.creditsLost ?? 0) > 0 &&
+      (ev.bodyIndex > event.bodyIndex || (ev.bodyIndex === event.bodyIndex && ev.step >= event.step)),
+  );
+}
+
+// A find's contents with its label ("Salvage: ..." / "Salvage (after boarders): ..."); `emptied` when boarders took
+// everything it held; null when there is nothing to say. Pure.
+function findWords(run: ScanTrackRun, event: ExpeditionScanEvent, label: string): { text: string } | { emptied: true } | null {
+  const finding = findingOf(run, event);
+  if (!finding) return null;
+  const after = boardersTookAfter(run, event);
+  const held = findingContentsText(finding);
+  if (held === null) return after ? { emptied: true } : null;
+  return { text: `${label}${after ? " (after boarders)" : ""}: ${held}` };
+}
+
+// The bonus discovery a ghost read true earned on a SCANNED body: the engine appends one per true ghost, LAST, in
+// event order, from the body's planet pools (expedition.ts assignDiscoveriesAndActivities), and adds none only when
+// both pools are empty. Null when it cannot be named with certainty (then the line says nothing extra). Pure.
+function ghostDiscoveryLabel(run: ScanTrackRun, event: ExpeditionScanEvent): string | null {
+  const body = run.bodies[event.bodyIndex];
+  if (!body || !body.scanned) return null;
+  const pools = poisForPlanetType(body.planetType);
+  if (pools.surface.length === 0 && pools.underground.length === 0) return null;
+  const ghosts = (run.scanEvents ?? []).filter((ev) => ev.kind === "shipEvent" && ev.bonusDiscovery === true && ev.bodyIndex === event.bodyIndex);
+  const k = ghosts.indexOf(event);
+  const at = body.discoveries.length - ghosts.length + k;
+  if (k < 0 || at < 0 || at >= body.discoveries.length) return null;
+  const poiId = body.discoveries[at].poiId;
+  return groundSiteLabel(poiId) ?? poiId;
+}
+
 function pauseWords(seconds: number | undefined): string | null {
   return seconds !== undefined && seconds > 0 ? `Scan paused ${spanText(seconds)}` : null;
 }
@@ -125,16 +166,30 @@ function shipEventWords(run: ScanTrackRun, event: ExpeditionScanEvent, kind: Shi
       break;
     case "ghost":
       outcome = passed ? "Read true" : "False reading";
-      line = passed
-        ? "the sensors read it true, so this body gains one bonus discovery when its scan completes."
-        : `a false reading; re-scanning paused the scan ${spanText(own)}.`;
+      if (passed) {
+        const body = run.bodies[event.bodyIndex];
+        const found = event.bonusDiscovery ? ghostDiscoveryLabel(run, event) : null;
+        line =
+          event.bonusDiscovery && body && !body.scanned
+            ? "the sensors read it true; this body gains one bonus discovery when its scan completes."
+            : found
+              ? `the sensors read it true and earned a bonus discovery, ${found}.`
+              : "the sensors read it true.";
+      } else {
+        line = `a false reading; re-scanning paused the scan ${spanText(own)}.`;
+      }
       break;
     case "probe":
     case "cloaked": {
       outcome = passed ? "Won" : "Lost";
       if (passed) {
-        const salvage = findingContentsText(findingOf(run, event));
-        line = salvage ? `the ship won the fight. Salvage: ${salvage}.` : "the ship won the fight.";
+        const salvage = findWords(run, event, "Salvage");
+        line =
+          salvage === null
+            ? "the ship won the fight."
+            : "text" in salvage
+              ? `the ship won the fight. ${salvage.text}.`
+              : "the ship won the fight; boarders later took its salvage.";
       } else {
         line = `the ship lost the fight. Repairs paused the scan ${spanText(own)}${hull ? `; the hull took ${hull} damage` : ""}.`;
       }
@@ -179,8 +234,9 @@ function pipWords(run: ScanTrackRun, event: ExpeditionScanEvent): PipWords {
     const bad = (event.pauseSeconds ?? 0) > 0 || event.outcome === "fail" || event.outcome === "loss";
     return { glyph: "warning", tone: bad ? "bad" : "good", name: "Scan event", outcome: bad ? "Cost time" : "No effect", sentence: `Scan event: ${bad ? "the scan waited" : "no effect"}.` };
   }
-  const held = findingContentsText(findingOf(run, event));
-  return { glyph: "supplyCache", tone: "good", name: CACHE_NAME, outcome: "Found", sentence: `${CACHE_NAME}: ${held ?? "a small find"}.` };
+  const held = findWords(run, event, CACHE_NAME);
+  const sentence = held === null ? `${CACHE_NAME}: a small find.` : "text" in held ? `${held.text}.` : `${CACHE_NAME}: boarders later took what it held.`;
+  return { glyph: "supplyCache", tone: "good", name: CACHE_NAME, outcome: "Found", sentence };
 }
 
 // ===== The track =====
@@ -202,14 +258,16 @@ export function scanTrackView(run: ScanTrackRun, bodyIndex: number): ScanTrackVi
       const w = pipWords(run, ev);
       const posPct = pctOf(ev.step / steps);
       const atText = `${posPct}%`;
+      const pauseText = pauseWords(ev.pauseSeconds);
       return {
         key: `${ev.bodyIndex}-${ev.step}`,
         step: ev.step,
         posPct,
         atText,
         ...w,
-        pauseText: pauseWords(ev.pauseSeconds),
+        pauseText,
         ariaLabel: `At ${atText} of the scan: ${w.name}, ${w.outcome}. ${w.sentence}`,
+        title: `${atText}: ${w.name}, ${w.outcome}${pauseText ? `. ${pauseText}` : ""}`,
         battleLog: ev.kind === "encounter",
       };
     });

@@ -1704,6 +1704,15 @@ Commit `feat(0.14.0): ship-event scan track (Ground Ops GO-15)`.
   open): 1024 px and 375 px (page 375, no sideways scroll), a pip selected by keyboard; no new console errors.
   localStorage restored byte-identical (SHA-256). Suite +14 (4686 -> 4700 passed, 1 skipped, not counting GO-16's
   in-progress tests in the shared tree); `npm run check` 0 errors.
+- **GO-15 review follow-ups (commit `fix(0.14.0): scan track shows finds as they stand after boarders; pause in pip
+  tooltip (GO-15 review)`):** (1) boarders take their credits from the run's finds IN PLACE (`takeBoardingLoss`), so a
+  salvage or cache recorded at or before a boarding that took credits now reads "Salvage (after boarders): ..." /
+  "Supply cache (after boarders): ..." (or "boarders later took what it held"); the originals are never invented, and
+  the plain form stays when no later boarding took credits. (2) The pip tooltip (`ScanPipView.title`) carries the
+  outcome and the pause. (3) A ghost read true says the future-tense line only while its body scans; on a scanned body
+  it names the bonus discovery it earned (the engine appends one per true ghost, last, in event order, unless both
+  planet pools are empty) or says nothing extra. (4) The key row is `role="group"`. (5) Pips are 24 px (the minimum
+  target); 375 px still has no sideways scroll with six pips on one body. Tests 14 -> 17.
 
 ### GO-16: Per-member gambit editor by ground team (absorbs Task 17's editor)
 

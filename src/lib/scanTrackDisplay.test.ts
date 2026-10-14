@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { Expedition, ExpeditionScanEvent } from "./game/model";
 import { BOARDING_PAUSE_SECONDS, DEBRIS_DELAY_SECONDS, PROBE_REPAIR_SECONDS } from "./game/shipScanEvents";
+import { groundSiteLabel, poisForPlanetType } from "./game/expeditionContent";
 import { ICON_SEMANTICS } from "./ui/iconPacks";
 import { scanTrackKey, scanTrackView, type ScanTrackRun } from "./scanTrackDisplay";
 
@@ -163,7 +164,83 @@ describe("scanTrackView: the pips", () => {
     expect(v.pips[0].ariaLabel).toBe(`At 30% of the scan: Debris field, Hit. ${v.pips[0].sentence}`);
     expect(v.pips[1].sentence).toBe("Supply cache: a small find."); // the finding is gone (never invents contents)
     expect(v.ariaLabel).toBe("Scan track: 50% scanned, 2 events.");
+    // GO-15 review: the tooltip carries the outcome AND the pause.
+    expect(v.pips[0].title).toBe("30%: Debris field, Hit. Scan paused 2m");
+    expect(v.pips[1].title).toBe("60%: Supply cache, Found");
     for (const p of v.pips) for (const text of [p.sentence, p.ariaLabel, p.outcome, p.pauseText ?? ""]) expect(text).not.toMatch(NO_EM_DASH);
+  });
+});
+
+describe("scanTrackView: GO-15 review follow-ups", () => {
+  it("salvage and cache contents are marked 'after boarders' when a boarding at or after them took credits (the engine takes them from the finds in place)", () => {
+    const run = shipRun(
+      [
+        { bodyIndex: 0, step: 2, kind: "shipEvent", event: "probe", outcome: "win", findingId: "f-1" },
+        { bodyIndex: 0, step: 4, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 0, step: 6, kind: "shipEvent", event: "probe", outcome: "win", findingId: "f-2", boarding: { repelled: false, creditsLost: 19 } },
+        { bodyIndex: 1, step: 2, kind: "supplyCache", findingId: "c-2" },
+      ],
+      [
+        { id: "f-1", source: "encounter", materials: { commonOre: 1 }, credits: 10, relic: null },
+        { id: "c-1", source: "supplyCache", materials: { commonOre: 2 }, relic: null },
+        { id: "f-2", source: "encounter", materials: { commonOre: 1 }, credits: 0, relic: null },
+        { id: "c-2", source: "supplyCache", materials: { commonOre: 3 }, credits: 12, relic: null },
+      ],
+    );
+    const [early, cache, own] = scanTrackView(run, 0)!.pips;
+    expect(early.sentence).toContain("Salvage (after boarders): Titanium Ore x1, 10 credits.");
+    expect(cache.sentence).toBe("Supply cache (after boarders): Titanium Ore x2.");
+    expect(own.sentence).toContain("Salvage (after boarders): Titanium Ore x1.");
+    // A cache AFTER the last boarding reads plainly.
+    expect(scanTrackView(run, 1)!.pips[0].sentence).toBe("Supply cache: Titanium Ore x3, 12 credits.");
+  });
+
+  it("a repelled boarding, or boarders who took nothing, leave the plain form; finds the boarders emptied say so without inventing the original", () => {
+    const run = shipRun(
+      [
+        { bodyIndex: 0, step: 1, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 0, step: 3, kind: "shipEvent", event: "probe", outcome: "win", findingId: "f-1", boarding: { repelled: true } },
+        { bodyIndex: 0, step: 5, kind: "shipEvent", event: "probe", outcome: "loss", boarding: { repelled: false } },
+      ],
+      [
+        { id: "c-1", source: "supplyCache", materials: { commonOre: 2 }, credits: 5, relic: null },
+        { id: "f-1", source: "encounter", credits: 30, relic: null },
+      ],
+    );
+    const [cache, salvage] = scanTrackView(run, 0)!.pips;
+    expect(cache.sentence).toBe("Supply cache: Titanium Ore x2, 5 credits.");
+    expect(salvage.sentence).toContain("Salvage: 30 credits.");
+    const emptied = shipRun(
+      [
+        { bodyIndex: 0, step: 1, kind: "supplyCache", findingId: "c-1" },
+        { bodyIndex: 0, step: 2, kind: "shipEvent", event: "probe", outcome: "loss", boarding: { repelled: false, creditsLost: 20 } },
+      ],
+      [{ id: "c-1", source: "supplyCache", credits: 0, relic: null }],
+    );
+    expect(scanTrackView(emptied, 0)!.pips[0].sentence).toBe("Supply cache: boarders later took what it held.");
+  });
+
+  it("a ghost read true: future tense only while the body scans; on a scanned body it names the discovery it earned, or nothing extra", () => {
+    const ghost: ExpeditionScanEvent = { bodyIndex: 0, step: 1, kind: "shipEvent", event: "ghost", outcome: "pass", bonusDiscovery: true };
+    const scanning = shipRun([ghost]);
+    expect(scanTrackView(scanning, 0)!.pips[0].sentence).toBe("Sensor ghost: the sensors read it true; this body gains one bonus discovery when its scan completes.");
+    const poiId = poisForPlanetType("terrestrial").surface[0].poi.id;
+    const label = groundSiteLabel(poiId) ?? poiId;
+    const done = shipRun([ghost]);
+    done.bodies[0] = {
+      ...done.bodies[0],
+      scanProgress: 100,
+      scanned: true,
+      discoveries: [
+        { id: "d-0", kind: "underground", poiId: "x" },
+        { id: "d-1", kind: "landmark", poiId },
+      ],
+    };
+    // The engine adds each true ghost's discovery LAST, in event order (expedition.ts assignDiscoveriesAndActivities).
+    expect(scanTrackView(done, 0)!.pips[0].sentence).toBe(`Sensor ghost: the sensors read it true and earned a bonus discovery, ${label}.`);
+    const none = shipRun([ghost]);
+    none.bodies[0] = { ...none.bodies[0], scanProgress: 100, scanned: true, discoveries: [] };
+    expect(scanTrackView(none, 0)!.pips[0].sentence).toBe("Sensor ghost: the sensors read it true.");
   });
 });
 

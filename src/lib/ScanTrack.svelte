@@ -42,7 +42,7 @@
         aria-label={pip.ariaLabel}
         aria-pressed={selected === pip.key}
         aria-controls="{idBase}-{pip.key}"
-        title="{pip.atText}: {pip.name}, {pip.outcome}"
+        title={pip.title}
         on:click={() => (selected = selected === pip.key ? null : pip.key)}
       >
         <Icon name={pip.glyph} size={12} />
@@ -93,14 +93,14 @@
   /* The pips sit on the rail; the side margins keep a pip at 10% or 90% inside the card. */
   .st-track {
     position: relative;
-    height: 24px;
-    margin: 0 11px;
+    height: 26px;
+    margin: 0 12px;
   }
   .st-rail {
     position: absolute;
     left: 0;
     right: 0;
-    top: 10px;
+    top: 11px;
     height: 4px;
     border-radius: 3px;
     background: rgba(var(--color-accent-rgb), 0.16);
@@ -113,9 +113,10 @@
   .st-pip {
     position: absolute;
     top: 1px;
-    width: 22px;
-    height: 22px;
-    margin-left: -11px;
+    /* 24 px: the minimum pointer target. */
+    width: 24px;
+    height: 24px;
+    margin-left: -12px;
     padding: 0;
     border-radius: 50%;
     display: grid;
