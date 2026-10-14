@@ -25,6 +25,7 @@ import {
   advanceExpedition,
   claimExpedition,
   expeditionCandidates,
+  expeditionLaunchView,
   expeditionRiskPreview,
   startExpedition,
 } from "./expedition";
@@ -358,8 +359,6 @@ describe("the candidate carries the telescope reading", () => {
       expect(c.telescope).toEqual({
         ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed)),
         demand: null,
-        recommendation: null,
-        forecast: null,
       });
     }
   });
@@ -452,8 +451,9 @@ describe("the ship's lift changes only what is shown", () => {
       const cand = expeditionCandidates(s, "ship-1")[0];
       expect(cand.telescope.shipLift, `level ${level}`).toBe(level >= 1 && level < 7);
       seen.push(cand.telescope.detail);
-      if (cand.telescope.detail >= TELESCOPE_DETAIL.recommendation) expect(cand.telescope.recommendation).not.toBeNull();
-      if (cand.telescope.detail >= TELESCOPE_DETAIL.forecast) expect(cand.telescope.forecast).not.toBeNull();
+      const view = expeditionLaunchView(s, "ship-1", cand); // what the expanded card asks for (SQ-6 follow-up 2)
+      if (cand.telescope.detail >= TELESCOPE_DETAIL.recommendation) expect(view.recommendation).not.toBeNull();
+      if (cand.telescope.detail >= TELESCOPE_DETAIL.forecast) expect(view.forecast).not.toBeNull();
       const res = startExpedition(s, "ship-1", 1, cand.id);
       expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
       const now: string[] = [JSON.stringify(strip(res.next))];

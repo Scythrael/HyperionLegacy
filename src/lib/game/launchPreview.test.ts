@@ -12,6 +12,8 @@ import {
   type Expedition,
   type GameState,
   type GroundTeamKind,
+  type NotableCrewMember,
+  type SeniorStaffOfficer,
   type ShipGroundTeam,
 } from "./model";
 import {
@@ -19,6 +21,7 @@ import {
   advanceExpedition,
   compositionFightOdds,
   expeditionCandidates,
+  expeditionLaunchView,
   expeditionRiskPreview,
   launchForecast,
   launchViewMemoSize,
@@ -37,6 +40,11 @@ import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember } from "./awayTeamTestFixtures";
 
 const T0 = 100_000;
+
+// The candidates with each one's launch view folded into its telescope block (what SQ-7's expanded card shows).
+function cands(state: GameState) {
+  return expeditionCandidates(state, "ship-1").map((c) => ({ ...c, telescope: { ...c.telescope, ...expeditionLaunchView(state, "ship-1", c) } }));
+}
 
 function atLevel(level: number, base: GameState): GameState {
   return { ...base, facilities: { ...base.facilities, [SUBSPACE_TELESCOPE_FACILITY_KEY]: { level } } };
@@ -138,14 +146,14 @@ describe("the candidate carries only what its detail shows", () => {
   const params = startExpedition(s, "ship-1", 1, "cand-0").expedition!.scanParams; // the ship's scan params
 
   it("Graded (Level 1): no demand, no recommendation, no forecast", () => {
-    for (const c of expeditionCandidates(atLevel(1, s), "ship-1")) {
+    for (const c of cands(atLevel(1, s))) {
       expect(c.telescope.detail).toBe(TELESCOPE_DETAIL.graded);
       expect([c.telescope.demand, c.telescope.recommendation, c.telescope.forecast]).toEqual([null, null, null]);
     }
   });
 
   it("Per body (Level 3) adds the task demand of the system", () => {
-    for (const c of expeditionCandidates(atLevel(3, s), "ship-1")) {
+    for (const c of cands(atLevel(3, s))) {
       const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
       expect(c.telescope.demand).toEqual(taskDemand(preview));
       expect(taskDemandText(c.telescope.demand!)).toMatch(/bod(y|ies)/);
@@ -153,26 +161,43 @@ describe("the candidate carries only what its detail shows", () => {
     }
   });
 
-  it("Recommendation (Level 5) adds the odds-aware recommendation for this ship's composition", () => {
+  it("Recommendation (Level 5) adds the recommendation (odds read only when the fights are risky)", () => {
     const s5 = atLevel(5, s);
-    for (const c of expeditionCandidates(s5, "ship-1")) {
+    for (const c of cands(s5)) {
       const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
       const oddsOf = (kinds: readonly GroundTeamKind[]) => compositionFightOdds(s5, "ship-1", c.seed, kinds, preview);
       expect(c.telescope.recommendation).toEqual(recommendLaunch(preview, "generalFreighter", ["ground", "ground"], oddsOf));
-      expect(c.telescope.recommendation!.ranked.some((r) => r.fightOdds !== null)).toBe(true);
+      // The winner's odds are always read (one simulated launch); the rest only when they read risky.
+      expect(c.telescope.recommendation!.ranked[0].fightOdds === null && preview.tasks.some((t) => t.fightPoints > 0)).toBe(false);
       expect(c.telescope.forecast).toBeNull();
     }
   });
 
+  it("the candidate list carries only the demand: it never simulates a launch (the view is asked for lazily)", () => {
+    const s7 = atLevel(7, crewedState(21));
+    const before = launchViewMemoSize();
+    const list = expeditionCandidates(s7, "ship-1");
+    expect(launchViewMemoSize()).toBe(before);
+    for (const c of list) {
+      expect(c.telescope.demand).not.toBeNull();
+      expect("recommendation" in c.telescope).toBe(false);
+      expect("forecast" in c.telescope).toBe(false);
+    }
+    const view = expeditionLaunchView(s7, "ship-1", list[0]);
+    expect(view.demand).toEqual(list[0].telescope.demand);
+    expect(view.recommendation).not.toBeNull();
+    expect(view.forecast).not.toBeNull();
+  });
+
   it("Forecast (Level 7) adds the forecast for the recommended composition", () => {
-    for (const c of expeditionCandidates(atLevel(7, s), "ship-1")) {
+    for (const c of cands(atLevel(7, s))) {
       expect(c.telescope.forecast).toEqual(launchForecast(s, "ship-1", c.seed, c.telescope.recommendation!.kinds));
       expect(c.telescope.forecast!.label).toBe(c.telescope.recommendation!.label);
     }
   });
 
   it("a blind candidate carries none of it", () => {
-    for (const c of expeditionCandidates(atLevel(0, s), "ship-1")) {
+    for (const c of cands(atLevel(0, s))) {
       expect(c.telescope.blind).toBe(true);
       expect([c.telescope.demand, c.telescope.recommendation, c.telescope.forecast]).toEqual([null, null, null]);
     }
@@ -184,7 +209,7 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
     let fights = 0;
     for (let k = 0; k < 10; k++) {
       const s = crewedState(k);
-      const cand = expeditionCandidates(s, "ship-1")[0];
+      const cand = cands(s)[0];
       const kinds = shipTeamKinds(s.ships[0]);
       const f = launchForecast(s, "ship-1", cand.seed, kinds)!;
       expect(f.teamsDeployed).toBe(2);
@@ -213,7 +238,7 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
     const s = crewedState();
     const before = JSON.stringify(s);
     const kinds: GroundTeamKind[] = ["ground", "survey"];
-    const f = launchForecast(s, "ship-1", expeditionCandidates(s, "ship-1")[0].seed, kinds)!;
+    const f = launchForecast(s, "ship-1", cands(s)[0].seed, kinds)!;
     expect(f.label).toBe("Survey + Ground");
     expect(f.kinds).toEqual(kinds);
     expect(JSON.stringify(s)).toBe(before);
@@ -222,14 +247,14 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
   it("with no ground team ready it still counts the tasks, with no threat read", () => {
     const base = crewedState();
     const empty: GameState = { ...base, ships: base.ships.map((sh) => ({ ...sh, groundTeams: undefined })) }; // everyone in the reserve
-    const f = launchForecast(empty, "ship-1", expeditionCandidates(empty, "ship-1")[0].seed, ["ground", "ground"])!;
+    const f = launchForecast(empty, "ship-1", cands(empty)[0].seed, ["ground", "ground"])!;
     expect(f).toMatchObject({ teamsDeployed: 0, threat: null, hardest: null, note: "No ground team is ready to launch" });
     expect(f.tasks).toBeGreaterThan(0);
   });
 
   it("at a forced Tier IV in enemy territory the recommended composition is forecast", () => {
     const s = crewedState(3);
-    const seed = expeditionCandidates(s, "ship-1")[0].seed;
+    const seed = cands(s)[0].seed;
     const region: ExpeditionRegion = { tier: 4, enemyTerritory: true };
     const preview = systemTaskPreview(seed, { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 }, region);
     const rec = recommendLaunch(preview, "generalFreighter", shipTeamKinds(s.ships[0]))!;
@@ -244,13 +269,13 @@ describe("Set composition: the recommendation's one engine action", () => {
     // Sweep systems until one recommends a change (most calm Tier I systems recommend Survey + Ground).
     for (let k = 0; k < 30; k++) {
       const s = atLevel(5, crewedState(k));
-      const c = expeditionCandidates(s, "ship-1")[0];
+      const c = cands(s)[0];
       const rec = c.telescope.recommendation!;
       if (rec.isCurrent) continue;
       const next = applyComposition(s, "ship-1", rec.kinds);
       expect(next).not.toBe(s);
       expect([...shipTeamKinds(next.ships[0])].sort()).toEqual([...rec.kinds].sort());
-      const again = expeditionCandidates(next, "ship-1")[0].telescope.recommendation!;
+      const again = cands(next)[0].telescope.recommendation!;
       expect(again.isCurrent).toBe(true);
       expect(again.headline).toBe(`Your ${rec.label} suits this system.`);
       return;
@@ -303,9 +328,9 @@ describe("display only: previews never change a run", () => {
     const before = JSON.stringify(s);
     const direct = startExpedition(s, "ship-1", 1, "cand-1");
     for (let i = 0; i < 3; i++) {
-      const cands = expeditionCandidates(s, "ship-1");
-      expect(cands[1].telescope.forecast).not.toBeNull();
-      systemTaskPreview(cands[1].seed, direct.expedition!.scanParams, { tier: 6, enemyTerritory: true });
+      const list = cands(s);
+      expect(list[1].telescope.forecast).not.toBeNull();
+      systemTaskPreview(list[1].seed, direct.expedition!.scanParams, { tier: 6, enemyTerritory: true });
     }
     expect(JSON.stringify(s)).toBe(before);
     const after = startExpedition(s, "ship-1", 1, "cand-1");
@@ -319,7 +344,7 @@ describe("display only: previews never change a run", () => {
 describe("the SQ-6 follow-up: the simulated launch, the fight odds, the memo", () => {
   it("a simulated launch carries its own expedition id, never the one the real dispatch mints (review Minor 3)", () => {
     const s = crewedState(2);
-    const sim = simulateLaunch(s, "ship-1", expeditionCandidates(s, "ship-1")[0].seed, ["ground", "ground"], { tier: 1, enemyTerritory: false })!;
+    const sim = simulateLaunch(s, "ship-1", cands(s)[0].seed, ["ground", "ground"], { tier: 1, enemyTerritory: false })!;
     expect(sim.exp!.id).toBe(FORECAST_EXPEDITION_ID);
     expect(startExpedition(s, "ship-1", 1, "cand-0").expedition!.id).toBe(`expedition-${s.nextExpeditionId}`);
   });
@@ -332,7 +357,7 @@ describe("the SQ-6 follow-up: the simulated launch, the fight odds, the memo", (
     for (let k = 0; k < 12; k++) {
       const base = crewedState(k);
       const s: GameState = { ...base, awayMembers: base.awayMembers.map((m) => ({ ...m, rank: 3 as AwayMember["rank"] })) };
-      const seed = expeditionCandidates(s, "ship-1")[0].seed;
+      const seed = cands(s)[0].seed;
       const preview = previewForHull(systemTaskPreview(seed, { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 }, region), "generalFreighter");
       const gg = compositionFightOdds(s, "ship-1", seed, ["ground", "ground"], preview, region);
       const sg = compositionFightOdds(s, "ship-1", seed, ["ground", "strike"], preview, region);
@@ -349,19 +374,66 @@ describe("the SQ-6 follow-up: the simulated launch, the fight odds, the memo", (
 
   it("the launch view is memoized: an unrelated change hits, a change to the crew recomputes", () => {
     const s = atLevel(7, crewedState(9));
-    const first = expeditionCandidates(s, "ship-1")[0].telescope;
+    const first = cands(s)[0].telescope;
     expect(first.forecast).not.toBeNull();
     // Time passes, credits move: the same objects come back (no forecast recomputed).
     const later: GameState = { ...s, gameTimeSeconds: s.gameTimeSeconds + 3600, credits: s.credits.add(500) };
-    const again = expeditionCandidates(later, "ship-1")[0].telescope;
+    const again = cands(later)[0].telescope;
     expect(again.forecast).toBe(first.forecast);
     expect(again.recommendation).toBe(first.recommendation);
     // A composition change is related: a fresh view.
     const changed = applyComposition(s, "ship-1", ["ground", "strike"]);
-    expect(expeditionCandidates(changed, "ship-1")[0].telescope.forecast).not.toBe(first.forecast);
+    expect(cands(changed)[0].telescope.forecast).not.toBe(first.forecast);
     // A member's rank is related too.
     const ranked: GameState = { ...s, awayMembers: s.awayMembers.map((m) => (m.id === "member-1" ? { ...m, rank: 2 as AwayMember["rank"] } : m)) };
-    expect(expeditionCandidates(ranked, "ship-1")[0].telescope.recommendation).not.toBe(first.recommendation);
+    expect(cands(ranked)[0].telescope.recommendation).not.toBe(first.recommendation);
     expect(launchViewMemoSize()).toBeLessThanOrEqual(32);
+  });
+});
+
+describe("the launch view memo key (SQ-6 follow-up 2 review): everything that shapes the forecast fights", () => {
+  const officer = (over: Partial<SeniorStaffOfficer> = {}): SeniorStaffOfficer => ({
+    id: "officer-1",
+    seat: "medical",
+    name: "Doc",
+    race: "earthBorn",
+    gender: "nonbinary",
+    rank: "ensign",
+    bonuses: [{ id: "med.recovery", magnitude: 0.1 }, { id: "med.fleetTriage", magnitude: 0.15 }],
+    missionsCompleted: 0,
+    assignedShipId: null,
+    ...over,
+  });
+  const notable = (over: Partial<NotableCrewMember> = {}): NotableCrewMember => ({
+    id: "notable-1",
+    profession: "security",
+    rarity: "standard",
+    rank: 3 as NotableCrewMember["rank"],
+    race: "earthBorn",
+    buff1Id: "sec.boarding",
+    buff2Id: null,
+    name: "Rook",
+    gender: "female",
+    assignedShipId: null,
+    ...over,
+  });
+
+  it("seating an officer, assigning a notable, or a captain change recomputes the view; an unseated officer does not", () => {
+    const base = atLevel(7, { ...crewedState(13), officers: [officer()], notableCrew: [notable()] });
+    const c = expeditionCandidates(base, "ship-1")[0];
+    const first = expeditionLaunchView(base, "ship-1", c);
+    expect(expeditionLaunchView({ ...base, gameTimeSeconds: base.gameTimeSeconds + 60 }, "ship-1", c)).toBe(first);
+    // An officer seated on ANOTHER ship (or unseated) is not this ship's: a hit.
+    expect(expeditionLaunchView({ ...base, officers: [officer({ assignedShipId: "ship-9" })] }, "ship-1", c)).toBe(first);
+    const seated: GameState = { ...base, officers: [officer({ assignedShipId: "ship-1" })] };
+    const withOfficer = expeditionLaunchView(seated, "ship-1", c);
+    expect(withOfficer).not.toBe(first);
+    // A promotion (bonus magnitude) or another seat on the seated officer recomputes too.
+    const promoted: GameState = { ...base, officers: [officer({ assignedShipId: "ship-1", bonuses: [{ id: "med.recovery", magnitude: 0.2 }, { id: "med.fleetTriage", magnitude: 0.3 }] })] };
+    expect(expeditionLaunchView(promoted, "ship-1", c)).not.toBe(withOfficer);
+    const assigned: GameState = { ...base, notableCrew: [notable({ assignedShipId: "ship-1" })] };
+    expect(expeditionLaunchView(assigned, "ship-1", c)).not.toBe(first);
+    const captainless: GameState = { ...base, ships: base.ships.map((sh) => ({ ...sh, assignedCaptainId: null })) };
+    expect(expeditionLaunchView(captainless, "ship-1", c)).not.toBe(first);
   });
 });

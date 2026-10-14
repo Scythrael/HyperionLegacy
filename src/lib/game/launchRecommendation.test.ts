@@ -234,30 +234,48 @@ describe("the detail gate (design 6.3): nothing is computed or shown below its l
   });
 });
 
-describe("the odds step (user, 2026-10-13: Strike's role, BOTH): after coverage, the better fight-odds band wins", () => {
-  // MIXED_T2 keeps Ground + Ground on the balance; fight odds put Strike + Ground a band ahead.
-  const odds = (table: Record<string, number | null>) => (kinds: readonly GroundTeamKind[]) => table[[...kinds].sort().join("+")] ?? null;
+describe("the odds, ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13)", () => {
+  // A reader keyed by the sorted kinds, counting its calls.
+  function reader(table: Record<string, number | null>) {
+    const calls: string[] = [];
+    const oddsOf = (kinds: readonly GroundTeamKind[]) => {
+      const k = [...kinds].sort().join("+");
+      calls.push(k);
+      return table[k] ?? null;
+    };
+    return { oddsOf, calls };
+  }
 
-  it("a better odds band beats solo share and balance, and says so", () => {
-    const oddsOf = odds({ "ground+ground": 0.62, "ground+strike": 0.86, "ground+survey": 0.4, "strike+survey": 0.86 });
+  it("the winner at A Worthy Adversary or better stays, and only its odds are read", () => {
+    const { oddsOf, calls } = reader({ "ground+ground": 0.62, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
     const rec = recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!;
-    expect(rec.kinds).toEqual(SG); // Strike + Survey ties the band but loses on solo share
-    expect(rec.reason).toBe("Better odds in the fights: Likely Victory for Strike + Ground, A Worthy Adversary for your Ground + Ground.");
-    const sg = rec.ranked.find((r) => r.label === "Strike + Ground")!;
-    expect(sg).toMatchObject({ fightOdds: 0.86, oddsTier: "likely", oddsName: "Likely Victory" });
+    expect(rec).toMatchObject({ kinds: GG, isCurrent: true, oddsDecided: false, riskyFightsText: null });
+    expect(calls).toEqual(["ground+ground"]);
+    expect(rec.ranked[0]).toMatchObject({ fightOdds: 0.62, oddsTier: "worthy", oddsName: "A Worthy Adversary" });
+    expect(rec.ranked.slice(1).every((r) => r.fightOdds === null)).toBe(true);
   });
 
-  it("odds in the same band, or both at Likely Victory or better (the fights are not hard), fall through; coverage still comes first", () => {
-    const same = odds({ "ground+ground": 0.81, "ground+strike": 0.95, "ground+survey": 0.82, "strike+survey": 0.9 });
-    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, same)!.kinds).toEqual(GG);
-    // From Survey + Ground the Tier IV system's coverage decides before any odds.
-    const vgBest = odds({ "ground+ground": 0.2, "ground+strike": 0.2, "ground+survey": 1, "strike+survey": 0.2 });
-    expect(recommendLaunch(ENEMY_T4, "generalFreighter", VG, vgBest)!.label).not.toBe("Survey + Ground");
+  it("a risky winner gives way to the covering mix with the best better band, and says so", () => {
+    const { oddsOf, calls } = reader({ "ground+ground": 0.45, "ground+strike": 0.7, "ground+survey": 0.3, "strike+survey": 0.85 });
+    const rec = recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!;
+    expect(rec.kinds).toEqual(SV); // Likely Victory beats A Worthy Adversary
+    expect(rec.oddsDecided).toBe(true);
+    expect(rec.headline).toBe("Launch with Strike + Survey");
+    expect(rec.reason).toBe("Risky fights: your Ground + Ground reads It's Time to Toss the Dice; Strike + Survey reads Likely Victory.");
+    expect(new Set(calls)).toEqual(new Set(["ground+ground", "ground+strike", "ground+survey", "strike+survey"]));
   });
 
-  it("unknown odds (null) skip the step", () => {
-    const partial = odds({ "ground+ground": null, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
-    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, partial)!.kinds).toEqual(GG);
+  it("only mixes with the winner's coverage compete: a better-odds mix that leaves tasks is never picked", () => {
+    const { oddsOf } = reader({ "ground+ground": 0.2, "ground+strike": 0.2, "ground+survey": 1, "strike+survey": 0.2 });
+    const rec = recommendLaunch(ENEMY_T4, "generalFreighter", GG, oddsOf)!;
+    expect(rec.label).not.toBe("Survey + Ground"); // it leaves the { 2, 1 } tasks
+    expect(rec.oddsDecided).toBe(false);
+    expect(rec.riskyFightsText).toBe("The fights read risky (Not Advised) and no mix on this hull reads better.");
+  });
+
+  it("unknown odds (null) leave the ranking as it is", () => {
+    const { oddsOf } = reader({ "ground+ground": null, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
+    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!).toMatchObject({ kinds: GG, oddsDecided: false, riskyFightsText: null });
   });
 });
 

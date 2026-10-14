@@ -141,6 +141,7 @@ import {
   gateLaunchView,
   previewForHull,
   recommendLaunch,
+  taskDemand,
   type CandidateTelescopeReading,
   type LaunchView,
   type ForecastHardestTask,
@@ -657,10 +658,12 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
     const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
-    // Squads SQ-6: the task demand, the recommendation and the forecast, each computed ONLY when the detail shows it
-    // (gateLaunchView), memoized per candidate input (candidateLaunchView).
-    const launch = ship ? candidateLaunchView(state, ship, seed, sys.detail, snap.scanParams) : { demand: null, recommendation: null, forecast: null };
-    const telescope: CandidateTelescopeReading = { ...sys, ...launch };
+    // Squads SQ-6: the task demand (cheap: one throwaway discovery and stamping pass) rides the candidate from Per
+    // body. The recommendation and the forecast simulate launches, so they are NOT built here: the UI asks for them
+    // per candidate (expeditionLaunchView, e.g. for an expanded card).
+    const demand =
+      ship && sys.detail >= TELESCOPE_DETAIL.perBody ? taskDemand(previewForHull(systemTaskPreview(seed, snap.scanParams), ship.typeKey)) : null;
+    const telescope: CandidateTelescopeReading = { ...sys, demand };
     out.push({
       id: `cand-${i}`,
       index: i,
@@ -778,6 +781,10 @@ export function compositionFightOdds(
   if (!sim || !sim.exp || compositionChanges(sim.used, kinds) > 0) return null;
   const exp = sim.exp;
   const squads = compositionSquads(kinds);
+  // Preview tasks and simulated tasks PAIR by body and PoI id, in order: both lists come from the same discovery
+  // roll and the same stamping path (systemTaskPreview and the simulated scan share assignDiscoveriesAndActivities
+  // and initGroundTasks), so the n-th task of a PoI on a body is the same task in both. A hostile site the
+  // simulated deployment does not field has no partner and counts 0.
   const used = new Set<ExpeditionActivity>();
   let total = 0;
   let sum = 0;
@@ -878,15 +885,24 @@ export function launchForecast(
   };
 }
 
-// ===== The candidate's launch view, memoized (SQ-6 review Minor 2) =====
+// ===== The candidate's launch view, lazy and memoized (SQ-6 reviews) =====
 
-// The launch view (demand, recommendation, forecast) of one candidate for one ship at one detail. The forecast and
-// the odds simulate launches, so the view is MEMOIZED on everything it reads that the panel's state changes touch:
-// the candidate seed, the telescope level and the effective detail (the sensor band: the lift), the ship's scan
-// params, hull and slotting (its composition), the members aboard and the gear they wear or the ship carries,
-// which teams would deploy now, and the officer and museum values a fight reads. A tick that only moves time,
-// credits or another ship hits the memo. [PROVISIONAL] the key leaves out anything else a fight could read (e.g.
-// a captain's talents); a stale view is display only and refreshes on the next keyed change. Bounded (LRU).
+// The launch view of one candidate for one ship: the task demand (Per body), the recommendation (Recommendation)
+// and the forecast (Forecast), each computed ONLY when the candidate's telescope detail shows it (gateLaunchView).
+// The recommendation and the forecast simulate launches, so the candidate list never builds them: the UI asks for
+// this view when it shows them (SQ-7: an expanded candidate card), and it is MEMOIZED (bounded, LRU) on everything
+// that shapes those launches:
+//   - the candidate (seed), the telescope level and the effective detail (the sensor band: the lift), the ship's
+//     scan params;
+//   - the ship record (hull, slotting, composition), its assigned captain (id, spec, secondary talents), its
+//     SEATED OFFICERS (whole records: seat, rank, bonuses, stats) and its ASSIGNED NOTABLE CREW (whole records);
+//   - the members aboard (slotted or in reserve) and the gear they wear or the ship carries, and which teams would
+//     deploy now;
+//   - the museum's bonuses;
+//   - and, as a catch-all for any other dispatch input, the dispatch record a launch of the CURRENT composition
+//     would commit (buildExpedition: the frozen roster, crew layers, officer facets and bonuses, sensors, museum and
+//     gear snapshots), with its id and the dispatch instant taken out.
+// A tick that only moves time or credits (or another ship) hits the memo; a stale view is display only.
 export const LAUNCH_VIEW_MEMO_SIZE = 32;
 const launchViewMemo = new Map<string, LaunchView>();
 
@@ -895,18 +911,26 @@ function launchViewKey(state: GameState, ship: ShipInstance, seed: number, detai
   const ids = new Set(aboard.map((m) => m.id));
   const gear = state.equipment.filter((e) => e.fittedToShipId === ship.id || (e.fittedToMemberId !== undefined && e.fittedToMemberId !== null && ids.has(e.fittedToMemberId)));
   const deploys = expeditionAwayTeamCheck(state, ship).ground.teams.map((t) => t.deploys);
+  const captain = ship.assignedCaptainId === null ? undefined : state.captains.find((c) => c.id === ship.assignedCaptainId);
+  const officers = state.officers.filter((o) => o.assignedShipId === ship.id);
+  const notables = state.notableCrew.filter((n) => (n.assignedShipId ?? null) === ship.id);
+  const gen = generateSystem(seed);
+  const dispatch = buildExpedition(state, ship, ship.assignedCaptainId ?? 0, seed, true, 0, gen, generateRiskProfile(seed, expeditionRegion(seed), gen.bodies), "");
+  const frozen = JSON.stringify({ ...dispatch, phaseAnchorSeconds: 0 }, (k, v) => (k === "stepStartedAt" ? undefined : v));
   return JSON.stringify([
     seed,
     telescopeLevel(state),
     detail,
     scanParams,
     ship,
+    captain ? [captain.id, captain.spec, captain.unlockedSecondaryTalents] : null,
+    officers,
+    notables,
     aboard,
     gear,
     deploys,
-    officerBonusTotal(state, ship, "officer.crewLossPrevention"),
-    officerBonusTotal(state, ship, "officer.crewRetention"),
     museumBonuses(state),
+    frozen,
   ]);
 }
 
@@ -915,8 +939,14 @@ export function launchViewMemoSize(): number {
   return launchViewMemo.size;
 }
 
-function candidateLaunchView(state: GameState, ship: ShipInstance, seed: number, detail: number, scanParams: ExpeditionScanParams): LaunchView {
-  if (!(detail >= TELESCOPE_DETAIL.perBody)) return { demand: null, recommendation: null, forecast: null };
+// The launch view of `candidate` (one of expeditionCandidates(state, shipId)) for ship `shipId` (see above). Display
+// only; all nulls for an unknown ship or below Per body. Pure in effect (memoized on its whole input).
+export function expeditionLaunchView(state: GameState, shipId: string, candidate: Pick<ExpeditionCandidate, "seed" | "telescope">): LaunchView {
+  const ship = state.ships.find((x) => x.id === shipId);
+  const detail = candidate.telescope.detail;
+  if (!ship || !(detail >= TELESCOPE_DETAIL.perBody)) return { demand: null, recommendation: null, forecast: null };
+  const seed = candidate.seed;
+  const scanParams = shipSensorSnapshot(state, ship).scanParams;
   const key = launchViewKey(state, ship, seed, detail, scanParams);
   const hit = launchViewMemo.get(key);
   if (hit) {
@@ -933,6 +963,7 @@ function candidateLaunchView(state: GameState, ship: ShipInstance, seed: number,
   };
   const view = gateLaunchView(detail, {
     preview: () => previewForHull(systemTaskPreview(seed, scanParams, region), ship.typeKey),
+    // The odds reader is lazy: recommendLaunch reads the winner's odds, and the others only when they read risky.
     recommend: (preview) =>
       recommendLaunch(preview, ship.typeKey, shipTeamKinds(ship), (kinds) => compositionFightOdds(state, ship.id, seed, kinds, preview, region, simOf(kinds))),
     forecast: (_preview, rec) => (rec ? launchForecast(state, ship.id, seed, rec.kinds, region, simOf(rec.kinds)) : null),

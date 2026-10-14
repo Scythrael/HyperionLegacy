@@ -13,18 +13,18 @@
 //   squads field it, so a composition that cannot field it leaves it behind.
 //   DETAIL GATING (design 6.3, gateLaunchView): Per body (3) adds the TASK DEMAND line, Recommendation (4) the
 //   RECOMMENDATION, Forecast (5) the FORECAST. Below a level its piece is never computed, so it can never leak.
-//   THE RECOMMENDATION (design 6.5; the odds step: user, 2026-10-13, Strike's role "BOTH"): rank the hull's
-//     valid compositions by
+//   THE RECOMMENDATION (design 6.5): rank the hull's valid compositions by
 //     1. COVERAGE: the difficulty-weighted share of the tasks some crew of the composition covers;
-//     2. FIGHT ODDS: the threat band (combat/threatAssessment.ts tiers) of the weighted mean clear rate of the crews
-//        the plan would send on the previewed fights, so a Strike composition wins when the fights are hard even
-//        if Ground + Ground covers everything; every band from ODDS_COMFORT_TIER up reads the same (the fights are
-//        not hard there), and the step is skipped when the odds are unknown (no reader passed, nobody ready);
-//     3. SOLO SHARE: the weighted share ONE team of it covers alone (solo tasks run in parallel);
-//     4. BALANCE: the composition's Security share of its squads closest to the system's Security demand (the
+//     2. SOLO SHARE: the weighted share ONE team of it covers alone (solo tasks run in parallel);
+//     3. BALANCE: the composition's Security share of its squads closest to the system's Security demand (the
 //        weighted share of required squads that are Security);
-//     5. the FEWEST squads changed from the ship's current composition;
-//     6. Ground + Ground.
+//     4. the FEWEST squads changed from the ship's current composition;
+//     5. Ground + Ground.
+//   THEN THE ODDS, ONLY WHEN THE FIGHTS ARE RISKY (user, 2026-10-13): the winner's fight odds (the threat band of
+//   the weighted mean clear rate of the crews its plan would send on the previewed fights) are read; when they fall
+//   below ODDS_RISKY_BELOW ("A Worthy Adversary"), the covering mix (the same coverage) with the best band strictly
+//   above the winner's takes its place (ties: the ranking's order). The simplest mix stays whenever the fights are
+//   not risky, so Tiers I and II stay simple; only the winner's odds are read then (one simulated launch).
 //   Output: the best composition, a headline and a one-line reason, and what the CURRENT composition would leave
 //   unfinished (only possible from Tier III: tierNeeds keeps Tiers I and II fieldable by every valid
 //   composition). Applying it is groundTeams.ts applyComposition (SQ-7's "Set composition").
@@ -276,23 +276,23 @@ export function scoreComposition(
   };
 }
 
-// The odds step only separates compositions when the fights are HARD (user: "a Strike team is picked when fights
-// are hard"): every band at or above this one reads the same, so on a system the ship already clears comfortably
-// the odds step is a tie and solo share (the faster run) decides. Without it, Strike + Survey (which must send both
-// teams to every Ground-shaped task, so every fight gets all of its Security) would win almost every calm system
-// on odds alone. "Likely Victory", the same "favorable" floor as groundThreat.ts HELPER_MIN_TIER [PROVISIONAL].
-export const ODDS_COMFORT_TIER: ThreatTier = "likely";
+// ONLY WHEN FIGHTS ARE RISKY (user, 2026-10-13): the odds are weighed only when the ranking's winner reads BELOW
+// this band on the previewed fights. The user's value ("A Worthy Adversary"), not a placeholder.
+export const ODDS_RISKY_BELOW: ThreatTier = "worthy";
 
-// A band's place for the odds step, best first (Guaranteed Victory 0 .. Impossible 6), every band at or above
-// ODDS_COMFORT_TIER read as that one. Pure.
+// A band's place, best first (Guaranteed Victory 0 .. Impossible 6). Pure.
 function bandRank(tier: ThreatTier): number {
-  return Math.max(THREAT_TIER_ORDER.indexOf(tier), THREAT_TIER_ORDER.indexOf(ODDS_COMFORT_TIER));
+  return THREAT_TIER_ORDER.indexOf(tier);
+}
+
+// Do odds in this band read risky (below ODDS_RISKY_BELOW)? Pure.
+export function oddsAreRisky(tier: ThreatTier): boolean {
+  return bandRank(tier) > bandRank(ODDS_RISKY_BELOW);
 }
 
 // a before b? (design 6.5 step 3). Pure.
 function ranksAhead(a: CompositionScore, b: CompositionScore, groundGround: string): number {
   if (Math.abs(a.coverage - b.coverage) > EPS) return b.coverage - a.coverage;
-  if (a.oddsTier !== null && b.oddsTier !== null && bandRank(a.oddsTier) !== bandRank(b.oddsTier)) return bandRank(a.oddsTier) - bandRank(b.oddsTier);
   if (Math.abs(a.solo - b.solo) > EPS) return b.solo - a.solo;
   if (Math.abs(a.balanceGap - b.balanceGap) > EPS) return a.balanceGap - b.balanceGap;
   if (a.changes !== b.changes) return a.changes - b.changes;
@@ -301,16 +301,11 @@ function ranksAhead(a: CompositionScore, b: CompositionScore, groundGround: stri
 
 // The hull's valid compositions, best first (design 6.5 steps 1 to 3; the final tie keeps validCompositions'
 // order). Pure.
-export function rankCompositions(
-  preview: SystemTaskPreview,
-  typeKey: ShipTypeKey,
-  current: readonly GroundTeamKind[],
-  oddsOf?: FightOddsOf,
-): CompositionScore[] {
+export function rankCompositions(preview: SystemTaskPreview, typeKey: ShipTypeKey, current: readonly GroundTeamKind[]): CompositionScore[] {
   const comps = validCompositions(typeKey);
   const groundGround = compositionLabel(comps[0] ?? []);
   return comps
-    .map((kinds, i) => ({ score: scoreComposition(preview, kinds, current, oddsOf ? oddsOf(kinds) : null), i }))
+    .map((kinds, i) => ({ score: scoreComposition(preview, kinds, current), i }))
     .sort((a, b) => ranksAhead(a.score, b.score, groundGround) || a.i - b.i)
     .map(({ score }) => score);
 }
@@ -329,7 +324,9 @@ export interface LaunchRecommendation {
   unfinishedText: string | null;
   stillUnfinished: UnfinishedTask[]; // what even the recommended composition leaves (nothing on the hull covers it)
   stillUnfinishedText: string | null;
-  ranked: CompositionScore[];
+  oddsDecided: boolean; // the ranking's winner read risky and a covering mix with better odds took its place
+  riskyFightsText: string | null; // the winner reads risky and no covering mix reads better
+  ranked: CompositionScore[]; // the final order; fightOdds are filled only where they were read
 }
 
 // Security heavy above this demand, survey heavy below its mirror, else even [PROPOSAL].
@@ -373,9 +370,6 @@ function reasonOver(preview: SystemTaskPreview, best: CompositionScore, current:
     const n = Math.max(1, current.unfinished.length - best.unfinished.length);
     return `Covers ${plural(n, "task", "tasks")} your ${current.label} would leave unfinished.`;
   }
-  if (best.oddsTier !== null && current.oddsTier !== null && bandRank(best.oddsTier) !== bandRank(current.oddsTier)) {
-    return `Better odds in the fights: ${best.oddsName} for ${best.label}, ${current.oddsName} for your ${current.label}.`;
-  }
   if (Math.abs(best.solo - current.solo) > EPS) {
     return `One team can take ${best.soloTasks} of ${plural(preview.tasks.length, "task", "tasks")} alone (your ${current.label}: ${current.soloTasks}).`;
   }
@@ -383,20 +377,48 @@ function reasonOver(preview: SystemTaskPreview, best: CompositionScore, current:
 }
 
 // The recommendation for a system (design 6.5), or null for a hull with no valid composition. `current` = the
-// ship's team kinds (groundComposition.ts shipTeamKinds); `oddsOf` = the fight odds reader (absent: the odds step
-// is skipped). Pure (given a pure reader).
+// ship's team kinds (groundComposition.ts shipTeamKinds); `oddsOf` = the fight odds reader, called LAZILY: the
+// winner's odds first, the other covering mixes' only when the winner reads risky (absent: no odds step). Pure
+// (given a pure reader).
 export function recommendLaunch(
   preview: SystemTaskPreview,
   typeKey: ShipTypeKey,
   current: readonly GroundTeamKind[],
   oddsOf?: FightOddsOf,
 ): LaunchRecommendation | null {
-  const ranked = rankCompositions(preview, typeKey, current, oddsOf);
+  let ranked = rankCompositions(preview, typeKey, current);
   if (ranked.length === 0) return null;
+  let oddsDecided = false;
+  let riskyFightsText: string | null = null;
+  let oddsReason: string | null = null;
+  if (oddsOf) {
+    const withOdds = (r: CompositionScore): CompositionScore => scoreComposition(preview, r.kinds, current, oddsOf(r.kinds));
+    const top = withOdds(ranked[0]);
+    ranked = [top, ...ranked.slice(1)];
+    if (top.oddsTier !== null && oddsAreRisky(top.oddsTier)) {
+      let pick: CompositionScore | null = null;
+      ranked = ranked.map((r, i) => {
+        if (i === 0 || Math.abs(r.coverage - top.coverage) > EPS) return r;
+        const scored = withOdds(r);
+        if (scored.oddsTier !== null && bandRank(scored.oddsTier) < bandRank(top.oddsTier!)) {
+          if (pick === null || bandRank(scored.oddsTier) < bandRank(pick.oddsTier!)) pick = scored;
+        }
+        return scored;
+      });
+      const chosen = pick as CompositionScore | null;
+      if (chosen) {
+        oddsDecided = true;
+        ranked = [chosen, ...ranked.filter((r) => r !== chosen)];
+        oddsReason = `Risky fights: ${top.changes === 0 ? "your " : ""}${top.label} reads ${top.oddsName}; ${chosen.label} reads ${chosen.oddsName}.`;
+      } else {
+        riskyFightsText = `The fights read risky (${top.oddsName}) and no mix on this hull reads better.`;
+      }
+    }
+  }
   const best = ranked[0];
   const isCurrent = best.changes === 0;
   const same = ranked.find((r) => r.changes === 0);
-  const now = same ?? scoreComposition(preview, current, current, oddsOf ? oddsOf(current) : null);
+  const now = same ?? scoreComposition(preview, current, current);
   const currentLabel = compositionLabel(current);
   const unfinished = now.unfinished;
   const still = best.unfinished;
@@ -407,7 +429,7 @@ export function recommendLaunch(
     currentLabel,
     isCurrent,
     headline: isCurrent ? `Your ${currentLabel} suits this system.` : `Launch with ${best.label}`,
-    reason: isCurrent ? demandLine(preview) : reasonOver(preview, best, now),
+    reason: oddsReason ?? (isCurrent ? demandLine(preview) : reasonOver(preview, best, now)),
     unfinished,
     unfinishedText:
       unfinished.length === 0 ? null : `${currentLabel} would leave ${plural(unfinished.length, "task", "tasks")} unfinished: ${listUnfinished(unfinished)}.`,
@@ -416,6 +438,8 @@ export function recommendLaunch(
       still.length === 0
         ? null
         : `Nothing on this hull covers every task: ${listUnfinished(still)}. ${still.length === 1 ? "It" : "They"} will be left unfinished.`,
+    oddsDecided,
+    riskyFightsText,
     ranked,
   };
 }
@@ -458,9 +482,12 @@ export interface LaunchView {
   forecast: LaunchForecast | null; // Forecast (5)
 }
 
-// The telescope block of an expedition candidate (expedition.ts ExpeditionCandidate.telescope): the SQ-5 reading
-// plus this view, both gated by the reading's `detail`.
-export interface CandidateTelescopeReading extends SystemTelescopeReading, LaunchView {}
+// The telescope block of an expedition candidate (expedition.ts ExpeditionCandidate.telescope): the SQ-5 reading plus
+// the task demand (Per body and up), gated by the reading's `detail`. The recommendation and the forecast are asked
+// for separately (expedition.ts expeditionLaunchView), so the candidate list never simulates a launch.
+export interface CandidateTelescopeReading extends SystemTelescopeReading {
+  demand: TaskDemand | null;
+}
 
 export interface LaunchViewSources {
   preview: () => SystemTaskPreview;

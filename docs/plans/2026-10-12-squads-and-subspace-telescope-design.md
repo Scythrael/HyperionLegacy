@@ -1264,3 +1264,55 @@ recommendation (SQ-6 follow-up)`; the user's "BOTH" above plus the coordinator c
 - **Clearing task names (user, 2026-10-13):** "Clear the Hostiles" and "Secure the Landing Zone": KEEP.
 - **Balance note (2026-10-13):** SQ-6's sweep found ordinary crews read below Likely Victory on many Tier I fights; the
   balance pass should check Tier I guard strength against the "practice somewhere safer" intent.
+
+**Carry from SQ-6 follow-up 2 (built 2026-10-13, commit `feat(0.14.0): odds only when fights are risky, launch view
+memo key (SQ-6 follow-up 2)`):**
+- **ONLY WHEN FIGHTS ARE RISKY (user).** `rankCompositions` is back to coverage, solo share, Security balance, fewest
+  changes, Ground + Ground (no odds; the Likely Victory clamp `ODDS_COMFORT_TIER` is gone). `recommendLaunch(...,
+  oddsOf)` then reads the WINNER's fight odds (one simulated launch); only when they fall below `ODDS_RISKY_BELOW`
+  = "worthy" (the user's value; `oddsAreRisky(tier)`) does it read the other mixes with the SAME coverage and pick
+  the one with the best band strictly above the winner's (ties: the ranking's order). New fields: `oddsDecided`,
+  `riskyFightsText` ("The fights read risky (Not Advised) and no mix on this hull reads better."); reason when the
+  odds decide: "Risky fights: your Ground + Ground reads It's Time to Toss the Dice; Strike + Survey reads Likely
+  Victory." `ranked` rows carry `fightOdds` only where they were read.
+- **Sweep (400 systems each, current Ground + Ground, the freighter crew with 2 Security and 1 Science in reserve):**
+
+  | Rank | Region | Ground + Ground | Strike + Survey | Strike + Ground | Survey + Ground | Odds decided | Simulated launches |
+  |---|---|---|---|---|---|---|---|
+  | 10 | Tier I | 197 | 138 | 1 | 64 | 139 | 817 |
+  | 10 | Tier II | 178 | 183 | 2 | 37 | 184 | 955 |
+  | 10 | Tier IV enemy | 226 | 117 | 41 | 16 | 20 | 453 |
+  | 5 | Tier I | 125 | 226 | 0 | 49 | 226 | 1084 |
+  | 5 | Tier II | 103 | 262 | 2 | 33 | 263 | 1204 |
+  | 5 | Tier IV enemy | 187 | 163 | 40 | 10 | 71 | 564 |
+  | 3 | Tier I | 83 | 279 | 0 | 38 | 279 | 1246 |
+  | 3 | Tier II | 69 | 302 | 2 | 27 | 303 | 1327 |
+  | 3 | Tier IV enemy | 164 | 185 | 42 | 9 | 95 | 627 |
+
+  **Tiers I and II do NOT come out simple** under the threshold as ruled: the GO-6 read is the chance to clear a
+  task's remaining fights IN ONE GO, and ordinary crews read below A Worthy Adversary on many Tier I and II tasks (the
+  balance note above), so the odds fire there too and pick Strike + Survey (every fight gets the pair's Security).
+  At Tier IV the ranking's own picks mostly stand (odds decided 20 to 95 of 400). Options for the user (none
+  built): (a) weigh the odds only from Tier III (where tierNeeds stops adapting; a one-line gate); (b) measure the
+  odds PER FIGHT instead of the whole task in one go (a loss is not a failure: progress stays and the team comes
+  back), which reads multi-fight tasks less harshly; (c) leave it to the Tier I guard strength balance pass.
+- **Memo key (review Important).** `expeditionLaunchView`'s key now holds the ship record, its captain (id, spec,
+  secondary talents), its SEATED OFFICERS and ASSIGNED NOTABLE CREW (whole records), the members aboard and their
+  gear, which teams deploy now, the museum's bonuses, and as a catch-all the dispatch record a launch of the current
+  composition would commit (`buildExpedition`, id and dispatch instant taken out: roster, crew layers, officer
+  facets and bonuses, sensors, museum and gear snapshots). Audit of what the dispatch reads: state.officers,
+  state.notableCrew (crewOverlay), the captain (groundReloadMult), state.awayMembers and worn gear (roster),
+  state.equipment (sensors, Pathfinder, the Bio-Resonance array), state.relicMuseum (museumBonuses); all keyed.
+  Tested: seating an officer, a promotion, assigning a notable and a captain change each recompute; an officer on
+  another ship or a tick that only moves time is a hit.
+- **Lazy view (Minor).** The candidate list carries only `telescope.demand` (cheap). The recommendation and the
+  forecast come from the exported `expeditionLaunchView(state, shipId, candidate)` (gated by the candidate's
+  detail, memoized), so SQ-7 asks for them only for an expanded card; `CandidateTelescopeReading` is the SQ-5
+  reading plus `demand`. Tested: building the list never touches the memo.
+- **Pairing comment (Minor).** `compositionFightOdds` notes that preview and simulated tasks pair by body and PoI id
+  in order because both come from the same discovery and stamping path.
+- Clearing task names "Clear the Hostiles" and "Secure the Landing Zone": approved by the user (above).
+- Tests: launchRecommendation.test.ts 19 -> 20 (the odds block: the winner at Worthy stays with one read, a risky
+  winner gives way and says so, coverage first, null skips); launchPreview.test.ts 18 -> 20 (the lazy list, the
+  memo key); the candidate tests read the view through `expeditionLaunchView`. Suite 4449 -> 4452 passed (1
+  skipped); `npm run check` 0 errors. Every golden and parity test unchanged.
