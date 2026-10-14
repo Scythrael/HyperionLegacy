@@ -1807,8 +1807,17 @@ engine half, reshapes Task 18)`; the UI half waits on the user's sketch):**
 - **For the UI half:** the Armory count line must read `loadoutsUsed(state)` (App.svelte still shows
   `state.loadouts.length`); Warehouse rows find a piece's loadout by `committedToLoadoutId` in `state.loadouts` only,
   so a `squad-N` piece needs a lookup in `state.squadLoadouts` too. A loadout's `checkedOutTo` can go stale (ship
-  salvaged, team kind changed); check-in always works and is the way back. Log lines: report `skipped` with
+  salvaged, team kind changed); check-in always works and is the way back. While it is stale, create and apply on
+  that (ship, team index) refuse `teamHasLoadout` ("This team already wears a loadout (check it in first)"), so the UI
+  must SHOW the loadout the team still holds (`groundTeamWornLoadout`) and offer its Check in right there; a scrapped
+  ship's loadout must stay listed in the Armory with Check in too. Log lines: report `skipped` with
   `groundLoadoutSkipText`.
+- **Follow-up (2026-10-14, commit `test(0.14.0): ground team loadout pieces stay protected (GO-17 engine
+  follow-up)`):** tests only. A piece resting in a ground team loadout is refused by manual salvage (`committed`), a
+  queued salvage never starts on it (`canStartSalvage` `committed`), auto-salvage never selects it (with every rule
+  eligible and a free spare taken), a ship install refuses it (`slotNotInstallable`; a ship-slot piece carrying a
+  `squad-N` commitment reads `committedToLoadout`), and a member install refuses it (`committedToLoadout`;
+  `fitToMember` throws). armory.test.ts +5.
 - Tests: armory.test.ts +20 (create, round trip, other-team apply, own-gear rules, unique conflict both ways,
   missing / locked / wrongTeam / implant cap / noSlot / occupantInLoadout, every refusal same-ref, mission and
   expedition locks, the shared cap, rename / delete, texts); personnelRosters.test.ts +4 (S4-CP39). No engine,

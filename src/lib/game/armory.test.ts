@@ -1,6 +1,10 @@
 // armory.test.ts — ITEM LIFECYCLE 0.13.6 (Phase 3). Loadout create / rename / delete mechanics.
 import { describe, it, expect } from "vitest";
-import { freshState, SHIP_TYPES, isSparePiece } from "./model";
+import { freshState, SHIP_TYPES, isSparePiece, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT } from "./model";
+import { salvageEquipment, selectAutoSalvageTargets } from "./salvage";
+import { canFitEquipment } from "./equipment";
+import { canFitToMember, fitToMember } from "./memberEquipment";
+import { canStartSalvage } from "./tick";
 import type {
   AwayMember, AwayTeamType, CaptainMissionState, CrewRace, EquipmentInstance, EquipmentSlotType, GameState,
   GroundTeamLoadout, ShipGroundTeam,
@@ -718,5 +722,65 @@ describe("ground team loadouts: rename / delete + texts (GO-17)", () => {
       expect(t.includes("-".repeat(2))).toBe(false);
       expect(t.toLowerCase()).not.toMatch(/\bfit|\btask/);
     }
+  });
+});
+
+// The lifecycle invariant for squad-N pieces (GO-17 engine follow-up): a piece RESTING in a ground team
+// loadout (committed, checked in, worn by nobody) is not a free spare, so every route that takes a spare
+// refuses it or skips it, exactly as for a resting ship loadout's piece.
+describe("ground team loadouts: resting pieces stay protected (GO-17)", () => {
+  const RESTING = ["a1", "w1", "t1", "i1", "w2", "i2", "i3", "a3", "t3"];
+
+  it("manual salvage refuses every resting piece as committed (same state)", () => {
+    const { s } = createdAndCheckedIn();
+    for (const id of RESTING) {
+      const r = salvageEquipment(s, id, () => 0.5);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toBe("committed");
+      expect(r.next).toBe(s);
+    }
+  });
+
+  it("a queued salvage order never starts on a resting piece", () => {
+    const { s } = createdAndCheckedIn();
+    const order = { type: "salvage" as const, target: { kind: "equipment" as const, instanceId: "w1" }, mode: { kind: "batch" as const, remaining: 1 } };
+    expect(canStartSalvage(s, order)).toEqual({ ok: false, reason: "committed" });
+  });
+
+  it("auto-salvage never selects a resting piece, even with every quality and rarity eligible", () => {
+    const { s } = createdAndCheckedIn(gState([gPiece("loose", "memberWeapon", "pulseRifle", { quality: 2, graceStartedAtGameSeconds: 0 })]));
+    const eager: GameState = {
+      ...s,
+      gameTimeSeconds: G_NOW + 10 * AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+      salvageConfirmQualities: [],
+      autoSalvage: {
+        enabled: true,
+        qualities: [0, 1, 2, 3, 4, 5],
+        duplicates: false,
+        keepPerVariety: 0,
+        rarities: { ...AUTO_SALVAGE_RARITIES_NONE },
+        graceSeconds: AUTO_SALVAGE_GRACE_SECONDS_DEFAULT,
+      },
+    };
+    const ids = selectAutoSalvageTargets(eager, 1000).map((t) => (t.kind === "equipment" ? t.instanceId : t.kind));
+    expect(ids).toContain("loose"); // the rules are live: a free spare IS taken
+    for (const id of RESTING) expect(ids).not.toContain(id);
+  });
+
+  it("a ship install refuses a resting piece (member slot), and any piece carrying a squad-N commitment", () => {
+    const { s, id: loadoutId } = createdAndCheckedIn();
+    for (const id of RESTING) expect(canFitEquipment(s, "ship-2", id)).toEqual({ ok: false, reason: "slotNotInstallable" });
+    // Defensive: even a SHIP-slot piece committed to a ground team loadout reads as committed, not free.
+    const shipPiece = { ...freshState().equipment[0], id: "cargo-x", fittedToShipId: null, fittedToMemberId: null, committedToLoadoutId: loadoutId };
+    const withShipPiece: GameState = { ...s, equipment: [...s.equipment, shipPiece] };
+    expect(canFitEquipment(withShipPiece, "ship-2", "cargo-x")).toEqual({ ok: false, reason: "committedToLoadout" });
+    expect(isSparePiece(shipPiece)).toBe(false);
+  });
+
+  it("a member install refuses a resting piece as committedToLoadout, and fitToMember throws", () => {
+    const { s } = createdAndCheckedIn();
+    expect(canFitToMember(s, "m-s3", "w1")).toEqual({ ok: false, reason: "committedToLoadout" });
+    expect(canFitToMember(s, "m-c2", "a3")).toEqual({ ok: false, reason: "committedToLoadout" });
+    expect(() => fitToMember(s, "m-s3", "w1")).toThrow(/committedToLoadout/);
   });
 });
