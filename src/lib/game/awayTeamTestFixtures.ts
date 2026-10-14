@@ -113,6 +113,36 @@ export function withoutAffixes(exp: Expedition): Expedition {
   };
 }
 
+// Field Kits (FK-3, docs/plans/2026-10-14-field-kits-plan.md section 3): the run WITHOUT its Field Kits fields, i.e.
+// the run the same dispatch produced before FK-6 stamps the flag: `Expedition.fieldKits` (the flag), each ground
+// team's `kits` (packed kits remaining) and `treatment` (Injury Kit shares), and its pending fight record's
+// `kitsUsed` / `treated`. None of these exist at FK-3, so today the result deep-equals its input; it is typed
+// loosely (structural deletes of optional keys) so it compiles before and after the fields land. Every other key
+// keeps its order. Pure: shallow copies (the input is never touched).
+export function withoutFieldKits(exp: Expedition): Expedition {
+  const rest = { ...exp } as Record<string, unknown>;
+  delete rest.fieldKits;
+  const ops = exp.groundOps;
+  if (ops) {
+    rest.groundOps = {
+      ...ops,
+      teams: ops.teams.map((t) => {
+        const team = { ...t } as Record<string, unknown>;
+        delete team.kits;
+        delete team.treatment;
+        if (t.pendingFight) {
+          const fight = { ...t.pendingFight } as Record<string, unknown>;
+          delete fight.kitsUsed;
+          delete fight.treated;
+          team.pendingFight = fight;
+        }
+        return team as unknown as typeof t;
+      }),
+    };
+  }
+  return rest as unknown as Expedition;
+}
+
 // Objective affixes (AF-2): the run WITHOUT its affix CATALOG version, i.e. the affix-aware run the same dispatch
 // produced between AF-1 and AF-2 (its objectives stamp from AF-1's catalog, Reinforcing only, on AF-1's draw
 // layout). Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
