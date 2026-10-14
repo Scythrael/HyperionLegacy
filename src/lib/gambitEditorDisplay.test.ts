@@ -170,6 +170,16 @@ describe("gambitEditorView", () => {
     );
   });
 
+  it("team and member picks work before any ship is picked (the panel's first state)", () => {
+    const v = gambitEditorView(crew(), { teamIndex: 1, memberId: "member-5" });
+    expect(v.shipId).toBe("ship-1");
+    expect(v.teamIndex).toBe(1);
+    expect(v.member?.id).toBe("member-5");
+    const nulls = gambitEditorView(crew(), { shipId: null, teamIndex: 1, memberId: "member-4" });
+    expect(nulls.teamIndex).toBe(1);
+    expect(nulls.member?.id).toBe("member-4");
+  });
+
   it("a ship pick that falls back drops the team pick of the old ship", () => {
     const v = gambitEditorView(crew(), { shipId: "ship-9", teamIndex: 1, memberId: "member-4" });
     expect(v.shipId).toBe("ship-1");

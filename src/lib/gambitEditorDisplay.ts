@@ -120,8 +120,9 @@ export function gambitEditorView(state: GameState, pick: GambitEditorPick): Gamb
     kind: t.kind,
     securityMembers: securityIds(index).length,
   }));
-  // A ship pick that fell back (sold, gone) drops the old ship's team and member picks too.
-  const sameShip = pick.shipId === ship.id;
+  // A ship pick that fell back (sold, gone) drops the old ship's team and member picks too. NO ship pick yet
+  // (the panel's first state, before the Ship dropdown is used) keeps them: they belong to the default ship.
+  const sameShip = pick.shipId == null || pick.shipId === ship.id;
   const picked = sameShip && typeof pick.teamIndex === "number" ? teams[pick.teamIndex] : undefined;
   const team = picked ?? teams.find((t) => t.securityMembers > 0) ?? teams[0];
   const run = state.expeditions.find((e) => e.shipId === ship.id);
