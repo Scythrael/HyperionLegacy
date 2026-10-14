@@ -4,7 +4,7 @@
 // collects the salts from the module namespaces, so a new exported salt in any listed module is checked
 // automatically. Ground Ops modules join the list as they land (groundFight.ts at GO-5, groundThreat.ts at
 // GO-6, groundOps.ts at Squads SQ-3 with its first salt, the ambush roll; riskFactors.ts at Squads SQ-4, the risk
-// profile; shipScanEvents.ts at GO-8). A salt
+// profile; telescope.ts at Squads SQ-5, the display-only system distance; shipScanEvents.ts at GO-8). A salt
 // that is not exported is invisible here: keep engine salts exported.
 // GO-5 (GO-4 review) exported and registered the four that were not: tick.ts MISSION_OUTPUT_ROUNDING_SALT,
 // relics.ts RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT.
@@ -17,6 +17,7 @@ import * as groundFight from "./groundFight";
 import * as groundThreat from "./groundThreat";
 import * as groundOps from "./groundOps";
 import * as riskFactors from "./riskFactors";
+import * as telescope from "./telescope";
 import * as relics from "./relics";
 import * as salvage from "./salvage";
 import * as seniorStaff from "./seniorStaff";
@@ -34,6 +35,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "groundThreat.ts": groundThreat,
   "groundOps.ts": groundOps,
   "riskFactors.ts": riskFactors,
+  "telescope.ts": telescope,
   "officerStats.ts": officerStats,
   "relics.ts": relics,
   "salvage.ts": salvage,
@@ -87,6 +89,7 @@ describe("salt registry (GO-4)", () => {
       "groundThreat.ts GROUND_THREAT_SALT",
       "groundOps.ts GROUND_AMBUSH_SALT",
       "riskFactors.ts RISK_SALT",
+      "telescope.ts SYSTEM_DISTANCE_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
       "tick.ts MISSION_OUTPUT_ROUNDING_SALT",

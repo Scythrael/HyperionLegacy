@@ -49,6 +49,7 @@ import {
   SHIP_TYPES,
   type ShipSpec,
   FACILITIES,
+  SUBSPACE_TELESCOPE_FACILITY_KEY,
   FACTIONS,
   MISSIONS,
   PATROLS,
@@ -386,6 +387,12 @@ function shipDisplayName(state: GameState, ship: ShipInstance): string {
 // 0.13.9 stopped its pipelines; its model record stays for 0.14.0's fuel-economy cleanup. Home
 // skips it wherever it would otherwise offer a prompt or a link into the hidden console.
 export const RETIRED_FUEL_DEPOT_KEY = "fuelStorage";
+
+// Squads SQ-5: facilities whose upgrade Home must not offer because no Facilities card can start it yet. The
+// Subspace Telescope's track exists (FACILITIES.subspaceTelescope) but its card is SQ-7; until then a "Subspace
+// Telescope upgrade ready" prompt would land on an overview with nothing to press. SQ-7 removes it from this set
+// in the change that adds the card (and maps it in App.svelte jumpToFacilityUpgrade / facilityCardForFacilityKey).
+export const CARDLESS_FACILITY_KEYS: ReadonlySet<string> = new Set([RETIRED_FUEL_DEPOT_KEY, SUBSPACE_TELESCOPE_FACILITY_KEY]);
 
 // Map a facility KEY (the string carried by a facilityLevelUp effect) to its Section-8
 // jump destination, or null when the facility has no Section-8 tab (Warehouse tiers
@@ -991,7 +998,8 @@ function buildNeedsOrders(state: GameState, queuedWork: QueuedWorkSummary): Prom
     // 0.13.9 hotfix: skip the RETIRED Fuel Depot. Its record stays in FACILITIES for 0.14.0's
     // fuel-economy cleanup, but it has no card and does nothing, so "Fuel Depot upgrade ready"
     // (and its deep link into the hidden console) must never be offered.
-    if (facilityKey === RETIRED_FUEL_DEPOT_KEY) continue;
+    // Squads SQ-5: also skip a facility with no card yet (CARDLESS_FACILITY_KEYS: the Subspace Telescope until SQ-7).
+    if (CARDLESS_FACILITY_KEYS.has(facilityKey)) continue;
     if (canBuildFacilityUpgrade(state, facilityKey).ok) {
       upgradeKeys.push(facilityKey);
     }

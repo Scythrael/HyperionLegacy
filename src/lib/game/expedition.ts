@@ -123,6 +123,8 @@ import {
   hostileSiteFieldable,
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRiskProfile } from "./model";
+// Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
+import { readSystem, telescopeReading, type SystemTelescopeReading } from "./telescope";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -511,7 +513,17 @@ export interface ExpeditionCandidate {
   systemId: string;
   systemName: string;
   foreknowledge: ExpeditionForeknowledge;
+  // Squads SQ-5: the Subspace Telescope's reading of this system (telescope.ts readSystem): its region, distance,
+  // whether it is in range or BLIND (SQ-7's dispatch confirm warns on `telescope.blind`), the detail it reads
+  // (the ship's sensors may lift it one level) and the risk preview gated by that detail. Display only.
+  telescope: SystemTelescopeReading;
 }
+
+// The foreknowledge of a BLIND candidate: beyond the telescope's range the ship's own sensor layers are hidden too
+// (design 6.4: a ship parked at the homeworld cannot see thousands of light-years) [PROPOSAL, open call 7; user #7
+// asks for a "truly unknown territory" warning]. Unreachable today: every candidate is Tier I and the founding
+// telescope reads Tier I.
+const BLIND_FOREKNOWLEDGE: ExpeditionForeknowledge = { inRange: false, bodyCount: null, bodies: null, relicSignature: null, relicSets: null };
 
 // Run the REAL seeded discovery roll for a preview system (generateSystem's bodies), reusing the exact
 // engine path (assignDiscoveriesAndActivities) so the projection cannot drift from what the committed
@@ -598,17 +610,20 @@ function gateForeknowledge(
 export function expeditionCandidates(state: GameState, shipId: string): ExpeditionCandidate[] {
   const ship = state.ships.find((s) => s.id === shipId);
   const snap = shipSensorSnapshot(state, ship);
+  const reading = telescopeReading(state);
   const out: ExpeditionCandidate[] = [];
   for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
+    const telescope = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
     out.push({
       id: `cand-${i}`,
       index: i,
       seed,
       systemId: gen.systemId,
       systemName: gen.systemName,
-      foreknowledge: gateForeknowledge(snap.sensorPower, gen.bodies, seed, snap.scanParams),
+      foreknowledge: telescope.blind ? { ...BLIND_FOREKNOWLEDGE } : gateForeknowledge(snap.sensorPower, gen.bodies, seed, snap.scanParams),
+      telescope,
     });
   }
   return out;

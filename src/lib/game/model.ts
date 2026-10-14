@@ -4316,7 +4316,15 @@ export type FacilityUpgradeEffect =
   // fabricateSlotCount / salvageSlotCount / tierCap / fuelCap / shipBuildSpeedMult, and no
   // PRE-EXISTING facility rung sets it, so this member changes NO existing behavior
   // (anti-regression: Omega 15).
-  | { addShipyardBays: number };
+  | { addShipyardBays: number }
+  // --- Subspace Telescope (Squads SQ-5, design section 6.1) ---------------------------
+  // The telescope's READING at this rung, as ABSOLUTE values (not summed, not multiplied):
+  // `reachTier` = the highest expedition region tier (I to VII) the telescope pre-surveys,
+  // `detail` = how much it reads there (0 Blind .. 5 Forecast, design 6.3). telescope.ts
+  // telescopeReading takes them from the HIGHEST reached rung that carries this member.
+  // Property-presence narrowing like every member above, so it is inert to every existing
+  // consumer, and only FACILITIES.subspaceTelescope sets it.
+  | { telescope: { reachTier: number; detail: number } };
 
 // One rung of a facility's upgrade track = the requirements to reach the NEXT
 // level. `materials` are deducted ATOMICALLY at start by startProcess (design §4).
@@ -4610,6 +4618,55 @@ function buildFuelDepotUpgrades(): FacilityUpgradeDef[] {
 // that deferred rung; first-pass tunable, same launch-placeholder discipline as every
 // other numeric constant here. Real balance at the device checkpoint.
 export const MISSION_CONTROL_UNLOCK_COMPLETIONS = 50;
+
+// --- Subspace Telescope (Squads SQ-5, design section 6) -------------------------------
+// The homeworld facility that pre-surveys candidate systems before launch (user-named, 3c):
+// its RANGE is which regions it reads (nearer regions first; beyond range a system launches
+// blind) and its DETAIL is how much it reads there (risk factors, then per body, then the
+// squad recommendation and the forecast, SQ-6). Lore (user, 2026-10-12): each upgrade is a
+// funded DEVELOPMENT CYCLE, paid for in the hope of finding a jump gate that was not destroyed.
+//
+// THE LADDER, ONE TABLE. Level 1 is the FOUNDING rung, pre-granted (freshState and the v68
+// migration seed level 1, like the Research Lab and Mission Control), so Tier I is read from
+// day one at Graded detail and the practice zone is never a blind launch. Each later row is
+// the development cycle that REACHES that level.
+// ⚠️ PROVISIONAL: every credits / ticks / FA-gate number (user #9: "we should ultimately
+// revisit the credits", credit sinks need their own planning). The reach and detail columns
+// follow the design's 6.2 table; detail is FLAT across the whole range (user #8 PROVISIONAL).
+// Costs are CREDITS + an FA gate only (no materials, no talent gates: the Shipyard / Salvage
+// Bay console rule, a gate the card cannot show is a trap). Credits step x2.5 and the FA gate
+// +3, the Shipyard's own strides.
+export interface SubspaceTelescopeLevelDef {
+  level: number;            // the level this row REACHES
+  credits: number;          // the development cycle's cost [PROVISIONAL]
+  durationTicks: number;    // the cycle's length [PROVISIONAL]
+  fleetAdminLevel: number;  // FA gate, 0 = none [PROVISIONAL]
+  reachTier: number;        // the highest region tier read (1 Local Bubble .. 7 Galactic Core)
+  detail: number;           // 0 Blind .. 5 Forecast (design 6.3)
+}
+export const SUBSPACE_TELESCOPE_LEVELS: readonly SubspaceTelescopeLevelDef[] = [
+  { level: 1, credits: 0, durationTicks: 0, fleetAdminLevel: 0, reachTier: 1, detail: 2 },
+  { level: 2, credits: 4_000, durationTicks: 120, fleetAdminLevel: 3, reachTier: 2, detail: 2 },
+  { level: 3, credits: 10_000, durationTicks: 240, fleetAdminLevel: 5, reachTier: 2, detail: 3 },
+  { level: 4, credits: 25_000, durationTicks: 420, fleetAdminLevel: 8, reachTier: 4, detail: 3 },
+  { level: 5, credits: 60_000, durationTicks: 720, fleetAdminLevel: 11, reachTier: 4, detail: 4 },
+  { level: 6, credits: 150_000, durationTicks: 1_200, fleetAdminLevel: 14, reachTier: 5, detail: 4 },
+  { level: 7, credits: 375_000, durationTicks: 1_800, fleetAdminLevel: 17, reachTier: 6, detail: 5 },
+  { level: 8, credits: 900_000, durationTicks: 2_700, fleetAdminLevel: 20, reachTier: 7, detail: 5 },
+];
+
+// The table as facility rungs (upgrades[i] reaches level i + 1). The founding row has no
+// credits field and no FA gate, so the founding rung is ungated and free like Mission
+// Control's; it is never built in normal play (pre-granted).
+function buildSubspaceTelescopeUpgrades(): FacilityUpgradeDef[] {
+  return SUBSPACE_TELESCOPE_LEVELS.map((row) => ({
+    materials: {},
+    ...(row.credits > 0 ? { credits: new Decimal(row.credits) } : {}),
+    durationTicks: row.durationTicks,
+    effect: { telescope: { reachTier: row.reachTier, detail: row.detail } },
+    ...(row.fleetAdminLevel > 0 ? { requiresFleetAdminLevel: row.fleetAdminLevel } : {}),
+  }));
+}
 
 export const FACILITIES: Record<string, FacilityDef> = {
   refinery: {
@@ -5092,6 +5149,13 @@ export const FACILITIES: Record<string, FacilityDef> = {
         requiresFleetAdminLevel: 6,
       },
     ],
+  },
+  // --- Subspace Telescope (Squads SQ-5): see SUBSPACE_TELESCOPE_LEVELS above. Pre-granted at
+  // level 1; each later rung is one funded development cycle (a timed facilityUpgrade process,
+  // no new mechanism). telescope.ts reads the reached rungs. The Facilities card is SQ-7.
+  subspaceTelescope: {
+    label: "Subspace Telescope",
+    upgrades: buildSubspaceTelescopeUpgrades(),
   },
 };
 
@@ -10661,6 +10725,10 @@ export const SHIPYARD_FACILITY_KEY = "shipyard";
 // Shipyard's bay FLOOR, and the deliberate opposite of the Refinery / Shipyard founding
 // rungs. See salvageSlotCount (tick.ts) and FACILITIES.salvageBay below.
 export const SALVAGE_BAY_FACILITY_KEY = "salvageBay";
+
+// The Subspace Telescope's key in GameState.facilities (Squads SQ-5). The SINGLE SOURCE OF TRUTH
+// for the raw "subspaceTelescope" literal SQ-1 already seeds at level 1 (freshState + SAVE v68).
+export const SUBSPACE_TELESCOPE_FACILITY_KEY = "subspaceTelescope";
 
 // The Research facility's LEVEL, read DEFENSIVELY (absent facility -> 0). R1 has no
 // research facility, so this returns 0 until R2 seeds it at level 1, meaning tier-1

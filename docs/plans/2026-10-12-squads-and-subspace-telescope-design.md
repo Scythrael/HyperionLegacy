@@ -983,3 +983,79 @@ tasks (SQ-4 follow-up)`):**
   dangerous body moved to Tier III, safe tiers I and II, the Tier III skip with log text and a closing window, the
   Tier III joint plan, the unstamped threat read and memo key). Suite 4364 -> 4367 passed (1 skipped); `npm run
   check` 0 errors. Pre-SQ-4 goldens, legacy goldens and every parity test unchanged.
+
+**Carry from SQ-5 (built 2026-10-13, commit `feat(0.14.0): Subspace Telescope facility, range and detail (SQ-5)`):**
+- **The facility.** model.ts `FACILITIES.subspaceTelescope` (label "Subspace Telescope", key constant
+  `SUBSPACE_TELESCOPE_FACILITY_KEY`), built from ONE table, `SUBSPACE_TELESCOPE_LEVELS` (level, credits, ticks, FA gate,
+  reach tier, detail). Rung i reaches level i + 1; rung 0 is the founding rung (free, instant, ungated; pre-granted by
+  the SQ-1 seed, so no SAVE bump). Every later rung is a funded DEVELOPMENT CYCLE (user lore) on the existing
+  framework: `canBuildFacilityUpgrade` / `startFacilityUpgrade` / a timed `facilityUpgrade` process, credits + FA gate
+  only (no materials, no talent gates). New effect member `{ telescope: { reachTier, detail } }`, ABSOLUTE per rung,
+  read from the highest reached rung; no other facility sets it (tested).
+- **The ladder [credits, ticks and FA gates PROVISIONAL, user #9; reach and detail per design 6.2]:**
+
+  | Level | Credits | Ticks | FA | Reaches | Range (ly) | Detail |
+  |-------|---------|-------|----|---------|------------|--------|
+  | 1 | 0 (pre-granted) | 0 | none | I | 150 | 2 Graded |
+  | 2 | 4,000 | 120 | 3 | II | 3,000 | 2 Graded |
+  | 3 | 10,000 | 240 | 5 | II | 3,000 | 3 Per body |
+  | 4 | 25,000 | 420 | 8 | III + IV | 7,600 | 3 Per body |
+  | 5 | 60,000 | 720 | 11 | III + IV | 7,600 | 4 Recommendation |
+  | 6 | 150,000 | 1,200 | 14 | V | 13,000 | 4 Recommendation |
+  | 7 | 375,000 | 1,800 | 17 | VI | 25,000 | 5 Forecast |
+  | 8 | 900,000 | 2,700 | 20 | VII | 26,500 | 5 Forecast |
+
+  Note: the design's "x2.5 credits, +3 FA" describes the shape only; its own table (built verbatim) steps 3 -> 5 and
+  25,000 -> 60,000.
+- **`telescope.ts`** (new, pure; imports model, combat/rng, riskFactors types; imported by expedition.ts).
+  `telescopeLevel`, `telescopeReadingAtLevel(level)`, `telescopeReading(state)` = `{ level, reachTier, rangeLy, detail,
+  detailName }` (level 0 / absent reads nothing; a level past the track reads the top rung). Detail names
+  `TELESCOPE_DETAIL_NAMES` Blind / Contact / Graded / Per body / Recommendation / Forecast and `TELESCOPE_DETAIL`
+  **[PROPOSAL names, PROVISIONAL]**. `REGION_TIER_NAMES` (the approved ladder) and `regionTierNumeral`.
+- **Range from the homeworld [PROVISIONAL].** `PROVISIONAL_HOMEWORLD` (one constant until G2's per-player placement):
+  near the Sun's position, `distanceFromCoreLy` 26,500, with each region's band of distances from it (I 4-150, II
+  150-3,000, III and IV 3,000-7,600 sharing one band, V 7,600-13,000, VI 13,000-25,000, VII 25,000-26,500 ly).
+  `rangeLyForReach(tier)` = the far edge of every reached region. A system's distance is `systemDistanceLy(seed,
+  tier)`, a whole number inside its region's band drawn on its own salt `SYSTEM_DISTANCE_SALT` 0x4b1d8e33 (registered
+  in salts.test.ts; display only, it feeds no run). In range = distance <= range, which equals "region tier <= reach
+  tier" by construction (tested over every level and tier). Every reader takes the homeworld as a parameter, so G2
+  swaps in each player's placement without touching callers.
+- **Detail and the ship's lift.** `readSystem(reading, seed, shipSensorPower, expeditionRiskPreview(seed))` =
+  `SystemTelescopeReading { regionTier, distanceLy, rangeLy, inRange, blind, telescopeDetail, shipLift, detail,
+  detailName, risk }`. Detail is FLAT across the range (user #8 PROVISIONAL). The launching ship's crew-inclusive
+  sensors >= `TELESCOPE_SHIP_LIFT_SENSORS` (40, pinned equal to `SENSOR_REVEAL_HAZARD`) add `TELESCOPE_SHIP_LIFT` (1),
+  never past Forecast and never on a blind system (user #10, keep, balance later).
+- **Gating (`gateRiskView(preview, detail)`).** 0 Blind: null. 1 Contact: per factor (Combat risk, Fauna, Flora,
+  Hazard) `present` only. 2 Graded: plus each factor's system-level grade and `enemyTerritory`. 3 Per body: plus every
+  body's four grades. 4 and 5 read the same risk; SQ-6 adds the recommendation and the forecast (hook: `detail >=
+  TELESCOPE_DETAIL.recommendation / .forecast`). The SYSTEM-LEVEL grade of a factor is the WORST BODY's (my call:
+  the profile's drawn system grade can show life on a system of lifeless worlds, so the worst body is the honest
+  read). A body's hostile site placement is never shown (fielding it depends on the squads: SQ-6's task preview).
+- **The candidate.** `ExpeditionCandidate.telescope` (expeditionCandidates). `telescope.blind` is the flag SQ-7's
+  dispatch confirm reads ("truly unknown territory, are you sure you wish to go", user #7); the blind-launch
+  achievement idea would count dispatches made while it is true (nothing stored yet). A blind candidate also hides
+  the ship's own foreknowledge layers (design 6.4, "blind means blind") **[PROPOSAL, open call 7: the user's #7 answer
+  asks for the warning but did not say whether the ship's own layers hide; one line in expedition.ts to flip]**.
+  Today nothing changes on screen: every candidate is Tier I and Level 1 reads Tier I at Graded.
+- **Display only, proven.** startExpedition commits only the candidate's seed; telescope.test.ts dispatches the same
+  candidate at telescope levels 0 to 8 (blind at 0) and the dispatched state, the run at five checkpoints, and the
+  claimed state (telescope key removed) are identical.
+- **Home prompt.** homeDashboard.ts `CARDLESS_FACILITY_KEYS` (the retired Fuel Depot + the telescope): Home never offers
+  "Subspace Telescope upgrade ready" until SQ-7 adds the card (remove it from the set there, and map the key in
+  App.svelte `jumpToFacilityUpgrade` / `facilityCardForFacilityKey`).
+- **Flavor.** `TELESCOPE_LORE` (the user's lore line) and `TELESCOPE_DEVELOPMENT_CYCLES` (one line per bought level,
+  DERIVED from the ladder: "Development cycle 4 extends the survey to the Perseus Arm and the Sagittarius Arm."), no
+  named builders or new entity. The Help topic is left for SQ-7 with the card (the manual describes only what a
+  player can reach).
+- **For SQ-6:** the detail 3 task demand line, the recommendation and the forecast need the TASK preview (discoveries
+  + stamped needs + difficulty on the committed seed and the ship's scan params, as `previewRelicSets` builds its
+  fake run); `readSystem` stays the gate. **For SQ-7:** the Facilities card (level, range, detail, next cycle's
+  credits / ticks / FA via `canBuildFacilityUpgrade`), the telescope block on the card, the blind confirm, and "Hazard
+  can be revealed by either source; whichever is higher wins" (merge `risk.factors.hazard` with the ship's
+  `foreknowledge.bodies[].hazard` in the view).
+- Tests: new `telescope.test.ts` (26: the ladder and its costs, founding rung, no other facility carries the effect,
+  the cycle lines, a real cycle start / complete / refusals / maxed, the Home skip, readings per level, level 0 and past
+  the track, range from the homeworld, region names, distances in band and deterministic, distance == region rule,
+  blind, flat detail, the ship's lift and its two limits, gating at 0 / 1 / 2 / 3 / 4 / 5, no hostile site leak, the
+  candidate reading on a fresh save, blind hides foreknowledge, identical runs at every level); salts.test.ts
+  registers telescope.ts. Suite 4367 -> 4393 passed (1 skipped); `npm run check` 0 errors.
