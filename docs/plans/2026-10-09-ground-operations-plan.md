@@ -1561,6 +1561,10 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   does not help a player); `partners` is the joint-crew API for assign / requeue; a requeue resets the stuck streak as a
   deliberate new try (as built).
 
+- **GO-10 calls (user, 2026-10-14):** (a) BRIGHTEN the Impossible threat tier (the ramp may brighten slightly too);
+  worst case keep the color and add a glow ("dude. You're going to die."); (b) the patrol row's crossed-swords emoji
+  becomes the SVG fightPoint glyph. The user will run their own nitpicking QA pass after 0.14.0 development.
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
