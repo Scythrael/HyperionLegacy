@@ -1562,7 +1562,8 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   deliberate new try (as built).
 
 - **GO-10 calls (user, 2026-10-14):** (a) BRIGHTEN the Impossible threat tier (the ramp may brighten slightly too);
-  worst case keep the color and add a glow ("dude. You're going to die."); (b) the patrol row's crossed-swords emoji
+  worst case keep the color and add a glow ("dude. You're going to die." is the INTENT only: never in game
+  text or flavor; the presentation carries it, user 2026-10-14); (b) the patrol row's crossed-swords emoji
   becomes the SVG fightPoint glyph. The user will run their own nitpicking QA pass after 0.14.0 development.
 
 ### GO-8b: Expedition field repair (WWVD)
