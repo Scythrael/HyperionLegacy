@@ -51,13 +51,25 @@
   // Auto-assign), their refusal words and log lines.
   import { groundOpsEditBlockText, type GroundOpsEdit } from "./lib/game/groundOps";
   import { groundOpsEditLogText } from "./lib/groundTaskQueueDisplay";
-  // Exploration 0.14.0 (phase E3b): the Away-Team Gambits editor, the "Away-Team Gambits" section of the
-  // Exploration Ops tab (under the Expedition Console). Same posture: reads state.gambitPrograms, routes
-  // every edit to the do* handlers below (which write state.gambitPrograms + doSave). gambitPresetPrograms
-  // is the pure preset->program-pair lookup an applied preset writes.
+  // Exploration 0.14.0 (phase E3b), reworked by Ground Operations GO-16: the Away-Team Gambits editor, the
+  // "Away-Team Gambits" section of the Exploration Ops tab (under the Expedition Console). It edits ONE
+  // Security member's own program (picked by ship, ground team, member) and routes every edit to the do*
+  // handlers below, which call the pure memberGambits.ts actions + doSave. The old account-level pair
+  // (state.gambitPrograms) is kept stored but no longer edited (plan Q21).
   import GambitEditorPanel from "./lib/GambitEditorPanel.svelte";
-  import { gambitPresetPrograms, GAMBIT_PRESETS } from "./lib/game/gambit";
-  import type { GambitRole, GambitRule } from "./lib/game/model";
+  import { GAMBIT_PRESETS } from "./lib/game/gambit";
+  import type { GambitRule } from "./lib/game/model";
+  import {
+    addMemberGambitRule,
+    applyMemberGambitPreset,
+    copyMemberGambitToSquad,
+    memberSecuritySquadmates,
+    moveMemberGambitRule,
+    removeMemberGambitRule,
+    resetMemberGambit,
+    setMemberGambitRule,
+  } from "./lib/game/memberGambits";
+  import { nameList } from "./lib/groundTeamDisplay";
   // Combat View (Combat 0.13.0, Phase 12b Unit C): the DISPLAY-ONLY "watch the
   // combat" arena + Log-Guided log, opened as a modal from an in-flight patrol's
   // View Combat Log button. It reads a pure replay of the patrol (replayPatrol)
@@ -5634,57 +5646,54 @@
   // duration labels (startResearch applies the same bonus through museumResearchDurationTicks).
   $: museumResearchSpeed = museumBonuses(state).researchSpeed;
 
-  // ── Away-Team Gambits (Exploration 0.14.0 phase E3b) ────────────────────────
-  // The GambitEditorPanel's edits route here. These are LIVE PLAYER actions (never on the tick path), so
-  // there is no parity concern; each is a pure { next } update of the ACCOUNT-LEVEL state.gambitPrograms
-  // pair (snapshotted onto an expedition only at dispatch, so editing here never changes an in-flight run),
-  // followed by doSave. Programs are small ordered arrays; each handler rebuilds the affected role's array
-  // immutably. A no-op (out-of-range index) leaves state untouched and skips the save. A shallow clone of
-  // the program pair per edit keeps the reactive update cheap.
-  function cloneGambitRule(r: GambitRule): GambitRule {
-    return { ...r, params: r.params ? { ...r.params } : undefined };
-  }
-  function writeGambitProgram(role: GambitRole, program: GambitRule[]) {
-    state = {
-      ...state,
-      gambitPrograms: { ...state.gambitPrograms, [role]: program },
-    };
+  // ── Away-Team Gambits (Exploration 0.14.0 phase E3b; per member since Ground Operations GO-16) ─────────
+  // The GambitEditorPanel's edits route here. LIVE PLAYER actions (never on the tick path): each calls a pure
+  // memberGambits.ts action that refuses by returning the SAME state, so a no-op skips the save. A member's
+  // program is frozen into the roster snapshot at launch, so no edit changes a run in flight. Single rule
+  // edits (set / add / remove / move, and every step of the HP slider) are saved WITHOUT a log line, as the
+  // E3b editor did, so the log is not flooded; preset, default and squad copies are logged.
+  function doMemberGambitEdit(next: GameState) {
+    if (next === state) return;
+    state = next;
     doSave();
   }
-  // SET: replace one rule.
-  function doSetGambitRule(role: GambitRole, index: number, rule: GambitRule) {
-    const current = state.gambitPrograms[role];
-    if (index < 0 || index >= current.length) return;
-    const next = current.map((r, i) => (i === index ? cloneGambitRule(rule) : r));
-    writeGambitProgram(role, next);
+  function doSetMemberGambitRule(memberId: string, index: number, rule: GambitRule) {
+    doMemberGambitEdit(setMemberGambitRule(state, memberId, index, rule));
   }
-  // ADD: append a rule.
-  function doAddGambitRule(role: GambitRole, rule: GambitRule) {
-    writeGambitProgram(role, [...state.gambitPrograms[role], cloneGambitRule(rule)]);
+  function doAddMemberGambitRule(memberId: string, rule: GambitRule) {
+    doMemberGambitEdit(addMemberGambitRule(state, memberId, rule));
   }
-  // REMOVE: drop the rule at index.
-  function doRemoveGambitRule(role: GambitRole, index: number) {
-    const current = state.gambitPrograms[role];
-    if (index < 0 || index >= current.length) return;
-    writeGambitProgram(role, current.filter((_, i) => i !== index));
+  function doRemoveMemberGambitRule(memberId: string, index: number) {
+    doMemberGambitEdit(removeMemberGambitRule(state, memberId, index));
   }
-  // MOVE: swap the rule at index with its up/down neighbor (reorder == priority).
-  function doMoveGambitRule(role: GambitRole, index: number, dir: "up" | "down") {
-    const current = state.gambitPrograms[role];
-    const target = dir === "up" ? index - 1 : index + 1;
-    if (index < 0 || index >= current.length || target < 0 || target >= current.length) return;
-    const next = current.slice();
-    [next[index], next[target]] = [next[target], next[index]];
-    writeGambitProgram(role, next);
+  function doMoveMemberGambitRule(memberId: string, index: number, dir: "up" | "down") {
+    doMemberGambitEdit(moveMemberGambitRule(state, memberId, index, dir));
   }
-  // PRESET: load a preset's program PAIR into the account-level programs (overwrites both roles).
-  function doApplyGambitPreset(presetId: string) {
-    const pair = gambitPresetPrograms(presetId);
-    if (!pair) return;
-    state = { ...state, gambitPrograms: pair };
-    doSave();
+  // PRESET: give one member a copy of a preset's program.
+  function doApplyMemberGambitPreset(memberId: string, presetId: string) {
+    const next = applyMemberGambitPreset(state, memberId, presetId);
+    if (next === state) return; // unknown member or preset, or that preset is already in place
+    state = next;
     const title = GAMBIT_PRESETS.find((p) => p.id === presetId)?.title ?? presetId;
-    pushLog(`Away-team gambits set to the ${title} preset.`);
+    pushLog(`${groundMemberName(memberId)} now runs the ${title} gambits.`);
+    doSave();
+  }
+  // DEFAULT: clear the member's own program (D19 built-in default).
+  function doResetMemberGambit(memberId: string) {
+    const next = resetMemberGambit(state, memberId);
+    if (next === state) return; // already on the default
+    state = next;
+    pushLog(`${groundMemberName(memberId)} now runs the default gambits.`);
+    doSave();
+  }
+  // COPY TO SQUAD: the member's program to the rest of their own Security squad.
+  function doCopyMemberGambitToSquad(shipId: string, memberId: string) {
+    const mates = memberSecuritySquadmates(state, shipId, memberId);
+    const next = copyMemberGambitToSquad(state, shipId, memberId);
+    if (next === state) return; // nobody else in the squad, or they already run it
+    state = next;
+    pushLog(`Copied ${groundMemberName(memberId)}'s gambits to ${nameList(mates.map(groundMemberName))}.`);
+    doSave();
   }
 
   // ── Personnel Rosters (Crew 0.14.0 phase 4d) ───────────────────────────────
@@ -17221,20 +17230,22 @@
         </div>
         <ExpeditionPanel {state} onStart={doStartExpedition} onClaim={doClaimExpedition} onSetComposition={doApplyComposition} onEditGroundOps={doEditGroundOps} />
         <!-- Exploration 0.14.0 (E3b): the AWAY-TEAM GAMBITS editor, right under the console so it is
-             discoverable from dispatch (the console's dispatch view points here). Edits the ACCOUNT-LEVEL
-             gambit program pair via the do* handlers; account-level so it is reachable independently of any
-             one expedition (the pair is snapshotted at dispatch). -->
+             discoverable from dispatch (the console's dispatch view points here). Since Ground Operations
+             GO-16 it edits ONE Security member's own program, picked by ship, ground team and member, via the
+             do* handlers (programs are snapshotted at launch). -->
         <div class="home-sec-hd">
           <span class="home-sec-h">Away-Team Gambits</span>
           <span class="home-sec-rule"></span>
         </div>
         <GambitEditorPanel
           {state}
-          onSetRule={doSetGambitRule}
-          onAddRule={doAddGambitRule}
-          onRemoveRule={doRemoveGambitRule}
-          onMoveRule={doMoveGambitRule}
-          onApplyPreset={doApplyGambitPreset}
+          onSetRule={doSetMemberGambitRule}
+          onAddRule={doAddMemberGambitRule}
+          onRemoveRule={doRemoveMemberGambitRule}
+          onMoveRule={doMoveMemberGambitRule}
+          onApplyPreset={doApplyMemberGambitPreset}
+          onReset={doResetMemberGambit}
+          onCopyToSquad={doCopyMemberGambitToSquad}
         />
         {#if surveyMissions.length > 0}
           <div class="home-sec-hd">

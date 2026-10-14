@@ -2,63 +2,80 @@
   // ============================================================================
   // GambitEditorPanel.svelte
   // Author: Claude (Opus 4.8) | Exploration 0.14.0 phase E3b (Away-Team Gambits)
+  // Reworked: Ground Operations GO-16 (absorbs E-CREW Task 17's editor): PER-MEMBER programs by ground team.
   //
   // The player-facing GAMBIT RULE EDITOR, rendered as the "Away-Team Gambits" section of the Exploration
-  // Ops tab (right under the Expedition Console). It realizes the approved "Away-Team Gambits" mockup:
-  // per-role (Security / Science) tabs over an ordered, first-match TARGET -> ACTION rule list, with an
-  // inline param editor (a granular HP-threshold slider, a status picker), reorder + add + remove, the 6
-  // locked presets, and live validation.
+  // Ops tab (right under the Expedition Console). The player picks a SHIP, one of its GROUND TEAMS (Alpha /
+  // Bravo / Charlie, or the custom name), then a SECURITY MEMBER of that team, and edits that member's own
+  // ordered, first-match TARGET -> ACTION rule list (design D16: gambits are per member, Security only). An
+  // inline param editor (a granular HP-threshold slider, a status picker), reorder + add + remove, "Apply
+  // preset" (the six locked titles), "Use default" (D19: back to the built-in program) and "Copy to squad"
+  // (the member's own Security squad). The Science tab is gone: Science never fights (design D2).
   //
-  // POSTURE (mirrors ExpeditionPanel / SeniorStaffPanel / PersonnelRostersPanel exactly):
-  //   - PURE PRESENTATION + INTERACTION. It READS live state (state.gambitPrograms, the account-level pair)
-  //     + the gambit.ts pure catalogs/validators, and NEVER mutates state: every edit bubbles UP to the
-  //     host (App.svelte) via callbacks, which write state.gambitPrograms[role] + doSave in one place. When
-  //     the host reassigns `state`, every derived value below recomputes.
-  //   - RESPONSIVE the container-query way (ONE shared DOM, split by CSS only, NO isMobile JS): the wrap is
-  //     an inline-size container; a wide container lays each rule row as [target] -> [action] side by side,
-  //     a narrow one (<= 559px, e.g. 375px phones) stacks the target block above the action block. Works at
-  //     375px.
+  // The old ACCOUNT-LEVEL pair (state.gambitPrograms) stays stored but hidden (plan Q21): no battle reads it
+  // (D19). A one-line notice says so, only when the player had set it up (gambitEditorDisplay.ts).
   //
-  // The programs are ACCOUNT-LEVEL. D19 (user, 2026-10-06): NO battle reads them any more. Each Security
-  // member runs their own program, else the built-in DEFAULT_MEMBER_GAMBIT (no automatic kit use), so an
-  // edit here changes no member; a notice line says so. The stored pair is kept (and still editable) until
-  // the per-member editor (E-CREW Task 17) replaces this surface. The engine + interpreter live in gambit.ts;
-  // this panel owns only the editing surface.
+  // POSTURE (mirrors ExpeditionPanel / AwayTeamPanel):
+  //   - PURE PRESENTATION + INTERACTION. It READS live state through gambitEditorDisplay.ts (tested) + the
+  //     gambit.ts catalogs/validators, and NEVER mutates state: every edit bubbles UP to the host (App.svelte)
+  //     do* handlers, which call the pure memberGambits.ts actions + doSave. The pick (ship / team / member)
+  //     is local UI state; the view falls back when a pick no longer applies (a member moved, a ship sold).
+  //   - RESPONSIVE the container-query way (ONE shared DOM, split by CSS only, NO isMobile JS): a wide
+  //     container lays each rule row as [target] -> [action] side by side, a narrow one (<= 559px, e.g.
+  //     375px phones) stacks them. Works at 375px.
+  // Programs are frozen into the roster snapshot at launch, so an edit never changes a run in flight.
   // ============================================================================
 
   import type {
     GameState,
-    GambitRole,
     GambitRule,
-    GambitProgram,
     GambitTargetSelector,
     GambitActionId,
     GambitStatusId,
   } from "./game/model";
-  import {
-    GAMBIT_PRESETS,
-    GAMBIT_STATUSES,
-    isActionLegalForRole,
-    validateGambitProgram,
-  } from "./game/gambit";
+  import { GAMBIT_PRESETS, GAMBIT_STATUSES, isActionLegalForRole, validateGambitProgram } from "./game/gambit";
+  import { ACCOUNT_PAIR_NOTICE, accountPairNoticeShown, gambitEditorView } from "./gambitEditorDisplay";
+  import { nameList } from "./groundTeamDisplay";
+  import Icon from "./ui/Icon.svelte";
+  import TeamBadge from "./ui/TeamBadge.svelte";
 
-  // --- Props ------------------------------------------------------------------
+  // Props
   export let state: GameState;
-  // Replace the rule at `index` for `role` with `rule`. Host: write state.gambitPrograms[role][index] -> doSave.
-  export let onSetRule: (role: GambitRole, index: number, rule: GambitRule) => void;
-  // Append a rule to `role`'s program. Host: push -> doSave.
-  export let onAddRule: (role: GambitRole, rule: GambitRule) => void;
-  // Remove the rule at `index`. Host: splice -> doSave.
-  export let onRemoveRule: (role: GambitRole, index: number) => void;
-  // Move the rule at `index` one step in `dir` (reorder == priority). Host: swap -> doSave.
-  export let onMoveRule: (role: GambitRole, index: number, dir: "up" | "down") => void;
-  // Load a preset's program PAIR into state.gambitPrograms. Host: gambitPresetPrograms(presetId) -> doSave.
-  export let onApplyPreset: (presetId: string) => void;
+  // Replace rule `index` of the member's program. Host: setMemberGambitRule -> doSave.
+  export let onSetRule: (memberId: string, index: number, rule: GambitRule) => void;
+  // Append a rule. Host: addMemberGambitRule -> doSave.
+  export let onAddRule: (memberId: string, rule: GambitRule) => void;
+  // Remove rule `index`. Host: removeMemberGambitRule -> doSave.
+  export let onRemoveRule: (memberId: string, index: number) => void;
+  // Move rule `index` one step (reorder == priority). Host: moveMemberGambitRule -> doSave.
+  export let onMoveRule: (memberId: string, index: number, dir: "up" | "down") => void;
+  // Give the member a copy of a preset's program. Host: applyMemberGambitPreset -> doSave.
+  export let onApplyPreset: (memberId: string, presetId: string) => void;
+  // Clear the member's own program (back to the built-in default). Host: resetMemberGambit -> doSave.
+  export let onReset: (memberId: string) => void;
+  // Copy the member's program to the rest of their Security squad. Host: copyMemberGambitToSquad -> doSave.
+  export let onCopyToSquad: (shipId: string, memberId: string) => void;
 
-  // --- Local UI state ---------------------------------------------------------
-  let activeRole: GambitRole = "security";
+  // Local UI state (the pick)
+  let pickShipId: string | null = null;
+  let pickTeamIndex: number | null = null;
+  let pickMemberId: string | null = null;
 
-  // --- Static vocabulary (readable labels, grouped for the dropdowns) ---------
+  $: view = gambitEditorView(state, { shipId: pickShipId, teamIndex: pickTeamIndex, memberId: pickMemberId });
+  $: member = view.member;
+  $: showAccountNotice = accountPairNoticeShown(state);
+
+  function pickShip(id: string): void {
+    pickShipId = id;
+    pickTeamIndex = null;
+    pickMemberId = null;
+  }
+  function pickTeam(index: number): void {
+    pickTeamIndex = index;
+    pickMemberId = null;
+  }
+
+  // Static vocabulary (readable labels, grouped for the dropdowns)
   const SELECTOR_GROUPS: { label: string; ids: GambitTargetSelector[] }[] = [
     {
       label: "Foe",
@@ -97,8 +114,8 @@
     outnumbered: "Outnumbered",
   };
 
-  // The full action list in a stable order; the editor FILTERS it by role via isActionLegalForRole so a
-  // Security rule can never pick a Science-only action (and vice-versa).
+  // The full action list in a stable order, FILTERED to Security's legal set (isActionLegalForRole), so a rule
+  // can never pick an action a Security member cannot perform.
   const ALL_ACTIONS: GambitActionId[] = [
     "attack",
     "suppress",
@@ -132,14 +149,12 @@
     hold: "Hold",
   };
   const ALL_STATUSES: GambitStatusId[] = Object.keys(GAMBIT_STATUSES) as GambitStatusId[];
+  const LEGAL_ACTIONS = ALL_ACTIONS.filter((a) => isActionLegalForRole("security", a));
 
-  // A sensible per-role default for a freshly added rule.
-  const DEFAULT_RULE: Record<GambitRole, GambitRule> = {
-    security: { target: "foeNearest", action: "attack" },
-    science: { target: "allyLowestHp", action: "aidHeal" },
-  };
+  // A sensible default for a freshly added rule.
+  const NEW_RULE: GambitRule = { target: "foeNearest", action: "attack" };
 
-  // --- Predicates (which controls a rule needs) -------------------------------
+  // Predicates (which controls a rule needs)
   const HAS_STATUS_SELECTORS: GambitTargetSelector[] = ["foeHasStatus", "allyHasStatus", "selfHasStatus"];
   const HP_THRESHOLD_SELECTORS: GambitTargetSelector[] = ["allyHpBelow", "selfHpBelow"];
   function needsThreshold(rule: GambitRule): boolean {
@@ -167,35 +182,17 @@
     return hasParams ? { target: rule.target, action: rule.action, params } : { target: rule.target, action: rule.action };
   }
 
-  // --- Derived reads ----------------------------------------------------------
-  $: program = (state.gambitPrograms[activeRole] ?? []) as GambitProgram;
-  $: legalActions = ALL_ACTIONS.filter((a) => isActionLegalForRole(activeRole, a));
-  $: issues = validateGambitProgram(activeRole, program);
+  // Derived reads
+  $: program = member?.program ?? [];
+  $: issues = validateGambitProgram("security", program);
   $: illegalIndexes = new Set(issues.map((i) => i.index));
+  $: matchedPresetId = member?.presetId ?? null;
 
-  // Which preset (if any) the CURRENT account pair matches, so the player sees their starting point. Uses a
-  // structural compare (not JSON, which is key-order fragile).
-  function ruleEq(a: GambitRule, b: GambitRule): boolean {
-    return (
-      a.target === b.target &&
-      a.action === b.action &&
-      (a.params?.hpThreshold ?? null) === (b.params?.hpThreshold ?? null) &&
-      (a.params?.statusId ?? null) === (b.params?.statusId ?? null)
-    );
-  }
-  function progEq(a: GambitProgram, b: GambitProgram): boolean {
-    return a.length === b.length && a.every((r, i) => ruleEq(r, b[i]));
-  }
-  // E-CREW (Task 13): presets are Security-only and nothing executes a Science program, so the match reads
-  // the Security program alone (an old save's leftover Science program must not hide its preset).
-  $: matchedPreset =
-    GAMBIT_PRESETS.find((p) => progEq(p.programs.security, state.gambitPrograms.security)) ?? null;
-
-  // --- Edit helpers (build a rule + route to the host; NO local mutation) -----
+  // Edit helpers (build a rule + route to the host; NO local mutation)
   function patchRule(index: number, patch: Partial<GambitRule>): void {
     const current = program[index];
-    if (!current) return;
-    onSetRule(activeRole, index, normalizeRule({ ...current, ...patch, params: { ...current.params, ...patch.params } }));
+    if (!current || !member) return;
+    onSetRule(member.id, index, normalizeRule({ ...current, ...patch, params: { ...current.params, ...patch.params } }));
   }
   function onSelectorChange(index: number, value: string): void {
     patchRule(index, { target: value as GambitTargetSelector });
@@ -210,9 +207,6 @@
   function onStatusChange(index: number, value: string): void {
     patchRule(index, { params: { statusId: value === "" ? undefined : (value as GambitStatusId) } });
   }
-  function addRule(): void {
-    onAddRule(activeRole, { ...DEFAULT_RULE[activeRole] });
-  }
 
   // Display helpers.
   function thresholdPct(rule: GambitRule): number {
@@ -224,154 +218,231 @@
 </script>
 
 <div class="ge">
-  <!-- ROLE TABS -->
-  <div class="ge-tabs" role="tablist" aria-label="Away-team role">
-    {#each [{ id: "security", label: "Security" }, { id: "science", label: "Science" }] as t (t.id)}
-      <button
-        type="button"
-        class="ge-tab"
-        class:active={activeRole === t.id}
-        role="tab"
-        aria-selected={activeRole === t.id}
-        on:click={() => (activeRole = t.id as GambitRole)}
-      >
-        {t.label}
-        <span class="ge-tab-count">{(state.gambitPrograms[t.id as GambitRole] ?? []).length}</span>
-      </button>
-    {/each}
-  </div>
-
-  <p class="ge-notice" role="note">
-    Away-team members now fight with <b>their own</b> program, or the built-in default (full targeting,
-    attack and defense, no automatic kit use). The rules on this page are saved but do not change any
-    battle until per-member editing arrives.
-  </p>
-
-  <p class="ge-intro">
-    Rules run <b>top to bottom</b>: a member running a program takes the <b>first</b> rule whose condition
-    holds, every round. Reorder to set priority.
-  </p>
-
-  <!-- RULE LIST -->
-  {#if program.length === 0}
-    <div class="ge-empty">
-      No rules: this role <b>holds</b> every round (does nothing). Add a rule or load a preset below.
+  <!-- PICK: ship, ground team, Security member -->
+  {#if view.ships.length > 0}
+    <div class="ge-pick">
+      <label class="ge-field">
+        <span class="ge-part-tag">Ship</span>
+        <select class="ge-select" value={view.shipId} on:change={(e) => pickShip(e.currentTarget.value)}>
+          {#each view.ships as s (s.id)}
+            <option value={s.id}>{s.name}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="ge-field">
+        <span class="ge-part-tag" id="ge-team-tag">Ground team</span>
+        <div class="ge-chips" role="group" aria-labelledby="ge-team-tag">
+          {#each view.teams as t (t.index)}
+            <button
+              type="button"
+              class="ge-chip ge-team"
+              class:active={view.teamIndex === t.index}
+              aria-pressed={view.teamIndex === t.index}
+              on:click={() => pickTeam(t.index)}
+            >
+              <TeamBadge index={t.index} kind={t.kind} name={t.name} size="sm" />
+              <span class="ge-chip-name">{t.name}</span>
+              <span class="ge-chip-sub">{t.securityMembers} Security</span>
+              {#if view.teamIndex === t.index}<span class="ge-chip-mark"><Icon name="check" size={14} /></span>{/if}
+            </button>
+          {/each}
+        </div>
+      </div>
     </div>
-  {:else}
-    <div class="ge-rules">
-      {#each program as rule, i (i)}
-        <div class="ge-rule" class:illegal={illegalIndexes.has(i)}>
-          <span class="ge-ord">#{i + 1}</span>
+  {/if}
 
-          <!-- TARGET block (selector + its params) -->
-          <div class="ge-part ge-target">
-            <span class="ge-part-tag">Target</span>
-            <select
-              class="ge-select"
-              aria-label={`Rule ${i + 1} target`}
-              value={rule.target}
-              on:change={(e) => onSelectorChange(i, e.currentTarget.value)}
-            >
-              {#each SELECTOR_GROUPS as grp}
-                <optgroup label={grp.label}>
-                  {#each grp.ids as sid}
-                    <option value={sid}>{SELECTOR_LABEL[sid]}</option>
-                  {/each}
-                </optgroup>
+  {#if view.launchedText}
+    <p class="ge-launched" role="note"><Icon name="lock" size={14} /> {view.launchedText}</p>
+  {/if}
+
+  {#if view.squads.length > 0}
+    <div class="ge-squads">
+      {#each view.squads as q (q.label)}
+        <div class="ge-field">
+          <span class="ge-part-tag ge-squad-tag"><Icon name="security" size={12} /> {q.label}</span>
+          {#if q.members.length === 0}
+            <span class="ge-chip-sub">Nobody slotted.</span>
+          {:else}
+            <div class="ge-chips" role="group" aria-label={`${q.label} members`}>
+              {#each q.members as m (m.id)}
+                <button
+                  type="button"
+                  class="ge-chip"
+                  class:active={member?.id === m.id}
+                  aria-pressed={member?.id === m.id}
+                  on:click={() => (pickMemberId = m.id)}
+                >
+                  <span class="ge-chip-name">{m.name}</span>
+                  <span class="ge-chip-sub">{m.programLabel}</span>
+                  {#if member?.id === m.id}<span class="ge-chip-mark"><Icon name="check" size={14} /></span>{/if}
+                </button>
               {/each}
-            </select>
-            {#if needsThreshold(rule)}
-              <div class="ge-param ge-thresh">
-                <input
-                  type="range"
-                  min="5"
-                  max="95"
-                  step="5"
-                  aria-label={`Rule ${i + 1} HP threshold`}
-                  value={thresholdPct(rule)}
-                  on:input={(e) => onThresholdChange(i, +e.currentTarget.value)}
-                />
-                <span class="ge-thresh-val">&lt; {thresholdPct(rule)}%</span>
-              </div>
-            {/if}
-            {#if needsStatus(rule)}
-              <select
-                class="ge-select ge-param"
-                aria-label={`Rule ${i + 1} status`}
-                value={statusValue(rule)}
-                on:change={(e) => onStatusChange(i, e.currentTarget.value)}
-              >
-                {#if statusAllowsAny(rule)}<option value="">Any debuff</option>{/if}
-                {#each ALL_STATUSES as sid}
-                  <option value={sid}>{GAMBIT_STATUSES[sid].label}</option>
-                {/each}
-              </select>
-            {/if}
-          </div>
-
-          <span class="ge-arrow" aria-hidden="true">→</span>
-
-          <!-- ACTION block (role-filtered) -->
-          <div class="ge-part ge-action">
-            <span class="ge-part-tag">Action</span>
-            <select
-              class="ge-select"
-              class:bad={illegalIndexes.has(i)}
-              aria-label={`Rule ${i + 1} action`}
-              value={rule.action}
-              on:change={(e) => onActionChange(i, e.currentTarget.value)}
-            >
-              {#if !legalActions.includes(rule.action)}
-                <!-- A stored illegal action (e.g. from a preset swap): show it so the select is not blank. -->
-                <option value={rule.action}>{ACTION_LABEL[rule.action]} (illegal)</option>
-              {/if}
-              {#each legalActions as a}
-                <option value={a}>{ACTION_LABEL[a]}</option>
-              {/each}
-            </select>
-          </div>
-
-          <!-- ROW CONTROLS -->
-          <div class="ge-ctrls">
-            <button type="button" aria-label={`Move rule ${i + 1} up`} disabled={i === 0} on:click={() => onMoveRule(activeRole, i, "up")}>▲</button>
-            <button type="button" aria-label={`Move rule ${i + 1} down`} disabled={i === program.length - 1} on:click={() => onMoveRule(activeRole, i, "down")}>▼</button>
-            <button type="button" class="ge-remove" aria-label={`Remove rule ${i + 1}`} on:click={() => onRemoveRule(activeRole, i)}>✕</button>
-          </div>
+            </div>
+          {/if}
         </div>
       {/each}
     </div>
   {/if}
 
-  <!-- VALIDATION -->
-  {#if issues.length > 0}
-    <div class="ge-issue">
-      {issues.length} rule{issues.length === 1 ? "" : "s"} use an action {activeRole === "security" ? "Security" : "Science"} cannot perform: it is skipped in battle. Pick a legal action.
+  {#if member === null}
+    {#if view.emptyText}<div class="ge-empty">{view.emptyText}</div>{/if}
+  {:else}
+    <div class="ge-member-hd">
+      <span class="ge-member-name">{member.name}</span>
+      <span class="ge-current">
+        {#if member.hasOwn}Own program: <b>{member.programLabel}</b>{:else}Runs the <b>built-in default</b>{/if}
+      </span>
+    </div>
+
+    <p class="ge-intro">
+      Rules run <b>top to bottom</b>: each round {member.name} takes the <b>first</b> rule whose condition holds.
+      Reorder to set priority.{#if !member.hasOwn}{" "}Editing a rule gives {member.name} their own copy of the default.{/if}
+    </p>
+
+    <!-- RULE LIST -->
+    {#if program.length === 0}
+      <div class="ge-empty">
+        No rules: {member.name} <b>holds</b> every round (does nothing). Add a rule or apply a preset below.
+      </div>
+    {:else}
+      <div class="ge-rules">
+        {#each program as rule, i (i)}
+          <div class="ge-rule" class:illegal={illegalIndexes.has(i)}>
+            <span class="ge-ord">#{i + 1}</span>
+
+            <!-- TARGET block (selector + its params) -->
+            <div class="ge-part ge-target">
+              <span class="ge-part-tag">Target</span>
+              <select
+                class="ge-select"
+                aria-label={`Rule ${i + 1} target`}
+                value={rule.target}
+                on:change={(e) => onSelectorChange(i, e.currentTarget.value)}
+              >
+                {#each SELECTOR_GROUPS as grp}
+                  <optgroup label={grp.label}>
+                    {#each grp.ids as sid}
+                      <option value={sid}>{SELECTOR_LABEL[sid]}</option>
+                    {/each}
+                  </optgroup>
+                {/each}
+              </select>
+              {#if needsThreshold(rule)}
+                <div class="ge-param ge-thresh">
+                  <input
+                    type="range"
+                    min="5"
+                    max="95"
+                    step="5"
+                    aria-label={`Rule ${i + 1} HP threshold`}
+                    value={thresholdPct(rule)}
+                    on:input={(e) => onThresholdChange(i, +e.currentTarget.value)}
+                  />
+                  <span class="ge-thresh-val">&lt; {thresholdPct(rule)}%</span>
+                </div>
+              {/if}
+              {#if needsStatus(rule)}
+                <select
+                  class="ge-select ge-param"
+                  aria-label={`Rule ${i + 1} status`}
+                  value={statusValue(rule)}
+                  on:change={(e) => onStatusChange(i, e.currentTarget.value)}
+                >
+                  {#if statusAllowsAny(rule)}<option value="">Any debuff</option>{/if}
+                  {#each ALL_STATUSES as sid}
+                    <option value={sid}>{GAMBIT_STATUSES[sid].label}</option>
+                  {/each}
+                </select>
+              {/if}
+            </div>
+
+            <span class="ge-arrow" aria-hidden="true"><Icon name="chevronRight" size={18} /></span>
+
+            <!-- ACTION block (Security's legal set) -->
+            <div class="ge-part ge-action">
+              <span class="ge-part-tag">Action</span>
+              <select
+                class="ge-select"
+                class:bad={illegalIndexes.has(i)}
+                aria-label={`Rule ${i + 1} action`}
+                value={rule.action}
+                on:change={(e) => onActionChange(i, e.currentTarget.value)}
+              >
+                {#if !LEGAL_ACTIONS.includes(rule.action)}
+                  <!-- A stored illegal action: show it so the select is not blank. -->
+                  <option value={rule.action}>{ACTION_LABEL[rule.action]} (illegal)</option>
+                {/if}
+                {#each LEGAL_ACTIONS as a}
+                  <option value={a}>{ACTION_LABEL[a]}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- ROW CONTROLS -->
+            <div class="ge-ctrls">
+              <button type="button" aria-label={`Move rule ${i + 1} up`} disabled={i === 0} on:click={() => member && onMoveRule(member.id, i, "up")}><Icon name="chevronUp" size={14} /></button>
+              <button type="button" aria-label={`Move rule ${i + 1} down`} disabled={i === program.length - 1} on:click={() => member && onMoveRule(member.id, i, "down")}><Icon name="chevronDown" size={14} /></button>
+              <button type="button" class="ge-remove" aria-label={`Remove rule ${i + 1}`} on:click={() => member && onRemoveRule(member.id, i)}><Icon name="close" size={14} /></button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- VALIDATION -->
+    {#if issues.length > 0}
+      <div class="ge-issue">
+        {issues.length} rule{issues.length === 1 ? "" : "s"} use an action Security cannot perform: it is skipped in battle. Pick a legal action.
+      </div>
+    {/if}
+
+    <button type="button" class="ge-add" on:click={() => member && onAddRule(member.id, { ...NEW_RULE })}>Add rule</button>
+
+    <!-- PRESETS + SQUAD -->
+    <div class="ge-presets">
+      <div class="ge-presets-hd">
+        <span class="ge-section-tag">Apply preset</span>
+      </div>
+      <div class="ge-preset-row">
+        {#each GAMBIT_PRESETS as p (p.id)}
+          <button
+            type="button"
+            class="ge-preset"
+            class:active={matchedPresetId === p.id}
+            aria-pressed={matchedPresetId === p.id}
+            on:click={() => member && onApplyPreset(member.id, p.id)}
+          >{#if matchedPresetId === p.id}<Icon name="check" size={12} /> {/if}{p.title}</button>
+        {/each}
+      </div>
+      <p class="ge-note">
+        A preset replaces {member.name}'s rules. Programs are frozen at launch, so nothing changes an expedition
+        already in flight.
+      </p>
+      <div class="ge-squad-row">
+        <button
+          type="button"
+          class="ge-action-btn"
+          disabled={member.copyBlockedText !== null}
+          on:click={() => member && view.shipId && onCopyToSquad(view.shipId, member.id)}
+        >{member.copyLabel}</button>
+        <span class="ge-note">
+          {#if member.copyBlockedText}{member.copyBlockedText}{:else}Gives {nameList(member.squadmates)} a copy of this program.{/if}
+        </span>
+      </div>
+      <div class="ge-squad-row">
+        <button type="button" class="ge-action-btn" disabled={!member.hasOwn} on:click={() => member && onReset(member.id)}>Use default</button>
+        <span class="ge-note">
+          {member.hasOwn
+            ? "Back to the built-in default: full targeting, attack and defense, no automatic kit use."
+            : `${member.name} runs the built-in default: full targeting, attack and defense, no automatic kit use.`}
+        </span>
+      </div>
     </div>
   {/if}
 
-  <button type="button" class="ge-add" on:click={addRule}>+ Add rule</button>
-
-  <!-- PRESETS -->
-  <div class="ge-presets">
-    <div class="ge-presets-hd">
-      <span class="ge-section-tag">Presets</span>
-      <span class="ge-current">Current: {matchedPreset ? matchedPreset.title : "Custom"}</span>
-    </div>
-    <div class="ge-preset-row">
-      {#each GAMBIT_PRESETS as p (p.id)}
-        <button
-          type="button"
-          class="ge-preset"
-          class:active={matchedPreset?.id === p.id}
-          on:click={() => onApplyPreset(p.id)}
-        >{p.title}</button>
-      {/each}
-    </div>
-    <p class="ge-note">
-      A preset loads both roles at once, overwriting the rules above. Members' programs are snapshotted at
-      dispatch, so nothing changes an expedition already in flight.
-    </p>
-  </div>
+  {#if showAccountNotice}
+    <p class="ge-notice" role="note">{ACCOUNT_PAIR_NOTICE}</p>
+  {/if}
 </div>
 
 <style>
@@ -380,18 +451,48 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    min-width: 0;
   }
 
-  /* ROLE TABS */
-  .ge-tabs {
+  /* Visible keyboard focus on every control. */
+  .ge button:focus-visible,
+  .ge select:focus-visible,
+  .ge input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* PICK */
+  .ge-pick,
+  .ge-squads {
     display: flex;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    align-items: flex-start;
+  }
+  .ge-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .ge-field .ge-select {
+    min-width: 180px;
+    max-width: 100%;
+  }
+  .ge-chips {
+    display: flex;
+    flex-wrap: wrap;
     gap: 6px;
   }
-  .ge-tab {
+  .ge-chip {
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 7px 14px;
+    padding: 6px 10px;
+    min-height: 34px;
+    max-width: 100%;
     background: rgba(var(--color-accent-rgb), 0.05);
     border: 1px solid rgba(var(--color-accent-rgb), 0.16);
     border-radius: var(--corner);
@@ -400,20 +501,60 @@
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .ge-tab:hover {
+  .ge-chip:hover {
     border-color: rgba(var(--color-accent-rgb), 0.4);
   }
-  .ge-tab.active {
+  /* Selected: border + background + bold name + a check glyph (never color alone). */
+  .ge-chip.active {
     border-color: var(--color-accent);
     background: rgba(var(--color-accent-rgb), 0.14);
     color: var(--color-text-primary);
   }
-  .ge-tab-count {
+  .ge-chip.active .ge-chip-name {
+    font-weight: 700;
+  }
+  .ge-chip-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ge-chip-sub {
     font-size: var(--text-2xs);
-    padding: 0 7px;
-    border-radius: 999px;
-    background: rgba(var(--color-accent-rgb), 0.16);
+    color: var(--color-text-dim);
+    white-space: nowrap;
+  }
+  .ge-chip-mark {
+    display: inline-flex;
     color: var(--color-accent-bright);
+  }
+  .ge-squad-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .ge-launched {
+    margin: 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+
+  .ge-member-hd {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(var(--color-accent-rgb), 0.12);
+  }
+  .ge-member-name {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
   }
 
   .ge-intro {
@@ -422,16 +563,15 @@
     color: var(--color-text-secondary);
     line-height: 1.5;
   }
-  /* D19: these account-level rules no longer drive any battle; say so plainly. */
+  /* Q21: the old account-level pair is stored but never read; one plain line says so. */
   .ge-notice {
     margin: 0;
     padding: 8px 10px;
     border-radius: 6px;
     font-size: var(--text-xs);
     line-height: 1.5;
-    color: var(--color-warning);
-    border: 1px solid rgba(var(--color-warning-rgb, 200, 150, 60), 0.45);
-    background: rgba(var(--color-warning-rgb, 200, 150, 60), 0.12);
+    color: var(--color-text-secondary);
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.3);
   }
 
   .ge-empty {
@@ -485,8 +625,8 @@
   }
   .ge-arrow {
     flex: 0 0 auto;
+    display: inline-flex;
     color: var(--color-accent-bright);
-    font-size: var(--text-md);
     align-self: center;
     padding-top: 12px;
   }
@@ -536,12 +676,11 @@
     align-self: center;
   }
   .ge-ctrls button {
-    width: calc(26px * var(--ui-scale));
-    height: calc(26px * var(--ui-scale));
+    width: calc(28px * var(--ui-scale));
+    height: calc(28px * var(--ui-scale));
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: var(--text-xs);
     color: var(--color-text-secondary);
     background: rgba(var(--color-accent-rgb), 0.08);
     border: 1px solid rgba(var(--color-accent-rgb), 0.2);
@@ -572,22 +711,32 @@
     border-radius: var(--corner);
   }
 
-  .ge-add {
+  .ge-add,
+  .ge-action-btn {
     align-self: flex-start;
+    flex: 0 0 auto;
     padding: 7px 14px;
     font-size: var(--text-sm);
     color: var(--color-text-primary);
     background: rgba(var(--color-accent-rgb), 0.1);
-    border: 1px dashed rgba(var(--color-accent-rgb), 0.4);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
     border-radius: var(--corner);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
-  .ge-add:hover {
+  .ge-add {
+    border-style: dashed;
+  }
+  .ge-add:hover,
+  .ge-action-btn:hover:not(:disabled) {
     background: rgba(var(--color-accent-rgb), 0.16);
   }
+  .ge-action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
 
-  /* PRESETS */
+  /* PRESETS + SQUAD */
   .ge-presets {
     display: flex;
     flex-direction: column;
@@ -612,12 +761,18 @@
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
   }
+  .ge-current b {
+    color: var(--color-text-primary);
+  }
   .ge-preset-row {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
   }
   .ge-preset {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     padding: 6px 12px;
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
@@ -635,12 +790,20 @@
     border-color: var(--color-accent);
     background: rgba(var(--color-accent-rgb), 0.16);
     color: var(--color-text-primary);
+    font-weight: 700;
+  }
+  .ge-squad-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
   }
   .ge-note {
     margin: 0;
     font-size: var(--text-2xs);
     color: var(--color-text-dim);
     line-height: 1.5;
+    min-width: 0;
   }
 
   /* WIDE container: lay target -> action side by side; keep the arrow inline. On a narrow container the

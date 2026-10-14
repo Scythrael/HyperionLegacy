@@ -1713,6 +1713,24 @@ squad" (that team's Security squad); the Science tab is removed; the inert accou
 must "decide the account pair's future": keep it stored and hidden, flagged in Q21). EC-M gambit section.
 Commit `feat(0.14.0): per-member gambit editor by ground team (Ground Ops GO-16)`.
 
+**Carry from GO-16 (built 2026-10-14):**
+- **Engine:** new pure `memberGambits.ts` (set / add / remove / move a rule, apply a preset, reset to the default,
+  copy to squad; each refuses with the SAME state). A member on the D19 default who edits one rule gets the default
+  stored as their own with that rule changed. Programs still reach combat ONLY through the dispatch snapshot
+  (`snapshotMember`), so no combat outcome, golden or parity test moved; no save change (`AwayMember.gambit` exists).
+- **Display:** `gambitEditorDisplay.ts` (pick fallbacks: first ship with ground teams, first team with a Security
+  member, its first Security member; program label Default / preset title / Custom; empty lines for a Survey team and
+  an unstaffed team; a "launched with" line while the ship is on an expedition).
+- **Copy to squad = the member's OWN Security squad** (decision for the user): a Strike team's two Security squads
+  are separate copy targets (the button reads "Copy to Security squad 2"); a member on the default puts the squadmates
+  back on the default. Reserve members are not offered (they never deploy).
+- **Added (proposal, for the user):** a "Use default" button (clears the member's own program, D19), not in the plan.
+- **Q21 account pair:** stored, never edited; the one-line notice shows ONLY when the stored pair differs from
+  `DEFAULT_GAMBIT_PROGRAMS` (a player who never touched the old editor is not told about it). Flagged for the user.
+- Rule edits save without a log line (as the E3b editor did); preset, default and copy are logged. The old row
+  glyphs are now `Icon` chevrons / close from icons.ts. Verified at 1024 px and 375 px on an isolated
+  `go16.localhost` origin (the shared localhost save was never written).
+
 ### GO-17: Squad Loadouts per ground team (reshaped Task 18)
 
 **Needs a sketch first** (no mockup covers it; feedback rule "visual UI needs mockup"). Do not build the UI half until

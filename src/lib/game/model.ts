@@ -6908,12 +6908,13 @@ export type GambitProgram = GambitRule[];
 // its two-key shape, so an old save carrying a Science program loads unchanged; nothing executes it.
 export type GambitRole = "security" | "science";
 
-// The player's ACCOUNT-LEVEL program pair (one per role), stored on GameState and edited by the Away-Team
-// Gambits panel. D19 (user, 2026-10-06): NO battle reads it any more. Each Security member runs its own
-// program, else DEFAULT_MEMBER_GAMBIT (below), never this pair. The shape stays so every save loads and
-// keeps what the player stored; the only readers left are that editor (and its App.svelte write
-// handlers), freshState + the v61 -> v62 migration (which seed it), and Expedition.gambitPrograms (an
-// inert field kept for save shape). The per-member editor (E-CREW Task 17) decides its future.
+// The player's ACCOUNT-LEVEL program pair (one per role), stored on GameState. D19 (user, 2026-10-06): NO
+// battle reads it any more. Each Security member runs its own program, else DEFAULT_MEMBER_GAMBIT (below),
+// never this pair. Ground Operations GO-16 (plan Q21, flagged to the user): KEPT STORED, HIDDEN. The
+// per-member editor no longer edits it; it only shows a one-line notice when the stored pair differs from
+// DEFAULT_GAMBIT_PROGRAMS (gambitEditorDisplay.ts accountPairNoticeShown). The shape stays so every save
+// loads and keeps what the player stored; the other readers are freshState + the v61 -> v62 migration
+// (which seed it) and Expedition.gambitPrograms (an inert field kept for save shape).
 export interface GambitPrograms {
   security: GambitProgram;
   science: GambitProgram;
