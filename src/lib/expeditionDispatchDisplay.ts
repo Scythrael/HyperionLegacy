@@ -379,7 +379,7 @@ export function recommendationView(state: GameState, shipId: string, rec: Launch
 
 export interface ForecastView {
   lead: string; // "Forecast with Strike + Ground"
-  tasksText: string; // "11 tasks: 2 Simple, 6 Standard, 3 Challenging"
+  tasksText: string; // "11 objectives: 2 Simple, 6 Standard, 3 Challenging"
   unfinishedText: string | null; // "Leaves 2 objectives unfinished."
   hardestText: string | null; // "Hardest fight: Geothermal Chamber (Challenging, 3 fights), crew Alpha (Ground)"
   threat: ThreatAssessment | null;
