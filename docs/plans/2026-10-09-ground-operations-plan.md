@@ -2167,3 +2167,18 @@ Setup: `?dev`, Debug grants, a ship with a hired Security + Science squad, Offli
 - GO-17: Squad Loadouts per ground team (sketch first) + S4-CP39 roster-linked loadout.
 - GO-18: Help topics (Ground Operations, scan events).
 - GO-19: close-out notes in the E-CREW plan and design, holistic review, QA sheet.
+
+## BALANCE FINDING (2026-10-14, FK-3 review + investigation): unwinnable vault sites at low tiers
+
+- Buried Vault and Subterranean Civilization field a healer plus bruisers (gambit.ts ~1559-1560). Enemy stats scale
+  with BODY HAZARD (x1.72 at hazard 0.9, plus a 54% chance of one extra enemy, gambit.ts ~1581-1587), and body hazard
+  does not depend on the region tier, so a Tier I run can roll one.
+- A starter crew (3 rank-1 Security, no crew strength, no or Standard-Issue gear) wins 0/64 there; the objective goes
+  to the back of the line forever (designed hold and flag, GROUND_STUCK_LOSSES 3) and ties up the ship until the
+  player presses Skip. Seed sweep: about half of starter-crew runs stall this way (20/40 at rank 1, 6/40 at rank 6).
+- Gear DOES reach ground fights (no bug: awayTeam.ts snapshotMember, gambit.ts ~1381-1384). What beats a hazard 0.9
+  Buried Vault (wins of 64): rank 1 + crew strength 0 needs ~100 point gear for 40 and 200 for 64; rank 4 needs ~50
+  points; rank 8 bare 0, 20 points 20; crew strength 20 at rank 1 bare 7, 50 points 64; a Strike team (6 members,
+  rank 1) 28 bare, 64 at 50 points. (20 points ~ iLevel 10 Standard, 50 ~ iLevel 25, 100 ~ iLevel 50.)
+- Not reachable by players yet (Ground Ops is not on main). Raised with the user as a balance / peace item; options
+  pending the user's call.
