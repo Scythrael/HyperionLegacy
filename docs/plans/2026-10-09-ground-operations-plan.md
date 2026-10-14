@@ -1865,6 +1865,17 @@ telescope help topics (Ground Ops GO-18, SQ-7.5)`):**
   Recommendation and Forecast detail, hostile sites and two-squad needs cannot occur in play yet. The telescope and
   risk topics describe them anyway (7.5 asked for them) and never say where to upgrade; TELESCOPE_LORE mentions
   upgrades. Revisit both topics when 7.4 and G2 land. Squad Loadouts (GO-17 UI) are not mentioned yet.
+  **Help describes 7.4 + G2 content; both must land before 0.14.0 ships, or trim those lines.** (Coordinator,
+  GO-18 review: keep the not-yet-reachable lines as they are, since 7.4 and G2 are in 0.14.0 scope.)
+- **GO-18 review fixes** (commit `fix(0.14.0): help topics review fixes (GO-18)`): the "current composition would
+  leave unfinished" clause moved to the Recommendation line (the Forecast forecasts the RECOMMENDED composition,
+  expedition.ts launchForecast(rec.kinds)); only the wiped teams of ONE crew share a pickup; the cure list reads the
+  engine's labels ("Health", as on the bay card); the lift, Reinforcing's required grade, the Impossible name, the
+  clearing and hostile-site grade thresholds and the lifeless / floraless / field-repair world lists are derived;
+  the bay names the Medical officer's Constitution and Cunning (plus Integrity for injuries); the risk reward reads
+  as a haul multiplier plus the same amount on the relic find bonus; the help setting can change while the ship is
+  out (from the next launch); the Science officer's Integrity joins the hazard resist sources (scan only).
+  helpTopics.test.ts pins each (still 17 tests, more assertions).
 - Tests: helpTopics.test.ts 7 -> 17 (the new ids, per-topic content pinned to the engine constants, cross-links,
   and a text-rules test over every title and body: no task(s), no em / en dash or "--", no fit wording, no DBD /
   First Cause / Impossible-tier intent line / Intact Data Core, no British spellings). Verified in the dev preview on
@@ -1879,6 +1890,9 @@ telescope help topics (Ground Ops GO-18, SQ-7.5)`):**
 2. Update the design doc section 10 (open calls answered by 9b; call 6 moot) and add any answers to section 5 below.
 3. Holistic review (bug-check subagent, then full-ledger fix pass), then the QA sheet below to the user. Deploy only
    after the user confirms.
+4. Help describes 7.4 + G2 content; both must land before 0.14.0 ships, or trim those lines (helpTopics.ts
+   `subspaceTelescope`, `riskFactors`, `objectiveDifficulty`: telescope upgrades, Blind launch, Tier I to VII regions,
+   Recommendation / Forecast detail, hostile sites, two-squad objectives).
 Commit `docs(0.14.0): Ground Operations close-out notes`.
 
 ---

@@ -16,6 +16,11 @@ import { TELESCOPE_DETAIL_NAMES, TELESCOPE_SHIP_LIFT_SENSORS, regionTierNumeral 
 import { BOARDING_CREDIT_LOSS_SHARE, BOARDING_PAUSE_SECONDS } from "./game/shipScanEvents";
 import { BLIND_LAUNCH_WARNING } from "./expeditionDispatchDisplay";
 import type { RegionTier } from "./game/model";
+import { AFFIX_DEFS, IMPOSSIBLE_DIFFICULTY_NAME } from "./game/affixes";
+import { CLEARING_SITE_RULES, FLORALESS_PLANET_TYPES, HOSTILE_SITE_RULES, LIFELESS_PLANET_TYPES, riskRewardBonus } from "./game/riskFactors";
+import { TELESCOPE_SHIP_LIFT } from "./game/telescope";
+import { FIELD_REPAIR_PLANET_TYPES } from "./game/groundOps";
+import { getPlanetTypeById } from "./game/expeditionContent";
 
 describe("HELP_TOPICS", () => {
   it("covers the core systems", () => {
@@ -66,6 +71,8 @@ describe("HELP_TOPICS", () => {
       for (const s of ["Ground", "Strike", "Survey", "Alpha", "Bravo", "reserve", "at least one Security and one Science squad", "When done, help other teams"]) {
         expect(b).toContain(s);
       }
+      // GO-18 review 7: the help setting can change while the ship is out, from the next launch
+      expect(b).toMatch(/renaming and the help setting still work/);
     });
 
     it("ground operations: queues, persistence, odds tiers, helpers, wipes, back of the line, Stuck and Skip", () => {
@@ -80,6 +87,9 @@ describe("HELP_TOPICS", () => {
       const floor = [10, 8, 6, 4, 2, 1, 0].map((w) => threatAssessment(w, 10)).find((a) => a.tier === HELPER_MIN_TIER)!;
       expect(b).toContain(`${floor.name} or better`);
       expect(b).toContain(`${span(IN_SYSTEM_LEG_SECONDS)} each way`);
+      // GO-18 review 2: only the wiped teams of ONE crew share a pickup
+      expect(b).toMatch(/one crew/);
+      expect(b).not.toMatch(/Teams wiped together on one body share/);
       expect(b).toContain(`${GROUND_STUCK_LOSSES} losses in a row`);
       expect(b).toContain("Return Trip and Medical Bay topic");
       expect(b).toContain("Reinforcing");
@@ -94,15 +104,28 @@ describe("HELP_TOPICS", () => {
       }
       for (const id of ["health", "poison", "bleed", "downed"]) {
         const c = GROUND_CONDITIONS[id];
-        expect(b).toContain(`${id === "health" ? "Lost health" : c.label}: ${span(c.cureSeconds)}`);
+        expect(b).toContain(`- ${c.label}: ${span(c.cureSeconds)}`); // the engine's label, as on the bay card
       }
       expect(b).toContain(`${Math.round((STONESKIN_INJURY_MULT - 1) * 100)}% longer`);
+      // GO-18 review 5: the Medical officer's stats the bay reads (medicalBay.ts BAYCARE MAPPING), by name
+      expect(b).toMatch(/Medical officer's Constitution and Cunning/);
+      expect(b).toMatch(/Integrity/);
+      expect(b).not.toMatch(/traits/);
     });
 
     it("objective difficulty: the five grades with their completion weights", () => {
       const b = topic("objectiveDifficulty").body;
       DIFFICULTY_NAMES.forEach((name, i) => expect(b).toContain(`${name} x${DIFFICULTY_WEIGHTS[i]}`));
       expect(b).toContain("Reinforcing");
+      // GO-18 review 4: Reinforcing's required grade and the Impossible name come from affixes.ts
+      const required = DIFFICULTY_NAMES[(AFFIX_DEFS.reinforcing.requiredFromDifficulty as number) - 1];
+      expect(b).toContain(`${required} combat objectives always carry the Reinforcing affix`);
+      expect(b).toContain(`at ${IMPOSSIBLE_DIFFICULTY_NAME} it is held`);
+      // GO-18 review 6: one amount, two places: the haul and the relic find bonus
+      const deadly = Math.round(riskRewardBonus(DIFFICULTY_NAMES.length) * 100);
+      expect(b).toContain(`+${deadly}% at ${DIFFICULTY_NAMES[DIFFICULTY_NAMES.length - 1]}`);
+      expect(b).toMatch(/haul/);
+      expect(b).toMatch(/same amount is added to its relic find bonus/);
     });
 
     it("risk factors: the four factors, the five grades, hazard resist combines before the curve", () => {
@@ -110,6 +133,15 @@ describe("HELP_TOPICS", () => {
       for (const n of Object.values(RISK_FACTOR_NAMES)) expect(b).toContain(n);
       for (const g of RISK_GRADE_NAMES) expect(b).toContain(g);
       expect(b).toMatch(/added together before/);
+      // GO-18 review 8: the Science officer's Integrity (Hazard Steady) is a source too
+      expect(b).toMatch(/Science officer's Integrity/);
+      // GO-18 review 4: grade thresholds and world lists come from riskFactors.ts
+      const firstGrade = (permille: readonly number[]) => RISK_GRADE_NAMES[permille.findIndex((p) => p > 0)];
+      expect(b).toContain(`At ${firstGrade(CLEARING_SITE_RULES.clearHostiles.permilleByGrade)} or worse it can add a Clear the Hostiles`);
+      expect(b).toContain(`At ${firstGrade(CLEARING_SITE_RULES.secureLandingZone.permilleByGrade)} or worse it can add a Secure the Landing Zone`);
+      expect(b).toContain(`a body at ${firstGrade(HOSTILE_SITE_RULES.enemyColony.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an Enemy Colony`);
+      expect(b).toContain(`a body at ${firstGrade(HOSTILE_SITE_RULES.enemyFortification.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an Enemy Fortification`);
+      for (const id of [...LIFELESS_PLANET_TYPES, ...FLORALESS_PLANET_TYPES]) expect(b).toContain(getPlanetTypeById(id)!.label);
     });
 
     it("telescope: every detail level, the ship's lift, blind launches, the ghost caveat", () => {
@@ -119,6 +151,13 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`${TELESCOPE_SHIP_LIFT_SENSORS} or more`);
       expect(b).toContain(`Tier ${regionTierNumeral((SAFE_NEEDS_MAX_TIER + 1) as RegionTier)}`);
       expect(b).toMatch(/sensor ghost/i);
+      expect(b).toContain(`lift the reading ${TELESCOPE_SHIP_LIFT === 1 ? "one level" : `${TELESCOPE_SHIP_LIFT} levels`}`);
+      // GO-18 review 1: the current composition's shortfall is on the Recommendation line; the Forecast is of the
+      // recommended composition (expedition.ts launchForecast(rec.kinds))
+      const line = (name: string) => b.split(/\r?\n/).find((l) => l.startsWith(`- ${name}:`)) ?? "";
+      expect(line(TELESCOPE_DETAIL_NAMES[4])).toMatch(/current composition would leave unfinished/);
+      expect(line(TELESCOPE_DETAIL_NAMES[5])).toMatch(/recommended composition/);
+      expect(line(TELESCOPE_DETAIL_NAMES[5])).not.toMatch(/current composition/);
     });
 
     it("scan events: the four events, the cloaked vessel, supply caches, boarding and field repair", () => {
@@ -129,6 +168,7 @@ describe("HELP_TOPICS", () => {
       expect(b).toContain(`${Math.round(BOARDING_CREDIT_LOSS_SHARE * 100)}% of the credits`);
       expect(b).toContain(`${span(BOARDING_PAUSE_SECONDS)}`);
       expect(b).toContain(`${Math.round(FIELD_REPAIR_DAMAGE_SHARE * 100)}%`);
+      for (const id of FIELD_REPAIR_PLANET_TYPES) expect(b).toContain(getPlanetTypeById(id)!.label);
     });
 
     it("keeps the cross-links between the new topics and the affix topics", () => {

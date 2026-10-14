@@ -60,7 +60,7 @@
 // panel renders bodies with white-space: pre-line, so a body without line breaks reads exactly as before.
 // Player text rules: "objective", never "task"; no em dashes; install, never fit; US English.
 
-import { AFFIX_DEFS } from "./game/affixes";
+import { AFFIX_DEFS, IMPOSSIBLE_DIFFICULTY_NAME } from "./game/affixes";
 import { THREAT_TIER_ORDER, threatAssessment, type ThreatAssessment, type ThreatTier } from "./game/combat/threatAssessment";
 import { HELPER_MIN_TIER } from "./game/groundThreat";
 import {
@@ -80,10 +80,13 @@ import {
 import { GROUND_CONDITIONS, STONESKIN_INJURY_MULT } from "./game/medicalBay";
 import {
   AMBUSH_CHANCE_BY_GRADE,
+  CLEARING_SITE_RULES,
   DIFFICULTY_NAMES,
   DIFFICULTY_WEIGHTS,
+  FLORALESS_PLANET_TYPES,
   FLORA_WORK_SLOW_PER_GRADE,
   HOSTILE_SITE_RULES,
+  LIFELESS_PLANET_TYPES,
   LIFE_SITES,
   RISK_FACTOR_NAMES,
   RISK_GRADE_NAMES,
@@ -91,7 +94,14 @@ import {
   riskRewardBonus,
 } from "./game/riskFactors";
 import { MUSEUM_HAZARD_RESIST_MAX } from "./game/relics";
-import { REGION_TIER_NAMES, TELESCOPE_DETAIL_NAMES, TELESCOPE_LORE, TELESCOPE_SHIP_LIFT_SENSORS, regionTierNumeral } from "./game/telescope";
+import {
+  REGION_TIER_NAMES,
+  TELESCOPE_DETAIL_NAMES,
+  TELESCOPE_LORE,
+  TELESCOPE_SHIP_LIFT,
+  TELESCOPE_SHIP_LIFT_SENSORS,
+  regionTierNumeral,
+} from "./game/telescope";
 import { ODDS_RISKY_BELOW } from "./game/launchRecommendation";
 import {
   BOARDING_ATTEMPT_CHANCE,
@@ -104,7 +114,7 @@ import {
   PROBE_REPAIR_SECONDS,
   STORM_SLOW_SECONDS,
 } from "./game/shipScanEvents";
-import { groundSiteLabel } from "./game/expeditionContent";
+import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
 import { BLIND_LAUNCH_WARNING } from "./expeditionDispatchDisplay";
 import type { RegionTier } from "./game/model";
 
@@ -129,6 +139,15 @@ function tier(t: number): string {
 function site(id: string): string {
   return groundSiteLabel(id) ?? id;
 }
+// "Barren, Volcanic or Gas Giant" (the content catalog's planet labels).
+function planets(ids: readonly string[]): string {
+  return orList(ids.map((id) => getPlanetTypeById(id)?.label ?? id));
+}
+// The first risk grade at which a per-grade chance table can roll ("Moderate").
+function firstRollingGrade(permille: readonly number[]): string {
+  const i = permille.findIndex((p) => p > 0);
+  return RISK_GRADE_NAMES[i >= 0 ? i : RISK_GRADE_NAMES.length - 1];
+}
 // The seven threat tiers, read from threatAssessment (the one table that owns their names and phrases).
 const THREAT_BY_TIER = new Map<ThreatTier, ThreatAssessment>();
 for (let wins = 100; wins >= 0; wins -= 1) {
@@ -142,20 +161,18 @@ const THREAT_LIST = THREAT_TIER_ORDER.map((t) => {
   const a = THREAT_BY_TIER.get(t);
   return a ? `- ${a.name}: ${a.fuzzyRange.charAt(0).toLowerCase()}${a.fuzzyRange.slice(1)}.` : "";
 }).join("\n");
-// The bay conditions a member can bring home today, with their player names.
-const CURE_ROWS: readonly (readonly [string, string])[] = [
-  ["health", "Lost health"],
-  ["poison", "Poison"],
-  ["bleed", "Bleed"],
-  ["downed", "Downed"],
-];
-const CURE_LIST = CURE_ROWS.map(([id, label]) => {
+// The bay conditions a member can bring home today (the rest of GROUND_CONDITIONS arrive with Field Kits), under
+// the engine's own labels, as the bay card shows them.
+const CURE_IDS: readonly string[] = ["health", "poison", "bleed", "downed"];
+const CURE_LIST = CURE_IDS.map((id) => {
   const c = GROUND_CONDITIONS[id];
-  return `- ${label}: ${span(c.cureSeconds)}${c.cls === "injury" ? " (an injury)" : ""}`;
+  return `- ${c.label}: ${span(c.cureSeconds)}${c.cls === "health" ? " (hit points lost in the fights)" : c.cls === "injury" ? " (an injury)" : ""}`;
 }).join("\n");
 const DIFFICULTY_LIST = DIFFICULTY_NAMES.map((n, i) => `${n} x${DIFFICULTY_WEIGHTS[i]}`).join(", ");
 const DEADLY = DIFFICULTY_NAMES.length;
 const FIRST_SKIPPING_TIER = SAFE_NEEDS_MAX_TIER + 1;
+const REINFORCING_REQUIRED = DIFFICULTY_NAMES[(AFFIX_DEFS.reinforcing.requiredFromDifficulty ?? DEADLY) - 1];
+const LIFT_TEXT = TELESCOPE_SHIP_LIFT === 1 ? "one level" : `${TELESCOPE_SHIP_LIFT} levels`;
 
 export interface HelpTopic {
   id: string;
@@ -230,8 +247,8 @@ export const HELP_TOPICS: HelpTopic[] = [
       "TEAMS: squads are paired into teams, named Alpha and Bravo by default. Rename a team any time, even while the ship is out. Each team has a type:\n- Ground: one Security and one Science squad (the default).\n- Strike: two Security squads.\n- Survey: two Science squads.",
       'The ship must always keep at least one Security and one Science squad, so a type that would break that is refused, with the reason shown. Choose a type, then apply it with its "Change to" button; the panel names who moves first. Members of a squad the change drops go to the reserve, and a new squad fills from the reserve.',
       "THE RESERVE: members aboard who are not slotted. They stay on the ship and never deploy, but they still count toward the crew limit. Slot one into an empty slot, or swap them with a slotted member. A new hire is slotted into the first empty slot of their squad type.",
-      "DEPLOYING: a team goes down only when each of its squads has at least one slotted member and every slotted member is ready. An injured member keeps their team aboard until they recover; nobody stands in automatically. To launch, at least one team must deploy, and the deploying teams together need a ready Security member and a ready Science member. While the ship is out, slots and team types are locked; renaming still works.",
-      'HELPING: each team\'s "When done, help other teams" setting decides whether it borrows other teams\' objectives once its own queue is empty, from the next launch. See the Ground Operations topic.',
+      "DEPLOYING: a team goes down only when each of its squads has at least one slotted member and every slotted member is ready. An injured member keeps their team aboard until they recover; nobody stands in automatically. To launch, at least one team must deploy, and the deploying teams together need a ready Security member and a ready Science member. While the ship is out, slots and team types are locked; renaming and the help setting still work.",
+      'HELPING: each team\'s "When done, help other teams" setting decides whether it borrows other teams\' objectives once its own queue is empty. Change it any time, even while the ship is out; it takes effect from the next launch. See the Ground Operations topic.',
     ].join("\n\n"),
   },
   {
@@ -245,7 +262,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       "THE QUEUES: the expedition card lists each body's objectives, with a column of odds for each team.\n- Assigned: pick a crew, then Apply.\n- Queue: move an objective up or down its team's queue.\n- Skip: set an objective aside with its progress kept; Re-queue brings it back.\n- Default plan: the hardest objective to the strongest team, on down. A team working alone takes its objectives easiest first.\n- Auto-assign randomly: hands the body's queued objectives out at random.\nEdits apply from now on: nothing already resolved changes. You can also pick a larger crew than an objective needs (for example Alpha and Bravo together on a hard one): more punch and more fieldwork, but the ship then works one objective where it could work two, so the run goes slower. The plan never picks one for you.",
       `ODDS: each odds chip names one of seven tiers, the chance that crew wins every fight left on the objective in one go, from where it stands now:\n${THREAT_LIST}\nOdds never change a fight. Because progress is kept between trips, an objective that reads ${tierName("extreme")} or even ${tierName("impossible")} can still fall over several trips. An objective's difficulty rating is a different reading (see the Objective Difficulty topic).`,
       `HELPERS: a team set to help other teams, once its own queue is empty, borrows another team's queued objective that it can cover alone and rates ${tierName(HELPER_MIN_TIER)} or better. A helper's win finishes the objective. A helper's loss hands it back to its owner with its progress kept, and that helper does not borrow it again.`,
-      `WIPES: if every Security member of a team goes down, the team cannot shuttle up on its own. The ship breaks off its scan and flies to them, ${span(IN_SYSTEM_LEG_SECONDS)} each way, and the scan makes no progress meanwhile. Teams wiped together on one body share one trip, and the ship makes one trip at a time. Once the scan is done, the ship still comes for them.`,
+      `WIPES: if every Security member of a team goes down, the team cannot shuttle up on its own. The ship breaks off its scan and flies to them, ${span(IN_SYSTEM_LEG_SECONDS)} each way, and the scan makes no progress meanwhile. When the teams of one crew (working a shared objective) are wiped together, they share one trip; otherwise each wiped team waits for its own, and the ship makes one trip at a time. Once the scan is done, the ship still comes for them.`,
       `BACK OF THE LINE: after ${GROUND_STUCK_LOSSES} losses in a row on an objective without clearing a new fight point, it moves to the back of its team's queue, so easier objectives get done first. It comes around again later with its progress kept. A lost surprise fight (an ambush, or reinforcements from the Reinforcing affix) counts as a loss too. When the teams have nothing else left, the queue shows "${GROUND_OPS_STUCK_TEXT}". The teams keep trying and never give up on their own: send a stronger crew, or Skip the objective so the run can move on. A Reinforcing objective can also be held for a while after setbacks (see the Reinforcing (affix) topic).`,
     ].join("\n\n"),
   },
@@ -255,7 +272,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Return Trip and Medical Bay",
     body: [
       `After every trip to an objective, won or lost, a team comes back to the ship before its next one:\n- Shuttle up (${span(RETURN_SECONDS)}), or wait for the ship after a wipe (see the Ground Operations topic).\n- Offload (${span(OFFLOAD_BASE_SECONDS)}): the haul banked on the trip goes into the hold. Skipped when nothing new was banked.\n- Medical bay: everyone heals (below).\n- Reload (${span(RELOAD_BASE_SECONDS)}), then the drop to the next objective (${span(DEPLOY_SECONDS)}).`,
-      "WHAT SPEEDS EACH STEP:\n- Offload: the crew's Efficient Unloading and the Veteran Instincts officer bonus.\n- Reload: the crew's Rapid Loadout and the captain's Efficient Stowage talent.\n- Medical bay: the Medical crew's Reduced Crew Losses, the Rapid Recovery officer bonus and the Medical officer's own traits.\nThese are set when the ship launches. Each bonus divides the time, so every bit helps, each a little less than the last, and a cure never drops to nothing.",
+      "WHAT SPEEDS EACH STEP:\n- Offload: the crew's Efficient Unloading and the Veteran Instincts officer bonus.\n- Reload: the crew's Rapid Loadout and the captain's Efficient Stowage talent.\n- Medical bay: the Medical crew's Reduced Crew Losses, the Rapid Recovery officer bonus, and the Medical officer's Constitution and Cunning (plus Integrity, for injuries).\nThese are set when the ship launches. Each bonus divides the time, so every bit helps, each a little less than the last, and a cure never drops to nothing.",
       `THE MEDICAL BAY: every condition a member picked up on the trip cures on its own clock, and they all tick down at once. A member waits for their longest condition, and the team waits for its longest member. Times before any bonus:\n${CURE_LIST}\nOther battle effects, such as stuns and fear, end with the fight. Each team's bay card shows who is waiting on what.`,
       `STONESKIN: Ossir crew members have Stoneskin. Their injuries take ${pct(STONESKIN_INJURY_MULT - 1)} longer to mend in the bay.`,
     ].join("\n\n"),
@@ -267,9 +284,9 @@ export const HELP_TOPICS: HelpTopic[] = [
     body: [
       `Every objective on a risk-rated system carries a difficulty rating, shown on its card as pips and a name. The five grades, and how much each counts toward the system's completion: ${DIFFICULTY_LIST}. The card says how much its objective counts ("counts x${DIFFICULTY_WEIGHTS[DEADLY - 1]} toward completion" on a ${DIFFICULTY_NAMES[DEADLY - 1]} one).`,
       "WHAT SETS IT: the number of fight points, the world's hazard, every squad the objective needs beyond the first, and the body's Combat risk.",
-      `THE GREATER THE RISK, THE GREATER THE REWARD: a harder objective pays a bigger haul and a better relic find, on a curve that keeps rising but more slowly: about +${pct(riskRewardBonus(2))} at ${DIFFICULTY_NAMES[1]}, up to about +${pct(riskRewardBonus(DEADLY))} at ${DIFFICULTY_NAMES[DEADLY - 1]}.`,
+      `THE GREATER THE RISK, THE GREATER THE REWARD: a harder objective's haul is multiplied up: about +${pct(riskRewardBonus(2))} at ${DIFFICULTY_NAMES[1]}, up to about +${pct(riskRewardBonus(DEADLY))} at ${DIFFICULTY_NAMES[DEADLY - 1]}, on a curve that keeps rising but more slowly. The same amount is added to its relic find bonus.`,
       `NEEDS: the card's requirement chips show the squads an objective needs, marked met or unmet by your deployed teams. Up to ${tier(SAFE_NEEDS_MAX_TIER)}, no objective asks for more than one squad of each type, so your teams can always take it. From ${tier(FIRST_SKIPPING_TIER)} on, an objective can need two, and one your deployed squads cannot cover is left unfinished (the Subspace Telescope can warn you before launch).`,
-      `${DIFFICULTY_NAMES[DEADLY - 1]} combat objectives always carry the Reinforcing affix. While an objective is on alert its rating rises, and at Impossible it is held until the alert wears off (see the Reinforcing (affix) topic).`,
+      `${REINFORCING_REQUIRED} combat objectives always carry the Reinforcing affix. While an objective is on alert its rating rises, and at ${IMPOSSIBLE_DIFFICULTY_NAME} it is held until the alert wears off (see the Reinforcing (affix) topic).`,
     ].join("\n\n"),
   },
   {
@@ -293,10 +310,10 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Risk Factors",
     body: [
       `Every expedition system is rated on four risk factors, each graded ${orList(RISK_GRADE_NAMES)}. Farther regions roll higher grades, and known enemy territory adds a step of ${RISK_FACTOR_NAMES.combat}. Each body has its own grades: the system's, or one step lower.`,
-      `- ${RISK_FACTOR_NAMES.combat}: more fight points on every objective (fewer at ${RISK_GRADE_NAMES[0]} and ${RISK_GRADE_NAMES[1]}). At ${RISK_GRADE_NAMES[2]} or worse it can add a ${site("clearHostiles")} objective, Security work only.\n- ${RISK_FACTOR_NAMES.fauna}: more fight points at life sites (${LIFE_SITES.map(site).join(", ")}). At ${RISK_GRADE_NAMES[2]} or worse it can add a ${site("secureLandingZone")} objective, also Security work only. Barren and volcanic worlds and gas giants hold no life.\n- ${RISK_FACTOR_NAMES.flora}: slows the fieldwork (${pct(FLORA_WORK_SLOW_PER_GRADE)} longer per grade) and puts Poison on the enemies' attacks in that body's fights. Thick growth also brings more ${site("xenoFloraBloom")} sites. It reads ${RISK_GRADE_NAMES[0]} on lifeless and frozen worlds.\n- ${RISK_FACTOR_NAMES.hazard}: the body's own hazard. It slows scans and fieldwork, and a very hazardous world adds a fight point to its objectives.`,
+      `- ${RISK_FACTOR_NAMES.combat}: more fight points on every objective (fewer at ${RISK_GRADE_NAMES[0]} and ${RISK_GRADE_NAMES[1]}). At ${firstRollingGrade(CLEARING_SITE_RULES.clearHostiles.permilleByGrade)} or worse it can add a ${site("clearHostiles")} objective, Security work only.\n- ${RISK_FACTOR_NAMES.fauna}: more fight points at life sites (${LIFE_SITES.map(site).join(", ")}). At ${firstRollingGrade(CLEARING_SITE_RULES.secureLandingZone.permilleByGrade)} or worse it can add a ${site("secureLandingZone")} objective, also Security work only. ${planets(LIFELESS_PLANET_TYPES)} worlds hold no life.\n- ${RISK_FACTOR_NAMES.flora}: slows the fieldwork (${pct(FLORA_WORK_SLOW_PER_GRADE)} longer per grade) and puts Poison on the enemies' attacks in that body's fights. Thick growth also brings more ${site("xenoFloraBloom")} sites. It reads ${RISK_GRADE_NAMES[0]} on lifeless worlds and on ${planets(FLORALESS_PLANET_TYPES)} ones.\n- ${RISK_FACTOR_NAMES.hazard}: the body's own hazard. It slows scans and fieldwork, and a very hazardous world adds a fight point to its objectives.`,
       `AMBUSHES: an objective with no fight points can still be ambushed, more often where ${RISK_FACTOR_NAMES.combat} or ${RISK_FACTOR_NAMES.fauna} runs high (${pct(AMBUSH_CHANCE_BY_GRADE[1])} a trip at ${RISK_GRADE_NAMES[1]}, up to ${pct(AMBUSH_CHANCE_BY_GRADE[AMBUSH_CHANCE_BY_GRADE.length - 1])} at ${RISK_GRADE_NAMES[RISK_GRADE_NAMES.length - 1]}; at most ${SURVEY_AMBUSH_MAX_PER_TASK} times per objective). A crew with a Security member standing fights where it stands: a win and the work goes on, a loss counts like any other. A crew with no Security member retreats with light injuries, keeps its progress and comes back after the medical bay.`,
-      `HOSTILE SITES: from ${tier(HOSTILE_SITE_RULES.enemyColony.minTier)}, a body at ${RISK_GRADE_NAMES[3]} or ${RISK_GRADE_NAMES[4]} ${RISK_FACTOR_NAMES.combat} can hold an ${site("enemyColony")}, and from ${tier(HOSTILE_SITE_RULES.enemyFortification.minTier)} a body at ${RISK_GRADE_NAMES[4]} ${RISK_FACTOR_NAMES.combat} can hold an ${site("enemyFortification")}. A hostile site becomes an objective only when your deployed squads can take it on and still keep a Science squad.`,
-      `HAZARD RESIST: it comes from relics in the Museum, installed ship systems, your Science squads' fieldwork and Hazard Resist on Security gear. Every source is added together before the diminishing curve, so several sources come to slightly less than their separate readouts suggest, and a hazardous world always keeps over ${pct(1 - MUSEUM_HAZARD_RESIST_MAX)} of its hazard. Resist makes the work easier; it never makes the haul poorer.`,
+      `HOSTILE SITES: from ${tier(HOSTILE_SITE_RULES.enemyColony.minTier)}, a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyColony.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyColony")}, and from ${tier(HOSTILE_SITE_RULES.enemyFortification.minTier)} a body at ${firstRollingGrade(HOSTILE_SITE_RULES.enemyFortification.permilleByCombat)} ${RISK_FACTOR_NAMES.combat} or worse can hold an ${site("enemyFortification")}. A hostile site becomes an objective only when your deployed squads can take it on and still keep a Science squad.`,
+      `HAZARD RESIST: it comes from relics in the Museum, installed ship systems, your Science squads' fieldwork, Hazard Resist on Security gear and, for the scan only, the Science officer's Integrity. Every source is added together before the diminishing curve, so several sources come to slightly less than their separate readouts suggest, and a hazardous world always keeps over ${pct(1 - MUSEUM_HAZARD_RESIST_MAX)} of its hazard. Resist makes the work easier; it never makes the haul poorer.`,
     ].join("\n\n"),
   },
   {
@@ -306,7 +323,7 @@ export const HELP_TOPICS: HelpTopic[] = [
     body: [
       `The Subspace Telescope is a homeworld facility that surveys systems before you launch. Select a system on the expedition card (the Ops tab, under Exploration) and its Subspace Telescope block shows what the telescope reads. ${TELESCOPE_LORE}`,
       `REGIONS AND RANGE: every system names its region, from ${tier(1)} (the ${REGION_TIER_NAMES[1]}) out to ${tier(7)} (the ${REGION_TIER_NAMES[7]}), and its distance from your homeworld in light-years. Farther regions roll higher risk (see the Risk Factors topic). Systems within the telescope's range are surveyed. Anything beyond it is a Blind launch: you see only its name, region and distance, and Launch asks first: "${BLIND_LAUNCH_WARNING}"`,
-      `DETAIL: how much the telescope reads, the same across its whole range:\n- ${TELESCOPE_DETAIL_NAMES[1]}: which risk factors are present.\n- ${TELESCOPE_DETAIL_NAMES[2]}: each factor's grade for the system (its worst body), and whether it is known enemy territory.\n- ${TELESCOPE_DETAIL_NAMES[3]}: each body's grades, and how many objectives will need Security or Science squads.\n- ${TELESCOPE_DETAIL_NAMES[4]}: the team composition that suits the system best, a button to set it, and who would move.\n- ${TELESCOPE_DETAIL_NAMES[5]}: how many objectives to expect, what your current composition would leave unfinished, and the odds on the hardest fight.\nThe launching ship's own sensors, crew included, at ${TELESCOPE_SHIP_LIFT_SENSORS} or more lift the reading one level, never past ${TELESCOPE_DETAIL_NAMES[5]} and never beyond range. Hazard can be revealed by either the telescope or the ship's sensors; the higher reading wins.`,
+      `DETAIL: how much the telescope reads, the same across its whole range:\n- ${TELESCOPE_DETAIL_NAMES[1]}: which risk factors are present.\n- ${TELESCOPE_DETAIL_NAMES[2]}: each factor's grade for the system (its worst body), and whether it is known enemy territory.\n- ${TELESCOPE_DETAIL_NAMES[3]}: each body's grades, and how many objectives will need Security or Science squads.\n- ${TELESCOPE_DETAIL_NAMES[4]}: the team composition that suits the system best and why, what your current composition would leave unfinished, a button to set it, and who would move.\n- ${TELESCOPE_DETAIL_NAMES[5]}: a launch with the recommended composition, forecast: how many objectives to expect by difficulty, anything it would still leave unfinished, and the odds on the hardest fight.\nThe launching ship's own sensors, crew included, at ${TELESCOPE_SHIP_LIFT_SENSORS} or more lift the reading ${LIFT_TEXT}, never past ${TELESCOPE_DETAIL_NAMES[5]} and never beyond range. Hazard can be revealed by either the telescope or the ship's sensors; the higher reading wins.`,
       `THE RECOMMENDATION: it ranks the compositions your hull allows by how much of the system's work they cover (weighted by difficulty), then how much one team can take alone, then the balance of Security and Science, then the fewest changes from what you have. From ${tier(FIRST_SKIPPING_TIER)} on, where an objective can need more than one squad of a type, it also weighs the fight odds: when its pick reads below ${tierName(ODDS_RISKY_BELOW)}, a mix that covers as much with better odds takes its place. It is advice only; you can launch with any composition.`,
       "DISPLAY ONLY: the telescope never changes the expedition. It reads the same system the ship will find. One thing it cannot foresee: a sensor ghost read true during the scan adds a bonus discovery (see the Scan Events topic).",
     ].join("\n\n"),
@@ -319,7 +336,7 @@ export const HELP_TOPICS: HelpTopic[] = [
       "While the ship scans a body from orbit, things happen. Nobody is on the ground for these: the ship and its officers deal with them, and each shows as a pip on that body's scan track (hover, tap or focus it to read what happened).",
       `- Debris field: the pilot's evasion steers through. A miss costs a detour of ${span(DEBRIS_DELAY_SECONDS)} and light hull damage.\n- Hostile probe: a quick ship battle, fought with the ship's installed combat gear and its officers. Tougher on hazardous worlds, softened by your Security officer's Cunning. Win: salvage. Loss: the scan pauses ${span(PROBE_REPAIR_SECONDS)} for repairs, with light hull damage.\n- Sensor ghost: the ship's sensors (the Science officer and crew included) read it. A true read finds a bonus discovery on this body; a false one costs a re-scan of ${span(GHOST_RESCAN_SECONDS)}.\n- Cloaked vessel: ${pct(GHOST_CLOAKED_CHANCE)} of sensor ghosts are a cloaked ship, a tougher fight than a probe. Good sensors let the ship strike first; poor ones let it strike you first. Win: richer salvage. Loss: a repair pause of ${span(CLOAKED_REPAIR_SECONDS)} and more hull damage.\n- Radiation storm: shields and Engineering ride it out. If they do not, the scan slows for ${span(STORM_SLOW_SECONDS)}.\n- Supply cache: a small find, no check needed.\nA better ship and crew raise every check, each step a little less than the last, but nothing is ever certain.`,
       `BOARDING: a hostile probe or cloaked vessel may try to board (${pct(BOARDING_ATTEMPT_CHANCE)} of those encounters). Boarding Defense, from the Security crew and the Ossir, decides whether the crew repels them. Repelled: nothing is lost. Not repelled: the scan pauses ${span(BOARDING_PAUSE_SECONDS)} more, and the boarders take ${pct(BOARDING_CREDIT_LOSS_SHARE)} of the credits the expedition has found so far, never from your bank.`,
-      `HULL DAMAGE AND FIELD REPAIR: light hull damage adds up over the run. Once it reaches ${pct(FIELD_REPAIR_DAMAGE_SHARE)} of the hull, the ship sets down on the nearest ${orList([...FIELD_REPAIR_PLANET_TYPES])} world to repair (${FIELD_REPAIR_TIME_MULT === 2 ? "twice" : `${FIELD_REPAIR_TIME_MULT} times`} the Shipyard's time), or repairs in orbit where there is none (${ORBIT_REPAIR_TIME_MULT === 3 ? "three times" : `${ORBIT_REPAIR_TIME_MULT} times`}). The repair pauses the scan, as a pickup does, while your teams keep working. Any damage left when the ship gets home goes to the Shipyard, and a damaged ship cannot launch another expedition until it is repaired.`,
+      `HULL DAMAGE AND FIELD REPAIR: light hull damage adds up over the run. Once it reaches ${pct(FIELD_REPAIR_DAMAGE_SHARE)} of the hull, the ship sets down on the nearest ${planets(FIELD_REPAIR_PLANET_TYPES)} world to repair (${FIELD_REPAIR_TIME_MULT === 2 ? "twice" : `${FIELD_REPAIR_TIME_MULT} times`} the Shipyard's time), or repairs in orbit where there is none (${ORBIT_REPAIR_TIME_MULT === 3 ? "three times" : `${ORBIT_REPAIR_TIME_MULT} times`}). The repair pauses the scan, as a pickup does, while your teams keep working. Any damage left when the ship gets home goes to the Shipyard, and a damaged ship cannot launch another expedition until it is repaired.`,
       "The Subspace Telescope cannot forecast a sensor ghost's bonus discovery (see the Subspace Telescope topic).",
     ].join("\n\n"),
   },
