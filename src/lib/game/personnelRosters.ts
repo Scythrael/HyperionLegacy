@@ -32,6 +32,9 @@ import { autoCrewShip } from "./autoCrew";
 import { quartersCapacityBonus } from "./crewModules";
 import { remainingCapacityForSignature } from "./commandStructure";
 import { addToBucketList, removeFromBucketList, coalesceBuckets } from "./crew";
+// S4-CP39 (Ground Ops GO-17): applyRoster brings its linked Armory ship loadout. armory.ts never imports this
+// module, so no cycle.
+import { checkInLoadout, checkOutLoadout } from "./armory";
 
 // The pure-signature view of a notable, for cap math + occupancy bookkeeping. A notable occupies ONE
 // complement slot of exactly this signature (its rank/division). Pure.
@@ -262,15 +265,14 @@ export function toggleNotableFavorite(state: GameState, notableId: string): Game
 //       autoCrewShip reads), so notables + bulk never exceed cap. The randoms are NOT persisted to the
 //       roster.
 //
-// includePeople=false => the roster carries no people, so applyRoster applies none (same-ref no-op).
-// Missing roster/ship => same-ref no-op. A missing officer/notable id is skipped safely.
+// includePeople=false => the roster carries no people, so applyRoster applies none (it still brings a
+// linked loadout; with no link it is a same-ref no-op). Missing roster/ship => same-ref no-op. A missing
+// officer/notable id is skipped safely.
 //
-// ⚠️ CAPS come from the TARGET SHIP's real caps (commandStructureForHull(ship.typeKey) +
-// quartersCapacityBonus). When linkedLoadoutId is set, that loadout is the INTENDED capacity/gear
-// source (linked = exact caps + gear travel), but the gear SWAP itself is the Armory's job and is out
-// of scope here: applyRoster applies PEOPLE to the given ship as it stands. Once a linked loadout is
-// checked out to the ship, the ship's own caps already reflect that gear, so applying against the
-// ship's real caps is correct either way.
+// ⚠️ LINKED LOADOUT (S4-CP39, carried from E-CREW Task 18 into Ground Ops GO-17): when linkedLoadoutId is
+// set, that Armory ship loadout is checked out to the ship FIRST (withLinkedLoadout below), so the people
+// are capped against the new gear. CAPS still come from the TARGET SHIP's real caps
+// (commandStructureForHull(ship.typeKey) + quartersCapacityBonus), which then reflect that gear.
 //
 // ⚠️ DORMANT overlay: assigning a notable sets its assignedShipId but does NOT yet feed ship stats;
 // folding an assigned notable's contribution into the crew overlay is a documented FOLLOW-ON, so this
@@ -280,9 +282,10 @@ export function applyRoster(state: GameState, rosterId: string, shipId: string):
   if (roster === undefined) return state;
   const ship = state.ships.find((s) => s.id === shipId);
   if (ship === undefined) return state;
-  if (!roster.includePeople) return state; // no people to apply
 
-  let next = state;
+  // S4-CP39: the linked loadout's GEAR lands first, so the people below are capped against the new gear.
+  let next = withLinkedLoadout(state, roster, shipId);
+  if (!roster.includePeople) return next; // no people to apply (a gear-only roster still brings its loadout)
 
   // (a) OFFICERS -> their matching seats on the ship (deterministic seat order).
   for (const seat of SENIOR_STAFF_SEATS) {
@@ -357,4 +360,24 @@ export function applyRoster(state: GameState, rosterId: string, shipId: string):
     crewPool: filled.pool,
     ships: next.ships.map((s) => (s.id === shipId ? { ...s, complement: { buckets: bulkBuckets, mode } } : s)),
   };
+}
+
+// S4-CP39: check the roster's linked Armory SHIP loadout out to the ship, swapping out a DIFFERENT loadout
+// the ship wears (checked back in to the Armory first). NEVER forced, and ATOMIC: the SAME state comes back
+// when there is no link, the loadout is gone, the ship already wears it, ANOTHER ship wears it (it is never
+// pulled off that ship [PROPOSAL]), or the check-out refuses (the loadout is pinned to another hull type, or
+// the ship is on a mission), so a refused swap never leaves the ship stripped. Pure.
+function withLinkedLoadout(state: GameState, roster: PersonnelRoster, shipId: string): GameState {
+  const linkedId = roster.linkedLoadoutId;
+  if (linkedId === null) return state;
+  const linked = state.loadouts.find((l) => l.id === linkedId);
+  if (linked === undefined || linked.checkedOutToShipId !== null) return state;
+  const current = state.loadouts.find((l) => l.checkedOutToShipId === shipId);
+  let next = state;
+  if (current !== undefined) {
+    next = checkInLoadout(next, current.id);
+    if (next === state) return state; // the current one could not come off (on a mission)
+  }
+  const out = checkOutLoadout(next, linkedId, shipId);
+  return out === next ? state : out;
 }

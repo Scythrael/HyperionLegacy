@@ -9,8 +9,19 @@
 // A loadout's `slots` records only FILLED slots (slot key -> committed EquipmentInstance id); an
 // empty slot is simply absent. The slot SET a loadout offers is derived from its ship type at
 // render / install time (a later increment), so create does not need to enumerate slots.
-import type { GameState, Loadout, ShipTypeKey, EquipmentSlotType, EquipmentInstance } from "./model";
-import { SHIP_TYPES, startAutoSalvageGrace, isSparePiece } from "./model";
+import type {
+  AwayMember,
+  GameState,
+  GroundTeamLoadout,
+  Loadout,
+  MemberSlotType,
+  ShipGroundTeam,
+  ShipTypeKey,
+  SquadLoadoutKit,
+  EquipmentSlotType,
+  EquipmentInstance,
+} from "./model";
+import { SHIP_TYPES, startAutoSalvageGrace, isSparePiece, isUninstalledPiece, memberVariety } from "./model";
 // The DERIVED salvage reservation (0.13.9 hotfix): a piece a queued or in-flight salvage owns cannot
 // be committed to a loadout, mirroring canFitEquipment. reservation.ts imports only model/inventory,
 // so no cycle.
@@ -19,6 +30,12 @@ import { salvageReservedInstanceIds } from "./reservation";
 // its fitment changed. Checkout / check-in reuse it so a loadout can never be swapped mid-mission (the
 // user's balance-loophole guard). One-way import (equipment.ts does not import armory.ts), no cycle.
 import { onMissionLock, pieceEquipRequirement } from "./equipment";
+// Ground team loadouts (GO-17): the crew lock, the slot reader, the member wear rules. None of these modules
+// imports armory.ts (only personnelRosters.ts and the UI do), so no cycle.
+import { shipCrewLocked } from "./awayTeam";
+import { cleanShipGroundTeams, GROUND_SQUAD_TYPES, type GroundSquadType } from "./groundTeamSlots";
+import { DEFAULT_GROUND_TEAM_KIND } from "./groundComposition";
+import { memberSlotCapacity, memberWornIndex, pieceWearableBy } from "./memberEquipment";
 
 // The base loadout count (design: a FLAT 25, talent-expandable). Derived through loadoutCap, the ONE
 // reader, so a future loadout-count talent adds to it in exactly one place (content-driven rule).
@@ -29,8 +46,14 @@ export function loadoutCap(_state: GameState): number {
   return BASE_LOADOUT_COUNT;
 }
 
+// How many loadouts the Armory holds: ship loadouts AND ground team loadouts (GO-17, design 5.7: squad
+// loadouts share the Armory capacity rule). The ONE count every cap check reads. Pure.
+export function loadoutsUsed(state: GameState): number {
+  return state.loadouts.length + (state.squadLoadouts?.length ?? 0);
+}
+
 export function canCreateLoadout(state: GameState): boolean {
-  return state.loadouts.length < loadoutCap(state);
+  return loadoutsUsed(state) < loadoutCap(state);
 }
 
 // Create an empty loadout pinned to a ship type. Returns the new state + the new loadout id, or a
@@ -269,4 +292,449 @@ export function checkInLoadout(state: GameState, loadoutId: string): GameState {
       : state.equipment.map((e) => (committedIds.has(e.id) ? { ...e, fittedToShipId: null } : e));
   const loadouts = state.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: null } : l));
   return { ...state, equipment, loadouts };
+}
+
+// ===========================================================================
+// GROUND TEAM LOADOUTS (Ground Operations GO-17, reshapes E-CREW Task 18; design 5.7 + D25)
+// ===========================================================================
+//
+// A GroundTeamLoadout (model.ts) is a named set of member KITS for one whole ground team: one kit per
+// Security slot and one per Science slot, in slot order. Gear only: who is slotted stays a Personnel choice.
+// The lifecycle mirrors the ship loadouts above, with the team in the ship's place:
+//   create   snapshots what the team's SLOTTED members wear into kits (slot order) and COMMITS those pieces
+//            to the new loadout (committedToLoadoutId). The members keep wearing them, so the new loadout is
+//            born CHECKED OUT to that team (checkedOutTo), exactly like a checked-out ship loadout: committed
+//            AND installed. A committed worn piece is edited in the Armory, never uninstalled by hand
+//            (memberEquipment.ts occupantInLoadout).
+//   check-in takes every piece of the loadout off whoever wears it (the pieces stay committed, resting in
+//            the Armory) and clears checkedOutTo.
+//   apply    installs the kits onto the slotted members of a team in slot order and checks the loadout out
+//            to it. A piece that cannot install is SKIPPED AND REPORTED, never forced: missing, locked, a
+//            squad that cannot wear it, a unique conflict, no implant slot, no member in the slot, no such
+//            slot on this hull, or a slot held by another loadout's piece. A member's own (uncommitted) gear
+//            leaves only in the slot types the kit actually installs into; everything else stays on.
+// Ground team loadouts count against the SAME loadoutCap as ship loadouts (loadoutsUsed). Every change refuses
+// while a ship involved is crew-locked (awayTeam.ts shipCrewLocked: a captain mission or an expedition), and
+// every refusal returns the SAME state reference with a typed reason (groundLoadoutBlockText). Pure: no
+// clock, no rng; nothing here runs on the tick, so combat and expedition outcomes are untouched.
+
+// Why a ground team loadout action is refused (the whole action; nothing changes):
+//   noLoadout      no ground team loadout has that id
+//   noShip         no ship has that id
+//   noSuchTeam     the ship fields no team at that index
+//   onMission      a ship involved is crew-locked (the team's ship, the loadout's ship, or a wearer's ship)
+//   atCap          the Armory is full (ship + ground team loadouts at loadoutCap); create only
+//   teamHasLoadout the team already wears a loadout (check it in first); create and apply
+//   checkedOut     the loadout is already worn by a team (check it in first); apply only
+//   notCheckedOut  the loadout already rests in the Armory; check-in only
+//   wrongKind      the loadout was saved for another team kind (Ground / Strike / Survey); apply only
+export type GroundLoadoutBlockReason =
+  | "noLoadout"
+  | "noShip"
+  | "noSuchTeam"
+  | "onMission"
+  | "atCap"
+  | "teamHasLoadout"
+  | "checkedOut"
+  | "notCheckedOut"
+  | "wrongKind";
+
+// Why ONE piece was skipped (the rest of the action still goes through):
+//   missing             apply: the piece is gone, no longer committed to this loadout, already installed
+//                       somewhere, or not the kit field's slot type
+//   locked              create / apply: the player's Lock flag (a locked piece is never committed or moved)
+//   wrongTeam           apply: the slot's member's squad cannot wear it (memberEquipment.ts pieceWearableBy)
+//   occupantInLoadout   apply: the member's slot holds a piece another loadout installed
+//   uniqueEquippedElsewhere  apply: another piece of that unique-equipped variety is worn in the fleet (D11)
+//   implantSlotsFull    apply: the member has fewer implant slots than the kit has implants
+//   emptySlot           apply: no member sits in that slot
+//   noSlot              apply: the team has fewer slots of that squad type than the loadout has kits
+//   committedElsewhere  create: the worn piece already belongs to another loadout
+export type GroundLoadoutSkipReason =
+  | "missing"
+  | "locked"
+  | "wrongTeam"
+  | "occupantInLoadout"
+  | "uniqueEquippedElsewhere"
+  | "implantSlotsFull"
+  | "emptySlot"
+  | "noSlot"
+  | "committedElsewhere";
+
+// One skipped piece: which kit (squad type + slot index, the kit lists' own indexing) and why.
+export interface GroundLoadoutSkip {
+  teamType: GroundSquadType;
+  slotIndex: number;
+  pieceId: string;
+  reason: GroundLoadoutSkipReason;
+}
+
+export type GroundLoadoutRefusal = { ok: false; next: GameState; reason: GroundLoadoutBlockReason };
+
+// create / apply: the new state, the loadout id, how many pieces were committed (create) or installed (apply),
+// and every skipped piece in kit order (Security kits first, then Science; armor, weapon, tool, implants).
+export type GroundLoadoutResult =
+  | { ok: true; next: GameState; loadoutId: string; pieces: number; skipped: GroundLoadoutSkip[] }
+  | GroundLoadoutRefusal;
+
+export type GroundLoadoutCheckInResult = { ok: true; next: GameState } | GroundLoadoutRefusal;
+
+// Player-facing text for a refusal. EXHAUSTIVE with no default (a new reason is a compile error until it has
+// text). US English, install wording. Pure.
+export function groundLoadoutBlockText(reason: GroundLoadoutBlockReason): string {
+  switch (reason) {
+    case "noLoadout":
+      return "No longer in the Armory";
+    case "noShip":
+      return "No longer in the fleet";
+    case "noSuchTeam":
+      return "No such ground team";
+    case "onMission":
+      return "Ship is out on a mission";
+    case "atCap":
+      return "The Armory is full (delete a loadout first)";
+    case "teamHasLoadout":
+      return "This team already wears a loadout (check it in first)";
+    case "checkedOut":
+      return "A team is wearing this loadout (check it in first)";
+    case "notCheckedOut":
+      return "Already in the Armory";
+    case "wrongKind":
+      return "Saved for a different team type";
+  }
+}
+
+// Player-facing text for a skipped piece. EXHAUSTIVE with no default. Pure.
+export function groundLoadoutSkipText(reason: GroundLoadoutSkipReason): string {
+  switch (reason) {
+    case "missing":
+      return "No longer in this loadout";
+    case "locked":
+      return "Locked (unlock it first)";
+    case "wrongTeam":
+      return "This squad cannot use this gear";
+    case "occupantInLoadout":
+      return "The installed piece belongs to another loadout (check that loadout in first)";
+    case "uniqueEquippedElsewhere":
+      return "Unique: only one can be installed in the whole fleet";
+    case "implantSlotsFull":
+      return "Not enough implant slots";
+    case "emptySlot":
+      return "No member in this slot";
+    case "noSlot":
+      return "This team has fewer slots than the loadout";
+    case "committedElsewhere":
+      return "Committed to another loadout";
+  }
+}
+
+// The kit fields that hold one piece each, with the member slot each one maps to.
+const KIT_SINGLETONS = [
+  ["armor", "memberArmor"],
+  ["weapon", "memberWeapon"],
+  ["tool", "memberTool"],
+] as const;
+
+const emptyKit = (): SquadLoadoutKit => ({ armor: null, weapon: null, tool: null, implants: [] });
+
+// A kit's pieces in kit order (armor, weapon, tool, then implants) with the slot type each field expects.
+function kitEntries(kit: SquadLoadoutKit): { pieceId: string; slotType: MemberSlotType }[] {
+  const out: { pieceId: string; slotType: MemberSlotType }[] = [];
+  for (const [field, slotType] of KIT_SINGLETONS) {
+    const id = kit[field];
+    if (id !== null) out.push({ pieceId: id, slotType });
+  }
+  for (const id of kit.implants) out.push({ pieceId: id, slotType: "implant" });
+  return out;
+}
+
+// The team at (shipId, teamIndex) with its slots cleaned (cleanShipGroundTeams: an id that does not name a
+// member aboard with the slot's squad type reads as an empty slot), or the refusal. Gate order: noShip,
+// noSuchTeam, onMission. Pure.
+function locateTeam(
+  state: GameState,
+  shipId: string,
+  teamIndex: number
+): { ok: true; team: ShipGroundTeam } | { ok: false; reason: GroundLoadoutBlockReason } {
+  const ship = state.ships.find((s) => s.id === shipId);
+  if (ship === undefined) return { ok: false, reason: "noShip" };
+  const teams = cleanShipGroundTeams(ship, state.awayMembers);
+  if (!Number.isInteger(teamIndex) || teamIndex < 0 || teamIndex >= teams.length) return { ok: false, reason: "noSuchTeam" };
+  if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
+  return { ok: true, team: teams[teamIndex] };
+}
+
+// Is some ground team loadout checked out to this team right now? Pure.
+export function groundTeamWornLoadout(state: GameState, shipId: string, teamIndex: number): GroundTeamLoadout | null {
+  return (
+    (state.squadLoadouts ?? []).find(
+      (l) => l.checkedOutTo !== null && l.checkedOutTo.shipId === shipId && l.checkedOutTo.teamIndex === teamIndex
+    ) ?? null
+  );
+}
+
+// Save what a ground team wears as a new loadout, worn by that team (see the section header). Gate order:
+// noShip, noSuchTeam, onMission, teamHasLoadout, atCap. A worn piece that is locked or already committed to
+// another loadout is left out of the kits (it stays on the member, uncommitted) and reported. A blank name
+// reads "New Loadout" (the ship loadout default). Pure.
+export function createGroundTeamLoadout(
+  state: GameState,
+  shipId: string,
+  teamIndex: number,
+  name: string
+): GroundLoadoutResult {
+  const refuse = (reason: GroundLoadoutBlockReason): GroundLoadoutRefusal => ({ ok: false, next: state, reason });
+  const where = locateTeam(state, shipId, teamIndex);
+  if (!where.ok) return refuse(where.reason);
+  if (groundTeamWornLoadout(state, shipId, teamIndex) !== null) return refuse("teamHasLoadout");
+  if (!canCreateLoadout(state)) return refuse("atCap");
+
+  const id = `squad-${state.nextSquadLoadoutId}`;
+  const worn = memberWornIndex(state); // each member's pieces in mint order (implants keep that order)
+  const commit = new Set<string>();
+  const skipped: GroundLoadoutSkip[] = [];
+  const kitsFor = (teamType: GroundSquadType): SquadLoadoutKit[] =>
+    where.team[teamType].map((memberId, slotIndex) => {
+      const kit = emptyKit();
+      if (memberId === null) return kit;
+      const pieces = worn.get(memberId) ?? [];
+      // Kit order: armor, weapon, tool, then implants (so the skip report reads in kit order).
+      const ordered = [
+        ...KIT_SINGLETONS.flatMap(([, slotType]) => pieces.filter((p) => p.slotType === slotType)),
+        ...pieces.filter((p) => p.slotType === "implant"),
+      ];
+      for (const p of ordered) {
+        if (p.committedToLoadoutId !== undefined) {
+          skipped.push({ teamType, slotIndex, pieceId: p.id, reason: "committedElsewhere" });
+          continue;
+        }
+        if (p.locked === true) {
+          skipped.push({ teamType, slotIndex, pieceId: p.id, reason: "locked" });
+          continue;
+        }
+        const field = KIT_SINGLETONS.find(([, slotType]) => slotType === p.slotType)?.[0];
+        if (field !== undefined) kit[field] = p.id;
+        else kit.implants.push(p.id);
+        commit.add(p.id);
+      }
+      return kit;
+    });
+  const loadout: GroundTeamLoadout = {
+    id,
+    name: name.trim() || "New Loadout",
+    kind: where.team.kind,
+    security: kitsFor("security"),
+    science: kitsFor("science"),
+    checkedOutTo: { shipId, teamIndex },
+  };
+  return {
+    ok: true,
+    next: {
+      ...state,
+      equipment: commit.size === 0 ? state.equipment : state.equipment.map((e) => (commit.has(e.id) ? { ...e, committedToLoadoutId: id } : e)),
+      squadLoadouts: [...(state.squadLoadouts ?? []), loadout],
+      nextSquadLoadoutId: state.nextSquadLoadoutId + 1,
+    },
+    loadoutId: id,
+    pieces: commit.size,
+    skipped,
+  };
+}
+
+// Install a resting loadout onto a team and check it out to that team (see the section header). Gate order:
+// noLoadout, noShip, noSuchTeam, onMission, checkedOut, teamHasLoadout, wrongKind (a loadout with no kind is
+// Ground). Then, per kit in slot order (Security, then Science), each piece is checked and installed or
+// skipped; a member's own gear leaves (to storage, auto-salvage grace restarted) only in the slot types the
+// kit installs into. The loadout is checked out to the team even when every piece was skipped, so its
+// check-in stays the one way back. Pure.
+export function applyGroundTeamLoadout(
+  state: GameState,
+  loadoutId: string,
+  shipId: string,
+  teamIndex: number
+): GroundLoadoutResult {
+  const refuse = (reason: GroundLoadoutBlockReason): GroundLoadoutRefusal => ({ ok: false, next: state, reason });
+  const loadout = (state.squadLoadouts ?? []).find((l) => l.id === loadoutId);
+  if (loadout === undefined) return refuse("noLoadout");
+  const where = locateTeam(state, shipId, teamIndex);
+  if (!where.ok) return refuse(where.reason);
+  if (loadout.checkedOutTo !== null) return refuse("checkedOut");
+  if (groundTeamWornLoadout(state, shipId, teamIndex) !== null) return refuse("teamHasLoadout");
+  if ((loadout.kind ?? DEFAULT_GROUND_TEAM_KIND) !== where.team.kind) return refuse("wrongKind");
+
+  // The working pool, updated as each kit lands, so a later kit sees an earlier one (a unique piece the
+  // first member just put on blocks a second copy).
+  const pool = new Map(state.equipment.map((e) => [e.id, e] as const));
+  const members = new Map(state.awayMembers.map((m) => [m.id, m] as const));
+  const skipped: GroundLoadoutSkip[] = [];
+  let pieces = 0;
+  for (const teamType of GROUND_SQUAD_TYPES) {
+    const slots = where.team[teamType];
+    loadout[teamType].forEach((kit, slotIndex) => {
+      const entries = kitEntries(kit);
+      const skip = (pieceId: string, reason: GroundLoadoutSkipReason) => skipped.push({ teamType, slotIndex, pieceId, reason });
+      if (slotIndex >= slots.length) {
+        for (const e of entries) skip(e.pieceId, "noSlot");
+        return;
+      }
+      const memberId = slots[slotIndex];
+      const member = memberId === null ? undefined : members.get(memberId);
+      if (member === undefined) {
+        for (const e of entries) skip(e.pieceId, "emptySlot");
+        return;
+      }
+      pieces += installKit(pool, member, entries, loadout.id, skip, state.gameTimeSeconds);
+    });
+  }
+  return {
+    ok: true,
+    next: {
+      ...state,
+      equipment: state.equipment.map((e) => pool.get(e.id) ?? e),
+      squadLoadouts: state.squadLoadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutTo: { shipId, teamIndex } } : l)),
+    },
+    loadoutId,
+    pieces,
+    skipped,
+  };
+}
+
+// Install one kit onto one member inside the working pool; returns how many pieces went on. Order: (1) each
+// piece's own checks (missing, locked, wrongTeam, a singleton slot held by another loadout's piece); (2) the
+// member's own (uncommitted) pieces in the slot types the surviving pieces cover are marked to leave; (3) the
+// unique-equipped rule against everything worn that is not leaving, and the implant cap against the implants
+// staying; (4) the member's own pieces leave only in the slot types something actually installs into, and the
+// kit's pieces go on. A piece that passes (3) only because a member's own copy leaves always installs, so that
+// copy does leave: no rule is ever broken in between. Mutates only the passed working pool.
+function installKit(
+  pool: Map<string, EquipmentInstance>,
+  member: AwayMember,
+  entries: { pieceId: string; slotType: MemberSlotType }[],
+  loadoutId: string,
+  skip: (pieceId: string, reason: GroundLoadoutSkipReason) => void,
+  now: number
+): number {
+  const wornNow = (): EquipmentInstance[] => [...pool.values()].filter((e) => e.fittedToMemberId === member.id);
+
+  const candidates: EquipmentInstance[] = [];
+  for (const { pieceId, slotType } of entries) {
+    const p = pool.get(pieceId);
+    if (p === undefined || p.committedToLoadoutId !== loadoutId || p.slotType !== slotType || !isUninstalledPiece(p)) {
+      skip(pieceId, "missing");
+      continue;
+    }
+    if (p.locked === true) {
+      skip(pieceId, "locked");
+      continue;
+    }
+    if (!pieceWearableBy(p, member.teamType)) {
+      skip(pieceId, "wrongTeam");
+      continue;
+    }
+    if (slotType !== "implant") {
+      const occupant = wornNow().find((e) => e.slotType === slotType);
+      if (occupant !== undefined && occupant.committedToLoadoutId !== undefined) {
+        skip(pieceId, "occupantInLoadout");
+        continue;
+      }
+    }
+    candidates.push(p);
+  }
+
+  const ownIn = (types: Set<EquipmentSlotType>) =>
+    new Set(wornNow().filter((e) => types.has(e.slotType) && e.committedToLoadoutId === undefined).map((e) => e.id));
+  const mayLeave = ownIn(new Set(candidates.map((c) => c.slotType)));
+
+  const installing: EquipmentInstance[] = [];
+  let implantsStaying = wornNow().filter((e) => e.slotType === "implant" && !mayLeave.has(e.id)).length;
+  const implantCap = memberSlotCapacity(member, "implant");
+  for (const c of candidates) {
+    if (memberVariety(c.slotType, c.moduleVariant ?? "")?.member.uniqueEquipped === true) {
+      const clash =
+        [...pool.values()].some(
+          (e) =>
+            e.id !== c.id &&
+            !mayLeave.has(e.id) &&
+            !!e.fittedToMemberId &&
+            e.slotType === c.slotType &&
+            e.moduleVariant === c.moduleVariant
+        ) || installing.some((i) => i.slotType === c.slotType && i.moduleVariant === c.moduleVariant);
+      if (clash) {
+        skip(c.id, "uniqueEquippedElsewhere");
+        continue;
+      }
+    }
+    if (c.slotType === "implant") {
+      if (implantsStaying >= implantCap) {
+        skip(c.id, "implantSlotsFull");
+        continue;
+      }
+      implantsStaying += 1;
+    }
+    installing.push(c);
+  }
+
+  for (const id of ownIn(new Set(installing.map((c) => c.slotType)))) {
+    const e = pool.get(id) as EquipmentInstance;
+    pool.set(id, startAutoSalvageGrace({ ...e, fittedToMemberId: null }, now));
+  }
+  for (const c of installing) pool.set(c.id, { ...c, fittedToMemberId: member.id });
+  return installing.length;
+}
+
+// Take a worn loadout off its team: every piece of it comes off whoever wears it (even a member who moved to
+// another team or ship since) and rests in the Armory, still committed. Gate order: noLoadout, notCheckedOut,
+// onMission (the loadout's ship, or the ship of any member wearing one of its pieces). Pure.
+export function checkInGroundTeamLoadout(state: GameState, loadoutId: string): GroundLoadoutCheckInResult {
+  const refuse = (reason: GroundLoadoutBlockReason): GroundLoadoutRefusal => ({ ok: false, next: state, reason });
+  const loadout = (state.squadLoadouts ?? []).find((l) => l.id === loadoutId);
+  if (loadout === undefined) return refuse("noLoadout");
+  if (loadout.checkedOutTo === null) return refuse("notCheckedOut");
+  const wearing = state.equipment.filter((e) => e.committedToLoadoutId === loadoutId && !!e.fittedToMemberId);
+  const ships = new Set<string>([loadout.checkedOutTo.shipId]);
+  for (const e of wearing) {
+    const shipOf = state.awayMembers.find((m) => m.id === e.fittedToMemberId)?.assignedShipId;
+    if (shipOf) ships.add(shipOf);
+  }
+  if ([...ships].some((id) => shipCrewLocked(state, id))) return refuse("onMission");
+  const off = new Set(wearing.map((e) => e.id));
+  return {
+    ok: true,
+    next: {
+      ...state,
+      equipment: off.size === 0 ? state.equipment : state.equipment.map((e) => (off.has(e.id) ? { ...e, fittedToMemberId: null } : e)),
+      squadLoadouts: state.squadLoadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutTo: null } : l)),
+    },
+  };
+}
+
+// Rename a ground team loadout (mirrors renameLoadout): trimmed, a blank name ignored, same ref when missing
+// or unchanged. Allowed while worn (cosmetic). Pure.
+export function renameGroundTeamLoadout(state: GameState, loadoutId: string, name: string): GameState {
+  const trimmed = name.trim();
+  if (!trimmed) return state;
+  let changed = false;
+  const squadLoadouts = (state.squadLoadouts ?? []).map((l) => {
+    if (l.id !== loadoutId || l.name === trimmed) return l;
+    changed = true;
+    return { ...l, name: trimmed };
+  });
+  return changed ? { ...state, squadLoadouts } : state;
+}
+
+// Delete a resting ground team loadout (mirrors deleteLoadout): its committed pieces return to storage as free
+// spares with their auto-salvage grace restarted. REFUSED (same ref) while a team wears it, or when missing.
+// Pure.
+export function deleteGroundTeamLoadout(state: GameState, loadoutId: string): GameState {
+  const loadout = (state.squadLoadouts ?? []).find((l) => l.id === loadoutId);
+  if (loadout === undefined || loadout.checkedOutTo !== null) return state;
+  return {
+    ...state,
+    squadLoadouts: state.squadLoadouts.filter((l) => l.id !== loadoutId),
+    equipment: state.equipment.map((e) =>
+      e.committedToLoadoutId === loadoutId
+        ? startAutoSalvageGrace({ ...e, committedToLoadoutId: undefined }, state.gameTimeSeconds)
+        : e
+    ),
+  };
 }

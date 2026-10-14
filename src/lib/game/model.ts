@@ -6455,6 +6455,10 @@ export interface SquadLoadoutKit {
   weapon: string | null;
   tool: string | null;
   implants: string[];
+  // Ground Ops GO-17: the slot E-CREW Task 16b's Squad Kit fills (stackable Field Kit consumables, item key ->
+  // count) [PROVISIONAL shape: 16b owns the kits and may reshape it]. ABSENT = none; nothing writes or reads
+  // it yet, so it needs no SAVE_VERSION bump (optional + absent-safe, the Task 12-14 precedent).
+  consumables?: Record<string, number>;
 }
 
 // A saved SQUAD LOADOUT in the Armory, reshaped PER GROUND TEAM by Ground Operations GO-1 (D25: "Squad
@@ -6462,12 +6466,13 @@ export interface SquadLoadoutKit {
 // SquadLoadout, which no build ever created). A named set of member kits for one whole ground team: one
 // kit per Security slot and one per Science slot, in slot order. Gear only: who is slotted stays a
 // Personnel choice. `checkedOutTo` marks the ground team currently wearing it (null = in the Armory). Ids
-// are minted from GameState.nextSquadLoadoutId (the GO-17 Armory task picks the prefix); never reused.
+// are "squad-N", minted from GameState.nextSquadLoadoutId (GO-17); never reused. The engine (create / apply /
+// check-in, the shared loadoutCap) lives in armory.ts.
 export interface GroundTeamLoadout {
   id: string;
   name: string;
   // Squads SQ-1 (v68): the team KIND this loadout's kit lists are shaped for. ABSENT = "ground". A loadout
-  // applies only to a team of the same kind (GO-17 wires it; squadLoadouts is always [] in real saves).
+  // applies only to a team of the same kind (GO-17: armory.ts applyGroundTeamLoadout refuses "wrongKind").
   kind?: GroundTeamKind;
   security: SquadLoadoutKit[];
   science: SquadLoadoutKit[];
@@ -6503,8 +6508,8 @@ export function awayRecruitSeedFrom(seniorStaffSeed: number): number {
 // a partial roster auto-completes the complement with RANDOM bulk crew (top-rank-down), NOT persisted
 // back to the roster (see personnelRosters.ts applyRoster). The optional Armory-loadout link is the
 // per-roster toggle from the synthesis: linked = exact caps + gear travel as a "ship + gear + people"
-// package; unlinked = portable, capped by whatever hull it is applied to. applyRoster applies PEOPLE
-// to the given ship; the gear SWAP a linked loadout implies is the Armory's job (out of scope here).
+// package; unlinked = portable, capped by whatever hull it is applied to. applyRoster applies the
+// linked loadout's GEAR first (S4-CP39, Ground Ops GO-17, via armory.ts check-in / check-out), then PEOPLE.
 //
 // WHY ONLY INDIVIDUALS ARE PINNED (COMPLEMENT PRIORITY MODEL, user 2026-09-24): officers + notable
 // crew are individual records with ids, so they pin by id in a reorderable PRIORITY order; the BULK

@@ -347,6 +347,57 @@ describe("applyRoster", () => {
   });
 });
 
+// S4-CP39 (carried from E-CREW Task 18 into Ground Ops GO-17): a roster LINKED to an Armory ship loadout
+// applies that loadout with its people, gear first (so the caps read the new gear). Never forced: a loadout
+// worn by another ship stays there, a loadout for another hull or a ship on a mission leaves the gear alone.
+describe("applyRoster applies its linked SHIP loadout (S4-CP39)", () => {
+  // A gear-only roster (includePeople false) linked to a fresh General Freighter loadout.
+  function linked(base: GameState = stateWith(), hull: "generalFreighter" | "destroyer" = HULL) {
+    const lo = createLoadout(base, hull, "Linked");
+    const r = createRoster(lo.next, { name: "R", includePeople: false, linkedLoadoutId: lo.loadoutId });
+    return { s: r.next, loadoutId: lo.loadoutId!, rosterId: r.rosterId! };
+  }
+  const wornOn = (s: GameState, loadoutId: string) => s.loadouts.find((l) => l.id === loadoutId)!.checkedOutToShipId;
+
+  it("checks the linked loadout out to the ship, even for a gear-only roster", () => {
+    const { s, loadoutId, rosterId } = linked();
+    const applied = applyRoster(s, rosterId, "ship-1");
+    expect(wornOn(applied, loadoutId)).toBe("ship-1");
+    expect(wornOn(s, loadoutId)).toBeNull(); // input untouched
+  });
+
+  it("a ship wearing a different loadout checks it in first", () => {
+    const { s, loadoutId, rosterId } = linked();
+    const other = createLoadout(s, HULL, "Other");
+    const worn = { ...other.next, loadouts: other.next.loadouts.map((l) => (l.id === other.loadoutId ? { ...l, checkedOutToShipId: "ship-1" } : l)) };
+    const applied = applyRoster(worn, rosterId, "ship-1");
+    expect(wornOn(applied, other.loadoutId!)).toBeNull();
+    expect(wornOn(applied, loadoutId)).toBe("ship-1");
+  });
+
+  it("never pulls a loadout off another ship, never applies one for another hull, never on a mission", () => {
+    const a = linked();
+    const elsewhere = { ...a.s, loadouts: a.s.loadouts.map((l) => ({ ...l, checkedOutToShipId: "ship-9" })) };
+    expect(applyRoster(elsewhere, a.rosterId, "ship-1")).toBe(elsewhere);
+
+    const b = linked(stateWith(), "destroyer");
+    expect(applyRoster(b.s, b.rosterId, "ship-1")).toBe(b.s);
+
+    const c = linked();
+    const mission = {
+      kind: "extraction", missionKey: "shortOreRun", phase: "transitOut", phaseProgressTicks: 0, cargo: {}, recalled: false,
+    } as unknown as NonNullable<GameState["captains"][number]["mission"]>;
+    const away = { ...c.s, captains: c.s.captains.map((cap) => (cap.id === 1 ? { ...cap, mission } : cap)) };
+    expect(applyRoster(away, c.rosterId, "ship-1")).toBe(away);
+  });
+
+  it("a loadout the ship already wears is left as it is", () => {
+    const { s, loadoutId, rosterId } = linked();
+    const worn = { ...s, loadouts: s.loadouts.map((l) => (l.id === loadoutId ? { ...l, checkedOutToShipId: "ship-1" } : l)) };
+    expect(applyRoster(worn, rosterId, "ship-1")).toBe(worn);
+  });
+});
+
 // ============================================================================
 // Migration + additive-neutrality
 // ============================================================================

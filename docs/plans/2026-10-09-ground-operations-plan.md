@@ -1763,6 +1763,57 @@ unique-conflict / wrong-team pieces (never forcing); `checkInGroundTeamLoadout`.
 while the ship is on a mission.
 Commit `feat(0.14.0): ground team loadouts (Ground Ops GO-17, reshapes Task 18)`.
 
+**Carry from GO-17 ENGINE HALF (built 2026-10-14, commit `feat(0.14.0): ground team loadouts engine (Ground Ops GO-17
+engine half, reshapes Task 18)`; the UI half waits on the user's sketch):**
+- **No SAVE_VERSION bump** (still 68). `SquadLoadoutKit.consumables?: Record<string, number>` (item key -> count) is
+  optional, never written or read [PROVISIONAL shape, Task 16b owns it]; `isWellFormedGroundTeamLoadout` is unchanged
+  (the frozen v66 step uses it). Ids are `squad-N` from `nextSquadLoadoutId`, never reused.
+- **Lifecycle (armory.ts), mirroring ship loadouts with the TEAM in the ship's place.** `createGroundTeamLoadout(state,
+  shipId, teamIndex, name)` snapshots the SLOTTED members' worn pieces (cleaned slots; kit order armor, weapon, tool,
+  implants in mint order) and commits them; the members keep wearing them, so the loadout is BORN CHECKED OUT to that
+  team (`checkedOutTo`), like a checked-out ship loadout (committed AND installed; memberEquipment's
+  `occupantInLoadout` already locks those pieces from a hand uninstall). `kind` = the team's kind. Blank name ->
+  "New Loadout". `checkInGroundTeamLoadout(state, id)` takes every piece off whoever wears it (even a member who moved
+  team or ship since); pieces stay committed. `applyGroundTeamLoadout(state, id, shipId, teamIndex)` installs kits in
+  slot order (Security kits, then Science) and checks it out to that team. Also built (small, mirrors ship
+  loadouts; the UI needs them): `renameGroundTeamLoadout`, `deleteGroundTeamLoadout` (refused while worn; frees the
+  pieces with grace), `groundTeamWornLoadout(state, shipId, teamIndex)` (the loadout a team wears, or null),
+  `loadoutsUsed(state)` (ship + ground team loadouts; `canCreateLoadout` now reads it, so the cap is SHARED).
+- **Result shape.** create / apply return `{ ok: true, next, loadoutId, pieces, skipped: GroundLoadoutSkip[] }`
+  (`pieces` = committed or installed; `skipped` = `{ teamType, slotIndex, pieceId, reason }` in kit order) or
+  `{ ok: false, next: <SAME state>, reason }`; check-in returns `{ ok: true, next }` or the same refusal shape.
+  Rename / delete return a GameState (same ref on refusal).
+- **Refusal texts (`groundLoadoutBlockText`, exhaustive):** noLoadout "No longer in the Armory"; noShip "No longer in
+  the fleet"; noSuchTeam "No such ground team"; onMission "Ship is out on a mission"; atCap "The Armory is full
+  (delete a loadout first)"; teamHasLoadout "This team already wears a loadout (check it in first)"; checkedOut "A
+  team is wearing this loadout (check it in first)"; notCheckedOut "Already in the Armory"; wrongKind "Saved for a
+  different team type". Gate orders: create noShip, noSuchTeam, onMission, teamHasLoadout, atCap; apply noLoadout,
+  noShip, noSuchTeam, onMission, checkedOut, teamHasLoadout, wrongKind; check-in noLoadout, notCheckedOut, onMission
+  (the loadout's ship OR any wearer's ship crew-locked).
+- **Skip texts (`groundLoadoutSkipText`, exhaustive):** missing "No longer in this loadout"; locked "Locked (unlock it
+  first)"; wrongTeam "This squad cannot use this gear"; occupantInLoadout "The installed piece belongs to another
+  loadout (check that loadout in first)"; uniqueEquippedElsewhere "Unique: only one can be installed in the whole
+  fleet"; implantSlotsFull "Not enough implant slots"; emptySlot "No member in this slot"; noSlot "This team has fewer
+  slots than the loadout"; committedElsewhere (create only) "Committed to another loadout". Create also skips
+  `locked` pieces (they stay on the member, uncommitted).
+- **Apply rules (decisions for the user, all [PROPOSAL]):** (1) a member's OWN gear leaves (to storage, grace
+  restarted) only in the slot types the kit actually installs into; a slot the kit leaves empty keeps what the
+  member wears (implants: any kit implant replaces the member's own implants). (2) Applying to a team that already
+  wears a loadout, or applying a loadout another team wears, REFUSES (check in first), the ship loadout rule; an
+  auto check-in would save a click. (3) Create refuses while the ship is crew-locked (consistent; it would be
+  harmless mid-run). (4) S4-CP39: `applyRoster` checks the linked ship loadout out FIRST (swapping out a different
+  loadout the ship wears), also for a gear-only roster (includePeople false); it never pulls the loadout off another
+  ship, and a refused check-out (other hull type, on a mission) leaves the ship's gear as it was.
+- **For the UI half:** the Armory count line must read `loadoutsUsed(state)` (App.svelte still shows
+  `state.loadouts.length`); Warehouse rows find a piece's loadout by `committedToLoadoutId` in `state.loadouts` only,
+  so a `squad-N` piece needs a lookup in `state.squadLoadouts` too. A loadout's `checkedOutTo` can go stale (ship
+  salvaged, team kind changed); check-in always works and is the way back. Log lines: report `skipped` with
+  `groundLoadoutSkipText`.
+- Tests: armory.test.ts +20 (create, round trip, other-team apply, own-gear rules, unique conflict both ways,
+  missing / locked / wrongTeam / implant cap / noSlot / occupantInLoadout, every refusal same-ref, mission and
+  expedition locks, the shared cap, rename / delete, texts); personnelRosters.test.ts +4 (S4-CP39). No engine,
+  golden or parity test changed.
+
 ### GO-18: Help topics
 
 **Files:** `src/lib/helpTopics.ts` (+ the existing shape test).
