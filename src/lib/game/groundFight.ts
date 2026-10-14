@@ -10,7 +10,8 @@
 //     one-team fight reads exactly the run's numbers). Science never fights (design D2).
 //   - THE GUARD: generateEncounter on the body's hazard after the museum resist (the legacy battle guard),
 //     with NO ambush soften: the Security Cunning soften moves to the ship-side hostile probe (GO-8; D13 keeps
-//     officer stats off ground-team fights).
+//     officer stats off ground-team fights). Squads SQ-4: a body's FLORA adds Poison to the guard's attacks
+//     (withFloraToxins; risk-aware runs only).
 //   - CARRY DAMAGE (user Q5, 2026-10-12): "survivors carry HP and statuses from fight to fight within a
 //     task; full recovery only in the ship's medical bay on the return trip." A fight takes an optional carried
 //     state per member (the previous fight's memberEnd) and fields those members at their carried HP with
@@ -53,6 +54,7 @@ import {
 import { GROUND_CONDITIONS } from "./medicalBay";
 import { resistedHazard } from "./relics";
 import { teamSnapshotMembers } from "./groundTasks";
+import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
 
 // ===== Constants =====
 
@@ -156,6 +158,21 @@ export function taskFightTeam(
   return team;
 }
 
+// Squads SQ-4 (design 5.3): FLORA raises the Poison chance in a body's fights. Every guard's attack gains
+// FLORA_POISON_PERMILLE_PER_GRADE x the flora grade: added to a poisoning guard's own chance (capped at certain), a
+// guard with no on-hit affliction gains a Poison one, any other affliction is left as it is. No draw here; the
+// battle's existing on-hit roll reads the chance. Flora 0 (every body of a run before SQ-4) returns the list
+// untouched. Mutates the fresh guard list it is handed and returns it.
+export function withFloraToxins(enemies: GroundCombatant[], flora: number): GroundCombatant[] {
+  const add = flora > 0 ? FLORA_POISON_PERMILLE_PER_GRADE * flora : 0;
+  if (!(add > 0)) return enemies;
+  for (const e of enemies) {
+    if (!e.statusOnHit) e.statusOnHit = { id: "poison", permille: Math.min(1000, add) };
+    else if (e.statusOnHit.id === "poison") e.statusOnHit = { id: "poison", permille: Math.min(1000, e.statusOnHit.permille + add) };
+  }
+  return enemies;
+}
+
 // ===== The fight =====
 
 // Resolve ONE task fight for `teams` at the task's next fight point (see the module header). `flatIndex` is
@@ -167,7 +184,7 @@ export function taskFightTeam(
 export function resolveTaskFight(
   exp: Expedition,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared">,
   flatIndex: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -191,7 +208,7 @@ export type TaskFightExp = Pick<
 export function resolveTaskFightOnSeed(
   exp: TaskFightExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: Pick<ExpeditionActivity, "id" | "poiId" | "fightCount" | "pointsCleared">,
   seed: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
@@ -203,7 +220,7 @@ export function resolveTaskFightOnSeed(
   if (team.length === 0) {
     return { pointIndex, fightNumber, outcome: "loss", rounds: 0, downedMemberIds: [], memberConditions: {}, memberEnd: {} };
   }
-  const enemies = generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId);
+  const enemies = withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body));
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after

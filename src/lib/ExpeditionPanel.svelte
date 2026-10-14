@@ -51,7 +51,7 @@
   import { groundTeamWaitText, groundWaitTeams } from "./game/groundTeams";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
-  import { getPlanetTypeById, getPoiById } from "./game/expeditionContent";
+  import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
   import type { HazardTier } from "./game/expeditionContent";
   // E4c: relic glyphs + set names come from the ONE UI-side relic vocabulary (every graphic is SVG).
   import Icon from "./ui/Icon.svelte";
@@ -189,7 +189,7 @@
     return tier ? HAZARD_LABEL[tier] : "";
   }
   function poiLabel(id: string): string {
-    return getPoiById(id)?.label ?? id;
+    return groundSiteLabel(id) ?? id;
   }
   function isOrbital(planetTypeId: string): boolean {
     return getPlanetTypeById(planetTypeId)?.orbitalOnly === true;

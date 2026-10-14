@@ -69,6 +69,7 @@ import { CREW_STAT_KEYS } from "./crewBuffs";
 import {
   fightPointCount,
   fightPointFractions,
+  riskFightPointCount,
   segmentCount,
   segmentHaul,
   taskFieldworkRun,
@@ -80,12 +81,22 @@ import {
 import { resolveTaskFight, taskFightSeconds, type GroundFightTeam } from "./groundFight";
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { tierAtLeast } from "./combat/threatAssessment";
-import { getPoiById } from "./expeditionContent";
+import { groundSiteLabel } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { fieldworkEffect } from "./fieldwork";
 // Squads SQ-3: team squads by kind (composition math) and the ambush roll's private stream.
 import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, scienceSquadsOf, securitySquadsOf } from "./groundComposition";
 import { makeRng } from "./combat/rng";
+// Squads SQ-4: risk-aware stamping (needs, difficulty, the ambush chance) and the risk reward.
+import {
+  difficultyGradeOf,
+  difficultyWeight,
+  fieldableNeeds,
+  generatedTaskNeeds,
+  riskAmbushChance,
+  riskRewardBonus,
+  taskDifficultyScore,
+} from "./riskFactors";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
@@ -299,10 +310,18 @@ export function snapshotAwayRosterForTeams(
 //     every team of the crew waits. The wiped teams of ONE crew share ONE leg (user 2026-10-12: one shared
 //     pickup trip when several teams wipe together on one body); separate crews each wait for their own, in
 //     wipe order. A helper is a team like any other.
-//   THE SURVEY AMBUSH (user #5, SQ-3): a crew with NO Security squad on a survey-only task (no fight points) may
-//     be ambushed by something unknown (groundTaskAmbushChance, 0 until the risk factors of SQ-4). It never
-//     fights: it RETREATS with light injuries (SURVEY_AMBUSH_CONDITIONS), the task pauses with its progress
-//     kept, and the crew comes back after its bay.
+//   THE AMBUSH (user #5, SQ-3; SQ-4): a crew on a calm task (no fight points) may be ambushed by something
+//     unknown (groundTaskAmbushChance: the body's risk on a risk-aware run, else 0), at most
+//     SURVEY_AMBUSH_MAX_PER_TASK times per task. A crew with NO standing Security member never fights: it
+//     RETREATS with light injuries (SURVEY_AMBUSH_CONDITIONS), the task pauses with its progress kept, and the
+//     crew comes back after its bay. A crew WITH one meets it as a SURPRISE FIGHT where it stands (SQ-4, user):
+//     a win and the work goes on from the same spot; a loss is an ordinary loss (a wipe waits for the ship).
+//
+// RISK (Squads SQ-4): a risk-aware run (Expedition.risk, each body's risk grades) stamps its tasks from the risk
+//   (initGroundTasks: fight points, generated needs capped at the deployed squads, the difficulty grade, the
+//   ambush chance); flora slows the work (groundTasks.ts) and poisons the fights (groundFight.ts); the difficulty
+//   weights the completion (groundOpsProgress) and raises the haul and the relic find at offload. A run without
+//   risk resolves exactly as stamped before SQ-4.
 //
 // DETERMINISM: one salt here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes). A task
 // fight rolls on its keyed stream (groundFight.ts), the haul on the task's reward stream and the relic on its
@@ -327,10 +346,10 @@ export const GROUND_HISTORY_CAP = 200;
 
 // Squads SQ-3, THE SURVEY AMBUSH (user #5: "Survey teams shouldn't face any fights. But realistically, you could
 // be ambushed by something you don't know"; follow-up: an ambushed Survey team RETREATS with light injuries, the
-// task pauses, they come back later). Only a crew with NO Security squad on a survey-only task (no fight points)
-// can be ambushed; it never fights.
-// The chance an unknown-risk ambush strikes such a crew on one attempt [PROVISIONAL]: 0 until the risk factors
-// (SQ-4) give a task a known risk; groundTaskAmbushChance is the hook that reads it.
+// task pauses, they come back later). Only a calm task (no fight points) can be ambushed; a crew with no standing
+// Security member never fights it (SQ-4: a crew with one meets it as a surprise fight, user).
+// The chance an unknown-risk ambush strikes on one attempt at a body WITHOUT risk grades (every run before SQ-4):
+// 0. A risk-aware body reads riskFactors.ts riskAmbushChance instead (groundTaskAmbushChance is the hook).
 export const SURVEY_AMBUSH_CHANCE = 0;
 // The light injuries every member of an ambushed crew comes back with (medicalBay.ts GROUND_CONDITIONS; "health"
 // is the minor-injury condition, a 60 s cure before care) [PROVISIONAL].
@@ -536,11 +555,18 @@ function stampedNeeds(task: ExpeditionActivity, fights: number): GroundTaskNeeds
   return needs;
 }
 
-// THE AMBUSH HOOK (user #5): the chance an unknown-risk ambush strikes a Security-less crew on this task, one roll
-// per attempt. Only a survey-only task (no fight points) can be ambushed; SURVEY_AMBUSH_CHANCE (0) until the
-// risk factors (SQ-4) read the body's risk here. Pure.
-export function groundTaskAmbushChance(task: Pick<ExpeditionActivity, "fightPoints">): number {
-  return (task.fightPoints?.length ?? 0) === 0 ? SURVEY_AMBUSH_CHANCE : 0;
+// THE AMBUSH HOOK (user #5): the chance an unknown-risk ambush strikes a crew on this task, one roll per attempt.
+// Only a calm task (no fight points: no fights expected) can be ambushed. Squads SQ-4: on a body carrying risk
+// grades the chance is its risk's (riskFactors.ts riskAmbushChance: the worse of combat and fauna); without them
+// (every run before SQ-4) SURVEY_AMBUSH_CHANCE (0). Pure.
+export function groundTaskAmbushChance(task: Pick<ExpeditionActivity, "fightPoints">, body?: Pick<ExpeditionBody, "risk">): number {
+  if ((task.fightPoints?.length ?? 0) !== 0) return 0;
+  return body?.risk ? riskAmbushChance(body.risk) : SURVEY_AMBUSH_CHANCE;
+}
+
+// Does the task carry needs of its own (content needs, or a content requiredTeams)? Pure.
+function hasContentNeeds(task: Pick<ExpeditionActivity, "needs" | "requiredTeams">): boolean {
+  return task.needs !== undefined || task.requiredTeams !== undefined;
 }
 
 // ===== Task stamping and planning (a body's scan completes) =====
@@ -549,15 +575,34 @@ export function groundTaskAmbushChance(task: Pick<ExpeditionActivity, "fightPoin
 // site's threat on the body's RAW hazard, its NEEDS in squads (Squads SQ-3: content needs, else the carry-forward
 // of a content requiredTeams, else { 1, 1 }; at least 1 Security squad with a fight point), its ambush chance when
 // above 0, nothing done yet, queued. Idempotent (a stamped task is left alone). Mutates the working clone.
+// Squads SQ-4, a RISK-AWARE body (ExpeditionBody.risk, written at dispatch since SQ-4): the fight points read the
+// body's risk (groundTasks.ts riskFightPointCount, floor 0), the needs are GENERATED from them and the site
+// (riskFactors.ts generatedTaskNeeds; content needs still win) and capped at the squads the ship deployed (no
+// softlock, user #3: fieldableNeeds), the DIFFICULTY grade is rated once from the generated needs, and a calm
+// task takes its body's ambush chance. A body without risk stamps exactly as before.
 export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const body = exp.bodies[bodyIndex];
   if (!body) return;
+  const risk = body.risk;
+  const deployed = crewSquadsOf(exp.groundOps?.teams ?? []);
+  const tier = exp.risk?.tier ?? 1;
   for (const task of body.activities) {
     if (isGroundTask(task)) continue;
-    task.fightPoints = fightPointFractions(fightPointCount(task.poiId, body.hazard));
-    task.needs = stampedNeeds(task, task.fightPoints.length);
-    delete task.requiredTeams; // read into needs (the carry-forward); never stored twice
-    const chance = groundTaskAmbushChance(task);
+    if (risk) {
+      const fights = riskFightPointCount(task.poiId, body.hazard, risk);
+      task.fightPoints = fightPointFractions(fights);
+      const raw = hasContentNeeds(task) ? taskNeedsOf(task) : generatedTaskNeeds(task.poiId, fights, tier);
+      const needs = fieldableNeeds(raw, deployed);
+      if (fights > 0 && needs.security < 1) needs.security = 1;
+      task.needs = needs;
+      delete task.requiredTeams;
+      task.difficulty = difficultyGradeOf(taskDifficultyScore({ fightPoints: fights, hazard: body.hazard, needs: raw, combat: risk.combat }));
+    } else {
+      task.fightPoints = fightPointFractions(fightPointCount(task.poiId, body.hazard));
+      task.needs = stampedNeeds(task, task.fightPoints.length);
+      delete task.requiredTeams; // read into needs (the carry-forward); never stored twice
+    }
+    const chance = groundTaskAmbushChance(task, body);
     if (chance > 0) task.ambushChance = chance;
     task.progress = 0;
     task.pointsCleared = 0;
@@ -568,10 +613,9 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   }
 }
 
-// Queue body `bodyIndex`'s new tasks at `t` (see the header: PLANNING). A task NO crew of the deployed teams can
-// cover (its needs exceed every deployed squad summed) is skipped with a log line and never planned (user: no
-// softlock) [PROVISIONAL, Q20]; with no deployed team every task is skipped (nobody could ever work them;
-// unreachable past the D18 gate). Mutates the working clone.
+// Queue body `bodyIndex`'s new tasks at `t` (see the header: PLANNING) through planTasksForTeams, which skips and
+// logs a task NO crew of the deployed teams can cover (user: no softlock) [PROVISIONAL, Q20]; with no deployed
+// team every task is skipped (nobody could ever work them; unreachable past the D18 gate). Mutates the clone.
 export function planNewTasks(exp: Expedition, bodyIndex: number, t: number): void {
   const ops = exp.groundOps;
   const body = exp.bodies[bodyIndex];
@@ -583,19 +627,12 @@ export function planNewTasks(exp: Expedition, bodyIndex: number, t: number): voi
     for (const task of fresh) task.status = "skipped";
     return;
   }
-  const deployed = crewSquadsOf(ops.teams);
-  const playable: GroundTaskRef[] = [];
+  const refs: GroundTaskRef[] = [];
   for (const task of fresh) {
-    const needs = taskNeedsOf(task);
-    if (!squadsCover(deployed, needs)) {
-      task.status = "skipped";
-      pushLog(ops, { at: t, kind: "skippedNeedsSquads", taskId: task.id, needs, deployed: { ...deployed } });
-      continue;
-    }
     const ref = findGroundTask(exp, task.id);
-    if (ref) playable.push(ref);
+    if (ref) refs.push(ref);
   }
-  planTasksForTeams(exp, playable);
+  planTasksForTeams(exp, refs, t);
 }
 
 // Append one display line to the run's log. Mutates.
@@ -611,7 +648,7 @@ function squadsText(n: number, type: "Security" | "Science"): string {
 // A log line in plain words (the UI shows it). Pure.
 export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundOpsLogEntry): string {
   const task = findGroundTask(exp, entry.taskId)?.task;
-  const name = (task && getPoiById(task.poiId)?.label) ?? "A task";
+  const name = (task && groundSiteLabel(task.poiId)) ?? "A task";
   switch (entry.kind) {
     case "skippedNeedsTeams":
       return `Skipped ${name}: needs ${entry.requiredTeams} ground teams, ${entry.deployedTeams} deployed`;
@@ -650,17 +687,19 @@ function freshWins(exp: Expedition, ops: GroundOpsState, teams: readonly GroundT
 //     with the best clear odds as a whole (ties: the set whose teams rank best) [PROVISIONAL], appended into
 //     each crew team's queue. Each team's new tasks are appended EASIEST FIRST by its own odds (a joint task's
 //     odds are its whole crew's).
-//   A task no set of deployed teams covers is skipped (planNewTasks logs and skips these first; this keeps a
-//   GO-7d re-plan from ever queuing one).
-export function planTasksForTeams(exp: Expedition, refs: readonly GroundTaskRef[]): void {
+//   A task no set of deployed teams covers (its needs exceed every deployed squad summed) is SKIPPED here with a
+//   log line at `t` (the SQ-3 review: here, not in planNewTasks, so a GO-7d re-plan logs too), never queued.
+export function planTasksForTeams(exp: Expedition, refs: readonly GroundTaskRef[], t: number): void {
   const ops = exp.groundOps;
   if (!ops || ops.teams.length === 0 || refs.length === 0) return;
   const order = new Map(refs.map((ref, k) => [ref.task.id, k] as const));
   const give = new Map<GroundTeamRun, { ref: GroundTaskRef; wins: number }[]>(ops.teams.map((team) => [team, []] as const));
   const deployed = crewSquadsOf(ops.teams);
   const playable = refs.filter((ref) => {
-    if (squadsCover(deployed, taskNeedsOf(ref.task))) return true;
+    const needs = taskNeedsOf(ref.task);
+    if (squadsCover(deployed, needs)) return true;
     ref.task.status = "skipped";
+    pushLog(ops, { at: t, kind: "skippedNeedsSquads", taskId: ref.task.id, needs, deployed: { ...deployed } });
     return false;
   });
   if (ops.teams.length === 1) {
@@ -1006,9 +1045,10 @@ function beginOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
 
 // Work from the task's progress to its next fight point (or 100%): (to - from) of the task's full work time
 // for the crew's members still standing (a joint task: every team's, the Science fieldwork summed), whole
-// seconds, at least 1. `team` is the crew's lead. A crew with no Security squad may meet an AMBUSH (Squads SQ-3,
-// user #5): rolled here, at the step's start, on its own keyed stream; the step then ends early, where it
-// strikes, and the crew retreats at its end (finishWork).
+// seconds, at least 1. `team` is the crew's lead. On a calm task a crew may meet an AMBUSH (Squads SQ-3, user #5):
+// rolled here, at the step's start, on its own keyed stream; the step then ends early, where it strikes, and at
+// its end (finishWork) a crew with a standing Security member fights it where it stands (SQ-4, a surprise fight)
+// while one without retreats.
 function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number, rec: Partial<GroundStepRecord> = {}): void {
   const points = ref.task.fightPoints ?? [];
   const cleared = ref.task.pointsCleared ?? 0;
@@ -1017,7 +1057,7 @@ function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, re
   const crew = crewOf(ops, team);
   const full = taskWorkSeconds(exp, crew.map((member) => workTeamOf(ops, member)), ref.body);
   const secs = Math.max(1, Math.round((to - from) * full));
-  const strike = ambushStrike(exp, crew, ref, secs);
+  const strike = ambushStrike(exp, ref, secs);
   team.workFrom = from;
   if (strike !== null) {
     team.workTo = from + (to - from) * (strike / secs);
@@ -1034,15 +1074,16 @@ export function groundAmbushSeed(exp: Pick<Expedition, "seed">, flatIndex: numbe
   return (exp.seed ^ GROUND_AMBUSH_SALT ^ Math.imul(flatIndex + 1, 0x9e3779b9) ^ Math.imul(ambushes + 1, 0x85ebca6b)) >>> 0;
 }
 
-// When an ambush strikes this work step of `secs` seconds (whole seconds into it, 1 to secs - 1), or null. Only a
-// crew with NO Security squad on a task with an ambush chance above 0 (groundTaskAmbushChance, stamped) can be
-// ambushed, at most SURVEY_AMBUSH_MAX_PER_TASK times per task, and only on a step long enough to cut. Two draws
-// on makeRng(groundAmbushSeed): whether it strikes (next() < chance), then the second it strikes at
+// When an ambush strikes this work step of `secs` seconds (whole seconds into it, 1 to secs - 1), or null. Any
+// crew on a task with an ambush chance above 0 (groundTaskAmbushChance, stamped; only risk-aware runs since SQ-4
+// stamp one) can be ambushed, at most SURVEY_AMBUSH_MAX_PER_TASK times per task, and only on a step long enough
+// to cut (SQ-3 struck only a crew with no Security squad; SQ-4's surprise fight covers the rest). Two draws on
+// makeRng(groundAmbushSeed): whether it strikes (next() < chance), then the second it strikes at
 // (1 + nextInt(secs - 1)). Pure.
-function ambushStrike(exp: Expedition, crew: readonly GroundTeamRun[], ref: GroundTaskRef, secs: number): number | null {
+function ambushStrike(exp: Expedition, ref: GroundTaskRef, secs: number): number | null {
   const raw = ref.task.ambushChance;
   const chance = typeof raw === "number" && Number.isFinite(raw) ? Math.min(1, raw) : 0;
-  if (!(chance > 0) || secs < 2 || crewSquadsOf(crew).security > 0) return null;
+  if (!(chance > 0) || secs < 2) return null;
   const ambushes = ref.task.ambushes ?? 0;
   if (ambushes >= SURVEY_AMBUSH_MAX_PER_TASK) return null;
   const rng = makeRng(groundAmbushSeed(exp, ref.flatIndex, ambushes));
@@ -1052,9 +1093,15 @@ function ambushStrike(exp: Expedition, crew: readonly GroundTeamRun[], ref: Grou
 
 // Work reached its target: bank the segment just finished (segment index = the points cleared so far) for the
 // crew's team set, then the task is done at 100% (every crew team returns) or a fight waits at the point. A
-// step an AMBUSH cut short banks nothing (the segment is not finished) and the crew retreats.
+// step an AMBUSH cut short banks nothing (the segment is not finished): a crew with a standing Security member
+// meets it as a SURPRISE FIGHT where it stands (Squads SQ-4, user: "win: work continues; lose: a normal wipe"),
+// a crew with none retreats (SQ-3).
 function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
-  if (team.ambushed) return ambushRetreat(exp, ops, team, ref, t);
+  if (team.ambushed) {
+    const crew = crewOf(ops, team);
+    const standing = crew.some((member) => member.securityIds.some((id) => !member.downedThisTask.includes(id)));
+    return standing ? surpriseFight(exp, ops, team, ref, t) : ambushRetreat(exp, ops, team, ref, t);
+  }
   const task = ref.task;
   const crew = crewOf(ops, team);
   const to = team.workTo ?? task.progress ?? 0;
@@ -1071,10 +1118,27 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     task.status = "done";
     task.done = true;
     task.completedAt = t;
+    // TASK CHAINS (user #14) hook point: a completed task may reveal a follow-up here (riskFactors.ts
+    // taskChainFollowUp; not built in SQ-4).
     returnCrew(exp, ops, team, crew, ref, t, []);
     return;
   }
   startFight(exp, ops, team, ref, t);
+}
+
+// THE SURPRISE FIGHT (Squads SQ-4; user, SQ-3 calls (c)): an ambush struck a crew with a standing Security member.
+// The progress up to the ambush is kept (nothing banked), the ambush counts toward the task's cap, and the crew's
+// Security fights where it stands, on the task's ordinary keyed fight stream (fightCount moves on, so every fight
+// stays fresh), with its carry. The record is marked `surprise`: a win passes no fight point and the work goes on
+// from the same spot; a loss is an ordinary loss (finishFight: a wipe waits for the ship). Mutates.
+function surpriseFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  const task = ref.task;
+  task.progress = team.workTo ?? task.progress ?? 0;
+  task.ambushes = (task.ambushes ?? 0) + 1;
+  delete team.workFrom;
+  delete team.workTo;
+  delete team.ambushed;
+  startFight(exp, ops, team, ref, t, { ambushed: true }, true);
 }
 
 // THE SURVEY RETREAT (user #5): an ambush struck a crew with no Security squad. It never fights: the progress up
@@ -1103,13 +1167,23 @@ function ambushRetreat(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
 }
 
 // A fight starts: resolved now on its keyed stream, with the crew's carry (user Q5); applied at its end. A
-// joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order).
-function startFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+// joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order). `rec` adds
+// to the closed step's record; `surprise` marks an ambush met as a fight (Squads SQ-4).
+function startFight(
+  exp: Expedition,
+  ops: GroundOpsState,
+  team: GroundTeamRun,
+  ref: GroundTaskRef,
+  t: number,
+  rec: Partial<GroundStepRecord> = {},
+  surprise = false,
+): void {
   const crew = crewOf(ops, team);
   const record = resolveTaskFight(exp, crew.map((member) => fightTeamOf(ops, member)), ref.body, ref.task, ref.flatIndex, crewCarry(crew));
+  if (surprise) record.surprise = true;
   ref.task.fightCount = (ref.task.fightCount ?? 0) + 1;
   team.pendingFight = record;
-  moveTo(ops, team, "fight", t, t + taskFightSeconds(record));
+  moveTo(ops, team, "fight", t, t + taskFightSeconds(record), rec);
 }
 
 // The crew teams a lost fight WIPED (Squads SQ-3): a team with at least one Security member, all of them down
@@ -1146,10 +1220,14 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     if (!owner.downedThisTask.includes(id)) owner.downedThisTask.push(id);
   }
   const task = ref.task;
+  const surprise: Partial<GroundStepRecord> = record.surprise ? { surprise: true } : {};
   if (record.outcome === "win") {
-    task.pointsCleared = (task.pointsCleared ?? 0) + 1;
-    delete task.lossStreak;
-    delete task.sentBack;
+    // A SURPRISE fight won (Squads SQ-4) passes no fight point: the work goes on from where the ambush struck.
+    if (!record.surprise) {
+      task.pointsCleared = (task.pointsCleared ?? 0) + 1;
+      delete task.lossStreak;
+      delete task.sentBack;
+    }
     if (crew.length === 1) team.carry = structuredClone(record.memberEnd);
     else {
       for (const member of crew) {
@@ -1158,7 +1236,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
         member.carry = mine;
       }
     }
-    return startWork(exp, ops, team, ref, t, { outcome: "win" });
+    return startWork(exp, ops, team, ref, t, { outcome: "win", ...surprise });
   }
   for (const member of crew) delete member.carry;
   task.status = "queued";
@@ -1176,7 +1254,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
       task.sentBack = (task.sentBack ?? 0) + 1;
     }
   }
-  returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), { outcome: "loss" });
+  returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), { outcome: "loss", ...surprise });
 }
 
 // Every team of the crew `lead` carries heads back at `t`. The `wiped` ones wait for ONE recovery leg (a shared
@@ -1253,6 +1331,8 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
   const to = task.segmentsBanked ?? 0;
   if (to <= from) return;
   const N = segmentCount(task);
+  // Squads SQ-4 (user #6): the task's difficulty raises its haul and its relic find (0 for an unrated task).
+  const riskBonus = riskRewardBonus(task.difficulty);
   const fullBy = new Map<string, TaskHaul>();
   const materials: Record<string, number> = {};
   let credits = 0;
@@ -1260,7 +1340,7 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
     const key = (task.segmentBankers?.[s] ?? [team.index]).join(",");
     let full = fullBy.get(key);
     if (!full) {
-      full = taskFullHaul(exp, bankingTeams(ops, task, s, team), ref.body, task.poiId, ref.flatIndex);
+      full = taskFullHaul(exp, bankingTeams(ops, task, s, team), ref.body, task.poiId, ref.flatIndex, riskBonus);
       fullBy.set(key, full);
     }
     const share = segmentHaul(full, N, s);
@@ -1278,12 +1358,13 @@ function offloadFindings(exp: Expedition, ops: GroundOpsState, team: GroundTeamR
     // The completing batch: the relic, on the task's legacy relic stream, with the completing team's fieldwork
     // find and the crew rare find ramped at the completion time.
     const fw = fieldworkEffect(taskFieldworkRun(exp, bankingTeams(ops, task, N - 1, team)), ref.body.planetType, task.poiId);
+    const find = activityRelicFindBonus(exp, fw, driver.hoursAt(exp, task.completedAt ?? t));
     finding.relic = rollRelicToken(
       taskRelicSeed(exp, ref.flatIndex),
       ref.body.hazard,
       task.poiId,
       `${exp.id}-relic-${task.id}`,
-      activityRelicFindBonus(exp, fw, driver.hoursAt(exp, task.completedAt ?? t)),
+      riskBonus > 0 ? find + riskBonus : find,
     );
   }
   exp.findings.push(finding);
@@ -1439,15 +1520,18 @@ export function groundTaskProgressAt(exp: Pick<Expedition, "groundOps">, task: E
   return team.workFrom + (team.workTo - team.workFrom) * f;
 }
 
-// The run's ground progress in [0, 1] at `now` (the activities bar): every task's share (done or skipped counts
-// whole, others their interpolated progress) over the task count. 0 before any task exists. Pure.
+// The run's ground progress in [0, 1] at `now` (the activities bar, the system's COMPLETION): every task's share
+// (done or skipped counts whole, others their interpolated progress), each weighted by its difficulty's completion
+// weight (Squads SQ-4, design section 4: sum(weight x progress) / sum(weight); riskFactors.ts difficultyWeight, 1
+// for an unrated task, so a run before SQ-4 reads the plain mean as before). 0 before any task exists. Pure.
 export function groundOpsProgress(exp: Pick<Expedition, "groundOps" | "bodies">, now: number): number {
   let total = 0;
   let sum = 0;
   for (const body of exp.bodies) {
     for (const task of body.activities) {
-      total += 1;
-      sum += task.done || task.status === "skipped" ? 1 : groundTaskProgressAt(exp, task, now);
+      const w = difficultyWeight(task.difficulty);
+      total += w;
+      sum += w * (task.done || task.status === "skipped" ? 1 : groundTaskProgressAt(exp, task, now));
     }
   }
   return total > 0 ? Math.max(0, Math.min(1, sum / total)) : 0;

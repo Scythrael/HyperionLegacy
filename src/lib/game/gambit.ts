@@ -1510,6 +1510,10 @@ const POI_ENCOUNTER_ROLES: Record<string, EnemyRole[]> = {
   caveNetwork: ["swarm", "swarm", "swarm"],
   xenoFloraBloom: ["caster", "swarm"],
   mineralOutcrop: ["bruiser", "swarm"],
+  // Squads SQ-4 hostile sites (riskFactors.ts; never drawn as discoveries) [PROPOSAL guards for the content pass]:
+  // a colony's defenders, and a fortification's garrison with its medic and caster behind the line.
+  enemyColony: ["striker", "striker", "bruiser", "healer"],
+  enemyFortification: ["bruiser", "bruiser", "striker", "striker", "caster", "healer"],
 };
 const DEFAULT_ENCOUNTER_ROLES: EnemyRole[] = ["striker", "bruiser"];
 

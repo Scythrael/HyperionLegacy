@@ -35,7 +35,7 @@ import {
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { tierAtLeast } from "./combat/threatAssessment";
 import { segmentCount, taskFullHaul, taskWorkSeconds } from "./groundTasks";
-import { plainAwayMember, registerSyntheticHull, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { plainAwayMember, registerSyntheticHull, withSlottedAwayTeams, withoutRisk } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -537,7 +537,9 @@ describe("GO-7c PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
     const s = { ...trioState([false, false, true]), expeditionSeed: 0x0a13bd4 };
     const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.success).toBe(true);
-    const exp = res.expedition!;
+    // Squads SQ-4: pinned as the run this dispatch made BEFORE the risk factors (withoutRisk), so its GO-7c
+    // scenario (all three teams working today's content) stays what it tests.
+    const exp = withoutRisk(res.expedition!);
     expect(exp.groundOps!.teams.length).toBe(3);
     let t = 0;
     let e = exp;

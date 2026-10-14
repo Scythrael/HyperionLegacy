@@ -28,7 +28,7 @@
 // in about 2 ms (32 samples); a grinding one (a tanky squad with no damage, fights running long) about 15 ms,
 // so a 20-task planet read per team could cost a few hundred ms on every recompute of a queue screen. The read
 // is therefore MEMOIZED on a fingerprint of EVERY input it depends on (the exp fields a fight reads, listed by
-// type in groundFight.ts TaskFightExp, the team fields, the body hazard, the task fields, the flat index, the
+// type in groundFight.ts TaskFightExp, the team fields, the body hazard and flora, the task fields, the flat index, the
 // sample count and the carried state). Because the key is the whole input, a hit returns exactly what a fresh
 // computation would (the read is pure), whichever save or run asked: the memo can never leak a stale answer
 // across saves, runs or edits. Bounded (GROUND_THREAT_MEMO_SIZE entries, least recently used evicted) and
@@ -37,7 +37,7 @@
 // USES: display (GO-13 task queue odds, GO-14 task cards) plus the two the user approved: the default plan and
 // the helper floor (GO-7c, HELPER_MIN_TIER).
 //
-// Module graph: model (types), groundFight, groundTasks, combat/threatAssessment; never expedition.ts.
+// Module graph: model (types), groundFight, groundTasks, riskFactors, combat/threatAssessment; never expedition.ts.
 
 import type { Expedition, ExpeditionActivity, ExpeditionBody } from "./model";
 import {
@@ -48,6 +48,7 @@ import {
   type TaskFightExp,
 } from "./groundFight";
 import { fightPointCount } from "./groundTasks";
+import { bodyFloraGrade } from "./riskFactors";
 import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 
 // ===== Constants =====
@@ -90,14 +91,14 @@ export function groundThreatSampleSeed(exp: Pick<Expedition, "seed">, flatIndex:
 
 // The task's total fight count: its stamped fight points, or (a task not yet stamped) the site's count off the
 // body's RAW hazard (groundTasks.ts fightPointCount, the count GO-7 stamps). Pure.
-function taskFightTotal(task: Pick<ExpeditionActivity, "poiId" | "fightPoints">, body: Pick<ExpeditionBody, "hazard">): number {
+function taskFightTotal(task: Pick<ExpeditionActivity, "poiId" | "fightPoints">, body: Pick<ExpeditionBody, "hazard" | "risk">): number {
   return task.fightPoints ? task.fightPoints.length : fightPointCount(task.poiId, body.hazard);
 }
 
 // The fights the task still has to win: its fight count minus the points already cleared, never below 0. Pure.
 export function remainingTaskFights(
   task: Pick<ExpeditionActivity, "poiId" | "fightPoints" | "pointsCleared">,
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
 ): number {
   return Math.max(0, taskFightTotal(task, body) - Math.max(0, task.pointsCleared ?? 0));
 }
@@ -114,7 +115,7 @@ function sampleCount(samples: number): number {
 export function groundThreatSampleFights(
   exp: ThreatExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: ThreatTask,
   flatIndex: number,
   sample: number,
@@ -191,14 +192,15 @@ function keyReplacer(_k: string, v: unknown): unknown {
 export function groundThreatOddsKey(
   exp: ThreatExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: ThreatTask,
   flatIndex: number,
   samples: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
 ): string {
   return JSON.stringify(
-    [pick(exp, EXP_KEY_FIELDS), teams.map((t) => pick(t, TEAM_KEY_FIELDS)), body.hazard, pick(task, TASK_KEY_FIELDS), flatIndex, samples, carried],
+    // Squads SQ-4: the body's flora shapes its fights (groundFight.ts withFloraToxins), so it is part of the key.
+    [pick(exp, EXP_KEY_FIELDS), teams.map((t) => pick(t, TEAM_KEY_FIELDS)), body.hazard, bodyFloraGrade(body), pick(task, TASK_KEY_FIELDS), flatIndex, samples, carried],
     keyReplacer,
   );
 }
@@ -209,7 +211,7 @@ const oddsMemo = new Map<string, number>(); // key -> wins (samples is part of t
 function computeClearOdds(
   exp: ThreatExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: ThreatTask,
   flatIndex: number,
   n: number,
@@ -227,7 +229,7 @@ function computeClearOdds(
 export function groundTaskClearOdds(
   exp: ThreatExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: ThreatTask,
   flatIndex: number,
   samples: number = GROUND_THREAT_SAMPLES,
@@ -258,7 +260,7 @@ export function groundThreatMemoSize(): number {
 export function groundTaskThreat(
   exp: ThreatExp,
   teams: readonly GroundFightTeam[],
-  body: Pick<ExpeditionBody, "hazard">,
+  body: Pick<ExpeditionBody, "hazard" | "risk">,
   task: ThreatTask,
   flatIndex: number,
   samples: number = GROUND_THREAT_SAMPLES,

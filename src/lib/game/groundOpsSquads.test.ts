@@ -41,7 +41,7 @@ import {
 } from "./groundOps";
 import { deployableGroundTeams } from "./groundTeams";
 import { taskFieldworkRun, taskFullHaul, taskWorkSeconds } from "./groundTasks";
-import { plainAwayMember } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutRisk } from "./awayTeamTestFixtures";
 
 // ===== fixtures =====
 
@@ -492,16 +492,20 @@ describe("SQ-3 the SURVEY AMBUSH (user #5): a crew with no Security squad retrea
     expect(done.findings.filter((f) => f.id.startsWith(groundTaskFindingPrefix(done, task.id))).length).toBe(1);
   });
 
-  it("no chance, no ambush; a crew WITH a Security squad never retreats", () => {
+  it("no chance, no ambush; a crew WITH a Security squad never retreats (SQ-4: it fights the ambush where it stands)", () => {
     for (const chance of [undefined, 0]) {
       const done = advanceExpedition(ambushRun(chance), FAR);
       expect(historyOf(done, 1).filter((r) => r.step === "work").length).toBe(1);
       expect(tasksOf(done)[0].ambushes).toBeUndefined();
     }
+    // Squads SQ-4 (user, SQ-3 calls (c)): the Ground crew is ambushed too, and meets it as a SURPRISE FIGHT at the
+    // spot (the fight starts the instant the cut work step ends: no retreat, no return in between).
     const ground = advanceExpedition(ambushRun(1, ["ground", "survey"], 0), FAR);
-    expect(historyOf(ground, 0).filter((r) => r.step === "work").length).toBe(1);
-    expect(tasksOf(ground)[0]).toMatchObject({ status: "done" });
-    expect(tasksOf(ground)[0].ambushes).toBeUndefined();
+    const lane = historyOf(ground, 0);
+    const cut = lane.filter((r) => r.step === "work" && r.ambushed);
+    expect(cut.length).toBe(SURVEY_AMBUSH_MAX_PER_TASK);
+    for (const w of cut) expect(lane.find((r) => r.startedAt === w.endedAt)).toMatchObject({ step: "fight", surprise: true });
+    expect(tasksOf(ground)[0]).toMatchObject({ status: "done", ambushes: SURVEY_AMBUSH_MAX_PER_TASK, pointsCleared: 0 });
   });
 });
 
@@ -542,11 +546,12 @@ describe("SQ-3 PARITY: one big advance == 997 s chunks == 1 s chunks", () => {
     expect(ops.history.some((r) => r.teamIndex === 1 && r.step === "work" && r.ambushed)).toBe(true);
   });
 
-  it("a REAL dispatched Strike + Survey run: today's content needs { 1, 1 } everywhere, so every task goes to the pair; big == 997 s", { timeout: 180_000 }, () => {
+  it("a REAL dispatched Strike + Survey run (pre-SQ-4 stamping): every task needs { 1, 1 }, so every task goes to the pair; big == 997 s", { timeout: 180_000 }, () => {
     const s = { ...compState(["strike", "survey"]), expeditionSeed: 0x0a13bd4 };
     const res = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(res.success).toBe(true);
-    const exp = res.expedition!;
+    // Squads SQ-4: the run as dispatched before the risk factors (withoutRisk); risk-aware runs: groundOpsRisk.test.ts.
+    const exp = withoutRisk(res.expedition!);
     expect(exp.groundOps!.teams.map((t) => t.kind)).toEqual(["strike", "survey"]);
     const END = 250_000;
     let chunked = exp;

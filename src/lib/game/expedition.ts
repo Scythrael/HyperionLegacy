@@ -100,6 +100,7 @@ export { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS };
 import {
   advanceGroundOpsWindow,
   cloneGroundOps,
+  crewSquadsOf,
   groundOpsBodyScanned,
   groundOpsProgress,
   newGroundOpsState,
@@ -113,6 +114,15 @@ import {
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
 // members still in the medical bay instead (applyGroundOpsInjuries).
 import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
+// Squads SQ-4: the risk profile drawn at dispatch, flora's Bloom lift and the hostile-site gate.
+import {
+  FLORA_BLOOM_WEIGHT_MULT,
+  bodyFloraGrade,
+  expeditionRegion,
+  generateRiskProfile,
+  hostileSiteFieldable,
+} from "./riskFactors";
+import type { BodyRiskGrades, ExpeditionRiskProfile } from "./model";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -604,6 +614,15 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
   return out;
 }
 
+// Squads SQ-4: a candidate's RISK PROFILE (riskFactors.ts): the region its seed lies in (expeditionRegion, Tier I
+// until G2), the system's grades and every body's, on the candidate's own seed (RISK_SALT). Pure and
+// ship-independent: startExpedition stores exactly this for the committed seed, so a pre-launch reading (the
+// Subspace Telescope, SQ-5) can never disagree with the run. A body's hostile `site` is the seeded placement;
+// whether it becomes a task depends on the squads the ship deploys (hostileSiteFieldable).
+export function expeditionRiskPreview(seed: number): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
+  return generateRiskProfile(seed, expeditionRegion(seed), generateSystem(seed).bodies);
+}
+
 // Dispatch a ship + captain on a NEW expedition by COMMITTING a chosen candidate target. Pure: returns
 // { success, next, expedition } or a failure with a reason and the UNCHANGED state (same reference).
 // Mirrors how a mission binds a captain (dispatchCaptainOnMission), but writes to state.expeditions
@@ -686,6 +705,11 @@ export function startExpedition(
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
   const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
+  // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed exactly as
+  // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw. Its presence (with each
+  // body's grades) is the risk-aware flag the ground tasks stamp from.
+  const risk = expeditionRiskPreview(seed);
+  const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
 
   const expedition: Expedition = {
     id,
@@ -699,7 +723,7 @@ export function startExpedition(
     phase: "transit",
     phaseAnchorSeconds: state.gameTimeSeconds,
     shakedown: number === 1, // per-account inaugural run (nextExpeditionId === 1 means none dispatched yet)
-    bodies: gen.bodies,
+    bodies,
     anomalyResolved: false,
     anomalyCharted: false,
     anomalyOptIn,
@@ -739,6 +763,8 @@ export function startExpedition(
     ...(injurySteady > 0 ? { injurySteady } : {}),
     // Ground Operations (GO-7b): the flag. This run resolves on the Ground Ops timeline (groundOps.ts).
     groundOps: newGroundOpsState(groundSnapshot),
+    // Squads SQ-4: the risk-aware flag (see above).
+    risk: risk.profile,
   };
 
   return {
@@ -891,7 +917,7 @@ function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, b
   // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
   // union type makes unreachable, kept so an unexpected id still yields a valid pool.
   const planet = PLANET_TYPES.find((p) => p.id === body.planetType) ?? PLANET_TYPES[0];
-  const pools = poisForPlanetType(planet.id);
+  const pools = floraWeightedPools(poisForPlanetType(planet.id), body);
   const attempts = DISCOVERY_ATTEMPTS_BASE + rng.nextInt(DISCOVERY_ATTEMPTS_SPREAD + 1);
   // Per-pool per-attempt odds: base + the PLANET TYPE's pool bias + the sensor ARRAY's pool bias.
   const surfacePermille = clampPermille(BASE_DISCOVERY_PERMILLE / 1000 + planet.surfaceBias + exp.scanParams.landmarkOddsBias);
@@ -914,6 +940,13 @@ function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, b
     const poi = pickWeightedPoi(rng, useSurface ? pools.surface : pools.underground).poi;
     discoveries.push({ id: `${exp.id}-${body.id}-disc-0`, kind: useSurface ? "landmark" : "underground", poiId: poi.id });
   }
+  // Squads SQ-4: a HOSTILE SITE the body's risk placed joins as one more discovery (and task), after every drawn
+  // one so the discovery roll above is untouched, but ONLY when the squads the ship deployed can field it and
+  // still keep a Science squad (user #3: no softlock). Never on a run without risk grades or ground teams.
+  const site = body.risk?.site;
+  if (site !== undefined && exp.groundOps && hostileSiteFieldable(site, crewSquadsOf(exp.groundOps.teams))) {
+    discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: site });
+  }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({
     id: `${exp.id}-${body.id}-act-${k}`,
@@ -921,6 +954,19 @@ function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, b
     poiId: d.poiId,
     done: false,
   }));
+}
+
+// Squads SQ-4 (design 5.3): a High or Extreme FLORA body draws Xeno-Flora Bloom sites more often: the Bloom's
+// weight in its pool times riskFactors.ts FLORA_BLOOM_WEIGHT_MULT. The same pools come back untouched (the same
+// reference) for any other body, so every run without risk grades draws exactly as before. Pure.
+function floraWeightedPools(
+  pools: { surface: WeightedPoi[]; underground: WeightedPoi[] },
+  body: Pick<ExpeditionBody, "risk">,
+): { surface: WeightedPoi[]; underground: WeightedPoi[] } {
+  const mult = FLORA_BLOOM_WEIGHT_MULT[bodyFloraGrade(body)] ?? 1;
+  if (!(mult > 1)) return pools;
+  const lift = (list: WeightedPoi[]) => list.map((c) => (c.poi.id === "xenoFloraBloom" ? { poi: c.poi, weight: c.weight * mult } : c));
+  return { surface: lift(pools.surface), underground: lift(pools.underground) };
 }
 
 // Resolve SCANNING up to `consumed` seconds into the phase. Sequential, per-body: allocate the elapsed

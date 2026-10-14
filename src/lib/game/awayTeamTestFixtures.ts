@@ -55,10 +55,38 @@ export function withoutGroundSquadState(state: GameState): GameState {
 // produced before the switch (the record's presence is the feature flag; nothing else in the dispatch record
 // differs for a ship whose one ground team is slotted in hire order). Tests that pin legacy behavior dispatch,
 // then strip the flag with this. Pure: a shallow copy (the input is never touched).
+// Squads SQ-4: the risk profile is written only alongside groundOps, so a legacy run never had one; it comes off
+// too (withoutRisk).
 export function withoutGroundOps(exp: Expedition): Expedition {
-  const rest = { ...exp } as Expedition & { groundOps?: unknown };
+  const rest = { ...withoutRisk(exp) } as Expedition & { groundOps?: unknown };
   delete rest.groundOps;
   return rest;
+}
+
+// Squads SQ-4: the run WITHOUT its risk profile (Expedition.risk and every body's `risk`), i.e. the FLAGGED run the
+// same dispatch produced before SQ-4 (the profile's presence is the risk-aware flag; nothing else in the dispatch
+// record differs). Tests that pin pre-SQ-4 flagged behavior dispatch, then strip it with this. Every other key
+// keeps its order. Pure: shallow copies (the input is never touched).
+export function withoutRisk(exp: Expedition): Expedition {
+  const rest = { ...exp };
+  delete rest.risk;
+  rest.bodies = exp.bodies.map((b) => {
+    const body = { ...b };
+    delete body.risk;
+    return body;
+  });
+  return rest;
+}
+
+// A dispatch result whose expedition (and every expedition in `next`) lost its risk profile: the pre-SQ-4 flagged
+// dispatch. A refusal is returned unchanged. Pure.
+export function asPreRiskDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
+  if (!res.expedition) return res;
+  return {
+    ...res,
+    expedition: withoutRisk(res.expedition),
+    next: { ...res.next, expeditions: res.next.expeditions.map(withoutRisk) },
+  };
 }
 
 // Ground Ops (GO-7b): a dispatch result turned into the LEGACY run it would have been before the switch: the

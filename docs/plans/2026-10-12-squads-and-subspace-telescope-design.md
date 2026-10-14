@@ -854,3 +854,97 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
 - **SQ-3 review, carried forward:** GO-7d must validate that an edited joint crew still covers the task's needs (else
   it stages forever) beside `notEnoughSquads`; move the "Skipped ..." log into `planTasksForTeams` so a GO-7d
   re-plan logs too; SQ-4 tests a Survey team clearing a 0-fight task end to end, ambush included.
+
+**Carry from SQ-4 (built 2026-10-13, commit `feat(0.14.0): risk factors, difficulty, risk rewards, armed ambushes
+(SQ-4)`):**
+- **The flag.** `Expedition.risk?: ExpeditionRiskProfile` (`{ version: 1, tier, enemyTerritory, system: { combat, fauna,
+  flora } }`) plus `ExpeditionBody.risk?: BodyRiskGrades` (`{ combat, fauna, flora, hazard, site? }`), grades 0 None to
+  4 Extreme (model.ts `RiskGrade`, `RegionTier`, `HostileSiteId`). Written by `startExpedition` alongside `groundOps`,
+  so every run dispatched from now on is risk-aware; a flagged run dispatched before SQ-4 has neither and stamps,
+  plans and resolves exactly as before (groundOpsRisk.test.ts goldens captured BEFORE the change: three flagged
+  dispatches, one team / Ground + Ground / Strike + Survey, with the profile stripped by the new fixture
+  `withoutRisk`, match the pre-SQ-4 hashes at five checkpoints, the 2,000,000 s phase and the claim). Legacy
+  (unflagged) goldens unchanged: `withoutGroundOps` now also strips the profile (a legacy run never had one). No
+  SAVE bump (optional fields).
+- **`riskFactors.ts`** (new, pure; imports model types, combat/rng, diminishing; imported by groundTasks, groundFight,
+  groundThreat, groundOps, expedition). `RISK_SALT` 0x58f3a1c7 (registered in salts.test.ts). System stream
+  `makeRng(seed ^ RISK_SALT)`: combat, fauna, flora drawn from `RISK_TIER_ODDS[tier]` (the approved table; fauna and
+  flora share the life row, drawn independently), enemy territory +1 combat (capped). Body i's stream
+  `seed ^ RISK_SALT ^ imul(i + 1, 0x9e3779b9)`: five draws always, in order (combat, fauna, flora jitter at 30% one
+  step down; the fortification roll; the colony roll). Fauna / Flora None on barren, volcanic, gas giant; Flora None
+  on frozen. Hazard banded (None below 0.15, Low below 0.3, Moderate below 0.5, High below 0.7, else Extreme: today's
+  planet types read terrestrial / gas giant / barren None, arid Low, ocean / frozen Moderate, volcanic High, toxic
+  Extreme). `expeditionRegion(seed)` = Tier I, no enemy territory **[PROVISIONAL: G2's map replaces this one
+  function]**, so today's systems are all Tier I. `expedition.ts expeditionRiskPreview(seed)` is the pre-launch read
+  (pure, ship-independent); startExpedition stores exactly it (tested on 36 candidates: preview == run).
+- **Hostile sites** (expeditionContent.ts `HOSTILE_SITE_CATALOG`, outside POI_CATALOG so no discovery pool can draw
+  one; `groundSiteLabel(id)` names either kind and ExpeditionPanel / the ops log use it). Rules (riskFactors.ts
+  `HOSTILE_SITE_RULES`): Enemy Fortification Tier VI+, 10% on an Extreme combat body, 5 fight points, `{ 4, 0 }`;
+  Enemy Colony Tier III+, 15% High / 30% Extreme, 4 fight points, `{ 2, 1 }`; fortification rolled first, at most one
+  site per body **[PROPOSAL]**. The roll places `body.risk.site`; at the body's scan the site joins as the LAST
+  discovery + task only when `hostileSiteFieldable(site, deployed squads)`: the deployment covers the needs AND keeps
+  a Science squad (user #3). So no 4-squad ship ever meets a fortification, and a colony needs 2 deployed Security
+  squads (Ground + Ground, Strike + Survey, Strike + Ground; not Survey + Ground, not a lone team). Neither appears
+  today (Tier I). Guards (gambit.ts POI_ENCOUNTER_ROLES) **[PROPOSAL]**: colony striker, striker, bruiser, healer;
+  fortification bruiser x2, striker x2, caster, healer. Hauls use the planet tables; neither is relic-bearing (the
+  relic cache behind a cleared fortification is the TASK CHAIN hook).
+- **Stamping a risk-aware body** (groundOps.ts `initGroundTasks`): fight points = groundTasks.ts `riskFightPointCount`
+  = clamp(FIGHT_POINTS_BY_POI + combat mod [-2, -1, 0, +1, +2] + fauna mod at Cave Network / Xeno-Flora Bloom /
+  Subterranean Civilization [-1, 0, +1, +1, +2] + 1 at hazard >= 0.6, 0, 5) (a hostile site: its own count). Needs =
+  `generatedTaskNeeds` (Security 0 / 1 / 2 at 0 / 1-3 / 4-5 fights; Science 1, or 2 at Ancient Ruins, Buried Vault,
+  Subterranean Civilization from Tier II; content needs still win), then **NO SOFTLOCK [PROVISIONAL]**: each type
+  capped at the squads the ship DEPLOYED (`fieldableNeeds`), floor 1 Security with a fight point, so a risk-aware task
+  is never skipped for squads (user #3: "task generation must never require a mix the deployed ship cannot field").
+  The design's alternative (skip at planning, 3.3) is what a content `needs` still gets. **Question for the user:**
+  keep the cap (a lone Ground team takes a 4-fight outpost with one Security squad), or skip such tasks (the
+  composition trade-off the SQ-6 recommendation is built around; it can read the raw needs either way)? Difficulty is
+  rated once from the GENERATED (uncapped) needs, so the grade is the site's, not the ship's.
+- **Difficulty** (`taskDifficultyScore`, `difficultyGradeOf`): score = fights + hazard band (below 0.3: 0, below 0.6:
+  1, else 2) + max(0, squads - 1) + floor(combat / 2); grades 1 Simple (0-1), 2 Standard (2-3), 3 Challenging (4-5),
+  4 Dangerous (6-7), 5 Deadly (8+). Stored as `ExpeditionActivity.difficulty` (1..5). COMPLETION: `groundOpsProgress`
+  (the activities bar) = sum(weight x progress) / sum(weight) with weights 1 / 2 / 3 / 5 / 8 **[PROPOSAL]**; an
+  unrated task weighs 1, so a pre-SQ-4 run reads the plain mean bit for bit.
+- **Risk reward (user #6)** `riskRewardBonus(d)` = D23 `diminishing(0.1 x (weight - 1), knee 0.5)` **[PROVISIONAL]**:
+  Simple 0, Standard ~0.092, Challenging ~0.171, Dangerous ~0.306, Deadly ~0.475. At offload the haul scale
+  (yieldMult) is x (1 + bonus) on the same draws (`taskFullHaul(..., riskBonus)`), and the bonus is added to the relic
+  find bonus (on the same draw a Deadly task finds a relic wherever an unrated one does; tested over 40 seeds). The
+  curve is unbounded and concave; the relic chance itself still caps at certain (rollRelicToken).
+- **Ambush (user #5 + SQ-3 calls (b), (c))**: `groundTaskAmbushChance(task, body)` = for a calm task (0 fight points)
+  on a risk body, `riskAmbushChance` = [0, 0.05, 0.10, 0.15, 0.20] by the worse of combat and fauna
+  **[PROVISIONAL]**; no risk = SURVEY_AMBUSH_CHANCE (0). The roll no longer requires a Security-less crew; the cap
+  (SURVEY_AMBUSH_MAX_PER_TASK 2) covers every ambush of a task. At the cut step's end: no standing Security member =
+  the SQ-3 retreat; else **THE SURPRISE FIGHT** (`surpriseFight`): progress kept at the ambush point, ambushes + 1,
+  the crew's Security fights on the task's ordinary keyed fight stream (fightCount moves on) with its carry;
+  `GroundFightRecord.surprise` / `GroundStepRecord.surprise` mark it. Win: no fight point passes (pointsCleared,
+  lossStreak untouched), the work resumes from the same spot. Loss: the ordinary loss path (queued, progress kept,
+  loss streak, a wipe waits for the ship's leg).
+- **Flora**: work time x (1 + 0.05 x flora) (`floraWorkMult`, exactly 1 without flora); fights: every guard's attack
+  gains 50 permille Poison per flora grade (`groundFight.ts withFloraToxins`: added to a poisoner's own chance, a
+  guard with no affliction gains Poison, Weakened casters untouched; no new draw) **[PROVISIONAL]**; groundThreat's
+  memo key now includes the flora grade; High / Extreme flora multiply the Bloom's pool weight x2 / x3 on the SAME
+  discovery draws (`floraWeightedPools`) **[PROVISIONAL]**.
+- **SQ-3 review items folded in**: the "Skipped ..." log now lives in `planTasksForTeams(exp, refs, t)` (new `t`
+  argument, so a GO-7d re-plan logs too; planNewTasks only collects the refs); a Survey team clears a 0-fight task end
+  to end with an ambush (stamped from the body's risk, retreats, comes back, finishes, pays once).
+- **TASK CHAINS (user #14): HOOK ONLY.** `riskFactors.ts taskChainFollowUp(poiId)` returns null and is not called; the
+  call site is marked in groundOps.ts finishWork where a task reaches 100%.
+- **Tests that moved:** groundOpsSquads "a crew WITH a Security squad never retreats" now asserts the surprise fight;
+  two GO-7c / SQ-3 REAL-dispatch scenario tests pin the pre-SQ-4 run with `withoutRisk` (their scenarios are about the
+  pre-SQ-4 needs). groundOpsParity's real run is now risk-aware and passes unchanged. New `riskFactors.test.ts` (19:
+  names, bands, odds histograms per tier within 2.5 points, enemy territory, jitter and lifeless worlds, determinism,
+  hostile rates and the fieldable gate, needs, cap, difficulty, weights, the reward curve, ambush, flora, the chain
+  hook) and `groundOpsRisk.test.ts` (24: the pre-SQ-4 goldens, preview == run, stamping calm / dangerous / capped,
+  the ambush chance, the colony both ways, flora work / poison / Blooms, completion weights, haul and relic, the
+  surprise fight win and loss, the Survey end to end, parity one call == 997 s == 1 s over 2 h with a surprise fight
+  and a Survey retreat, a real risk-aware run big == 997 s). Suite 4321 -> 4364 passed (1 skipped); `npm run check`
+  0 errors.
+- **Pacing (observed, 40 seeds, a plain rank-4 crew, Tier I):** risk-aware Tier I runs hold about 60% FEWER fight
+  points (8.6 vs 21 per run: combat None / Low dominate Tier I and take 2 / 1 points off each task), so runs that
+  finish do so sooner (typically 0 to 45% shorter; a few longer from ambush retreats and flora), and pay about 13%
+  more credits, 9% more materials and 10% more relics (the risk bonus on Standard and Challenging tasks). The weak
+  test crew stalls about two thirds of runs on BOTH paths (unchanged). Content tuned for today's run length should be
+  rechecked against the shorter Tier I runs.
+- **For SQ-5 / SQ-6:** `expeditionRiskPreview(candidate.seed)` is the telescope's raw reading; a recommendation that
+  needs the uncapped needs can call `generatedTaskNeeds` on the same preview (the stamped `needs` are capped per
+  ship). **For SQ-7 / GO-13:** `difficultyName(task.difficulty)`, `difficultyWeight` ("counts x3"), `riskFlavor`,
+  `RISK_FACTOR_NAMES`, `RISK_GRADE_NAMES`, `groundSiteLabel`.

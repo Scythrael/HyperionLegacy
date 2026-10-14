@@ -15,11 +15,21 @@
 // roll whichever engine resolves it. Module graph: model, fieldwork, relics, gambit; never expedition.ts
 // (expedition.ts imports this module for ACTIVITY_SECONDS, and GO-7's groundOps.ts sits between them).
 
-import type { Expedition, ExpeditionActivity, ExpeditionBody, SnapshotMember } from "./model";
+import type { BodyRiskGrades, Expedition, ExpeditionActivity, ExpeditionBody, SnapshotMember } from "./model";
 import type { ExpeditionPoiId } from "./expeditionContent";
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { resistedHazard } from "./relics";
 import { rollHaul, taskRewardSeed } from "./gambit";
+import {
+  COMBAT_FIGHT_MOD,
+  FAUNA_FIGHT_MOD,
+  HOSTILE_SITE_RULES,
+  LIFE_SITES,
+  RISK_FIGHT_POINTS_MIN,
+  floraWorkMult,
+  isHostileSiteId,
+  toRiskGrade,
+} from "./riskFactors";
 
 // ===== Work time base =====
 
@@ -58,6 +68,21 @@ export function fightPointCount(poiId: string, hazard: number): number {
   const base = Object.prototype.hasOwnProperty.call(table, poiId) ? table[poiId] : FIGHT_POINTS_DEFAULT;
   const count = base + (hazard >= FIGHT_POINTS_HAZARD_STEP ? 1 : 0);
   return Math.min(FIGHT_POINTS_MAX, Math.max(FIGHT_POINTS_MIN, count));
+}
+
+// Squads SQ-4 (design 5.3): the RISK-AWARE count for a task on a body carrying risk grades:
+//   clamp(table + combatMod + lifeMod + hazardStep, RISK_FIGHT_POINTS_MIN (0), FIGHT_POINTS_MAX)
+// combatMod by the body's combat grade, lifeMod by its fauna grade at a life site (riskFactors.ts), hazardStep as
+// fightPointCount. The floor is 0, so a calm site is pure survey work (no Security needed). A HOSTILE SITE holds
+// its own fixed count (riskFactors.ts HOSTILE_SITE_RULES). Pure.
+export function riskFightPointCount(poiId: string, hazard: number, risk: Pick<BodyRiskGrades, "combat" | "fauna">): number {
+  if (isHostileSiteId(poiId)) return HOSTILE_SITE_RULES[poiId].fightPoints;
+  const table = FIGHT_POINTS_BY_POI as Readonly<Record<string, number>>;
+  const base = Object.prototype.hasOwnProperty.call(table, poiId) ? table[poiId] : FIGHT_POINTS_DEFAULT;
+  const combatMod = COMBAT_FIGHT_MOD[toRiskGrade(risk.combat)] ?? 0;
+  const lifeMod = LIFE_SITES.includes(poiId) ? (FAUNA_FIGHT_MOD[toRiskGrade(risk.fauna)] ?? 0) : 0;
+  const count = base + combatMod + lifeMod + (hazard >= FIGHT_POINTS_HAZARD_STEP ? 1 : 0);
+  return Math.min(FIGHT_POINTS_MAX, Math.max(RISK_FIGHT_POINTS_MIN, count));
 }
 
 // The fight points of an n-point task as progress fractions: evenly spaced k / (n + 1), k = 1..n, so every
@@ -188,11 +213,13 @@ export const TASK_MIN_WORK_SECONDS = 1;
 // museum + gear resist); teamHazardResist = taskTeamHazardResist (Science fieldwork resist + the Security
 // Assault Hardsuit line). resistedHazard bounds the summed resist, so the slowdown never goes below 1. On a
 // hazard-0 body with one team holding the whole roster this is exactly the legacy activityDurationSeconds.
-// A work STEP lasts (to - from) of this (GO-7b). Pure (reads the stored run only).
+// A work STEP lasts (to - from) of this (GO-7b). Squads SQ-4: a body with FLORA (risk-aware runs only) slows the
+// dig by riskFactors.ts floraWorkMult (exactly 1 without it, so every other body is unchanged). Pure (reads the
+// stored run only).
 export function taskWorkSeconds(
   exp: Pick<Expedition, "roster" | "scienceStrength" | "hazardResist">,
   teams: readonly GroundTaskTeam[],
-  body: Pick<ExpeditionBody, "planetType" | "hazard">,
+  body: Pick<ExpeditionBody, "planetType" | "hazard" | "risk">,
 ): number {
   const run = taskFieldworkRun(exp, teams);
   const rawSpeed = fieldworkSpeedMult(run, body.planetType);
@@ -206,7 +233,9 @@ export function taskWorkSeconds(
   const resist = teamResist > 0 ? museumResist + teamResist : museumResist;
   const presented = resistedHazard(body.hazard, resist);
   const hazardSlow = 1 + (presented > 0 && Number.isFinite(presented) ? presented : 0) * TASK_HAZARD_PENALTY;
-  return Math.max(TASK_MIN_WORK_SECONDS, Math.round((ACTIVITY_SECONDS / speed) * hazardSlow));
+  const flora = floraWorkMult(body);
+  const secs = flora === 1 ? (ACTIVITY_SECONDS / speed) * hazardSlow : (ACTIVITY_SECONDS / speed) * hazardSlow * flora;
+  return Math.max(TASK_MIN_WORK_SECONDS, Math.round(secs));
 }
 
 // ===== The task's full haul (the reused legacy reward stream) =====
@@ -215,14 +244,18 @@ export function taskWorkSeconds(
 // taskRewardSeed: the SAME key the legacy resolver uses for this flat index), on the body's RAW hazard
 // (resisting a world's danger makes the work easier, not the find poorer), scaled by the yieldMult of the
 // team set banking it. segmentHaul splits it across the task's segments. For one team holding the whole
-// roster it equals the legacy win haul exactly. Pure.
+// roster it equals the legacy win haul exactly. Squads SQ-4 (user #6, "The greater the risk, the greater the
+// reward"): `riskBonus` (riskFactors.ts riskRewardBonus of the task's difficulty) scales the haul by (1 + it) on
+// the SAME draws; 0, every unrated task, leaves the roll exactly as before. Pure.
 export function taskFullHaul(
   exp: Pick<Expedition, "seed" | "roster" | "scienceStrength">,
   teams: readonly GroundTaskTeam[],
   body: Pick<ExpeditionBody, "planetType" | "hazard">,
   poiId: string,
   flatIndex: number,
+  riskBonus: number = 0,
 ): TaskHaul {
   const yieldMult = fieldworkEffect(taskFieldworkRun(exp, teams), body.planetType, poiId).yieldMult;
-  return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, yieldMult);
+  const scale = riskBonus > 0 && Number.isFinite(riskBonus) ? yieldMult * (1 + riskBonus) : yieldMult;
+  return rollHaul(taskRewardSeed(exp, flatIndex), body.planetType, body.hazard, scale);
 }

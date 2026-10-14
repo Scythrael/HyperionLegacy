@@ -6531,8 +6531,14 @@ export interface ExpeditionActivity {
   // Squads SQ-3 (user #5): the chance an UNKNOWN-RISK ambush strikes a crew with no Security squad on this
   // task (a survey-only task: no fight points). Stamped only when above 0 (groundOps.ts
   // groundTaskAmbushChance; 0 for every task until the risk factors land, SQ-4), so absent = 0.
+  // Squads SQ-4: a risk-aware task's chance is read off its body's risk (riskFactors.ts riskAmbushChance), and a
+  // crew WITH a Security squad meets the ambush as a SURPRISE FIGHT where it stands (user, SQ-3 calls (c)).
   ambushChance?: number;
   ambushes?: number; // ambushes this task has suffered (keys the next roll; absent = 0)
+  // Squads SQ-4 (design section 4): the task's DIFFICULTY grade, 1 Simple, 2 Standard, 3 Challenging,
+  // 4 Dangerous, 5 Deadly, rated ONCE when a risk-aware task is stamped (never recomputed from live state). It
+  // weights the run's completion and raises the haul and relic odds (user #6). Absent on every other task.
+  difficulty?: number;
   fightPoints?: number[]; // ascending progress fractions in (0, 1) (groundTasks.ts fightPointFractions)
   progress?: number; // 0..1, PERSISTS across losses (user 9b.1)
   pointsCleared?: number; // fights won; the next fight is fightPoints[pointsCleared]
@@ -6563,6 +6569,38 @@ export interface GroundTaskNeeds {
   science: number;
 }
 
+// Squads SQ-4 (design section 5): RISK FACTORS. Every factor reads on one five-step scale, 0 None, 1 Low,
+// 2 Moderate, 3 High, 4 Extreme (user-approved names and scale, #11). riskFactors.ts draws them; the types live
+// here so ExpeditionBody / Expedition can carry them without model.ts importing an engine module.
+export type RiskGrade = 0 | 1 | 2 | 3 | 4;
+// The expedition REGION TIERS I to VII (2026-10-08 gas giant design 1c; Roman numerals in game).
+export type RegionTier = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+// The hostile sites a risk-aware body may hold (user words "an enemy colony", "an enemy fortification", names
+// approved for now, #12). Not discovery PoIs: they never appear in the planet-type pools.
+export type HostileSiteId = "enemyColony" | "enemyFortification";
+// A system's grades (drawn from its region tier's odds table; known enemy territory adds combat).
+export interface SystemRiskGrades {
+  combat: RiskGrade;
+  fauna: RiskGrade;
+  flora: RiskGrade;
+}
+// One body's grades (the system's, with a keyed per-body jitter; Fauna / Flora None on lifeless worlds) plus its
+// banded hazard, and the hostile site its seeded roll placed there (absent = none). Whether that site becomes a
+// TASK is decided when the body's scan completes, by the squads the ship deployed (no softlock, user #3).
+export interface BodyRiskGrades extends SystemRiskGrades {
+  hazard: RiskGrade;
+  site?: HostileSiteId;
+}
+// A risk-aware run's profile (Expedition.risk): its PRESENCE is the SQ-4 flag, like encounterSteps and
+// groundOps. Drawn at dispatch from the committed candidate's seed (riskFactors.ts RISK_SALT), so the pre-launch
+// preview and the run are the same draw.
+export interface ExpeditionRiskProfile {
+  version: 1;
+  tier: RegionTier;
+  enemyTerritory: boolean;
+  system: SystemRiskGrades;
+}
+
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
 // discoveries appear + their odds and drives its `hazard` scalar (which slows scanning + is a placeholder
 // combat lever for E3). Plus a scan SIZE (scanTotal), a scan cursor (scanProgress), and the discovered
@@ -6577,6 +6615,10 @@ export interface ExpeditionBody {
   scanned: boolean; // latch: true once this body hit 100% and had its discoveries + activities assigned
   discoveries: ExpeditionDiscovery[];
   activities: ExpeditionActivity[];
+  // Squads SQ-4: the body's risk grades, written at dispatch on a risk-aware run only (absent on every run
+  // dispatched before SQ-4, whose tasks stamp exactly as they did). groundOps.ts / groundTasks.ts / groundFight.ts
+  // read it: fight points, needs, difficulty, flora's slower work and poison, the ambush chance.
+  risk?: BodyRiskGrades;
 }
 
 // A claimable EXPEDITIONARY FINDING. E2a shipped GENERIC placeholder tokens (a provenance tag only);
@@ -6927,6 +6969,10 @@ export interface Expedition {
   // (like encounterSteps): a run dispatched since GO-7b carries it and resolves on the Ground Ops timeline
   // (groundOps.ts); a run without it resolves on the legacy path, byte-identically. Optional, no SAVE bump.
   groundOps?: GroundOpsState;
+  // Squads SQ-4: the run's RISK PROFILE (with each body's ExpeditionBody.risk). Its PRESENCE is the risk-aware
+  // flag: written at dispatch alongside groundOps; a flagged run dispatched before SQ-4 lacks it and keeps
+  // resolving exactly as stamped. Optional, no SAVE bump.
+  risk?: ExpeditionRiskProfile;
 }
 
 // E-CREW 0.14.0 (Task 14): one thing that happened at a scan step boundary. `step` is the boundary
@@ -7077,6 +7123,9 @@ export interface GroundFightRecord {
   // task's next fight). A downed member is left out: they sit out the rest of the task.
   memberEnd: Record<string, GroundMemberEnd>;
   neuralBackup?: { memberId?: string; revived: boolean };
+  // Squads SQ-4 (user, SQ-3 calls (c)): an AMBUSH met as a surprise fight where the crew stood, not a fight
+  // point. A win passes no point (the work goes on from where it stopped); a loss is an ordinary loss.
+  surprise?: true;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
@@ -7115,7 +7164,7 @@ export interface GroundTeamRun {
   // whether the attempt cleared a new fight point (the stuck count, groundOps.ts groundTaskStuck).
   attemptPoints?: number;
   // Squads SQ-3: the current work step ends in an AMBUSH (rolled at its start, applied at its end: a crew with
-  // no Security squad retreats, user #5). Cleared at idle.
+  // no Security squad retreats, user #5; SQ-4: a crew with a standing Security member fights it). Cleared at idle.
   ambushed?: true;
   // Squads SQ-3: a joint crew's PARTNER on its way back: the lead offloads once for the whole crew, so this team
   // goes straight to its own bay (design 3.5). Cleared at idle.
@@ -7132,7 +7181,8 @@ export interface GroundStepRecord {
   taskId?: string;
   outcome?: "win" | "loss"; // a fight step
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
-  ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated)
+  ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated; SQ-4: or fought it)
+  surprise?: true; // a fight step that was an ambush met as a surprise fight (Squads SQ-4)
 }
 
 // GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A WIPED team cannot leave on its own ("can't leave them to die"):

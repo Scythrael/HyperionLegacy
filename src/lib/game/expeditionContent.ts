@@ -35,7 +35,7 @@
 // has with model.ts.
 // ============================================================================
 
-import type { ExpeditionPlanetType } from "./model";
+import type { ExpeditionPlanetType, HostileSiteId } from "./model";
 
 // ============================================================================
 // Hazard tiers -> scalars
@@ -294,4 +294,33 @@ export function poisForPlanetType(id: string): { surface: WeightedPoi[]; undergr
 // generator to stamp a body's `hazard` from its type. Pure.
 export function planetTypeHazard(id: string): number {
   return PLANET_TYPE_BY_ID.get(id as ExpeditionPlanetType)?.hazard ?? 0;
+}
+
+// ============================================================================
+// Hostile sites (Squads SQ-4, design 5.3)
+// ============================================================================
+
+// The two HOSTILE SITES a risk-aware body may hold (user words "an enemy colony" / "an enemy fortification",
+// names approved for now, #12). They are NOT discovery PoIs: they live outside POI_CATALOG and never enter a
+// planet type's pools, so no discovery roll (legacy or new) can ever draw one. riskFactors.ts places them on a
+// body; the body's scan adds one as a task when the deployed squads can field it (user #3, no softlock).
+// Flavor lines are [PROPOSAL] text for the content pass.
+export interface HostileSiteDef {
+  id: HostileSiteId;
+  label: string;
+  flavor: string;
+}
+export const HOSTILE_SITE_CATALOG: readonly HostileSiteDef[] = [
+  { id: "enemyColony", label: "Enemy Colony", flavor: "A hostile settlement dug in on the surface: clear it to work the site." },
+  { id: "enemyFortification", label: "Enemy Fortification", flavor: "A fortified enemy stronghold: only several Strike squads can break it." },
+];
+
+// A hostile site def by id, or undefined. Pure.
+export function getHostileSiteById(id: string): HostileSiteDef | undefined {
+  return HOSTILE_SITE_CATALOG.find((def) => def.id === id);
+}
+
+// The player-facing name of any ground task's site: a discovery PoI or a hostile site, or undefined. Pure.
+export function groundSiteLabel(id: string): string | undefined {
+  return getPoiById(id)?.label ?? getHostileSiteById(id)?.label;
 }
