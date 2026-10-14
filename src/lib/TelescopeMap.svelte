@@ -25,12 +25,12 @@
     <circle class="tm-home" cx={map.home.x} cy={map.home.y} r="4" />
     {#each map.badges as b (b.tier)}
       <g class="tm-badge" class:in={b.reached}>
-        <circle cx={b.x} cy={b.y} r="10" />
+        <circle cx={b.x} cy={b.y} r={map.badgeR} />
         <text x={b.x} y={b.y + 3} text-anchor="middle">{b.numeral}</text>
       </g>
     {/each}
-    <text class="tm-label" x={map.home.x + 8} y={map.home.y - 8}>Homeworld</text>
-    <text class="tm-label small" x={map.core.x + 14} y={map.core.y - 10}>Galactic Core</text>
+    <text class="tm-label" x={map.homeLabel.x} y={map.homeLabel.y} text-anchor={map.homeLabel.anchor}>{map.homeLabel.text}</text>
+    <text class="tm-label small" x={map.coreLabel.x} y={map.coreLabel.y} text-anchor={map.coreLabel.anchor}>{map.coreLabel.text}</text>
   </svg>
 
   <ul class="tm-legend">
@@ -73,9 +73,9 @@
   .tm-key.dashed { border-top: 2px dashed var(--color-warning); }
 
   .tm-regions { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 4px 12px; font-size: var(--text-xs, 12px); }
-  .tm-regions li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 6px; color: var(--color-text-dim); min-width: 0; }
+  .tm-regions li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 6px; color: var(--color-text-dim); min-width: 0; }
   .tm-regions li.in { color: var(--color-text-primary); }
-  .tm-num { display: inline-grid; place-items: center; width: 22px; height: 18px; border-radius: 9px; border: 1px dashed var(--color-text-dim); font: 700 10px var(--font-mono, monospace); }
+  .tm-num { display: inline-grid; place-items: center; min-width: 30px; height: 18px; padding: 0 4px; box-sizing: border-box; border-radius: 9px; border: 1px dashed var(--color-text-dim); font: 700 10px var(--font-mono, monospace); }
   .tm-regions li.in .tm-num { border: 1px solid var(--color-accent); color: var(--color-accent); }
   .tm-name { overflow-wrap: anywhere; }
   .tm-state { font-size: var(--text-2xs, 11px); }

@@ -1408,3 +1408,11 @@ Operations plan's "Carry from GO-18 + SQ-7 section 7.5". Every number is read fr
   reached per level, the aria summary, the legend, path data inside the view box); telescope.test.ts's Home test now
   expects the offer (and none when the FA gate is unmet); homeDashboard.test.ts's nothing-actionable fixture seeds the
   telescope at its real level 1. Suite 4792 passed (1 skipped); `npm run check` 0 errors.
+- **Review follow-up (commit `fix(0.14.0): telescope map bounds test and label spacing (SQ-7.4 review)`):** every
+  level's rings are tested inside the view box on every side (the binding side is 104 px below the homeworld; the
+  Level 8 ring is 99.2 px), and a homeworld whose farthest range would not fit SCALES the radial factor down instead
+  of clipping (`FIT_RADIUS`). Badge I now touches the Level 1 ring, badge VII sits beside the core dot, VI moved off
+  VII, the "Galactic Core" label sits above the core, and a test keeps badges, dots and both labels from overlapping
+  at every level. **⚠️ For G2:** badge spots are hand-placed for `PROVISIONAL_HOMEWORLD`; with per-player homeworlds
+  they must become band-relative (inside each region's band as measured from that homeworld) and the ring-fit and
+  overlap tests re-checked per placement. Suite 4796 passed (1 skipped).

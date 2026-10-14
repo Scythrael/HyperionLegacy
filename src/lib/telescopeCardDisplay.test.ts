@@ -150,7 +150,70 @@ describe("telescopeMapView: the galaxy map", () => {
     const top = telescopeMapView(8);
     const d = Math.hypot(top.core.x - top.home.x, top.core.y - top.home.y);
     expect(Math.abs(d - top.ringR)).toBeLessThan(0.5);
-    expect(top.ringR).toBeLessThanOrEqual(TELESCOPE_MAP_RADIUS);
+  });
+
+  it("every level's rings stay inside the view box on every side (never clipped)", () => {
+    for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level);
+      const [vx, vy, vw, vh] = map.viewBox.split(" ").map(Number);
+      for (const r of [map.ringR, map.nextRingR ?? 0]) {
+        expect(map.home.x - r, `level ${level} left`).toBeGreaterThanOrEqual(vx);
+        expect(map.home.x + r, `level ${level} right`).toBeLessThanOrEqual(vx + vw);
+        expect(map.home.y - r, `level ${level} top`).toBeGreaterThanOrEqual(vy);
+        expect(map.home.y + r, `level ${level} bottom`).toBeLessThanOrEqual(vy + vh);
+      }
+    }
+  });
+
+  it("a homeworld farther from the core scales the map down instead of clipping the top ring (G2 guard)", () => {
+    const far = {
+      ...PROVISIONAL_HOMEWORLD,
+      id: "farOut",
+      distanceFromCoreLy: 45_000,
+      regionBandsLy: { ...PROVISIONAL_HOMEWORLD.regionBandsLy, 6: { near: 13_000, far: 43_000 }, 7: { near: 43_000, far: 45_000 } },
+    };
+    const top = telescopeMapView(8, far);
+    const [, vy, , vh] = top.viewBox.split(" ").map(Number);
+    expect(top.home.y + top.ringR).toBeLessThanOrEqual(vy + vh);
+    expect(top.home.y - top.ringR).toBeGreaterThanOrEqual(vy);
+    expect(top.ringR).toBeLessThan(TELESCOPE_MAP_RADIUS);
+  });
+
+  it("nothing overlaps: badges, the home and core dots, and the two labels", () => {
+    // Approximate text boxes: about 0.56 em per character, the cap height above the baseline.
+    const box = (l: { x: number; y: number; text: string; size: number; anchor: "start" | "middle" | "end" }) => {
+      const w = l.text.length * l.size * 0.56;
+      const x0 = l.anchor === "start" ? l.x : l.anchor === "middle" ? l.x - w / 2 : l.x - w;
+      return { x0, x1: x0 + w, y0: l.y - l.size * 0.75, y1: l.y + l.size * 0.2 };
+    };
+    const hitsCircle = (b: ReturnType<typeof box>, cx: number, cy: number, r: number) => {
+      const nx = Math.max(b.x0, Math.min(cx, b.x1));
+      const ny = Math.max(b.y0, Math.min(cy, b.y1));
+      return Math.hypot(nx - cx, ny - cy) < r;
+    };
+    for (let level = 1; level <= TOP; level++) {
+      const map = telescopeMapView(level);
+      const R = map.badgeR;
+      const dots = [
+        { x: map.home.x, y: map.home.y, r: 4 },
+        { x: map.core.x, y: map.core.y, r: 3.5 },
+      ];
+      map.badges.forEach((a, i) => {
+        map.badges.slice(i + 1).forEach((b) => expect(Math.hypot(a.x - b.x, a.y - b.y), `${a.numeral}/${b.numeral}`).toBeGreaterThanOrEqual(2 * R + 2));
+        for (const d of dots) expect(Math.hypot(a.x - d.x, a.y - d.y), `${a.numeral} on a dot`).toBeGreaterThanOrEqual(R + d.r);
+      });
+      for (const label of [map.homeLabel, map.coreLabel]) {
+        const b = box(label);
+        for (const badge of map.badges) expect(hitsCircle(b, badge.x, badge.y, R), `${label.text} / ${badge.numeral}`).toBe(false);
+        for (const d of dots) expect(hitsCircle(b, d.x, d.y, d.r), `${label.text} on a dot`).toBe(false);
+      }
+    }
+  });
+
+  it("at Level 1 badge I touches the solid ring, so in range reads true on the map", () => {
+    const map = telescopeMapView(1);
+    const one = map.badges[0];
+    expect(Math.hypot(one.x - map.home.x, one.y - map.home.y)).toBeLessThanOrEqual(map.ringR + map.badgeR + 0.5);
   });
 
   it("seven badges, I to VII, each inside its own region's band of distances from the homeworld", () => {

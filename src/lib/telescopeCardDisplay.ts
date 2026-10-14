@@ -206,23 +206,35 @@ const MAP_DMAX = 76_000;
 const CX = 200;
 const CY = 200;
 const VIEW_BOX = "40 20 320 284";
+// The room the view box leaves around the homeworld (the tightest side: 104 px below it), less a 2 px margin for the
+// ring's stroke. The top ring must fit inside it; a homeworld whose farthest range would not fit scales the whole
+// map down instead of clipping (telescopeMapView, the G2 guard).
+const FIT_RADIUS = 102;
+// A region badge's radius (TelescopeMap.svelte draws it; the overlap test reads it).
+const BADGE_R = 10;
 const DISK_LY = 50_000;
 const BULGE_LY = 6_000;
 
 // Where each region's badge sits, in galactic coordinates (the mockup's placements: on its arm, inside its band
-// of distances from the homeworld; a test pins every badge inside its band). The Local Bubble is too small to
-// draw, so its badge sits just beside the homeworld (BUBBLE_BADGE_OFFSET px).
+// of distances from the homeworld; a test pins every badge inside its band and a test keeps badges, dots and labels
+// from overlapping). Two badges sit BESIDE their spot instead of on it: the Local Bubble is too small to draw, so
+// its badge touches the Level 1 ring (BUBBLE_BADGE_DIRECTION), and the Core's badge sits just off the core dot
+// (CORE_BADGE_OFFSET) so the dot and the "Galactic Core" label stay visible.
+// ⚠️ G2: these are hand-placed for PROVISIONAL_HOMEWORLD. With per-player homeworlds the badge spots must become
+// band-relative (placed inside each region's band as measured from that homeworld) and the overlap and ring-fit
+// tests re-run per placement.
 const BADGE_POSITIONS: Readonly<Record<RegionTier, { x: number; dy: number }>> = {
   // dy is relative to the homeworld's galactic y (positive = outward, away from the core).
-  1: { x: 60, dy: 90 },
+  1: { x: 60, dy: 90 }, // distance only (the pixel spot is BUBBLE_BADGE_DIRECTION)
   2: { x: -1_700, dy: -50 },
   3: { x: 1_300, dy: 5_850 },
   4: { x: -900, dy: -5_450 },
   5: { x: 3_600, dy: -10_800 },
-  6: { x: -4_300, dy: -21_800 },
-  7: { x: 0, dy: 0 }, // unused: the Core badge sits on the Galactic Core itself (galactic origin, below)
+  6: { x: -5_600, dy: -21_300 },
+  7: { x: 0, dy: 0 }, // unused: the Core badge is placed off the Galactic Core (galactic origin, below)
 };
-const BUBBLE_BADGE_OFFSET = { x: 16, y: 14 };
+const BUBBLE_BADGE_DIRECTION = { x: 0.75, y: 0.66 };
+const CORE_BADGE_OFFSET = { x: 17, y: 3 };
 
 export interface TelescopeMapBadge {
   tier: RegionTier;
@@ -235,6 +247,14 @@ export interface TelescopeMapBadge {
   label: string; // "III Perseus Arm, beyond range"
 }
 
+export interface TelescopeMapLabel {
+  x: number;
+  y: number; // the baseline
+  text: string;
+  size: number; // px
+  anchor: "start" | "middle" | "end";
+}
+
 export interface TelescopeMapView {
   viewBox: string;
   home: { x: number; y: number };
@@ -245,14 +265,26 @@ export interface TelescopeMapView {
   ringR: number;
   nextRingR: number | null; // null at the top, and on a detail-only rung (the range does not grow)
   badges: TelescopeMapBadge[];
+  badgeR: number;
+  homeLabel: TelescopeMapLabel;
+  coreLabel: TelescopeMapLabel;
   ariaLabel: string;
   legend: string[];
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 
+// The farthest range any level reaches from this homeworld (the top rung's ring).
+function rangeLyForReachTop(homeworld: HomeworldPlacement): number {
+  return Math.max(...TIERS.map((t) => homeworld.regionBandsLy[t].far));
+}
+
 export function telescopeMapView(level: number, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): TelescopeMapView {
   const homeY = homeworld.distanceFromCoreLy;
+  // The radial scale: the mockup's TELESCOPE_MAP_RADIUS, shrunk only when this homeworld's farthest range would not
+  // fit the view box (never clip a ring).
+  const farthestLy = rangeLyForReachTop(homeworld);
+  const radius = Math.min(TELESCOPE_MAP_RADIUS, FIT_RADIUS * Math.sqrt(MAP_DMAX / Math.max(1, farthestLy)));
 
   // Galactic (x, y) -> map pixels, centered on the homeworld.
   const proj = (x: number, y: number): [number, number] => {
@@ -260,10 +292,10 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
     const dy = y - homeY;
     const d = Math.hypot(dx, dy);
     if (d < 1) return [CX, CY];
-    const r = TELESCOPE_MAP_RADIUS * Math.sqrt(d / MAP_DMAX);
+    const r = radius * Math.sqrt(d / MAP_DMAX);
     return [CX + (dx / d) * r, CY + (dy / d) * r];
   };
-  const ringR = (rangeLy: number): number => round1(Math.max(4, TELESCOPE_MAP_RADIUS * Math.sqrt(rangeLy / MAP_DMAX)));
+  const ringR = (rangeLy: number): number => round1(Math.max(4, radius * Math.sqrt(rangeLy / MAP_DMAX)));
   const pathOf = (pts: [number, number][], close = false): string =>
     pts
       .map((p, i) => {
@@ -305,7 +337,13 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
     const gx = pos.x;
     const gy = tier === 7 ? 0 : homeY + pos.dy;
     let [x, y] = proj(gx, gy);
-    if (tier === 1) [x, y] = [CX + BUBBLE_BADGE_OFFSET.x, CY + BUBBLE_BADGE_OFFSET.y];
+    if (tier === 1) {
+      // Touching the Level 1 ring from outside, so "in range" reads true on the map.
+      const touch = ringR(telescopeReadingAtLevel(1, homeworld).rangeLy) + BADGE_R;
+      const n = Math.hypot(BUBBLE_BADGE_DIRECTION.x, BUBBLE_BADGE_DIRECTION.y);
+      [x, y] = [CX + (BUBBLE_BADGE_DIRECTION.x / n) * touch, CY + (BUBBLE_BADGE_DIRECTION.y / n) * touch];
+    }
+    if (tier === 7) [x, y] = [coreX + CORE_BADGE_OFFSET.x, coreY + CORE_BADGE_OFFSET.y];
     const reached = tier <= now.reachTier;
     const numeral = regionTierNumeral(tier);
     const name = REGION_TIER_NAMES[tier];
@@ -343,6 +381,9 @@ export function telescopeMapView(level: number, homeworld: HomeworldPlacement = 
     bulgePath: pathOf(circle(BULGE_LY, 60), true),
     ringR: ringR(now.rangeLy),
     nextRingR: rangeGrows && after ? ringR(after.rangeLy) : null,
+    badgeR: BADGE_R,
+    homeLabel: { x: CX + 8, y: CY - 8, text: "Homeworld", size: 10, anchor: "start" },
+    coreLabel: { x: round1(coreX), y: round1(coreY - 11), text: "Galactic Core", size: 9, anchor: "middle" },
     badges,
     ariaLabel: `Galaxy map centered on your homeworld. Subspace Telescope Level ${now.level} reaches ${lyLong(now.rangeLy)}, ${reachTierText(now.reachTier)}. ${nextSentence}`,
     legend: [`Solid ring: your range now, ${ly(now.rangeLy)}.`, nextLegend],
