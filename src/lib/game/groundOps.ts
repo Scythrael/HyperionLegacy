@@ -52,6 +52,7 @@ import {
   type GroundOpsFactors,
   type GroundOpsLogEntry,
   type GroundOpsState,
+  type GroundRepairLeg,
   type GroundShipLeg,
   type GroundTaskNeeds,
   type GroundTeamKind,
@@ -61,6 +62,8 @@ import {
   type GroundTeamRun,
   type ShipEventProfile,
   type ShipInstance,
+  type ExpeditionPlanetType,
+  repairTicksForDamage,
 } from "./model";
 import { snapshotMembers } from "./awayTeam";
 // GO-8: the ship-side scan events' dispatch snapshot (shipScanEvents.ts never imports this module).
@@ -105,7 +108,7 @@ import {
   tierNeeds,
 } from "./riskFactors";
 
-export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
+export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
 // What snapshotGroundOps returns; GO-7b wraps it into the stored GroundOpsState.
 export interface GroundOpsSnapshot {
@@ -398,11 +401,26 @@ export function cloneGroundOps(ops: GroundOpsState): GroundOpsState {
 
 // ===== The scan clock (see the header) =====
 
+// Every leg the ship flies (recovery legs, and GO-8b's field repairs), in start order (legs never overlap). The
+// stored recovery list itself when the run has no repair (the same array). Pure.
+export function shipLegsInOrder(ops: Pick<GroundOpsState, "shipLegs" | "repairLegs">): readonly (GroundShipLeg | GroundRepairLeg)[] {
+  const repairs = ops.repairLegs;
+  if (!repairs || repairs.length === 0) return ops.shipLegs;
+  return [...ops.shipLegs, ...repairs].sort((a, b) => a.startsAt - b.startsAt);
+}
+
+// When the ship is free of every leg it has been given (the latest leg end), or null when it has none. Pure.
+export function shipFreeAt(ops: Pick<GroundOpsState, "shipLegs" | "repairLegs">): number | null {
+  let free: number | null = null;
+  for (const leg of shipLegsInOrder(ops)) if (free === null || leg.endsAt > free) free = leg.endsAt;
+  return free;
+}
+
 // The absolute time of scan clock `c` (seconds of scan time since the window opened). Pure.
-export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLegs">, c: number): number {
+export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs">, c: number): number {
   const start = ops.startedAt ?? 0;
   let shift = 0;
-  for (const leg of ops.shipLegs) {
+  for (const leg of shipLegsInOrder(ops)) {
     if (leg.scanBodyIndex === null) continue; // a leg after the scan pauses nothing
     if (leg.startsAt - start - shift < c) shift += leg.endsAt - leg.startsAt;
     else break;
@@ -411,10 +429,10 @@ export function scanClockToTime(ops: Pick<GroundOpsState, "startedAt" | "shipLeg
 }
 
 // The scan clock at absolute time `t`: seconds since the window opened, minus every leg's overlap. Pure.
-export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs">, t: number): number {
+export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs" | "repairLegs">, t: number): number {
   const start = ops.startedAt ?? 0;
   let away = 0;
-  for (const leg of ops.shipLegs) {
+  for (const leg of shipLegsInOrder(ops)) {
     if (leg.scanBodyIndex === null) continue; // a leg after the scan pauses nothing
     if (leg.startsAt >= t) break;
     away += Math.min(t, leg.endsAt) - leg.startsAt;
@@ -424,11 +442,15 @@ export function scanClockAt(ops: Pick<GroundOpsState, "startedAt" | "shipLegs">,
 
 // Where the ship is at `t` (display, GO-14): scanning a body, away on a recovery leg, or holding station once
 // the scan is done. Reads the stored legs and the bodies' scanned latches. Pure.
+// GO-8b: or on a FIELD REPAIR (flying to its site, repairing, flying back).
 export type GroundShipPosition =
   | { kind: "scanning"; bodyIndex: number }
   | { kind: "recovery"; leg: GroundShipLeg }
+  | { kind: "repair"; leg: GroundRepairLeg }
   | { kind: "holding" };
 export function groundShipPosition(exp: Pick<Expedition, "groundOps" | "bodies">, t: number): GroundShipPosition {
+  const repair = exp.groundOps?.repairLegs?.find((l) => l.startsAt <= t && t < l.endsAt);
+  if (repair) return { kind: "repair", leg: repair };
   const leg = exp.groundOps?.shipLegs.find((l) => l.startsAt <= t && t < l.endsAt);
   if (leg) return { kind: "recovery", leg };
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
@@ -848,9 +870,15 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     if (ops.endedAt !== undefined) return;
     const tScan = driver.nextScanEventAt(exp);
     const tTeam = nextTeamEnd(ops);
-    const t = tScan === null ? tTeam : tTeam === null ? tScan : Math.min(tScan, tTeam);
+    // GO-8b: a field repair's end (absent on every run without one, so the order below is GO-7b's exactly).
+    const repair = nextRepairEnd(ops);
+    const tRepair = repair ? repair.endsAt : null;
+    const t = [tScan, tTeam, tRepair].reduce<number | null>((a, b) => (b === null ? a : a === null ? b : Math.min(a, b)), null);
     if (t === null || t > now + EVENT_EPS) return;
-    if (tScan !== null && (tTeam === null || tScan <= tTeam)) {
+    if (repair && tRepair === t) {
+      // At one instant a repair's end goes first (the ship is whole again before the next scan event can hurt it).
+      finishFieldRepair(ops, repair);
+    } else if (tScan !== null && (tTeam === null || tScan <= tTeam)) {
       driver.processScanEvent(exp);
     } else {
       // The batch is fixed before any team moves: an end at `t` that processing creates (a zero-length step,
@@ -1001,6 +1029,8 @@ function checkRunEnd(exp: Expedition, t: number): void {
     for (const task of body.activities) if (task.status === "queued" || task.status === "active") return;
   }
   if (!ops.teams.every((team) => team.step === "idle" || team.step === "bay" || team.step === "reload")) return;
+  // GO-8b: the ship heads home only once its field repair is done.
+  if (nextRepairEnd(ops)) return;
   ops.endedAt = t;
 }
 
@@ -1330,8 +1360,9 @@ function returnCrew(
 // them all (teamIndices). Mutates.
 function scheduleRecoveryLeg(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef, t: number): GroundShipLeg {
   const scanning = exp.bodies.findIndex((b) => !b.scanned);
-  const last = ops.shipLegs[ops.shipLegs.length - 1];
-  const startsAt = last !== undefined && last.endsAt > t ? last.endsAt : t;
+  // Legs never overlap (GO-8b: a field repair counts too).
+  const free = shipFreeAt(ops);
+  const startsAt = free !== null && free > t ? free : t;
   const indices = teams.map((team) => team.index).sort((a, b) => a - b);
   const leg: GroundShipLeg = {
     kind: "recovery",
@@ -1888,6 +1919,130 @@ function autoAssignTasks(exp: Expedition, ops: GroundOpsState, refs: readonly Gr
     for (const team of crew) team.queue = [...team.queue, ref.task.id];
     ref.task.assignedTeamIds = crew.map((team) => team.index);
   }
+}
+
+// ============================================================================
+// GO-8b: EXPEDITION FIELD REPAIR (user, 2026-10-12: "WWVD. What Would Voyager Do?")
+// ============================================================================
+//
+// A damaged ship on an expedition NEVER has to go home (user: no soft-lock, never force a return). Once the light
+// hull damage of its scan events (GroundOpsState.hullDamage, GO-8) reaches FIELD_REPAIR_DAMAGE_SHARE of its frozen
+// hull pool, or when the player orders it (expedition.ts orderFieldRepair), the ship flies a REPAIR LEG
+// (GroundRepairLeg): it sets down on the NEAREST suitable body (a rocky world with an atmosphere,
+// FIELD_REPAIR_PLANET_TYPES; never a gas giant, D22), repairs on a timer and flies back to resume the run. With
+// no suitable body in the system it repairs IN ORBIT where it is, slower. The repair time is the Shipyard's
+// formula (model.ts repairTicksForDamage, one tick = one second) on the damage, divided by the ship's frozen
+// Engineering repair speed-up (ShipEventBattle.repairSpeed: Rapid Recovery, Veteran Instincts, the Engineering
+// Constitution), times the field multiplier. The leg is stored when it starts (so it is a pure function of stored
+// values), pauses the scan clock like a recovery leg, never overlaps another leg (a wiped team's pickup waits for
+// it, and it waits for one already under way), and fixes the damage at its end (the window's event). The ground
+// teams keep working meanwhile: the ship can still recover any of them, after the repair (Q1 rule).
+// [PROVISIONAL] the threshold, the planet list, "nearest" (the body index closest to the ship's position: the
+// body it scans, or the last body once the scan is done; ties to the lower index), the multipliers.
+
+export const FIELD_REPAIR_DAMAGE_SHARE = 0.25; // of ShipEventBattle.hullMax [PROVISIONAL]
+export const FIELD_REPAIR_PLANET_TYPES: readonly ExpeditionPlanetType[] = ["terrestrial", "ocean", "arid", "frozen"]; // [PROVISIONAL]
+export const FIELD_REPAIR_TIME_MULT = 2; // a field repair on the ground vs the Shipyard's time [PROVISIONAL]
+export const ORBIT_REPAIR_TIME_MULT = 3; // in orbit, with no suitable world [PROVISIONAL]
+
+// The earliest field repair not yet finished, or null. Pure.
+function nextRepairEnd(ops: GroundOpsState): GroundRepairLeg | null {
+  let best: GroundRepairLeg | null = null;
+  for (const leg of ops.repairLegs ?? []) if (!leg.done && (best === null || leg.endsAt < best.endsAt)) best = leg;
+  return best;
+}
+
+// A field repair ends: the damage it set out to fix is gone. Mutates.
+function finishFieldRepair(ops: GroundOpsState, leg: GroundRepairLeg): void {
+  leg.done = true;
+  const left = Math.max(0, (ops.hullDamage ?? 0) - leg.hullRepaired);
+  if (left > 0) ops.hullDamage = left;
+  else delete ops.hullDamage;
+}
+
+// Where the ship is for a field repair: the body it scans, else (the scan done) the last body. Pure.
+function repairPosition(exp: Pick<Expedition, "bodies">): number {
+  const scanning = exp.bodies.findIndex((b) => !b.scanned);
+  return scanning >= 0 ? scanning : exp.bodies.length - 1;
+}
+
+// The body the ship sets down on from body `from`: the nearest one of FIELD_REPAIR_PLANET_TYPES (ties: the lower
+// index), or null (repair in orbit). Pure.
+export function fieldRepairSite(exp: Pick<Expedition, "bodies">, from: number = repairPosition(exp)): number | null {
+  let best: number | null = null;
+  exp.bodies.forEach((body, i) => {
+    if (!FIELD_REPAIR_PLANET_TYPES.includes(body.planetType)) return;
+    if (best === null || Math.abs(i - from) < Math.abs(best - from)) best = i;
+  });
+  return best;
+}
+
+// How long a field repair of `damage` hull points takes on the ground (`landed`) or in orbit. Pure.
+export function fieldRepairSeconds(damage: number, repairSpeed: number, landed: boolean): number {
+  return repairTicksForDamage(Math.max(0, damage), Math.max(0, repairSpeed)) * (landed ? FIELD_REPAIR_TIME_MULT : ORBIT_REPAIR_TIME_MULT);
+}
+
+// Why a field repair cannot start now (null = it can). Pure.
+export type FieldRepairBlockReason = "noFieldRepair" | "noDamage" | "alreadyRepairing" | "runFinished";
+export function fieldRepairBlock(exp: Pick<Expedition, "groundOps">): FieldRepairBlockReason | null {
+  const ops = exp.groundOps;
+  if (!ops || ops.shipEventProfile?.battle?.repairSpeed === undefined) return "noFieldRepair";
+  if (ops.endedAt !== undefined) return "runFinished";
+  if (nextRepairEnd(ops)) return "alreadyRepairing";
+  if (!((ops.hullDamage ?? 0) > 0)) return "noDamage";
+  return null;
+}
+
+// The refusal in plain words. Exhaustive. Pure.
+export function fieldRepairBlockText(reason: FieldRepairBlockReason): string {
+  switch (reason) {
+    case "noFieldRepair":
+      return "This expedition launched before field repairs";
+    case "noDamage":
+      return "The ship has no damage to repair";
+    case "alreadyRepairing":
+      return "The ship is already setting down for repairs";
+    case "runFinished":
+      return "The ground operations are over: the Shipyard will repair the ship at home";
+  }
+}
+
+// Start a field repair at `t` (validated by fieldRepairBlock): stored now, starting when the ship is free of its
+// legs. Returns the leg, or null when it cannot start. Mutates the working clone.
+export function scheduleFieldRepair(exp: Expedition, t: number, ordered: boolean): GroundRepairLeg | null {
+  const ops = exp.groundOps;
+  if (!ops || fieldRepairBlock(exp) !== null) return null;
+  const battle = ops.shipEventProfile.battle!;
+  const from = repairPosition(exp);
+  const site = fieldRepairSite(exp, from);
+  const travel = site === null || site === from ? 0 : IN_SYSTEM_LEG_SECONDS;
+  const free = shipFreeAt(ops);
+  const startsAt = free !== null && free > t ? free : t;
+  const damage = ops.hullDamage ?? 0;
+  const arrivesAt = startsAt + travel;
+  const repairedAt = arrivesAt + fieldRepairSeconds(damage, battle.repairSpeed ?? 0, site !== null);
+  const scanning = exp.bodies.findIndex((b) => !b.scanned);
+  const leg: GroundRepairLeg = {
+    kind: "repair",
+    siteBodyIndex: site,
+    ...(ordered ? { ordered: true as const } : {}),
+    scanBodyIndex: scanning >= 0 ? scanning : null,
+    startsAt,
+    arrivesAt,
+    repairedAt,
+    endsAt: repairedAt + travel,
+    hullRepaired: damage,
+  };
+  (ops.repairLegs ??= []).push(leg);
+  return leg;
+}
+
+// The THRESHOLD trigger (expedition.ts calls it after a scan event added hull damage at `t`): past
+// FIELD_REPAIR_DAMAGE_SHARE of the frozen hull pool the ship sets down for repairs on its own. Mutates.
+export function maybeAutoFieldRepair(exp: Expedition, t: number): GroundRepairLeg | null {
+  const battle = exp.groundOps?.shipEventProfile.battle;
+  if (!battle || (exp.groundOps?.hullDamage ?? 0) < FIELD_REPAIR_DAMAGE_SHARE * battle.hullMax) return null;
+  return scheduleFieldRepair(exp, t, false);
 }
 
 // ===== Readers (display + the UI flag) =====

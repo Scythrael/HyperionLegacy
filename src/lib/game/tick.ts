@@ -137,11 +137,11 @@ import {
   SHIP_DOCKS_BASE,
   SHIP_DOCKS_RUNGS,
   // Combat 0.13.0 (Phase 11/11b, design S13): the ship-repair + shared-bay tunables the
-  // loss/repair loop reads. REPAIR_BASE_TICKS/REPAIR_TICKS_PER_HULL drive the repair-duration
-  // formula; SHIPYARD_BAY_BASE + BUILD_CONCURRENCY_CAP drive the shared build/repair bay pool
+  // loss/repair loop reads. repairTicksForDamage (REPAIR_BASE_TICKS / REPAIR_TICKS_PER_HULL, one definition
+  // shared with the expedition field repair, GO-8b) drives the repair-duration formula; SHIPYARD_BAY_BASE +
+  // BUILD_CONCURRENCY_CAP drive the shared build/repair bay pool
   // (shipyardBayCount + shipBuildSlotCount + processShipRepairs below).
-  REPAIR_BASE_TICKS,
-  REPAIR_TICKS_PER_HULL,
+  repairTicksForDamage,
   SHIPYARD_BAY_BASE,
   BUILD_CONCURRENCY_CAP,
   // Crafting 0.13.3 (Phase 1 Unit 1.3): the queued-order schema Unit 1.1 landed. The
@@ -7163,8 +7163,7 @@ export function shipRepairDurationTicks(
   const damage =
     ship.repairDamage ??
     (installedGear.length > 0 ? foldedPlayerDefense(shipDef, installedGear).hullMax : shipDef.hullIntegrity);
-  const rawTicks = REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
-  const baseTicks = officerSpeedBonus > 0 ? Math.max(1, Math.ceil(rawTicks / (1 + officerSpeedBonus))) : rawTicks;
+  const baseTicks = repairTicksForDamage(damage, officerSpeedBonus);
   // Exploration 0.14.0 (E4d): an installed Damage Control Suite shortens the repair (ceil, >= 1 tick),
   // decided HERE at process creation (the duration is fixed on the TimedProcess, so an in-flight repair is
   // never re-timed and the closed-form countdown is untouched). Without the suite (or with gear unknown,

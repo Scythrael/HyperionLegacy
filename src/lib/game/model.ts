@@ -1621,6 +1621,14 @@ export function emptyGroundTeams(typeKey: ShipTypeKey): ShipGroundTeam[] {
 //                             REPAIR_BASE_TICKS + 300 ticks).
 export const REPAIR_BASE_TICKS = 20;
 export const REPAIR_TICKS_PER_HULL = 0.5;
+// The Shipyard repair formula's base, ONE definition (Ground Ops GO-8b): REPAIR_BASE_TICKS + ceil(damage x
+// REPAIR_TICKS_PER_HULL), DIVIDED by (1 + speedBonus) when the bonus is above 0 (ceil, at least 1 tick: the D23
+// divisor, crewOverlay.ts officerRepairSpeedBonus). tick.ts shipRepairDurationTicks builds on it (then the Damage
+// Control Suite and the Cunning free tick); groundOps.ts's expedition FIELD REPAIR reuses it. Pure.
+export function repairTicksForDamage(damage: number, speedBonus: number = 0): number {
+  const rawTicks = REPAIR_BASE_TICKS + Math.ceil(damage * REPAIR_TICKS_PER_HULL);
+  return speedBonus > 0 ? Math.max(1, Math.ceil(rawTicks / (1 + speedBonus))) : rawTicks;
+}
 // Shipyard BAYS (Combat 0.13.0, Phase 11b, design S13 item 4): the SHARED build/repair bay
 // model that GENERALIZES P11's dedicated single repair slot. Bays serve BOTH ship builds and
 // ship repairs out of one pool; idle build capacity flexes into repair; a damaged hull with
@@ -7298,6 +7306,26 @@ export interface GroundShipLeg {
   endsAt: number;
 }
 
+// GO-8b (user WWVD, 2026-10-12: "They'd find a planet with atmosphere nearby and set a course. Then land and conduct
+// repairs"): a FIELD REPAIR. The ship sets down on `siteBodyIndex` (the nearest rocky world with an atmosphere,
+// never a gas giant, D22) or, with none in the system, repairs in orbit (null, slower). It flies there (startsAt
+// to arrivesAt), repairs (to repairedAt), flies back (to endsAt) and resumes; while scanning the scan pauses for
+// the whole leg (scanBodyIndex, the scan clock). It fixes `hullRepaired` points (the damage at its start) at
+// endsAt, when the window latches `done`. Stored when it starts, so every later time is a pure function of stored
+// values.
+export interface GroundRepairLeg {
+  kind: "repair";
+  siteBodyIndex: number | null; // null = in orbit
+  ordered?: true; // the player ordered it (else the damage threshold did)
+  scanBodyIndex: number | null; // the body the ship broke off scanning; null = the scan was already done
+  startsAt: number;
+  arrivesAt: number;
+  repairedAt: number;
+  endsAt: number;
+  hullRepaired: number;
+  done?: true;
+}
+
 // GO-7b: the run's ground operations (Expedition.groundOps; plan section 2). One COMBINED operations window
 // (user Q1): it opens when the scanning phase begins (startedAt), task work overlaps the scan of later bodies,
 // and it closes (endedAt) once every body is scanned, no task is queued or active, and every team is idle, in
@@ -7313,8 +7341,12 @@ export interface GroundOpsState {
   history: GroundStepRecord[]; // DISPLAY ONLY, capped per team
   shipLegs: GroundShipLeg[]; // recovery legs, in time order
   // GO-8 (user Q12): the hull points of LIGHT DAMAGE the ship carries from its scan events (absent = none). It
-  // comes home with the ship at claim (ShipInstance.repairDamage, the Shipyard repair).
+  // comes home with the ship at claim (ShipInstance.repairDamage, the Shipyard repair) unless a field repair
+  // (GO-8b) fixes it first.
   hullDamage?: number;
+  // GO-8b (user WWVD): the ship's FIELD REPAIRS, in time order; absent until the first. Each pauses the scan like
+  // a recovery leg and never overlaps another leg (groundOps.ts shipLegsInOrder merges the two lists).
+  repairLegs?: GroundRepairLeg[];
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
@@ -7381,6 +7413,10 @@ export interface ShipEventBattle {
   installedGear?: EquipmentInstance[];
   officerCombat: OfficerCombatEntry[]; // crewOverlay.ts officerCombatProfile at dispatch
   hullMax: number; // the folded hull pool at dispatch (light damage and the field repair threshold are shares of it)
+  // GO-8b: the ship's repair speed-up at dispatch (crewOverlay.ts officerRepairSpeedBonus: Rapid Recovery + Veteran
+  // Instincts + the Engineering department's Constitution), the FIELD REPAIR's divisor. Its presence is the field
+  // repair flag (a run without it never sets down for repairs).
+  repairSpeed?: number;
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration

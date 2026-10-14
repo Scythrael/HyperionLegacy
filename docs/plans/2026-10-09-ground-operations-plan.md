@@ -1472,6 +1472,47 @@ Behavior: past the threshold (or player-ordered), the ship diverts to the neares
 then resumes where it was; ground teams on other bodies keep working only if the ship can still recover them (Q1
 rule). Pure function of the stored record; parity tests. Never forces a return home.
 
+**Carry from GO-8b (built 2026-10-13, commit `feat(0.14.0): expedition field repair (Ground Ops GO-8b)`):**
+- **The flag.** `ShipEventBattle.repairSpeed` (frozen at dispatch: crewOverlay.ts `officerRepairSpeedBonus` = Rapid
+  Recovery + Veteran Instincts + the Engineering Constitution, the Shipyard's divisor). A run without it (a GO-8-only
+  run, any pre-GO-8 flagged run, a legacy run) never sets down. No new salt (nothing random).
+- **The leg (`GroundRepairLeg`, model.ts; stored on new `GroundOpsState.repairLegs?`, absent until the first, so every
+  earlier run keeps its exact shape).** `{ kind: "repair", siteBodyIndex (null = orbit), ordered?, scanBodyIndex,
+  startsAt, arrivesAt, repairedAt, endsAt, hullRepaired, done? }`. A separate list (not a GroundShipLeg kind) so every
+  recovery-leg reader keeps its shape; `shipLegsInOrder(ops)` merges both (start order) for the scan clock
+  (`scanClockToTime` / `scanClockAt`: a repair while scanning pauses the scan for the whole leg, like a recovery leg;
+  one after the scan, `scanBodyIndex` null, pauses nothing) and `shipFreeAt(ops)` serializes every leg (a wipe during
+  a repair waits for it; a repair ordered during a pickup waits for that). `groundShipPosition` gains `{ kind:
+  "repair", leg }`.
+- **Trigger.** AUTOMATIC at the scan event whose light damage brings `hullDamage` to `FIELD_REPAIR_DAMAGE_SHARE` 0.25
+  of `ShipEventBattle.hullMax` [PROVISIONAL] (expedition.ts rollStepBoundary -> groundOps.ts `maybeAutoFieldRepair`,
+  starting at that event's wall time), or BY ORDER: pure actions `canOrderFieldRepair(state, expeditionId)` /
+  `orderFieldRepair(state, expeditionId)` in expedition.ts (advance to now, validate, store the leg at now, settle;
+  the SAME state on a refusal; no UI yet). Reasons `FieldRepairOrderBlockReason`: noExpedition, notGroundOps,
+  noFieldRepair, runFinished, alreadyRepairing, noDamage (`fieldRepairBlockText`, exhaustive).
+- **Site.** `fieldRepairSite(exp, from)`: the nearest body of `FIELD_REPAIR_PLANET_TYPES` (terrestrial, ocean, arid,
+  frozen: rocky with an atmosphere [PROVISIONAL]; never a gas giant (D22), nor barren (airless), volcanic or toxic)
+  by body index from the ship's position (the body it scans, else the last body: holding station), ties to the lower
+  index [PROVISIONAL: bodies have no positions]. Travel `IN_SYSTEM_LEG_SECONDS` (300) each way, 0 when the site is the
+  body the ship is at; none in the system = IN ORBIT where it is (no travel, slower).
+- **Time.** `fieldRepairSeconds(damage, repairSpeed, landed)` = model.ts `repairTicksForDamage(damage, repairSpeed)`
+  (the Shipyard formula REPAIR_BASE_TICKS + ceil(damage x REPAIR_TICKS_PER_HULL), divided by 1 + the speed-up; now
+  ONE definition that tick.ts `shipRepairDurationTicks` also builds on, byte-identical) x `FIELD_REPAIR_TIME_MULT` 2
+  on the ground or `ORBIT_REPAIR_TIME_MULT` 3 in orbit [PROVISIONAL] (one tick = one second). The Damage Control
+  Suite and the Cunning free tick stay Shipyard-only.
+- **End.** The window processes a repair's end as an event (before scan events and team ends at one instant):
+  `done` latches and the damage it set out to fix is removed (later damage stays). `checkRunEnd` waits for any
+  repair in progress, so the ship heads home whole.
+- **Ground teams (Q1 rule, interpretation):** they keep working during a repair; a team that wipes waits for the
+  ship, whose pickup leg starts when the repair ends (tested). **Question for the user:** should teams instead hold
+  off deploying while the ship is down for repairs?
+- Tests: new `fieldRepair.test.ts` (12: the shared formula vs the Shipyard, the site rules, the frozen speed-up, the
+  threshold repair on a real run (time, travel, the paused scan clock, the ship position, the damage fixed at its end,
+  the claim), the scan's length and parity one call == 997 s == 1 s over the scan, orbit, the flag both ways, the
+  order's refusals, an order mid-scan (and its 997 s parity), an order after the scan holding the window open, a wipe
+  waiting for the repair with no overlapping legs and teams working meanwhile). Suite 4498 -> 4510 passed (1 skipped);
+  `npm run check` 0 errors. Every golden and parity test unchanged.
+
 ## 5. Open questions (the user's to decide; each has a [PROVISIONAL] build default)
 
 1. **Q1 Scanning vs operations overlap.** Do teams start a planet's tasks as soon as its scan completes while the ship

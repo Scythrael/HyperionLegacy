@@ -107,7 +107,11 @@ import {
   groundCrewThreat,
   groundOpsBodyScanned,
   initGroundTasks,
+  fieldRepairBlock,
+  maybeAutoFieldRepair,
+  scheduleFieldRepair,
   taskNeedsOf,
+  type FieldRepairBlockReason,
   groundOpsProgress,
   newGroundOpsState,
   scanClockAt,
@@ -1576,8 +1580,12 @@ function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: 
     if (roll.encounter) {
       const res = resolveShipScanEvent(exp, body, bodyIndex, step, hoursOut);
       if (res.finding) exp.findings.push(res.finding);
-      if (res.event.hullWear) ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
       events.push(res.event);
+      if (res.event.hullWear) {
+        ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
+        // GO-8b (user WWVD): past the damage threshold the ship sets down for a field repair, starting now.
+        maybeAutoFieldRepair(exp, scanClockToTime(ops, at));
+      }
     } else if (roll.supplyCache) {
       const finding = rollSupplyCache(exp, body, bodyIndex, step);
       exp.findings.push(finding);
@@ -2155,6 +2163,34 @@ export function editGroundOps(state: GameState, expeditionId: string, edit: Grou
   const target = groundOpsEditTarget(state, expeditionId);
   if (!target.ok) return state;
   if (!applyGroundOpsEdit(target.exp, edit, state.gameTimeSeconds).ok) return state;
+  const settled = advanceExpedition(target.exp, state.gameTimeSeconds);
+  return { ...state, expeditions: state.expeditions.map((e, i) => (i === target.index ? settled : e)) };
+}
+
+// ============================================================================
+// Ground Operations GO-8b: the player's FIELD REPAIR order (groundOps.ts "EXPEDITION FIELD REPAIR")
+// ============================================================================
+//
+// The player can order the ship to set down for repairs at any time while the operations window is open and the
+// ship carries damage (no UI yet). Order: advance the run to now, validate (groundOps.ts fieldRepairBlock), store
+// the repair leg starting now (or when the ship is free of a leg under way), then settle at now. Pure: a refusal
+// returns the SAME state; the stored expedition is never mutated.
+
+export type FieldRepairOrderBlockReason = "noExpedition" | "notGroundOps" | FieldRepairBlockReason;
+
+// Can the ship of expedition `expeditionId` be ordered to set down for repairs now? (Advances a copy.) Pure.
+export function canOrderFieldRepair(state: GameState, expeditionId: string): { ok: true } | { ok: false; reason: FieldRepairOrderBlockReason } {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok) return { ok: false, reason: target.reason === "runFinished" ? "runFinished" : target.reason };
+  const blocked = fieldRepairBlock(target.exp);
+  return blocked ? { ok: false, reason: blocked } : { ok: true };
+}
+
+// Order the field repair now (see above). Pure: the SAME state on a refusal.
+export function orderFieldRepair(state: GameState, expeditionId: string): GameState {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok || fieldRepairBlock(target.exp) !== null) return state;
+  if (!scheduleFieldRepair(target.exp, state.gameTimeSeconds, true)) return state;
   const settled = advanceExpedition(target.exp, state.gameTimeSeconds);
   return { ...state, expeditions: state.expeditions.map((e, i) => (i === target.index ? settled : e)) };
 }
