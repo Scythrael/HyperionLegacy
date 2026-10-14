@@ -45,7 +45,7 @@ export function nameList(names: readonly string[]): string {
 // "Security fights the random battles, Science does fieldwork while scanning" line; ground fights moved off
 // the scan, user 9b.6).
 export const GROUND_TEAMS_INTRO =
-  "Security fights during tasks. Science does the task fieldwork. Scanning is ship-side: the ship scans while your teams work the planets.";
+  "Security fights during objectives. Science does the objective fieldwork. Scanning is ship-side: the ship scans while your teams work the planets.";
 
 // The reserve section's plain-words lines (GO-11; GO-2 review note (c): reserves count toward the crew limit,
 // so the board can report no room while a slot shows empty).

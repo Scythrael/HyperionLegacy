@@ -41,6 +41,7 @@ import {
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
 import type { IconName } from "./ui/icons";
 import { nameList } from "./groundTeamDisplay";
+import { forecastAffixPills, type AffixPillView } from "./objectiveAffixDisplay";
 
 // ============================================================================
 // GO-12: the dispatch strip (which ground teams deploy)
@@ -278,7 +279,7 @@ export function telescopeBlockView(candidate: Pick<ExpeditionCandidate, "telesco
     t.detail < TELESCOPE_DETAIL.graded
       ? "Each factor's grade appears at detail 2 (Graded)."
       : t.detail < TELESCOPE_DETAIL.perBody
-        ? "Each body's grades and the task demand appear at detail 3 (Per body)."
+        ? "Each body's grades and the objective demand appear at detail 3 (Per body)."
         : t.detail < TELESCOPE_DETAIL.recommendation
           ? "The squad recommendation appears at detail 4 (Recommendation)."
           : null;
@@ -379,9 +380,10 @@ export function recommendationView(state: GameState, shipId: string, rec: Launch
 export interface ForecastView {
   lead: string; // "Forecast with Strike + Ground"
   tasksText: string; // "11 tasks: 2 Simple, 6 Standard, 3 Challenging"
-  unfinishedText: string | null; // "Leaves 2 tasks unfinished."
+  unfinishedText: string | null; // "Leaves 2 objectives unfinished."
   hardestText: string | null; // "Hardest fight: Geothermal Chamber (Challenging, 3 fights), crew Alpha (Ground)"
   threat: ThreatAssessment | null;
+  affixPills: AffixPillView[]; // the hardest fight's known affix (a Deadly combat objective: Reinforcing), else none
   note: string | null; // why there is no threat read
 }
 
@@ -393,9 +395,10 @@ export function forecastView(ship: ShipInstance, f: LaunchForecast): ForecastVie
   return {
     lead: `Forecast with ${f.label}`,
     tasksText: forecastTasksText(f),
-    unfinishedText: f.unfinished > 0 ? `Leaves ${f.unfinished} ${f.unfinished === 1 ? "task" : "tasks"} unfinished.` : null,
+    unfinishedText: f.unfinished > 0 ? `Leaves ${f.unfinished} ${f.unfinished === 1 ? "objective" : "objectives"} unfinished.` : null,
     hardestText: f.hardest ? `Hardest fight: ${f.hardest.label} (${f.hardest.difficultyName}, ${fights})${crew ? `, crew ${crew}` : ""}` : null,
     threat: f.threat,
+    affixPills: forecastAffixPills(f.hardest),
     note: f.note,
   };
 }

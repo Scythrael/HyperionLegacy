@@ -50,6 +50,8 @@
 // this manual into a lie with no test to catch it. Describe the behavior, name the control,
 // and let the console show the number.
 
+import { AFFIX_DEFS } from "./game/affixes";
+
 export interface HelpTopic {
   id: string;
   title: string;
@@ -112,7 +114,22 @@ export const HELP_TOPICS: HelpTopic[] = [
     // constants in relics.ts; the Museum tab prints the live numbers), per the rule at the top.
     id: "relics",
     title: "Relics and the Museum",
-    body: "Relics are recovered by your away teams on expeditions. A team that wins a task at a relic-bearing site may bring one home, and the Expedition Console names which relic sets a system's sites can yield once your sensors are strong enough. Relics arrive unidentified: claiming a finished expedition puts them in the Relic Vault on the Research Lab's Relics tab. Study a relic there to reveal which relic of its set it is. A study takes time and runs on its own lane, so it never blocks blueprint research. A relic's tier (from the away-team roll) matters: a higher tier makes the rarer relics of its set more likely. The first time you identify a relic type is a first find, a new discovery for your collection. Every identified copy goes to the Museum, on the Archive's Museum tab, and grants a small permanent bonus of its set's per-copy stat. Each set is also a collection: owning relics 1 through K of a set unlocks its K-piece set bonus, and that bonus levels up as you collect more copies. A level needs every required relic at the next copy threshold, so a tier is only as strong as its least-collected relic, and the Museum highlights the bottleneck relic holding a tier back.",
+    body: "Relics are recovered by your away teams on expeditions. A team that wins an objective at a relic-bearing site may bring one home, and the Expedition Console names which relic sets a system's sites can yield once your sensors are strong enough. Relics arrive unidentified: claiming a finished expedition puts them in the Relic Vault on the Research Lab's Relics tab. Study a relic there to reveal which relic of its set it is. A study takes time and runs on its own lane, so it never blocks blueprint research. A relic's tier (from the away-team roll) matters: a higher tier makes the rarer relics of its set more likely. The first time you identify a relic type is a first find, a new discovery for your collection. Every identified copy goes to the Museum, on the Archive's Museum tab, and grants a small permanent bonus of its set's per-copy stat. Each set is also a collection: owning relics 1 through K of a set unlocks its K-piece set bonus, and that bonus levels up as you collect more copies. A level needs every required relic at the next copy threshold, so a tier is only as strong as its least-collected relic, and the Museum highlights the bottleneck relic holding a tier back.",
+  },
+  {
+    // 0.14.0 objective affixes (docs/plans/2026-10-14-objective-affixes-capture.md). Player-facing text says
+    // "objective", never "task" (user 2026-10-14). No rank tables or chances in the prose (they are tunable
+    // constants in affixes.ts; the pill's tooltip prints the live numbers), per the rule at the top.
+    id: "affixes",
+    title: "Objective Affixes",
+    body: "Affixes are traits an objective can carry during an expedition's ground operations. Each one shows as a pill on the objective's card, in the objective queues and on the progress cards, colored by its alignment with the alignment also written on it: green is Positive (it works in your favor), yellow is Neutral (it affects both sides alike), red is Negative (it works against you). Some affixes only ever roll one way; others can roll more than one alignment, but each one carries exactly one. Affixes have ranks, such as Reinforcing I, II and III: a higher rank is a stronger version, and the high ranks are rare. Some affixes are required at certain difficulty ratings (every Deadly combat objective carries Reinforcing); others roll by chance, more often on harder objectives and in farther regions, and seldom on early planets. An objective's affixes are set once its body's scan finishes and stay for the run. Hover, tap or focus a pill to read what it does. Before you launch, the Subspace Telescope's forecast marks a Deadly hardest fight with the Reinforcing pill.",
+  },
+  {
+    id: "reinforcing",
+    title: "Reinforcing (affix)",
+    body:
+      AFFIX_DEFS.reinforcing.help +
+      " While an objective is on alert, its card shows the alert level, the Heightened Senses stacks, how many more enemies each fight fields and when the alert clears. While it is held at Impossible, the card shows a live countdown to the reset instead, and your teams carry on with their other objectives.",
   },
   {
     id: "shipyard",

@@ -19,6 +19,7 @@ import {
   crewSquadsOf,
   groundCrewThreat,
   groundOpsStuck,
+  groundTaskCrewOptions,
   groundTaskCrews,
   groundTaskProgressAt,
   groundTaskStuck,
@@ -33,6 +34,7 @@ import { groundTeamDefaultName, groundTeamName, groundTeamShortLabel } from "./g
 import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
 import { DIFFICULTY_NAMES, difficultyName, difficultyWeight, storedDifficulty } from "./game/riskFactors";
 import type { ThreatAssessment } from "./game/combat/threatAssessment";
+import { objectiveAffixesView, type ObjectiveAffixesView } from "./objectiveAffixDisplay";
 
 // ===== Fixed words (the user's, where quoted in the plan) =====
 
@@ -41,8 +43,11 @@ export const DEFAULT_PLAN_LABEL = "Default plan";
 export const AUTO_ASSIGN_LABEL = "Auto-assign randomly"; // the user's words
 export const NEEDS_PARTNER_TEXT = "Needs a partner";
 export const NO_FIGHTS_TEXT = "No fights expected";
-export const STUCK_HINT = "Skip a stuck task and the rest of the run carries on.";
-export const QUEUE_EMPTY_TEXT = "Tasks appear here as each body's scan finishes.";
+export const STUCK_HINT = "Skip a stuck objective and the rest of the run carries on.";
+export const QUEUE_EMPTY_TEXT = "Objectives appear here as each body's scan finishes.";
+// The LARGER crew's trade-off in the crew select (user 2026-10-14: "They'd sacrifice speed from only having one team
+// that can do it"): the crew pools its squads but works one objective at a time.
+export const LARGER_CREW_COST = "one objective at a time";
 
 // ===== Small words =====
 
@@ -374,27 +379,54 @@ export function oddsCell(exp: Expedition, column: QueueTeamColumn, task: Expedit
 
 export interface CrewOption {
   key: string; // crewKey
-  label: string; // "Alpha", "Alpha + Bravo (joint)"
+  label: string; // the select's words: "Alpha", "Alpha + Bravo (joint)", "Alpha + Bravo (doubled)"
+  crew: string; // the crew alone: "Alpha + Bravo" (the result line)
   teamIndex: number; // the crew's lead (the edit's teamIndex)
   partners: number[]; // the rest (the edit's partners)
+  larger: boolean; // a LARGER crew than the smallest covering one (the player's choice; the plan never picks it)
+  note: string | null; // a larger crew's trade-off, shown under the select: "Doubled crew: more punch, one objective at a time."
 }
 
-// The crews a row offers: the smallest covering crews (groundTaskCrews: GO-13's choices, joint ones included when
-// no single team covers) plus the row's current crew when it is not among them (a larger crew the plan or an
-// earlier edit wrote), so the select always shows what is set. Pure.
+// The word of a LARGER crew: "doubled" when it is twice the smallest covering crew's size (both Ground teams on a
+// Ground team's objective), else "larger crew". Pure.
+export function largerCrewWord(size: number, smallest: number): string {
+  return size === smallest * 2 ? "doubled" : "larger crew";
+}
+
+// What a LARGER crew trades (user 2026-10-14): what the extra squads bring (Security past the needs: "more
+// punch", every Security squad on one fight side; Science past the needs: "more fieldwork", every Science squad's
+// fieldwork summed), then the cost. "more punch and more fieldwork, one objective at a time". Pure.
+export function largerCrewNote(squads: GroundTaskNeeds, needs: GroundTaskNeeds): string {
+  const gains: string[] = [];
+  if (squads.security > needs.security) gains.push("more punch");
+  if (squads.science > needs.science) gains.push("more fieldwork");
+  return `${gains.length > 0 ? `${gains.join(" and ")}, ` : ""}${LARGER_CREW_COST}`;
+}
+
+// The crews a row offers (AF-1, user 2026-10-14: larger joint crews): the smallest covering crews first
+// (groundTaskCrewOptions `larger: false`, GO-13's choices: joint ones read "(joint)"), then every LARGER covering
+// crew ("Alpha + Bravo (doubled)", its trade-off in `note`: "Doubled crew: more punch, one objective at a time.";
+// the crew pools its squads but works one objective at a time), plus the row's current crew when it is not among
+// them, so the select always shows what is set. The select's words stay short (the table keeps its width); the
+// screen shows the note under the select while a larger crew is picked or set. Pure.
 export function crewOptions(exp: Pick<Expedition, "groundOps" | "bodies">, ship: ShipInstance | null | undefined, task: ExpeditionActivity): CrewOption[] {
-  const crews = groundTaskCrews(exp, task.id);
+  const crews = groundTaskCrewOptions(exp, task.id).map((c) => ({ teams: [...c.teams], larger: c.larger }));
   const own = (task.assignedTeamIds ?? []).filter((i) => (exp.groundOps?.teams ?? []).some((t) => t.index === i));
-  if (own.length > 0 && !crews.some((c) => crewKey(c) === crewKey(own))) {
+  if (own.length > 0 && !crews.some((c) => crewKey(c.teams) === crewKey([...own].sort((a, b) => a - b)))) {
     const ownTeams = (exp.groundOps?.teams ?? []).filter((t) => own.includes(t.index));
-    if (squadsCover(crewSquadsOf(ownTeams), taskNeedsOf(task))) crews.push([...own].sort((a, b) => a - b));
+    if (squadsCover(crewSquadsOf(ownTeams), taskNeedsOf(task))) crews.push({ teams: [...own].sort((a, b) => a - b), larger: true });
   }
-  return crews.map((crew) => ({
-    key: crewKey(crew),
-    label: crew.length > 1 ? `${crewText(ship, crew)} (joint)` : crewText(ship, crew),
-    teamIndex: crew[0],
-    partners: crew.slice(1),
-  }));
+  const smallest = crews.find((c) => !c.larger)?.teams.length ?? 1;
+  const needs = taskNeedsOf(task);
+  const teams = exp.groundOps?.teams ?? [];
+  return crews.map(({ teams: crew, larger }) => {
+    const words = crewText(ship, crew);
+    const squads = crewSquadsOf(teams.filter((t) => crew.includes(t.index)));
+    const word = largerCrewWord(crew.length, smallest);
+    const label = larger ? `${words} (${word})` : crew.length > 1 ? `${words} (joint)` : words;
+    const note = larger ? `${word.charAt(0).toUpperCase()}${word.slice(1)}${word === "doubled" ? " crew" : ""}: ${largerCrewNote(squads, needs)}.` : null;
+    return { key: crewKey(crew), label, crew: words, teamIndex: crew[0], partners: crew.slice(1), larger, note };
+  });
 }
 
 export interface QueuePosView {
@@ -451,6 +483,7 @@ export interface TaskRowView {
   statusText: string;
   statusDetail: string | null;
   difficulty: DifficultyView | null;
+  affixes: ObjectiveAffixesView | null; // the affix pills and the alert (Reinforcing), or null
   needs: TaskNeedsView;
   bar: FightBarView;
   odds: OddsCell[]; // one per QueueTeamColumn, same order
@@ -467,7 +500,7 @@ export interface TaskRowView {
 export interface BodyQueueView {
   bodyIndex: number;
   title: string; // "Kepler-186 II · Volcanic"
-  countText: string; // "6 tasks discovered"
+  countText: string; // "6 objectives discovered"
   rows: TaskRowView[];
   canReplan: boolean; // the body has a queued task (Default plan / Auto-assign have something to plan)
   replanBlockedText: string | null;
@@ -498,6 +531,12 @@ export function bodyTitle(exp: Pick<Expedition, "systemName">, body: Pick<Expedi
   return `${exp.systemName} ${bodyNumeral(bodyIndex)} · ${type}`;
 }
 
+// A finished objective keeps its pills but no alert (nothing is left to retry). Pure.
+function pillsOnly(task: ExpeditionActivity, now: number): ObjectiveAffixesView | null {
+  const v = objectiveAffixesView(task, now);
+  return v && v.pills.length > 0 ? { pills: v.pills, alert: null } : null;
+}
+
 // One row. Pure in effect (odds through the memo).
 export function taskRowView(
   exp: Expedition,
@@ -520,6 +559,7 @@ export function taskRowView(
     statusText: QUEUE_STATUS_TEXT[status],
     statusDetail: queueStatusDetail(exp, ship, task, status),
     difficulty: difficultyView(task),
+    affixes: remaining ? objectiveAffixesView(task, now) : pillsOnly(task, now),
     needs: taskNeedsView(exp, ship, task),
     bar: fightBarView(exp, task, now),
     odds: columns.map((c) => oddsCell(exp, c, task, status, memo)),
@@ -551,10 +591,10 @@ export function groundQueueView(exp: Expedition, ship: ShipInstance | null | und
     bodies.push({
       bodyIndex,
       title: bodyTitle(exp, body, bodyIndex),
-      countText: `${plural(tasks.length, "task", "tasks")} discovered`,
+      countText: `${plural(tasks.length, "objective", "objectives")} discovered`,
       rows: tasks.map((task) => taskRowView(exp, ship, teams, task, now, memo)),
       canReplan,
-      replanBlockedText: canReplan ? null : over ? "The ground operations are over" : "No queued tasks on this body to plan",
+      replanBlockedText: canReplan ? null : over ? "The ground operations are over" : "No queued objectives on this body to plan",
     });
   });
   const stuck = !over && groundOpsStuck(exp)
@@ -601,7 +641,7 @@ export function groundOpsEditLogText(exp: Pick<Expedition, "bodies" | "systemNam
       const task = body.activities.find((a) => a.id === taskId);
       if (task) return taskName(task);
     }
-    return "the task";
+    return "the objective";
   };
   const crewOf = (lead: number, partners?: number[]): string => crewText(ship, [lead, ...(partners ?? []).filter((p) => p !== lead)]);
   switch (edit.kind) {
@@ -619,9 +659,9 @@ export function groundOpsEditLogText(exp: Pick<Expedition, "bodies" | "systemNam
     }
     case "autoAssign": {
       const body = exp.bodies[edit.bodyIndex];
-      return `Queued tasks on ${body ? bodyTitle(exp, body, edit.bodyIndex) : "that body"} auto-assigned at random.`;
+      return `Queued objectives on ${body ? bodyTitle(exp, body, edit.bodyIndex) : "that body"} auto-assigned at random.`;
     }
     case "setHelp":
-      return edit.on ? `${runTeamName(ship, edit.teamIndex)} will help other teams when done.` : `${runTeamName(ship, edit.teamIndex)} will stay on its own tasks.`;
+      return edit.on ? `${runTeamName(ship, edit.teamIndex)} will help other teams when done.` : `${runTeamName(ship, edit.teamIndex)} will stay on its own objectives.`;
   }
 }

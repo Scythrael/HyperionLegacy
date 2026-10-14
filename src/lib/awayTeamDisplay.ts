@@ -24,8 +24,8 @@ export interface SquadMeta {
 // EXHAUSTIVE over AwayTeamType, so a new squad type is a compile error until it has labels. Prospecting
 // is wired only (no hull fields it), so its row never renders today; it exists to satisfy the Record.
 export const SQUAD_META: Record<AwayTeamType, SquadMeta> = {
-  security: { name: "Security Detail", short: "Security", role: "fights during tasks", icon: "security" },
-  science: { name: "Science Party", short: "Science", role: "does the task fieldwork", icon: "research" },
+  security: { name: "Security Detail", short: "Security", role: "fights during objectives", icon: "security" },
+  science: { name: "Science Party", short: "Science", role: "does the objective fieldwork", icon: "research" },
   prospecting: { name: "Prospecting Crew", short: "Prospecting", role: "surveys for ore", icon: "ore" },
 };
 

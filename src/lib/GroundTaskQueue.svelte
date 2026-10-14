@@ -31,6 +31,7 @@
     type TaskRowView,
   } from "./groundTaskQueueDisplay";
   import { tick } from "svelte";
+  import ObjectiveAffixes from "./ObjectiveAffixes.svelte";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
   import ThreatChip from "./ui/ThreatChip.svelte";
@@ -97,7 +98,7 @@
     const key = pickOf(row);
     const edit = crewEdit(row, key);
     if (!edit) return;
-    const label = row.options.find((o) => o.key === key)?.label ?? "";
+    const label = row.options.find((o) => o.key === key)?.crew ?? "";
     clearPick(row.id);
     const verb = edit.kind === "requeue" ? "re-queued for" : "assigned to";
     void send(edit, `${row.name} ${verb} ${label}.`, edit.kind === "requeue" ? `${row.id}:skip` : `${row.id}:apply`, `${row.id}:crew`);
@@ -114,14 +115,14 @@
   }
   function replan(bodyIndex: number, kind: "defaultPlan" | "autoAssign", title: string): void {
     picks = {};
-    const done = kind === "defaultPlan" ? `Default plan applied on ${title}.` : `Queued tasks on ${title} auto-assigned at random.`;
+    const done = kind === "defaultPlan" ? `Default plan applied on ${title}.` : `Queued objectives on ${title} auto-assigned at random.`;
     void send({ kind, bodyIndex }, done, `body-${bodyIndex}:${kind}`);
   }
 </script>
 
-<section class="gq" bind:this={root} aria-label="Ground operations task queues">
+<section class="gq" bind:this={root} aria-label="Ground operations objective queues">
   <div class="gq-head">
-    <span class="gq-tag">Ground operations · task queues</span>
+    <span class="gq-tag">Ground operations · objective queues</span>
   </div>
 
   {#if view.stuck}
@@ -161,7 +162,7 @@
             class="gq-btn"
             data-qfocus="body-{body.bodyIndex}:autoAssign"
             disabled={!body.canReplan}
-            title={body.replanBlockedText ?? "Hand this body's queued tasks to the deployed teams at random"}
+            title={body.replanBlockedText ?? "Hand this body's queued objectives to the deployed teams at random"}
             on:click={() => replan(body.bodyIndex, "autoAssign", body.title)}>{AUTO_ASSIGN_LABEL}</button
           >
           <button
@@ -169,7 +170,7 @@
             class="gq-btn primary"
             data-qfocus="body-{body.bodyIndex}:defaultPlan"
             disabled={!body.canReplan}
-            title={body.replanBlockedText ?? "Hardest task to the strongest team, on down"}
+            title={body.replanBlockedText ?? "Hardest objective to the strongest team, on down"}
             on:click={() => replan(body.bodyIndex, "defaultPlan", body.title)}>{DEFAULT_PLAN_LABEL}</button
           >
         </div>
@@ -177,11 +178,11 @@
 
       <!-- GO-M2 `.tw`: the table scrolls sideways inside this wrapper on a phone; the page never does. -->
       <!-- svelte-ignore a11y_no_noninteractive_tabindex, INTENTIONAL: a scrollable region must take keyboard focus so a keyboard user can scroll it sideways (WCAG 2.1.1, axe scrollable-region-focusable); it is a named region. -->
-      <div class="gq-tw" role="region" aria-label="{body.title} tasks" tabindex="0">
+      <div class="gq-tw" role="region" aria-label="{body.title} objectives" tabindex="0">
         <table class="gq-table">
           <thead>
             <tr>
-              <th scope="col">Task</th>
+              <th scope="col">Objective</th>
               <th scope="col">Fights</th>
               {#each view.teams as team (team.index)}
                 <th scope="col" class="gq-th-team">
@@ -204,6 +205,7 @@
                       <span class="gq-status s-{row.status}">{row.statusText}</span>
                     </div>
                     {#if row.statusDetail}<div class="gq-detail">{row.statusDetail}</div>{/if}
+                    {#if row.affixes}<ObjectiveAffixes view={row.affixes} />{/if}
                     {#if row.difficulty}
                       <div class="gq-diff">
                         <span class="gq-pips" aria-hidden="true">
@@ -282,6 +284,11 @@
                       </div>
                     {:else if row.status === "skipped"}
                       <span class="gq-dim">No deployed crew covers it</span>
+                    {/if}
+                    {@const largerNote = row.options.find((o) => o.key === pickOf(row, picks, exp))?.note ?? null}
+                    {#if largerNote}
+                      <!-- AF-1: a larger crew's trade-off (user: more punch, half the throughput). -->
+                      <div class="gq-larger">{largerNote}</div>
                     {/if}
                     {#if row.canSkip}
                       <button
@@ -398,6 +405,13 @@
   .gq-stuck-hint {
     font-size: var(--text-xs);
     color: var(--color-text-secondary);
+  }
+  .gq-larger {
+    max-width: 22em;
+    margin: 2px 0 4px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    white-space: normal;
   }
   .gq-stuck-tasks {
     display: flex;

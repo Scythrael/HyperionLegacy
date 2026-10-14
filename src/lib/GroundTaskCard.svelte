@@ -1,12 +1,14 @@
 <script lang="ts">
-  // GroundTaskCard.svelte: one task's PROGRESS card on a running Ground Operations window (0.14.0, Ground Operations
+  // GroundTaskCard.svelte: one objective's PROGRESS card on a running Ground Operations window (0.14.0, Ground Operations
   // GO-14, mockup GO-M4 left): name, state chip ("In progress", "Paused: Alpha in the med bay", "Done", "Skipped"),
   // the crew's badges, the progress bar with a pip per fight point (won, under way, lost or wiped here: the bar
   // holds at the point after a wipe and the retry resumes there), the cleared / held point, the haul banked vs
-  // offloaded, notes (an ambush retreat, a surprise fight, an edit's stop) and the haul offloaded so far.
+  // offloaded, notes (an ambush retreat, a surprise fight, reinforcements, an edit's stop), the affix pills and the
+  // alert (objective affixes: Reinforcing; "Impossible: resets in 24m" while held) and the haul offloaded so far.
   // Replaces the GO-7b activity readout. Pure presentation over groundOpsTimelineDisplay.ts taskCardView (tested).
 
   import type { TaskCardView } from "./groundOpsTimelineDisplay";
+  import ObjectiveAffixes from "./ObjectiveAffixes.svelte";
   import Icon from "./ui/Icon.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
 
@@ -25,6 +27,8 @@
     </div>
     <span class="gtc-chip s-{card.state}">{card.stateText}</span>
   </div>
+
+  {#if card.affixes}<ObjectiveAffixes view={card.affixes} />{/if}
 
   {#if card.crew.length > 0}
     <div class="gtc-crew">

@@ -23,6 +23,8 @@ import {
   GROUND_QUEUE_NOTE,
   NEEDS_PARTNER_TEXT,
   NO_FIGHTS_TEXT,
+  QUEUE_EMPTY_TEXT,
+  STUCK_HINT,
   bodyNumeral,
   createOddsMemo,
   crewEdit,
@@ -33,6 +35,8 @@ import {
   fightBarView,
   groundOpsEditLogText,
   groundQueueView,
+  largerCrewNote,
+  largerCrewWord,
   needsPhrase,
   ordinal,
   queueTaskStatus,
@@ -195,7 +199,7 @@ describe("GO-13 the queue screen on a one-team run", () => {
     expect(v.bodies).toHaveLength(1);
     const body = v.bodies[0];
     expect(body.title).toBe(`${exp.systemName} I · Terrestrial`);
-    expect(body.countText).toBe("3 tasks discovered");
+    expect(body.countText).toBe("3 objectives discovered");
     expect(body.rows.map((r) => r.name)).toEqual(["Mineral Outcrop", "Cave Network", "Crashed Ship"]);
     for (const r of body.rows) {
       expect(r.odds).toHaveLength(1);
@@ -370,7 +374,11 @@ describe("GO-13 squads: requirement chips, joint crews, 'Needs a partner'", () =
     expect(calls).toContain(`${joint.id}|0+1`);
     expect(clearing.odds.map((c) => c.kind)).toEqual(["chip", "partner"]);
     expect(clearing.needs.phrase).toBe("Strike team");
-    expect(clearing.options.map((o) => o.label)).toEqual(["Alpha"]);
+    // AF-1 larger crews: the smallest crew first, then the larger one, marked with what it brings and its cost.
+    expect(clearing.options.map((o) => [o.label, o.larger])).toEqual([
+      ["Alpha", false],
+      ["Alpha + Bravo (doubled)", true],
+    ]);
     // The joint crew's re-queue edit carries the partner, and the engine accepts it.
     const s1 = apply(state, exp.id, { kind: "skip", taskId: joint.id });
     const skipped = groundQueueView(s1.expeditions[0], ship, T0, memo).bodies[0].rows[0];
@@ -398,8 +406,8 @@ describe("GO-13 squads: requirement chips, joint crews, 'Needs a partner'", () =
     const { memo } = countingMemo();
     const v = groundQueueView(exp, ship, T0, memo);
     const queued = v.bodies[0].rows.find((r) => r.status === "queued")!;
-    expect(queued.options.map((o) => o.key)).toEqual(["0", "1"]);
-    const other = queued.options.find((o) => o.key !== queued.crewKey)!;
+    expect(queued.options.map((o) => o.key)).toEqual(["0", "1", "0+1"]);
+    const other = queued.options.find((o) => o.key !== queued.crewKey && !o.larger)!;
     const s1 = apply(state, exp.id, crewEdit(queued, other.key)!);
     const moved = groundQueueView(s1.expeditions[0], ship, T0, memo).bodies[0].rows.find((r) => r.id === queued.id)!;
     expect(moved.crewKey).toBe(other.key);
@@ -420,7 +428,7 @@ describe("GO-13 log lines and text rules", () => {
     expect(groundOpsEditLogText(exp, ship, { kind: "skip", taskId: id })).toBe("Skipped Cave Network.");
     expect(groundOpsEditLogText(exp, ship, { kind: "reorder", teamIndex: 0, taskId: id, delta: 1 })).toBe("Cave Network moved later in Alpha's queue.");
     expect(groundOpsEditLogText(exp, ship, { kind: "defaultPlan", bodyIndex: 0 })).toBe(`Default plan applied on ${title}.`);
-    expect(groundOpsEditLogText(exp, ship, { kind: "autoAssign", bodyIndex: 0 })).toBe(`Queued tasks on ${title} auto-assigned at random.`);
+    expect(groundOpsEditLogText(exp, ship, { kind: "autoAssign", bodyIndex: 0 })).toBe(`Queued objectives on ${title} auto-assigned at random.`);
     expect(groundOpsEditLogText(exp, ship, { kind: "setHelp", teamIndex: 1, on: true })).toBe("Bravo will help other teams when done.");
   });
 
@@ -429,5 +437,54 @@ describe("GO-13 log lines and text rules", () => {
     const text = JSON.stringify(groundQueueView(exp, shipOf(state), T0, countingMemo().memo)) + GROUND_QUEUE_NOTE;
     expect(text).not.toMatch(/\u2014|-{2}/);
     expect(text).not.toMatch(/\bfit(ting|ted|ment)?\b/i);
+    // User 2026-10-14: player-facing text says "objective", never "task".
+    expect(text.replace(/"(id|crewKey|key)":"[^"]*"/g, "")).not.toMatch(/\btasks?\b/i);
+    expect(GROUND_QUEUE_NOTE + QUEUE_EMPTY_TEXT + STUCK_HINT).not.toMatch(/\btasks?\b/i);
+  });
+});
+
+describe("AF-1 larger crews and affixes on the queue screen", () => {
+  it("Ground + Ground: the select offers the doubled crew after the solo ones, and the engine accepts it", () => {
+    const { state, exp } = twoTeamRun(["ground", "ground"], [{ poiId: "crashedShip" }, { poiId: "caveNetwork" }]);
+    const ship = shipOf(state);
+    const { memo } = countingMemo();
+    const row = groundQueueView(exp, ship, T0, memo).bodies[0].rows[0];
+    expect(row.options.map((o) => [o.key, o.label, o.larger, o.note])).toEqual([
+      ["0", "Alpha", false, null],
+      ["1", "Bravo", false, null],
+      ["0+1", "Alpha + Bravo (doubled)", true, "Doubled crew: more punch and more fieldwork, one objective at a time."],
+    ]);
+    expect(row.options[2].crew).toBe("Alpha + Bravo");
+    const edit = crewEdit(row, "0+1")!;
+    expect(edit).toEqual({ kind: "assign", taskId: row.id, teamIndex: 0, partners: [1] });
+    const s1 = apply(state, exp.id, edit);
+    const after = groundQueueView(s1.expeditions[0], ship, T0, memo).bodies[0].rows[0];
+    expect(after.crewKey).toBe("0+1");
+    expect(after.crewText).toBe("Alpha + Bravo");
+    expect(after.jointOdds).not.toBeNull(); // the larger crew's own tier on its card
+    expect(defaultCrewPick(after)).toBe("0+1");
+  });
+
+  it("a larger crew reads doubled or larger, what the extra squads bring, always the cost", () => {
+    expect(largerCrewWord(2, 1)).toBe("doubled");
+    expect(largerCrewWord(3, 2)).toBe("larger crew");
+    expect(largerCrewNote({ security: 2, science: 2 }, { security: 1, science: 1 })).toBe("more punch and more fieldwork, one objective at a time");
+    expect(largerCrewNote({ security: 4, science: 0 }, { security: 2, science: 0 })).toBe("more punch, one objective at a time");
+    expect(largerCrewNote({ security: 1, science: 1 }, { security: 1, science: 1 })).toBe("one objective at a time");
+  });
+
+  it("a row carries the affix pills and the alert; a finished one keeps its pills only", () => {
+    const { state, exp } = twoTeamRun(["ground", "ground"], [{ poiId: "crashedShip" }]);
+    const e = structuredClone(exp);
+    const task = e.bodies[0].activities[0];
+    Object.assign(task, { difficulty: 5, difficultyScore: 8, affixes: [{ id: "reinforcing", rank: 2, alignment: "negative" }], alert: { level: 3, lastAt: T0 - 60 } });
+    const row = groundQueueView(e, shipOf(state), T0, countingMemo().memo).bodies[0].rows[0];
+    expect(row.affixes!.pills.map((p) => p.label)).toEqual(["Reinforcing II"]);
+    expect(row.affixes!.alert).toMatchObject({ held: true, headline: "Impossible: resets in 39m" });
+    Object.assign(task, { status: "done", done: true });
+    expect(groundQueueView(e, shipOf(state), T0, countingMemo().memo).bodies[0].rows[0].affixes).toMatchObject({ alert: null });
+    task.affixes = undefined;
+    task.alert = undefined;
+    expect(groundQueueView(e, shipOf(state), T0, countingMemo().memo).bodies[0].rows[0].affixes).toBeNull();
   });
 });

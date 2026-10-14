@@ -300,9 +300,102 @@ describe("GO-14 an edit stops the active task", () => {
     expect(stopped.detail).toMatch(/stopped by your edit$/);
     const card = taskCardView(edited, shipOf(s1), firstTask(edited), now);
     expect(card.state).toBe("skipped");
-    expect(card.notes).toContain(`Skipped mid-task: progress kept at ${card.progressPct}%`);
+    expect(card.notes).toContain(`Skipped partway: progress kept at ${card.progressPct}%`);
     expect(card.haulText).not.toMatch(/relic/);
     expect(card.pointText).toMatch(/^Skipped with \d of 3 fights won$/);
+  });
+});
+
+describe("AF-1 objective affixes on the timelines and cards", () => {
+  // A crashed ship with two fight points, its first point fight still ahead, and Reinforcing on it.
+  function reinforced(records: Omit<GroundStepRecord, "teamIndex">[]) {
+    const { state, exp } = opsRun({ poiIds: ["crashedShip"] });
+    const e = structuredClone(exp);
+    const ops = e.groundOps!;
+    const id = firstTask(e).id;
+    ops.history = records.map((r) => ({ teamIndex: 0, ...r, ...(r.step === "idle" ? {} : { taskId: id }) }));
+    const end = records[records.length - 1].endedAt;
+    const team = ops.teams[0];
+    Object.assign(team, { step: "idle", stepStartedAt: end, stepEndsAt: null });
+    delete team.taskId;
+    Object.assign(firstTask(e), {
+      status: "queued",
+      fightPoints: [0.3, 0.6],
+      pointsCleared: 0,
+      progress: 0.3,
+      fightCount: 1,
+      difficulty: 5,
+      difficultyScore: 8,
+      affixes: [{ id: "reinforcing", rank: 3, alignment: "negative" }],
+    });
+    return { state, exp: e, now: end + 10 };
+  }
+
+  it("a reinforcement fight is labelled on the lane, and a lost one never reads 'wiped here' at the next point", () => {
+    const { state, exp, now } = reinforced([
+      { step: "deploy", startedAt: T0, endedAt: T0 + 60 },
+      { step: "work", startedAt: T0 + 60, endedAt: T0 + 200 },
+      { step: "fight", startedAt: T0 + 200, endedAt: T0 + 260, outcome: "win", reinforcement: true },
+      { step: "work", startedAt: T0 + 260, endedAt: T0 + 300 },
+      { step: "fight", startedAt: T0 + 300, endedAt: T0 + 360, outcome: "loss", reinforcement: true },
+      { step: "return", startedAt: T0 + 360, endedAt: T0 + 420 },
+    ]);
+    const fights = timelineView(exp, shipOf(state), now, "whole", scan)!.lanes[0].segments.filter((s) => s.category === "fight");
+    expect(fights.map((s) => s.label)).toEqual(["reinforcements, won", "reinforcements, lost"]);
+    expect(fights[0].detail).toMatch(/^Reinforcements at Crashed Ship: won/);
+    expect(fights[1].detail).toMatch(/^Reinforcements at Crashed Ship: lost, the team fell back/);
+    const card = taskCardView(exp, shipOf(state), firstTask(exp), now);
+    // The bar sits AT point 1 (progress 30%), but the last fight was a reinforcement fight: no held line, no pip.
+    expect(card.pips.map((p) => p.state)).toEqual(["pending", "pending"]);
+    expect(card.pointText).toBe("2 fights ahead; the first at 30%");
+    expect(card.notes).toEqual(["Beat back reinforcements once", "Lost a fight to reinforcements"]);
+  });
+
+  it("a lost POINT fight after a won reinforcement fight still holds the bar at the point", () => {
+    const { state, exp, now } = reinforced([
+      { step: "deploy", startedAt: T0, endedAt: T0 + 60 },
+      { step: "fight", startedAt: T0 + 60, endedAt: T0 + 120, outcome: "win", reinforcement: true },
+      { step: "work", startedAt: T0 + 120, endedAt: T0 + 200 },
+      { step: "fight", startedAt: T0 + 200, endedAt: T0 + 260, outcome: "loss" },
+      { step: "return", startedAt: T0 + 260, endedAt: T0 + 320 },
+    ]);
+    const card = taskCardView(exp, shipOf(state), firstTask(exp), now);
+    expect(card.pips[0]).toMatchObject({ state: "lost", label: "fight 1: lost here, resumes here" });
+    expect(card.pointText).toBe("Progress held at 30%: lost at fight 1; the retry resumes there");
+  });
+
+  it("the card carries the affix pill and, while held at Impossible, the live countdown", () => {
+    const { state, exp, now } = reinforced([
+      { step: "deploy", startedAt: T0, endedAt: T0 + 60 },
+      { step: "fight", startedAt: T0 + 60, endedAt: T0 + 120, outcome: "loss" },
+      { step: "return", startedAt: T0 + 120, endedAt: T0 + 180 },
+    ]);
+    firstTask(exp).alert = { level: 3, lastAt: now - 100 };
+    const card = taskCardView(exp, shipOf(state), firstTask(exp), now);
+    expect(card.affixes!.pills.map((p) => [p.label, p.color, p.alignment])).toEqual([["Reinforcing III", "red", "Negative"]]);
+    expect(card.affixes!.alert).toMatchObject({ held: true, headline: "Impossible: resets in 48m 20s" });
+    expect(taskCardView(exp, shipOf(state), firstTask(exp), now + 60).affixes!.alert!.headline).toBe("Impossible: resets in 47m 20s");
+    // Done: the pills stay, the alert goes (nothing is left to retry).
+    Object.assign(firstTask(exp), { status: "done", done: true, progress: 1, pointsCleared: 2 });
+    expect(taskCardView(exp, shipOf(state), firstTask(exp), now).affixes).toMatchObject({ alert: null });
+  });
+
+  it("a live reinforcement fight is labelled as one and never marks a fight point 'under way'", () => {
+    const { state, exp, now } = reinforced([{ step: "deploy", startedAt: T0, endedAt: T0 + 60 }]);
+    const team = exp.groundOps!.teams[0];
+    const task = firstTask(exp);
+    task.status = "active";
+    Object.assign(team, {
+      step: "fight",
+      taskId: task.id,
+      stepStartedAt: now - 5,
+      stepEndsAt: now + 50,
+      pendingFight: { pointIndex: 0, fightNumber: 1, outcome: "win", rounds: 3, downedMemberIds: [], memberConditions: {}, memberEnd: {}, reinforcement: true },
+    });
+    const lane = timelineView(exp, shipOf(state), now, "whole", scan)!.lanes[0];
+    expect(lane.segments[lane.segments.length - 1]).toMatchObject({ current: true, label: "reinforcements" });
+    expect(lane.segments[lane.segments.length - 1].detail).toBe("Reinforcements at Crashed Ship, under way");
+    expect(taskCardView(exp, shipOf(state), task, now).pips[0].state).toBe("pending");
   });
 });
 
@@ -367,6 +460,9 @@ describe("GO-14 the medical bay card", () => {
     expect(card.baySeconds).toBe(fracture);
     expect(card.bayText).toBe(`Bay time: ${spanText(fracture)} (the longest one)`);
     expect(card.statusText).toBe(`${spanText(5000)} left`);
+    // GO-14 review: the longest row also reads the time left; the others only their length.
+    expect(card.rows[0].timeText).toBe(`${spanText(fracture)} (${spanText(5000)} left)`);
+    expect(card.rows.find((r) => r.conditionId === "poison")!.timeText).toBe(spanText(poison));
     expect(card.stoneskinNote).toBe("Grokk is Ossir: Stoneskin makes injuries last 25% longer.");
     // With no care at all, the mockup's numbers: Fracture on an Ossir member is 2250 s.
     if (care.medicalShare + care.rapidRecoveryShare + care.officerFacetShare + care.injurySteady === 0) expect(fracture).toBe(2250);
@@ -377,7 +473,9 @@ describe("GO-14 the medical bay card", () => {
     const e = structuredClone(exp);
     const team = e.groundOps!.teams[0];
     Object.assign(team, { step: "offload", stepStartedAt: T0, stepEndsAt: T0 + 120, conditions: { "member-11": ["poison"] } });
-    expect(bayCardView(e, shipOf(state), team, T0 + 5, state.awayMembers)).toMatchObject({ inBay: false, statusText: "Starts after the offload" });
+    const heading = bayCardView(e, shipOf(state), team, T0 + 5, state.awayMembers)!;
+    expect(heading).toMatchObject({ inBay: false, statusText: "Starts after the offload" });
+    expect(heading.rows[0].timeText).not.toMatch(/left/); // the bay has not started: no time left yet
     Object.assign(team, { step: "offload", conditions: {} });
     expect(bayCardView(e, shipOf(state), team, T0 + 5, state.awayMembers)).toBeNull();
     Object.assign(team, { step: "idle", stepEndsAt: null, conditions: { "member-11": ["poison"] } });

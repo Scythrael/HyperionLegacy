@@ -16,7 +16,9 @@
 //     follow-up; a round-cap retreat with someone standing is an ordinary return);
 //   - a work step marked `ambushed` ended in an ambush: the crew RETREATED when its next step is a return, else it
 //     fought it where it stood (the next step is a fight marked `surprise`);
-//   - `stopped` marks a step a player's edit ended (skip, or a reassign away; GO-7d).
+//   - `stopped` marks a step a player's edit ended (skip, or a reassign away; GO-7d);
+//   - `reinforcement` marks a fight Reinforcing's reinforcements forced mid-work (objective affixes, AF-1): it holds
+//     no fight point, so the lanes call it "Reinforcements" and the "wiped here" pip never reads it.
 
 import type {
   AwayMember,
@@ -40,6 +42,7 @@ import { DEFAULT_GROUND_TEAM_KIND, isGroundTeamKind, teamKindName } from "./game
 import { groundTeamShortLabel } from "./game/groundTeams";
 import { bodyNumeral, bodyTitle, crewText, queueTaskStatus, runTeamName, taskName } from "./groundTaskQueueDisplay";
 import type { IconName } from "./ui/icons";
+import { objectiveAffixesView, type ObjectiveAffixesView } from "./objectiveAffixDisplay";
 
 // ===== Small words =====
 
@@ -86,7 +89,7 @@ function taskById(exp: Pick<Expedition, "bodies">, taskId: string | undefined): 
 
 function taskLabel(exp: Pick<Expedition, "bodies">, taskId: string | undefined): string {
   const task = taskById(exp, taskId);
-  return task ? taskName(task) : "the task";
+  return task ? taskName(task) : "the objective";
 }
 
 // ===== Lane segments =====
@@ -168,6 +171,7 @@ interface RawStep {
   recovered?: boolean;
   ambushed?: boolean;
   surprise?: boolean;
+  reinforcement?: boolean;
   stopped?: boolean;
   live: boolean;
   awaitingPickup?: boolean; // live return waiting for the ship
@@ -194,6 +198,7 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       ...(r.recovered ? { recovered: true } : {}),
       ...(r.ambushed ? { ambushed: true } : {}),
       ...(r.surprise ? { surprise: true } : {}),
+      ...(r.reinforcement ? { reinforcement: true } : {}),
       ...(r.stopped ? { stopped: true } : {}),
       live: false,
     }));
@@ -203,6 +208,8 @@ function teamSteps(exp: Expedition, team: GroundTeamRun, axisEnd: number): RawSt
       startedAt: team.stepStartedAt,
       endedAt: Math.max(team.stepStartedAt, axisEnd),
       ...(team.taskId !== undefined && team.step !== "idle" ? { taskId: team.taskId } : {}),
+      ...(team.step === "fight" && team.pendingFight?.surprise ? { surprise: true } : {}),
+      ...(team.step === "fight" && team.pendingFight?.reinforcement ? { reinforcement: true } : {}),
       live: true,
       ...(awaitingPickup(ops, team) ? { awaitingPickup: true } : {}),
     });
@@ -251,11 +258,13 @@ function stepWords(exp: Expedition, steps: readonly RawStep[], i: number): StepW
       return { category: "work", label: s.stopped ? "stopped" : task, detail: `Work on ${task} (${len})${stopNote}`, lost: false };
     }
     case "fight": {
-      const kind = s.surprise ? "Surprise fight" : "Fight";
-      if (s.live) return { category: "fight", label: "fight", detail: `${kind} at ${task}, under way`, lost: false };
-      if (s.outcome === "win") return { category: "fight", label: s.surprise ? "surprise, won" : "won", detail: `${kind} at ${task}: won (${len})${stopNote}`, lost: false };
-      if (lossWasWipe(steps, i)) return { category: "wipe", label: "wiped", detail: `${kind} at ${task}: lost, Security wiped (${len})${stopNote}`, lost: false };
-      return { category: "fight", label: "lost", detail: `${kind} at ${task}: lost, the team fell back (${len})${stopNote}`, lost: true };
+      // AF-1: a Reinforcing extra battle is labelled like a surprise fight (it holds no fight point).
+      const kind = s.reinforcement ? "Reinforcements" : s.surprise ? "Surprise fight" : "Fight";
+      const tag = s.reinforcement ? "reinforcements" : s.surprise ? "surprise" : null;
+      if (s.live) return { category: "fight", label: tag ?? "fight", detail: `${kind} at ${task}, under way`, lost: false };
+      if (s.outcome === "win") return { category: "fight", label: tag ? `${tag}, won` : "won", detail: `${kind} at ${task}: won (${len})${stopNote}`, lost: false };
+      if (lossWasWipe(steps, i)) return { category: "wipe", label: s.reinforcement ? "reinforcements, wiped" : "wiped", detail: `${kind} at ${task}: lost, Security wiped (${len})${stopNote}`, lost: false };
+      return { category: "fight", label: s.reinforcement ? "reinforcements, lost" : "lost", detail: `${kind} at ${task}: lost, the team fell back (${len})${stopNote}`, lost: true };
     }
     case "return":
       if (s.awaitingPickup) return { category: "travel", label: "awaiting pickup", detail: "Waiting for the ship to pick the team up", lost: false };
@@ -367,7 +376,7 @@ export function teamNowText(exp: Expedition, ship: ShipInstance | null | undefin
     case "idle": {
       if (closed) return "Back aboard";
       const remaining = groundTeamRemainingTasks(exp, team).length;
-      if (remaining > 0) return "Idle: about to take its next task";
+      if (remaining > 0) return "Idle: about to take its next objective";
       return team.helpOthers ? "Idle: queue done, ready to help other teams" : "Idle: queue done";
     }
     case "staging": {
@@ -671,6 +680,7 @@ export interface TaskCardView {
   crew: { index: number; kind: GroundTeamKind; name: string }[];
   progressPct: number;
   pips: TaskPipView[];
+  affixes: ObjectiveAffixesView | null; // the affix pills and the alert (Reinforcing), or null
   barLabel: string; // the bar's accessible name
   pointText: string; // the cleared / held point
   haulText: string; // segments banked vs offloaded
@@ -783,11 +793,18 @@ export function taskCardView(exp: Expedition, ship: ShipInstance | null | undefi
   const points = task.fightPoints ?? [];
   const cleared = Math.max(0, Math.min(points.length, task.pointsCleared ?? 0));
   const progressPct = done ? 100 : wholePct(groundTaskProgressAt(exp, task, now));
-  // A point fight under way now (a surprise fight holds no point).
-  const fightingNow = onIt.some((t) => t.step === "fight" && t.pendingFight?.surprise !== true);
-  // The held point: the last fight on this task was a lost point fight (not a surprise) and the bar sits at it.
+  // A point fight under way now (a surprise fight and a reinforcement fight hold no point).
+  const fightingNow = onIt.some((t) => t.step === "fight" && t.pendingFight?.surprise !== true && t.pendingFight?.reinforcement !== true);
+  // The held point: the last fight on this objective was a lost POINT fight (not a surprise, not a reinforcement
+  // fight: AF-1, it carries the objective's pointIndex but strikes between points) and the bar sits at it.
   const heldLoss =
-    !done && lastFight !== null && lastFight.rec.outcome === "loss" && lastFight.rec.surprise !== true && cleared < points.length && (task.progress ?? 0) >= points[cleared] - 1e-9;
+    !done &&
+    lastFight !== null &&
+    lastFight.rec.outcome === "loss" &&
+    lastFight.rec.surprise !== true &&
+    lastFight.rec.reinforcement !== true &&
+    cleared < points.length &&
+    (task.progress ?? 0) >= points[cleared] - 1e-9;
   const heldWipe = heldLoss && lastFight !== null && recWasWipe(exp, lastFight);
   const pips: TaskPipView[] = points.map((at, i) => {
     const n = i + 1;
@@ -801,7 +818,7 @@ export function taskCardView(exp: Expedition, ship: ShipInstance | null | undefi
   });
 
   let pointText: string;
-  if (points.length === 0) pointText = done ? "Done: no fights on this task" : task.status === "skipped" ? "Skipped" : "No fights expected";
+  if (points.length === 0) pointText = done ? "Done: no fights on this objective" : task.status === "skipped" ? "Skipped" : "No fights expected";
   else if (done) pointText = `Done: ${plural(points.length, "fight", "fights")} won`;
   else if (task.status === "skipped") pointText = `Skipped with ${cleared} of ${plural(points.length, "fight", "fights")} won`;
   else if (heldLoss) {
@@ -827,12 +844,16 @@ export function taskCardView(exp: Expedition, ship: ShipInstance | null | undefi
   }
   const surpriseWon = fights.filter((e) => e.rec.surprise && e.rec.outcome === "win").length;
   const surpriseLost = fights.filter((e) => e.rec.surprise && e.rec.outcome === "loss").length;
+  const reinforcementWon = fights.filter((e) => e.rec.reinforcement && e.rec.outcome === "win").length;
+  const reinforcementLost = fights.filter((e) => e.rec.reinforcement && e.rec.outcome === "loss").length;
   if (retreats > 0) notes.push(retreats === 1 ? "Retreated from an ambush" : `Retreated from ${retreats} ambushes`);
   if (surpriseWon > 0) notes.push(surpriseWon === 1 ? "Won a surprise fight" : `Won ${surpriseWon} surprise fights`);
   if (surpriseLost > 0) notes.push(surpriseLost === 1 ? "Lost a surprise fight" : `Lost ${surpriseLost} surprise fights`);
+  if (reinforcementWon > 0) notes.push(reinforcementWon === 1 ? "Beat back reinforcements once" : `Beat back reinforcements ${reinforcementWon} times`);
+  if (reinforcementLost > 0) notes.push(reinforcementLost === 1 ? "Lost a fight to reinforcements" : `Lost ${reinforcementLost} fights to reinforcements`);
   const told = retreats + surpriseWon + surpriseLost;
   if ((task.ambushes ?? 0) > told) notes.push((task.ambushes ?? 0) === 1 ? "Ambushed once" : `Ambushed ${task.ambushes} times`);
-  if (records.some((e) => e.rec.stopped)) notes.push(task.status === "skipped" ? `Skipped mid-task: progress kept at ${wholePct(task.progress ?? 0)}%` : "Stopped once by your edit");
+  if (records.some((e) => e.rec.stopped)) notes.push(task.status === "skipped" ? `Skipped partway: progress kept at ${wholePct(task.progress ?? 0)}%` : "Stopped once by your edit");
   if (!done && groundTaskStuck(task)) notes.push(queueStatus === "stuck" ? "Stuck: needs a stronger team or a skip" : "3 losses in a row: back of the line");
 
   // The haul offloaded so far (one finding per offloaded batch).
@@ -866,12 +887,19 @@ export function taskCardView(exp: Expedition, ship: ShipInstance | null | undefi
     crew,
     progressPct,
     pips,
+    affixes: done || task.status === "skipped" ? pillsOnly(task, now) : objectiveAffixesView(task, now),
     barLabel: `${name}: ${progressPct}% done. ${pointText}.`,
     pointText,
     haulText,
     notes,
     haul,
   };
+}
+
+// A finished or skipped objective keeps its pills but shows no alert (nothing is left to retry). Pure.
+function pillsOnly(task: ExpeditionActivity, now: number): ObjectiveAffixesView | null {
+  const v = objectiveAffixesView(task, now);
+  return v && v.pills.length > 0 ? { pills: v.pills, alert: null } : null;
 }
 
 const CARD_ORDER: Record<TaskCardState, number> = { inProgress: 0, paused: 1, queued: 2, done: 3, skipped: 4 };
@@ -900,7 +928,7 @@ export interface BayRowView {
   cls: ConditionClass;
   who: string; // "Grokk (injury, Stoneskin)", "everyone (health)"
   seconds: number;
-  timeText: string;
+  timeText: string; // "25m"; the longest row in the bay also reads the time left: "25m (12m 3s left)"
   widthPct: number;
   longest: boolean;
   stoneskin: boolean;
@@ -982,7 +1010,7 @@ export function bayCardView(
       cls: def.cls,
       who: `${names} (${tags})`,
       seconds: c.seconds,
-      timeText: spanText(c.seconds),
+      timeText: inBay && c.seconds === longest ? `${spanText(c.seconds)} (${leftText(team.stepEndsAt as number, now)})` : spanText(c.seconds),
       widthPct: longest > 0 ? pct(c.seconds / longest) : 0,
       longest: c.seconds === longest,
       stoneskin: c.stoneskin,

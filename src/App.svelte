@@ -5307,7 +5307,7 @@
     if (next === state) return; // unknown ship / team, or already set
     state = next;
     const team = groundTeamLabel(shipId, teamIndex);
-    pushLog(on ? `${team} will help other teams when done (from the next launch).` : `${team} will stay on its own tasks.`);
+    pushLog(on ? `${team} will help other teams when done (from the next launch).` : `${team} will stay on its own objectives.`);
     doSave();
   }
 

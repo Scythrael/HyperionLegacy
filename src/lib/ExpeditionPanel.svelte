@@ -81,6 +81,7 @@
   import ActionModal from "./ActionModal.svelte";
   import TeamBadge from "./ui/TeamBadge.svelte";
   import ThreatChip from "./ui/ThreatChip.svelte";
+  import AffixPill from "./ui/AffixPill.svelte";
   import { installedSensorArray } from "./game/sensorArrays";
   import { effectiveShipStats } from "./game/crewOverlay";
   import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
@@ -559,15 +560,15 @@
             </div>
           {/if}
           {#if taskCards && taskCards.total > 0}
-            <div class="exp-section-tag">Task progress · {taskCards.done} of {taskCards.total} done</div>
+            <div class="exp-section-tag">Objective progress · {taskCards.done} of {taskCards.total} done</div>
             {#if taskCards.cards.length === 0}
-              <div class="exp-note">No task started yet: the queues above show what each team takes first.</div>
+              <div class="exp-note">No objective started yet: the queues above show what each team takes first.</div>
             {:else}
               <div class="exp-cards">
                 {#each taskCards.cards as card (card.id)}<GroundTaskCard {card} />{/each}
               </div>
             {/if}
-            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every task the team returns to the ship to offload, recover in the medical bay and reload; a lost task keeps its progress and is retried after the bay.</div>
+            <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. After every objective the team returns to the ship to offload, recover in the medical bay and reload; a lost objective keeps its progress and is retried after the bay.</div>
           {/if}
         {:else if activitiesTotal > 0}
           <!-- ACTIVITY BATTLE READOUT (a legacy run): each resolved away-team task shows its OUTCOME (secured vs
@@ -636,7 +637,7 @@
               {/each}
             {/each}
           </div>
-          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost tasks evacuate with a reduced haul.</div>
+          <div class="exp-note">Battles auto-resolve: each Security member runs their own gambit program, or the built-in default. Lost objectives evacuate with a reduced haul.</div>
         {/if}
 
         <!-- FINDINGS TALLY -->
@@ -830,6 +831,7 @@
                           <div class="exp-forecast-hard">
                             <span>{fc.hardestText}</span>
                             {#if fc.threat}<ThreatChip assessment={fc.threat} full context="Forecast odds" />{/if}
+                            {#each fc.affixPills as pill (pill.key)}<AffixPill {pill} />{/each}
                           </div>
                         {/if}
                         {#if fc.note}<div class="exp-forecast-note">{fc.note}.</div>{/if}
@@ -884,11 +886,11 @@
             <div class="exp-teams">
               <div class="exp-team">
                 <span class="exp-team-name">Security<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.securityStrength) : "-"}</span></span>
-                <span class="exp-team-role">Fights during tasks. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
+                <span class="exp-team-role">Fights during objectives. Each member runs their own gambit program, or the built-in default (no automatic kit use).</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Science<span class="exp-team-str">{chosenAwayTeam ? strengthBand(chosenAwayTeam.scienceStrength) : "-"}</span></span>
-                <span class="exp-team-role">Does the task fieldwork and never fights.</span>
+                <span class="exp-team-role">Does the objective fieldwork and never fights.</span>
               </div>
               <div class="exp-team">
                 <span class="exp-team-name">Team kit<span class="exp-team-str">{chosenAwayTeam ? chosenAwayTeam.teamKit : "-"}</span></span>

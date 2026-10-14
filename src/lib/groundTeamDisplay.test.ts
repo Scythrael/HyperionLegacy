@@ -220,8 +220,8 @@ describe("wording", () => {
   });
 
   it("says what each squad does on the ground and what the reserve is, with no em dashes", () => {
-    expect(GROUND_TEAMS_INTRO).toContain("Security fights during tasks");
-    expect(GROUND_TEAMS_INTRO).toContain("Science does the task fieldwork");
+    expect(GROUND_TEAMS_INTRO).toContain("Security fights during objectives");
+    expect(GROUND_TEAMS_INTRO).toContain("Science does the objective fieldwork");
     expect(GROUND_TEAMS_INTRO).toContain("Scanning is ship-side");
     expect(RESERVE_INTRO).toContain("do not deploy");
     for (const text of [GROUND_TEAMS_INTRO, RESERVE_INTRO, RESERVE_CAP_NOTE]) expect(NO_DASHES(text)).toBe(true);

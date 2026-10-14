@@ -156,7 +156,7 @@ describe("SQ-7 7.2: the Subspace Telescope block", () => {
     }
     expect(b.bodies).toBeNull();
     expect(b.demandText).toBeNull();
-    expect(b.nextNote).toBe("Each body's grades and the task demand appear at detail 3 (Per body).");
+    expect(b.nextNote).toBe("Each body's grades and the objective demand appear at detail 3 (Per body).");
     expect(b.wantsLaunchView).toBe(false);
   });
 
@@ -300,13 +300,17 @@ describe("SQ-7 7.2: the recommendation box and the forecast line", () => {
     const v = forecastView(ship, f);
     expect(v.lead).toBe("Forecast with Strike + Ground");
     expect(v.tasksText).toBe("11 tasks: 2 Simple, 6 Standard, 3 Challenging");
-    expect(v.unfinishedText).toBe("Leaves 2 tasks unfinished.");
+    expect(v.unfinishedText).toBe("Leaves 2 objectives unfinished.");
     expect(v.hardestText).toBe("Hardest fight: Geothermal Chamber (Challenging, 3 fights), crew Alpha (Strike) + Bravo (Ground)");
     expect(v.threat).toBe(threat);
     const calm = forecastView(ship, { ...f, unfinished: 0, hardest: null, threat: null, note: "No fights expected" });
     expect(calm.hardestText).toBeNull();
     expect(calm.unfinishedText).toBeNull();
     expect(calm.note).toBe("No fights expected");
+    // Objective affixes: a Deadly hardest fight carries Reinforcing (required there), shown as its pill.
+    expect(v.affixPills).toEqual([]);
+    const deadly = forecastView(ship, { ...f, hardest: { ...f.hardest!, difficulty: 5, difficultyName: "Deadly" } });
+    expect(deadly.affixPills.map((p) => [p.label, p.color, p.alignment])).toEqual([["Reinforcing", "red", "Negative"]]);
   });
 
   it("the blind confirm carries the user's warning, plainly", () => {

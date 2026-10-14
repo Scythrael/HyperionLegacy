@@ -8,6 +8,25 @@ describe("HELP_TOPICS", () => {
       expect(ids, `missing help topic: ${sys}`).toContain(sys);
     }
   });
+  // 0.14.0 objective affixes: the affix system and Reinforcing each have an entry, and the manual says
+  // "objective" for ground work, never "task" (user 2026-10-14: "I like objectives over tasks honestly").
+  it("explains affixes and Reinforcing, and says objectives, never tasks (0.14.0)", () => {
+    const ids = HELP_TOPICS.map((t) => t.id);
+    expect(ids).toContain("affixes");
+    expect(ids).toContain("reinforcing");
+    const affixes = HELP_TOPICS.find((t) => t.id === "affixes")!;
+    expect(affixes.body).toMatch(/green is Positive/);
+    expect(affixes.body).toMatch(/yellow is Neutral/);
+    expect(affixes.body).toMatch(/red is Negative/);
+    const reinforcing = HELP_TOPICS.find((t) => t.id === "reinforcing")!;
+    expect(reinforcing.body).toMatch(/Impossible/);
+    expect(reinforcing.body).toMatch(/countdown/);
+    expect(reinforcing.body).toMatch(/Heightened Senses/);
+    for (const t of HELP_TOPICS) {
+      expect(/\btasks?\b/i.test(t.body), `"task" wording in: ${t.id}`).toBe(false);
+      expect(/\u2014|-{2}/.test(t.body), `em dash or double hyphen in: ${t.id}`).toBe(false);
+    }
+  });
   it("every topic has a non-empty title and body", () => {
     for (const t of HELP_TOPICS) {
       expect(t.title.length).toBeGreaterThan(0);

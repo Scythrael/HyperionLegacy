@@ -41,7 +41,7 @@
   </div>
 
   {#if !view}
-    <div class="gt-note">The teams start once the ship begins its scan; each body's tasks open when its scan finishes.</div>
+    <div class="gt-note">The teams start once the ship begins its scan; each body's objectives open when its scan finishes.</div>
   {:else}
     <div class="gt-lanes">
       <div class="gt-axis" aria-hidden="true">

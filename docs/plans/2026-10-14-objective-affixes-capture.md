@@ -316,3 +316,74 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   cover, parity one call == 997 s == 1 s with negative cover + Reinforcing (a reinforcement and a loss in the
   window), the edge fix); affixes.test.ts updated for the second affix (catalog 1 keeps AF-1's expectations). Every
   golden (legacy, pre-SQ-4, pre-clearing, pre-AF-1, pre-AF-2) and every parity test unchanged.
+
+## Carry from the UI step (built 2026-10-14, commit `feat(0.14.0): objectives naming, affix pills, larger crew picker (UI)`)
+
+- **Objectives rename (user, section 3).** Every player-facing string of the UI layer about ground work now says
+  "objective": the queue screen ("Ground operations · objective queues", the "Objective" column, "9 objectives
+  discovered", the region names, the button tooltips, the empty / stuck hints, the result lines), the progress cards
+  ("Objective progress · N of M done", "No objective started yet", "Done: no fights on this objective", "Skipped
+  partway: progress kept at 6%"), the timelines ("Idle: about to take its next objective", "the objective" fallback),
+  the dispatch console ("Fights during objectives", "Does the objective fieldwork", "Leaves 2 objectives unfinished.",
+  "the objective demand appear at detail 3"), the squad words (awayTeamDisplay.ts, groundTeamDisplay.ts intro), the
+  edit log lines (groundTaskQueueDisplay.ts groundOpsEditLogText) and App.svelte's "will stay on its own objectives."
+  log line, legacy runs' "Lost objectives evacuate", Help (relics). Code names, save fields and test names stay.
+  **Still "task" (engine files, not edited here; to route):** groundOps.ts `groundOpsEditBlockText` (the nine refusal reasons,
+  shown in the queue's "Not changed: <reason>." line and App's "[Ship] Cannot change the ground plan: <reason>." log)
+  and `groundOpsLogText`'s "A task" fallback; expedition.ts the "A task" label fallback (about line 905);
+  launchRecommendation.ts `taskLabel` "A task", `taskDemandText` ("N tasks need 2 Security squads", the telescope's
+  detail 3 demand line), `demandLine` ("No ground tasks expected.", "N tasks need ...", "N of M tasks need no Security
+  squad"), `reasonOver` ("Covers N tasks ...", "One team can take N of M tasks alone"), `recommendLaunch`
+  ("would leave N tasks unfinished", "Nothing on this hull covers every task") and `forecastTasksText` ("11 tasks:
+  ...", "No ground tasks expected", the forecast line).
+- **Affix pills (user, section 3: green / yellow / red).** New `src/lib/objectiveAffixDisplay.ts` (+ test, 10): one pill
+  per well-formed affix (`affixPillView` over affixes.ts `affixPill`): the rank in the label ("Reinforcing III"),
+  the alignment color AND its word written on the pill ("NEGATIVE | Reinforcing III"), so color is never the only
+  signal; the affix's short line as the tooltip; the accessible name carries the whole readout. New
+  `src/lib/ui/AffixPill.svelte` (HelpTip chip mode: hover, tap, keyboard focus; theme tokens `--color-success` /
+  `--color-warning` / `--color-danger`, so the colorblind palette follows) and `src/lib/ObjectiveAffixes.svelte` (the
+  pills + the alert block), on every queue row's card (GroundTaskQueue) and every progress card (GroundTaskCard).
+  Rocky Outcroppings (AF-2) needed nothing: its pills read "POSITIVE / NEUTRAL / NEGATIVE Rocky Outcroppings II"
+  with its own tooltip.
+- **The alert and the Impossible countdown.** While an objective is on alert: "On alert (level 2)", "2 more enemies
+  per fight, Heightened Senses x2 (+34% enemy damage). Rating raised to Deadly.", "The alert clears in 36m 12s".
+  While HELD (objectiveHeldUntil): "Impossible: resets in 38m 43s" (whole seconds under an hour, "1h 3m" above;
+  recomputed every tick, so it counts down), "1 more enemy per fight, Heightened Senses x1 (+18% enemy damage).",
+  then what the failsafe does in the user's words ("Your teams move on and come back when the alert resets: the
+  threat appears to have retreated, and the objective returns to normal difficulty."), in the Impossible tier's
+  crimson (`IMPOSSIBLE_HEX`, read from the threat ramp) with the same STATIC glow as the Impossible chip (user
+  2026-10-14; no animation). Done and skipped objectives keep their pills, never an alert. The "you're going to
+  die" quote is intent only and appears nowhere.
+- **Telescope.** The forecast's hardest fight shows the Reinforcing pill (name only: the rank rolls at the scan)
+  when it is a Deadly combat objective (`forecastAffixPills`; Reinforcing is required there), tooltip "Deadly combat
+  objectives always carry Reinforcing; its rank rolls when the body's scan finishes." (Unit-tested; not seen in the
+  preview: no detail 5 candidate in the seeded save.)
+- **Larger crews in the picker (user, section 1).** `crewOptions` reads `groundTaskCrewOptions`: the smallest crews
+  first, then every larger covering crew, "Alpha + Bravo (doubled)" ("larger crew" when not twice the smallest).
+  The select's words stay short (a long option widened the Assigned column and squeezed the cards); under the select,
+  while a larger crew is picked or set, its trade-off: "Doubled crew: more punch and more fieldwork, one objective at
+  a time." (`largerCrewNote`: "more punch" when it brings Security past the needs, "more fieldwork" for Science, the
+  cost always). Apply sends `assign` with `partners` (engine-accepted, tested); the card then shows the larger
+  crew's own tier ("Joint crew odds"). The result line names the crew only ("assigned to Alpha + Bravo.").
+- **GO-14 polish.** (1) `heldLoss` skips fight records marked `reinforcement` (and `fightingNow` ignores a pending
+  reinforcement fight), so a lost reinforcement fight never reads "wiped here" at the next point; a lost POINT fight
+  after a won reinforcement still holds the bar. (2) Lanes label reinforcement fights like surprise fights:
+  "reinforcements" (live), "reinforcements, won / lost / wiped", detail "Reinforcements at Crashed Ship: won (24s)";
+  the card notes "Beat back reinforcements once", "Lost a fight to reinforcements". (3) The axis already defaults to
+  "Recent" (every width; verified at 375 px after a reload). (4) The bay card's longest row reads its time left while
+  the team is in the bay: "20m (19m 32s left)" (not before the bay starts). (5) The mobile "crop": the preview capture
+  showed the bottom nav mid-screen with empty space under it. Cause found: a test-side `scrollIntoView` scrolled the
+  app's `overflow: hidden` `.frame` (182 px), not a layout bug; with the frame at 0 and the real scroller
+  (`.tab-scroll-area`) scrolled instead, 375 px captures are whole. Keyboard `focus()` inside the panel does not move
+  the frame.
+- **Help.** Two new topics: `affixes` ("Objective Affixes": pills, green / yellow / red alignments written on, ranks,
+  required vs rolled, set at the scan, the telescope pill) and `reinforcing` ("Reinforcing (affix)": affixes.ts
+  `AFFIX_DEFS.reinforcing.help`, plus what the card shows on alert and the held countdown). helpTopics.test.ts pins
+  both and that no topic says "task(s)", em dashes or double hyphens.
+- Verified in the dev preview (seeded saves built in the page from the engine: a Ground + Ground crew at rank 3 on
+  a forced Tier VI and a Tier IV enemy-territory run, advanced to an Impossible hold): pills (red, green, yellow),
+  tooltips by hover and keyboard, the countdown ticking (1h 3m -> 1h 2m; 38m 43s -> 34m 32s), the doubled crew
+  applied by keyboard (select, Tab, Enter; Worthy solo vs Guaranteed doubled), reinforcement fights on the lanes,
+  the held progress card, the bay's time left, Help on a phone; 1280 px and 375 px (page width 375, no sideways
+  scroll); no text on the expedition screen says "task"; no new console errors. localStorage restored
+  byte-identical (SHA-256). Screenshots in the session scratchpad `ui-affix/`.
