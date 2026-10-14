@@ -952,3 +952,34 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
   each type (the "practice somewhere safer" rule), so nothing is ever skipped early; from Tier III a task the deployed
   ship cannot field is left unfinished on the planet with a log line (no softlock: the run continues), which is what
   makes the telescope's launch recommendation matter. Replaces SQ-4's always-adapt `fieldableNeeds` cap.
+
+**Carry from the SQ-4 follow-up (built 2026-10-13, commit `feat(0.14.0): safe tiers adapt, Tier III+ skips unfieldable
+tasks (SQ-4 follow-up)`):**
+- **SAFE TIERS ADAPT, LATER SKIP (user, above).** `fieldableNeeds` is GONE. riskFactors.ts `tierNeeds(raw, tier)`:
+  at Tiers I and II (`SAFE_NEEDS_MAX_TIER` 2) each type is capped at `SAFE_NEEDS_SQUADS_PER_TYPE` (1), so a generated
+  task there never asks for more than `{ 1, 1 }` (D18 guarantees one squad of each type deployed: nothing is skipped).
+  This also means the big digs' 2 Science squads first ask at Tier III. From Tier III the generated needs stand as
+  rolled and the existing planning skip applies: `planTasksForTeams` marks the task skipped with its "Skipped ..." log
+  line (left unfinished; the window still closes). The stamped needs no longer depend on the ship. Content needs and
+  hostile sites keep their own needs (a hostile site is placed only where the deployed squads field it). Difficulty
+  is still rated from the generated needs. Tests force a Tier III region (expeditionRegion is Tier I today): one
+  Ground team skips the 2-Security outpost and deep dig with the two log lines and finishes the rest; Ground +
+  Ground plans the same tasks as joint crews; Tiers I and II give one team every task at `{ 1, 1 }`.
+- **Review Minor 1.** groundThreat.ts `taskFightTotal` counts an UNSTAMPED task on a risk body with
+  `riskFightPointCount` (the count the stamping will give it). The memo key adds the body's combat and fauna grades
+  next to the flora grade (absent risk keys as "u").
+- **Review Minor 4: label readers.** Every reader of a task, discovery or finding `poiId` label now names hostile
+  sites: ExpeditionPanel `poiLabel` and groundOps.ts `groundOpsLogText` (both already in SQ-4), plus
+  RelicStudyPanel `poiLabel` (now `groundSiteLabel`, defensive: hostile sites are not relic-bearing today, but a
+  task-chain relic cache could be). Left on `getPoiById` on purpose, because they only ever take discovery PoI ids:
+  awayTeamDisplay.ts (SCIENCE_SPEC_POIS), awayTraits.ts (poiYield trait PoIs), MuseumPanel (relic set sources).
+- **[PROVISIONAL, user list]** A Deadly task worked by a crew with fewer squads than its generated needs (possible
+  only at Tiers I and II, where the stamp is capped at one squad a type) still pays the Deadly risk bonus: the bonus
+  reads the stored grade, which reflects the site, not the crew.
+- **GO-18 Help line:** a surprise-fight LOSS is an ordinary loss. It feeds the task's loss streak, so three losses
+  in a row without a new fight point send the task to the back of the line (and can raise the Stuck flag). The
+  per-task ambush cap (2) bounds how often that can happen on one calm task.
+- Tests: riskFactors.test.ts 19 (the cap test now pins `tierNeeds` per tier); groundOpsRisk.test.ts 24 -> 27 (the
+  dangerous body moved to Tier III, safe tiers I and II, the Tier III skip with log text and a closing window, the
+  Tier III joint plan, the unstamped threat read and memo key). Suite 4364 -> 4367 passed (1 skipped); `npm run
+  check` 0 errors. Pre-SQ-4 goldens, legacy goldens and every parity test unchanged.

@@ -22,7 +22,6 @@ import {
   difficultyName,
   difficultyWeight,
   expeditionRegion,
-  fieldableNeeds,
   floraWorkMult,
   generateRiskProfile,
   generatedTaskNeeds,
@@ -34,6 +33,7 @@ import {
   systemRiskGrades,
   taskDifficultyScore,
   taskChainFollowUp,
+  tierNeeds,
   type ExpeditionRegion,
 } from "./riskFactors";
 import { diminishing } from "./diminishing";
@@ -186,7 +186,7 @@ describe("SQ-4 hostile sites (user #12) and the no-softlock gate (user #3)", () 
   });
 });
 
-describe("SQ-4 needs from risk (design 3.2) and the deployed cap (user #3)", () => {
+describe("SQ-4 needs from risk (design 3.2); safe tiers adapt, later tiers stand as rolled (user 2026-10-13)", () => {
   it("Security 0 / 1 / 2 by fight points; 2 Science at the big digs from Tier II; a hostile site's own needs", () => {
     expect([0, 1, 3, 4, 5].map((fp) => generatedTaskNeeds("mineralOutcrop", fp, 1).security)).toEqual([0, 1, 1, 2, 2]);
     expect(generatedTaskNeeds("ancientRuins", 2, 1)).toEqual({ security: 1, science: 1 });
@@ -196,10 +196,19 @@ describe("SQ-4 needs from risk (design 3.2) and the deployed cap (user #3)", () 
     expect(generatedTaskNeeds("enemyFortification", 5, 6)).toEqual({ security: 4, science: 0 });
   });
 
-  it("caps each type at the deployed squads (never a mix the ship cannot field)", () => {
-    expect(fieldableNeeds({ security: 2, science: 2 }, { security: 1, science: 1 })).toEqual({ security: 1, science: 1 });
-    expect(fieldableNeeds({ security: 2, science: 1 }, { security: 3, science: 1 })).toEqual({ security: 2, science: 1 });
-    expect(fieldableNeeds({ security: 0, science: 2 }, { security: 1, science: 3 })).toEqual({ security: 0, science: 2 });
+  it("Tiers I and II never ask for more than one squad of each type; from Tier III the generated needs stand", () => {
+    for (const tier of [1, 2]) {
+      expect(tierNeeds({ security: 2, science: 2 }, tier)).toEqual({ security: 1, science: 1 });
+      expect(tierNeeds({ security: 0, science: 2 }, tier)).toEqual({ security: 0, science: 1 });
+      expect(tierNeeds({ security: 1, science: 0 }, tier)).toEqual({ security: 1, science: 0 });
+    }
+    for (const tier of [3, 5, 7]) {
+      expect(tierNeeds({ security: 2, science: 2 }, tier)).toEqual({ security: 2, science: 2 });
+      expect(tierNeeds({ security: 4, science: 0 }, tier)).toEqual({ security: 4, science: 0 });
+    }
+    // So at Tier II the big digs' 2 Science squads only ask once Tier III is reached (the safe practice zone).
+    expect(tierNeeds(generatedTaskNeeds("ancientRuins", 2, 2), 2)).toEqual({ security: 1, science: 1 });
+    expect(tierNeeds(generatedTaskNeeds("ancientRuins", 2, 3), 3)).toEqual({ security: 1, science: 2 });
   });
 });
 

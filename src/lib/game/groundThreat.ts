@@ -28,7 +28,7 @@
 // in about 2 ms (32 samples); a grinding one (a tanky squad with no damage, fights running long) about 15 ms,
 // so a 20-task planet read per team could cost a few hundred ms on every recompute of a queue screen. The read
 // is therefore MEMOIZED on a fingerprint of EVERY input it depends on (the exp fields a fight reads, listed by
-// type in groundFight.ts TaskFightExp, the team fields, the body hazard and flora, the task fields, the flat index, the
+// type in groundFight.ts TaskFightExp, the team fields, the body hazard and risk, the task fields, the flat index, the
 // sample count and the carried state). Because the key is the whole input, a hit returns exactly what a fresh
 // computation would (the read is pure), whichever save or run asked: the memo can never leak a stale answer
 // across saves, runs or edits. Bounded (GROUND_THREAT_MEMO_SIZE entries, least recently used evicted) and
@@ -47,7 +47,7 @@ import {
   type GroundMemberCarry,
   type TaskFightExp,
 } from "./groundFight";
-import { fightPointCount } from "./groundTasks";
+import { fightPointCount, riskFightPointCount } from "./groundTasks";
 import { bodyFloraGrade } from "./riskFactors";
 import { threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 
@@ -89,10 +89,12 @@ export function groundThreatSampleSeed(exp: Pick<Expedition, "seed">, flatIndex:
   );
 }
 
-// The task's total fight count: its stamped fight points, or (a task not yet stamped) the site's count off the
-// body's RAW hazard (groundTasks.ts fightPointCount, the count GO-7 stamps). Pure.
+// The task's total fight count: its stamped fight points, or (a task not yet stamped) the count the stamping will
+// give it: on a body with risk grades the risk-aware count (groundTasks.ts riskFightPointCount, Squads SQ-4), else
+// the site's count off the body's RAW hazard (groundTasks.ts fightPointCount, the count GO-7 stamps). Pure.
 function taskFightTotal(task: Pick<ExpeditionActivity, "poiId" | "fightPoints">, body: Pick<ExpeditionBody, "hazard" | "risk">): number {
-  return task.fightPoints ? task.fightPoints.length : fightPointCount(task.poiId, body.hazard);
+  if (task.fightPoints) return task.fightPoints.length;
+  return body.risk ? riskFightPointCount(task.poiId, body.hazard, body.risk) : fightPointCount(task.poiId, body.hazard);
 }
 
 // The fights the task still has to win: its fight count minus the points already cleared, never below 0. Pure.
@@ -199,8 +201,19 @@ export function groundThreatOddsKey(
   carried?: Readonly<Record<string, GroundMemberCarry>>,
 ): string {
   return JSON.stringify(
-    // Squads SQ-4: the body's flora shapes its fights (groundFight.ts withFloraToxins), so it is part of the key.
-    [pick(exp, EXP_KEY_FIELDS), teams.map((t) => pick(t, TEAM_KEY_FIELDS)), body.hazard, bodyFloraGrade(body), pick(task, TASK_KEY_FIELDS), flatIndex, samples, carried],
+    // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
+    // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
+    [
+      pick(exp, EXP_KEY_FIELDS),
+      teams.map((t) => pick(t, TEAM_KEY_FIELDS)),
+      body.hazard,
+      bodyFloraGrade(body),
+      body.risk ? [body.risk.combat, body.risk.fauna] : undefined,
+      pick(task, TASK_KEY_FIELDS),
+      flatIndex,
+      samples,
+      carried,
+    ],
     keyReplacer,
   );
 }

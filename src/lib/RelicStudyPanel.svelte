@@ -35,7 +35,7 @@
     type RelicStudyBlockReason,
   } from "./game/tick";
   import { relicStudyDurationTicks, museumBonuses } from "./game/relics";
-  import { getPoiById } from "./game/expeditionContent";
+  import { groundSiteLabel } from "./game/expeditionContent";
   import { equipmentRarityColor } from "./EquipmentTooltip.svelte";
   import Icon from "./ui/Icon.svelte";
   import { relicIcon, relicSetShortLabel, relicRarityColor, RELIC_RARITY_LABEL, RELIC_SET_IDS } from "./ui/relicIcons";
@@ -89,7 +89,7 @@
     return tier.charAt(0).toUpperCase() + tier.slice(1);
   }
   function poiLabel(id: string): string {
-    return getPoiById(id)?.label ?? id;
+    return groundSiteLabel(id) ?? id;
   }
   function blockText(reason: RelicStudyBlockReason): string {
     switch (reason) {

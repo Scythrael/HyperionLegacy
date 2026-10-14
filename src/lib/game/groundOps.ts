@@ -91,11 +91,12 @@ import { makeRng } from "./combat/rng";
 import {
   difficultyGradeOf,
   difficultyWeight,
-  fieldableNeeds,
   generatedTaskNeeds,
+  isHostileSiteId,
   riskAmbushChance,
   riskRewardBonus,
   taskDifficultyScore,
+  tierNeeds,
 } from "./riskFactors";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
@@ -318,8 +319,8 @@ export function snapshotAwayRosterForTeams(
 //     a win and the work goes on from the same spot; a loss is an ordinary loss (a wipe waits for the ship).
 //
 // RISK (Squads SQ-4): a risk-aware run (Expedition.risk, each body's risk grades) stamps its tasks from the risk
-//   (initGroundTasks: fight points, generated needs capped at the deployed squads, the difficulty grade, the
-//   ambush chance); flora slows the work (groundTasks.ts) and poisons the fights (groundFight.ts); the difficulty
+//   (initGroundTasks: fight points, generated needs (one squad a type at Tiers I and II, as rolled from III),
+//   the difficulty grade, the ambush chance); flora slows the work (groundTasks.ts) and poisons the fights (groundFight.ts); the difficulty
 //   weights the completion (groundOpsProgress) and raises the haul and the relic find at offload. A run without
 //   risk resolves exactly as stamped before SQ-4.
 //
@@ -577,22 +578,25 @@ function hasContentNeeds(task: Pick<ExpeditionActivity, "needs" | "requiredTeams
 // above 0, nothing done yet, queued. Idempotent (a stamped task is left alone). Mutates the working clone.
 // Squads SQ-4, a RISK-AWARE body (ExpeditionBody.risk, written at dispatch since SQ-4): the fight points read the
 // body's risk (groundTasks.ts riskFightPointCount, floor 0), the needs are GENERATED from them and the site
-// (riskFactors.ts generatedTaskNeeds; content needs still win) and capped at the squads the ship deployed (no
-// softlock, user #3: fieldableNeeds), the DIFFICULTY grade is rated once from the generated needs, and a calm
-// task takes its body's ambush chance. A body without risk stamps exactly as before.
+// (riskFactors.ts generatedTaskNeeds; content needs still win), at most one squad of each type at Tiers I and II
+// and as rolled from Tier III (riskFactors.ts tierNeeds, user 2026-10-13: SAFE TIERS ADAPT, LATER SKIP; a Tier
+// III+ task the deployed squads cannot cover is skipped at planning with its log line), the DIFFICULTY grade is
+// rated once from the generated needs, and a calm task takes its body's ambush chance. A body without risk
+// stamps exactly as before.
 export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const body = exp.bodies[bodyIndex];
   if (!body) return;
   const risk = body.risk;
-  const deployed = crewSquadsOf(exp.groundOps?.teams ?? []);
   const tier = exp.risk?.tier ?? 1;
   for (const task of body.activities) {
     if (isGroundTask(task)) continue;
     if (risk) {
       const fights = riskFightPointCount(task.poiId, body.hazard, risk);
       task.fightPoints = fightPointFractions(fights);
-      const raw = hasContentNeeds(task) ? taskNeedsOf(task) : generatedTaskNeeds(task.poiId, fights, tier);
-      const needs = fieldableNeeds(raw, deployed);
+      const content = hasContentNeeds(task);
+      const raw = content ? taskNeedsOf(task) : generatedTaskNeeds(task.poiId, fights, tier);
+      // A hostile site keeps its own needs (it is only ever placed where the deployed squads field it).
+      const needs = content || isHostileSiteId(task.poiId) ? { ...raw } : tierNeeds(raw, tier);
       if (fights > 0 && needs.security < 1) needs.security = 1;
       task.needs = needs;
       delete task.requiredTeams;

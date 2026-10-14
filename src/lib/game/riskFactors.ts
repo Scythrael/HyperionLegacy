@@ -246,14 +246,21 @@ export function generatedTaskNeeds(poiId: string, fightPoints: number, tier: num
   return { security, science };
 }
 
-// NO SOFTLOCK (user #3: "task generation must never require a mix the deployed ship cannot field"): the needs a
-// task is STAMPED with on a risk-aware run, each type capped at the squads the ship deployed [PROVISIONAL: the
-// design's alternative is to skip the task at planning]. D18 guarantees a Security and a Science squad among the
-// deployed teams, so a task with a fight point still needs at least one Security squad. Pure.
-export function fieldableNeeds(raw: GroundTaskNeeds, deployed: GroundTaskNeeds): GroundTaskNeeds {
+// SAFE TIERS ADAPT, LATER SKIP (user, 2026-10-13; replaces SQ-4's always-adapt cap): up to this tier a generated
+// task never asks for more than ONE squad of each type (the "practice somewhere safer" zone), so nothing there is
+// ever skipped (D18 guarantees a Security and a Science squad among the deployed teams). From the next tier on the
+// generated needs stand as rolled, and a task the deployed squads cannot cover is SKIPPED at planning with the
+// "Skipped ..." log line (left unfinished on the planet; the run goes on: no softlock), which is what makes the
+// telescope's launch recommendation matter.
+export const SAFE_NEEDS_MAX_TIER: RegionTier = 2;
+export const SAFE_NEEDS_SQUADS_PER_TYPE = 1;
+
+// The needs a risk-aware task is STAMPED with at `tier` (see above). Pure; a fresh object.
+export function tierNeeds(raw: GroundTaskNeeds, tier: number): GroundTaskNeeds {
+  if (tier > SAFE_NEEDS_MAX_TIER) return { security: raw.security, science: raw.science };
   return {
-    security: Math.min(raw.security, Math.max(0, deployed.security)),
-    science: Math.min(raw.science, Math.max(0, deployed.science)),
+    security: Math.min(raw.security, SAFE_NEEDS_SQUADS_PER_TYPE),
+    science: Math.min(raw.science, SAFE_NEEDS_SQUADS_PER_TYPE),
   };
 }
 

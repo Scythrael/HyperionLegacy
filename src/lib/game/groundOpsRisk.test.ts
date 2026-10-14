@@ -28,6 +28,7 @@ import {
   SURVEY_AMBUSH_MAX_PER_TASK,
   groundOpsAssignIdle,
   groundOpsBodyScanned,
+  groundOpsLogText,
   groundOpsProgress,
   groundTaskFindingPrefix,
   initGroundTasks,
@@ -35,6 +36,7 @@ import {
 import { FIGHT_POINTS_BY_POI, fightPointFractions, riskFightPointCount, taskFullHaul, taskWorkSeconds } from "./groundTasks";
 import { resolveTaskFightOnSeed, withFloraToxins } from "./groundFight";
 import { generateEncounter } from "./gambit";
+import { groundTaskClearOdds, groundThreatOddsKey, remainingTaskFights } from "./groundThreat";
 import { groundSiteLabel } from "./expeditionContent";
 import { FLORA_POISON_PERMILLE_PER_GRADE, riskAmbushChance, riskRewardBonus } from "./riskFactors";
 import { plainAwayMember, withSlottedAwayTeams, withoutRisk } from "./awayTeamTestFixtures";
@@ -280,14 +282,10 @@ describe("SQ-4 stamping a risk-aware body: fight points (floor 0), needs, diffic
     expect(e.groundOps!.log).toBeUndefined();
   });
 
-  it("a dangerous Tier II body: fights up, 2 Security / 2 Science generated, rated from the generated needs", () => {
-    const e = riskRun({
-      kinds: ["ground", "ground"],
-      pois: ["derelictOutpost", "subterraneanCivilization", "mineralOutcrop"],
-      risk: { combat: 4, fauna: 4, flora: 0, hazard: 3 },
-      hazard: 0.65,
-      tier: 2,
-    });
+  const DANGER: BodyRiskGrades = { combat: 4, fauna: 4, flora: 0, hazard: 3 };
+
+  it("a dangerous Tier III body: fights up, 2 Security / 2 Science generated and kept as rolled, rated from them", () => {
+    const e = riskRun({ kinds: ["ground", "ground"], pois: ["derelictOutpost", "subterraneanCivilization", "mineralOutcrop"], risk: DANGER, hazard: 0.65, tier: 3 });
     const [outpost, deep, outcrop] = tasksOf(e);
     expect(outpost).toMatchObject({ fightPoints: [1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6], needs: { security: 2, science: 1 }, difficulty: 5 });
     expect(deep).toMatchObject({ needs: { security: 2, science: 2 }, difficulty: 5 }); // 5 + 2 + 3 + 2 = 12
@@ -296,17 +294,50 @@ describe("SQ-4 stamping a risk-aware body: fight points (floor 0), needs, diffic
     for (const t of tasksOf(e)) expect(t.assignedTeamIds).toEqual([0, 1]);
   });
 
-  it("NO SOFTLOCK (user #3): one deployed Ground team gets every task, its needs capped at { 1, 1 }; nothing is skipped", () => {
-    const e = riskRun({ kinds: "one", pois: ["derelictOutpost", "subterraneanCivilization", "ancientRuins"], risk: { combat: 4, fauna: 4, flora: 0, hazard: 3 }, hazard: 0.65, tier: 2 });
-    expect(e.groundOps!.teams.length).toBe(1);
-    for (const t of tasksOf(e)) {
-      expect(t.needs).toEqual({ security: 1, science: 1 });
-      expect(["queued", "active"]).toContain(t.status);
-      expect(t.assignedTeamIds).toEqual([0]);
-      expect(t.difficulty).toBe(5); // the site's own demand, not the cap
+  it("SAFE TIERS ADAPT (user 2026-10-13): at Tiers I and II one deployed Ground team gets every task at { 1, 1 } at most; nothing is skipped", () => {
+    for (const tier of [1, 2] as const) {
+      const e = riskRun({ kinds: "one", pois: ["derelictOutpost", "subterraneanCivilization", "ancientRuins"], risk: DANGER, hazard: 0.65, tier });
+      expect(e.groundOps!.teams.length).toBe(1);
+      for (const t of tasksOf(e)) {
+        expect(t.needs).toEqual({ security: 1, science: 1 });
+        expect(["queued", "active"]).toContain(t.status);
+        expect(t.assignedTeamIds).toEqual([0]);
+        expect(t.difficulty).toBe(5); // the site's own (generated) demand, not the safe stamp
+      }
+      expect(e.groundOps!.log).toBeUndefined();
+      expect(e.groundOps!.teams[0].queue.length).toBe(3);
     }
+  });
+
+  it("LATER SKIP: from Tier III a task the deployed squads cannot cover is skipped with its log line; the rest run and the window closes", () => {
+    // One Ground team ({ 1, 1 } deployed) on a Tier III body: the outpost and the deep dig ask for 2 Security squads.
+    // The bare outcrop asks { 1, 1 } and runs. Forced Tier III region (expeditionRegion is Tier I today).
+    const risk: BodyRiskGrades = { combat: 2, fauna: 2, flora: 0, hazard: 0 };
+    const e = riskRun({ kinds: "one", pois: ["derelictOutpost", "subterraneanCivilization", "mineralOutcrop"], risk, tier: 3 });
+    const [outpost, deep, outcrop] = tasksOf(e);
+    expect(outpost).toMatchObject({ needs: { security: 2, science: 1 }, status: "skipped" });
+    expect(deep).toMatchObject({ needs: { security: 2, science: 2 }, status: "skipped" });
+    expect(outpost.difficulty).toBeGreaterThanOrEqual(1);
+    expect(outcrop.needs).toEqual({ security: 1, science: 1 });
+    expect(outcrop.assignedTeamIds).toEqual([0]);
+    const log = e.groundOps!.log!;
+    expect(log.map((l) => l.taskId)).toEqual([outpost.id, deep.id]);
+    expect(groundOpsLogText(e, log[0])).toBe("Skipped Derelict Outpost: needs 2 Security squads, 1 deployed");
+    expect(groundOpsLogText(e, log[1])).toBe("Skipped Subterranean Civilization: needs 2 Security squads, 1 deployed; 2 Science squads, 1 deployed");
+    expect(e.groundOps!.teams[0].queue).toEqual([outcrop.id]);
+    // The run goes on: the skipped tasks are left unfinished and never hold the window open.
+    const done = advanceExpedition(e, FAR);
+    expect(tasksOf(done)[0].status).toBe("skipped");
+    expect(tasksOf(done)[2].status).toBe("done");
+    expect(done.groundOps!.endedAt).toBeDefined();
+  });
+
+  it("Tier III with the squads for it: the same tasks are planned (joint crews), none skipped", () => {
+    const risk: BodyRiskGrades = { combat: 2, fauna: 2, flora: 0, hazard: 0 };
+    const e = riskRun({ kinds: ["ground", "ground"], pois: ["derelictOutpost", "subterraneanCivilization", "mineralOutcrop"], risk, tier: 3 });
+    expect(tasksOf(e).map((t) => t.status === "skipped")).toEqual([false, false, false]);
+    expect(tasksOf(e)[0].assignedTeamIds).toEqual([0, 1]);
     expect(e.groundOps!.log).toBeUndefined();
-    expect(e.groundOps!.teams[0].queue.length).toBe(3);
   });
 
   it("a calm task on a risky body takes the body's ambush chance (the worse of combat and fauna)", () => {
@@ -319,6 +350,25 @@ describe("SQ-4 stamping a risk-aware body: fight points (floor 0), needs, diffic
   });
 });
 
+// ===== the threat read before stamping (review Minor 1) =====
+
+describe("SQ-4 the threat read of an UNSTAMPED task follows the body's risk", () => {
+  it("counts the risk-aware fight points, and the memo key tells combat / fauna grades apart", () => {
+    const e = riskRun({ kinds: "one", pois: ["mineralOutcrop"], risk: CALM });
+    const task = { id: "t", poiId: "derelictOutpost", fightCount: 0, pointsCleared: 0 };
+    const calm = { hazard: 0.1, risk: { ...CALM } };
+    const hot = { hazard: 0.1, risk: { ...CALM, combat: 4 as const } };
+    expect(remainingTaskFights(task, calm)).toBe(riskFightPointCount("derelictOutpost", 0.1, calm.risk)); // 2
+    expect(remainingTaskFights(task, hot)).toBe(5);
+    expect(remainingTaskFights(task, { hazard: 0.1 })).toBe(FIGHT_POINTS_BY_POI.derelictOutpost); // no risk: GO-4
+    const side = [{ securityIds: e.groundOps!.teams[0].securityIds, securityShare: 1 }];
+    expect(groundThreatOddsKey(e, side, calm, task, 0, 8)).not.toBe(groundThreatOddsKey(e, side, hot, task, 0, 8));
+    expect(groundThreatOddsKey(e, side, hot, task, 0, 8)).not.toBe(groundThreatOddsKey(e, side, { hazard: 0.1, risk: { ...CALM, fauna: 4 } }, task, 0, 8));
+    // A hotter body never reads easier on the same samples.
+    expect(groundTaskClearOdds(e, side, hot, task, 0, 8).wins).toBeLessThanOrEqual(groundTaskClearOdds(e, side, calm, task, 0, 8).wins);
+  });
+});
+
 // ===== hostile sites =====
 
 describe("SQ-4 hostile sites join a scanned body only when the deployed squads can field them (user #3)", () => {
@@ -326,6 +376,7 @@ describe("SQ-4 hostile sites join a scanned body only when the deployed squads c
   function colonyRun(kinds: [GroundTeamKind, GroundTeamKind] | "one"): Expedition {
     const d = structuredClone(dispatch({ ...compState(kinds), expeditionSeed: 0x0a13bd4 }));
     d.bodies[0].risk = { ...d.bodies[0].risk!, combat: 4, site: "enemyColony" };
+    d.risk = { ...d.risk!, tier: 3 }; // a forced Tier III region (expeditionRegion is Tier I today)
     let t = d.phaseAnchorSeconds;
     let e = d;
     while (!e.bodies[0].scanned) e = advanceExpedition(d, (t += 300));
@@ -350,10 +401,13 @@ describe("SQ-4 hostile sites join a scanned body only when the deployed squads c
     expect(body.discoveries.slice(0, -1).map((x) => x.poiId)).toEqual(p.bodies[0].discoveries.map((x) => x.poiId));
   });
 
-  it("one deployed Ground team (1 Security squad): no colony at all, so the run never holds a task it cannot field", () => {
+  it("one deployed Ground team (1 Security squad): no colony at all (never generated, so never even a skip)", () => {
     const e = colonyRun("one");
     expect(e.bodies[0].activities.some((a) => a.poiId === "enemyColony")).toBe(false);
-    expect(e.groundOps!.log).toBeUndefined();
+    expect(e.bodies[0].discoveries.some((x) => x.poiId === "enemyColony")).toBe(false);
+    // At the forced Tier III the body's OTHER risky tasks may be skipped for squads (LATER SKIP), never the colony.
+    const named = (e.groundOps!.log ?? []).map((l) => e.bodies[0].activities.find((a) => a.id === l.taskId)?.poiId);
+    expect(named).not.toContain("enemyColony");
   });
 });
 
