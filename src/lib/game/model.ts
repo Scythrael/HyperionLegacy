@@ -7261,8 +7261,9 @@ export interface GroundFightRecord {
   // Squads SQ-4 (user, SQ-3 calls (c)): an AMBUSH met as a surprise fight where the crew stood, not a fight
   // point. A win passes no point (the work goes on from where it stopped); a loss is an ordinary loss.
   surprise?: true;
-  // Objective affixes (AF-1, Reinforcing): an EXTRA BATTLE the objective's reinforcements forced as the crew
-  // landed, not a fight point. A win passes no point (the visit goes on); a loss is an ordinary loss.
+  // Objective affixes (AF-1, Reinforcing): an EXTRA BATTLE the objective's reinforcements forced, striking mid-work
+  // (user 2026-10-14), not a fight point. A win passes no point (the work goes on from that spot); a loss is an
+  // ordinary loss.
   reinforcement?: true;
 }
 
@@ -7311,10 +7312,13 @@ export interface GroundTeamRun {
   // finishes (its result stands), then the crew heads back instead of working on (plan Q14). Set on the crew's
   // lead; cleared when the fight ends, at idle, or when an edit gives the task back to this crew.
   recalled?: true;
-  // Objective affixes (AF-1, Reinforcing): the extra battles still to fight on this LANDING (rolled as the crew
-  // landed, affixes.ts rollReinforcements; the first one is already under way). Set on the crew's lead; cleared
-  // when they are all fought, at a loss, and at idle.
-  reinforcements?: number;
+  // Objective affixes (AF-1, Reinforcing): this VISIT's extra battles still to come, as PROGRESS points (ascending,
+  // rolled as the crew landed: affixes.ts rollReinforcements mapped onto the progress still ahead); each strikes
+  // MID-WORK when the work reaches it (user 2026-10-14). Set on the crew's lead; cleared at a loss and at idle.
+  reinforcementsAt?: number[];
+  // Objective affixes (AF-1): the current work step ends where the next reinforcement STRIKES (set at its start, like
+  // `ambushed`); at its end the crew fights the reinforcement fight there. Cleared at idle.
+  reinforcing?: true;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads

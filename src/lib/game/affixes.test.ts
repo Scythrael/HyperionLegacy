@@ -9,6 +9,8 @@ import {
   ALERT_DIFFICULTY_PER_LEVEL,
   ESCALATION_ENEMIES_PER_LEVEL,
   IMPOSSIBLE_DIFFICULTY_SCORE,
+  AFFIX_RANK_WEIGHTS_BY_TIER,
+  REINFORCEMENT_COUNT_WEIGHTS,
   REINFORCING_RANKS,
   affixColorClass,
   affixLabel,
@@ -169,6 +171,13 @@ describe("AF-1 the stamping roll (AFFIX_ROLL_SALT, fixed draw layout)", () => {
       return out;
     };
     expect(new Set(ranksAt(1, 5))).toEqual(new Set([1]));
+    // At the BASE difficulty tier the top ranks are VERY rare (user: Reinforcing X belongs to the future
+    // max-difficulty tiers): IX and X only at Tier VII, 1% each.
+    const top = AFFIX_RANK_WEIGHTS_BY_TIER[7];
+    const total = top.reduce((a, b) => a + b, 0);
+    expect(top[8] / total).toBeLessThanOrEqual(0.01);
+    expect(top[9] / total).toBeLessThanOrEqual(0.01);
+    for (const tier of [1, 2, 3, 4, 5, 6] as const) expect(AFFIX_RANK_WEIGHTS_BY_TIER[tier].length).toBeLessThan(9);
     expect(Math.max(...ranksAt(3, 5))).toBeLessThanOrEqual(3);
     const high = ranksAt(7, 5);
     expect(Math.max(...high)).toBeGreaterThan(5);
@@ -195,31 +204,59 @@ describe("AF-1 the stamping roll (AFFIX_ROLL_SALT, fixed draw layout)", () => {
   });
 });
 
-describe("AF-1 the per-landing reinforcement roll (REINFORCEMENT_SALT)", () => {
-  it("rank I strikes about 25% of landings with exactly one battle; rank X about 50% with 1 to 5", () => {
+describe("AF-1 the per-visit reinforcement roll (REINFORCEMENT_SALT, integer draws)", () => {
+  it("rank I strikes about 25% of visits with exactly one battle; rank X about 50% with 1 to 5", () => {
     let hits1 = 0;
     let hitsX = 0;
-    const counts = new Set<number>();
-    const n = 4000;
+    const counts = new Map<number, number>();
+    const n = 8000;
     for (let v = 0; v < n; v += 1) {
       const one = rollReinforcements(0xfeed, 2, v, [R(1)]);
-      if (one > 0) {
+      if (one.length > 0) {
         hits1 += 1;
-        expect(one).toBe(1);
+        expect(one.length).toBe(1);
       }
       const ten = rollReinforcements(0xfeed, 2, v, [R(10)]);
-      if (ten > 0) {
+      if (ten.length > 0) {
         hitsX += 1;
-        counts.add(ten);
+        counts.set(ten.length, (counts.get(ten.length) ?? 0) + 1);
+        // Strike points: ascending fractions strictly inside the bar still ahead.
+        for (let k = 0; k < ten.length; k += 1) {
+          expect(ten[k]).toBeGreaterThan(0);
+          expect(ten[k]).toBeLessThan(1);
+          if (k > 0) expect(ten[k]).toBeGreaterThanOrEqual(ten[k - 1]);
+        }
       }
     }
     expect(hits1 / n).toBeGreaterThan(0.22);
     expect(hits1 / n).toBeLessThan(0.28);
     expect(hitsX / n).toBeGreaterThan(0.46);
     expect(hitsX / n).toBeLessThan(0.54);
-    expect([...counts].sort()).toEqual([1, 2, 3, 4, 5]);
-    expect(rollReinforcements(0xfeed, 2, 7, [R(10)])).toBe(rollReinforcements(0xfeed, 2, 7, [R(10)]));
-    expect(rollReinforcements(0xfeed, 2, 7, [])).toBe(0);
+    expect([...counts.keys()].sort()).toEqual([1, 2, 3, 4, 5]);
+    expect(rollReinforcements(0xfeed, 2, 7, [R(10)])).toEqual(rollReinforcements(0xfeed, 2, 7, [R(10)]));
+    expect(rollReinforcements(0xfeed, 2, 7, [])).toEqual([]);
+  });
+
+  it("the count is WEIGHTED TOWARD FEWER (user): 1 most likely, each larger count rarer, the maximum rarest", () => {
+    expect(REINFORCEMENT_COUNT_WEIGHTS).toEqual([50, 25, 13, 8, 4]);
+    const counts = [0, 0, 0, 0, 0, 0];
+    const n = 40_000;
+    for (let v = 0; v < n; v += 1) counts[rollReinforcements(0xbeef, 5, v, [R(10)]).length] += 1;
+    const hits = n - counts[0];
+    for (let c = 2; c <= 5; c += 1) expect(counts[c]).toBeLessThan(counts[c - 1]);
+    expect(counts[1] / hits).toBeGreaterThan(0.46);
+    expect(counts[1] / hits).toBeLessThan(0.54);
+    expect(counts[5] / hits).toBeLessThan(0.06);
+    // Rank III (at most 2): one battle about two thirds of the time.
+    let one = 0;
+    let two = 0;
+    for (let v = 0; v < n; v += 1) {
+      const k = rollReinforcements(0xbeef, 5, v, [R(3)]).length;
+      if (k === 1) one += 1;
+      if (k === 2) two += 1;
+    }
+    expect(one / (one + two)).toBeGreaterThan(0.62);
+    expect(one / (one + two)).toBeLessThan(0.71);
   });
 });
 

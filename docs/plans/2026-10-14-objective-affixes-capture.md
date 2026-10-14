@@ -210,3 +210,44 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   Reinforcing X won't likely be seen often by anything outside of safety interlock max difficulty." (So the top ranks
   belong mainly to the future difficulty / safety-interlock tiers.)
 - Impossible after 3 setbacks on a score-8 Deadly objective: KEEP as built.
+
+## Carry from the AF-1 follow-up (built 2026-10-14, commit `feat(0.14.0): reinforcements strike mid-work, weighted counts (AF-1 follow-up)`; section 6 calls + review minors)
+
+- **MID-WORK STRIKES (user, section 6), replacing the landing placement above.** A visit (a crew's landing on a
+  Reinforcing objective) still rolls once, on `REINFORCEMENT_SALT` keyed by (flat index, `visits`), but
+  `rollReinforcements` now returns the STRIKE POINTS: ascending fractions in (0, 1) of the progress still ahead,
+  which `landOnTask` maps onto the bar (`GroundTeamRun.reinforcementsAt`, progress points, on the lead; replaces the
+  count field `reinforcements`). Nothing is fought at landing. `startWork` cuts a work step where the next strike lies
+  before its target (whole second 1 to secs - 1 of the step; a step under 2 s runs whole and the strike lands at its
+  end; `GroundTeamRun.reinforcing`, like `ambushed`), and `finishWork` meets it as a REINFORCEMENT fight where the
+  work stopped (progress kept, nothing banked, the task's ordinary keyed fight stream, the alert's escalation). A win
+  passes no fight point and the work goes on from that spot (later strikes cut later steps); a loss is an ordinary
+  loss and drops the visit's remaining strikes (so do a GO-7d stop and idle). Calm objectives never carry
+  Reinforcing, so a strike never meets an ambush.
+- **WEIGHTED TOWARD FEWER (user, section 6).** One named table, `REINFORCEMENT_COUNT_WEIGHTS` = [50, 25, 13, 8, 4]
+  for 1 to 5 battles, cut at the rank's maximum [PROVISIONAL]: with a maximum of 2, one battle about 2 / 3 of the
+  time; with 5, one battle half the time and 5 battles 4%.
+- **Draw layout (integer draws, the GO-8 review contract; review minor).** Both rolls draw integers only:
+  `AFFIX_DRAW_UNITS` 1,000,000 with `affixChanceUnits` (rounded) for chances, and ONE `nextInt(weights total)` per
+  weighted pick. Stamping: draw 1 whether, draw 2 which, then per catalog affix its rank and its alignment. A visit:
+  draw 1 whether, draw 2 how many, then the rank's maximum strike-point draws, always made (the first `count` used).
+- **High ranks very rare at the base difficulty tier (user, section 6: "Ultimately, Reinforcing X won't likely be
+  seen often by anything outside of safety interlock max difficulty").** The top ranks belong mainly to the FUTURE
+  max-difficulty / safety-interlock tiers. `AFFIX_RANK_WEIGHTS_BY_TIER` retuned [PROVISIONAL]: III [70, 22, 8], IV
+  [55, 28, 12, 4, 1], V [45, 28, 15, 7, 3, 1, 1], VI [38, 27, 17, 9, 5, 2, 1, 1], VII [30, 24, 18, 11, 7, 4, 3, 1, 1,
+  1]; ranks IX and X appear only at Tier VII, 1% each. A future difficulty tier would carry its own rank weights.
+- **Impossible after 3 setbacks on a score-8 Deadly objective (user, section 6): KEPT as built.**
+- **Review minors.** `withEscalation` scales BOTH an enemy's damage and its threat by the Heightened Senses
+  multiplier (it no longer overwrites threat). New save test: a JSON save mid-alert (serialize, deserialize,
+  migrate), found on a weak crew on a Reinforcing X objective at the first instant a work step runs with a strike
+  pending on the lead, the objective on alert and an earlier reset in the log, reloads equal and resolves equal to
+  the uninterrupted run (affixes, visits, difficultyScore, the alert, reinforcementsAt and the alertReset log line
+  all ride the save).
+- **For the UI step (GO-14 timeline, not built here):** `heldLoss` (the "wiped here, resumes here" pip and the held
+  line) must SKIP fight records marked `reinforcement` (a reinforcement fight carries the task's `pointIndex` like a
+  point fight but strikes between points), and the lanes should label reinforcement fights ("Reinforcements") the
+  way they label surprise fights.
+- Tests: affixes.test.ts 15 -> 16 (the visit roll returns strike points, rates and counts; the weighted count; the
+  base-tier rank rarity), groundOpsAffixes.test.ts 18 -> 20 (the mid-work strikes end to end, a strike landing at
+  its point, the save mid-alert; the parity run now meets an early strike). Every golden (legacy, pre-SQ-4,
+  pre-clearing, pre-AF-1) and every parity test unchanged.

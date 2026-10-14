@@ -108,7 +108,7 @@ import {
   taskDifficultyScore,
   tierNeeds,
 } from "./riskFactors";
-// Objective affixes (AF-1): the stamping roll, the per-landing reinforcements, the alert and its failsafe.
+// Objective affixes (AF-1): the stamping roll, the per-visit reinforcements, the alert and its failsafe.
 import { ALERT_RESET_TEXT, alertAfterSetback, alertLevelAt, alertResetsAt, objectiveHeld, rollObjectiveAffixes, rollReinforcements } from "./affixes";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
@@ -338,8 +338,9 @@ export function snapshotAwayRosterForTeams(
 //
 // OBJECTIVE AFFIXES (AF-1, user 2026-10-14; affixes.ts): an AFFIX-AWARE run (its risk profile carries
 //   difficultyTier: every run dispatched since AF-1) stamps each objective's affixes with its difficulty score.
-//   REINFORCING: each LANDING may bring 1 to N extra battles (REINFORCEMENT fights at the landing spot: a win
-//   passes no fight point, a loss is an ordinary loss); every lost fight raises the objective's ALERT (more
+//   REINFORCING: each VISIT may bring 1 to N extra battles (REINFORCEMENT fights that strike MID-WORK at points rolled
+//   along the progress bar, like ambushes: a win passes no fight point and the work goes on from that spot, a loss
+//   is an ordinary loss); every lost fight raises the objective's ALERT (more
 //   enemies, Heightened Senses, a higher rating) until it lapses; an alert that pushes the rating to Impossible
 //   HOLDS the objective (no crew starts it; it stays queued) until the reset, an event of the window (the record is
 //   cleared and a log line written at that instant, so idle teams pick it up again). A run without the flag
@@ -1173,25 +1174,23 @@ function endStep(exp: Expedition, team: GroundTeamRun, t: number, driver: Ground
 }
 
 // The crew LANDS on the task at `t` (the drop ended). Objective affixes (AF-1, Reinforcing): an objective whose
-// affixes bring reinforcements rolls this landing's EXTRA BATTLES (affixes.ts rollReinforcements on its keyed
-// stream, the objective's `visits` the key); they are fought first, back to back where the crew landed
-// [PROVISIONAL placement], each a REINFORCEMENT fight (a win passes no fight point; a loss is an ordinary loss),
-// then the visit goes on (beginOnTask). Any other task: beginOnTask at once (no draw, no visit counted).
+// affixes bring reinforcements rolls this VISIT's extra battles (affixes.ts rollReinforcements on its keyed stream,
+// the objective's `visits` the key) as STRIKE POINTS along the progress still ahead (user 2026-10-14: mid-work, at
+// random points along the progress bar, like ambushes), stored on the lead (reinforcementsAt); startWork cuts the
+// work where each strikes. Any other task: no draw, no visit counted. Then the visit begins (beginOnTask).
 function landOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
   const task = ref.task;
   if (task.affixes && task.affixes.length > 0 && (task.fightPoints?.length ?? 0) > 0) {
     const visit = task.visits ?? 0;
-    const battles = rollReinforcements(exp.seed, ref.flatIndex, visit, task.affixes);
+    const strikes = rollReinforcements(exp.seed, ref.flatIndex, visit, task.affixes);
     task.visits = visit + 1;
-    if (battles > 0) {
-      if (battles > 1) team.reinforcements = battles - 1;
-      return startFight(exp, ops, team, ref, t, {}, "reinforcement");
-    }
+    const from = task.progress ?? 0;
+    if (strikes.length > 0) team.reinforcementsAt = strikes.map((f) => from + (1 - from) * f);
   }
   beginOnTask(exp, ops, team, ref, t);
 }
 
-// On the task at `t` (after the drop, or after this landing's extra battles): a fight waits at the held progress
+// On the task at `t` (after the drop): a fight waits at the held progress
 // (a retry resumes AT the point that beat the team), else work to the next point or 100%. `rec` adds to the closed
 // step's record.
 function beginOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number, rec: Partial<GroundStepRecord> = {}): void {
@@ -1215,8 +1214,20 @@ function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, re
   const crew = crewOf(ops, team);
   const full = taskWorkSeconds(exp, crew.map((member) => workTeamOf(ops, member)), ref.body);
   const secs = Math.max(1, Math.round((to - from) * full));
-  const strike = ambushStrike(exp, ref, secs);
   team.workFrom = from;
+  // AF-1, Reinforcing: this visit's next reinforcement strikes inside this step (its point before `to`): the step
+  // ends there, at whole second 1 to secs - 1 of it (a step under 2 s runs whole and the strike lands at its end),
+  // and finishWork fights it where the work stopped. Calm objectives never carry it, so it never meets an ambush.
+  const next = team.reinforcementsAt?.[0];
+  if (next !== undefined && next < to) {
+    team.reinforcementsAt = (team.reinforcementsAt as number[]).slice(1);
+    if (team.reinforcementsAt.length === 0) delete team.reinforcementsAt;
+    const at = secs >= 2 ? Math.max(1, Math.min(secs - 1, Math.round(((Math.max(next, from) - from) / Math.max(to - from, 1e-12)) * secs))) : secs;
+    team.workTo = from + (to - from) * (at / secs);
+    team.reinforcing = true;
+    return moveTo(ops, team, "work", t, t + at, rec);
+  }
+  const strike = ambushStrike(exp, ref, secs);
   if (strike !== null) {
     team.workTo = from + (to - from) * (strike / secs);
     team.ambushed = true;
@@ -1255,6 +1266,7 @@ function ambushStrike(exp: Expedition, ref: GroundTaskRef, secs: number): number
 // meets it as a SURPRISE FIGHT where it stands (Squads SQ-4, user: "win: work continues; lose: a normal wipe"),
 // a crew with none retreats (SQ-3).
 function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  if (team.reinforcing) return reinforcementFight(exp, ops, team, ref, t);
   if (team.ambushed) {
     const crew = crewOf(ops, team);
     const standing = crew.some((member) => member.securityIds.some((id) => !member.downedThisTask.includes(id)));
@@ -1297,6 +1309,20 @@ function surpriseFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
   delete team.workTo;
   delete team.ambushed;
   startFight(exp, ops, team, ref, t, { ambushed: true }, "surprise");
+}
+
+// A REINFORCEMENT strikes (AF-1, Reinforcing; user 2026-10-14: mid-work, like an ambush): the progress up to the
+// strike is kept (nothing banked: the segment is unfinished) and the crew fights the reinforcements where it stands,
+// on the task's ordinary keyed fight stream (fightCount moves on), with its carry, escalated by the objective's
+// alert. The record is marked `reinforcement`: a win passes no fight point and the work goes on from the same spot;
+// a loss is an ordinary loss (finishFight). A crew with no standing Security member still has to meet it: the fight
+// fields nobody and is lost (a combat objective's crew always brings Security). Mutates.
+function reinforcementFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  ref.task.progress = team.workTo ?? ref.task.progress ?? 0;
+  delete team.workFrom;
+  delete team.workTo;
+  delete team.reinforcing;
+  startFight(exp, ops, team, ref, t, {}, "reinforcement");
 }
 
 // THE SURVEY RETREAT (user #5): an ambush struck a crew with no Security squad. It never fights: the progress up
@@ -1390,7 +1416,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   };
   if (record.outcome === "win") {
     // A SURPRISE fight won (Squads SQ-4) passes no fight point: the work goes on from where the ambush struck. A
-    // REINFORCEMENT fight won (AF-1) passes none either: the landing goes on.
+    // REINFORCEMENT fight won (AF-1) passes none either: the work goes on from where it struck.
     if (!record.surprise && !record.reinforcement) {
       task.pointsCleared = (task.pointsCleared ?? 0) + 1;
       delete task.lossStreak;
@@ -1406,24 +1432,14 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     }
     if (recalled) {
       // GO-7d: no more work on this trip. A skipped task stays skipped; a reassigned one is free for its new crew.
-      delete team.reinforcements;
+      delete team.reinforcementsAt;
       if (task.status !== "skipped") task.status = "queued";
       return returnCrew(exp, ops, team, crew, ref, t, [], { outcome: "win", ...surprise, stopped: true });
-    }
-    if (record.reinforcement) {
-      // AF-1: the next of this landing's extra battles, else the visit goes on where the crew landed.
-      const left = team.reinforcements ?? 0;
-      if (left > 0) {
-        if (left > 1) team.reinforcements = left - 1;
-        else delete team.reinforcements;
-        return startFight(exp, ops, team, ref, t, { outcome: "win", ...surprise }, "reinforcement");
-      }
-      return beginOnTask(exp, ops, team, ref, t, { outcome: "win", ...surprise });
     }
     return startWork(exp, ops, team, ref, t, { outcome: "win", ...surprise });
   }
   for (const member of crew) delete member.carry;
-  delete team.reinforcements;
+  delete team.reinforcementsAt;
   // AF-1 (Reinforcing): every retreat or wipe here raises the objective's alert (affixes.ts alertAfterSetback; a
   // task whose affixes raise none is untouched). Whoever lost it (owner, helper, a recalled crew): the enemy saw
   // a crew beaten off either way.
@@ -1637,7 +1653,8 @@ function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number, rec: Partia
   delete team.ambushed;
   delete team.jointPartner;
   delete team.recalled;
-  delete team.reinforcements;
+  delete team.reinforcementsAt;
+  delete team.reinforcing;
 }
 
 // ============================================================================
@@ -2040,6 +2057,8 @@ function stopCrew(exp: Expedition, ops: GroundOpsState, lead: GroundTeamRun, ref
   delete lead.workFrom;
   delete lead.workTo;
   delete lead.ambushed;
+  delete lead.reinforcing;
+  delete lead.reinforcementsAt;
   returnCrew(exp, ops, lead, crew, ref, t, [], { stopped: true });
 }
 

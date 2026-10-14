@@ -195,7 +195,7 @@ export function withEscalation(enemies: GroundCombatant[], alertLevel: number): 
   }
   for (const e of enemies) {
     e.power *= damageMult;
-    e.threat = e.power;
+    e.threat *= damageMult;
   }
   return enemies;
 }

@@ -45,6 +45,7 @@ import { resolveTaskFight, withEscalation } from "./groundFight";
 import { generateEncounter } from "./gambit";
 import { groundThreatOddsKey } from "./groundThreat";
 import { plainAwayMember, withoutAffixes } from "./awayTeamTestFixtures";
+import { deserialize, migrate, serialize, type SaveFile } from "./save";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -214,9 +215,9 @@ const force = (task: ExpeditionActivity, affixes: ObjectiveAffix[], score: numbe
   task.difficultyScore = score;
 };
 
-// A seed whose landing number 0 on flat index `flat` brings at least `min` extra battles for `affixes`.
+// A seed whose visit number 0 on flat index `flat` brings at least `min` extra battles for `affixes`.
 function seedWithBattles(flat: number, affixes: ObjectiveAffix[], min: number): number {
-  for (let s = 1; s < 100_000; s += 1) if (rollReinforcements(s, flat, 0, affixes) >= min) return s;
+  for (let s = 1; s < 100_000; s += 1) if (rollReinforcements(s, flat, 0, affixes).length >= min) return s;
   throw new Error("no seed");
 }
 
@@ -272,27 +273,61 @@ describe("AF-1 stamping: an affix-aware run stamps its objectives' affixes and d
 
 // ===== the extra battles =====
 
-describe("AF-1 Reinforcing: extra battles on a landing", () => {
-  it("a landing that rolls N battles fights them first, back to back, passing no fight point; then the visit goes on", { timeout: 60_000 }, () => {
-    const seed = seedWithBattles(0, [R(10)], 3);
-    const n = rollReinforcements(seed, 0, 0, [R(10)]);
+describe("AF-1 Reinforcing: extra battles strike MID-WORK (user), at points rolled along the progress bar", () => {
+  it("each strike cuts the work where it lands, the crew fights there (no fight point), then works on from that spot", { timeout: 60_000 }, () => {
+    const seed = seedWithBattles(0, [R(10)], 2);
+    const strikes = rollReinforcements(seed, 0, 0, [R(10)]);
     const exp = affixRun({ pois: ["crashedShip"], risk: { ...CALM, combat: 2 }, seed, securityStrength: 400, state: oneTeam(6), after: (e) => force(tasksOf(e)[0], [R(10)], 6) });
-    const land = T0 + DEPLOY_SECONDS;
-    const later = advanceExpedition(exp, land + 4000);
-    const steps = historyOf(later, 0);
-    const firstFights = steps.filter((r) => r.startedAt >= land).slice(0, n + 1);
-    expect(firstFights.slice(0, n).every((r) => r.step === "fight" && r.reinforcement === true && r.outcome === "win")).toBe(true);
-    expect(firstFights[0].startedAt).toBe(land);
-    // Then the visit goes on: work toward the first fight point (the progress was 0).
-    expect(firstFights[n].step).toBe("work");
-    expect(firstFights[n].reinforcement).toBeUndefined();
-    const task = tasksOf(later)[0];
-    expect(task.visits).toBe(1);
-    // The extra battles count as fights (fresh streams) but cleared no point.
-    expect(task.fightCount).toBeGreaterThanOrEqual(n);
-    const pointFights = steps.filter((r) => r.step === "fight" && !r.reinforcement && r.outcome === "win").length;
-    expect(task.pointsCleared).toBe(pointFights);
-    expect(later.groundOps!.teams[0].reinforcements).toBeUndefined();
+    const task0 = tasksOf(exp)[0];
+    const points = task0.fightPoints!;
+    // Landed at progress 0: the strikes are stored on the lead as progress points, nothing fought yet.
+    const landed = advanceExpedition(exp, T0 + DEPLOY_SECONDS);
+    expect(tasksOf(landed)[0].visits).toBe(1);
+    const team = landed.groundOps!.teams[0];
+    expect(team.step).toBe("work");
+    expect(team.reinforcementsAt === undefined ? 0 : team.reinforcementsAt.length).toBeLessThan(strikes.length);
+    expect(landed.groundOps!.history.some((r) => r.step === "fight")).toBe(false);
+    const done = advanceExpedition(exp, T0 + 40_000);
+    const fights = historyOf(done, 0).filter((r) => r.step === "fight");
+    const reinf = fights.filter((r) => r.reinforcement);
+    expect(reinf.length).toBe(strikes.length);
+    expect(reinf.every((r) => r.outcome === "win")).toBe(true);
+    // Each reinforcement fight follows a work step that ended mid-segment, at (about) its strike point.
+    for (let k = 0; k < reinf.length; k += 1) {
+      const before = historyOf(done, 0).filter((r) => r.endedAt === reinf[k].startedAt && r.step === "work");
+      expect(before.length).toBe(1);
+      expect(reinf[k].startedAt).toBeGreaterThan(T0 + DEPLOY_SECONDS);
+    }
+    const t = tasksOf(done)[0];
+    expect(t.status).toBe("done");
+    // Reinforcements cleared no point: every point fight is a plain fight, one per point.
+    expect(fights.filter((r) => !r.reinforcement && r.outcome === "win").length).toBe(points.length);
+    expect(t.pointsCleared).toBe(points.length);
+    expect(t.fightCount).toBe(points.length + strikes.length);
+    expect(done.groundOps!.teams[0].reinforcementsAt).toBeUndefined();
+    expect(done.groundOps!.teams[0].reinforcing).toBeUndefined();
+  });
+
+  it("a strike lands where the roll put it: the first one's work step stops at its progress point", { timeout: 60_000 }, () => {
+    const seed = seedWithBattles(0, [R(1)], 1);
+    const [f] = rollReinforcements(seed, 0, 0, [R(1)]);
+    const exp = affixRun({ pois: ["crashedShip"], risk: { ...CALM, combat: 2 }, seed, securityStrength: 400, state: oneTeam(6), after: (e) => force(tasksOf(e)[0], [R(1)], 6) });
+    const points = tasksOf(exp)[0].fightPoints!;
+    let e = advanceExpedition(exp, T0 + DEPLOY_SECONDS);
+    // Walk to the reinforcement fight.
+    for (let t = T0 + DEPLOY_SECONDS + 5; t < T0 + 40_000; t += 5) {
+      e = advanceExpedition(e, t);
+      const tm = e.groundOps!.teams[0];
+      if (tm.step === "fight" && tm.pendingFight?.reinforcement) break;
+    }
+    const progress = tasksOf(e)[0].progress!;
+    // The strike point f of the whole bar (landed at 0), up to the whole-second rounding of the cut work step.
+    const seg = points.find((p) => p > f) ?? 1;
+    const prev = [0, ...points].filter((p) => p < f).pop()!;
+    expect(Math.abs(progress - f)).toBeLessThan((seg - prev) / 2);
+    expect(progress).toBeGreaterThan(prev);
+    expect(progress).toBeLessThan(seg);
+    expect(tasksOf(e)[0].segmentsBanked).toBe(points.filter((p) => p <= prev).length);
   });
 
   it("a task without the hook never rolls (no visit counted)", () => {
@@ -449,7 +484,9 @@ describe("AF-1 the FAILSAFE: an objective its alert made Impossible is held unti
 
 describe("AF-1 parity: one call == 997 s chunks == 1 s chunks with a reinforced objective held and decaying", () => {
   it("a hand-built run: extra battles, a loss, Impossible, the reset, the retry", { timeout: 300_000 }, () => {
-    const seed = seedWithBattles(0, [R(3)], 1);
+    // A first strike early on the bar (before the first fight point), so the weak crew meets it.
+    let seed = 1;
+    while ((rollReinforcements(seed, 0, 0, [R(3)])[0] ?? 1) > 0.2) seed += 1;
     const exp = heldRun(3, seed);
     const end = T0 + 3 * 3600;
     const one = advanceExpedition(exp, end);
@@ -508,5 +545,49 @@ describe("AF-1 LARGER JOINT CREWS (user: double up at the cost of speed)", () =>
     for (const s of t.segmentBankers ?? []) expect(s).toEqual([0, 1]);
     expect(historyOf(done, 1).some((r) => r.step === "staging" && r.taskId === task.id)).toBe(true);
     expect(done.findings.filter((f) => f.relic !== undefined).length).toBeLessThanOrEqual(1);
+  });
+});
+
+// ===== save and reload mid-alert =====
+
+describe("AF-1 a save mid-alert reloads and resolves identically", () => {
+  it("serialize, deserialize, migrate mid-run (alert, affixes, visits, score, pending strikes, a reset logged) == the uninterrupted run", { timeout: 300_000 }, () => {
+    // A weak crew on a Reinforcing X objective scored 8 (Impossible after 3 setbacks): it loses, retries on alert,
+    // goes Impossible, waits out the reset, and tries again. Find the first instant a work step is under way with a
+    // strike still pending on the lead, the objective on alert, and an earlier reset in the log.
+    let found: { exp: Expedition; mid: Expedition; at: number } | null = null;
+    for (let seed = 1; seed < 400 && !found; seed += 1) {
+      const exp = affixRun({
+        pois: ["derelictOutpost", "mineralOutcrop"],
+        risk: { ...CALM },
+        securityStrength: 0,
+        seed,
+        after: (e) => force(tasksOf(e)[0], [R(10)], 8),
+      });
+      let e = exp;
+      for (let t = T0 + 20; t < T0 + 60_000; t += 20) {
+        e = advanceExpedition(e, t);
+        const team = e.groundOps!.teams[0];
+        const task = tasksOf(e)[0];
+        const logged = (e.groundOps!.log ?? []).some((l) => l.kind === "alertReset");
+        if (logged && task.alert && (team.reinforcementsAt?.length ?? 0) > 0 && team.step === "work" && team.taskId === task.id) {
+          found = { exp, mid: e, at: t };
+          break;
+        }
+      }
+    }
+    expect(found).not.toBeNull();
+    const { exp, mid, at } = found!;
+    const task = tasksOf(mid)[0];
+    expect(task.affixes).toEqual([R(10)]);
+    expect(task.difficultyScore).toBe(8);
+    expect(task.visits).toBeGreaterThan(1);
+    expect(task.alert!.level).toBeGreaterThan(0);
+    const res = startExpedition(oneTeam(), "ship-1", 1, "cand-0");
+    const state = { ...res.next, gameTimeSeconds: at, expeditions: [mid] };
+    const loaded = migrate(deserialize(serialize(state, 0)) as SaveFile);
+    expect(loaded.expeditions[0]).toEqual(mid);
+    const END = at + 40_000;
+    expect(advanceExpedition(loaded.expeditions[0], END)).toEqual(advanceExpedition(exp, END));
   });
 });

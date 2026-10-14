@@ -21,9 +21,11 @@
 // this mission, the compliment of enemy forces will be reinforced before your next visit."
 //   - REQUIRED on Deadly combat objectives; rolls rarely on easier combat objectives and more rarely on early tiers
 //     ("Early planets will seldom have this, if at all, unless the roll gets it").
-//   - Ranks I to X. Per LANDING, a chance of reinforcements, then 1 to the rank's maximum EXTRA BATTLES
-//     (REINFORCING_RANKS: I 25%, II 35%, III 40% (user), X 50% (user's example); up to 1 / 1 / 2 / 2 / 3 / 3 /
-//     4 / 4 / 5 / 5 battles) [PROVISIONAL table]. Ranks above III are rare and gated by tier and difficulty.
+//   - Ranks I to X. Per VISIT (a crew's landing), a chance of reinforcements, then 1 to the rank's maximum EXTRA
+//     BATTLES, weighted toward fewer (REINFORCING_RANKS: I 25%, II 35%, III 40% (user), X 50% (user's example); up
+//     to 1 / 1 / 2 / 2 / 3 / 3 / 4 / 4 / 5 / 5 battles; REINFORCEMENT_COUNT_WEIGHTS) [PROVISIONAL tables]. They
+//     strike MID-WORK at random points along the progress bar, like ambushes (user). Ranks above III are rare and
+//     gated by tier and difficulty; the top ranks belong mainly to the future difficulty tiers (user).
 //   - THE ALERT: every retreat or wipe here raises the objective's alert level by one. Per level each fight fields
 //     one more enemy and the enemies gain a stacking HEIGHTENED SENSES damage buff on the D23 curve (never capped,
 //     each stack worth a bit less), and the difficulty rating rises. The alert lapses RESET seconds after the last
@@ -35,7 +37,7 @@
 //
 // DETERMINISM: two salts, both on the run's own seed and keyed, never a shared stream:
 //   AFFIX_ROLL_SALT     the stamping roll, keyed by (body index, the objective's index on its body);
-//   REINFORCEMENT_SALT  the per-landing reinforcement roll, keyed by (the objective's flat index, its visit count).
+//   REINFORCEMENT_SALT  the per-visit reinforcement roll, keyed by (the objective's flat index, its visit count).
 // Each roll uses a FIXED draw layout (documented at the function), so a later affix appends draws, never shifts one.
 //
 // Module graph: model (types), combat/rng, diminishing, riskFactors. Imported by groundOps.ts; imports none of the
@@ -52,7 +54,7 @@ export type { AffixAlignment, AffixId, ObjectiveAffix, ObjectiveAlert };
 
 // The stamping roll's stream salt: odd, distinct from every engine salt (salts.test.ts checks it).
 export const AFFIX_ROLL_SALT = 0x6b8d2f4b;
-// The per-landing reinforcement roll's stream salt: odd, distinct (salts.test.ts).
+// The per-visit reinforcement roll's stream salt: odd, distinct (salts.test.ts).
 export const REINFORCEMENT_SALT = 0x1f4e9a73;
 
 // ===== Alignments and their colors (user: green / yellow / red) =====
@@ -84,7 +86,7 @@ export type AffixTarget = "combatObjective" | "calmObjective";
 // The mechanical hooks an affix may carry, as data per rank (index 0 = rank I). The engine reads them through the
 // readers below; an affix without a hook simply has no effect there.
 export interface AffixHooks {
-  // A chance per LANDING of extra battles, and the most extra battles one landing can bring.
+  // A chance per VISIT of extra battles, and the most extra battles one visit can bring.
   extraBattleChanceByRank?: readonly number[];
   maxExtraBattlesByRank?: readonly number[];
   // Every retreat or wipe raises the objective's ALERT; it lapses this many seconds after the last setback.
@@ -106,7 +108,7 @@ export interface AffixDef {
   hooks: AffixHooks;
 }
 
-// REINFORCING by rank I..X [PROVISIONAL table; the user may retune it]: the chance of reinforcements per landing,
+// REINFORCING by rank I..X [PROVISIONAL table; the user may retune it]: the chance of reinforcements per visit,
 // the most extra battles they bring, and how long the alert takes to lapse after the last setback.
 export const REINFORCING_RANKS: readonly { chance: number; maxBattles: number; resetSeconds: number }[] = [
   { chance: 0.25, maxBattles: 1, resetSeconds: 1800 }, // I (user: 25%)
@@ -160,15 +162,15 @@ export const AFFIX_DEFS: Readonly<Record<AffixId, AffixDef>> = {
       const row = reinforcingRow(a.rank);
       const battles = row.maxBattles === 1 ? "an extra battle" : `up to ${row.maxBattles} extra battles`;
       return (
-        `Quick to reinforce: a ${Math.round(row.chance * 100)}% chance of ${battles} on each landing. ` +
+        `Quick to reinforce: a ${Math.round(row.chance * 100)}% chance of ${battles} during each visit. ` +
         `A retreat or wipe here puts the objective on alert (more enemies, ${HEIGHTENED_SENSES_NAME}) until the threat ` +
         `retreats, ${minutesText(row.resetSeconds)} after the last one.`
       );
     },
     help:
-      "Reinforcing: the faction holding this objective is quick to reinforce its teams. Each time a crew lands there " +
-      "is a chance that reinforcements arrive, forcing one or more extra battles before the work goes on (higher " +
-      "ranks raise both the chance and how many battles can come). Should your crew retreat or be wiped out, the " +
+      "Reinforcing: the faction holding this objective is quick to reinforce its teams. Each time a crew goes in there " +
+      "is a chance that reinforcements arrive while it works, forcing one or more extra battles where they strike " +
+      "(usually one; higher ranks raise both the chance and how many battles can come). Should your crew retreat or be wiped out, the " +
       "objective goes on ALERT: every fight there fields one more enemy per alert level, and the enemies gain " +
       `${HEIGHTENED_SENSES_NAME}, extra damage that stacks with each level (each stack is worth a little less). The ` +
       "objective's difficulty rating rises with the alert. If it reaches Impossible, your teams stop trying it and " +
@@ -228,16 +230,18 @@ export const AFFIX_ROLL_CHANCE_BY_DIFFICULTY: readonly number[] = [0.005, 0.01, 
 export const AFFIX_ROLL_TIER_MULT: Readonly<Record<RegionTier, number>> = { 1: 0.25, 2: 0.5, 3: 1, 4: 1.25, 5: 1.5, 6: 1.75, 7: 2 };
 // At most this many ROLLED (not required) affixes per objective [PROVISIONAL].
 export const AFFIX_MAX_ROLLED = 1;
-// The rank weights by region tier, rank I first [PROVISIONAL]: ranks above III appear only from Tier IV, and are
-// rare there ("Ranks above III should still be rare / tier-gated").
+// The rank weights by region tier, rank I first, at the BASE difficulty tier [PROVISIONAL]. High ranks are VERY rare
+// here (user 2026-10-14: "Ultimately, Reinforcing X won't likely be seen often by anything outside of safety
+// interlock max difficulty"): ranks above III only from Tier IV, IX and X only at Tier VII at 1% each. The top
+// ranks belong to the future difficulty tiers.
 export const AFFIX_RANK_WEIGHTS_BY_TIER: Readonly<Record<RegionTier, readonly number[]>> = {
   1: [100],
   2: [90, 10],
-  3: [60, 30, 10],
-  4: [40, 30, 18, 8, 4],
-  5: [25, 25, 20, 14, 9, 5, 2],
-  6: [15, 18, 18, 16, 13, 9, 6, 3, 2],
-  7: [10, 12, 14, 14, 13, 11, 9, 7, 6, 4],
+  3: [70, 22, 8],
+  4: [55, 28, 12, 4, 1],
+  5: [45, 28, 15, 7, 3, 1, 1],
+  6: [38, 27, 17, 9, 5, 2, 1, 1],
+  7: [30, 24, 18, 11, 7, 4, 3, 1, 1, 1],
 };
 // The highest rank an objective of each difficulty grade can carry, Simple .. Deadly [PROVISIONAL]: the high ranks
 // need the hard objectives too.
@@ -295,17 +299,33 @@ export function affixRollSeed(seed: number, bodyIndex: number, taskIndex: number
   return (seed ^ AFFIX_ROLL_SALT ^ Math.imul(bodyIndex + 1, 0x9e3779b9) ^ Math.imul(taskIndex + 1, 0x85ebca6b)) >>> 0;
 }
 
-// One weighted index from a draw u in [0, 1). Pure.
-function weightedIndex(u: number, weights: readonly number[]): number {
+// combat/rng.ts's INTEGER-FIRST contract (the GO-8 review's): every outcome draw is an integer. A chance is drawn
+// as nextInt(AFFIX_DRAW_UNITS) and passes when below the chance in the same units (affixChanceUnits, rounded); a
+// weighted pick is nextInt(the weights' total) walked down the (whole-number) weights. One step per draw.
+export const AFFIX_DRAW_UNITS = 1_000_000;
+
+// A chance in [0, 1] in draw units (rounded; out of range or NaN clamps). Pure.
+export function affixChanceUnits(chance: number): number {
+  const p = Number.isFinite(chance) ? Math.max(0, Math.min(1, chance)) : 0;
+  return Math.round(p * AFFIX_DRAW_UNITS);
+}
+
+// The weights' total (whole, non-negative parts only). Pure.
+function weightTotal(weights: readonly number[]): number {
   let total = 0;
-  for (const w of weights) total += Math.max(0, w);
-  if (!(total > 0)) return 0;
-  let roll = u * total;
+  for (const w of weights) total += Math.max(0, Math.floor(w));
+  return total;
+}
+
+// ONE weighted pick: a single integer draw over the weights' total (at least 1, so the draw is always made), walked
+// down the weights. Advances the rng by exactly one step. Pure otherwise.
+function drawWeighted(rng: Rng, weights: readonly number[]): number {
+  let roll = rng.nextInt(Math.max(1, weightTotal(weights)));
   for (let i = 0; i < weights.length; i += 1) {
-    roll -= Math.max(0, weights[i]);
+    roll -= Math.max(0, Math.floor(weights[i]));
     if (roll < 0) return i;
   }
-  return weights.length - 1;
+  return Math.max(0, weights.length - 1);
 }
 
 export interface AffixRollInput {
@@ -319,30 +339,26 @@ export interface AffixRollInput {
 }
 
 // The affixes an objective is stamped with: every REQUIRED affix of its pool, then at most AFFIX_MAX_ROLLED rolled
-// one. FIXED DRAW LAYOUT on makeRng(affixRollSeed): draw 1 = whether an affix rolls (next() < rollChance), draw 2 =
-// which (by weight among the pool's entries), then for EVERY affix of AFFIX_ORDER two draws, its rank (by the
-// pool's rank weights up to min(its maxRank, the pool's cap)) and its alignment (uniform among its alignments),
-// used only by the affixes it carries. Required affixes first, then the rolled one, catalog order. Pure.
+// one. FIXED DRAW LAYOUT on makeRng(affixRollSeed), integer draws only: draw 1 = whether an affix rolls
+// (nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(rollChance)), draw 2 = which (one weighted pick among the pool's
+// entries), then for EVERY affix of AFFIX_ORDER two draws, its rank (one weighted pick over the pool's rank weights
+// up to min(its maxRank, the pool's cap)) and its alignment (nextInt over its alignments), used only by the affixes
+// it carries. Required affixes first, then the rolled one, catalog order. Pure.
 export function rollObjectiveAffixes(input: AffixRollInput): ObjectiveAffix[] {
   const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, input.combat ? "combatObjective" : "calmObjective");
   const rng: Rng = makeRng(affixRollSeed(input.seed, input.bodyIndex, input.taskIndex));
-  const hit = rng.next() < pool.rollChance;
-  const pickU = rng.next();
-  const draws = new Map<AffixId, { rank: number; alignment: number }>();
-  for (const id of AFFIX_ORDER) draws.set(id, { rank: rng.next(), alignment: rng.next() });
-  const instance = (id: AffixId): ObjectiveAffix => {
+  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(pool.rollChance);
+  const pick = drawWeighted(rng, pool.entries.map((e) => e.weight));
+  const drawn = new Map<AffixId, ObjectiveAffix>();
+  for (const id of AFFIX_ORDER) {
     const def = AFFIX_DEFS[id];
-    const d = draws.get(id) as { rank: number; alignment: number };
     const top = Math.max(1, Math.min(def.maxRank, pool.rankCap, pool.rankWeights.length));
-    const rank = 1 + weightedIndex(d.rank, pool.rankWeights.slice(0, top));
-    const alignment = def.alignments[Math.min(def.alignments.length - 1, Math.floor(d.alignment * def.alignments.length))];
-    return { id, rank, alignment };
-  };
-  const out = pool.required.map(instance);
-  if (hit && AFFIX_MAX_ROLLED > 0 && pool.entries.length > 0) {
-    const picked = pool.entries[weightedIndex(pickU, pool.entries.map((e) => e.weight))];
-    out.push(instance(picked.id));
+    const rank = 1 + drawWeighted(rng, pool.rankWeights.slice(0, top));
+    const alignment = def.alignments[rng.nextInt(Math.max(1, def.alignments.length))];
+    drawn.set(id, { id, rank, alignment });
   }
+  const out = pool.required.map((id) => ({ ...(drawn.get(id) as ObjectiveAffix) }));
+  if (hit && AFFIX_MAX_ROLLED > 0 && pool.entries.length > 0) out.push({ ...(drawn.get(pool.entries[pick].id) as ObjectiveAffix) });
   return out;
 }
 
@@ -354,7 +370,7 @@ function hookAt(table: readonly number[] | undefined, rank: number): number | un
   return table[Math.max(0, Math.min(table.length - 1, Math.floor(rank) - 1))];
 }
 
-// The chance a landing brings reinforcements: independent chances combined, 1 - prod(1 - c) (0 with none). Pure.
+// The chance a visit brings reinforcements: independent chances combined, 1 - prod(1 - c) (0 with none). Pure.
 export function extraBattleChance(list: readonly ObjectiveAffix[] | undefined): number {
   let miss = 1;
   for (const a of validAffixes(list)) {
@@ -364,7 +380,7 @@ export function extraBattleChance(list: readonly ObjectiveAffix[] | undefined): 
   return 1 - miss;
 }
 
-// The most extra battles one landing can bring (the largest of the affixes'; 0 with none). Pure.
+// The most extra battles one visit can bring (the largest of the affixes'; 0 with none). Pure.
 export function maxExtraBattles(list: readonly ObjectiveAffix[] | undefined): number {
   let most = 0;
   for (const a of validAffixes(list)) {
@@ -389,24 +405,35 @@ export function raisesAlert(list: readonly ObjectiveAffix[] | undefined): boolea
   return alertResetSeconds(list) > 0;
 }
 
-// ===== The per-landing reinforcement roll =====
+// ===== The per-visit reinforcement roll =====
 
 // Its stream seed (see the header). Pure.
 export function reinforcementSeed(seed: number, flatIndex: number, visit: number): number {
   return (seed ^ REINFORCEMENT_SALT ^ Math.imul(flatIndex + 1, 0x9e3779b9) ^ Math.imul(visit + 1, 0x85ebca6b)) >>> 0;
 }
 
-// How many extra battles landing number `visit` (0 = the first) brings: 0, or 1 to maxExtraBattles. FIXED DRAW
-// LAYOUT on makeRng(reinforcementSeed): draw 1 = whether reinforcements arrive (next() < extraBattleChance), draw
-// 2 = how many (1 + nextInt(max), uniform) [PROVISIONAL: uniform]. No affix with the hook: 0, no draw. Pure.
-export function rollReinforcements(seed: number, flatIndex: number, visit: number, list: readonly ObjectiveAffix[] | undefined): number {
+// How many extra battles a visit brings is WEIGHTED TOWARD FEWER (user 2026-10-14: 1 most likely, the rank's
+// maximum rarest): the weights of 1, 2, 3, 4, 5 battles, cut at the rank's maximum [PROVISIONAL]. With a maximum of
+// 2: 1 battle 2 / 3 of the time; with 5: 1 battle half the time, 5 battles 4%.
+export const REINFORCEMENT_COUNT_WEIGHTS: readonly number[] = [50, 25, 13, 8, 4];
+
+// The extra battles visit number `visit` (0 = the first landing) brings, as their STRIKE POINTS: ascending
+// fractions in (0, 1) of the progress the visit still has ahead (0 = where the crew landed, 1 = the objective's
+// end; user 2026-10-14: they strike MID-WORK, "at random points along the progress bar", like ambushes). [] = none.
+// FIXED DRAW LAYOUT on makeRng(reinforcementSeed), integer draws only: draw 1 = whether reinforcements come
+// (nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(extraBattleChance)), draw 2 = how many (one weighted pick over
+// REINFORCEMENT_COUNT_WEIGHTS up to maxExtraBattles), then maxExtraBattles draws nextInt(AFFIX_DRAW_UNITS), one
+// strike point each, ALWAYS made (the first `count` are used). No affix with the hook: [], no draw. Pure.
+export function rollReinforcements(seed: number, flatIndex: number, visit: number, list: readonly ObjectiveAffix[] | undefined): number[] {
   const chance = extraBattleChance(list);
   const max = maxExtraBattles(list);
-  if (!(chance > 0) || max < 1) return 0;
+  if (!(chance > 0) || max < 1) return [];
   const rng = makeRng(reinforcementSeed(seed, flatIndex, visit));
-  const hit = rng.next() < chance;
-  const count = 1 + rng.nextInt(max);
-  return hit ? count : 0;
+  const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(chance);
+  const count = 1 + drawWeighted(rng, REINFORCEMENT_COUNT_WEIGHTS.slice(0, max));
+  const points: number[] = [];
+  for (let k = 0; k < max; k += 1) points.push((rng.nextInt(AFFIX_DRAW_UNITS) + 0.5) / AFFIX_DRAW_UNITS);
+  return hit ? points.slice(0, count).sort((a, b) => a - b) : [];
 }
 
 // ===== The alert (Reinforcing) =====
