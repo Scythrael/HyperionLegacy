@@ -653,6 +653,8 @@ describe("AF-2 follow-up: affix roll weights can vary by context (one shared rol
     expect(affixRollWeight({ rollWeight: 7, weightFor: (c) => c.tier * 10 }, ctx)).toBe(30);
     expect(affixRollWeight({ rollWeight: 7, weightFor: () => -1 }, ctx)).toBe(0);
     expect(affixRollWeight({ rollWeight: 7, weightFor: () => Number.NaN }, ctx)).toBe(0);
+    expect(affixRollWeight({ rollWeight: 7, weightFor: () => 0.5 }, ctx)).toBe(0); // a fraction below 1 never rolls
+    expect(affixRollWeight({ rollWeight: 7, weightFor: () => 12.9 }, ctx)).toBe(12);
     expect(AFFIX_DEFS.reinforcing.weightFor).toBeUndefined();
     expect(AFFIX_DEFS.rockyOutcroppings.weightFor).toBeUndefined();
   });

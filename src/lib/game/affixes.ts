@@ -339,7 +339,8 @@ export interface AffixRollContext {
 // is not a positive finite number reads 0 (the affix does not roll there). Pure.
 export function affixRollWeight(def: Pick<AffixDef, "rollWeight" | "weightFor">, context: AffixRollContext): number {
   const w = def.weightFor ? def.weightFor(context) : def.rollWeight;
-  return typeof w === "number" && Number.isFinite(w) && w > 0 ? w : 0;
+  // Whole numbers only (drawWeighted draws integers): a fraction floors, so 0.5 reads 0 and never rolls.
+  return typeof w === "number" && Number.isFinite(w) && w >= 1 ? Math.floor(w) : 0;
 }
 
 // Clamp to a region tier. Pure.
