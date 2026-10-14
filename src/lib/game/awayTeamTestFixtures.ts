@@ -90,6 +90,28 @@ export function withoutShipEvents(exp: Expedition): Expedition {
   return { ...exp, groundOps: { ...exp.groundOps, shipEventProfile: { ...NEUTRAL_SHIP_EVENT_PROFILE } } };
 }
 
+// Objective affixes (AF-1): the run WITHOUT its affix flag, i.e. the risk-aware run the same dispatch produced
+// before AF-1. The flag is the risk profile's `difficultyTier` (its presence makes a run affix-aware); a task
+// stamped on an affix-aware run also carries `affixes`, `difficultyScore`, `alert` and `visits`, which come off
+// too. Every other key keeps its order. A run without a profile is returned as it is. Pure: shallow copies.
+export function withoutAffixes(exp: Expedition): Expedition {
+  if (!exp.risk) return exp;
+  const risk = { ...exp.risk } as Record<string, unknown>;
+  delete risk.difficultyTier;
+  return {
+    ...exp,
+    risk: risk as unknown as Expedition["risk"],
+    bodies: exp.bodies.map((b) => ({
+      ...b,
+      activities: b.activities.map((a) => {
+        const task = { ...a } as Record<string, unknown>;
+        for (const k of ["affixes", "difficultyScore", "alert", "visits"]) delete task[k];
+        return task as unknown as typeof a;
+      }),
+    })),
+  };
+}
+
 // A dispatch result whose expedition (and every expedition in `next`) lost its risk profile: the pre-SQ-4 flagged
 // dispatch. A refusal is returned unchanged. Pure.
 export function asPreRiskDispatch<R extends { next: GameState; expedition?: Expedition }>(res: R): R {
