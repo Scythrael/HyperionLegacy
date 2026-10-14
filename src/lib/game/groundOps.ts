@@ -29,7 +29,9 @@
 //                     that type / every deployed squad of that type (Squads SQ-3, design 3.4; GO-7a split by
 //                     member count) [PROPOSAL, Q20]. With one team both are [1] (a Ground team), so every
 //                     crew-layer read (exp.securityStrength x share, exp.scienceStrength x share) equals today.
-//     shipEventProfile : NEUTRAL_SHIP_EVENT_PROFILE until GO-8 snapshots the real one.
+//     shipEventProfile : the ship-side scan events' frozen inputs (GO-8, shipScanEvents.ts
+//               snapshotShipEventProfile: evasion, sensors, shields, Engineering, the battle inputs). A run
+//               dispatched before GO-8 carries NEUTRAL_SHIP_EVENT_PROFILE (no battle inputs: no ship events).
 //   snapshotAwayRosterForTeams(state, ship, teams) : the run's UNION roster (Expedition.roster): Security then
 //     Science members of the deployed teams, team order then slot order. Scan readers keep reading exp.roster.
 //
@@ -61,6 +63,8 @@ import {
   type ShipInstance,
 } from "./model";
 import { snapshotMembers } from "./awayTeam";
+// GO-8: the ship-side scan events' dispatch snapshot (shipScanEvents.ts never imports this module).
+import { snapshotShipEventProfile } from "./shipScanEvents";
 import { deployableGroundTeams, shipGroundTeams } from "./groundTeams";
 import { bayCareFrom, memberBaySeconds, type BayCare } from "./medicalBay";
 import { shipInjuryFactors } from "./injuries";
@@ -114,8 +118,8 @@ export interface GroundOpsSnapshot {
 // at the same dispatch instant; quickRecovery is rolled on the run's seed, so it is passed in, never re-rolled).
 export type GroundOpsRunFacets = Pick<Expedition, "recoveryTurnaround" | "quickRecovery" | "injurySteady">;
 
-// The ship-event profile a run carries until GO-8 snapshots the real one. No reader exists yet; frozen so a
-// snapshot can never mutate the shared value (snapshotGroundOps writes a fresh copy).
+// The ship-event profile every flagged run dispatched BEFORE GO-8 carries (no `battle`: it rolls no ship event).
+// Frozen so nothing can mutate the shared value. Since GO-8 snapshotGroundOps writes the real profile.
 export const NEUTRAL_SHIP_EVENT_PROFILE: Readonly<ShipEventProfile> = Object.freeze({
   evasion: 0,
   sensors: 0,
@@ -189,7 +193,7 @@ export function snapshotGroundOps(state: GameState, ship: ShipInstance, run: Gro
     securityShare: sharesOf(teams.map((t) => teamSquadsOf(t).security)),
     scienceShare: sharesOf(teams.map((t) => teamSquadsOf(t).science)),
   };
-  return { teams, factors, shipEventProfile: { ...NEUTRAL_SHIP_EVENT_PROFILE } };
+  return { teams, factors, shipEventProfile: snapshotShipEventProfile(state, ship) };
 }
 
 // The bay care a run's frozen factors carry (GO-7b passes it to medicalBay.ts memberBaySeconds). Pure.

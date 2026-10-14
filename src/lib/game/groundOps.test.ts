@@ -18,6 +18,7 @@ import {
   snapshotAwayRosterForTeams,
   snapshotGroundOps,
 } from "./groundOps";
+import { snapshotShipEventProfile } from "./shipScanEvents";
 import { snapshotAwayRoster } from "./awayTeam";
 import { shipInjuryFactors } from "./injuries";
 import { bayCareFrom } from "./medicalBay";
@@ -151,11 +152,13 @@ describe("GO-7a snapshotGroundOps: one ground team", () => {
     expect(snapshotGroundOps(later, ship1(later), NO_FACETS).teams.map((t) => t.securityIds)).toEqual([["member-1", "member-2"]]);
   });
 
-  it("carries the NEUTRAL ship-event profile as a fresh copy", () => {
+  it("carries the ship-event profile (GO-8: shipScanEvents.ts snapshotShipEventProfile, with the battle flag)", () => {
     const snap = snapshotGroundOps(basic(), ship1(basic()), NO_FACETS);
-    expect(snap.shipEventProfile).toEqual(NEUTRAL_SHIP_EVENT_PROFILE);
-    expect(snap.shipEventProfile).not.toBe(NEUTRAL_SHIP_EVENT_PROFILE);
+    expect(snap.shipEventProfile).toEqual(snapshotShipEventProfile(basic(), ship1(basic())));
+    expect(snap.shipEventProfile.battle).toBeDefined();
+    // The profile every flagged run dispatched before GO-8 carries: frozen, no battle inputs (no ship events).
     expect(Object.isFrozen(NEUTRAL_SHIP_EVENT_PROFILE)).toBe(true);
+    expect(NEUTRAL_SHIP_EVENT_PROFILE.battle).toBeUndefined();
   });
 
   it("is pure: same input, deep-equal output; the input state is untouched", () => {

@@ -1186,6 +1186,59 @@ scan with a pause; the fixed draw layout (stubbing boarding draws changes nothin
 
 **Acceptance:** gate green. Commit `feat(0.14.0): ship-side scan events replace scan ground battles (Ground Ops GO-8)`.
 
+**Carry from GO-8 (built 2026-10-13, commit `feat(0.14.0): ship-side scan events with light ship damage (Ground Ops
+GO-8)`):**
+- **`shipScanEvents.ts`** (new; imports model, combat/*, gambit rollHaul / scanStepKey, crewOverlay, equipment,
+  officerStats, diminishing, relics; never expedition.ts or groundOps.ts). Salts `SHIP_EVENT_SALT` 0x5c9e2b47,
+  `PROBE_BATTLE_SALT` 0x3d71a6e9, `PROBE_SALVAGE_SALT` 0x6f2c84b3, `GHOST_FIND_SALT` 0x1a9d5e77 (registered in
+  salts.test.ts). The FIXED five-draw layout per boundary (`shipEventDraws`): draw 1 the kind (`nextInt(100)`, debris
+  35 / probe 25 / ghost 25 / storm 15), draw 2 the check, draw 3 cloaked (a ghost is a cloaked vessel below
+  `GHOST_CLOAKED_CHANCE` 0.1), draws 4 and 5 boarding (taken, unread until GO-9); a test stubs 4 and 5 and nothing else moves.
+- **THE FLAG.** `ShipEventProfile.battle?: ShipEventBattle` (frozen at dispatch: hullType, the installed COMBAT pieces
+  as deep copies (absent when the ship carries none: it fights with its hull's default loadout [PROVISIONAL]), the
+  officers' combat PROFILE (crewOverlay.ts officerCombatProfile) and the folded hullMax). `snapshotGroundOps` now
+  writes the real profile (`snapshotShipEventProfile`: evasion, sensors, shieldCapacity, Engineering Integrity,
+  boardingDefense 0 until GO-9, battle). `shipEventsLive(exp)` = battle present. A flagged run dispatched before GO-8
+  carries `NEUTRAL_SHIP_EVENT_PROFILE` (no battle) and still rolls draw 1 at chance 0 (its exact shape; the pre-SQ-4
+  and pre-clearing goldens pass through the new fixture `withoutShipEvents`, which `withoutRisk` and `withoutClearing`
+  now apply: those runs never had ship events). Legacy runs keep Task 14's ground battles (goldens untouched).
+- **The roll.** `scanStepRoll` on a ship-event run fires draw 1 at `shipScanEventChance` (expedition.ts: the same
+  `encounterChance` formula, the Shroud / Lure dial [PROVISIONAL, Q11], Evasive Command; nobody sits out); the supply
+  cache (draw 2) is unchanged. `rollStepBoundary` reads the ramps at WALL time (`flaggedHoursAt(exp,
+  scanClockToTime(ops, at))`, the GO-7b carry note), and the battle ship is rebuilt from the frozen inputs at that
+  hour (`officerCombatModsFromProfile(profile, hoursOut)`: the officers' Constitution ramp) carrying the run's damage.
+- **The events (all [PROVISIONAL]; checks use the odds form 1 - (1 - base) / (1 + diminishing(power, 1)), never
+  certain):** DEBRIS base 0.5, power = evasion share x 10; fail = `DEBRIS_DELAY_SECONDS` 120 + hull wear 4% of
+  hullMax. PROBE: `resolveBattle` (precharge) of the ship vs `HOSTILE_PROBE_HULL` (90 hull / 30 shield / 2 recharge,
+  autocannon, aggressive) x (1 + resisted hazard) x (1 - `exp.ambushSoften`) on hull, shield and weapon damage; win =
+  salvage (`rollHaul` x 0.4, source "encounter", no relic, id `<exp>-find-ship-b<i>-s<k>`); loss (a draw too) =
+  `PROBE_REPAIR_SECONDS` 300 + 8% wear. GHOST: base 0.4, power = sensors / 40 (sensors fold the Science officer and
+  division); pass = `bonusDiscovery` (one discovery appended LAST when the body completes, on `GHOST_FIND_SALT`
+  keyed by the boundary: draw the pool when both have candidates, then the PoI; the body's other discoveries are
+  untouched); fail = `GHOST_RESCAN_SECONDS` 180 [Q19]. CLOAKED: the sensor check decides who ambushes (pass: the ship
+  strikes first; fail: the vessel does), vs `CLOAKED_VESSEL_HULL` (220 / 100 / 4, autocannon + railgun) scaled the same
+  way; win = salvage x 0.8; loss = 420 s + 12% wear. STORM: base 0.5, power = shieldMax x (1 + Engineering
+  Integrity) / 300; fail = `STORM_SLOW_SECONDS` 240. Every negative outcome is a `pauseSeconds`, so the scan walk
+  times it exactly (tested: scan end = bodies + pauses + legs).
+- **Light hull damage (user Q12).** `ExpeditionScanEvent.hullWear` is summed on `GroundOpsState.hullDamage`; at claim
+  `applyShipEventDamage` marks the ship `damaged` and adds the whole points to `repairDamage`, so the Shipyard's
+  auto-repair (tick.ts processShipRepairs) repairs it. Note: a ship already mid-repair when it is claimed has the
+  added points cleared with that repair (the duration was fixed at its start).
+- **Model:** `ExpeditionScanEvent.kind` gains "shipEvent" with `event` (`ShipScanEventKind`), `outcome` pass / fail /
+  win / loss, `hullWear`, `bonusDiscovery`, `boarding?` (GO-9); `ShipEventBattle`; `GroundOpsState.hullDamage?`.
+- **The telescope preview** (launchPreview.test.ts) compares the run with its ship events off: a ghost's bonus find
+  is a scan EVENT the telescope cannot foresee; it joins after the previewed tasks (shipScanEvents.test.ts pins it).
+  **Question for the user:** fine that the forecast counts the system's tasks and a ghost can turn up one more?
+- **GO-7b's parity file** pins its scenario with `withoutShipEvents` (it is about the window); the new parity lives in
+  shipScanEvents.test.ts. Observed on 60 fresh-freighter runs: the hostile probe never beat the starting freighter (its
+  default autocannon); the cloaked vessel wins about half; balance-pass item.
+- Tests: new `shipScanEvents.test.ts` (17: the draw shares, the fixed layout, the check curve, the gate both ways and
+  the supply cache's draw, every kind and outcome on four pinned real runs, pauses and wear, salvage and the ghost's
+  one discovery, the scan's length, the claim's damage and the Shipyard repair, battle determinism, hazard and
+  softening, the lost battle, parity one call == 997 s == 1 s over the scan plus the whole run at 997 s on each
+  pinned run); salts.test.ts +4 names; groundOps.test.ts (the real profile). Suite 4481 -> 4498 passed (1 skipped);
+  `npm run check` 0 errors. Legacy, pre-SQ-4, pre-clearing goldens unchanged; no-dead-stats unchanged.
+
 ### GO-9: Boarding attempts (D26)
 
 **Files:** `shipScanEvents.ts`, `groundOps.ts` (profile), `no-dead-stats.test.ts`, test `shipScanEvents.test.ts`.

@@ -37,7 +37,7 @@ import { THREAT_TIER_ORDER } from "./combat/threatAssessment";
 import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
 import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
-import { plainAwayMember } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutShipEvents } from "./awayTeamTestFixtures";
 
 const T0 = 100_000;
 
@@ -92,11 +92,13 @@ function stampedTasks(exp: Expedition): SystemTaskPreview["tasks"] {
 }
 
 // Dispatch candidate 0, optionally on a forced region (the run's risk replaced before any body is scanned, the
-// groundOpsRisk.test.ts posture), and advance past the scan.
+// groundOpsRisk.test.ts posture), and advance past the scan. Ground Ops GO-8: with its ship-side scan events off
+// (withoutShipEvents): the preview reads the system's tasks; a sensor ghost's bonus find is a scan EVENT no
+// telescope foresees (it joins after the previewed tasks; shipScanEvents.test.ts pins that).
 function dispatchAndScan(state: GameState, region?: ExpeditionRegion): Expedition {
   const res = startExpedition(state, "ship-1", 1, "cand-0");
   expect(res.success, String(res.reason)).toBe(true);
-  let exp = res.expedition!;
+  let exp = withoutShipEvents(res.expedition!);
   if (region) {
     const forced = generateRiskProfile(exp.seed, region, exp.bodies);
     exp = { ...exp, risk: forced.profile, bodies: exp.bodies.map((b, i) => ({ ...b, risk: forced.bodies[i] })) };

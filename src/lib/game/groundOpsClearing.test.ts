@@ -11,7 +11,7 @@ import { riskFightPointCount } from "./groundTasks";
 import { groundOpsLogText } from "./groundOps";
 import { CLEARING_SITE_CATALOG, POI_CATALOG, PLANET_TYPES, groundSiteLabel, poisForPlanetType } from "./expeditionContent";
 import { generateEncounter } from "./gambit";
-import { plainAwayMember } from "./awayTeamTestFixtures";
+import { plainAwayMember, withoutShipEvents } from "./awayTeamTestFixtures";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -52,9 +52,10 @@ function crewed(expeditionSeed: number, kinds: "gg" | "ss" = "gg"): GameState {
 
 // The run as it was dispatched before the follow-up: no body carries a clearing roll. (Before the change the
 // stored risk had no `clearing` key, so this is a no-op on the pre-change code.)
+// Ground Ops GO-8: a run dispatched before the follow-up never had ship events either (withoutShipEvents).
 export function withoutClearing(exp: Expedition): Expedition {
   return {
-    ...exp,
+    ...withoutShipEvents(exp),
     bodies: exp.bodies.map((b) => {
       if (!b.risk) return b;
       const risk = { ...b.risk };

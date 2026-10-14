@@ -122,6 +122,9 @@ import {
 // crewOverlay and crewBuffs only, never this module, so no cycle). GO-7b: a Ground Ops run brings home the
 // members still in the medical bay instead (applyGroundOpsInjuries).
 import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
+// Ground Ops GO-8 (user 9b.6): the ship-side scan events of a flagged run (shipScanEvents.ts never imports this
+// module), their bonus-discovery stream, and the light hull damage brought home at claim (user Q12).
+import { applyShipEventDamage, ghostFindSeed, resolveShipScanEvent, shipEventsLive } from "./shipScanEvents";
 // Squads SQ-4: the risk profile drawn at dispatch, flora's Bloom lift and the hostile-site gate.
 import {
   DIFFICULTY_NAMES,
@@ -1350,6 +1353,20 @@ function assignDiscoveriesAndActivities(
   for (const id of body.risk?.clearing ?? []) {
     if (isClearingSiteId(id)) discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: id });
   }
+  // Ground Ops GO-8: every SENSOR GHOST read true on this body while it scanned (a ship event with
+  // bonusDiscovery) adds ONE discovery, last, each from its own keyed stream (shipScanEvents.ts ghostFindSeed),
+  // never the body's discovery stream above, so the body's other discoveries are untouched. Draws: the pool
+  // (when both have candidates), then the PoI. A run without ship events has no such event.
+  for (const ev of exp.scanEvents ?? []) {
+    if (ev.kind !== "shipEvent" || ev.bonusDiscovery !== true || ev.bodyIndex !== bodyIndex) continue;
+    const ghost = makeRng(ghostFindSeed(exp, bodyIndex, ev.step));
+    const both = pools.surface.length > 0 && pools.underground.length > 0;
+    const surface = both ? ghost.nextInt(2) === 0 : pools.surface.length > 0;
+    const pool = surface ? pools.surface : pools.underground;
+    if (pool.length === 0) continue;
+    const poi = pickWeightedPoi(ghost, pool).poi;
+    discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: surface ? "landmark" : "underground", poiId: poi.id });
+  }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({
     id: `${exp.id}-${body.id}-act-${k}`,
@@ -1487,10 +1504,31 @@ export function scanStepRoll(exp: Expedition, bodyIndex: number, step: number, h
   // Ground Ops (GO-7b, user 9b.6): a FLAGGED run rolls no scan-time ground battle (nobody is on the ground
   // while the ship scans; GO-8's ship-side events take this draw). The draw is still taken at chance 0, so the
   // supply cache (draw 2) reads the same stream position as on a legacy run.
-  const chance = body && !exp.groundOps ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut)) : 0;
+  // GO-8: a flagged run WITH ship events (shipScanEvents.ts shipEventsLive) rolls draw 1 at the ship-event chance
+  // (shipScanEventChance, the same formula); one dispatched before GO-8 keeps chance 0 (its exact shape).
+  const chance = !body
+    ? 0
+    : !exp.groundOps
+      ? clampPermille(scanEncounterChance(exp, body, scanDownedBefore(exp, bodyIndex, step), hoursOut))
+      : shipEventsLive(exp)
+        ? clampPermille(shipScanEventChance(exp, body, hoursOut))
+        : 0;
   const encounter = rng.chance(chance, 1000);
   const cache = rng.chance(clampPermille(SUPPLY_CACHE_CHANCE), 1000);
   return { encounter, supplyCache: !encounter && cache };
+}
+
+// Ground Ops GO-8: the per-boundary SHIP EVENT chance on `body` for a flagged run with ship events: the scan
+// encounter formula (encounterChance: the body's hazard as the run presents it, the Security squad's Shroud /
+// Lure dial [PROVISIONAL, Q11], Evasive Command ramped by the Flight Deck's Constitution at `hoursOut`, the
+// event's WALL hours since dispatch). Unlike a ground battle nobody sits out (no ground fight while scanning),
+// and the dial reads the whole union roster. Pure.
+export function shipScanEventChance(exp: Expedition, body: ExpeditionBody, hoursOut: number = 0): number {
+  return encounterChance(
+    resistedHazard(body.hazard, exp.hazardResist ?? 0),
+    squadEncounterBias(exp.roster?.security ?? [], fieldDeviceEffectiveness(exp.roster)),
+    rampedEncounterEvasion(exp, hoursOut),
+  );
 }
 
 // The next activity window strictly after `elapsedInScan` seconds into the scanning phase (see the
@@ -1527,7 +1565,26 @@ function encounterScanDurationSeconds(exp: Expedition): number {
 
 // Roll ONE step boundary (the caller latches it via the cursor) and record what happened. `at` is the
 // boundary's elapsed-in-scanning time (for the loss pause). Mutates the working clone only.
+// Ground Ops (GO-7b): on a flagged run `at` is the boundary's SCAN-CLOCK time; GO-8 reads the ramps at its WALL
+// time (flaggedHoursAt(scanClockToTime(at)), the GO-7b carry note), and a fired draw 1 is a SHIP EVENT
+// (shipScanEvents.ts): its finding is appended, its light hull damage added to the run (GroundOpsState.hullDamage).
 function rollStepBoundary(exp: Expedition, events: ExpeditionScanEvent[], body: ExpeditionBody, bodyIndex: number, step: number, at: number): void {
+  const ops = exp.groundOps;
+  if (ops && shipEventsLive(exp)) {
+    const hoursOut = flaggedHoursAt(exp, scanClockToTime(ops, at));
+    const roll = scanStepRoll(exp, bodyIndex, step, hoursOut);
+    if (roll.encounter) {
+      const res = resolveShipScanEvent(exp, body, bodyIndex, step, hoursOut);
+      if (res.finding) exp.findings.push(res.finding);
+      if (res.event.hullWear) ops.hullDamage = (ops.hullDamage ?? 0) + res.event.hullWear;
+      events.push(res.event);
+    } else if (roll.supplyCache) {
+      const finding = rollSupplyCache(exp, body, bodyIndex, step);
+      exp.findings.push(finding);
+      events.push({ bodyIndex, step, kind: "supplyCache", findingId: finding.id });
+    }
+    return;
+  }
   // E-CREW (Task 21): the boundary's hours since dispatch, from its stored time (only a ramped run reads it).
   const roll = scanStepRoll(exp, bodyIndex, step, exp.rampFlightDeck ? expeditionHoursAtScan(exp, at) : 0);
   if (roll.encounter) {
@@ -2047,7 +2104,10 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   const deposited = depositExpeditionFindings(removed, exp.findings);
   // Ground Ops (GO-7b): a flagged run brings home the members still in the medical bay with the time they have
   // left (never the flat 2h); a legacy run keeps Task 16's injuries.
-  const { next, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
+  const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
+  // Ground Ops GO-8 (user Q12): the light hull damage the ship's scan events left comes home with it (the Shipyard
+  // repairs it); none on a run without ship events (the SAME state).
+  const next = applyShipEventDamage(home, exp);
   return {
     next,
     success: true,

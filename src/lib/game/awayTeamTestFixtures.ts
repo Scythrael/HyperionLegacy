@@ -9,6 +9,7 @@ import { SHIP_TYPES, type AwayMember, type AwayTeamType, type Expedition, type G
 import { expeditionAwayTeamCheck } from "./expedition";
 import { V67_GROUND_TEAM_COUNT, emptyGroundTeams, shipsWithMemberAutoSlotted } from "./groundTeams";
 import { byIdNumber } from "./awayTeam";
+import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
 
 // Ground Operations (GO-1, and the GO-7c multi-team tests): register a SYNTHETIC hull under `key` in the
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
@@ -67,8 +68,10 @@ export function withoutGroundOps(exp: Expedition): Expedition {
 // same dispatch produced before SQ-4 (the profile's presence is the risk-aware flag; nothing else in the dispatch
 // record differs). Tests that pin pre-SQ-4 flagged behavior dispatch, then strip it with this. Every other key
 // keeps its order. Pure: shallow copies (the input is never touched).
+// Ground Ops GO-8: a run dispatched before SQ-4 never had ship events either, so they come off too
+// (withoutShipEvents).
 export function withoutRisk(exp: Expedition): Expedition {
-  const rest = { ...exp };
+  const rest = { ...withoutShipEvents(exp) };
   delete rest.risk;
   rest.bodies = exp.bodies.map((b) => {
     const body = { ...b };
@@ -76,6 +79,15 @@ export function withoutRisk(exp: Expedition): Expedition {
     return body;
   });
   return rest;
+}
+
+// Ground Ops GO-8: the run WITHOUT its ship-side scan events, i.e. the FLAGGED run the same dispatch produced before
+// GO-8: its ship-event profile back to the NEUTRAL one every earlier flagged run carried (no `battle` inputs, the
+// ship-event flag; the frozen values were all 0 then). Its timeline then rolls no ship event. A legacy run is
+// returned as it is. Every other key keeps its order. Pure: shallow copies.
+export function withoutShipEvents(exp: Expedition): Expedition {
+  if (!exp.groundOps) return exp;
+  return { ...exp, groundOps: { ...exp.groundOps, shipEventProfile: { ...NEUTRAL_SHIP_EVENT_PROFILE } } };
 }
 
 // A dispatch result whose expedition (and every expedition in `next`) lost its risk profile: the pre-SQ-4 flagged

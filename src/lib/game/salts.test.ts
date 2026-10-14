@@ -18,6 +18,7 @@ import * as groundThreat from "./groundThreat";
 import * as groundOps from "./groundOps";
 import * as riskFactors from "./riskFactors";
 import * as telescope from "./telescope";
+import * as shipScanEvents from "./shipScanEvents";
 import * as relics from "./relics";
 import * as salvage from "./salvage";
 import * as seniorStaff from "./seniorStaff";
@@ -36,6 +37,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "groundOps.ts": groundOps,
   "riskFactors.ts": riskFactors,
   "telescope.ts": telescope,
+  "shipScanEvents.ts": shipScanEvents,
   "officerStats.ts": officerStats,
   "relics.ts": relics,
   "salvage.ts": salvage,
@@ -91,6 +93,10 @@ describe("salt registry (GO-4)", () => {
       "groundOps.ts AUTO_ASSIGN_SALT",
       "riskFactors.ts RISK_SALT",
       "telescope.ts SYSTEM_DISTANCE_SALT",
+      "shipScanEvents.ts SHIP_EVENT_SALT",
+      "shipScanEvents.ts PROBE_BATTLE_SALT",
+      "shipScanEvents.ts PROBE_SALVAGE_SALT",
+      "shipScanEvents.ts GHOST_FIND_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
       "tick.ts MISSION_OUTPUT_ROUNDING_SALT",

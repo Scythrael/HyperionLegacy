@@ -42,6 +42,9 @@ import type { PirateHullId } from "./combat/enemyHulls";
 // crafted weapon. TYPE-ONLY import (compile-erased), so no runtime cycle, same posture as the
 // combat type imports above (combat/weapons imports only combat/types + statusEffects).
 import type { WeaponId } from "./combat/weapons";
+// Ground Operations (GO-8): the officers' combat PROFILE a ship-event run freezes at dispatch (crewOverlay.ts
+// officerCombatProfile, folded at each event's wall hours). TYPE-ONLY import (compile-erased): no runtime cycle.
+import type { OfficerCombatEntry } from "./crewOverlay";
 
 // Data model, tech spec §1 (Data Model).
 // Phase 4 (docs/plans/2026-07-06-phase4-navigation-progression-overhaul-plan.md):
@@ -7056,15 +7059,28 @@ export interface Expedition {
 //                 lose (Task 16: they sit out every later battle of the run, gambit.ts scanDownedBefore,
 //                 and come home injured at claim, injuries.ts).
 //   supplyCache : the step roll's random EVENT, a small find (`findingId`).
+//   shipEvent   : Ground Operations GO-8 (user 9b.6): a SHIP-SIDE event on a flagged run with ship events
+//                 (shipScanEvents.ts): `event` names it, `outcome` is pass / fail (a check) or win / loss (a
+//                 ship battle). Every negative outcome is a `pauseSeconds` (the scan walk times it exactly);
+//                 `hullWear` is the light hull damage it left (Q12, carried home to the Shipyard unless a field
+//                 repair fixes it first, GO-8b); `bonusDiscovery` adds one discovery when the body completes;
+//                 `boarding` (GO-9) records a boarding attempt and whether the crew repelled it.
 export interface ExpeditionScanEvent {
   bodyIndex: number;
   step: number;
-  kind: "encounter" | "supplyCache";
-  outcome?: "win" | "loss"; // encounter only
+  kind: "encounter" | "supplyCache" | "shipEvent";
+  event?: ShipScanEventKind; // shipEvent only
+  outcome?: "win" | "loss" | "pass" | "fail"; // encounter: win / loss; shipEvent: pass / fail or win / loss
   downedMemberIds?: string[]; // encounter only
-  pauseSeconds?: number; // encounter loss only
-  findingId?: string; // the finding this event added (an encounter win, a supply cache)
+  pauseSeconds?: number; // encounter loss, or a shipEvent's negative outcome
+  findingId?: string; // the finding this event added (an encounter win, a supply cache, a ship battle won)
+  hullWear?: number; // shipEvent only: hull points of light damage (GO-8, user Q12)
+  bonusDiscovery?: true; // shipEvent only: a sensor ghost read true (one more discovery on this body)
+  boarding?: { repelled: boolean; creditsLost?: number }; // shipEvent only (GO-9)
 }
+
+// Ground Operations GO-8: the ship-side scan events (design 9b.6, the approved set; a rare ghost is a cloaked ship).
+export type ShipScanEventKind = "debris" | "probe" | "ghost" | "cloaked" | "storm";
 
 // E-CREW 0.14.0 (Task 12): ONE normalized ground effect on a snapshotted away-team member. The roster
 // snapshot folds the member's TRAIT effects (awayTraits.ts AWAY_TRAITS) and the fixed GEAR effects of every
@@ -7296,6 +7312,9 @@ export interface GroundOpsState {
   editCount: number; // player edits so far (GO-7d keys the auto-assign stream)
   history: GroundStepRecord[]; // DISPLAY ONLY, capped per team
   shipLegs: GroundShipLeg[]; // recovery legs, in time order
+  // GO-8 (user Q12): the hull points of LIGHT DAMAGE the ship carries from its scan events (absent = none). It
+  // comes home with the ship at claim (ShipInstance.repairDamage, the Shipyard repair).
+  hullDamage?: number;
   // GO-7c: the run's ground operations LOG, DISPLAY ONLY (resolution never reads it); absent until a line is
   // written, so a run without one keeps its exact shape.
   log?: GroundOpsLogEntry[];
@@ -7334,15 +7353,34 @@ export interface GroundOpsFactors {
   scienceShare: number[];
 }
 
-// The ship-side scan event inputs, frozen at dispatch (GO-8 fills them; GO-9 boardingDefense). Until GO-8 a
-// run carries groundOps.ts NEUTRAL_SHIP_EVENT_PROFILE and nothing reads it. GO-8 adds the frozen ship battle
-// inputs (hull type, installed gear, officer combat) for the probe and cloaked-vessel fights.
+// The ship-side scan event inputs, frozen at dispatch (shipScanEvents.ts snapshotShipEventProfile, GO-8; GO-9
+// boardingDefense). A flagged run dispatched before GO-8 carries groundOps.ts NEUTRAL_SHIP_EVENT_PROFILE (no
+// `battle`) and rolls no ship event, so it keeps its exact shape.
+//   evasion        : the ship's battle evasion share at dispatch (officer combat applied; display, the events read
+//                    the combatant at each event's wall hours)
+//   sensors        : effectiveShipStats(...).sensors at dispatch (the sensor ghost)
+//   shieldCapacity : the ship's battle shield pool at dispatch (display, as evasion)
+//   engineering    : the Engineering department's Integrity facet (the radiation storm)
+//   boardingDefense: crew.boardingDefense (GO-9: the Security division + the Ossir racial)
+//   battle         : GO-8, the frozen ship battle inputs. Its PRESENCE is the ship-event flag.
 export interface ShipEventProfile {
   evasion: number;
   sensors: number;
   shieldCapacity: number;
   engineering: number;
   boardingDefense: number;
+  battle?: ShipEventBattle;
+}
+
+// GO-8: the ship's battle inputs, frozen at dispatch (plain JSON data). The events rebuild the ship's combatant
+// from them at each event's WALL hours (the officers' Constitution ramp), carrying the run's hull damage.
+export interface ShipEventBattle {
+  hullType: ShipTypeKey;
+  // Deep copies of the ship's installed COMBAT pieces (weapons, shield emitter, hull plating, drone pods) at
+  // dispatch; absent when it had none (the ship fights with its hull's default loadout) [PROVISIONAL].
+  installedGear?: EquipmentInstance[];
+  officerCombat: OfficerCombatEntry[]; // crewOverlay.ts officerCombatProfile at dispatch
+  hullMax: number; // the folded hull pool at dispatch (light damage and the field repair threshold are shares of it)
 }
 
 // The default per-save expedition seed a fresh save starts from, and the value the v58->v59 migration
