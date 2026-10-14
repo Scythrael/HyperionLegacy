@@ -108,7 +108,7 @@ import { activityRelicFindBonus, resolveExpeditionActivity, resolveScanEncounter
 import { fieldworkEffect } from "./fieldwork";
 import { applyExpeditionInjuries, applyGroundOpsInjuries } from "./injuries";
 import { groundTeamBaySeconds } from "./groundOps";
-import { SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "./shipScanEvents";
+import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "./shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 import { OFFICER_BONUSES_PENDING_IN_RELEASE, effectiveShipStats, officerCombatMods } from "./crewOverlay";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "./crewBuffs";
@@ -564,7 +564,7 @@ function probeShipScanEvents(t: Transform): string {
   return fp(
     dispatches(t).map(({ exp }) => {
       const body = syntheticBody("terrestrial", 0.4);
-      const draws = { ...shipEventDraws(exp, 0, 1), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: 0.5 };
+      const draws = { ...shipEventDraws(exp, 0, 1), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: SHIP_EVENT_DRAW_UNITS / 2 };
       return [boardingRepelChance(exp.groundOps!.shipEventProfile.boardingDefense), resolveShipScanEventFromDraws(exp, body, 0, 1, 0, draws).event];
     }),
   );

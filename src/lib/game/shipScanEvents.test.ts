@@ -5,10 +5,20 @@
 
 import { describe, expect, it } from "vitest";
 import { freshState, type AwayMember, type Expedition, type GameState } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, scanRatePerSecond, startExpedition } from "./expedition";
+import {
+  advanceExpedition,
+  claimExpedition,
+  expeditionCandidates,
+  expeditionDispatchBlockText,
+  expeditionLaunchView,
+  expeditionShipRepairText,
+  scanRatePerSecond,
+  startExpedition,
+} from "./expedition";
+import { formatCountdown } from "./format";
 import { scanClockToTime } from "./groundOps";
 import { plainAwayMember, withSlottedAwayTeams, withoutGroundOps, withoutShipEvents } from "./awayTeamTestFixtures";
-import { processShipRepairs } from "./tick";
+import { economyTick, processShipRepairs } from "./tick";
 import {
   BOARDING_ATTEMPT_CHANCE,
   BOARDING_CREDIT_LOSS_SHARE,
@@ -20,7 +30,9 @@ import {
   HOSTILE_PROBE_HULL,
   PROBE_HULL_SHARE,
   PROBE_REPAIR_SECONDS,
+  SHIP_EVENT_DRAW_UNITS,
   SHIP_EVENT_WEIGHTS,
+  chanceUnits,
   SHIP_EVENT_WEIGHT_TOTAL,
   applyShipEventDamage,
   boardingRepelChance,
@@ -90,8 +102,9 @@ describe("GO-8 the fixed draw layout", () => {
     const body = e.bodies[0];
     for (let step = 1; step <= 9; step++) {
       const d = shipEventDraws(e, 0, step);
-      for (const v of [d.check, d.cloaked, d.boardingAttempt, d.boardingRepel]) expect(v >= 0 && v < 1).toBe(true);
-      const stubbed: ShipEventDraws = { ...d, boardingAttempt: 0.999, boardingRepel: 0.999 };
+      // GO-8 review: integer draws (combat/rng.ts integer-first).
+      for (const v of [d.check, d.cloaked, d.boardingAttempt, d.boardingRepel]) expect(Number.isInteger(v) && v >= 0 && v < SHIP_EVENT_DRAW_UNITS).toBe(true);
+      const stubbed: ShipEventDraws = { ...d, boardingAttempt: SHIP_EVENT_DRAW_UNITS - 1, boardingRepel: SHIP_EVENT_DRAW_UNITS - 1 };
       const a = resolveShipScanEventFromDraws(e, body, 0, step, 0, d);
       const b = resolveShipScanEventFromDraws(e, body, 0, step, 0, stubbed);
       // GO-9: a boarding the crew did not repel adds its pause on top; everything else is draws 1 to 3's.
@@ -350,7 +363,7 @@ describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial
           const d = { ...shipEventDraws(e, 1, step), kind };
           const r = resolveShipScanEventFromDraws(withDefense(e, bd), hot, 1, step, 0, d).event;
           const boards = r.event === "probe" || r.event === "cloaked";
-          expect(r.boarding !== undefined).toBe(boards && d.boardingAttempt < BOARDING_ATTEMPT_CHANCE);
+          expect(r.boarding !== undefined).toBe(boards && d.boardingAttempt < chanceUnits(BOARDING_ATTEMPT_CHANCE));
           if (r.boarding) {
             if (bd === 0) attempts += 1;
             if (r.boarding.repelled) n += 1;
@@ -365,7 +378,7 @@ describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial
   });
 
   it("not repelled: a scan pause plus a small credit loss from the run's findings, never below zero (user Q13)", () => {
-    const d = { ...shipEventDraws(e, 0, 4), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: 0.99 };
+    const d = { ...shipEventDraws(e, 0, 4), kind: SHIP_EVENT_WEIGHTS.debris, boardingAttempt: 0, boardingRepel: SHIP_EVENT_DRAW_UNITS - 1 };
     const rich: Expedition = {
       ...e,
       findings: [
@@ -408,5 +421,43 @@ describe("GO-9 boarding attempts (D26: crew.boardingDefense and the Ossir racial
     const a = advanceExpedition(quiet, FAR);
     const b = advanceExpedition(withDefense(quiet, 0.8), FAR);
     expect({ ...b, groundOps: { ...b.groundOps!, shipEventProfile: a.groundOps!.shipEventProfile } }).toEqual(a);
+  });
+});
+
+describe("GO-8 review (user, 2026-10-14: \"Must be repaired first\", the patrol rule): a damaged ship cannot launch", () => {
+  const base = crewed(PINNED[0]);
+  const hurt: GameState = { ...base, ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, damaged: true, repairDamage: 120 } : s)) };
+  const cand = (s: GameState) => expeditionCandidates(s, "ship-1")[0].id;
+
+  it("damaged and waiting for a bay: refused with the SAME state, said plainly", () => {
+    const res = startExpedition(hurt, "ship-1", 1, cand(hurt));
+    expect(res).toMatchObject({ success: false, reason: "shipDamaged" });
+    expect(res.next).toBe(hurt);
+    expect(expeditionDispatchBlockText("shipDamaged")).toBe("Ship is damaged, repair it first");
+    expect(expeditionShipRepairText(hurt, hurt.ships[0])).toBe("Damaged: waiting for a free Shipyard repair bay");
+    expect(expeditionShipRepairText(base, base.ships[0])).toBeNull();
+  });
+
+  it("under Shipyard repair: refused, with the repair's own end time (\"Repairing: ready in 4m\")", () => {
+    const repairing = processShipRepairs(hurt);
+    const proc = repairing.activeProcesses.find((p) => p.kind === "shipRepair")!;
+    expect(proc).toBeDefined();
+    expect(startExpedition(repairing, "ship-1", 1, cand(repairing)).reason).toBe("shipDamaged");
+    const secs = proc.remainingTicks * repairing.tickDurationSeconds;
+    expect(expeditionShipRepairText(repairing, repairing.ships[0])).toBe(`Repairing: ready in ${formatCountdown(secs)}`);
+    // A repair process alone (the flag already cleared by hand) still holds the ship.
+    const flagOff = { ...repairing, ships: repairing.ships.map((s) => ({ ...s, damaged: undefined })) };
+    expect(startExpedition(flagOff, "ship-1", 1, cand(flagOff)).reason).toBe("shipDamaged");
+  });
+
+  it("once repaired the ship launches again; the candidate list and the launch view still read while it waits", () => {
+    let s = processShipRepairs(hurt);
+    for (let i = 0; i < 5000 && (s.ships[0].damaged || s.activeProcesses.some((p) => p.kind === "shipRepair")); i++) s = economyTick(s, 1, () => 0.5);
+    expect(s.ships[0].damaged).toBeUndefined();
+    expect(startExpedition(s, "ship-1", 1, cand(s)).success).toBe(true);
+    // Display paths on the blocked ship: no throw, a full candidate list, a launch view.
+    const list = expeditionCandidates(hurt, "ship-1");
+    expect(list.length).toBeGreaterThan(0);
+    expect(() => expeditionLaunchView(hurt, "ship-1", list[0])).not.toThrow();
   });
 });

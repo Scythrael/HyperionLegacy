@@ -175,6 +175,7 @@ import type { RelicSetId, RelicVaultToken } from "./model";
 // top level of this file.
 import { addToInventory, itemCap, foldLifetimeStatsDelta } from "./tick";
 import Decimal from "break_infinity.js";
+import { formatCountdown } from "./format";
 
 // ============================================================================
 // FIRST-PASS TUNABLE constants
@@ -394,10 +395,14 @@ function clampPermille(fraction: number): number {
 //   needsAwayTeam:            D18 (user, 2026-10-06): the ship lacks the MINIMUM AWAY TEAM, at least
 //                             MIN_SECURITY_MEMBERS ready Security AND MIN_SCIENCE_MEMBERS ready Science members
 //                             (see expeditionAwayTeamCheck). No roster, no expedition.
+//   shipDamaged:              Ground Ops GO-8 review (user, 2026-10-14: "Must be repaired first", the patrol rule):
+//                             the ship is damaged or under Shipyard repair (expeditionShipDamaged). The detail line
+//                             with the repair's countdown is expeditionShipRepairText.
 export type ExpeditionDispatchBlockReason =
   | "noSuchShip"
   | "captainNotAssigned"
   | "shipAlreadyOnExpedition"
+  | "shipDamaged"
   | "noSuchCandidate"
   | "needsAwayTeam";
 
@@ -418,11 +423,34 @@ export function expeditionDispatchBlockText(reason: ExpeditionDispatchBlockReaso
       return "Assign a captain to this ship first";
     case "shipAlreadyOnExpedition":
       return "This ship is already on an expedition";
+    case "shipDamaged":
+      return "Ship is damaged, repair it first"; // the patrol gate's wording (App.svelte needsRepair)
     case "noSuchCandidate":
       return "Select a target system";
     case "needsAwayTeam":
       return "Needs a ground team with at least 1 Security and 1 Science member slotted and ready: set it up on the ship's Away Team tab";
   }
+}
+
+// Ground Ops GO-8 review (user, 2026-10-14: "Must be repaired first", the same rule as patrols): a ship that is
+// DAMAGED (ShipInstance.damaged, e.g. a lost patrol or an expedition's light hull damage brought home) or has a
+// Shipyard repair running cannot launch an expedition until the repair is done. Pure.
+export function expeditionShipDamaged(state: GameState, ship: ShipInstance): boolean {
+  return ship.damaged === true || shipRepairProcess(state, ship.id) !== undefined;
+}
+
+// The ship's running Shipyard repair (tick.ts processShipRepairs), if any. Pure.
+function shipRepairProcess(state: GameState, shipId: string): GameState["activeProcesses"][number] | undefined {
+  return state.activeProcesses.find((p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId);
+}
+
+// The dispatch console's detail line for a damaged ship: "Repairing: ready in 4m" from the repair process's own
+// remaining time, or, damaged with no bay yet, "Damaged: waiting for a free Shipyard repair bay". Null for a ship
+// that can launch. Pure.
+export function expeditionShipRepairText(state: GameState, ship: ShipInstance): string | null {
+  const repair = shipRepairProcess(state, ship.id);
+  if (repair) return `Repairing: ready in ${formatCountdown(repair.remainingTicks * state.tickDurationSeconds)}`;
+  return ship.damaged === true ? "Damaged: waiting for a free Shipyard repair bay" : null;
 }
 
 // D18 MINIMUM AWAY TEAM (user, 2026-10-06): "A ship with no roster should not be able to fight." An
@@ -1017,6 +1045,8 @@ export function startExpedition(
   if (ship.assignedCaptainId !== captainId) return { next: state, success: false, reason: "captainNotAssigned" };
   if (state.expeditions.some((e) => e.shipId === shipId))
     return { next: state, success: false, reason: "shipAlreadyOnExpedition" };
+  // GO-8 review (user, 2026-10-14): a damaged ship, or one in a Shipyard repair bay, is repaired first.
+  if (expeditionShipDamaged(state, ship)) return { next: state, success: false, reason: "shipDamaged" };
 
   // The candidate's seed (the console's ids, without building every reading: SQ-6's forecast builds runs).
   const committed = candidateSeed(state, candidateId);

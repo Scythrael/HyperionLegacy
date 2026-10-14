@@ -42,6 +42,7 @@
     expeditionAnomalyMarkerFraction,
     expeditionAwayTeamCheck,
     expeditionDispatchBlockText,
+    expeditionShipRepairText,
     type ExpeditionCandidate,
   } from "./game/expedition";
   import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
@@ -157,6 +158,9 @@
   // Launch button can never offer a dispatch the engine would refuse. Null outside the dispatch view.
   $: chosenTeamCheck = chosenShip && !chosenExpedition ? expeditionAwayTeamCheck(state, chosenShip) : null;
   $: needsAwayTeam = chosenTeamCheck !== null && !chosenTeamCheck.ok;
+  // Ground Ops GO-8 review (user, 2026-10-14: "Must be repaired first", the patrol rule): a damaged ship, or one in a
+  // Shipyard repair bay, cannot launch; the line says when it is ready. Null when it can launch.
+  $: shipRepairLine = chosenShip && !chosenExpedition ? expeditionShipRepairText(state, chosenShip) : null;
   // Ground Ops (GO-7b, user 2026-10-12): no automatic stand-ins, so the block lists what each ground team waits on
   // ("Alpha: Grokk returns to duty in 12m"). Squads SQ-1: groundWaitTeams leaves out a team nobody is slotted
   // into (every hull fields 2 teams now; the empty pair would only add noise).
@@ -570,9 +574,11 @@
           <button
             type="button"
             class="exp-btn primary"
-            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam}
+            disabled={!selectedCandidate || !chosenCaptain || needsAwayTeam || shipRepairLine !== null}
             title={!chosenCaptain
               ? expeditionDispatchBlockText("captainNotAssigned")
+              : shipRepairLine !== null
+                ? `${expeditionDispatchBlockText("shipDamaged")}. ${shipRepairLine}`
               : !selectedCandidate
                 ? expeditionDispatchBlockText("noSuchCandidate")
                 : needsAwayTeam
@@ -581,6 +587,12 @@
             on:click={launch}
           >Launch</button>
         </div>
+        {#if shipRepairLine !== null}
+          <div class="exp-block" role="status">
+            {expeditionDispatchBlockText("shipDamaged")}.
+            <span class="exp-block-counts">{shipRepairLine}.</span>
+          </div>
+        {/if}
         {#if needsAwayTeam && chosenTeamCheck}
           <!-- D18: say plainly why Launch is off and where to fix it (not only in a hover title). -->
           <div class="exp-block" role="status">

@@ -1285,6 +1285,33 @@ the profile value; draws 1 to 3 unchanged by this task.
   seeds include a run with a repelled and a not-repelled boarding (one call == 997 s == 1 s over the scan). Suite
   4510 -> 4516 passed (1 skipped); `npm run check` 0 errors; `RELEASE_GATE` lists no Ground Ops entry from GO-9.
 
+**Carry from the GO-8 / 8b / 9 review (2026-10-14, commit `fix(0.14.0): a damaged ship cannot launch an expedition;
+integer outcome draws (GO-8 review)`):**
+- **USER RULING "Must be repaired first" (the patrol rule).** New `ExpeditionDispatchBlockReason` `shipDamaged`
+  (checked after `shipAlreadyOnExpedition`): `expeditionShipDamaged(state, ship)` = `ship.damaged` or a running
+  Shipyard `shipRepair` process for it. Text "Ship is damaged, repair it first" (the patrol gate's wording); detail
+  line `expeditionShipRepairText`: "Repairing: ready in 4m" (the process's remainingTicks x tickDurationSeconds,
+  format.ts formatCountdown) or "Damaged: waiting for a free Shipyard repair bay". ExpeditionPanel disables Launch and
+  shows both. This closes the free-repair glitch (a damaged ship launching, its Shipyard repair then clearing the
+  expedition's damage at claim) and full-hull ship-event fights on a damaged ship. The candidate list and the launch
+  view (recommendation, forecast) still read on a blocked ship (display only; they simulate the launch as if
+  repaired). save.test.ts's v67 -> v68 replay now strips ship events from its v67-era run (`withoutShipEvents`: a v67
+  build froze no battle inputs); with them its brought-home damage would rightly hold the next dispatch.
+- **Integer outcome draws (review Minor 2, combat/rng.ts integer-first).** Draws 2 to 5 are now
+  `nextInt(SHIP_EVENT_DRAW_UNITS)` (1,000,000) compared against `chanceUnits(chance)` (the chance x the units,
+  rounded, clamped): still one step per draw, the same FIXED five-draw layout. Checked over 120 fresh-freighter runs:
+  every scan event is identical to the float version, so no GO-8 / 8b / 9 test seed moved (none re-pinned); the
+  stubbed-draw tests now stub integers. Legacy and pre-GO-8 goldens untouched (they take no ship-event draw).
+- **[PROVISIONAL, user list, Q11]** the Security squad's Shroud Emitter / Lure Beacon dial scales the ship-event
+  chance (it was built for the scan ground battles).
+- **For GO-18 (Help):** a sensor ghost's bonus find cannot be forecast (the telescope preview and the launch forecast
+  count the system's tasks; a ghost read true adds one more when its body completes).
+- **Balance note:** across 60 fresh-freighter runs the hostile probe never beat the starting freighter, while the
+  cloaked vessel wins about half; tune the probe hull (or scale it by region tier) in the balance pass.
+- Tests: shipScanEvents.test.ts 23 -> 26 (damaged and waiting, under repair with its countdown, a repair process alone
+  holds it, repaired launches again, the candidate list and launch view read while blocked). Suite 4516 -> 4519
+  passed (1 skipped); `npm run check` 0 errors.
+
 ---
 
 ### Stage E: UI (mockup-referenced; each verifies in the preview, desktop + 375 px)

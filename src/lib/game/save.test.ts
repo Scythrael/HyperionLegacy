@@ -37,7 +37,7 @@ import { awayRecruitSeedFrom, SENIOR_STAFF_DEFAULT_SEED } from "./model";
 import { emptyGroundTeams, isWellFormedShipGroundTeams, shipGroundTeams } from "./groundTeams";
 import { isValidComposition, shipTeamKinds } from "./groundComposition";
 import { deployableMembers } from "./awayTeam";
-import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
+import { asLegacyDispatch, asV67GroundState, plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams, withoutShipEvents } from "./awayTeamTestFixtures";
 import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
 import { tick } from "./tick";
 import type { GameState } from "./model";
@@ -6813,7 +6813,10 @@ describe("migrate, v67 -> v68 squad composition + the founding telescope (Squads
     const launched = startExpedition(s, "ship-1", 1, expeditionCandidates(s, "ship-1")[0].id);
     expect(launched.success).toBe(true);
     expect(launched.expedition?.groundOps).toBeDefined();
-    const raw = v67State(launched.next);
+    // Ground Ops GO-8: a v67 build never froze ship-event inputs (it carried the neutral profile), so the run comes
+    // off as that build dispatched it (withoutShipEvents). With them, its light hull damage would come home and the
+    // GO-8 review's repair gate would rightly hold the NEXT dispatch below.
+    const raw = v67State({ ...launched.next, expeditions: launched.next.expeditions.map(withoutShipEvents) });
     const viaStep = migrateFrom(67, JSON.parse(JSON.stringify(raw)));
     const noStep = migrateFrom(SAVE_VERSION, JSON.parse(JSON.stringify(raw)));
     expect(viaStep.ships[0].groundTeams).toHaveLength(2);

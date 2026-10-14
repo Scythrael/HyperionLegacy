@@ -200,8 +200,19 @@ export function shipEventSeed(exp: Pick<Expedition, "seed">, bodyIndex: number, 
   return (exp.seed ^ SHIP_EVENT_SALT ^ Math.imul(scanStepKey(bodyIndex, step) + 1, 0x9e3779b9)) >>> 0;
 }
 
+// GO-8 review (combat/rng.ts's integer-first contract): every outcome draw is an INTEGER. Draws 2 to 5 are
+// nextInt(SHIP_EVENT_DRAW_UNITS) and pass when below the chance scaled to the same units (chanceUnits, rounded), so
+// no float compare decides an outcome. One step per draw, as before: the layout and the draw count are unchanged.
+export const SHIP_EVENT_DRAW_UNITS = 1_000_000;
+
+// A chance in [0, 1] in draw units (rounded; out-of-range or NaN clamps). Pure.
+export function chanceUnits(chance: number): number {
+  const p = Number.isFinite(chance) ? Math.max(0, Math.min(1, chance)) : 0;
+  return Math.round(p * SHIP_EVENT_DRAW_UNITS);
+}
+
 // The fixed five draws of a boundary (see the header): draw 1 an integer in [0, SHIP_EVENT_WEIGHT_TOTAL), the rest
-// in [0, 1). Pure.
+// integers in [0, SHIP_EVENT_DRAW_UNITS). Pure.
 export interface ShipEventDraws {
   kind: number;
   check: number;
@@ -212,10 +223,10 @@ export interface ShipEventDraws {
 export function shipEventDraws(exp: Pick<Expedition, "seed">, bodyIndex: number, step: number): ShipEventDraws {
   const rng = makeRng(shipEventSeed(exp, bodyIndex, step));
   const kind = rng.nextInt(SHIP_EVENT_WEIGHT_TOTAL);
-  const check = rng.next();
-  const cloaked = rng.next();
-  const boardingAttempt = rng.next();
-  const boardingRepel = rng.next();
+  const check = rng.nextInt(SHIP_EVENT_DRAW_UNITS);
+  const cloaked = rng.nextInt(SHIP_EVENT_DRAW_UNITS);
+  const boardingAttempt = rng.nextInt(SHIP_EVENT_DRAW_UNITS);
+  const boardingRepel = rng.nextInt(SHIP_EVENT_DRAW_UNITS);
   return { kind, check, cloaked, boardingAttempt, boardingRepel };
 }
 
@@ -224,7 +235,7 @@ export function shipEventKindOf(draws: Pick<ShipEventDraws, "kind" | "cloaked">)
   let roll = draws.kind;
   for (const k of EVENT_ORDER) {
     roll -= SHIP_EVENT_WEIGHTS[k];
-    if (roll < 0) return k === "ghost" && draws.cloaked < GHOST_CLOAKED_CHANCE ? "cloaked" : k;
+    if (roll < 0) return k === "ghost" && draws.cloaked < chanceUnits(GHOST_CLOAKED_CHANCE) ? "cloaked" : k;
   }
   return "storm";
 }
@@ -267,7 +278,7 @@ export function resolveShipScanEventFromDraws(
   let finding: ExpeditionFinding | null = null;
   switch (kind) {
     case "debris": {
-      const pass = draws.check < shipEventCheckChance(DEBRIS_PASS_BASE, (ship.evasion / 100) * DEBRIS_EVASION_SCALE);
+      const pass = draws.check < chanceUnits(shipEventCheckChance(DEBRIS_PASS_BASE, (ship.evasion / 100) * DEBRIS_EVASION_SCALE));
       event.outcome = pass ? "pass" : "fail";
       if (!pass) {
         event.pauseSeconds = DEBRIS_DELAY_SECONDS;
@@ -276,13 +287,13 @@ export function resolveShipScanEventFromDraws(
       break;
     }
     case "storm": {
-      const pass = draws.check < shipEventCheckChance(STORM_PASS_BASE, (ship.shieldMax * (1 + Math.max(0, profile.engineering))) / STORM_SHIELD_SCALE);
+      const pass = draws.check < chanceUnits(shipEventCheckChance(STORM_PASS_BASE, (ship.shieldMax * (1 + Math.max(0, profile.engineering))) / STORM_SHIELD_SCALE));
       event.outcome = pass ? "pass" : "fail";
       if (!pass) event.pauseSeconds = STORM_SLOW_SECONDS;
       break;
     }
     case "ghost": {
-      const pass = draws.check < ghostCheckChance(profile);
+      const pass = draws.check < chanceUnits(ghostCheckChance(profile));
       event.outcome = pass ? "pass" : "fail";
       if (pass) event.bonusDiscovery = true;
       else event.pauseSeconds = GHOST_RESCAN_SECONDS;
@@ -292,7 +303,7 @@ export function resolveShipScanEventFromDraws(
     case "cloaked": {
       const cloaked = kind === "cloaked";
       // The cloaked vessel: the sensor check decides who strikes first (pass: the ship ambushes it).
-      const ambushFirst = cloaked ? (draws.check < ghostCheckChance(profile) ? "ship" : "enemy") : null;
+      const ambushFirst = cloaked ? (draws.check < chanceUnits(ghostCheckChance(profile)) ? "ship" : "enemy") : null;
       const won = shipEventBattleWon(exp, body, bodyIndex, step, ship, cloaked ? CLOAKED_VESSEL_HULL : HOSTILE_PROBE_HULL, ambushFirst);
       event.outcome = won ? "win" : "loss";
       if (won) {
@@ -303,8 +314,8 @@ export function resolveShipScanEventFromDraws(
         event.hullWear = wear(cloaked ? CLOAKED_HULL_SHARE : PROBE_HULL_SHARE);
       }
       // GO-9: the vessel may attempt to board (draws 4 and 5, see BOARDING_ATTEMPT_CHANCE).
-      if (draws.boardingAttempt < BOARDING_ATTEMPT_CHANCE) {
-        const repelled = draws.boardingRepel < boardingRepelChance(profile.boardingDefense);
+      if (draws.boardingAttempt < chanceUnits(BOARDING_ATTEMPT_CHANCE)) {
+        const repelled = draws.boardingRepel < chanceUnits(boardingRepelChance(profile.boardingDefense));
         event.boarding = { repelled };
         if (!repelled) {
           event.pauseSeconds = (event.pauseSeconds ?? 0) + BOARDING_PAUSE_SECONDS;
