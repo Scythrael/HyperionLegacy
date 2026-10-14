@@ -3,8 +3,8 @@
 // exported `*_SALT` constant of the modules below must be DISTINCT, ODD and a 32-bit unsigned value. The test
 // collects the salts from the module namespaces, so a new exported salt in any listed module is checked
 // automatically. Ground Ops modules join the list as they land (groundFight.ts at GO-5, groundThreat.ts at
-// GO-6, groundOps.ts at GO-7, shipScanEvents.ts at GO-8). A salt that is not exported is invisible here: keep
-// engine salts exported.
+// GO-6, groundOps.ts at Squads SQ-3 with its first salt, the ambush roll; shipScanEvents.ts at GO-8). A salt
+// that is not exported is invisible here: keep engine salts exported.
 // GO-5 (GO-4 review) exported and registered the four that were not: tick.ts MISSION_OUTPUT_ROUNDING_SALT,
 // relics.ts RELIC_STUDY_SALT, salvage.ts SALVAGE_ROUNDING_SEED_SALT, seniorStaff.ts OFFICER_STAT_SEED_SALT.
 
@@ -14,6 +14,7 @@ import * as gambit from "./gambit";
 import * as groundTasks from "./groundTasks";
 import * as groundFight from "./groundFight";
 import * as groundThreat from "./groundThreat";
+import * as groundOps from "./groundOps";
 import * as relics from "./relics";
 import * as salvage from "./salvage";
 import * as seniorStaff from "./seniorStaff";
@@ -29,6 +30,7 @@ const MODULES: Record<string, Record<string, unknown>> = {
   "groundTasks.ts": groundTasks,
   "groundFight.ts": groundFight,
   "groundThreat.ts": groundThreat,
+  "groundOps.ts": groundOps,
   "officerStats.ts": officerStats,
   "relics.ts": relics,
   "salvage.ts": salvage,
@@ -80,6 +82,7 @@ describe("salt registry (GO-4)", () => {
       "gambit.ts NEURAL_BACKUP_SALT",
       "groundFight.ts GROUND_FIGHT_SALT",
       "groundThreat.ts GROUND_THREAT_SALT",
+      "groundOps.ts GROUND_AMBUSH_SALT",
       "relics.ts RELIC_STUDY_SALT",
       "salvage.ts SALVAGE_ROUNDING_SEED_SALT",
       "tick.ts MISSION_OUTPUT_ROUNDING_SALT",

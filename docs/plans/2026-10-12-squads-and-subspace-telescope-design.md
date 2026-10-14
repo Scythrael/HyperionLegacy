@@ -761,3 +761,90 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
   squad, so it shouldn't really matter too much." So KEEP AS BUILT: the switch is allowed; the reserve is a general pool
   not tied to a squad; a temporary over-capacity reserve is fine (hiring that type pauses until members move; dispatch
   unaffected). The SQ-7 picker shows it plainly, no confirm, no forced benching.
+
+**Carry from SQ-3 (built 2026-10-13, commit `feat(0.14.0): squad needs, crew planning, shared pickup, Survey retreat
+(SQ-3)`):**
+- **Needs (model.ts `ExpeditionActivity.needs?: GroundTaskNeeds` = `{ security, science }` squads).** `groundOps.ts
+  taskNeedsOf(task)`: stored needs when both are whole numbers >= 0; else the carry-forward of `requiredTeams` N (whole
+  >= 1) as `{ N, N }`; else `{ 1, 1 }`. `requiredTeamsOf` is GONE (taskNeedsOf replaces it). `initGroundTasks` now
+  stamps `needs` and DELETES any content `requiredTeams` (read into needs, never stored twice), with the needs floored
+  to at least 1 Security squad whenever the task holds a fight point (a Security-less crew can never be sent at a
+  fight). Today's content sets neither field and FIGHT_POINTS_MIN is 1, so every new task reads `{ 1, 1 }` until SQ-4's
+  generated needs. Tasks stamped before SQ-3 keep `requiredTeams: 1` and read `{ 1, 1 }`.
+- **Team squads.** `GroundTeamRun.kind?` written at dispatch (absent = Ground: every run dispatched before SQ-3, when
+  no kind could be set). `teamSquadsOf(team)` (Ground 1 / 1, Strike 2 / 0, Survey 0 / 2, unknown = Ground),
+  `crewSquadsOf(teams)`, `squadsCover(squads, needs)`.
+- **Crew layer per SQUAD.** `factors.securityShare[i]` / `scienceShare[i]` = team i's squads of that type / every
+  deployed squad of that type (GO-7a split by member count). Strike + Survey = `[1, 0]` / `[0, 1]`; Strike + Ground
+  `[2/3, 1/3]` / `[0, 1]`; Ground + Ground `[0.5, 0.5]` whatever the member counts. One team stays `[1]`.
+- **Crew planning (`planTasksForTeams`).** A task's CREW is the smallest set of deployed teams whose squads cover its
+  needs and is written as `assignedTeamIds`; a task is JOINT exactly when that crew has 2+ teams (`isJointTask`; GO-7c
+  read `requiredTeams > 1`; a pre-SQ-3 joint task was assigned its N teams the same way, so in-flight runs read the
+  same). SOLO tasks (some single team covers): teams ranked by mean fresh wins over the solo tasks THEY cover (GO-7c
+  review (a): joint tasks never rank a team; a team covering none ranks last); tasks hardest first by the strongest
+  COVERING team; the GO-7c chunks of ceil(n / teams) where "teams" = the teams covering at least one solo task, each
+  task to the first covering team in rank order with room, else the covering team holding the fewest (ties rank). With
+  every team covering every task this is exactly GO-7c's split (the GO-7c plan test is unchanged). JOINT tasks
+  (`jointCrewFor`): among the SMALLEST covering sets, the most fresh clear wins as a whole, ties to the set whose teams
+  rank best **[PROVISIONAL]** (design 3.3 "the smallest pair, strongest first by threat"). Examples: Strike + Survey
+  sends the PAIR to every `{ 1, 1 }` task, Strike alone to a clearing task, Survey alone to a survey-only task; Strike +
+  Ground sends Ground ALONE to `{ 1, 1 }` (so on today's content the Strike team idles: the composition trade-off),
+  Strike alone to `{ 2, 0 }`, both to `{ 3, 1 }` / `{ 2, 1 }`.
+- **No softlock (user).** `planNewTasks` skips a task whose needs exceed every deployed squad summed (the only case no
+  crew covers) and logs `skippedNeedsSquads` (`{ at, kind, taskId, needs, deployed }`); `planTasksForTeams` also skips
+  (silently) anything uncoverable it is handed, so GO-7d's re-plan can never queue one. Text: "Skipped Crashed Ship:
+  needs 3 Security squads, 2 deployed" and, both short, "...: needs 3 Security squads, 2 deployed; 3 Science squads, 2
+  deployed". The GO-7c `skippedNeedsTeams` kind stays in the union and keeps its text (a run planned before SQ-3).
+- **Assignment.** `stageOn` deploys the lead once every crew team is staging AND the crew's squads cover the needs
+  (was `crew.length < requiredTeams`). Helpers: `borrowableTask` takes only a task planned for a crew of one that the
+  helper's OWN squads cover (`teamCovers`) and that rates at least HELPER_MIN_TIER (unchanged). Same-instant batch rule,
+  own-work-first, joining first, helper never touching the owner's streak, back of the line: all unchanged.
+- **Fights / fieldwork.** Unchanged machinery: one side = every Security member of the crew, union fieldwork; a crew
+  with no Science works at the bare pace (fieldworkSpeedMult of an empty party = 1).
+- **ONE completion, ONE offload (user #13 + design 3.5).** A joint task completes once (the lead's work reaching 100%)
+  and pays once. At a joint return every partner is marked `GroundTeamRun.jointPartner` (cleared at idle) and goes from
+  its return STRAIGHT to its own bay (no phantom offload); the LEAD runs the one offload (whenever it gets aboard: a
+  lead on a recovery leg offloads on arrival). Totals unchanged.
+- **Wipes + ONE SHARED PICKUP (user).** `wipedTeams(crew)`: a team is wiped when it has at least one Security member and
+  all are down (the SQ-2 review Minor 1 guard: a team with no Security member is never a wipe on its own); when the
+  WHOLE crew's Security (at least one member) is down, every crew team is wiped, so a Survey partner waits with its
+  Strike team. All wiped teams of one crew share ONE leg (`scheduleRecoveryLeg`): `GroundShipLeg.teamIndices?` lists
+  them when 2+ (absent for one, so a one-team leg keeps GO-7b's exact shape), `teamIndex` = the first. Every wiped
+  team's return ends at that leg's `arrivesAt` (history `recovered: true`; `groundLegTeams(leg)` reads either shape).
+  Separate crews still queue for separate legs (the GO-7c "two teams wiped close together" test is unchanged). **Note
+  (interpretation):** a partner with no Security member waits for the pickup with a wiped crew (300 s) instead of
+  shuttling up alone (60 s); that is what makes the shared pickup reachable on a Strike + Survey ship.
+- **THE SURVEY AMBUSH (user #5).** Only a crew with NO Security squad on a task with `ambushChance > 0` (stamped by the
+  hook `groundTaskAmbushChance(task)`, which returns `SURVEY_AMBUSH_CHANCE` for a task with no fight points and 0
+  otherwise) can be ambushed. Rolled at the work step's START on `makeRng(groundAmbushSeed(exp, flatIndex, ambushes))`
+  (new odd salt `GROUND_AMBUSH_SALT` 0x2b6f9d35, groundOps.ts registered in salts.test.ts): `next() < chance`, then the
+  second it strikes `1 + nextInt(secs - 1)` (a step under 2 s is never cut). The step ends there with `workTo` at the
+  ambush progress and `GroundTeamRun.ambushed`; at its end (`ambushRetreat`) the progress is kept, nothing is banked,
+  `task.ambushes += 1`, the task goes back to `queued`, every crew member gains SURVEY_AMBUSH_CONDITIONS, and the crew
+  takes an ordinary RETURN_SECONDS return (history `ambushed: true` on the cut work step), then bay, reload, retry. No
+  fight, no leg, no loss streak (progress was made); a helper lists it in skippedBorrowed. A crew WITH a Security squad
+  is never ambushed in SQ-3 (SQ-4 may decide whether such a crew fights one).
+- **[PROVISIONAL] constants (groundOps.ts, one line each):** `SURVEY_AMBUSH_CHANCE = 0` (the unknown-risk gate; SQ-4's
+  risk factors replace the hook's body); `SURVEY_AMBUSH_CONDITIONS = ["health"]` (the existing minor-injury condition,
+  60 s before care; no new condition was invented); `SURVEY_AMBUSH_MAX_PER_TASK = 2` (a hard cap so a survey task can
+  never be ambushed forever: no softlock); the joint-crew tie rule above.
+- **For SQ-4:** set `needs` from fight points and site (design 3.2), drop the fight-point floor to 0 on risk-aware runs
+  (only then can a Security-less crew take a task alone), and read the body's risk in `groundTaskAmbushChance`.
+  **For GO-7d:** validate `notEnoughSquads` with `squadsCover(crewSquadsOf(target teams), taskNeedsOf(task))`; an
+  "assign" of a joint task must write its whole crew into `assignedTeamIds` (that list IS the joint flag now).
+  **For SQ-7 / GO-13:** the crew the plan sends is `assignedTeamIds`; "Needs a partner" =
+  `!squadsCover(teamSquadsOf(team), taskNeedsOf(task))`.
+- **In-flight runs.** A run dispatched before SQ-3 (Ground teams, requiredTeams 1, solo crews) resolves the same: the
+  frozen shares are untouched, solo crews never get a partner flag or a shared leg, the plan for later bodies is the
+  same split. Only the stored shape of tasks stamped after the update differs (`needs` in place of `requiredTeams`).
+  Legacy goldens and every parity test unchanged.
+- Tests: new `groundOpsSquads.test.ts` (18: needs reader, squads + coverage, stamping and the floor, the hook at 0,
+  per-squad shares on three compositions, crews on Strike + Survey and Strike + Ground, the skip log both ways plus the
+  GO-7c text, a joint crew's one side / union work / one offload / pay once, the 3-squad fight side, the helper rule,
+  the empty-Security wipe guard, the shared pickup on Strike + Survey and on Ground + Ground, the ambush retreat and
+  cap, no ambush without a chance or with Security, parity one call == 997 s == 1 s over 2 h on a Strike + Survey
+  needs-split run with a shared pickup and a Survey retreat, and a real dispatched Strike + Survey run big == 997 s);
+  groundOps.test.ts (snapshot `kind`, per-squad shares), groundOpsTeams.test.ts (needs carry-forward, the joint
+  task's needs, the joint wipe is now ONE shared leg, the skip log is needs-based), groundOpsTimeline.test.ts
+  (stamped needs, no requiredTeams), salts.test.ts (groundOps.ts + GROUND_AMBUSH_SALT). Suite 4303 -> 4321 passed (1
+  skipped); `npm run check` 0 errors.

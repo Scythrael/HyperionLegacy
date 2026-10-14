@@ -6520,7 +6520,19 @@ export interface ExpeditionActivity {
   // GO-7b stamps them when a body's scan completes). ALL OPTIONAL and absent on a legacy run's activities, so
   // no SAVE_VERSION bump and every legacy record keeps its exact shape. `done` stays the completion flag and
   // mirrors status === "done".
-  requiredTeams?: number; // ground teams the task needs together; default 1 (content may ask for 2+)
+  // GO-7c: ground teams the task needs together (content wiring; no content sets it). Squads SQ-3: READ ONLY,
+  // as the carry-forward of `needs` (N teams = { security: N, science: N }); a task stamped since SQ-3 stores
+  // `needs` instead, a task stamped before keeps its requiredTeams (groundOps.ts taskNeedsOf reads both).
+  requiredTeams?: number;
+  // Squads SQ-3 (design section 3.2): the minimum SQUADS of each type the task's crew must bring. Stamped when
+  // the body's scan completes (groundOps.ts initGroundTasks); absent on tasks stamped before SQ-3 (read
+  // through requiredTeams). A task with fight points always needs at least 1 Security squad.
+  needs?: GroundTaskNeeds;
+  // Squads SQ-3 (user #5): the chance an UNKNOWN-RISK ambush strikes a crew with no Security squad on this
+  // task (a survey-only task: no fight points). Stamped only when above 0 (groundOps.ts
+  // groundTaskAmbushChance; 0 for every task until the risk factors land, SQ-4), so absent = 0.
+  ambushChance?: number;
+  ambushes?: number; // ambushes this task has suffered (keys the next roll; absent = 0)
   fightPoints?: number[]; // ascending progress fractions in (0, 1) (groundTasks.ts fightPointFractions)
   progress?: number; // 0..1, PERSISTS across losses (user 9b.1)
   pointsCleared?: number; // fights won; the next fight is fightPoints[pointsCleared]
@@ -6542,6 +6554,13 @@ export interface ExpeditionActivity {
   completedAt?: number;
   lossStreak?: number;
   sentBack?: number;
+}
+
+// Squads SQ-3: a task's squad requirement, in SQUADS of each type (a Ground team brings { 1, 1 }, a Strike team
+// { 2, 0 }, a Survey team { 0, 2 }; a crew of several teams sums them).
+export interface GroundTaskNeeds {
+  security: number;
+  science: number;
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
@@ -7068,6 +7087,9 @@ export type GroundStepKind = "idle" | "staging" | "deploy" | "work" | "fight" | 
 // the ship (groundTeams.ts groundTeamName), never stored here.
 export interface GroundTeamRun {
   index: number; // ship ground-team index (0 = Alpha)
+  // Squads SQ-3: the team's type at dispatch (its squads: groundComposition.ts securitySquadsOf /
+  // scienceSquadsOf). Absent = Ground (every run dispatched before SQ-3: no kind could be set then).
+  kind?: GroundTeamKind;
   securityIds: string[];
   scienceIds: string[];
   helpOthers: boolean; // "When done, help other teams" (the ship's default at dispatch)
@@ -7092,6 +7114,12 @@ export interface GroundTeamRun {
   // Ground Operations (GO-7b): the current attempt's starting pointsCleared (set at deploy), so a loss knows
   // whether the attempt cleared a new fight point (the stuck count, groundOps.ts groundTaskStuck).
   attemptPoints?: number;
+  // Squads SQ-3: the current work step ends in an AMBUSH (rolled at its start, applied at its end: a crew with
+  // no Security squad retreats, user #5). Cleared at idle.
+  ambushed?: true;
+  // Squads SQ-3: a joint crew's PARTNER on its way back: the lead offloads once for the whole crew, so this team
+  // goes straight to its own bay (design 3.5). Cleared at idle.
+  jointPartner?: true;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
@@ -7104,6 +7132,7 @@ export interface GroundStepRecord {
   taskId?: string;
   outcome?: "win" | "loss"; // a fight step
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
+  ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated)
 }
 
 // GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A WIPED team cannot leave on its own ("can't leave them to die"):
@@ -7114,7 +7143,10 @@ export interface GroundStepRecord {
 // every later time is a pure function of stored values.
 export interface GroundShipLeg {
   kind: "recovery";
-  teamIndex: number;
+  teamIndex: number; // the (first) team the leg picks up
+  // Squads SQ-3 (user 2026-10-12, ONE SHARED PICKUP): every team the leg picks up, ascending index, written only
+  // when several teams of one crew wiped together on one body (absent = teamIndex alone).
+  teamIndices?: number[];
   bodyIndex: number; // the body the team was on
   scanBodyIndex: number | null; // the body the ship broke off scanning; null = the scan was already done
   startsAt: number;
@@ -7141,16 +7173,25 @@ export interface GroundOpsState {
   log?: GroundOpsLogEntry[];
 }
 
-// GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it). Today the only kind:
-// a task that needs more ground teams than the ship deployed is skipped when its body is planned
-// [PROVISIONAL, Q20].
-export interface GroundOpsLogEntry {
-  at: number; // gameTimeSeconds of the planning
-  kind: "skippedNeedsTeams";
-  taskId: string;
-  requiredTeams: number;
-  deployedTeams: number;
-}
+// GO-7c: one line of the ground operations log (groundOps.ts groundOpsLogText words it): a task nobody deployed
+// can cover is skipped when its body is planned [PROVISIONAL, Q20]. Squads SQ-3 writes `skippedNeedsSquads`
+// (the needs in squads against the deployed squads); `skippedNeedsTeams` (GO-7c, in teams) stays readable for a
+// run planned before SQ-3.
+export type GroundOpsLogEntry =
+  | {
+      at: number; // gameTimeSeconds of the planning
+      kind: "skippedNeedsTeams";
+      taskId: string;
+      requiredTeams: number;
+      deployedTeams: number;
+    }
+  | {
+      at: number;
+      kind: "skippedNeedsSquads";
+      taskId: string;
+      needs: GroundTaskNeeds;
+      deployed: GroundTaskNeeds; // the squads of every deployed team, summed
+    };
 
 // The run's factors, FROZEN at dispatch (D24: the medical factors too). Shares are per DEPLOYED team, in
 // GroundOpsSnapshot.teams order (groundOps.ts snapshotGroundOps documents each source).

@@ -1,7 +1,8 @@
 // Ground Operations GO-7c: several ground teams on one ship (groundOps.ts): the DEFAULT PLAN (user 9b.3),
 // HELPERS (user D25 + 9b.4) with the HELPER_MIN_TIER floor and the skippedBorrowed no-loop rule, JOINT tasks
 // (requiredTeams N: staging, a LEAD carrying the joint steps, one fight side, the team set banking and paying),
-// recovery legs for several wiped teams (user Q1: one leg at a time, each team waits for its own pickup), and
+// recovery legs for several wiped teams (user Q1: one leg at a time; separate crews each wait for their own
+// pickup, one crew wiped together shares ONE leg since Squads SQ-3), and
 // offline == live parity on a 3-team run. Every REAL hull fields 2 ground teams since Squads SQ-1 (its second pair
 // empty until SQ-2 opens the hire cap), so these tests run on a SYNTHETIC 3-team hull (awayTeamTestFixtures.ts registerSyntheticHull), registered per test and removed after.
 
@@ -28,8 +29,8 @@ import {
   groundOpsLogText,
   groundTaskFindingPrefix,
   initGroundTasks,
-  requiredTeamsOf,
   scanClockAt,
+  taskNeedsOf,
 } from "./groundOps";
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
 import { tierAtLeast } from "./combat/threatAssessment";
@@ -361,16 +362,16 @@ describe("GO-7c recovery legs with several teams (user Q1: one leg at a time)", 
 });
 
 describe("GO-7c joint tasks (requiredTeams N, D25: tasks scale to several teams)", () => {
-  it("content's requiredTeams is kept when stamped (a whole number >= 1), else 1", () => {
-    expect(requiredTeamsOf({ requiredTeams: 2 })).toBe(2);
-    for (const bad of [undefined, 0, -1, 1.5, Number.NaN]) expect(requiredTeamsOf({ requiredTeams: bad })).toBe(1);
+  it("content's requiredTeams N (a whole number >= 1, else 1) carries forward as needs of N Ground teams (Squads SQ-3)", () => {
+    expect(taskNeedsOf({ requiredTeams: 2 })).toEqual({ security: 2, science: 2 });
+    for (const bad of [undefined, 0, -1, 1.5, Number.NaN]) expect(taskNeedsOf({ requiredTeams: bad })).toEqual({ security: 1, science: 1 });
   });
 
   it("a 2-team task: both teams stage, the LEAD deploys and carries the steps, both squads fight as ONE side", () => {
     const e = opsRun({ poiIds: ["crashedShip", "mineralOutcrop"], required: [2, 1], securityStrength: 400, shares: [0.5, 0.3, 0.2] });
     const [joint, solo] = tasksOf(e);
-    expect(joint.requiredTeams).toBe(2);
-    expect(joint.assignedTeamIds).toEqual([0, 1]); // the two strongest
+    expect(joint.needs).toEqual({ security: 2, science: 2 }); // Squads SQ-3: requiredTeams 2, carried forward
+    expect(joint.assignedTeamIds).toEqual([0, 1]); // the strongest covering pair
     expect(teams(e)[0].queue).toContain(joint.id);
     expect(teams(e)[1].queue).toContain(joint.id);
     expect(solo.assignedTeamIds).toEqual([0]);
@@ -449,7 +450,7 @@ describe("GO-7c joint tasks (requiredTeams N, D25: tasks scale to several teams)
     expect(done.groundOps!.endedAt).toBeDefined();
   });
 
-  it("a joint WIPE: each wiped team waits for its own pickup; the loss counts once and both owners send it back", () => {
+  it("a joint WIPE: ONE shared pickup for both wiped teams (user, Squads SQ-3); the loss counts once and both owners send it back", () => {
     const e = opsRun({
       poiIds: ["subterraneanCivilization", "mineralOutcrop"],
       required: [2, 1],
@@ -464,12 +465,11 @@ describe("GO-7c joint tasks (requiredTeams N, D25: tasks scale to several teams)
     const at = advanceExpedition(e, loss.endedAt);
     expect(tasksOf(at)[0]).toMatchObject({ status: "queued", lossStreak: 1 });
     const legs = at.groundOps!.shipLegs;
-    expect(legs.map((l) => [l.teamIndex, l.startsAt])).toEqual([
-      [0, loss.endedAt],
-      [1, loss.endedAt + 2 * IN_SYSTEM_LEG_SECONDS],
-    ]);
-    // Each team runs its OWN return: the partner's staging closes at the loss, its return ends on its own leg.
-    expect(teams(at)[1]).toMatchObject({ step: "return", stepEndsAt: legs[1].arrivesAt });
+    expect(legs.map((l) => [l.teamIndex, l.teamIndices, l.startsAt])).toEqual([[0, [0, 1], loss.endedAt]]);
+    expect(legs[0].arrivesAt).toBe(loss.endedAt + IN_SYSTEM_LEG_SECONDS);
+    // Each team runs its OWN return: the partner's staging closes at the loss, both returns end on the one leg.
+    expect(teams(at)[0]).toMatchObject({ step: "return", stepEndsAt: legs[0].arrivesAt });
+    expect(teams(at)[1]).toMatchObject({ step: "return", stepEndsAt: legs[0].arrivesAt });
     expect(historyOf(at, 1).find((r) => r.step === "staging")).toMatchObject({ endedAt: loss.endedAt, taskId: id });
     // After GROUND_STUCK_LOSSES joint losses in a row it goes to the back of BOTH owners' queues.
     const later = advanceExpedition(e, T0 + 30_000);
@@ -481,14 +481,17 @@ describe("GO-7c joint tasks (requiredTeams N, D25: tasks scale to several teams)
     expect(teams(third)[1].queue).toEqual([id]);
   });
 
-  it("a task needing more teams than deployed is SKIPPED at planning with a log line [PROVISIONAL, Q20]", () => {
+  it("a task needing more squads than deployed is SKIPPED at planning with a needs-based log line [PROVISIONAL, Q20]", () => {
     const e = opsRun({ poiIds: ["crashedShip", "mineralOutcrop"], required: [4, 1], securityStrength: 400 });
     const [big, ok] = tasksOf(e);
     expect(big.status).toBe("skipped");
     expect(teams(e).some((t) => t.queue.includes(big.id))).toBe(false);
     expect(ok.status).toBe("active");
-    expect(e.groundOps!.log).toEqual([{ at: T0, kind: "skippedNeedsTeams", taskId: big.id, requiredTeams: 4, deployedTeams: 3 }]);
-    expect(groundOpsLogText(e, e.groundOps!.log![0])).toBe("Skipped Crashed Ship: needs 4 ground teams, 3 deployed");
+    // Squads SQ-3: requiredTeams 4 reads as 4 Ground teams' worth of squads; three Ground teams deploy 3 + 3.
+    expect(e.groundOps!.log).toEqual([
+      { at: T0, kind: "skippedNeedsSquads", taskId: big.id, needs: { security: 4, science: 4 }, deployed: { security: 3, science: 3 } },
+    ]);
+    expect(groundOpsLogText(e, e.groundOps!.log![0])).toBe("Skipped Crashed Ship: needs 4 Security squads, 3 deployed; 4 Science squads, 3 deployed");
     // A run with nothing to log writes no log at all (the stored shape is unchanged).
     expect(opsRun({ poiIds: ["mineralOutcrop"] }).groundOps!.log).toBeUndefined();
   });

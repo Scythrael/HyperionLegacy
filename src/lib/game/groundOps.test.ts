@@ -103,6 +103,7 @@ describe("GO-7a snapshotGroundOps: one ground team", () => {
     expect(snap.teams).toEqual([
       {
         index: 0,
+        kind: "ground", // Squads SQ-3: the team's type at dispatch (its squads)
         securityIds: ["member-2", "member-1"], // slot order, not hire order
         scienceIds: ["member-11"],
         helpOthers: false,
@@ -194,7 +195,7 @@ describe("GO-7a snapshotGroundOps: several ground teams (synthetic 3-team hull)"
     };
   };
 
-  it("each deployed team's share is its squad size over every deployed squad; the shares sum to 1", () => {
+  it("each deployed team's share is its SQUADS over every deployed squad (Squads SQ-3, not its member count); the shares sum to 1", () => {
     const s = triple();
     const snap = snapshotGroundOps(s, s.ships[0], NO_FACETS);
     expect(snap.teams.map((t) => [t.index, t.securityIds, t.scienceIds, t.helpOthers])).toEqual([
@@ -202,8 +203,9 @@ describe("GO-7a snapshotGroundOps: several ground teams (synthetic 3-team hull)"
       [1, ["member-3"], ["member-12"], true],
       [2, ["member-4"], ["member-13", "member-14"], false],
     ]);
-    expect(snap.factors.securityShare).toEqual([0.5, 0.25, 0.25]);
-    expect(snap.factors.scienceShare).toEqual([0.25, 0.25, 0.5]);
+    // Three Ground teams: one Security and one Science squad each, however many members a squad holds.
+    expect(snap.factors.securityShare).toEqual([1 / 3, 1 / 3, 1 / 3]);
+    expect(snap.factors.scienceShare).toEqual([1 / 3, 1 / 3, 1 / 3]);
     expect(snap.factors.securityShare.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
     expect(snap.factors.scienceShare.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
   });
@@ -212,8 +214,8 @@ describe("GO-7a snapshotGroundOps: several ground teams (synthetic 3-team hull)"
     const s = triple({ "member-12": { injuredUntilSeconds: NOW + 600 } });
     const snap = snapshotGroundOps(s, s.ships[0], NO_FACETS);
     expect(snap.teams.map((t) => t.index)).toEqual([0, 2]);
-    expect(snap.factors.securityShare).toEqual([2 / 3, 1 / 3]);
-    expect(snap.factors.scienceShare).toEqual([1 / 3, 2 / 3]);
+    expect(snap.factors.securityShare).toEqual([0.5, 0.5]);
+    expect(snap.factors.scienceShare).toEqual([0.5, 0.5]);
     // the union roster leaves the held team's members aboard
     const roster = snapshotAwayRosterForTeams(s, s.ships[0], snap.teams);
     expect(roster.security.map((m) => m.memberId)).toEqual(["member-1", "member-2", "member-4"]);

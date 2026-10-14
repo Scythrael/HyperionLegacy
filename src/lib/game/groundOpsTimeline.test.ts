@@ -191,7 +191,9 @@ describe("GO-7b stamping and planning", () => {
     const [civ, outcrop, crashed] = tasksOf(exp);
     expect(civ.fightPoints).toEqual(fightPointFractions(4));
     expect(outcrop.fightPoints).toEqual(fightPointFractions(1));
-    expect(crashed).toMatchObject({ requiredTeams: 1, progress: 0, pointsCleared: 0, segmentsBanked: 0, segmentsOffloaded: 0, fightCount: 0 });
+    // Squads SQ-3: the squad needs are stamped (one Ground team's worth), never requiredTeams.
+    expect(crashed).toMatchObject({ needs: { security: 1, science: 1 }, progress: 0, pointsCleared: 0, segmentsBanked: 0, segmentsOffloaded: 0, fightCount: 0 });
+    expect("requiredTeams" in crashed).toBe(false);
     expect(crashed.assignedTeamIds).toEqual([0]);
     // The 1-fight outcrop rates easiest, the 4-fight civilization hardest.
     const queue = teamOf(exp).queue;
