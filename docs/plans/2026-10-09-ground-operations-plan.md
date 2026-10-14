@@ -1128,6 +1128,16 @@ autoAssign is deterministic for a given editCount and differs for the next; refu
   with the partner, help off) and a REAL dispatched run edited while the ship still scans (plus a transit edit).
   salts.test.ts lists `AUTO_ASSIGN_SALT`. Suite 4453 -> 4478 passed (1 skipped); `npm run check` 0 errors. Legacy,
   pre-SQ-4, pre-clearing goldens and every existing parity test unchanged.
+- **GO-7d review minors (commit `fix(0.14.0): GO-7d review minors`):** (1) a RECALLED crew's fight LOSS no longer
+  touches the task's `lossStreak` or `sentBack` (that crew no longer holds the task, so it can never flag it stuck or
+  send it back); the crew still returns as any loss does (a wipe still waits for the ship; a recalled helper still
+  lists the task in `skippedBorrowed`). (2) Edit parity at 1 s chunks: one call == 997 s == 1 s chunks over 2 h of an
+  edited one-team run (skip, Auto-assign, reorder, requeue). (3) Staging teams an edit releases (a skip, or an assign
+  away, of a task only staged) get their staging step recorded `stopped: true`, even a zero-length one (`moveTo`
+  records a zero-length idle or staging step only when it is `stopped`), so GO-14's timeline shows the moment.
+  Tests 25 -> 28.
+- **Staging gate (design decision f1b858e):** the GO-7b review's "do not deploy to staging" gate now waits for GO-13's
+  skip button (the engine skip alone is not reachable by a player).
 
 ---
 

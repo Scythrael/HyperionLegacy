@@ -534,6 +534,69 @@ describe("GO-7d SKIP is the escape hatch for a stuck run (user: retry forever, s
   });
 });
 
+describe("GO-7d review: a recalled crew's loss, released stagers", () => {
+  it("a RECALLED crew's fight loss leaves the task's loss streak and sentBack alone; the old crew still returns", () => {
+    let found: { exp: Expedition; rec: GroundStepRecord; head: string } | null = null;
+    for (let k = 0; k < 60 && !found; k += 1) {
+      const exp = twoTeamRun(["ground", "ground"], [{ poiId: "crashedShip" }, { poiId: "mineralOutcrop" }], {
+        securityStrength: 0,
+        seed: (0x5eed0101 + k * 7919) >>> 0,
+      });
+      const head = teams(exp)[0].taskId!;
+      // A loss that counts toward the streak unedited (the attempt cleared no new point).
+      const rec = historyOf(advanceExpedition(exp, T0 + 20_000), 0).find(
+        (r) =>
+          r.step === "fight" &&
+          r.taskId === head &&
+          r.outcome === "loss" &&
+          r.endedAt - r.startedAt >= 2 &&
+          (findGroundTask(advanceExpedition(exp, r.endedAt), head)!.task.lossStreak ?? 0) >
+            (findGroundTask(advanceExpedition(exp, r.startedAt + 1), head)!.task.lossStreak ?? 0),
+      );
+      if (rec) found = { exp, rec, head };
+    }
+    expect(found).not.toBeNull();
+    const { exp, rec, head } = found!;
+    const before = findGroundTask(advanceExpedition(exp, rec.startedAt + 1), head)!.task;
+    // Unedited, this loss counts toward the streak.
+    const plain = findGroundTask(advanceExpedition(exp, rec.endedAt), head)!.task;
+    expect(plain.lossStreak ?? 0).toBeGreaterThan(before.lossStreak ?? 0);
+    // Reassigned away mid-fight: the loss belongs to a crew that no longer holds the task, so it never counts.
+    const e = edited(exp, rec.startedAt + 1, { kind: "assign", taskId: head, teamIndex: 1 });
+    expect(teams(e)[0].recalled).toBe(true);
+    const after = advanceExpedition(e, rec.endedAt);
+    const task = findGroundTask(after, head)!.task;
+    expect(task.lossStreak).toEqual(before.lossStreak);
+    expect(task.sentBack).toEqual(before.sentBack);
+    expect(task.status === "queued" || task.status === "active").toBe(true);
+    expect(teams(after)[0].step).toBe("return");
+    expect(historyOf(after, 0).find((r) => r.step === "fight" && r.startedAt === rec.startedAt)).toMatchObject({ outcome: "loss", stopped: true });
+  });
+
+  it("a skip that releases a staging team records the moment on its staging step (stopped)", () => {
+    // Strike + Survey: Strike works a Security-only task while Survey stages alone on a joint one.
+    const exp = twoTeamRun(["strike", "survey"], [{ poiId: "mineralOutcrop", needs: { security: 1, science: 0 } }, { poiId: "caveNetwork" }], {
+      securityStrength: 400,
+      manual: (e) => {
+        const [solo, joint] = tasksOf(e);
+        teams(e)[0].queue = [solo.id, joint.id];
+        teams(e)[1].queue = [joint.id];
+        solo.assignedTeamIds = [0];
+        joint.assignedTeamIds = [0, 1];
+      },
+    });
+    const joint = tasksOf(exp)[1].id;
+    expect(teams(exp)[0].step).toBe("deploy");
+    expect(teams(exp)[1]).toMatchObject({ step: "staging", taskId: joint, stepStartedAt: T0 });
+    const e = edited(exp, T0 + 5, { kind: "skip", taskId: joint });
+    expect(teams(e)[1].step).toBe("idle");
+    expect(historyOf(e, 1).at(-1)).toMatchObject({ step: "staging", taskId: joint, startedAt: T0, endedAt: T0 + 5, stopped: true });
+    // Released at the very instant it staged: still recorded (a zero-length step otherwise is not).
+    const z = edited(exp, T0, { kind: "skip", taskId: joint });
+    expect(historyOf(z, 1).at(-1)).toMatchObject({ step: "staging", taskId: joint, startedAt: T0, endedAt: T0, stopped: true });
+  });
+});
+
 describe("GO-7d squads: a joint crew must still cover the task (never stages forever)", () => {
   // Strike + Survey: every { 1, 1 } task needs BOTH teams (a joint crew).
   const exp = twoTeamRun(["strike", "survey"], [{ poiId: "mineralOutcrop" }, { poiId: "caveNetwork" }, { poiId: "crashedShip" }], { securityStrength: 400 });
@@ -627,6 +690,24 @@ describe("GO-7d EDIT PARITY: one call to T + edit + one call to the end == chunk
     expect(big.groundOps!.editCount).toBe(4);
     // The scenario: the skip cut a work step, and the re-queued task was worked again after it.
     expect(historyOf(big).some((r) => r.stopped && r.step === "work" && r.taskId === head)).toBe(true);
+    expect(historyOf(big).some((r) => r.step === "work" && r.taskId === head && r.startedAt > T1 + 2_003)).toBe(true);
+  });
+
+  it("one team, the same edits over 2 h: one call == 997 s chunks == 1 s chunks", { timeout: 180_000 }, () => {
+    const exp = oneTeamRun(["crashedShip", "mineralOutcrop", "caveNetwork", "ancientRuins"], { securityStrength: 6 });
+    const far = advanceExpedition(exp, FAR);
+    const head = teams(exp)[0].taskId!;
+    const T1 = midOf(far, 0, "work", head);
+    const steps: Step[] = [
+      { at: T1, edit: () => ({ kind: "skip", taskId: head }) },
+      { at: T1 + 31, edit: () => ({ kind: "autoAssign", bodyIndex: 0 }) },
+      { at: T1 + 500, edit: (e) => ({ kind: "reorder", teamIndex: 0, taskId: remainingQueue(e, 0).at(-1)!, delta: -1 }) },
+      { at: T1 + 2_003, edit: () => ({ kind: "requeue", taskId: head, teamIndex: 0 }) },
+    ];
+    const END = T1 + 7_200;
+    const big = play(exp, steps, END, null);
+    expect(play(exp, steps, END, 997)).toEqual(big);
+    expect(play(exp, steps, END, 1)).toEqual(big);
     expect(historyOf(big).some((r) => r.step === "work" && r.taskId === head && r.startedAt > T1 + 2_003)).toBe(true);
   });
 

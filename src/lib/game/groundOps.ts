@@ -1012,7 +1012,8 @@ function moveTo(
   endsAt: number | null,
   rec: Partial<GroundStepRecord> = {},
 ): void {
-  if (!((team.step === "idle" || team.step === "staging") && team.stepStartedAt === t)) {
+  // A zero-length idle or staging step is not recorded, unless a player's edit ended it (GO-7d `stopped`).
+  if (rec.stopped || !((team.step === "idle" || team.step === "staging") && team.stepStartedAt === t)) {
     pushHistory(ops, {
       teamIndex: team.index,
       step: team.step,
@@ -1281,7 +1282,9 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
   task.status = task.status === "skipped" ? "skipped" : "queued";
   if (team.borrowed) {
     if (!team.skippedBorrowed.includes(task.id)) team.skippedBorrowed.push(task.id);
-  } else {
+  } else if (!recalled) {
+    // GO-7d review: a RECALLED crew no longer holds the task (the player skipped or reassigned it mid-fight), so its
+    // loss never counts toward the task's loss streak or sends it back; the crew still returns as any loss does.
     const progressed = (task.pointsCleared ?? 0) > (team.attemptPoints ?? 0);
     const streak = progressed ? 0 : (task.lossStreak ?? 0) + 1;
     if (streak > 0) task.lossStreak = streak;
@@ -1472,8 +1475,8 @@ function finishBay(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
 }
 
 // Reloaded (or the task vanished): idle, ready for the next task. Mutates.
-function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
-  moveTo(ops, team, "idle", t, null);
+function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number, rec: Partial<GroundStepRecord> = {}): void {
+  moveTo(ops, team, "idle", t, null, rec);
   delete team.taskId;
   delete team.borrowed;
   delete team.attemptPoints;
@@ -1512,8 +1515,9 @@ function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
 // during the DROP or the WORK stops that crew at the edit instant: the task keeps the progress interpolated along
 // the work step, no partial segment is banked or paid, and every crew team takes its ordinary return trip (the
 // lead offloads anything already banked). During a FIGHT the edit waits for the fight's end (the lead is marked
-// `recalled`; the fight's result stands, then the crew heads back). A task only STAGED (a joint crew still
-// gathering) simply releases its staging teams. A reorder, or an assign that keeps the crew, never interrupts.
+// `recalled`; the fight's result stands, then the crew heads back; its loss never counts toward the task's loss
+// streak). A task only STAGED (a joint crew still gathering) releases its staging teams (each staging step is
+// recorded `stopped`). A reorder, or an assign that keeps the crew, never interrupts.
 
 // The Auto-assign stream's salt: odd, distinct from every engine salt (salts.test.ts checks it).
 export const AUTO_ASSIGN_SALT = 0x71c3e8a9;
@@ -1838,7 +1842,8 @@ function leaveTask(exp: Expedition, ops: GroundOpsState, ref: GroundTaskRef, t: 
     else stopCrew(exp, ops, lead, ref, t);
     return;
   }
-  for (const team of ops.teams) if (team.step === "staging" && team.taskId === ref.task.id) toIdle(ops, team, t);
+  // Released stagers: their staging step is recorded `stopped` (GO-14's timeline shows the moment; GO-7d review).
+  for (const team of ops.teams) if (team.step === "staging" && team.taskId === ref.task.id) toIdle(ops, team, t, { stopped: true });
 }
 
 // Stop `lead`'s crew at `t` (its drop or its work): the task keeps the progress interpolated along the work step
