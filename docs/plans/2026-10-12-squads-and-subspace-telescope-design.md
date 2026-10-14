@@ -1059,3 +1059,6 @@ tasks (SQ-4 follow-up)`):**
   blind, flat detail, the ship's lift and its two limits, gating at 0 / 1 / 2 / 3 / 4 / 5, no hostile site leak, the
   candidate reading on a fresh save, blind hides foreknowledge, identical runs at every level); salts.test.ts
   registers telescope.ts. Suite 4367 -> 4393 passed (1 skipped); `npm run check` 0 errors.
+- **SQ-5 calls (user, 2026-10-13):** (a) FULLY BLIND: beyond the telescope's range the ship's own sensor layers stay dark
+  too until the ship arrives (as built); (b) START COUNTING blind launches now (a small saved counter) so the future
+  "go in blind" achievement can award retroactively.
