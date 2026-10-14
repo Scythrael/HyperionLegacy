@@ -304,6 +304,11 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
 - **For the UI step (not built here):** the pill colors and tooltips come from `affixPill` as for Reinforcing; the
   Help text is `AFFIX_DEFS.rockyOutcroppings.help`; a member card could show its weapon range via
   `memberWeaponRange`.
+- **For the user's PROVISIONAL list (AF-2):** (a) the 15% evasion is MULTIPLICATIVE as built (a long-range hit
+  chance x 0.85, not minus 15 points); (b) the enemy range table (Striker, Caster, Healer long; Bruiser, Swarm
+  short); (c) Rocky Outcroppings ranks II / III at 18% / 21%; (d) on a Deadly combat objective Reinforcing is
+  REQUIRED, so Rocky Outcroppings is the only ROLLABLE entry there and every rolled hit is Outcroppings (on easier
+  combat objectives the one shared slot splits half and half between the two).
 - **Questions for the user:** (1) "+15% evasion" is read as MULTIPLICATIVE (a long-range hit chance x 0.85), not
   minus 15 points; (2) the ENEMY_ROLE_RANGE classification (Healers and Casters long); (3) ranks II / III at 18% /
   21%; (4) should Rocky Outcroppings (terrain) roll more often than the shared rare slot allows, for example its
@@ -394,3 +399,29 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
 difficulties, planet types, tiers, etc. So we want to keep this in mind." So: keep ONE shared rolled-affix slot per
 objective for now; the affix roll weights must be able to vary by difficulty, planet type, tier (and later difficulty
 tier) without a redesign (per-context weight hooks).
+
+## Carry from the AF-2 follow-up (built 2026-10-14, commit `chore(0.14.0): engine player-facing text says objective; context affix weights (AF-2 follow-up)`)
+
+- **Engine text says "objective" (user, section 3; the UI step's routed list).** groundOps.ts
+  `groundOpsEditBlockText`: "This expedition launched before Ground Operations: its objectives run on their own",
+  "No such objective", "That objective is already done", "That objective was skipped: re-queue it first", "Only a
+  skipped objective can be re-queued", "No queued objectives on that body to plan", "That objective is not in this
+  team's queue", "Nobody deployed brings the squads this objective needs", "That crew does not bring the squads this
+  objective needs: add a partner team"; `groundOpsLogText`'s fallback name "An objective"; expedition.ts the
+  forecast's hardest-objective label fallback "An objective"; launchRecommendation.ts `taskLabel` "An objective",
+  `taskDemandText` / `demandLine` ("N objectives need 2 Security squads", "No ground objectives expected.", "3 of 4
+  objectives need no Security squad", "N objectives need 2 Science squads"), `reasonOver` ("Covers N objectives your
+  ... would leave unfinished.", "One team can take N of M objectives alone"), `recommendLaunch` ("would leave N
+  objectives unfinished", "Nothing on this hull covers every objective") and `forecastTasksText` ("11 objectives:
+  ...", "No ground objectives expected"). A grep of src/lib/game found no other player-facing "task" string.
+  Identifiers, save fields and test names unchanged; expectations updated in launchRecommendation.test.ts,
+  launchPreview.test.ts and expeditionDispatchDisplay.test.ts (test expectations only). The doc comment example in
+  expeditionDispatchDisplay.ts (`tasksText: "11 tasks: ..."`) is a display-helper file and was left for the UI owner.
+- **Per-context affix weights (user, section 7).** ONE shared rolled slot kept. New `AffixDef.weightFor?(context)`
+  with `AffixRollContext` = { tier, difficulty, difficultyTier, planetType?, target }; `affixRollWeight(def,
+  context)` reads the hook, else the flat `rollWeight` (non-positive or non-finite reads 0: the affix does not roll
+  there). `affixPool` takes an optional `planetType` and `rollObjectiveAffixes` an optional `planetType` (groundOps.ts
+  passes the body's). No affix defines the hook today, so every pool and every catalog rolls byte-identically (every
+  golden unchanged). A future difficulty tier or planet-specific affix plugs in by data on the hook.
+- Tests: groundOpsOutcroppings.test.ts 24 -> 27 (the weight reader, the hook in the pool and the stamping roll with
+  the planet type, the engine text never says task). Suite 4686 passed (1 skipped); `npm run check` 0 errors.

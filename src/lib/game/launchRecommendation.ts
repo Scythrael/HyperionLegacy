@@ -91,7 +91,7 @@ function squadsText(n: number, type: "Security" | "Science"): string {
 }
 
 function taskLabel(poiId: string): string {
-  return groundSiteLabel(poiId) ?? "A task";
+  return groundSiteLabel(poiId) ?? "An objective";
 }
 
 // ===== The detail 3 task demand (design 6.3 "Per body") =====
@@ -128,7 +128,8 @@ export function taskDemand(preview: SystemTaskPreview): TaskDemand {
   };
 }
 
-// "Security work on 3 of 5 bodies; 2 tasks need 2 Science squads" (design 6.3). Pure.
+// "Security work on 3 of 5 bodies; 2 objectives need 2 Science squads" (design 6.3; player-facing text says
+// "objective", user 2026-10-14). Pure.
 export function taskDemandText(d: TaskDemand): string {
   const parts: string[] = [];
   parts.push(
@@ -137,7 +138,7 @@ export function taskDemandText(d: TaskDemand): string {
       : `Security work on ${d.securityBodies} of ${plural(d.bodies, "body", "bodies")}`,
   );
   const heavy = (n: number, max: number, type: "Security" | "Science"): string =>
-    `${plural(n, "task needs", "tasks need")} 2${max > 2 ? " or more" : ""} ${type} squads`;
+    `${plural(n, "objective needs", "objectives need")} 2${max > 2 ? " or more" : ""} ${type} squads`;
   if (d.twoSecurityTasks > 0) parts.push(heavy(d.twoSecurityTasks, d.maxSecurity, "Security"));
   if (d.twoScienceTasks > 0) parts.push(heavy(d.twoScienceTasks, d.maxScience, "Science"));
   return parts.join("; ");
@@ -348,17 +349,17 @@ function listUnfinished(list: readonly UnfinishedTask[]): string {
 function demandLine(preview: SystemTaskPreview): string {
   const d = taskDemand(preview);
   const demand = securityDemand(preview);
-  if (d.tasks === 0) return "No ground tasks expected.";
+  if (d.tasks === 0) return "No ground objectives expected.";
   if (demand > 0.5 + DEMAND_LEAN) {
     const enemy = preview.bodies.filter((b) => b.combat >= ENEMY_TERRITORY_GRADE).length;
     const head = enemy > 0 ? `Enemy territory on ${enemy} of ${plural(d.bodies, "body", "bodies")}` : `Security work on ${d.securityBodies} of ${plural(d.bodies, "body", "bodies")}`;
-    const tail = d.twoSecurityTasks > 0 ? `; ${plural(d.twoSecurityTasks, "task needs", "tasks need")} 2${d.maxSecurity > 2 ? " or more" : ""} Security squads` : "";
+    const tail = d.twoSecurityTasks > 0 ? `; ${plural(d.twoSecurityTasks, "objective needs", "objectives need")} 2${d.maxSecurity > 2 ? " or more" : ""} Security squads` : "";
     return `${head}${tail}.`;
   }
   if (demand < 0.5 - DEMAND_LEAN) {
     const facts: string[] = [];
-    if (d.noSecurityTasks > 0) facts.push(`${d.noSecurityTasks} of ${plural(d.tasks, "task needs", "tasks need")} no Security squad`);
-    if (d.twoScienceTasks > 0) facts.push(`${plural(d.twoScienceTasks, "task needs", "tasks need")} 2 Science squads`);
+    if (d.noSecurityTasks > 0) facts.push(`${d.noSecurityTasks} of ${plural(d.tasks, "objective needs", "objectives need")} no Security squad`);
+    if (d.twoScienceTasks > 0) facts.push(`${plural(d.twoScienceTasks, "objective needs", "objectives need")} 2 Science squads`);
     const head = d.noSecurityTasks * 2 > d.tasks ? "Mostly survey work" : "More survey work than Security work";
     return `${head}: ${facts.join("; ")}.`;
   }
@@ -369,10 +370,10 @@ function demandLine(preview: SystemTaskPreview): string {
 function reasonOver(preview: SystemTaskPreview, best: CompositionScore, current: CompositionScore): string {
   if (Math.abs(best.coverage - current.coverage) > EPS) {
     const n = Math.max(1, current.unfinished.length - best.unfinished.length);
-    return `Covers ${plural(n, "task", "tasks")} your ${current.label} would leave unfinished.`;
+    return `Covers ${plural(n, "objective", "objectives")} your ${current.label} would leave unfinished.`;
   }
   if (Math.abs(best.solo - current.solo) > EPS) {
-    return `One team can take ${best.soloTasks} of ${plural(preview.tasks.length, "task", "tasks")} alone (your ${current.label}: ${current.soloTasks}).`;
+    return `One team can take ${best.soloTasks} of ${plural(preview.tasks.length, "objective", "objectives")} alone (your ${current.label}: ${current.soloTasks}).`;
   }
   return demandLine(preview);
 }
@@ -436,12 +437,12 @@ export function recommendLaunch(
     reason: oddsReason ?? (isCurrent ? demandLine(preview) : reasonOver(preview, best, now)),
     unfinished,
     unfinishedText:
-      unfinished.length === 0 ? null : `${currentLabel} would leave ${plural(unfinished.length, "task", "tasks")} unfinished: ${listUnfinished(unfinished)}.`,
+      unfinished.length === 0 ? null : `${currentLabel} would leave ${plural(unfinished.length, "objective", "objectives")} unfinished: ${listUnfinished(unfinished)}.`,
     stillUnfinished: still,
     stillUnfinishedText:
       still.length === 0
         ? null
-        : `Nothing on this hull covers every task: ${listUnfinished(still)}. ${still.length === 1 ? "It" : "They"} will be left unfinished.`,
+        : `Nothing on this hull covers every objective: ${listUnfinished(still)}. ${still.length === 1 ? "It" : "They"} will be left unfinished.`,
     oddsDecided,
     riskyFightsText,
     ranked,
@@ -472,10 +473,10 @@ export interface LaunchForecast {
   note: string | null; // why there is no threat read ("No ground team is ready to launch")
 }
 
-// "7 tasks: 3 Simple, 2 Standard, 2 Challenging" (zero grades left out). Pure.
+// "7 objectives: 3 Simple, 2 Standard, 2 Challenging" (zero grades left out). Pure.
 export function forecastTasksText(f: Pick<LaunchForecast, "tasks" | "byDifficulty">): string {
   const parts = f.byDifficulty.map((n, i) => (n > 0 ? `${n} ${DIFFICULTY_NAMES[i]}` : null)).filter((s): s is string => s !== null);
-  return parts.length > 0 ? `${plural(f.tasks, "task", "tasks")}: ${parts.join(", ")}` : "No ground tasks expected";
+  return parts.length > 0 ? `${plural(f.tasks, "objective", "objectives")}: ${parts.join(", ")}` : "No ground objectives expected";
 }
 
 // ===== The detail gate (design 6.3) =====

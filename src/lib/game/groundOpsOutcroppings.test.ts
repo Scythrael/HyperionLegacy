@@ -24,13 +24,17 @@ import { AFFIX_CATALOG_VERSION, BASE_DIFFICULTY_TIER, generateRiskProfile, runAf
 import { plainAwayMember, withoutAffixCatalog } from "./awayTeamTestFixtures";
 import {
   AFFIX_DEFS,
+  ALERT_RESET_TEXT,
   ROCKY_OUTCROPPINGS_EVASION,
   affixPill,
+  affixPool,
+  affixRollWeight,
   catalogAffixes,
   longRangeCover,
   rollObjectiveAffixes,
   rollReinforcements,
   validAffixes,
+  type AffixRollContext,
   type ObjectiveAffix,
 } from "./affixes";
 import {
@@ -47,7 +51,16 @@ import {
 import { makeRng } from "./combat/rng";
 import { resolveTaskFightOnSeed, withCover, type GroundFightTeam } from "./groundFight";
 import { groundTaskClearOdds, groundThreatOddsKey } from "./groundThreat";
-import { findGroundTask, groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
+import {
+  findGroundTask,
+  groundOpsAssignIdle,
+  groundOpsBodyScanned,
+  groundOpsEditBlockText,
+  groundOpsLogText,
+  initGroundTasks,
+  taskCover,
+} from "./groundOps";
+import { forecastTasksText } from "./launchRecommendation";
 
 function fnv(s: string): string {
   let h = 0x811c9dc5;
@@ -627,5 +640,84 @@ describe("AF-1 re-review: a reinforcement striking at the END of a short step ba
     // Played out: the segment's bankers stay the working crew's, whoever finishes the objective.
     const done = advanceExpedition(after, T0 + 12 * 3600);
     expect(findGroundTask(done, ref.task.id)!.task.segmentBankers![0]).toEqual([lead.index]);
+  });
+});
+
+// ===== AF-2 follow-up: per-context affix weights (user 2026-10-14, section 7) =====
+
+describe("AF-2 follow-up: affix roll weights can vary by context (one shared rolled slot kept)", () => {
+  it("affixRollWeight: the flat rollWeight by default; a weightFor hook decides when present; non-positive reads 0", () => {
+    const ctx = { tier: 3 as const, difficulty: 4, difficultyTier: 1, target: "combatObjective" as const };
+    expect(affixRollWeight(AFFIX_DEFS.reinforcing, ctx)).toBe(100);
+    expect(affixRollWeight(AFFIX_DEFS.rockyOutcroppings, ctx)).toBe(100);
+    expect(affixRollWeight({ rollWeight: 7, weightFor: (c) => c.tier * 10 }, ctx)).toBe(30);
+    expect(affixRollWeight({ rollWeight: 7, weightFor: () => -1 }, ctx)).toBe(0);
+    expect(affixRollWeight({ rollWeight: 7, weightFor: () => Number.NaN }, ctx)).toBe(0);
+    expect(AFFIX_DEFS.reinforcing.weightFor).toBeUndefined();
+    expect(AFFIX_DEFS.rockyOutcroppings.weightFor).toBeUndefined();
+  });
+
+  it("the pool reads the hook with the tier, difficulty, difficulty tier and planet type; without one the planet type changes nothing", () => {
+    for (const tier of [1, 4, 7]) {
+      for (const d of [1, 3, 5]) {
+        expect(affixPool(tier, d, 1, "combatObjective", 2, "volcanic")).toEqual(affixPool(tier, d, 1, "combatObjective", 2));
+      }
+    }
+    const def = AFFIX_DEFS.rockyOutcroppings as { weightFor?: (c: AffixRollContext) => number };
+    const seen: AffixRollContext[] = [];
+    def.weightFor = (c) => {
+      seen.push(c);
+      return c.planetType === "barren" ? 300 : c.planetType === "ocean" ? 0 : 100;
+    };
+    try {
+      expect(affixPool(3, 4, 1, "combatObjective", 2, "barren").entries).toEqual([
+        { id: "reinforcing", weight: 100 },
+        { id: "rockyOutcroppings", weight: 300 },
+      ]);
+      expect(affixPool(3, 4, 1, "combatObjective", 2, "ocean").entries).toEqual([{ id: "reinforcing", weight: 100 }]);
+      expect(seen[0]).toEqual({ tier: 3, difficulty: 4, difficultyTier: 1, planetType: "barren", target: "combatObjective" });
+      // The stamping roll passes the body's planet type through.
+      let outcroppings = 0;
+      for (let k = 0; k < 4000; k += 1) {
+        const base = { seed: 0x91, bodyIndex: 0, taskIndex: k, tier: 7, difficulty: 4, difficultyTier: 1, combat: true };
+        for (const a of rollObjectiveAffixes({ ...base, planetType: "ocean" })) expect(a.id).toBe("reinforcing");
+        outcroppings += rollObjectiveAffixes({ ...base, planetType: "barren" }).filter((a) => a.id === "rockyOutcroppings").length;
+      }
+      expect(outcroppings).toBeGreaterThan(0);
+    } finally {
+      delete def.weightFor;
+    }
+  });
+});
+
+// ===== AF-2 follow-up: the engine's player-facing text says "objective" (user 2026-10-14) =====
+
+describe("AF-2 follow-up: engine player-facing text says objective, never task", () => {
+  const TASK = /\btasks?\b/i;
+  it("every edit refusal, the log fallback and the launch texts", () => {
+    const reasons = [
+      "noExpedition",
+      "notGroundOps",
+      "runFinished",
+      "noSuchTask",
+      "taskDone",
+      "taskSkipped",
+      "notSkipped",
+      "noSuchTeam",
+      "noSuchBody",
+      "noTasks",
+      "notInQueue",
+      "notEnoughSquads",
+      "crewDoesNotCover",
+      "noChange",
+    ] as const;
+    for (const r of reasons) expect(groundOpsEditBlockText(r)).not.toMatch(TASK);
+    expect(groundOpsEditBlockText("noSuchTask")).toBe("No such objective");
+    expect(groundOpsEditBlockText("noTasks")).toBe("No queued objectives on that body to plan");
+    // The log line's fallback name when the objective cannot be found.
+    expect(groundOpsLogText({ bodies: [] }, { at: 0, kind: "alertReset", taskId: "nowhere" })).toBe(`An objective: ${ALERT_RESET_TEXT}`);
+    expect(forecastTasksText({ tasks: 3, byDifficulty: [1, 2, 0, 0, 0] })).toBe("3 objectives: 1 Simple, 2 Standard");
+    expect(forecastTasksText({ tasks: 1, byDifficulty: [1, 0, 0, 0, 0] })).toBe("1 objective: 1 Simple");
+    expect(forecastTasksText({ tasks: 0, byDifficulty: [0, 0, 0, 0, 0] })).toBe("No ground objectives expected");
   });
 });

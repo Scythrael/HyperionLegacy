@@ -242,7 +242,7 @@ describe("SQ-7 7.2: the recommendation box and the forecast line", () => {
       currentLabel: "Ground + Ground",
       isCurrent,
       headline: isCurrent ? "Your Ground + Ground suits this system." : "Launch with Strike + Ground",
-      reason: "Enemy territory on 1 of 1 body; 4 tasks need 2 Security squads.",
+      reason: "Enemy territory on 1 of 1 body; 4 objectives need 2 Security squads.",
       unfinished: [],
       unfinishedText: null,
       stillUnfinished: [],
@@ -299,7 +299,7 @@ describe("SQ-7 7.2: the recommendation box and the forecast line", () => {
     };
     const v = forecastView(ship, f);
     expect(v.lead).toBe("Forecast with Strike + Ground");
-    expect(v.tasksText).toBe("11 tasks: 2 Simple, 6 Standard, 3 Challenging");
+    expect(v.tasksText).toBe("11 objectives: 2 Simple, 6 Standard, 3 Challenging");
     expect(v.unfinishedText).toBe("Leaves 2 objectives unfinished.");
     expect(v.hardestText).toBe("Hardest fight: Geothermal Chamber (Challenging, 3 fights), crew Alpha (Strike) + Bravo (Ground)");
     expect(v.threat).toBe(threat);

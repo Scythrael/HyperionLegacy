@@ -54,7 +54,7 @@
 // Module graph: model (types), combat/rng, diminishing, riskFactors. Imported by groundOps.ts; imports none of the
 // ground modules.
 
-import type { AffixAlignment, AffixId, ExpeditionActivity, ObjectiveAffix, ObjectiveAlert, RegionTier } from "./model";
+import type { AffixAlignment, AffixId, ExpeditionActivity, ExpeditionPlanetType, ObjectiveAffix, ObjectiveAlert, RegionTier } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { diminishing } from "./diminishing";
 import { AFFIX_CATALOG_VERSION, BASE_DIFFICULTY_TIER, DIFFICULTY_NAMES, difficultyGradeOf } from "./riskFactors";
@@ -117,7 +117,12 @@ export interface AffixDef {
   minTier: RegionTier; // never rolls below this region tier
   minDifficulty: number; // never ROLLS below this difficulty grade (1 Simple .. 5 Deadly)
   requiredFromDifficulty?: number; // always carried at this grade and above (Reinforcing: Deadly)
-  rollWeight: number; // its weight among the eligible affixes of a pool
+  rollWeight: number; // its weight among the eligible affixes of a pool (the flat default; see weightFor)
+  // The PER-CONTEXT weight hook (user 2026-10-14, section 7: "we may end up having different chances of rolling
+  // different affixes for different difficulties, planet types, tiers, etc."): when present, the affix's weight in
+  // a pool is weightFor(context) instead of rollWeight. Absent on every affix today, so every pool reads its flat
+  // rollWeight and every catalog rolls exactly as before. Read through affixRollWeight.
+  weightFor?: (context: AffixRollContext) => number;
   tooltip: (instance: ObjectiveAffix) => string; // the short line (pill tooltip)
   help: string; // the Help entry (the manual explains it in full)
   hooks: AffixHooks;
@@ -320,19 +325,38 @@ export interface AffixPool {
   rankCap: number;
 }
 
+// The context an affix's roll weight may depend on (AffixDef.weightFor): the region tier, the objective's difficulty
+// grade, the run's difficulty tier, the body's planet type (absent when the caller has none) and the target.
+export interface AffixRollContext {
+  tier: RegionTier;
+  difficulty: number;
+  difficultyTier: number;
+  planetType?: ExpeditionPlanetType;
+  target: AffixTarget;
+}
+
+// An affix's roll weight in `context`: its weightFor hook when it has one, else its flat rollWeight. A weight that
+// is not a positive finite number reads 0 (the affix does not roll there). Pure.
+export function affixRollWeight(def: Pick<AffixDef, "rollWeight" | "weightFor">, context: AffixRollContext): number {
+  const w = def.weightFor ? def.weightFor(context) : def.rollWeight;
+  return typeof w === "number" && Number.isFinite(w) && w > 0 ? w : 0;
+}
+
 // Clamp to a region tier. Pure.
 function tierOf(tier: number): RegionTier {
   return Math.max(1, Math.min(7, Math.floor(Number.isFinite(tier) ? tier : 1))) as RegionTier;
 }
 
 // The pool of an objective (see the header). `difficulty` is its grade 1..5; `catalog` the run's affix catalog
-// version (AF-2; default the current one): only the affixes of that version are in the pool. Pure; fresh arrays.
+// version (AF-2; default the current one): only the affixes of that version are in the pool; `planetType` the body's
+// (AF-2 follow-up: part of the per-context weight hook's context, affixRollWeight). Pure; fresh arrays.
 export function affixPool(
   tier: number,
   difficulty: number,
   difficultyTier: number,
   target: AffixTarget,
   catalog: number = AFFIX_CATALOG_VERSION,
+  planetType?: ExpeditionPlanetType,
 ): AffixPool {
   const t = tierOf(tier);
   const d = Math.max(1, Math.min(AFFIX_ROLL_CHANCE_BY_DIFFICULTY.length, Math.floor(Number.isFinite(difficulty) ? difficulty : 1)));
@@ -345,8 +369,11 @@ export function affixPool(
       required.push(id);
       continue;
     }
-    if (t < def.minTier || d < def.minDifficulty || !(def.rollWeight > 0)) continue;
-    entries.push({ id, weight: def.rollWeight });
+    const context: AffixRollContext = { tier: t, difficulty: d, difficultyTier, target };
+    if (planetType !== undefined) context.planetType = planetType;
+    const weight = affixRollWeight(def, context);
+    if (t < def.minTier || d < def.minDifficulty || !(weight > 0)) continue;
+    entries.push({ id, weight });
   }
   return {
     rollChance: AFFIX_ROLL_CHANCE_BY_DIFFICULTY[d - 1] * AFFIX_ROLL_TIER_MULT[t] * difficultyTierRollMult(difficultyTier),
@@ -402,6 +429,7 @@ export interface AffixRollInput {
   difficultyTier: number;
   combat: boolean; // the objective holds at least one fight point
   catalog?: number; // the run's affix catalog version (AF-2; riskFactors.ts runAffixCatalog); default the current one
+  planetType?: ExpeditionPlanetType; // the body's (the per-context weight hook's context; AF-2 follow-up)
 }
 
 // The affixes an objective is stamped with: every REQUIRED affix of its pool, then at most AFFIX_MAX_ROLLED rolled
@@ -413,7 +441,8 @@ export interface AffixRollInput {
 // A catalog 1 run (dispatched before AF-2) draws exactly AF-1's layout. Pure.
 export function rollObjectiveAffixes(input: AffixRollInput): ObjectiveAffix[] {
   const catalog = input.catalog ?? AFFIX_CATALOG_VERSION;
-  const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, input.combat ? "combatObjective" : "calmObjective", catalog);
+  const target: AffixTarget = input.combat ? "combatObjective" : "calmObjective";
+  const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, target, catalog, input.planetType);
   const rng: Rng = makeRng(affixRollSeed(input.seed, input.bodyIndex, input.taskIndex));
   const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(pool.rollChance);
   const pick = drawWeighted(rng, pool.entries.map((e) => e.weight));

@@ -221,7 +221,7 @@ describe("the forecast (design 6.3 Forecast) against a real dispatch", () => {
       expect(f.tasks).toBe(worked.length);
       expect(f.unfinished).toBe(all.length - worked.length);
       expect(f.byDifficulty).toEqual([1, 2, 3, 4, 5].map((g) => worked.filter((t) => t.difficulty === g).length));
-      expect(forecastTasksText(f)).toMatch(/^\d+ tasks?: /);
+      expect(forecastTasksText(f)).toMatch(/^\d+ objectives?: /);
       if (f.hardest) {
         fights += 1;
         const task = all.find((t) => t.poiId === f.hardest!.poiId && exp.bodies[f.hardest!.bodyIndex].activities.includes(t))!;

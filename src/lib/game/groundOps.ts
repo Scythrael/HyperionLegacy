@@ -707,6 +707,7 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
           difficultyTier,
           combat: fights > 0,
           catalog,
+          planetType: body.planetType,
         });
         if (affixes.length > 0) task.affixes = affixes;
       }
@@ -761,7 +762,7 @@ function squadsText(n: number, type: "Security" | "Science"): string {
 // A log line in plain words (the UI shows it). Pure.
 export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundOpsLogEntry): string {
   const task = findGroundTask(exp, entry.taskId)?.task;
-  const name = (task && groundSiteLabel(task.poiId)) ?? "A task";
+  const name = (task && groundSiteLabel(task.poiId)) ?? "An objective";
   switch (entry.kind) {
     case "skippedNeedsTeams":
       return `Skipped ${name}: needs ${entry.requiredTeams} ground teams, ${entry.deployedTeams} deployed`;
@@ -1784,35 +1785,36 @@ export type GroundOpsEditBlockReason =
 
 export type GroundOpsEditCheck = { ok: true } | { ok: false; reason: GroundOpsEditBlockReason };
 
-// A refusal in plain words (the GO-13 queue screen shows it). Exhaustive. Pure.
+// A refusal in plain words (the GO-13 queue screen shows it; player-facing text says "objective", user 2026-10-14).
+// Exhaustive. Pure.
 export function groundOpsEditBlockText(reason: GroundOpsEditBlockReason): string {
   switch (reason) {
     case "noExpedition":
       return "No such expedition";
     case "notGroundOps":
-      return "This expedition launched before Ground Operations: its tasks run on their own";
+      return "This expedition launched before Ground Operations: its objectives run on their own";
     case "runFinished":
       return "The ground operations are over: the ship is heading home";
     case "noSuchTask":
-      return "No such task";
+      return "No such objective";
     case "taskDone":
-      return "That task is already done";
+      return "That objective is already done";
     case "taskSkipped":
-      return "That task was skipped: re-queue it first";
+      return "That objective was skipped: re-queue it first";
     case "notSkipped":
-      return "Only a skipped task can be re-queued";
+      return "Only a skipped objective can be re-queued";
     case "noSuchTeam":
       return "No such ground team on this run";
     case "noSuchBody":
       return "No scanned body there";
     case "noTasks":
-      return "No queued tasks on that body to plan";
+      return "No queued objectives on that body to plan";
     case "notInQueue":
-      return "That task is not in this team's queue";
+      return "That objective is not in this team's queue";
     case "notEnoughSquads":
-      return "Nobody deployed brings the squads this task needs";
+      return "Nobody deployed brings the squads this objective needs";
     case "crewDoesNotCover":
-      return "That crew does not bring the squads this task needs: add a partner team";
+      return "That crew does not bring the squads this objective needs: add a partner team";
     case "noChange":
       return "Nothing to change";
   }

@@ -105,7 +105,7 @@ describe("the recommendation (design 6.5): the worked examples", () => {
     expect(rec.label).toBe("Survey + Ground");
     expect(rec.isCurrent).toBe(false);
     expect(rec.headline).toBe("Launch with Survey + Ground");
-    expect(rec.reason).toBe("Mostly survey work: 3 of 4 tasks need no Security squad.");
+    expect(rec.reason).toBe("Mostly survey work: 3 of 4 objectives need no Security squad.");
     expect(rec.unfinished).toEqual([]);
     expect(rec.unfinishedText).toBeNull();
     expect(rec.stillUnfinishedText).toBeNull();
@@ -123,17 +123,17 @@ describe("the recommendation (design 6.5): the worked examples", () => {
     const rec = recommendLaunch(ENEMY_T4, "generalFreighter", GG)!;
     expect(rec.kinds).toEqual(SG);
     expect(rec.headline).toBe("Launch with Strike + Ground");
-    expect(rec.reason).toBe("Enemy territory on 2 of 3 bodies; 3 tasks need 2 Security squads.");
+    expect(rec.reason).toBe("Enemy territory on 2 of 3 bodies; 3 objectives need 2 Security squads.");
     // From Survey + Ground the coverage decides, and the current composition's unfinished tasks are named.
     const fromVg = recommendLaunch(ENEMY_T4, "generalFreighter", VG)!;
-    expect(fromVg.reason).toBe("Covers 3 tasks your Survey + Ground would leave unfinished.");
+    expect(fromVg.reason).toBe("Covers 3 objectives your Survey + Ground would leave unfinished.");
     expect(fromVg.unfinished.map((t) => t.text)).toEqual([
       "Derelict Outpost needs 2 Security squads",
       "Enemy Colony needs 2 Security squads",
       "Crashed Ship needs 2 Security squads",
     ]);
     expect(fromVg.unfinishedText).toBe(
-      "Survey + Ground would leave 3 tasks unfinished: Derelict Outpost needs 2 Security squads; Enemy Colony needs 2 Security squads; Crashed Ship needs 2 Security squads.",
+      "Survey + Ground would leave 3 objectives unfinished: Derelict Outpost needs 2 Security squads; Enemy Colony needs 2 Security squads; Crashed Ship needs 2 Security squads.",
     );
   });
 });
@@ -147,8 +147,8 @@ describe("the ranking order", () => {
     ]);
     const rec = recommendLaunch(p, "generalFreighter", SG)!;
     expect(rec.kinds).toEqual(GG); // GG and SV cover both; GG wins on solo share
-    expect(rec.reason).toBe("Covers 1 task your Strike + Ground would leave unfinished.");
-    expect(rec.unfinishedText).toBe("Strike + Ground would leave 1 task unfinished: Subterranean Civilization needs 2 Science squads.");
+    expect(rec.reason).toBe("Covers 1 objective your Strike + Ground would leave unfinished.");
+    expect(rec.unfinishedText).toBe("Strike + Ground would leave 1 objective unfinished: Subterranean Civilization needs 2 Science squads.");
   });
 
   it("solo share second: Strike + Survey loses a calm system to a composition whose teams work alone", () => {
@@ -156,7 +156,7 @@ describe("the ranking order", () => {
     expect(rank[0]).toBe("Ground + Ground");
     expect(rank[rank.length - 1]).toBe("Strike + Survey");
     const rec = recommendLaunch(MIXED_T2, "generalFreighter", SV)!;
-    expect(rec.reason).toBe("One team can take 4 of 4 tasks alone (your Strike + Survey: 1).");
+    expect(rec.reason).toBe("One team can take 4 of 4 objectives alone (your Strike + Survey: 1).");
   });
 
   it("then the fewest changes from the current composition, then Ground + Ground", () => {
@@ -171,14 +171,14 @@ describe("the ranking order", () => {
 
   it("a system with no tasks keeps the current composition", () => {
     const rec = recommendLaunch(preview(1, [body(0)], []), "generalFreighter", VG)!;
-    expect(rec).toMatchObject({ kinds: VG, isCurrent: true, headline: "Your Survey + Ground suits this system.", reason: "No ground tasks expected." });
+    expect(rec).toMatchObject({ kinds: VG, isCurrent: true, headline: "Your Survey + Ground suits this system.", reason: "No ground objectives expected." });
   });
 
   it("names what NOTHING on the hull covers (a 4-squad hull tops out at 3 Security squads)", () => {
     const p = preview(6, [body(4)], [task(0, "enemyFortification", { security: 4, science: 0 }, 5, 5), task(0, "mineralOutcrop", { security: 1, science: 1 }, 2, 1)]);
     const rec = recommendLaunch(p, "generalFreighter", GG)!;
     expect(rec.stillUnfinished.map((t) => t.poiId)).toEqual(["enemyFortification"]);
-    expect(rec.stillUnfinishedText).toBe("Nothing on this hull covers every task: Enemy Fortification needs 4 Security squads. It will be left unfinished.");
+    expect(rec.stillUnfinishedText).toBe("Nothing on this hull covers every objective: Enemy Fortification needs 4 Security squads. It will be left unfinished.");
     expect(unfinishedTasksUnder(p, SG).map((t) => t.text)).toEqual(["Enemy Fortification needs 4 Security squads"]);
   });
 
@@ -190,12 +190,12 @@ describe("the ranking order", () => {
 describe("the detail 3 task demand", () => {
   it("counts Security bodies and the squad-heavy tasks", () => {
     expect(taskDemand(ENEMY_T4)).toEqual({ bodies: 3, securityBodies: 3, tasks: 5, noSecurityTasks: 0, twoSecurityTasks: 3, twoScienceTasks: 0, maxSecurity: 2, maxScience: 1 });
-    expect(taskDemandText(taskDemand(ENEMY_T4))).toBe("Security work on 3 of 3 bodies; 3 tasks need 2 Security squads");
+    expect(taskDemandText(taskDemand(ENEMY_T4))).toBe("Security work on 3 of 3 bodies; 3 objectives need 2 Security squads");
     expect(taskDemandText(taskDemand(CALM_T1))).toBe("Security work on 1 of 2 bodies");
     const quiet = preview(1, [body(0)], [task(0, "mineralOutcrop", { security: 0, science: 1 }, 1, 0)]);
     expect(taskDemandText(taskDemand(quiet))).toBe("No Security work expected on 1 body");
     const heavy = preview(6, [body(4), body(0)], [task(0, "enemyFortification", { security: 4, science: 0 }, 5, 5), task(1, "ancientRuins", { security: 0, science: 2 }, 2, 0)]);
-    expect(taskDemandText(taskDemand(heavy))).toBe("Security work on 1 of 2 bodies; 1 task needs 2 or more Security squads; 1 task needs 2 Science squads");
+    expect(taskDemandText(taskDemand(heavy))).toBe("Security work on 1 of 2 bodies; 1 objective needs 2 or more Security squads; 1 objective needs 2 Science squads");
   });
 });
 

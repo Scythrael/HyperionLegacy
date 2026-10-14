@@ -902,7 +902,7 @@ export function launchForecast(
     ? {
         bodyIndex: chosen.bodyIndex,
         poiId: chosen.task.poiId,
-        label: groundSiteLabel(chosen.task.poiId) ?? "A task",
+        label: groundSiteLabel(chosen.task.poiId) ?? "An objective",
         difficulty: chosen.task.difficulty ?? 1,
         difficultyName: DIFFICULTY_NAMES[gradeSlot(chosen.task.difficulty)],
         fightPoints: chosen.task.fightPoints?.length ?? 0,
