@@ -47,7 +47,7 @@
     expeditionShipRepairText,
     type ExpeditionCandidate,
   } from "./game/expedition";
-  import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, type GambitLogEvent } from "./game/gambit";
+  import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, deriveScanEncounterLog, type GambitLogEvent } from "./game/gambit";
   import type { GroundOpsEdit } from "./game/groundOps";
   // GO-13 + Squads SQ-7 section 7.3: the per-planet task queue screen (queues, per-team odds, task cards, the stuck
   // flag and its Skip). Its display decisions are in groundTaskQueueDisplay.ts (tested).
@@ -59,6 +59,10 @@
   import GroundTaskCard from "./GroundTaskCard.svelte";
   import GroundBayCard from "./GroundBayCard.svelte";
   import { activitiesPhaseLabel, bayCardsView, taskCardsView } from "./groundOpsTimelineDisplay";
+  // GO-15: each body's scan track (ship-event pips with outcome and pause, supply caches, a legacy run's ground battles)
+  // and its log lines. Display decisions in scanTrackDisplay.ts (tested).
+  import ScanTrack from "./ScanTrack.svelte";
+  import { scanTrackKey, scanTrackView } from "./scanTrackDisplay";
   // GO-12 + Squads SQ-7 section 7.2: the dispatch strip (which ground teams deploy) and the Subspace Telescope block.
   // Every display decision is in expeditionDispatchDisplay.ts (tested); the expensive launch view (recommendation,
   // forecast) is read only for the EXPANDED candidate and only when its inputs change (launchViewInputs).
@@ -236,6 +240,8 @@
   // GO-14 (a flagged run): the task progress cards and the medical bay cards, recomputed per tick (time left).
   $: taskCards = chosenExpedition?.groundOps ? taskCardsView(chosenExpedition, chosenShip, now) : null;
   $: bayCards = chosenExpedition?.groundOps ? bayCardsView(chosenExpedition, chosenShip, now, state.awayMembers) : [];
+  // GO-15: the scan tracks' key row (only the kinds this run shows).
+  $: scanKey = chosenExpedition ? scanTrackKey(chosenExpedition) : null;
 
   // --- Display helpers --------------------------------------------------------
   function shipName(shipId: string): string {
@@ -390,6 +396,18 @@
     return tail.length ? `${line}: ${tail.join(", ")}` : line;
   }
 
+  // GO-15: a legacy run's ground battle at a scan step, as round log lines (re-derived on demand, never stored).
+  function scanBattleLines(exp: Expedition, bodyIndex: number, step: number): { key: string; text: string; round: boolean; enemy: boolean; down: boolean }[] {
+    const log = deriveScanEncounterLog(exp, bodyIndex, step);
+    if (!log) return [];
+    const lines: { key: string; text: string; round: boolean; enemy: boolean; down: boolean }[] = [];
+    log.events.forEach((ev, i) => {
+      if (i === 0 || log.events[i - 1].round !== ev.round) lines.push({ key: `r${i}`, text: `Round ${ev.round}`, round: true, enemy: false, down: false });
+      lines.push({ key: `e${i}`, text: eventLine(ev), round: false, enemy: ev.side === "enemy", down: ev.downed === true });
+    });
+    return lines;
+  }
+
   // --- Actions (all route to the host) ----------------------------------------
   // Launch: a BLIND candidate (beyond the telescope's range) asks first (user #7); any other launches at once.
   function launch(): void {
@@ -519,9 +537,19 @@
 
         <!-- PER-BODY SCAN CARDS -->
         <div class="exp-section-tag">System scan · {scanPct}%</div>
+        {#if scanKey && scanKey.entries.length > 0}
+          <!-- GO-15: the scan tracks' key row (SVG glyphs, the words beside them). -->
+          <div class="exp-scan-key" aria-label="Scan event key">
+            {#each scanKey.entries as entry (entry.glyph)}
+              <span class="exp-scan-key-one"><Icon name={entry.glyph} size={12} /> {entry.text}</span>
+            {/each}
+            {#if scanKey.costNote}<span class="exp-scan-key-note">{scanKey.costNote}</span>{/if}
+          </div>
+        {/if}
         <div class="exp-bodies">
-          {#each exp.bodies as body (body.id)}
+          {#each exp.bodies as body, bi (body.id)}
             {@const frac = body.scanTotal > 0 ? body.scanProgress / body.scanTotal : 0}
+            {@const track = scanTrackView(exp, bi)}
             <div class="exp-body-card">
               <div class="exp-body-top">
                 <span class="exp-body-type">
@@ -530,9 +558,13 @@
                 </span>
                 <span class="exp-body-haz">{hazardLabelFor(body.planetType)} hazard</span>
               </div>
-              <div class="exp-bar slim">
-                <div class="exp-bar-fill" style="width: {pct(frac)}%; background: {scanColor(frac)};"></div>
-              </div>
+              {#if track}
+                <ScanTrack {track} idBase="scan-{exp.id}-{bi}" battleLines={(step) => scanBattleLines(exp, bi, step)} />
+              {:else}
+                <div class="exp-bar slim">
+                  <div class="exp-bar-fill" style="width: {pct(frac)}%; background: {scanColor(frac)};"></div>
+                </div>
+              {/if}
               <div class="exp-body-scanpct">{pct(frac)}% scanned</div>
               {#if body.discoveries.length > 0}
                 <div class="exp-body-pois">
@@ -1149,6 +1181,22 @@
   }
 
   /* PER-BODY SCAN CARDS */
+  /* GO-15: the scan tracks' key row. */
+  .exp-scan-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: var(--text-2xs);
+    color: var(--color-text-dim);
+  }
+  .exp-scan-key-one {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .exp-scan-key-note {
+    flex-basis: 100%;
+  }
   .exp-bodies {
     display: grid;
     grid-template-columns: 1fr;

@@ -1676,6 +1676,35 @@ boarding), each with its outcome and pause; log lines in plain words. Legacy run
 (`deriveScanEncounterLog`). Uses EC-M section 5 layout; new glyphs from GO-10.
 Commit `feat(0.14.0): ship-event scan track (Ground Ops GO-15)`.
 
+**Carry from GO-15 (built 2026-10-14, commit `feat(0.14.0): ship-event scan track (Ground Ops GO-15)`):**
+- **New `src/lib/scanTrackDisplay.ts`** (+ `scanTrackDisplay.test.ts`, 14) and **`src/lib/ScanTrack.svelte`**: every
+  display decision of the per-body scan track, pure over `Expedition.scanEvents` and the findings they point at; no
+  rule changed. ExpeditionPanel's scan cards draw the track in place of the plain scan bar (a run with no
+  `encounterSteps` keeps the bar), on flagged AND legacy runs.
+- **The track (EC-M section 5):** a rail filled to the body's scanned share, one pip per recorded event at step /
+  encounterSteps, then one log line per event with its position ("30%") and the sentence. Pip glyphs (GO-10): debris
+  `shipDebris`, probe `shipProbe`, ghost `sensorGhost`, cloaked `cloakedVessel`, storm `radiationStorm`, supply cache
+  `supplyCache`, a legacy ground battle `fightPoint`; a probe or cloaked vessel whose boarders got aboard takes
+  `boarding` (the GO-14 ship lane's rule). Outcome words per kind: "Steered clear" / "Hit", "Won" / "Lost", "Read
+  true" / "False reading", "Shields held" / "Slowed", "Found", plus ", boarders repelled" / ", boarded". The sentence
+  names the pause, the hull damage, the salvage or cache contents, the ghost's bonus discovery, and the boarders'
+  extra pause and credits taken.
+- **Never color alone:** a costly pip (time, hull, credits or a downed member) is amber AND a dashed ring; the key row
+  above the cards lists only the kinds the run shows plus the dashed-ring note. Each pip is a button whose accessible
+  name is the whole outcome ("At 70% of the scan: Cloaked vessel, Lost, boarded. ..."); pressing it marks its log
+  line (aria-pressed, aria-controls). Focus ring visible.
+- **Legacy runs** keep their ground-battle pips: each line offers "View battle log", re-derived on demand through
+  `deriveScanEncounterLog` (never stored), in the activity log's round format.
+- **Not built, for the user:** the GO-14 deviation (a battle log per GROUND TASK fight) does not fit here: it needs the
+  fight record kept (an engine display field) or a replay from the trip's start. A ship-event battle log (probe,
+  cloaked vessel) has the same gap: the hull damage carried INTO that fight is not stored per event (field repairs
+  change the run total), so a re-derivation could tell the wrong story. No engine field was added.
+- Verified in the dev preview on seeded saves (the GO-8 pinned seed 0x65426: a repelled boarding, two boardings that
+  got aboard, a cloaked vessel lost, supply caches; and a legacy run with a won and a lost ground battle, battle logs
+  open): 1024 px and 375 px (page 375, no sideways scroll), a pip selected by keyboard; no new console errors.
+  localStorage restored byte-identical (SHA-256). Suite +14 (4686 -> 4700 passed, 1 skipped, not counting GO-16's
+  in-progress tests in the shared tree); `npm run check` 0 errors.
+
 ### GO-16: Per-member gambit editor by ground team (absorbs Task 17's editor)
 
 **Files:** `src/lib/GambitEditorPanel.svelte`, `App.svelte`.
