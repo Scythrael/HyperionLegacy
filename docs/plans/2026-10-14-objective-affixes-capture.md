@@ -41,3 +41,48 @@ Coordinator reading:
 - FUTURE DIFFICULTY TIERS (like the other missions' difficulty tiers) layer on top later: build the hooks now (an
   affix pool keyed by tier and difficulty, plus a difficulty-tier input), but do not build the higher difficulty tiers.
 - NAMING: the user prefers "OBJECTIVES" over "tasks" (player-facing text).
+
+## 3. User answers (2026-10-14, verbatim where quoted)
+
+- **Timing:** build the reusable affix system NOW in 0.14.0, Reinforcing first, plus hooks for future difficulty tiers.
+- **Objectives rename:** ALL player-facing text says "objective" (screens, tooltips, log lines, Help); code names stay.
+- **Reinforcing mechanics:** "I agree with 1" (a per-visit chance of an extra battle; every retreat or wipe raises a
+  reinforcement level that strengthens the enemy on the D23 curve; progress kept), PLUS:
+  - "It's not permanent. Eventually, the alert level of that facility in the objective resets as the "threat appears
+    to have retreated", and things return to normal."
+  - "affixes can have ranks. So perhaps this will have Reinforcing I while higher versions might be Reinforcing II, which
+    will stagger increases over their ranking increases. Perhaps Reinforcing II might increase the chance to 35% instead
+    of 25%, and Reinforcing III might bump it to 40, but will also increase the time for Reinforcing to reset by X
+    minutes."
+  - "This should also scale the objective difficulty rating as well, which should trigger a failsafe for a team so they
+    don't keep resetting and failing. If it's deadly, and they fail a few times (on the main team), if the difficulty
+    level becomes impossible, then impossible should show (perhaps with a timer that indicates how long before the
+    objective returns to normal difficulty levels as that's when Reinforcing disappears)."
+  - "Early planets will seldom have this, if at all, unless the roll gets it. This one is a particularly nasty one."
+- **Alignment (verbatim):** "Some affixes might be something like Rocky Outcroppings that provide additional cover which
+  increases evasion against long-range weaponry by 15% for both sides of combat, or perhaps for one side as a good or
+  bad version. So perhaps affixes can roll with different alignments too. So Reinforcing is a negative affix. Always.
+  Rocky Outcroppings can be all 3. If it's positive, you get the evasion. If neutral, both get it, if negative, the
+  enemy gets it. Some affixes are net positive. Some are net negative. Some can roll into more than one, but only one at
+  a time. Some might not have a neutral option. Some might have only positive/negative, and the affix should have a
+  color coding that makes this obvious to the player at a glance. So the pill or however we ultimately display them will
+  be color coded with green/yellow/red."
+
+## 4. Design summary (coordinator, numbers are PROVISIONAL)
+
+- **Affix definition:** id, name, ranks (I, II, III...), allowed ALIGNMENTS (positive / neutral / negative; an affix
+  rolls exactly one), where it applies (combat objectives, any objective, later other systems), tier and difficulty
+  gates, roll weight, short tooltip + Help text, and mechanical hooks. Pills are colored by alignment: green positive,
+  yellow neutral, red negative. Rolled deterministically on the body's own risk stream, appended draws only (no shift).
+- **Reinforcing (always negative):** required on Deadly combat objectives; rolls rarely on easier combat objectives
+  and rarely on early tiers. Rank I / II / III: extra-battle chance per visit 25% / 35% / 40% (user); each retreat or
+  wipe raises the ALERT level (enemy strength up on the D23 curve and the objective's difficulty rating up); the alert
+  DECAYS: it resets after a timer ("the threat appears to have retreated"), longer at higher ranks (base 30 min,
+  +X per rank, PROVISIONAL). FAILSAFE: when the alert pushes the objective to Impossible, the team stops retrying it,
+  the card shows Impossible with a countdown to the reset, and the team moves on; it returns after the reset.
+- **Rocky Outcroppings (positive / neutral / negative):** +15% evasion against LONG-RANGE weapons for you (positive),
+  both sides (neutral) or the enemy (negative). Needs a ground weapon RANGE attribute (long vs short) in the gambit
+  combat engine (design step).
+- **Future difficulty tiers:** affix pools keyed by (tier, difficulty, difficultyTier) with difficultyTier fixed at the
+  base tier today; nothing else built.
+- **Deterministic, pure:** the alert level is a pure function of stored attempt outcomes and times (offline == live).
