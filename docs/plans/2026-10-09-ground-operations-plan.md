@@ -1826,6 +1826,42 @@ floor, the 7 threat tiers (chance to clear the whole task in one go; display onl
 ship-side events, what resolves each, boarding. Text rules apply (no em dashes, US English, "install").
 Commit `docs(0.14.0): Ground Operations help topics (Ground Ops GO-18)`.
 
+**Carry from GO-18 + SQ-7 section 7.5 (built 2026-10-14, commit `docs(0.14.0): Ground Operations, scan events and
+telescope help topics (Ground Ops GO-18, SQ-7.5)`):**
+- **Seven new topics** in helpTopics.ts, between "Relics and the Museum" and "Objective Affixes" / after
+  "Reinforcing (affix)": `groundTeams` "Team Types and Squads", `groundOperations` "Ground Operations", `returnTrip`
+  "Return Trip and Medical Bay" (split out of groundOperations so each reads in about one screen), `objectiveDifficulty`
+  "Objective Difficulty" (7.5's "Task difficulty", named for objectives), then `riskFactors` "Risk Factors",
+  `subspaceTelescope` "Subspace Telescope", `scanEvents` "Scan Events". Cross-linked by "see the X topic" to each other
+  and to `affixes` / `reinforcing` (unchanged); a test checks every such reference names a real topic title.
+- **Numbers come from the engine, never typed.** The user wanted real values (cure times, legs, the loss streak, the
+  detail ladder) and the file's rule forbids hand-typed numbers, so every number is a template read of its constant
+  (groundOps.ts step times, IN_SYSTEM_LEG_SECONDS, GROUND_STUCK_LOSSES, SURVEY_AMBUSH_MAX_PER_TASK, field repair;
+  medicalBay.ts GROUND_CONDITIONS, STONESKIN_INJURY_MULT; riskFactors.ts grades, weights, flora, ambush chances,
+  hostile tiers, SAFE_NEEDS_MAX_TIER, riskRewardBonus; telescope.ts names, lift, lore; shipScanEvents.ts pauses and
+  boarding; the seven tier names and phrases from threatAssessment; HELPER_MIN_TIER and ODDS_RISKY_BELOW by name;
+  BLIND_LAUNCH_WARNING). A retune updates the manual.
+- **Layout:** the new bodies are short paragraphs and "- " lists joined by line breaks; App.svelte's Help `<p>` gained
+  `.help-body { white-space: pre-line; }` (older bodies have no line breaks and read as before).
+- **Code vs plan / brief, for the user:** (1) the helper floor is Likely Victory (HELPER_MIN_TIER, Q2 provisional),
+  not "Favorable"; (2) every hull fields two teams, so Help names Alpha and Bravo only (Charlie is unreachable);
+  (3) the cure table lists only what a member can bring home today (Lost health, Poison, Bleed, Downed); Fracture,
+  Concussion, Hemorrhage, Neurotoxin, Blindness wait for 16b; (4) the threat tiers are not purely display: the default
+  plan and the helper floor read them, so Help says "odds never change a fight" instead; (5) the recommendation shows
+  at detail 4 at any tier; only its fight-odds step waits for Tier III; (6) a larger crew has no speed penalty: the
+  cost is one objective at a time instead of two; (7) a field repair is automatic at the damage threshold (no order
+  button exists), and the help toggle only applies from the next launch (no live toggle in the queue UI).
+- **Reachability (flag for the user):** every candidate is Tier I today (riskFactors.ts expeditionRegion until G2) and
+  the telescope sits at Level 1 (Graded, Tier I) with no Facilities card (7.4 unbuilt), so a Blind launch, the
+  Recommendation and Forecast detail, hostile sites and two-squad needs cannot occur in play yet. The telescope and
+  risk topics describe them anyway (7.5 asked for them) and never say where to upgrade; TELESCOPE_LORE mentions
+  upgrades. Revisit both topics when 7.4 and G2 land. Squad Loadouts (GO-17 UI) are not mentioned yet.
+- Tests: helpTopics.test.ts 7 -> 17 (the new ids, per-topic content pinned to the engine constants, cross-links,
+  and a text-rules test over every title and body: no task(s), no em / en dash or "--", no fit wording, no DBD /
+  First Cause / Impossible-tier intent line / Intact Data Core, no British spellings). Verified in the dev preview on
+  a separate go18.localhost origin (cleared after): every new topic renders with its paragraphs and lists at 1280 px
+  and 375 px (page width 375, no sideways scroll), no console errors.
+
 ### GO-19: Close-out (docs + review + QA)
 
 1. Annotate the E-CREW plan: Tasks 14, 16, 17, 18 and the 16b steps of section 1 get a "SUPERSEDED / ABSORBED by Ground

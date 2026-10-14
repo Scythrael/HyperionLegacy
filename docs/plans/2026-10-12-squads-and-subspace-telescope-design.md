@@ -1364,3 +1364,10 @@ marked met / unmet by the deployed squads, the 3.2 team-type phrase with who cov
 (Survey)"), the fight-point bar (zero pips: "No fights expected"), "Needs a partner" in a team's odds column when it
 cannot cover alone, and the joint crew's own tier (3.6). GO-14 reuses the card beside the timelines. Still open: 7.4
 the Facilities card, 7.5 Help.
+
+**Carry from SQ-7 section 7.5 (built 2026-10-14 with GO-18, commit `docs(0.14.0): Ground Operations, scan events and
+telescope help topics (Ground Ops GO-18, SQ-7.5)`):** the four proposed entries are in helpTopics.ts as "Team Types and
+Squads", "Risk Factors", "Subspace Telescope" and "Objective Difficulty" (7.5's "Task difficulty", named for
+objectives), beside GO-18's Ground Operations, Return Trip and Medical Bay and Scan Events; full notes in the Ground
+Operations plan's "Carry from GO-18 + SQ-7 section 7.5". Every number is read from its engine constant. Still open:
+7.4 the Facilities card (the telescope topic does not say where to upgrade; revisit it with 7.4 and G2).

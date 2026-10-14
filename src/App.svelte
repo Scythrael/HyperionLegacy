@@ -18066,7 +18066,7 @@
                 {#if activeHelpTopic === topic.id}
                 <Panel>
                   <div class="panel-title">{topic.title.toUpperCase()}</div>
-                  <p class="prestige-text">{topic.body}</p>
+                  <p class="prestige-text help-body">{topic.body}</p>
                 </Panel>
                 {/if}
               {/each}
@@ -21252,6 +21252,8 @@
   }
   .discord-btn:hover { background: #4752c4; border-color: #4752c4; }
   .prestige-text { font-size: var(--text-sm); color: var(--color-text-secondary); line-height: 1.5; margin: 0 0 12px; }
+  /* 0.14.0 (GO-18): Help bodies may hold line breaks (short paragraphs and "- " lists); a body without one reads as before. */
+  .help-body { white-space: pre-line; }
   /* .theme-row / .theme-swatch / .theme-swatch.active were REMOVED in 0.13.5 with the color-blot
      theme picker they styled. Deleted rather than left behind: svelte-check flags unused selectors,
      and dead CSS that still compiles is exactly the kind of thing a later reader restores by
