@@ -848,3 +848,9 @@ review)` and `feat(0.14.0): team kinds, composition hire cap, per-squad deploy c
   task's needs, the joint wipe is now ONE shared leg, the skip log is needs-based), groundOpsTimeline.test.ts
   (stamped needs, no requiredTeams), salts.test.ts (groundOps.ts + GROUND_AMBUSH_SALT). Suite 4303 -> 4321 passed (1
   skipped); `npm run check` 0 errors.
+- **SQ-3 calls (user, 2026-10-13):** (a) a Security-less partner on a wiped joint crew WAITS for the ship's shared pickup
+  (the crew comes up together); (b) Survey ambushes CAP AT 2 per task; (c) an ambush on a crew WITH a Security squad is
+  a SURPRISE FIGHT at the current spot (win: work continues; lose: a normal wipe), built in SQ-4 with risk factors.
+- **SQ-3 review, carried forward:** GO-7d must validate that an edited joint crew still covers the task's needs (else
+  it stages forever) beside `notEnoughSquads`; move the "Skipped ..." log into `planTasksForTeams` so a GO-7d
+  re-plan logs too; SQ-4 tests a Survey team clearing a 0-fight task end to end, ambush included.
