@@ -13,13 +13,18 @@
 //   squads field it, so a composition that cannot field it leaves it behind.
 //   DETAIL GATING (design 6.3, gateLaunchView): Per body (3) adds the TASK DEMAND line, Recommendation (4) the
 //   RECOMMENDATION, Forecast (5) the FORECAST. Below a level its piece is never computed, so it can never leak.
-//   THE RECOMMENDATION (design 6.5): rank the hull's valid compositions by
+//   THE RECOMMENDATION (design 6.5; the odds step: user, 2026-10-13, Strike's role "BOTH"): rank the hull's
+//     valid compositions by
 //     1. COVERAGE: the difficulty-weighted share of the tasks some crew of the composition covers;
-//     2. SOLO SHARE: the weighted share ONE team of it covers alone (solo tasks run in parallel);
-//     3. BALANCE: the composition's Security share of its squads closest to the system's Security demand (the
+//     2. FIGHT ODDS: the threat band (combat/threatAssessment.ts tiers) of the weighted mean clear rate of the crews
+//        the plan would send on the previewed fights, so a Strike composition wins when the fights are hard even
+//        if Ground + Ground covers everything; every band from ODDS_COMFORT_TIER up reads the same (the fights are
+//        not hard there), and the step is skipped when the odds are unknown (no reader passed, nobody ready);
+//     3. SOLO SHARE: the weighted share ONE team of it covers alone (solo tasks run in parallel);
+//     4. BALANCE: the composition's Security share of its squads closest to the system's Security demand (the
 //        weighted share of required squads that are Security);
-//     4. the FEWEST squads changed from the ship's current composition;
-//     5. Ground + Ground.
+//     5. the FEWEST squads changed from the ship's current composition;
+//     6. Ground + Ground.
 //   Output: the best composition, a headline and a one-line reason, and what the CURRENT composition would leave
 //   unfinished (only possible from Tier III: tierNeeds keeps Tiers I and II fieldable by every valid
 //   composition). Applying it is groundTeams.ts applyComposition (SQ-7's "Set composition").
@@ -30,10 +35,10 @@
 
 import type { BodyRiskGrades, GroundTaskNeeds, GroundTeamKind, RegionTier, ShipTypeKey } from "./model";
 import { compositionLabel, compositionSquads, securitySquadsOf, squadsOfType, validCompositions } from "./groundComposition";
-import { DIFFICULTY_NAMES, difficultyWeight } from "./riskFactors";
+import { DIFFICULTY_NAMES, difficultyWeight, hostileSiteFieldable, isHostileSiteId } from "./riskFactors";
 import { TELESCOPE_DETAIL, type SystemTelescopeReading } from "./telescope";
 import { groundSiteLabel } from "./expeditionContent";
-import type { ThreatAssessment } from "./combat/threatAssessment";
+import { THREAT_TIER_ORDER, threatAssessment, type ThreatAssessment, type ThreatTier } from "./combat/threatAssessment";
 
 // ===== The task preview =====
 
@@ -51,6 +56,17 @@ export interface SystemTaskPreview {
   enemyTerritory: boolean;
   bodies: BodyRiskGrades[];
   tasks: PreviewTask[]; // body order, then discovery order
+}
+
+// The preview as THIS HULL can meet it (SQ-6 review Minor 1): a hostile site no valid composition of the hull can
+// field never appears in its runs (the scan reveals one only when the deployed squads field it), so it is dropped
+// from the demand, the recommendation and the forecast. Every other task stays. Pure; a fresh object.
+export function previewForHull(preview: SystemTaskPreview, typeKey: ShipTypeKey): SystemTaskPreview {
+  const fleets = validCompositions(typeKey).map(compositionSquads);
+  return {
+    ...preview,
+    tasks: preview.tasks.filter((t) => !t.hostile || !isHostileSiteId(t.poiId) || fleets.some((sq) => hostileSiteFieldable(t.poiId as "enemyColony", sq))),
+  };
 }
 
 // ===== Small readers =====
@@ -204,10 +220,28 @@ export interface CompositionScore {
   changes: number; // squads changed from the current composition
   unfinished: UnfinishedTask[];
   soloTasks: number; // tasks one team covers alone (a count, for the reason line)
+  fightOdds: number | null; // the weighted mean clear rate of the planned crews on the fights (null: unknown)
+  oddsTier: ThreatTier | null; // its threat band
+  oddsName: string | null; // the band's name ("Likely Victory")
+}
+
+// The weighted mean clear rate of composition `kinds` on the previewed fights (expedition.ts
+// compositionFightOdds builds it from the planned crews), or null when unknown. Display only.
+export type FightOddsOf = (kinds: readonly GroundTeamKind[]) => number | null;
+
+// The threat band a mean clear rate reads as (the patrol card's seven tiers). Pure.
+function oddsBand(odds: number): ThreatAssessment {
+  const samples = 1000;
+  return threatAssessment(Math.round(Math.max(0, Math.min(1, odds)) * samples), samples);
 }
 
 // One composition's scores against the preview (design 6.5 step 2). Pure.
-export function scoreComposition(preview: SystemTaskPreview, kinds: readonly GroundTeamKind[], current: readonly GroundTeamKind[]): CompositionScore {
+export function scoreComposition(
+  preview: SystemTaskPreview,
+  kinds: readonly GroundTeamKind[],
+  current: readonly GroundTeamKind[],
+  fightOdds: number | null = null,
+): CompositionScore {
   const squads = compositionSquads(kinds);
   const teams = kinds.map((k) => ({ security: squadsOfType(k, "security"), science: squadsOfType(k, "science") }));
   let total = 0;
@@ -236,12 +270,29 @@ export function scoreComposition(preview: SystemTaskPreview, kinds: readonly Gro
     changes: compositionChanges(current, kinds),
     unfinished: unfinishedTasksUnder(preview, kinds),
     soloTasks,
+    fightOdds,
+    oddsTier: fightOdds === null ? null : oddsBand(fightOdds).tier,
+    oddsName: fightOdds === null ? null : oddsBand(fightOdds).name,
   };
+}
+
+// The odds step only separates compositions when the fights are HARD (user: "a Strike team is picked when fights
+// are hard"): every band at or above this one reads the same, so on a system the ship already clears comfortably
+// the odds step is a tie and solo share (the faster run) decides. Without it, Strike + Survey (which must send both
+// teams to every Ground-shaped task, so every fight gets all of its Security) would win almost every calm system
+// on odds alone. "Likely Victory", the same "favorable" floor as groundThreat.ts HELPER_MIN_TIER [PROVISIONAL].
+export const ODDS_COMFORT_TIER: ThreatTier = "likely";
+
+// A band's place for the odds step, best first (Guaranteed Victory 0 .. Impossible 6), every band at or above
+// ODDS_COMFORT_TIER read as that one. Pure.
+function bandRank(tier: ThreatTier): number {
+  return Math.max(THREAT_TIER_ORDER.indexOf(tier), THREAT_TIER_ORDER.indexOf(ODDS_COMFORT_TIER));
 }
 
 // a before b? (design 6.5 step 3). Pure.
 function ranksAhead(a: CompositionScore, b: CompositionScore, groundGround: string): number {
   if (Math.abs(a.coverage - b.coverage) > EPS) return b.coverage - a.coverage;
+  if (a.oddsTier !== null && b.oddsTier !== null && bandRank(a.oddsTier) !== bandRank(b.oddsTier)) return bandRank(a.oddsTier) - bandRank(b.oddsTier);
   if (Math.abs(a.solo - b.solo) > EPS) return b.solo - a.solo;
   if (Math.abs(a.balanceGap - b.balanceGap) > EPS) return a.balanceGap - b.balanceGap;
   if (a.changes !== b.changes) return a.changes - b.changes;
@@ -250,11 +301,16 @@ function ranksAhead(a: CompositionScore, b: CompositionScore, groundGround: stri
 
 // The hull's valid compositions, best first (design 6.5 steps 1 to 3; the final tie keeps validCompositions'
 // order). Pure.
-export function rankCompositions(preview: SystemTaskPreview, typeKey: ShipTypeKey, current: readonly GroundTeamKind[]): CompositionScore[] {
+export function rankCompositions(
+  preview: SystemTaskPreview,
+  typeKey: ShipTypeKey,
+  current: readonly GroundTeamKind[],
+  oddsOf?: FightOddsOf,
+): CompositionScore[] {
   const comps = validCompositions(typeKey);
   const groundGround = compositionLabel(comps[0] ?? []);
   return comps
-    .map((kinds, i) => ({ score: scoreComposition(preview, kinds, current), i }))
+    .map((kinds, i) => ({ score: scoreComposition(preview, kinds, current, oddsOf ? oddsOf(kinds) : null), i }))
     .sort((a, b) => ranksAhead(a.score, b.score, groundGround) || a.i - b.i)
     .map(({ score }) => score);
 }
@@ -317,6 +373,9 @@ function reasonOver(preview: SystemTaskPreview, best: CompositionScore, current:
     const n = Math.max(1, current.unfinished.length - best.unfinished.length);
     return `Covers ${plural(n, "task", "tasks")} your ${current.label} would leave unfinished.`;
   }
+  if (best.oddsTier !== null && current.oddsTier !== null && bandRank(best.oddsTier) !== bandRank(current.oddsTier)) {
+    return `Better odds in the fights: ${best.oddsName} for ${best.label}, ${current.oddsName} for your ${current.label}.`;
+  }
   if (Math.abs(best.solo - current.solo) > EPS) {
     return `One team can take ${best.soloTasks} of ${plural(preview.tasks.length, "task", "tasks")} alone (your ${current.label}: ${current.soloTasks}).`;
   }
@@ -324,13 +383,20 @@ function reasonOver(preview: SystemTaskPreview, best: CompositionScore, current:
 }
 
 // The recommendation for a system (design 6.5), or null for a hull with no valid composition. `current` = the
-// ship's team kinds (groundComposition.ts shipTeamKinds). Pure.
-export function recommendLaunch(preview: SystemTaskPreview, typeKey: ShipTypeKey, current: readonly GroundTeamKind[]): LaunchRecommendation | null {
-  const ranked = rankCompositions(preview, typeKey, current);
+// ship's team kinds (groundComposition.ts shipTeamKinds); `oddsOf` = the fight odds reader (absent: the odds step
+// is skipped). Pure (given a pure reader).
+export function recommendLaunch(
+  preview: SystemTaskPreview,
+  typeKey: ShipTypeKey,
+  current: readonly GroundTeamKind[],
+  oddsOf?: FightOddsOf,
+): LaunchRecommendation | null {
+  const ranked = rankCompositions(preview, typeKey, current, oddsOf);
   if (ranked.length === 0) return null;
   const best = ranked[0];
   const isCurrent = best.changes === 0;
-  const now = scoreComposition(preview, current, current);
+  const same = ranked.find((r) => r.changes === 0);
+  const now = same ?? scoreComposition(preview, current, current, oddsOf ? oddsOf(current) : null);
   const currentLabel = compositionLabel(current);
   const unfinished = now.unfinished;
   const still = best.unfinished;

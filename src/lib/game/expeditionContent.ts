@@ -35,7 +35,7 @@
 // has with model.ts.
 // ============================================================================
 
-import type { ExpeditionPlanetType, HostileSiteId } from "./model";
+import type { ClearingSiteId, ExpeditionPlanetType, HostileSiteId } from "./model";
 
 // ============================================================================
 // Hazard tiers -> scalars
@@ -320,7 +320,26 @@ export function getHostileSiteById(id: string): HostileSiteDef | undefined {
   return HOSTILE_SITE_CATALOG.find((def) => def.id === id);
 }
 
-// The player-facing name of any ground task's site: a discovery PoI or a hostile site, or undefined. Pure.
+// Squads SQ-6 follow-up (user, 2026-10-13): the CLEARING TASKS a dangerous body may hold (riskFactors.ts
+// CLEARING_SITE_RULES), Security-only work so a Strike team has work of its own. Not discovery PoIs (outside
+// POI_CATALOG, never in a pool), like the hostile sites. Labels and flavor lines are [PROPOSAL] text.
+export interface ClearingSiteDef {
+  id: ClearingSiteId;
+  label: string;
+  flavor: string;
+}
+export const CLEARING_SITE_CATALOG: readonly ClearingSiteDef[] = [
+  { id: "clearHostiles", label: "Clear the Hostiles", flavor: "Armed hostiles hold ground near the site: drive them off before anyone digs." },
+  { id: "secureLandingZone", label: "Secure the Landing Zone", flavor: "Local predators prowl the landing zone: secure it so the work can go on." },
+];
+
+// A clearing task def by id, or undefined. Pure.
+export function getClearingSiteById(id: string): ClearingSiteDef | undefined {
+  return CLEARING_SITE_CATALOG.find((def) => def.id === id);
+}
+
+// The player-facing name of any ground task's site: a discovery PoI, a hostile site or a clearing task, or
+// undefined. Pure.
 export function groundSiteLabel(id: string): string | undefined {
-  return getPoiById(id)?.label ?? getHostileSiteById(id)?.label;
+  return getPoiById(id)?.label ?? getHostileSiteById(id)?.label ?? getClearingSiteById(id)?.label;
 }

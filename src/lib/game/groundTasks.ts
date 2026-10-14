@@ -21,12 +21,15 @@ import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "./fi
 import { resistedHazard } from "./relics";
 import { rollHaul, taskRewardSeed } from "./gambit";
 import {
+  CLEARING_FIGHT_POINTS_MIN,
+  CLEARING_SITE_RULES,
   COMBAT_FIGHT_MOD,
   FAUNA_FIGHT_MOD,
   HOSTILE_SITE_RULES,
   LIFE_SITES,
   RISK_FIGHT_POINTS_MIN,
   floraWorkMult,
+  isClearingSiteId,
   isHostileSiteId,
   toRiskGrade,
 } from "./riskFactors";
@@ -77,6 +80,14 @@ export function fightPointCount(poiId: string, hazard: number): number {
 // its own fixed count (riskFactors.ts HOSTILE_SITE_RULES). Pure.
 export function riskFightPointCount(poiId: string, hazard: number, risk: Pick<BodyRiskGrades, "combat" | "fauna">): number {
   if (isHostileSiteId(poiId)) return HOSTILE_SITE_RULES[poiId].fightPoints;
+  // Squads SQ-6 follow-up: a CLEARING task (its base, the combat mod, the fauna mod for the landing zone, the
+  // hazard step), at least CLEARING_FIGHT_POINTS_MIN.
+  if (isClearingSiteId(poiId)) {
+    const rule = CLEARING_SITE_RULES[poiId];
+    const fauna = rule.driver === "fauna" ? (FAUNA_FIGHT_MOD[toRiskGrade(risk.fauna)] ?? 0) : 0;
+    const n = rule.baseFightPoints + (COMBAT_FIGHT_MOD[toRiskGrade(risk.combat)] ?? 0) + fauna + (hazard >= FIGHT_POINTS_HAZARD_STEP ? 1 : 0);
+    return Math.min(FIGHT_POINTS_MAX, Math.max(CLEARING_FIGHT_POINTS_MIN, n));
+  }
   const table = FIGHT_POINTS_BY_POI as Readonly<Record<string, number>>;
   const base = Object.prototype.hasOwnProperty.call(table, poiId) ? table[poiId] : FIGHT_POINTS_DEFAULT;
   const combatMod = COMBAT_FIGHT_MOD[toRiskGrade(risk.combat)] ?? 0;

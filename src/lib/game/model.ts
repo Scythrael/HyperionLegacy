@@ -6642,6 +6642,10 @@ export type RegionTier = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 // The hostile sites a risk-aware body may hold (user words "an enemy colony", "an enemy fortification", names
 // approved for now, #12). Not discovery PoIs: they never appear in the planet-type pools.
 export type HostileSiteId = "enemyColony" | "enemyFortification";
+// Squads SQ-6 follow-up (user, 2026-10-13: Strike's role, "BOTH"): the CLEARING TASKS a dangerous body may hold,
+// Security-only work (no Science squad needed), so a Strike team has work of its own [PROPOSAL names]. Not
+// discovery PoIs: they never appear in the planet-type pools (the hostile-site pattern).
+export type ClearingSiteId = "clearHostiles" | "secureLandingZone";
 // A system's grades (drawn from its region tier's odds table; known enemy territory adds combat).
 export interface SystemRiskGrades {
   combat: RiskGrade;
@@ -6654,6 +6658,11 @@ export interface SystemRiskGrades {
 export interface BodyRiskGrades extends SystemRiskGrades {
   hazard: RiskGrade;
   site?: HostileSiteId;
+  // Squads SQ-6 follow-up: the clearing tasks the body's seeded roll placed (riskFactors.ts CLEARING_SITE_RULES),
+  // in roll order; absent = none. A run dispatched before the follow-up never carries it, so its bodies stamp
+  // exactly as before. Unlike a hostile site, a clearing task always joins at the scan (Tiers I and II cap its
+  // needs at one Security squad; from Tier III one the deployed squads cannot cover is skipped with its log line).
+  clearing?: ClearingSiteId[];
 }
 // A risk-aware run's profile (Expedition.risk): its PRESENCE is the SQ-4 flag, like encounterSteps and
 // groundOps. Drawn at dispatch from the committed candidate's seed (riskFactors.ts RISK_SALT), so the pre-launch

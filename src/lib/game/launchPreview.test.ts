@@ -15,10 +15,14 @@ import {
   type ShipGroundTeam,
 } from "./model";
 import {
+  FORECAST_EXPEDITION_ID,
   advanceExpedition,
+  compositionFightOdds,
   expeditionCandidates,
   expeditionRiskPreview,
   launchForecast,
+  launchViewMemoSize,
+  simulateLaunch,
   startExpedition,
   systemTaskPreview,
 } from "./expedition";
@@ -28,7 +32,7 @@ import { shipTeamKinds } from "./groundComposition";
 import { applyComposition } from "./groundTeams";
 import { THREAT_TIER_ORDER } from "./combat/threatAssessment";
 import { TELESCOPE_DETAIL, blindLaunchCount } from "./telescope";
-import { forecastTasksText, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
+import { forecastTasksText, previewForHull, recommendLaunch, taskDemand, taskDemandText, type SystemTaskPreview } from "./launchRecommendation";
 import { deserialize, migrate, serialize } from "./save";
 import { plainAwayMember } from "./awayTeamTestFixtures";
 
@@ -142,17 +146,20 @@ describe("the candidate carries only what its detail shows", () => {
 
   it("Per body (Level 3) adds the task demand of the system", () => {
     for (const c of expeditionCandidates(atLevel(3, s), "ship-1")) {
-      const preview = systemTaskPreview(c.seed, params);
+      const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
       expect(c.telescope.demand).toEqual(taskDemand(preview));
       expect(taskDemandText(c.telescope.demand!)).toMatch(/bod(y|ies)/);
       expect([c.telescope.recommendation, c.telescope.forecast]).toEqual([null, null]);
     }
   });
 
-  it("Recommendation (Level 5) adds the recommendation for this ship's composition", () => {
-    for (const c of expeditionCandidates(atLevel(5, s), "ship-1")) {
-      const preview = systemTaskPreview(c.seed, params);
-      expect(c.telescope.recommendation).toEqual(recommendLaunch(preview, "generalFreighter", ["ground", "ground"]));
+  it("Recommendation (Level 5) adds the odds-aware recommendation for this ship's composition", () => {
+    const s5 = atLevel(5, s);
+    for (const c of expeditionCandidates(s5, "ship-1")) {
+      const preview = previewForHull(systemTaskPreview(c.seed, params), "generalFreighter");
+      const oddsOf = (kinds: readonly GroundTeamKind[]) => compositionFightOdds(s5, "ship-1", c.seed, kinds, preview);
+      expect(c.telescope.recommendation).toEqual(recommendLaunch(preview, "generalFreighter", ["ground", "ground"], oddsOf));
+      expect(c.telescope.recommendation!.ranked.some((r) => r.fightOdds !== null)).toBe(true);
       expect(c.telescope.forecast).toBeNull();
     }
   });
@@ -306,5 +313,55 @@ describe("display only: previews never change a run", () => {
     for (const t of [T0 + 30_000, T0 + 200_000]) {
       expect(JSON.stringify(advanceExpedition(after.expedition!, t))).toBe(JSON.stringify(advanceExpedition(direct.expedition!, t)));
     }
+  });
+});
+
+describe("the SQ-6 follow-up: the simulated launch, the fight odds, the memo", () => {
+  it("a simulated launch carries its own expedition id, never the one the real dispatch mints (review Minor 3)", () => {
+    const s = crewedState(2);
+    const sim = simulateLaunch(s, "ship-1", expeditionCandidates(s, "ship-1")[0].seed, ["ground", "ground"], { tier: 1, enemyTerritory: false })!;
+    expect(sim.exp!.id).toBe(FORECAST_EXPEDITION_ID);
+    expect(startExpedition(s, "ship-1", 1, "cand-0").expedition!.id).toBe(`expedition-${s.nextExpeditionId}`);
+  });
+
+  it("the fight odds are the weighted clear rate of the planned crews, and more Security reads better on a dangerous system", () => {
+    // A weaker crew (rank 3) at a forced Tier IV in enemy territory, so the odds are not all certain.
+    const region: ExpeditionRegion = { tier: 4, enemyTerritory: true };
+    let better = 0;
+    let read = 0;
+    for (let k = 0; k < 12; k++) {
+      const base = crewedState(k);
+      const s: GameState = { ...base, awayMembers: base.awayMembers.map((m) => ({ ...m, rank: 3 as AwayMember["rank"] })) };
+      const seed = expeditionCandidates(s, "ship-1")[0].seed;
+      const preview = previewForHull(systemTaskPreview(seed, { scanRateMult: 1, coverageWidth: 1, landmarkOddsBias: 0, undergroundPoiOddsBias: 0 }, region), "generalFreighter");
+      const gg = compositionFightOdds(s, "ship-1", seed, ["ground", "ground"], preview, region);
+      const sg = compositionFightOdds(s, "ship-1", seed, ["ground", "strike"], preview, region);
+      if (gg === null || sg === null) continue;
+      read += 1;
+      expect(gg).toBeGreaterThanOrEqual(0);
+      expect(gg).toBeLessThanOrEqual(1);
+      expect(compositionFightOdds(s, "ship-1", seed, ["ground", "strike"], preview, region)).toBe(sg); // deterministic
+      if (sg > gg) better += 1;
+    }
+    expect(read).toBeGreaterThan(6);
+    expect(better, "Strike + Ground clears more of the fights than Ground + Ground somewhere").toBeGreaterThan(0);
+  });
+
+  it("the launch view is memoized: an unrelated change hits, a change to the crew recomputes", () => {
+    const s = atLevel(7, crewedState(9));
+    const first = expeditionCandidates(s, "ship-1")[0].telescope;
+    expect(first.forecast).not.toBeNull();
+    // Time passes, credits move: the same objects come back (no forecast recomputed).
+    const later: GameState = { ...s, gameTimeSeconds: s.gameTimeSeconds + 3600, credits: s.credits.add(500) };
+    const again = expeditionCandidates(later, "ship-1")[0].telescope;
+    expect(again.forecast).toBe(first.forecast);
+    expect(again.recommendation).toBe(first.recommendation);
+    // A composition change is related: a fresh view.
+    const changed = applyComposition(s, "ship-1", ["ground", "strike"]);
+    expect(expeditionCandidates(changed, "ship-1")[0].telescope.forecast).not.toBe(first.forecast);
+    // A member's rank is related too.
+    const ranked: GameState = { ...s, awayMembers: s.awayMembers.map((m) => (m.id === "member-1" ? { ...m, rank: 2 as AwayMember["rank"] } : m)) };
+    expect(expeditionCandidates(ranked, "ship-1")[0].telescope.recommendation).not.toBe(first.recommendation);
+    expect(launchViewMemoSize()).toBeLessThanOrEqual(32);
   });
 });

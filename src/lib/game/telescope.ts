@@ -230,7 +230,10 @@ const FACTORS: readonly RiskFactorId[] = ["combat", "fauna", "flora", "hazard"];
 // What `detail` reveals of a system's risk preview (expeditionRiskPreview). The SYSTEM-LEVEL reading of a factor is
 // the WORST body's grade, so it never shows life on a system of lifeless worlds (the profile's drawn system grade
 // can, before Fauna / Flora read None on barren, volcanic and gas giant bodies). A body's hostile site placement is
-// never shown here: whether it becomes a task depends on the deployed squads (SQ-6's task preview). Pure.
+// never shown here: whether it becomes a task depends on the deployed squads. Squads SQ-6 (review Minor 1, by
+// design): from Per body (3) the TASK DEMAND line beside this view does count hostile sites (the telescope reads
+// danger), but only the ones the ship's hull can field with SOME valid composition (launchRecommendation.ts
+// previewForHull): a site no composition of the hull fields never appears in its runs, so it is never counted. Pure.
 export function gateRiskView(
   preview: { profile: ExpeditionRiskProfile; bodies: readonly BodyRiskGrades[] },
   detail: number,

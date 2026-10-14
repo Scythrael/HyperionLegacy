@@ -80,7 +80,7 @@ import {
 } from "./groundTasks";
 import { resolveTaskFight, taskFightSeconds, type GroundFightTeam } from "./groundFight";
 import { HELPER_MIN_TIER, groundTaskClearOdds, groundTaskThreat } from "./groundThreat";
-import { tierAtLeast, type ThreatAssessment } from "./combat/threatAssessment";
+import { threatAssessment, tierAtLeast, type ThreatAssessment } from "./combat/threatAssessment";
 import { groundSiteLabel } from "./expeditionContent";
 import { activityRelicFindBonus, rollRelicToken, taskRelicSeed } from "./gambit";
 import { fieldworkEffect } from "./fieldwork";
@@ -476,6 +476,12 @@ function fightTeamOf(ops: GroundOpsState, team: GroundTeamRun, fresh = false): G
 // own stream (groundThreat.ts), so a read never shifts a fight. Null when the run, the task or a team is missing.
 // Pure.
 export function groundCrewThreat(exp: Expedition, teamIndices: readonly number[], taskId: string): ThreatAssessment | null {
+  const odds = groundCrewClearOdds(exp, teamIndices, taskId);
+  return odds ? threatAssessment(odds.wins, odds.samples) : null;
+}
+
+// The clear odds behind groundCrewThreat (the SQ-6 follow-up's odds-aware recommendation averages them). Pure.
+export function groundCrewClearOdds(exp: Expedition, teamIndices: readonly number[], taskId: string): { wins: number; samples: number } | null {
   const ops = exp.groundOps;
   const ref = findGroundTask(exp, taskId);
   if (!ops || !ref || teamIndices.length === 0) return null;
@@ -485,7 +491,7 @@ export function groundCrewThreat(exp: Expedition, teamIndices: readonly number[]
     if (!team) return null;
     crew.push(team);
   }
-  return groundTaskThreat(exp, crew.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex);
+  return groundTaskClearOdds(exp, crew.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex);
 }
 
 // The team as a task's work crew: only members still STANDING in the task (a downed member sits out the rest

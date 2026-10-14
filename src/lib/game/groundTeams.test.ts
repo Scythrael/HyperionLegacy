@@ -1570,4 +1570,34 @@ describe("SQ-6 applyComposition (design 6.5 step 5: the team whose change moves 
     const strike = setGroundTeamKind(s, "ship-1", 1, "strike");
     expect(planComposition(strike, "ship-1", ["strike", "ground"])).toEqual({ ok: false, reason: "sameKind" });
   });
+
+  it("confirms an open 'Pick a type' prompt on a team whose kind already matches (coordinator call)", () => {
+    const base = s0();
+    const pending: GameState = {
+      ...base,
+      ships: base.ships.map((sh) =>
+        sh.id === "ship-1" ? { ...sh, groundTeams: [sh.groundTeams![0], { ...emptyFreighterTeam(), kindPending: true as const }] } : sh,
+      ),
+    };
+    // The ship already fields Ground + Ground: setting it confirms Bravo's prompt, moving nobody.
+    expect(planComposition(pending, "ship-1", ["ground", "ground"])).toEqual({
+      ok: true,
+      changes: [{ teamIndex: 1, from: "ground", to: "ground", toReserve: [], fromReserve: [] }],
+    });
+    const confirmed = applyComposition(pending, "ship-1", ["ground", "ground"]);
+    expect(slotsOf(confirmed, "ship-1")[1].kindPending).toBeUndefined();
+    expect(applyComposition(confirmed, "ship-1", ["ground", "ground"])).toBe(confirmed); // then sameKind
+    // A change that keeps a pending team confirms it too: the prompt on Alpha, and empty Bravo is the team that
+    // changes (it moves the fewest members).
+    const alphaPending: GameState = {
+      ...base,
+      ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, groundTeams: [{ ...sh.groundTeams![0], kindPending: true as const }, sh.groundTeams![1]] } : sh)),
+    };
+    const next = applyComposition(alphaPending, "ship-1", ["ground", "strike"]);
+    expect(slotsOf(next, "ship-1").map((t) => [t.kind, t.kindPending])).toEqual([
+      ["ground", undefined],
+      ["strike", undefined],
+    ]);
+    assertSlotInvariants(next);
+  });
 });

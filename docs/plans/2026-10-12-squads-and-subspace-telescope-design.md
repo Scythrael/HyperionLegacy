@@ -1177,3 +1177,83 @@ tasks (SQ-4 follow-up)`):**
   when fights are hard even if Ground could technically cover them.
 - **Coordinator calls (2026-10-13):** memoize the forecast per candidate input for the SQ-7 panel (display only); "Set
   composition" also clears the "Pick a type" prompt on a team whose kind already matches (QoL).
+
+**Carry from the SQ-6 follow-up (built 2026-10-13, commit `feat(0.14.0): clearing tasks, odds-aware launch
+recommendation (SQ-6 follow-up)`; the user's "BOTH" above plus the coordinator calls):**
+- **CLEARING TASKS (user).** model.ts `ClearingSiteId = "clearHostiles" | "secureLandingZone"` and
+  `BodyRiskGrades.clearing?: ClearingSiteId[]`. riskFactors.ts `CLEARING_SITE_RULES` [PROVISIONAL numbers]: Clear the
+  Hostiles is driven by the body's COMBAT grade, Secure the Landing Zone by its FAUNA grade, each at
+  [0, 0, 300, 600, 900] / [0, 0, 200, 400, 700] per 1000 for None..Extreme (so lifeless worlds never hold a landing
+  zone task), base 3 fight points. The roll is two draws APPENDED to the body's risk stream after the five SQ-4
+  draws, so every existing grade and site is unchanged. Fight points: `riskFightPointCount` = base + combat mod
+  (+ fauna mod for the landing zone) + hazard step, at least `CLEARING_FIGHT_POINTS_MIN` 1. Needs:
+  `generatedTaskNeeds` = Security 1, or 2 from 4 fights, Science 0; stamped through `tierNeeds` (Tiers I and II
+  cap at 1 Security squad), so from Tier III one the deployed squads cannot cover is skipped with the usual log
+  line ("Skipped Clear the Hostiles: needs 2 Security squads, 1 deployed"). Difficulty rated as every task. A
+  Strike team takes one ALONE (tested: assignedTeamIds = the Strike team on Strike + Survey); a Survey team never
+  can (needs Security). Not discovery PoIs: expeditionContent.ts `CLEARING_SITE_CATALOG` (labels "Clear the
+  Hostiles", "Secure the Landing Zone", flavor lines [PROPOSAL]) outside POI_CATALOG and every pool;
+  `groundSiteLabel` names them; gambit.ts guards [PROPOSAL]: striker, striker, bruiser / swarm, swarm, bruiser.
+  They join at the scan after the drawn discoveries and any hostile site (expedition.ts
+  assignDiscoveriesAndActivities), always (unlike a hostile site, no fieldable gate). Hauls on the planet tables;
+  not relic-bearing.
+- **Gate (no parity break).** Only a body whose stored risk carries `clearing` gets clearing tasks, and only runs
+  dispatched from now on carry it. groundOpsClearing.test.ts pins four runs (Tier I, forced Tier III, forced Tier
+  IV in enemy territory on Ground + Ground and on Strike + Survey) with `clearing` stripped against hashes captured
+  BEFORE the change (five checkpoints, the phase at 2,000,000 s, the claim). Legacy, pre-SQ-4, SQ-4 risk goldens and
+  every parity test unchanged. No SAVE bump (optional field).
+- **ODDS-AWARE RECOMMENDATION (user).** The ranking is now coverage, then FIGHT ODDS, then solo share, Security
+  balance, fewest changes, Ground + Ground. The odds of a composition (expedition.ts `compositionFightOdds`) are the
+  difficulty-weighted mean CLEAR RATE, over the previewed tasks with a fight that the composition covers, of the
+  crew its plan would send (a simulated launch: the composition set as applyComposition sets it, the run built as
+  startExpedition builds it, every body scanned and planned; new groundOps.ts `groundCrewClearOdds`, fresh, on the
+  threat stream). A task the simulated deployment cannot work counts 0. Compared as THREAT BANDS (the patrol card's
+  seven tiers), and every band at or above `ODDS_COMFORT_TIER` = Likely Victory reads the same [PROVISIONAL]: the
+  odds only decide when the fights are HARD (without the clamp Strike + Survey, which sends both teams to every
+  Ground-shaped task, won almost every calm system on odds). Null odds (nobody ready, no fights, the composition
+  cannot be set) skip the step. New reason line: "Better odds in the fights: A Worthy Adversary for Strike + Ground,
+  It's Time to Toss the Dice for your Ground + Ground." `CompositionScore` gains `fightOdds`, `oddsTier`, `oddsName`.
+  `recommendLaunch` / `rankCompositions` take the odds reader as an optional last argument (absent = SQ-6's ranking).
+- **Sweep (400 systems, current Ground + Ground, a Ground + Ground freighter crew with 2 Security and 1 Science in
+  reserve, the built Likely clamp):**
+
+  | Crew rank | Region | Ground + Ground | Strike + Survey | Strike + Ground | Survey + Ground |
+  |---|---|---|---|---|---|
+  | 10 | Tier I | 120 | 221 | 3 | 56 |
+  | 10 | Tier IV enemy | 209 | 144 | 36 | 11 |
+  | 5 | Tier I | 55 | 301 | 2 | 42 |
+  | 5 | Tier IV enemy | 155 | 202 | 35 | 8 |
+  | 3 | Tier IV enemy | 147 | 207 | 38 | 8 |
+
+  (SQ-6 before the follow-up, Tier IV enemy: Ground + Ground 342, Strike + Ground 29, Survey + Ground 29.) With the
+  clamp at A Worthy Adversary instead: rank 10 Tier I 197 / 136 / 3 / 64, rank 10 Tier IV 229 / 114 / 41 / 16.
+  **Finding for the user:** Strike now matters, but mostly as STRIKE + SURVEY, not Strike + Ground: on Strike +
+  Survey every task that needs both types goes to the pair, so each of its fights gets all 5 Security members
+  (better odds, slower run), and the clearing tasks go to the Strike team alone. Strike + Ground stays about 10% at
+  Tier IV. GO-6's one-go clear odds also run low for ordinary crews (rank 10 reads below Likely on many Tier I
+  tasks), so the odds step fires even at Tier I. Questions: keep odds before solo share (the user's order), or lift
+  the clamp, or weigh the odds against the run's length?
+- **Coordinator calls.** (1) MEMO (review Minor 2): the candidate's launch view (demand, recommendation, forecast) is
+  memoized (LRU 32, `launchViewMemoSize`) on the seed, the telescope level and the effective detail (the sensor
+  band), the scan params, the ship record (hull, slotting, composition), the members aboard and the gear they wear
+  or the ship carries, which teams would deploy now, the two squad officer bonuses and the museum; a tick that only
+  moves time or credits returns the same objects (tested), a crew or composition change recomputes. [PROVISIONAL]
+  anything else a fight reads (e.g. a captain talent) is not in the key; a stale view is display only. One view's
+  forecast reuses its recommendation's simulated launch. First read cost: about 140 ms per candidate at
+  Recommendation detail (four simulated launches), then memo hits. (2) DISTINCT ID (Minor 3): a simulated launch is
+  built under `FORECAST_EXPEDITION_ID` ("expedition-forecast"), never the id the real dispatch mints
+  (`buildExpedition` takes an id override). (3) KIND PENDING: `applyComposition` confirms an open "Pick a type"
+  prompt on any team whose kind already matches (a change list entry from = to, moving nobody); setting the
+  composition the ship already fields is a `sameKind` refusal only when no prompt is open.
+- **Review Minor 1.** The demand, recommendation and forecast read the preview through `previewForHull(preview,
+  typeKey)`: a hostile site no valid composition of the hull fields (a fortification on a 4-squad hull) is dropped,
+  since it never appears in that hull's runs. Documented in telescope.ts gateRiskView's comment (the demand line's
+  hostile-site count is an intended reveal at Per body: the telescope reads danger). The forecast's `unfinished`
+  counts only hull-fieldable sites the deployment leaves.
+- Tests: new groundOpsClearing.test.ts (12: four pre-clearing goldens, the roll rates and grade floor, lifeless
+  worlds and the pools, labels and guards, stamping at Tier IV, Tiers I and II capped, Strike alone and never
+  Survey, the Tier III skip line, a run that finishes and pays them); launchRecommendation.test.ts 15 -> 19 (the
+  odds band wins and its reason, same band or both comfortable falls through, null skips, previewForHull);
+  launchPreview.test.ts 15 -> 18 (Level 5 with the odds reader, the forecast id, real odds and Strike + Ground
+  clearing more fights, the memo hit and miss); groundTeams.test.ts 96 -> 97 (the pending confirm). Suite 4429 ->
+  4449 passed (1 skipped); `npm run check` 0 errors.

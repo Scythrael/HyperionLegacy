@@ -24,6 +24,7 @@
 
 import type {
   BodyRiskGrades,
+  ClearingSiteId,
   ExpeditionPlanetType,
   ExpeditionRiskProfile,
   GroundTaskNeeds,
@@ -35,7 +36,7 @@ import type {
 import { makeRng, type Rng } from "./combat/rng";
 import { diminishing } from "./diminishing";
 
-export type { BodyRiskGrades, ExpeditionRiskProfile, HostileSiteId, RegionTier, RiskGrade, SystemRiskGrades };
+export type { BodyRiskGrades, ClearingSiteId, ExpeditionRiskProfile, HostileSiteId, RegionTier, RiskGrade, SystemRiskGrades };
 
 // ===== The scale and the factors (user #11) =====
 
@@ -140,6 +141,33 @@ export function hostileSiteFieldable(site: HostileSiteId, deployed: GroundTaskNe
   return deployed.security >= needs.security && deployed.science >= Math.max(1, needs.science);
 }
 
+// ===== Clearing tasks (Squads SQ-6 follow-up; user, 2026-10-13: Strike's role, "BOTH") =====
+
+// Security-only work at a dangerous body: "Clear the Hostiles" where the COMBAT risk runs Moderate or worse,
+// "Secure the Landing Zone" where the FAUNA does [PROPOSAL names]. Needs: Security only (no Science squad), so a
+// Strike team takes one alone and a Survey team never can. Fight points: `baseFightPoints` + the body's combat
+// mod (+ its fauna mod for the landing zone) + the hazard step, at least 1 (groundTasks.ts riskFightPointCount),
+// so the needs read 1 Security squad up to 3 fights and 2 from 4 (generatedTaskNeeds; Tiers I and II cap it at 1,
+// riskFactors.ts tierNeeds). The roll: one draw per kind on the body's risk stream, at the chance (per 1000) of
+// its driver grade None..Extreme [PROVISIONAL numbers], so the practice tiers (combat mostly None / Low) rarely
+// hold one and the dangerous tiers often do.
+export interface ClearingSiteRule {
+  driver: "combat" | "fauna";
+  permilleByGrade: readonly number[];
+  baseFightPoints: number;
+}
+export const CLEARING_SITE_RULES: Readonly<Record<ClearingSiteId, ClearingSiteRule>> = {
+  clearHostiles: { driver: "combat", permilleByGrade: [0, 0, 300, 600, 900], baseFightPoints: 3 },
+  secureLandingZone: { driver: "fauna", permilleByGrade: [0, 0, 200, 400, 700], baseFightPoints: 3 },
+};
+const CLEARING_ROLL_ORDER: readonly ClearingSiteId[] = ["clearHostiles", "secureLandingZone"];
+// A clearing task always holds at least this many fight points (it IS the fight).
+export const CLEARING_FIGHT_POINTS_MIN = 1;
+
+export function isClearingSiteId(id: string): id is ClearingSiteId {
+  return Object.prototype.hasOwnProperty.call(CLEARING_SITE_RULES, id);
+}
+
 // ===== Generation (RISK_SALT) =====
 
 // The risk roll's stream salt: odd, distinct from every engine salt (salts.test.ts checks it).
@@ -179,8 +207,9 @@ export function systemRiskGrades(seed: number, region: ExpeditionRegion): System
   };
 }
 
-// One body's grades (see the header). Draws, always all five in this order: the combat, fauna and flora jitters,
-// then the fortification and colony rolls. Pure.
+// One body's grades (see the header). Draws, always all seven in this order: the combat, fauna and flora jitters,
+// the fortification and colony rolls, then (Squads SQ-6 follow-up, appended so the first five are untouched) the
+// Clear the Hostiles and Secure the Landing Zone rolls. Pure.
 export function bodyRiskGrades(
   seed: number,
   region: ExpeditionRegion,
@@ -205,6 +234,12 @@ export function bodyRiskGrades(
     const hit = rng.chance(rule.permilleByCombat[combat] ?? 0, 1000);
     if (hit && out.site === undefined && region.tier >= rule.minTier) out.site = site;
   }
+  const clearing: ClearingSiteId[] = [];
+  for (const id of CLEARING_ROLL_ORDER) {
+    const rule = CLEARING_SITE_RULES[id];
+    if (rng.chance(rule.permilleByGrade[out[rule.driver]] ?? 0, 1000)) clearing.push(id);
+  }
+  if (clearing.length > 0) out.clearing = clearing;
   return out;
 }
 
@@ -239,8 +274,10 @@ export const SCIENCE_HEAVY_SITES: readonly string[] = ["ancientRuins", "buriedVa
 export const SCIENCE_HEAVY_MIN_TIER: RegionTier = 2;
 
 // A risk-aware task's generated needs. Pure; a fresh object.
+// A clearing task (CLEARING_SITE_RULES) needs Security only, at least one squad. Pure; a fresh object.
 export function generatedTaskNeeds(poiId: string, fightPoints: number, tier: number): GroundTaskNeeds {
   if (isHostileSiteId(poiId)) return { ...HOSTILE_SITE_RULES[poiId].needs };
+  if (isClearingSiteId(poiId)) return { security: fightPoints >= SECURITY_TWO_SQUADS_AT ? 2 : 1, science: 0 };
   const security = fightPoints <= 0 ? 0 : fightPoints >= SECURITY_TWO_SQUADS_AT ? 2 : 1;
   const science = SCIENCE_HEAVY_SITES.includes(poiId) && tier >= SCIENCE_HEAVY_MIN_TIER ? 2 : 1;
   return { security, science };

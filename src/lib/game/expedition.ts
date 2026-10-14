@@ -101,6 +101,7 @@ import {
   advanceGroundOpsWindow,
   cloneGroundOps,
   crewSquadsOf,
+  groundCrewClearOdds,
   groundCrewThreat,
   groundOpsBodyScanned,
   initGroundTasks,
@@ -121,29 +122,33 @@ import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } fr
 import {
   DIFFICULTY_NAMES,
   FLORA_BLOOM_WEIGHT_MULT,
+  difficultyWeight,
   bodyFloraGrade,
   expeditionRegion,
   generateRiskProfile,
   hostileSiteFieldable,
+  isClearingSiteId,
   isHostileSiteId,
   type ExpeditionRegion,
 } from "./riskFactors";
 import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
-import { blindLaunchCount, readSystem, telescopeReading } from "./telescope";
+import { TELESCOPE_DETAIL, blindLaunchCount, readSystem, telescopeLevel, telescopeReading } from "./telescope";
 // Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
 // engine action they offer (applyComposition, SQ-7's "Set composition").
 import {
   compositionChanges,
   gateLaunchView,
+  previewForHull,
   recommendLaunch,
   type CandidateTelescopeReading,
+  type LaunchView,
   type ForecastHardestTask,
   type LaunchForecast,
   type PreviewTask,
   type SystemTaskPreview,
 } from "./launchRecommendation";
-import { compositionLabel, compositionSquads, shipTeamKinds } from "./groundComposition";
+import { compositionLabel, compositionSquads, shipTeamKinds, validCompositions } from "./groundComposition";
 import { applyComposition } from "./groundTeams";
 import { groundSiteLabel } from "./expeditionContent";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
@@ -652,14 +657,9 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
     const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
-    // Squads SQ-6: the task demand, the recommendation and the forecast, each computed ONLY when the detail shows it.
-    const launch = ship
-      ? gateLaunchView(sys.detail, {
-          preview: () => systemTaskPreview(seed, snap.scanParams),
-          recommend: (preview) => recommendLaunch(preview, ship.typeKey, shipTeamKinds(ship)),
-          forecast: (_preview, rec) => (rec ? launchForecast(state, ship.id, seed, rec.kinds) : null),
-        })
-      : { demand: null, recommendation: null, forecast: null };
+    // Squads SQ-6: the task demand, the recommendation and the forecast, each computed ONLY when the detail shows it
+    // (gateLaunchView), memoized per candidate input (candidateLaunchView).
+    const launch = ship ? candidateLaunchView(state, ship, seed, sys.detail, snap.scanParams) : { demand: null, recommendation: null, forecast: null };
     const telescope: CandidateTelescopeReading = { ...sys, ...launch };
     out.push({
       id: `cand-${i}`,
@@ -715,26 +715,24 @@ export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams
   };
 }
 
-// One grade's slot (index 0 Simple .. 4 Deadly) for a stored difficulty. Pure.
-function gradeSlot(difficulty: number | undefined): number {
-  return Math.max(0, Math.min(DIFFICULTY_NAMES.length - 1, (difficulty ?? 1) - 1));
-}
+// The throwaway expedition id a simulated launch carries (SQ-6 review Minor 3): never the id the real dispatch
+// will mint, so no display memo or log can ever mistake a forecast run for the real one.
+export const FORECAST_EXPEDITION_ID = "expedition-forecast";
 
-// The FORECAST (design 6.3 Forecast) for launching `shipId` at candidate `seed` with composition `kinds` (the
-// recommendation's): the composition is set as "Set composition" would set it (groundTeams.ts applyComposition;
-// when it cannot be, e.g. the ship is out, the current composition is forecast), the run is BUILT exactly as
-// startExpedition would build it (the deploying teams, their roster, the risk), its bodies are scanned through
-// the run's own discovery, stamping and planning path, and the result is read: the tasks it would work per
-// difficulty grade, what it would leave unfinished, and the threat tier (groundThreat.ts, the display stream) of
-// the crew the plan would send on the hardest task with a fight. With no ground team ready the counts come from
-// the task preview and there is no threat read. Pure: everything is a throwaway; `state` is never touched.
-export function launchForecast(
-  state: GameState,
-  shipId: string,
-  seed: number,
-  kinds: readonly GroundTeamKind[],
-  region: ExpeditionRegion = expeditionRegion(seed),
-): LaunchForecast | null {
+// A SIMULATED LAUNCH (the forecast and the odds-aware recommendation): `shipId` launched at candidate `seed` with
+// composition `kinds`, set as "Set composition" would set it (groundTeams.ts applyComposition; when it cannot be,
+// e.g. the ship is out, the current composition is used and `used` says so), the run BUILT exactly as
+// startExpedition builds it (the deploying teams, their roster, the risk) under FORECAST_EXPEDITION_ID, and every
+// body scanned through the run's own discovery, stamping and planning path. `exp` is null when no ground team is
+// ready to launch. Pure: everything is a throwaway; `state` is never touched.
+export interface SimulatedLaunch {
+  used: GroundTeamKind[];
+  state: GameState;
+  ship: ShipInstance;
+  exp: Expedition | null;
+  placed: number; // hostile sites the risk roll placed that SOME valid composition of the hull fields
+}
+export function simulateLaunch(state: GameState, shipId: string, seed: number, kinds: readonly GroundTeamKind[], region: ExpeditionRegion): SimulatedLaunch | null {
   const before = state.ships.find((x) => x.id === shipId);
   if (!before) return null;
   let s = state;
@@ -747,13 +745,83 @@ export function launchForecast(
     }
   }
   const ship = s.ships.find((x) => x.id === shipId) as ShipInstance;
+  const gen = generateSystem(seed);
+  const risk = generateRiskProfile(seed, region, gen.bodies);
+  const fleets = validCompositions(ship.typeKey).map(compositionSquads);
+  const placed = risk.bodies.filter((b) => b.site !== undefined && fleets.some((sq) => hostileSiteFieldable(b.site!, sq))).length;
+  if (!expeditionAwayTeamCheck(s, ship).ok) return { used, state: s, ship, exp: null, placed };
+  const exp = buildExpedition(s, ship, ship.assignedCaptainId ?? 0, seed, true, s.nextExpeditionId, gen, risk, FORECAST_EXPEDITION_ID);
+  exp.bodies.forEach((body, i) => {
+    body.scanProgress = body.scanTotal;
+    body.scanned = true;
+    assignDiscoveriesAndActivities(exp, body, i);
+    groundOpsBodyScanned(exp, i, s.gameTimeSeconds);
+  });
+  return { used, state: s, ship, exp, placed };
+}
+
+// The odds-aware recommendation's reader (user, 2026-10-13: Strike's role "BOTH"): composition `kinds`' weighted
+// mean CLEAR RATE on the previewed fights, i.e. over every task of `preview` with a fight point that the
+// composition's squads cover, the fresh clear odds (groundThreat.ts, the display stream) of the crew the plan
+// sends (assignedTeamIds of the simulated launch), weighted by difficulty. A task the simulated launch cannot work
+// (skipped, or a hostile site its deployment does not field) counts as 0. Null when the composition cannot be set,
+// nobody is ready, or no covered task holds a fight. Pure.
+export function compositionFightOdds(
+  state: GameState,
+  shipId: string,
+  seed: number,
+  kinds: readonly GroundTeamKind[],
+  preview: SystemTaskPreview,
+  region: ExpeditionRegion = expeditionRegion(seed),
+  sim: SimulatedLaunch | null = simulateLaunch(state, shipId, seed, kinds, region),
+): number | null {
+  if (!sim || !sim.exp || compositionChanges(sim.used, kinds) > 0) return null;
+  const exp = sim.exp;
+  const squads = compositionSquads(kinds);
+  const used = new Set<ExpeditionActivity>();
+  let total = 0;
+  let sum = 0;
+  for (const t of preview.tasks) {
+    if (t.fightPoints <= 0 || t.needs.security > squads.security || t.needs.science > squads.science) continue;
+    const w = difficultyWeight(t.difficulty);
+    total += w;
+    const task = exp.bodies[t.bodyIndex]?.activities.find((a) => a.poiId === t.poiId && !used.has(a));
+    if (!task) continue;
+    used.add(task);
+    if (task.status === "skipped") continue;
+    const odds = groundCrewClearOdds(exp, task.assignedTeamIds ?? [], task.id);
+    if (odds) sum += w * (odds.wins / Math.max(1, odds.samples));
+  }
+  return total > 0 ? sum / total : null;
+}
+
+// One grade's slot (index 0 Simple .. 4 Deadly) for a stored difficulty. Pure.
+function gradeSlot(difficulty: number | undefined): number {
+  return Math.max(0, Math.min(DIFFICULTY_NAMES.length - 1, (difficulty ?? 1) - 1));
+}
+
+// The FORECAST (design 6.3 Forecast) of a simulated launch with composition `kinds` (the recommendation's): the
+// tasks it would work per difficulty grade, what it would leave unfinished, and the threat tier (groundThreat.ts,
+// the display stream) of the crew the plan would send on the hardest task with a fight. With no ground team ready
+// the counts come from the task preview and there is no threat read. Pure.
+export function launchForecast(
+  state: GameState,
+  shipId: string,
+  seed: number,
+  kinds: readonly GroundTeamKind[],
+  region: ExpeditionRegion = expeditionRegion(seed),
+  sim: SimulatedLaunch | null = simulateLaunch(state, shipId, seed, kinds, region),
+): LaunchForecast | null {
+  if (!sim) return null;
+  const { used, exp } = sim;
   const label = compositionLabel(used);
   const byDifficulty = DIFFICULTY_NAMES.map(() => 0);
-  if (!expeditionAwayTeamCheck(s, ship).ok) {
+  if (!exp) {
     const squads = compositionSquads(used);
     let tasks = 0;
     let unfinished = 0;
-    for (const t of systemTaskPreview(seed, shipSensorSnapshot(s, ship).scanParams, region).tasks) {
+    const preview = previewForHull(systemTaskPreview(seed, shipSensorSnapshot(sim.state, sim.ship).scanParams, region), sim.ship.typeKey);
+    for (const t of preview.tasks) {
       if (squads.security >= t.needs.security && squads.science >= t.needs.science) {
         tasks += 1;
         byDifficulty[gradeSlot(t.difficulty)] += 1;
@@ -761,16 +829,6 @@ export function launchForecast(
     }
     return { kinds: used, label, teamsDeployed: 0, tasks, byDifficulty, unfinished, hardest: null, threat: null, note: "No ground team is ready to launch" };
   }
-  const gen = generateSystem(seed);
-  const risk = generateRiskProfile(seed, region, gen.bodies);
-  const exp = buildExpedition(s, ship, ship.assignedCaptainId ?? 0, seed, true, s.nextExpeditionId, gen, risk);
-  exp.bodies.forEach((body, i) => {
-    body.scanProgress = body.scanTotal;
-    body.scanned = true;
-    assignDiscoveriesAndActivities(exp, body, i);
-    groundOpsBodyScanned(exp, i, s.gameTimeSeconds);
-  });
-  const placed = risk.bodies.filter((b) => b.site !== undefined).length;
   let revealed = 0;
   let tasks = 0;
   let skipped = 0;
@@ -811,11 +869,80 @@ export function launchForecast(
     teamsDeployed: exp.groundOps?.teams.length ?? 0,
     tasks,
     byDifficulty,
-    unfinished: skipped + Math.max(0, placed - revealed),
+    // A hostile site the hull could field but this deployment does not is left behind; one NO valid composition of
+    // the hull fields never exists for it (previewForHull), so it is not counted.
+    unfinished: skipped + Math.max(0, sim.placed - revealed),
     hardest,
     threat: chosen ? groundCrewThreat(exp, crew, chosen.task.id) : null,
     note: chosen ? null : "No fights expected",
   };
+}
+
+// ===== The candidate's launch view, memoized (SQ-6 review Minor 2) =====
+
+// The launch view (demand, recommendation, forecast) of one candidate for one ship at one detail. The forecast and
+// the odds simulate launches, so the view is MEMOIZED on everything it reads that the panel's state changes touch:
+// the candidate seed, the telescope level and the effective detail (the sensor band: the lift), the ship's scan
+// params, hull and slotting (its composition), the members aboard and the gear they wear or the ship carries,
+// which teams would deploy now, and the officer and museum values a fight reads. A tick that only moves time,
+// credits or another ship hits the memo. [PROVISIONAL] the key leaves out anything else a fight could read (e.g.
+// a captain's talents); a stale view is display only and refreshes on the next keyed change. Bounded (LRU).
+export const LAUNCH_VIEW_MEMO_SIZE = 32;
+const launchViewMemo = new Map<string, LaunchView>();
+
+function launchViewKey(state: GameState, ship: ShipInstance, seed: number, detail: number, scanParams: ExpeditionScanParams): string {
+  const aboard = state.awayMembers.filter((m) => m.assignedShipId === ship.id);
+  const ids = new Set(aboard.map((m) => m.id));
+  const gear = state.equipment.filter((e) => e.fittedToShipId === ship.id || (e.fittedToMemberId !== undefined && e.fittedToMemberId !== null && ids.has(e.fittedToMemberId)));
+  const deploys = expeditionAwayTeamCheck(state, ship).ground.teams.map((t) => t.deploys);
+  return JSON.stringify([
+    seed,
+    telescopeLevel(state),
+    detail,
+    scanParams,
+    ship,
+    aboard,
+    gear,
+    deploys,
+    officerBonusTotal(state, ship, "officer.crewLossPrevention"),
+    officerBonusTotal(state, ship, "officer.crewRetention"),
+    museumBonuses(state),
+  ]);
+}
+
+// The memo's size, for the tests. Pure read.
+export function launchViewMemoSize(): number {
+  return launchViewMemo.size;
+}
+
+function candidateLaunchView(state: GameState, ship: ShipInstance, seed: number, detail: number, scanParams: ExpeditionScanParams): LaunchView {
+  if (!(detail >= TELESCOPE_DETAIL.perBody)) return { demand: null, recommendation: null, forecast: null };
+  const key = launchViewKey(state, ship, seed, detail, scanParams);
+  const hit = launchViewMemo.get(key);
+  if (hit) {
+    launchViewMemo.delete(key);
+    launchViewMemo.set(key, hit);
+    return hit;
+  }
+  const region = expeditionRegion(seed);
+  const sims = new Map<string, SimulatedLaunch | null>();
+  const simOf = (kinds: readonly GroundTeamKind[]): SimulatedLaunch | null => {
+    const k = [...kinds].sort().join("+");
+    if (!sims.has(k)) sims.set(k, simulateLaunch(state, ship.id, seed, kinds, region));
+    return sims.get(k) ?? null;
+  };
+  const view = gateLaunchView(detail, {
+    preview: () => previewForHull(systemTaskPreview(seed, scanParams, region), ship.typeKey),
+    recommend: (preview) =>
+      recommendLaunch(preview, ship.typeKey, shipTeamKinds(ship), (kinds) => compositionFightOdds(state, ship.id, seed, kinds, preview, region, simOf(kinds))),
+    forecast: (_preview, rec) => (rec ? launchForecast(state, ship.id, seed, rec.kinds, region, simOf(rec.kinds)) : null),
+  });
+  if (launchViewMemo.size >= LAUNCH_VIEW_MEMO_SIZE) {
+    const oldest = launchViewMemo.keys().next().value;
+    if (oldest !== undefined) launchViewMemo.delete(oldest);
+  }
+  launchViewMemo.set(key, view);
+  return view;
 }
 
 // Squads SQ-4: a candidate's RISK PROFILE (riskFactors.ts): the region its seed lies in (expeditionRegion, Tier I
@@ -891,9 +1018,10 @@ function buildExpedition(
   number: number,
   gen: { systemId: string; systemName: string; bodies: ExpeditionBody[] },
   risk: { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] },
+  idOverride?: string,
 ): Expedition {
   const shipId = ship.id;
-  const id = `expedition-${number}`;
+  const id = idOverride ?? `expedition-${number}`;
   const snap = shipSensorSnapshot(state, ship);
   // E3a: snapshot the away team's crew-derived strength + team kit, so the expedition's ground battles
   // resolve as a pure function of the stored expedition (parity, matching the sensor snapshot). D19: the
@@ -1180,6 +1308,12 @@ function assignDiscoveriesAndActivities(
   const site = body.risk?.site;
   if (site !== undefined && deployed !== null && hostileSiteFieldable(site, deployed)) {
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: site });
+  }
+  // Squads SQ-6 follow-up: the body's CLEARING TASKS (Security-only work its risk roll placed) join last, always
+  // (their needs follow tierNeeds; a Tier III+ one the deployed squads cannot cover is skipped at planning). A run
+  // dispatched before the follow-up has no `clearing` on its bodies, so it draws exactly as before.
+  for (const id of body.risk?.clearing ?? []) {
+    if (isClearingSiteId(id)) discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: id });
   }
   body.discoveries = discoveries;
   body.activities = discoveries.map((d, k) => ({

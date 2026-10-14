@@ -1514,6 +1514,10 @@ const POI_ENCOUNTER_ROLES: Record<string, EnemyRole[]> = {
   // a colony's defenders, and a fortification's garrison with its medic and caster behind the line.
   enemyColony: ["striker", "striker", "bruiser", "healer"],
   enemyFortification: ["bruiser", "bruiser", "striker", "striker", "caster", "healer"],
+  // Squads SQ-6 follow-up clearing tasks (riskFactors.ts CLEARING_SITE_RULES) [PROPOSAL guards]: an armed band, and
+  // the predators around the landing zone.
+  clearHostiles: ["striker", "striker", "bruiser"],
+  secureLandingZone: ["swarm", "swarm", "bruiser"],
 };
 const DEFAULT_ENCOUNTER_ROLES: EnemyRole[] = ["striker", "bruiser"];
 

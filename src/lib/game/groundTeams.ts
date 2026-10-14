@@ -662,7 +662,9 @@ export function setGroundTeamKind(state: GameState, shipId: string, teamIndex: n
 // kinds, the plan picks the FEWEST squads changed, then the fewest members moved (to and from the reserve), then
 // the one that leaves the EARLIER teams as they are (ties: the later team changes, so Alpha stays put). Its changes
 // run in team order, or in the other order when the one-of-each rule refuses a middle step. A team whose kind
-// already matches is never written (a pending team keeps its "Pick a type" prompt).
+// already matches moves nobody; if its "Pick a type" prompt is open (kindPending), setting the composition
+// confirms it (coordinator call, 2026-10-13), so a composition the ship already fields is a sameKind refusal only
+// when no prompt is open.
 
 export interface CompositionChange {
   teamIndex: number;
@@ -710,7 +712,15 @@ function compositionRun(
   let best: { changes: CompositionChange[]; next: GameState; squads: number; moved: number; changed: boolean[] } | null = null;
   for (const target of orderings(kinds)) {
     const indices = target.map((_, i) => i).filter((i) => target[i] !== current[i]);
-    if (indices.length === 0) return { gate: refuse("sameKind") };
+    if (indices.length === 0) {
+      // The ship already fields it. Coordinator call (2026-10-13): setting it still CONFIRMS any team whose
+      // "Pick a type" prompt is open (kindPending: the SQ-2 confirm, which moves nobody); else nothing to do.
+      const pending = teams.map((t, i) => (t.kindPending === true ? i : -1)).filter((i) => i >= 0);
+      if (pending.length === 0) return { gate: refuse("sameKind") };
+      let st = state;
+      for (const i of pending) st = setGroundTeamKind(st, shipId, i, current[i]);
+      return { changes: pending.map((i) => ({ teamIndex: i, from: current[i], to: current[i], toReserve: [], fromReserve: [] })), next: st };
+    }
     let run: { changes: CompositionChange[]; next: GameState } | null = null;
     for (const order of orderings(indices)) {
       let st = state;
@@ -737,7 +747,15 @@ function compositionRun(
     if (ahead) best = { ...run, squads, moved, changed };
   }
   if (!best) return { gate: refuse("needsBothTypes") };
-  return { changes: best.changes, next: best.next };
+  // A team the plan keeps whose "Pick a type" prompt is open is confirmed too (coordinator call, 2026-10-13).
+  let next = best.next;
+  const changes = [...best.changes];
+  best.changed.forEach((changedTeam, i) => {
+    if (changedTeam || teams[i].kindPending !== true) return;
+    next = setGroundTeamKind(next, shipId, i, current[i]);
+    changes.push({ teamIndex: i, from: current[i], to: current[i], toReserve: [], fromReserve: [] });
+  });
+  return { changes, next };
 }
 
 // Does `a` leave an earlier team unchanged where `b` changes it (compared from Alpha on)? Pure.

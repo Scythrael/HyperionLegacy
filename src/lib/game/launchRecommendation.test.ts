@@ -10,6 +10,7 @@ import type { BodyRiskGrades, GroundTaskNeeds, GroundTeamKind, RegionTier } from
 import {
   compositionChanges,
   gateLaunchView,
+  previewForHull,
   rankCompositions,
   recommendLaunch,
   scoreComposition,
@@ -230,5 +231,45 @@ describe("the detail gate (design 6.3): nothing is computed or shown below its l
     expect(calls.forecast).toBe(0);
     view(5);
     expect(calls.forecast).toBe(1);
+  });
+});
+
+describe("the odds step (user, 2026-10-13: Strike's role, BOTH): after coverage, the better fight-odds band wins", () => {
+  // MIXED_T2 keeps Ground + Ground on the balance; fight odds put Strike + Ground a band ahead.
+  const odds = (table: Record<string, number | null>) => (kinds: readonly GroundTeamKind[]) => table[[...kinds].sort().join("+")] ?? null;
+
+  it("a better odds band beats solo share and balance, and says so", () => {
+    const oddsOf = odds({ "ground+ground": 0.62, "ground+strike": 0.86, "ground+survey": 0.4, "strike+survey": 0.86 });
+    const rec = recommendLaunch(MIXED_T2, "generalFreighter", GG, oddsOf)!;
+    expect(rec.kinds).toEqual(SG); // Strike + Survey ties the band but loses on solo share
+    expect(rec.reason).toBe("Better odds in the fights: Likely Victory for Strike + Ground, A Worthy Adversary for your Ground + Ground.");
+    const sg = rec.ranked.find((r) => r.label === "Strike + Ground")!;
+    expect(sg).toMatchObject({ fightOdds: 0.86, oddsTier: "likely", oddsName: "Likely Victory" });
+  });
+
+  it("odds in the same band, or both at Likely Victory or better (the fights are not hard), fall through; coverage still comes first", () => {
+    const same = odds({ "ground+ground": 0.81, "ground+strike": 0.95, "ground+survey": 0.82, "strike+survey": 0.9 });
+    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, same)!.kinds).toEqual(GG);
+    // From Survey + Ground the Tier IV system's coverage decides before any odds.
+    const vgBest = odds({ "ground+ground": 0.2, "ground+strike": 0.2, "ground+survey": 1, "strike+survey": 0.2 });
+    expect(recommendLaunch(ENEMY_T4, "generalFreighter", VG, vgBest)!.label).not.toBe("Survey + Ground");
+  });
+
+  it("unknown odds (null) skip the step", () => {
+    const partial = odds({ "ground+ground": null, "ground+strike": 1, "ground+survey": 1, "strike+survey": 1 });
+    expect(recommendLaunch(MIXED_T2, "generalFreighter", GG, partial)!.kinds).toEqual(GG);
+  });
+});
+
+describe("previewForHull (SQ-6 review Minor 1): a site no valid composition fields never appears in the hull's runs", () => {
+  it("drops a fortification on a 4-squad hull and keeps a colony and every other task", () => {
+    const p = preview(6, [body(4), body(4)], [
+      task(0, "enemyFortification", { security: 4, science: 0 }, 5, 5),
+      task(1, "enemyColony", { security: 2, science: 1 }, 4, 4),
+      task(1, "clearHostiles", { security: 2, science: 0 }, 4, 4),
+    ]);
+    expect(previewForHull(p, "generalFreighter").tasks.map((t) => t.poiId)).toEqual(["enemyColony", "clearHostiles"]);
+    expect(taskDemand(previewForHull(p, "generalFreighter")).twoSecurityTasks).toBe(2);
+    expect(recommendLaunch(previewForHull(p, "generalFreighter"), "generalFreighter", GG)!.stillUnfinished).toEqual([]);
   });
 });
