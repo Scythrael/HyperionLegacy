@@ -13,6 +13,7 @@ import {
   freshState,
   type AwayMember,
   type BodyRiskGrades,
+  type EquipmentInstance,
   type ExpeditionRiskProfile,
   type GameState,
   type RegionTier,
@@ -34,6 +35,7 @@ import {
   TELESCOPE_DETAIL_NAMES,
   TELESCOPE_DEVELOPMENT_CYCLES,
   TELESCOPE_SHIP_LIFT_SENSORS,
+  blindLaunchCount,
   gateRiskView,
   rangeLyForReach,
   readSystem,
@@ -212,17 +214,25 @@ describe("the reading: range in light-years from the homeworld, and detail", () 
     expect([1, 2, 3, 4, 5, 6, 7].map((t) => regionTierNumeral(t as RegionTier))).toEqual(["I", "II", "III", "IV", "V", "VI", "VII"]);
   });
 
-  it("a system's distance is deterministic and lies inside its region's band", () => {
+  it("a system's distance is deterministic and lies inside its region's band, never ON its near edge (SQ-5 review Minor 1)", () => {
     for (let tier = 1 as RegionTier; tier <= 7; tier = (tier + 1) as RegionTier) {
       const band = PROVISIONAL_HOMEWORLD.regionBandsLy[tier];
       for (let seed = 1; seed < 400; seed += 7) {
         const d = systemDistanceLy(seed * 2654435761, tier);
         expect(Number.isInteger(d)).toBe(true);
-        expect(d).toBeGreaterThanOrEqual(band.near);
+        // The near edge is the previous region's far edge (its telescope range): a system there would read in range
+        // one region early.
+        expect(d).toBeGreaterThan(band.near);
         expect(d).toBeLessThanOrEqual(band.far);
         expect(systemDistanceLy(seed * 2654435761, tier)).toBe(d);
       }
     }
+  });
+
+  it("the near edge can never be drawn: a tiny band reads its far edge, and over many seeds no Tier II system sits at 150 ly", () => {
+    const tight = { ...PROVISIONAL_HOMEWORLD, regionBandsLy: { ...PROVISIONAL_HOMEWORLD.regionBandsLy, 2: { near: 150, far: 151 } } };
+    for (let seed = 0; seed < 50; seed++) expect(systemDistanceLy(seed, 2, tight)).toBe(151);
+    for (let seed = 0; seed < 4000; seed++) expect(systemDistanceLy(seed, 2)).toBeGreaterThan(rangeLyForReach(1));
   });
 
   it("in range by distance agrees with in range by region (nearer regions first)", () => {
@@ -344,7 +354,13 @@ describe("the candidate carries the telescope reading", () => {
       expect(c.telescope.blind).toBe(false);
       expect(c.telescope.regionTier).toBe(1);
       expect(c.telescope.detail).toBe(2);
-      expect(c.telescope).toEqual(readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed)));
+      // SQ-6: the reading plus the task-based pieces, none of which Graded shows.
+      expect(c.telescope).toEqual({
+        ...readSystem(telescopeReading(s), c.seed, 0, expeditionRiskPreview(c.seed)),
+        demand: null,
+        recommendation: null,
+        forecast: null,
+      });
     }
   });
 
@@ -360,9 +376,11 @@ describe("the candidate carries the telescope reading", () => {
   });
 
   it("a run resolves IDENTICALLY at every telescope level (it only changes what is shown)", () => {
+    // The display-only state (the telescope's level and, SQ-6, the blind launch counter) comes off first.
     const strip = (state: GameState): unknown => {
       const copy = structuredClone(state) as GameState;
       delete copy.facilities[SUBSPACE_TELESCOPE_FACILITY_KEY];
+      delete copy.blindLaunches;
       return JSON.parse(JSON.stringify(copy));
     };
     const CHECKPOINTS = [T0 + 10_000, T0 + 30_000, T0 + 60_000, T0 + 120_000, T0 + 400_000];
@@ -374,6 +392,7 @@ describe("the candidate carries the telescope reading", () => {
       expect(cand.telescope.blind).toBe(level === 0);
       const res = startExpedition(s, "ship-1", 1, cand.id);
       expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
+      expect(blindLaunchCount(res.next), `blind launch counted at level ${level}`).toBe(level === 0 ? 1 : 0);
       const now: string[] = [JSON.stringify(strip(res.next))];
       for (const t of CHECKPOINTS) {
         const exp = advanceExpedition(res.expedition!, t);
@@ -390,5 +409,58 @@ describe("the candidate carries the telescope reading", () => {
       else expect(now, `telescope level ${level}`).toEqual(reference);
     }
     expect(claimed, "the run completes and is claimed at every level").toBeGreaterThanOrEqual(9);
+  });
+});
+
+// The ship's lift end to end (SQ-5 review Minor 2): a ship with sensors 40+ reads one detail higher, and the run it
+// launches is the same at every telescope level. The lifted reading reaches Recommendation and Forecast, so this
+// also proves SQ-6's previews (the task preview, the recommendation, the forecast's throwaway run) change nothing.
+describe("the ship's lift changes only what is shown", () => {
+  function withSensors(state: GameState, sensors: number): GameState {
+    const piece: EquipmentInstance = {
+      id: "equip-sensor-lift",
+      slotType: "sensor",
+      rarity: "standard",
+      ascension: "none",
+      quality: 0,
+      iLevel: 1,
+      blueprintKey: null,
+      implicitStats: { sensors },
+      rolledStats: {},
+      mass: 0,
+      powerDraw: 0,
+      durabilityMax: 100,
+      durability: 100,
+      fittedToShipId: "ship-1",
+      moduleVariant: "sensorBalanced",
+    };
+    return { ...state, equipment: [...state.equipment, piece] };
+  }
+
+  it("with sensors 40+ the run is identical at every level, lifted or not, Recommendation and Forecast included", () => {
+    const strip = (state: GameState): unknown => {
+      const copy = structuredClone(state) as GameState;
+      delete copy.facilities[SUBSPACE_TELESCOPE_FACILITY_KEY];
+      delete copy.blindLaunches;
+      return JSON.parse(JSON.stringify(copy));
+    };
+    const CHECKPOINTS = [T0 + 30_000, T0 + 120_000, T0 + 400_000];
+    let reference: string[] | null = null;
+    const seen: number[] = [];
+    for (const level of [0, 1, 3, 5, 7, 8]) {
+      const s = atLevel(level, withSensors(crewedState(), TELESCOPE_SHIP_LIFT_SENSORS + 10));
+      const cand = expeditionCandidates(s, "ship-1")[0];
+      expect(cand.telescope.shipLift, `level ${level}`).toBe(level >= 1 && level < 7);
+      seen.push(cand.telescope.detail);
+      if (cand.telescope.detail >= TELESCOPE_DETAIL.recommendation) expect(cand.telescope.recommendation).not.toBeNull();
+      if (cand.telescope.detail >= TELESCOPE_DETAIL.forecast) expect(cand.telescope.forecast).not.toBeNull();
+      const res = startExpedition(s, "ship-1", 1, cand.id);
+      expect(res.success, `dispatch at level ${level}: ${res.reason}`).toBe(true);
+      const now: string[] = [JSON.stringify(strip(res.next))];
+      for (const t of CHECKPOINTS) now.push(JSON.stringify(advanceExpedition(res.expedition!, t)));
+      if (reference === null) reference = now;
+      else expect(now, `telescope level ${level}`).toEqual(reference);
+    }
+    expect(seen).toEqual([0, 3, 4, 5, 5, 5]); // blind, then Graded + 1, Per body + 1, Recommendation + 1, Forecast
   });
 });

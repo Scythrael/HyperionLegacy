@@ -7712,6 +7712,12 @@ export interface GameState {
   // the SAME pattern seniorStaffSeed / inspectSeed use. freshState seeds EXPEDITION_DEFAULT_SEED; the
   // v58->v59 migration backfills the identical default. A plain number, so hydrateDecimals is unchanged.
   expeditionSeed: number;
+  // Squads SQ-6 (user, SQ-5 call (b), 2026-10-13: start counting blind launches now): how many expeditions were
+  // dispatched BLIND (beyond the Subspace Telescope's range), so the future "go in blind" achievement can award
+  // retroactively. OPTIONAL: absent reads 0 (telescope.ts blindLaunchCount) and startExpedition writes it only on
+  // a blind dispatch, so a save that never launched blind carries no key. A plain number: no SAVE bump, and
+  // hydrateDecimals carries it through its `...state` spread. Nothing on the tick reads it.
+  blindLaunches?: number;
   // --- Exploration 0.14.0 (Phase E3a): the away-team GAMBIT program pair --------------------------------
   // The player's ACCOUNT-LEVEL Security + Science gambit programs (the EDITABLE source; the E3b UI writes
   // these). D19 (user, 2026-10-06): NO battle reads this pair any more (members run their own program, else

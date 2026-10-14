@@ -652,6 +652,115 @@ export function setGroundTeamKind(state: GameState, shipId: string, teamIndex: n
 }
 
 // ============================================================================
+// Squads SQ-6: set a whole COMPOSITION at once (the launch recommendation's "Set composition", design 6.5 step 5;
+// SQ-7's button calls applyComposition). Built ONLY from setGroundTeamKind, so every SQ-2 rule holds: the crew lock,
+// one of each type at every step, kept members in place, dropped squads to the reserve, the new squad filled from
+// the reserve, kindPending cleared on a changed team.
+// ============================================================================
+//
+// `kinds` is a composition (a multiset: team order never matters). Of every way to give the ship's teams those
+// kinds, the plan picks the FEWEST squads changed, then the fewest members moved (to and from the reserve), then
+// the one that leaves the EARLIER teams as they are (ties: the later team changes, so Alpha stays put). Its changes
+// run in team order, or in the other order when the one-of-each rule refuses a middle step. A team whose kind
+// already matches is never written (a pending team keeps its "Pick a type" prompt).
+
+export interface CompositionChange {
+  teamIndex: number;
+  from: GroundTeamKind;
+  to: GroundTeamKind;
+  toReserve: string[]; // members this change drops to the reserve (slot order)
+  fromReserve: string[]; // reserve members it slots (hire order)
+}
+
+export type CompositionPlan = { ok: true; changes: CompositionChange[] } | { ok: false; reason: GroundSlotBlockReason };
+
+// Every distinct ordering of a short list (team counts are 2 today). Pure.
+function orderings<T>(list: readonly T[]): T[][] {
+  if (list.length <= 1) return [[...list]];
+  const out: T[][] = [];
+  const seen = new Set<string>();
+  list.forEach((item, i) => {
+    for (const rest of orderings([...list.slice(0, i), ...list.slice(i + 1)])) {
+      const p = [item, ...rest];
+      const key = JSON.stringify(p);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(p);
+      }
+    }
+  });
+  return out;
+}
+
+// The plan (see above) and the state it lands on, or the refusal. Checked in order: noShip, onMission, noSuchTeam
+// (a kind list of the wrong length), noSuchKind, needsBothTypes (not a valid composition), sameKind (the ship
+// already fields it). Pure.
+function compositionRun(
+  state: GameState,
+  shipId: string,
+  kinds: readonly GroundTeamKind[],
+): { gate: GroundSlotGate } | { changes: CompositionChange[]; next: GameState } {
+  const s = shipGate(state, shipId);
+  if ("gate" in s) return { gate: s.gate };
+  const teams = writableTeams(state, s.ship);
+  if (!Array.isArray(kinds) || kinds.length !== teams.length) return { gate: refuse("noSuchTeam") };
+  if (!kinds.every(isGroundTeamKind)) return { gate: refuse("noSuchKind") };
+  if (!isValidComposition(kinds)) return { gate: refuse("needsBothTypes") };
+  const current = teams.map((t) => t.kind);
+  let best: { changes: CompositionChange[]; next: GameState; squads: number; moved: number; changed: boolean[] } | null = null;
+  for (const target of orderings(kinds)) {
+    const indices = target.map((_, i) => i).filter((i) => target[i] !== current[i]);
+    if (indices.length === 0) return { gate: refuse("sameKind") };
+    let run: { changes: CompositionChange[]; next: GameState } | null = null;
+    for (const order of orderings(indices)) {
+      let st = state;
+      const changes: CompositionChange[] = [];
+      for (const i of order) {
+        const preview = previewGroundTeamKind(st, shipId, i, target[i]);
+        if (!preview.ok) break;
+        changes.push({ teamIndex: i, from: current[i], to: target[i], toReserve: preview.toReserve, fromReserve: preview.fromReserve });
+        st = setGroundTeamKind(st, shipId, i, target[i]);
+      }
+      if (changes.length === order.length) {
+        run = { changes, next: st };
+        break;
+      }
+    }
+    if (!run) continue;
+    const squads = indices.reduce((n, i) => n + Math.abs(squadsOfType(target[i], "security") - squadsOfType(current[i], "security")), 0);
+    const moved = run.changes.reduce((n, c) => n + c.toReserve.length + c.fromReserve.length, 0);
+    const changed = target.map((k, i) => k !== current[i]);
+    const ahead =
+      best === null ||
+      squads < best.squads ||
+      (squads === best.squads && (moved < best.moved || (moved === best.moved && earlierTeamsKept(changed, best.changed))));
+    if (ahead) best = { ...run, squads, moved, changed };
+  }
+  if (!best) return { gate: refuse("needsBothTypes") };
+  return { changes: best.changes, next: best.next };
+}
+
+// Does `a` leave an earlier team unchanged where `b` changes it (compared from Alpha on)? Pure.
+function earlierTeamsKept(a: readonly boolean[], b: readonly boolean[]): boolean {
+  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return !a[i];
+  return false;
+}
+
+// Which teams setting composition `kinds` would change, and who moves (the UI's confirm). Pure.
+export function planComposition(state: GameState, shipId: string, kinds: readonly GroundTeamKind[]): CompositionPlan {
+  const run = compositionRun(state, shipId, kinds);
+  if ("gate" in run) return run.gate.ok ? { ok: true, changes: [] } : run.gate;
+  return { ok: true, changes: run.changes };
+}
+
+// Set composition `kinds` on `shipId` (see above). Refuses (SAME state) whenever planComposition does. Never
+// changes an awayMembers record. Pure.
+export function applyComposition(state: GameState, shipId: string, kinds: readonly GroundTeamKind[]): GameState {
+  const run = compositionRun(state, shipId, kinds);
+  return "gate" in run ? state : run.next;
+}
+
+// ============================================================================
 // The deployable reader (GO-2; GO-7b switches dispatch to it). NO AUTOMATIC STAND-INS (user, 2026-10-12):
 // a ground team with any slotted member who is not ready does not deploy, and the dispatch attempt shows
 // what it is waiting on with the time remaining. The player swaps members by hand.

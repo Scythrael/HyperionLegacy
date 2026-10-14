@@ -1062,3 +1062,111 @@ tasks (SQ-4 follow-up)`):**
 - **SQ-5 calls (user, 2026-10-13):** (a) FULLY BLIND: beyond the telescope's range the ship's own sensor layers stay dark
   too until the ship arrives (as built); (b) START COUNTING blind launches now (a small saved counter) so the future
   "go in blind" achievement can award retroactively.
+
+**Carry from SQ-6 (built 2026-10-13, commit `feat(0.14.0): launch recommendation, forecast, blind launch counter (SQ-6)`):**
+- **The task preview (expedition.ts `systemTaskPreview(seed, scanParams, region?)`).** Every task a candidate system
+  holds, built on the run's OWN path: a throwaway run (`previewRun`: the committed seed, the ship's scan params, every
+  body's risk grades and the run's risk profile), the run's discovery roll (`assignDiscoveriesAndActivities`, which
+  now takes the hostile-site squads as a parameter, default = the run's deployed teams, so a run is unchanged) and
+  the run's stamping (`groundOps.ts initGroundTasks`: fight points, needs under `tierNeeds`, difficulty). Every
+  hostile site the risk roll placed is listed (`hostile: true`); the run reveals one only when the deployed squads
+  field it. Proven equal to the dispatched run's stamped tasks over 16 Tier I systems and 24 forced Tier IV enemy
+  territory systems (hostile sites filtered by `hostileSiteFieldable` for the deployed squads). `region` is a
+  parameter so tests (and G2 later) can read other tiers; the candidate uses `expeditionRegion(seed)`.
+- **Gating (launchRecommendation.ts `gateLaunchView`).** `ExpeditionCandidate.telescope` is now
+  `CandidateTelescopeReading` = the SQ-5 reading plus `demand` (Per body, 3), `recommendation` (Recommendation, 4)
+  and `forecast` (Forecast, 5), each null below its level. The sources are thunks called ONLY at the levels that
+  show them, so a lower detail never computes (and cannot carry) a higher level's piece (tested with call
+  counters, and per level on real candidates; a blind candidate carries none). The raw task list never rides the
+  candidate: the UI gets the counts, the recommendation and the forecast only. A comment on `ExpeditionCandidate`
+  says the UI must read `candidate.telescope` and never re-derive from `seed` (SQ-5 review Minor 2).
+- **Task demand (detail 3).** `taskDemand(preview)` = `{ bodies, securityBodies, tasks, noSecurityTasks,
+  twoSecurityTasks, twoScienceTasks, maxSecurity, maxScience }`; `taskDemandText` reads "Security work on 3 of 5
+  bodies; 2 tasks need 2 Science squads" ("No Security work expected on 1 body"; "2 or more" when a task needs more
+  than 2). At Tiers I and II the stamped needs never exceed one squad a type, so the 2-squad clauses first appear at
+  Tier III.
+- **The recommendation (detail 4, design 6.5).** `recommendLaunch(preview, typeKey, currentKinds)` ranks
+  `validCompositions` by (1) COVERAGE, the difficulty-weighted share of tasks the composition's squads summed cover;
+  (2) SOLO SHARE, the weighted share one team covers alone; (3) BALANCE, |composition Security share - system
+  Security demand| (demand = weighted Security squads / weighted squads required; with no tasks the balance favors
+  nothing); (4) the fewest squads changed from the current composition (`compositionChanges`, over every team
+  matching); (5) Ground + Ground; comparisons at 1e-9. Output: `kinds` (validCompositions order), `label`,
+  `current` / `currentLabel`, `isCurrent`, `headline` ("Launch with Strike + Ground" / "Your Ground + Ground suits
+  this system."), `reason` (one line: the first criterion that separates the pick from the current composition:
+  "Covers 3 tasks your Survey + Ground would leave unfinished." / "One team can take 4 of 4 tasks alone (your Strike
+  + Survey: 1)." / the demand line "Enemy territory on 2 of 3 bodies; 3 tasks need 2 Security squads.", "Mostly
+  survey work: 6 of 11 tasks need no Security squad.", "Security and survey work in even measure on 2 bodies."),
+  `unfinished` + `unfinishedText` (what the CURRENT composition would leave: "Survey + Ground would leave 3 tasks
+  unfinished: Derelict Outpost needs 2 Security squads; ...", at most 3 named then "and N more"; only possible from
+  Tier III), `stillUnfinished` + `stillUnfinishedText` ("Nothing on this hull covers every task: Enemy Fortification
+  needs 4 Security squads. It will be left unfinished.") and `ranked` (every composition's scores). The design's
+  three worked examples are pinned on hand-built previews. All wording [PROPOSAL]; the lean threshold
+  `DEMAND_LEAN` 0.05 and `ENEMY_TERRITORY_GRADE` 3 (combat High, whose flavor line is "Enemy territory") are
+  [PROVISIONAL].
+- **"Set composition" (groundTeams.ts `planComposition` / `applyComposition(state, shipId, kinds)`).** Built only from
+  `setGroundTeamKind`, so every SQ-2 rule holds (crew lock, one of each at every step, kept members in place, the
+  reserve). `kinds` is a multiset: of every way to give the teams those kinds it takes the fewest squads changed,
+  then the fewest members moved (to and from the reserve), then the one that leaves the earlier teams as they are
+  (ties: the later team changes, Alpha stays put); changes run in team order, or the other order when a middle step
+  would break one of each. Refusals return the SAME state with the SQ-2 reasons: noShip, onMission, noSuchTeam (wrong
+  team count), noSuchKind, needsBothTypes (not a valid composition), sameKind (already fielded). A team whose kind
+  already matches is never written (a pending team keeps its "Pick a type" prompt). `planComposition` returns the
+  changes with who moves (SQ-7's confirm). Applying a recommendation makes it `isCurrent` on the next read (tested).
+- **The forecast (detail 5, `launchForecast(state, shipId, seed, kinds, region?)`).** For the recommended composition:
+  set it as `applyComposition` would (when it cannot be set, the current composition is forecast), BUILD the run
+  exactly as `startExpedition` builds it (the dispatch body is now `buildExpedition`, shared), scan every body
+  through the run's own path (discoveries, `groundOpsBodyScanned`: stamp and plan), then read `{ kinds, label,
+  teamsDeployed, tasks, byDifficulty (Simple..Deadly), unfinished (skipped + hostile sites it cannot field),
+  hardest (the hardest task with a fight: highest grade, then most fights; its crew = the plan's assignedTeamIds),
+  threat (the GO-6 tier of that crew, fresh, on the threat stream: new groundOps.ts `groundCrewThreat`), note }`.
+  `forecastTasksText` reads "11 tasks: 2 Simple, 6 Standard, 3 Challenging". With no ground team ready it counts the
+  preview's tasks the composition covers, with no threat ("No ground team is ready to launch"); no fight anywhere
+  reads "No fights expected". Tested against a real dispatch over 10 systems (counts, grades, the hardest task's
+  crew), deterministic, and never touching `state`. COST: about 10 ms per candidate (a snapshot plus the plan's
+  threat reads, memoized by groundThreat); ExpeditionPanel recomputes candidates on every state change, so SQ-7
+  should derive the forecast less often (only Level 7+ telescopes, or Level 5+ with the lift, ever pay it).
+- **Blind launch counter (user, SQ-5 call (b)).** `GameState.blindLaunches?: number` (optional, absent = 0; no SAVE
+  bump: a plain number riding the `...state` spread), read by `telescope.ts blindLaunchCount` (anything but a whole
+  number above 0 reads 0). `startExpedition` adds 1 when the committed candidate reads blind (the same `readSystem`
+  on the ship's sensors), and writes no key otherwise. Tested: counts 1, then 2; an in-range launch and a refusal
+  leave it; corrupt values read 0; it survives serialize, deserialize and migrate.
+- **SQ-5 review minors.** (1) `systemDistanceLy` draws from (near, far] (`near + 1`), so a system can never sit on
+  its band's near edge (the previous region's range) and read in range one region early (a 1 ly band reads its far
+  edge; 4,000 Tier II seeds all beyond 150 ly). Display only: candidate distances shift by at most one draw step.
+  (2) The identity test gained a sensors-50 sweep (levels 0, 1, 3, 5, 7, 8: detail 0, 3, 4, 5, 5, 5, the lift at
+  1 to 5), so the lift branch, the recommendation and the forecast all run before dispatch, and the run is identical
+  at every level. Both identity tests strip `blindLaunches` (display data) and pin the counter at level 0.
+- **Also fixed (display only).** `previewRelicSets` (the sensor 65 relic signature) built its throwaway run WITHOUT
+  the bodies' risk grades, so a High or Extreme flora body (the Bloom's pool lift) could preview other discoveries
+  than the run draws. It now shares `previewRun` with the task preview (risk grades on), so the signature cannot lie.
+- **Dispatch refactor (behavior identical).** `startExpedition` no longer builds `expeditionCandidates` to find the
+  chosen seed (that would now run every forecast): `candidateSeed` maps the same `cand-<i>` ids to the same seeds.
+  The expedition record is built by `buildExpedition` (startExpedition and the forecast share it). Legacy, pre-SQ-4,
+  risk goldens and every parity test unchanged.
+- **Observed (for the user, examples on real seeds, current Ground + Ground):** calm Tier I seed 1489884572 (two
+  bodies, combat None, 6 of 11 tasks with no fight): "Launch with Survey + Ground", "Mostly survey work: 6 of 11 tasks
+  need no Security squad."; forecast "11 tasks: 2 Simple, 6 Standard, 3 Challenging", hardest Geothermal Chamber,
+  crew Alpha (Ground), A Worthy Adversary. Mixed Tier II seed 3318124518: "Your Ground + Ground suits this system."
+  Forced Tier IV enemy territory seed 944944244 (one combat Extreme body with an Enemy Colony, four { 2, 1 } tasks):
+  "Launch with Strike + Ground", "Enemy territory on 1 of 1 body; 4 tasks need 2 Security squads."; from Survey +
+  Ground: "Covers 4 tasks your Survey + Ground would leave unfinished."; forecast "4 tasks: 4 Deadly", crew Alpha +
+  Bravo, Guaranteed Victory. Over 400 systems: Tier I picks Ground + Ground 322 / Survey + Ground 78; Tier II 354 /
+  46; Tier IV enemy territory Ground + Ground 342, Strike + Ground 29, Survey + Ground 29. **Finding:** generated
+  needs always ask at least 1 Science squad (only a fortification asks none), so a Strike team never covers a task
+  alone, and the big digs' { 1-2, 2 } needs are covered by Ground + Ground but not Strike + Ground. So Strike +
+  Ground wins only where no task needs 2 Science squads and the Security demand is high; the design's "Strike +
+  Ground becomes the common pick" at Tier IV (5.4) does not hold under the SQ-4 needs. Ground + Ground (2 / 2) covers
+  every non-fortification task. A user call if Strike should matter more (e.g. clearing tasks with Science 0).
+- Tests: new `launchRecommendation.test.ts` (15: demand share, coverage / solo / changes, the three worked examples,
+  coverage first, solo second, fewest changes then Ground + Ground, no tasks, nothing covers, no teams, the demand
+  text, the gate and its call counts), new `launchPreview.test.ts` (15: preview == run at Tier I and forced Tier IV,
+  the candidate per detail, blind, the forecast vs a real dispatch, the asked composition and purity, no team
+  ready, forced Tier IV, Set composition, the blind counter twice, display only), `groundTeams.test.ts` 92 -> 96
+  (applyComposition: the later team, the fewest members moved, two changes and back, refusals), `telescope.test.ts`
+  26 -> 28 (near edge, the lift sweep; the candidate and identity tests updated). Suite 4393 -> 4429 passed (1
+  skipped); `npm run check` 0 errors.
+- **For SQ-7:** the telescope block reads `candidate.telescope.demand` (with `taskDemandText`), `.recommendation`
+  (headline, reason, unfinishedText, stillUnfinishedText; "Set composition" calls `applyComposition(state, shipId,
+  rec.kinds)` with `planComposition` for the confirm, shown only when `!rec.isCurrent` and the ship is docked) and
+  `.forecast` (`forecastTasksText`, hardest + threat chip). The blind confirm reads `telescope.blind`;
+  `blindLaunchCount(state)` is there for the achievement.

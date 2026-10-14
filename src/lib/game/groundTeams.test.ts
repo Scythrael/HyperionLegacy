@@ -27,6 +27,7 @@ import {
   GROUND_SQUAD_TYPES,
   GROUND_TEAM_DEFAULT_NAMES,
   GROUND_TEAM_NAME_MAX,
+  applyComposition,
   backfillV67ShipGroundTeams,
   canSetGroundTeamKind,
   canSlotMember,
@@ -45,6 +46,7 @@ import {
   isWellFormedGroundTeamLoadout,
   isWellFormedShipGroundTeams,
   isWellFormedV67ShipGroundTeams,
+  planComposition,
   previewGroundTeamKind,
   renameGroundTeam,
   setGroundTeamHelp,
@@ -1491,5 +1493,81 @@ describe("SQ-2 deployableGroundTeams per squad (no stand-ins; D18 across the dep
     expect(check.teams[1].waits.map((w) => w.kind)).toEqual(["injured"]);
     expect(check.ok).toBe(true); // Alpha (Ground) alone meets D18
     expect([check.security, check.science]).toEqual([1, 1]);
+  });
+});
+
+// ============================================================================
+// Squads SQ-6: set a whole composition at once (the launch recommendation's "Set composition", SQ-7's button)
+// ============================================================================
+
+describe("SQ-6 applyComposition (design 6.5 step 5: the team whose change moves the fewest members; ties: the later team)", () => {
+  // ship-1: Alpha Ground (member-1, member-2 Security; member-11 Science), member-3 Security in the reserve, plus
+  // member-12 Science in the reserve; Bravo Ground, empty.
+  const s0 = (): GameState => crewState({ awayMembers: [...crewState().awayMembers, named("member-12", "science", "ship-1")] });
+  const kindsOf = (state: GameState): GroundTeamKind[] => slotsOf(state, "ship-1").map((t) => t.kind);
+
+  it("Ground + Ground -> Strike + Ground changes BRAVO (it moves fewer members), Alpha stays put", () => {
+    const s = s0();
+    const plan = planComposition(s, "ship-1", ["ground", "strike"]);
+    expect(plan).toEqual({ ok: true, changes: [{ teamIndex: 1, from: "ground", to: "strike", toReserve: [], fromReserve: ["member-3"] }] });
+    const next = applyComposition(s, "ship-1", ["strike", "ground"]); // team order never matters
+    expect(kindsOf(next)).toEqual(["ground", "strike"]);
+    expect(slotsOf(next, "ship-1")[0]).toEqual(slotsOf(s, "ship-1")[0]);
+    expect(next).toEqual(setGroundTeamKind(s, "ship-1", 1, "strike")); // exactly the SQ-2 action
+    expect(next.awayMembers).toBe(s.awayMembers);
+    assertSlotInvariants(next);
+  });
+
+  it("changes the team that moves the FEWEST members even when it is Alpha", () => {
+    // Alpha's Security squad is empty; Bravo's holds three members. Every Science member is slotted.
+    const base = s0();
+    const s: GameState = {
+      ...base,
+      awayMembers: [...base.awayMembers, named("member-4", "security", "ship-1"), named("member-5", "security", "ship-1")],
+      ships: [
+        {
+          ...base.ships[0],
+          groundTeams: [
+            { kind: "ground", security: [null, null, null], science: ["member-11", null, null], helpOthers: false },
+            { kind: "ground", security: ["member-1", "member-2", "member-3"], science: ["member-12", null, null], helpOthers: false },
+          ],
+        },
+        base.ships[1],
+      ],
+    };
+    // Survey + Ground: Alpha -> Survey drops nobody (its Security squad is empty) and takes no reserve Science (none
+    // left); Bravo -> Survey would drop three Security members.
+    const plan = planComposition(s, "ship-1", ["ground", "survey"]);
+    expect(plan).toEqual({ ok: true, changes: [{ teamIndex: 0, from: "ground", to: "survey", toReserve: [], fromReserve: [] }] });
+    expect(kindsOf(applyComposition(s, "ship-1", ["survey", "ground"]))).toEqual(["survey", "ground"]);
+  });
+
+  it("two changes run in an order the one-of-each rule allows, and land on the composition", () => {
+    const s = s0();
+    const sv = applyComposition(s, "ship-1", ["strike", "survey"]);
+    expect([...kindsOf(sv)].sort()).toEqual(["strike", "survey"]);
+    assertSlotInvariants(sv);
+    // and back again: Strike + Survey -> Ground + Ground
+    const gg = applyComposition(sv, "ship-1", ["ground", "ground"]);
+    expect(kindsOf(gg)).toEqual(["ground", "ground"]);
+    assertSlotInvariants(gg);
+  });
+
+  it("refuses with the SQ-2 reasons and returns the SAME state (crew lock, team count, kind, one of each, no change)", () => {
+    const s = s0();
+    const cases: [GameState, string, GroundTeamKind[], string][] = [
+      [s, "ship-x", ["ground", "strike"], "noShip"],
+      [locked(s), "ship-1", ["ground", "strike"], "onMission"],
+      [s, "ship-1", ["ground"], "noSuchTeam"],
+      [s, "ship-1", ["ground", "elite" as GroundTeamKind], "noSuchKind"],
+      [s, "ship-1", ["strike", "strike"], "needsBothTypes"],
+      [s, "ship-1", ["ground", "ground"], "sameKind"],
+    ];
+    for (const [state, shipId, kinds, reason] of cases) {
+      expect(planComposition(state, shipId, kinds), reason).toEqual({ ok: false, reason });
+      expect(applyComposition(state, shipId, kinds), reason).toBe(state);
+    }
+    const strike = setGroundTeamKind(s, "ship-1", 1, "strike");
+    expect(planComposition(strike, "ship-1", ["strike", "ground"])).toEqual({ ok: false, reason: "sameKind" });
   });
 });

@@ -101,7 +101,10 @@ import {
   advanceGroundOpsWindow,
   cloneGroundOps,
   crewSquadsOf,
+  groundCrewThreat,
   groundOpsBodyScanned,
+  initGroundTasks,
+  taskNeedsOf,
   groundOpsProgress,
   newGroundOpsState,
   scanClockAt,
@@ -116,15 +119,33 @@ import {
 import { applyExpeditionInjuries, applyGroundOpsInjuries, type MemberInjury } from "./injuries";
 // Squads SQ-4: the risk profile drawn at dispatch, flora's Bloom lift and the hostile-site gate.
 import {
+  DIFFICULTY_NAMES,
   FLORA_BLOOM_WEIGHT_MULT,
   bodyFloraGrade,
   expeditionRegion,
   generateRiskProfile,
   hostileSiteFieldable,
+  isHostileSiteId,
+  type ExpeditionRegion,
 } from "./riskFactors";
-import type { BodyRiskGrades, ExpeditionRiskProfile } from "./model";
+import type { BodyRiskGrades, ExpeditionRiskProfile, GroundTaskNeeds, GroundTeamKind } from "./model";
 // Squads SQ-5: the Subspace Telescope's reading of each candidate (display only; a run never reads it).
-import { readSystem, telescopeReading, type SystemTelescopeReading } from "./telescope";
+import { blindLaunchCount, readSystem, telescopeReading } from "./telescope";
+// Squads SQ-6: the task preview's readers, the launch recommendation and the forecast (display only), and the one
+// engine action they offer (applyComposition, SQ-7's "Set composition").
+import {
+  compositionChanges,
+  gateLaunchView,
+  recommendLaunch,
+  type CandidateTelescopeReading,
+  type ForecastHardestTask,
+  type LaunchForecast,
+  type PreviewTask,
+  type SystemTaskPreview,
+} from "./launchRecommendation";
+import { compositionLabel, compositionSquads, shipTeamKinds } from "./groundComposition";
+import { applyComposition } from "./groundTeams";
+import { groundSiteLabel } from "./expeditionContent";
 // E4a: the PoI -> relic-set single source of truth (pure data) for the foreknowledge signature + the
 // claim deposit's set routing.
 import { RELIC_SETS, relicSetForPoi, museumBonuses, resistedHazard } from "./relics";
@@ -515,8 +536,13 @@ export interface ExpeditionCandidate {
   foreknowledge: ExpeditionForeknowledge;
   // Squads SQ-5: the Subspace Telescope's reading of this system (telescope.ts readSystem): its region, distance,
   // whether it is in range or BLIND (SQ-7's dispatch confirm warns on `telescope.blind`), the detail it reads
-  // (the ship's sensors may lift it one level) and the risk preview gated by that detail. Display only.
-  telescope: SystemTelescopeReading;
+  // (the ship's sensors may lift it one level) and the risk preview gated by that detail. Squads SQ-6 adds, gated
+  // by the same detail (launchRecommendation.ts gateLaunchView): the task demand (Per body), the launch
+  // recommendation (Recommendation) and the forecast (Forecast). Display only.
+  // ⚠️ THE UI MUST READ `candidate.telescope` AND NEVER RE-DERIVE ANYTHING FROM `seed` (SQ-5 review Minor 2): the
+  // seed would reveal what the telescope cannot see yet (risk grades, tasks, hostile sites); the reading here is
+  // exactly what this ship's telescope detail allows, nothing more.
+  telescope: CandidateTelescopeReading;
 }
 
 // The foreknowledge of a BLIND candidate: beyond the telescope's range the ship's own sensor layers are hidden too
@@ -533,8 +559,26 @@ const BLIND_FOREKNOWLEDGE: ExpeditionForeknowledge = { inRange: false, bodyCount
 // SETS the would-be discoveries source (relics.ts relicSetForPoi), in canonical RELIC_SETS order; the
 // boolean signature is "this list is non-empty".
 function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): RelicSetId[] {
+  const fake = previewRun(seed, scanParams, expeditionRegion(seed));
+  fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
+  const found = new Set<RelicSetId>();
+  for (const b of fake.bodies) {
+    for (const d of b.discoveries) {
+      const setId = relicSetForPoi(d.poiId);
+      if (setId !== null) found.add(setId);
+    }
+  }
+  return RELIC_SETS.map((s) => s.id).filter((id) => found.has(id));
+}
+
+// The PREVIEW's throwaway run (previewRelicSets, systemTaskPreview): the candidate's system on `region` with its
+// RISK GRADES on every body and the run's risk profile (Squads SQ-6: exactly the shape startExpedition commits, so
+// flora's Bloom lift shapes the previewed discoveries as it shapes the run's), and the ship's scan params. No
+// ground teams, so no hostile site joins unless the caller passes the squads. Pure: fresh objects.
+function previewRun(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion): Expedition {
   const gen = generateSystem(seed);
-  const fake: Expedition = {
+  const risk = generateRiskProfile(seed, region, gen.bodies);
+  return {
     id: "preview",
     shipId: "",
     captainId: 0,
@@ -546,7 +590,7 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): Relic
     phase: "scanning",
     phaseAnchorSeconds: 0,
     shakedown: false,
-    bodies: gen.bodies,
+    bodies: gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] })),
     anomalyResolved: false,
     anomalyCharted: false,
     anomalyOptIn: false,
@@ -564,16 +608,8 @@ function previewRelicSets(seed: number, scanParams: ExpeditionScanParams): Relic
     scanSpeedBonus: 0,
     relicFindBonus: 0,
     hazardResist: 0,
+    risk: risk.profile,
   };
-  fake.bodies.forEach((b, i) => assignDiscoveriesAndActivities(fake, b, i));
-  const found = new Set<RelicSetId>();
-  for (const b of fake.bodies) {
-    for (const d of b.discoveries) {
-      const setId = relicSetForPoi(d.poiId);
-      if (setId !== null) found.add(setId);
-    }
-  }
-  return RELIC_SETS.map((s) => s.id).filter((id) => found.has(id));
 }
 
 // Gate a generated system into a foreknowledge VIEW by the ship's sensor power. Pure.
@@ -615,7 +651,16 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
   for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
     const seed = makeExpeditionSeed(state.expeditionSeed, i);
     const gen = generateSystem(seed);
-    const telescope = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
+    const sys = readSystem(reading, seed, snap.sensorPower, expeditionRiskPreview(seed));
+    // Squads SQ-6: the task demand, the recommendation and the forecast, each computed ONLY when the detail shows it.
+    const launch = ship
+      ? gateLaunchView(sys.detail, {
+          preview: () => systemTaskPreview(seed, snap.scanParams),
+          recommend: (preview) => recommendLaunch(preview, ship.typeKey, shipTeamKinds(ship)),
+          forecast: (_preview, rec) => (rec ? launchForecast(state, ship.id, seed, rec.kinds) : null),
+        })
+      : { demand: null, recommendation: null, forecast: null };
+    const telescope: CandidateTelescopeReading = { ...sys, ...launch };
     out.push({
       id: `cand-${i}`,
       index: i,
@@ -627,6 +672,150 @@ export function expeditionCandidates(state: GameState, shipId: string): Expediti
     });
   }
   return out;
+}
+
+// The seed of candidate `candidateId` on the current console list (the same ids and seeds expeditionCandidates
+// offers, without building the readings), or null. Pure.
+function candidateSeed(state: GameState, candidateId: string): number | null {
+  for (let i = 0; i < EXPEDITION_CANDIDATE_COUNT; i++) {
+    if (candidateId === `cand-${i}`) return makeExpeditionSeed(state.expeditionSeed, i);
+  }
+  return null;
+}
+
+// ============================================================================
+// Squads SQ-6: the TASK PREVIEW and the FORECAST (display only; design 6.3 and 6.5)
+// ============================================================================
+
+// Squads that field every hostile site (the system preview lists every placed site; a composition that cannot
+// field one leaves it behind, launchRecommendation.ts).
+const EVERY_SITE: GroundTaskNeeds = { security: Number.POSITIVE_INFINITY, science: Number.POSITIVE_INFINITY };
+
+// Every task a candidate system holds, as the run would STAMP them: the run's own discovery roll (the committed
+// seed, the ship's scan params, the bodies' risk grades) and the run's own stamping (groundOps.ts
+// initGroundTasks: fight points, needs under riskFactors.ts tierNeeds, difficulty), body by body. Every hostile
+// site the risk roll placed is listed (`hostile`); the run reveals one only when the deployed squads field it.
+// `region` defaults to the seed's (expeditionRegion); tests pass another. Pure: a throwaway run, never stored.
+// The UI never calls this for a candidate: it reads candidate.telescope, which carries only what the detail allows.
+export function systemTaskPreview(seed: number, scanParams: ExpeditionScanParams, region: ExpeditionRegion = expeditionRegion(seed)): SystemTaskPreview {
+  const run = previewRun(seed, scanParams, region);
+  const tasks: PreviewTask[] = [];
+  run.bodies.forEach((body, i) => {
+    assignDiscoveriesAndActivities(run, body, i, EVERY_SITE);
+    initGroundTasks(run, i);
+    for (const t of body.activities) {
+      tasks.push({ bodyIndex: i, poiId: t.poiId, hostile: isHostileSiteId(t.poiId), fightPoints: t.fightPoints?.length ?? 0, needs: taskNeedsOf(t), difficulty: t.difficulty ?? 1 });
+    }
+  });
+  return {
+    tier: region.tier,
+    enemyTerritory: region.enemyTerritory,
+    bodies: run.bodies.map((b) => ({ ...(b.risk as BodyRiskGrades) })),
+    tasks,
+  };
+}
+
+// One grade's slot (index 0 Simple .. 4 Deadly) for a stored difficulty. Pure.
+function gradeSlot(difficulty: number | undefined): number {
+  return Math.max(0, Math.min(DIFFICULTY_NAMES.length - 1, (difficulty ?? 1) - 1));
+}
+
+// The FORECAST (design 6.3 Forecast) for launching `shipId` at candidate `seed` with composition `kinds` (the
+// recommendation's): the composition is set as "Set composition" would set it (groundTeams.ts applyComposition;
+// when it cannot be, e.g. the ship is out, the current composition is forecast), the run is BUILT exactly as
+// startExpedition would build it (the deploying teams, their roster, the risk), its bodies are scanned through
+// the run's own discovery, stamping and planning path, and the result is read: the tasks it would work per
+// difficulty grade, what it would leave unfinished, and the threat tier (groundThreat.ts, the display stream) of
+// the crew the plan would send on the hardest task with a fight. With no ground team ready the counts come from
+// the task preview and there is no threat read. Pure: everything is a throwaway; `state` is never touched.
+export function launchForecast(
+  state: GameState,
+  shipId: string,
+  seed: number,
+  kinds: readonly GroundTeamKind[],
+  region: ExpeditionRegion = expeditionRegion(seed),
+): LaunchForecast | null {
+  const before = state.ships.find((x) => x.id === shipId);
+  if (!before) return null;
+  let s = state;
+  let used = shipTeamKinds(before);
+  if (compositionChanges(used, kinds) > 0) {
+    const applied = applyComposition(state, shipId, kinds);
+    if (applied !== state) {
+      s = applied;
+      used = [...kinds];
+    }
+  }
+  const ship = s.ships.find((x) => x.id === shipId) as ShipInstance;
+  const label = compositionLabel(used);
+  const byDifficulty = DIFFICULTY_NAMES.map(() => 0);
+  if (!expeditionAwayTeamCheck(s, ship).ok) {
+    const squads = compositionSquads(used);
+    let tasks = 0;
+    let unfinished = 0;
+    for (const t of systemTaskPreview(seed, shipSensorSnapshot(s, ship).scanParams, region).tasks) {
+      if (squads.security >= t.needs.security && squads.science >= t.needs.science) {
+        tasks += 1;
+        byDifficulty[gradeSlot(t.difficulty)] += 1;
+      } else unfinished += 1;
+    }
+    return { kinds: used, label, teamsDeployed: 0, tasks, byDifficulty, unfinished, hardest: null, threat: null, note: "No ground team is ready to launch" };
+  }
+  const gen = generateSystem(seed);
+  const risk = generateRiskProfile(seed, region, gen.bodies);
+  const exp = buildExpedition(s, ship, ship.assignedCaptainId ?? 0, seed, true, s.nextExpeditionId, gen, risk);
+  exp.bodies.forEach((body, i) => {
+    body.scanProgress = body.scanTotal;
+    body.scanned = true;
+    assignDiscoveriesAndActivities(exp, body, i);
+    groundOpsBodyScanned(exp, i, s.gameTimeSeconds);
+  });
+  const placed = risk.bodies.filter((b) => b.site !== undefined).length;
+  let revealed = 0;
+  let tasks = 0;
+  let skipped = 0;
+  let pick: { task: ExpeditionActivity; bodyIndex: number } | null = null;
+  exp.bodies.forEach((body, bodyIndex) => {
+    for (const task of body.activities) {
+      if (isHostileSiteId(task.poiId)) revealed += 1;
+      if (task.status === "skipped") {
+        skipped += 1;
+        continue;
+      }
+      tasks += 1;
+      byDifficulty[gradeSlot(task.difficulty)] += 1;
+      const fights = task.fightPoints?.length ?? 0;
+      if (fights === 0) continue;
+      const d = task.difficulty ?? 1;
+      const held = pick?.task;
+      const heldD = held?.difficulty ?? 1;
+      if (!held || d > heldD || (d === heldD && fights > (held.fightPoints?.length ?? 0))) pick = { task, bodyIndex };
+    }
+  });
+  const chosen = pick as { task: ExpeditionActivity; bodyIndex: number } | null;
+  const crew = chosen?.task.assignedTeamIds ?? [];
+  const hardest: ForecastHardestTask | null = chosen
+    ? {
+        bodyIndex: chosen.bodyIndex,
+        poiId: chosen.task.poiId,
+        label: groundSiteLabel(chosen.task.poiId) ?? "A task",
+        difficulty: chosen.task.difficulty ?? 1,
+        difficultyName: DIFFICULTY_NAMES[gradeSlot(chosen.task.difficulty)],
+        fightPoints: chosen.task.fightPoints?.length ?? 0,
+        crew: [...crew],
+      }
+    : null;
+  return {
+    kinds: used,
+    label,
+    teamsDeployed: exp.groundOps?.teams.length ?? 0,
+    tasks,
+    byDifficulty,
+    unfinished: skipped + Math.max(0, placed - revealed),
+    hardest,
+    threat: chosen ? groundCrewThreat(exp, crew, chosen.task.id) : null,
+    note: chosen ? null : "No fights expected",
+  };
 }
 
 // Squads SQ-4: a candidate's RISK PROFILE (riskFactors.ts): the region its seed lies in (expeditionRegion, Tier I
@@ -660,15 +849,51 @@ export function startExpedition(
   if (state.expeditions.some((e) => e.shipId === shipId))
     return { next: state, success: false, reason: "shipAlreadyOnExpedition" };
 
-  const candidate = expeditionCandidates(state, shipId).find((c) => c.id === candidateId);
-  if (!candidate) return { next: state, success: false, reason: "noSuchCandidate" };
+  // The candidate's seed (the console's ids, without building every reading: SQ-6's forecast builds runs).
+  const committed = candidateSeed(state, candidateId);
+  if (committed === null) return { next: state, success: false, reason: "noSuchCandidate" };
   // D18: no minimum away team (1 Security + 1 Science, ready), no expedition.
   if (!expeditionAwayTeamCheck(state, ship).ok) return { next: state, success: false, reason: "needsAwayTeam" };
 
   const number = state.nextExpeditionId;
-  const seed = candidate.seed; // COMMIT the previewed candidate's seed so the launch matches its preview
-  const id = `expedition-${number}`;
+  const seed = committed; // COMMIT the previewed candidate's seed so the launch matches its preview
   const gen = generateSystem(seed);
+  // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed exactly as
+  // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw.
+  const risk = expeditionRiskPreview(seed);
+  const expedition = buildExpedition(state, ship, captainId, seed, anomalyOptIn, number, gen, risk);
+  // Squads SQ-6 (user, SQ-5 call (b)): count a BLIND launch (beyond the telescope's range: the same reading the
+  // candidate showed), so the future "go in blind" achievement can award retroactively. Never read by a run.
+  const blind = readSystem(telescopeReading(state), seed, expedition.sensorPower, risk).blind;
+
+  return {
+    next: {
+      ...state,
+      expeditions: [...state.expeditions, expedition],
+      nextExpeditionId: number + 1,
+      // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
+      expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
+      ...(blind ? { blindLaunches: blindLaunchCount(state) + 1 } : {}),
+    },
+    success: true,
+    expedition,
+  };
+}
+
+// The expedition record a dispatch of `ship` at `seed` commits (startExpedition, after its gates), and the record
+// SQ-6's forecast builds as a throwaway: every snapshot taken at the dispatch instant. Pure: fresh data.
+function buildExpedition(
+  state: GameState,
+  ship: ShipInstance,
+  captainId: number,
+  seed: number,
+  anomalyOptIn: boolean,
+  number: number,
+  gen: { systemId: string; systemName: string; bodies: ExpeditionBody[] },
+  risk: { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] },
+): Expedition {
+  const shipId = ship.id;
+  const id = `expedition-${number}`;
   const snap = shipSensorSnapshot(state, ship);
   // E3a: snapshot the away team's crew-derived strength + team kit, so the expedition's ground battles
   // resolve as a pure function of the stored expedition (parity, matching the sensor snapshot). D19: the
@@ -720,10 +945,8 @@ export function startExpedition(
   // team slotted in hire order snapshots exactly what the pre-GO-7b snapshotAwayRoster did.
   const groundSnapshot = snapshotGroundOps(state, ship, { recoveryTurnaround, quickRecovery, injurySteady });
   const roster = snapshotAwayRosterForTeams(state, ship, groundSnapshot.teams);
-  // Squads SQ-4: the RISK PROFILE (riskFactors.ts), drawn from the committed candidate's seed exactly as
-  // expeditionRiskPreview reads it, so the pre-launch reading and the run are one draw. Its presence (with each
-  // body's grades) is the risk-aware flag the ground tasks stamp from.
-  const risk = expeditionRiskPreview(seed);
+  // Squads SQ-4: the RISK PROFILE's presence (with each body's grades) is the risk-aware flag the ground tasks
+  // stamp from.
   const bodies = gen.bodies.map((b, i) => ({ ...b, risk: risk.bodies[i] }));
 
   const expedition: Expedition = {
@@ -781,18 +1004,7 @@ export function startExpedition(
     // Squads SQ-4: the risk-aware flag (see above).
     risk: risk.profile,
   };
-
-  return {
-    next: {
-      ...state,
-      expeditions: [...state.expeditions, expedition],
-      nextExpeditionId: number + 1,
-      // Advance the preview seed ONLY here (a commit), so previews stay stable until a dispatch happens.
-      expeditionSeed: advanceExpeditionSeed(state.expeditionSeed),
-    },
-    success: true,
-    expedition,
-  };
+  return expedition;
 }
 
 // ============================================================================
@@ -927,7 +1139,14 @@ function pickWeightedPoi(rng: Rng, candidates: WeightedPoi[]): WeightedPoi {
 // DISCOVERY_SALT, body index), so it is chunking-independent + reproducible (unchanged from E2a; the
 // extra weighted-pick draws come from this same keyed stream, never a live stream position). A body
 // ALWAYS yields at least one discovery (design I.2: 100% scan yields an activity list).
-function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, bodyIndex: number): void {
+// `deployed` = the squads the hostile-site gate reads: the run's deployed teams (the default), or (Squads SQ-6's
+// system task preview) squads that field every site.
+function assignDiscoveriesAndActivities(
+  exp: Expedition,
+  body: ExpeditionBody,
+  bodyIndex: number,
+  deployed: GroundTaskNeeds | null = exp.groundOps ? crewSquadsOf(exp.groundOps.teams) : null,
+): void {
   const rng = makeRng((exp.seed ^ (DISCOVERY_SALT + Math.imul(bodyIndex + 1, 0x9e3779b9))) >>> 0);
   // The planet type gates the eligible pools; PLANET_TYPES[0] (terrestrial) is a defensive default the
   // union type makes unreachable, kept so an unexpected id still yields a valid pool.
@@ -959,7 +1178,7 @@ function assignDiscoveriesAndActivities(exp: Expedition, body: ExpeditionBody, b
   // one so the discovery roll above is untouched, but ONLY when the squads the ship deployed can field it and
   // still keep a Science squad (user #3: no softlock). Never on a run without risk grades or ground teams.
   const site = body.risk?.site;
-  if (site !== undefined && exp.groundOps && hostileSiteFieldable(site, crewSquadsOf(exp.groundOps.teams))) {
+  if (site !== undefined && deployed !== null && hostileSiteFieldable(site, deployed)) {
     discoveries.push({ id: `${exp.id}-${body.id}-disc-${discoveries.length}`, kind: "landmark", poiId: site });
   }
   body.discoveries = discoveries;

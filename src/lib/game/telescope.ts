@@ -118,12 +118,25 @@ export function rangeLyForReach(reachTier: number, homeworld: HomeworldPlacement
 }
 
 // A system's distance from the homeworld [PROVISIONAL: G2's map supplies real positions]: a whole number of
-// light-years inside its region's band, drawn on its own keyed stream so it shifts no other draw. Pure.
+// light-years in (near, far] of its region's band, drawn on its own keyed stream so it shifts no other draw. The
+// band's NEAR edge is excluded (SQ-5 review Minor 1): it is the previous region's far edge, i.e. that region's
+// telescope range, so a system drawn exactly there would read in range one region early. Pure.
 export const SYSTEM_DISTANCE_SALT = 0x4b1d8e33;
 export function systemDistanceLy(seed: number, tier: RegionTier, homeworld: HomeworldPlacement = PROVISIONAL_HOMEWORLD): number {
   const band = homeworld.regionBandsLy[tier] ?? homeworld.regionBandsLy[1];
   const rng = makeRng((seed ^ SYSTEM_DISTANCE_SALT) >>> 0);
-  return band.near + rng.nextInt(Math.max(1, band.far - band.near + 1));
+  const low = Math.min(band.near + 1, band.far);
+  return low + rng.nextInt(Math.max(1, band.far - low + 1));
+}
+
+// ===== The blind launch counter (user, SQ-5 call (b), 2026-10-13) =====
+
+// How many expeditions were dispatched BLIND (beyond the telescope's range): GameState.blindLaunches, written by
+// expedition.ts startExpedition on a blind dispatch, counted from SQ-6 on so the future "go in blind" achievement
+// can award retroactively. Absent, or anything but a whole number above 0, reads 0. Pure.
+export function blindLaunchCount(state: Pick<GameState, "blindLaunches">): number {
+  const n = state.blindLaunches;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 0;
 }
 
 // ===== The facility reading =====
@@ -207,9 +220,9 @@ export interface TelescopeRiskView {
   factors: Record<RiskFactorId, TelescopeFactorReading>;
   enemyTerritory: boolean | null; // Graded (2) and up
   bodies: TelescopeBodyReading[] | null; // Per body (3) and up, body order
-  // SQ-6 HOOK: Per body's task demand line ("Security work on 3 of 5 bodies; 2 tasks need 2 Science squads"),
-  // the Recommendation and the Forecast all read the TASK preview (discoveries + needs + difficulty on the
-  // committed seed), which SQ-6 builds; this view carries the risk grades only.
+  // Squads SQ-6: Per body's task demand line, the Recommendation and the Forecast read the TASK preview, so they
+  // ride the candidate beside this reading (launchRecommendation.ts LaunchView, gated by the same detail); this
+  // view carries the risk grades only.
 }
 
 const FACTORS: readonly RiskFactorId[] = ["combat", "fauna", "flora", "hazard"];
