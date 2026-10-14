@@ -3,7 +3,7 @@
 // exported `*_SALT` constant of the modules below must be DISTINCT, ODD and a 32-bit unsigned value. The test
 // collects the salts from the module namespaces, so a new exported salt in any listed module is checked
 // automatically. Ground Ops modules join the list as they land (groundFight.ts at GO-5, groundThreat.ts at
-// GO-6, groundOps.ts at Squads SQ-3 with its first salt, the ambush roll; riskFactors.ts at Squads SQ-4, the risk
+// GO-6, groundOps.ts at Squads SQ-3 with its first salt, the ambush roll, and GO-7d's Auto-assign stream; riskFactors.ts at Squads SQ-4, the risk
 // profile; telescope.ts at Squads SQ-5, the display-only system distance; shipScanEvents.ts at GO-8). A salt
 // that is not exported is invisible here: keep engine salts exported.
 // GO-5 (GO-4 review) exported and registered the four that were not: tick.ts MISSION_OUTPUT_ROUNDING_SALT,
@@ -88,6 +88,7 @@ describe("salt registry (GO-4)", () => {
       "groundFight.ts GROUND_FIGHT_SALT",
       "groundThreat.ts GROUND_THREAT_SALT",
       "groundOps.ts GROUND_AMBUSH_SALT",
+      "groundOps.ts AUTO_ASSIGN_SALT",
       "riskFactors.ts RISK_SALT",
       "telescope.ts SYSTEM_DISTANCE_SALT",
       "relics.ts RELIC_STUDY_SALT",

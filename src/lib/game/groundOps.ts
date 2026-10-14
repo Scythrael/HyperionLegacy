@@ -4,6 +4,8 @@
 // the TIMELINE ENGINE further down resolves the run (see "GO-7b: THE TIMELINE ENGINE"). GO-7c: several teams,
 // the default plan, helpers and joint tasks (see "SEVERAL TEAMS" there). Squads SQ-3: task NEEDS in squads,
 // crews that cover them, one offload per joint crew, the shared pickup and the Survey ambush (see "PLANNING").
+// GO-7d: LIVE QUEUE EDITS applied from now (assign, reorder, skip, requeue, Default plan, Auto-assign randomly,
+// the help toggle; see "GO-7d: LIVE QUEUE EDITS"; expedition.ts editGroundOps advances the run to now first).
 //
 //   snapshotGroundOps(state, ship, run) -> { teams, factors, shipEventProfile }
 //     teams   : the ship's DEPLOYING ground teams (groundTeams.ts deployableGroundTeams: every slotted member
@@ -324,7 +326,8 @@ export function snapshotAwayRosterForTeams(
 //   weights the completion (groundOpsProgress) and raises the haul and the relic find at offload. A run without
 //   risk resolves exactly as stamped before SQ-4.
 //
-// DETERMINISM: one salt here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes). A task
+// DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
+// AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
 // fight rolls on its keyed stream (groundFight.ts), the haul on the task's reward stream and the relic on its
 // relic stream (gambit.ts), the plan's odds on the threat stream (groundThreat.ts). The scan side (step
 // boundaries, a body's completion) is expedition.ts's, passed in as a GroundOpsScanDriver so this module never
@@ -1231,6 +1234,9 @@ function wipedTeams(crew: readonly GroundTeamRun[]): GroundTeamRun[] {
 function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
   const record = team.pendingFight;
   delete team.pendingFight;
+  // GO-7d: the player skipped or reassigned the task during this fight; its result stands, then the crew heads back.
+  const recalled = team.recalled === true;
+  delete team.recalled;
   const crew = crewOf(ops, team);
   if (!record) {
     returnCrew(exp, ops, team, crew, ref, t, []);
@@ -1263,10 +1269,16 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
         member.carry = mine;
       }
     }
+    if (recalled) {
+      // GO-7d: no more work on this trip. A skipped task stays skipped; a reassigned one is free for its new crew.
+      if (task.status !== "skipped") task.status = "queued";
+      return returnCrew(exp, ops, team, crew, ref, t, [], { outcome: "win", ...surprise, stopped: true });
+    }
     return startWork(exp, ops, team, ref, t, { outcome: "win", ...surprise });
   }
   for (const member of crew) delete member.carry;
-  task.status = "queued";
+  // A task the player skipped during the fight (GO-7d) stays skipped; any other loss puts it back in the queue.
+  task.status = task.status === "skipped" ? "skipped" : "queued";
   if (team.borrowed) {
     if (!team.skippedBorrowed.includes(task.id)) team.skippedBorrowed.push(task.id);
   } else {
@@ -1281,7 +1293,7 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
       task.sentBack = (task.sentBack ?? 0) + 1;
     }
   }
-  returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), { outcome: "loss", ...surprise });
+  returnCrew(exp, ops, team, crew, ref, t, wipedTeams(crew), { outcome: "loss", ...surprise, ...(recalled ? { stopped: true as const } : {}) });
 }
 
 // Every team of the crew `lead` carries heads back at `t`. The `wiped` ones wait for ONE recovery leg (a shared
@@ -1469,6 +1481,404 @@ function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number): void {
   delete team.workTo;
   delete team.ambushed;
   delete team.jointPartner;
+  delete team.recalled;
+}
+
+// ============================================================================
+// GO-7d: LIVE QUEUE EDITS ("apply from now")
+// ============================================================================
+//
+// The player edits a running operation's queues at any time (plan GO-7d; GO-13's queue screen calls them through
+// expedition.ts editGroundOps, which first ADVANCES the run to now, then validates and applies here, then lets
+// idle teams pick their next work at the edit instant). Every edit is applied AT the edit instant `t` and
+// stored, so the run stays a pure function of its stored record: one big advance after an edit equals many small
+// ones. Nothing ever waits for the player: an edit only changes what happens next.
+//   assign   : move a task into a team's queue (at a position among its remaining tasks, else the end). The task's
+//              CREW becomes that team plus any `partners` (Squads SQ-3: the crew must COVER the task's needs, so a
+//              joint task can never stage forever: crewDoesNotCover; and the deployed squads summed must cover
+//              it at all: notEnoughSquads). Partners get it appended; every other queue drops it.
+//   reorder  : move a task one place up or down among its team's REMAINING tasks; never interrupts.
+//   skip     : drop the task from every queue, status skipped (progress, points and banked segments kept). The
+//              escape hatch for a stuck run (user: "retry forever, skip by hand"): once every remaining task is
+//              skipped the window closes as the teams settle.
+//   requeue  : a skipped task back into a team's queue (crew and position rules as assign), resuming from its
+//              kept progress; its loss streak starts fresh (a deliberate new try) [PROVISIONAL].
+//   defaultPlan / autoAssign : the body's QUEUED tasks (not active, done or skipped) re-planned: by GO-7c's plan
+//              (planTasksForTeams, which logs a skip), or uniformly at random over the SMALLEST covering crews
+//              on the AUTO_ASSIGN_SALT stream keyed by the edit count, appended in drawn order.
+//   setHelp  : the team's "help other teams" flag for the rest of this run (a helper already on a borrowed task
+//              finishes it) [PROVISIONAL].
+// AN ACTIVE TASK (plan Q14) [PROVISIONAL]: a skip, or an assign that changes the crew away from the crew on it,
+// during the DROP or the WORK stops that crew at the edit instant: the task keeps the progress interpolated along
+// the work step, no partial segment is banked or paid, and every crew team takes its ordinary return trip (the
+// lead offloads anything already banked). During a FIGHT the edit waits for the fight's end (the lead is marked
+// `recalled`; the fight's result stands, then the crew heads back). A task only STAGED (a joint crew still
+// gathering) simply releases its staging teams. A reorder, or an assign that keeps the crew, never interrupts.
+
+// The Auto-assign stream's salt: odd, distinct from every engine salt (salts.test.ts checks it).
+export const AUTO_ASSIGN_SALT = 0x71c3e8a9;
+
+export type GroundOpsEdit =
+  | { kind: "assign"; taskId: string; teamIndex: number; position?: number; partners?: number[] }
+  | { kind: "reorder"; teamIndex: number; taskId: string; delta: -1 | 1 }
+  | { kind: "skip"; taskId: string }
+  | { kind: "requeue"; taskId: string; teamIndex: number; position?: number; partners?: number[] }
+  | { kind: "defaultPlan"; bodyIndex: number }
+  | { kind: "autoAssign"; bodyIndex: number } // the user's "Auto-assign randomly"
+  | { kind: "setHelp"; teamIndex: number; on: boolean };
+
+export type GroundOpsEditBlockReason =
+  | "noExpedition"
+  | "notGroundOps"
+  | "runFinished"
+  | "noSuchTask"
+  | "taskDone"
+  | "taskSkipped"
+  | "notSkipped"
+  | "noSuchTeam"
+  | "noSuchBody"
+  | "noTasks"
+  | "notInQueue"
+  | "notEnoughSquads"
+  | "crewDoesNotCover"
+  | "noChange";
+
+export type GroundOpsEditCheck = { ok: true } | { ok: false; reason: GroundOpsEditBlockReason };
+
+// A refusal in plain words (the GO-13 queue screen shows it). Exhaustive. Pure.
+export function groundOpsEditBlockText(reason: GroundOpsEditBlockReason): string {
+  switch (reason) {
+    case "noExpedition":
+      return "No such expedition";
+    case "notGroundOps":
+      return "This expedition launched before Ground Operations: its tasks run on their own";
+    case "runFinished":
+      return "The ground operations are over: the ship is heading home";
+    case "noSuchTask":
+      return "No such task";
+    case "taskDone":
+      return "That task is already done";
+    case "taskSkipped":
+      return "That task was skipped: re-queue it first";
+    case "notSkipped":
+      return "Only a skipped task can be re-queued";
+    case "noSuchTeam":
+      return "No such ground team on this run";
+    case "noSuchBody":
+      return "No scanned body there";
+    case "noTasks":
+      return "No queued tasks on that body to plan";
+    case "notInQueue":
+      return "That task is not in this team's queue";
+    case "notEnoughSquads":
+      return "Nobody deployed brings the squads this task needs";
+    case "crewDoesNotCover":
+      return "That crew does not bring the squads this task needs: add a partner team";
+    case "noChange":
+      return "Nothing to change";
+  }
+}
+
+// The SMALLEST sets of deployed teams whose squads cover `task`'s needs (Squads SQ-3: a task's crew), as team
+// index lists (ascending), in team order; [] when nothing deployed covers it. Pure.
+function coveringCrews(ops: GroundOpsState, task: ExpeditionActivity): GroundTeamRun[][] {
+  const needs = taskNeedsOf(task);
+  const n = ops.teams.length;
+  for (let size = 1; size <= n; size += 1) {
+    const out: GroundTeamRun[][] = [];
+    for (let mask = 1; mask < 1 << n; mask += 1) {
+      const crew = ops.teams.filter((_, i) => (mask & (1 << i)) !== 0);
+      if (crew.length === size && squadsCover(crewSquadsOf(crew), needs)) out.push(crew);
+    }
+    if (out.length > 0) return out;
+  }
+  return [];
+}
+
+// The crews the player can pick for task `taskId` with no extra partner: the smallest sets of deployed teams that
+// cover its needs, as team index lists (GO-13: the "Assigned" choices; Auto-assign draws among them). Pure.
+export function groundTaskCrews(exp: Pick<Expedition, "groundOps" | "bodies">, taskId: string): number[][] {
+  const ops = exp.groundOps;
+  const ref = findGroundTask(exp, taskId);
+  if (!ops || !ref) return [];
+  return coveringCrews(ops, ref.task).map((crew) => crew.map((team) => team.index));
+}
+
+// Is the task still to do (queued or active)? Pure.
+function isRemaining(exp: Pick<Expedition, "bodies">, taskId: string): boolean {
+  const status = findGroundTask(exp, taskId)?.task.status;
+  return status === "queued" || status === "active";
+}
+
+// The deployed team with ship team index `index`, or undefined. Pure.
+function runTeam(ops: GroundOpsState, index: unknown): GroundTeamRun | undefined {
+  return typeof index === "number" && Number.isInteger(index) ? ops.teams.find((team) => team.index === index) : undefined;
+}
+
+// The crew an assign or requeue names: `teamIndex` plus `partners` (repeats dropped), in team order; null when a
+// team is not deployed. Pure.
+function editCrew(ops: GroundOpsState, teamIndex: number, partners: readonly number[] | undefined): GroundTeamRun[] | null {
+  const want = [teamIndex, ...(Array.isArray(partners) ? partners : [])];
+  const crew: GroundTeamRun[] = [];
+  for (const index of want) {
+    const team = runTeam(ops, index);
+    if (!team) return null;
+    if (!crew.includes(team)) crew.push(team);
+  }
+  return ops.teams.filter((team) => crew.includes(team));
+}
+
+// `queue` with `taskId` moved to `position` among the queue's REMAINING tasks (before the remaining task now at
+// that index; past the end, or no position, appends). Done tasks keep their places. Pure.
+function placeInQueue(exp: Pick<Expedition, "bodies">, queue: readonly string[], taskId: string, position: number | undefined): string[] {
+  const without = queue.filter((id) => id !== taskId);
+  const remaining = without.filter((id) => isRemaining(exp, id));
+  const p = typeof position === "number" && Number.isFinite(position) ? Math.max(0, Math.floor(position)) : remaining.length;
+  if (p >= remaining.length) return [...without, taskId];
+  const at = without.indexOf(remaining[p]);
+  return [...without.slice(0, at), taskId, ...without.slice(at)];
+}
+
+function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+// The body's tasks a Default plan or an Auto-assign re-plans: stamped, QUEUED (not active, done or skipped), in
+// discovery order. Pure.
+function replannable(exp: Expedition, bodyIndex: number): GroundTaskRef[] {
+  const body = exp.bodies[bodyIndex];
+  if (!body) return [];
+  const out: GroundTaskRef[] = [];
+  for (const task of body.activities) {
+    if (task.status !== "queued") continue;
+    const ref = findGroundTask(exp, task.id);
+    if (ref) out.push(ref);
+  }
+  return out;
+}
+
+// The team on the task in the field (its drop, work or fight; a joint crew's LEAD), or undefined. Pure.
+function fieldLead(ops: GroundOpsState, taskId: string): GroundTeamRun | undefined {
+  return ops.teams.find((team) => team.taskId === taskId && (team.step === "deploy" || team.step === "work" || team.step === "fight"));
+}
+
+// Validate `edit` on the run as it stands (expedition.ts editGroundOps has advanced it to now). Pure.
+export function checkGroundOpsEdit(exp: Expedition, edit: GroundOpsEdit): GroundOpsEditCheck {
+  const no = (reason: GroundOpsEditBlockReason): GroundOpsEditCheck => ({ ok: false, reason });
+  const ops = exp.groundOps;
+  if (!ops) return no("notGroundOps");
+  if (ops.endedAt !== undefined || exp.phase === "return" || exp.phase === "complete") return no("runFinished");
+  switch (edit.kind) {
+    case "assign":
+    case "requeue": {
+      const ref = findGroundTask(exp, edit.taskId);
+      if (!ref || !isGroundTask(ref.task)) return no("noSuchTask");
+      const task = ref.task;
+      if (task.status === "done") return no("taskDone");
+      if (edit.kind === "assign" && task.status === "skipped") return no("taskSkipped");
+      if (edit.kind === "requeue" && task.status !== "skipped") return no("notSkipped");
+      const crew = editCrew(ops, edit.teamIndex, edit.partners);
+      if (!crew) return no("noSuchTeam");
+      const needs = taskNeedsOf(task);
+      if (!squadsCover(crewSquadsOf(ops.teams), needs)) return no("notEnoughSquads");
+      if (!squadsCover(crewSquadsOf(crew), needs)) return no("crewDoesNotCover");
+      if (edit.kind === "assign") {
+        const ids = crew.map((team) => team.index);
+        const unchanged =
+          sameList(ids, task.assignedTeamIds ?? []) &&
+          ops.teams.every((team) => {
+            if (team.index === edit.teamIndex) return sameList(placeInQueue(exp, team.queue, task.id, edit.position), team.queue);
+            return team.queue.includes(task.id) === ids.includes(team.index);
+          });
+        if (unchanged) return no("noChange");
+      }
+      return { ok: true };
+    }
+    case "reorder": {
+      const team = runTeam(ops, edit.teamIndex);
+      if (!team) return no("noSuchTeam");
+      const ref = findGroundTask(exp, edit.taskId);
+      if (!ref || !isGroundTask(ref.task)) return no("noSuchTask");
+      if (ref.task.status === "done") return no("taskDone");
+      const remaining = team.queue.filter((id) => isRemaining(exp, id));
+      const at = remaining.indexOf(edit.taskId);
+      if (at < 0) return no("notInQueue");
+      const to = at + edit.delta;
+      if ((edit.delta !== -1 && edit.delta !== 1) || to < 0 || to >= remaining.length) return no("noChange");
+      return { ok: true };
+    }
+    case "skip": {
+      const ref = findGroundTask(exp, edit.taskId);
+      if (!ref || !isGroundTask(ref.task)) return no("noSuchTask");
+      if (ref.task.status === "done") return no("taskDone");
+      if (ref.task.status === "skipped") return no("taskSkipped");
+      return { ok: true };
+    }
+    case "defaultPlan":
+    case "autoAssign": {
+      const body = Number.isInteger(edit.bodyIndex) ? exp.bodies[edit.bodyIndex] : undefined;
+      if (!body || !body.scanned) return no("noSuchBody");
+      if (replannable(exp, edit.bodyIndex).length === 0) return no("noTasks");
+      return { ok: true };
+    }
+    case "setHelp": {
+      const team = runTeam(ops, edit.teamIndex);
+      if (!team) return no("noSuchTeam");
+      if (team.helpOthers === (edit.on === true)) return no("noChange");
+      return { ok: true };
+    }
+  }
+}
+
+// Apply `edit` at `t` (the run already advanced to `t`): validate, apply, count it, then let idle teams pick their
+// next work at `t` and check the window's end. Mutates the working clone only when the edit is valid.
+export function applyGroundOpsEdit(exp: Expedition, edit: GroundOpsEdit, t: number): GroundOpsEditCheck {
+  const check = checkGroundOpsEdit(exp, edit);
+  if (!check.ok) return check;
+  const ops = exp.groundOps as GroundOpsState;
+  switch (edit.kind) {
+    case "assign":
+    case "requeue": {
+      const ref = findGroundTask(exp, edit.taskId) as GroundTaskRef;
+      const crew = editCrew(ops, edit.teamIndex, edit.partners) as GroundTeamRun[];
+      assignCrew(exp, ops, ref, crew, edit.teamIndex, edit.position, edit.kind === "requeue", t);
+      break;
+    }
+    case "reorder": {
+      const team = runTeam(ops, edit.teamIndex) as GroundTeamRun;
+      const remaining = team.queue.filter((id) => isRemaining(exp, id));
+      const other = remaining[remaining.indexOf(edit.taskId) + edit.delta];
+      const a = team.queue.indexOf(edit.taskId);
+      const b = team.queue.indexOf(other);
+      const queue = [...team.queue];
+      queue[a] = other;
+      queue[b] = edit.taskId;
+      team.queue = queue;
+      break;
+    }
+    case "skip": {
+      const ref = findGroundTask(exp, edit.taskId) as GroundTaskRef;
+      for (const team of ops.teams) if (team.queue.includes(ref.task.id)) team.queue = team.queue.filter((id) => id !== ref.task.id);
+      leaveTask(exp, ops, ref, t);
+      ref.task.status = "skipped";
+      break;
+    }
+    case "defaultPlan":
+    case "autoAssign": {
+      const refs = replannable(exp, edit.bodyIndex);
+      const ids = new Set(refs.map((ref) => ref.task.id));
+      for (const team of ops.teams) team.queue = team.queue.filter((id) => !ids.has(id));
+      for (const ref of refs) delete ref.task.assignedTeamIds;
+      if (edit.kind === "defaultPlan") planTasksForTeams(exp, refs, t);
+      else autoAssignTasks(exp, ops, refs, t);
+      break;
+    }
+    case "setHelp": {
+      (runTeam(ops, edit.teamIndex) as GroundTeamRun).helpOthers = edit.on === true;
+      break;
+    }
+  }
+  ops.editCount += 1;
+  if (ops.startedAt !== undefined) {
+    groundOpsAssignIdle(exp, t);
+    checkRunEnd(exp, t);
+  }
+  return check;
+}
+
+// Give `ref`'s task to `crew` (validated: deployed, covering), `teamIndex`'s queue at `position`, the partners'
+// queues appended when missing, every other queue dropping it. A requeue (`fromSkip`) brings a skipped task back
+// with a fresh loss streak. Then the crew in the field, if any, is settled (see the section header). Mutates.
+function assignCrew(
+  exp: Expedition,
+  ops: GroundOpsState,
+  ref: GroundTaskRef,
+  crew: readonly GroundTeamRun[],
+  teamIndex: number,
+  position: number | undefined,
+  fromSkip: boolean,
+  t: number,
+): void {
+  const task = ref.task;
+  const ids = crew.map((team) => team.index);
+  const changed = fromSkip || !sameList(ids, task.assignedTeamIds ?? []);
+  for (const team of ops.teams) {
+    if (team.index === teamIndex) team.queue = placeInQueue(exp, team.queue, task.id, position);
+    else if (ids.includes(team.index)) {
+      if (!team.queue.includes(task.id)) team.queue = [...team.queue, task.id];
+    } else if (team.queue.includes(task.id)) team.queue = team.queue.filter((id) => id !== task.id);
+  }
+  task.assignedTeamIds = ids;
+  if (fromSkip) {
+    delete task.lossStreak;
+    delete task.sentBack;
+  }
+  if (!changed) return;
+  const lead = fieldLead(ops, task.id);
+  if (lead && sameList(crewOf(ops, lead).map((team) => team.index), ids)) {
+    // The crew in the field IS the new crew (a recalled crew given its task back, or a helper made its owner):
+    // it carries on.
+    delete lead.recalled;
+    delete lead.borrowed;
+    task.status = "active";
+    return;
+  }
+  leaveTask(exp, ops, ref, t);
+  // A crew still fighting it holds it until the fight ends (then it is queued); otherwise it is free now.
+  task.status = fieldLead(ops, task.id)?.recalled ? "active" : "queued";
+}
+
+// Whoever is on `ref`'s task leaves it at `t` (a skip, or a reassign away): a lead in its DROP or WORK stops now
+// (stopCrew); a lead in a FIGHT is marked recalled (it heads back at the fight's end); teams only STAGED on it
+// are released to idle. The task's status is the caller's. Mutates.
+function leaveTask(exp: Expedition, ops: GroundOpsState, ref: GroundTaskRef, t: number): void {
+  const lead = fieldLead(ops, ref.task.id);
+  if (lead) {
+    if (lead.step === "fight") lead.recalled = true;
+    else stopCrew(exp, ops, lead, ref, t);
+    return;
+  }
+  for (const team of ops.teams) if (team.step === "staging" && team.taskId === ref.task.id) toIdle(ops, team, t);
+}
+
+// Stop `lead`'s crew at `t` (its drop or its work): the task keeps the progress interpolated along the work step
+// (nothing banked: the segment is unfinished, so nothing of it is ever paid), and every crew team takes its
+// ordinary return trip (a joint crew's partners straight to their bay, the lead offloading anything already
+// banked). The closed step is recorded `stopped`. Mutates.
+function stopCrew(exp: Expedition, ops: GroundOpsState, lead: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  const crew = crewOf(ops, lead);
+  if (lead.step === "work" && lead.workFrom !== undefined && lead.workTo !== undefined && lead.stepEndsAt !== null) {
+    const span = lead.stepEndsAt - lead.stepStartedAt;
+    const f = span > 0 ? Math.max(0, Math.min(1, (t - lead.stepStartedAt) / span)) : 0;
+    ref.task.progress = lead.workFrom + (lead.workTo - lead.workFrom) * f;
+  }
+  delete lead.workFrom;
+  delete lead.workTo;
+  delete lead.ambushed;
+  returnCrew(exp, ops, lead, crew, ref, t, [], { stopped: true });
+}
+
+// AUTO-ASSIGN RANDOMLY (the user's words): `refs` go to the deployed teams uniformly at random, on
+// makeRng(seed ^ AUTO_ASSIGN_SALT ^ imul(editCount + 1, golden)) (so the same edit count draws the same plan and
+// the next one draws afresh). A fixed draw layout per task: one draw picks the next task among those left (the
+// "drawn order" they are appended in), one picks its crew among the SMALLEST covering crews (Squads SQ-3). A task
+// nobody deployed covers is skipped with the plan's log line (no draw for its crew). Mutates.
+function autoAssignTasks(exp: Expedition, ops: GroundOpsState, refs: readonly GroundTaskRef[], t: number): void {
+  const rng = makeRng((exp.seed ^ AUTO_ASSIGN_SALT ^ Math.imul(ops.editCount + 1, 0x9e3779b9)) >>> 0);
+  const left = [...refs];
+  const deployed = crewSquadsOf(ops.teams);
+  while (left.length > 0) {
+    const ref = left.splice(rng.nextInt(left.length), 1)[0];
+    const crews = coveringCrews(ops, ref.task);
+    if (crews.length === 0) {
+      ref.task.status = "skipped";
+      pushLog(ops, { at: t, kind: "skippedNeedsSquads", taskId: ref.task.id, needs: taskNeedsOf(ref.task), deployed: { ...deployed } });
+      continue;
+    }
+    const crew = crews[rng.nextInt(crews.length)];
+    for (const team of crew) team.queue = [...team.queue, ref.task.id];
+    ref.task.assignedTeamIds = crew.map((team) => team.index);
+  }
 }
 
 // ===== Readers (display + the UI flag) =====

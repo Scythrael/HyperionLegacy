@@ -99,6 +99,8 @@ export { MIN_SCIENCE_MEMBERS, MIN_SECURITY_MEMBERS };
 // imports this module: the scan side reaches it through GROUND_OPS_SCAN_DRIVER below.
 import {
   advanceGroundOpsWindow,
+  applyGroundOpsEdit,
+  checkGroundOpsEdit,
   cloneGroundOps,
   crewSquadsOf,
   groundCrewClearOdds,
@@ -112,6 +114,8 @@ import {
   scanClockToTime,
   snapshotAwayRosterForTeams,
   snapshotGroundOps,
+  type GroundOpsEdit,
+  type GroundOpsEditCheck,
   type GroundOpsScanDriver,
 } from "./groundOps";
 // E-CREW (Task 16): the claim turns the run's downed members into injuries (pure; imports model types,
@@ -2050,6 +2054,49 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
     findings: exp.findings,
     injuries,
   };
+}
+
+// ============================================================================
+// Ground Operations GO-7d: live queue edits ("apply from now")
+// ============================================================================
+//
+// The player edits a running operation's queues (groundOps.ts GroundOpsEdit; the GO-13 queue screen's handler
+// calls editGroundOps). Order: (1) ADVANCE the run to state.gameTimeSeconds (advanceExpedition: everything up to
+// now has happened), (2) validate (groundOps.ts checkGroundOpsEdit), (3) apply at now, count the edit
+// (editCount += 1) and let idle teams pick their next work at now (groundOps.ts applyGroundOpsEdit), (4) settle
+// the phase latches at now (an edit that closes the window moves the run on to its return leg). Pure: a
+// refusal returns the SAME state reference; the stored expedition is never mutated. Allowed while the
+// operations window is open (scanning or activities; the queues of the bodies scanned so far) and during the
+// transit (only the help toggle has anything to change then); refused once the window has closed.
+
+// The run advanced to now, ready for an edit, or the reason it cannot be edited. Pure.
+function groundOpsEditTarget(
+  state: GameState,
+  expeditionId: string,
+): { ok: true; exp: Expedition; index: number } | { ok: false; reason: "noExpedition" | "notGroundOps" | "runFinished" } {
+  const index = state.expeditions.findIndex((e) => e.id === expeditionId);
+  if (index < 0) return { ok: false, reason: "noExpedition" };
+  const stored = state.expeditions[index];
+  if (!stored.groundOps) return { ok: false, reason: "notGroundOps" };
+  const exp = advanceExpedition(stored, state.gameTimeSeconds);
+  if (exp === stored) return { ok: false, reason: "runFinished" }; // only a complete run comes back unchanged
+  return { ok: true, exp, index };
+}
+
+// Can `edit` be applied to expedition `expeditionId` now? (Advances a copy to now to read it.) Pure.
+export function canEditGroundOps(state: GameState, expeditionId: string, edit: GroundOpsEdit): GroundOpsEditCheck {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok) return target;
+  return checkGroundOpsEdit(target.exp, edit);
+}
+
+// Apply `edit` to expedition `expeditionId` now (see the block above). Pure: the SAME state on a refusal.
+export function editGroundOps(state: GameState, expeditionId: string, edit: GroundOpsEdit): GameState {
+  const target = groundOpsEditTarget(state, expeditionId);
+  if (!target.ok) return state;
+  if (!applyGroundOpsEdit(target.exp, edit, state.gameTimeSeconds).ok) return state;
+  const settled = advanceExpedition(target.exp, state.gameTimeSeconds);
+  return { ...state, expeditions: state.expeditions.map((e, i) => (i === target.index ? settled : e)) };
 }
 
 // ============================================================================

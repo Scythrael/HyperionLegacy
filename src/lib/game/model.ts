@@ -7242,6 +7242,10 @@ export interface GroundTeamRun {
   // Squads SQ-3: a joint crew's PARTNER on its way back: the lead offloads once for the whole crew, so this team
   // goes straight to its own bay (design 3.5). Cleared at idle.
   jointPartner?: true;
+  // GO-7d (live queue edits): the player skipped or reassigned this team's task while it was FIGHTING. The fight
+  // finishes (its result stands), then the crew heads back instead of working on (plan Q14). Set on the crew's
+  // lead; cleared when the fight ends, at idle, or when an edit gives the task back to this crew.
+  recalled?: true;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
@@ -7256,6 +7260,7 @@ export interface GroundStepRecord {
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
   ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated; SQ-4: or fought it)
   surprise?: true; // a fight step that was an ambush met as a surprise fight (Squads SQ-4)
+  stopped?: true; // GO-7d: the player's edit (skip, or a reassign away) ended this trip here; the crew headed back
 }
 
 // GO-7b (user Q1, 2026-10-12): a RECOVERY LEG. A WIPED team cannot leave on its own ("can't leave them to die"):

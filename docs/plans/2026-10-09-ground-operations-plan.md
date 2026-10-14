@@ -1060,6 +1060,75 @@ autoAssign is deterministic for a given editCount and differs for the next; refu
 
 **Acceptance:** gate green. Commit `feat(0.14.0): ground ops live queue edits (Ground Ops GO-7d)`.
 
+**Carry from GO-7d (built 2026-10-13, commit `feat(0.14.0): ground ops live queue edits and skip (Ground Ops GO-7d)`):**
+- **Where it lives.** The pure core is in `groundOps.ts` ("GO-7d: LIVE QUEUE EDITS"): `GroundOpsEdit`,
+  `GroundOpsEditBlockReason`, `GroundOpsEditCheck`, `groundOpsEditBlockText` (exhaustive), `checkGroundOpsEdit(exp,
+  edit)` (pure) and `applyGroundOpsEdit(exp, edit, t)` (mutates the advanced clone only when valid), plus
+  `groundTaskCrews(exp, taskId)` and `AUTO_ASSIGN_SALT` 0x71c3e8a9 (registered in salts.test.ts). The state-level
+  `canEditGroundOps` / `editGroundOps(state, expeditionId, edit)` live in `expedition.ts` (**deviation**: they need
+  `advanceExpedition`, and groundOps.ts never imports expedition.ts). Order: advance the run to
+  `state.gameTimeSeconds`, validate, apply at that instant, `editCount += 1`, `groundOpsAssignIdle(now)` and the
+  window-end check (both only once the window is open), then one more `advanceExpedition(now)` to settle the phase
+  latches (an edit that closes the window moves the run to its return leg). A refusal returns the SAME state; the
+  stored record is never mutated. Allowed in transit (only the help toggle has anything to change), scanning and
+  activities; `runFinished` once the window closed. No App.svelte handler yet (GO-13).
+- **Reasons (replace `notEnoughTeams`, squad-aware):** noExpedition, notGroundOps, runFinished, noSuchTask, taskDone,
+  taskSkipped (assign / skip of a skipped task), notSkipped (requeue of one that is not), noSuchTeam, noSuchBody
+  (Default plan / Auto-assign on an unscanned or missing body), noTasks (no queued task there), notInQueue (reorder),
+  **notEnoughSquads** (the deployed squads summed cannot cover the task: e.g. re-queueing a task the plan skipped for
+  squads), **crewDoesNotCover** (the named crew does not cover the needs: the SQ-3 review's "an edited joint crew
+  must still cover, else it stages forever"), noChange (an edge reorder, the help toggle at its value, an assign that
+  moves nothing).
+- **Squad crews (deviation: optional `partners?: number[]` on assign and requeue).** The crew = `teamIndex` +
+  `partners` (repeats dropped), written whole into `assignedTeamIds` (the joint flag, SQ-3 note). A team that cannot
+  cover a task alone is refused (`crewDoesNotCover`) unless partners make up the squads, so on Strike + Survey every
+  `{ 1, 1 }` task needs `partners`; a crew LARGER than needed is allowed (both teams on a hard solo task: a joint
+  task). `groundTaskCrews` = the smallest covering crews (GO-13's choices; "Needs a partner" when none is a single
+  team). Partners get the task appended (kept where they had it); every other queue drops it.
+- **Edits.** `assign` (position = an index among the team's REMAINING tasks, default the end); `reorder` (one place
+  among the REMAINING tasks: done ones keep their places; never interrupts); `skip` (every queue drops it; status
+  skipped; progress, points and banked segments kept); `requeue` (status queued, crew and position rules as assign,
+  **its loss streak and sentBack reset** [PROVISIONAL]: a deliberate new try); `defaultPlan` / `autoAssign` over the
+  body's **QUEUED** tasks only (active ones untouched; a player-skipped task stays skipped [PROVISIONAL]):
+  `planTasksForTeams(exp, refs, now)` (logs its skips), or the Auto-assign stream `makeRng(seed ^ AUTO_ASSIGN_SALT ^
+  imul(editCount + 1, 0x9e3779b9))` with a fixed layout per task (one draw picks the next task among those left, the
+  drawn order; one picks its crew uniformly among the SMALLEST covering crews; a task nobody covers is skipped with
+  the plan's log line); `setHelp` (the run team's flag; a helper already on a borrowed task finishes it
+  [PROVISIONAL]).
+- **An active task (Q14) [PROVISIONAL].** A skip, or an assign / requeue whose crew differs from the crew in the
+  field: during the DROP or the WORK the crew stops at the edit instant (progress = the value interpolated along the
+  work step, nothing banked, so the cut segment is never paid), every crew team takes its ordinary return trip (joint
+  partners straight to their bay, the lead offloading what was already banked), the closed step is recorded
+  `stopped: true` (new optional `GroundStepRecord.stopped`). During a FIGHT the edit waits: the lead gets new
+  `GroundTeamRun.recalled` (cleared at the fight's end, at idle, or when an edit gives the task back to that crew),
+  the fight's result stands (a win clears its point), then the crew heads back (the fight record `stopped`); the
+  task stays skipped, or turns queued for its new crew at the fight's end (it stays `active` meanwhile so two crews
+  never share it). A task only STAGED releases its staging teams to idle. An assign that keeps the crew never
+  interrupts (a helper on it carries on); an assign that names the crew already in the field (a helper made the
+  owner, or a recalled crew given its task back) clears `borrowed` / `recalled` and carries on.
+- **The escape hatch (user: retry forever, skip by hand).** Skipping every stuck task leaves no remaining task, so
+  `groundOpsStuck` reads false and the window closes as the teams settle (tested on the GO-7b all-unwinnable run:
+  it closes, comes home, claims). The GO-7b review staging gate is lifted ENGINE-side, but a player still has no
+  button until GO-13's handler (or a dev hook) lands.
+- **For GO-13:** `canEditGroundOps` advances a COPY of the run to now on every call (one `advanceExpedition`), so
+  call it on Apply (or once per tick per run), not per rendered button. The handler is `doEditGroundOps(expeditionId,
+  edit)` -> `editGroundOps` with the same-ref guard; texts from `groundOpsEditBlockText`; the "Assigned" choices from
+  `groundTaskCrews`; a skipped task's Re-queue offers the same crews.
+- Tests: new `groundOpsEdits.test.ts` (25): every refusal same-ref with its reason and plain text; an edit advances
+  to now first and touches nothing else; skip during work (interpolated progress, no partial haul, return now,
+  `stopped`), during the drop, during a fight (waits, result stands), skipped mid-fight then re-queued to the same crew
+  (carries on as if untouched); requeue resumes from the kept progress with each segment paid once; reorder (never
+  interrupts); assign at a position; assign AWAY an active task (stops, the new team finishes it); Auto-assign
+  deterministic per editCount and different for the next; Default plan == planTasksForTeams (and its skip log, then
+  `notEnoughSquads` on a requeue); the help toggle borrows at once; a stuck all-hard run finished by skipping; Strike +
+  Survey: a reassignment that breaks coverage refused, partners accepted, skipping the active joint task mid-work
+  (both teams back, the partner straight to its bay, the rest finishes), requeue needs the partner; Survey-only /
+  Security-only crews; EDIT PARITY (one call to T + edit + one call to the end deep-equals 997 s chunks) on a one-team
+  run (skip, Auto-assign, reorder, requeue), a Strike + Survey run with helpers (joint skip, Default plan, requeue
+  with the partner, help off) and a REAL dispatched run edited while the ship still scans (plus a transit edit).
+  salts.test.ts lists `AUTO_ASSIGN_SALT`. Suite 4453 -> 4478 passed (1 skipped); `npm run check` 0 errors. Legacy,
+  pre-SQ-4, pre-clearing goldens and every existing parity test unchanged.
+
 ---
 
 ### Stage D: Ship-side scan events
