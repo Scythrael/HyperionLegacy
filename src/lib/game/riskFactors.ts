@@ -243,7 +243,24 @@ export function bodyRiskGrades(
   return out;
 }
 
-// A whole system's risk: the run's profile and every body's grades, body order. Pure.
+// ===== The difficulty tier (objective affixes, AF-1) =====
+
+// The run's DIFFICULTY TIER (user 2026-10-14: "don't forget that we will have additional difficulty tiers on top of
+// this in the future ... build anything that might be needed in the future to implement a difficulty system for
+// this, but we're not focusing on higher difficulty tiers"). Every run is at the BASE tier today; affixes.ts keys its
+// pools by (region tier, difficulty, difficulty tier), so a future tier is new pool data, not new plumbing. The
+// profile's `difficultyTier` is also the AFFIX FLAG: a profile without it (every run dispatched before AF-1) stamps
+// no affix.
+export const BASE_DIFFICULTY_TIER = 1;
+
+// The difficulty tier a risk profile carries, or null (a run dispatched before AF-1: no affixes). Pure.
+export function runDifficultyTier(profile: Pick<ExpeditionRiskProfile, "difficultyTier"> | undefined): number | null {
+  const d = profile?.difficultyTier;
+  return typeof d === "number" && Number.isInteger(d) && d >= BASE_DIFFICULTY_TIER ? d : null;
+}
+
+// A whole system's risk: the run's profile (at the BASE difficulty tier: the affix flag, AF-1) and every body's
+// grades, body order. Pure.
 export function generateRiskProfile(
   seed: number,
   region: ExpeditionRegion,
@@ -251,7 +268,7 @@ export function generateRiskProfile(
 ): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
   const system = systemRiskGrades(seed, region);
   return {
-    profile: { version: 1, tier: region.tier, enemyTerritory: region.enemyTerritory, system },
+    profile: { version: 1, tier: region.tier, enemyTerritory: region.enemyTerritory, system, difficultyTier: BASE_DIFFICULTY_TIER },
     bodies: bodies.map((b, i) => bodyRiskGrades(seed, region, system, i, b)),
   };
 }

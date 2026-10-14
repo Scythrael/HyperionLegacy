@@ -122,6 +122,7 @@ export function groundThreatSampleFights(
   flatIndex: number,
   sample: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
+  alertLevel = 0,
 ): GroundThreatSample {
   const cleared = Math.max(0, task.pointsCleared ?? 0);
   const total = taskFightTotal(task, body);
@@ -139,6 +140,8 @@ export function groundThreatSampleFights(
       { id: task.id, poiId: task.poiId, pointsCleared: j, fightCount: fightCount + (j - cleared) },
       groundThreatSampleSeed(exp, flatIndex, sample, j),
       carry,
+      undefined,
+      alertLevel,
     );
     fights.push(record);
     if (record.outcome !== "win") return { win: false, fights };
@@ -199,7 +202,11 @@ export function groundThreatOddsKey(
   flatIndex: number,
   samples: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
+  alertLevel = 0,
 ): string {
+  // Objective affixes (AF-1): an alerted objective's escalation shapes the read; appended only when present, so
+  // every key without one reads exactly as before.
+  const escalation = alertLevel > 0 ? [alertLevel] : [];
   return JSON.stringify(
     // Squads SQ-4: the body's risk shapes the read, so it is part of the key: its flora the fights (groundFight.ts
     // withFloraToxins), its combat and fauna an unstamped task's fight count (taskFightTotal). Absent risk: "u".
@@ -213,6 +220,7 @@ export function groundThreatOddsKey(
       flatIndex,
       samples,
       carried,
+      ...escalation,
     ],
     keyReplacer,
   );
@@ -229,15 +237,17 @@ function computeClearOdds(
   flatIndex: number,
   n: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
+  alertLevel = 0,
 ): number {
   if (remainingTaskFights(task, body) === 0) return n;
   let wins = 0;
-  for (let s = 0; s < n; s += 1) if (groundThreatSampleFights(exp, teams, body, task, flatIndex, s, carried).win) wins += 1;
+  for (let s = 0; s < n; s += 1) if (groundThreatSampleFights(exp, teams, body, task, flatIndex, s, carried, alertLevel).win) wins += 1;
   return wins;
 }
 
 // How many of `samples` simulated runs of the task's remaining fights clear it in one go. `carried` = the
 // task's current carried state (the last fight's memberEnd in this task; absent = everyone at full HP).
+// `alertLevel` = the objective's alert at the read (objective affixes, AF-1; 0 = none).
 // Memoized on its whole input (see the module header); the result is a fresh object. Pure in effect.
 export function groundTaskClearOdds(
   exp: ThreatExp,
@@ -247,14 +257,15 @@ export function groundTaskClearOdds(
   flatIndex: number,
   samples: number = GROUND_THREAT_SAMPLES,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
+  alertLevel = 0,
 ): { wins: number; samples: number } {
   const n = sampleCount(samples);
-  const key = groundThreatOddsKey(exp, teams, body, task, flatIndex, n, carried);
+  const key = groundThreatOddsKey(exp, teams, body, task, flatIndex, n, carried, alertLevel);
   let wins = oddsMemo.get(key);
   if (wins !== undefined) {
     oddsMemo.delete(key); // refresh its place (least recently used goes first)
   } else {
-    wins = computeClearOdds(exp, teams, body, task, flatIndex, n, carried);
+    wins = computeClearOdds(exp, teams, body, task, flatIndex, n, carried, alertLevel);
     if (oddsMemo.size >= GROUND_THREAT_MEMO_SIZE) {
       const oldest = oddsMemo.keys().next().value;
       if (oldest !== undefined) oddsMemo.delete(oldest);
@@ -278,7 +289,8 @@ export function groundTaskThreat(
   flatIndex: number,
   samples: number = GROUND_THREAT_SAMPLES,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
+  alertLevel = 0,
 ): ThreatAssessment {
-  const odds = groundTaskClearOdds(exp, teams, body, task, flatIndex, samples, carried);
+  const odds = groundTaskClearOdds(exp, teams, body, task, flatIndex, samples, carried, alertLevel);
   return threatAssessment(odds.wins, odds.samples);
 }

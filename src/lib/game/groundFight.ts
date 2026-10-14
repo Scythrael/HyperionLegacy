@@ -55,6 +55,7 @@ import { GROUND_CONDITIONS } from "./medicalBay";
 import { resistedHazard } from "./relics";
 import { teamSnapshotMembers } from "./groundTasks";
 import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
+import { escalationAt } from "./affixes";
 
 // ===== Constants =====
 
@@ -173,13 +174,40 @@ export function withFloraToxins(enemies: GroundCombatant[], flora: number): Grou
   return enemies;
 }
 
+// Objective affixes (AF-1, Reinforcing; user 2026-10-14): an objective on ALERT escalates its fights. Per alert
+// level the guard fields ESCALATION_ENEMIES_PER_LEVEL more enemies (copies of the generated guards in order, so the
+// extra bodies fit the encounter's flavor, each with its own id in its group), and every enemy's damage takes the
+// HEIGHTENED SENSES multiplier (affixes.ts escalationAt: the D23 curve, never capped). No draw here, so the fight's
+// stream reads exactly as it would; level 0 (every fight of a run before AF-1, and any objective without an alert)
+// returns the list untouched. Mutates the fresh guard list it is handed and returns it.
+export function withEscalation(enemies: GroundCombatant[], alertLevel: number): GroundCombatant[] {
+  const { extraEnemies, damageMult } = escalationAt(alertLevel);
+  if (extraEnemies <= 0 || enemies.length === 0) return enemies;
+  const base = enemies.length;
+  const counts = new Map<string, number>();
+  for (const e of enemies) counts.set(e.role, (counts.get(e.role) ?? 0) + 1);
+  for (let k = 0; k < extraEnemies; k += 1) {
+    const copy = structuredClone(enemies[k % base]);
+    const n = (counts.get(copy.role) ?? 0) + 1;
+    counts.set(copy.role, n);
+    copy.id = `enemy-${copy.role}-${n}`;
+    enemies.push(copy);
+  }
+  for (const e of enemies) {
+    e.power *= damageMult;
+    e.threat = e.power;
+  }
+  return enemies;
+}
+
 // ===== The fight =====
 
 // Resolve ONE task fight for `teams` at the task's next fight point (see the module header). `flatIndex` is
 // the task's flat index across the run's bodies (the reward seed's key too). `carried` = the previous fight's
 // memberEnd within this task (absent: everyone starts at full HP). `logSink`, when passed, gets the battle's
 // display-only events appended; it never changes the record. With nobody left to field there is no battle and
-// no draw: a loss of 0 rounds with nothing recorded (GO-7b sends the team home). Pure; mints fresh combatants
+// no draw: a loss of 0 rounds with nothing recorded (GO-7b sends the team home). `alertLevel` = the objective's
+// alert when the fight starts (objective affixes, AF-1: withEscalation; 0 = none). Pure; mints fresh combatants
 // and never mutates its inputs.
 export function resolveTaskFight(
   exp: Expedition,
@@ -189,8 +217,9 @@ export function resolveTaskFight(
   flatIndex: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
+  alertLevel = 0,
 ): GroundFightRecord {
-  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink);
+  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel);
 }
 
 // Every Expedition field a task fight reads once its seed is chosen: the squad (taskFightTeam), the guard's
@@ -213,6 +242,7 @@ export function resolveTaskFightOnSeed(
   seed: number,
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
+  alertLevel = 0,
 ): GroundFightRecord {
   const fightNumber = task.fightCount ?? 0;
   const pointIndex = task.pointsCleared ?? 0;
@@ -220,7 +250,10 @@ export function resolveTaskFightOnSeed(
   if (team.length === 0) {
     return { pointIndex, fightNumber, outcome: "loss", rounds: 0, downedMemberIds: [], memberConditions: {}, memberEnd: {} };
   }
-  const enemies = withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body));
+  const enemies = withEscalation(
+    withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
+    alertLevel,
+  );
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after

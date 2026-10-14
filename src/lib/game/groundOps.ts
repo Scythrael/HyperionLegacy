@@ -104,9 +104,12 @@ import {
   isHostileSiteId,
   riskAmbushChance,
   riskRewardBonus,
+  runDifficultyTier,
   taskDifficultyScore,
   tierNeeds,
 } from "./riskFactors";
+// Objective affixes (AF-1): the stamping roll, the per-landing reinforcements, the alert and its failsafe.
+import { ALERT_RESET_TEXT, alertAfterSetback, alertLevelAt, alertResetsAt, objectiveHeld, rollObjectiveAffixes, rollReinforcements } from "./affixes";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
@@ -332,6 +335,15 @@ export function snapshotAwayRosterForTeams(
 //   the difficulty grade, the ambush chance); flora slows the work (groundTasks.ts) and poisons the fights (groundFight.ts); the difficulty
 //   weights the completion (groundOpsProgress) and raises the haul and the relic find at offload. A run without
 //   risk resolves exactly as stamped before SQ-4.
+//
+// OBJECTIVE AFFIXES (AF-1, user 2026-10-14; affixes.ts): an AFFIX-AWARE run (its risk profile carries
+//   difficultyTier: every run dispatched since AF-1) stamps each objective's affixes with its difficulty score.
+//   REINFORCING: each LANDING may bring 1 to N extra battles (REINFORCEMENT fights at the landing spot: a win
+//   passes no fight point, a loss is an ordinary loss); every lost fight raises the objective's ALERT (more
+//   enemies, Heightened Senses, a higher rating) until it lapses; an alert that pushes the rating to Impossible
+//   HOLDS the objective (no crew starts it; it stays queued) until the reset, an event of the window (the record is
+//   cleared and a log line written at that instant, so idle teams pick it up again). A run without the flag
+//   stamps and resolves exactly as before.
 //
 // DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
 // AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
@@ -640,7 +652,10 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   if (!body) return;
   const risk = body.risk;
   const tier = exp.risk?.tier ?? 1;
-  for (const task of body.activities) {
+  // Objective affixes (AF-1): only an affix-aware run (its profile carries a difficulty tier) stamps them.
+  const difficultyTier = runDifficultyTier(exp.risk);
+  for (let k = 0; k < body.activities.length; k += 1) {
+    const task = body.activities[k];
     if (isGroundTask(task)) continue;
     if (risk) {
       const fights = riskFightPointCount(task.poiId, body.hazard, risk);
@@ -652,7 +667,13 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
       if (fights > 0 && needs.security < 1) needs.security = 1;
       task.needs = needs;
       delete task.requiredTeams;
-      task.difficulty = difficultyGradeOf(taskDifficultyScore({ fightPoints: fights, hazard: body.hazard, needs: raw, combat: risk.combat }));
+      const score = taskDifficultyScore({ fightPoints: fights, hazard: body.hazard, needs: raw, combat: risk.combat });
+      task.difficulty = difficultyGradeOf(score);
+      if (difficultyTier !== null) {
+        task.difficultyScore = score;
+        const affixes = rollObjectiveAffixes({ seed: exp.seed, bodyIndex, taskIndex: k, tier, difficulty: task.difficulty, difficultyTier, combat: fights > 0 });
+        if (affixes.length > 0) task.affixes = affixes;
+      }
     } else {
       task.fightPoints = fightPointFractions(fightPointCount(task.poiId, body.hazard));
       task.needs = stampedNeeds(task, task.fightPoints.length);
@@ -718,6 +739,9 @@ export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundO
       }
       return `Skipped ${name}: needs ${short.join("; ")}`;
     }
+    case "alertReset":
+      // Objective affixes (AF-1): the user's words.
+      return `${name}: ${ALERT_RESET_TEXT}`;
   }
 }
 
@@ -873,9 +897,15 @@ export function advanceGroundOpsWindow(exp: Expedition, now: number, driver: Gro
     // GO-8b: a field repair's end (absent on every run without one, so the order below is GO-7b's exactly).
     const repair = nextRepairEnd(ops);
     const tRepair = repair ? repair.endsAt : null;
-    const t = [tScan, tTeam, tRepair].reduce<number | null>((a, b) => (b === null ? a : a === null ? b : Math.min(a, b)), null);
+    // AF-1: an objective's alert lapsing (null on every run without an alert, so the order below is unchanged).
+    const tAlert = nextAlertReset(exp);
+    const t = [tScan, tTeam, tRepair, tAlert].reduce<number | null>((a, b) => (b === null ? a : a === null ? b : Math.min(a, b)), null);
     if (t === null || t > now + EVENT_EPS) return;
-    if (repair && tRepair === t) {
+    if (tAlert === t) {
+      // At one instant an alert's reset goes first: housekeeping (the pure alert level already reads 0 from this
+      // instant), then idle teams pick the objective up again below.
+      resetAlerts(exp, t);
+    } else if (repair && tRepair === t) {
       // At one instant a repair's end goes first (the ship is whole again before the next scan event can hurt it).
       finishFieldRepair(ops, repair);
     } else if (tScan !== null && (tTeam === null || tScan <= tTeam)) {
@@ -916,8 +946,14 @@ export function groundOpsAssignIdle(exp: Expedition, t: number): void {
     let next: GroundTaskRef | null = null;
     for (const id of team.queue) {
       const ref = findGroundTask(exp, id);
-      // A joint task this team is not assigned to is never staged by it (it could wait forever).
-      if (ref && ref.task.status === "queued" && (!isJointTask(ref.task) || (ref.task.assignedTeamIds ?? []).includes(team.index))) {
+      // A joint task this team is not assigned to is never staged by it (it could wait forever). An objective HELD
+      // by its alert (AF-1's failsafe: Impossible until the alert lapses) is passed over; the team moves on.
+      if (
+        ref &&
+        ref.task.status === "queued" &&
+        (!isJointTask(ref.task) || (ref.task.assignedTeamIds ?? []).includes(team.index)) &&
+        !objectiveHeld(ref.task, t)
+      ) {
         next = ref;
         break;
       }
@@ -936,7 +972,7 @@ export function groundOpsAssignIdle(exp: Expedition, t: number): void {
   }
   for (const team of ops.teams) {
     if (team.step !== "idle" || !team.helpOthers) continue;
-    const ref = borrowableTask(exp, ops, team);
+    const ref = borrowableTask(exp, ops, team, t);
     if (!ref) continue;
     ref.task.status = "active";
     team.taskId = ref.task.id;
@@ -986,7 +1022,8 @@ function stageOn(ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t
 }
 
 // The task a helper borrows (see groundOpsAssignIdle pass 2), or null. Pure (the odds read is memoized).
-function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeamRun): GroundTaskRef | null {
+// AF-1: never a HELD objective, and the floor reads the objective's alert at `t` (its escalated fights).
+function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeamRun, t: number): GroundTaskRef | null {
   const side = [fightTeamOf(ops, helper, true)];
   for (const owner of ops.teams) {
     if (owner === helper) continue;
@@ -994,7 +1031,10 @@ function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeam
       if (helper.skippedBorrowed.includes(id)) continue;
       const ref = findGroundTask(exp, id);
       if (!ref || ref.task.status !== "queued" || isJointTask(ref.task) || !teamCovers(helper, ref.task)) continue;
-      if (tierAtLeast(groundTaskThreat(exp, side, ref.body, ref.task, ref.flatIndex).tier, HELPER_MIN_TIER)) return ref;
+      if (objectiveHeld(ref.task, t)) continue;
+      const alert = alertLevelAt(ref.task, t);
+      const threat = groundTaskThreat(exp, side, ref.body, ref.task, ref.flatIndex, undefined, undefined, alert);
+      if (tierAtLeast(threat.tier, HELPER_MIN_TIER)) return ref;
     }
   }
   return null;
@@ -1032,6 +1072,39 @@ function checkRunEnd(exp: Expedition, t: number): void {
   // GO-8b: the ship heads home only once its field repair is done.
   if (nextRepairEnd(ops)) return;
   ops.endedAt = t;
+}
+
+// ===== Objective affixes (AF-1): the alert's reset event =====
+
+// The earliest instant a stored alert lapses (affixes.ts alertResetsAt), over EVERY task of the run whatever its
+// status (so a stored alert can never outlive its reset and fire in the past), or null. Pure.
+function nextAlertReset(exp: Expedition): number | null {
+  let best: number | null = null;
+  for (const body of exp.bodies) {
+    for (const task of body.activities) {
+      if (!task.alert) continue;
+      const at = alertResetsAt(task);
+      if (at === null) continue;
+      if (best === null || at < best) best = at;
+    }
+  }
+  return best;
+}
+
+// Every alert that lapses at or before `t` is cleared ("the threat appears to have retreated", user); a log line
+// for a task still to do. The objective is back to normal and workable (the window's assignment then runs at `t`).
+// Mutates the working clone.
+function resetAlerts(exp: Expedition, t: number): void {
+  const ops = exp.groundOps as GroundOpsState;
+  for (const body of exp.bodies) {
+    for (const task of body.activities) {
+      if (!task.alert) continue;
+      const at = alertResetsAt(task);
+      if (at !== null && at > t) continue;
+      delete task.alert;
+      if (task.status === "queued" || task.status === "active") pushLog(ops, { at: t, kind: "alertReset", taskId: task.id });
+    }
+  }
 }
 
 // ===== The team step machine =====
@@ -1079,7 +1152,7 @@ function endStep(exp: Expedition, team: GroundTeamRun, t: number, driver: Ground
   const ref = team.taskId === undefined ? null : findGroundTask(exp, team.taskId);
   switch (team.step) {
     case "deploy":
-      return ref ? beginOnTask(exp, ops, team, ref, t) : toIdle(ops, team, t);
+      return ref ? landOnTask(exp, ops, team, ref, t) : toIdle(ops, team, t);
     case "work":
       return ref ? finishWork(exp, ops, team, ref, t) : toIdle(ops, team, t);
     case "fight":
@@ -1099,13 +1172,33 @@ function endStep(exp: Expedition, team: GroundTeamRun, t: number, driver: Ground
   }
 }
 
-// On the task at `t` (after the drop): a fight waits at the held progress (a retry resumes AT the point that
-// beat the team), else work to the next point or 100%.
-function beginOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+// The crew LANDS on the task at `t` (the drop ended). Objective affixes (AF-1, Reinforcing): an objective whose
+// affixes bring reinforcements rolls this landing's EXTRA BATTLES (affixes.ts rollReinforcements on its keyed
+// stream, the objective's `visits` the key); they are fought first, back to back where the crew landed
+// [PROVISIONAL placement], each a REINFORCEMENT fight (a win passes no fight point; a loss is an ordinary loss),
+// then the visit goes on (beginOnTask). Any other task: beginOnTask at once (no draw, no visit counted).
+function landOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
+  const task = ref.task;
+  if (task.affixes && task.affixes.length > 0 && (task.fightPoints?.length ?? 0) > 0) {
+    const visit = task.visits ?? 0;
+    const battles = rollReinforcements(exp.seed, ref.flatIndex, visit, task.affixes);
+    task.visits = visit + 1;
+    if (battles > 0) {
+      if (battles > 1) team.reinforcements = battles - 1;
+      return startFight(exp, ops, team, ref, t, {}, "reinforcement");
+    }
+  }
+  beginOnTask(exp, ops, team, ref, t);
+}
+
+// On the task at `t` (after the drop, or after this landing's extra battles): a fight waits at the held progress
+// (a retry resumes AT the point that beat the team), else work to the next point or 100%. `rec` adds to the closed
+// step's record.
+function beginOnTask(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number, rec: Partial<GroundStepRecord> = {}): void {
   const points = ref.task.fightPoints ?? [];
   const cleared = ref.task.pointsCleared ?? 0;
-  if (cleared < points.length && (ref.task.progress ?? 0) >= points[cleared]) return startFight(exp, ops, team, ref, t);
-  startWork(exp, ops, team, ref, t);
+  if (cleared < points.length && (ref.task.progress ?? 0) >= points[cleared]) return startFight(exp, ops, team, ref, t, rec);
+  startWork(exp, ops, team, ref, t, rec);
 }
 
 // Work from the task's progress to its next fight point (or 100%): (to - from) of the task's full work time
@@ -1203,7 +1296,7 @@ function surpriseFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
   delete team.workFrom;
   delete team.workTo;
   delete team.ambushed;
-  startFight(exp, ops, team, ref, t, { ambushed: true }, true);
+  startFight(exp, ops, team, ref, t, { ambushed: true }, "surprise");
 }
 
 // THE SURVEY RETREAT (user #5): an ambush struck a crew with no Security squad. It never fights: the progress up
@@ -1233,7 +1326,8 @@ function ambushRetreat(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
 
 // A fight starts: resolved now on its keyed stream, with the crew's carry (user Q5); applied at its end. A
 // joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order). `rec` adds
-// to the closed step's record; `surprise` marks an ambush met as a fight (Squads SQ-4).
+// to the closed step's record; `kind` marks an ambush met as a fight (Squads SQ-4) or a Reinforcing extra battle
+// (AF-1). The objective's ALERT at `t` escalates the fight (AF-1: groundFight.ts withEscalation; 0 = none).
 function startFight(
   exp: Expedition,
   ops: GroundOpsState,
@@ -1241,11 +1335,13 @@ function startFight(
   ref: GroundTaskRef,
   t: number,
   rec: Partial<GroundStepRecord> = {},
-  surprise = false,
+  kind?: "surprise" | "reinforcement",
 ): void {
   const crew = crewOf(ops, team);
-  const record = resolveTaskFight(exp, crew.map((member) => fightTeamOf(ops, member)), ref.body, ref.task, ref.flatIndex, crewCarry(crew));
-  if (surprise) record.surprise = true;
+  const alert = alertLevelAt(ref.task, t);
+  const record = resolveTaskFight(exp, crew.map((member) => fightTeamOf(ops, member)), ref.body, ref.task, ref.flatIndex, crewCarry(crew), undefined, alert);
+  if (kind === "surprise") record.surprise = true;
+  if (kind === "reinforcement") record.reinforcement = true;
   ref.task.fightCount = (ref.task.fightCount ?? 0) + 1;
   team.pendingFight = record;
   moveTo(ops, team, "fight", t, t + taskFightSeconds(record), rec);
@@ -1288,10 +1384,14 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     if (!owner.downedThisTask.includes(id)) owner.downedThisTask.push(id);
   }
   const task = ref.task;
-  const surprise: Partial<GroundStepRecord> = record.surprise ? { surprise: true } : {};
+  const surprise: Partial<GroundStepRecord> = {
+    ...(record.surprise ? { surprise: true as const } : {}),
+    ...(record.reinforcement ? { reinforcement: true as const } : {}),
+  };
   if (record.outcome === "win") {
-    // A SURPRISE fight won (Squads SQ-4) passes no fight point: the work goes on from where the ambush struck.
-    if (!record.surprise) {
+    // A SURPRISE fight won (Squads SQ-4) passes no fight point: the work goes on from where the ambush struck. A
+    // REINFORCEMENT fight won (AF-1) passes none either: the landing goes on.
+    if (!record.surprise && !record.reinforcement) {
       task.pointsCleared = (task.pointsCleared ?? 0) + 1;
       delete task.lossStreak;
       delete task.sentBack;
@@ -1306,12 +1406,29 @@ function finishFight(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, 
     }
     if (recalled) {
       // GO-7d: no more work on this trip. A skipped task stays skipped; a reassigned one is free for its new crew.
+      delete team.reinforcements;
       if (task.status !== "skipped") task.status = "queued";
       return returnCrew(exp, ops, team, crew, ref, t, [], { outcome: "win", ...surprise, stopped: true });
+    }
+    if (record.reinforcement) {
+      // AF-1: the next of this landing's extra battles, else the visit goes on where the crew landed.
+      const left = team.reinforcements ?? 0;
+      if (left > 0) {
+        if (left > 1) team.reinforcements = left - 1;
+        else delete team.reinforcements;
+        return startFight(exp, ops, team, ref, t, { outcome: "win", ...surprise }, "reinforcement");
+      }
+      return beginOnTask(exp, ops, team, ref, t, { outcome: "win", ...surprise });
     }
     return startWork(exp, ops, team, ref, t, { outcome: "win", ...surprise });
   }
   for (const member of crew) delete member.carry;
+  delete team.reinforcements;
+  // AF-1 (Reinforcing): every retreat or wipe here raises the objective's alert (affixes.ts alertAfterSetback; a
+  // task whose affixes raise none is untouched). Whoever lost it (owner, helper, a recalled crew): the enemy saw
+  // a crew beaten off either way.
+  const alert = alertAfterSetback(task, t);
+  if (alert) task.alert = alert;
   // A task the player skipped during the fight (GO-7d) stays skipped; any other loss puts it back in the queue.
   task.status = task.status === "skipped" ? "skipped" : "queued";
   if (team.borrowed) {
@@ -1520,6 +1637,7 @@ function toIdle(ops: GroundOpsState, team: GroundTeamRun, t: number, rec: Partia
   delete team.ambushed;
   delete team.jointPartner;
   delete team.recalled;
+  delete team.reinforcements;
 }
 
 // ============================================================================
@@ -1641,6 +1759,33 @@ export function groundTaskCrews(exp: Pick<Expedition, "groundOps" | "bodies">, t
   const ref = findGroundTask(exp, taskId);
   if (!ops || !ref) return [];
   return coveringCrews(ops, ref.task).map((crew) => crew.map((team) => team.index));
+}
+
+// AF-1, LARGER JOINT CREWS (user 2026-10-14: "Let's allow this. It will allow players to be able to get a foothold
+// into harder content if they want. They'd sacrifice speed from only having one team that can do it"): every crew
+// the player can pick for task `taskId`, the smallest covering crews first (groundTaskCrews, `larger: false`), then
+// every LARGER set of deployed teams that also covers it (`larger: true`; e.g. both Ground teams on one hard
+// objective), by size, then team order. THE TRADE-OFF: a larger crew pools its squads (every Security squad on one
+// fight side, every Science squad's fieldwork summed) but works ONE objective at a time as a joint crew, so the
+// ship works fewer objectives at once: better odds on the hard one, a slower run overall (the same machinery as
+// any joint task; the edits accept such a crew through `partners`). The plan and Auto-assign never pick a larger
+// crew; it is the player's choice. Pure.
+export function groundTaskCrewOptions(exp: Pick<Expedition, "groundOps" | "bodies">, taskId: string): { teams: number[]; larger: boolean }[] {
+  const ops = exp.groundOps;
+  const ref = findGroundTask(exp, taskId);
+  if (!ops || !ref) return [];
+  const smallest = coveringCrews(ops, ref.task);
+  if (smallest.length === 0) return [];
+  const out = smallest.map((crew) => ({ teams: crew.map((team) => team.index), larger: false }));
+  const needs = taskNeedsOf(ref.task);
+  const n = ops.teams.length;
+  for (let size = smallest[0].length + 1; size <= n; size += 1) {
+    for (let mask = 1; mask < 1 << n; mask += 1) {
+      const crew = ops.teams.filter((_, i) => (mask & (1 << i)) !== 0);
+      if (crew.length === size && squadsCover(crewSquadsOf(crew), needs)) out.push({ teams: crew.map((team) => team.index), larger: true });
+    }
+  }
+  return out;
 }
 
 // Is the task still to do (queued or active)? Pure.

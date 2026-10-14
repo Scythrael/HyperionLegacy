@@ -103,3 +103,102 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   each stack worth a bit less). Both clear when the alert resets ("the threat appears to have retreated"). This
   replaces section 4's generic "enemy strength up".
 - Other affixes keep only a few ranks (user: "for balancing reasons").
+
+## Carry from AF-1 (built 2026-10-14, commits `test(0.14.0): pre-affix golden hashes before the change (AF-1 step 1)` and `feat(0.14.0): objective affixes with Reinforcing, larger joint crews (AF-1)`)
+
+- **The flag.** `ExpeditionRiskProfile.difficultyTier?` (riskFactors.ts `BASE_DIFFICULTY_TIER` 1, written by
+  `generateRiskProfile`, so every run dispatched from now on, the telescope preview and the forecast all carry it).
+  Its PRESENCE makes a run affix-aware (`runDifficultyTier`); a run dispatched before AF-1 has none and stamps,
+  plans and resolves exactly as before: `groundOpsAffixes.test.ts` pins five dispatches (Tier I; forced Tier III;
+  Tier IV enemy territory on Ground + Ground and on Strike + Survey; a weak crew at Tier VI enemy territory) with
+  the flag stripped (new fixture `withoutAffixes`) against hashes captured BEFORE the change (five checkpoints, the
+  phase at 2,000,000 s, the claim). The clearing goldens' `withoutClearing` now strips it too (a run before the
+  follow-up never had affixes). Legacy, pre-SQ-4, pre-clearing goldens and every existing parity test unchanged.
+  No SAVE bump (optional fields).
+- **`affixes.ts`** (new, pure; imports model types, combat/rng, diminishing, riskFactors; imported by groundOps.ts
+  and groundFight.ts). `AffixDef` = { id, name, **maxRank (per affix)**, alignments, appliesTo
+  (`combatObjective` / `calmObjective`), minTier, minDifficulty, requiredFromDifficulty?, rollWeight,
+  tooltip(instance), help, hooks }. Hooks are DATA per rank (`extraBattleChanceByRank`, `maxExtraBattlesByRank`,
+  `alertResetSecondsByRank`) read through `extraBattleChance` (independent chances combined), `maxExtraBattles`,
+  `alertResetSeconds`, `raisesAlert`, so a new affix plugs in by data. Instance (model.ts `ObjectiveAffix`) = { id,
+  rank, alignment }. Alignment colors `affixColorClass`: positive green, neutral yellow, negative red; `affixLabel`
+  ("Reinforcing III"), `affixPill` (label, color, alignment name, tooltip), `validAffixes` (drops malformed ones).
+- **Pools keyed by (region tier, difficulty, difficulty tier)** (`affixPool`): required affixes (Reinforcing from
+  Deadly on combat objectives), rollable entries (never a required one), the roll chance
+  `AFFIX_ROLL_CHANCE_BY_DIFFICULTY` [0.5%, 1%, 2%, 4%, 6%] x `AFFIX_ROLL_TIER_MULT` (I 0.25 .. VII 2) x
+  `difficultyTierRollMult` (the future-tiers hook: base 1, any other tier reads as base; nothing else built),
+  `AFFIX_RANK_WEIGHTS_BY_TIER` (Tier I rank I only, II up to II, III up to III, ranks IV+ only from Tier IV and
+  rare) and `AFFIX_RANK_CAP_BY_DIFFICULTY` [1, 2, 3, 5, 10] (high ranks need hard objectives), all [PROVISIONAL].
+  `AFFIX_MAX_ROLLED` 1.
+- **Stamping** (groundOps.ts `initGroundTasks`, risk-aware branch, affix-aware runs only): `difficultyScore` stored
+  beside the grade; `affixes` (when any) from `rollObjectiveAffixes` on new salt `AFFIX_ROLL_SALT` 0x6b8d2f4b keyed
+  by (body index, the objective's index on its body). Fixed draw layout: whether a rolled affix comes, which one,
+  then per catalog affix its rank and alignment (append new affixes at the END of `AFFIX_ORDER`).
+- **REINFORCING (always negative; required on Deadly combat objectives; rare otherwise).** `REINFORCING_RANKS`, ONE
+  table [PROVISIONAL except the user's I / II / III / X numbers]:
+
+  | Rank | I | II | III | IV | V | VI | VII | VIII | IX | X |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | Chance per landing | 25% | 35% | 40% | 42% | 44% | 46% | 47% | 48% | 49% | 50% |
+  | Max extra battles | 1 | 1 | 2 | 2 | 3 | 3 | 4 | 4 | 5 | 5 |
+  | Alert reset | 30m | 40m | 50m | 1h | 1h 10m | 1h 20m | 1h 30m | 1h 40m | 1h 50m | 2h |
+
+  - **Extra battles per LANDING** (`landOnTask` at a deploy's end): `rollReinforcements` on new salt
+    `REINFORCEMENT_SALT` 0x1f4e9a73 keyed by (flat index, the objective's `visits`): draw 1 whether (next() <
+    chance), draw 2 how many (1 + nextInt(max), uniform [PROVISIONAL]). They are fought FIRST, back to back where
+    the crew landed [PROVISIONAL placement], as REINFORCEMENT fights (`GroundFightRecord.reinforcement`,
+    `GroundStepRecord.reinforcement`; the remaining count on `GroundTeamRun.reinforcements`): a win passes no fight
+    point (carry damage threads through), a loss is an ordinary loss (loss streak, back of the line, a wipe waits
+    for the ship). Then the visit goes on (a fight point at the held progress, else work).
+  - **The ALERT** (`ExpeditionActivity.alert` = { level, lastAt }): every LOST fight on the objective (owner, helper
+    or a recalled crew alike: the enemy beat a crew off) sets level = (level at that instant) + 1, clock restarted.
+    It lapses at lastAt + the rank's reset (`alertLevelAt` is a pure function of the record and the time, so offline
+    == live). **Escalation** (replaces the generic "strength up", user section 5): per level each fight fields
+    `ESCALATION_ENEMIES_PER_LEVEL` 1 more enemy (copies of the generated guards in order, own ids) and every enemy's
+    damage takes **Heightened Senses** = 1 + D23 `diminishing(0.2 x level, knee 1)` (+18%, +34%, +48%, ... never
+    capped) [PROVISIONAL] (groundFight.ts `withEscalation`, no draw; the level is read at the fight's START).
+    **Deviation:** Heightened Senses is a damage multiplier on the guards, not a battle status, so the battle log
+    does not name it. The helper floor reads the escalated odds; the default plan reads fresh odds.
+  - **The rating** (`objectiveDifficultyAt`): stored score + `ALERT_DIFFICULTY_PER_LEVEL` 1 per level, graded as at
+    stamping; an ALERTED objective at `IMPOSSIBLE_DIFFICULTY_SCORE` 11 or more reads grade 6 "Impossible"
+    [PROVISIONAL]: a score 8 Deadly objective after 3 setbacks, score 9 after 2, score 10+ after 1. Never Impossible
+    without an alert (a site scored 12 on its own would otherwise wait forever). Rewards and completion weights keep
+    reading the STORED grade (no farming the bonus by losing on purpose).
+  - **THE FAILSAFE**: an objective whose alert makes it Impossible is HELD (`objectiveHeld`): no crew starts it and
+    no helper borrows it, it stays `queued` (not skipped), and the team moves on down its queue (or idles). The UI
+    countdown is `objectiveHeldUntil(task, now)` (= `alertResetsAt`). The reset is a WINDOW EVENT (`nextAlertReset`
+    over every task, whatever its status, so a stored alert can never outlive its reset; at one instant it goes
+    first): the record is cleared, a log line `alertReset` ("Derelict Outpost: the threat appears to have
+    retreated", `ALERT_RESET_TEXT`, the user's words) is written for a task still to do, and idle teams pick it up
+    again at that instant. The window cannot close while it waits (it is still queued).
+  - **Interpretation (for the user):** at the reset the ALERT clears and the objective returns to normal; the
+    Reinforcing affix itself stays on it (it is the objective's nature: the per-landing extra battles go on).
+  - Stuck predicates are unchanged (`groundTaskStuck` reads the loss streak / sent back): a held objective with 3
+    losses in a row also reads Stuck; one held after fewer setbacks reads held, not stuck, and resumes on its own.
+- **LARGER JOINT CREWS (user section 1).** New groundOps.ts `groundTaskCrewOptions(exp, taskId)`: the smallest
+  covering crews first (`larger: false`, the same lists as `groundTaskCrews`), then every LARGER covering set of
+  deployed teams (`larger: true`; e.g. Alpha + Bravo on one hard objective on a Ground + Ground ship), by size, then
+  team order. `groundTaskCrews` is unchanged (GO-13's select and Auto-assign still read it), so switching the select
+  to the new reader is a UI step. The trade-off (documented at the function): the crew pools every Security squad
+  into one fight side and sums every Science squad's fieldwork, but works ONE objective at a time as a joint crew,
+  so the ship works fewer objectives at once (better odds on the hard one, a slower run). The edits already accept
+  such a crew through `partners`; the plan and Auto-assign never pick one.
+- **Not built (per the brief):** Rocky Outcroppings (needs a ground weapon range attribute), the "objectives" text
+  rename, any UI (pills, the Impossible countdown, the reinforcement fight in the timeline, the larger crews in the
+  select). For the UI: a reinforcement fight's record carries the task's `pointIndex` like any fight, so GO-14's
+  "wiped here" pip logic should skip records marked `reinforcement`.
+- Tests: new `affixes.test.ts` (15: the catalog and the rank table, colors / labels / pill / text rules,
+  validAffixes, pools and the difficulty-tier key, the flag, stamping determinism / Deadly required / calm never /
+  rank gates / rarity, the reinforcement roll rates and counts, the alert's raise and lapse, escalation on the D23
+  curve, the rating and the failsafe), `groundOpsAffixes.test.ts` (5 pre-AF-1 goldens + 13: stamping on a real
+  Tier IV dispatch and the gate, extra battles at a landing and no roll without the hook, withEscalation, the alert
+  raise and the escalated retry fight, the threat key, the failsafe end to end (held with a countdown, the calm
+  objective done meanwhile, the log line, the retry at the reset), no helper borrows a held objective, parity one
+  call == 997 s == 1 s over 3 h with extra battles, an Impossible hold and its reset, a real Tier VI weak-crew
+  dispatch big == 997 s, the crew options on Ground + Ground and Strike + Survey, a larger crew end to end);
+  salts.test.ts registers affixes.ts. Suite 4606 -> 4639 passed (1 skipped); `npm run check` 0 errors.
+- **Observed (20 seeds per tier, a rank 5 Ground + Ground crew):** Deadly objectives (so Reinforcing) are 3% of
+  Tier I objectives, 24% at Tier III, 41% at Tier IV enemy territory, 54% at Tier VI enemy territory; rolled
+  Reinforcing on easier objectives about 3% at Tier III. Every Tier III+ run finished; two Tier I runs held a Deadly
+  objective their crew could not beat and kept retrying after each reset (the existing "retry forever, skip by
+  hand" rule).

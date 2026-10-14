@@ -6635,6 +6635,40 @@ export interface ExpeditionActivity {
   completedAt?: number;
   lossStreak?: number;
   sentBack?: number;
+  // Objective affixes (AF-1, user 2026-10-14; affixes.ts). Stamped only on an AFFIX-AWARE run (its risk profile
+  // carries `difficultyTier`, every run dispatched since AF-1), all optional and absent on every other task:
+  //   affixes         : the affixes the objective rolled (or was required to carry) when it was stamped; absent
+  //                     when it has none. Fixed for the run.
+  //   difficultyScore : the difficulty SCORE its grade was rated from (riskFactors.ts taskDifficultyScore), so an
+  //                     ALERT can raise the rating (affixes.ts objectiveDifficultyAt) without re-deriving it.
+  //   alert           : the objective's current ALERT (Reinforcing: every retreat or wipe here raises it), stored
+  //                     at the setback; it lapses on its own once the reset time passes (a pure function of these
+  //                     values and the time) and the record is cleared at that instant. Absent = no alert.
+  //   visits          : crews landed on it so far (keys the per-visit extra-battle roll); absent = 0.
+  affixes?: ObjectiveAffix[];
+  difficultyScore?: number;
+  alert?: ObjectiveAlert;
+  visits?: number;
+}
+
+// Objective affixes (AF-1, user 2026-10-14: "Affixes ... a new system that we should honestly make use of
+// elsewhere in the project too"). The definitions live in affixes.ts; the stored shapes live here so model.ts
+// never imports an engine module.
+export type AffixId = "reinforcing";
+// An affix rolls exactly ONE alignment (user: "Some can roll into more than one, but only one at a time"):
+// positive (good for the player, green), neutral (both sides, yellow) or negative (bad for the player, red).
+export type AffixAlignment = "positive" | "neutral" | "negative";
+export interface ObjectiveAffix {
+  id: AffixId;
+  rank: number; // 1.. the affix's ranks (Reinforcing I, II, III)
+  alignment: AffixAlignment;
+}
+// An objective's ALERT (Reinforcing): `level` setbacks in a row, the last at `lastAt` (gameTimeSeconds). It holds
+// until lastAt + the affix's reset time, then the objective returns to normal ("the threat appears to have
+// retreated", user).
+export interface ObjectiveAlert {
+  level: number;
+  lastAt: number;
 }
 
 // Squads SQ-3: a task's squad requirement, in SQUADS of each type (a Ground team brings { 1, 1 }, a Strike team
@@ -6683,6 +6717,10 @@ export interface ExpeditionRiskProfile {
   tier: RegionTier;
   enemyTerritory: boolean;
   system: SystemRiskGrades;
+  // Objective affixes (AF-1): the run's DIFFICULTY TIER (riskFactors.ts BASE_DIFFICULTY_TIER today; the hook for
+  // the future difficulty tiers, user 2026-10-14). Its PRESENCE is the affix flag: a run dispatched before AF-1
+  // has none and stamps no affix.
+  difficultyTier?: number;
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which
@@ -7223,6 +7261,9 @@ export interface GroundFightRecord {
   // Squads SQ-4 (user, SQ-3 calls (c)): an AMBUSH met as a surprise fight where the crew stood, not a fight
   // point. A win passes no point (the work goes on from where it stopped); a loss is an ordinary loss.
   surprise?: true;
+  // Objective affixes (AF-1, Reinforcing): an EXTRA BATTLE the objective's reinforcements forced as the crew
+  // landed, not a fight point. A win passes no point (the visit goes on); a loss is an ordinary loss.
+  reinforcement?: true;
 }
 
 // A ground team's current step on the run timeline (GO-7b): idle / staging are open-ended (stepEndsAt null).
@@ -7270,6 +7311,10 @@ export interface GroundTeamRun {
   // finishes (its result stands), then the crew heads back instead of working on (plan Q14). Set on the crew's
   // lead; cleared when the fight ends, at idle, or when an edit gives the task back to this crew.
   recalled?: true;
+  // Objective affixes (AF-1, Reinforcing): the extra battles still to fight on this LANDING (rolled as the crew
+  // landed, affixes.ts rollReinforcements; the first one is already under way). Set on the crew's lead; cleared
+  // when they are all fought, at a loss, and at idle.
+  reinforcements?: number;
 }
 
 // GO-7b: one finished step on a team's timeline, DISPLAY ONLY (the timeline UI, GO-14): resolution never reads
@@ -7284,6 +7329,7 @@ export interface GroundStepRecord {
   recovered?: true; // a return step where the ship broke off its scan to pick the team up (a recovery leg)
   ambushed?: true; // a work step an ambush cut short (Squads SQ-3: the crew retreated; SQ-4: or fought it)
   surprise?: true; // a fight step that was an ambush met as a surprise fight (Squads SQ-4)
+  reinforcement?: true; // a fight step that was a Reinforcing extra battle (objective affixes, AF-1)
   stopped?: true; // GO-7d: the player's edit (skip, or a reassign away) ended this trip here; the crew headed back
 }
 
@@ -7370,6 +7416,12 @@ export type GroundOpsLogEntry =
       taskId: string;
       needs: GroundTaskNeeds;
       deployed: GroundTaskNeeds; // the squads of every deployed team, summed
+    }
+  | {
+      // Objective affixes (AF-1): an objective's alert lapsed at `at` ("the threat appears to have retreated").
+      at: number;
+      kind: "alertReset";
+      taskId: string;
     };
 
 // The run's factors, FROZEN at dispatch (D24: the medical factors too). Shares are per DEPLOYED team, in
