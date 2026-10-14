@@ -1257,3 +1257,10 @@ recommendation (SQ-6 follow-up)`; the user's "BOTH" above plus the coordinator c
   launchPreview.test.ts 15 -> 18 (Level 5 with the odds reader, the forecast id, real odds and Strike + Ground
   clearing more fights, the memo hit and miss); groundTeams.test.ts 96 -> 97 (the pending confirm). Suite 4429 ->
   4449 passed (1 skipped); `npm run check` 0 errors.
+- **Odds weighting (user, 2026-10-13): ONLY WHEN FIGHTS ARE RISKY.** Keep the simplest mix that covers the tasks (the
+  pre-odds order: coverage, solo share, Security balance, fewest changes) unless its fight odds fall below "A Worthy
+  Adversary"; only then pick the mix with better odds. Tiers I and II stay simple; Strike shows up where fights get
+  scary. Replaces the always-on odds step and the Likely Victory clamp.
+- **Clearing task names (user, 2026-10-13):** "Clear the Hostiles" and "Secure the Landing Zone": KEEP.
+- **Balance note (2026-10-13):** SQ-6's sweep found ordinary crews read below Likely Victory on many Tier I fights; the
+  balance pass should check Tier I guard strength against the "practice somewhere safer" intent.
