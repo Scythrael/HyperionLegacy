@@ -1397,6 +1397,10 @@ Commit `docs(0.14.0): Ground Operations close-out notes`.
   every crew team spend offload time though one pays: revisit in the squad redesign; (d) ask the user (with Q20): one
   shared pickup leg for a joint wipe on one body, or one leg per wiped team (built). The staging gate until GO-7d stands.
 
+- **GO-7d coordinator calls (2026-10-13):** the staging gate now waits for GO-13's skip button (the engine skip alone
+  does not help a player); `partners` is the joint-crew API for assign / requeue; a requeue resets the stuck streak as a
+  deliberate new try (as built).
+
 ### GO-8b: Expedition field repair (WWVD)
 Files: expedition.ts (a repair leg in the run timeline), combat repair math (reuse the Shipyard repair formula and the
 Engineering repair divisor: Rapid Recovery, Veteran Instincts, Engineering Constitution), model.ts (Expedition fields:
