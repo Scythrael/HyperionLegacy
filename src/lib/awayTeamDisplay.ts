@@ -17,15 +17,15 @@ import type { IconName } from "./ui/icons";
 export interface SquadMeta {
   name: string; // the squad's header name ("Security Detail")
   short: string; // the one-word type ("Security"), used in "Aurora · Security"
-  role: string; // the one-line role under the header (lower case, it follows "N of M · ")
+  role: string; // the one-line role under the header (lower case, it follows "N aboard for M slots · ")
   icon: IconName;
 }
 
 // EXHAUSTIVE over AwayTeamType, so a new squad type is a compile error until it has labels. Prospecting
 // is wired only (no hull fields it), so its row never renders today; it exists to satisfy the Record.
 export const SQUAD_META: Record<AwayTeamType, SquadMeta> = {
-  security: { name: "Security Detail", short: "Security", role: "fights the random battles", icon: "security" },
-  science: { name: "Science Party", short: "Science", role: "fieldwork while scanning", icon: "research" },
+  security: { name: "Security Detail", short: "Security", role: "fights during tasks", icon: "security" },
+  science: { name: "Science Party", short: "Science", role: "does the task fieldwork", icon: "research" },
   prospecting: { name: "Prospecting Crew", short: "Prospecting", role: "surveys for ore", icon: "ore" },
 };
 

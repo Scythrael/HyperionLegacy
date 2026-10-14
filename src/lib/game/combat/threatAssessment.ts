@@ -41,7 +41,7 @@
 //   3. otherwise map the rate r, where wins is now guaranteed in (0, samples).
 //
 // COLORS: the per-band hex values are the mockup's literal band palette (a warm gold
-// for Guaranteed down through green / lime / yellow / orange / red / dark-red). They
+// for Guaranteed down through green / lime / yellow / orange / red / crimson). They
 // are intentionally LITERAL hex, not app theme tokens: the band ramp is a fixed
 // semantic scale (green == good, red == bad) that must read the same in every theme,
 // so it does not follow the light/dark token swap. The dispatch card's surrounding
@@ -136,7 +136,10 @@ const TIER_CONTENT: Record<ThreatTier, Omit<ThreatAssessment, "tier">> = {
 	impossible: {
 		name: "Impossible",
 		shortName: "Impossible",
-		colorHex: "#7f1d1d",
+		// Brightened from the mockup's #7f1d1d (user, 2026-10-14: "the impossible tier is a bit hard to see").
+		// A vivid crimson, cooler than Extreme's red so the two never blur, about 4:1 on the dark panel (the
+		// old dark red read 1.9:1); ThreatChip also gives this tier a static red glow and lifts chip text.
+		colorHex: "#e11d48",
 		fuzzyRange: "No simulated engagement was won",
 		voice:
 			"We cannot win this as we stand, Admiral. Install stronger gear before you commit the crew.",

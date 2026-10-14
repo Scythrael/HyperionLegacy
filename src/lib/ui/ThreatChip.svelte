@@ -33,7 +33,8 @@
   <span
     class="threat-chip"
     class:sm={size === "sm"}
-    style="--threat-color: {view.color};{maxWidth ? ` max-width: ${maxWidth};` : ''}"
+    class:glow={view.glow}
+    style="--threat-color: {view.color}; --threat-text: {view.textColor};{maxWidth ? ` max-width: ${maxWidth};` : ''}"
   >
     <span class="threat-chip-dot"><Icon name={view.glyph} /></span>
     <span class="threat-chip-name">{view.text}</span>
@@ -47,7 +48,9 @@
 
 <style>
   /* The chip look the patrol card had (App.svelte .threat-chip, 0.13 Combat 1.0 Unit 2.4): band-color
-     border and text over a faint wash of the same color. */
+     border and dot over a faint wash of the same color. The TEXT is --threat-text: the band color lifted
+     toward white just enough for WCAG AA on the wash (groundOpsAtoms.ts readableChipText; the darker bands
+     need it, the bright ones come back unchanged). */
   .threat-chip {
     display: inline-flex;
     align-items: center;
@@ -56,7 +59,7 @@
     padding: 3px 9px;
     border: 1px solid var(--threat-color);
     background: color-mix(in srgb, var(--threat-color) 16%, transparent);
-    color: var(--threat-color);
+    color: var(--threat-text, var(--threat-color));
     font-size: var(--text-sm);
     font-weight: 600;
     line-height: 1.3;
@@ -72,6 +75,14 @@
     display: inline-flex;
     flex: none;
     font-size: 1.1em;
+    color: var(--threat-color);
+  }
+  /* Impossible (user 2026-10-14: emphasize it): a static red glow, no animation, so reduced motion needs
+     nothing extra. */
+  .threat-chip.glow {
+    box-shadow:
+      0 0 6px color-mix(in srgb, var(--threat-color) 70%, transparent),
+      inset 0 0 4px color-mix(in srgb, var(--threat-color) 35%, transparent);
   }
   .threat-chip-name {
     min-width: 0;

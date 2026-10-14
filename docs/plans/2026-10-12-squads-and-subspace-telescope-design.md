@@ -1335,3 +1335,13 @@ follow-up 3)`; coordinator applied option (a), the user's "Tiers I and II stay s
   and II never call the reader and equal the odds-free recommendation); launchPreview.test.ts Level 5 (today's Tier I
   systems read no odds). Suite 4452 -> 4453 passed (1 skipped); `npm run check` 0 errors; every golden and parity
   test unchanged.
+
+**Carry from SQ-7 section 7.1 (built 2026-10-14 with GO-11, commit `feat(0.14.0): ground team slotting + composition
+picker UI (Ground Ops GO-11, SQ-7)`):** the composition picker is built in AwayTeamPanel; full notes in the Ground
+Operations plan's "Carry from GO-11 + SQ-7 section 7.1". In short: Composition block (pips, label, rule line, the
+`shipCrewRoom` line, plain over-capacity text); per team a Ground / Strike / Survey radio group that PICKS (explicit
+"Change to X" applies, with the `previewGroundTeamKind` line naming who moves and, when it overfills the reserve, a
+plain line, no extra confirm, no forced benching); refused options disabled with the reason; "Pick a type" chip plus a
+one-click "Keep Ground" on a pending team. The 7.1 recruitment-board "Security 6 / 6" line lives in the Composition
+block instead (the board itself is unchanged and already shows "No open slot or reserve berth" / "Reserve is over
+capacity"). The telescope block, task cards, Facilities card and Help (7.2 to 7.5) are still open.

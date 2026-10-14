@@ -4,9 +4,17 @@
   // E-CREW "Crew Made Real" Task 6 (approved mockup section 1, "A Ship's Away Team")
   //
   // The "Away Team" sub-tab of the ship-detail page (beside Loadout / Senior Staff / Complement):
-  // one section per squad the hull fields (Security fights the random battles, Science does
-  // fieldwork while scanning; a type with 0 slots, Prospecting today, never shows), each with its
-  // named member cards and an open-slot card per free seat, then the Recruitment Board.
+  // GROUND TEAMS first (Ground Operations GO-11 + Squads SQ-7 section 7.1, mockups GO-M1 and the squads
+  // mockup section 1): the composition block, one card per ground team (badge, name + Rename, the Ground /
+  // Strike / Survey picker with refused options and their reasons, kind-sized squad slots with Swap /
+  // Unslot and an empty-slot picker, the deploy status, the "help other teams" default), then the reserve
+  // ("Aboard, not slotted"). Security fights during tasks, Science does the task fieldwork, scanning is
+  // ship-side. Every display decision is in groundTeamDisplay.ts (tested); every write routes to an
+  // App.svelte do* handler. While the ship is out, slot and type writes are locked with the engine's reason
+  // (rename and the help default stay live, as the engine allows).
+  // Then the CREW ABOARD roster: one section per squad type the hull fields (a type with 0 slots,
+  // Prospecting today, never shows), each with its named member cards (gear, Move, Fire) and an open-slot
+  // card per free seat, then the Recruitment Board.
   //
   // POSTURE (mirrors SeniorStaffPanel / ComplementPanel):
   //   - PURE PRESENTATION + INTERACTION. Squad sizes, membership, implant slots, affinity and every
@@ -36,10 +44,27 @@
 
   import { onDestroy, tick } from "svelte";
   import ActionModal from "./ActionModal.svelte";
+  import Toggle from "./Toggle.svelte";
+  import TeamBadge from "./ui/TeamBadge.svelte";
+  import { TEAM_KIND_GLYPHS } from "./ui/groundOpsAtoms";
   import RecruitmentBoard from "./RecruitmentBoard.svelte";
   import EquipmentTooltip, { equipmentRarityColor, statLabel } from "./EquipmentTooltip.svelte";
   import Icon from "./ui/Icon.svelte";
-  import type { AwayMember, AwayTeamType, EquipmentInstance, GameState, MemberSlotType } from "./game/model";
+  import type { AwayMember, AwayTeamType, EquipmentInstance, GameState, GroundTeamKind, MemberSlotType } from "./game/model";
+  import { GROUND_TEAM_NAME_MAX, type GroundSquadType } from "./game/groundTeams";
+  import {
+    GROUND_TEAMS_INTRO,
+    RESERVE_CAP_NOTE,
+    RESERVE_INTRO,
+    SQUAD_TYPE_NAME,
+    compositionSummary,
+    crewRoomText,
+    groundTeamsPanelView,
+    kindChangeView,
+    overCapacityText,
+    slotPickCandidates,
+  } from "./groundTeamDisplay";
+  import type { GroundSlotView, GroundTeamCardView } from "./groundTeamDisplay";
   import { AWAY_TEAM_TYPES, SHIP_TYPES, isSparePiece } from "./game/model";
   import {
     canFitToMember,
@@ -103,6 +128,15 @@
   export let onInstall: (memberId: string, pieceId: string, replacingInstanceId?: string) => void;
   // Uninstall a worn piece back to storage (host: unfitFromMember).
   export let onUninstall: (memberId: string, pieceId: string) => void;
+  // GROUND TEAMS (GO-11 + SQ-7 7.1). Each routes to an App.svelte do* handler over the pure groundTeams.ts
+  // action (slotMember / unslotMember / swapGroundMembers / renameGroundTeam / setGroundTeamHelp /
+  // setGroundTeamKind); the panel never mutates state and every control reads the same gates.
+  export let onSlot: (shipId: string, teamIndex: number, teamType: GroundSquadType, slotIndex: number, memberId: string) => void;
+  export let onUnslot: (shipId: string, memberId: string) => void;
+  export let onSwap: (shipId: string, memberIdA: string, memberIdB: string) => void;
+  export let onRenameTeam: (shipId: string, teamIndex: number, name: string | null) => void;
+  export let onSetTeamHelp: (shipId: string, teamIndex: number, on: boolean) => void;
+  export let onSetTeamKind: (shipId: string, teamIndex: number, kind: GroundTeamKind) => void;
 
   // --- Local UI state ---------------------------------------------------------
   let confirmFireId: string | null = null;
@@ -120,8 +154,20 @@
   let gearPick: { memberId: string; slot: MemberSlotType; implantId: string | null } | null = null;
   let candidateId: string | null = null;
   let tip: { piece: EquipmentInstance; el: HTMLElement } | null = null;
+  // Ground teams (GO-11): the kind picked in each team's radio group (applied only by its Change button, the
+  // explicit-action posture), the team being renamed with its draft, and the open slot picker with its pick.
+  let kindPick: Record<number, GroundTeamKind> = {};
+  let renaming: number | null = null;
+  let renameDraft = "";
+  let slotPick: { teamIndex: number; teamType: GroundSquadType; slotIndex: number; occupant: AwayMember | null; label: string } | null =
+    null;
+  let slotPickId: string | null = null;
   $: if (shipId !== lastShipId) {
     lastShipId = shipId;
+    kindPick = {};
+    renaming = null;
+    slotPick = null;
+    slotPickId = null;
     confirmFireId = null;
     movePick = {};
     gearPick = null;
@@ -192,6 +238,139 @@
       implantOpen: Math.max(0, memberSlotCapacity(member, "implant") - implants.length),
     };
   }
+
+  // --- Ground teams (GO-11 + SQ-7 section 7.1) ----------------------------------
+  $: gv = ship ? groundTeamsPanelView(state, shipId) : null;
+  // The pending kind pick per team, dropped once it matches what the team already is (no change left).
+  $: if (gv !== null) {
+    let stale = false;
+    for (const key of Object.keys(kindPick)) {
+      const t = gv.teams[Number(key)];
+      if (!t || (kindPick[Number(key)] === t.kind && !t.pending)) stale = true;
+    }
+    if (stale) {
+      const next: Record<number, GroundTeamKind> = {};
+      for (const [key, kind] of Object.entries(kindPick)) {
+        const t = gv.teams[Number(key)];
+        if (t && !(kind === t.kind && !t.pending)) next[Number(key)] = kind;
+      }
+      kindPick = next;
+    }
+  }
+  function pickedKind(t: GroundTeamCardView, picks: Record<number, GroundTeamKind>): GroundTeamKind {
+    return picks[t.index] ?? t.kind;
+  }
+  // A pick that changes nothing (the team's own kind, prompt already confirmed) clears the pick.
+  function chooseKind(t: GroundTeamCardView, kind: GroundTeamKind): void {
+    const next = { ...kindPick };
+    if (kind === t.kind) delete next[t.index];
+    else next[t.index] = kind;
+    kindPick = next;
+  }
+  // Roving radio group (arrow keys / Home / End move the pick among the enabled options; nothing applies
+  // until the Change button, WCAG 3.2.2).
+  function onKindKey(t: GroundTeamCardView, e: KeyboardEvent): void {
+    const enabled = t.options.filter((o) => !o.disabled).map((o) => o.kind);
+    if (enabled.length === 0) return;
+    const at = Math.max(0, enabled.indexOf(pickedKind(t, kindPick)));
+    let to: number | null = null;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") to = (at + 1) % enabled.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") to = (at + enabled.length - 1) % enabled.length;
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = enabled.length - 1;
+    if (to === null) return;
+    e.preventDefault();
+    chooseKind(t, enabled[to]);
+    void focusKind(t.index, enabled[to]);
+  }
+  async function focusKind(teamIndex: number, kind: GroundTeamKind): Promise<void> {
+    await tick();
+    document.querySelector<HTMLElement>(`[data-kind-ship="${shipId}"][data-kind-team="${teamIndex}"][data-kind="${kind}"]`)?.focus();
+  }
+  async function applyKind(t: GroundTeamCardView, kind: GroundTeamKind): Promise<void> {
+    onSetTeamKind(shipId, t.index, kind);
+    const next = { ...kindPick };
+    delete next[t.index];
+    kindPick = next;
+    await tick(); // read the team's kind AFTER the host applied (or refused) the change
+    await focusKind(t.index, gv?.teams[t.index]?.kind ?? kind);
+  }
+  function cancelKind(t: GroundTeamCardView): void {
+    const next = { ...kindPick };
+    delete next[t.index];
+    kindPick = next;
+    void focusKind(t.index, t.kind);
+  }
+
+  // Rename (allowed while the ship is out: cosmetic). Blank or the default name clears the custom name.
+  let renameButtons: Record<number, HTMLButtonElement> = {};
+  let renameInput: HTMLInputElement | null = null;
+  async function startRename(t: GroundTeamCardView): Promise<void> {
+    renaming = t.index;
+    renameDraft = t.renamed ? t.name : "";
+    await tick();
+    renameInput?.focus();
+    renameInput?.select();
+  }
+  async function endRename(teamIndex: number, save: boolean): Promise<void> {
+    if (save) onRenameTeam(shipId, teamIndex, renameDraft.trim() === "" ? null : renameDraft);
+    renaming = null;
+    await tick();
+    renameButtons[teamIndex]?.focus();
+  }
+  function onRenameKey(teamIndex: number, e: KeyboardEvent): void {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      void endRename(teamIndex, false);
+    }
+  }
+
+  // Slots: unslot in place; an empty slot opens the picker on the reserve, a filled one on the reserve plus
+  // the members slotted elsewhere (a swap). Focus returns to the slot afterward.
+  function slotKey(teamIndex: number, teamType: GroundSquadType, slotIndex: number): string {
+    return `${shipId}:${teamIndex}:${teamType}:${slotIndex}`;
+  }
+  async function focusSlot(teamIndex: number, teamType: GroundSquadType, slotIndex: number): Promise<void> {
+    await tick();
+    const key = slotKey(teamIndex, teamType, slotIndex);
+    document.querySelector<HTMLElement>(`[data-slot-key="${key}"]`)?.focus();
+  }
+  function unslot(teamIndex: number, sl: GroundSlotView): void {
+    if (sl.member === null) return;
+    onUnslot(shipId, sl.member.id);
+    void focusSlot(teamIndex, sl.teamType, sl.slotIndex);
+  }
+  function openSlotPicker(t: GroundTeamCardView, sqLabel: string, sl: GroundSlotView): void {
+    slotPickId = null;
+    slotPick = {
+      teamIndex: t.index,
+      teamType: sl.teamType,
+      slotIndex: sl.slotIndex,
+      occupant: sl.member,
+      label: `${t.name}, ${sqLabel}`,
+    };
+  }
+  function closeSlotPicker(): void {
+    const pick = slotPick;
+    slotPick = null;
+    slotPickId = null;
+    if (pick !== null) void focusSlot(pick.teamIndex, pick.teamType, pick.slotIndex);
+  }
+  function commitSlotPick(): void {
+    if (slotPick === null || slotPickId === null) return;
+    if (slotPick.occupant === null) onSlot(shipId, slotPick.teamIndex, slotPick.teamType, slotPick.slotIndex, slotPickId);
+    else onSwap(shipId, slotPick.occupant.id, slotPickId);
+    closeSlotPicker();
+  }
+  function boardFromPicker(): void {
+    slotPick = null;
+    slotPickId = null;
+    void tick().then(goToBoard);
+  }
+  $: pickCandidates =
+    slotPick !== null ? slotPickCandidates(state, shipId, slotPick.teamType, slotPick.occupant?.id ?? null, slotPick.occupant !== null) : [];
+  $: pickChosen = slotPickId !== null ? pickCandidates.find((c) => c.member.id === slotPickId) ?? null : null;
 
   // --- Display helpers --------------------------------------------------------
   function traitChips(m: AwayMember): { id: string; label: string; full: string }[] {
@@ -452,17 +631,262 @@
       </div>
     {/if}
 
+    {#if gv !== null && gv.teams.length > 0}
+      {@const lockId = `gt-lock-${shipId}`}
+      <!-- GROUND TEAMS (GO-11, mockup GO-M1; composition picker SQ-7 section 7.1). -->
+      <section class="gt" aria-labelledby="gt-h-{shipId}">
+        <div class="gt-head">
+          <h3 class="gt-title" id="gt-h-{shipId}"><Icon name="groundTeam" size={20} /> Ground teams</h3>
+          <p class="gt-intro">{GROUND_TEAMS_INTRO}</p>
+        </div>
+        {#if gv.locked}
+          <p class="gt-lock" id={lockId}>
+            <Icon name="lock" /> {gv.lockText}: slots and team types are locked until it returns. Renaming and the help setting still work.
+          </p>
+        {/if}
+
+        <div class="gt-comp">
+          <div class="gt-comp-top">
+            <div>
+              <div class="gt-comp-title">Composition</div>
+              <div class="gt-comp-sum">{gv.compositionLabel}: {compositionSummary(gv.securitySquads, gv.scienceSquads)}</div>
+            </div>
+            <div class="gt-pips" aria-hidden="true">
+              {#each gv.pips as team, ti (ti)}
+                <span class="gt-pip-pair">
+                  {#each team as type, qi (qi)}
+                    <span class="gt-pip {type}"><Icon name={SQUAD_META[type].icon} size={16} /></span>
+                  {/each}
+                </span>
+              {/each}
+            </div>
+          </div>
+          <div class="gt-rule" class:ok={gv.valid}>
+            <Icon name={gv.valid ? "check" : "close"} /> At least one Security and one Science squad{gv.valid ? "" : ": not met"}
+          </div>
+          <div class="gt-room">Aboard / slots: {crewRoomText(gv.room)}</div>
+          {#if overCapacityText(gv.room) !== null}
+            <p class="gt-over"><Icon name="warning" /> {overCapacityText(gv.room)}</p>
+          {/if}
+        </div>
+
+        <div class="gt-teams">
+          {#each gv.teams as t (t.index)}
+            {@const pick = pickedKind(t, kindPick)}
+            {@const change = kindPick[t.index] !== undefined ? kindChangeView(state, shipId, t.index, kindPick[t.index]) : null}
+            {@const reasons = t.options.filter((o) => o.reason !== null)}
+            <article class="gt-team" aria-labelledby="gt-team-{shipId}-{t.index}">
+              <div class="gt-team-h">
+                <TeamBadge index={t.index} kind={t.kind} name={t.name} />
+                <div class="gt-team-id">
+                  {#if renaming === t.index}
+                    <form class="gt-rename" on:submit|preventDefault={() => endRename(t.index, true)}>
+                      <label class="gt-sr" for="gt-name-{shipId}-{t.index}">Name for team {t.defaultName}</label>
+                      <input
+                        id="gt-name-{shipId}-{t.index}"
+                        class="gt-input"
+                        type="text"
+                        maxlength={GROUND_TEAM_NAME_MAX}
+                        placeholder={t.defaultName}
+                        bind:value={renameDraft}
+                        bind:this={renameInput}
+                        on:keydown={(e) => onRenameKey(t.index, e)}
+                      />
+                      <button type="submit" class="aw-btn">Save</button>
+                      <button type="button" class="aw-btn" on:click={() => endRename(t.index, false)}>Cancel</button>
+                    </form>
+                    <div class="gt-hint">Leave it blank to use {t.defaultName}.</div>
+                  {:else}
+                    <h4 class="gt-team-name" id="gt-team-{shipId}-{t.index}">{t.name}</h4>
+                  {/if}
+                  <div class="gt-kind-label">{t.kindLabel}</div>
+                </div>
+                {#if t.pending}
+                  <span class="gt-pending"><Icon name="flag" /> Pick a type</span>
+                {/if}
+                {#if renaming !== t.index}
+                  <button
+                    type="button"
+                    class="aw-btn"
+                    aria-label="Rename {t.name}"
+                    bind:this={renameButtons[t.index]}
+                    on:click={() => startRename(t)}
+                  >Rename</button>
+                {/if}
+              </div>
+
+              <div
+                class="gt-kinds"
+                role="radiogroup"
+                aria-label="{t.name} team type"
+                aria-describedby={gv.locked ? lockId : reasons.length > 0 ? `gt-why-${shipId}-${t.index}` : undefined}
+              >
+                {#each t.options as o (o.kind)}
+                  <button
+                    type="button"
+                    role="radio"
+                    class="gt-kind"
+                    aria-checked={pick === o.kind}
+                    tabindex={pick === o.kind ? 0 : -1}
+                    disabled={o.disabled || gv.locked}
+                    data-kind-ship={shipId}
+                    data-kind-team={t.index}
+                    data-kind={o.kind}
+                    on:click={() => chooseKind(t, o.kind)}
+                    on:keydown={(e) => onKindKey(t, e)}
+                  ><Icon name={TEAM_KIND_GLYPHS[o.kind]} size={20} /> {o.name}</button>
+                {/each}
+              </div>
+              {#if reasons.length > 0}
+                <div class="gt-why" id="gt-why-{shipId}-{t.index}">
+                  {#each reasons as o (o.kind)}<div>{o.reason}</div>{/each}
+                </div>
+              {/if}
+
+              {#if t.pending && change === null}
+                <div class="gt-prompt">
+                  <span>{t.name} works as a {t.kindLabel} until you pick its type.</span>
+                  <button
+                    type="button"
+                    class="aw-btn primary"
+                    disabled={gv.locked}
+                    on:click={() => applyKind(t, t.kind)}
+                  >Keep {t.options.find((o) => o.kind === t.kind)?.name ?? "Ground"}</button>
+                </div>
+              {/if}
+
+              {#if change !== null && kindPick[t.index] !== undefined}
+                {@const to = kindPick[t.index]}
+                {@const toName = t.options.find((o) => o.kind === to)?.name ?? to}
+                <div class="gt-change" role="group" aria-label="Change {t.name} to {toName}">
+                  {#if change.ok}
+                    <p class="gt-change-line">Change {t.name} to {toName}? {change.moves}</p>
+                    {#if change.overCapacity !== null}<p class="gt-change-line gt-over-line">{change.overCapacity}</p>{/if}
+                    <div class="gt-change-acts">
+                      <button type="button" class="aw-btn primary" on:click={() => applyKind(t, to)}>Change to {toName}</button>
+                      <button type="button" class="aw-btn" on:click={() => cancelKind(t)}>Cancel</button>
+                    </div>
+                  {:else}
+                    <p class="gt-change-line gt-over-line">{change.reason}</p>
+                    <div class="gt-change-acts">
+                      <button type="button" class="aw-btn" on:click={() => cancelKind(t)}>Cancel</button>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              {#each t.squads as sq (`${sq.teamType}-${sq.typeSquadIndex}`)}
+                <div class="gt-squad {sq.teamType}">
+                  <div class="gt-squad-lbl"><Icon name={SQUAD_META[sq.teamType].icon} /> {sq.label}</div>
+                  <div class="gt-slots" style="--gt-cols: {Math.min(4, sq.slots.length)};">
+                    {#each sq.slots as sl, j (sl.slotIndex)}
+                      {#if sl.member !== null}
+                        {@const m = sl.member}
+                        <div class="gt-slot filled" class:injured={sl.readyInSeconds > 0}>
+                          <span class="gt-slot-name">{m.name}</span>
+                          <span class="gt-slot-sub">{awaySpecLabel(m.spec)} · {CREW_RANKS[m.rank].label}</span>
+                          {#if sl.readyInSeconds > 0}
+                            <span class="gt-slot-wait"><Icon name="injury" /> Back in {awayCountdownText(sl.readyInSeconds)}</span>
+                          {/if}
+                          <span class="gt-slot-acts">
+                            <button
+                              type="button"
+                              class="gt-mini"
+                              disabled={gv.locked}
+                              aria-describedby={gv.locked ? lockId : undefined}
+                              aria-label="Swap {m.name} ({t.name}, {sq.label})"
+                              data-slot-key={slotKey(t.index, sl.teamType, sl.slotIndex)}
+                              on:click={() => openSlotPicker(t, sq.label, sl)}
+                            >Swap</button>
+                            <button
+                              type="button"
+                              class="gt-mini"
+                              disabled={gv.locked}
+                              aria-describedby={gv.locked ? lockId : undefined}
+                              aria-label="Unslot {m.name} to the reserve"
+                              on:click={() => unslot(t.index, sl)}
+                            >Unslot</button>
+                          </span>
+                        </div>
+                      {:else}
+                        <button
+                          type="button"
+                          class="gt-slot empty"
+                          disabled={gv.locked}
+                          aria-describedby={gv.locked ? lockId : undefined}
+                          aria-label="Empty slot {j + 1}, {t.name} {sq.label}. Slot a member"
+                          data-slot-key={slotKey(t.index, sl.teamType, sl.slotIndex)}
+                          on:click={() => openSlotPicker(t, sq.label, sl)}
+                        >
+                          <span>Empty slot</span>
+                          <span class="gt-slot-sub">Slot a member</span>
+                        </button>
+                      {/if}
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+
+              <div class="gt-status" class:ready={t.deploys}>
+                {#if t.deploys}
+                  <Icon name="check" /> Ready to deploy
+                {:else if !t.staffed}
+                  Stays aboard: nobody is slotted.
+                {:else}
+                  <span class="gt-status-h">Will not deploy yet:</span>
+                  {#each t.waits as w, wi (wi)}<span class="gt-status-w">{w}</span>{/each}
+                {/if}
+              </div>
+
+              <div class="gt-help">
+                <Toggle
+                  checked={t.helpOthers}
+                  label="When done, help other teams ({t.name})"
+                  on:change={(e) => onSetTeamHelp(shipId, t.index, e.detail)}
+                />
+                <span class="gt-help-t">When done, help other teams <span class="gt-help-sub">(from the next launch)</span></span>
+              </div>
+            </article>
+          {/each}
+        </div>
+
+        <div class="gt-reserve">
+          <h4 class="gt-res-h">Aboard, not slotted</h4>
+          <p class="gt-res-p">{RESERVE_INTRO} Reserve berths in use: {gv.room.berthsUsed} of {gv.room.capacity.reserveBerths}.</p>
+          {#if gv.reserve.length === 0}
+            <p class="gt-res-p gt-dim">Nobody is in the reserve.</p>
+          {:else}
+            <ul class="gt-res-list">
+              {#each gv.reserve as m (m.id)}
+                <li class="gt-res-m">
+                  <Icon name={SQUAD_META[m.teamType].icon} />
+                  <span class="gt-res-name">{m.name}</span>
+                  <span class="gt-res-sub">{SQUAD_META[m.teamType].short} · {awaySpecLabel(m.spec)} · {CREW_RANKS[m.rank].label}</span>
+                </li>
+              {/each}
+            </ul>
+            <p class="gt-res-p gt-dim">{RESERVE_CAP_NOTE}</p>
+          {/if}
+        </div>
+      </section>
+
+      <div class="gt-head">
+        <h3 class="gt-title">Crew aboard</h3>
+        <p class="gt-intro">Gear, moves and hiring for everyone aboard, slotted or in the reserve.</p>
+      </div>
+    {/if}
+
     {#each squads as sq (sq.teamType)}
       {@const meta = SQUAD_META[sq.teamType]}
       <section class="squad {sq.teamType}" aria-labelledby="away-squad-{shipId}-{sq.teamType}">
         <div class="squad-h">
-          <h3
+          <h4
             class="squad-name"
             id="away-squad-{shipId}-{sq.teamType}"
             tabindex="-1"
             bind:this={squadHeadings[sq.teamType]}
-          ><Icon name={meta.icon} /> {meta.name}</h3>
-          <span class="squad-meta">{sq.members.length} of {sq.slots} · {meta.role}</span>
+          ><Icon name={meta.icon} /> {meta.name}</h4>
+          <span class="squad-meta">{sq.members.length} aboard for {sq.slots} slots · {meta.role}</span>
         </div>
 
         <div class="members">
@@ -630,6 +1054,66 @@
     <svelte:fragment slot="footer">
       <button type="button" class="aw-btn" on:click={() => (confirmFireId = null)}>Cancel</button>
       <button type="button" class="aw-btn danger" on:click={confirmFire}>Fire</button>
+    </svelte:fragment>
+  </ActionModal>
+{/if}
+
+<!-- SLOT PICKER (GO-11): pick a member, then Slot / Swap. An empty slot lists the reserve of its type; a filled
+     slot also lists that type's members slotted elsewhere (a swap moves them here and the occupant there). -->
+{#if slotPick !== null}
+  {@const sp = slotPick}
+  {@const typeName = SQUAD_TYPE_NAME[sp.teamType]}
+  <ActionModal
+    title={sp.occupant !== null ? `Swap ${sp.occupant.name}` : "Slot a member"}
+    ariaLabel={sp.occupant !== null ? `Swap ${sp.occupant.name}, ${sp.label}` : `Slot a member into ${sp.label}`}
+    onClose={closeSlotPicker}
+  >
+    <p class="gm-who">{sp.label}, slot {sp.slotIndex + 1}</p>
+    {#if pickCandidates.length === 0}
+      <p class="gm-note">
+        {sp.occupant !== null
+          ? `No other ${typeName} member is aboard to swap with.`
+          : `No ${typeName} member is in the reserve. Unslot one from another team, or hire one from the recruitment board.`}
+      </p>
+      {#if sp.occupant === null}
+        <button type="button" class="aw-btn gt-board-btn" on:click={boardFromPicker}>Go to the recruitment board</button>
+      {/if}
+    {:else}
+      <div class="gm-list gt-pick-list">
+        {#each pickCandidates as c (c.member.id)}
+          <button
+            type="button"
+            class="gm-spare"
+            class:sel={slotPickId === c.member.id}
+            aria-pressed={slotPickId === c.member.id}
+            on:click={() => (slotPickId = c.member.id)}
+          >
+            <span class="gm-ic"><Icon name={SQUAD_META[c.member.teamType].icon} /></span>
+            <span class="gm-text">
+              <span class="gm-name">{c.member.name}</span>
+              <span class="gm-sub">{awaySpecLabel(c.member.spec)} · {CREW_RANKS[c.member.rank].label} · {awayRaceLabel(c.member.race)}</span>
+              <span class="gm-sub">{c.where === null ? "In the reserve" : `Slotted: ${c.where}`}</span>
+              {#if c.readyInSeconds > 0}
+                <span class="gm-sub gm-wearer">Recovering: back in {awayCountdownText(c.readyInSeconds)}. The team waits for them.</span>
+              {/if}
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+    <svelte:fragment slot="footer">
+      <button type="button" class="aw-btn" on:click={closeSlotPicker}>Cancel</button>
+      {#if pickCandidates.length > 0}
+        <button type="button" class="aw-btn primary" disabled={pickChosen === null} on:click={commitSlotPick}
+          >{sp.occupant !== null
+            ? pickChosen !== null
+              ? `Swap with ${pickChosen.member.name}`
+              : "Swap"
+            : pickChosen !== null
+              ? `Slot ${pickChosen.member.name}`
+              : "Slot"}</button
+        >
+      {/if}
     </svelte:fragment>
   </ActionModal>
 {/if}
@@ -1332,5 +1816,495 @@
     font-size: var(--text-sm);
     color: var(--color-text-secondary);
     line-height: 1.5;
+  }
+  .aw-btn.primary {
+    background: rgba(var(--color-accent-rgb), 0.18);
+    border-color: var(--color-accent);
+    color: var(--color-text-primary);
+  }
+  .aw-btn:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  /* --- GROUND TEAMS (GO-11 + SQ-7 7.1; mockup GO-M1) ------------------------------------------------ */
+  .gt {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .gt-head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .gt-title {
+    margin: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-weight: normal;
+    font-size: var(--text-lg);
+    letter-spacing: 0.03em;
+    color: var(--color-text-primary);
+  }
+  .gt-intro {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .gt-lock {
+    margin: 0;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    font-size: var(--text-xs);
+    color: var(--color-warning);
+  }
+  .gt-comp,
+  .gt-team,
+  .gt-reserve {
+    min-width: 0;
+    padding: 12px;
+    background: rgba(var(--color-accent-rgb), 0.04);
+    border: 1px solid var(--color-border);
+    border-radius: var(--corner);
+  }
+  .gt-comp {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .gt-comp-top {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px 14px;
+  }
+  .gt-comp-title {
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
+  }
+  .gt-comp-sum,
+  .gt-room {
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .gt-pips {
+    display: flex;
+    gap: 10px;
+  }
+  .gt-pip-pair {
+    display: flex;
+    gap: 4px;
+  }
+  .gt-pip {
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--corner);
+    border: 1px solid color-mix(in srgb, var(--pip-hue) 55%, transparent);
+    background: color-mix(in srgb, var(--pip-hue) 18%, transparent);
+    color: var(--pip-hue);
+  }
+  .gt-pip.security {
+    --pip-hue: var(--color-danger);
+  }
+  .gt-pip.science {
+    --pip-hue: var(--color-accent-bright);
+  }
+  .gt-rule {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-xs);
+    color: var(--color-danger);
+  }
+  .gt-rule.ok {
+    color: var(--color-success);
+  }
+  .gt-over {
+    margin: 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    color: var(--color-warning);
+    line-height: 1.45;
+  }
+
+  .gt-teams {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @container (min-width: 700px) {
+    .gt-teams {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .gt-team {
+    container-type: inline-size;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .gt-team-h {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .gt-team-id {
+    flex: 1 1 140px;
+    min-width: 0;
+  }
+  .gt-team-name {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: normal;
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
+    overflow-wrap: anywhere;
+  }
+  .gt-kind-label,
+  .gt-hint {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .gt-pending {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    color: var(--color-warning);
+    border: 1px solid rgba(var(--color-warning-rgb), 0.55);
+    border-radius: var(--corner);
+    white-space: nowrap;
+  }
+  .gt-rename {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .gt-input {
+    flex: 1 1 140px;
+    min-width: 0;
+    padding: 5px 7px;
+    font: inherit;
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    background: var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.4);
+    border-radius: var(--corner);
+  }
+  .gt-input:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .gt-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  /* Segmented Ground / Strike / Survey radio group. */
+  .gt-kinds {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--corner);
+    overflow: hidden;
+  }
+  .gt-kind {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+    min-height: 36px;
+    padding: 5px 4px;
+    font: inherit;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--color-text-secondary);
+    background: var(--color-bg-mid);
+    border: 0;
+    border-right: 1px solid var(--color-border-strong);
+    cursor: pointer;
+  }
+  .gt-kind:last-child {
+    border-right: 0;
+  }
+  .gt-kind[aria-checked="true"] {
+    background: rgba(var(--color-accent-rgb), 0.2);
+    color: var(--color-text-primary);
+    box-shadow: inset 0 -2px 0 var(--color-accent);
+  }
+  .gt-kind:hover:not(:disabled) {
+    color: var(--color-text-primary);
+  }
+  /* Refused option: dim and struck through (not the accent-tinted disabled token, which reads as picked);
+     the reason sits below the group as visible text. */
+  .gt-kind:disabled {
+    cursor: not-allowed;
+    color: var(--color-text-dim);
+    background: transparent;
+    text-decoration: line-through;
+  }
+  /* Locked while the ship is out: the team's own kind still reads as the picked one. */
+  .gt-kind[aria-checked="true"]:disabled {
+    background: rgba(var(--color-accent-rgb), 0.12);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+  }
+  .gt-kind:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: -2px;
+  }
+  .gt-why {
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+    line-height: 1.45;
+  }
+  .gt-prompt,
+  .gt-change {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+    border: 1px solid rgba(var(--color-warning-rgb), 0.5);
+    background: rgba(var(--color-warning-rgb), 0.07);
+    border-radius: var(--corner);
+  }
+  .gt-prompt {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .gt-change-line {
+    margin: 0;
+    line-height: 1.45;
+  }
+  .gt-over-line {
+    color: var(--color-warning);
+  }
+  .gt-change-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .gt-squad {
+    --squad-hue: var(--color-accent-bright);
+  }
+  .gt-squad.security {
+    --squad-hue: var(--color-danger);
+  }
+  .gt-squad-lbl {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--squad-hue);
+  }
+  /* Two columns on a narrow card (GO-M1: 2 at a 375px phone), the squad's size from a wider one. */
+  .gt-slots {
+    display: grid;
+    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @container (min-width: 420px) {
+    .gt-slots {
+      grid-template-columns: repeat(var(--gt-cols, 3), minmax(0, 1fr));
+    }
+  }
+  .gt-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    min-height: 64px;
+    padding: 6px 8px;
+    font: inherit;
+    font-size: var(--text-xs);
+    text-align: left;
+    color: var(--color-text-primary);
+    background: var(--color-bg-mid);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.22);
+    border-left: 2px solid var(--squad-hue);
+    border-radius: var(--corner);
+    overflow-wrap: anywhere;
+  }
+  .gt-slot.injured {
+    border-style: dashed;
+    border-left-style: solid;
+    border-color: rgba(var(--color-warning-rgb), 0.55);
+  }
+  .gt-slot.empty {
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--color-text-dim);
+    border: 1px dashed rgba(var(--color-accent-rgb), 0.35);
+    background: transparent;
+    cursor: pointer;
+  }
+  .gt-slot.empty:hover:not(:disabled),
+  .gt-slot.empty:focus-visible {
+    color: var(--color-accent-bright);
+    border-color: var(--color-accent);
+  }
+  .gt-slot.empty:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .gt-slot.empty:disabled {
+    cursor: not-allowed;
+  }
+  .gt-slot-name {
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+  .gt-slot-sub {
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+  }
+  .gt-slot.empty .gt-slot-sub {
+    color: inherit;
+  }
+  .gt-slot-wait {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+  }
+  .gt-slot-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 4px;
+  }
+  .gt-mini {
+    flex: 1 1 auto;
+    min-height: 26px;
+    padding: 2px 6px;
+    font: inherit;
+    font-size: var(--text-2xs);
+    color: var(--color-text-secondary);
+    background: rgba(var(--color-accent-rgb), 0.08);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+    cursor: pointer;
+  }
+  .gt-mini:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent);
+  }
+  .gt-mini:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  .gt-mini:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .gt-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .gt-status.ready {
+    color: var(--color-success);
+  }
+  .gt-status-h {
+    color: var(--color-warning);
+  }
+  .gt-status-w {
+    color: var(--color-text-primary);
+  }
+  .gt-help {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+  }
+  .gt-help-sub {
+    color: var(--color-text-dim);
+  }
+  .gt-reserve {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .gt-res-h {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: normal;
+    font-size: var(--text-md);
+    color: var(--color-text-primary);
+  }
+  .gt-res-p {
+    margin: 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-secondary);
+    line-height: 1.45;
+  }
+  .gt-dim {
+    color: var(--color-text-dim);
+  }
+  .gt-res-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .gt-res-m {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 8px;
+    font-size: var(--text-xs);
+    color: var(--color-text-primary);
+  }
+  .gt-res-name {
+    font-weight: 600;
+  }
+  .gt-res-sub {
+    color: var(--color-text-secondary);
+    font-size: var(--text-2xs);
+  }
+  .gt-pick-list {
+    margin-top: 6px;
+  }
+  .gt-board-btn {
+    margin-top: 8px;
   }
 </style>

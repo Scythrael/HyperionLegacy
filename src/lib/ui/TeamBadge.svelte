@@ -1,13 +1,16 @@
 <script lang="ts">
   // TeamBadge.svelte: a ground team's A / B / C badge (0.14.0, Ground Operations GO-10; the GO-M1 mockup's
   // `.badge`). The letter is by POSITION (groundTeamShortLabel), so it never changes when a team is
-  // renamed; pass `kind` to add the team kind glyph (Strike / Survey / Ground, Squads design 2.1).
+  // renamed; pass `kind` to add the team kind glyph (Strike / Survey / Ground, Squads design 2.1) on a md
+  // badge, drawn at TEAM_KIND_GLYPH_MIN_PX (20 px; the paired emblems blur below it). A sm badge is the
+  // letter alone, and no badge has a title tooltip: callers show the team name and kind as visible text
+  // (GO-10 review). The accessible name still says both.
   //
   // Used by the slotting cards (GO-11), the dispatch strip (GO-12), the queue's odds columns (GO-13) and the
   // timelines / task cards (GO-14). Display decisions live in groundOpsAtoms.ts teamBadgeView (tested).
 
   import Icon from "./Icon.svelte";
-  import { teamBadgeView } from "./groundOpsAtoms";
+  import { TEAM_KIND_GLYPH_MIN_PX, teamBadgeView } from "./groundOpsAtoms";
   import type { GroundTeamKind } from "../game/model";
 
   /** The team's position on its ship (0 = Alpha = A). */
@@ -19,12 +22,12 @@
   /** "sm" for a table header or a timeline lane. */
   export let size: "md" | "sm" = "md";
 
-  $: view = teamBadgeView(index, kind, name);
+  $: view = teamBadgeView(index, kind, name, size);
 </script>
 
-<span class="team-badge" class:sm={size === "sm"} class:with-kind={view.glyph !== null} role="img" aria-label={view.ariaLabel} title={view.ariaLabel}>
+<span class="team-badge" class:sm={size === "sm"} class:with-kind={view.glyph !== null} role="img" aria-label={view.ariaLabel}>
   <span class="team-badge-letter" aria-hidden="true">{view.letter}</span>
-  {#if view.glyph}<span class="team-badge-kind" aria-hidden="true"><Icon name={view.glyph} /></span>{/if}
+  {#if view.glyph}<span class="team-badge-kind" aria-hidden="true"><Icon name={view.glyph} size={TEAM_KIND_GLYPH_MIN_PX} /></span>{/if}
 </span>
 
 <style>
@@ -58,7 +61,6 @@
   }
   .team-badge-kind {
     display: inline-flex;
-    font-size: 1.15em;
     color: var(--color-text-secondary);
   }
 </style>

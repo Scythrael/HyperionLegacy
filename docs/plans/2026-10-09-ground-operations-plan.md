@@ -1386,6 +1386,56 @@ Commit `feat(0.14.0): ground team slotting UI (Ground Ops GO-11)`.
 kind-sized (Ground / Strike / Survey), the slot / swap actions already respect each team's kind, and the composition
 picker builds on `setGroundTeamKind` / `previewGroundTeamKind` with `shipCrewRoom` for the per-type caps.
 
+**Carry from GO-11 + SQ-7 section 7.1 (built 2026-10-14, commit `feat(0.14.0): ground team slotting + composition
+picker UI (Ground Ops GO-11, SQ-7)`):**
+- **Away Team tab layout.** "Ground teams" first (header copy: Security fights during tasks, Science does the task
+  fieldwork, scanning is ship-side), then the Composition block (squad pips per team, "Strike + Ground: 3 Security
+  squads, 1 Science squad", the one-of-each rule line with a check or a cross, "Aboard / slots: Security 9 / 3 ·
+  Science 4 / 9 · Reserve berths 6 / 3" from `shipCrewRoom`, and the plain over-capacity line), one card per team,
+  the "Aboard, not slotted" reserve, then "Crew aboard": the existing per-type roster (gear install flow, Move, Fire,
+  open-slot cards, Recruitment Board) unchanged except its header ("N aboard for M slots · fights during tasks") and
+  `SQUAD_META` roles ("fights during tasks", "does the task fieldwork"). Member gear stays on the roster cards; a slot
+  is the condensed card (name, spec, rank, "Back in 12m" when recovering) with Swap and Unslot.
+- **Team card.** TeamBadge (md, kind glyph) + name + visible kind label ("Strike team") + Rename (inline form, Enter
+  saves, Escape cancels, blank or the default name clears; enabled while the ship is out). The Ground / Strike /
+  Survey segmented radio group is a PICK (roving tabindex, arrows / Home / End): nothing applies until "Change to X";
+  the preview line names who moves ("Sho moves to the reserve. Tamsin joins from the reserve.", from
+  `previewGroundTeamKind`) and, when the result overfills the reserve, says so plainly with no extra confirm and no
+  forced benching (user 2026-10-13). A refused option is disabled, struck through and explained below the group
+  ("Strike is off: Bravo is Strike, so the ship would have no Science squad."). A pending team shows the amber "Pick a
+  type" chip plus "Bravo works as a Ground team until you pick its type." and a one-click "Keep Ground". Squads render
+  by kind ("Security squad 1 / 2" on Strike). The deploy status lists the waits with time (no stand-ins): "Will not
+  deploy yet: Hurrn returns to duty in 59m" / "Ready to deploy" / "Stays aboard: nobody is slotted." The help default
+  is the shared Toggle with a visible label "(from the next launch)".
+- **Slot picker** (ActionModal, pick then commit): an empty slot lists the reserve of its type; Swap on a filled slot
+  also lists that type's members slotted elsewhere ("Slotted: Bravo, Security squad"); a recovering candidate says the
+  team waits for them. No reserve member: says so and offers "Go to the recruitment board". Focus returns to the slot.
+- **Locked while out:** every slot / swap / unslot / kind control is disabled and described by one line ("Ship is out
+  on a mission: slots and team types are locked until it returns. Renaming and the help setting still work."). The
+  help toggle stays live, matching the engine's GO-2 [PROVISIONAL] call (it only shapes the next launch).
+- **GO-2 review (c):** the reserve section says reserves count toward the crew limit, so the board can report no room
+  while a slot sits empty, and to slot a reserve member to fill it.
+- **Handlers (App.svelte):** `doSlotGroundMember`, `doUnslotGroundMember`, `doSwapGroundMembers`, `doRenameGroundTeam`,
+  `doSetGroundTeamHelp`, `doSetGroundTeamKind` (pure action, same-ref refusal logs the gate text, else state, pushLog,
+  doSave). No engine change, no rule change.
+- **New `src/lib/groundTeamDisplay.ts`** (the tested display decisions: panel view, kind option reasons, the change
+  preview, over-capacity and crew-room text, slot picker candidates, the reserve) + `groundTeamDisplay.test.ts` (16); `groundOpsAtoms.test.ts` +5.
+- **GO-10 review minors folded in.** TeamBadge: the kind glyph renders only on a md badge, at
+  `TEAM_KIND_GLYPH_MIN_PX` (20); a sm badge is the letter alone; no `title` tooltip (callers show name and kind as
+  text). ThreatChip: the face text is `threatChipView().textColor`, the band color lifted toward white just enough to
+  reach 4.8:1 on its own wash (`readableChipText`; Extreme and Impossible lift, the bright tiers are unchanged); border
+  and dot keep the band color.
+- **User rulings 2026-10-14, folded in.** (1) Impossible tier: `#7f1d1d` (1.9:1 on the panel) is now crimson
+  `#e11d48` (about 4:1, cooler than Extreme's red) with a STATIC red glow on its chip (no animation, so nothing for
+  reduced motion); tier names and voice lines unchanged. (2) Patrol row: the crossed-swords emoji is the SVG
+  `fightPoint` glyph; the row's and the Dispatch popup's warning signs are the `warning` SVG, the popup captain
+  picker's caret is `chevronDown`, and the "More info / Less" toggle uses `chevronDown` / `chevronUp` (on the
+  Gathering mission rows too, the same markup).
+- Verified in the dev preview on a seeded freighter (13 members): slot, swap (with an injured member), unslot, rename,
+  help toggle, Ground to Strike by keyboard, a refused combo, Strike to Survey over capacity, reload keeps all of it;
+  1280 px and 375 px (slot grid 2 columns, no horizontal scroll); focus visible; no new console errors. Suite 4529 ->
+  4550 passed (1 skipped); `npm run check` 0 errors.
+
 ### GO-12: Dispatch console: ground teams that will deploy
 
 **Files:** `src/lib/ExpeditionPanel.svelte`.

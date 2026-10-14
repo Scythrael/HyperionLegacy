@@ -421,6 +421,26 @@
     awayCrewBlockText,
   } from "./lib/game/awayTeam";
   import { awayCountdownText, awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
+  // Ground Operations GO-11 + Squads SQ-7: the ground team slot / type actions behind the AwayTeamPanel's
+  // team cards (doSlotGroundMember and friends). Same refusal contract: the SAME state on refusal.
+  import {
+    canSetGroundTeamKind,
+    canSlotMember,
+    canSwapGroundMembers,
+    canUnslotMember,
+    groundSlotBlockText,
+    groundTeamName,
+    previewGroundTeamKind,
+    renameGroundTeam,
+    setGroundTeamHelp,
+    setGroundTeamKind,
+    slotMember,
+    swapGroundMembers,
+    unslotMember,
+    type GroundSquadType,
+  } from "./lib/game/groundTeams";
+  import { teamKindLabel } from "./lib/game/groundComposition";
+  import type { GroundTeamKind } from "./lib/game/model";
   // E-CREW (Task 10): installing gear on away-team MEMBERS (the member card's install flow routes through
   // doInstallOnMember / doUninstallFromMember) and the item-side "Install on..." picker, which lists SHIPS
   // and MEMBERS from the one installTargetsFor. Plus the shared member-gear labels (awayGearDisplay), so
@@ -5214,6 +5234,90 @@
       shipId === null
         ? `${member?.name ?? memberId} is now unassigned.`
         : `Moved ${member?.name ?? memberId} to the ${awayShipLabel(shipId)} away team.`,
+    );
+    doSave();
+  }
+
+  // ── Ground teams (Ground Operations GO-11 + Squads SQ-7 section 7.1) ──────────
+  // The AwayTeamPanel's team cards route here. Canonical do* flow: the pure groundTeams.ts action, a
+  // same-ref refusal logs the gate's reason and stops, else state, pushLog, doSave. The panel already
+  // disables a blocked control with the same reason, so the refusal log is a backstop.
+  function groundMemberName(memberId: string): string {
+    return state.awayMembers.find((m) => m.id === memberId)?.name ?? memberId;
+  }
+  function groundTeamLabel(shipId: string, teamIndex: number): string {
+    const ship = state.ships.find((s) => s.id === shipId);
+    return ship ? groundTeamName(ship, teamIndex) : `Team ${teamIndex + 1}`;
+  }
+
+  function doSlotGroundMember(shipId: string, teamIndex: number, teamType: GroundSquadType, slotIndex: number, memberId: string) {
+    const next = slotMember(state, shipId, teamIndex, teamType, slotIndex, memberId);
+    if (next === state) {
+      const gate = canSlotMember(state, shipId, teamIndex, teamType, slotIndex, memberId);
+      if (!gate.ok) pushLog(`Cannot slot ${groundMemberName(memberId)}: ${groundSlotBlockText(gate.reason)}.`);
+      return;
+    }
+    const team = groundTeamLabel(shipId, teamIndex);
+    state = next;
+    pushLog(`Slotted ${groundMemberName(memberId)} into ${team} (${awayShipLabel(shipId)}).`);
+    doSave();
+  }
+
+  function doUnslotGroundMember(shipId: string, memberId: string) {
+    const next = unslotMember(state, shipId, memberId);
+    if (next === state) {
+      const gate = canUnslotMember(state, shipId, memberId);
+      if (!gate.ok) pushLog(`Cannot unslot ${groundMemberName(memberId)}: ${groundSlotBlockText(gate.reason)}.`);
+      return;
+    }
+    state = next;
+    pushLog(`${groundMemberName(memberId)} moved to the ${awayShipLabel(shipId)} reserve.`);
+    doSave();
+  }
+
+  function doSwapGroundMembers(shipId: string, memberIdA: string, memberIdB: string) {
+    const next = swapGroundMembers(state, shipId, memberIdA, memberIdB);
+    if (next === state) {
+      const gate = canSwapGroundMembers(state, shipId, memberIdA, memberIdB);
+      if (!gate.ok) pushLog(`Cannot swap: ${groundSlotBlockText(gate.reason)}.`);
+      return;
+    }
+    state = next;
+    pushLog(`Swapped ${groundMemberName(memberIdA)} and ${groundMemberName(memberIdB)} (${awayShipLabel(shipId)}).`);
+    doSave();
+  }
+
+  function doRenameGroundTeam(shipId: string, teamIndex: number, name: string | null) {
+    const before = groundTeamLabel(shipId, teamIndex);
+    const next = renameGroundTeam(state, shipId, teamIndex, name);
+    if (next === state) return; // unknown ship / team, or the name would not change
+    state = next;
+    pushLog(`Renamed ground team ${before} to ${groundTeamLabel(shipId, teamIndex)}.`);
+    doSave();
+  }
+
+  function doSetGroundTeamHelp(shipId: string, teamIndex: number, on: boolean) {
+    const next = setGroundTeamHelp(state, shipId, teamIndex, on);
+    if (next === state) return; // unknown ship / team, or already set
+    state = next;
+    const team = groundTeamLabel(shipId, teamIndex);
+    pushLog(on ? `${team} will help other teams when done (from the next launch).` : `${team} will stay on its own tasks.`);
+    doSave();
+  }
+
+  function doSetGroundTeamKind(shipId: string, teamIndex: number, kind: GroundTeamKind) {
+    const preview = previewGroundTeamKind(state, shipId, teamIndex, kind);
+    const next = setGroundTeamKind(state, shipId, teamIndex, kind);
+    if (next === state) {
+      const gate = canSetGroundTeamKind(state, shipId, teamIndex, kind);
+      if (!gate.ok) pushLog(`Cannot change ${groundTeamLabel(shipId, teamIndex)}: ${groundSlotBlockText(gate.reason)}.`);
+      return;
+    }
+    const team = groundTeamLabel(shipId, teamIndex);
+    const moved = preview.ok ? preview.toReserve.map(groundMemberName) : [];
+    state = next;
+    pushLog(
+      `${team} is now a ${teamKindLabel(kind)}.${moved.length > 0 ? ` To the reserve: ${moved.join(", ")}.` : ""}`,
     );
     doSave();
   }
@@ -15855,11 +15959,12 @@
           onToggleFavorite={doToggleOfficerFavorite}
         />
         {:else if activeShipDetailTab === "awayTeam"}
-        <!-- AWAY TEAM (E-CREW "Crew Made Real", Task 6; approved mockup sections 1 + 2). One section
-             per squad this hull fields (Security fights the random battles, Science does fieldwork
-             while scanning), named member cards with spec / trait / affinity chips, the three gear
-             cells and implant slots, an open-slot card per free seat, and the Recruitment Board.
-             Hire / Fire / Move route to the do*AwayMember handlers (pure awayTeam.ts + doSave). -->
+        <!-- AWAY TEAM (E-CREW "Crew Made Real", Task 6; approved mockup sections 1 + 2; ground teams GO-11 +
+             SQ-7). The ground team cards first (composition, Ground / Strike / Survey picker, slots, the
+             reserve; Security fights during tasks, Science does the task fieldwork, scanning is ship-side),
+             then one section per squad type with named member cards (chips, gear cells, implant slots), an
+             open-slot card per free seat, and the Recruitment Board. Hire / Fire / Move route to the
+             do*AwayMember handlers, slots and team types to the do*Ground* handlers (pure engine + doSave). -->
         <AwayTeamPanel
           {state}
           shipId={ship.id}
@@ -15868,6 +15973,12 @@
           onReassign={doReassignAwayMember}
           onInstall={doInstallOnMember}
           onUninstall={doUninstallFromMember}
+          onSlot={doSlotGroundMember}
+          onUnslot={doUnslotGroundMember}
+          onSwap={doSwapGroundMembers}
+          onRenameTeam={doRenameGroundTeam}
+          onSetTeamHelp={doSetGroundTeamHelp}
+          onSetTeamKind={doSetGroundTeamKind}
         />
         {:else if activeShipDetailTab === "complement"}
         <!-- COMPLEMENT (Crew 0.14.0 phase 4b). The hundreds-scale crew population for this hull:
@@ -16866,7 +16977,7 @@
                         <!-- Actions: "More info" toggles the in-place expandedMissionKey reveal;
                              "Assign" opens the unchanged openMissionPopup dispatch flow. -->
                         <div class="mpane-actions">
-                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
+                          <button class="dev-btn" on:click={() => (expandedMissionKey = expanded ? null : missionKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
                           <button class="buy-btn" on:click={() => openMissionPopup(missionKey)}>Assign</button>
                         </div>
                       </div>
@@ -17192,11 +17303,11 @@
                 {@const outOfReach = selectedShip !== null && !shipReachesRoundTrip(state, selectedShip, def.transitOutTicks, def.transitBackTicks)}
                 {@const advisoryActive = gate !== null && (!gate.ok || gate.noWeaponAdvisory)}
                 <div class="mpane-wrap">
-                  <!-- ROW: id (⚔️ + patrol label + faction sub) · glance mid · actions. warnedge
+                  <!-- ROW: id (the fightPoint SVG glyph + patrol label + faction sub) · glance mid · actions. warnedge
                        when the row carries an active block/advisory (mirrors .fpane.attn). -->
                   <div class="mpane" class:warnedge={advisoryActive}>
                     <div class="mpane-id">
-                      <span class="mpane-glyph" aria-hidden="true">⚔️</span>
+                      <span class="mpane-glyph" aria-hidden="true"><Icon name="fightPoint" size={22} /></span>
                       <div class="mpane-idcol">
                         <div class="mpane-name">{def.label}</div>
                         {#if faction}<div class="mpane-sub">{faction.name}</div>{/if}
@@ -17230,14 +17341,14 @@
                       <!-- Block reason (danger) + no-weapon advisory (warning) STAY on the row: they
                            gate/qualify dispatch. Same canDispatchPatrol reasons as before. -->
                       {#if gate !== null && !gate.ok}
-                        <div class="mpane-warn danger">⚠ {patrolDispatchBlockMessage(gate.reason, patrolKey, selectedCaptainId)}</div>
+                        <div class="mpane-warn danger"><Icon name="warning" /> {patrolDispatchBlockMessage(gate.reason, patrolKey, selectedCaptainId)}</div>
                       {/if}
                       {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
-                        <div class="mpane-warn">⚠ No weapon installed. You won't be able to return fire.</div>
+                        <div class="mpane-warn"><Icon name="warning" /> No weapon installed. You won't be able to return fire.</div>
                       {/if}
                     </div>
                     <div class="mpane-actions">
-                      <button class="dev-btn" on:click={() => (expandedPatrolKey = expanded ? null : patrolKey)}>{expanded ? "Less" : "ⓘ More info"}</button>
+                      <button class="dev-btn" on:click={() => (expandedPatrolKey = expanded ? null : patrolKey)}>{#if expanded}<Icon name="chevronUp" /> Less{:else}<Icon name="chevronDown" /> More info{/if}</button>
                       <button class="buy-btn" on:click={() => (patrolDispatchKey = patrolKey)}>Dispatch</button>
                     </div>
                   </div>
@@ -19216,7 +19327,7 @@
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px;">
           <span class="mission-col-label" style="margin:0;">Captain:</span>
           <button class="dev-btn" on:click={() => openPatrolPicker(patrolDispatchKey!)}>
-            {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){#if selectedShipDef} &middot; {selectedShipDef.label}{/if} ▾{:else}Select a captain ▾{/if}
+            {#if selectedCaptain !== null}{selectedCaptain.label} (Level {selectedCaptain.level}){#if selectedShipDef} &middot; {selectedShipDef.label}{/if} <Icon name="chevronDown" />{:else}Select a captain <Icon name="chevronDown" />{/if}
           </button>
         </div>
 
@@ -19285,10 +19396,10 @@
         </div>
 
         {#if gate !== null && !gate.ok}
-          <div class="research-cost" style="color: var(--color-danger)">⚠ {patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId)}</div>
+          <div class="research-cost" style="color: var(--color-danger)"><Icon name="warning" /> {patrolDispatchBlockMessage(gate.reason, patrolDispatchKey, selectedCaptainId)}</div>
         {/if}
         {#if gate !== null && gate.ok && gate.noWeaponAdvisory}
-          <div class="research-cost" style="color: var(--color-warning)">⚠ No weapon installed. You won't be able to return fire.</div>
+          <div class="research-cost" style="color: var(--color-warning)"><Icon name="warning" /> No weapon installed. You won't be able to return fire.</div>
         {/if}
 
         <svelte:fragment slot="footer">
