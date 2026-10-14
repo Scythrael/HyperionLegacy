@@ -202,3 +202,11 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   Reinforcing on easier objectives about 3% at Tier III. Every Tier III+ run finished; two Tier I runs held a Deadly
   objective their crew could not beat and kept retrying after each reset (the existing "retry forever, skip by
   hand" rule).
+
+## 6. AF-1 calls (user, 2026-10-14)
+
+- Reinforcing's extra battles strike MID-WORK, like ambushes (at random points along the progress bar), not on landing.
+- The number of extra battles is WEIGHTED TOWARD FEWER (1 most likely, the rank's max rarest). User: "Ultimately,
+  Reinforcing X won't likely be seen often by anything outside of safety interlock max difficulty." (So the top ranks
+  belong mainly to the future difficulty / safety-interlock tiers.)
+- Impossible after 3 setbacks on a score-8 Deadly objective: KEEP as built.
