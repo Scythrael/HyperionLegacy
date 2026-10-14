@@ -253,14 +253,28 @@ export function bodyRiskGrades(
 // no affix.
 export const BASE_DIFFICULTY_TIER = 1;
 
+// The AFFIX CATALOG version (AF-2): which affixes a run's objectives may stamp. 1 = AF-1's catalog (Reinforcing
+// only); 2 = AF-2's (adds Rocky Outcroppings). Every affix carries the version that introduced it (affixes.ts
+// AffixDef.catalog) and a run stamps only from its own version, on that version's draw layout, so adding an affix
+// never shifts a draw of a run dispatched before it. Bump it with every catalog addition.
+export const AFFIX_CATALOG_VERSION = 2;
+// The catalog an affix-aware run dispatched before AF-2 reads (its profile carries no version).
+export const AF1_AFFIX_CATALOG = 1;
+
+// The affix catalog version a risk profile stamps from: its stored version, else AF-1's. Pure.
+export function runAffixCatalog(profile: Pick<ExpeditionRiskProfile, "affixCatalog"> | undefined): number {
+  const v = profile?.affixCatalog;
+  return typeof v === "number" && Number.isInteger(v) && v >= AF1_AFFIX_CATALOG ? v : AF1_AFFIX_CATALOG;
+}
+
 // The difficulty tier a risk profile carries, or null (a run dispatched before AF-1: no affixes). Pure.
 export function runDifficultyTier(profile: Pick<ExpeditionRiskProfile, "difficultyTier"> | undefined): number | null {
   const d = profile?.difficultyTier;
   return typeof d === "number" && Number.isInteger(d) && d >= BASE_DIFFICULTY_TIER ? d : null;
 }
 
-// A whole system's risk: the run's profile (at the BASE difficulty tier: the affix flag, AF-1) and every body's
-// grades, body order. Pure.
+// A whole system's risk: the run's profile (at the BASE difficulty tier: the affix flag, AF-1; on the current affix
+// catalog, AF-2) and every body's grades, body order. Pure.
 export function generateRiskProfile(
   seed: number,
   region: ExpeditionRegion,
@@ -268,7 +282,7 @@ export function generateRiskProfile(
 ): { profile: ExpeditionRiskProfile; bodies: BodyRiskGrades[] } {
   const system = systemRiskGrades(seed, region);
   return {
-    profile: { version: 1, tier: region.tier, enemyTerritory: region.enemyTerritory, system, difficultyTier: BASE_DIFFICULTY_TIER },
+    profile: { version: 1, tier: region.tier, enemyTerritory: region.enemyTerritory, system, difficultyTier: BASE_DIFFICULTY_TIER, affixCatalog: AFFIX_CATALOG_VERSION },
     bodies: bodies.map((b, i) => bodyRiskGrades(seed, region, system, i, b)),
   };
 }

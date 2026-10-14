@@ -6654,7 +6654,8 @@ export interface ExpeditionActivity {
 // Objective affixes (AF-1, user 2026-10-14: "Affixes ... a new system that we should honestly make use of
 // elsewhere in the project too"). The definitions live in affixes.ts; the stored shapes live here so model.ts
 // never imports an engine module.
-export type AffixId = "reinforcing";
+// AF-2 adds Rocky Outcroppings (terrain cover against long-range attacks; positive, neutral or negative).
+export type AffixId = "reinforcing" | "rockyOutcroppings";
 // An affix rolls exactly ONE alignment (user: "Some can roll into more than one, but only one at a time"):
 // positive (good for the player, green), neutral (both sides, yellow) or negative (bad for the player, red).
 export type AffixAlignment = "positive" | "neutral" | "negative";
@@ -6721,6 +6722,10 @@ export interface ExpeditionRiskProfile {
   // the future difficulty tiers, user 2026-10-14). Its PRESENCE is the affix flag: a run dispatched before AF-1
   // has none and stamps no affix.
   difficultyTier?: number;
+  // Objective affixes (AF-2): the AFFIX CATALOG version the run stamps from (riskFactors.ts AFFIX_CATALOG_VERSION,
+  // written at dispatch since AF-2). Absent on an affix-aware run dispatched before AF-2: it stamps from AF-1's
+  // catalog (Reinforcing only) on AF-1's draw layout, so its objectives roll exactly as before.
+  affixCatalog?: number;
 }
 
 // One body (planet / satellite / other) in the target system. Its `planetType` (E2b) gates which

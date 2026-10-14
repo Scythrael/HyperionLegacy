@@ -43,7 +43,9 @@ const R = (rank: number): ObjectiveAffix => ({ id: "reinforcing", rank, alignmen
 describe("AF-1 the catalog: Reinforcing, ranks, alignments, colors", () => {
   it("Reinforcing is always negative, combat objectives only, ranks I to X, required on Deadly", () => {
     const def = AFFIX_DEFS.reinforcing;
-    expect(AFFIX_ORDER).toEqual(["reinforcing"]);
+    // AF-2 appended Rocky Outcroppings at the END (catalog 2); Reinforcing is AF-1's (catalog 1).
+    expect(AFFIX_ORDER).toEqual(["reinforcing", "rockyOutcroppings"]);
+    expect(def.catalog).toBe(1);
     expect(def.name).toBe("Reinforcing");
     expect(def.alignments).toEqual(["negative"]);
     expect(def.appliesTo).toEqual(["combatObjective"]);
@@ -99,15 +101,23 @@ describe("AF-1 the catalog: Reinforcing, ranks, alignments, colors", () => {
 
 describe("AF-1 pools keyed by (tier, difficulty, difficulty tier)", () => {
   it("a Deadly combat objective REQUIRES Reinforcing (never in the rollable entries); a calm one gets nothing", () => {
-    const deadly = affixPool(1, 5, BASE_DIFFICULTY_TIER, "combatObjective");
+    // AF-1's catalog (a run dispatched before AF-2): Reinforcing only.
+    const deadly = affixPool(1, 5, BASE_DIFFICULTY_TIER, "combatObjective", 1);
     expect(deadly.required).toEqual(["reinforcing"]);
     expect(deadly.entries).toEqual([]);
-    const easy = affixPool(3, 2, BASE_DIFFICULTY_TIER, "combatObjective");
+    const easy = affixPool(3, 2, BASE_DIFFICULTY_TIER, "combatObjective", 1);
     expect(easy.required).toEqual([]);
     expect(easy.entries).toEqual([{ id: "reinforcing", weight: 100 }]);
-    const calm = affixPool(7, 5, BASE_DIFFICULTY_TIER, "calmObjective");
+    const calm = affixPool(7, 5, BASE_DIFFICULTY_TIER, "calmObjective", 1);
     expect(calm.required).toEqual([]);
     expect(calm.entries).toEqual([]);
+    // AF-2's catalog (the default): Rocky Outcroppings joins the rollable entries of combat objectives only.
+    expect(affixPool(1, 5, BASE_DIFFICULTY_TIER, "combatObjective").entries).toEqual([{ id: "rockyOutcroppings", weight: 100 }]);
+    expect(affixPool(3, 2, BASE_DIFFICULTY_TIER, "combatObjective").entries).toEqual([
+      { id: "reinforcing", weight: 100 },
+      { id: "rockyOutcroppings", weight: 100 },
+    ]);
+    expect(affixPool(7, 5, BASE_DIFFICULTY_TIER, "calmObjective").entries).toEqual([]);
   });
 
   it("the roll chance is rarer on early tiers and easier objectives", () => {
@@ -154,8 +164,13 @@ describe("AF-1 the stamping roll (AFFIX_ROLL_SALT, fixed draw layout)", () => {
     for (let k = 0; k < 300; k += 1) {
       for (const tier of [1, 4, 7]) {
         const out = rollObjectiveAffixes(input({ difficulty: 5, tier, taskIndex: k, seed: k * 7919 }));
-        expect(out.length).toBe(1);
+        // AF-2: a Deadly objective may also roll Rocky Outcroppings (after the required Reinforcing).
+        expect(out.length).toBeGreaterThanOrEqual(1);
         expect(out[0]).toMatchObject({ id: "reinforcing", alignment: "negative" });
+        if (out.length > 1) expect(out.slice(1).map((a) => a.id)).toEqual(["rockyOutcroppings"]);
+        const af1 = rollObjectiveAffixes(input({ difficulty: 5, tier, taskIndex: k, seed: k * 7919, catalog: 1 }));
+        expect(af1.length).toBe(1);
+        expect(af1[0]).toMatchObject({ id: "reinforcing", alignment: "negative" });
         expect(rollObjectiveAffixes(input({ difficulty: 5, tier, taskIndex: k, combat: false }))).toEqual([]);
       }
     }

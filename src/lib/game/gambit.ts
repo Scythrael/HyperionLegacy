@@ -69,7 +69,7 @@ import type {
   SnapshotMember,
   GroundStatus,
 } from "./model";
-import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT } from "./model";
+import { SALVAGE_LOOT_POOLS, DEFAULT_GAMBIT_PROGRAMS, DEFAULT_MEMBER_GAMBIT, memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { crewRarityMultiplier } from "./crewRarity";
 import { rankMagnitudeFactor } from "./crewRank";
@@ -212,6 +212,45 @@ export type EnemyRole = "bruiser" | "striker" | "healer" | "caster" | "swarm";
 // the only team role that ever fights is "security" ("science" stays in the union so old data types check).
 export type GroundRole = GambitRole | EnemyRole;
 
+// ============================================================================
+// Ground weapon RANGE (objective affixes AF-2; docs/plans/2026-10-14-objective-affixes-capture.md)
+// ============================================================================
+// Every ground attack is LONG range (a shot from cover, a cast from the back line) or SHORT range (a close-in
+// blast, a baton, claws). DATA ONLY on its own: nothing reads it unless a target has evasion against long-range
+// attacks (GroundCombatant.longRangeEvasion, the Rocky Outcroppings affix), so every fight without such cover
+// draws and resolves exactly as before. [PROVISIONAL classification]
+//   MEMBER weapons: the catalog's own MemberVarietyTraits.weaponRange (model.ts memberWeapon varieties): Pulse
+//     Rifle long; Scattergun, Shock Baton (melee) and Sidearm short. A member with NO weapon fights unarmed:
+//     short (UNARMED_RANGE). Implants (the Targeting Optic) and tools never change the range.
+//   ENEMY attacks by role (ENEMY_ROLE_RANGE): Strikers (gunners), Casters and Healers (back line) long; Bruisers
+//     (close-in brawlers) and Swarm (claws and teeth) short.
+export type GroundRange = "long" | "short";
+export const UNARMED_RANGE: GroundRange = "short";
+export const ENEMY_ROLE_RANGE: Readonly<Record<EnemyRole, GroundRange>> = {
+  bruiser: "short",
+  striker: "long",
+  healer: "long",
+  caster: "long",
+  swarm: "short",
+};
+
+// A snapshotted member's attack range: the first worn Away-Team Weapon's catalog range, else UNARMED_RANGE. Pure.
+export function memberWeaponRange(member: Pick<SnapshotMember, "gear">): GroundRange {
+  for (const piece of member.gear ?? []) {
+    if (piece.slotType !== "memberWeapon") continue;
+    const range = memberVariety(piece.slotType, piece.varietyKey)?.member.weaponRange;
+    if (range) return range;
+  }
+  return UNARMED_RANGE;
+}
+
+// A combatant's attack range: its stamped `range`, else an enemy role's ENEMY_ROLE_RANGE, else UNARMED_RANGE. Pure.
+export function attackRange(c: Pick<GroundCombatant, "range" | "side" | "role">): GroundRange {
+  if (c.range) return c.range;
+  if (c.side === "enemy" && Object.prototype.hasOwnProperty.call(ENEMY_ROLE_RANGE, c.role)) return ENEMY_ROLE_RANGE[c.role as EnemyRole];
+  return UNARMED_RANGE;
+}
+
 // Enemy behaviors expressed as gambit programs, run through the SAME interpreter (proving it is
 // generalizable). "ally" resolves to a fellow ENEMY (same side), so the Healer heals wounded enemies.
 // A Caster's affliction comes from its combatant `statusOnHit` (its attack applies it), keeping the
@@ -280,6 +319,11 @@ export interface GroundCombatant {
   // first-aid effectiveness (Use Item) is multiplied by this; its Aid / Heal amount is already scaled at
   // build. Absent on enemies and on a squad without the officer (exactly the pre-Task-20 first aid).
   careMult?: number;
+  // Objective affixes (AF-2): the attack's RANGE (see GroundRange; absent: attackRange's default) and this
+  // combatant's EVASION against LONG-RANGE attacks (Rocky Outcroppings cover, a fraction 0..1: a long-range strike's
+  // hit chance x (1 - this)). Both absent on every combatant of a fight without cover, so it is the fight as before.
+  range?: GroundRange;
+  longRangeEvasion?: number;
 }
 
 // E-CREW (Task 20): the away team's frozen Senior Staff bonuses (stored on the Expedition at dispatch), as
@@ -561,6 +605,16 @@ function effectiveArmor(c: GroundCombatant): number {
   return Math.max(0, armor);
 }
 
+// The hit chance (0..1) of `attacker`'s strike on `target`: effectiveAccuracy, then (AF-2) the target's evasion
+// against LONG-RANGE attacks when it has some and the attack is long range (attackRange). A target without cover
+// reads effectiveAccuracy exactly. Pure.
+export function strikeHitChance(attacker: GroundCombatant, target: Pick<GroundCombatant, "longRangeEvasion">): number {
+  const acc = effectiveAccuracy(attacker);
+  const evade = target.longRangeEvasion;
+  if (!(typeof evade === "number" && evade > 0) || attackRange(attacker) !== "long") return acc;
+  return Math.max(0, Math.min(1, acc * (1 - Math.min(1, evade))));
+}
+
 // ============================================================================
 // Target resolution (the tactical heart) -- pure over the current combatant lists
 // ============================================================================
@@ -729,7 +783,8 @@ function doStrike(
   applyOnHit: boolean,
   state: BattleState,
 ): void {
-  const hit = rng.chance(Math.round(effectiveAccuracy(attacker) * 1000), 1000);
+  // AF-2: cover against long-range attacks lowers the threshold of the SAME single hit-check draw.
+  const hit = rng.chance(Math.round(strikeHitChance(attacker, target) * 1000), 1000);
   if (!hit) return; // a clean miss (the hit-check draw was still consumed, keeping the stream position fixed)
   const dmg = rollDamage(attacker, target, rng, mult);
   dealDamage(target, dmg);

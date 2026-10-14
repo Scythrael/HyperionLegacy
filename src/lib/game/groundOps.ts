@@ -104,12 +104,25 @@ import {
   isHostileSiteId,
   riskAmbushChance,
   riskRewardBonus,
+  runAffixCatalog,
   runDifficultyTier,
   taskDifficultyScore,
   tierNeeds,
 } from "./riskFactors";
-// Objective affixes (AF-1): the stamping roll, the per-visit reinforcements, the alert and its failsafe.
-import { ALERT_RESET_TEXT, alertAfterSetback, alertLevelAt, alertResetsAt, objectiveHeld, rollObjectiveAffixes, rollReinforcements } from "./affixes";
+// Objective affixes (AF-1): the stamping roll, the per-visit reinforcements, the alert and its failsafe. AF-2: the
+// cover against long-range attacks (Rocky Outcroppings).
+import {
+  ALERT_RESET_TEXT,
+  alertAfterSetback,
+  alertLevelAt,
+  alertResetsAt,
+  hasCover,
+  longRangeCover,
+  objectiveHeld,
+  rollObjectiveAffixes,
+  rollReinforcements,
+  type GroundCover,
+} from "./affixes";
 
 export type { GroundOpsFactors, GroundOpsLogEntry, GroundOpsState, GroundRepairLeg, GroundShipLeg, GroundStepKind, GroundStepRecord, GroundTaskNeeds, GroundTeamRun, ShipEventProfile };
 
@@ -345,6 +358,9 @@ export function snapshotAwayRosterForTeams(
 //   HOLDS the objective (no crew starts it; it stays queued) until the reset, an event of the window (the record is
 //   cleared and a log line written at that instant, so idle teams pick it up again). A run without the flag
 //   stamps and resolves exactly as before.
+//   ROCKY OUTCROPPINGS (AF-2): the objective's fights (point, surprise and reinforcement fights alike) and every odds
+//   read of it carry its COVER against long-range attacks (taskCover). The run stamps from its own affix CATALOG
+//   version (riskFactors.ts runAffixCatalog), so an affix-aware run dispatched before AF-2 rolls exactly as before.
 //
 // DETERMINISM: two salts here, GROUND_AMBUSH_SALT (the ambush roll, keyed by the task and its ambushes) and
 // AUTO_ASSIGN_SALT (GO-7d's Auto-assign randomly, keyed by the run's edit count). A task
@@ -533,7 +549,15 @@ export function groundCrewClearOdds(exp: Expedition, teamIndices: readonly numbe
     if (!team) return null;
     crew.push(team);
   }
-  return groundTaskClearOdds(exp, crew.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex);
+  return groundTaskClearOdds(exp, crew.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task));
+}
+
+// AF-2 (Rocky Outcroppings): the objective's cover against long-range attacks (affixes.ts longRangeCover), or
+// undefined when it has none (so its fights and odds reads are exactly as before). Pure.
+export function taskCover(task: Pick<ExpeditionActivity, "affixes">): GroundCover | undefined {
+  if (!task.affixes || task.affixes.length === 0) return undefined;
+  const cover = longRangeCover(task.affixes);
+  return hasCover(cover) ? cover : undefined;
 }
 
 // The team as a task's work crew: only members still STANDING in the task (a downed member sits out the rest
@@ -655,6 +679,8 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
   const tier = exp.risk?.tier ?? 1;
   // Objective affixes (AF-1): only an affix-aware run (its profile carries a difficulty tier) stamps them.
   const difficultyTier = runDifficultyTier(exp.risk);
+  // AF-2: the run's affix catalog version (a run dispatched before AF-2 stamps from AF-1's, on AF-1's draw layout).
+  const catalog = runAffixCatalog(exp.risk);
   for (let k = 0; k < body.activities.length; k += 1) {
     const task = body.activities[k];
     if (isGroundTask(task)) continue;
@@ -672,7 +698,16 @@ export function initGroundTasks(exp: Expedition, bodyIndex: number): void {
       task.difficulty = difficultyGradeOf(score);
       if (difficultyTier !== null) {
         task.difficultyScore = score;
-        const affixes = rollObjectiveAffixes({ seed: exp.seed, bodyIndex, taskIndex: k, tier, difficulty: task.difficulty, difficultyTier, combat: fights > 0 });
+        const affixes = rollObjectiveAffixes({
+          seed: exp.seed,
+          bodyIndex,
+          taskIndex: k,
+          tier,
+          difficulty: task.difficulty,
+          difficultyTier,
+          combat: fights > 0,
+          catalog,
+        });
         if (affixes.length > 0) task.affixes = affixes;
       }
     } else {
@@ -749,7 +784,8 @@ export function groundOpsLogText(exp: Pick<Expedition, "bodies">, entry: GroundO
 // How many of the threat samples `teams` (fresh: full HP, nobody sitting out) clear `ref` in one go (the
 // display odds' stream, groundThreat.ts; a read never shifts a real fight). Pure.
 function freshWins(exp: Expedition, ops: GroundOpsState, teams: readonly GroundTeamRun[], ref: GroundTaskRef): number {
-  return groundTaskClearOdds(exp, teams.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex).wins;
+  return groundTaskClearOdds(exp, teams.map((team) => fightTeamOf(ops, team, true)), ref.body, ref.task, ref.flatIndex, undefined, undefined, 0, taskCover(ref.task))
+    .wins;
 }
 
 // THE DEFAULT PLAN (user 9b.3) for `refs` (one body's new, playable tasks, discovery order): appends them to the
@@ -1034,7 +1070,7 @@ function borrowableTask(exp: Expedition, ops: GroundOpsState, helper: GroundTeam
       if (!ref || ref.task.status !== "queued" || isJointTask(ref.task) || !teamCovers(helper, ref.task)) continue;
       if (objectiveHeld(ref.task, t)) continue;
       const alert = alertLevelAt(ref.task, t);
-      const threat = groundTaskThreat(exp, side, ref.body, ref.task, ref.flatIndex, undefined, undefined, alert);
+      const threat = groundTaskThreat(exp, side, ref.body, ref.task, ref.flatIndex, undefined, undefined, alert, taskCover(ref.task));
       if (tierAtLeast(threat.tier, HELPER_MIN_TIER)) return ref;
     }
   }
@@ -1216,14 +1252,16 @@ function startWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, re
   const secs = Math.max(1, Math.round((to - from) * full));
   team.workFrom = from;
   // AF-1, Reinforcing: this visit's next reinforcement strikes inside this step (its point before `to`): the step
-  // ends there, at whole second 1 to secs - 1 of it (a step under 2 s runs whole and the strike lands at its end),
-  // and finishWork fights it where the work stopped. Calm objectives never carry it, so it never meets an ambush.
+  // ends there, at whole second 1 to secs - 1 of it, and finishWork fights it where the work stopped. A step under
+  // 2 s runs WHOLE (to `to`, exactly) and the strike lands at its end: finishWork then banks the finished segment
+  // FIRST, so the working crew gets its credit, and fights the reinforcements after (AF-1 re-review). Calm
+  // objectives never carry it, so it never meets an ambush.
   const next = team.reinforcementsAt?.[0];
   if (next !== undefined && next < to) {
     team.reinforcementsAt = (team.reinforcementsAt as number[]).slice(1);
     if (team.reinforcementsAt.length === 0) delete team.reinforcementsAt;
     const at = secs >= 2 ? Math.max(1, Math.min(secs - 1, Math.round(((Math.max(next, from) - from) / Math.max(to - from, 1e-12)) * secs))) : secs;
-    team.workTo = from + (to - from) * (at / secs);
+    team.workTo = at === secs ? to : from + (to - from) * (at / secs);
     team.reinforcing = true;
     return moveTo(ops, team, "work", t, t + at, rec);
   }
@@ -1266,7 +1304,15 @@ function ambushStrike(exp: Expedition, ref: GroundTaskRef, secs: number): number
 // meets it as a SURPRISE FIGHT where it stands (Squads SQ-4, user: "win: work continues; lose: a normal wipe"),
 // a crew with none retreats (SQ-3).
 function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, ref: GroundTaskRef, t: number): void {
-  if (team.reinforcing) return reinforcementFight(exp, ops, team, ref, t);
+  if (team.reinforcing) {
+    // AF-1 re-review: a strike that landed at the END of a step (the step ran whole: under 2 s) finds the segment
+    // finished, so the working crew banks it FIRST; the reinforcement fight follows where the work stopped.
+    const points = ref.task.fightPoints ?? [];
+    const cleared = ref.task.pointsCleared ?? 0;
+    const target = cleared < points.length ? points[cleared] : 1;
+    if (team.workTo !== undefined && team.workTo >= target) bankSegment(ops, team, ref.task);
+    return reinforcementFight(exp, ops, team, ref, t);
+  }
   if (team.ambushed) {
     const crew = crewOf(ops, team);
     const standing = crew.some((member) => member.securityIds.some((id) => !member.downedThisTask.includes(id)));
@@ -1276,11 +1322,7 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
   const crew = crewOf(ops, team);
   const to = team.workTo ?? task.progress ?? 0;
   task.progress = to;
-  const segment = task.pointsCleared ?? 0;
-  const bankers = task.segmentBankers ?? [];
-  bankers[segment] = crew.map((member) => member.index);
-  task.segmentBankers = bankers;
-  task.segmentsBanked = Math.max(task.segmentsBanked ?? 0, segment + 1);
+  bankSegment(ops, team, task);
   delete team.workFrom;
   delete team.workTo;
   if (to >= 1) {
@@ -1294,6 +1336,18 @@ function finishWork(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun, r
     return;
   }
   startFight(exp, ops, team, ref, t);
+}
+
+// Bank the segment the crew just finished (segment index = the points cleared so far) for the crew's team set. A
+// segment already banked keeps its first bankers (AF-1 re-review: a crew that banked a segment and then lost the
+// reinforcement fight there keeps the credit; the crew that later finishes the zero-length remainder does not take
+// it). Mutates the task.
+function bankSegment(ops: GroundOpsState, team: GroundTeamRun, task: ExpeditionActivity): void {
+  const segment = task.pointsCleared ?? 0;
+  const bankers = task.segmentBankers ?? [];
+  if (bankers[segment] === undefined || !((task.segmentsBanked ?? 0) > segment)) bankers[segment] = crewOf(ops, team).map((member) => member.index);
+  task.segmentBankers = bankers;
+  task.segmentsBanked = Math.max(task.segmentsBanked ?? 0, segment + 1);
 }
 
 // THE SURPRISE FIGHT (Squads SQ-4; user, SQ-3 calls (c)): an ambush struck a crew with a standing Security member.
@@ -1353,7 +1407,8 @@ function ambushRetreat(exp: Expedition, ops: GroundOpsState, team: GroundTeamRun
 // A fight starts: resolved now on its keyed stream, with the crew's carry (user Q5); applied at its end. A
 // joint task's Security squads fight as ONE side (groundFight.ts taskFightTeam: team then slot order). `rec` adds
 // to the closed step's record; `kind` marks an ambush met as a fight (Squads SQ-4) or a Reinforcing extra battle
-// (AF-1). The objective's ALERT at `t` escalates the fight (AF-1: groundFight.ts withEscalation; 0 = none).
+// (AF-1). The objective's ALERT at `t` escalates the fight (AF-1: groundFight.ts withEscalation; 0 = none), and its
+// COVER shapes it (AF-2, Rocky Outcroppings: groundFight.ts withCover; none = as before).
 function startFight(
   exp: Expedition,
   ops: GroundOpsState,
@@ -1365,7 +1420,17 @@ function startFight(
 ): void {
   const crew = crewOf(ops, team);
   const alert = alertLevelAt(ref.task, t);
-  const record = resolveTaskFight(exp, crew.map((member) => fightTeamOf(ops, member)), ref.body, ref.task, ref.flatIndex, crewCarry(crew), undefined, alert);
+  const record = resolveTaskFight(
+    exp,
+    crew.map((member) => fightTeamOf(ops, member)),
+    ref.body,
+    ref.task,
+    ref.flatIndex,
+    crewCarry(crew),
+    undefined,
+    alert,
+    taskCover(ref.task),
+  );
   if (kind === "surprise") record.surprise = true;
   if (kind === "reinforcement") record.reinforcement = true;
   ref.task.fightCount = (ref.task.fightCount ?? 0) + 1;

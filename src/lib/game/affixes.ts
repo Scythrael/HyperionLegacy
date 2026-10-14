@@ -35,6 +35,17 @@
 //     resets; objectiveHeldUntil gives the UI its countdown. Then it returns to normal and is workable again.
 //   The alert is a pure function of the stored record ({ level, lastAt }) and the time, so offline == live.
 //
+// ROCKY OUTCROPPINGS (AF-2; positive, neutral or negative; user): "Rocky Outcroppings that provide additional cover
+// which increases evasion against long-range weaponry by 15% for both sides of combat, or perhaps for one side as a
+// good or bad version ... If it's positive, you get the evasion. If neutral, both get it, if negative, the enemy gets
+// it." Combat objectives only; ranks I to III (15% at rank I, user; small steps after) [PROVISIONAL]. In the
+// objective's fights the covered side evades that share of LONG-RANGE attacks (gambit.ts GroundRange: the hit
+// chance of a long-range strike on a covered combatant x (1 - evasion), the same single hit-check draw).
+//
+// THE CATALOG VERSION (AF-2): every affix carries the catalog version that introduced it (AffixDef.catalog); a run
+// stamps from its own version (riskFactors.ts runAffixCatalog: an affix-aware run dispatched before AF-2 reads 1),
+// so its pool and its draw layout are exactly the ones it was dispatched with.
+//
 // DETERMINISM: two salts, both on the run's own seed and keyed, never a shared stream:
 //   AFFIX_ROLL_SALT     the stamping roll, keyed by (body index, the objective's index on its body);
 //   REINFORCEMENT_SALT  the per-visit reinforcement roll, keyed by (the objective's flat index, its visit count).
@@ -46,7 +57,7 @@
 import type { AffixAlignment, AffixId, ExpeditionActivity, ObjectiveAffix, ObjectiveAlert, RegionTier } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
 import { diminishing } from "./diminishing";
-import { BASE_DIFFICULTY_TIER, DIFFICULTY_NAMES, difficultyGradeOf } from "./riskFactors";
+import { AFFIX_CATALOG_VERSION, BASE_DIFFICULTY_TIER, DIFFICULTY_NAMES, difficultyGradeOf } from "./riskFactors";
 
 export type { AffixAlignment, AffixId, ObjectiveAffix, ObjectiveAlert };
 
@@ -91,11 +102,15 @@ export interface AffixHooks {
   maxExtraBattlesByRank?: readonly number[];
   // Every retreat or wipe raises the objective's ALERT; it lapses this many seconds after the last setback.
   alertResetSecondsByRank?: readonly number[];
+  // AF-2: EVASION against LONG-RANGE attacks (a fraction) for the side(s) the instance's alignment covers:
+  // positive the player's squad, neutral both sides, negative the enemy (longRangeCover).
+  longRangeEvasionByRank?: readonly number[];
 }
 
 export interface AffixDef {
   id: AffixId;
   name: string;
+  catalog: number; // the affix catalog version that introduced it (riskFactors.ts AFFIX_CATALOG_VERSION; AF-2)
   maxRank: number; // per affix (user: Reinforcing to X, others only a few)
   alignments: readonly AffixAlignment[]; // the alignments it may roll (exactly one per instance)
   appliesTo: readonly AffixTarget[];
@@ -143,6 +158,16 @@ function reinforcingRow(rank: number): (typeof REINFORCING_RANKS)[number] {
   return REINFORCING_RANKS[Math.max(0, Math.min(REINFORCING_RANKS.length - 1, Math.floor(rank) - 1))];
 }
 
+// ROCKY OUTCROPPINGS by rank I..III: the evasion against long-range attacks (user: 15% at rank I; small steps
+// after) [PROVISIONAL], and its roll weight among a pool's rollable affixes (Reinforcing's is 100) [PROVISIONAL].
+export const ROCKY_OUTCROPPINGS_EVASION: readonly number[] = [0.15, 0.18, 0.21];
+export const ROCKY_OUTCROPPINGS_ROLL_WEIGHT = 100;
+
+// The Rocky Outcroppings evasion of a rank (clamped to the table). Pure.
+function outcroppingsEvasion(rank: number): number {
+  return ROCKY_OUTCROPPINGS_EVASION[Math.max(0, Math.min(ROCKY_OUTCROPPINGS_EVASION.length - 1, Math.floor(rank) - 1))];
+}
+
 // The name of the escalation's damage buff (user: "a heightened senses buff that gives them additional stacking
 // damage until the alert wears off").
 export const HEIGHTENED_SENSES_NAME = "Heightened Senses";
@@ -151,6 +176,7 @@ export const AFFIX_DEFS: Readonly<Record<AffixId, AffixDef>> = {
   reinforcing: {
     id: "reinforcing",
     name: "Reinforcing",
+    catalog: 1,
     maxRank: REINFORCING_RANKS.length,
     alignments: ["negative"], // always negative (user)
     appliesTo: ["combatObjective"],
@@ -183,9 +209,41 @@ export const AFFIX_DEFS: Readonly<Record<AffixId, AffixDef>> = {
       alertResetSecondsByRank: REINFORCING_RANKS.map((r) => r.resetSeconds),
     },
   },
+  rockyOutcroppings: {
+    id: "rockyOutcroppings",
+    name: "Rocky Outcroppings",
+    catalog: 2,
+    maxRank: ROCKY_OUTCROPPINGS_EVASION.length,
+    alignments: ["positive", "neutral", "negative"], // "Rocky Outcroppings can be all 3" (user)
+    appliesTo: ["combatObjective"],
+    minTier: 1,
+    minDifficulty: 1,
+    rollWeight: ROCKY_OUTCROPPINGS_ROLL_WEIGHT,
+    tooltip: (a) => {
+      const pct = Math.round(outcroppingsEvasion(a.rank) * 100);
+      if (a.alignment === "positive") return `Rocky cover favors your squad: it evades ${pct}% of the enemy's long-range attacks.`;
+      if (a.alignment === "negative") return `Rocky cover favors the enemy: it evades ${pct}% of your squad's long-range attacks.`;
+      return `Rocky cover on both sides: each side evades ${pct}% of the other's long-range attacks.`;
+    },
+    help:
+      "Rocky Outcroppings: the objective is broken ground with plenty of cover. Long-range attacks (rifles, and the " +
+      "enemy's gunners, casters and healers) miss more often against whoever holds the cover; short-range attacks " +
+      "(scatterguns, batons, sidearms, brawlers and swarms) ignore it. Positive (green): your squad has the cover. " +
+      "Neutral (yellow): both sides do. Negative (red): the enemy does. Higher ranks give a little more cover, and " +
+      "short-range weapons are the answer to a negative roll.",
+    hooks: {
+      longRangeEvasionByRank: ROCKY_OUTCROPPINGS_EVASION,
+    },
+  },
 };
-// Catalog order: the stamping roll draws per affix in this order (append new affixes at the END).
-export const AFFIX_ORDER: readonly AffixId[] = ["reinforcing"];
+// Catalog order: the stamping roll draws per affix in this order (append new affixes at the END; each one's
+// draws are made only on runs whose catalog version includes it).
+export const AFFIX_ORDER: readonly AffixId[] = ["reinforcing", "rockyOutcroppings"];
+
+// The affixes of catalog version `catalog`, in AFFIX_ORDER. Pure; a fresh array.
+export function catalogAffixes(catalog: number = AFFIX_CATALOG_VERSION): AffixId[] {
+  return AFFIX_ORDER.filter((id) => AFFIX_DEFS[id].catalog <= catalog);
+}
 
 export function isAffixId(id: unknown): id is AffixId {
   return typeof id === "string" && Object.prototype.hasOwnProperty.call(AFFIX_DEFS, id);
@@ -267,13 +325,20 @@ function tierOf(tier: number): RegionTier {
   return Math.max(1, Math.min(7, Math.floor(Number.isFinite(tier) ? tier : 1))) as RegionTier;
 }
 
-// The pool of an objective (see the header). `difficulty` is its grade 1..5. Pure; fresh arrays.
-export function affixPool(tier: number, difficulty: number, difficultyTier: number, target: AffixTarget): AffixPool {
+// The pool of an objective (see the header). `difficulty` is its grade 1..5; `catalog` the run's affix catalog
+// version (AF-2; default the current one): only the affixes of that version are in the pool. Pure; fresh arrays.
+export function affixPool(
+  tier: number,
+  difficulty: number,
+  difficultyTier: number,
+  target: AffixTarget,
+  catalog: number = AFFIX_CATALOG_VERSION,
+): AffixPool {
   const t = tierOf(tier);
   const d = Math.max(1, Math.min(AFFIX_ROLL_CHANCE_BY_DIFFICULTY.length, Math.floor(Number.isFinite(difficulty) ? difficulty : 1)));
   const required: AffixId[] = [];
   const entries: { id: AffixId; weight: number }[] = [];
-  for (const id of AFFIX_ORDER) {
+  for (const id of catalogAffixes(catalog)) {
     const def = AFFIX_DEFS[id];
     if (!def.appliesTo.includes(target)) continue;
     if (def.requiredFromDifficulty !== undefined && d >= def.requiredFromDifficulty) {
@@ -336,21 +401,24 @@ export interface AffixRollInput {
   difficulty: number; // the stamped grade 1..5
   difficultyTier: number;
   combat: boolean; // the objective holds at least one fight point
+  catalog?: number; // the run's affix catalog version (AF-2; riskFactors.ts runAffixCatalog); default the current one
 }
 
 // The affixes an objective is stamped with: every REQUIRED affix of its pool, then at most AFFIX_MAX_ROLLED rolled
 // one. FIXED DRAW LAYOUT on makeRng(affixRollSeed), integer draws only: draw 1 = whether an affix rolls
 // (nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(rollChance)), draw 2 = which (one weighted pick among the pool's
-// entries), then for EVERY affix of AFFIX_ORDER two draws, its rank (one weighted pick over the pool's rank weights
-// up to min(its maxRank, the pool's cap)) and its alignment (nextInt over its alignments), used only by the affixes
-// it carries. Required affixes first, then the rolled one, catalog order. Pure.
+// entries), then for EVERY affix of the run's catalog (catalogAffixes, AFFIX_ORDER) two draws, its rank (one
+// weighted pick over the pool's rank weights up to min(its maxRank, the pool's cap)) and its alignment (nextInt over
+// its alignments), used only by the affixes it carries. Required affixes first, then the rolled one, catalog order.
+// A catalog 1 run (dispatched before AF-2) draws exactly AF-1's layout. Pure.
 export function rollObjectiveAffixes(input: AffixRollInput): ObjectiveAffix[] {
-  const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, input.combat ? "combatObjective" : "calmObjective");
+  const catalog = input.catalog ?? AFFIX_CATALOG_VERSION;
+  const pool = affixPool(input.tier, input.difficulty, input.difficultyTier, input.combat ? "combatObjective" : "calmObjective", catalog);
   const rng: Rng = makeRng(affixRollSeed(input.seed, input.bodyIndex, input.taskIndex));
   const hit = rng.nextInt(AFFIX_DRAW_UNITS) < affixChanceUnits(pool.rollChance);
   const pick = drawWeighted(rng, pool.entries.map((e) => e.weight));
   const drawn = new Map<AffixId, ObjectiveAffix>();
-  for (const id of AFFIX_ORDER) {
+  for (const id of catalogAffixes(catalog)) {
     const def = AFFIX_DEFS[id];
     const top = Math.max(1, Math.min(def.maxRank, pool.rankCap, pool.rankWeights.length));
     const rank = 1 + drawWeighted(rng, pool.rankWeights.slice(0, top));
@@ -403,6 +471,32 @@ export function alertResetSeconds(list: readonly ObjectiveAffix[] | undefined): 
 // Does a retreat or wipe on this objective raise its alert? Pure.
 export function raisesAlert(list: readonly ObjectiveAffix[] | undefined): boolean {
   return alertResetSeconds(list) > 0;
+}
+
+// AF-2: the evasion against LONG-RANGE attacks each side of the objective's fights has: `team` the player's squad,
+// `enemy` the guard. A positive instance covers the team, a neutral one both sides, a negative one the enemy;
+// several instances combine as independent chances (1 - prod(1 - e), folded as c + e - c * e so one instance reads
+// its table value exactly), never capped (D23). { 0, 0 } with none. Pure.
+export interface GroundCover {
+  team: number;
+  enemy: number;
+}
+export function longRangeCover(list: readonly ObjectiveAffix[] | undefined): GroundCover {
+  let team = 0;
+  let enemy = 0;
+  for (const a of validAffixes(list)) {
+    const raw = hookAt(AFFIX_DEFS[a.id].hooks.longRangeEvasionByRank, a.rank);
+    if (raw === undefined || !(raw > 0)) continue;
+    const e = Math.min(1, raw);
+    if (a.alignment !== "negative") team = team + e - team * e;
+    if (a.alignment !== "positive") enemy = enemy + e - enemy * e;
+  }
+  return { team, enemy };
+}
+
+// Does the cover change anything (either side above 0)? Pure.
+export function hasCover(cover: GroundCover | undefined): cover is GroundCover {
+  return !!cover && (cover.team > 0 || cover.enemy > 0);
 }
 
 // ===== The per-visit reinforcement roll =====

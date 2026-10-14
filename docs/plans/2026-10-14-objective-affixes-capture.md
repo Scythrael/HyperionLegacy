@@ -251,3 +251,68 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   base-tier rank rarity), groundOpsAffixes.test.ts 18 -> 20 (the mid-work strikes end to end, a strike landing at
   its point, the save mid-alert; the parity run now meets an early strike). Every golden (legacy, pre-SQ-4,
   pre-clearing, pre-AF-1) and every parity test unchanged.
+
+## Carry from AF-2 (built 2026-10-14, commits `test(0.14.0): pre-AF-2 golden hashes before the change (AF-2 step 1)` and `feat(0.14.0): ground weapon range + Rocky Outcroppings affix (AF-2)`; engine only)
+
+- **Ground weapon RANGE (gambit.ts `GroundRange` "long" / "short"; data only on its own).** Member weapons read the
+  catalog's existing `MemberVarietyTraits.weaponRange` (model.ts, E-CREW Task 7): Pulse Rifle long; Scattergun,
+  Shock Baton (melee) and Sidearm short. `memberWeaponRange(snapshot member)` = the first worn Away-Team Weapon's
+  range, else `UNARMED_RANGE` short. Implants (the Targeting Optic) and tools never set it (aim is not reach).
+  Enemy attacks by role, `ENEMY_ROLE_RANGE` [PROVISIONAL]: Striker, Caster, Healer long; Bruiser, Swarm short.
+  `attackRange(c)` reads a stamped `GroundCombatant.range`, else the enemy role's, else unarmed. Nothing reads the
+  range unless a target has `GroundCombatant.longRangeEvasion` (`strikeHitChance`: a LONG-range strike's hit chance
+  x (1 - evasion), on the SAME single hit-check draw), so a fight without cover is the fight as before (test: a
+  fully stamped fight with no evasion equals an unstamped one).
+- **ROCKY OUTCROPPINGS** (affixes.ts `rockyOutcroppings`; positive / neutral / negative, nextInt(3) uniform;
+  combat objectives only; never required; minTier I, minDifficulty Simple; roll weight
+  `ROCKY_OUTCROPPINGS_ROLL_WEIGHT` 100 = Reinforcing's) [PROVISIONAL]. Ranks I / II / III =
+  `ROCKY_OUTCROPPINGS_EVASION` 15% (user) / 18% / 21% evasion against LONG-RANGE attacks, ranks gated by the
+  existing `AFFIX_RANK_WEIGHTS_BY_TIER` and caps (Tier I rank I only). Hook `longRangeEvasionByRank`, read by
+  `longRangeCover(affixes)` = { team, enemy }: positive covers the squad, neutral both sides, negative the guard;
+  several instances combine as independent chances (never capped, D23). Tooltip by alignment ("Rocky cover favors
+  your squad: it evades 15% of the enemy's long-range attacks." / "...favors the enemy..." / "...on both sides...")
+  and a Help entry that points at short-range weapons as the answer to a negative roll.
+- **In the fights** (groundFight.ts `withCover`, no draw): when either side has cover, every combatant is stamped
+  with its range (members from their frozen snapshot's weapon) and each covered side with its evasion. Threaded as a
+  trailing `cover` argument through `resolveTaskFight` / `resolveTaskFightOnSeed` and the threat reads
+  (`groundThreatSampleFights`, `groundTaskClearOdds`, `groundTaskThreat`); the THREAT MEMO KEY appends
+  ["cover", team, enemy] only when cover is present, so every other key is unchanged. groundOps.ts `taskCover(task)`
+  (exported; undefined without cover) feeds every fight (point, surprise, reinforcement) and every odds read (crew
+  odds, the default plan's fresh odds, the helper floor).
+- **THE GATE: the affix CATALOG version.** Adding an affix changes the stamping layout for unstamped objectives (the
+  "which" pick's weights and the per-affix rank / alignment draws), so `ExpeditionRiskProfile.affixCatalog?`
+  (riskFactors.ts `AFFIX_CATALOG_VERSION` 2, written by `generateRiskProfile`) records the run's catalog;
+  `runAffixCatalog` reads an absent one as `AF1_AFFIX_CATALOG` 1. Every `AffixDef` carries the `catalog` that
+  introduced it (Reinforcing 1, Rocky Outcroppings 2); `affixPool(..., catalog)` and `rollObjectiveAffixes({ catalog })`
+  use only that catalog's affixes (`catalogAffixes`), so an affix-aware run dispatched between AF-1 and AF-2 stamps
+  on AF-1's exact layout. Proven by six goldens captured BEFORE the engine edit (`groundOpsOutcroppings.test.ts`:
+  Tier I; Tier III; Tier IV enemy territory on Ground + Ground and on Strike + Survey; a weak crew at Tier VI; Tier
+  VII enemy territory; fixture `withoutAffixCatalog`). `withoutAffixes` strips the version too. A future affix: add
+  it with the next catalog number and bump `AFFIX_CATALOG_VERSION`. No SAVE bump (optional field).
+- **AF-1 re-review edge fix (groundOps.ts startWork / finishWork).** A reinforcement strike in a work step under 2 s
+  runs the step WHOLE (to the target exactly) and lands at its end: `finishWork` now BANKS the finished segment
+  first (new `bankSegment`), then starts the reinforcement fight, so the working crew gets the credit (before: the
+  segment went unbanked; a lost fight at a point left it unbanked for good, and at 100% the next crew's zero-length
+  step banked it). `bankSegment` keeps a segment's FIRST bankers when it is already banked (so the crew that later
+  finishes the zero-length remainder does not take the credit); no earlier flow banked a segment twice with another
+  crew, and every golden is unchanged.
+- **Observed rates (from the pool math, base difficulty tier):** a rolled affix is `AFFIX_ROLL_CHANCE_BY_DIFFICULTY`
+  x the tier multiplier; on an easier combat objective it is Reinforcing or Rocky Outcroppings half and half, on a
+  Deadly one (Reinforcing required) the rolled slot is Rocky Outcroppings alone. So Rocky Outcroppings is RARE: about
+  0.06% of Simple Tier I combat objectives, 2% of Hard Tier III ones, 12% of Deadly Tier VII ones. Side effect: on
+  new runs a ROLLED Reinforcing on an easier objective is half as common as at AF-1 (they share the one rolled slot).
+- **For the UI step (not built here):** the pill colors and tooltips come from `affixPill` as for Reinforcing; the
+  Help text is `AFFIX_DEFS.rockyOutcroppings.help`; a member card could show its weapon range via
+  `memberWeaponRange`.
+- **Questions for the user:** (1) "+15% evasion" is read as MULTIPLICATIVE (a long-range hit chance x 0.85), not
+  minus 15 points; (2) the ENEMY_ROLE_RANGE classification (Healers and Casters long); (3) ranks II / III at 18% /
+  21%; (4) should Rocky Outcroppings (terrain) roll more often than the shared rare slot allows, for example its
+  own independent roll in a later catalog?
+- Tests: new `groundOpsOutcroppings.test.ts` (6 pre-AF-2 goldens + 18: the range classification, the range alone
+  changes nothing, strikeHitChance, cover vs short / long attackers, the definition and the catalog, the cover by
+  alignment, the pill, the stamping roll (alignments, tier gate, catalog 1 never rolls it), Reinforcing's draws kept,
+  the profile's version and a real Tier VII dispatch stamping from each catalog, withCover, the right side per
+  alignment in a task fight, odds positive > none > negative and the memo key, an engine run with and without the
+  cover, parity one call == 997 s == 1 s with negative cover + Reinforcing (a reinforcement and a loss in the
+  window), the edge fix); affixes.test.ts updated for the second affix (catalog 1 keeps AF-1's expectations). Every
+  golden (legacy, pre-SQ-4, pre-clearing, pre-AF-1, pre-AF-2) and every parity test unchanged.

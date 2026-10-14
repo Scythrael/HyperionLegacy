@@ -39,12 +39,15 @@ import type {
   GroundFightRecord,
   GroundMemberCarry,
   GroundMemberEnd,
+  SnapshotMember,
 } from "./model";
 import { makeRng } from "./combat/rng";
 import {
   GAMBIT_STATUSES,
+  ENEMY_ROLE_RANGE,
   MAX_ROUNDS,
   buildRosterCombatants,
+  memberWeaponRange,
   generateEncounter,
   resolveGroundBattle,
   type GambitLogEvent,
@@ -55,7 +58,7 @@ import { GROUND_CONDITIONS } from "./medicalBay";
 import { resistedHazard } from "./relics";
 import { teamSnapshotMembers } from "./groundTasks";
 import { FLORA_POISON_PERMILLE_PER_GRADE, bodyFloraGrade } from "./riskFactors";
-import { escalationAt } from "./affixes";
+import { escalationAt, hasCover, type GroundCover } from "./affixes";
 
 // ===== Constants =====
 
@@ -200,6 +203,30 @@ export function withEscalation(enemies: GroundCombatant[], alertLevel: number): 
   return enemies;
 }
 
+// Objective affixes (AF-2, Rocky Outcroppings; user 2026-10-14): COVER against long-range attacks. When either side
+// has some, every combatant is stamped with its attack RANGE (a member from its worn weapon, gambit.ts
+// memberWeaponRange, by its snapshot in `roster`; a guard by its role, ENEMY_ROLE_RANGE) and each covered side's
+// combatants with their evasion (`cover.team` on the squad, `cover.enemy` on the guard; gambit.ts strikeHitChance
+// reads it on the same single hit-check draw). No draw here. No cover (every fight of a run before AF-2, every
+// objective without the affix) returns both lists untouched. Mutates the fresh lists it is handed.
+export function withCover(
+  team: GroundCombatant[],
+  enemies: GroundCombatant[],
+  cover: GroundCover | undefined,
+  roster: readonly SnapshotMember[] | undefined,
+): void {
+  if (!hasCover(cover)) return;
+  for (const c of team) {
+    const member = c.memberId === undefined ? undefined : roster?.find((m) => m.memberId === c.memberId);
+    c.range = member ? memberWeaponRange(member) : (c.range ?? "short");
+    if (cover.team > 0) c.longRangeEvasion = cover.team;
+  }
+  for (const e of enemies) {
+    if (Object.prototype.hasOwnProperty.call(ENEMY_ROLE_RANGE, e.role)) e.range = ENEMY_ROLE_RANGE[e.role as keyof typeof ENEMY_ROLE_RANGE];
+    if (cover.enemy > 0) e.longRangeEvasion = cover.enemy;
+  }
+}
+
 // ===== The fight =====
 
 // Resolve ONE task fight for `teams` at the task's next fight point (see the module header). `flatIndex` is
@@ -207,8 +234,9 @@ export function withEscalation(enemies: GroundCombatant[], alertLevel: number): 
 // memberEnd within this task (absent: everyone starts at full HP). `logSink`, when passed, gets the battle's
 // display-only events appended; it never changes the record. With nobody left to field there is no battle and
 // no draw: a loss of 0 rounds with nothing recorded (GO-7b sends the team home). `alertLevel` = the objective's
-// alert when the fight starts (objective affixes, AF-1: withEscalation; 0 = none). Pure; mints fresh combatants
-// and never mutates its inputs.
+// alert when the fight starts (objective affixes, AF-1: withEscalation; 0 = none). `cover` = the objective's cover
+// against long-range attacks (AF-2, Rocky Outcroppings: affixes.ts longRangeCover; absent = none). Pure; mints fresh
+// combatants and never mutates its inputs.
 export function resolveTaskFight(
   exp: Expedition,
   teams: readonly GroundFightTeam[],
@@ -218,8 +246,9 @@ export function resolveTaskFight(
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
   alertLevel = 0,
+  cover?: GroundCover,
 ): GroundFightRecord {
-  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel);
+  return resolveTaskFightOnSeed(exp, teams, body, task, taskFightSeed(exp, flatIndex, task.fightCount ?? 0), carried, logSink, alertLevel, cover);
 }
 
 // Every Expedition field a task fight reads once its seed is chosen: the squad (taskFightTeam), the guard's
@@ -243,6 +272,7 @@ export function resolveTaskFightOnSeed(
   carried?: Readonly<Record<string, GroundMemberCarry>>,
   logSink?: GambitLogEvent[],
   alertLevel = 0,
+  cover?: GroundCover,
 ): GroundFightRecord {
   const fightNumber = task.fightCount ?? 0;
   const pointIndex = task.pointsCleared ?? 0;
@@ -254,6 +284,7 @@ export function resolveTaskFightOnSeed(
     withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)),
     alertLevel,
   );
+  withCover(team, enemies, cover, exp.roster?.security);
   const result = resolveGroundBattle(team, enemies, exp.teamKit, makeRng(seed), logSink, seed);
 
   // resolveGroundBattle reports the 0-based round a fight ENDED in (or MAX_ROUNDS at the cap, after
