@@ -1170,3 +1170,10 @@ tasks (SQ-4 follow-up)`):**
   rec.kinds)` with `planComposition` for the confirm, shown only when `!rec.isCurrent` and the ship is docked) and
   `.forecast` (`forecastTasksText`, hardest + threat chip). The blind confirm reads `telescope.blind`;
   `blindLaunchCount(state)` is there for the achievement.
+- **Strike's role (user, 2026-10-13): BOTH.** SQ-6 testing found almost every generated task needs a Science squad, so
+  Ground + Ground was the best pick in 85% of 400 dangerous Tier IV systems and Strike rarely mattered. Fix: (1) dangerous
+  sites also spawn CLEARING tasks that need only Security (names PROPOSAL, e.g. "Clear the hostiles", "Secure the
+  landing zone"); (2) the recommendation also weighs WIN ODDS (groundThreat) after coverage, so a Strike team is picked
+  when fights are hard even if Ground could technically cover them.
+- **Coordinator calls (2026-10-13):** memoize the forecast per candidate input for the SQ-7 panel (display only); "Set
+  composition" also clears the "Pick a type" prompt on a team whose kind already matches (QoL).
