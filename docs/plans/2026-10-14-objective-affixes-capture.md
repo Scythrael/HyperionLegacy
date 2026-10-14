@@ -387,3 +387,10 @@ Coordinator proposal (PROVISIONAL, sent to the user to confirm):
   the held progress card, the bay's time left, Help on a phone; 1280 px and 375 px (page width 375, no sideways
   scroll); no text on the expedition screen says "task"; no new console errors. localStorage restored
   byte-identical (SHA-256). Screenshots in the session scratchpad `ui-affix/`.
+
+## 7. Affix roll slots (user, 2026-10-14)
+
+"For now, 1 works. But we may end up having different chances of rolling different affixes for different
+difficulties, planet types, tiers, etc. So we want to keep this in mind." So: keep ONE shared rolled-affix slot per
+objective for now; the affix roll weights must be able to vary by difficulty, planet type, tier (and later difficulty
+tier) without a redesign (per-context weight hooks).
