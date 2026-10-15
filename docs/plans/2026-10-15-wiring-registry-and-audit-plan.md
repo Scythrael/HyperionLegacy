@@ -1,0 +1,1139 @@
+# Everything Wired: the effect registry and full inert-effect audit (0.14.0) Implementation Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan slice by slice
+> (the user's standing workflow: one fresh implementer per slice, two-stage review per slice, holistic review at the
+> end, QA sheet to the user, deploy only on the user's word).
+
+**Goal:** Every configured value in Hyperion Legacy, past systems and new, does what its text says, in every context
+its text claims, and a test proves it. No placeholders, no "No bonus yet", no dead rolls, no gate that can never open.
+A typed registry lists every effect source with the game value it moves and the curve it moves it on; a sensitivity
+test per entry turns the source on and asserts the value moves in the right direction by the configured amount; a
+completeness test fails the build when a new catalog entry or field is not in the registry. A simulated player then
+plays the game headless with and without each choice, and a Debug "Wiring" panel shows every bonus's live
+contribution on the current save.
+
+**Architecture:** The registry is pure data plus pure probe functions in `src/lib/game/wiring/` (engine-side, no UI, no
+state writes). It grows out of `no-dead-stats.test.ts` (liveness, 149 entries) and adds a second, stricter level
+(magnitude and direction at the consumer seam) plus context coverage (catches PARTIAL). Wiring slices then make each
+INERT / PARTIAL / UNFED / NO-EFFECT item live, the Ground Operations way: run consumers FROZEN at dispatch onto
+optional record fields (absent = today's number), ship-sheet consumers through the existing overlays, goldens captured
+BEFORE each engine change.
+
+**Tech stack:** Svelte 5 (legacy mode) + TypeScript, Vitest. Engine in `src/lib/game/*.ts` (pure), UI in
+`src/lib/*.svelte` + `src/App.svelte` handlers. Branch `feat/crew-0.14.0`, SAVE_VERSION 69 (G2-1 takes v70).
+
+**Status:** PLAN. Audit done read-only on `6b2b20c` (nine auditors, every claim with file:line). Nothing here is
+built. **[PROPOSAL]** marks anything the user has not named or decided. **[PROVISIONAL]** marks a first-pass value
+picked so a build stays green while an open call waits; each lives in ONE named constant.
+
+**Sources (authority order: user decisions > design > code):**
+- `docs/plans/2026-10-15-wiring-audit-and-safe-first-runs-capture.md` sections 2, 3, 5, 6, 7 (the ruling).
+- `docs/plans/2026-10-14-complement-and-acquisition-plan.md` (CP-0 to CP-21, OC-1 to OC-20, the 2026-10-14 talent
+  verification).
+- `docs/plans/2026-10-02-crew-made-real-e-crew-design.md` D12, D14, D23, D24, D26; E-CREW plan Task 22 / 22b.
+- `docs/plans/2026-10-14-field-kits-plan.md` (FK-4 Fear, Iron Will, Cortex Shield; FK-5 to FK-7; open calls 6, 7, 8).
+- `docs/plans/2026-10-15-safe-first-runs-plan.md` (SF-0 to SF-7; the 200-seed patrol table, section 2.5 E).
+- `docs/plans/2026-10-14-expedition-tiers-g2-plan.md` (G2-0 to G2-9: regions, voyage, reach gate).
+- `SUGGESTIONS.md` ~980 (industry branch re-wire), ~1844 to ~1863 (balance harness, named policies, speedrun bench).
+- `src/lib/game/no-dead-stats.test.ts` (the base this plan extends).
+
+## 0. Standing rules (inherited; apply to every slice)
+
+- **Gate** after every slice: `npm run check` (0 errors; the 2 known RadialWeb warnings are fine) and `npx vitest run`
+  (all files pass).
+- **Goldens first:** any slice that changes an engine path captures its golden hashes in a separate, earlier commit
+  (the CP-0 / FK-3 / G2-0 / SF-0 pattern). A save that does not own the source being wired is byte-identical in every
+  golden.
+- **Determinism:** `makeRng((seed ^ SALT ^ key) >>> 0)` only; integer draws; never `Math.random` or `Date.now()` in
+  engine code; never a new draw on a shared stream (economy, transport, battle). A chance effect reuses an existing
+  roll (a raised threshold) where it can; otherwise it gets its own private salted stream. New salts are odd, distinct,
+  exported, and their module joins `salts.test.ts` MODULES. Whole-unit outcomes use the existing `chanceRound`.
+- **Freeze at dispatch (D24, GO precedent):** a value that acts on a run (expedition, Ground Ops, patrol cycle) is read
+  once at dispatch onto an optional record field; a run dispatched before the slice never gains it. Offline == live
+  (one call == 997 s == 1 s) holds for every wired value.
+- **Diminishing returns (D23):** stacking bonuses pass `diminishing()` (`diminishing.ts`); never a hard cap. A wiring
+  slice that meets an existing cap replaces it (section 2.12, bug B8).
+- **Text rules:** US English; no em dashes and no double hyphen anywhere (text, comments, code); "install" is the only
+  verb for putting gear on; player-facing text says "objective", never "task"; SVG glyphs only.
+- **Shared tree:** other agents work in the same checkout. Stage only your own files by explicit path; never
+  `git add -A`; never push.
+- **Commits:** one per slice (goldens first, alone), ending `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **NEW: the registry rule.** From WR-1 on, a slice that adds or changes any effect source updates its registry entry
+  in the same commit. A slice that makes a pending entry live flips it to `live` in the same commit (the list cannot
+  rot, exactly like `PENDING_IN_RELEASE`).
+
+## 1. The user's words (verbatim; authoritative)
+
+**T1, everything wired (capture section 2):** "Option 2. We're building the foundation and everything should work.
+Everything should be wired in and if we have a configured value for everything we build, it wil work. No
+placeholders. No non-functional systems. After the tutorial/campaign/quest patch, we're going for balancing/content,
+and we will need those to function. We will do bug fixes as needed of course, but we do not want to have to wire up the
+foundation as this is the time to be doing that. Let's make sure that everything is working. That every function we've
+built in is actually wired in and is doing something. Not just with what we're doing for exploration, but for past
+systems as well. If something is not properly wired in and does nothing with or without an initialized and/or assigned
+value, then it needs to be wired in."
+
+**The framework request (capture section 5):** "Is there a method/scaffolding/framework you can build that would make
+testing for certain things work at a glance for testing? Or would it not be a problem for you to be able to basically
+simulate a player playing the game and speccing into things like aplayer normally would, in order to make absolutely
+sure that everything we've built so far includes no broken wiring or placeholders that don't actually function. So if
+you spec into something that provides 8% to a stat, it provides that 8%. The 8% will change, but the effect of that 8%
+will not. The form of how that 8% might change (linear, logarithmic diminishing returns, etc), but the fact that it
+impacts the game does not."
+
+**Framework order (capture section 7):** "All three, list first": the bonus registry + per-bonus sensitivity tests
+first, then the simulated player, then the Debug "Wiring" panel; the wiring audit uses them.
+
+**Staging (capture section 4):** "But with the mention of making sure wiring is indeed working, we want to ensure that
+everything is working." Reading: staging waits for the wiring check to pass.
+
+**Scope moves that bind this plan (capture section 3, T3):** "Move all five (Recommended)": patrol cloak detection,
+the Spacer long-haul ramp, the candidate board expansion, graph color options and the antimatter burn move to 0.14.x.
+So their registry entries are `deferred` (user-deferred past 0.14.0), not `pending`.
+
+**D23 (design 145 to 148):** "Diminishing returns will 100% come into play, but without removing the entire ability
+to push past a certain point."
+
+**Working rule (capture section 6):** "Keep writing all of the things down and keep presenting them until you get
+your answers." Section 5 below re-presents every unanswered call.
+
+## 2. The audit
+
+### 2.0 Method and legend
+
+Nine read-only auditors covered every catalog in `src/lib/game` on `6b2b20c`: captain talents; Fleet Admiral,
+facilities, research and services; ship hulls, gear, modules, combat and repair; crew, officers and complement (plus
+the exact no-dead-stats coverage); away teams and ground effects; expedition content; relics and the Museum; missions,
+patrols, factions and transports; salvage and item generation. Each row names where the value is configured, what its
+text claims, the game value it should move, and every engine read (file:line; engine = `src/lib/game/**`).
+
+Statuses:
+- **LIVE:** an engine read changes an outcome in every context the text claims.
+- **PARTIAL:** read in some claimed contexts only (missions but not expeditions; Ground Ops but not legacy; one
+  mission type).
+- **INERT:** never read outside its catalog and the UI text, or the only reader is unreachable.
+- **UI-ONLY:** only display code reads it. Acceptable ONLY for labels, flavor and readouts that claim no effect; a
+  UI-ONLY value whose text promises an effect counts as dead (e.g. reactor `powerOutput`).
+- **NO-EFFECT:** read and set, but structurally cannot change an outcome (combat range with every ship at position 0).
+- **UNFED:** a consumer exists, but nothing ever sets its input (`particleTraceDetector` is hard-coded 0).
+- **MISSING:** a claimed attribute with no field at all (hull base sensors).
+- **HELD:** deliberately held by a user decision and never rolls (Craft Duplicate, D14).
+
+Counts are AUDIT ROWS. Some rows group many items sharing one reader (all 72 blueprints are one row; all 25
+Warehouse T1 rungs are one row), so a count is a measure of distinct wiring questions, not of catalog size. A few
+items appear in two systems' tables (the medical bay conditions, crew-module keys); the totals below count each once.
+
+**A key structural finding first:** every expedition dispatched since GO-7b is a Ground Operations run
+(`expedition.ts:1203` always stamps `groundOps`). The legacy path runs only for saves with a run already in flight
+before GO-7b. An effect read ONLY by the legacy path is therefore effectively dead for new play; this plan counts it
+PARTIAL and asks one policy call (OC-G1).
+
+### 2.1 Totals by system and status
+
+| System | LIVE | PARTIAL | INERT | UI-ONLY | NO-EFFECT | UNFED | MISSING | HELD | Not live |
+|:-|-:|-:|-:|-:|-:|-:|-:|-:|-:|
+| A. Captain (primary, secondary, state) | 15 | 0 | 49 | 0 | 0 | 0 | 0 | 0 | **49** |
+| B. Fleet Admiral (Homeworld talents, FA constants) | 16 | 1 | 3 | 0 | 0 | 0 | 0 | 0 | **4** |
+| C. Facilities, research, services, items, fuel | 36 | 2 | 9 | 1 | 0 | 0 | 0 | 0 | **11** |
+| D. Ship (hull, gear lines, slots, modules, utility, arrays, combat, repair) | 121 | 27 | 26 | 17 | 12 | 12 | 1 | 0 | **78** |
+| E. Crew and officers (bonuses, facets, complement, racials, rank, notables) | 57 | 3 | 24 | 0 | 0 | 0 | 0 | 1 | **27** |
+| F. Away team and ground (traits, gear effects, stats, gambits, statuses, systems) | 60 | 10 | 30 | 1 | 0 | 0 | 0 | 0 | **40** |
+| G. Expedition content (PoIs, planets, tunables, risk, telescope, rewards) | 78 | 6 | 14 | 16 | 0 | 0 | 0 | 0 | **20** |
+| H. Relics and the Museum | 25 | 2 | 1 | 1 | 0 | 0 | 0 | 0 | **3** |
+| I. Missions, patrols, factions, transports, allocation | 62 | 1 | 3 | 13 | 0 | 0 | 0 | 0 | **4** |
+| J. Salvage and item generation | 37 | 5 | 6 | 6 | 0 | 0 | 0 | 0 | **11** |
+| **Total** | **507** | **57** | **165** | **55** | **12** | **12** | **1** | **1** | **247** |
+
+"Not live" = PARTIAL + INERT + NO-EFFECT + UNFED + MISSING. UI-ONLY rows that promise an effect (D: reactor
+`powerOutput`, `powerDraw`, `powerDrawReduction`; G: `orbitalOnly`) are also work and appear in their tables, but stay
+in the UI-ONLY column. Pure labels and
+flavor are not counted as work. Of the 247, about 60 already have an owning slice in another plan (CP-2 to CP-5,
+CP-8, CP-11, CP-14, FK-4 to FK-7, the Science line swap, E-MOD, G2, SF); the rest are owned by WR slices below.
+
+### 2.2 A. Captain (talents, spec, state)
+
+**LIVE (15):** the 7 primary prospector talents (`model.ts:11544` to `11609`, folded by the six `captain*` reducers
+`tick.ts:530` to `617` into `resolvedBonuses` `tick.ts:2183`, read by `rollExtractionTick` `tick.ts:1685`, the bonus
+roll `tick.ts:2273`, the Science-cunning rare find `tick.ts:2335`); `CAPTAIN_SPEC_BONUS.resourcefulness`
+(`model.ts:11661` -> `tick.ts:607`); `logistics4` Efficient Stowage (`groundOps.ts:154`, `178`, frozen at
+`groundOps.ts:210`, Ground Ops reload only); captain level gates (`tick.ts:4831`), statPoints, `BASE_XP_PER_TICK`
+(`tick.ts:782` -> `2535`), `xpForNextLevel`, the retirement XP multiplier (`captainRetirement.ts:148` -> `tick.ts:3741`),
+secondaryPoints.
+
+Note on the primary talents: the text says "Common Ore yield" (`tick.ts:810`) but the bonus lifts the common tier of
+every non-transport mission's own material (a text fix, B24).
+
+**Not live (49):**
+
+| id | configured | claim (UI text) | should move | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|:-|
+| tacticianHub "Combat Readiness" | model.ts:11620 | "No bonus yet, unlocks this branch" | (none configured; combat exists now) | none; `neighbors: []` | INERT placeholder | WR-6, OC-A40 |
+| explorerHub "Survey Doctrine" | model.ts:11632 | same | (none configured; exploration exists now) | none | INERT placeholder | WR-6, OC-A41 |
+| spec tactical / science | specCards model.ts:12634, 12645 | "Full talent web arrives when the combat/science system lands" | a spec bonus like resourcefulness | `chooseCaptainSpec` tick.ts:2132 accepts; nothing reads | INERT | WR-6, OC-A42 |
+| captain `race` | model.ts:3893 | "racial bonus is a follow-on" (comment) | a captain racial | written at captainRetirement.ts:131 only | INERT | WR-6, OC-A43 |
+| gear gates `minCaptainLevel` / `requiresTalent` / `captainSpec` | model.ts:2051 to 2055 | (no slot sets them) | install gate | equipment.ts:450 to 461 (captainSpec only) | INERT seam | WR-4, OC-C4 |
+| 44 secondary nodes (all except logistics4) | model.ts:11776 to 12094 | "+X% stat", "5% chance-based bonus (first-pass)", capstone taglines (App.svelte:8877 to 8909), 6 x "No bonus yet (system pending)" | see section 5.A table | none (only tooltip text) | INERT (38 effect claims + 6 placeholders) | WR-5a/b/c |
+
+Secondary tree breakdown (45 nodes, one rank each): 26 statMult (1 LIVE, 25 INERT), 4 procChance (all INERT; UI says
+"(first-pass)"), 9 capstones (all INERT, no magnitude configured, an `id` only), 6 `none` placeholders (trade1 to
+trade4, fleetOps4, surveySensors4). trade5 and fleetOps5 are capstones of placeholder branches. The `model.ts:11673`
+header "DORMANT, nothing applies these" is stale. Save impact: the secondary tree exists on the branch only (main has
+no secondary tree), so no production save owns a node.
+
+### 2.3 B. Fleet Admiral (Homeworld talents and constants)
+
+**LIVE (16):** fleetLogisticsHub / Yield (rare yield, `tick.ts:626`), the three captain-slot nodes (`tick.ts:12002`),
+the queue-depth nodes (`tick.ts:688`, `697`; all five facility adapters), economyHub / economyTrickle (passive ore,
+`tick.ts:4257`), industryBonusOutput (+2 crafted iLevel, `tick.ts:729`), and every FA constant (queue depth, crafting
+iLevel per node, `QUALITY_STEP_CHANCE`, FA XP, crafting XP, `SALVAGE_CEILING_THRESHOLDS`, FA walls).
+
+**Not live (4):**
+
+| id | configured | claim | should move | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|:-|
+| fleetLogisticsSalvage | model.ts:12304 | "+10% recovery, +1 loot tier"; flavor "every wreck and spare hull" | recycle fraction AND hull teardown | salvage.ts:442, 595; `salvageShip` skips it on purpose (salvage.ts:903, 911) | PARTIAL | WR-6, OC-B1 |
+| industryHub "Works Directorate" | model.ts:12496 | "No bonus yet" | (text says nothing; it is a hidden gate on Refinery rungs 3 and 4, model.ts:4710, 4720, tick.ts:5884) | gate only | INERT effect (LIVE gate) | WR-6, OC-B2 |
+| homelandDefenseHub | model.ts:12452 | "No bonus yet" | no defense system exists | none | INERT placeholder (costs 1 AP) | WR-6, OC-B3 |
+| citizenryHub | model.ts:12463 | "No bonus yet" | no population system exists | none | INERT placeholder (costs 1 AP) | WR-6, OC-B3 |
+
+Text fix (B24): the economy tooltip shows the raw key "commonOre" (`tick.ts:848`), not "Titanium Ore".
+
+### 2.4 C. Facilities, research, services, items, fuel
+
+**LIVE (36):** Refinery slots and speed (`tick.ts:6309`, `6352`), Warehouse T1 (25 rungs, `tick.ts:7588`), Research Lab
+slots and tier gate (`tick.ts:6420`, `7319`), Fabricator slots (`tick.ts:6442`), Shipyard founding, build speed, bays
+(`tick.ts:6944`, `6505`), `SHIPYARD_BAY_BASE`, `BUILD_CONCURRENCY_CAP`, repair ticks (`model.ts:1628`), Salvage Bay lanes
+(`tick.ts:6602`), Subspace Telescope levels (information only, by design; `telescope.ts:166`), storage / docks / berth
+rungs (`model.ts:10754`, `tick.ts:11664`, `berths.ts:104`), FA and talent rung gates (`tick.ts:5879`, `5884`), Armory
+loadout cap (`armory.ts:44`), medical bay health / poison / bleed / downed cure times (`medicalBay.ts:57`), the four
+sensor arrays (`expedition.ts:1249`, `1357`), all 72 blueprints (research cost, time, Lab tier; `tick.ts:7300`), hull
+blueprints (`tick.ts:7030`), relic-gated blueprints (`tick.ts:7317`), relic study (`tick.ts:7452`), Museum stats (14,
+see H), Quartermaster requisition and sell (`quartermaster.ts:531`, `720`), the two refine recipes, fuel reach
+(`fuel.ts:68` to `135` -> `tick.ts:4750`).
+
+**Not live (11):**
+
+| id | configured | claim | should move | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|:-|
+| Fuel Depot (fuelStorage), 9 rungs: storageCapMult, addFuelPipelines, fuelYieldMult, fuelInputMult | model.ts:4520 to 4557, 4744 | tank cap, pipelines, yield, ice cost | state.fuel | `processFuelPipelines` returns early (`FUEL_DEPOT_PIPELINES_RETIRED`, tick.ts:10494); nothing spends state.fuel since 0.13.6; card hidden (homeDashboard.ts:388) | INERT (retired 0.13.9) | WR-4, OC-C1 |
+| FUEL_TANK_BASE_CAP, FUEL_REFINE_*, FUEL_DEPOT_BASE_PIPELINES, FUEL_CREDITS_PER_UNIT + `buyFuel` | model.ts:1435 to 1478; tick.ts:7919 | buy and store fuel | state.fuel | `buyFuel` still spends real credits from the hidden Depot console (App.svelte:12996) | INERT, and a credit sink for nothing (bug B5) | WR-4, OC-C1 |
+| warehouseT2, 5 rungs | model.ts:4484, 4734 | doubles the tier-2 cap | tier-2 cap | tick.ts:7588, but the only tier-2 item `denseOre` (model.ts:8170) has no source and rungs 2 to 5 cost denseOre (4510) | PARTIAL (unbuildable past rung 1) | WR-4, OC-C2 |
+| `requiresResearch` rung gate | model.ts:4309 | research gate | rung unlock | tick.ts:5898 returns failure for ANY listed topic | INERT and BROKEN (bug B1) | WR-4 (fix, no call) |
+| `requiresFacilityLevels`, `requiresMissionCompletions` | model.ts:4310, 4312 | rung gates | rung unlock | tick.ts:5910, 5927 (correct logic, no rung uses them) | INERT seam | WR-4, OC-C4 |
+| `MISSION_CONTROL_UNLOCK_COMPLETIONS` 50 | model.ts:4631 | completion gate | Mission Control level 2 | only inside a commented-out rung (4782) | INERT | WR-4, OC-C4 |
+| medical bay blindness, neurotoxin, hemorrhage, concussion, fracture | medicalBay.ts:62 to 66 | cure times ("16b") | bay time | never applied | INERT | FK-4 (counted in F) |
+| ItemDef.equipStats | model.ts:8057 | "forward" equip stats | none | no item fills it | INERT seam | WR-4, OC-C4 |
+| reclaimedAlloy, purifiedBiomass | model.ts:8321, 8329 | "Refined ... at the Refinery" | crafting feedstock | no recipe makes or uses them | INERT (claim broken, bug B6) | WR-4, OC-C3 |
+| precursorCircuit | model.ts:8393 | "reserved for a future recipe" | feedstock | salvage drops it (8527, 8588); nothing consumes it | PARTIAL (honest text) | WR-10, OC-J3 |
+| Archive completion % | archive.ts:17 to 49 | score only (no bonus promised) | none | App.svelte:7289 | UI-ONLY (honest) | none |
+
+### 2.5 D. Ship
+
+#### D1. Hull stats (ShipTypeDef model.ts:126; SHIP_TYPES model.ts:1046 to 1330)
+
+**LIVE (13):** spec (hull gates, crew cap, Focused Command), tier (crew cap), extractionYieldMult, hullIntegrity,
+shieldCapacity, shieldRecharge, weaponHardpoints, droneBays, buildRecipe, requiresBlueprint, awayTeams size and
+teamType, groundSquads. (`bridge.ts:126` to `128`, `equipment.ts:516`, `530`, `commandStructure.ts:148`, `tick.ts:6966`.)
+
+| field | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| cargoCapacity | model.ts:130 | hold | missions only (model.ts:3715; tick.ts:4863) | PARTIAL | WR-7, OC-D8 |
+| transitSpeedMult | model.ts:131 | speed (Aurora "fastest cruise", Runner "fast transit") | missions only; patrols use fixed PATROLS ticks (tick.ts:2974); expeditions fixed TRANSIT_SECONDS (expedition.ts:1215) | PARTIAL | G2-3 + WR-7, OC-D8 |
+| fuelCapacity, engineEfficiency | model.ts:145, 146 | range, burn (Orion "enormous reach") | missions and patrols (tick.ts:4740, 4892, 5348); no expedition range gate | PARTIAL | G2-4 (reach gate) |
+| moduleSlots | model.ts:147 | module slots (Aurora "most module slots") | none; every hull has the same slot set | INERT | WR-7, OC-D4 |
+| equipmentSlots | model.ts:148 | forward bucket | none (0 on every hull) | INERT seam | WR-7, OC-C4 |
+| cost | model.ts:171 | credit buy | none (retired S4) | INERT (retired) | WR-4 (remove field, no call) |
+| awayTeams[].count | model.ts:210 | squad count | none (retired SQ-2) | INERT (retired) | WR-4 (remove field, no call) |
+| description | per hull | flavor | UI only; Aurora (module slots, fastest cruise), Eir (largest crew), Orion (reach) are partly false | UI-ONLY (false claims) | WR-7, OC-D13; "heavy cruiser" wording is SF-6 |
+| (sensors) | none | explorer sensor advantage | no field (S4-B04; hullDerivedStats sets 0 at model.ts:3595) | MISSING | CP-14 |
+| label | model.ts:127 | name | UI | UI-ONLY | none |
+
+#### D2. Ship gear stat lines (LIVE_STAT_KEYS model.ts:2871; fold `equipmentStatMods` model.ts:3490)
+
+**LIVE (10 of 22 keys):** extractionYieldMult, massReduction (consumed at mint, itemgen.ts:425), shieldCapacity,
+shieldRecharge, hullStrength, shieldCoherence, ablativeArmor, kineticDampening (`bridge.ts:856` to `876`),
+waveHullRegen (`tick.ts:3002`), expeditionScanSpeed and hazardResist (`expedition.ts:1174`, `1176`). Also LIVE outside
+the vocabulary: weaponYield and weaponAccuracy (listed as RESERVED, bug B18), droneHp and droneAccuracy (in no list).
+
+| key | read today | status | owner |
+|:-|:-|:-|:-|
+| cargoCapacity, fuelCapacity, transitSpeedMult, engineEfficiency | as D1 | PARTIAL (4) | WR-7, OC-D8 / G2 |
+| sensors | survey yield (tick.ts:2120), expedition foreknowledge and scan (expedition.ts:525, 1244), GO sensor ghost (shipScanEvents.ts:168); never patrol combat | PARTIAL | CP-15 (patrol cloak, user-deferred to 0.14.x) |
+| repairSpeed (Damage Control Suite) | Shipyard repair (tick.ts:7172); not GO field repair (groundOps.ts:2213) | PARTIAL | WR-7, OC-D10 |
+| powerOutput | display only (ShipSystemsPanel.svelte:475, 490) | UI-ONLY (promises a budget) | E-MOD + WR-7, OC-D1 |
+| powerDrawReduction | into piece.powerDraw, display only | UI-ONLY (promises a budget) | E-MOD + WR-7, OC-D1 |
+| materialQualityChance | default case, ignored; tooltip only (EquipmentTooltip.svelte:214) | INERT (rolls on every Prospecting Rig; the Refinery-Feed Rig's identity) | WR-7, OC-D2 |
+| crewStations, crewEfficiency | ignored; tooltip prints rolled values (EquipmentTooltip.svelte:595 to 604) | INERT | WR-7, OC-D3 |
+| `damageResist_<family>`, `disruptionResist_<family>` | read in combat (bridge.ts:160 to 169, resolveBattle.ts:478, 986); no affix pool rolls them | UNFED (counted in D7) | WR-8, OC-D12 |
+
+RESERVED_STAT_KEYS (14): no slot references them; vocabulary only, not configured. Not work, except the B18
+relabel.
+
+#### D3. EQUIPMENT_SLOTS descriptors (ship slots) and curves
+
+**LIVE (9):** cargoBay, shieldEmitters, hullPlating, sensor arrays wiring, variety implicit / affix / requirement
+overrides, slot `equipRequirement`, defaults and Standard Issue, PERCENT_STAT_CURVES, mass drag constants.
+
+| item | read today | status | owner |
+|:-|:-|:-|:-|
+| ftlDrive (implicit transit + engineEff) | missions only | PARTIAL | WR-7, OC-D8 |
+| reactorCore (implicit powerOutput, base mass 12) | signature UI-only; the mass drags speed and fuel, so a crafted Reactor Core is net negative today (bug B10) | PARTIAL | E-MOD + WR-7, OC-D1 |
+| specUtility rigs (yield, survey, refinery-feed) | yield LIVE; materialQualityChance INERT | PARTIAL | WR-7, OC-D2 |
+| bridge, quarters slots | wiring LIVE (crewModules.ts) but no blueprint makes any of the 12 modules and no install tile exists | PARTIAL (unobtainable) | CP-11, CP-12 |
+| variety `statRatios` | only multiplies affix pick weights (itemgen.ts:269); an unlisted key keeps weight 1, so Hauler Hold ("none into mass") rolls massReduction MORE than Prospector Hold (bug B11) | PARTIAL | WR-7, OC-D6 |
+| variety `favorsSpec` | none | INERT | WR-7, OC-D5 |
+| SLOT_BASE_PHYSICALS powerDraw | display only | UI-ONLY (promises a budget) | E-MOD + WR-7, OC-D1 |
+| SLOT_BASE_PHYSICALS durability (economy, defense, crew, sensor, member pieces) | never read | INERT | WR-8, OC-D14 |
+
+#### D4. Crew modules (crewModules.ts, read by crewOverlay.ts)
+
+**LIVE (6):** MODULE_RARITY_STEP / QUALITY_STEP / moduleEffectScale, Operations Quarters, Utilitarian / Efficient /
+Elite wings, Balanced Command, Focused Command + HULL_ROLE_SEATS, Flag Command.
+
+| item | read today | status | owner |
+|:-|:-|:-|:-|
+| Security, Engineering, Science, Medical, Flight-Deck Quarters | only on the division keys that have readers; the dead keys (droneHandling, hullRepairRate, powerEfficiency, counterInfiltration, awayTeamProtection, surveyAptitude, crewEffectiveness, triage) make part of each module do nothing | PARTIAL | CP-2, CP-3, CP-4, E-MOD |
+| baseCapacity (wings 6, Utilitarian 12, Efficient 40) | raises only the TOTAL cap; division caps still bind (commandStructure.ts:174, 233, 262 to 271): +0 or +1 berth (bug B22) | PARTIAL | CP-5 + WR-7, OC-D7 |
+
+#### D5. Utility gear (utilityGear.ts) and sensor arrays (sensorArrays.ts)
+
+**LIVE (12):** Damage Control waveHullRegen, Pathfinder sensors / scan speed / hazard resist, hull gates, array
+scanRateMult and coverageWidth (multiplied), landmark and underground odds bias, Bio-Resonance relicFindBonus.
+
+| item | read today | status | owner |
+|:-|:-|:-|:-|
+| DC repairSpeed | Shipyard only | PARTIAL (also in D2) | WR-7, OC-D10 |
+| DC_REPAIR_SPEED_MAX .5, DC_WAVE_REGEN_MAX .1, PF_SCAN_SPEED_MAX .3, PF_HAZARD_RESIST_MAX .3 | utilityGear.ts:45, 50, 57, 62 (`Math.min` at :78) | INERT (can never bind) and against D23 (bug B8) | WR-4 (no call: D23 rules) |
+| sensorEffectScale | utilityGear/sensorArrays.ts:210, no caller | INERT | WR-7 (fold into the array reader or delete; no call) |
+| Expedition.sensorArrayId | written (expedition.ts:521, 1158), never read | INERT record field | WR-4 (record-only; classify as identity, no call) |
+| ARRAY_CHARACTER | display; no Bio-Resonance entry (blank line); "Focused: faster" while net rate is 0.78x (bug B12) | UI-ONLY (false claim) | WR-7, OC-D11 |
+
+#### D6. Repair, salvage-side ship values, loadout, roster
+
+**LIVE (8):** REPAIR_* constants, field repair constants (GO only, by design), bays, CUNNING_FREE_REPAIR_TICKS, salvage
+fractions and lock. UI-ONLY (2): shipLoadout preview (leaves out officer combat mods, modules, sensors and suites, a
+display gap), shipRoster labels (shows a ship on an expedition as "idle", no "repairing" status, bug B19).
+INERT (1): `shipLoadout.compareInstall` (tests only; delete or use, WR-4, no call).
+
+#### D7. Combat (combat/*.ts; 116 rows)
+
+**LIVE (59):** the weapon family triangle, yield, cooldown, accuracy, projectiles, shieldAttenuation, effect procs and
+escalation, durability wear and quality; eight ship status effects; drone roles, size, tier, hp, accuracy, yield,
+cooldown, intercept, reflect, support repair, refab between waves; degrade thresholds; enemy pools, weapons and drones;
+the bridge gear fold and officerCombat.
+
+| item | read today | status | owner |
+|:-|:-|:-|:-|
+| weapon `range`, drone `range`, stance (incl. the patrol stance the player picks), BAND_* constants, enemy stance, speed and position | every ship spawns at position 0 (bridge.ts:932 to 933; no caller passes position or speed), so all are co-located (bug B3) | NO-EFFECT (6 rows) | WR-8, OC-D9 |
+| sensorPowerDrain, coolantLeak, FTL_SPEED_PENALTY | depend on range or position | NO-EFFECT (3) | WR-8, OC-D9 |
+| manifoldOverheat | enemy evasion is always 0 | NO-EFFECT | WR-8, OC-D12 |
+| Torpedo armorPen | enemy armor is 0 | NO-EFFECT | WR-8, OC-D12 |
+| qualityDurabilityMax (reactor, FTL) | always quality 0 | NO-EFFECT | WR-8, OC-D14 |
+| particleTraceDetector | bridge.ts:960 hard 0; read resolveBattle.ts:1374 | UNFED | CP-15 (user-deferred to 0.14.x: `deferred`) |
+| rapidChargeAfterAmbush, inCombatReplenishPercent, antiDrone (PDA and EMP claim the role, no def sets it), smartReflect, drone status `disrupted`, drone evasion when targeted, damageResist / disruptionResist, overchargedCapacitors, reactor/FTL systems from installed gear (bridge.ts:945 uses a fresh quality-0 system), ShipDerivedStats in combat (powerOutput, sensors, mass) | consumer exists, nothing sets it | UNFED (11 more) | WR-8, OC-D12 |
+| weapon `powerDraw` and the power.ts helpers (`powerBudget`, `canFitByPower`, `totalPowerDraw`: no callers) | none | INERT | E-MOD + WR-7, OC-D1 |
+| Tachyon anti-shield exception, Voltaic chain | comments only | INERT | WR-8, OC-D12 |
+| the "vs Drones" triangle column, the `inhibit` status, status persistence between battles (reset every wave, bridge.ts:953), `ResolveOptions.objective`, `TargetingPolicy.escortShare`, `builtInBays`, `frameHp`, the DoT rng | none | INERT (8 more) | WR-8, OC-D12 |
+| status `color` | none | INERT (display seam) | WR-11 (use in the combat view or delete; no call) |
+| ambush opener / `ambushEligible` (expedition cloaked events only), `precharge` (GO battles only, not patrols), armorPen / shieldCoherence / ablativeArmor / kineticDampening (player side only; enemies carry none), evasion and FTL_EVASION_PENALTY (only through Evasive Command), drone replenish (between waves only) | some contexts | PARTIAL (10) | WR-8, OC-D9 / OC-D12 |
+| weaponType flavor, status `system`, names, drone models, condition pips, combatPhase, bandFor, logs, roundState | display | UI-ONLY (10, honest) | none |
+
+### 2.6 E. Crew and officers
+
+**LIVE (57):** 14 Senior Staff bonuses (Command Presence, transit cut, evasion, unload surge, cargo, yield surge,
+discovery, weapon and shield command, Fleet Triage, Recovery, Range Master, Inspiring Leader, Veteran Instincts); 26
+officer stat facets; 10 complement buffs (unload, load, cargo, transit out / back, range, boarding, extraction, rare
+find, reduced losses); 3 racials (Station-born, Ossir, Draell); rank magnitude, rarity, generation weights, officer
+seat presence (`gambit.ts:1316`).
+
+| id | configured | claim | should move | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|:-|
+| eng.overdrive Reactor Overdrive | seniorStaffBonuses.ts:77 | power efficiency | power budget | none (crewOverlay.ts:101 pending) | INERT | E-MOD, OC-D1 |
+| xo.moraleAnchor | seniorStaffBonuses.ts:54 | Fear resist; "complement attrition" | squadFearResist; an attrition system that does not exist | wired (gambit.ts:1376, 1452), nothing inflicts Fear | INERT | FK-4; attrition half OC-E7 |
+| facet pilot:cunning | officerStats.ts:183 | (no effect decided) | Flight Deck over-delivery | none | INERT (pending user) | WR-9, OC-E4 |
+| facet Constitution on battle bonuses | crewOverlay.ts:452 | ramps with hours out | battle mods | cycle 1 of a patrol frozen at 0 hours (tick.ts:5402); a Dispatch Once patrol never ramps | PARTIAL | WR-9, OC-E13 |
+| 11 complement buffs: droneHandling, hullRepair, power, counterInfiltration, awayTeam, survey, effectiveness, triage, crewOutputMult, missionTurnaround, preventCrewLoss | crewBuffs.ts:78 to 110 | design 6.2 | see CP plan | none | INERT (11) | CP-2 (hullRepair, effectiveness, outputMult, turnaround), CP-3 (counterInfiltration, awayTeam, survey, triage, preventCrewLoss), CP-4 (droneHandling), E-MOD (power) |
+| excl.craftDuplicate | crewBuffs.ts:108 | held for homeworld staffing | none | never rolls | HELD (D14) | none |
+| racials earthBorn, martian, belter, outerColony, vael, stheni, spacer | crewRaces.ts:66 to 137 | each race's key | as the matching buff | none | INERT (7) | CP-2 (earthBorn, stheni), CP-3 (outerColony, vael), CP-4 (belter), E-MOD (martian), spacer = `deferred` (T3: the Spacer long-haul ramp moved to 0.14.x) |
+| notables (create) | model.ts:6292 | standouts graduate | assigned notable buffs | read paths live (crewOverlay.ts:285 to 300, gambit.ts:1310) but nothing creates one | INERT (unreachable) | CP-8 |
+| officer promotion | seniorStaff.ts:135 to 223 | officers promote by objectives | rank factor, stat points | `promotionCounters` read at :190, never incremented (crewHours, shipsDestroyed, personnelAchievement); every officer is a cadet x0.85 forever (bug B4) | INERT (unreachable) | WR-4, OC-E10 |
+| crew rank `enlisted` flag | crewRank.ts:22 | (flag) | unknown | never read | INERT | WR-9, OC-E11 |
+| buffCountForRank = 3 | crewRank.ts:49 | three buffs at high rank | a third buff | only gates the 35% exclusive pick (crewGeneration.ts:99) | PARTIAL | WR-9, OC-E12 |
+| command structure caps | commandStructure.ts:54 to 85 | per-hull caps | auto-fill and transfer | passive ships only (autoCrew.ts:54); active ships never filled; not enforced on load | PARTIAL | CP-5, CP-7 |
+
+Also flagged (not separate rows, they ride CP slices or the calls): the transit buffs merge out and back into one
+multiplier (OC-E5); Rapid Loadout is Ground Ops only (OC-E6); Museum crewBonuses skips the directly read officer
+bonuses (OC-E8, also H); Command Presence does not scale expedition rewards (OC-E9); Operations Integrity does not
+reach the Ground Ops offload (rides OC-E9's slice); SeniorStaffPanel shows the 7 inert racials as "+N% Stat" with no
+pending marker (text fix with each CP slice).
+
+### 2.7 F. Away team and ground
+
+**LIVE (60):** traits steadyAim, breacher, veteran, bulwark, fieldMedic, keenEye, patientHands, greenThumb, codebreaker,
+deepSurvey, steady, quickDraw (weak); gear effects groupHit, stun and poison inflict, Med Kit heal (gated), Neural
+Backup revive, unique-installed rule, Toxin Filters, Shroud and Lure (legacy path), planet-tuned tools, race implant
+slots; Security HP / PWR / ARM / ACC, Science FIELD / RELIC / HAZ, specs, Security rank, injury gate, Fleet Triage;
+gambit actions attack, execute, suppress, taunt, brace, cure, aidHeal, useItem, hold, 17 selectors, 6 presets, enemy
+programs; statuses poison, stun (on enemies), weakened, suppressed, shielded; bay health / poison / downed; ground
+systems (fight points, hazard penalty, compositions, threat samples, step timings, ambush tables, bay care, risk
+factors at Tier I, Reinforcing, Rocky Outcroppings, ship events, automatic field repair).
+
+| id | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| ironWill | awayTraits.ts:89 | resists Fear 50% | wired, nothing inflicts Fear | INERT | FK-4 |
+| saboteur | awayTraits.ts:75 | +10% status chance | only with an `inflict` piece worn (gambit.ts:1446) | PARTIAL | WR-10, OC-F4 (FK-1 grenade bonus) |
+| quickDraw | awayTraits.ts:82 | acts first | the team always acts first (gambit.ts:1194), so it only reorders teammates | LIVE (weak), flagged | WR-10, OC-F5 |
+| cortexShield resist stun, fear | model.ts:2764 | resists stun and panic | nothing stuns or frightens the squad | INERT | FK-4; stun half FK open call 6 |
+| shroudEmitter, lureBeacon on Ground Ops | model.ts:2607, 2619 | "wildlife walks right past" / "they come carrying things" | on GO they move the SHIP event chance (expedition.ts:1560, Q11 provisional); no drop multiplier | PARTIAL (claim mismatch) | FK-7 + OC-F1 |
+| weaponRange on member weapons | model.ts:2465 to 2480 | long vs short | read only under Rocky Outcroppings cover (GO) | PARTIAL (by design) | none (registry context note) |
+| sidearm range, Science combat lines | model.ts:2488 | short | Science never fights (D2) | INERT | Science line swap (D26) |
+| fieldDevice effectiveness (untrained 1, trained 1, specialist always false) | expedition.ts:274 to 277, 1466 | reduced device ability | both values 1; specialist unreachable | INERT knob | FK-7 |
+| member slot physicals (mass, powerDraw, durability) | model.ts:10021 to 10024 | reserved | none | INERT | WR-8, OC-D14 |
+| SnapshotMember implants / traits / rank fields | awayTeam.ts:776 to 781 | record | never read (engine reads effects) | INERT record | none (identity) |
+| statusChance, Security Debuff spec base 0.1 | gambit.ts:105 | inflict chance | only with inflict gear | PARTIAL | WR-10, OC-F4 |
+| Science HP / PWR / ARM / ACC / status | | none | none | INERT | Science line swap |
+| Security FIELD / RELIC | | none (by design) | none | INERT (by design) | none (registry: display) |
+| Security HAZ (Assault Hardsuit) | groundTasks.ts:196 | less hazard slowdown | GO task work only (D26 says so) | PARTIAL (by design) | none |
+| Prospecting team type | awayTeam.ts:184, 206 | a team type | no recruits, specs or gear | INERT | WR-10, OC-F11 |
+| Science member rank | model.ts:6418 "nudges magnitude" | rank factor | fieldwork never reads rankFactor (fieldwork.ts:129) | PARTIAL | WR-10, OC-F7 |
+| Ossir Stoneskin | medicalBay.ts:71 | bay time x1.25 | GO only (legacy injuries.ts:93 ignores perks); battle half FK-4 | PARTIAL | FK-4 + OC-G1 |
+| complement ground buffs (4) and Morale Anchor | crewBuffs.ts:87 to 110 | squad HP, resist, heals, bay care | none | INERT (counted in E) | CP-3, FK-4 |
+| fallBack | gambit.ts | "disengage this round" | identical to Hold (gambit.ts:887) | PARTIAL | WR-10, OC-F6 |
+| shieldAlly, analyze, secureObjective, takeCover | gambit.ts:362 to 372 | Science actions | never offered or run; `analyze` is the only Corroded source | INERT | WR-10, OC-F10 |
+| status picker entries that never match | GambitEditorPanel.svelte:160 | pick any of 9 statuses | only foe stun / poison / suppressed and ally poison / weakened / shielded can fire | PARTIAL | FK-9 + WR-10 |
+| account gambit pair (DEFAULT_GAMBIT_PROGRAMS, state.gambitPrograms, Expedition.gambitPrograms) | model.ts:6934 | account programs | only the Balanced preset copy and a notice | INERT (D19) | WR-10, OC-F12 |
+| statuses bleed, corroded, inspired, fear | gambit.ts:170 to 180 | battle statuses | nothing inflicts bleed / corroded / inspired / fear on anyone | INERT (4) | FK-4 (fear, bleed per FK call 7), FK-5 (inspired), OC-F9 (corroded) |
+| bay bleed + 5 FK conditions | medicalBay.ts:57 to 67 | cure times | never applied | INERT (6) | FK-4 |
+| treatmentShare | medicalBay.ts:103; injuries.ts:61 | treatment | always 0 | INERT | FK-5 / FK-6 |
+| memberFallOutcome | injuries.ts:39 | (Safety Interlock hook) | single branch | INERT hook | OC-F13 |
+| SURVEY_AMBUSH_CHANCE 0 | groundOps.ts:393 | fallback | pre-SQ-4 runs only | PARTIAL fallback | none (legacy) |
+| legacy-only: MAX_BATTLE_ATTEMPTS, EVAC_REWARD_FRACTION, ENCOUNTER_DROP_SCALE, scan ground battles, softenAmbush, flat 2 h injury | gambit.ts:141, 1649, 1973, 2004 to 2053; injuries.ts:25 | legacy path | pre-GO-7b runs only | PARTIAL | OC-G1 |
+| tier-dormant rows (RISK_TIER_ODDS II to VII, enemy territory, hostile sites, SCIENCE_HEAVY, affix rows above Tier I, DIFFICULTY_TIER_ROLL_MULT above base) | riskFactors.ts, affixes.ts:293 to 315 | tiers | unreachable at Tier I | INERT (unreachable) | G2-2, SF-3 |
+| taskChainFollowUp, calmObjective, affix `weightFor` | riskFactors.ts:431; affixes.ts:95, 125 | hooks | no caller | INERT hooks | OC-C4 |
+| player-ordered field repair | expedition.ts:2263 to 2275 | order a repair | engine only, no UI | PARTIAL (no UI) | WR-10, OC-F14 |
+| Neural Backup | model.ts:2776 | flavor: brings the wearer back | revives the FIRST downed ally (gambit.ts:1150) (bug B13) | LIVE (claim mismatch) | WR-10, OC-F2 |
+| Med Kit | model.ts:9656 | "Keeps a downed friend in the fight" | no revive (aidHeal skips the downed, gambit.ts:857) | LIVE (claim mismatch) | WR-10, OC-F3 |
+
+### 2.8 G. Expedition content
+
+**LIVE (78):** PoI ids, pools, planetWeights; planet ids, hazard tiers and scalars (read by ten consumers), surface /
+underground bias; transit, shakedown, anomaly timing and chance, scan rate, body counts, discovery attempts, encounter
+steps and chances, supply caches, candidate count, banked systems, salts, activity seconds; all fieldwork curves; array
+odds and relic bonus; risk factors at Tier I (jitter, lifeless types, clearing sites, fight mods, needs, difficulty,
+risk reward, ambush, flora); ship events; Ground Ops step timings; field repair; the reward tables (materials,
+credits, relic odds and tiers, encounter guards, hazard scaling, the deposit).
+
+| id | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| PoI `flavor` | expeditionContent.ts:97 to 162 | per-PoI reward character ("high relic odds", "biotech + research", "supplies + data") | never rendered; relic chance and haul do not vary by PoI (gambit.ts:1696, 1718) | INERT (false claims) | WR-11, OC-G4 |
+| hostile / clearing site `flavor` | expeditionContent.ts:314 to 333 | flavor | never rendered | INERT | WR-11 (render; no call) |
+| `orbitalOnly` (Gas Giant) | expeditionContent.ts:215 | "no surface landing; finds are satellite ops" | UI only; GO lands teams and fights there | UI-ONLY (false claim) | gas giant study 15b + OC-G2 |
+| anomaly finding payload | expedition.ts:1955 | "logged a finding"; opting in costs 1 h | no payload (deposit :2108) (bug B15) | INERT | WR-11, OC-G3 |
+| ANOMALY_CHANCE_PERMILLE vs sensors | expedition.ts:199, 1952 | "if sensors detect one" | sensors not read | PARTIAL (claim) | WR-11, OC-G3 |
+| foreknowledge `relicSignature` | expedition.ts:564, 680 | relic lead flag | the UI never reads it; always true | INERT | WR-11 (delete or render; no call) |
+| FIELD_DEVICE_TRAINED_EFFECTIVENESS | expedition.ts:277 | specialist at full strength | specialist check always false | INERT | FK-7 |
+| SUBSPACE_TELESCOPE_LEVELS.reachTier 2 to 7 | model.ts:4660 | reach farther regions | every candidate is Tier I | INERT (unreachable) | G2-2 |
+| blind launch path | expedition.ts:597, 1066 | warning and counter | unreachable | INERT | G2-2 |
+| ODDS_RISKY_BELOW | launchRecommendation.ts:283 | odds weigh in | behind tier > 2 | INERT (unreachable) | G2-2 |
+| RISK_TIER_ODDS | riskFactors.ts:90 | grades by tier | row I only | PARTIAL | G2-2 |
+| ENEMY_TERRITORY_COMBAT_STEP, HOSTILE_SITE_RULES, SCIENCE_HEAVY_* | riskFactors.ts:100, 126, 304 | tiers | unreachable | INERT (3) | G2-2 |
+| ShipEventProfile `evasion`, `shieldCapacity` | shipScanEvents.ts:167 | frozen inputs | never read (checks rebuild the combatant, :277) | INERT | WR-11, OC-G5 |
+| FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE, EVAC_REWARD_FRACTION, MAX_BATTLE_ATTEMPTS, ENCOUNTER_DROP_SCALE | various | fallbacks and legacy | old runs only | PARTIAL (5) | OC-G1 |
+| planet comments (Ocean slower work, Frozen best relic survival, Toxic hardened team) | comments only | not player text | not modeled | INERT (comment) | OC-G6 |
+| label, TELESCOPE detail / names / lore, SENSOR_REVEAL thresholds, RISK grade names, launch wording | various | display | UI | UI-ONLY (16, honest) | none |
+
+### 2.9 H. Relics and the Museum
+
+**LIVE (25):** Museum cargo, salvage yield, sensors (multiplier: does nothing on a 0-sensor ship, note), scan speed,
+science team power (narrow), mining yield, rare chance, extraction speed, hazard resist, research speed, crafting
+quality, relic find; the relic catalog, sources, rarity weights, study lanes and time, first finds; four relic-gated
+blueprints.
+
+| id | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| Museum transitSpeed (Shipwright 2pc) | relics.ts:338 | transit speed | missions only | PARTIAL | G2-3 + OC-D8 |
+| Museum crewBonuses (Xeno 4pc) | relics.ts:346 | crew bonuses | crew.* only; officer bonuses through officerBonusTotal (crewOverlay.ts:362) not amplified | PARTIAL | WR-9, OC-E8 |
+| Precursor Lens first find | model.ts:9443 | special module | unlocks nothing today | INERT (deferred to E-MOD by decision) | E-MOD |
+| relic flavor / labels | relics.ts:146, 159 | card text | UI | UI-ONLY (honest) | none |
+
+Calls H1 (scienceTeamPower scope) and H2 (salvageYield scope) are in section 5.H.
+
+### 2.10 I. Missions, patrols, factions, transports, allocation
+
+**LIVE (62):** every MISSIONS timing, rate, chance, loot, type, transport cost and margin, FA XP, credits, unlock and
+captain-level gates, cargo gate; BASE_XP_PER_TICK; PATROLS pools, waves, counts, legs, windows, chances; patrol loot
+tables; pirate hulls; threat bands; forecast samples; wave salts; combat tuning constants; crew transports (window,
+batch, seed); allocation reads; launch recommendation constants.
+
+| id | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| MISSIONS.cargoCapacity (90 / 120 / 150) | model.ts:282 | per-cycle units | overwritten by the hull hold (model.ts:3733) | INERT | WR-11, OC-I1 |
+| primaryMaterial on transports | model.ts:702, 723 ("inert for transport") | auto-stop only | canDispatch blocks transports at ore cap (tick.ts:4876, no exemption; tick.ts:4076 has one) (bug B2) | PARTIAL (blocks wrongly) | WR-4, OC-I3 |
+| voidJackals, ironVultures, ashenCorsairs | model.ts:828 to 838 | "roster for enemy generation to seed from" (model.ts:819) | no patrol references them | INERT | WR-11, OC-I2 |
+| Faction.id field | model.ts:824 to 839 | key for enemy gen | never read (map key used) | INERT | WR-11, OC-I2 |
+| patrol factionId | model.ts:919, 980 | faction fought | id prefix only; its spelling sorts against "ship-N" for turn order (resolveBattle.ts:1648) (bug B14) | LIVE (side effect) | WR-4, OC-I4 |
+| labels, faction name / flavor, threat chip text, rating weights, flavor picks | various | display | UI | UI-ONLY (13, honest) | none |
+
+Display drift (not status-changing; WR-4 text fixes, no call): berth ETA uses the raw unloadTicks and understates big
+holds (berths.ts:192, 206); the dispatch popup's rare chance omits the Museum and survey crew terms (App.svelte:19404);
+the stale "NOT wired" comments (model.ts:748, transports.ts:14).
+
+### 2.11 J. Salvage and item generation
+
+**LIVE (37):** salvage fractions, quality bonus, rounding, FA ceilings, Museum yield, durations, bay base slots, loot
+tier order, weights, quality, drops; item budget, rarity, quality mult, iLevel cap, FA iLevel, crafted defense bases,
+affix counts, weapon and pod pools, base masses (their comments say inert; they are live), quality step, rarity roll,
+minted fields.
+
+| id | configured | claim | read today | status | owner |
+|:-|:-|:-|:-|:-|:-|
+| SALVAGE_TALENT_YIELD_BONUS | model.ts:12180 | "+10% salvage recovery"; "spare hull" | recycle only; adds 10 percentage points, not +10% | PARTIAL | WR-6, OC-B1 |
+| SALVAGE_TALENT_CEILING_BONUS | model.ts:12181 | "+1 loot tier reach" | clamped at index 3; wasted from FA 15 (salvage.ts:597) (bug B16) | PARTIAL | WR-11, OC-J1 |
+| SalvageRoll `rolled` | salvage.ts:272 to 283 | "the UI narrates the drop" | dropped (tick.ts:10915) | INERT | WR-11, OC-J2 |
+| loot tier names (damagedWeaponSystem) | model.ts:8548 | tier names | unread (Reactor pool feeds relic tiers) | PARTIAL | WR-11, OC-J2 |
+| dead-end drops scrapAlloy, salvagedCircuitry, precursorCircuit | model.ts:8491, 8502, 8527, 8588 | "it melts down fine" | roll fine, nothing uses them | LIVE (dead end) | WR-11, OC-J3 |
+| QUALITY_DURABILITY_BONUS, item durability | itemgen.ts:178, 433 | quality raises durability | weapons only; never written back after a battle | PARTIAL | WR-8, OC-D14 |
+| DRONE_POD_BASE_DURABILITY | itemgen.ts:636 | pods wear | never read | INERT | WR-8, OC-D14 |
+| DRONE_POD_BASE_POWER_DRAW, weapon powerDraw, reactor implicit, powerDrawReduction | itemgen.ts:635, 573 | power budget | display only | UI-ONLY (4, promise a budget) | E-MOD + OC-D1 |
+| `achievementBoost` | itemgen.ts:189 | reserved | always 0 | INERT seam | OC-C4 |
+| affixCount derelict / luminous / constellar | itemgen.ts:227, 239 | safety branches | unreachable rarities | INERT | WR-11, OC-J4 |
+| `ascension` | itemgen.ts:440 | (none) | always "none" | INERT seam | OC-C4 |
+| talentBonus / ceilingBonus params | salvage.ts:366, 567 | test override | test-only | INERT (by design) | none |
+
+### 2.12 What `no-dead-stats.test.ts` already covers
+
+Run on `6b2b20c`: 155 passed, 1 skipped (the RELEASE_GATE block), 34 s.
+
+- **Catalogs (149 entries, EXPECTED_COUNTS :910):** officer 16 (one officer at the bonus's seat, magnitude x5, vs the
+  same officer bare), crew 21 (18 profession buffs + 3 rollable exclusives, a 400-head bucket vs a dummy buff), racial
+  10 (an officer of the race, no bonuses, vs no officer), gear 74 (every member gear variety x team x rollable ground
+  line at 60 points, effect pieces balanced with an inert filler line), facet 28 (a full bridge + complement, one stat
+  raised to 70).
+- **Probes (:636):** ship stats, reach, repair time, ship battle (full and 40% hull), expedition readers, injury
+  recovery (legacy and Ground Ops bay), expedition battles, expedition run + claim (both engines), three mission
+  cycles, a Repeat patrol, a patrol defeat repair, ship scan events. Fingerprints use allow-listed outcome fields; NaN
+  or Infinity throws.
+- **PENDING_IN_RELEASE (29):** E-MOD 3, Task 23 13, Task 23 all-buffs 2, Task 23 long-haul 1, Field Kits Fear 1,
+  Science line swap 7, Cortex resist 1, Pilot Cunning 1. The test fails if a listed entry turns live; the release gate
+  fails while any entry is not in DEFERRED_PAST_0140 (empty today).
+- **Not covered:** captain primary and secondary talents; Fleet Admiral talents; away traits (Task 22b, never built);
+  ground effects as mechanics (heal, inflict, resist, revive, group hit are cancelled out, not probed); ship gear
+  lines; crew modules; sensor arrays; utility gear; relics and the Museum; facilities and research; hull fields;
+  missions, patrols, factions; salvage and itemgen; combat descriptors; gambit actions and statuses; notables, crew
+  rank and rarity scalars, command caps, generation weights; officer rank and promotion; deriveAwayTeam strength and
+  teamKit; the per-head complement racial path; each of Inspiring Leader's individual stats.
+- **Design limits:** liveness only (passes if ANY probe moved); no direction (a buff that hurts passes); no magnitude
+  or proportionality; one context is enough, so PARTIAL items pass; keyed by statKey, so transitOut and transitBack are
+  indistinguishable; exaggerated scale (x5, 400 heads, stat 70) can hide an effect that rounds to nothing at real
+  magnitudes; fixed scaffold (one ship, destroyer battles, three missions, one patrol, four seeds); never compares the
+  UI text against the mechanic.
+
+### 2.13 Bugs found (not just inert)
+
+Each is an audit finding with file:line; the fixing slice proves it first with a failing test.
+
+| # | Bug | Where | Fix owner |
+|:-|:-|:-|:-|
+| B1 | `requiresResearch` rung gate returns failure for ANY listed topic and never checks it; a rung that used it could never be built (latent: none uses it) | tick.ts:5898 | WR-4: check `blueprintUnlocked(state, topicId)` (model.ts:10924) |
+| B2 | `canDispatch` blocks the two transport missions with "materialAtCap" when Titanium Ore is full, though transports never deliver ore (the auto-stop at tick.ts:4076 already exempts them) | tick.ts:4876 | WR-4 (OC-I3 confirms intent) |
+| B3 | Ship combat positions are always 0 (no caller passes position or speed), so stance (incl. the stance the player picks per patrol), weapon and drone range, sensorPowerDrain, coolantLeak and the FTL speed penalty can never change a battle | combat/bridge.ts:932 to 933 | WR-8, OC-D9 |
+| B4 | Promotion counters are never incremented, so no officer can ever promote; every officer is a cadet (x0.85) forever and the promotion rows on screen are unmeetable | seniorStaff.ts:138, 190 | WR-4, OC-E10 |
+| B5 | Fuel Depot rungs do nothing since 0.13.9, and `buyFuel` still spends real credits on fuel nothing consumes (reachable from the hidden Depot console) | tick.ts:10494, 7919; App.svelte:12996 | WR-4, OC-C1 |
+| B6 | Reclaimed Alloy and Purified Biomass say "Refined at the Refinery" but no recipe makes or uses them | model.ts:8321, 8329 | WR-4, OC-C3 |
+| B7 | Warehouse T2 cannot be built past rung 1: its only item (Dense Ore) has no source and rungs 2 to 5 cost Dense Ore | model.ts:4484, 4510, 8170 | WR-4, OC-C2 |
+| B8 | Utility gear hard caps (`Math.min`) violate D23 (they never bind today: the curve limits are 0.40 / 0.08 / 0.30 / 0.30) | utilityGear.ts:45, 50, 57, 62, 78 | WR-4 (D23 rules; replace with the curve, no value changes today) |
+| B9 | The Warband patrol is nearly unwinnable for explorers (Orion, Aurora, Eir 1 of 200 wins) and economy hulls (0 to 8 of 200) on Standard Issue | safe-first-runs plan 2.5 E | SF-4 (balance; the sim in WR-2 re-measures it) |
+| B10 | A crafted Reactor Core is net negative: its signature line does nothing (no power budget) and its base mass 12 slows transit and fuel efficiency | model.ts:2172; SLOT_BASE_PHYSICALS | E-MOD + OC-D1 |
+| B11 | `statRatios` biases inverted: an unlisted stat keeps weight 1, so Hauler Hold ("none into mass") rolls massReduction more than Prospector Hold (weight 2 vs 0.3) | itemgen.ts:269 | WR-7, OC-D6 |
+| B12 | Sensor array net rates contradict the UI: Focused reads "faster" but nets 0.78x; Bio-Resonance has no character line (blank) | expedition.ts:1249; ExpeditionPanel.svelte:133 to 137 | WR-7, OC-D11 |
+| B13 | Neural Backup revives the first downed ally, while its flavor says it brings the wearer back | gambit.ts:1150 | WR-10, OC-F2 |
+| B14 | The patrol faction id's spelling decides turn order (enemy ids sort against "ship-N") | tick.ts:3157; resolveBattle.ts:1648 | WR-4, OC-I4 |
+| B15 | Charting the anomaly costs 1 h and pays nothing | expedition.ts:1955, 2108 | WR-11, OC-G3 |
+| B16 | Salvage Operations says "+10%" but adds 10 percentage points; its +1 tier reach is wasted from FA 15 | tick.ts:853; salvage.ts:597 | WR-6 / WR-11, OC-B1 / OC-J1 |
+| B17 | The Constitution battle ramp is skipped on patrol cycle 1, so a Dispatch Once patrol never ramps | tick.ts:5402 | WR-9, OC-E13 |
+| B18 | Vocabulary drift: RESERVED_STAT_KEYS lists weaponYield and weaponAccuracy, which roll and are read; droneHp and droneAccuracy are in no list, so the drift guard cannot see them | model.ts:2926; itemgen.ts:513, 630 | WR-1 (the completeness test absorbs the guard; no call) |
+| B19 | The ship roster shows a ship on an expedition as "idle" and has no "repairing" status | shipRoster.ts:127 | WR-4 (text and status, no call) |
+| B20 | Display drift: berth ETA understates big holds; dispatch popup rare chance omits Museum and survey crew terms | berths.ts:192, 206; App.svelte:19404 | WR-4 (no call) |
+| B21 | Gas giants: the UI says "orbital ops" and "satellite", but teams land and fight on them | expeditionContent.ts:215; groundOps.ts:374 | 15b + OC-G2 |
+| B22 | Quarters capacity raises only the total cap; division caps still bind, so the bonus is +0 or +1 berth | commandStructure.ts:174, 233 | CP-5 + OC-D7 |
+| B23 | Auto-fill ignores notable occupancy (caps overflow once CP-8 creates notables) | crewOverlay.ts:664 | CP-8 (already planned) |
+| B24 | False or stale player text: primary talents say "Common Ore" for every mission's common tier (tick.ts:810); spec cards say combat and science "arrive when the system lands" (model.ts:12640); the economy tooltip shows the raw key "commonOre" (tick.ts:848); the FTL Drive blurb says "fuel burn"; hull descriptions (Aurora, Eir, Orion) claim what the engine does not do | as listed | WR-4 text (hulls via OC-D13) |
+| B25 | All three explorers share spec and tier, so they get the same crew cap; Eir's "largest crew" is false | commandStructure.ts:148 | CP-5 (already planned) |
+
+Stale comments (fix in passing, no call): model.ts:11673, 6307, 9174, 748, 5821, 2254; transports.ts:14; sensorArrays.ts:1 to
+13; itemgen.ts:15, 459, 520, 629; equipment.ts:136; resolveBattle.ts:1544; durability.ts:156; salvage.ts:266; tick.ts:11485;
+commandStructure.ts header.
+
+## 3. The registry design
+
+### 3.1 Files
+
+- `src/lib/game/wiring/registry.ts`: the typed entries (pure data + small pure transforms). Engine-side, imported by
+  tests and, lazily, by the Debug panel only.
+- `src/lib/game/wiring/probes.ts`: pure seam probes (a function computing the game value an entry should move, from a
+  state) and the minimal fixture builders (from `freshState()`).
+- `src/lib/game/wiring/catalogs.ts`: programmatic enumeration of every effect source in every catalog.
+- `src/lib/game/wiring/fieldRoles.ts`: the classification of every FIELD of every catalog def type.
+- `src/lib/game/wiring/liveness.testkit.ts`: the no-dead-stats probes and fingerprint, moved out of the test file
+  unchanged (test-only import; tree-shaken from the app).
+- Tests: `wiring.sensitivity.test.ts`, `wiring.completeness.test.ts`, `wiring.liveness.test.ts`
+  (`no-dead-stats.test.ts` becomes a thin wrapper, section 3.6).
+
+### 3.2 The entry type
+
+```ts
+type WiringStatus =
+  | { kind: "live" }
+  | { kind: "pending"; owner: string }                 // a 0.14.0 slice brings it live (release gate blocks)
+  | { kind: "deferred"; owner: string; userRef: string } // the user deferred it past 0.14.0 (T3 etc.)
+  | { kind: "held"; userRef: string };                   // D14 Craft Duplicate only
+
+type Curve =
+  | { kind: "linearRelative" }                 // value(on) = value(off) x (1 + m)
+  | { kind: "linearAbsolute" }                 // value(on) = value(off) + m
+  | { kind: "divisor" }                        // durations: value(on) = value(off) / (1 + m)
+  | { kind: "diminishing"; knee: number }      // through diminishing(m, knee) from diminishing.ts
+  | { kind: "chanceAbsolute" }                 // the probability fed to the roll rises by m
+  | { kind: "gate" }                           // a refusal becomes an allowance (or a count rises by m)
+  | { kind: "event"; metric: string };         // capstones and procs: an expected-value metric over seeds
+
+interface WiringEntry {
+  id: string;                     // "<system>:<catalog>:<key>", e.g. "captain:secondary:gunnery1"
+  system: "captain" | "fleetAdmiral" | "facility" | "ship" | "crew" | "away" | "expedition" | "relic"
+        | "mission" | "salvage";
+  source: { catalog: string; key: string };  // must match catalogs.ts enumeration
+  claim: string;                  // the player text it renders (pulled from the same helper the UI uses)
+  probe: ProbeId;                 // the seam: e.g. "missionYieldMult", "shipyardRepairTicks", "scanRatePerSecond"
+  contexts: readonly ContextId[]; // EVERY context the claim covers: "mission:extraction", "mission:survey",
+                                  // "mission:transport", "patrol", "expedition:groundOps", "expedition:legacy",
+                                  // "shipyard", "shipEvent", "craft", "salvage", "research"...
+  outOfScope?: readonly { context: ContextId; reason: string; userRef?: string }[]; // explicit, never silent
+  direction: "up" | "down";
+  curve: Curve;
+  magnitude: (cfg: Catalogs) => number;  // READ FROM THE CATALOG, never a literal: retuning 8% keeps the test green
+  on: (s: GameState) => GameState;       // grant the source (allocate the node, seat the officer, install the piece)
+  off: (s: GameState) => GameState;      // the same state without it (the Debug panel uses this on a live save)
+  status: WiringStatus;
+}
+```
+
+### 3.3 The sensitivity test (one per entry, per context)
+
+For every entry and every context in `contexts`: build the context fixture, compute `probe(off(s))` and `probe(on(s))`,
+and assert:
+1. **Direction:** the value moved the declared way (a buff that hurts fails).
+2. **Magnitude through the curve:** the move equals `curve(magnitude)` within a tolerance: exact (1e-9 relative) at a
+   pure seam; within one rounding step where the outcome is an integer (ticks, units). The magnitude comes from the
+   catalog, so "the 8% will change, but the effect of that 8% will not": a retune stays green, a broken wire fails.
+   Changing the curve's FORM (linear to diminishing) is a deliberate edit of the entry, matching "the form of how that
+   8% might change".
+3. **Chance and event entries:** the seam is the probability passed to the existing roll (asserted exactly), plus an
+   expected-value check over a fixed seed batch (direction only, with a minimum effect size) so a chance that is
+   computed but never reaches the roll fails.
+4. **Outcome liveness:** the entry's source also moves at least one real consequence in the liveness testkit (the
+   no-dead-stats fingerprint), so a seam that nothing downstream reads fails too.
+
+Probes are seam-level pure functions extracted where a consumer today computes its value inline (for example
+`effectiveScanRate(exp)`, `missionCycleYieldMult(state, ship, mission)`, `shipyardRepairTicks(state, ship)`). Each
+extraction is behavior-preserving and pinned by the existing goldens.
+
+Context coverage is what catches PARTIAL: an entry that claims "mission and expedition" but only moves missions fails
+in the expedition context, unless that context is listed in `outOfScope` with a reason (a user decision or the
+claim's own wording). A PARTIAL item becomes live by wiring the context or by the user agreeing to narrow the claim
+(then the UI text changes in the same commit).
+
+### 3.4 The completeness test (enumerated, never hand-listed)
+
+- `catalogs.ts` enumerates, programmatically, every effect source: `CAPTAIN_TALENTS`, `CAPTAIN_SPEC_BONUS`,
+  `SECONDARY_CAPTAIN_TALENTS`, `HOMEWORLD_TALENTS`, `SENIOR_STAFF_BONUSES`, `CREW_PROFESSION_BUFFS` +
+  `SECOND_LEVEL_EXCLUSIVE`, `CREW_RACES`, seats x `OFFICER_STAT_KEYS`, the away traits, every `EQUIPMENT_SLOTS` slot and
+  variety (ship and member) x every rollable line x every effect descriptor, `LIVE_STAT_KEYS`, every `FACILITIES` rung
+  effect field, the storage / docks / berth rungs, `SUBSPACE_TELESCOPE_LEVELS`, the crew module catalog,
+  `SENSOR_ARRAYS`, the utility gear readers, the Museum stats, the relic first-find unlocks, numeric `ShipTypeDef`
+  fields x `SHIP_TYPES`, MISSIONS and PATROLS fields, weapon defs, drone roles, ship and ground statuses, gambit
+  actions and selectors, objective affixes, `POI_CATALOG` and `PLANET_TYPES` fields, `ITEMS` with effect fields,
+  `REFINE_RECIPES`, `SALVAGE_LOOT_POOLS` outputs.
+- The test fails when any enumerated source has no registry entry, when an entry names a source that no longer
+  exists, and when two entries share an id.
+- **Field roles:** for every catalog def type, every key of every def must be classified in `fieldRoles.ts` as
+  `effect` (has registry entries), `display` (label, flavor; must claim no effect), `identity` (ids, keys, record
+  fields), `gate`, or `seam` (framework hook with an owner). A NEW field on any def fails until classified, which is
+  how a future "+5% something" field cannot ship silently. `display` fields are scanned: a display string matching a
+  number with a percent or a plus sign fails unless it is the label of an `effect` entry (the claim-text check).
+- **Unread constants:** a source scan (the existing `fs-for-tests.d.ts` pattern) lists every exported UPPER_CASE
+  constant in `src/lib/game/**` (non-test) and fails when one has no reference outside its declaration and no
+  `seam` entry with an owner. This catches `MISSION_CONTROL_UNLOCK_COMPLETIONS`-style leftovers.
+- **Release gate:** with `RELEASE_GATE=1`, the suite fails while any entry is `pending`. `deferred` entries must carry
+  a `userRef` (for example "capture 2026-10-15 section 3 T3").
+
+### 3.5 Fixtures and determinism
+
+- Minimal fixtures built from `freshState()` with one ship per hull, one captain, Standard Issue gear, fixed seeds;
+  context builders reuse `awayTeamTestFixtures.ts` and the no-dead-stats scaffold.
+- Magnitudes at REAL values (not x5) for the sensitivity level; the liveness level keeps its exaggerated scale (the
+  two levels together catch both "rounds to nothing" and "reads nothing").
+- No probe writes state; every probe is pure, so the Debug panel can run seam probes on a live save safely.
+- Runtime budget: the default suite stays under about 60 s added (seam probes are cheap; liveness keeps its cache).
+
+### 3.6 How it subsumes no-dead-stats
+
+1. WR-1 moves the probes, fingerprint and entry builders into `liveness.testkit.ts` unchanged.
+2. Every one of its 149 entries becomes a registry entry with the SAME id (`officer:`, `crew:`, `racial:`, `gear:`,
+   `facet:` prefixes kept as the source key); a parity test proves the id sets are equal before anything else changes.
+3. `PENDING_IN_RELEASE` becomes the registry statuses (`pending` with the same phase strings as owners); the
+   "listed but live" and "dead but unlisted" failures carry over unchanged; `DEFERRED_PAST_0140` becomes `deferred`.
+4. `no-dead-stats.test.ts` keeps its name (history and docs point at it) as a thin file that runs the registry's
+   liveness level; the release-gate command stays `RELEASE_GATE=1 npx vitest run src/lib/game/no-dead-stats.test.ts`
+   and additionally runs the registry gate.
+5. Task 22b (away traits and ground effects) is delivered by the registry's away entries, not as a separate category.
+
+## 4. Slices
+
+Order follows the user's framework order (capture section 7: registry, then the simulated player, then the Debug
+"Wiring" panel, and the audit uses them): WR-1 to WR-3 build the framework, WR-4 onward wire systems through it.
+Each slice: one implementer, the two-stage review. Every engine slice captures its goldens first, in its own commit.
+
+### WR-1: The registry, the completeness test, and sensitivity tests for every LIVE entry (tests + pure module)
+
+**Files:** new `src/lib/game/wiring/*` (section 3.1), new tests, `no-dead-stats.test.ts` (thin wrapper), probe
+extractions in consumers (behavior-preserving, goldens unchanged).
+**Behavior:** none. Every LIVE row of section 2 gets an entry with probe, contexts, direction, curve and catalog
+magnitude, and its sensitivity test is GREEN. Every non-live row gets an entry with `pending` (owner slice) or
+`deferred` (user ref). PARTIAL items carry their missing contexts as expected failures recorded by the status (the
+test asserts they still do NOT move, so they cannot silently change, exactly like the no-dead-stats allow-list).
+**Tests:** id parity with the 149 no-dead-stats entries; completeness by enumeration; field roles; unread constants;
+the claim-text check; release gate (expected to fail today, run only with the env var). B18 is fixed here (the
+completeness test replaces the vocabulary drift guard's blind spot).
+**Determinism / save:** none. **UI:** none.
+Commit `test(0.14.0): wiring registry and sensitivity tests for live effects (WR-1)`.
+
+### WR-2: The simulated player (headless, engine-only)
+
+**Files:** new `src/lib/game/sim/` (`simPlayer.ts`, `policies.ts`, `actions.ts`), tests.
+**Behavior:** a scripted headless playthrough driven through the SAME pure engine functions the `do*` handlers in
+`App.svelte` call (build, hire, seat, allocate talents, install, research, dispatch, launch, claim), advanced with the
+closed-form `tick(span)` (a simulated hour is one call).
+- `allAuto` policy [PROPOSAL]: a fresh save, build the first explorer, the default complement, every crew setting on
+  auto, no gear or crew changes. This is the user's T2 baseline.
+- `scripted(choices)`: the same run plus one choice (a talent node, an officer bonus, a gear line, a module, a
+  facility rung, a relic set tier).
+- **Ablation:** for every registry entry with a player choice, run `scripted([choice])` against `allAuto` to a fixed
+  horizon and compare the entry's sim metric (haul, credits, run length, wins, repair time); assert the direction and
+  a minimum effect size over a fixed seed batch. Pending entries are expected to show no difference (and fail when
+  they start to differ without a status flip).
+- **Safe first runs:** the SF plan's guarantees are re-proven through `allAuto`: the first expedition is 100%
+  complete with no loss on every seed of the batch; the first gathering mission, the first combat mission and the
+  first patrol likewise; the short-range template entries arrive with G1. The SF slices own the CONTENT changes; WR-2
+  owns the harness and these assertions, which turn green as SF-2 / SF-4 land.
+**Determinism:** fixed seeds only; one call == 997 s == 1 s parity on one run per policy; never `Math.random`.
+**Runtime:** the default batch [PROPOSAL 20 seeds x 24 simulated hours] keeps the suite fast; `SIM_FULL=1` runs every
+entry x 200 seeds (the balance-pass seed, SUGGESTIONS ~1844 to ~1863; named archetype policies wait for that pass).
+**Save:** none (the sim never touches a real save). **UI:** none.
+Commit `feat(0.14.0): headless simulated player with ablation and safe-first-run checks (WR-2)`.
+
+### WR-3: The Debug "Wiring" panel (`?dev` only)
+
+**Files:** `App.svelte` Debug tab (one sub-panel), a small display helper `src/lib/wiringPanelDisplay.ts` + test.
+**Behavior:** for the current save, every registry entry grouped by system: the source, whether this save owns it
+(allocated, seated, installed, built), its status chip (live / pending / deferred / held), its contexts, and its LIVE
+CONTRIBUTION: the seam probe on the save vs `off(save)`, with the expected value from the curve. Filters: "owned but
+contributing nothing", "pending", per system. Pure reads; no state writes; seam probes only (no liveness runs); the
+registry is imported lazily so production bundles do not carry it.
+**UI:** dev-only table; one DOM, readable at 375 px. A text sketch is in OC-K1 (whether the user wants a mockup first).
+Commit `feat(0.14.0): Debug Wiring panel shows every bonus's live contribution (WR-3)`.
+
+### WR-4: Bugs and seams (engine fixes with clear answers, text fixes)
+
+**Goldens first** (`wiringGoldens.test.ts`: mission dispatch at ore cap incl. transports, a Shipyard repair, a
+Repeat patrol, a facility rung check, the utility suite readers).
+**Changes:** B1 (`requiresResearch` checks the blueprint), B2 (transport exemption, pending OC-I3 confirmation; the
+build default follows the "inert for transport" comment), B8 (utility caps become the D23 curve; values identical
+today), B14 (turn order no longer depends on the faction id's spelling: sort by side then index [PROPOSAL]), B18 done
+in WR-1, B19, B20, B24 text; retired fields removed (`ShipTypeDef.cost`, `awayTeams[].count`,
+`shipLoadout.compareInstall`); framework seams per OC-C4; Fuel Depot per OC-C1; Warehouse T2 per OC-C2; recipes per
+OC-C3; promotion counters per OC-E10 (B4).
+**Save:** OC-C1 removal of `state.fuel` needs a migration (coordinate the version with G2-1's v70); promotion counters
+start at 0 at release [PROPOSAL, no backfill].
+**Tests:** a failing test per bug first; registry entries flipped to live.
+
+### WR-5a / WR-5b / WR-5c: Captain secondary talents (prospector, tactician, explorer trees)
+
+**Files:** `model.ts` (effects gain magnitudes for capstones), the captain fold in `tick.ts` (missions), `crewOverlay.ts`
+(ship sheet), `combat/bridge.ts` (`applyOfficerCombat` sibling `applyCaptainCombat`), `expedition.ts` / `groundOps.ts`
+(dispatch snapshots), `App.svelte` text (the "(first-pass)" and "No bonus yet" strings go away).
+**Behavior:** each node wired per its section 5.A row (build defaults = the [PROPOSAL] column, marked [PROVISIONAL]
+until the user answers; the nine "no call" rows build exactly as their text says). Which ship a captain's talents act
+on and when they freeze: OC-A2.
+**Determinism:** run consumers frozen at dispatch (the logistics4 precedent, `groundOps.ts:210`); patrol consumers
+frozen per cycle beside `officerCombat`; chance effects reuse existing rolls or a private salted stream (capstones).
+**Save:** none (branch-only tree; no production save owns a node). A save with no node allocated is byte-identical.
+**Tests:** one sensitivity entry per node per context; ablation in the sim; goldens.
+WR-5a prospector (extraction, logistics, trade; 14 nodes), WR-5b tactician (gunnery, aegis, fleetOps; 15 nodes), WR-5c
+explorer (surveySensors, expeditionRelics, commandCrew; 15 nodes). Sequential (shared `tick.ts` and `bridge.ts`).
+
+### WR-6: Placeholders and partial talents elsewhere (captain primary, spec, race; Homeworld)
+
+tacticianHub, explorerHub, the tactical / science spec bonuses, the captain racial (OC-A40 to OC-A43);
+fleetLogisticsSalvage on hull teardown (OC-B1, B16 wording); industryHub, homelandDefenseHub, citizenryHub (OC-B2,
+OC-B3). **Save impact:** Homeworld talents exist on main; production players who own those hubs gain their effect at
+0.14.0 (patch notes). Goldens first.
+
+### WR-7: Ship systems (non-combat)
+
+materialQualityChance (OC-D2), crewStations / crewEfficiency lines (OC-D3), moduleSlots (OC-D4), favorsSpec (OC-D5),
+statRatios (OC-D6, B11), quarters capacity with CP-5 (OC-D7), cargo / transit / fuel scope on expeditions and patrols
+with G2-3 / G2-4 (OC-D8), DC repairSpeed in Ground Ops field repair (OC-D10), array cadence vs coverage (OC-D11, B12),
+hull description truth (OC-D13), `sensorEffectScale`. The power budget (OC-D1) is wired here ONLY if the user puts it
+in this slice; otherwise it stays in E-MOD and its entries stay `pending` on E-MOD. Goldens first (ship sheet for every
+hull with every line, the CP-0 pattern).
+
+### WR-8: Combat descriptors (positions, UNFED inputs, durability)
+
+Positions and range (OC-D9, B3), the UNFED set and INERT descriptors (OC-D12), durability for non-weapon gear and
+installed reactor / FTL pieces (OC-D14). This is the largest determinism risk: every patrol golden and the
+`patrolReplay` parity proof move. **Goldens first** (every hull x both routes x Dispatch Once and Repeat, the forecast
+band, the GO ship battles). The patrol cloak input (`particleTraceDetector`) stays `deferred` (T3).
+
+### WR-9: Crew and officers beyond the CP slices
+
+Pilot Cunning (OC-E4), the transit split (OC-E5), Rapid Loadout scope (OC-E6), Morale Anchor's attrition half (OC-E7),
+Museum crewBonuses on officers (OC-E8), Command Presence and Operations Integrity on expeditions (OC-E9), `enlisted`
+(OC-E11), the third buff (OC-E12), the Constitution cycle-1 ramp (OC-E13, B17), Counter-Infiltration / Prevent a Crew
+Loss / Crew Output Multiplier readings (OC-E1 to OC-E3, feeding CP-2 / CP-3 as their consumers). Runs AFTER CP-2 and
+CP-3 (shared `crewOverlay.ts`, `groundOps.ts`).
+
+### WR-10: Away team and ground beyond Field Kits and CP-3
+
+Shroud and Lure on Ground Ops (OC-F1, with FK-7), Neural Backup (OC-F2, B13), Med Kit (OC-F3), Saboteur and status
+chance (OC-F4), Quick Draw (OC-F5), Fall Back (OC-F6), Science rank (OC-F7), Corroded (OC-F9), the Science gambit
+actions (OC-F10), the Prospecting team type (OC-F11), the account gambit pair (OC-F12), the fall-outcome hook (OC-F13),
+player-ordered field repair UI (OC-F14). Runs AFTER FK-4 to FK-7 and CP-3 (shared `gambit.ts`, `groundFight.ts`,
+`groundOps.ts`, `medicalBay.ts`). Goldens: reuse FK-3 plus a WR capture.
+
+### WR-11: Expeditions, relics, missions, salvage leftovers
+
+PoI flavor (OC-G4), site flavor (render), the anomaly (OC-G3, B15), `relicSignature`, ShipEventProfile frozen fields
+(OC-G5), planet comments (OC-G6), MISSIONS.cargoCapacity (OC-I1), the unused factions (OC-I2), the salvage ceiling
+(OC-J1), `rolled` narration (OC-J2), dead-end loot (OC-J3), unreachable affix counts (OC-J4), Museum science team power
+and salvage yield scope (OC-H1, OC-H2), status `color`. Runs after SF-2 / SF-3 and G2-2 / G2-3 land (shared
+`expedition.ts`, `riskFactors.ts`). Goldens: G2-0 and SF-0 plus a WR capture.
+
+### WR-12: Close-out
+
+`RELEASE_GATE=1` passes (no `pending` entry left; every `deferred` entry has a user ref); `SIM_FULL=1` passes; the
+Help text for every newly live effect (Task 34 style); the curated desktop + mobile QA sheet (section 7); holistic
+review; staging only on the user's word (capture section 4: after the T2 fix lands AND this gate passes).
+
+## 5. OPEN CALLS for the user
+
+Every row: **[PROPOSAL]** is the build default (marked [PROVISIONAL] in code until answered); alternatives follow. No
+row introduces a new game entity; every proposal plugs into an existing value (file:line in section 2).
+
+### 5.A Captain (42 calls: 3 general, 35 secondary nodes, 4 primary)
+
+- **OC-A1, default meaning of "+X% stat".** [PROPOSAL] a relative multiplier on the named existing value, added to
+  that value's other bonuses before its existing curve (so the D23 curve applies where the value already has one).
+  Alt: a flat add; each node individually.
+- **OC-A2, where and when a captain's talents act.** [PROPOSAL] on the ship that captain commands, frozen at dispatch
+  for runs (logistics4 precedent) and per cycle for patrols. Alt: fleet-wide; live (not frozen).
+- **OC-A3, capstone magnitudes and placeholders.** [PROPOSAL] give every capstone the magnitude in the table and
+  replace every "No bonus yet" with the proposed real effect, so no placeholder remains. Alt: remove placeholder nodes
+  and rebalance the branch; keep (violates T1).
+
+Secondary nodes (the nine marked "no call" build exactly as their text says):
+
+| node | text | [PROPOSAL] | alternatives |
+|:-|:-|:-|:-|
+| extraction1 Prospector's Eye | +5% extraction yield | x1.05 on the ship's extractionYieldMult (all tiers, extraction + survey; tick.ts:2103) | +0.05 on each tier yield mult; common tier only |
+| extraction2 Deep Veins | 5% rare/uncommon find | +5% relative on uncommonChanceMult and rareChanceMult (existing rolls, no new draw) | +5 points absolute; a separate per-cycle bonus find roll |
+| extraction3 Efficient Haul | +8% extraction speed | no call: shorter extracting phase through the Museum extractionSpeed fold (model.ts:3720) | |
+| extraction4 Assayer | 5% material quality | +5% to the delivered unit's quality climb through rollQuality's bonus at tick.ts:4317 | Refinery output quality; salvage quality |
+| extraction5 Motherlode | double haul / rare burst | 5% per delivered cycle: the haul doubles (private salted stream, chanceRound) | +1 rare unit roll per cycle |
+| logistics1 Quartermaster | +5% cargo | effectiveShipStats cargo; counts toward requiresCargoCapacity gates (like ops.cargoExpand) | excluded from gates |
+| logistics2 Fuel Discipline | +5% fuel efficiency / reach | engineEfficiency (reach and burn, one value) | reach only; burn only |
+| logistics3 Rapid Turnaround | +8% unload | both mission unloadSpeedMult and Ground Ops offload (like ops.unloadSurge) | missions only; Ground Ops only |
+| logistics5 Overloaded Holds | carry beyond cap | +10% cargo above the hull with no unload penalty for the overflow | a different X |
+| trade1 Market Contacts | No bonus yet | +5% transport rewardMargin on the two supply runs (tick.ts:2385) | remove; wait for a trade system |
+| trade2 Shrewd Negotiator | better buy prices | -5% transport supplyCostPerCargo (model.ts:706) | remove; wait |
+| trade3 Premium Goods | better sell margins | +5% transport rewardMargin (stacks with trade1) | +5% Quartermaster sellValue |
+| trade4 Trade Routes | passive income | a credit trickle per delivered transport cycle, paid while docked [PROVISIONAL 1 credit/tick] | remove; wait |
+| trade5 Trade Baron | best margins + trickle | x2 the trade1 to trade4 values | a flat margin bump |
+| gunnery1 Weapons Drill | +5% weapon damage | no call: OfficerCombatMods.weaponDamage path (bridge.ts:718) | |
+| gunnery2 Marksman | +5% accuracy | x1.05 on weapon accuracy (existing clamp) | +5 accuracy points |
+| gunnery3 Overcharge | +8% damage vs high-health | +8% while the target is above 50% hull (mirror underFire) | scale with target hullMax; until first breach |
+| gunnery4 Ammo Reserves | +8% faster cooldown | no call: cooldown / 1.08 | |
+| gunnery5 Alpha Strike | opening volley bonus | +50% damage on the first round | double damage on the first volley |
+| aegis1 Shield Discipline | +5% shield | no call: OfficerCombatMods.shield (bridge.ts:725) | |
+| aegis2 Reinforced Hull | +5% hull / armor | the hull pool via OfficerCombatMods.hull | plating armor; both |
+| aegis3 Damage Control | +8% hull repair rate | all three repair systems (Shipyard divisor, between-wave regen, Ground Ops field repair) | Shipyard only |
+| aegis4 Point Defense | +5% evasion | combat evasion (patrol + ship-event battles) | also expedition encounterEvasion |
+| aegis5 Bulwark | survive one lethal hit | once per battle, a lethal hit leaves 1 hull | a damage floor |
+| fleetOps1 Drone Handler | +5% drone effectiveness | drone damage yield | drone hp; replenish rate |
+| fleetOps2 Squadron Tactics | +5% drone durability | no call: drone hp | |
+| fleetOps3 Patrol Efficiency | +8% patrol returns | +8% wave loot (materials and credits) through rollWaveLoot's existing rounding | credits only; less patrol fuel |
+| fleetOps4 Wing Commander | No bonus yet | +5% drone replenish between waves (droneDefense.ts:175) | remove; wait for multi-ship |
+| fleetOps5 Wolfpack | extra squadron | +1 drone squadron launched (one more pod's worth from installed pods) | +5% to all combat mods |
+| surveySensors1 Keen Sensors | +5% sensors | x1.05 on ShipDerivedStats.sensors (survey and expedition); does nothing at 0 sensors | a flat +sensors |
+| surveySensors2 Cartographer | +8% scan rate | no call: scanSpeedBonus (expedition.ts:1174) | |
+| surveySensors3 Anomaly Sense | rare / anomaly detection | +5% relative discovery chance (expedition.ts:1357) | crewRareFind; the anomaly chart chance |
+| surveySensors4 Foreknowledge | No bonus yet (preview) | +1 telescope detail level for candidates (telescope.ts:166) | lower reveal thresholds |
+| surveySensors5 Deep Scan | full reveal + rare find | full foreknowledge at launch; each body's first discovery attempt succeeds | +1 relic tier on one find |
+| expeditionRelics1 Expedition Lead | +5% ground team effectiveness | x1.05 securityStrength and scienceStrength (gambit.ts:1346) | member stats; fieldwork yield |
+| expeditionRelics2 Field Science | +relic chance | no call: relicFindBonus +0.05 (the Keen Eye trait unit) | |
+| expeditionRelics3 Away-Team Doctrine | +5% gambit win odds | +5% squad power and accuracy | stronger program effects; a retreat-safe chance |
+| expeditionRelics4 Preservationist | +8% relic quality / research | -8% relic study time (relics.ts:117) | relic tier bias in rollRelicToken |
+| expeditionRelics5 Relic Hunter | guaranteed relic / +tier | +1 relic tier ceiling (gambit.ts:1701) | first vault each run always drops a relic |
+| commandCrew1 Inspiring Leader | +5% crew effectiveness | no call: scale shipCrewContribution (crewOverlay.ts:236, the CP-2 seam) | |
+| commandCrew2 Mentor | +5% officer output | x1.05 officerBonusTotal (crewOverlay.ts:362) | faster candidate refresh |
+| commandCrew3 Drillmaster | +8% promotion progress | no call: x1.08 promotion counter increments (needs B4 fixed) | |
+| commandCrew4 Recruiter | +8% candidate roster | +1 candidate on both boards (8% of 10 rounds up); the 0.14.x board upgrade stacks later | complement caps |
+| commandCrew5 Legendary Captain | crew multiplier + officer aura | +10% to all complement buffs and officer bonuses on the captain's ship | crew only |
+
+- **OC-A40, tacticianHub.** [PROPOSAL] +5% weapon damage on the captain's ship (unlocking the branch stays). Alt: +5%
+  shields; a gate only with honest text.
+- **OC-A41, explorerHub.** [PROPOSAL] +5% expedition scan rate. Alt: +5% sensors; gate only with honest text.
+- **OC-A42, tactical / science spec bonuses.** [PROPOSAL] mirror resourcefulness: tactical +1% combat damage, science
+  +1% relic find; the stale spec card text is rewritten. Alt: no spec bonus and honest card text.
+- **OC-A43, captain race.** [PROPOSAL] the captain carries the race's racial at the officer magnitude (the existing
+  `officerRacialBonus` path). Alt: identity only (and the "follow-on" comment goes).
+
+### 5.B Fleet Admiral (3 calls)
+
+- **OC-B1, Salvage Operations on hull teardown.** [PROPOSAL] add the yield bonus to `salvageShip` (salvage.ts:911) and
+  say "+10 points" in the text. Alt: recycle only and fix the "spare hull" flavor.
+- **OC-B2, Works Directorate (industryHub).** [PROPOSAL] the bonus-output chance on Fabricator crafts SUGGESTIONS ~980
+  describes, resolved in bulk for offline batches, and its text names the Refinery gate it already is. Alt: a pure gate
+  with honest text; a refine speed bonus.
+- **OC-B3, Homeland Defense and Citizenry hubs.** [PROPOSAL] Homeland Defense: +5% patrol shields; Citizenry: +1 crew
+  per transport batch (`TRANSPORT_BATCH_SIZE`). Alt: hide both until their systems exist and refund the AP.
+
+### 5.C Facilities, items, framework seams (4 calls)
+
+- **OC-C1, Fuel Depot remnants and `buyFuel`.** [PROPOSAL] remove the retired Depot rungs, `state.fuel`, the FUEL_*
+  depot constants and `buyFuel` (credits refunded for any fuel bought, at the buy price). Alt: turn the storage rungs
+  into a range bonus; keep everything hidden (violates T1).
+- **OC-C2, Warehouse T2 and Dense Ore.** [PROPOSAL] hide Warehouse T2 until tier-2 content exists and refund rung 1.
+  Alt: add a Dense Ore source (a mission primaryMaterial or expedition loot); point T2 at existing goods.
+- **OC-C3, Reclaimed Alloy and Purified Biomass.** [PROPOSAL] add refine recipes scrapAlloy -> reclaimedAlloy and
+  fibrousBiomass -> purifiedBiomass (which also gives scrapAlloy a use, OC-J3). Alt: reword as a future recipe;
+  salvage outputs.
+- **OC-C4, framework seams with no data** (`requiresFacilityLevels`, `requiresMissionCompletions`,
+  `MISSION_CONTROL_UNLOCK_COMPLETIONS`, captain gear gates, `ItemDef.equipStats`, `achievementBoost`, `ascension`,
+  `equipmentSlots`, `taskChainFollowUp`, affix `calmObjective` / `weightFor`). [PROPOSAL] keep the ones whose logic is
+  correct as `seam` entries, each with a fixture test proving it works when data arrives, and an owner; delete the ones
+  with no planned use (`equipmentSlots`, `ascension`, `ItemDef.equipStats`). Alt: delete every unused seam; keep all.
+
+### 5.D Ship (14 calls)
+
+- **OC-D1, the power budget** (reactor powerOutput, powerDraw on every piece, powerDrawReduction, Reactor Overdrive,
+  Power Discipline, the Martian racial). [PROPOSAL] an install gate (`canFitByPower` at the install check) plus a
+  combat over-budget penalty, in E-MOD as designed; this plan only registers them. Alt: install gate only; keep
+  non-binding and soften the UI copy (leaves 7 dead effects: violates T1).
+- **OC-D2, materialQualityChance.** [PROPOSAL] a chance that a delivered unit climbs one quality step (the existing
+  rollQuality bonus at tick.ts:4317). Alt: Refinery output quality; a chance to deposit the next material tier.
+- **OC-D3, crewStations / crewEfficiency rolled lines.** [PROPOSAL] they scale the module's effect (`moduleEffectScale`,
+  crewModules.ts:58), crewStations also adding capacity. Alt: hide them in the tooltip and stop rolling them.
+- **OC-D4, moduleSlots.** [PROPOSAL] a cap on how many module-class slots (bridge, quarters, sensor, specUtility) a hull
+  can fill, enforced at install. Alt: extra specUtility slots per hull; delete the field and fix Aurora's text.
+- **OC-D5, favorsSpec.** [PROPOSAL] +10% to the piece's lines when installed on a hull of the favored spec. Alt: bias the
+  crafted variety roll; a UI hint only.
+- **OC-D6, statRatios.** [PROPOSAL] an absent key defaults to weight 0 (fixes B11). Alt: a real budget split by ratio;
+  fix the comments only.
+- **OC-D7, quarters capacity.** [PROPOSAL] the bonus spreads across division caps by the hull's role weights (with CP-5).
+  Alt: a wing adds to its own division; the Crewman cap only.
+- **OC-D8, cargo / transit / fuel beyond missions** (hull, gear, crew and the Museum transit bonus). [PROPOSAL]
+  expedition transit and range come from G2-3 / G2-4 (the voyage engine and reach gate); patrol legs scale with
+  transitSpeedMult; cargo stays missions-only and its text says so. Alt: missions-only for all, with honest text.
+- **OC-D9, combat positions.** [PROPOSAL] enemies spawn at range and close (enemyWave.ts:227, shipScanEvents.ts:367);
+  stance and weapon range then matter; patrols gain `precharge`. Alt: co-location is intended, so stance, range and
+  speed are deleted; range on expeditions only. (Moves every patrol golden either way.)
+- **OC-D10, Damage Control Suite in Ground Ops field repair.** [PROPOSAL] frozen in the ship-event snapshot
+  (shipScanEvents.ts:162) and applied in the field repair time. Alt: Shipyard only, with honest text.
+- **OC-D11, sensor array cadence vs coverage.** [PROPOSAL] coverageWidth drives the discovery attempts
+  (expedition.ts:1355) and scanRateMult alone drives the rate, so Focused is truly faster. Alt: keep the product and
+  fix the UI copy.
+- **OC-D12, the combat UNFED and INERT descriptors.** [PROPOSAL] antiDrone on the PDA and EMP defs; the resist families
+  join the plating and emitter affix pools; inhibit from the PDA; overchargedCapacitors from the support drone pulse;
+  rapidChargeAfterAmbush and inCombatReplenishPercent and smartReflect as defense-pod affix lines; enemy armor and
+  evasion on the pirate hulls (armorPen, manifoldOverheat); statuses persist across waves of one patrol; the comment-only
+  exceptions get coded or deleted. Alt: delete each unused descriptor.
+- **OC-D13, hull descriptions.** [PROPOSAL] make the text true where an owning slice makes it true (CP-5 crew sizes,
+  G2 reach and speed, OC-D4 module slots) and rewrite the rest. Alt: rewrite all now.
+- **OC-D14, durability for non-weapon gear** (economy, defense, crew, sensor, member pieces, pods, installed reactor
+  and FTL). [PROPOSAL] pods and installed reactor / FTL pieces wear in battle like weapons; economy, crew, sensor and
+  member durability is removed until persistent wear exists. Alt: all wear; all removed except weapons.
+
+### 5.E Crew and officers (13 calls; CP plan OC-1, OC-3, OC-4 still open and not recounted)
+
+- **OC-E1, Counter-Infiltration.** [PROPOSAL] the squad's resist to enemy-inflicted statuses (CP-3 reading). Alt: a
+  ship-side boarding resist (its name).
+- **OC-E2, Prevent a Crew Loss.** [PROPOSAL] shorter bay time (CP-3 reading). Alt: a chance to prevent a downing.
+- **OC-E3, Crew Output Multiplier.** [PROPOSAL] mission and patrol haul (CP-2 reading). Alt: all crew output.
+- **OC-E4, Pilot Cunning.** [PROPOSAL] a chance per mission cycle to shorten the return leg by one tick (Flight Deck
+  over-delivery). Alt: patrol relaunch speed; expedition encounter evasion.
+- **OC-E5, Fast Departure and Fast Return.** [PROPOSAL] each acts on its own leg (model.ts:3719 vs 3727). Alt: keep
+  the merge.
+- **OC-E6, Rapid Loadout.** [PROPOSAL] Ground Ops reload only (missions have no load phase) and the text says so. Alt:
+  add a mission load step.
+- **OC-E7, Morale Anchor "complement attrition".** [PROPOSAL] drop the attrition half from the text (no system exists
+  or is planned). Alt: build attrition.
+- **OC-E8, Museum crewBonuses.** [PROPOSAL] also multiply officerBonusTotal. Alt: complement only, text says so.
+- **OC-E9, Command Presence and Operations Integrity on expeditions.** [PROPOSAL] Command Presence scales Ground Ops
+  objective hauls; Operations Integrity steadies the Ground Ops offload. Alt: missions and patrols only, text says so.
+- **OC-E10, promotion counters (B4).** [PROPOSAL] crewHours from the officer's ship hours out on any run; shipsDestroyed
+  from patrol and ship-event kills; personnelAchievement from objectives completed by the ship's squads. Alt: replace the
+  objective sets with simpler time-based promotion.
+- **OC-E11, the `enlisted` flag.** [PROPOSAL] delete (identity only). Alt: enlisted ranks take no exclusive buff.
+- **OC-E12, a third buff at buffCount 3.** [PROPOSAL] the top rank rolls a third buff from its profession pool. Alt:
+  the count stays 2 and the label changes.
+- **OC-E13, Constitution on patrol cycle 1 (B17).** [PROPOSAL] cycle 1 ramps at its own mid-cycle sample, like
+  relaunches. Alt: by design (a fresh patrol starts at 0 hours), text says so.
+
+### 5.F Away team and ground (15 calls; FK open calls 6, 7, 8 still open and not recounted)
+
+- **OC-F1, Shroud and Lure on Ground Ops.** [PROPOSAL] they scale the ground ambush and reinforcement chances, and Lure
+  adds a drop scale on probe salvage. Alt: keep the ship-event chance (FK-7 default) and reword.
+- **OC-F2, Neural Backup (B13).** [PROPOSAL] it revives the wearer only. Alt: keep any ally and fix the flavor.
+- **OC-F3, Med Kit "keeps a downed friend in the fight".** [PROPOSAL] fix the flavor (revive belongs to Neural Backup and
+  FK-5 kits). Alt: a weak revive on the Med Kit.
+- **OC-F4, Saboteur and the Debuff spec status chance.** [PROPOSAL] status chance also gates Suppress's status
+  (gambit.ts:830), so both act without inflict gear. Alt: FK-1's grenade-only bonus.
+- **OC-F5, Quick Draw.** [PROPOSAL] the member acts before stun and fear checks on the opening round. Alt: an extra
+  opening action.
+- **OC-F6, Fall Back.** [PROPOSAL] the member gains Shielded for the round. Alt: an evade; an alias of Hold with honest
+  text.
+- **OC-F7, Science member rank.** [PROPOSAL] rankFactor multiplies fieldwork (fieldwork.ts:129). Alt: rank stays trait
+  count only, text says so.
+- **OC-F8, the Cortex Shield stun half.** Answered in FK open call 6 (not recounted).
+- **OC-F9, Corroded.** [PROPOSAL] some enemy casters inflict it (the withFloraToxins post-generation pattern). Alt:
+  retire Corroded.
+- **OC-F10, the Science gambit actions (shieldAlly, analyze, secureObjective, takeCover).** [PROPOSAL] delete them
+  (Science never fights, D2). Alt: use them in fieldwork rounds.
+- **OC-F11, the Prospecting team type.** [PROPOSAL] remove it until a prospecting ground role is designed. Alt: design it
+  now.
+- **OC-F12, the account gambit pair (D19).** [PROPOSAL] delete the unused account fields. Alt: account-wide defaults
+  applied to new members.
+- **OC-F13, the fall-outcome hook (Safety Interlock).** [PROPOSAL] keep as a `seam` owned by the safety interlocks the
+  user named in T2 ("with safety interlocks disengaged, you will die"). Alt: delete until then.
+- **OC-F14, player-ordered field repair.** [PROPOSAL] a button on the expedition ship lane (needs a sketch). Alt: delete
+  the engine path.
+- **OC-F15, the grenade and kit counts on the legacy path.** Folded into OC-G1 (not recounted).
+
+### 5.G Expedition content (6 calls)
+
+- **OC-G1, the legacy expedition path.** [PROPOSAL] legacy-only effects are accepted as PARTIAL by design (only old
+  in-flight runs read them) and registered with `outOfScope: expedition:legacy`; at 0.14.0 any legacy run still in a
+  save resolves as it always has. Alt: migrate legacy runs to Ground Ops at load; port each effect to Ground Ops.
+- **OC-G2, `orbitalOnly` gas giants (B21).** [PROPOSAL] the gas giant study (15b, "should only be from the ship")
+  replaces ground objectives there, and FIELD_REPAIR_PLANET_TYPES derives from `!orbitalOnly`. Alt: fix the UI copy.
+- **OC-G3, the anomaly (B15).** [PROPOSAL] the chart chance scales with sensor power and the finding pays a small haul
+  through the deposit. Alt: remove the opt-in; reword.
+- **OC-G4, PoI flavor.** [PROPOSAL] render it, and give each PoI the modifier its flavor names (relic odds on Buried
+  Vault and Subterranean, materials on Bloom, Geothermal, Outpost, Crashed Ship) through rollRelicToken and rollHaul.
+  Alt: render it with the reward claims removed.
+- **OC-G5, ShipEventProfile frozen evasion and shields.** [PROPOSAL] delete the unread fields. Alt: the checks read the
+  frozen values.
+- **OC-G6, planet comments (Ocean, Frozen, Toxic).** [PROPOSAL] model Ocean's slower surface work only (taskWorkSeconds);
+  drop the other two comments. Alt: model all; drop all.
+
+### 5.H Relics and the Museum (2 calls)
+
+- **OC-H1, Science team power.** [PROPOSAL] also scales the named Science members' fieldwork. Alt: crew layer only,
+  text says so.
+- **OC-H2, Museum salvage yield.** [PROPOSAL] recycle and teardown only, text says so. Alt: also loot-pool rolls and
+  patrol / expedition salvage.
+
+### 5.I Missions, patrols, factions (4 calls)
+
+- **OC-I1, MISSIONS.cargoCapacity.** [PROPOSAL] delete the field (the hull hold rules, by the existing comment). Alt: a
+  per-mission cap; the transport load size.
+- **OC-I2, the three unused factions.** [PROPOSAL] each gets one patrol route of its own (the existing PatrolDef
+  pattern) when the user names its content; until then they are hidden from any text. Alt: faction-specific hull pools
+  now; delete them.
+- **OC-I3, transports at ore cap (B2).** [PROPOSAL] a full ore warehouse never blocks a supply run. Alt: it does
+  (intended), and the text says why.
+- **OC-I4, turn order and faction ids (B14).** [PROPOSAL] the player side acts first within a speed tie, never by id
+  spelling. Alt: enemies first.
+
+### 5.J Salvage and item generation (4 calls)
+
+- **OC-J1, the +1 tier reach at FA 15 and up.** [PROPOSAL] the overflow shifts the tier weights up (weightedPick). Alt:
+  populate a luminous tier; say so in the tooltip.
+- **OC-J2, the `rolled` narration.** [PROPOSAL] carry it to the completed-events log ("Recovered 3 Scrap Alloy, Standard
+  quality"). Alt: delete the field.
+- **OC-J3, dead-end loot (Scrap Alloy, Salvaged Circuitry, Precursor Circuit).** [PROPOSAL] Scrap Alloy via OC-C3;
+  Salvaged Circuitry and Precursor Circuit get a Quartermaster sellValue now and recipes in the content pass. Alt: swap
+  the pool staples.
+- **OC-J4, unreachable affix counts (derelict, luminous, constellar).** [PROPOSAL] keep as safety branches covered by a
+  test. Alt: delete.
+
+### 5.K Framework (3 calls)
+
+- **OC-K1, the Wiring panel layout.** [PROPOSAL] no mockup (dev-only): a table per system with columns Source, Owned,
+  Status, Contexts, Contribution (now vs without), Expected; a "contributing nothing" filter. Alt: a mockup first.
+- **OC-K2, the sim's default batch.** [PROPOSAL] 20 seeds x 24 simulated hours in the default suite, 200 seeds under
+  `SIM_FULL=1`. Alt: bigger default, slower suite.
+- **OC-K3, what may stay display-only.** [PROPOSAL] labels, flavor and readouts that claim no effect; anything with a
+  number and a percent or a plus sign in its text must be an effect entry. Alt: stricter (every flavor line is checked
+  by hand).
+
+**Count of open calls by system:** Captain 42, Fleet Admiral 3, Facilities 4, Ship 14, Crew 13, Away 13 (F8 and F15 are
+pointers, not counted), Expedition 6, Relics 2, Missions 4, Salvage 4, Framework 3: **108 calls**. The nine "no call" captain rows
+build directly.
+
+**The ten that matter most** (they unblock the most entries):
+1. OC-A1 to OC-A3 plus the node table: 44 captain nodes and every placeholder.
+2. OC-D1, the power budget: 7 dead effects and a net-negative Reactor Core.
+3. OC-D9, combat positions: stance (which the player sets every patrol), range and four penalties.
+4. OC-E10, promotion counters: promotion is impossible today.
+5. OC-G1, the legacy path policy: decides a dozen PARTIAL rows at once.
+6. OC-D8, transit, fuel and cargo beyond missions: hull identities (Orion reach, Aurora speed) and the Museum transit.
+7. OC-C1, the Fuel Depot remnants: a live credit sink for nothing.
+8. OC-D12, the combat UNFED set: 11 consumers nothing feeds.
+9. OC-B2 / OC-B3, the Homeworld placeholder hubs: production players own them.
+10. OC-D2, materialQualityChance: rolls on every Prospecting Rig and does nothing.
+
+## 6. Size and ordering (honest)
+
+| Slice | Size | Depends on | Notes |
+|:-|:-|:-|:-|
+| WR-1 registry + live sensitivity | L | none | about 500 live rows to register; probe extractions; biggest single test slice of the release |
+| WR-2 simulated player | L | WR-1 | the safe-first-run assertions turn green with SF-2 / SF-4 |
+| WR-3 Wiring panel | M | WR-1 | dev-only |
+| WR-4 bugs and seams | M | WR-1; calls C1 to C4, E10, I3, I4 | can start on the no-call fixes at once |
+| WR-5a / 5b / 5c captain nodes | 3 x L | WR-1; OC-A1 to OC-A3 (build defaults allowed) | sequential; shared tick.ts / bridge.ts |
+| WR-6 placeholders elsewhere | M | WR-5 pattern | touches production Homeworld saves |
+| WR-7 ship non-combat | L | CP-5, G2-3 / G2-4 for OC-D8 | power only if OC-D1 says so |
+| WR-8 combat | L | WR-1 goldens | the largest determinism risk; every patrol golden moves |
+| WR-9 crew beyond CP | M | CP-2, CP-3 | |
+| WR-10 ground beyond FK | M | FK-4 to FK-7, CP-3 | |
+| WR-11 expedition / relic / mission / salvage | M | SF-2 / SF-3, G2-2 / G2-3 | |
+| WR-12 close-out | S | all | release gate, QA sheet |
+
+**Total:** 14 slices (16 commits with goldens), roughly the size of the complement plan (22 slices). About 60 of the 247
+not-live rows are already owned by CP, FK, G2, SF and E-MOD slices; WR wires the other ~185 and registers all 247.
+
+**Ordering [PROPOSAL]:** WR-1 now (no engine change, safe beside every other plan) -> WR-2 and WR-3 in parallel ->
+WR-4 -> WR-5a / b / c -> WR-6 -> WR-8 (before more patrol goldens accrue) -> WR-7 (after CP-5 and G2-3 / G2-4) ->
+WR-9 (after CP-2 / CP-3) -> WR-10 (after FK-7) -> WR-11 (after SF-3 and G2-3) -> WR-12.
+
+**Scope push-back (standing rule):** 0.14.0 already carries CP (22), FK (10), G2 (10), SF (8) and E-MOD. This plan adds
+14 slices and 108 user calls. The user's T1 ruling makes the wiring itself non-negotiable, so the honest levers are
+calls, not cuts: answering OC-A1 to OC-A3 and the node table in one sitting unblocks 44 entries; the "remove" options in
+OC-C1, OC-C2, OC-F10, OC-F11, OC-F12, OC-G5 and OC-I1 are the cheapest honest way to satisfy "no placeholders" for
+retired or never-designed things; OC-D9 (positions) is the one item whose cost is out of line with its visibility and
+is the first candidate to ask the user about a 0.14.x deferral, recorded as `deferred` only on the user's word.
+
+## 7. QA checklist (desktop 1280 px and mobile 375 px, light and dark), for WR-12
+
+- [ ] `?dev` Debug > Wiring lists every system; a fresh save shows owned sources only for Standard Issue and the
+      default complement; "contributing nothing" is empty except `deferred` rows.
+- [ ] Allocate one captain node per tree; the Wiring panel shows its contribution and the matching readout moves.
+- [ ] No talent, Homeworld node or tooltip reads "No bonus yet" or "(first-pass)".
+- [ ] A patrol with a different stance gives a different battle log (if OC-D9 lands).
+- [ ] An officer promotes after meeting an objective set (OC-E10).
+- [ ] A supply run dispatches with a full ore warehouse (OC-I3).
+- [ ] No Fuel Depot surface or fuel purchase remains (OC-C1), or the chosen alternative works.
+- [ ] Sensor array descriptions match their measured scan rates.
+- [ ] The first expedition on a fresh Orion with everything on auto completes at 100% (SF + WR-2 assertion), checked by
+      hand once.
