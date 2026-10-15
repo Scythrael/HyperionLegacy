@@ -11,6 +11,7 @@ import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE, getCrewBuffById } from "
 import { buffCountForRank } from "./crewRank";
 import { CREW_RARITY_CAP } from "./crewRarity";
 import { CREW_RACE_IDS } from "./crewRaces";
+import { TRANSPORT_BATCH_SIZE, transportBatch } from "./transports";
 
 const PROFESSIONS: CrewProfession[] = ["security", "engineering", "science", "medical", "operations", "flightDeck"];
 
@@ -95,5 +96,26 @@ describe("complement generator - locked model invariants", () => {
       }
     }
     expect(sawExclusive).toBe(true);
+  });
+});
+
+// Complement and Acquisition CP-1 (D14, SUGGESTIONS "CRAFT-DUPLICATE CREW BUFF"): craft duplicate is held and never
+// rolls on ship crew. (The draw count per crewmember is pinned unchanged by crewGenerationDraws.test.ts.)
+describe("complement generator - craft duplicate never rolls (D14)", () => {
+  it("no crewmember in 10,000 holds craft duplicate, yet the other exclusive buffs still roll", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 10_000; i += 1) {
+      const sig = generateComplementCrew(0xd14, i);
+      expect(sig.buff1Id).not.toBe("excl.craftDuplicate");
+      expect(sig.buff2Id).not.toBe("excl.craftDuplicate");
+      if (sig.buff2Id !== null && sig.buff2Id.startsWith("excl.")) seen.add(sig.buff2Id);
+    }
+    expect([...seen].sort()).toEqual(["excl.crewOutputMult", "excl.missionTurnaround", "excl.preventCrewLoss"]);
+  });
+
+  it("a 20-window transport backlog delivers no craft duplicate either", () => {
+    for (let w = 1; w <= 20; w += 1) {
+      for (const b of transportBatch(0x7ea5e, w, TRANSPORT_BATCH_SIZE)) expect(b.buff2Id).not.toBe("excl.craftDuplicate");
+    }
   });
 });

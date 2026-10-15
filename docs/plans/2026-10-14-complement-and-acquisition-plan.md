@@ -198,6 +198,18 @@ asserts the draw count per crewmember is unchanged (a counting rng wrapper).
 **Save:** none. **Tests:** no generated crew in 10,000 holds craft duplicate; a held bucket survives save round trip;
 label text. **UI:** label only, no mockup needed (CMR-8 already says "Craft duplicate is on hold").
 
+**Carry note (2026-10-14, CP-1 landed):** `crewBuffs.ts`: `SECOND_LEVEL_EXCLUSIVE` stays the full catalog (lookup,
+rollup, an old bucket's id); new `HELD_CREW_BUFF_IDS` (`excl.craftDuplicate`), `ROLLABLE_SECOND_LEVEL_EXCLUSIVE`
+(the other three, catalog order), `isHeldCrewBuff`, `crewBuffLabel` (a held buff reads "Craft Duplicate Chance (Held
+for homeworld staffing)"). `crewGeneration.ts` both exclusive picks read the rollable list (one `nextInt` each, as
+before). `no-dead-stats.test.ts` reads the new export. Goldens: `crewGenerationDraws.test.ts` "draws" and "masked" are
+the CP-0 capture, "signatures" re-pinned. The CP-0 transport golden did NOT move (its 240 crew hold no exclusive pick;
+the test now asserts that). The three mission goldens moved by exactly one crewmember (transport window 1, crew 9: its
+one exclusive draw named Mission Turnaround, now Prevent a Crew Loss; both still have no consumer); the test names that
+buff back and reproduces the CP-0 hashes. Every other CP-0 golden is unchanged. The held label shows today only through
+`ComplementPanel` `buffLabel`, which renders a notable's buff1 (never an exclusive), so no screen shows it until the
+CP-9 bucket table, which must use `crewBuffLabel` for both buffs (QA item 1 waits for CP-9).
+
 ### CP-2: Ship-side complement consumers (Task 23: Engineering, exclusive pool, Crew Effectiveness)
 
 **Files:** `crewOverlay.ts` (crew map + `officerRepairSpeedBonus` sibling), `tick.ts` (repair divisor at

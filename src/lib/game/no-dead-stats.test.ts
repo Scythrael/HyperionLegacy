@@ -111,7 +111,7 @@ import { groundTeamBaySeconds } from "./groundOps";
 import { SHIP_EVENT_DRAW_UNITS, SHIP_EVENT_WEIGHTS, boardingRepelChance, resolveShipScanEventFromDraws, shipEventDraws } from "./shipScanEvents";
 import { withSlottedAwayTeams, withoutGroundOps } from "./awayTeamTestFixtures";
 import { OFFICER_BONUSES_PENDING_IN_RELEASE, effectiveShipStats, officerCombatMods } from "./crewOverlay";
-import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "./crewBuffs";
+import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, ROLLABLE_SECOND_LEVEL_EXCLUSIVE, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "./crewBuffs";
 import { CREW_RACES } from "./crewRaces";
 import { SENIOR_STAFF_BONUSES, getSeniorStaffBonusById, type SeniorStaffBonusDef } from "./seniorStaffBonuses";
 import { OFFICER_STAT_KEYS } from "./seniorStaff";
@@ -867,7 +867,7 @@ const PROFESSION_OF_BUFF = new Map<string, CrewProfession>(
 
 // D14: Craft Duplicate is HELD (future FA talent or homeworld staffing) and stops rolling on ship crew, so it
 // is not a "rollable" effect this test can demand a consumer for.
-const ROLLABLE_EXCLUSIVE = SECOND_LEVEL_EXCLUSIVE.filter((d) => d.statKey !== CREW_STAT_KEYS.craftDuplicateChance);
+const ROLLABLE_EXCLUSIVE = ROLLABLE_SECOND_LEVEL_EXCLUSIVE;
 
 const ENTRIES: readonly StatEntry[] = [
   ...SENIOR_STAFF_BONUSES.map(officerEntry),

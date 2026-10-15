@@ -13,7 +13,7 @@
 //   - rank follows a pyramid (many low ranks, few high), locked at generation (no leveling).
 //   - buff COUNT follows buffCountForRank(rank): 1 buff -> buff2Id null; 2 buffs -> a 2nd DISTINCT
 //     profession buff; 3-eligible ranks (Lieutenant / Lt Commander) may instead draw the 2nd buff
-//     from the sweeping SECOND_LEVEL_EXCLUSIVE pool.
+//     from the sweeping exclusive pool (ROLLABLE_SECOND_LEVEL_EXCLUSIVE: craft duplicate is held, D14).
 //
 // The PRNG is the shared combat mulberry32 (combat/rng.ts), never Math.random (which would break the
 // offline == live determinism the transport accumulator relies on). Buffs are drawn from the Phase
@@ -23,7 +23,7 @@ import type { CrewProfession, CrewRank, CrewRarity, CrewRace, CrewSignature, Equ
 // weightedPick is the shared single-draw weighted roll (combat/rng.ts); it was lifted from this file
 // unchanged, so every complement roll stays byte-identical.
 import { makeRng, weightedPick } from "./combat/rng";
-import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
+import { CREW_PROFESSION_BUFFS, ROLLABLE_SECOND_LEVEL_EXCLUSIVE } from "./crewBuffs";
 import { CREW_RACE_IDS } from "./crewRaces";
 import { clampCrewRarity } from "./crewRarity";
 import { buffCountForRank } from "./crewRank";
@@ -48,7 +48,7 @@ const GEN_RANK_WEIGHTS: Record<CrewRank, number> = {
 };
 
 // The chance (out of 100) that a 3-buff-eligible rank (Lieutenant / Lt Commander) draws its 2nd buff
-// from the sweeping SECOND_LEVEL_EXCLUSIVE pool instead of a 2nd profession buff. FIRST-PASS + TUNABLE.
+// from the sweeping exclusive pool instead of a 2nd profession buff. FIRST-PASS + TUNABLE.
 const EXCLUSIVE_SECOND_BUFF_CHANCE = 35;
 
 // Options for a single roll. `profession` pins the division (used when a batch wants a specific mix);
@@ -97,7 +97,9 @@ export function generateComplementCrew(
   let buff2Id: string | null = null;
   if (buffCount >= 2) {
     if (buffCount >= 3 && rng.chance(EXCLUSIVE_SECOND_BUFF_CHANCE, 100)) {
-      buff2Id = SECOND_LEVEL_EXCLUSIVE[rng.nextInt(SECOND_LEVEL_EXCLUSIVE.length)].id;
+      // D14 (Complement and Acquisition CP-1): the ROLLABLE exclusives only, so craft duplicate never rolls
+      // (SUGGESTIONS.md "CRAFT-DUPLICATE CREW BUFF"). Still one draw: only which buff the pick names changed.
+      buff2Id = ROLLABLE_SECOND_LEVEL_EXCLUSIVE[rng.nextInt(ROLLABLE_SECOND_LEVEL_EXCLUSIVE.length)].id;
     } else if (pool.length >= 2) {
       // Pick a distinct index != buff1's within the profession pool.
       const firstIdx = pool.findIndex((b) => b.id === buff1Id);
@@ -106,8 +108,9 @@ export function generateComplementCrew(
       buff2Id = pool[secondIdx].id;
     } else {
       // A single-entry profession pool cannot supply a distinct 2nd profession buff; fall back to the
-      // exclusive pool so a 2-buff rank still carries its second buff. (No pool is this small today.)
-      buff2Id = SECOND_LEVEL_EXCLUSIVE[rng.nextInt(SECOND_LEVEL_EXCLUSIVE.length)].id;
+      // exclusive pool so a 2-buff rank still carries its second buff. (No pool is this small today.) Rollable
+      // exclusives only (D14), one draw as before.
+      buff2Id = ROLLABLE_SECOND_LEVEL_EXCLUSIVE[rng.nextInt(ROLLABLE_SECOND_LEVEL_EXCLUSIVE.length)].id;
     }
   }
 

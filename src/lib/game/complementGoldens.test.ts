@@ -169,6 +169,20 @@ function expeditionRun(roster: AwayMember[], seed: number, legacy: boolean, preD
   return { exp, done, claimed: claim.next };
 }
 
+// CP-1 (D14): the one transport crewmember whose exclusive pick changed name (see the mission goldens), and the state
+// with its CP-0 buff named back.
+const isMovedCrew = (b: CrewBucket): boolean =>
+  b.profession === "medical" && b.rank === 7 && b.race === "ossir" && b.buff1Id === "med.triage" && b.buff2Id === "excl.preventCrewLoss";
+const asBeforeCp1 = (s: GameState): GameState => {
+  const back = (list: CrewBucket[]): CrewBucket[] => list.map((b) => (isMovedCrew(b) ? { ...b, buff2Id: "excl.missionTurnaround" } : b));
+  return { ...s, crewPool: back(s.crewPool), ships: s.ships.map((sh) => (sh.complement ? { ...sh, complement: { ...sh.complement, buckets: back(sh.complement.buckets) } } : sh)) };
+};
+const CP0_MISSION: Record<string, string> = {
+  shortOreRun: "bbe0b1ce",
+  surveyMineralAnomaly: "73361e1f",
+  frontierSupplyRun: "120ce8f",
+};
+
 // ===== the goldens =====
 
 // Captured on the code BEFORE any complement engine edit (CP-0, on top of e304b94). Cross-checks: the patrol's dispatch
@@ -199,9 +213,11 @@ const GOLDEN: Record<string, string | string[]> = {
     "aurora:cc46b42b/db5bc5eb",
     "eir:734e27d3/db5bc5eb",
   ],
-  "mission:shortOreRun": "bbe0b1ce",
-  "mission:surveyMineralAnomaly": "73361e1f",
-  "mission:frontierSupplyRun": "120ce8f",
+  // Re-pinned by CP-1 (D14): one transport crewmember's exclusive buff changed name (see the mission test and
+  // CP0_MISSION, which keeps the CP-0 capture and proves that is the only difference).
+  "mission:shortOreRun": "7f4e23aa",
+  "mission:surveyMineralAnomaly": "260d4713",
+  "mission:frontierSupplyRun": "fb6f6e23",
   patrol: ["16e07798", "191a9ac", "d72d9f6f", "b72b1e1c", "781e812d", "ce13d938", "e81b2f7e", "84a4758d", "c3ac373e", "867aa1b6"],
   repair: ["239", "b439b3e9", "93402d7"],
   legacyA: ["5a2822aa", "fa468bf1", "b286ca8b"],
@@ -253,6 +269,12 @@ describe("CP-0 pre-complement goldens", () => {
       expect(s.captains[0].mission).not.toBeNull();
       expect(totalCrew(s.ships[0].complement!.buckets)).toBeGreaterThan(0);
       expect(hash(s)).toBe(GOLDEN[`mission:${key}`]);
+      // CP-1 (D14) moved these three on purpose, and only by ONE crewmember: window 1's crew 9 (medical, rank 7, ossir,
+      // Triage) draws the exclusive pool; its one exclusive draw named Mission Turnaround from the four-entry pool and
+      // names Prevent a Crew Loss from the three rollable ones (same draw, craft duplicate gone). Both keys have no
+      // consumer yet, so naming the old buff back on that crewmember reproduces the CP-0 capture exactly.
+      expect(s.ships[0].complement!.buckets.filter(isMovedCrew).length + s.crewPool.filter(isMovedCrew).length).toBe(1);
+      expect(hash(asBeforeCp1(s))).toBe(CP0_MISSION[key]);
     });
   }
 
@@ -322,11 +344,14 @@ describe("CP-0 pre-complement goldens", () => {
     expect(out).toEqual(GOLDEN.groundOpsBay);
   });
 
+  // CP-1 (D14) left this capture unchanged: none of these 240 crew draws the exclusive pool, so no pick changed name.
+  // The exclusive picks are pinned over 10,000 crew in crewGenerationDraws.test.ts.
   it("transport: the next 20 deliveries for a fixed seed", () => {
     const out: string[] = [];
     for (let w = 1; w <= 20; w += 1) {
       const batch = transportBatch(0x7ea5e, w, TRANSPORT_BATCH_SIZE);
       expect(totalCrew(batch)).toBe(TRANSPORT_BATCH_SIZE);
+      expect(batch.some((b) => b.buff2Id !== null && b.buff2Id.startsWith("excl."))).toBe(false);
       out.push(hash(batch));
     }
     expect(out).toEqual(GOLDEN.transport);

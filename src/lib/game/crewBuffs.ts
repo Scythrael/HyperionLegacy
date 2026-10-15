@@ -101,13 +101,32 @@ export const CREW_PROFESSION_BUFFS: Record<CrewProfession, CrewBuffDef[]> = {
 
 // The second-level EXCLUSIVE pool: sweeping ship-wide effects a higher-rank crewmember's 2nd buff
 // can draw from (instead of a 2nd profession buff). Larger base magnitudes than the per-head
-// profession buffs because they are rarer and ship-wide. FIRST-PASS + TUNABLE.
+// profession buffs because they are rarer and ship-wide. FIRST-PASS + TUNABLE. This is the CATALOG (every id an
+// existing bucket may carry); the generator rolls ROLLABLE_SECOND_LEVEL_EXCLUSIVE below (D14: craft duplicate is held).
 export const SECOND_LEVEL_EXCLUSIVE: CrewBuffDef[] = [
   { id: "excl.crewOutputMult", label: "Crew Output Multiplier", statKey: CREW_STAT_KEYS.crewOutputMult, magnitude: 0.01 },
   { id: "excl.craftDuplicate", label: "Craft Duplicate Chance", statKey: CREW_STAT_KEYS.craftDuplicateChance, magnitude: 0.01 },
   { id: "excl.missionTurnaround", label: "Mission Turnaround", statKey: CREW_STAT_KEYS.missionTurnaround, magnitude: 0.01 },
   { id: "excl.preventCrewLoss", label: "Prevent a Crew Loss", statKey: CREW_STAT_KEYS.preventCrewLoss, magnitude: 0.01 },
 ];
+
+// Complement and Acquisition CP-1 (E-CREW Task 23, design D14): buffs that stay in the CATALOG but never roll on ship
+// crew. Craft duplicate has no sensible home on a ship; the user is holding it for an FA talent or the later homeworld
+// staffing system (SUGGESTIONS.md "CRAFT-DUPLICATE CREW BUFF: HOLD, likely moves off ship crew", 2026-10-02: "should
+// not roll on ship crew (no dead rolls)"). A bucket rolled before this keeps the id in the save and still resolves
+// through getCrewBuffById; its key maps to nothing (crewOverlay.ts), so it contributes nothing, and the UI labels it
+// held (crewBuffLabel). Move an id back out of this set only when its new home gives the key a consumer.
+export const HELD_CREW_BUFF_IDS: ReadonlySet<string> = new Set(["excl.craftDuplicate"]);
+
+// The exclusive buffs the generator may roll (crewGeneration.ts): SECOND_LEVEL_EXCLUSIVE without the held ones, in
+// catalog order. Still ONE draw per exclusive pick (only which buff a pick names changed), so the draw count per
+// crewmember is unchanged (crewGenerationDraws.test.ts).
+export const ROLLABLE_SECOND_LEVEL_EXCLUSIVE: readonly CrewBuffDef[] = SECOND_LEVEL_EXCLUSIVE.filter((def) => !HELD_CREW_BUFF_IDS.has(def.id));
+
+// Is this buff held (in the catalog, never rolled, contributing nothing)? Pure.
+export function isHeldCrewBuff(id: string): boolean {
+  return HELD_CREW_BUFF_IDS.has(id);
+}
 
 // A flat id -> def lookup across every pool (profession + exclusive), built once at module load.
 // Buff ids are asserted unique here so a future duplicate id fails loudly rather than silently
@@ -128,4 +147,13 @@ const BUFF_BY_ID: Map<string, CrewBuffDef> = (() => {
 // Look up a buff def by id (from any pool), or undefined if the id is unknown. Pure reader.
 export function getCrewBuffById(id: string): CrewBuffDef | undefined {
   return BUFF_BY_ID.get(id);
+}
+
+// The player-facing label of a crew buff: its catalog label, with "(Held for homeworld staffing)" after a held buff
+// (D14) so an old bucket that still carries one reads as on hold rather than as a live bonus. An unknown id reads as
+// itself. Every UI that names a complement or notable buff goes through this. Pure.
+export function crewBuffLabel(id: string): string {
+  const def = BUFF_BY_ID.get(id);
+  if (def === undefined) return id;
+  return isHeldCrewBuff(id) ? `${def.label} (Held for homeworld staffing)` : def.label;
 }

@@ -42,7 +42,7 @@
   import { crewRankLabel } from "./game/crewRank";
   import { quartersCapacityBonus, installedQuartersModule } from "./game/crewModules";
   import { CREW_RACES } from "./game/crewRaces";
-  import { getCrewBuffById } from "./game/crewBuffs";
+  import { crewBuffLabel } from "./game/crewBuffs";
   import { canSetComplementMode, crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
   import Icon from "./ui/Icon.svelte";
 
@@ -230,8 +230,9 @@
   function raceLabel(race: string): string {
     return CREW_RACES[race as keyof typeof CREW_RACES]?.label ?? race;
   }
+  // crewBuffLabel: the catalog label, and a held buff (D14, craft duplicate) reads "(Held for homeworld staffing)".
   function buffLabel(id: string): string {
-    return getCrewBuffById(id)?.label ?? id;
+    return crewBuffLabel(id);
   }
 
   // --- Actions ----------------------------------------------------------------

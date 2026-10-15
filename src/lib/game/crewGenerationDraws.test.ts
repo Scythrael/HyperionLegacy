@@ -71,11 +71,12 @@ function rollAll(): { sigs: CrewSignature[]; draws: number[] } {
   return { sigs, draws };
 }
 
-// Captured before any complement engine edit (CP-0, on top of e304b94).
+// Captured before any complement engine edit (CP-0, on top of e304b94). CP-1 (D14) re-pinned "signatures" only (CP-0:
+// "9f4d5086"): exclusive picks now name one of the three rollable buffs; "draws" and "masked" are the CP-0 capture.
 const GOLDEN = {
   draws: "2b306f83",
   masked: "667724a1",
-  signatures: "9f4d5086",
+  signatures: "3c974ab5",
 };
 
 describe("CP-0 complement generator draws: one fixed draw count per crewmember", () => {
