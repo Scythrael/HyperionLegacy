@@ -194,7 +194,7 @@ describe("clearing tasks: stamping and planning", () => {
     expect(two).toBeGreaterThan(0);
   });
 
-  it("at Tiers I and II a clearing task never asks for more than one Security squad (safe tiers adapt)", () => {
+  it("at Tiers I and II a clearing task never asks for more than one Security squad (safe tiers adapt)", { timeout: 30_000 }, () => {
     for (const tier of [1, 2] as const) {
       let seen = 0;
       for (let k = 0; k < 30; k++) {

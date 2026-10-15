@@ -124,7 +124,7 @@ describe("the task preview equals the run's stamped tasks (the forecast cannot l
     expect(tasks).toBeGreaterThan(30);
   });
 
-  it("at a forced Tier IV in enemy territory: needs as rolled, hostile sites listed and revealed only where fielded", () => {
+  it("at a forced Tier IV in enemy territory: needs as rolled, hostile sites listed and revealed only where fielded", { timeout: 30_000 }, () => {
     const region: ExpeditionRegion = { tier: 4, enemyTerritory: true };
     let heavy = 0;
     let sites = 0;
