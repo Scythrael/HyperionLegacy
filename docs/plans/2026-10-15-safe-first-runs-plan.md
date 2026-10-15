@@ -491,3 +491,15 @@ Which goldens move where: SF-2 moves the shakedown goldens (`first:*`, the parit
 name each move; SF-3 moves `later:*`; SF-4 moves the fresh-save patrol goldens, the second patrol and the Repeat rows,
 and the forecast band; `gather:*` and `guards` must stay unchanged (an absent scale argument is today's encounter).
 Full suite wall time on this machine rose from about 39 s to about 56 s (shared with WR-1's new tests).
+
+## REVIEW FINDING (2026-10-15, SF-0 review): Tier I is not gentle for small crews, even off vault sites
+
+- The weakest launchable crew (1 Security + 1 Science, rank 1, no gear) stalls on ORDINARY sites too, not only vaults:
+  derelictOutpost (2 Strikers + Swarm), geothermalChamber (Caster + Bruiser), crashedShip, xenoFloraBloom, caveNetwork,
+  at hazards from 0.1 to 0.9, no affixes, 0 fight points cleared. Across 63 runs, 209 of 322 stuck objectives were
+  non-vault.
+- Capping enemy hazard at 0.1 (even 0) leaves the weakest crew stalling 60 of 63. Cap 0.1 plus the x0.35 ramp floor
+  stalls 0 of 63 but 50 of 63 still lose fights. Eir rank 1: 26 stalls to 8 (all vault). Orion rank 1: 43 to 1.
+- Meaning: the first run needs SF-2's every-site scale plus the backstop (as planned). At nominal Tier I (run 11+) the
+  weakest crew stalls about 95% of the time. Raised with the user as a "Your call": how gentle Tier I must be after the
+  first run, and for which crew.
