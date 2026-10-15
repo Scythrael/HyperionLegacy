@@ -171,6 +171,19 @@ claim; the transport generator's next 20 deliveries for a fixed seed; `commandSt
 **Tests:** the hashes themselves, plus a self-check that each fixture actually holds the keys it claims.
 Commit alone: `test(0.14.0): pre-complement golden hashes (CP-0)`.
 
+**Carry note (2026-10-14, CP-0 landed, captured on top of e304b94):** `complementGoldens.test.ts` pins, whole
+serialized: `effectiveShipStats` + `shipCrewContribution` for all 10 hulls with no complement and with a full one
+(every division to its cap, trimmed to the hull total; all 22 buff ids incl. `excl.craftDuplicate`, all races;
+self-checked); `shortOreRun` / `surveyMineralAnomaly` / `frontierSupplyRun` dispatched for real 200 s before transport
+window 1 and run 700 economyTick s (the passive mission ship is crewed mid-run); a Repeat carrier patrol (dispatch,
+8 replays, end state; it equals officerBonuses "patrol:carrier"); a destroyer Shipyard repair (duration 239, process,
+completed state); legacy expeditions at seeds 0x2468ace and +7919; Ground Ops seed 0x1244 pre-damaged (one field repair
+leg + bay stays) and 0x1234 (bay stays, hull damage home), each dispatch / 2,000,000 s / claim; `transportBatch(0x7ea5e,
+1..20)`; `commandStructureForHull` per hull. Every fixture except the full sheet is KEYLESS at dispatch (the mission
+ships gain random transport crew). Added `crewGenerationDraws.test.ts` (a passthrough counting `makeRng` mock in its
+own file): per-crewmember draw counts, signatures with the exclusive buff2 masked, and full signatures over 10,000
+crew; CP-1 may move only "signatures".
+
 ### CP-1: Craft duplicate stops rolling (Task 23, D14)
 
 **Files:** `crewBuffs.ts` (split `SECOND_LEVEL_EXCLUSIVE` into a rollable list without `excl.craftDuplicate` and a
