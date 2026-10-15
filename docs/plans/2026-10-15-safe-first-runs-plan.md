@@ -454,3 +454,40 @@ G2-2's region when it lands (Tier I until then); the save fold depends on where 
 - **OC-15 stuck objectives after the first run:** "Keep it, plus the warning (Recommended)": keep retry-until-Skip and
   add a pre-launch warning when a crew cannot win an objective.
 - **Field Kits severity ranks (asked here):** "In 0.14.0 Field Kits (Recommended)" (recorded in the Field Kits plan).
+
+## SF-0 CARRY NOTE (2026-10-15, built on bfac15f)
+
+Files (tests only, no engine or UI change): `src/lib/game/firstRunsGoldens.test.ts` (69 tests, about 15 s),
+`src/lib/game/firstRunsGoldens.sweep.test.ts` (121 tests, about 37 s, 3 seeds per test so each stays near 1 s), and
+the shared `src/lib/game/firstRunsGoldens.fixture.ts` (the section 2.5 method: `onHull`, `withCrew` for the D18 minimum,
+board2, board10 and rank 1 / 3 / 6 crews, `runOutcome`, `SWEEP_END` 3,000,000 s).
+
+What is pinned: the fresh-save first-run predicates and the fresh recruit board; every hull x both patrol routes, the
+whole first cycle at master seeds 1 and 2 (dispatch record, display replay per tick, ship, completion log, state), the
+save's second patrol after a won first one, a Repeat patrol's first two cycles, the dispatch card's Threat Assessment
+band (App.svelte's sweep mirrored), closed-form parity, and the section 2.5 E 200-seed win table; one delivered cycle for
+every MISSIONS key x every hull (or its refusal); the section 2.5 A shakedown outcomes for the General Freighter, Orion,
+Aurora and Eir x six crews (numbers plus whole-record hashes and the claim), the shakedown launch view at telescope
+Level 5, offline == live parity (one call, 997 s chunks, the event-boundary chain) on a stalled shakedown; later runs as
+expedition 2 and 11 and a REAL second run after a claimed first; generateEncounter for the Vault, Subterranean and three
+ordinary sites at hazards 0 to 1; the section 2.5 B table (per seed codes and run hashes, summed against the table).
+
+Reproduced exactly: section 2.2's board, 2.5 A (crews slotted across both teams, team 0 first), 2.5 B (the setback
+column is 35 only with the broad reading: a failed or lost check, a scan pause, hull wear, or an unrepelled boarding;
+failed or lost checks alone give 33) and 2.5 E.
+
+Findings for later slices:
+- "Every stalled run stalls on a Vault or Subterranean site" holds on the full-rank Orion and Aurora rows only. The D18
+  minimum Orion also stalls on 8 seeds with no such site, and Eir rank 1 on 2 seeds elsewhere (sweep column K). On the
+  fresh candidates the D18 crew is stuck on ordinary sites too (candidate 0: 10 stuck objectives, 1 of 11 done). SF-2's
+  enemy scale must cover every site, not only the guards (the backstop already does).
+- The shakedown launch view at Level 5 for a D18 crew on a Freighter or an Orion is byte-identical to G2-0's rank 10
+  crew view (`display:launch`). Worth a look for SF-2 ("the launch forecast's outcome equals the run's") and the OC-15
+  pre-launch warning.
+- First patrol today (seed 1): the Sweep is lost on the Runner and Miner, the Warband on every economy hull and explorer;
+  the dispatch card reads "dice" (Runner, Miner Sweep) down to "impossible" (Runner, Miner, explorers Warband).
+
+Which goldens move where: SF-2 moves the shakedown goldens (`first:*`, the parity hash, the whole sweep file) and must
+name each move; SF-3 moves `later:*`; SF-4 moves the fresh-save patrol goldens, the second patrol and the Repeat rows,
+and the forecast band; `gather:*` and `guards` must stay unchanged (an absent scale argument is today's encounter).
+Full suite wall time on this machine rose from about 39 s to about 56 s (shared with WR-1's new tests).
