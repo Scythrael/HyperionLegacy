@@ -25,6 +25,7 @@ import {
   RANK_TEXT,
   UNASSIGNED_INTRO,
   unassignedMembersView,
+  crewLockText,
 } from "./awayTeamDisplay";
 
 describe("awayTeamDisplay", () => {
@@ -182,5 +183,25 @@ describe("unassignedMembersView (CP-6)", () => {
     expect(UNASSIGNED_INTRO).toMatch(/^[A-Z].{10,}\.$/);
     expect(UNASSIGNED_INTRO).not.toContain(String.fromCharCode(0x2014));
     expect(UNASSIGNED_INTRO).not.toContain("--");
+  });
+});
+
+// CP-6 review: an Unassigned card names the real lock (expedition vs captain mission), not always "mission".
+describe("crewLockText (CP-6 review)", () => {
+  const benched = () => {
+    const base = freshState();
+    return { ...base, awayMembers: [{ ...plainAwayMember("member-2", "science", "ship-1"), assignedShipId: null }] };
+  };
+
+  it("an expedition reads as an expedition; a captain mission as a mission; a free ship has none", () => {
+    const s = benched();
+    expect(crewLockText(s, "ship-1")).toBeNull();
+    const onExp = { ...s, expeditions: [{ id: "expedition-1", shipId: "ship-1" } as any] };
+    expect(crewLockText(onExp, "ship-1")).toBe("Ship is on an expedition");
+    expect(unassignedMembersView(onExp, "ship-1")[0].joinText).toBe("Ship is on an expedition");
+    const flying = { ...s, captains: s.captains.map((c) => (c.id === 1 ? { ...c, mission: { kind: "extraction" } as any } : c)) };
+    expect(crewLockText(flying, "ship-1")).toBe("Ship is out on a mission");
+    expect(unassignedMembersView(flying, "ship-1")[0].joinText).toBe("Ship is out on a mission");
+    expect(unassignedMembersView(s, "ship-1")[0].joinText).toBeUndefined();
   });
 });

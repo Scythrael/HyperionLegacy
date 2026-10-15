@@ -11,7 +11,7 @@ import {
   salvageShipPeople,
   salvageShipPeopleText,
 } from "./salvage";
-import { canStartSalvage, canStartAutoSalvage } from "./tick";
+import { canStartSalvage, canStartAutoSalvage, resolveProcesses } from "./tick";
 import { freshState } from "./model";
 import type {
   CrewBucket,
@@ -23,7 +23,7 @@ import type {
   QueuedOrder,
   SeniorStaffOfficer,
 } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, startExpedition } from "./expedition";
+import { advanceExpedition, claimExpedition, expeditionCandidates, orphanExpeditions, startExpedition } from "./expedition";
 import { asLegacyDispatch, plainAwayMember, withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { emptyGroundTeams, shipGroundTeams } from "./groundTeams";
 import { migrate, serialize, deserialize, repairOrphanedShipRefsV69, SAVE_VERSION, type SaveFile } from "./save";
@@ -355,5 +355,90 @@ describe("migrate, v68 -> v69 orphaned ship references repaired (CP-6)", () => {
     noShips.ships = "corrupt";
     const viaStep = repairOrphanedShipRefsV69(JSON.parse(JSON.stringify(noShips)));
     expect(viaStep.awayMembers).toEqual(noShips.awayMembers);
+  });
+});
+
+// ============================================================================
+// CP-6 review follow-ups
+// ============================================================================
+
+describe("a QUEUED hull teardown releases everyone exactly like the instant path (CP-6 review)", () => {
+  it("resolveProcesses' salvageResolve applies every field salvageShip writes", () => {
+    const base = crewedFleet();
+    // A ship loadout checked out to the hull too (the pre-existing loadouts write-back gap).
+    const s: GameState = {
+      ...base,
+      loadouts: [{ id: "loadout-1", name: "Set", shipTypeKey: "generalFreighter", slots: {}, checkedOutToShipId: "ship-1" }],
+      activeProcesses: [
+        { id: "proc-1", kind: "salvageJob", remainingTicks: 1, durationTicks: 1, effect: { type: "salvageResolve", target: { kind: "ship", shipId: "ship-1" } } },
+      ],
+    };
+    const instant = salvageShip({ ...s, activeProcesses: [] }, "ship-1", () => 0.5);
+    if (!instant.ok) throw new Error("expected the instant salvage to succeed");
+    const viaTick = resolveProcesses(s, 1, () => 0.5).next;
+    expect(viaTick.ships.some((x) => x.id === "ship-1")).toBe(false);
+    for (const key of ["ships", "awayMembers", "officers", "notableCrew", "crewPool", "squadLoadouts", "loadouts", "equipment", "credits", "inventory"] as const) {
+      expect(JSON.stringify(viaTick[key])).toBe(JSON.stringify(instant.next[key]));
+    }
+    // non-vacuous: people really moved
+    expect(viaTick.officers.find((o) => o.id === "officer-1")?.assignedShipId).toBeNull();
+    expect(totalCrew(viaTick.crewPool)).toBe(17);
+    expect(viaTick.loadouts[0].checkedOutToShipId).toBeNull();
+  });
+
+  it("an equipment or material salvage leaves the people fields byte-identical", () => {
+    const s: GameState = {
+      ...crewedFleet(),
+      activeProcesses: [
+        { id: "proc-1", kind: "salvageJob", remainingTicks: 1, durationTicks: 1, effect: { type: "salvageResolve", target: { kind: "equipment", instanceId: "nope" } } },
+      ],
+    };
+    const next = resolveProcesses(s, 1, () => 0.5).next;
+    for (const key of ["awayMembers", "officers", "notableCrew", "crewPool", "squadLoadouts", "loadouts"] as const) expect(next[key]).toBe(s[key]);
+  });
+});
+
+describe("salvage refuses while a loadout worn here is also worn on a locked ship (CP-6 review)", () => {
+  // squad-1 is checked out to ship-1; its piece kit-1 is worn by a member who has since moved to ship-2.
+  function wornAcross(): GameState {
+    const s = crewedFleet();
+    const wearer = s.equipment.find((e) => e.id === "kit-1")?.fittedToMemberId;
+    return { ...s, awayMembers: s.awayMembers.map((m) => (m.id === wearer ? { ...m, assignedShipId: "ship-2" } : m)) };
+  }
+  const out = (s: GameState): GameState => ({ ...s, expeditions: [{ id: "expedition-9", shipId: "ship-2" } as unknown as Expedition] });
+  const shipOrder = (shipId: string): QueuedOrder => ({ type: "salvage", target: { kind: "ship", shipId }, mode: { kind: "batch", remaining: 1 } });
+
+  it("refuses with loadoutWornOnLockedShip on every path, same reference", () => {
+    const s = out(wornAcross());
+    expect(salvageShipLockReason(s, "ship-1")).toBe("loadoutWornOnLockedShip");
+    const r = salvageShip(s, "ship-1", () => 0.5);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("loadoutWornOnLockedShip");
+      expect(r.next).toBe(s);
+    }
+    expect(canStartSalvage(s, shipOrder("ship-1"))).toEqual({ ok: false, reason: "loadoutWornOnLockedShip" });
+  });
+
+  it("salvages (and checks the loadout in) once that ship is back", () => {
+    const s = wornAcross();
+    expect(salvageShipLockReason(s, "ship-1")).toBeNull();
+    const r = salvageShip(s, "ship-1", () => 0.5);
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.next.equipment.find((e) => e.id === "kit-1")?.fittedToMemberId).toBeNull();
+  });
+});
+
+describe("a ghost expedition (its ship already gone, pre-fix saves) stays claimable (CP-6 review)", () => {
+  it("orphanExpeditions lists it and the claim deposits and removes it", () => {
+    const s = onExpedition();
+    const exp = advanceExpedition(s.expeditions[0], 10_000_000);
+    const ghost: GameState = { ...s, ships: s.ships.filter((x) => x.id !== "ship-1"), expeditions: [exp] };
+    expect(orphanExpeditions(ghost).map((e) => e.id)).toEqual([exp.id]);
+    expect(orphanExpeditions(s)).toEqual([]);
+    const claimed = claimExpedition(ghost, exp.id);
+    expect(claimed.success).toBe(true);
+    expect(claimed.next.expeditions).toEqual([]);
+    expect(claimed.next.ships).toEqual(ghost.ships);
   });
 });

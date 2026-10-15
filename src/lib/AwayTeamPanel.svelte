@@ -1088,7 +1088,7 @@
                   disabled={!u.join.ok}
                   aria-label="Move {m.name} aboard this ship"
                   aria-describedby={u.join.ok ? undefined : whyId}
-                  title={gateText(u.join) ?? `Move ${m.name} aboard this ship`}
+                  title={u.joinText ?? `Move ${m.name} aboard this ship`}
                   on:click={() => moveAboard(m.id)}
                 >Move aboard</button>
                 <button
@@ -1101,7 +1101,7 @@
                 >Fire</button>
               </div>
               {#if !u.join.ok}
-                <div class="mem-why" id={whyId}>{gateText(u.join)}</div>
+                <div class="mem-why" id={whyId}>{u.joinText}</div>
               {/if}
             </div>
           {/each}

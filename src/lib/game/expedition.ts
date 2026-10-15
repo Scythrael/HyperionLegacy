@@ -2071,6 +2071,16 @@ export function resolveExpeditions(state: GameState): GameState {
   return changed ? { ...state, expeditions: next } : state;
 }
 
+// CP-6 review: GHOST expeditions, whose ship is no longer in the fleet (a save that salvaged a hull on an
+// expedition before CP-6 closed that gap). They keep advancing on their own record and claimExpedition
+// claims them like any run (findings deposit, members unlock); the console lists them so they can be.
+// Never auto-deleted. Pure.
+export function orphanExpeditions(state: GameState): Expedition[] {
+  if (state.expeditions.length === 0) return [];
+  const live = new Set(state.ships.map((s) => s.id));
+  return state.expeditions.filter((e) => !live.has(e.shipId));
+}
+
 export interface ExpeditionClaimResult {
   next: GameState;
   success: boolean;

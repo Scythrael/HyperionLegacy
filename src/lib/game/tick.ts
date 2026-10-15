@@ -10883,6 +10883,21 @@ interface SalvageEffectOutcome {
   creditsRecovered: number; // only a hull teardown pays credits; the other two arms report 0
 }
 
+// CP-6 review: every GameState field a salvage writes beyond the four resolveProcesses already accumulates
+// (inventory, equipment, ships, credits). Only salvageShip writes these (an equipment or material salvage
+// passes them through by reference), so copying them back after any salvage is exact.
+type SalvageWriteKey = "loadouts" | "awayMembers" | "officers" | "notableCrew" | "crewPool" | "squadLoadouts";
+function pickSalvageWrites(s: GameState): Pick<GameState, SalvageWriteKey> {
+  return {
+    loadouts: s.loadouts,
+    awayMembers: s.awayMembers,
+    officers: s.officers,
+    notableCrew: s.notableCrew,
+    crewPool: s.crewPool,
+    squadLoadouts: s.squadLoadouts,
+  };
+}
+
 function resolveSalvageEffect(
   scratch: GameState,
   target: SalvageTargetRef,
@@ -11241,6 +11256,11 @@ export function resolveProcesses(
   // returns before this line is even read. Decimal, like every other currency field, and
   // replaced (never mutated) by salvage.ts's own `.plus`.
   let credits = state.credits;
+  // CP-6 review: the OTHER fields a hull teardown writes (salvage.ts salvageShip: the ship loadout it checks
+  // in, and releaseShipPeople's away members, officers, notables, crew pool and ground team loadouts). null
+  // until a salvage completes, so a call without one writes none of them back (byte-identical, key set
+  // included); once set, the next salvage in the same call builds on it (the accumulator rule below).
+  let salvageWrites: Pick<GameState, SalvageWriteKey> | null = null;
   // Exploration 0.14.0 (Phase E4a): the museum copy counts + the first-find registry, raised only by a
   // completing relicStudy (the identifyRelic branch). Seeded from the incoming state, so a call that
   // completes no study returns them value-identical (and a pre-E4 shape reads as empty).
@@ -11704,7 +11724,9 @@ export function resolveProcesses(
       // and the very thing "atomic" has to mean here). The four fields a salvage can
       // write are copied straight back out; the rest of the scratch state is read-only to
       // salvage.ts and is discarded with it.
-      const scratch: GameState = { ...state, inventory, equipment, ships, credits };
+      // CP-6 review: plus salvageWrites, the people / loadout fields a hull teardown writes, which the four
+      // assignments below used to drop (a queued teardown left members pointing at the removed hull).
+      const scratch: GameState = { ...state, ...(salvageWrites ?? {}), inventory, equipment, ships, credits };
       const resolved = resolveSalvageEffect(scratch, process.effect.target, rng);
       // 0.13.3 Unit 4.4b: remembered for the completed-events log ONLY. Nothing below
       // reads it, and null still means "stale target" to the branch exactly as before.
@@ -11716,6 +11738,7 @@ export function resolveProcesses(
         equipment = resolved.next.equipment;
         ships = resolved.next.ships;
         credits = resolved.next.credits;
+        salvageWrites = pickSalvageWrites(resolved.next);
         // Hotfix (salvage discovery): a salvage payout deposits via addItemQuality, which
         // DELIBERATELY bypasses the addToInventory discovery seam so a salvage may exceed a
         // material's warehouse cap. Marking-as-discovered got left behind with the cap clamp,
@@ -11885,6 +11908,8 @@ export function resolveProcesses(
       // study completed this call (conditional spread), so every call that completes no study lands
       // byte-identical to before this phase, key set included.
       ...(relicStudyCompleted ? { relicMuseum, relicDiscovered } : {}),
+      // CP-6 review: a completed hull teardown's loadout + people writes (absent when none completed).
+      ...(salvageWrites ?? {}),
     },
     fleetAdminXpDelta,
     craftingXpDelta,

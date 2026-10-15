@@ -45,6 +45,7 @@
     expeditionLaunchView,
     expeditionShipDamaged,
     expeditionShipRepairText,
+    orphanExpeditions,
     type ExpeditionCandidate,
   } from "./game/expedition";
   import { activityFindingId, deriveAwayTeam, deriveExpeditionActivityLog, deriveScanEncounterLog, type GambitLogEvent } from "./game/gambit";
@@ -146,6 +147,9 @@
   $: now = state.gameTimeSeconds;
 
   // shipId -> its active expedition (at most one per ship).
+  // CP-6 review: GHOST runs whose ship is no longer in the fleet (salvaged before CP-6). The ship picker cannot
+  // list them, so they get their own rows: Claim once complete (findings deposit, the away team unlocks).
+  $: ghostExpeditions = orphanExpeditions(state);
   $: expeditionByShip = (() => {
     const map = new Map<string, Expedition>();
     for (const e of state.expeditions) map.set(e.shipId, e);
@@ -446,6 +450,17 @@
 </script>
 
 <div class="exp">
+  {#each ghostExpeditions as g (g.id)}
+    <div class="exp-ghost">
+      <span class="exp-ghost-text">
+        <strong>{g.systemName}</strong> · Ship no longer in the fleet ·
+        {g.phase === "complete" ? "Findings ready" : "Still on its way home"}
+      </span>
+      {#if g.phase === "complete"}
+        <button type="button" class="exp-btn primary" on:click={() => onClaim(g.id)}>Claim findings</button>
+      {/if}
+    </div>
+  {/each}
   {#if consoleShips.length === 0}
     <!-- Additive-neutral early game: nothing to dispatch, nothing in flight. -->
     <div class="exp-empty">
@@ -971,6 +986,23 @@
     gap: 12px;
   }
 
+  /* CP-6 review: a ghost run (its ship is gone) waiting to be claimed. */
+  .exp-ghost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    font-size: var(--text-sm);
+    color: var(--color-text-secondary);
+    border: 1px solid rgba(var(--color-accent-rgb), 0.3);
+    border-radius: var(--corner);
+  }
+  .exp-ghost-text {
+    min-width: 0;
+  }
   .exp-empty {
     font-size: var(--text-sm);
     color: var(--color-text-dim);

@@ -9,7 +9,8 @@ import type { AwayMember, AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, Game
 import { SHIP_TYPES } from "./game/model";
 import { formatCountdown } from "./game/format";
 import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
-import { AUGMENT_AFFINITY_RACES, canFireAwayMember, canReassignAwayMember, implantSlotsFor } from "./game/awayTeam";
+import { AUGMENT_AFFINITY_RACES, awayCrewBlockText, canFireAwayMember, canReassignAwayMember, implantSlotsFor, shipCrewLocked } from "./game/awayTeam";
+import { onMissionLock } from "./game/equipment";
 import type { AwayCrewGate } from "./game/awayTeam";
 import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
 import { getPoiById } from "./game/expeditionContent";
@@ -159,16 +160,30 @@ export const UNASSIGNED_INTRO =
 export interface UnassignedMemberView {
   member: AwayMember;
   join: AwayCrewGate; // canReassignAwayMember onto the viewed ship (its squad cap and lock)
+  joinText: string | undefined; // why join is refused (the accurate lock, crewLockText), undefined when ok
   fire: AwayCrewGate; // canFireAwayMember (an unassigned member is never locked)
+}
+
+// CP-6 review: the accurate words for a crew-locked ship (awayTeam.ts shipCrewLocked), so an expedition is
+// not called a mission. null when the ship is not locked. Pure.
+export function crewLockText(state: GameState, shipId: string): string | null {
+  const mission = onMissionLock(state, shipId);
+  if (!mission.ok && mission.reason === "onMission") return "Ship is out on a mission";
+  if (shipCrewLocked(state, shipId)) return "Ship is on an expedition";
+  return null;
 }
 
 // Every unassigned member in roster order, with the gates for moving aboard `shipId` and for firing. Pure.
 export function unassignedMembersView(state: GameState, shipId: string): UnassignedMemberView[] {
   return state.awayMembers
     .filter((m) => m.assignedShipId === null)
-    .map((member) => ({
-      member,
-      join: canReassignAwayMember(state, member.id, shipId),
-      fire: canFireAwayMember(state, member.id),
-    }));
+    .map((member) => {
+      const join = canReassignAwayMember(state, member.id, shipId);
+      const joinText = join.ok
+        ? undefined
+        : join.reason === "onMission"
+          ? (crewLockText(state, shipId) ?? awayCrewBlockText(join.reason))
+          : awayCrewBlockText(join.reason);
+      return { member, join, joinText, fire: canFireAwayMember(state, member.id) };
+    });
 }

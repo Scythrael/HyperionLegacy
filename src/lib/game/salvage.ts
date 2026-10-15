@@ -301,6 +301,10 @@ export interface SalvageRoll {
 //     shipOnExpedition     (CP-6) the ship is on an expedition, in flight OR complete but not yet
 //                          claimed: its findings and deployed away team wait on the claim, so the
 //                          hull cannot be torn down until then (awayTeam.ts shipCrewLocked)
+//     loadoutWornOnLockedShip (CP-6 review) a ground team loadout worn on this hull is also worn by a
+//                          member now aboard ANOTHER ship that is crew-locked; the teardown checks the
+//                          loadout in, which would strip gear off a deployed member (the same refusal
+//                          armory.ts checkInGroundTeamLoadout makes), so it waits until that ship is back
 //     lastShip             this is the fleet's ONLY hull (state.ships.length === 1). Tearing
 //                          it down would leave the player with no ship AND all mission income
 //                          stopped, then facing a 2000-credit + FA-level-3 Shipyard re-founding:
@@ -326,6 +330,7 @@ export type SalvageRejectReason =
   | "shipNotFound"
   | "shipOnMission"
   | "shipOnExpedition"
+  | "loadoutWornOnLockedShip"
   | "lastShip";
 
 // ----------------------------------------------------------------------------
@@ -645,10 +650,26 @@ export function salvageSalvagedMaterial(
 // shipOnExpedition. Shared by salvageShip, the queue's salvageTargetBlock (tick.ts) and the Salvage
 // button, so the three can never disagree. A missing ship is not locked (the callers report shipNotFound
 // first). Pure.
-export function salvageShipLockReason(state: GameState, shipId: string): "shipOnMission" | "shipOnExpedition" | null {
+// CP-6 review: then loadoutWornOnLockedShip, when a ground team loadout worn on this hull has a piece on a
+// member aboard ANOTHER crew-locked ship (the teardown checks that loadout in, and checkInGroundTeamLoadout
+// refuses exactly this case, so a deployed member is never stripped mid-run).
+export function salvageShipLockReason(
+  state: GameState,
+  shipId: string
+): "shipOnMission" | "shipOnExpedition" | "loadoutWornOnLockedShip" | null {
   const mission = onMissionLock(state, shipId);
   if (!mission.ok && mission.reason === "onMission") return "shipOnMission";
   if (shipCrewLocked(state, shipId)) return "shipOnExpedition";
+  const worn = new Set(
+    (state.squadLoadouts ?? []).filter((l) => l.checkedOutTo !== null && l.checkedOutTo.shipId === shipId).map((l) => l.id)
+  );
+  if (worn.size > 0) {
+    for (const e of state.equipment) {
+      if (e.committedToLoadoutId === undefined || !worn.has(e.committedToLoadoutId) || !e.fittedToMemberId) continue;
+      const wearerShip = state.awayMembers.find((m) => m.id === e.fittedToMemberId)?.assignedShipId ?? null;
+      if (wearerShip !== null && wearerShip !== shipId && shipCrewLocked(state, wearerShip)) return "loadoutWornOnLockedShip";
+    }
+  }
   return null;
 }
 

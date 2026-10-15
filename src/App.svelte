@@ -5949,6 +5949,8 @@
         return "the ship's captain is on a mission (recall first)";
       case "shipOnExpedition":
         return "the ship is on an expedition (claim it first)";
+      case "loadoutWornOnLockedShip":
+        return "a loadout worn here is also worn on a ship that is out (claim or recall it first)";
       case "lastShip":
         return "your fleet would be left with no hull (this is your last ship)";
     }
@@ -7916,6 +7918,7 @@
         case "shipNotFound":
         case "shipOnMission":
         case "shipOnExpedition":
+        case "loadoutWornOnLockedShip":
         case "lastShip":
           return `Waiting: ${salvageRejectText(reason)}.`;
         default:
@@ -16080,9 +16083,11 @@
               ? "On a mission, recall first"
               : salvageLock === "shipOnExpedition"
                 ? "This ship is on an expedition: claim it first"
-                : state.ships.length === 1
-                  ? "Cannot salvage your last ship: your fleet would be left with no hull"
-                  : "Break down this hull for parts"}
+                : salvageLock === "loadoutWornOnLockedShip"
+                  ? "A loadout worn here is also worn on a ship that is out: claim it first"
+                  : state.ships.length === 1
+                    ? "Cannot salvage your last ship: your fleet would be left with no hull"
+                    : "Break down this hull for parts"}
             on:click={() => requestSalvage("ship", ship.id, shipDisplayLabel(state, ship))}
           >
             Salvage
