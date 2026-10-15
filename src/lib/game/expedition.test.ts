@@ -385,7 +385,7 @@ describe("PARITY: one big offline window == many small live ticks", () => {
   }
 
   // 40,000 single-tick steps: slow on a loaded machine, so an explicit budget over the 5 s default.
-  it("the expedition is byte-identical whether resolved in one jump or stepped per tick", { timeout: 30_000 }, () => {
+  it("the expedition is byte-identical whether resolved in one jump or stepped per tick", () => {
     const base = dispatch(freshState()).next;
 
     // OFFLINE: one big catch-up.
