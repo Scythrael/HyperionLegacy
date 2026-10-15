@@ -18,7 +18,8 @@
 //                Levels 1 and 8.
 //   4. reach   : shipRangeLightYears for every hull, and shipReachesRoundTrip, shipTripRangeLightYears and the
 //                dispatch gate (canDispatch / canDispatchPatrol) for every hull x every mission and patrol, with the
-//                starting gear and with a +300 Fuel Capacity drive (extends fuel-to-reach.test.ts).
+//                starting gear and with a +300 Fuel Capacity drive (extends fuel-to-reach.test.ts); and the whole Tier I
+//                startExpedition result from every hull, stock and boosted (all 20 launch).
 // Plus offline == live parity on the golden 1 and 2 runs: one call == 997 s chunks == 1 s steps across arrival ==
 // an EVENT-BOUNDARY chain (t - 1, t, t + 1 at every phase anchor, step record, log line and ship leg).
 
@@ -119,10 +120,12 @@ function legacyCrew(): GameState {
 }
 
 // The state a save held with `exp` in flight (the dispatch's exact `next`: the run listed, the expedition number and
-// the seed advanced), written to a save, stamped v69 and loaded back through migrate. Pure.
+// the seed advanced), cut back to the v69 shape (withoutG2State, so from G2-1 on the save truly lacks `homeworld`
+// and the v69 -> v70 migration really seeds it), written to a save, stamped v69 and loaded back through migrate.
+// G2-1 gives migrate an injected entropy argument: this call then passes a fixed value. Pure.
 function restored(crew: GameState, exp: Expedition): GameState {
   const held: GameState = { ...crew, nextExpeditionId: crew.nextExpeditionId + 1, expeditionSeed: advanceExpeditionSeed(crew.expeditionSeed), expeditions: [exp] };
-  const save = deserialize(serialize(held, 0)) as SaveFile;
+  const save = deserialize(serialize(withoutG2State(held), 0)) as SaveFile;
   return migrate({ ...save, version: PRE_G2_SAVE_VERSION });
 }
 
@@ -213,6 +216,14 @@ const GOLDEN: Record<string, string[]> = {
     "boost:prospectorHauler:8c0cd99e", "boost:prospectorRunner:4650dd30", "boost:prospectorMiner:4f235392",
     "boost:destroyer:10a5b5f8", "boost:battleship:8b69daf4", "boost:carrier:9b6ffe04", "boost:orion:2494db82",
     "boost:aurora:940c80c6", "boost:eir:be786422",
+  ],
+  "reach:expedition": [
+    "stock:generalFreighter:ceba94e5", "stock:prospectorHauler:1a0bf605", "stock:prospectorRunner:832d597b",
+    "stock:prospectorMiner:b2007d44", "stock:destroyer:34453ce5", "stock:battleship:49a34c2c", "stock:carrier:9c7d2e94",
+    "stock:orion:9f93003d", "stock:aurora:67b51c5c", "stock:eir:62613176", "boost:generalFreighter:a6b827e",
+    "boost:prospectorHauler:b5ba01e", "boost:prospectorRunner:6fb3f4a0", "boost:prospectorMiner:bf1bef63",
+    "boost:destroyer:e11718ba", "boost:battleship:5d5e59f1", "boost:carrier:48d00d69", "boost:orion:290a668a",
+    "boost:aurora:8b44c57b", "boost:eir:93229e89",
   ],
 };
 
@@ -396,5 +407,29 @@ describe("G2-0 golden 4: reach and eligibility for every hull x every mission an
     // The gate is exercised on both sides: some hull and mission pair is refused on reach.
     expect(refusedOnReach).toBeGreaterThan(0);
     expect(out).toEqual(GOLDEN.reach);
+  });
+
+  // G2-4 adds expedition gates (drive class, reach, frontier sensors): none may block a Tier I launch by accident.
+  // The whole startExpedition result (the refusal, or the record and the state through withoutG2State) of a Tier I
+  // candidate 0 launch from every hull, stock and boosted, with a slotted crew (1 Security + 1 Science) at T0.
+  it("the Tier I startExpedition result for every hull, stock and with +300 Fuel Capacity", () => {
+    const out: string[] = [];
+    let launched = 0;
+    for (const boost of [false, true]) {
+      for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
+        const state = withSlottedAwayTeams({
+          ...reachState(hull, boost),
+          gameTimeSeconds: T0,
+          awayMembers: [plainAwayMember("member-1", "security", "ship-1"), plainAwayMember("member-11", "science", "ship-1")],
+          nextAwayMemberId: 100,
+        });
+        const res = startExpedition(state, "ship-1", 1, "cand-0");
+        if (res.success) launched += 1;
+        out.push(`${boost ? "boost" : "stock"}:${hull}:${hash({ ...res, next: withoutG2State(res.next), expedition: res.expedition ? withoutG2Run(res.expedition) : null })}`);
+      }
+    }
+    // Every hull launches Tier I today (G2-4 must keep it so).
+    expect(launched).toBe(20);
+    expect(out).toEqual(GOLDEN["reach:expedition"]);
   });
 });

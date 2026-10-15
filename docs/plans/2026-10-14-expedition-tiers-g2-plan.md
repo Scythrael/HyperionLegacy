@@ -158,15 +158,20 @@ Commit `test(0.14.0): pre-expedition-tiers golden hashes (G2-0)`.
 
 **G2-0 carry note (built 2026-10-14, on top of 3ce5404).** `src/lib/game/expeditionTiersGoldens.test.ts` (19 tests)
 plus `expeditionTiersGoldens.fixture.ts` (the two STORED pre-G2 records, never regenerate them). For later slices:
-- Golden 1 restores each stored record through a save stamped v69 and `migrate`, so G2-1's v69 -> v70 migration runs
-  on it; the claim is hashed through `withoutG2State` (drops `homeworld`, no-op today) and every run through
-  `withoutG2Run` (drops `voyage` / `recall` / `burn`, no-op today). Golden 1 must stay unchanged in EVERY slice.
+- Golden 1 restores each stored record through a save stamped v69 and `migrate`. The saved state goes through
+  `withoutG2State` first (drops `homeworld`, no-op today), so from G2-1 on the save truly has the v69 shape and the
+  v69 -> v70 migration really seeds the homeworld. G2-1 adds an injected entropy argument to `migrate`: the
+  `restored` helper's call must then pass a fixed value. The claim is hashed through `withoutG2State` and every run
+  through `withoutG2Run` (drops `voyage` / `recall` / `burn`, no-op today). Golden 1 must stay unchanged in EVERY
+  slice.
 - Golden 2 hashes the dispatch record whole, so G2-2 (names) and G2-3 (`voyage`) compare it after restoring the
   pre-G2 names and passing the run through `withoutG2Run`; a re-pin names the field that moved.
 - Golden 3's candidate and telescope hashes include every distance; G2-1 re-pins them field by field (distances only).
 - Golden 4 hashes `shipRangeLightYears` and `shipTripRangeLightYears` in today's LY units: under open call 4 A the LY
   numbers move by the `LY_PER_TICK` rescale while every `shipReachesRoundTrip` and dispatch gate stays identical; split
-  the gates from the readouts when re-pinning.
+  the gates from the readouts when re-pinning. `reach:expedition` hashes the whole Tier I `startExpedition` result
+  (record and state through the strippers) from every hull, stock and boosted: all 20 launch today, and G2-4's new
+  gates (drive class, reach, frontier sensors) must keep every one of them launching (`voyage` is stripped; G2-2's names re-pin it like golden 2).
 - The crew is two Ground teams of rank 10 members: at rank 6 two of the three freshState candidates (at rank 3 all
   three) are still in activities at 2,000,000 s, which fits the Ground Ops balance finding (open call 18), so a
   lower-rank crew cannot reach claim.
