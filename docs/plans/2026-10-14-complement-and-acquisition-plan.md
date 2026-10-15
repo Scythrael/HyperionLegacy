@@ -551,3 +551,14 @@ the weight is and what could move to a 0.14.x follow-up without leaving a dead s
   only if the user agrees; each has a no-dead-stats or inventory row to carry it.
 - **Do not cut** CP-6: scrapping a crewed hull loses people today, and the expedition-salvage gap may be a live bug.
 - CP-3 must wait for the Field Kits engine slices; running them together risks golden churn in shared files.
+
+## VERIFIED 2026-10-14: captain secondary talents mostly inert (branch only; main has no secondary tree)
+
+The secondary talent catalog has 45 nodes (model.ts ~11773-12101): 26 stat bonuses, 4 chance bonuses, 9 capstones,
+6 "none" placeholders. Only `logistics4` (Efficient Stowage) is read by game code (groundOps.ts ~154, ~178). 38 nodes
+show a specific effect ("+8.0% ...", "5% chance-based bonus") that never applies; the 6 placeholders honestly say "No
+bonus yet (system pending)". Not covered by no-dead-stats. Needs an owner before 0.14.0 ships: wire them, or label
+them honestly, or hide the tree. Raised with the user.
+
+Also verified: the salvage data-loss findings (CP-6) are branch-only (main SAVE 54 has no expeditions or crew);
+the CP-6 core fix was dispatched the same day.
