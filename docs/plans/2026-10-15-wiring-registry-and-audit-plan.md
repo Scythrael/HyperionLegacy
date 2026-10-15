@@ -1137,3 +1137,15 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - [ ] Sensor array descriptions match their measured scan rates.
 - [ ] The first expedition on a fresh Orion with everything on auto completes at 100% (SF + WR-2 assertion), checked by
       hand once.
+
+## USER ANSWERS (2026-10-15)
+
+- **OC-A1 + OC-A2 (captain talent "+X%"):** "Multiplier, own ship (Recommended)": a relative multiplier on the named
+  existing value, stacking with its other bonuses before any existing D23 curve; acts on the ship that captain
+  commands, frozen at dispatch for runs (logistics4 precedent), per cycle for patrols.
+- **OC-D9 (combat positions):** "Enemies start at range (Recommended)": fights open at range and close; stance, range
+  and speed matter; patrols gain precharge. Patrol goldens move (re-capture first, explain every moved hash).
+- **OC-D1 (power budget):** "Install gate + combat penalty (Recommended)": canFitByPower at the install check plus a
+  combat over-budget penalty; Reactor Overdrive, Power Discipline and the Martian racial act on it.
+- **OC-E10 (promotion):** "Count the objectives (Recommended)": crewHours from the officer's ship hours out on any run,
+  shipsDestroyed from patrol and ship-event kills, personnelAchievement from objectives completed by the ship's squads.
