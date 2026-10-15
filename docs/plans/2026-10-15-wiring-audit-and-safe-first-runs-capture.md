@@ -81,3 +81,14 @@ not."
 
 "Keep writing all of the things down and keep presenting them until you get your answers." Re-present unanswered
 calls every time until answered.
+
+## 7. Follow-up answers (user, 2026-10-15)
+
+- **Safe range:** "First expedition only." Only the very first expedition is guaranteed unlosable; later Tier I runs
+  can be lost, gently, on the curve. (The "perhaps the very first tier" idea is NOT adopted.)
+- **Heavy cruiser:** "Explorers are heavy cruisers." Orion, Aurora and Eir are heavy-cruiser-class ships; add that
+  class wording to their descriptions. No new hull.
+- **Safe first runs, which types:** all four: expeditions, captain missions (first gathering run and first combat
+  mission), patrols (the first patrol), short-range missions (the first of each template, once G1 is built).
+- **Framework:** "All three, list first": the bonus registry + per-bonus sensitivity tests first, then the simulated
+  player, then the Debug "Wiring" panel; the wiring audit uses them.
