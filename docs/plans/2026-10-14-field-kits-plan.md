@@ -204,19 +204,24 @@ the threat odds of three tasks; each at five checkpoints, the phase at 2,000,000
 997 s chunks == 1 s steps on the same fixtures.
 **Acceptance:** green on today's code; committed alone. Commit `test(0.14.0): pre-Field-Kits golden hashes (Field Kits FK-3)`.
 
-**FK-3 carry (2026-10-14, done):** `src/lib/game/fieldKitsGoldens.test.ts` (22 tests, each under 0.5 s) pins ten
-fixtures (legacy, preSq4, riskAware, affixCat1, affixCat2, tierSeven, ossirBleed, shroud, lure, bothDevices) at five
-checkpoints + the phase at 2,000,000 s + the claim (every fixture completes and claims), plus the per-boundary
-ship-event chance and step roll on each run with ship events, an Ossir member taking Bleed in a battle (guards stamped
-with a Bleed on-hit; the resolveGroundBattle call FK-4 will widen), and the threat odds of three objectives. Parity per
-fixture: 997 s chunks to the last checkpoint; 1 s steps over the busy stretch (legacy 60,000 s from dispatch, a real
-Ground Ops run its window's first hour from a one-call advance, a hand-built run its first 3 hours), since 1 s over a
-whole real run blows the 5 s budget. `withoutFieldKits(exp)` lives in `awayTeamTestFixtures.ts` (strips `fieldKits`,
-team `kits` / `treatment`, the pending fight's `kitsUsed` / `treated`; identity today, asserted). Later slices: every
-fixture goes through it at build, so FK-6 stamping the flag at dispatch keeps the goldens; but FK-6 also DEDUCTS packs
-from the state at dispatch, so if a default pack ever draws stock in these fixtures the claim hashes need the state
-side stripped too (the fixtures hold no kits in inventory, so nothing is drawn today). Cross-check: riskAware is the
-AF-1 gate's tierFourEnemy fixture and reproduces its capture exactly.
+**FK-3 carry (2026-10-14, done; review follow-up the same day):** `src/lib/game/fieldKitsGoldens.test.ts` (35 tests,
+the slowest about 0.55 s) pins eleven fixtures (legacy, legacyDevices, preSq4 with BOTH teams deployed, riskAware,
+affixCat1, affixCat2, tierSeven, ossirBleed, shroud, lure, bothDevices at +0.8: one Shroud, three Lures) at five
+checkpoints, MID-RUN checkpoints read off each fixture's own history (the middle of the first bay stay and of the
+first recovery leg; offsets pinned in the golden), the phase at 2,000,000 s and the claim (every fixture completes and
+claims), plus the per-boundary device-read chance and step roll on every run that rolls at its boundaries (the ship-event
+chance on Ground Ops runs, `scanEncounterChance` on legacy runs, both reading `fieldDeviceEffectiveness`, FK-7's
+target), an Ossir member taking Bleed in a battle (guards stamped with a Bleed on-hit; the resolveGroundBattle call
+FK-4 will widen), and the threat odds of three objectives. Parity per fixture: 997 s chunks to the last checkpoint; 1 s
+steps over the busy stretch (legacy 60,000 s, a real Ground Ops run its window's first hour from a one-call advance, a
+hand-built run its first 3 hours; 1 s over a whole real run blows the 5 s budget); an EVENT-BOUNDARY chain (t - 1, t,
+t + 1 at every recorded step boundary, log line and ship leg) compared to one call; 61 s chunks over 60,000 s.
+`withoutFieldKits(exp)` lives in `awayTeamTestFixtures.ts` (strips `fieldKits`, team `kits` / `treatment`, the pending
+fight's `kitsUsed` / `treated`; identity today, asserted). Every fixture goes through it at build, so FK-6 stamping the
+flag keeps the goldens. BUT the claim hashes cover the whole STATE: if FK-6 writes anything state-side at dispatch (a
+`ShipGroundTeam.pack` preference, stock deducted for a default pack), the claim hash moves; FK-6 must strip it (in
+`withoutFieldKits`'s state twin or the claim comparison), never re-capture. The fixtures hold no kits in inventory, so
+nothing is drawn today. Cross-check: riskAware is the AF-1 gate's tierFourEnemy fixture and reproduces its capture.
 
 ### FK-4: Conditions, enemy inflicts, the flash grenade, Fear, Stoneskin in battle (engine, behind the flag)
 
