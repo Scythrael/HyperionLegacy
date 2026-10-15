@@ -177,6 +177,35 @@ export function awayGateText(state: GameState, gate: AwayCrewGate, shipIds: read
   return awayCrewBlockText(gate.reason);
 }
 
+// CP-6 follow-up: a member card's "Move to..." control. When the member's OWN ship is crew-locked, nobody
+// can leave it, so the whole control is disabled and the reason is shown ONCE (lockText), rather than on
+// every option, where it read as if each TARGET ship were out. Otherwise each blocked option names only
+// that target's own refusal ([t.shipId]). Pure.
+export interface AwayMoveOption {
+  shipId: string;
+  text: string; // the option label, plus "(reason)" when blocked
+  enabled: boolean;
+}
+export interface AwayMoveControl {
+  lockText: string | null; // the member's own ship is locked: disable the select and Move, show this once
+  options: AwayMoveOption[];
+}
+
+export function awayMoveControl(
+  state: GameState,
+  fromShipId: string,
+  targets: readonly { shipId: string; label: string; gate: AwayCrewGate }[],
+): AwayMoveControl {
+  const lockText = crewLockTextAmong(state, [fromShipId]);
+  return {
+    lockText,
+    options: targets.map((t) => {
+      const why = lockText !== null ? undefined : awayGateText(state, t.gate, [t.shipId]);
+      return { shipId: t.shipId, text: why === undefined ? t.label : `${t.label} (${why})`, enabled: lockText === null && t.gate.ok };
+    }),
+  };
+}
+
 // Every unassigned member in roster order, with the gates for moving aboard `shipId` and for firing. Pure.
 export function unassignedMembersView(state: GameState, shipId: string): UnassignedMemberView[] {
   return state.awayMembers

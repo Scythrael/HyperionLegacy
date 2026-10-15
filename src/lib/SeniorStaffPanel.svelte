@@ -52,7 +52,7 @@
     officerBlockText,
     type OfficerGate,
   } from "./game/seniorStaff";
-  import { crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
+  import { crewLockReason, crewLockReasonText, crewLockTextAmong, crewLockUntilText } from "./game/crewLock";
   import Icon from "./ui/Icon.svelte";
   import { getSeniorStaffBonusById } from "./game/seniorStaffBonuses";
   import { CREW_RACES } from "./game/crewRaces";
@@ -134,10 +134,13 @@
   // promotion and favorites stay live. The engine gates refuse the same actions (seniorStaff.ts can*).
   $: lockReason = ship ? crewLockReason(state, shipId) : null;
   $: lockText = lockReason === null ? null : crewLockReasonText(lockReason);
-  // A refusal's player text; a crew lock reads the accurate words for this ship. undefined when open.
-  function gateWhy(gate: OfficerGate, lock: string | null): string | undefined {
+  // A refusal's player text; a crew lock reads the accurate words for the FIRST locked ship among the ones
+  // the action touches (the officer's own ship, then this one). undefined when open.
+  function gateWhy(gate: OfficerGate, shipIds: readonly (string | null)[]): string | undefined {
     if (gate.ok) return undefined;
-    return gate.reason === "onMission" && lock !== null ? lock : officerBlockText(gate.reason);
+    return gate.reason === "onMission"
+      ? crewLockTextAmong(state, shipIds) ?? officerBlockText(gate.reason)
+      : officerBlockText(gate.reason);
   }
 
   // The officer sitting the currently-drilled seat (null when the seat is empty or none drilled).
@@ -294,8 +297,8 @@
 
       {#if selectedOfficer}
         {@const officer = selectedOfficer}
-        {@const reassignWhy = gateWhy(canUnassignOfficer(state, officer.id), lockText)}
-        {@const dismissWhy = gateWhy(canFireOfficer(state, officer.id), lockText)}
+        {@const reassignWhy = gateWhy(canUnassignOfficer(state, officer.id), [officer.assignedShipId])}
+        {@const dismissWhy = gateWhy(canFireOfficer(state, officer.id), [officer.assignedShipId])}
         <!-- OFFICER DOSSIER -->
         <div class="sstaff-dossier">
           <div class="sstaff-officer-hdr">
@@ -424,7 +427,7 @@
             <div class="sstaff-block-tag">Available Officers</div>
             <div class="sstaff-cand-list">
               {#each availableOfficers as officer (officer.id)}
-              {@const assignWhy = gateWhy(canAssignOfficer(state, officer.id, shipId), lockText)}
+              {@const assignWhy = gateWhy(canAssignOfficer(state, officer.id, shipId), [officer.assignedShipId, shipId])}
                 <div class="sstaff-cand">
                   <div class="sstaff-cand-info">
                     <span class="sstaff-cand-name">{officer.name}</span>
@@ -467,7 +470,7 @@
           {:else}
             <div class="sstaff-cand-list">
               {#each seatCandidates as candidate (candidate.id)}
-              {@const hireWhy = gateWhy(canHireOfficerToSeat(state, candidate.id, shipId), lockText)}
+              {@const hireWhy = gateWhy(canHireOfficerToSeat(state, candidate.id, shipId), [shipId])}
                 <div class="sstaff-cand">
                   <div class="sstaff-cand-info">
                     <span class="sstaff-cand-name">{candidate.name}</span>
@@ -528,11 +531,17 @@
   .sstaff {
     container-type: inline-size;
     display: flex;
-    flex-direction: column;
+    /* CP-6 follow-up: a container query can only style the container's DESCENDANTS, never .sstaff itself,
+       so the old "flex-direction: row" inside the wide query never applied (stacked at 1280 px). The row
+       wraps instead: both regions take a full line by default (stacked), and the wide query below sizes
+       them to share one line. */
+    flex-flow: row wrap;
+    align-items: flex-start;
     gap: 12px;
   }
   .sstaff-seats,
   .sstaff-detail {
+    flex: 1 1 100%;
     min-width: 0;
   }
   /* NARROW container: DRILL. Show the seat grid until a seat is drilled, then swap to the
@@ -547,19 +556,16 @@
     }
   }
   /* WIDE container: seat grid + detail side by side, both always present. The Back control
-     is hidden (there is nothing to go back FROM; the grid is right there). */
+     is hidden (there is nothing to go back FROM; the grid is right there). The ".sstaff" prefix
+     outranks the base .sstaff-back rule further down, which otherwise wins on source order. */
   @container (min-width: 520px) {
-    .sstaff {
-      flex-direction: row;
-      align-items: flex-start;
-    }
     .sstaff-seats {
-      flex: 0 0 46%;
+      flex: 0 0 calc(46% - 6px);
     }
     .sstaff-detail {
-      flex: 1;
+      flex: 1 1 0;
     }
-    .sstaff-back {
+    .sstaff .sstaff-back {
       display: none;
     }
   }

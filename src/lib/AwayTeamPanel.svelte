@@ -115,6 +115,7 @@
     UNASSIGNED_INTRO,
     unassignedMembersView,
     awayGateText,
+    awayMoveControl,
     crewLockText,
   } from "./awayTeamDisplay";
 
@@ -1017,25 +1018,27 @@
 
               <div class="mem-acts">
                 {#if mv.moveTargets.length > 0}
+                  {@const mc = awayMoveControl(state, shipId, mv.moveTargets)}
                   <select
                     class="mem-move"
                     aria-label="Ship to move {m.name} to"
+                    aria-describedby={mc.lockText !== null ? whyId : undefined}
+                    title={mc.lockText ?? undefined}
+                    disabled={mc.lockText !== null}
                     value={moveTo?.shipId ?? ""}
                     on:change={(e) => onPickMove(m.id, e)}
                   >
                     <option value="" disabled>Move to...</option>
-                    {#each mv.moveTargets as t (t.shipId)}
-                      <option value={t.shipId} disabled={!t.gate.ok}>
-                        {t.label}{t.gate.ok ? "" : ` (${gateText(t.gate, [shipId, t.shipId])})`}
-                      </option>
+                    {#each mc.options as o (o.shipId)}
+                      <option value={o.shipId} disabled={!o.enabled}>{o.text}</option>
                     {/each}
                   </select>
                   <button
                     type="button"
                     class="aw-btn"
-                    disabled={moveTo === null}
+                    disabled={moveTo === null || mc.lockText !== null}
                     aria-label="Move {m.name}"
-                    title={moveTo === null ? "Pick a ship to move to first" : `Move ${m.name} to ${moveTo.label}`}
+                    title={mc.lockText ?? (moveTo === null ? "Pick a ship to move to first" : `Move ${m.name} to ${moveTo.label}`)}
                     on:click={() => move(mv, movePick)}
                   >Move</button>
                 {/if}

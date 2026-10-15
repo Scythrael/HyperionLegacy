@@ -443,7 +443,7 @@
                 aria-label={`${SEAT_LABEL[seat]} officer`}
                 on:change={(e) => assignSeat(seat, e.currentTarget.value)}
               >
-                <option value="">— empty —</option>
+                <option value="">(empty)</option>
                 {#each options as o (o.id)}
                   <option value={o.id}>{o.name} · {officerRankLabel(o.rank)}</option>
                 {/each}

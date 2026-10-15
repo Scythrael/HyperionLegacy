@@ -27,6 +27,7 @@ import {
   unassignedMembersView,
   crewLockText,
   awayGateText,
+  awayMoveControl,
 } from "./awayTeamDisplay";
 import { memberFitReasonText } from "./awayGearDisplay";
 
@@ -218,5 +219,36 @@ describe("awayGateText + memberFitReasonText name the real lock (CP-6)", () => {
     expect(awayGateText(s, { ok: true }, ["ship-1"])).toBeUndefined();
     expect(awayGateText(base, { ok: false, reason: "onMission" }, ["ship-1"])).toBe("Ship is out on a mission"); // fallback
     expect(memberFitReasonText(s, "any", "onMission", "member-1")).toBe("Ship is on an expedition");
+  });
+});
+
+// CP-6 follow-up: the Move list never blames the target for the member's own ship being out.
+describe("awayMoveControl (CP-6 follow-up)", () => {
+  const two = () => {
+    const base = freshState();
+    return {
+      ...base,
+      ships: [base.ships[0], { id: "ship-2", typeKey: "generalFreighter", assignedCaptainId: null, name: "Hauler" } as any],
+    };
+  };
+  const targets = [
+    { shipId: "ship-2", label: "Hauler · Security", gate: { ok: false as const, reason: "onMission" as const } },
+  ];
+
+  it("own ship locked: one lock text, every option plain and disabled", () => {
+    const s = { ...two(), expeditions: [{ id: "expedition-1", shipId: "ship-1" } as any] };
+    const v = awayMoveControl(s, "ship-1", targets);
+    expect(v.lockText).toBe("Ship is on an expedition");
+    expect(v.options).toEqual([{ shipId: "ship-2", text: "Hauler · Security", enabled: false }]);
+  });
+
+  it("own ship free: a blocked option names only the target's own lock", () => {
+    const s = { ...two(), expeditions: [{ id: "expedition-2", shipId: "ship-2" } as any] };
+    const v = awayMoveControl(s, "ship-1", targets);
+    expect(v.lockText).toBeNull();
+    expect(v.options[0].text).toBe("Hauler · Security (Ship is on an expedition)");
+    expect(v.options[0].enabled).toBe(false);
+    const open = awayMoveControl(two(), "ship-1", [{ shipId: "ship-2", label: "Hauler · Security", gate: { ok: true } }]);
+    expect(open.options[0]).toEqual({ shipId: "ship-2", text: "Hauler · Security", enabled: true });
   });
 });
