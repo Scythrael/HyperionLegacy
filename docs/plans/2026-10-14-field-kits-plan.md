@@ -409,3 +409,20 @@ Commit `docs(0.14.0): Field Kits help and close-out (Field Kits FK-10)`.
       has no kit rule.
 - [ ] Help: the Field Kits topic and the widened cure list; no em dashes, US English, "install", "objective".
 - [ ] Glyphs at 16 / 28 / 56 px; console clean on every screen; no horizontal scroll at 375 px.
+
+## USER ANSWERS (2026-10-15)
+
+- **FK1 / open call 1 (grenades, Shroud Emitter, Lure Beacon):** "Keep as installed tools (Recommended)". Only the six
+  medical / stim kits become consumables.
+- **FK2 / open call 5 (the medic's free Cure):** "Basic debuffs only. Perhaps future debuff inflictions will have higher
+  ranks to indicate more severe issues, and only medical training can resolve those. "Fracture -> Broken Bone ->
+  Shattered Bone -> Sentient Mass of Pudding (Okay, not this one, but you get the gist). Progressively worsening
+  ailments. A splint might be able to help a fracture and perhaps a light break, but certainly not a shattered bone."
+  So: on new runs Cure clears basic debuffs only; serious conditions need their kit. IDEA captured: condition SEVERITY
+  RANKS (e.g. Fracture, Broken Bone, Shattered Bone), each kit treating up to a rank (a Splint helps a fracture and
+  perhaps a light break, never a shattered bone); "future" / "perhaps": whether ranks are in 0.14.0 is asked.
+- **FK3 / open call 4 (free First Aid floor):** "Per trip, curved (Recommended)": free First Aid Kits restock each trip
+  at the reload step; the cap of 8 becomes a D23 diminishing curve.
+- **FK4 / open call 9 (pack scope):** "One per member" (NOT the team-pack proposal). Each member carries their own kits;
+  this matches GO-17's per-member `SquadLoadoutKit.consumables?` slot (keep it, do not move the pack to the team).
+  The dispatch packing UI (FK-8) and the default packing must be redesigned per member.
