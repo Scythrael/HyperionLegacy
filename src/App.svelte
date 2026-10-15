@@ -17357,7 +17357,7 @@
            TRANSPORT runs. Gathering now shows ONLY extraction/mining missions again, so
            Tier II is LOCKED once more (all mining is Tier I) and the mission filter excludes
            every exploration missionType (survey | transport). Dispatch does not happen
-           inline here -- clicking an available mission row calls openMissionPopup, whose
+           inline here: clicking an available mission row calls openMissionPopup, whose
            dispatch flow (doDispatchCaptainOnMission) lives near the DELETE SAVE modal
            further down this same template. The .mpane row markup is the SHARED
            availableMissionRow snippet defined above. -->
@@ -18442,7 +18442,7 @@
         <!-- Color-blind palette: a SEPARATE axis from the theme, so a player keeps their preferred
              theme accent and layers safety onto the meaning-bearing colors (state + rarity), using
              the Okabe-Ito universal set (distinguishable across the common deficiency types at once).
-             ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today — the same Toggle
+             ⚠️ A TOGGLE, not a dropdown, because there is exactly ONE palette today; the same Toggle
              switch as the High-contrast / Dyslexia rows above it, and it never wraps a wide <select>
              onto a second line on a phone. The extension seam is the [data-palette] axis (app.css)
              plus the COLORBLIND_PALETTES list (accessibilityPreference.ts), NOT this control: when
@@ -18720,7 +18720,7 @@
 
                 <!-- QUALITY: a SET of ticked tiers (checkboxes), not a threshold. The old "Off /
                      Qn and below" dropdown was retired by the user ("quality being off makes no
-                     sense... there is no third state") — nothing ticked simply means quality does
+                     sense... there is no third state"); nothing ticked simply means quality does
                      not narrow. Tiers DERIVE from QUALITY_TIERS (autoSalvageAllTiers). -->
                 <SettingRow
                   label="Quality tiers to queue"
@@ -19474,7 +19474,7 @@
           {/if}
 
           <!-- Time shown via formatDuration (the app's human formatter: ~45s under a minute, then
-               ~28m / ~1h 5m / ~2d 3h), not raw seconds — "1692.0s" is hard to read (user 2026-09-14).
+               ~28m / ~1h 5m / ~2d 3h), not raw seconds; "1692.0s" is hard to read (user 2026-09-14).
                The tick COUNT stays for the tick-counting player; a 0-tick phase reads "(-)". -->
           <div class="panel-title">TIMING</div>
           <div class="research-cost">Orders received: {ordersTicks} {ordersTicks === 1 ? "tick" : "ticks"} ({formatDuration(ordersTicks, state.tickDurationSeconds)})</div>
@@ -21269,8 +21269,8 @@
   }
   .research-readout { font-size: var(--text-xs); color: var(--color-text-secondary); text-align: right; }
   /* OPERATIONS MISSION PANES (0.13.5, docs/plans/2026-09-14-ops-mission-panes.html). The
-     Gathering + Combat AVAILABLE lists render as a vertical stack of full-width ROWS — the
-     facilities/captains .fpane/.cpane idiom — instead of the old .mission-list card grid.
+     Gathering + Combat AVAILABLE lists render as a vertical stack of full-width ROWS, the
+     facilities/captains .fpane/.cpane idiom, instead of the old .mission-list card grid.
      One .mpane = id block | glance mid | actions, on a fixed 3-column grid; an optional
      "More info" reveal (.mpane-reveal) opens attached under the row. All tokens (--corner /
      --text-* / --color-* / --ui-scale), no raw-px font-size, so it repaints on every theme
@@ -21335,8 +21335,8 @@
   .mission-recalled-text { margin-top: 10px; margin-bottom: 0; }
   /* (0.13.5 mission-pane redesign: .mission-card-selectable + :hover + .expanded and
      .mission-card-actions were REMOVED with the Gathering AVAILABLE card grid, which became
-     the full-width .mpane rows above. Their behavior — the accent-border selection signal and
-     the View Info / Assign action row — lives on .mpane / .mpane-actions now. Deleted rather
+     the full-width .mpane rows above. Their behavior, the accent-border selection signal and
+     the View Info / Assign action row, lives on .mpane / .mpane-actions now. Deleted rather
      than left behind: svelte-check flags unused selectors.) */
   /* View Info / More info detail block: a stacked column of labelled sections (Drop Table /
      Requirements / Rewards for gathering; Encounter / ship for combat), hosted in the
@@ -23123,7 +23123,7 @@
     .home-prog { grid-template-columns: 1fr; }
     /* Item tooltips widen to most of the screen on a phone (user, 2026-09-14): the desktop caps
        (~320px) sit at ~60% of a phone and clip longer item names. They stay content-sized, so a
-       short card is still small — this only lifts the ceiling so a long name can use the width. */
+       short card is still small; this only lifts the ceiling so a long name can use the width. */
     .warehouse-tooltip, .frow-tip-card { max-width: 92vw; }
   }
   .home-row {
