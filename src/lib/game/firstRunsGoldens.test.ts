@@ -2,25 +2,29 @@
 // tables captured on the code BEFORE any safe-first-runs engine edit (on top of bfac15f). They are the "today" record
 // every later slice compares against: SF-2 (the safe first expedition) and SF-4 (the safe first patrol) MOVE the first
 // run goldens on purpose and must name each move; everything a veteran or a later run does stays put unless SF-3 or
-// SF-4 names it. Whole serialized records, never a narrow subset:
+// SF-4 names it. Whole serialized records, never a narrow subset; every whole STATE goes through stateHash (no
+// `runCounts`, no `homeworld`), so SF-1's counters and G2-1's homeworld move nothing by themselves:
 //
 //   1. fresh    : the "first" predicates of a new save (nextExpeditionId 1, nextPatrolSeed 1, the default expedition
 //                 seed, no away members, no completed mission key) and the fresh recruit board (section 2.2).
 //   2. patrol   : the WHOLE first cycle (Dispatch Once) from freshState for every hull x both routes at master seeds 1
 //                 and 2 (the dispatch record, the display replay at every route tick, the ship, the completion log, the
 //                 whole state); a Repeat patrol's first two cycles at seed 1; the SECOND patrol of a save (dispatched
-//                 from the state the won first one left); the dispatch card's Threat Assessment band; closed-form
-//                 parity; and the section 2.5 E 200-seed win table, pinned as numbers.
+//                 from the state the won first one left); closed-form parity.
 //   3. gather   : one delivered cycle for every MISSIONS key x every hull (the refusal for a hull that cannot fly it).
-//   4. first    : the section 2.5 A table: the shakedown of the three fresh-save candidates from the General Freighter,
-//                 Orion, Aurora and Eir with every section 2.5 crew (firstRunsGoldens.fixture.ts), as numbers, plus the
-//                 dispatch record, the run at 3,000,000 s and (a finished run) the claimed state as hashes; the launch
-//                 view of the shakedown; offline == live parity on a stalled shakedown.
+//   4. first    : the section 2.5 A runs: the shakedown of the three fresh-save candidates from the General Freighter,
+//                 Orion, Aurora and Eir with every section 2.5 crew (firstRunsGoldens.fixture.ts): the dispatch record,
+//                 the run at 3,000,000 s and (a finished run) the claimed state; the launch view of the shakedown;
+//                 offline == live parity on a stalled shakedown.
 //   5. later    : later expeditions: the same candidates as expedition 2 and expedition 11, and a REAL second run
 //                 dispatched after the first one is claimed.
 //   6. guards   : generateEncounter for the Vault and Subterranean guards (and three ordinary sites) at every hazard
 //                 the Tier I planet types carry and between (the hazard-scaled guards section 3.5 bounds).
-// The section 2.5 B table (60 Tier I seeds) lives in firstRunsGoldens.sweep.test.ts (its own file: about 35 s).
+//   7. old save : a v69 save that already flew expeditions and a patrol, through deserialize + migrate, then one patrol
+//                 cycle and one expedition run (old saves count as veterans: unchanged from SF-1 to SF-4).
+// GATED (SF_SWEEP set, or `npm run test:sweep`): the pure measurement tables, i.e. the dispatch card's Threat
+// Assessment bands, the section 2.5 E 200-seed win table and the readable section 2.5 A outcome lines. The section 2.5
+// B table (60 Tier I seeds) lives in firstRunsGoldens.sweep.test.ts (7 seeds in the default run, all 60 gated).
 //
 // THE G2-0 GOLDENS (expeditionTiersGoldens.test.ts) are the other half of this record: golden 1 (the stored in-flight
 // runs) must stay unchanged in EVERY SF slice; golden 2's expedition 1 dispatches (the shakedowns, rank 10 crews) are
@@ -42,7 +46,8 @@ import {
   type PatrolMissionState,
   type ShipTypeKey,
 } from "./model";
-import { advanceExpedition, claimExpedition, expeditionCandidates, expeditionLaunchView, startExpedition } from "./expedition";
+import { advanceExpedition, advanceExpeditionSeed, claimExpedition, expeditionCandidates, expeditionLaunchView, startExpedition } from "./expedition";
+import { deserialize, migrate, serialize, type SaveFile } from "./save";
 import { canDispatch, dispatchCaptainOnMission, dispatchCaptainOnPatrol, economyTick } from "./tick";
 import { awayRecruitCandidates } from "./awayTeam";
 import { generateEncounter } from "./gambit";
@@ -51,7 +56,7 @@ import { replayPatrol, resolvePatrolWaves } from "./combat/patrolReplay";
 import { combatHullTypeOf, defaultSystemDurabilityForHull, foldedPlayerDefense, installedDronesForPatrol, shipToCombatant } from "./combat/bridge";
 import { battleRating, DEFAULT_SAMPLES } from "./combat/rating";
 import { threatAssessment } from "./combat/threatAssessment";
-import { CREW_NAMES, hash, onHull, runOutcome, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
+import { CREW_NAMES, hash, onHull, runOutcome, stateHash, SWEEP, SWEEP_END, withCrew, type CrewName, type RunOutcome } from "./firstRunsGoldens.fixture";
 
 // ===== shared helpers =====
 
@@ -78,8 +83,8 @@ function line(o: RunOutcome): string {
 
 // Captured on the code BEFORE any safe-first-runs engine edit (SF-0, on top of bfac15f). Line layouts: patrol = per
 // route and seed [route:seed:outcome:ticks, dispatch record, replays, ship, completion log, state] (+ [second:outcome:
-// ticks, record, state] after a won seed 1); first / later = per candidate [outcome line, dispatch record, run at
-// 3,000,000 s, claim or "unclaimed"]; gather = per hull [hull:ticks, dispatch record, state at delivery] or the
+// ticks, record, state] after a won seed 1); first / later = per candidate [dispatch record, run at 3,000,000 s, claim
+// or "unclaimed"] (the "lines:" keys hold the gated outcome lines of the same runs); gather = per hull [hull:ticks, dispatch record, state at delivery] or the
 // refusal. Cross-checks: the board, the 2.5 A stuck sites and the 2.5 E win table reproduce the plan's section 2.2
 // and 2.5 numbers; "first:launch" equals G2-0 "display:launch" at Level 5 (b4d99ab5, 25f32e71, 8105e2b): today the
 // shakedown's launch view for a D18 minimum crew on a Freighter or an Orion is the one a rank 10 crew reads.
@@ -169,28 +174,6 @@ const GOLDEN: Record<string, unknown> = {
     "aurora:crimsonReaverWarband:end@20:80f78478", "eir:crimsonReaverSweep:relaunch@14:df1b0f2d,relaunch@28:9fc6059",
     "eir:crimsonReaverWarband:end@20:88961f0c",
   ],
-  "patrol:forecast": [
-    "generalFreighter:crimsonReaverSweep:{\"rating\":1310,\"wins\":63,\"tier\":\"likely\"}",
-    "generalFreighter:crimsonReaverWarband:{\"rating\":1310,\"wins\":1,\"tier\":\"extreme\"}",
-    "prospectorHauler:crimsonReaverSweep:{\"rating\":1558,\"wins\":63,\"tier\":\"likely\"}",
-    "prospectorHauler:crimsonReaverWarband:{\"rating\":1558,\"wins\":2,\"tier\":\"extreme\"}",
-    "prospectorRunner:crimsonReaverSweep:{\"rating\":766,\"wins\":37,\"tier\":\"dice\"}",
-    "prospectorRunner:crimsonReaverWarband:{\"rating\":766,\"wins\":0,\"tier\":\"impossible\"}",
-    "prospectorMiner:crimsonReaverSweep:{\"rating\":942,\"wins\":37,\"tier\":\"dice\"}",
-    "prospectorMiner:crimsonReaverWarband:{\"rating\":942,\"wins\":0,\"tier\":\"impossible\"}",
-    "destroyer:crimsonReaverSweep:{\"rating\":1967,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "destroyer:crimsonReaverWarband:{\"rating\":1967,\"wins\":9,\"tier\":\"extreme\"}",
-    "battleship:crimsonReaverSweep:{\"rating\":3386,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "battleship:crimsonReaverWarband:{\"rating\":3386,\"wins\":50,\"tier\":\"worthy\"}",
-    "carrier:crimsonReaverSweep:{\"rating\":3138,\"wins\":64,\"tier\":\"guaranteed\"}",
-    "carrier:crimsonReaverWarband:{\"rating\":3138,\"wins\":39,\"tier\":\"worthy\"}",
-    "orion:crimsonReaverSweep:{\"rating\":1464,\"wins\":58,\"tier\":\"likely\"}",
-    "orion:crimsonReaverWarband:{\"rating\":1464,\"wins\":0,\"tier\":\"impossible\"}",
-    "aurora:crimsonReaverSweep:{\"rating\":1348,\"wins\":57,\"tier\":\"likely\"}",
-    "aurora:crimsonReaverWarband:{\"rating\":1348,\"wins\":0,\"tier\":\"impossible\"}",
-    "eir:crimsonReaverSweep:{\"rating\":1380,\"wins\":54,\"tier\":\"likely\"}",
-    "eir:crimsonReaverWarband:{\"rating\":1380,\"wins\":0,\"tier\":\"impossible\"}",
-  ],
   "gather:localFuelRun": [
     "generalFreighter:99", "aa03a7cf", "5cb7d17c", "prospectorHauler:197", "aa03a7cf", "f95add53",
     "prospectorRunner:67", "aa03a7cf", "adfb07fb", "prospectorMiner:99", "aa03a7cf", "b50c8005", "destroyer:34",
@@ -246,189 +229,76 @@ const GOLDEN: Record<string, unknown> = {
     "16929aa2", "eir:441", "a3dde4a3", "741ba1c0",
   ],
   "first:generalFreighter:d18": [
-    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "9e5223c9", "3a5a95d9", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
-    "2115da58", "71f5cbed", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:80 setbacks:2 boarded:0 vault:1",
-    "fd592d55", "becf9484", "unclaimed",
+    "9e5223c9", "3a5a95d9", "unclaimed", "2115da58", "71f5cbed", "unclaimed", "fd592d55", "becf9484", "unclaimed",
   ],
   "first:generalFreighter:board2": [
-    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "3da2c645", "2823a200", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
-    "8304ea98", "bfb6992a", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:80 setbacks:2 boarded:0 vault:1",
-    "3732ba19", "a214f5fe", "unclaimed",
+    "3da2c645", "2823a200", "unclaimed", "8304ea98", "bfb6992a", "unclaimed", "3732ba19", "a214f5fe", "unclaimed",
   ],
   "first:generalFreighter:board10": [
-    "cand-0 activities 10/11 lost:78 sent:566 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "cd4fcbd1", "53e686c7", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:578 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
-    "1beccb10", "2be2ead9", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1", "480c8429",
-    "503b3056", "unclaimed",
+    "cd4fcbd1", "53e686c7", "unclaimed", "1beccb10", "2be2ead9", "unclaimed", "480c8429", "503b3056", "unclaimed",
   ],
   "first:generalFreighter:rank1": [
-    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "31f939de", "49731bac", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
-    "25f2e1bb", "9014510", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1", "496d6e18",
-    "a2081d57", "unclaimed",
+    "31f939de", "49731bac", "unclaimed", "25f2e1bb", "9014510", "unclaimed", "496d6e18", "a2081d57", "unclaimed",
   ],
   "first:generalFreighter:rank3": [
-    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "facd5f14", "a2d97311", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
-    "43b8770d", "2623ac1b", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1", "8769feca",
-    "7cd794bc", "unclaimed",
+    "facd5f14", "a2d97311", "unclaimed", "43b8770d", "2623ac1b", "unclaimed", "8769feca", "7cd794bc", "unclaimed",
   ],
   "first:generalFreighter:rank6": [
-    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "1dadcf56", "7522a9e4", "unclaimed",
-    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:3 boarded:3 vault:2", "9def7063", "9d98dd39",
-    "40bd9861", "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1",
-    "1becdf14", "bc2880f", "unclaimed",
+    "1dadcf56", "7522a9e4", "unclaimed", "9def7063", "9d98dd39", "40bd9861", "1becdf14", "bc2880f", "unclaimed",
   ],
   "first:orion:d18": [
-    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "bf09aa6a", "64188ee0", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "ae4c51ff", "d5744d5b", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
-    "72573038", "bd23b57f", "unclaimed",
+    "bf09aa6a", "64188ee0", "unclaimed", "ae4c51ff", "d5744d5b", "unclaimed", "72573038", "bd23b57f", "unclaimed",
   ],
   "first:orion:board2": [
-    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "2e25da36", "db2af4c5", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "2fc00f3f", "f3ab2c7f", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
-    "dfd4f8bc", "c487b8f1", "unclaimed",
+    "2e25da36", "db2af4c5", "unclaimed", "2fc00f3f", "f3ab2c7f", "unclaimed", "dfd4f8bc", "c487b8f1", "unclaimed",
   ],
   "first:orion:board10": [
-    "cand-0 activities 10/11 lost:40 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "3abc17b8", "809df1dd", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:535 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "1f8293ed", "f52f303d", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1", "124bff60",
-    "d76be846", "unclaimed",
+    "3abc17b8", "809df1dd", "unclaimed", "1f8293ed", "f52f303d", "unclaimed", "124bff60", "d76be846", "unclaimed",
   ],
   "first:orion:rank1": [
-    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "c90a2e2b", "41a12945", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "5a902f36", "54074929", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1", "a3c5474b",
-    "336cdf54", "unclaimed",
+    "c90a2e2b", "41a12945", "unclaimed", "5a902f36", "54074929", "unclaimed", "a3c5474b", "336cdf54", "unclaimed",
   ],
   "first:orion:rank3": [
-    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "8bda8e61", "d753750", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "f7abe8e8", "870bb909", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1", "a4a39ed5",
-    "100f31d9", "unclaimed",
+    "8bda8e61", "d753750", "unclaimed", "f7abe8e8", "870bb909", "unclaimed", "a4a39ed5", "100f31d9", "unclaimed",
   ],
   "first:orion:rank6": [
-    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "affcd813", "223525a2", "unclaimed",
-    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "860b3dae", "bf21bed5",
-    "b6cb2433", "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
-    "4470367", "c7b46c88", "unclaimed",
+    "affcd813", "223525a2", "unclaimed", "860b3dae", "bf21bed5", "b6cb2433", "4470367", "c7b46c88", "unclaimed",
   ],
   "first:aurora:d18": [
-    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "52536dde", "756ee33c", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "5a7ab11b", "5dd300cf", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:48 setbacks:2 boarded:0 vault:1",
-    "87d5ba4a", "dd32a3f9", "unclaimed",
+    "52536dde", "756ee33c", "unclaimed", "5a7ab11b", "5dd300cf", "unclaimed", "87d5ba4a", "dd32a3f9", "unclaimed",
   ],
   "first:aurora:board2": [
-    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "fa2dceaa", "28607fcf", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "55313a5b", "c287057b", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:48 setbacks:2 boarded:0 vault:1",
-    "4967997e", "c4305587", "unclaimed",
+    "fa2dceaa", "28607fcf", "unclaimed", "55313a5b", "c287057b", "unclaimed", "4967997e", "c4305587", "unclaimed",
   ],
   "first:aurora:board10": [
-    "cand-0 activities 10/11 lost:40 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "49375564", "5a6036f7", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:535 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "5f4ed371", "f7b92c21", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1", "2d9dec82",
-    "b77026b6", "unclaimed",
+    "49375564", "5a6036f7", "unclaimed", "5f4ed371", "f7b92c21", "unclaimed", "2d9dec82", "b77026b6", "unclaimed",
   ],
   "first:aurora:rank1": [
-    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "88eb9415", "44669eb3", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "1a3d22e4", "4ed13047", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1", "e7ca94df",
-    "2fca8cb0", "unclaimed",
+    "88eb9415", "44669eb3", "unclaimed", "1a3d22e4", "4ed13047", "unclaimed", "e7ca94df", "2fca8cb0", "unclaimed",
   ],
   "first:aurora:rank3": [
-    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "86763a7b", "bfaa6416", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "74b53c5e", "5c417add", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1", "6e276961",
-    "f8354d21", "unclaimed",
+    "86763a7b", "bfaa6416", "unclaimed", "74b53c5e", "5c417add", "unclaimed", "6e276961", "f8354d21", "unclaimed",
   ],
   "first:aurora:rank6": [
-    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "7087672d", "99c4d0f6", "unclaimed",
-    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "cd047b4c", "1d9bc0c9",
-    "d02d8fba", "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1",
-    "df55fd0b", "daab71f8", "unclaimed",
+    "7087672d", "99c4d0f6", "unclaimed", "cd047b4c", "1d9bc0c9", "d02d8fba", "df55fd0b", "daab71f8", "unclaimed",
   ],
   "first:eir:d18": [
-    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "642344c4", "5d9d444a", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "55785a59", "a4032671", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:57 setbacks:2 boarded:0 vault:1",
-    "1aac0526", "1fa77fb5", "unclaimed",
+    "642344c4", "5d9d444a", "unclaimed", "55785a59", "a4032671", "unclaimed", "1aac0526", "1fa77fb5", "unclaimed",
   ],
   "first:eir:board2": [
-    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "56a48f68", "2a5a989b", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "4940b499", "7a20ad31", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:57 setbacks:2 boarded:0 vault:1",
-    "61b6a912", "ee419ce7", "unclaimed",
+    "56a48f68", "2a5a989b", "unclaimed", "4940b499", "7a20ad31", "unclaimed", "61b6a912", "ee419ce7", "unclaimed",
   ],
   "first:eir:board10": [
-    "cand-0 activities 10/11 lost:40 sent:571 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "27a3b4f8", "84fb8de5", "unclaimed",
-    "cand-1 complete 10/10 lost:27 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "8a585031", "7c62a83b",
-    "34383073", "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:57 setbacks:2 boarded:0 vault:1",
-    "7a333c16", "e61e1745", "unclaimed",
+    "27a3b4f8", "84fb8de5", "unclaimed", "8a585031", "7c62a83b", "34383073", "7a333c16", "e61e1745", "unclaimed",
   ],
   "first:eir:rank1": [
-    "cand-0 activities 10/11 lost:78 sent:574 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "ab42177f", "e2f372fb", "unclaimed",
-    "cand-1 complete 10/10 lost:31 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "2b4146ce", "94ba26f6",
-    "c5eb3f80", "cand-2 activities 8/9 lost:40 sent:576 stuck:buriedVault hull:57 setbacks:2 boarded:0 vault:1",
-    "be290397", "61f70297", "unclaimed",
+    "ab42177f", "e2f372fb", "unclaimed", "2b4146ce", "94ba26f6", "c5eb3f80", "be290397", "61f70297", "unclaimed",
   ],
   "first:eir:rank3": [
-    "cand-0 complete 11/11 lost:47 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2", "d3ded431", "b69720a",
-    "bbf5b584", "cand-1 complete 10/10 lost:0 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "4a025d0c",
-    "8624329f", "7ef7b4be", "cand-2 complete 9/9 lost:39 sent:0 stuck:none hull:57 setbacks:2 boarded:0 vault:1",
-    "ff3ba6f5", "d5007501", "dcb515f6",
+    "d3ded431", "b69720a", "bbf5b584", "4a025d0c", "8624329f", "7ef7b4be", "ff3ba6f5", "d5007501", "dcb515f6",
   ],
   "first:eir:rank6": [
-    "cand-0 activities 10/11 lost:61 sent:580 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "592b5c07", "c6e3826e", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:581 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "6b218f86", "e478219", "unclaimed",
-    "cand-2 complete 9/9 lost:2 sent:0 stuck:none hull:57 setbacks:2 boarded:0 vault:1", "2563a80b", "6a6f159f",
-    "a7b92c9c",
+    "592b5c07", "c6e3826e", "unclaimed", "6b218f86", "e478219", "unclaimed", "2563a80b", "6a6f159f", "a7b92c9c",
   ],
   "first:systems": [
     "Lyra's Wake: volcanic 0.65, barren 0.1", "Halcyon Drift: ocean 0.4, barren 0.1",
@@ -441,55 +311,27 @@ const GOLDEN: Record<string, unknown> = {
   ],
   "first:parity": "7ad8dc07",
   "later:orion:d18:2": [
-    "cand-0 activities 1/11 lost:40 sent:584 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "a862d950", "6ddb7975", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:583 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "f5d00cb1", "f090d549", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:554 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
-    "80cf940e", "7d17542b", "unclaimed",
+    "a862d950", "6ddb7975", "unclaimed", "f5d00cb1", "f090d549", "unclaimed", "80cf940e", "7d17542b", "unclaimed",
   ],
   "later:orion:d18:11": [
-    "cand-0 activities 1/11 lost:40 sent:584 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "a81b07ea", "12fc4967", "unclaimed",
-    "cand-1 activities 7/10 lost:40 sent:583 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "74efe27", "57df3c8d", "unclaimed",
-    "cand-2 activities 7/9 lost:40 sent:554 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
-    "3b6126c0", "2e893ca5", "unclaimed",
+    "a81b07ea", "12fc4967", "unclaimed", "74efe27", "57df3c8d", "unclaimed", "3b6126c0", "2e893ca5", "unclaimed",
   ],
   "later:orion:rank1:2": [
-    "cand-0 activities 10/11 lost:43 sent:515 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "6c60c819", "182ec2ee", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:457 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "a776360", "7f5516cd", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1", "e3ec8609",
-    "10d71e1d", "unclaimed",
+    "6c60c819", "182ec2ee", "unclaimed", "a776360", "7f5516cd", "unclaimed", "e3ec8609", "10d71e1d", "unclaimed",
   ],
   "later:orion:rank1:11": [
-    "cand-0 activities 10/11 lost:43 sent:515 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "82a89aab", "9aa5f6d8", "unclaimed",
-    "cand-1 activities 9/10 lost:40 sent:457 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
-    "9a3a52be", "f635524d", "unclaimed",
-    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1", "caf42cf3",
-    "768a8477", "unclaimed",
+    "82a89aab", "9aa5f6d8", "unclaimed", "9a3a52be", "f635524d", "unclaimed", "caf42cf3", "768a8477", "unclaimed",
   ],
   "later:orion:rank6:2": [
-    "cand-0 activities 10/11 lost:40 sent:563 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "3ebe3031", "297bc2dd", "unclaimed",
-    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "ddabe588", "75f3ef6",
-    "d1d4a03a", "cand-2 activities 8/9 lost:40 sent:572 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
-    "24220565", "5a9637ba", "unclaimed",
+    "3ebe3031", "297bc2dd", "unclaimed", "ddabe588", "75f3ef6", "d1d4a03a", "24220565", "5a9637ba", "unclaimed",
   ],
   "later:orion:rank6:11": [
-    "cand-0 activities 10/11 lost:40 sent:563 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
-    "9ea9cc93", "733b01d7", "unclaimed",
-    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2", "18972976", "a952bd2e",
-    "6976cc8", "cand-2 activities 8/9 lost:40 sent:572 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
-    "ebc0bc6f", "628cb48", "unclaimed",
+    "9ea9cc93", "733b01d7", "unclaimed", "18972976", "a952bd2e", "6976cc8", "ebc0bc6f", "628cb48", "unclaimed",
   ],
-  "later:eir:real": [
-    "complete 11/11 lost:47 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2", "bbf5b584",
-    "activities 7/8 lost:76 sent:502 stuck:geothermalChamber hull:14 setbacks:1 boarded:0 vault:3", "d2d53bc8",
-    "a076d1ec", "unclaimed",
+  "later:eir:real": ["bbf5b584", "d2d53bc8", "a076d1ec", "unclaimed"],
+  "lines:later:eir:real": [
+    "complete 11/11 lost:47 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
+    "activities 7/8 lost:76 sent:502 stuck:geothermalChamber hull:14 setbacks:1 boarded:0 vault:3",
   ],
   guards: [
     "buriedVault:0:n=3/3/3/3:hp=180/180/180/180:e7648019", "buriedVault:0.1:n=3/3/3/3:hp=195/195/195/195:d92e99cd",
@@ -520,6 +362,181 @@ const GOLDEN: Record<string, unknown> = {
     "unknownSite:0.4:n=2/2/2/2:hp=137/137/137/137:78e8bce5", "unknownSite:0.5:n=2/2/2/2:hp=146/146/146/146:a500e57d",
     "unknownSite:0.65:n=2/2/2/3:hp=158/158/158/210:910e3ce6", "unknownSite:0.9:n=2/2/2/3:hp=178/178/178/236:79db530a",
     "unknownSite:1:n=2/2/2/3:hp=187/187/187/248:a435ab2a",
+  ],
+  "old:v69": [
+    "46fc44f8", "patrol:won:14", "2150f1b6", "cfe43cca", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "75ab4c47",
+  ],
+  "patrol:forecast": [
+    "generalFreighter:crimsonReaverSweep:{\"rating\":1310,\"wins\":63,\"tier\":\"likely\"}",
+    "generalFreighter:crimsonReaverWarband:{\"rating\":1310,\"wins\":1,\"tier\":\"extreme\"}",
+    "prospectorHauler:crimsonReaverSweep:{\"rating\":1558,\"wins\":63,\"tier\":\"likely\"}",
+    "prospectorHauler:crimsonReaverWarband:{\"rating\":1558,\"wins\":2,\"tier\":\"extreme\"}",
+    "prospectorRunner:crimsonReaverSweep:{\"rating\":766,\"wins\":37,\"tier\":\"dice\"}",
+    "prospectorRunner:crimsonReaverWarband:{\"rating\":766,\"wins\":0,\"tier\":\"impossible\"}",
+    "prospectorMiner:crimsonReaverSweep:{\"rating\":942,\"wins\":37,\"tier\":\"dice\"}",
+    "prospectorMiner:crimsonReaverWarband:{\"rating\":942,\"wins\":0,\"tier\":\"impossible\"}",
+    "destroyer:crimsonReaverSweep:{\"rating\":1967,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "destroyer:crimsonReaverWarband:{\"rating\":1967,\"wins\":9,\"tier\":\"extreme\"}",
+    "battleship:crimsonReaverSweep:{\"rating\":3386,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "battleship:crimsonReaverWarband:{\"rating\":3386,\"wins\":50,\"tier\":\"worthy\"}",
+    "carrier:crimsonReaverSweep:{\"rating\":3138,\"wins\":64,\"tier\":\"guaranteed\"}",
+    "carrier:crimsonReaverWarband:{\"rating\":3138,\"wins\":39,\"tier\":\"worthy\"}",
+    "orion:crimsonReaverSweep:{\"rating\":1464,\"wins\":58,\"tier\":\"likely\"}",
+    "orion:crimsonReaverWarband:{\"rating\":1464,\"wins\":0,\"tier\":\"impossible\"}",
+    "aurora:crimsonReaverSweep:{\"rating\":1348,\"wins\":57,\"tier\":\"likely\"}",
+    "aurora:crimsonReaverWarband:{\"rating\":1348,\"wins\":0,\"tier\":\"impossible\"}",
+    "eir:crimsonReaverSweep:{\"rating\":1380,\"wins\":54,\"tier\":\"likely\"}",
+    "eir:crimsonReaverWarband:{\"rating\":1380,\"wins\":0,\"tier\":\"impossible\"}",
+  ],
+  "lines:first:generalFreighter:d18": [
+    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:generalFreighter:board2": [
+    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:generalFreighter:board10": [
+    "cand-0 activities 10/11 lost:78 sent:566 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:578 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:generalFreighter:rank1": [
+    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:generalFreighter:rank3": [
+    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:generalFreighter:rank6": [
+    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:3 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:80 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:d18": [
+    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:board2": [
+    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:board10": [
+    "cand-0 activities 10/11 lost:40 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:535 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:rank1": [
+    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:rank3": [
+    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:orion:rank6": [
+    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:d18": [
+    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:board2": [
+    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:board10": [
+    "cand-0 activities 10/11 lost:40 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:535 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:rank1": [
+    "cand-0 activities 10/11 lost:43 sent:519 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:461 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:577 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:rank3": [
+    "cand-0 activities 10/11 lost:43 sent:565 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:580 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:aurora:rank6": [
+    "cand-0 activities 10/11 lost:40 sent:567 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:575 stuck:buriedVault hull:48 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:d18": [
+    "cand-0 activities 1/11 lost:40 sent:588 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:587 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:558 stuck:buriedVault+geothermalChamber hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:board2": [
+    "cand-0 activities 1/11 lost:40 sent:585 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:585 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:583 stuck:buriedVault+geothermalChamber hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:board10": [
+    "cand-0 activities 10/11 lost:40 sent:571 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:27 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:571 stuck:buriedVault hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:rank1": [
+    "cand-0 activities 10/11 lost:78 sent:574 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:31 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:576 stuck:buriedVault hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:rank3": [
+    "cand-0 complete 11/11 lost:47 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:0 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 complete 9/9 lost:39 sent:0 stuck:none hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:first:eir:rank6": [
+    "cand-0 activities 10/11 lost:61 sent:580 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:581 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 complete 9/9 lost:2 sent:0 stuck:none hull:57 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:d18:2": [
+    "cand-0 activities 1/11 lost:40 sent:584 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:583 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:554 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:d18:11": [
+    "cand-0 activities 1/11 lost:40 sent:584 stuck:derelictOutpost+geothermalChamber+derelictOutpost+geothermalChamber+mineralOutcrop+subterraneanCivilization+mineralOutcrop+mineralOutcrop+crashedShip+subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 7/10 lost:40 sent:583 stuck:geothermalChamber+subterraneanCivilization+subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 7/9 lost:40 sent:554 stuck:buriedVault+geothermalChamber hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:rank1:2": [
+    "cand-0 activities 10/11 lost:43 sent:515 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:457 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:rank1:11": [
+    "cand-0 activities 10/11 lost:43 sent:515 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 activities 9/10 lost:40 sent:457 stuck:subterraneanCivilization hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:573 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:rank6:2": [
+    "cand-0 activities 10/11 lost:40 sent:563 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:572 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
+  ],
+  "lines:later:orion:rank6:11": [
+    "cand-0 activities 10/11 lost:40 sent:563 stuck:subterraneanCivilization hull:0 setbacks:0 boarded:0 vault:2",
+    "cand-1 complete 10/10 lost:2 sent:0 stuck:none hull:0 setbacks:2 boarded:3 vault:2",
+    "cand-2 activities 8/9 lost:40 sent:572 stuck:buriedVault hull:55 setbacks:2 boarded:0 vault:1",
   ],
 };
 
@@ -609,11 +626,11 @@ describe("SF-0 golden 2: patrols", () => {
         for (const seed of [1, 2]) {
           const { record, replays, end, won, ticks } = patrolOnce(patrolBase(hull, seed), key);
           expect(end.nextPatrolSeed).toBe(seed + 1);
-          out.push(`${key}:${seed}:${won ? "won" : "lost"}:${ticks}`, hash(record), hash(replays), hash(end.ships[0]), hash(end.completionLog), hash(end));
+          out.push(`${key}:${seed}:${won ? "won" : "lost"}:${ticks}`, hash(record), hash(replays), hash(end.ships[0]), hash(end.completionLog), stateHash(end));
           // The save's SECOND patrol, dispatched from the state the won first one left (a lost one is in the Shipyard).
           if (won && seed === 1) {
             const second = patrolOnce(end, key);
-            out.push(`second:${second.won ? "won" : "lost"}:${second.ticks}`, hash(second.record), hash(second.end));
+            out.push(`second:${second.won ? "won" : "lost"}:${second.ticks}`, hash(second.record), stateHash(second.end));
           }
         }
       }
@@ -634,21 +651,16 @@ describe("SF-0 golden 2: patrols", () => {
           s = economyTick(s, 1, RNG);
           const m = patrolOf(s);
           if (m === null) {
-            marks.push(`end@${t}:${hash(s)}`);
+            marks.push(`end@${t}:${stateHash(s)}`);
             break;
           }
-          if (prev === "transitBack" && m.phase === "transitOut") marks.push(`relaunch@${t}:${hash(s)}`);
+          if (prev === "transitBack" && m.phase === "transitOut") marks.push(`relaunch@${t}:${stateHash(s)}`);
           prev = m.phase;
         }
         out.push(`${hull}:${key}:${marks.join(",")}`);
       }
     }
     pin("patrol:repeat", out);
-  });
-
-  it("the dispatch card's Threat Assessment band for every hull x both routes on a fresh save", () => {
-    const out = HULLS.flatMap((hull) => ROUTES.map((key) => `${hull}:${key}:${JSON.stringify(patrolForecast(onHull(hull), key))}`));
-    pin("patrol:forecast", out);
   });
 
   it("closed form: one economyTick call == 1 s ticks over a won (Orion Sweep) and a lost, limping (Runner Warband) first patrol", () => {
@@ -664,38 +676,6 @@ describe("SF-0 golden 2: patrols", () => {
       expect(big.credits.toString()).toBe(end.credits.toString());
     }
   });
-
-  // Section 2.5 E: Dispatch Once over master seeds 0 to 199 through the live economyTick loop, wins out of 200
-  // (won = the cycle ended and the ship is not damaged). One big call per patrol (closed-form parity, above).
-  const WINS: Record<string, [number, number]> = {
-    generalFreighter: [187, 3],
-    prospectorHauler: [199, 8],
-    prospectorRunner: [103, 0],
-    prospectorMiner: [107, 0],
-    destroyer: [200, 39],
-    battleship: [200, 156],
-    carrier: [200, 101],
-    orion: [178, 1],
-    aurora: [177, 1],
-    eir: [173, 1],
-  };
-  for (const hull of HULLS) {
-    it(`${hull}: the 200-seed win table (Sweep, Warband)`, () => {
-      const wins = ROUTES.map((key) => {
-        const def = PATROLS[key];
-        const span = def.transitOutTicks + def.rollWindowTicks + 3 * def.transitBackTicks + 4;
-        let n = 0;
-        for (let seed = 0; seed < 200; seed++) {
-          const r = dispatchCaptainOnPatrol(patrolBase(hull, seed), 1, key, "balanced", false);
-          expect(r.success).toBe(true);
-          const end = economyTick(r.next, span, RNG);
-          if (patrolOf(end) === null && end.ships[0].damaged !== true) n += 1;
-        }
-        return n;
-      });
-      expect(wins).toEqual(WINS[hull]);
-    });
-  }
 });
 
 // ===== 3. gathering: one delivered cycle for every mission x every hull =====
@@ -742,7 +722,7 @@ describe("SF-0 golden 3: gathering, one delivered cycle for every MISSIONS key x
         // Gathering cannot be lost: the captain is still flying (auto-repeat) and no log line is a defeat.
         expect(s.captains[0].mission).not.toBeNull();
         expect(s.completionLog.some((e) => e.patrolEndReason === "defeat")).toBe(false);
-        out.push(`${hull}:${ticks}`, hash(record), hash(s));
+        out.push(`${hull}:${ticks}`, hash(record), stateHash(s));
       }
       pin(`gather:${key}`, out);
     });
@@ -774,7 +754,7 @@ describe("SF-0 golden 4: the first expedition (the shakedown) of the three fresh
         for (const cand of CANDS) {
           const { exp, done, claimed } = sweepRun(withCrew(onHull(hull), crew), cand);
           expect(exp.shakedown).toBe(true);
-          out.push(`${cand} ${line(runOutcome(done))}`, hash(exp), hash(done), claimed === null ? "unclaimed" : hash(claimed));
+          out.push(hash(exp), hash(done), claimed === null ? "unclaimed" : stateHash(claimed));
         }
         pin(`first:${hull}:${crew}`, out);
       });
@@ -839,7 +819,7 @@ describe("SF-0 golden 5: later expeditions", () => {
         for (const cand of CANDS) {
           const { exp, done, claimed } = sweepRun({ ...withCrew(onHull("orion"), crew), nextExpeditionId: nextId }, cand);
           expect(exp.shakedown).toBe(false);
-          out.push(`${cand} ${line(runOutcome(done))}`, hash(exp), hash(done), claimed === null ? "unclaimed" : hash(claimed));
+          out.push(hash(exp), hash(done), claimed === null ? "unclaimed" : stateHash(claimed));
         }
         pin(`later:orion:${crew}:${nextId}`, out);
       });
@@ -853,8 +833,8 @@ describe("SF-0 golden 5: later expeditions", () => {
     expect(back.nextExpeditionId).toBe(2);
     const second = sweepRun(back, "cand-0");
     expect(second.exp.shakedown).toBe(false);
-    const out = [line(runOutcome(first.done)), hash(first.claimed), line(runOutcome(second.done)), hash(second.exp), hash(second.done), second.claimed === null ? "unclaimed" : hash(second.claimed)];
-    pin("later:eir:real", out);
+    pin("later:eir:real", [stateHash(first.claimed!), hash(second.exp), hash(second.done), second.claimed === null ? "unclaimed" : stateHash(second.claimed)]);
+    if (SWEEP) pin("lines:later:eir:real", [line(runOutcome(first.done)), line(runOutcome(second.done))]);
   });
 });
 
@@ -872,4 +852,104 @@ describe("SF-0 golden 6: the hazard-scaled guards (generateEncounter)", () => {
     }
     pin("guards", out);
   });
+});
+
+// ===== 7. an OLD save: a v69 save that already ran expeditions and a patrol =====
+
+// A save written before safe first runs (SAVE v69): ship-1 an Eir with a rank 3 crew slotted across both teams, two
+// expeditions already flown and claimed (nextExpeditionId 3, the save seed advanced twice), four patrols dispatched
+// (nextPatrolSeed 5) and one Sweep won (lifetimeStats.missionsCompleted). Written to a save, stamped v69 and loaded back
+// through deserialize + migrate. From SF-1 on the migration counts it as a veteran (plan section 3.3), so its patrol
+// and its expedition must stay byte-identical from SF-1 to SF-4 (whole states through stateHash).
+const PRE_SF_SAVE_VERSION = 69;
+
+function oldSave(): GameState {
+  const crewed = withCrew(onHull("eir"), "rank3");
+  const held: GameState = {
+    ...crewed,
+    gameTimeSeconds: 500_000,
+    nextExpeditionId: 3,
+    expeditionSeed: advanceExpeditionSeed(advanceExpeditionSeed(EXPEDITION_DEFAULT_SEED)),
+    nextPatrolSeed: 5,
+    fuel: new Decimal(100_000),
+    credits: new Decimal(100_000),
+    lifetimeStats: { ...crewed.lifetimeStats, missionsCompleted: { ...crewed.lifetimeStats.missionsCompleted, crimsonReaverSweep: new Decimal(1) } },
+  };
+  const save = deserialize(serialize(held, 0)) as SaveFile;
+  return migrate({ ...save, version: PRE_SF_SAVE_VERSION });
+}
+
+describe("SF-0 golden 7: an old save (v69, expeditions and a patrol already flown) through migrate", () => {
+  it("the migrated state, one Sweep patrol cycle and one expedition run, hashed whole", () => {
+    const state = oldSave();
+    expect(state.nextExpeditionId).toBe(3);
+    expect(state.nextPatrolSeed).toBe(5);
+    const patrol = patrolOnce(state, "crimsonReaverSweep");
+    const run = sweepRun(state, "cand-0");
+    expect(run.exp.shakedown).toBe(false);
+    const out = [
+      stateHash(state),
+      `patrol:${patrol.won ? "won" : "lost"}:${patrol.ticks}`, hash(patrol.record), stateHash(patrol.end),
+      `expedition:${run.done.phase}`, hash(run.exp), hash(run.done), run.claimed === null ? "unclaimed" : stateHash(run.claimed),
+    ];
+    pin("old:v69", out);
+  });
+});
+
+// ===== measurement tables (SF_SWEEP or npm run test:sweep only) =====
+
+describe.runIf(SWEEP)("SF-0 measurement tables (gated): forecast bands, the 200-seed win table, outcome lines", () => {
+  it("the dispatch card's Threat Assessment band for every hull x both routes on a fresh save", () => {
+    const out = HULLS.flatMap((hull) => ROUTES.map((key) => `${hull}:${key}:${JSON.stringify(patrolForecast(onHull(hull), key))}`));
+    pin("patrol:forecast", out);
+  });
+
+  // Section 2.5 E: Dispatch Once over master seeds 0 to 199 through the live economyTick loop, wins out of 200
+  // (won = the cycle ended and the ship is not damaged). One big call per patrol (closed-form parity, above).
+  const WINS: Record<string, [number, number]> = {
+    generalFreighter: [187, 3],
+    prospectorHauler: [199, 8],
+    prospectorRunner: [103, 0],
+    prospectorMiner: [107, 0],
+    destroyer: [200, 39],
+    battleship: [200, 156],
+    carrier: [200, 101],
+    orion: [178, 1],
+    aurora: [177, 1],
+    eir: [173, 1],
+  };
+  for (const hull of HULLS) {
+    it(`${hull}: the 200-seed win table (Sweep, Warband)`, () => {
+      const wins = ROUTES.map((key) => {
+        const def = PATROLS[key];
+        const span = def.transitOutTicks + def.rollWindowTicks + 3 * def.transitBackTicks + 4;
+        let n = 0;
+        for (let seed = 0; seed < 200; seed++) {
+          const r = dispatchCaptainOnPatrol(patrolBase(hull, seed), 1, key, "balanced", false);
+          expect(r.success).toBe(true);
+          const end = economyTick(r.next, span, RNG);
+          if (patrolOf(end) === null && end.ships[0].damaged !== true) n += 1;
+        }
+        return n;
+      });
+      expect(wins).toEqual(WINS[hull]);
+    });
+  }
+
+  // The section 2.5 A outcome lines (the same runs golden 4 hashes) and golden 5's.
+  for (const hull of FIRST_HULLS) {
+    for (const crew of CREW_NAMES) {
+      it(`${hull} ${crew}: the shakedown outcome line of each candidate (section 2.5 A)`, () => {
+        pin(`lines:first:${hull}:${crew}`, CANDS.map((cand) => `${cand} ${line(runOutcome(sweepRun(withCrew(onHull(hull), crew), cand).done))}`));
+      });
+    }
+  }
+  for (const crew of ["d18", "rank1", "rank6"] as CrewName[]) {
+    for (const nextId of [2, 11]) {
+      it(`Orion ${crew} as expedition ${nextId}: the outcome line of each candidate`, () => {
+        const lines = CANDS.map((cand) => `${cand} ${line(runOutcome(sweepRun({ ...withCrew(onHull("orion"), crew), nextExpeditionId: nextId }, cand).done))}`);
+        pin(`lines:later:orion:${crew}:${nextId}`, lines);
+      });
+    }
+  }
 });

@@ -27,6 +27,21 @@ export function fnv(s: string): string {
 
 export const hash = (v: unknown): string => fnv(JSON.stringify(v));
 
+// The whole state hashed WITHOUT the fields later slices add on purpose: SF-1's run counters (`runCounts`, plan
+// section 3.3) and G2-1's stored `homeworld` (the G2-0 withoutG2State precedent). A no-op today; it keeps every
+// whole-state golden byte-identical across those additions, so only a real behavior change moves one. Pure.
+export function stateHash(state: GameState): string {
+  const rest = { ...state } as Record<string, unknown>;
+  delete rest.runCounts;
+  delete rest.homeworld;
+  return hash(rest);
+}
+
+// The measurement gate: the pure measurement tables (the 60-seed sweep, the 200-seed win tables, the forecast bands,
+// the readable outcome lines) run only with SF_SWEEP set or under `npm run test:sweep` (vitest in mode "sweep"); the
+// default run keeps every real pin.
+export const SWEEP: boolean = Boolean(import.meta.env.SF_SWEEP) || import.meta.env.MODE === "sweep";
+
 // The section 2.5 horizon: a run that has not reached return or complete by then is STALLED (an objective held and
 // flagged, retried forever until a manual Skip).
 export const SWEEP_END = 3_000_000;

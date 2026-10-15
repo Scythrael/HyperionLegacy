@@ -457,20 +457,26 @@ G2-2's region when it lands (Tier I until then); the save fold depends on where 
 
 ## SF-0 CARRY NOTE (2026-10-15, built on bfac15f)
 
-Files (tests only, no engine or UI change): `src/lib/game/firstRunsGoldens.test.ts` (69 tests, about 15 s),
-`src/lib/game/firstRunsGoldens.sweep.test.ts` (121 tests, about 37 s, 3 seeds per test so each stays near 1 s), and
-the shared `src/lib/game/firstRunsGoldens.fixture.ts` (the section 2.5 method: `onHull`, `withCrew` for the D18 minimum,
-board2, board10 and rank 1 / 3 / 6 crews, `runOutcome`, `SWEEP_END` 3,000,000 s).
+Files (tests only, no engine or UI change): `src/lib/game/firstRunsGoldens.test.ts` (59 default tests, about 15 s),
+`src/lib/game/firstRunsGoldens.sweep.test.ts` (12 default tests, about 4 s), and the shared
+`src/lib/game/firstRunsGoldens.fixture.ts` (the section 2.5 method: `onHull`, `withCrew` for the D18 minimum, board2,
+board10 and rank 1 / 3 / 6 crews, `runOutcome`, `SWEEP_END` 3,000,000 s; `stateHash`; the `SWEEP` gate).
+**Every whole-state hash goes through `stateHash`**, which strips `runCounts` (SF-1) and `homeworld` (G2-1): a no-op
+today, so SF-1's counters alone move no golden. **The measurement gate:** `npm run test:sweep` (vitest in mode `sweep`;
+or `SF_SWEEP=1`) also runs the pure measurement tables, 233 tests in about 65 s: the dispatch card's Threat Assessment
+bands, the section 2.5 E 200-seed win table, the readable section 2.5 A outcome lines (`lines:*`), and all 60 seeds of
+the section 2.5 B table with its sums. The default run keeps 7 of the 60 seeds (3, 13, 15, 23, 27, 31, 39) per row.
 
 What is pinned: the fresh-save first-run predicates and the fresh recruit board; every hull x both patrol routes, the
 whole first cycle at master seeds 1 and 2 (dispatch record, display replay per tick, ship, completion log, state), the
-save's second patrol after a won first one, a Repeat patrol's first two cycles, the dispatch card's Threat Assessment
-band (App.svelte's sweep mirrored), closed-form parity, and the section 2.5 E 200-seed win table; one delivered cycle for
-every MISSIONS key x every hull (or its refusal); the section 2.5 A shakedown outcomes for the General Freighter, Orion,
-Aurora and Eir x six crews (numbers plus whole-record hashes and the claim), the shakedown launch view at telescope
-Level 5, offline == live parity (one call, 997 s chunks, the event-boundary chain) on a stalled shakedown; later runs as
+save's second patrol after a won first one, a Repeat patrol's first two cycles, closed-form parity; one delivered cycle
+for every MISSIONS key x every hull (or its refusal); the section 2.5 A shakedowns for the General Freighter, Orion,
+Aurora and Eir x six crews (whole-record hashes and the claim), the shakedown launch view at telescope Level 5,
+offline == live parity (one call, 997 s chunks, the event-boundary chain) on a stalled shakedown; later runs as
 expedition 2 and 11 and a REAL second run after a claimed first; generateEncounter for the Vault, Subterranean and three
-ordinary sites at hazards 0 to 1; the section 2.5 B table (per seed codes and run hashes, summed against the table).
+ordinary sites at hazards 0 to 1; **an old save** (`old:v69`: a v69 save with expeditions 1 and 2 flown, patrol seed 5
+and a won Sweep, through deserialize + migrate, then one Sweep cycle and one expedition run); the section 2.5 B per-seed
+codes and run hashes. Gated: the bands, the win table, the outcome lines and the full 2.5 B table (see above).
 
 Reproduced exactly: section 2.2's board, 2.5 A (crews slotted across both teams, team 0 first), 2.5 B (the setback
 column is 35 only with the broad reading: a failed or lost check, a scan pause, hull wear, or an unrepelled boarding;
@@ -487,10 +493,11 @@ Findings for later slices:
 - First patrol today (seed 1): the Sweep is lost on the Runner and Miner, the Warband on every economy hull and explorer;
   the dispatch card reads "dice" (Runner, Miner Sweep) down to "impossible" (Runner, Miner, explorers Warband).
 
-Which goldens move where: SF-2 moves the shakedown goldens (`first:*`, the parity hash, the whole sweep file) and must
-name each move; SF-3 moves `later:*`; SF-4 moves the fresh-save patrol goldens, the second patrol and the Repeat rows,
-and the forecast band; `gather:*` and `guards` must stay unchanged (an absent scale argument is today's encounter).
-Full suite wall time on this machine rose from about 39 s to about 56 s (shared with WR-1's new tests).
+Which goldens move where: SF-1 moves none (`stateHash` strips `runCounts`). SF-2 moves the shakedown goldens
+(`first:*`, `lines:first:*`, the parity hash, the whole sweep file) and must name each move; SF-3 moves `later:*`;
+SF-4 moves the fresh-save patrol goldens, the second patrol and the Repeat rows, and the forecast bands; `gather:*`,
+`guards` and `old:v69` must stay unchanged through SF-4 (an absent scale argument is today's encounter; an old save
+counts as a veteran). When G2-1 lands, `oldSave()` passes migrate the fixed entropy value G2-0's `restored` does.
 
 ## REVIEW FINDING (2026-10-15, SF-0 review): Tier I is not gentle for small crews, even off vault sites
 

@@ -2,7 +2,9 @@
 // outcome table pinned on the code BEFORE any safe-first-runs engine edit (on top of bfac15f). 60 Tier I seeds (the
 // save's expedition seed set to makeExpeditionSeed(0x1234567, i), candidate 0 dispatched as the shakedown), each crew
 // row of the table, advanced in one call to 3,000,000 s (firstRunsGoldens.fixture.ts rebuilds the section 2.5 method).
-// Its own file because it is slow (about 35 s in all); every test runs 3 seeds and stays well under 2 s.
+// Its own file because the whole table is slow (about 35 s): the default run pins 7 seeds of every row (DEFAULT_SEEDS,
+// about 4 s); all 60 seeds and the sums run only under the measurement gate (SF_SWEEP set, or `npm run test:sweep`).
+// Every test runs at most 4 seeds and stays well under 2 s.
 //
 // Each seed pins a code (S stalled, L any lost fight, H hull damage, B a ship-event setback, V a Vault or Subterranean
 // site, K stuck on a Vault or Subterranean site; "." for none) and the hash of the whole run at 3,000,000 s. The last
@@ -11,10 +13,13 @@
 import { describe, expect, it } from "vitest";
 import type { ShipTypeKey } from "./model";
 import { advanceExpedition, makeExpeditionSeed, startExpedition } from "./expedition";
-import { hash, onHull, VAULT_SITES, runOutcome, SWEEP_END, withCrew, type CrewName } from "./firstRunsGoldens.fixture";
+import { hash, onHull, VAULT_SITES, runOutcome, SWEEP, SWEEP_END, withCrew, type CrewName } from "./firstRunsGoldens.fixture";
 
 const SEEDS = 60;
 const CHUNK = 3;
+// The default run's seeds: a spread over the table's outcomes (stalled and finished, with and without hull damage,
+// setbacks and Vault sites).
+const DEFAULT_SEEDS: number[][] = [[3, 13, 15, 23], [27, 31, 39]];
 
 // The section 2.5 B rows: [label, hull, crew].
 const ROWS: [string, ShipTypeKey, CrewName][] = [
@@ -162,7 +167,17 @@ function code(seed: number, hull: ShipTypeKey, crew: CrewName): string {
   return `${seed}:${flags}:${hash(done)}`;
 }
 
-describe("SF-0 section 2.5 B: 60 Tier I shakedowns per crew row", () => {
+describe("SF-0 section 2.5 B: 7 of the 60 Tier I shakedowns per crew row (the default run)", () => {
+  for (const [label, hull, crew] of ROWS) {
+    for (const seeds of DEFAULT_SEEDS) {
+      it(`${label}: seeds ${seeds.join(", ")}`, () => {
+        expect(seeds.map((seed) => code(seed, hull, crew))).toEqual(seeds.map((seed) => GOLDEN[label][seed]));
+      });
+    }
+  }
+});
+
+describe.runIf(SWEEP)("SF-0 section 2.5 B (gated): 60 Tier I shakedowns per crew row and the table's sums", () => {
   for (const [label, hull, crew] of ROWS) {
     for (let from = 0; from < SEEDS; from += CHUNK) {
       it(`${label}: seeds ${from} to ${from + CHUNK - 1}`, () => {
