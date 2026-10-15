@@ -229,11 +229,12 @@ describe("hireOfficer / fireOfficer", () => {
     expect(state.officers).toHaveLength(2); // input untouched
   });
 
-  it("firing an unknown id keeps every officer (fresh array)", () => {
+  // CP-6: an unknown id is a typed refusal (canFireOfficer noOfficer), so it returns the SAME state.
+  it("firing an unknown id refuses (same reference, every officer kept)", () => {
     const state = stateWith({ officers: [officer({ id: "officer-1" })] });
     const next = fireOfficer(state, "officer-nope");
+    expect(next).toBe(state);
     expect(next.officers).toHaveLength(1);
-    expect(next.officers).not.toBe(state.officers);
   });
 });
 

@@ -43,6 +43,8 @@
   import { quartersCapacityBonus, installedQuartersModule } from "./game/crewModules";
   import { CREW_RACES } from "./game/crewRaces";
   import { getCrewBuffById } from "./game/crewBuffs";
+  import { canSetComplementMode, crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
+  import Icon from "./ui/Icon.svelte";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here); `shipId` selects the ship whose complement
@@ -91,6 +93,13 @@
   // The live complement (buckets + mode). A fresh ship may have none yet; treat it as empty/passive.
   $: complement = ship?.complement ?? { buckets: [], mode: "passive" as const };
   $: autoCrewOn = complement.mode === "passive";
+  // CP-6: the one crew lock. While this ship is out (a captain mission, or an expedition until it is
+  // claimed) the Auto-crew toggle is disabled with the reason shown (crewLock.ts canSetComplementMode
+  // refuses the same switch). Favorites stay live.
+  $: lockReason = ship ? crewLockReason(state, shipId) : null;
+  $: lockText = lockReason === null ? null : crewLockReasonText(lockReason);
+  $: modeGate = ship ? canSetComplementMode(state, shipId, autoCrewOn ? "active" : "passive") : null;
+  $: modeLocked = modeGate !== null && !modeGate.ok && modeGate.reason === "onMission";
 
   // Per-(division,rank) headcount from the complement buckets, precomputed as a real reactive so
   // the chart's dependency on `state` is visible to the compiler (reading it inline would hide it
@@ -247,12 +256,22 @@
             </span>
           {/if}
         </div>
-        <label class="comp-autoc">
+        <label class="comp-autoc" title={modeLocked && lockText !== null ? `${lockText}: the Auto-crew setting is locked` : undefined}>
           <span class="comp-autoc-label">Auto-crew</span>
-          <Toggle checked={autoCrewOn} label="Auto-crew this ship" on:change={(e) => onAutoCrewChange(e.detail)} />
+          <Toggle
+            checked={autoCrewOn}
+            disabled={modeLocked}
+            label="Auto-crew this ship"
+            on:change={(e) => onAutoCrewChange(e.detail)}
+          />
         </label>
       </div>
       <div class="comp-bar"><span style="width:{capFillPct}%"></span></div>
+      {#if lockReason !== null}
+        <p class="comp-lock" role="note">
+          <Icon name="lock" /> {lockText}: the Auto-crew setting is locked {crewLockUntilText(lockReason)}. Favorites still work.
+        </p>
+      {/if}
       <div class="comp-mode-note">
         {autoCrewOn
           ? "Auto-crew fills this ship top-rank-down from the pool, within its caps."
@@ -371,6 +390,16 @@
   /* CONTAINER-QUERY CONTEXT (mirrors ShipSystemsPanel / SeniorStaffPanel). The wrap is the
      container the division grid keys off, so the layout responds to the panel's OWN width, not the
      viewport (the ship-detail body can be a narrow column on a wide screen). */
+  /* CP-6: the crew lock line (warning hue + the lock glyph + words, so color is never the only signal). */
+  .comp-lock {
+    margin: 8px 0 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    color: var(--color-warning);
+  }
   .comp {
     container-type: inline-size;
     display: flex;

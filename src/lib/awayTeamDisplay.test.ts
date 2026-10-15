@@ -26,7 +26,9 @@ import {
   UNASSIGNED_INTRO,
   unassignedMembersView,
   crewLockText,
+  awayGateText,
 } from "./awayTeamDisplay";
+import { memberFitReasonText } from "./awayGearDisplay";
 
 describe("awayTeamDisplay", () => {
   it("labels every squad type with a real icon, and every spec", () => {
@@ -203,5 +205,18 @@ describe("crewLockText (CP-6 review)", () => {
     expect(crewLockText(flying, "ship-1")).toBe("Ship is out on a mission");
     expect(unassignedMembersView(flying, "ship-1")[0].joinText).toBe("Ship is out on a mission");
     expect(unassignedMembersView(s, "ship-1")[0].joinText).toBeUndefined();
+  });
+});
+
+// CP-6: every away-crew refusal names the real lock for the ships it involves (not always "mission").
+describe("awayGateText + memberFitReasonText name the real lock (CP-6)", () => {
+  it("an onMission gate reads the first locked ship's cause; other reasons keep their text", () => {
+    const base = freshState();
+    const s = { ...base, awayMembers: [plainAwayMember("member-1", "security", "ship-1")], expeditions: [{ id: "expedition-1", shipId: "ship-1" } as any] };
+    expect(awayGateText(s, { ok: false, reason: "onMission" }, [null, "ship-1"])).toBe("Ship is on an expedition");
+    expect(awayGateText(s, { ok: false, reason: "squadFull" }, ["ship-1"])).toBe("No open slot or reserve berth");
+    expect(awayGateText(s, { ok: true }, ["ship-1"])).toBeUndefined();
+    expect(awayGateText(base, { ok: false, reason: "onMission" }, ["ship-1"])).toBe("Ship is out on a mission"); // fallback
+    expect(memberFitReasonText(s, "any", "onMission", "member-1")).toBe("Ship is on an expedition");
   });
 });

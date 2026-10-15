@@ -48,6 +48,9 @@
   import { crewRankLabel } from "./game/crewRank";
   import { complementTotalCap } from "./game/commandStructure";
   import { CREW_RACES } from "./game/crewRaces";
+  import { canApplyRoster, rosterApplyGateText } from "./game/personnelRosters";
+  import { crewLockReason, crewLockUntilText } from "./game/crewLock";
+  import Icon from "./ui/Icon.svelte";
 
   // --- Props ------------------------------------------------------------------
   // `state` is the whole GameState (read-only here). Every callback routes a mutation back
@@ -280,6 +283,13 @@
   function applyToShip(): void {
     if (selectedRoster !== null && applyShipId) onApplyRoster(selectedRoster.id, applyShipId);
   }
+
+  // CP-6: Apply refuses WHOLE while the target ship, or a ship a pinned officer / notable sits on, is
+  // crew-locked (a captain mission, or an expedition until it is claimed). The engine gate gives the reason,
+  // shown as text under the disabled button (color is never the only signal).
+  $: applyGate = selectedRoster !== null && applyShipId ? canApplyRoster(state, selectedRoster.id, applyShipId) : null;
+  $: applyWhy = applyGate === null ? undefined : rosterApplyGateText(state, applyGate);
+  $: applyLockReason = applyGate !== null && !applyGate.ok && "lockedShipId" in applyGate ? crewLockReason(state, applyGate.lockedShipId) : null;
 
   // The pending-swap modal needs the target roster's name for the message.
   $: swapTargetName =
@@ -537,19 +547,24 @@
           <div class="pr-apply-row">
             <select bind:value={applyShipId} aria-label="Apply target ship">
               {#each state.ships as s (s.id)}
-                <option value={s.id}>{s.name ?? shipTypeLabel(s.typeKey)}</option>
+                <option value={s.id}>{s.name ?? shipTypeLabel(s.typeKey)}{crewLockReason(state, s.id) !== null ? " (crew locked)" : ""}</option>
               {/each}
             </select>
             <button
               type="button"
               class="pr-btn primary"
-              disabled={!applyShipId || !roster.includePeople}
-              title={roster.includePeople ? "Apply this roster's people to the ship" : "This roster carries no people to apply"}
+              disabled={!applyShipId || !roster.includePeople || applyWhy !== undefined}
+              title={applyWhy ?? (roster.includePeople ? "Apply this roster's people to the ship" : "This roster carries no people to apply")}
               on:click={applyToShip}
             >
               Apply
             </button>
           </div>
+          {#if applyWhy !== undefined}
+            <p class="pr-lock" role="note">
+              {#if applyLockReason !== null}<Icon name="lock" /> {applyWhy}: crew changes wait {crewLockUntilText(applyLockReason)}.{:else}{applyWhy}.{/if}
+            </p>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -1001,6 +1016,16 @@
   }
   .pr-btn.danger:hover:not(:disabled) {
     background: rgba(248, 113, 113, 0.2);
+  }
+  /* CP-6: why Apply is locked (warning hue + the lock glyph + words). */
+  .pr-lock {
+    margin: 6px 0 0;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    color: var(--color-warning);
   }
   .pr-btn:disabled {
     opacity: 0.45;

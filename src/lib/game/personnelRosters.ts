@@ -35,6 +35,8 @@ import { addToBucketList, removeFromBucketList, coalesceBuckets } from "./crew";
 // S4-CP39 (Ground Ops GO-17): applyRoster brings its linked Armory ship loadout. armory.ts never imports this
 // module, so no cycle.
 import { checkInLoadout, checkOutLoadout } from "./armory";
+// CP-6: the one crew lock (a leaf module, no cycle).
+import { crewLockReason, crewLockText, shipCrewLocked } from "./crewLock";
 
 // The pure-signature view of a notable, for cap math + occupancy bookkeeping. A notable occupies ONE
 // complement slot of exactly this signature (its rank/division). Pure.
@@ -250,6 +252,77 @@ export function toggleNotableFavorite(state: GameState, notableId: string): Game
 // applyRoster: land a roster's people on a ship (the one side-effectful action)
 // ============================================================================
 
+// CP-6: applyRoster refuses WHOLE (the SAME state, never a partial landing) while a ship it would touch is
+// crew-locked (crewLock.ts shipCrewLocked: a captain mission, or an expedition until it is claimed):
+//   noRoster:               the roster no longer exists
+//   noShip:                 the target ship no longer exists
+//   onMission:              the TARGET ship is locked (this refuses a gear-only roster too: a linked
+//                           loadout swap is a crew-side change of the ship that is out)
+//   pinnedAboardLockedShip: a pinned officer or notable (a roster carrying people) sits on ANOTHER ship that
+//                           is locked, so landing it here would pull it off a run
+// lockedShipId names the locked ship for the text. A pin that is missing or mismatched (applyRoster skips
+// those safely) never refuses. Pure.
+export type RosterApplyBlockReason = "noRoster" | "noShip" | "onMission" | "pinnedAboardLockedShip";
+export type RosterApplyGate =
+  | { ok: true }
+  | { ok: false; reason: "noRoster" | "noShip" }
+  | { ok: false; reason: "onMission" | "pinnedAboardLockedShip"; lockedShipId: string };
+
+export function rosterApplyBlockText(reason: RosterApplyBlockReason): string {
+  switch (reason) {
+    case "noRoster":
+      return "That roster no longer exists";
+    case "noShip":
+      return "That ship is no longer in the fleet";
+    case "onMission":
+      return "Ship is out on a mission";
+    case "pinnedAboardLockedShip":
+      return "A pinned officer or crew member is aboard a ship that is out";
+  }
+}
+
+// The player text for a gate, naming the real lock (mission vs expedition); undefined when it is open. Pure.
+export function rosterApplyGateText(state: GameState, gate: RosterApplyGate): string | undefined {
+  if (gate.ok) return undefined;
+  switch (gate.reason) {
+    case "noRoster":
+    case "noShip":
+      return rosterApplyBlockText(gate.reason);
+    case "onMission":
+      return crewLockText(state, gate.lockedShipId) ?? rosterApplyBlockText(gate.reason);
+    case "pinnedAboardLockedShip": {
+      const why = crewLockReason(state, gate.lockedShipId);
+      if (why === "onMission") return "A pinned officer or crew member is aboard a ship out on a mission";
+      if (why === "onExpedition") return "A pinned officer or crew member is aboard a ship on an expedition";
+      return rosterApplyBlockText(gate.reason);
+    }
+  }
+}
+
+export function canApplyRoster(state: GameState, rosterId: string, shipId: string): RosterApplyGate {
+  const roster = state.personnelRosters.find((r) => r.id === rosterId);
+  if (roster === undefined) return { ok: false, reason: "noRoster" };
+  if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
+  if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission", lockedShipId: shipId };
+  if (!roster.includePeople) return { ok: true };
+  const lockedElsewhere = (from: string | null | undefined): from is string =>
+    from !== null && from !== undefined && from !== shipId && shipCrewLocked(state, from);
+  for (const seat of SENIOR_STAFF_SEATS) {
+    const officerId = roster.seatAssignments[seat];
+    if (officerId === undefined) continue;
+    const officer = state.officers.find((o) => o.id === officerId);
+    if (!officer || officer.seat !== seat) continue; // applyRoster skips it safely
+    if (lockedElsewhere(officer.assignedShipId)) {
+      return { ok: false, reason: "pinnedAboardLockedShip", lockedShipId: officer.assignedShipId };
+    }
+  }
+  for (const notableId of roster.pinnedNotableCrew) {
+    const from = state.notableCrew.find((n) => n.id === notableId)?.assignedShipId;
+    if (lockedElsewhere(from)) return { ok: false, reason: "pinnedAboardLockedShip", lockedShipId: from };
+  }
+  return { ok: true };
+}
+
 // Apply a roster's PEOPLE to a ship. Returns a NEW GameState; the roster object itself is UNCHANGED
 // (the auto-filled randoms are never written back to it). Steps, in order:
 //   (a) OFFICERS: for each pinned seat, evict any DIFFERENT officer currently in that seat on the ship,
@@ -267,7 +340,8 @@ export function toggleNotableFavorite(state: GameState, notableId: string): Game
 //
 // includePeople=false => the roster carries no people, so applyRoster applies none (it still brings a
 // linked loadout; with no link it is a same-ref no-op). Missing roster/ship => same-ref no-op. A missing
-// officer/notable id is skipped safely.
+// officer/notable id is skipped safely. CP-6: refused whole while a ship involved is crew-locked
+// (canApplyRoster above).
 //
 // ⚠️ LINKED LOADOUT (S4-CP39, carried from E-CREW Task 18 into Ground Ops GO-17): when linkedLoadoutId is
 // set, that Armory ship loadout is checked out to the ship FIRST (withLinkedLoadout below), so the people
@@ -278,6 +352,7 @@ export function toggleNotableFavorite(state: GameState, notableId: string): Game
 // folding an assigned notable's contribution into the crew overlay is a documented FOLLOW-ON, so this
 // stays additive-neutral (no roster applied => byte-identical).
 export function applyRoster(state: GameState, rosterId: string, shipId: string): GameState {
+  if (!canApplyRoster(state, rosterId, shipId).ok) return state; // CP-6: refuse whole (same ref)
   const roster = state.personnelRosters.find((r) => r.id === rosterId);
   if (roster === undefined) return state;
   const ship = state.ships.find((s) => s.id === shipId);

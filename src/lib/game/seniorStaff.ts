@@ -38,6 +38,8 @@ import { seniorStaffBonusesForSeat, getSeniorStaffBonusById, bonusRollWeight } f
 import type { SeniorStaffBonusDef } from "./seniorStaffBonuses";
 import { CREW_RACES, CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
+// CP-6: the one crew lock. crewLock.ts is a leaf (equipment.ts + model types), so no import cycle.
+import { shipCrewLocked } from "./crewLock";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
 
 // The 7 typed bridge seats, in a fixed order (matches the SeniorStaffSeat union). Exported for
@@ -542,39 +544,117 @@ export function hireOfficer(state: GameState, candidateIdToHire: string): GameSt
   };
 }
 
-// Dismiss a hired officer by id. Returns a NEW state with a fresh officers array (unchanged, apart
-// from the identity of the array, when no officer matches). Pure.
+// CP-6: every officer allocation change (hire-to-seat, assign, unassign, dismiss) refuses while a ship it
+// touches is crew-locked (crewLock.ts shipCrewLocked: a captain mission, or an expedition until it is
+// claimed). The gate pattern of awayTeam.ts: each can* answers "would this go through, and if not, why?" so
+// the Senior Staff pane shows a disabled control with its reason, and each action calls its gate and returns
+// the SAME state on refusal. Promotion and favoriting are not gated (they change no allocation).
+//   noCandidate: the candidate is not on the current board
+//   noOfficer:   no hired officer with that id
+//   noShip:      the target ship does not exist
+//   seatTaken:   the ship's seat of the officer's type is held by a DIFFERENT officer
+//   onMission:   a ship involved is crew-locked (crewLock.ts crewLockText gives the accurate words)
+export type OfficerBlockReason = "noCandidate" | "noOfficer" | "noShip" | "seatTaken" | "onMission";
+export type OfficerGate = { ok: true } | { ok: false; reason: OfficerBlockReason };
+
+// The player-facing line for a refusal (US English). EXHAUSTIVE with no default on purpose. Pure.
+export function officerBlockText(reason: OfficerBlockReason): string {
+  switch (reason) {
+    case "noCandidate":
+      return "No longer on the board";
+    case "noOfficer":
+      return "No longer in the fleet";
+    case "noShip":
+      return "That ship is no longer in the fleet";
+    case "seatTaken":
+      return "That seat is already filled";
+    case "onMission":
+      return "Ship is out on a mission";
+  }
+}
+
+// The seat half of a gate: the ship exists, is not crew-locked, and its seat of `seat` is free of any
+// officer other than `officerId` (null for a hire, so any occupant blocks). Pure.
+function seatGate(state: GameState, shipId: string, seat: SeniorStaffSeat, officerId: string | null): OfficerGate {
+  if (!state.ships.some((s) => s.id === shipId)) return { ok: false, reason: "noShip" };
+  if (shipCrewLocked(state, shipId)) return { ok: false, reason: "onMission" };
+  const taken = state.officers.some((o) => o.id !== officerId && o.assignedShipId === shipId && o.seat === seat);
+  return taken ? { ok: false, reason: "seatTaken" } : { ok: true };
+}
+
+// The lock on the ship an officer sits on now (an unassigned officer is never locked). Pure.
+function officerShipLocked(state: GameState, officer: SeniorStaffOfficer): boolean {
+  return officer.assignedShipId !== null && shipCrewLocked(state, officer.assignedShipId);
+}
+
+// Can this board candidate be hired straight into `shipId`'s matching seat? noCandidate, noShip,
+// onMission, seatTaken. Pure.
+export function canHireOfficerToSeat(state: GameState, candidateIdToHire: string, shipId: string): OfficerGate {
+  const candidate = seniorStaffCandidates(state).find((c) => c.id === candidateIdToHire);
+  if (!candidate) return { ok: false, reason: "noCandidate" };
+  return seatGate(state, shipId, candidate.seat, null);
+}
+
+// Hire a candidate AND seat it on `shipId` in one atomic step (the Senior Staff pane's Hire). Refuses (the
+// SAME state) whenever canHireOfficerToSeat does, so a refused seat never leaves a stray unassigned hire
+// behind. The new officer is hireOfficer's appended entry, re-ided "officer-N". Pure.
+export function hireOfficerToSeat(state: GameState, candidateIdToHire: string, shipId: string): GameState {
+  if (!canHireOfficerToSeat(state, candidateIdToHire, shipId).ok) return state;
+  const hired = hireOfficer(state, candidateIdToHire);
+  const officer = hired.officers[hired.officers.length - 1];
+  return {
+    ...hired,
+    officers: hired.officers.map((o) => (o.id === officer.id ? { ...o, assignedShipId: shipId } : o)),
+  };
+}
+
+// Can this officer be dismissed? noOfficer, onMission (its ship is crew-locked). Pure.
+export function canFireOfficer(state: GameState, officerId: string): OfficerGate {
+  const officer = state.officers.find((o) => o.id === officerId);
+  if (!officer) return { ok: false, reason: "noOfficer" };
+  if (officerShipLocked(state, officer)) return { ok: false, reason: "onMission" };
+  return { ok: true };
+}
+
+// Dismiss a hired officer by id. Refuses (the SAME state) whenever canFireOfficer does: an unknown id, or
+// an officer whose ship is out. Captain retirement consumes its XO through here; retirement itself refuses
+// while that ship is locked (captainRetirement.ts), so the two never disagree. Pure.
 export function fireOfficer(state: GameState, officerId: string): GameState {
+  if (!canFireOfficer(state, officerId).ok) return state;
   return { ...state, officers: state.officers.filter((o) => o.id !== officerId) };
 }
 
-// Assign an officer to a ship's matching seat. Validates (and REFUSES, returning the state
-// unchanged, otherwise):
-//   - the officer exists,
-//   - the ship exists,
-//   - the ship's matching seat (the officer's own seat TYPE) is not already occupied by a DIFFERENT
-//     officer (you cannot stack two of the same seat type on one hull).
-// An officer's seat type is intrinsic, so the assignment always targets its matching seat. Re-
-// assigning the same officer to the same ship is an allowed no-op-style success (the occupied check
-// excludes the officer itself). Pure.
-export function assignOfficerToShip(state: GameState, officerId: string, shipId: string): GameState {
+// Can this officer take `shipId`'s matching seat? noOfficer, then onMission for the ship it LEAVES, then
+// noShip, onMission (the ship it joins) and seatTaken. Re-assigning an officer to the seat it already holds
+// stays an allowed no-op-style success on a free ship (the seat check excludes the officer itself). Pure.
+export function canAssignOfficer(state: GameState, officerId: string, shipId: string): OfficerGate {
   const officer = state.officers.find((o) => o.id === officerId);
-  if (!officer) return state;
-  const ship = state.ships.find((s) => s.id === shipId);
-  if (!ship) return state;
-  const seatOccupied = state.officers.some(
-    (o) => o.id !== officerId && o.assignedShipId === shipId && o.seat === officer.seat,
-  );
-  if (seatOccupied) return state;
+  if (!officer) return { ok: false, reason: "noOfficer" };
+  if (officerShipLocked(state, officer)) return { ok: false, reason: "onMission" };
+  return seatGate(state, shipId, officer.seat, officerId);
+}
+
+// Assign an officer to a ship's matching seat (an officer's seat type is intrinsic, so the assignment
+// always targets its matching seat; you cannot stack two of one seat type on a hull). Refuses (the SAME
+// state) whenever canAssignOfficer does. Pure.
+export function assignOfficerToShip(state: GameState, officerId: string, shipId: string): GameState {
+  if (!canAssignOfficer(state, officerId, shipId).ok) return state;
   return {
     ...state,
     officers: state.officers.map((o) => (o.id === officerId ? { ...o, assignedShipId: shipId } : o)),
   };
 }
 
-// Unassign an officer from whatever ship it sits on (assignedShipId -> null). Returns a NEW state;
-// unchanged (apart from a fresh officers array) when no officer matches. Pure.
+// Can this officer leave its seat? noOfficer, onMission (its ship is crew-locked). An unassigned officer
+// passes (unassigning it changes nothing but is harmless). Pure.
+export function canUnassignOfficer(state: GameState, officerId: string): OfficerGate {
+  return canFireOfficer(state, officerId);
+}
+
+// Unassign an officer from whatever ship it sits on (assignedShipId -> null). Refuses (the SAME state)
+// whenever canUnassignOfficer does. Pure.
 export function unassignOfficer(state: GameState, officerId: string): GameState {
+  if (!canUnassignOfficer(state, officerId).ok) return state;
   return {
     ...state,
     officers: state.officers.map((o) => (o.id === officerId ? { ...o, assignedShipId: null } : o)),

@@ -9,8 +9,8 @@ import type { AwayMember, AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, Game
 import { SHIP_TYPES } from "./game/model";
 import { formatCountdown } from "./game/format";
 import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
-import { AUGMENT_AFFINITY_RACES, awayCrewBlockText, canFireAwayMember, canReassignAwayMember, implantSlotsFor, shipCrewLocked } from "./game/awayTeam";
-import { onMissionLock } from "./game/equipment";
+import { AUGMENT_AFFINITY_RACES, awayCrewBlockText, canFireAwayMember, canReassignAwayMember, implantSlotsFor } from "./game/awayTeam";
+import { crewLockTextAmong } from "./game/crewLock";
 import type { AwayCrewGate } from "./game/awayTeam";
 import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
 import { getPoiById } from "./game/expeditionContent";
@@ -164,13 +164,17 @@ export interface UnassignedMemberView {
   fire: AwayCrewGate; // canFireAwayMember (an unassigned member is never locked)
 }
 
-// CP-6 review: the accurate words for a crew-locked ship (awayTeam.ts shipCrewLocked), so an expedition is
-// not called a mission. null when the ship is not locked. Pure.
-export function crewLockText(state: GameState, shipId: string): string | null {
-  const mission = onMissionLock(state, shipId);
-  if (!mission.ok && mission.reason === "onMission") return "Ship is out on a mission";
-  if (shipCrewLocked(state, shipId)) return "Ship is on an expedition";
-  return null;
+// CP-6: the accurate words for a crew-locked ship (mission vs expedition) live with the one lock in
+// game/crewLock.ts; re-exported here for the Away Team surfaces.
+export { crewLockText } from "./game/crewLock";
+
+// The player text for an away-crew refusal: an "onMission" lock names the real cause for the FIRST locked
+// ship among `shipIds` (the ships the action involves), every other reason reads awayCrewBlockText.
+// undefined when the gate is open. Pure.
+export function awayGateText(state: GameState, gate: AwayCrewGate, shipIds: readonly (string | null | undefined)[]): string | undefined {
+  if (gate.ok) return undefined;
+  if (gate.reason === "onMission") return crewLockTextAmong(state, shipIds) ?? awayCrewBlockText(gate.reason);
+  return awayCrewBlockText(gate.reason);
 }
 
 // Every unassigned member in roster order, with the gates for moving aboard `shipId` and for firing. Pure.
@@ -179,11 +183,7 @@ export function unassignedMembersView(state: GameState, shipId: string): Unassig
     .filter((m) => m.assignedShipId === null)
     .map((member) => {
       const join = canReassignAwayMember(state, member.id, shipId);
-      const joinText = join.ok
-        ? undefined
-        : join.reason === "onMission"
-          ? (crewLockText(state, shipId) ?? awayCrewBlockText(join.reason))
-          : awayCrewBlockText(join.reason);
+      const joinText = awayGateText(state, join, [shipId]);
       return { member, join, joinText, fire: canFireAwayMember(state, member.id) };
     });
 }

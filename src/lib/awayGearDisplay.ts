@@ -10,6 +10,7 @@
 import type { AwayTeamType, BlueprintDef, EquipmentInstance, EquipmentSlotType, GameState, MemberSlotType } from "./game/model";
 import { EQUIPMENT_SLOTS, MEMBER_SLOT_TYPES, isMemberSlotType, memberVariety, shipDisplayLabel } from "./game/model";
 import { memberFitBlockText, uniqueWearer, type MemberFitBlockReason } from "./game/memberEquipment";
+import { crewLockText } from "./game/crewLock";
 import { SQUAD_META } from "./awayTeamDisplay";
 import { hasMedicalTraining } from "./game/awayTraits";
 import type { IconName } from "./ui/icons";
@@ -251,8 +252,8 @@ export const UNIQUE_SELF_TEXT_GEAR_MODAL = "Already wears one (use Swap on the i
 
 // The player-facing reason a member install of `pieceId` is refused. For a unique refusal whose wearer
 // resolves: `selfText` when the wearer IS `forMemberId` (the member being installed on), else "Installed on
-// Kira Vale (Aurora)". Every other case, including a unique refusal whose wearer cannot be named, reads
-// memberFitBlockText (the fallback). Pure.
+// Kira Vale (Aurora)". A crew lock on `forMemberId`'s ship reads the accurate lock words (CP-6). Every other
+// case, including a unique refusal whose wearer cannot be named, reads memberFitBlockText (the fallback). Pure.
 export function memberFitReasonText(
   state: GameState,
   pieceId: string,
@@ -264,6 +265,12 @@ export function memberFitReasonText(
     const piece = state.equipment.find((e) => e.id === pieceId);
     const who = piece ? otherCopyWearer(state, piece) : null;
     if (who !== null) return forMemberId !== undefined && who.memberId === forMemberId ? selfText : `Installed on ${who.label}`;
+  }
+  if (reason === "onMission" && forMemberId !== undefined) {
+    // CP-6: a crew lock names its real cause (mission vs expedition) for the member's own ship.
+    const shipId = state.awayMembers.find((m) => m.id === forMemberId)?.assignedShipId ?? null;
+    const lock = shipId === null ? null : crewLockText(state, shipId);
+    if (lock !== null) return lock;
   }
   return memberFitBlockText(reason);
 }

@@ -117,12 +117,15 @@ describe("groundTeamsPanelView", () => {
     expect(alpha?.squads[0].slots[0].readyInSeconds).toBe(720);
   });
 
+  // CP-6: the lock names its real cause (an expedition is not called a mission) and how long it lasts.
   it("is locked with the engine's reason while the ship is out", () => {
     const base = crew();
     const s = { ...base, expeditions: [{ shipId: "ship-1" }] } as unknown as GameState;
     const v = groundTeamsPanelView(s, "ship-1");
     expect(v?.locked).toBe(true);
-    expect(v?.lockText).toBe("Ship is out on a mission");
+    expect(v?.lockText).toBe("Ship is on an expedition");
+    expect(v?.lockUntil).toBe("until its expedition is claimed");
+    expect(groundTeamsPanelView(base, "ship-1")?.lockUntil).toBeNull();
   });
 
   it("returns null for a ship that is gone", () => {

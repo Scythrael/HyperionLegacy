@@ -300,6 +300,26 @@ on the Away Team tab (`awayTeamDisplay.ts` `unassignedMembersView`, Move aboard 
 NOT done (still CP-6 / CP-10): `crewLockReason` (the shared "Ship is out on a mission" text also shows for an
 expedition), the officer / roster / complement-mode / retirement locks, OC-11 auto-crew pause, lock badges.
 
+**Carry note 2 (2026-10-14, CP-6 lock landed, commit "feat(0.14.0): one crew lock for every crew change while a
+ship is out (CP-6)"):** DONE: the one predicate moved to the leaf module `crewLock.ts` (`shipCrewLocked`, re-exported
+from `awayTeam.ts`; a leaf because `awayTeam.ts` imports `seniorStaff.ts`), with `crewLockReason` ("onMission" wins,
+else "onExpedition", null exactly when unlocked), `crewLockReasonText`, `crewLockUntilText` ("until it returns" /
+"until its expedition is claimed"), `crewLockText`, `crewLockTextAmong`. Locked with typed same-ref refusals:
+officer hire-to-seat (new atomic `hireOfficerToSeat`; App no longer hires then fails to seat), assign (origin and
+target ship), unassign, fire (`seniorStaff.ts` `can*` + `officerBlockText`; an unknown id is now a same-ref
+`noOfficer`); `applyRoster` whole (`canApplyRoster`: target locked, incl. a gear-only roster, or a pinned officer /
+notable aboard another locked ship; `rosterApplyGateText`); captain retirement (`retireBlockReason` /
+`retireBlockText`, new `shipOnExpedition` after `notIdle`; App's Prestige reason now reads the engine); the
+complement mode toggle (new engine fn `crewLock.ts` `setComplementMode`, `unchanged` stays a silent no-op). Away
+member hire / fire / reassign, ground slots, member gear and the Armory were already locked (verified). Notable
+assign / unassign and manual complement edits have NO action outside `applyRoster` today (CP-7 transfer and CP-8
+graduate must call the lock). Scattered texts now read the real cause: ground teams line, Away Team move / fire /
+Unassigned reasons, the recruit board, member gear refusals, App refusal logs. UI: lock line with the `lock` glyph on
+Senior Staff and Complement, disabled controls with visible reasons, Apply disabled with the reason and locked ships
+marked "(crew locked)" in its picker, a "Crew locked" badge on Ships roster rows. Left unlocked: captain hull
+reassignment (`tick.ts` `assignShipToCaptain`) checks only `captain.mission`, so a captain can swap hulls while
+their ship is on an expedition (decision for the user). OC-11 (auto-crew pause) not built, still open.
+
 ### CP-7: Transfer (Task 25 engine)
 
 **Files:** `crew.ts` (`canTransferCrew` + `transferCrew(state, from: shipId | "pool", to: shipId | "pool",

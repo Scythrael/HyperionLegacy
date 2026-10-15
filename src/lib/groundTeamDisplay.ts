@@ -31,6 +31,7 @@ import {
   type GroundSquadType,
 } from "./game/groundTeams";
 import { byIdNumber, isMemberReady, shipCrewLocked, shipCrewRoom, type ShipCrewRoom } from "./game/awayTeam";
+import { crewLockReason, crewLockText, crewLockUntilText } from "./game/crewLock";
 
 // The squad type's display word. Exhaustive over the two ground squad types.
 export const SQUAD_TYPE_NAME: Record<GroundSquadType, string> = { security: "Security", science: "Science" };
@@ -92,7 +93,8 @@ export interface GroundTeamCardView {
 
 export interface GroundTeamsPanelView {
   locked: boolean; // the ship is out: every slot and type write refuses (rename and the help default do not)
-  lockText: string | null;
+  lockText: string | null; // CP-6: the accurate words (crewLock.ts crewLockText: mission vs expedition)
+  lockUntil: string | null; // CP-6: how long ("until it returns" / "until its expedition is claimed")
   compositionLabel: string; // "Strike + Ground"
   securitySquads: number;
   scienceSquads: number;
@@ -146,6 +148,7 @@ export function groundTeamsPanelView(state: GameState, shipId: string): GroundTe
   const named = stored.map((t, i) => ({ name: groundTeamName(ship, i), kind: t.kind }));
   const check = deployableGroundTeams(state, shipId);
   const locked = shipCrewLocked(state, shipId);
+  const lockReason = crewLockReason(state, shipId);
   const teams: GroundTeamCardView[] = stored.map((t, index) => {
     const squads: GroundSquadView[] = [];
     for (const teamType of GROUND_SQUAD_TYPES) {
@@ -190,7 +193,8 @@ export function groundTeamsPanelView(state: GameState, shipId: string): GroundTe
   const room = shipCrewRoom(state, ship);
   return {
     locked,
-    lockText: locked ? groundSlotBlockText("onMission") : null,
+    lockText: crewLockText(state, shipId),
+    lockUntil: lockReason === null ? null : crewLockUntilText(lockReason),
     compositionLabel: compositionLabel(kinds),
     securitySquads: squads.security,
     scienceSquads: squads.science,

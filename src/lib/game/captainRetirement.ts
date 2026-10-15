@@ -10,7 +10,8 @@
 // MECHANICS (LOCKED, docs/plans/2026-09-22-crew-0.14.0-plan.md, "Captain RETIREMENT + succession
 // (C-3b)"):
 //   - VOLUNTARY + LEVEL-GATED + never forced; requires a seated Executive officer (the successor) and
-//     an IDLE captain (first-pass safety: no retiring mid-mission).
+//     an IDLE captain (first-pass safety: no retiring mid-mission) whose ship is not crew-locked (CP-6:
+//     not on an expedition either, until it is claimed).
 //   - XO SUCCESSION consumes the Executive officer (removed from state.officers, its seat emptied) and
 //     transfers its identity (name + race) to the captain. The captain RACIAL-BONUS application is a
 //     documented FOLLOW-ON (E-CAP captain-identity set); C-3b carries `race` as identity DATA only.
@@ -28,6 +29,8 @@ import Decimal from "break_infinity.js";
 import type { GameState, CaptainState, SeniorStaffOfficer } from "./model";
 import { freshCaptainStack } from "./model";
 import { fireOfficer } from "./seniorStaff";
+// CP-6: the one crew lock (a leaf module, no cycle).
+import { shipCrewLocked } from "./crewLock";
 
 // The level a captain must REACH before they may retire. FIRST-PASS + TUNABLE (a captain climbs the
 // base tree meaningfully before the prestige is worthwhile).
@@ -54,16 +57,48 @@ export function seatedExecutiveOfficerFor(
   return state.officers.find((o) => o.seat === "executive" && o.assignedShipId === ship.id);
 }
 
-// Whether `captainId` may retire RIGHT NOW. Guards (ALL must hold): the captain exists; is at or above
-// the level gate; is under the retirement cap; is IDLE (mission === null, first-pass safety); and has a
-// seated Executive officer aboard its ship (the successor). Pure.
-export function canRetireCaptain(state: GameState, captainId: number): boolean {
+// Why `captainId` may NOT retire right now, or null when it may. Guards in order: the captain exists
+// (noCaptain); is at or above the level gate (belowLevel); is under the retirement cap (lockedIn); is IDLE
+// (notIdle, mission === null); its ship is not crew-locked (shipOnExpedition, CP-6: an expedition in flight
+// or complete but unclaimed, the one lock in crewLock.ts; a captain mission already reported notIdle, so an
+// expedition is the only lock left by then); and a seated Executive officer is aboard (noSuccessor). The
+// run's stats are frozen at dispatch, but the user rule is "can't change mid-mission", and retiring would
+// consume an XO who is out on the run. Pure.
+export type RetireBlockReason = "noCaptain" | "belowLevel" | "lockedIn" | "notIdle" | "shipOnExpedition" | "noSuccessor";
+
+export function retireBlockReason(state: GameState, captainId: number): RetireBlockReason | null {
   const captain = state.captains.find((c) => c.id === captainId);
-  if (!captain) return false;
-  if (captain.level < RETIRE_LEVEL_GATE) return false; // level gate
-  if ((captain.retirements ?? 0) >= MAX_CAPTAIN_RETIREMENTS) return false; // capped: locked in
-  if (captain.mission !== null) return false; // idle-only (first-pass safety: no retiring mid-mission)
-  return seatedExecutiveOfficerFor(state, captainId) !== undefined; // needs a seated XO successor
+  if (!captain) return "noCaptain";
+  if (captain.level < RETIRE_LEVEL_GATE) return "belowLevel"; // level gate
+  if ((captain.retirements ?? 0) >= MAX_CAPTAIN_RETIREMENTS) return "lockedIn"; // capped: locked in
+  if (captain.mission !== null) return "notIdle"; // idle-only (no retiring mid-mission)
+  const ship = state.ships.find((s) => s.assignedCaptainId === captainId);
+  if (ship && shipCrewLocked(state, ship.id)) return "shipOnExpedition";
+  return seatedExecutiveOfficerFor(state, captainId) !== undefined ? null : "noSuccessor"; // needs a seated XO
+}
+
+// The player-facing line for a refusal (US English), `level` being the captain's current level. EXHAUSTIVE
+// with no default on purpose. Pure.
+export function retireBlockText(reason: RetireBlockReason, level: number): string {
+  switch (reason) {
+    case "noCaptain":
+      return "No such captain.";
+    case "belowLevel":
+      return `Reach level ${RETIRE_LEVEL_GATE} to retire (currently level ${level}).`;
+    case "lockedIn":
+      return "This captaincy is locked in: no retirements remain.";
+    case "notIdle":
+      return "Recall this captain first, retirement needs an idle captain.";
+    case "shipOnExpedition":
+      return "This captain's ship is on an expedition: claim it first.";
+    case "noSuccessor":
+      return "Seat an Executive officer (XO) aboard this captain's ship to succeed them.";
+  }
+}
+
+// Whether `captainId` may retire RIGHT NOW (retireBlockReason is null). Pure.
+export function canRetireCaptain(state: GameState, captainId: number): boolean {
+  return retireBlockReason(state, captainId) === null;
 }
 
 // Retire `captainId`: the full mini-prestige + XO succession, atomically. Returns a NEW GameState; the

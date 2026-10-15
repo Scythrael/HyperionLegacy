@@ -45,7 +45,15 @@
     canPromoteOfficer,
     officerPromotionObjectives,
     officerRacialBonus,
+    canAssignOfficer,
+    canFireOfficer,
+    canHireOfficerToSeat,
+    canUnassignOfficer,
+    officerBlockText,
+    type OfficerGate,
   } from "./game/seniorStaff";
+  import { crewLockReason, crewLockReasonText, crewLockUntilText } from "./game/crewLock";
+  import Icon from "./ui/Icon.svelte";
   import { getSeniorStaffBonusById } from "./game/seniorStaffBonuses";
   import { CREW_RACES } from "./game/crewRaces";
   import { officerStatTooltip } from "./game/officerStats";
@@ -120,6 +128,17 @@
     }
     return map;
   })();
+
+  // CP-6: the one crew lock. While this ship is out (a captain mission, or an expedition until it is
+  // claimed) every allocation control (Hire, Assign, Reassign, Dismiss) is disabled with the reason shown;
+  // promotion and favorites stay live. The engine gates refuse the same actions (seniorStaff.ts can*).
+  $: lockReason = ship ? crewLockReason(state, shipId) : null;
+  $: lockText = lockReason === null ? null : crewLockReasonText(lockReason);
+  // A refusal's player text; a crew lock reads the accurate words for this ship. undefined when open.
+  function gateWhy(gate: OfficerGate, lock: string | null): string | undefined {
+    if (gate.ok) return undefined;
+    return gate.reason === "onMission" && lock !== null ? lock : officerBlockText(gate.reason);
+  }
 
   // The officer sitting the currently-drilled seat (null when the seat is empty or none drilled).
   $: selectedOfficer = selectedSeat ? seatOccupant[selectedSeat] ?? null : null;
@@ -231,6 +250,11 @@
   <!-- MASTER: the 7 typed bridge seats as tiles. On a wide container this column stays beside
        the detail; on a narrow container it is the whole view until a seat is drilled. -->
   <div class="sstaff-seats">
+    {#if lockReason !== null}
+      <p class="sstaff-lock" role="note">
+        <Icon name="lock" /> {lockText}: officers on this ship cannot be hired, assigned, reassigned or dismissed {crewLockUntilText(lockReason)}. Promotion and favorites still work.
+      </p>
+    {/if}
     <div class="sstaff-section-tag">Bridge Seats</div>
     <div class="sstaff-seat-grid">
       {#each SENIOR_STAFF_SEATS as seat (seat)}
@@ -270,6 +294,8 @@
 
       {#if selectedOfficer}
         {@const officer = selectedOfficer}
+        {@const reassignWhy = gateWhy(canUnassignOfficer(state, officer.id), lockText)}
+        {@const dismissWhy = gateWhy(canFireOfficer(state, officer.id), lockText)}
         <!-- OFFICER DOSSIER -->
         <div class="sstaff-dossier">
           <div class="sstaff-officer-hdr">
@@ -366,15 +392,30 @@
             {/if}
           </div>
 
-          <!-- SEAT ACTIONS -->
+          <!-- SEAT ACTIONS (CP-6: disabled with the reason while the ship is crew-locked) -->
           <div class="sstaff-actions">
-            <button type="button" class="sstaff-btn" on:click={() => onReassign(officer.id)}>
+            <button
+              type="button"
+              class="sstaff-btn"
+              disabled={reassignWhy !== undefined}
+              title={reassignWhy ?? "Free this seat; the officer stays hired"}
+              on:click={() => onReassign(officer.id)}
+            >
               Reassign
             </button>
-            <button type="button" class="sstaff-btn danger" on:click={() => requestDismiss(officer.id)}>
+            <button
+              type="button"
+              class="sstaff-btn danger"
+              disabled={dismissWhy !== undefined}
+              title={dismissWhy ?? "Dismiss this officer from the fleet"}
+              on:click={() => requestDismiss(officer.id)}
+            >
               Dismiss
             </button>
           </div>
+          {#if reassignWhy !== undefined || dismissWhy !== undefined}
+            <div class="sstaff-why">{reassignWhy ?? dismissWhy}</div>
+          {/if}
         </div>
       {:else}
         <!-- EMPTY SEAT: fill options -->
@@ -383,6 +424,7 @@
             <div class="sstaff-block-tag">Available Officers</div>
             <div class="sstaff-cand-list">
               {#each availableOfficers as officer (officer.id)}
+              {@const assignWhy = gateWhy(canAssignOfficer(state, officer.id, shipId), lockText)}
                 <div class="sstaff-cand">
                   <div class="sstaff-cand-info">
                     <span class="sstaff-cand-name">{officer.name}</span>
@@ -400,9 +442,18 @@
                       {/each}
                     </div>
                   </div>
-                  <button type="button" class="sstaff-btn primary" on:click={() => onAssign(officer.id, shipId)}>
-                    Assign
-                  </button>
+                  <div class="sstaff-cand-act">
+                    <button
+                      type="button"
+                      class="sstaff-btn primary"
+                      disabled={assignWhy !== undefined}
+                      title={assignWhy ?? "Assign this officer to the seat"}
+                      on:click={() => onAssign(officer.id, shipId)}
+                    >
+                      Assign
+                    </button>
+                    {#if assignWhy !== undefined}<span class="sstaff-why">{assignWhy}</span>{/if}
+                  </div>
                 </div>
               {/each}
             </div>
@@ -416,6 +467,7 @@
           {:else}
             <div class="sstaff-cand-list">
               {#each seatCandidates as candidate (candidate.id)}
+              {@const hireWhy = gateWhy(canHireOfficerToSeat(state, candidate.id, shipId), lockText)}
                 <div class="sstaff-cand">
                   <div class="sstaff-cand-info">
                     <span class="sstaff-cand-name">{candidate.name}</span>
@@ -433,13 +485,18 @@
                       {/each}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    class="sstaff-btn primary"
-                    on:click={() => onHire(candidate.id, candidate.seat)}
-                  >
-                    Hire
-                  </button>
+                  <div class="sstaff-cand-act">
+                    <button
+                      type="button"
+                      class="sstaff-btn primary"
+                      disabled={hireWhy !== undefined}
+                      title={hireWhy ?? "Hire this candidate into the seat"}
+                      on:click={() => onHire(candidate.id, candidate.seat)}
+                    >
+                      Hire
+                    </button>
+                    {#if hireWhy !== undefined}<span class="sstaff-why">{hireWhy}</span>{/if}
+                  </div>
                 </div>
               {/each}
             </div>
@@ -905,6 +962,30 @@
   .sstaff-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+  /* CP-6: the crew lock line (warning hue + the lock glyph + words, so color is never the only signal) and
+     the reason under a disabled allocation control. */
+  .sstaff-lock {
+    margin: 0 0 10px;
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+    font-size: var(--text-xs);
+    line-height: 1.4;
+    color: var(--color-warning);
+  }
+  .sstaff-why {
+    font-size: var(--text-2xs);
+    color: var(--color-warning);
+    margin-top: 4px;
+  }
+  .sstaff-cand-act {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    flex: 0 0 auto;
+    max-width: 45%;
+    text-align: right;
   }
   .sstaff-confirm-text {
     font-size: var(--text-sm);

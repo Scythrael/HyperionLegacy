@@ -420,11 +420,19 @@
   // Crew 0.14.0 (phase 4a): the pure SENIOR STAFF engine, wired by the do* handlers below.
   // hire/fire/assign/unassign each take + return a whole GameState; promoteOfficer takes +
   // returns a single officer, so its handler splices the result back into state.officers.
+  // CP-6: every allocation change refuses (same ref) while a ship involved is crew-locked; the can* gates
+  // give the typed reason for the refusal log.
   import {
-    hireOfficer,
+    hireOfficerToSeat,
+    canHireOfficerToSeat,
     fireOfficer,
+    canFireOfficer,
     assignOfficerToShip,
+    canAssignOfficer,
     unassignOfficer,
+    canUnassignOfficer,
+    officerBlockText,
+    type OfficerGate,
     promoteOfficer,
     toggleOfficerFavorite,
     officerRankLabel,
@@ -439,9 +447,8 @@
     canHireAwayMember,
     canFireAwayMember,
     canReassignAwayMember,
-    awayCrewBlockText,
   } from "./lib/game/awayTeam";
-  import { awayCountdownText, awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
+  import { awayCountdownText, awayGateText, awayShipName, SQUAD_META } from "./lib/awayTeamDisplay";
   // Ground Operations GO-11 + Squads SQ-7: the ground team slot / type actions behind the AwayTeamPanel's
   // team cards (doSlotGroundMember and friends). Same refusal contract: the SAME state on refusal.
   import {
@@ -504,10 +511,11 @@
   } from "./lib/game/captainSecondaryTree";
   import {
     canRetireCaptain,
+    retireBlockReason,
+    retireBlockText,
     retireCaptain,
     retirementExpMultiplier,
     seatedExecutiveOfficerFor,
-    RETIRE_LEVEL_GATE,
     MAX_CAPTAIN_RETIREMENTS,
   } from "./lib/game/captainRetirement";
   // Crew 0.14.0 (phase 4d): the pure PERSONNEL ROSTERS engine, wired by the do* handlers below.
@@ -525,9 +533,13 @@
     moveNotableUp,
     moveNotableDown,
     applyRoster,
+    canApplyRoster,
+    rosterApplyGateText,
     toggleNotableFavorite,
     type RosterPatch,
   } from "./lib/game/personnelRosters";
+  // CP-6: the one crew lock (the accurate lock words, and the complement mode toggle's engine fn).
+  import { canSetComplementMode, complementModeBlockText, crewLockText, crewLockTextAmong, setComplementMode } from "./lib/game/crewLock";
   // Quartermaster 0.13.3.1: the free Standard-Issue counter. REQUISITION_ENTRIES is the
   // DERIVED row list (built from the total REQUISITION_CATALOGUE Record over
   // EquipmentSlotType), so this console renders whatever slots have a Standard-Issue floor
@@ -1821,6 +1833,9 @@
     searchText: shipSearch,
     favorites: shipFavorites,
   });
+  // CP-6: each hull's crew lock words (crewLock.ts crewLockText: a captain mission, or an expedition until it
+  // is claimed), for the roster row's lock badge. One pass per state change.
+  $: shipCrewLockText = new Map(state.ships.map((s) => [s.id, crewLockText(state, s.id)] as const));
 
   // 0.13.6 (user): a compact distinguishing stat line for a ship in the swap picker, so two
   // UNNAMED same-type hulls can be told apart by what they carry. Folds the ship's fitted gear
@@ -5140,20 +5155,31 @@
   // reassign `state`, pushLog, doSave. The engine fns are refuse-by-returning-the-same-state
   // (no throws), so a no-op leaves state === next and we simply skip the log/save on it.
 
-  // HIRE a candidate off the roster AND seat it in one action: hireOfficer copies the
-  // candidate into state.officers with a real officer id, then assignOfficerToShip drops it
-  // into this ship's matching seat. The newest officer (highest nextOfficerId slot) is the one
-  // hireOfficer just appended, so we assign THAT id (the candidate id is re-issued on hire).
+  // CP-6: the player text for an officer refusal; a crew lock names its real cause (mission vs expedition)
+  // for the first locked ship among those the action touches.
+  function officerGateText(gate: OfficerGate, shipIds: (string | null | undefined)[]): string {
+    if (gate.ok) return "";
+    return gate.reason === "onMission"
+      ? crewLockTextAmong(state, shipIds) ?? officerBlockText(gate.reason)
+      : officerBlockText(gate.reason);
+  }
+  function officerShipOf(officerId: string): string | null {
+    return state.officers.find((o) => o.id === officerId)?.assignedShipId ?? null;
+  }
+
+  // HIRE a candidate off the roster AND seat it in one atomic action (hireOfficerToSeat): the candidate
+  // is copied into state.officers with a real officer id and dropped into this ship's matching seat, or
+  // nothing happens at all (a taken seat or a crew-locked ship, CP-6), so a refusal never leaves a stray
+  // unassigned hire behind. The new officer is the last entry (the candidate id is re-issued on hire).
   function doHireOfficerToSeat(candidateId: string, seat: SeniorStaffSeat) {
     if (selectedShipId === null) return;
-    const hiredState = hireOfficer(state, candidateId);
-    if (hiredState === state) {
-      pushLog("Cannot hire officer: candidate no longer on the roster.");
+    const next = hireOfficerToSeat(state, candidateId, selectedShipId);
+    if (next === state) {
+      const gate = canHireOfficerToSeat(state, candidateId, selectedShipId);
+      pushLog(`Cannot hire officer: ${officerGateText(gate, [selectedShipId])}.`);
       return;
     }
-    // hireOfficer appends the new officer, so it is the last entry; grab it before assigning.
-    const hired = hiredState.officers[hiredState.officers.length - 1];
-    const next = assignOfficerToShip(hiredState, hired.id, selectedShipId);
+    const hired = next.officers[next.officers.length - 1];
     state = next;
     doSave();
     pushLog(`Hired ${hired.name} (${officerRankLabel(hired.rank)}) to the ${seat} seat.`);
@@ -5164,7 +5190,8 @@
     const officer = state.officers.find((o) => o.id === officerId);
     const next = assignOfficerToShip(state, officerId, shipId);
     if (next === state) {
-      pushLog("Cannot assign officer: that seat is already filled.");
+      const gate = canAssignOfficer(state, officerId, shipId);
+      pushLog(`Cannot assign officer: ${officerGateText(gate, [officerShipOf(officerId), shipId])}.`);
       return;
     }
     state = next;
@@ -5177,7 +5204,11 @@
   function doUnassignOfficer(officerId: string) {
     const officer = state.officers.find((o) => o.id === officerId);
     const next = unassignOfficer(state, officerId);
-    if (next === state) return; // unknown id: no change
+    if (next === state) {
+      const gate = canUnassignOfficer(state, officerId);
+      pushLog(`Cannot reassign ${officer?.name ?? "officer"}: ${officerGateText(gate, [officerShipOf(officerId)])}.`);
+      return;
+    }
     state = next;
     doSave();
     pushLog(`Reassigned ${officer?.name ?? officerId} off their bridge seat.`);
@@ -5187,7 +5218,11 @@
   function doFireOfficer(officerId: string) {
     const officer = state.officers.find((o) => o.id === officerId);
     const next = fireOfficer(state, officerId);
-    if (next === state) return; // unknown id: no change
+    if (next === state) {
+      const gate = canFireOfficer(state, officerId);
+      pushLog(`Cannot dismiss ${officer?.name ?? "officer"}: ${officerGateText(gate, [officerShipOf(officerId)])}.`);
+      return;
+    }
     state = next;
     doSave();
     pushLog(`Dismissed ${officer?.name ?? officerId} from the fleet.`);
@@ -5227,7 +5262,7 @@
     const next = hireAwayMember(state, candidateId, shipId);
     if (next === state) {
       const gate = canHireAwayMember(state, candidateId, shipId);
-      if (!gate.ok) pushLog(`Cannot hire: ${awayCrewBlockText(gate.reason)}.`);
+      if (!gate.ok) pushLog(`Cannot hire: ${awayGateText(state, gate, [shipId])}.`);
       return;
     }
     // The hire records the candidate it came from, so find it by that, not by list position.
@@ -5248,7 +5283,7 @@
     const next = fireAwayMember(state, memberId);
     if (next === state) {
       const gate = canFireAwayMember(state, memberId);
-      if (!gate.ok) pushLog(`Cannot fire ${member?.name ?? memberId}: ${awayCrewBlockText(gate.reason)}.`);
+      if (!gate.ok) pushLog(`Cannot fire ${member?.name ?? memberId}: ${awayGateText(state, gate, [member?.assignedShipId])}.`);
       return;
     }
     state = next;
@@ -5262,7 +5297,7 @@
     const next = reassignAwayMember(state, memberId, shipId);
     if (next === state) {
       const gate = canReassignAwayMember(state, memberId, shipId);
-      if (!gate.ok) pushLog(`Cannot move ${member?.name ?? memberId}: ${awayCrewBlockText(gate.reason)}.`);
+      if (!gate.ok) pushLog(`Cannot move ${member?.name ?? memberId}: ${awayGateText(state, gate, [member?.assignedShipId, shipId])}.`);
       return;
     }
     state = next;
@@ -5502,19 +5537,20 @@
 
   // ── Complement (Crew 0.14.0 phase 4b) ──────────────────────────────────────
   // The ComplementPanel's Auto-crew toggle routes here. It flips ONE ship's complement.mode
-  // between "passive" (auto-crew fills top-rank-down on the tick) and "active" (player-curated).
-  // A fresh ship may have no complement yet; we materialize an empty one so the mode is set. The
-  // toggle is display-only for the tick until the crew-goes-live overlay reads this flag; setting
-  // it is a pure state + doSave, no engine call needed.
+  // between "passive" (auto-crew fills top-rank-down on the tick) and "active" (player-curated)
+  // through crewLock.ts setComplementMode (CP-6: refused, same ref, while the ship is crew-locked;
+  // a fresh ship with no complement gets an empty one so the mode is stored).
   function doSetComplementMode(shipId: string, mode: "passive" | "active") {
-    const ship = state.ships.find((s) => s.id === shipId);
-    if (!ship) return;
-    const base = ship.complement ?? { buckets: [], mode: "passive" as const };
-    if (base.mode === mode) return; // no change: skip save + log
-    state = {
-      ...state,
-      ships: state.ships.map((s) => (s.id === shipId ? { ...s, complement: { ...base, mode } } : s)),
-    };
+    const next = setComplementMode(state, shipId, mode);
+    if (next === state) {
+      const gate = canSetComplementMode(state, shipId, mode);
+      if (!gate.ok && gate.reason !== "unchanged") {
+        const why = gate.reason === "onMission" ? crewLockText(state, shipId) ?? complementModeBlockText(gate.reason) : complementModeBlockText(gate.reason);
+        pushLog(`[${devShipLabel(shipId)}] Cannot change the complement mode: ${why}.`);
+      }
+      return; // "unchanged" stays a silent no-op
+    }
+    state = next;
     doSave();
     pushLog(`[${devShipLabel(shipId)}] Complement set to ${mode === "passive" ? "auto-crew" : "manual"}.`);
   }
@@ -5805,9 +5841,14 @@
 
   // APPLY the roster's people to a ship (the one side-effectful engine action). applyRoster is a
   // same-ref no-op on a missing roster/ship or a roster carrying no people, so we skip the log/save.
+  // CP-6: it also refuses WHOLE while a ship involved is crew-locked; that refusal is logged.
   function doApplyRoster(rosterId: string, shipId: string) {
     const next = applyRoster(state, rosterId, shipId);
-    if (next === state) return;
+    if (next === state) {
+      const why = rosterApplyGateText(state, canApplyRoster(state, rosterId, shipId));
+      if (why !== undefined) pushLog(`Cannot apply roster "${rosterName(rosterId)}": ${why}.`);
+      return;
+    }
     state = next;
     doSave();
     pushLog(`Applied roster "${rosterName(rosterId)}" to ${devShipLabel(shipId)}.`);
@@ -15911,7 +15952,7 @@
                 <div class="ship-row" class:attention={row.needsAttention}>
                   <button
                     class="ship-row-main"
-                    aria-label={`Open ${row.name}${row.hasCustomName ? ", " + row.className : ""}. ${SHIP_STATUS_LABEL[row.status]}. Battle Rating ${row.battleRating}.${row.needsAttention ? " Needs attention: " + row.attentionReason + "." : ""}`}
+                    aria-label={`Open ${row.name}${row.hasCustomName ? ", " + row.className : ""}. ${SHIP_STATUS_LABEL[row.status]}. Battle Rating ${row.battleRating}.${row.needsAttention ? " Needs attention: " + row.attentionReason + "." : ""}${shipCrewLockText.get(row.id) ? " Crew locked: " + shipCrewLockText.get(row.id) + "." : ""}`}
                     use:focusOnMount={{ when: row.id === pendingFocusShipId, onFocused: () => (pendingFocusShipId = null) }}
                     on:click={() => {
                       selectedShipId = row.id;
@@ -15936,6 +15977,10 @@
                       <span class="ship-row-meta">{#if row.hasCustomName}{row.className} · {/if}{row.captainName ?? "No captain"} · {SHIP_STATUS_LABEL[row.status]}</span>
                       {#if row.needsAttention}
                         <span class="ship-row-attn">⚠ {row.attentionReason}</span>
+                      {/if}
+                      {#if shipCrewLockText.get(row.id)}
+                        <!-- CP-6: the crew lock badge (glyph + words; the reason in the tooltip). -->
+                        <span class="ship-row-lock" title={`${shipCrewLockText.get(row.id)}: crew changes are locked`}><Icon name="lock" size={12} /> Crew locked</span>
                       {/if}
                     </span>
                     <span class="ship-row-rating" title="Battle Rating">BR {row.battleRating}</span>
@@ -16788,18 +16833,13 @@
           {@const prestigeSuccessor = seatedExecutiveOfficerFor(state, activeCaptain.id)}
           {@const prestigeLockedIn = activeCaptain.retirements >= MAX_CAPTAIN_RETIREMENTS}
           {@const prestigeCanRetire = canRetireCaptain(state, activeCaptain.id)}
+          {@const prestigeBlock = retireBlockReason(state, activeCaptain.id)}
           {@const prestigeExpBoostPct = Math.round((retirementExpMultiplier(state) - 1) * 100)}
-          <!-- The specific ineligibility reason, in canRetireCaptain's own guard order (level, then
-               mission-idle, then a seated XO); "" once eligible. Drives the disabled button's title +
-               the hint below it. The at-cap case is handled by the Locked-in branch, not here. -->
-          {@const prestigeRetireReason =
-            activeCaptain.level < RETIRE_LEVEL_GATE
-              ? `Reach level ${RETIRE_LEVEL_GATE} to retire (currently level ${activeCaptain.level}).`
-              : activeCaptain.mission !== null
-                ? "Recall this captain first, retirement needs an idle captain."
-                : !prestigeSuccessor
-                  ? "Seat an Executive officer (XO) aboard this captain's ship to succeed them."
-                  : ""}
+          <!-- The specific ineligibility reason, from the engine's own typed guard order
+               (captainRetirement.ts retireBlockReason: level, the cap, mission-idle, CP-6's expedition
+               lock, then a seated XO); "" once eligible. Drives the disabled button's title + the hint
+               below it. The at-cap case is handled by the Locked-in branch, not here. -->
+          {@const prestigeRetireReason = prestigeBlock === null ? "" : retireBlockText(prestigeBlock, activeCaptain.level)}
           <div class="cc-prestige">
             <div class="cc-prestige-grid">
 
@@ -22247,6 +22287,7 @@
     text-overflow: ellipsis;
   }
   .ship-row-attn { font-size: var(--text-xs); color: var(--color-warning); font-weight: 600; }
+  .ship-row-lock { display: inline-flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--color-text-secondary); }
   .ship-row-rating {
     flex: 0 0 auto;
     align-self: center;

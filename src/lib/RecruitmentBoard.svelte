@@ -33,7 +33,7 @@
     awayRecruitCandidates,
     hireTargetsForCandidate,
     implantSlotsFor,
-    shipCrewLocked,
+    crewLockReason,
   } from "./game/awayTeam";
   import type { AwayCrewBlockReason } from "./game/awayTeam";
   import { getAwayTrait, awayTraitEffectText, traitDisplayText } from "./game/awayTraits";
@@ -48,6 +48,7 @@
     awaySpecLabel,
     rankTier,
     awayRaceLabel,
+    awayGateText,
     awayTargetLabel,
     awayCountdownText,
   } from "./awayTeamDisplay";
@@ -86,6 +87,7 @@
     label: string;
     ok: boolean;
     reason?: AwayCrewBlockReason;
+    why?: string; // CP-6: the player text for `reason` (a crew lock names its real cause), set when blocked
   }
   interface CandidateRow {
     candidate: AwayMember;
@@ -110,7 +112,7 @@
 
   function rowsFor(s: GameState, hostShipId: string, picks: Record<string, string>): CandidateRow[] {
     const shipsKey = s.ships
-      .map((x) => `${x.id}:${x.name ?? ""}:${x.typeKey}:${shipCrewLocked(s, x.id) ? 1 : 0}`)
+      .map((x) => `${x.id}:${x.name ?? ""}:${x.typeKey}:${crewLockReason(s, x.id) ?? 0}`)
       .join(",");
     const key = `${officerRosterWindowIndex(s)}|${s.awayRecruitSeed}|${s.seniorStaffRosterSize}|${hostShipId}|${shipsKey}`;
     if (key === memoKey && s.awayMembers === memoMembers && picks === memoPicks) return memoRows;
@@ -127,7 +129,8 @@
       const targets: TargetRow[] = hireTargetsForCandidate(s, candidate).map((t) => {
         const ship = s.ships.find((x) => x.id === t.shipId);
         const label = ship ? awayTargetLabel(ship, candidate.teamType) : t.shipId;
-        return { shipId: t.shipId, label, ok: t.ok, reason: t.reason };
+        const why = t.ok || t.reason === undefined ? undefined : awayGateText(s, { ok: false, reason: t.reason }, [t.shipId]);
+        return { shipId: t.shipId, label, ok: t.ok, reason: t.reason, why };
       });
       const pick = targets.find((t) => t.shipId === picks[candidate.id] && t.ok);
       const host = targets.find((t) => t.shipId === hostShipId && t.ok);
@@ -155,13 +158,13 @@
     return out;
   }
   function optionText(t: TargetRow): string {
-    return t.ok || t.reason === undefined ? t.label : `${t.label} (${awayCrewBlockText(t.reason)})`;
+    return t.ok || t.reason === undefined ? t.label : `${t.label} (${t.why ?? awayCrewBlockText(t.reason)})`;
   }
   // The visible reason a candidate cannot be hired right now, or null when Hire is live.
   function whyText(row: CandidateRow): string | null {
     if (row.chosen === null) return "No ship can take this recruit";
     if (row.chosen.ok || row.chosen.reason === undefined) return null;
-    return awayCrewBlockText(row.chosen.reason);
+    return row.chosen.why ?? awayCrewBlockText(row.chosen.reason);
   }
 
   function onPick(candidateId: string, e: Event): void {

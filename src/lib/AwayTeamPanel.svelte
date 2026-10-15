@@ -93,7 +93,6 @@
   import HelpTip from "./HelpTip.svelte";
   import {
     AUGMENT_AFFINITY_RACES,
-    awayCrewBlockText,
     canFireAwayMember,
     canReassignAwayMember,
     membersInSquad,
@@ -115,6 +114,8 @@
     pickedMoveTarget,
     UNASSIGNED_INTRO,
     unassignedMembersView,
+    awayGateText,
+    crewLockText,
   } from "./awayTeamDisplay";
 
   // --- Props ------------------------------------------------------------------
@@ -384,8 +385,10 @@
     }
     return out;
   }
-  function gateText(gate: AwayCrewGate): string | undefined {
-    return gate.ok ? undefined : awayCrewBlockText(gate.reason);
+  // CP-6: a crew lock names its real cause (mission vs expedition) for the first locked ship among the
+  // ones the action involves (this ship by default; a move adds its target).
+  function gateText(gate: AwayCrewGate, shipIds: readonly string[] = [shipId]): string | undefined {
+    return awayGateText(state, gate, shipIds);
   }
 
   // --- Actions ----------------------------------------------------------------
@@ -550,7 +553,9 @@
     return memberPieceName(p).replace(/^Standard-Issue /, "");
   }
   function gateWhy(gate: MemberFitGate | null): string | undefined {
-    return gate === null || gate.ok ? undefined : memberFitBlockText(gate.reason);
+    if (gate === null || gate.ok) return undefined;
+    // CP-6: the member is aboard this ship, so a crew lock reads this ship's real cause.
+    return gate.reason === "onMission" ? crewLockText(state, shipId) ?? memberFitBlockText(gate.reason) : memberFitBlockText(gate.reason);
   }
   function installCandidate(f: GearFlow, pieceId: string): void {
     onInstall(f.member.id, pieceId, f.replacingId);
@@ -653,7 +658,7 @@
         </div>
         {#if gv.locked}
           <p class="gt-lock" id={lockId}>
-            <Icon name="lock" /> {gv.lockText}: slots and team types are locked until it returns. Renaming and the help setting still work.
+            <Icon name="lock" /> {gv.lockText}: slots and team types are locked {gv.lockUntil}. Renaming and the help setting still work.
           </p>
         {/if}
 
@@ -1021,7 +1026,7 @@
                     <option value="" disabled>Move to...</option>
                     {#each mv.moveTargets as t (t.shipId)}
                       <option value={t.shipId} disabled={!t.gate.ok}>
-                        {t.label}{t.gate.ok ? "" : ` (${gateText(t.gate)})`}
+                        {t.label}{t.gate.ok ? "" : ` (${gateText(t.gate, [shipId, t.shipId])})`}
                       </option>
                     {/each}
                   </select>

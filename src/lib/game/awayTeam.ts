@@ -50,7 +50,7 @@ import { CREW_RACE_IDS } from "./crewRaces";
 import { generateCrewIdentity } from "./crew";
 import { OFFICER_ROSTER_WINDOW_SECONDS, officerRosterWindowIndex } from "./seniorStaff";
 import { makeRng, weightedPick, type Rng } from "./combat/rng";
-import { onMissionLock } from "./equipment";
+import { shipCrewLocked } from "./crewLock";
 // Ground Ops (GO-2): keep each ship's ground-team slots in sync with crew moves. groundTeamSlots.ts imports
 // model.ts only, so this is no cycle (groundTeams.ts, which imports this module, re-exports it).
 import { isGroundSquadType, shipsWithMemberAutoSlotted, shipsWithMemberUnslotted } from "./groundTeamSlots";
@@ -303,22 +303,11 @@ export function awayBoardSecondsToRefresh(state: GameState): number {
 // Actions (each returns a NEW GameState; inputs are never mutated; a refusal returns the SAME ref)
 // ============================================================================
 
-// Whether a ship's crew is LOCKED right now (design section 5.6, S1-62): no hire, fire or reassign
-// touches a ship that is out. Two sources, both existing state, nothing reinvented:
-//   - the captain is on a mission or patrol: equipment.ts onMissionLock, the SAME guard that locks gear
-//     installs and ship salvage (one source of truth for "this hull is in flight");
-//   - the ship is on an expedition: onMissionLock does not see those (an expedition lives in
-//     state.expeditions, not on captain.mission), yet that is exactly when the away team is deployed and
-//     its members are snapshotted, and claim later applies injuries to the live members. The test is the
-//     same "one expedition per ship" check startExpedition uses; it holds until the run is claimed.
-// A ship that does not exist is not locked (there is nothing in flight to protect), so a member left
-// pointing at a removed hull can still be fired or reassigned. Task 27 routes every crew action
-// (officers, complement, rosters) through this one helper. Pure.
-export function shipCrewLocked(state: GameState, shipId: string): boolean {
-  const lock = onMissionLock(state, shipId);
-  if (!lock.ok && lock.reason === "onMission") return true;
-  return state.expeditions.some((e) => e.shipId === shipId);
-}
+// Whether a ship's crew is LOCKED right now, and why (design section 5.6, S1-62): no hire, fire or reassign
+// touches a ship that is out. CP-6 moved the one predicate to crewLock.ts (a leaf module, so seniorStaff.ts,
+// personnelRosters.ts and captainRetirement.ts can ask it without an import cycle through this file) and
+// added crewLockReason for the accurate words; both are re-exported here so every importer keeps working.
+export { shipCrewLocked, crewLockReason, type CrewLockReason } from "./crewLock";
 
 // Why a crew action is refused, the gate pattern of equipment.ts canFitEquipment / EquipFitBlockReason:
 // each can* gate answers "would this go through, and if not, why?" so the UI can show a disabled control
@@ -326,7 +315,8 @@ export function shipCrewLocked(state: GameState, shipId: string): boolean {
 //   noCandidate:  the candidate is not on the current board (never was, or already hired)
 //   noMember:     no member with that id
 //   noShip:       the target ship does not exist
-//   onMission:    a ship involved is crew-locked (shipCrewLocked); Task 27 unifies every crew lock on it
+//   onMission:    a ship involved is crew-locked (shipCrewLocked; crewLock.ts crewLockText gives the accurate
+//                 words, mission or expedition)
 //   noSquad:      the target hull fields no squad of the member's team type at all (0 slots), so the
 //                 player is never told "Squad is full" about a squad that does not exist
 //   squadFull:    every slot of the member's type is taken (aboard counts, reserve included) and every
