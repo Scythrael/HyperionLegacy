@@ -226,6 +226,7 @@ import {
   salvageEquipment,
   salvageSalvagedMaterial,
   salvageShip,
+  salvageShipLockReason,
   selectAutoSalvageTargets,
   type SalvageRejectReason,
 } from "./salvage";
@@ -314,11 +315,11 @@ import { craftingXpAwardForProcess } from "./craftingProgress";
 // Equipment 0.11.0 (Task 13/14): equippedFor resolves a ship's fitted pieces so both
 // the mission-resolution seam (economyTick) and the dispatch gate (canDispatch) can
 // fold equipment stats into shipDerivedStats from the SAME single source of truth.
-// Crafting 0.13.3 (Phase 2 Unit 2.4): onMissionLock is the SHARED "this hull's captain is
-// flying" guard (one source of truth for install, ship swap and hull teardown alike).
-// canStartSalvage's ship arm reuses it rather than re-reading captain.mission itself, so a
-// queued teardown is refused by exactly the rule salvageShip will apply at completion.
-import { equippedFor, onMissionLock } from "./equipment";
+// Crafting 0.13.3 (Phase 2 Unit 2.4) / CP-6: canStartSalvage's ship arm reads salvage.ts
+// salvageShipLockReason (onMissionLock, the shared "this hull's captain is flying" guard, plus the
+// expedition crew lock) rather than re-reading captain.mission itself, so a queued teardown is
+// refused by exactly the rule salvageShip will apply at completion.
+import { equippedFor } from "./equipment";
 // 0.13.4 Phase 3: the transit-berth read model. The engine reads berths.ts so it and the
 // console can never disagree about how many berths exist, who holds one, or who is waiting.
 import { transitBerthsFree } from "./berths";
@@ -8985,8 +8986,11 @@ function salvageTargetBlock(
       // flying reports "recall it first", the step the player can actually take).
       const ship = state.ships.find((s) => s.id === target.shipId);
       if (ship === undefined) return { ok: false, reason: "shipNotFound" };
-      // The SHARED flying-captain lock, reused rather than re-read (Omega 4).
-      if (!onMissionLock(state, target.shipId).ok) return { ok: false, reason: "shipOnMission" };
+      // The SHARED salvage lock, reused rather than re-read (Omega 4): the flying captain first, then (CP-6)
+      // an expedition in flight or waiting on its claim. The queued order WAITS with the reason, never
+      // tearing down a hull whose run would become a ghost.
+      const lock = salvageShipLockReason(state, target.shipId);
+      if (lock !== null) return { ok: false, reason: lock };
       // The last-hull softlock guard. A hard player-protection floor, not a balance knob,
       // so it is enforced at promotion too and not left to the resolver: a queued teardown
       // of a fleet that has since shrunk to one hull WAITS (visibly, with a reason) instead

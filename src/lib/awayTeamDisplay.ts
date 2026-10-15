@@ -5,11 +5,12 @@
 // labels (and so the logic is node-testable: this repo has no Svelte component test harness). Nothing
 // here is game logic; the engine lives in game/awayTeam.ts and game/awayTraits.ts.
 
-import type { AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, ScienceSpec, ShipInstance } from "./game/model";
+import type { AwayMember, AwayMemberSpec, AwayTeamType, CrewRace, CrewRank, GameState, ScienceSpec, ShipInstance } from "./game/model";
 import { SHIP_TYPES } from "./game/model";
 import { formatCountdown } from "./game/format";
 import { CREW_RACES, CREW_RACE_IDS } from "./game/crewRaces";
-import { AUGMENT_AFFINITY_RACES, implantSlotsFor } from "./game/awayTeam";
+import { AUGMENT_AFFINITY_RACES, canFireAwayMember, canReassignAwayMember, implantSlotsFor } from "./game/awayTeam";
+import type { AwayCrewGate } from "./game/awayTeam";
 import { SCIENCE_SPEC_POIS } from "./game/fieldwork";
 import { getPoiById } from "./game/expeditionContent";
 import type { IconName } from "./ui/icons";
@@ -144,4 +145,30 @@ export function pickedMoveTarget<T extends { shipId: string; gate: { ok: boolean
 // Away Team tab and the Recruitment Board.
 export function awayCountdownText(seconds: number): string {
   return formatCountdown(seconds);
+}
+
+// ============================================================================
+// CP-6: the Unassigned list ([PROPOSAL] name, OC-12). Away members with no ship (assignedShipId null), for
+// example everyone a hull salvage released. NOT the reserve (members aboard but in no slot): these are aboard
+// nothing. The Away Team tab lists them on every ship, so each can be moved aboard the ship being viewed or
+// fired, through the same engine gates the crew cards use.
+// ============================================================================
+export const UNASSIGNED_INTRO =
+  "Not aboard any ship, so they never deploy. They keep their gear. Move one aboard this ship, or fire them.";
+
+export interface UnassignedMemberView {
+  member: AwayMember;
+  join: AwayCrewGate; // canReassignAwayMember onto the viewed ship (its squad cap and lock)
+  fire: AwayCrewGate; // canFireAwayMember (an unassigned member is never locked)
+}
+
+// Every unassigned member in roster order, with the gates for moving aboard `shipId` and for firing. Pure.
+export function unassignedMembersView(state: GameState, shipId: string): UnassignedMemberView[] {
+  return state.awayMembers
+    .filter((m) => m.assignedShipId === null)
+    .map((member) => ({
+      member,
+      join: canReassignAwayMember(state, member.id, shipId),
+      fire: canFireAwayMember(state, member.id),
+    }));
 }

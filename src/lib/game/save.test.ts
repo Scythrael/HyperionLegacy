@@ -81,7 +81,7 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(68);
+    expect(SAVE_VERSION).toBe(69);
   });
 });
 

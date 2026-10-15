@@ -694,6 +694,9 @@
   // rule is a console that can promise something the engine does not do.
   import {
     salvageShip,
+    salvageShipLockReason,
+    salvageShipPeople,
+    salvageShipPeopleText,
     salvageReservations,
     selectAutoSalvageTargets,
     autoSalvageProtectionForTarget,
@@ -5944,6 +5947,8 @@
         return "that ship no longer exists";
       case "shipOnMission":
         return "the ship's captain is on a mission (recall first)";
+      case "shipOnExpedition":
+        return "the ship is on an expedition (claim it first)";
       case "lastShip":
         return "your fleet would be left with no hull (this is your last ship)";
     }
@@ -6191,6 +6196,8 @@
       (e) => e.fittedToShipId === shipId && e.blueprintKey !== null
     ).length;
     const shipLabel = devShipLabel(shipId);
+    // CP-6: who goes back, read BEFORE the salvage (afterward nobody points at the hull any more).
+    const peopleLine = salvageShipPeopleText(salvageShipPeople(state, shipId));
 
     const result = salvageShip(state, shipId);
     if (!result.ok) {
@@ -6212,7 +6219,7 @@
     if (result.creditsRecovered > 0) parts.push(`${formatNumber(new Decimal(result.creditsRecovered))} credits`);
     const summary = parts.length > 0 ? parts.join(", ") : "no materials this time";
     const systemsNote = returnedSystems > 0 ? ` ${returnedSystems} crafted system(s) returned to spares.` : "";
-    pushLog(`Salvaged ${shipLabel} → recovered ${summary}.${systemsNote}`);
+    pushLog(`Salvaged ${shipLabel} → recovered ${summary}.${systemsNote}${peopleLine !== null ? ` ${peopleLine}` : ""}`);
     doSave();
   }
 
@@ -6964,6 +6971,13 @@
     const ship = state.ships.find((s) => s.id === sc.id);
     if (!ship || ship.assignedCaptainId === null) return null;
     return state.captains.find((c) => c.id === ship.assignedCaptainId)?.label ?? "its captain";
+  })();
+  // CP-6: who a hull teardown sends back (the complement to the crew pool; away members, officers and notables
+  // become unassigned), from the engine's own count so the dialog names exactly what salvageShip releases.
+  $: salvageShipPeopleLine = (() => {
+    const sc = salvageConfirm;
+    if (sc === null || sc.kind !== "ship") return null;
+    return salvageShipPeopleText(salvageShipPeople(state, sc.id));
   })();
 
   // Start the next Systems Bay storage rung. startEquipmentStorageUpgrade returns
@@ -7901,6 +7915,7 @@
         case "noneHeld":
         case "shipNotFound":
         case "shipOnMission":
+        case "shipOnExpedition":
         case "lastShip":
           return `Waiting: ${salvageRejectText(reason)}.`;
         default:
@@ -15967,6 +15982,8 @@
         {@const onMission = assignedCaptain !== null && assignedCaptain.mission !== null}
         {@const parkedShips = state.ships.filter((s) => s.assignedCaptainId === null)}
         {@const idleCaptains = state.captains.filter((c) => c.mission === null)}
+        <!-- CP-6: the engine's salvage lock (a captain mission, or an expedition until it is claimed). -->
+        {@const salvageLock = salvageShipLockReason(state, ship.id)}
         <!-- 0.13.3 Unit 0.1: the captain this board will return to, or null when the player
              arrived from the ships roster. Resolved by ID and re-resolved every render, so a
              captain who disappears while the board is open silently reverts the control to
@@ -16058,12 +16075,14 @@
                reason here mirrors the on-mission block so the player sees WHY before clicking. -->
           <button
             class="dev-btn danger"
-            disabled={onMission || state.ships.length === 1}
-            title={onMission
+            disabled={salvageLock !== null || state.ships.length === 1}
+            title={salvageLock === "shipOnMission"
               ? "On a mission, recall first"
-              : state.ships.length === 1
-                ? "Cannot salvage your last ship: your fleet would be left with no hull"
-                : "Break down this hull for parts"}
+              : salvageLock === "shipOnExpedition"
+                ? "This ship is on an expedition: claim it first"
+                : state.ships.length === 1
+                  ? "Cannot salvage your last ship: your fleet would be left with no hull"
+                  : "Break down this hull for parts"}
             on:click={() => requestSalvage("ship", ship.id, shipDisplayLabel(state, ship))}
           >
             Salvage
@@ -20024,6 +20043,11 @@
         </p>
         {#if salvageShipCaptainWarning !== null}
           <p class="modal-warning">This will leave <strong>{salvageShipCaptainWarning}</strong> without a ship until you assign them another. Any crafted systems return to your spares.</p>
+        {/if}
+        {#if salvageShipPeopleLine !== null}
+          <!-- CP-6: nobody aboard is lost. Unassigned away members are listed under Unassigned on any ship's
+               Away Team tab; unassigned officers wait in each seat's picker. -->
+          <p class="modal-warning">{salvageShipPeopleLine} Away members keep their gear and wait under Unassigned on the Away Team tab.</p>
         {/if}
         <!-- 0.13.3 Unit 4.4: WHEN it happens, added beside the unchanged warning about WHAT
              happens. A system or material salvage is queued at the bay and runs over time, so

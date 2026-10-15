@@ -121,6 +121,12 @@ import { addItemQuality, itemTotal, removeItemLowestFirst } from "./inventory";
 // mission?" guard. salvageShip (below) reuses it verbatim so a hull that is locked for
 // INSTALLING mid-mission is locked for SALVAGE too, one source of truth for that lock.
 import { onMissionLock } from "./equipment";
+// CP-6: the one crew-lock predicate (a captain mission OR an expedition until it is claimed), the bucket merge
+// the complement returns to the pool through, and the ground-slot sync for a released member. awayTeam.ts,
+// crew.ts and groundTeamSlots.ts never import this file, so these add no cycle.
+import { shipCrewLocked } from "./awayTeam";
+import { addToBucketList, totalCrew } from "./crew";
+import { shipsWithMemberUnslotted } from "./groundTeamSlots";
 // Exploration 0.14.0 (Phase E4b): the museum's salvageYield bonus (relics.ts imports only model TYPES +
 // the leaf PRNG, so this adds no cycle).
 import { museumBonuses } from "./relics";
@@ -292,6 +298,9 @@ export interface SalvageRoll {
 //     shipNotFound         no ship in the fleet with that id
 //     shipOnMission        the ship's assigned captain is out on an active mission, so
 //                          the hull cannot be torn apart mid-flight (same lock install uses)
+//     shipOnExpedition     (CP-6) the ship is on an expedition, in flight OR complete but not yet
+//                          claimed: its findings and deployed away team wait on the claim, so the
+//                          hull cannot be torn down until then (awayTeam.ts shipCrewLocked)
 //     lastShip             this is the fleet's ONLY hull (state.ships.length === 1). Tearing
 //                          it down would leave the player with no ship AND all mission income
 //                          stopped, then facing a 2000-credit + FA-level-3 Shipyard re-founding:
@@ -316,6 +325,7 @@ export type SalvageRejectReason =
   | "noneHeld"
   | "shipNotFound"
   | "shipOnMission"
+  | "shipOnExpedition"
   | "lastShip";
 
 // ----------------------------------------------------------------------------
@@ -626,6 +636,115 @@ export function salvageSalvagedMaterial(
 // stream, which is what makes a hull torn down during a long offline span recover exactly
 // what it would have recovered live.
 
+// ----------------------------------------------------------------------------
+// CP-6: the salvage lock and the people a teardown releases
+// ----------------------------------------------------------------------------
+// Why this hull cannot be salvaged right now, or null when nothing locks it. The captain-mission case
+// reports first (shipOnMission, "recall first", the step the player can take mid-flight); any other crew
+// lock is an expedition (shipCrewLocked: in flight, or complete and waiting on its claim), which reports
+// shipOnExpedition. Shared by salvageShip, the queue's salvageTargetBlock (tick.ts) and the Salvage
+// button, so the three can never disagree. A missing ship is not locked (the callers report shipNotFound
+// first). Pure.
+export function salvageShipLockReason(state: GameState, shipId: string): "shipOnMission" | "shipOnExpedition" | null {
+  const mission = onMissionLock(state, shipId);
+  if (!mission.ok && mission.reason === "onMission") return "shipOnMission";
+  if (shipCrewLocked(state, shipId)) return "shipOnExpedition";
+  return null;
+}
+
+// Who a teardown of this hull sends back: the complement headcount (it returns to the crew pool) and the
+// named people who become unassigned. The SAME selection releaseShipPeople applies, so the confirm dialog
+// names exactly what happens. All zero for a missing ship. Pure.
+export interface SalvageShipPeople {
+  crew: number; // complement headcount, back to state.crewPool
+  awayMembers: number; // assignedShipId -> null (listed under Unassigned, gear kept)
+  officers: number; // assignedShipId -> null (back in the seat picker)
+  notables: number; // assignedShipId -> null
+}
+export function salvageShipPeople(state: GameState, shipId: string): SalvageShipPeople {
+  const ship = state.ships.find((s) => s.id === shipId);
+  return {
+    crew: ship ? totalCrew(ship.complement?.buckets ?? []) : 0,
+    awayMembers: state.awayMembers.filter((m) => m.assignedShipId === shipId).length,
+    officers: state.officers.filter((o) => o.assignedShipId === shipId).length,
+    notables: state.notableCrew.filter((n) => (n.assignedShipId ?? null) === shipId).length,
+  };
+}
+
+// The confirm dialog's sentence for salvageShipPeople, e.g. "12 crew return to the pool; 3 away members and
+// 1 officer become unassigned." null when nobody is aboard. US English, en-US digit grouping. Pure.
+export function salvageShipPeopleText(p: SalvageShipPeople): string | null {
+  const num = (n: number) => n.toLocaleString("en-US");
+  const parts: string[] = [];
+  if (p.crew > 0) parts.push(p.crew === 1 ? "1 crew member returns to the pool" : `${num(p.crew)} crew return to the pool`);
+  const named: string[] = [];
+  if (p.awayMembers > 0) named.push(`${num(p.awayMembers)} away member${p.awayMembers === 1 ? "" : "s"}`);
+  if (p.officers > 0) named.push(`${num(p.officers)} officer${p.officers === 1 ? "" : "s"}`);
+  if (p.notables > 0) named.push(`${num(p.notables)} notable crew member${p.notables === 1 ? "" : "s"}`);
+  if (named.length > 0) {
+    const list = named.length === 1 ? named[0] : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+    const total = p.awayMembers + p.officers + p.notables;
+    parts.push(`${list} ${total === 1 ? "becomes" : "become"} unassigned`);
+  }
+  return parts.length === 0 ? null : `${parts.join("; ")}.`;
+}
+
+// Release everyone aboard `shipId` in one new state (CP-6, OC-12 [PROPOSAL]; the hull itself is NOT removed
+// here, salvageShip does that). Atomically:
+//   - away members: assignedShipId -> null, out of every ground-team slot (their own gear stays installed on
+//     them: gear is keyed to the member, not the ship);
+//   - a GROUND TEAM loadout worn on this hull is checked back in, exactly as checkInGroundTeamLoadout does it
+//     (its committed pieces come off whoever wears them and rest in the Armory, still committed), so no
+//     loadout points at a removed hull;
+//   - officers and notables: assignedShipId -> null (the seat picker lists unassigned officers);
+//   - the complement's buckets merge into state.crewPool (addToBucketList, the pool's own merge; the pool has
+//     no cap, so nobody is ever dropped).
+// Draws no rng and reads no clock. Every untouched field keeps its reference, so a crewless hull changes
+// nothing here. Pure.
+function releaseShipPeople(state: GameState, shipId: string): GameState {
+  const ship = state.ships.find((s) => s.id === shipId);
+  const buckets = ship?.complement?.buckets ?? [];
+  const leaving = state.awayMembers.filter((m) => m.assignedShipId === shipId).map((m) => m.id);
+  const wornLoadouts = new Set(
+    (state.squadLoadouts ?? []).filter((l) => l.checkedOutTo !== null && l.checkedOutTo.shipId === shipId).map((l) => l.id)
+  );
+  const hasOfficers = state.officers.some((o) => o.assignedShipId === shipId);
+  const hasNotables = state.notableCrew.some((n) => (n.assignedShipId ?? null) === shipId);
+
+  let ships = state.ships;
+  for (const id of leaving) ships = shipsWithMemberUnslotted(ships, id, state.awayMembers);
+  let crewPool = state.crewPool;
+  for (const b of buckets) crewPool = addToBucketList(crewPool, b, b.count);
+
+  return {
+    ...state,
+    ships,
+    awayMembers:
+      leaving.length === 0
+        ? state.awayMembers
+        : state.awayMembers.map((m) => (m.assignedShipId === shipId ? { ...m, assignedShipId: null } : m)),
+    officers: hasOfficers
+      ? state.officers.map((o) => (o.assignedShipId === shipId ? { ...o, assignedShipId: null } : o))
+      : state.officers,
+    notableCrew: hasNotables
+      ? state.notableCrew.map((n) => ((n.assignedShipId ?? null) === shipId ? { ...n, assignedShipId: null } : n))
+      : state.notableCrew,
+    crewPool,
+    squadLoadouts:
+      wornLoadouts.size === 0
+        ? state.squadLoadouts
+        : state.squadLoadouts.map((l) => (wornLoadouts.has(l.id) ? { ...l, checkedOutTo: null } : l)),
+    equipment:
+      wornLoadouts.size === 0
+        ? state.equipment
+        : state.equipment.map((e) =>
+            e.committedToLoadoutId !== undefined && wornLoadouts.has(e.committedToLoadoutId) && !!e.fittedToMemberId
+              ? { ...e, fittedToMemberId: null }
+              : e
+          ),
+  };
+}
+
 // The result of a ship salvage. Discriminated union in the SAME posture as SalvageResult:
 // on SUCCESS a NEW state plus `recovered` (the per-component amounts deposited at quality 0)
 // and `creditsRecovered` (added to the balance); on REJECT the SAME-REFERENCE input state
@@ -675,9 +794,11 @@ export function salvageShip(
   // captain is out flying cannot be torn apart mid-mission, the SAME rule that blocks changing
   // its installed systems. The ship is known to exist here (checked above), so any block onMissionLock
   // reports is specifically the on-mission case; map it to this file's reason vocabulary.
-  const lock = onMissionLock(state, shipId);
-  if (!lock.ok) {
-    return { ok: false, next: state, reason: "shipOnMission" };
+  // CP-6: a hull on an expedition (in flight, or complete but unclaimed) is refused too, through the one
+  // shared crew lock (salvageShipLockReason), so the run never becomes a ghost the console cannot list.
+  const lock = salvageShipLockReason(state, shipId);
+  if (lock !== null) {
+    return { ok: false, next: state, reason: lock };
   }
   // Last-hull guard: refuse to tear down the fleet's ONLY ship. Doing so would leave the player
   // with zero hulls (all mission income stopped) facing a 2000-credit + FA-level-3 Shipyard
@@ -744,6 +865,9 @@ export function salvageShip(
   const loadouts = checkedOutLoadout
     ? state.loadouts.map((l) => (l.id === checkedOutLoadout.id ? { ...l, checkedOutToShipId: null } : l))
     : state.loadouts;
+  // CP-6: everyone aboard is released in the SAME new state (see releaseShipPeople). It runs on the
+  // equipment array built above, so a ground team loadout's check-in and the hull's own uninstall compose.
+  const released = releaseShipPeople({ ...state, equipment }, shipId);
 
   // --- Unassign the captain --------------------------------------------------
   // The ship->captain link (ShipInstance.assignedCaptainId) is the ONLY link between a hull
@@ -793,13 +917,12 @@ export function salvageShip(
   // canStartShipBuild's storage gate reads state.ships.length. Fresh ships/equipment arrays +
   // a fresh inventory + the updated credits keep the input state untouched (immutability).
   // Ground Ops (GO-2): the hull's ground-team slots (ShipInstance.groundTeams) leave WITH the ship, so no
-  // slot can name a member of a salvaged hull. TODO(E-CREW Task 27): salvage does not bench the hull's away
-  // members yet (they keep pointing at the removed ship); when Task 27 benches them, bench through
-  // awayTeam.ts reassignAwayMember-style sync (shipsWithMemberUnslotted) and list them in the Reserve.
-  const ships = state.ships.filter((s) => s.id !== shipId);
+  // slot can name a member of a salvaged hull. CP-6: its away members are released (unassigned, listed under
+  // Unassigned on the Away Team tab) by releaseShipPeople above, which also unslots them anywhere else.
+  const ships = released.ships.filter((s) => s.id !== shipId);
   return {
     ok: true,
-    next: { ...state, ships, equipment, inventory, credits, loadouts },
+    next: { ...released, ships, inventory, credits, loadouts },
     recovered,
     creditsRecovered,
   };

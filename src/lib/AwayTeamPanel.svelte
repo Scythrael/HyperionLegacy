@@ -14,7 +14,8 @@
   // (rename and the help default stay live, as the engine allows).
   // Then the CREW ABOARD roster: one section per squad type the hull fields (a type with 0 slots,
   // Prospecting today, never shows), each with its named member cards (gear, Move, Fire) and an open-slot
-  // card per free seat, then the Recruitment Board.
+  // card per free seat, then (CP-6) the UNASSIGNED list (members aboard no ship, e.g. released by a hull
+  // salvage: Move aboard / Fire, awayTeamDisplay.ts unassignedMembersView), then the Recruitment Board.
   //
   // POSTURE (mirrors SeniorStaffPanel / ComplementPanel):
   //   - PURE PRESENTATION + INTERACTION. Squad sizes, membership, implant slots, affinity and every
@@ -112,6 +113,8 @@
     awayTargetLabel,
     awayCountdownText,
     pickedMoveTarget,
+    UNASSIGNED_INTRO,
+    unassignedMembersView,
   } from "./awayTeamDisplay";
 
   // --- Props ------------------------------------------------------------------
@@ -419,6 +422,15 @@
     if (member && !state.awayMembers.some((m) => m.id === id)) {
       squadHeadings[member.teamType]?.focus({ preventScroll: true });
     }
+  }
+  // CP-6: away members aboard NO ship (a salvaged hull releases its people here), listed on every ship's tab
+  // so one can be moved aboard this ship or fired. Move aboard keeps focus on the list heading.
+  $: unassigned = ship ? unassignedMembersView(state, shipId) : [];
+  let unassignedHeading: HTMLElement | null = null;
+  async function moveAboard(memberId: string): Promise<void> {
+    onReassign(memberId, shipId);
+    await tick();
+    unassignedHeading?.focus({ preventScroll: true });
   }
   $: fireTarget = confirmFireId !== null ? state.awayMembers.find((m) => m.id === confirmFireId) ?? null : null;
 
@@ -1049,6 +1061,54 @@
       </section>
     {/each}
 
+    {#if unassigned.length > 0}
+      <!-- CP-6 UNASSIGNED ([PROPOSAL] name, OC-12): members with no ship. Not the reserve (aboard, unslotted). -->
+      <section class="squad unassigned" aria-labelledby="away-unassigned-{shipId}">
+        <div class="squad-h">
+          <h4 class="squad-name" id="away-unassigned-{shipId}" tabindex="-1" bind:this={unassignedHeading}
+          ><Icon name="recruit" /> Unassigned</h4>
+          <span class="squad-meta">{unassigned.length} with no ship · {UNASSIGNED_INTRO}</span>
+        </div>
+        <div class="members">
+          {#each unassigned as u (u.member.id)}
+            {@const m = u.member}
+            {@const whyId = `away-unassigned-why-${m.id}`}
+            <div class="mem">
+              <div class="mem-top">
+                <span class="mem-av"><Icon name={SQUAD_META[m.teamType].icon} /></span>
+                <div class="mem-idn">
+                  <div class="mem-name">{m.name}</div>
+                  <div class="mem-sub">{SQUAD_META[m.teamType].short} · {awayRaceLabel(m.race)} · {crewRankLabel(m.rank)}</div>
+                </div>
+              </div>
+              <div class="mem-acts">
+                <button
+                  type="button"
+                  class="aw-btn"
+                  disabled={!u.join.ok}
+                  aria-label="Move {m.name} aboard this ship"
+                  aria-describedby={u.join.ok ? undefined : whyId}
+                  title={gateText(u.join) ?? `Move ${m.name} aboard this ship`}
+                  on:click={() => moveAboard(m.id)}
+                >Move aboard</button>
+                <button
+                  type="button"
+                  class="aw-btn danger"
+                  disabled={!u.fire.ok}
+                  aria-label="Fire {m.name}"
+                  title={gateText(u.fire) ?? `Fire ${m.name}`}
+                  on:click={() => (confirmFireId = m.id)}
+                >Fire</button>
+              </div>
+              {#if !u.join.ok}
+                <div class="mem-why" id={whyId}>{gateText(u.join)}</div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
     <div class="away-board" bind:this={boardEl}>
       <RecruitmentBoard bind:this={board} {state} {shipId} {onHire} />
     </div>
@@ -1279,6 +1339,10 @@
   }
   .squad.security {
     --squad-hue: var(--color-danger);
+  }
+  /* CP-6: the Unassigned list wears the warning hue (people waiting on the player). */
+  .squad.unassigned {
+    --squad-hue: var(--color-warning);
   }
   .squad-h {
     display: flex;

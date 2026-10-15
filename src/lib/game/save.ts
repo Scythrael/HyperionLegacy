@@ -58,7 +58,7 @@ import {
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
 
-export const SAVE_VERSION = 68;
+export const SAVE_VERSION = 69;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -2529,7 +2529,61 @@ const MIGRATIONS: Record<number, Migration> = {
       },
     };
   },
+  // v68 -> v69 (0.14.0 CP-6, complement plan 2026-10-14): repair ORPHANED ship references. Before CP-6 a
+  // salvaged hull left its people pointing at it (staging and dev saves: the crew is new in 0.14.0). See
+  // repairOrphanedShipRefsV69.
+  68: (state: any): any => repairOrphanedShipRefsV69(state),
 };
+
+// The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.
+// Every record naming a ship id that is NOT in state.ships is released the way salvage now releases people
+// (salvage.ts releaseShipPeople): an away member's and an officer's assignedShipId -> null, a notable's
+// assignedShipId -> null, and a ground team loadout whose checkedOutTo names a missing hull is checked back
+// in (checkedOutTo -> null, its committed pieces come off whoever wears them, still committed). A member's own
+// gear stays on them. The complement of a hull salvaged before the fix is already gone and cannot be
+// recovered. FROZEN: reads only the raw save, never live helpers. Identity for a clean save (the SAME
+// reference, so it loads byte-identically apart from the version). Idempotent. Hardened like v66 -> v67: a
+// non-array ships field means nothing can be judged missing (pass through), a non-array people field passes
+// through, and a junk entry (not an object, or a non-string id) is left untouched.
+export function repairOrphanedShipRefsV69(state: any): any {
+  if (!state || typeof state !== "object" || !Array.isArray(state.ships)) return state;
+  const live = new Set<string>(
+    state.ships.filter((s: any) => s && typeof s === "object" && typeof s.id === "string").map((s: any) => s.id),
+  );
+  const orphan = (id: unknown): boolean => typeof id === "string" && !live.has(id);
+  // Map a people list, keeping the SAME array when nothing in it changes.
+  const unassign = (list: unknown): unknown => {
+    if (!Array.isArray(list) || !list.some((x: any) => x && typeof x === "object" && orphan(x.assignedShipId))) return list;
+    return list.map((x: any) => (x && typeof x === "object" && orphan(x.assignedShipId) ? { ...x, assignedShipId: null } : x));
+  };
+  const lost = new Set<string>(
+    (Array.isArray(state.squadLoadouts) ? state.squadLoadouts : [])
+      .filter((l: any) => l && typeof l === "object" && typeof l.id === "string" && l.checkedOutTo && typeof l.checkedOutTo === "object" && orphan(l.checkedOutTo.shipId))
+      .map((l: any) => l.id),
+  );
+  const awayMembers = unassign(state.awayMembers);
+  const officers = unassign(state.officers);
+  const notableCrew = unassign(state.notableCrew);
+  if (awayMembers === state.awayMembers && officers === state.officers && notableCrew === state.notableCrew && lost.size === 0) {
+    return state;
+  }
+  return {
+    ...state,
+    awayMembers,
+    officers,
+    notableCrew,
+    ...(lost.size === 0
+      ? {}
+      : {
+          squadLoadouts: state.squadLoadouts.map((l: any) => (l && typeof l === "object" && lost.has(l.id) ? { ...l, checkedOutTo: null } : l)),
+          equipment: Array.isArray(state.equipment)
+            ? state.equipment.map((e: any) =>
+                e && typeof e === "object" && lost.has(e.committedToLoadoutId) && e.fittedToMemberId ? { ...e, fittedToMemberId: null } : e,
+              )
+            : state.equipment,
+        }),
+  };
+}
 
 export function migrate(save: SaveFile): GameState {
   let state = save.state;

@@ -2,7 +2,8 @@
 
 import { describe, it, expect } from "vitest";
 import { AWAY_TEAM_TYPES, freshState } from "./game/model";
-import { AUGMENT_AFFINITY_RACES, implantSlotsFor, specsFor } from "./game/awayTeam";
+import { AUGMENT_AFFINITY_RACES, canReassignAwayMember, implantSlotsFor, specsFor } from "./game/awayTeam";
+import { plainAwayMember } from "./game/awayTeamTestFixtures";
 import { AWAY_TRAITS, traitDisplayText } from "./game/awayTraits";
 import { CREW_RACE_IDS } from "./game/crewRaces";
 import { CREW_RANK_ORDER } from "./game/crewRank";
@@ -22,6 +23,8 @@ import {
   AUGMENT_AFFINITY_TEXT,
   UNIQUE_TAG_TEXT,
   RANK_TEXT,
+  UNASSIGNED_INTRO,
+  unassignedMembersView,
 } from "./awayTeamDisplay";
 
 describe("awayTeamDisplay", () => {
@@ -147,5 +150,37 @@ describe("awayTeamDisplay chip explanations", () => {
 
   it("gives every trait chip a non-empty tooltip line", () => {
     for (const trait of AWAY_TRAITS) expectCleanSentence(traitDisplayText(trait));
+  });
+});
+
+// CP-6: the Unassigned list (away members with no ship, e.g. released by a hull salvage) on the Away Team tab.
+describe("unassignedMembersView (CP-6)", () => {
+  const withMembers = () => {
+    const base = freshState();
+    return {
+      ...base,
+      awayMembers: [
+        plainAwayMember("member-1", "security", "ship-1"),
+        { ...plainAwayMember("member-2", "science", "ship-1"), assignedShipId: null },
+        { ...plainAwayMember("member-3", "security", "ship-1"), assignedShipId: null },
+      ],
+    };
+  };
+
+  it("lists exactly the members with no ship, in roster order, with this ship's move gate and the fire gate", () => {
+    const s = withMembers();
+    const view = unassignedMembersView(s, "ship-1");
+    expect(view.map((v) => v.member.id)).toEqual(["member-2", "member-3"]);
+    for (const v of view) {
+      expect(v.join).toEqual(canReassignAwayMember(s, v.member.id, "ship-1"));
+      expect(v.fire).toEqual({ ok: true });
+    }
+  });
+
+  it("is empty when everyone has a ship, and the intro reads cleanly", () => {
+    expect(unassignedMembersView(freshState(), "ship-1")).toEqual([]);
+    expect(UNASSIGNED_INTRO).toMatch(/^[A-Z].{10,}\.$/);
+    expect(UNASSIGNED_INTRO).not.toContain(String.fromCharCode(0x2014));
+    expect(UNASSIGNED_INTRO).not.toContain("--");
   });
 });

@@ -284,6 +284,22 @@ version; idempotent; hardened against malformed arrays like v67 -> v68. **Tests:
 works after return / claim; salvage leaves no record pointing at a removed ship; migration repairs a fixture and is a
 no-op twice. **UI:** none here (CP-10).
 
+**Carry note (2026-10-14, CP-6 core landed, commit "fix(0.14.0): salvage never strands crew or an expedition"):**
+DONE: the expedition-salvage gap was real (a failing test reproduced it) and is closed. `salvage.ts`
+`salvageShipLockReason` (onMissionLock first, then `shipCrewLocked`) refuses with the new reason `shipOnExpedition`
+in `salvageShip`, in `tick.ts` `salvageTargetBlock` (manual and auto lanes: a queued teardown WAITS with the reason)
+and on the ship page's Salvage button ("This ship is on an expedition: claim it first"). `salvageShip` is the only
+path that removes a ship (no sell / scrap / retire-hull path exists; captain retirement removes no ship). Salvage
+releases everyone atomically (`releaseShipPeople`): away members unassigned and unslotted (own gear stays on them),
+a ground team loadout worn on the hull checked in (its committed pieces back to the Armory, still committed),
+officers and notables unassigned, the complement merged into `crewPool` (no pool cap exists, nobody dropped). The
+confirm dialog and the log line say who goes back (`salvageShipPeople` + `salvageShipPeopleText`). SAVE_VERSION 68
+-> 69: `MIGRATIONS[68]` = `save.ts` `repairOrphanedShipRefsV69` (members, officers, notables and ground loadouts
+naming a missing hull; identity for a clean save; idempotent; hardened). OC-12's "Unassigned" list is built minimally
+on the Away Team tab (`awayTeamDisplay.ts` `unassignedMembersView`, Move aboard + Fire), [PROPOSAL] name pending.
+NOT done (still CP-6 / CP-10): `crewLockReason` (the shared "Ship is out on a mission" text also shows for an
+expedition), the officer / roster / complement-mode / retirement locks, OC-11 auto-crew pause, lock badges.
+
 ### CP-7: Transfer (Task 25 engine)
 
 **Files:** `crew.ts` (`canTransferCrew` + `transferCrew(state, from: shipId | "pool", to: shipId | "pool",
