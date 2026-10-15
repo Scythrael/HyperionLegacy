@@ -426,3 +426,6 @@ Commit `docs(0.14.0): Field Kits help and close-out (Field Kits FK-10)`.
 - **FK4 / open call 9 (pack scope):** "One per member" (NOT the team-pack proposal). Each member carries their own kits;
   this matches GO-17's per-member `SquadLoadoutKit.consumables?` slot (keep it, do not move the pack to the team).
   The dispatch packing UI (FK-8) and the default packing must be redesigned per member.
+- **Severity ranks (2026-10-15):** "In 0.14.0 Field Kits (Recommended)": build condition severity ranks now (e.g.
+  Fracture, Broken Bone, Shattered Bone); each kit and Medical Training treats up to a rank. Names beyond the user's
+  examples are [PROPOSAL].

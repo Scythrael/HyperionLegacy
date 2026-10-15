@@ -444,3 +444,13 @@ parity). Rough estimate: 1,500 to 2,500 lines of code and tests, about one and a
 plus review loops. The proof sweeps are slow (about 0.4 s per expedition run): SF-2's full matrix runs in a dedicated
 test file with a long timeout, a smaller fixed sample in the default suite. Dependencies: SF-3's tier ceiling reads
 G2-2's region when it lands (Tier I until then); the save fold depends on where G2-1's v70 is; G1 is a contract only.
+
+## USER ANSWERS (2026-10-15)
+
+- **OC-2 default crew:** "Weakest crew still wins (Recommended)": no free hires; the first expedition is guaranteed even
+  with the smallest crew that can launch (1 Security + 1 Science, rank 1, no gear).
+- **OC-1 what "cannot lose" covers:** "Finish 100%, no setbacks (Recommended)": every objective completes, no lost
+  fights, no hull damage, no ship-event setbacks; members may still take hits in fights they win.
+- **OC-15 stuck objectives after the first run:** "Keep it, plus the warning (Recommended)": keep retry-until-Skip and
+  add a pre-launch warning when a crew cannot win an objective.
+- **Field Kits severity ranks (asked here):** "In 0.14.0 Field Kits (Recommended)" (recorded in the Field Kits plan).
