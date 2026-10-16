@@ -611,3 +611,16 @@ Follow-up answers (user, 2026-10-16):
   team (follow-up asked: a third team TYPE such as the existing, inert Prospecting type, or a third team slot).
   FUTURE (logged): prospecting quests with prospecting teams; Security infiltration missions (enemy base, enemy vessel).
 - **SF9:** "One in total (Recommended)". **SF10:** "Fewest waves, lightest raider (Recommended)": 2 waves of 1 Raider.
+
+## USER ANSWERS, group 4 (2026-10-16)
+
+- **Third team:** "Prospecting squad type (Recommended)": finish the existing Prospecting squad type.
+- **Use it now?** "2. Because there's no real use for them yet. It's building in the foundation for them as is, rather
+  than building them in after the fact. Since we're building 2/3 of the squads, we might as well build all 3." So:
+  build Prospecting fully (specs, recruits, gear rules, slots, tests) but HIDDEN from players until the prospecting
+  quests: an explicit, user-approved exception to the no-placeholders rule (registry status: deferred, owner = the
+  prospecting quests patch).
+- **SF11 patrol ramp:** "Scale enemy stats (Recommended)": enemies start weaker and grow to full over the first
+  several patrols (same gentle curve).
+- **SF13 heavy cruiser text:** "Build card + ship header (Recommended)": show the hull description, incl. "heavy
+  cruiser", on the Shipyard build card and the ship header.
