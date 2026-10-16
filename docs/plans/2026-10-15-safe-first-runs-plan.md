@@ -624,3 +624,5 @@ Follow-up answers (user, 2026-10-16):
   several patrols (same gentle curve).
 - **SF13 heavy cruiser text:** "Build card + ship header (Recommended)": show the hull description, incl. "heavy
   cruiser", on the Shipyard build card and the ship header.
+- **Prospecting design (2026-10-16):** "I draft, you approve (Recommended)": a short design + mockup (roles, what each
+  improves on gathering, gear, team kinds), every name a [PROPOSAL] for the user to rename. Built hidden.

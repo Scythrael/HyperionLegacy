@@ -432,3 +432,10 @@ Commit `docs(0.14.0): Field Kits help and close-out (Field Kits FK-10)`.
 - **FK7 / open call 7 (2026-10-16):** "As proposed (Recommended)": Bruisers Fracture + Concussion on a heavy hit;
   Strikers Hemorrhage on finishing a wounded target and one flash grenade each (Blindness); Casters Neurotoxin instead
   of Poison on Hard or harder objectives; Swarm and hostile garrisons Fear.
+- **Group 5 (2026-10-16):**
+  - **FK2 / open call 2 kit coverage:** "Proposed coverage (Recommended)", with severity ranks: First Aid clears basic
+    debuffs (Bleed, Blindness, Weakened, Suppressed, Corroded) + a small heal; Antitoxin Poison; Splint Fracture and a
+    light Broken Bone; Trauma Kit (Medical Training) Hemorrhage, Neurotoxin, Concussion, Broken Bone; Shattered Bone
+    only the medical bay; Combat Stim Inspired 2 rounds; Injury Kit shortens bay time.
+  - **FK6 / open call 6 Cortex Shield:** "Yes, covers Concussion (Recommended)".
+  - **FK8 / open call 8 Codebreaker:** "+6% to the roll (Recommended)": 53 to 79.5%.
