@@ -1965,3 +1965,11 @@ on this for now. Might be best put onto an FA talent, or potentially HOMEWORLD S
 on." Homeworld staffing is the user's idea for staffing homeworld facilities: "building buffs, and things like
 DEFENDING AGAINST INVASION when one happens (security and so forth would shine here)." Until then the buff
 should not roll on ship crew (no dead rolls).
+
+- **TUTORIAL ACHIEVEMENTS + EXPEDITED FIRST RUNS (user, 2026-10-16).** Completing each tutorial grants an achievement
+  (one per tutorial); flesh these out between the tutorial patch and the balancing patch, "somewhere in 0.15.x", since
+  balancing must account for them. Tutorial first runs are expedited ("time skips" that instantly finish things for no
+  resources); 0.14.0 builds the hooks (docs/plans/2026-10-15-safe-first-runs-plan.md, SF3 answer).
+- **TRANSIT HAZARDS AT HIGHER TIERS (user, 2026-10-16, future).** "As you go into higher tiers, you might have hazards
+  in your way that can cause problems. You might have to pass through a massive electrical storm and going around
+  would be too extensive to go around." En-route hazards on the way to farther systems (G2 follow-up content).

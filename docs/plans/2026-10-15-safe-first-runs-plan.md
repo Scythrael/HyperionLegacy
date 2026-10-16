@@ -547,3 +547,29 @@ Follow-up answers (user, 2026-10-16):
 - **SF6 curve scope:** "Tier I only (Recommended)": Tier II and up start at full strength; the tier is the step.
 - **SF12 wording:** ""Training run" chip (Recommended)": a "Training run" chip on the first run of each type and the
   log line "The guards fell back. Training run: no setback."
+
+## USER ANSWERS, group 1 of the leftovers (2026-10-16, verbatim)
+
+- **SF3 which first:** "2, because part of the tutorial will require that the user build a ship, and the tutorial will
+  include "time skips" that instantly finish things for no resources. Similar to how a typical tutorial would. Giving
+  you the materials, and finishing it up. So when you unlock exploration, part of the tutorial will involve you getting
+  your first T1 ship that can go on that first expedition. So it's a guaranteed win. That first one will always finish
+  rather quickly. Expedited, as all first tutorial runs will across the board when you're being taught the systems. We
+  might want to add this functionality in where applicable so any systems we build into the tutorial/story/campaign
+  patch can link in with them directly."
+  Reading: the training run is the first expedition FROM AN EXPLORER (the tutorial gives the first T1 explorer). First
+  tutorial runs are EXPEDITED (finish quickly) across every system; the tutorial patch adds "time skips" that instantly
+  finish things for free. 0.14.0 should build the HOOKS (an expedite / time-skip seam per run type and per facility
+  process) so the tutorial patch can link in directly. Follow-up asked: whether first runs are already expedited in
+  0.14.0 or only hooked.
+- **SF5 curve advance:** "1, but the tutorial does not count for this. Completing the tutorial will give you an
+  achievement for each tutorial you complete though. We may also have to flesh those out appropriately between
+  tutorial and balancing patch. So we will want to throw that in somewhere in 0.15.x because those will need to be
+  accounted for in balancing too. But yeah, your question. Completed runs only, minus the tutorial run."
+  So: completed (claimed) runs only; the training / tutorial run does not count. Per-tutorial achievements are a
+  0.15.x item (logged in SUGGESTIONS).
+- **SF8 training ship events:** "For now, 1. But as you go into higher tiers, you might have hazards in your way that
+  can cause problems. You might have to pass through a massive electrical storm and going around would be too extensive
+  to go around." So: events fire and always pass on the training run; FUTURE idea (logged): transit hazards en route
+  at higher tiers.
+- **SF16 recall first:** "Training carries over (Recommended)".
