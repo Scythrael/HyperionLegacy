@@ -634,3 +634,8 @@ the CP-6 core fix was dispatched the same day.
 - **OC-5 explorer caps (follow-up):** "Eir 900, Orion/Aurora 750 (Recommended)"; Eir's text becomes "the largest
   explorer crew"; the Andromeda (1,017, later hull tier) stays the largest in the fleet.
 - **OC-8 notable cap:** "50 fleet-wide (Recommended)".
+- **OC-1 Deck Handling:** "Faster drone replenish (Recommended)".
+- **OC-3 Crew Effectiveness:** "Boosts other buffs (Recommended)": multiplies every other complement buff on the ship
+  by a diminishing curve.
+- **OC-4 Survey Aptitude:** "Faster scans (Recommended)".
+- **OC-6 over cap:** "Never evict (Recommended)".
