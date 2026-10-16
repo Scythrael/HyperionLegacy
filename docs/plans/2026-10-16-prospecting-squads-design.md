@@ -319,3 +319,4 @@ large 0.14.0; if the release is tight, PS-3 is the slice that could wait without
   Science rolls unchanged).
 - **Unlock:** user answered "Something else" with no detail: re-asked 2026-10-16.
 - **Names:** "Keep them (Recommended)".
+- **Unlock (re-asked):** "A quest step unlocks it" (per save; the earlier "Something else" was a misclick).

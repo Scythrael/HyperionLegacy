@@ -218,3 +218,17 @@ hard caps (prices rise on a curve instead).
 ## USER ANSWERS
 
 (none yet)
+
+## USER ANSWERS (2026-10-16, verbatim where quoted)
+
+- **Paid shortcuts:** "Quick gear repair (Recommended)" PLUS: "Perhaps we can have an "overtime" system that we can pay
+  credits to increase the speed of a given job for each of the above by a specific percent. Not doubling or instant
+  completion, but perhaps that could be a useful sink for credits." So: OVERTIME (user-named): pay credits to speed a
+  running job by a set percent (never doubling, never instant), available for gear repair, Shipyard repairs and builds,
+  research and facility upgrades. Quick gear repair stays. (Shipyard instant rush is replaced by Overtime.)
+- **Telescope:** "Endless cycles and potentially could improve spotting rarer aspects about a planet that could change
+  what the scan results in (potentially, these aspects of a planet could affect the scan phase and seed the objectives
+  on a planet accordingly)." So: endless development cycles past level 8 (diminishing, no cap; name pending) that also
+  improve spotting RARER PLANET ASPECTS which change the scan and seed that planet's objectives (new mechanic; scope
+  asked 2026-10-16).
+- **Field Kits purchase:** "Quartermaster sells + top-up (Recommended)".
