@@ -473,3 +473,7 @@ names in game text (the Wolf 359 nod stays original).
 - **G11 / OC-11 picking:** "Region, then 3 nearest (Recommended)".
 - **G12 / OC-12 recall:** "Resumable" (NOT the recommendation): a recalled system stays open for that ship to return
   and finish (stored bodies and objectives, a skip-the-scan relaunch). Bigger build: G2-5 grows; details asked.
+- **Resumable recall details (2026-10-16):** "Any explorer (Recommended)" can resume; it stays open "Until finished
+  (Recommended)" in a Resume list until finished or abandoned; on resume "Pick up where you left off (Recommended)":
+  finished scans stay done (skip to the next body), objectives keep progress, travel is paid again.
+- **G13 / OC-13 recall confirm:** "One confirm (Recommended)": shows the return time and that the system can be resumed.
