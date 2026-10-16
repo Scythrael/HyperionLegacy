@@ -1195,3 +1195,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   does, how repair over time works, UI) before build: NEW SYSTEM, design + user sign-off first.
 - **OC-G4 site flavor:** "Show it and make it true (Recommended)": show each site's flavor and give it what it names
   (better relic odds at Buried Vault and Subterranean sites; more materials at Bloom, Geothermal, Outpost, Crashed Ship).
+- **OC-C3 Reclaimed Alloy / Purified Biomass:** "Add Refinery recipes (Recommended)": Scrap Alloy refines into
+  Reclaimed Alloy and Fibrous Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes
+  (exact inputs [PROPOSAL] in the build, user to tweak).
