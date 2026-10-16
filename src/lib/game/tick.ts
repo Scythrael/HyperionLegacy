@@ -7618,8 +7618,8 @@ const WAREHOUSE_UNCAPPED_SENTINEL = new Decimal("1e1000");
 // fails OPEN to the uncapped sentinel so Task B3 never auto-stops a producer for a
 // tier whose warehouse doesn't exist. A tier at warehouse level 0 returns its base
 // cap unchanged (no reached rung to double it), including T2 while still LOCKED
-// (level 0): its cap is defined even before unlock, but is moot this phase since no
-// T2 item is obtainable.
+// (level 0): its base cap applies before the unlock, so Dense Ore (the Lunar Mine's
+// tier-2 strike since WR-4) is kept up to it until Warehouse (Tier II) raises it.
 export function tierCap(state: GameState, tier: number): Decimal {
   // Explicitly typed `Decimal | undefined`: this project builds WITHOUT
   // noUncheckedIndexedAccess (so `BASE_CAP[tier]` would otherwise type as a

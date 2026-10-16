@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Decimal from "break_infinity.js";
 import LZString from "lz-string";
-import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
+import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, dropRetiredFuelV70, V70_FUEL_REFUND_CREDITS_PER_UNIT, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
 import { freshState, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
@@ -79,6 +79,12 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // THE ONE canonical SAVE_VERSION pin (E-CREW Task 34b, done as Ground Ops GO-0). A schema bump edits this
 // line and nothing else: every per-migration block below asserts the fields its step migrated, and any
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
+// WR-4 review: v70 refunds any fuel in a save as credits (the v20 step seeded a full tank on pre-fuel saves), so the
+// older steps' credit pins read the credits as they were before that refund. Pure.
+function creditsBeforeFuelRefund(migrated: any): Decimal {
+  return migrated.credits.minus(migrated.fuelRefundCredits ?? 0);
+}
+
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
     expect(SAVE_VERSION).toBe(70); // WR-4: v70 (the shared 0.14.0 bump; save.ts lists what it contains)
@@ -1473,7 +1479,7 @@ describe("migrate, credits and Captain Specialization backfill (v13 -> v14)", ()
     // above), .equals(), not .toBe(), since Decimal is an object
     // (reference-compared by toBe, which would always fail here).
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(0)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(0)).toBe(true);
 
     // Every captain gets spec: null, regardless of position in the roster.
     expect(migrated.captains[0].spec).toBe(null);
@@ -1616,7 +1622,7 @@ describe("migrate, Radial Skill Web talent restructure (v14 -> v15)", () => {
     expect(migrated.captains[0].level).toBe(4);
     expect(migrated.captains[0].mission).toBe(null);
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(0)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(0)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(200)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
@@ -1774,7 +1780,7 @@ describe("migrate, Ships stats foundation: grandfather a Freighter per captain (
     expect(migrated.captains[0].statPoints).toBe(1);
     expect(migrated.captains[1].id).toBe(2);
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(0)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(0)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
     expect(migrated.inventory.commonOre[0] instanceof Decimal).toBe(true);
     expect(itemTotal(migrated.inventory, "commonOre").equals(50)).toBe(true);
@@ -1924,7 +1930,7 @@ describe("migrate, lifetimeStats reservation backfill (v16 -> v17)", () => {
     // Decimal-designated fields (credits, xp, inventory, mission.cargo)
     // arrive hydrated via the same unconditional hydrateDecimals() pass.
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(0)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(0)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(0)).toBe(true);
     expect(migrated.homePlanet).toBeUndefined();
@@ -2196,7 +2202,7 @@ describe("migrate, Ship Production Economy Phase 1: inventory/discovered/facilit
     // Every other pre-existing field survives the backfill untouched (Decimal
     // ones hydrated via the same unconditional hydrateDecimals() pass).
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(75)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(75)).toBe(true);
     expect(migrated.fleetAdminXp instanceof Decimal).toBe(true);
     expect(migrated.fleetAdminXp.equals(40)).toBe(true);
     expect(migrated.ships).toHaveLength(1);
@@ -2449,7 +2455,7 @@ describe("migrate, Tiered Warehouse facility backfill (v18 -> v19)", () => {
 
     // Every other pre-existing field survives (Decimal ones hydrated).
     expect(migrated.credits instanceof Decimal).toBe(true);
-    expect(migrated.credits.equals(120)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(120)).toBe(true);
     expect(migrated.fleetAdminXp.equals(60)).toBe(true);
     expect(migrated.captains[0].xp instanceof Decimal).toBe(true);
     expect(migrated.captains[0].xp.equals(300)).toBe(true);
@@ -2603,7 +2609,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
     expect(migrated.activeProcesses).toEqual([]);
     expect(migrated.nextProcessId).toBe(4);
     expect(migrated.lifetimeStats.itemsRefined.refinedMaterial.equals(20)).toBe(true);
-    expect(migrated.credits.equals(300)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(300)).toBe(true);
     expect(migrated.captains[0].xp.equals(150)).toBe(true);
     expect(migrated.captains[0].level).toBe(4);
     expect(migrated.gameTimeSeconds).toBe(9000);
@@ -2734,7 +2740,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     expect("refineOrder" in migrated).toBe(false);
     expect(migrated.refineLines).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
-    expect(migrated.credits.equals(1000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(1000)).toBe(true);
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
     expect(migrated.gameTimeSeconds).toBe(12000);
@@ -2899,7 +2905,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect("refineOrder" in migrated).toBe(false);
     expect(migrated.refineLines).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
-    expect(migrated.credits.equals(5000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(5000)).toBe(true);
     expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
@@ -3094,7 +3100,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect("refineOrder" in migrated).toBe(false); // also dropped by C6's v23->v24 step (see above)
     expect(migrated.researchedBlueprints).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
-    expect(migrated.credits.equals(5000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(5000)).toBe(true);
     expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
@@ -3285,7 +3291,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(migrated.discovered.sort()).toEqual(["commonOre", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
     expect(migrated.nextProcessId).toBe(5);
-    expect(migrated.credits.equals(5000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(5000)).toBe(true);
     expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
@@ -3470,7 +3476,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(migrated.discovered.sort()).toEqual(["commonOre", "components", "frameSegment", "rareMaterial", "refinedMaterial", "titaniumIngot", "uncommonMaterial"]);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
     expect(migrated.nextProcessId).toBe(9);
-    expect(migrated.credits.equals(8000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(8000)).toBe(true);
     expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(70)).toBe(true);
     expect(migrated.captains[0].level).toBe(8);
@@ -3647,7 +3653,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.refineLines).toEqual([{ id: "craft-1", kind: "refine", recipeKey: "refineCommonOre", remaining: 3, mode: { kind: "batch", remaining: 3 } }]);
     expect(migrated.nextCraftLineId).toBe(2);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
-    expect(migrated.credits.equals(8000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(8000)).toBe(true);
     expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.captains[0].level).toBe(8);
     expect(migrated.gameTimeSeconds).toBe(15000);
@@ -3801,7 +3807,7 @@ describe("migrate, Standard-Issue baseline seed (v27 -> v28)", () => {
 
     // Every OTHER field rides through untouched (a spread bug would surface here).
     expect(migrated.ships).toHaveLength(3);
-    expect(migrated.credits.equals(20000)).toBe(true);
+    expect(creditsBeforeFuelRefund(migrated).equals(20000)).toBe(true);
     expect(migrated.facilities.shipyard).toEqual({ level: 2 });
     expect(migrated.gameTimeSeconds).toBe(40000);
   });
@@ -5671,6 +5677,34 @@ describe("migrate, Salvage Bay level track (v41 -> v42): a pre-upgrade save keep
 // built from freshState(), which is now the CURRENT version (v23), so migrate() runs ZERO version
 // steps here (already-current, then hydrateDecimals) exactly as it did at v21, the fuel-v2
 // property this test locks in is unchanged by R6's/F6's additive research/fabricator seeds.
+describe("WR-4 review (user: \"Refund as credits\"): v70 refunds leftover fuel at the old purchase price", () => {
+  const raw = (over: Record<string, unknown>): any => ({ ...JSON.parse(JSON.stringify(freshState())), ...over });
+  it("credits = (tank + in-flight batch output) x 20, the refund noted once; nothing else changes", () => {
+    const before = raw({ credits: "1000", fuel: "275.5", activeProcesses: [
+      { id: "proc-1", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addFuel", amount: "100" } },
+      { id: "proc-2", kind: "refineJob", remainingTicks: 5, durationTicks: 12, effect: { type: "addItem", itemId: "titaniumIngot", amount: "1" } },
+    ] });
+    const after = dropRetiredFuelV70(before);
+    expect(new Decimal(after.credits).toString()).toBe(new Decimal(1000 + (275.5 + 100) * V70_FUEL_REFUND_CREDITS_PER_UNIT).toString());
+    expect(V70_FUEL_REFUND_CREDITS_PER_UNIT).toBe(20);
+    expect(after.fuelRefundCredits).toBe((275.5 + 100) * 20);
+    expect("fuel" in after).toBe(false);
+    expect(after.activeProcesses.map((p: any) => p.id)).toEqual(["proc-2"]);
+    const { credits: _c1, fuel: _f, activeProcesses: _a1, ...restBefore } = before;
+    const { credits: _c2, fuelRefundCredits: _r, activeProcesses: _a2, ...restAfter } = after;
+    expect(restAfter).toEqual(restBefore);
+  });
+  it("is idempotent, and a save with no fuel gets no refund and no note", () => {
+    const once = dropRetiredFuelV70(raw({ credits: "50", fuel: "10" }));
+    expect(dropRetiredFuelV70(once)).toEqual(once);
+    const empty = dropRetiredFuelV70(raw({ credits: "50", fuel: "0" }));
+    expect(empty.credits).toBe("50");
+    expect("fuelRefundCredits" in empty).toBe(false);
+    const none = dropRetiredFuelV70(raw({ credits: "50" }));
+    expect("fuelRefundCredits" in none).toBe(false);
+  });
+});
+
 describe("WR-4 (OC-C1): a v69 save with a fuel stockpile and an in-flight Fuel Depot batch loads at v70 and plays", () => {
   it("drops the stockpile and the batch (its fuel output no longer exists), keeps everything else, and missions dispatch", () => {
     let s = freshState();
@@ -5693,7 +5727,8 @@ describe("WR-4 (OC-C1): a v69 save with a fuel stockpile and an in-flight Fuel D
     expect("fuel" in restored).toBe(false);
     expect(restored.activeProcesses.map((p) => p.kind)).toEqual(["refineJob"]); // the batch is gone, the refine job stays
     expect(itemTotal(restored.inventory, "deuteriumIce").toNumber()).toBe(1000);
-    expect(restored.credits.toNumber()).toBe(1000);
+    expect(restored.credits.toNumber()).toBe(1000 + (275 + 100) * 20); // WR-4 review: the tank and the batch refunded at 20 cr/unit
+    expect(restored.fuelRefundCredits).toBe(7500);
     expect(canDispatch(restored, 1, "shortOreRun")).toEqual({ ok: true });
     // and it keeps playing
     let played = restored;

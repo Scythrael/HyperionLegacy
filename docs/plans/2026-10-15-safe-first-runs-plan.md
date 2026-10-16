@@ -169,6 +169,12 @@ capped; 63 runs, D18 minimum and board crews).**
 
 **E. Patrols (200 master seeds, the live `economyTick` loop, Standard-Issue, wins out of 200).**
 
+> **STALE after WR-4 B14 (2026-10-16):** battle turn order is by side (the player first), then input order, so this
+> table no longer matches the engine. The current numbers are the `WINS` table in `src/lib/game/firstRunsGoldens.test.ts`
+> (gated, `npm run test:sweep`; re-measured: freighter 191 / 5, hauler 198 / 10, runner 106 / 0, miner 107 / 0,
+> destroyer 200 / 44, battleship 200 / 158, carrier 200 / 109, Orion 176 / 1, Aurora 174 / 1, Eir 172 / 1). The
+> seed 1 sentence below is also from before B14.
+
 | Hull | Sweep | Warband | | Hull | Sweep | Warband |
 |:-|:-|:-|:-|:-|:-|:-|
 | General Freighter | 187 | 3 | | Battleship | 200 | 156 |
@@ -300,7 +306,8 @@ green). One commit per slice, staged by explicit path, ending `Co-Authored-By: C
 
 New `firstRunsGoldens.test.ts`, captured BEFORE any engine edit:
 1. Patrol: the whole first cycle (mission record, ship, completion log, state hash) from freshState for every hull x
-   both routes at seeds 1 and 2, plus the 200-seed win table of section 2.5 E (pinned as numbers).
+   both routes at seeds 1 and 2, plus the 200-seed win table of section 2.5 E (pinned as numbers; STALE in the plan
+   after WR-4 B14, the pinned `WINS` table in firstRunsGoldens.test.ts is current).
 2. Gathering: one delivered cycle for every MISSIONS key x every hull that can fly it.
 3. Expedition: the section 2.5 A and B outcome tables pinned (the "today" record, numbers not hashes), and a reference
    to the G2-0 goldens (golden 1 must stay unchanged in every SF slice; golden 2's expedition 1 dispatch is compared

@@ -63,7 +63,8 @@ import {
 // taking v71, while v70 has not reached staging; plan 2026-10-15 WR-4 carry note):
 //   1. WR-4 (OC-C1): drop the retired fuel STOCKPILE (`fuel`; fuel is a reach stat since 0.13.6 and nothing
 //      fills or spends it after Buy Fuel retired), and any in-flight Fuel Depot refine batch (`fuelRefineJob`,
-//      whose fuel output no longer exists). No refund (the tank held fuel nothing used; see the carry note).
+//      whose fuel output no longer exists), REFUNDING both as credits at the old 20 cr/unit (user, WR-4 review), and
+//      note the refund once on the optional `fuelRefundCredits` (the game logs it on load, then clears it).
 //   (reserved, not landed yet: G2-1 the stored homeworld; SF-1 the run counters.)
 export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
@@ -2537,14 +2538,31 @@ const MIGRATIONS: Record<number, Migration> = {
 };
 
 // The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
-// longer exists; none can start since 0.13.9). FROZEN: reads only the raw save. Identity-shaped for a save without
-// either (only the fuel key leaves). Hardened: a non-array activeProcesses passes through untouched.
+// longer exists; none can start since 0.13.9), REFUNDING both as credits (user, WR-4 review: "Refund as credits"):
+// the tank plus every in-flight batch's output, at the old purchase price. The refund is noted ONCE on the save
+// (`fuelRefundCredits`, the credits added) so the game can tell the player on load (App.svelte) and then clear it.
+// FROZEN: reads only the raw save and V70_FUEL_REFUND_CREDITS_PER_UNIT (never live helpers). Idempotent: its own output
+// has no fuel and no batch, so a second pass changes nothing. A save with nothing to refund only loses the fuel key.
+// Hardened: an unreadable, non-finite or negative amount refunds 0, and a non-array activeProcesses passes through untouched.
+export const V70_FUEL_REFUND_CREDITS_PER_UNIT = 20; // FROZEN: FUEL_CREDITS_PER_UNIT when v70 shipped
+// Fuel was human-scale (a few thousand units at most), so a plain finite number reads it exactly. Pure.
+function refundableFuel(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
 export function dropRetiredFuelV70(state: any): any {
   if (!state || typeof state !== "object") return state;
-  const { fuel: _retired, ...rest } = state;
-  void _retired;
-  if (!Array.isArray(rest.activeProcesses) || !rest.activeProcesses.some((p: any) => p && p.kind === "fuelRefineJob")) return rest;
-  return { ...rest, activeProcesses: rest.activeProcesses.filter((p: any) => !(p && p.kind === "fuelRefineJob")) };
+  const { fuel, ...rest } = state;
+  let units = refundableFuel(fuel);
+  if (Array.isArray(rest.activeProcesses) && rest.activeProcesses.some((p: any) => p && p.kind === "fuelRefineJob")) {
+    for (const p of rest.activeProcesses) {
+      if (p && p.kind === "fuelRefineJob" && p.effect && p.effect.type === "addFuel") units += refundableFuel(p.effect.amount);
+    }
+    rest.activeProcesses = rest.activeProcesses.filter((p: any) => !(p && p.kind === "fuelRefineJob"));
+  }
+  if (!(units > 0)) return rest;
+  const refund = units * V70_FUEL_REFUND_CREDITS_PER_UNIT;
+  return { ...rest, credits: new Decimal(rest.credits ?? 0).plus(refund).toString(), fuelRefundCredits: refund };
 }
 
 // The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.

@@ -463,9 +463,8 @@ function labelForProcess(
       return { icon: "shipBuild", primaryLabel: `Building, ${hullLabel}`, jumpTarget: "shipyard" };
     }
 
-    // Fuel Depot (mirrors App.svelte:4992, "Status: Topping up"). The batch's own
-    // progress bar + ETA convey the fill; a live tank-percent readout is a separate
-    // status concern, not this process, so it is not on the row.
+    // The retired Fuel Depot batch (a legacy, log-only kind since WR-4: no tank, and save v70 drops any batch still
+    // in flight). Kept so the switch stays exhaustive; the board never reaches it.
     case "fuelRefineJob": {
       // 0.13.9 hotfix: unreachable from the board (buildHomeDashboard skips fuelRefineJob rows),
       // and no link into the retired Depot's hidden console either way.

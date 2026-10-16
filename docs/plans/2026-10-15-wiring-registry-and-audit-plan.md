@@ -931,9 +931,24 @@ identity.
 `requiresMissionCompletions`, `MISSION_CONTROL_UNLOCK_COMPLETIONS`, gear gates, `equipStats`, `achievementBoost`,
 `ascension`, `equipmentSlots`, the objective hooks); B24's spec card text (OC-A42) and hull descriptions (OC-D13); the
 mission fuel-budget / credit auto-buy plumbing (`FUEL_CREDITS_PER_UNIT`, `REFUEL_PENALTY_TICKS`, `refuelDelayTicks`,
-unreachable since 0.13.6: S4-A02 "remove or keep" is open); the stale-comment sweep beyond the files touched. **Open
-question for the user:** v70 discards any fuel left in a tank with no refund (nothing used it); a refund at the old
-20 cr/unit is a one-line add to `dropRetiredFuelV70` if wanted.
+unreachable since 0.13.6: S4-A02 "remove or keep" is open); the stale-comment sweep beyond the files touched.
+
+**WR-4 review follow-up (2026-10-16):**
+- **Fuel refund (user: "Refund as credits"):** `dropRetiredFuelV70` refunds the tank plus any in-flight batch's output at
+  the frozen `V70_FUEL_REFUND_CREDITS_PER_UNIT` (20, the old price) and leaves a one-shot `fuelRefundCredits` note; the
+  game logs "Fuel is a reach stat now, so the fuel left in your tank was refunded: +N credits." once on load and drops
+  the note. Note for patch notes: every pre-v70 save holds at least the starting 500-unit tank (the v20 step seeded it
+  on older saves), so every existing player gets at least 10,000 credits.
+- **B14 reaches beyond patrols:** every `resolveBattle` caller now puts the player first: the expedition ship events
+  (`expedition-N-shipevent...` used to sort ahead of `ship-1`, so the enemy acted first in a non-ambush event;
+  shipScanEvents.ts shipEventBattleWon), the patrol forecast (rating.ts) and the dev battle views. Measured over 300
+  Tier I expedition seeds (one Ground Ops run each, the D18 minimum crew): Orion 239 ship battles, 221 won / 18 lost,
+  and destroyer 239, 239 / 0, IDENTICAL before (id order) and after (side order); no expedition golden moved either.
+  Patrols are where the order changes outcomes (the WINS table).
+- **Range readout:** the Ship Systems Range row reads the Depot bonus too (the same factor shipReachDef applies).
+- **Locked Warehouse tier:** a tier not yet unlocked still STORES its items at the base cap (tierCap at level 0), so the
+  Materials view now says "Base cap N / item" and that unlocking raises it (it used to say the storage was locked), and
+  Dense Ore's hint says the same.
 
 ### WR-5a / WR-5b / WR-5c: Captain secondary talents (prospector, tactician, explorer trees)
 

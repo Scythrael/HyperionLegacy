@@ -4162,7 +4162,7 @@ export type FacilityUpgradeEffect =
   // facility's rungs carry this: what a level unlocks is derived on read from the
   // facility LEVEL (see tick.ts's missionUnlocked + MissionDef.unlockLevel), NOT by
   // summing an effect off the track. Every existing consumer (refineSlotCount /
-  // tierCap / fuelCap) narrows by ITS OWN property AND scopes to its own facility, so
+  // tierCap / fleetReachBonus) narrows by ITS OWN property AND scopes to its own facility, so
   // this member is inert to all of them, it exists only to satisfy the required
   // `effect` field honestly (a misleading `addRefineSlots: 0` / `storageCapMult: 1`
   // would imply a stat this facility does not have). Extensible union, same
@@ -4184,7 +4184,7 @@ export type FacilityUpgradeEffect =
   // missions from the mission-control level, so a research rung's effect is ONLY the
   // slot grant, never a content-unlock marker. Property-presence narrowing (same as the
   // members above), so a rung carrying this is inert to refineSlotCount / tierCap /
-  // fuelCap / the fuel helpers, and vice-versa.
+  // fleetReachBonus, and vice-versa.
   | { addResearchSlots: number }
   // --- Fabricator (Phase 4, F1, design §1): the Fabricator's SLOT grant ----------
   // +N concurrent craft jobs this facility can run. fabricateSlotCount (tick.ts) SUMS
@@ -4197,7 +4197,7 @@ export type FacilityUpgradeEffect =
   // fabricate rung's effect is ONLY the slot grant, never a content-unlock marker.
   // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every
   // member above), so a rung carrying this is inert to refineSlotCount / researchSlotCount
-  // / tierCap / fuelCap, and, critically, NO existing facility rung sets it, so this
+  // / tierCap / fleetReachBonus, and, critically, NO existing facility rung sets it, so this
   // member changes NO existing behavior (anti-regression: Omega 15).
   | { addFabricateSlots: number }
   // --- Shipyard (Phase 5, Task S1, design §2): the build-SPEED multiplier ----------
@@ -4210,7 +4210,7 @@ export type FacilityUpgradeEffect =
   // are FUTURE rungs on this same track (design §2, hooked-not-built).
   // ADDED ADDITIVELY + INERT (anti-regression, Omega 15): property-presence narrowing
   // (same convention as every member above), so a rung carrying this is inert to
-  // refineSlotCount / researchSlotCount / fabricateSlotCount / tierCap / fuelCap, and --
+  // refineSlotCount / researchSlotCount / fabricateSlotCount / tierCap / fleetReachBonus, and --
   // critically, NO existing facility rung sets it (only FACILITIES.shipyard's later
   // rungs do), so this member changes NO existing behavior. No consumer READS it yet
   // either (the S3 build engine will); it is inert data this pass.
@@ -4236,7 +4236,7 @@ export type FacilityUpgradeEffect =
   //
   // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every member
   // above), so a rung carrying this is inert to refineSlotCount / researchSlotCount /
-  // fabricateSlotCount / tierCap / fuelCap, and no PRE-EXISTING facility rung sets it, so
+  // fabricateSlotCount / tierCap / fleetReachBonus, and no PRE-EXISTING facility rung sets it, so
   // this member changes NO existing behavior (anti-regression: Omega 15).
   | { addSalvageSlots: number }
   // --- Shipyard BERTHS (Shipyard Berths, 2026-09-06, design section 15d "Adding LANES") ---
@@ -4272,7 +4272,7 @@ export type FacilityUpgradeEffect =
   //
   // ADDED ADDITIVELY + INERT: property-presence narrowing (same convention as every member
   // above), so a rung carrying this is inert to refineSlotCount / researchSlotCount /
-  // fabricateSlotCount / salvageSlotCount / tierCap / fuelCap / shipBuildSpeedMult, and no
+  // fabricateSlotCount / salvageSlotCount / tierCap / fleetReachBonus / shipBuildSpeedMult, and no
   // PRE-EXISTING facility rung sets it, so this member changes NO existing behavior
   // (anti-regression: Omega 15).
   | { addShipyardBays: number }
@@ -7425,6 +7425,10 @@ export interface GameState {
   credits: Decimal;
   // (WR-4, OC-C1: the fleet-wide fuel STOCKPILE `fuel` is gone. Fuel is a reach stat since 0.13.6, nothing spent
   // or filled it after Buy Fuel retired, and save v70 drops the field.)
+  // WR-4 review (user: "Refund as credits"): the credits the v70 load refunded for that leftover fuel (and any Fuel
+  // Depot batch in flight), at the old 20 cr/unit. A ONE-SHOT note: set only by save.ts dropRetiredFuelV70, read once
+  // by App.svelte on load to tell the player, then removed. Absent on every other save.
+  fuelRefundCredits?: number;
   // --- Ships, Stats Foundation ---
   // The fleet's hulls, distinct from the captains flying them. A ShipInstance's
   // assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies it, the
@@ -8054,7 +8058,7 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "oresMetals",
     tier: 2,
     rarity: "uncommon",
-    unlockHint: "An uncommon strike on the Lunar Mine Contract; it stores in Warehouse (Tier II).",
+    unlockHint: "An uncommon strike on the Lunar Mine Contract. A Tier 2 material: it is kept at the base cap until Warehouse (Tier II) is unlocked.",
     flavor: "Impossibly compacted rock from the deep lunar seams, heavy enough to need its own warehouse tier.",
   },
   // --- Catalog scaffold (Phase 2 Warehouse), UNOBTAINABLE PLACEHOLDERS -------

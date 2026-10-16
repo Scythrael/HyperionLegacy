@@ -3274,7 +3274,15 @@
       // in as an INPUT keeps tick() a pure function of its arguments (the same posture the
       // seeded rng has), and tick() derives the per-tick schedule from it. See tick()'s
       // header for the reconstruction and its accuracy limits.
-      const beforeSnapshot = loadedSave.state;
+      // WR-4 review (user: "Refund as credits"): a save loaded from before v70 had its leftover fuel refunded as
+      // credits by the migration, which leaves a one-shot note. Say so once, then drop the note so it never repeats.
+      const fuelRefund = loadedSave.state.fuelRefundCredits;
+      const { fuelRefundCredits: _fuelRefundNote, ...loadedState } = loadedSave.state;
+      void _fuelRefundNote;
+      const beforeSnapshot: GameState = loadedState;
+      if (fuelRefund !== undefined && fuelRefund > 0) {
+        pushLog(`Fuel is a reach stat now, so the fuel left in your tank was refunded: +${formatNumber(fuelRefund)} credits.`);
+      }
       state = offlineSeconds > 5 ? tick(offlineSeconds, beforeSnapshot, Math.random, returnedAtMs) : beforeSnapshot;
       if (offlineSeconds > 5) {
         pushLog(`Welcome back. Advanced ${formatNumber(offlineSeconds)}s offline.`);
@@ -12849,11 +12857,9 @@
                    duration, and a Build/Expand button gated on the SAME
                    canBuildFacilityUpgrade the backend enforces (so button and
                    action agree). T2 at level 0 reads as an UNLOCK; its later
-                   denseOre-gated rungs naturally show the unmet readiness icon
-                   (unobtainable input = honest "future content" wall; Unit 6.2
-                   swapped that glyph from ❌ to the shared <Icon>, the row is
-                   otherwise unchanged). In-flight progress mirrors the
-                   Refinery's. -->
+                   rungs cost denseOre (the Lunar Mine's uncommon strike since
+                   WR-4) and show the shared readiness icon until it is stocked.
+                   In-flight progress mirrors the Refinery's. -->
               {#each WAREHOUSE_TIERS as wt (wt.key)}
                 {@const level = state.facilities[wt.key]?.level ?? 0}
                 {@const upgrades = FACILITIES[wt.key].upgrades}
@@ -12898,10 +12904,8 @@
                            success/danger token. The condition moved from a JS ternary to a
                            template block only because a component cannot be a ternary branch;
                            the condition, the color, the text and the reservation-aware
-                           "(N reserved)" annotation are all untouched. This is also the row that
-                           renders the HONEST FUTURE-CONTENT WALL: a denseOre-gated T2 rung is
-                           unreachable today and now shows the warning icon rather than a red
-                           cross, which is the same signal in the theme's own vocabulary. -->
+                           "(N reserved)" annotation are all untouched. A denseOre-priced T2 rung shows
+                           the warning icon until enough Dense Ore (Lunar Mine Contract, WR-4) is held. -->
                       <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                         {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                       </div>
@@ -15404,15 +15408,18 @@
           </div>
 
           <Panel>
+            <!-- WR-4 review: a tier whose Warehouse is not unlocked yet still STORES its items at the base cap (tierCap
+                 reads the base at level 0, and Dense Ore arrives from the Lunar Mine before Tier 2 is unlocked), so the
+                 line states the real cap and the note says what unlocking does, never "locked" storage. -->
             <div class="materials-cap-line">
-              {tierUnlocked ? `Cap ${formatNumber(cap)} / item` : "This tier's storage is locked."}
+              {tierUnlocked ? `Cap ${formatNumber(cap)} / item` : `Base cap ${formatNumber(cap)} / item`}
             </div>
 
             {#if !tierUnlocked}
               {@const unlockRung = FACILITIES[`warehouseT${activeMaterialsTier}`]?.upgrades[0]}
               {@const unlockIds = unlockRung ? Object.keys(unlockRung.materials) : []}
               <p class="warehouse-locked-note">
-                Tier {activeMaterialsTier} storage locked, <b>unlock in the Warehouse (Facilities)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if}.
+                Tier {activeMaterialsTier} items are kept at the base cap until this tier's storage is unlocked: <b>unlock it in the Warehouse (Facilities)</b>{#if unlockRung && unlockIds.length > 0} ({formatNumber(unlockRung.materials[unlockIds[0]])} [{ITEMS[unlockIds[0]]?.label ?? unlockIds[0]}]){/if} to raise the cap.
               </p>
             {/if}
 

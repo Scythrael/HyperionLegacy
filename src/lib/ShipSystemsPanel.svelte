@@ -57,6 +57,8 @@
   } from "./game/model";
   import { SHIP_TYPES, EQUIPMENT_SLOTS, shipDerivedStats, isSparePiece, pieceVarietyDef, shipDisplayLabel } from "./game/model";
   import { LY_PER_TICK } from "./game/fuel";
+  // WR-4 (OC-C1): the Fuel Depot's fleet reach, so the Range row matches the dispatch gates (tick.ts shipReachDef).
+  import { fleetReachBonus } from "./game/tick";
   // Renamable Ships: the shared name-length ceiling, so this panel's rename input
   // is capped at EXACTLY the same limit renameShip (the pure seam) enforces. One
   // source of truth for the number, no drift between the input's maxlength and the
@@ -465,7 +467,10 @@
   // lightyears (the same "Range" the dispatch modal + roster already use). One honest Range row
   // replaces the two, derived the same way as rangeLightYears (fuelCapacity x (1+engineEfficiency) x
   // LY_PER_TICK) so it agrees with the dispatch/roster readouts and moves as an FTL drive changes.
-  const shipRangeLyOf = (s: ShipDerivedStats): number => s.fuelCapacity * (1 + s.engineEfficiency) * LY_PER_TICK;
+  // WR-4 (OC-C1): times (1 + the Fuel Depot's fleet reach bonus), the same factor shipReachDef applies, so the row
+  // reads the reach the gates use. The bonus is fleet-wide, so base and installed scale alike (the gear delta keeps
+  // its meaning). Reads the `state` prop at call time (props update before the reactive rows rebuild).
+  const shipRangeLyOf = (s: ShipDerivedStats): number => s.fuelCapacity * (1 + s.engineEfficiency) * LY_PER_TICK * (1 + fleetReachBonus(state));
   function buildLiveRows(base: ShipDerivedStats, fit: ShipDerivedStats): StatRow[] {
     return [
       { label: "Extraction Yield", base: base.extractionYieldMult, fitted: fit.extractionYieldMult, kind: "pct" },
@@ -497,7 +502,7 @@
     extractionYield: "How much raw material a mining or salvage mission pulls in; higher yield means more resources per run.",
     cargoCapacity: "How much a ship can carry home in a single trip; a bigger hold means fewer runs to move the same haul.",
     ftlSpeed: "How fast the ship crosses between sectors; higher speed shortens every mission's travel time.",
-    range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations.",
+    range: "How far the ship can travel before it must turn back, in light-years; more range reaches farther destinations. The Fuel Depot extends it for the whole fleet.",
     powerOutput: "Total power the reactor supplies to the ship; it needs to cover everything the installed systems draw.",
     powerDraw: "Total power the installed systems consume; keep it at or under power output. Lower is better.",
     mass: "The ship's combined mass from its hull and installed systems; lower mass is generally easier to move.",
