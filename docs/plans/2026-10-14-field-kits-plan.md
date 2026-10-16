@@ -474,3 +474,14 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   Gambits need a way to SAVE charges for the hardest fight; not "the x-th battle", but by ENEMY TYPE.
 - ENEMY TYPES / RANKS (user-named, "100% going to be a thing"): Weak, Normal, Strong, Elite, Boss, etc. The hardest
   fight usually waits at the end (a boss). Follow-ups asked 2026-10-16.
+- **Group 7 (2026-10-16):**
+  - **Supplies:** "Free basics + your stock (Recommended)": every objective each member gets a free basic set; extras
+    carried come from crafted stock; unused extras come home.
+  - **Tool charges:** "Free, every objective (Recommended)": installed tools reset to full charges each objective.
+  - **Enemy ranks:** "Build ranks now (Recommended)": every ground enemy has a rank (Weak, Normal, Strong, Elite, Boss)
+    that scales its stats; the final fight of harder objectives holds an Elite or Boss; threat odds and Reinforcing
+    account for ranks. FOUNDATION for ground combat (needs its own slice + goldens first).
+  - **Saving charges:** "Rank rules + reserve (Recommended)": gambit conditions "target is Elite or stronger" / "target
+    is a Boss" plus a per-rule "keep N charges for a Boss" option.
+  - NOTE: the FK plan's slices FK-1..FK-10 must be REVISED for groups 6-7 before FK-1 builds (per-objective supplies,
+    charges, enemy ranks, gambit rank rules, per-member packs).
