@@ -1363,3 +1363,6 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   G2 voyage engine and reach gate; patrol legs scale with transitSpeedMult; cargo stays missions-only, text says so.
 - **OC-E5 Fast Departure / Fast Return:** "Each its own leg (Recommended)".
 - **OC-D2 materialQualityChance:** "Chance to upgrade a unit (Recommended)": each delivered unit may climb one quality step.
+- **OC-D10 DC Suite:** "Field repairs too (Recommended)". **OC-D11 sensor arrays:** "Split the two (Recommended)":
+  coverage width drives discovery attempts, cadence alone drives scan speed. **OC-E9 XO on expeditions:**
+  "Expeditions too (Recommended)". **OC-D4 module slots:** "Cap module-class slots (Recommended)".
