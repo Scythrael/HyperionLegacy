@@ -520,3 +520,14 @@ Reading: the user prefers option 2: after the guaranteed first run, ordinary Tie
 (a craftable set) rather than being comfortable for any full team in starting gear. OPEN (asked 2026-10-16): whether
 "a new set of gear" means existing Fabricator away-team gear at low item levels, or a NEW starter gear set (a new
 entity the user would name); and whether a full team is also expected.
+
+Follow-up answers (user, 2026-10-16):
+- **Which gear:** "1. Basically, We should be able to use the quartermaster during the tutorial to get a first set of
+  gear. Standard issue equipment for each of our 6 ground team squad members." So: existing gear; the Quartermaster
+  issues a first set of Standard-Issue equipment for each ground team member (the tutorial in the quests patch will
+  walk the player through it).
+- **Team size:** "Full team + upgrade (Recommended)": comfortable Tier I = a full away team wearing that first set.
+- CONFLICT found (asked 2026-10-16): Standard-Issue gear is stat-neutral by design today (model.ts
+  STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0; the Quartermaster already issues Standard-Issue MEMBER pieces at 0 points), so
+  wearing it changes nothing. For the Quartermaster set to be the "slight upgrade", member Standard-Issue pieces would
+  need small real stats.
