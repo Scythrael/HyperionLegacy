@@ -631,3 +631,5 @@ the CP-6 core fix was dispatched the same day.
   description ("the largest crew the fleet fields") is wrong, and every 0.14.0 hull cap stays below 1,017. Exact
   explorer caps re-asked 2026-10-16.
 - **OC-23 soft captain cap:** "From level 30 (Recommended)": past level 30 each level needs x1.08 more experience.
+- **OC-5 explorer caps (follow-up):** "Eir 900, Orion/Aurora 750 (Recommended)"; Eir's text becomes "the largest
+  explorer crew"; the Andromeda (1,017, later hull tier) stays the largest in the fleet.

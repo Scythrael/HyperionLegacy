@@ -1188,3 +1188,10 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   damageResist / disruptionResist lines on plating and emitters; particleTraceDetector from sensors; rapid charge,
   in-combat replenish and smart reflect as drone pod lines; pirate hulls get armor and evasion; conditions persist
   across the waves of one patrol; overchargedCapacitors and inhibit get sources and readers.
+- **OC-D14 durability (2026-10-16, verbatim):** "Everything wears in different ways. Similar to reality. Use. Battle
+  damage. Etc. But can easily be repaired over time." So: ALL gear wears (not weapons only), each kind in its own way
+  (use wear for economy / crew / sensor / member gear, battle damage for combat systems), and wear repairs easily over
+  time (no punishing repair grind; peace is the product). Needs a short wear-model design (rates per kind, what wear
+  does, how repair over time works, UI) before build: NEW SYSTEM, design + user sign-off first.
+- **OC-G4 site flavor:** "Show it and make it true (Recommended)": show each site's flavor and give it what it names
+  (better relic odds at Buried Vault and Subterranean sites; more materials at Bloom, Geothermal, Outpost, Crashed Ship).

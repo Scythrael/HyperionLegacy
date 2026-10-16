@@ -429,3 +429,6 @@ Commit `docs(0.14.0): Field Kits help and close-out (Field Kits FK-10)`.
 - **Severity ranks (2026-10-15):** "In 0.14.0 Field Kits (Recommended)": build condition severity ranks now (e.g.
   Fracture, Broken Bone, Shattered Bone); each kit and Medical Training treats up to a rank. Names beyond the user's
   examples are [PROPOSAL].
+- **FK7 / open call 7 (2026-10-16):** "As proposed (Recommended)": Bruisers Fracture + Concussion on a heavy hit;
+  Strikers Hemorrhage on finishing a wounded target and one flash grenade each (Blindness); Casters Neurotoxin instead
+  of Poison on Hard or harder objectives; Swarm and hostile garrisons Fear.
