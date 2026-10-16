@@ -1366,3 +1366,5 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-D10 DC Suite:** "Field repairs too (Recommended)". **OC-D11 sensor arrays:** "Split the two (Recommended)":
   coverage width drives discovery attempts, cadence alone drives scan speed. **OC-E9 XO on expeditions:**
   "Expeditions too (Recommended)". **OC-D4 module slots:** "Cap module-class slots (Recommended)".
+- **Fuel refund at v70 (2026-10-16):** "Refund as credits (Recommended)": leftover fuel converts to credits at the old
+  purchase price (FUEL_CREDITS_PER_UNIT) with a one-time log note.

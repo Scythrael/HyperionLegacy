@@ -809,3 +809,9 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
     is a Boss" plus a per-rule "keep N charges for a Boss" option.
   - NOTE: the FK plan's slices FK-1..FK-10 must be REVISED for groups 6-7 before FK-1 builds (per-objective supplies,
     charges, enemy ranks, gambit rank rules, per-member packs). DONE 2026-10-16: REVISED SLICES at the top of this doc.
+- **Revised-slice calls (2026-10-16):** N1 rank strength "Weak 0.7 to Boss 2.5 (Recommended)" (Weak x0.7, Normal x1,
+  Strong x1.3, Elite x1.7, Boss x2.5, HP and power); N2 "By difficulty (Recommended)": Challenging objectives end with
+  an Elite, Hard and Deadly with a Boss, Simple / Standard none, never on a training run; N7 + N15 "Thrown, spend
+  charges (Recommended)": grenades become thrown actions spending a charge (AoE + debuff chance), replacing the passive
+  on-hit effect, and the DEFAULT program throws them sensibly, saving one for a Boss (so this is a user-approved change
+  to D19's "no automatic kit use" for grenades).
