@@ -815,3 +815,7 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   charges (Recommended)": grenades become thrown actions spending a charge (AoE + debuff chance), replacing the passive
   on-hit effect, and the DEFAULT program throws them sensibly, saving one for a Boss (so this is a user-approved change
   to D19's "no automatic kit use" for grenades).
+- **Correction (2026-10-16):** my N2 question said "Hard"; the real grades are Simple, Standard, Challenging,
+  Dangerous, Deadly. The user's pick maps to: Challenging ends with an Elite; Dangerous and Deadly end with a Boss.
+  Likewise "Hard or harder" for Caster Neurotoxin (N14) is still open. N1 as answered applies one multiplier to both
+  HP and power (Weak 0.7, Normal 1, Strong 1.3, Elite 1.7, Boss 2.5), superseding the plan's split HP / power table.
