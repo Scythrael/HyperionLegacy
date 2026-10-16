@@ -88,7 +88,6 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
-    fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
   });

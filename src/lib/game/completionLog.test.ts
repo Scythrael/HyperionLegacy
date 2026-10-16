@@ -294,6 +294,10 @@ const ALL_KINDS = [
   // Exploration 0.14.0 (E4a): the Research facility's relic study.
   "relicStudy",
 ] as const satisfies readonly TimedProcessKind[];
+// WR-4 (OC-C1): kinds kept ONLY so an old log entry still renders; no process of them can start or remain in a
+// v70 save (MIGRATIONS[69] drops an in-flight fuelRefineJob), so the live completion case below leaves them out.
+const LEGACY_LOG_ONLY_KINDS: readonly TimedProcessKind[] = ["fuelRefineJob"];
+const LIVE_KINDS = ALL_KINDS.filter((k) => !LEGACY_LOG_ONLY_KINDS.includes(k));
 
 // ⚠️ THE COMPILE-TIME HALF OF THE GUARD, the same trick QUEUE_FACILITY_ORDER uses in
 // tick.ts: a NEW TimedProcessKind that is not listed above makes `Unlisted` a real type,
@@ -329,7 +333,6 @@ describe("every TimedProcessKind leaves an honest record", () => {
         readyProcess("p-build", "shipBuild", { type: "addShip", typeKey: HULL_TYPE as never }),
         readyProcess("p-research", "researchProject", { type: "unlockBlueprint", key: "frameSegmentBp" }),
         readyProcess("p-upgrade", "facilityUpgrade", { type: "facilityLevelUp", facility: "refinery" }),
-        readyProcess("p-fuel", "fuelRefineJob", { type: "addFuel", amount: new Decimal(25) }),
         readyProcess("p-storage", "equipmentStorageUpgrade", { type: "equipmentStorageLevelUp" }),
         readyProcess("p-docks", "docksExpansion", { type: "docksCapacityUp" }),
         readyProcess("p-berths", "transitBerthExpansion", { type: "transitBerthLevelUp" }),
@@ -346,9 +349,9 @@ describe("every TimedProcessKind leaves an honest record", () => {
     const out = resolveProcesses(s, 1, seededRng(), T0).next;
 
     // One record per kind, in activeProcesses order (the same order the completions ran).
-    expect(out.completionLog).toHaveLength(ALL_KINDS.length);
+    expect(out.completionLog).toHaveLength(LIVE_KINDS.length);
     const byKind = new Map(out.completionLog.map((e) => [e.kind, e]));
-    for (const kind of ALL_KINDS) {
+    for (const kind of LIVE_KINDS) {
       expect(byKind.has(kind)).toBe(true);
       expect(byKind.get(kind)!.atMs).toBe(T0);
       // Every record is dated as a real span, not a zero-length instant.
@@ -369,8 +372,6 @@ describe("every TimedProcessKind leaves an honest record", () => {
     expect(byKind.get("researchProject")).toMatchObject({ reward: "blueprint", subjectKey: "frameSegmentBp", items: [] });
     // An upgrade grants a LEVEL, and reports the level the player NOW has (refinery 1 -> 2).
     expect(byKind.get("facilityUpgrade")).toMatchObject({ reward: "level", subjectKey: "refinery", level: 2, items: [] });
-    // Fuel goes to the tank, so it is reported as an amount, not as an inventory item.
-    expect(byKind.get("fuelRefineJob")).toMatchObject({ reward: "fuel", fuelAmount: "25", items: [] });
     // The two standalone storage tracks report their new rung / capacity.
     expect(byKind.get("equipmentStorageUpgrade")).toMatchObject({ reward: "level", subjectKey: "equipmentStorage", level: 1 });
     expect(byKind.get("docksExpansion")).toMatchObject({ reward: "level", subjectKey: "docks", level: base.shipStorageCapacity + 1 });

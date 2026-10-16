@@ -126,11 +126,11 @@ describe("AF-2 the gate: an affix-aware run without the catalog version resolves
   // (when the run completes).
   const GOLDEN: Record<string, string[]> = {
     tierOne: ["afde41dd", "3751a80", "7b9e7128", "16a1acb8", "97cb2db9", "activities", "unclaimed"],
-    tierThree: ["36daf01f", "8ad55aca", "8ad55aca", "8ad55aca", "8ad55aca", "complete", "7ba2c3e"],
-    tierFourEnemy: ["b797f1a2", "378beb64", "a7a5f021", "a7a5f021", "a7a5f021", "complete", "6e3e8c25"],
-    strikeSurveyTierFour: ["8e6ef7a8", "ddcc62be", "ddcc62be", "ddcc62be", "ddcc62be", "complete", "b86b42a4"],
-    tierSixWeak: ["32afb8e0", "2d3420dc", "ff437ba6", "ff437ba6", "ff437ba6", "complete", "a29aec1b"],
-    tierSevenEnemy: ["afed66d0", "5b3467c7", "561746ad", "561746ad", "561746ad", "complete", "254d0d67"],
+    tierThree: ["36daf01f", "8ad55aca", "8ad55aca", "8ad55aca", "8ad55aca", "complete", "6fea8ae1"],
+    tierFourEnemy: ["b797f1a2", "378beb64", "a7a5f021", "a7a5f021", "a7a5f021", "complete", "ca83cbb2"],
+    strikeSurveyTierFour: ["8e6ef7a8", "ddcc62be", "ddcc62be", "ddcc62be", "ddcc62be", "complete", "7acaa969"],
+    tierSixWeak: ["32afb8e0", "2d3420dc", "ff437ba6", "ff437ba6", "ff437ba6", "complete", "5fbbb3b4"],
+    tierSevenEnemy: ["afed66d0", "5b3467c7", "561746ad", "561746ad", "561746ad", "complete", "820ca0fa"],
   };
   for (const [name, build] of Object.entries(CASES)) {
     it(`${name}: checkpoints and the claim match the pre-AF-2 capture`, { timeout: 120_000 }, () => {

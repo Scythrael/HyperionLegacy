@@ -66,7 +66,6 @@ function patrolState(typeKey: ShipTypeKey, seed: number): GameState {
   return installMissingCombatBaselines({
     ...base,
     nextPatrolSeed: seed,
-    fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey } : s)),
   });
@@ -143,7 +142,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
         expect(b.captains).toEqual(s.captains);
         expect(b.ships).toEqual(s.ships);
         expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
-        expect(b.fuel.toString()).toBe(s.fuel.toString());
         expect(b.credits.toString()).toBe(s.credits.toString());
       });
     }
@@ -192,7 +190,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
       return installMissingCombatBaselines({
         ...base,
         nextPatrolSeed: seedBase,
-        fuel: new Decimal(1_000_000),
         credits: new Decimal(1_000_000),
         captains: [...base.captains, captain2],
         ships: [
@@ -240,7 +237,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
         // That float-accumulation artifact is PRE-EXISTING in the shared fuel model (any
         // non-integer-fuel extraction mission has it too), independent of the seed fix here,
         // and is flagged to the controller separately. The TRAJECTORY asserts above are exact.
-        expect(b.fuel.toNumber()).toBeCloseTo(s.fuel.toNumber(), 6);
         expect(b.credits.toNumber()).toBeCloseTo(s.credits.toNumber(), 6);
       });
     }
@@ -257,7 +253,6 @@ describe("closed-form parity: one big call == many small calls (THE GATE)", () =
         expect(b.captains).toEqual(s.captains);
         expect(b.ships).toEqual(s.ships);
         expect(b.nextPatrolSeed).toBe(s.nextPatrolSeed);
-        expect(b.fuel.toString()).toBe(s.fuel.toString());
         expect(b.credits.toString()).toBe(s.credits.toString());
       });
     }
@@ -479,7 +474,6 @@ describe("anti-regression: extraction is unperturbed by a patrol captain", () =>
     const base = freshState();
     const withHull: GameState = {
       ...base,
-      fuel: new Decimal(100000),
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as ShipTypeKey } : s)),
     };
     const captain2: CaptainState = { ...freshCaptains(1)[0], id: 2, label: "Captain 2" };

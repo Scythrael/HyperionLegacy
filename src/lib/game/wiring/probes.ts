@@ -67,10 +67,7 @@ import {
   economyTick,
   fabricateSlotCount,
   fleetRareYieldMult,
-  fuelBatchInput,
-  fuelBatchOutput,
-  fuelCap,
-  fuelPipelineCount,
+  fleetReachBonus,
   installMissingCombatBaselines,
   missionUnlocked,
   museumResearchDurationTicks,
@@ -182,10 +179,10 @@ export const NO_OFFICER_BONUS = { id: "wiring.none", magnitude: 0 };
 export type Transform = (s: GameState) => GameState;
 export const identity: Transform = (s) => s;
 
-// A fresh save with room to work (credits and fuel), optionally on another hull.
+// A fresh save with room to work (credits), optionally on another hull.
 export function wiringBase(typeKey?: ShipTypeKey): GameState {
   const base = freshState();
-  const s: GameState = { ...base, fuel: new Decimal(1_000_000_000), credits: new Decimal(1_000_000) };
+  const s: GameState = { ...base, credits: new Decimal(1_000_000) };
   return typeKey ? editShip(s, { typeKey }) : s;
 }
 
@@ -542,7 +539,7 @@ export function patrolDigest(s: GameState): number {
     after = economyTick(after, 1, () => 0.5);
     trace.push(captainOf(after).mission); // tick by tick: the legs, every wave and the ship's pools between them
   }
-  return digestOf({ trace, credits: after.credits, fuel: after.fuel, inventory: after.inventory, ship: shipOf(after) });
+  return digestOf({ trace, credits: after.credits, inventory: after.inventory, ship: shipOf(after) });
 }
 
 // The ship-side scan events' combatant: the battle profile frozen at dispatch, rebuilt as each event rebuilds it.
@@ -774,10 +771,8 @@ export const PROBES = {
   refineJobTicks: { label: "refineJobDurationTicks(1000)", read: (s) => refineJobDurationTicks(s, 1000) },
   tier1Cap: { label: "tierCap(1)", read: (s) => Number(tierCap(s, 1)) },
   tier2Cap: { label: "tierCap(2)", read: (s) => Number(tierCap(s, 2)) },
-  fuelTankCap: { label: "fuelCap (retired Fuel Depot)", read: (s) => Number(fuelCap(s)) },
-  fuelPipelines: { label: "fuelPipelineCount (retired Fuel Depot)", read: (s) => fuelPipelineCount(s) },
-  fuelBatchOut: { label: "fuelBatchOutput (retired Fuel Depot)", read: (s) => Number(fuelBatchOutput(s)) },
-  fuelBatchIn: { label: "fuelBatchInput (retired Fuel Depot)", read: (s) => Number(fuelBatchInput(s)) },
+  // WR-4 (OC-C1): the Fuel Depot's fleet reach (shipReachDef scales every ship's reach by 1 + this).
+  fleetReach: { label: "fleetReachBonus (the Fuel Depot rungs)", read: (s) => fleetReachBonus(s) },
   researchSlots: { label: "researchSlotCount", read: (s) => researchSlotCount(s) },
   fabricateSlots: { label: "fabricateSlotCount", read: (s) => fabricateSlotCount(s) },
   salvageLanes: { label: "salvageSlotCount", read: (s) => salvageSlotCount(s) },

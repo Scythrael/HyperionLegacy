@@ -1085,8 +1085,9 @@ function facilityRungEntries(): WiringEntry[] {
         off: (s: GameState) => withFacilityLevel(s, fkey, i),
       };
       const num = (f: string) => (c: Catalogs) => ((c.FACILITIES[fkey].upgrades[i].effect as unknown as Record<string, number>)[f]);
-      if (fkey === "fuelStorage") {
-        out.push(entry({ ...common, status: pending("WR-4, OC-C1 (Fuel Depot retired 0.13.9; nothing spends state.fuel, B5)") }));
+      // WR-4 (OC-C1, "Turn into range"): every Fuel Depot rung adds its share to the fleet's reach.
+      if ("fleetReachBonus" in eff) {
+        out.push(entry({ ...common, probe: "fleetReach", contexts: ["sheet"], magnitude: num("fleetReachBonus"), note: "shipReachDef scales every ship's reach by 1 + the sum (wiringBugs.test.ts pins the gate and the readout)" }));
         return;
       }
       if ("addRefineSlots" in eff) out.push(entry({ ...common, probe: "refineSlots", contexts: ["facility"], magnitude: num("addRefineSlots") }));
@@ -2460,7 +2461,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // A. Captain
   { id: "captain:audit:gearGates", system: "captain", claim: "Gear gates minCaptainLevel / requiresTalent / captainSpec (no slot sets them)", status: pending("WR-4, OC-C4") },
   // C. Facilities, items, fuel
-  { id: "facility:audit:fuelPurchase", system: "facility", claim: "FUEL_TANK_BASE_CAP, FUEL_REFINE_*, FUEL_CREDITS_PER_UNIT and buyFuel (credits spent on fuel nothing consumes, B5)", status: pending("WR-4, OC-C1") },
+  { id: "facility:audit:fuelAutoBuy", system: "facility", claim: "The mission fuel budget and credit auto-buy plumbing (FUEL_CREDITS_PER_UNIT, REFUEL_PENALTY_TICKS, refuelDelayTicks): unreachable since 0.13.6 (an infinite fuel budget). (B5's Buy Fuel, tank and refinery are gone, WR-4.)", status: pending("S4-A02 (the fuel-economy cleanup: remove or keep, a user call)") },
   { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 (only a commented-out rung)", status: pending("WR-4, OC-C4") },

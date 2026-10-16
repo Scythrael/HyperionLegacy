@@ -39,7 +39,7 @@ import {
   // build fixtures from (ids and literal orders only, no Decimal, see QueuedJob).
   type QueuedJob,
 } from "./model";
-import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, RETIRED_FUEL_DEPOT_KEY, type ActivityRow } from "./homeDashboard";
+import { buildHomeDashboard, HOME_RECENT_COMPLETIONS_LIMIT, type ActivityRow } from "./homeDashboard";
 // 0.13.9: the same gate the upgrade prompt reads, for the retired-Fuel-Depot non-vacuity check.
 import { canBuildFacilityUpgrade } from "./tick";
 // The stuck-at-00:00 regression cases below read the mission table directly.
@@ -70,7 +70,7 @@ function oneOfEveryProcess(): TimedProcess[] {
       kind: "fuelRefineJob",
       remainingTicks: 5,
       durationTicks: 10,
-      effect: { type: "addFuel", amount: new Decimal(50) },
+      effect: { type: "addItem", itemId: "deuteriumIce", amount: new Decimal(0) }, // WR-4: a legacy kind (no addFuel effect any more)
     },
     {
       id: "p-research",
@@ -1082,7 +1082,8 @@ describe("buildHomeDashboard: facilityKeys on the upgrade prompt (Unit 4.6b)", (
 // a "Fuel Depot, topping up" row, and links into the hidden console. None may appear now.
 // ============================================================================
 describe("buildHomeDashboard: the retired Fuel Depot is never offered (0.13.9)", () => {
-  it("the upgrade prompt never names or counts the Fuel Depot, even when its upgrade is startable", () => {
+  // WR-4 (OC-C1): the Fuel Depot is the fleet reach track with a card again, so Home offers its upgrade.
+  it("the upgrade prompt counts the Fuel Depot (the fleet reach track) when its upgrade is startable", () => {
     // The depot's rungs cost commonOre, so stock plenty alongside the credits + FA level.
     const fresh = freshState();
     const rich: GameState = {
@@ -1092,27 +1093,23 @@ describe("buildHomeDashboard: the retired Fuel Depot is never offered (0.13.9)",
       inventory: { ...fresh.inventory, commonOre: [new Decimal(1e9)] },
     };
     // Non-vacuous: the depot's next rung really IS startable in this state.
-    expect(canBuildFacilityUpgrade(rich, RETIRED_FUEL_DEPOT_KEY).ok).toBe(true);
+    expect(canBuildFacilityUpgrade(rich, "fuelStorage").ok).toBe(true);
     const upgrade = promptById(buildHomeDashboard(rich), "idle-facility-upgrade");
     expect(upgrade).toBeDefined();
-    expect(upgrade!.facilityKeys ?? []).not.toContain(RETIRED_FUEL_DEPOT_KEY);
-    expect(upgrade!.facilityKey).not.toBe(RETIRED_FUEL_DEPOT_KEY);
-    expect(upgrade!.label).not.toMatch(/fuel depot/i);
+    expect(upgrade!.facilityKeys ?? []).toContain("fuelStorage");
   });
 
-  it("no in-progress row or completion row links to the hidden fuelDepot console", () => {
+  it("a legacy fuel batch row stays off the board; a Fuel Depot upgrade links to its console", () => {
     const state: GameState = {
       ...withLog([completionRecord({ id: "d-fuel", kind: "fuelRefineJob", reward: "fuel", fuelAmount: "25" })]),
       activeProcesses: [
-        { id: "p-fuel", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addFuel", amount: new Decimal(50) } },
-        { id: "p-depot-up", kind: "facilityUpgrade", remainingTicks: 5, durationTicks: 10, effect: { type: "facilityLevelUp", facility: RETIRED_FUEL_DEPOT_KEY } },
+        { id: "p-fuel", kind: "fuelRefineJob", remainingTicks: 5, durationTicks: 10, effect: { type: "addItem", itemId: "deuteriumIce", amount: new Decimal(0) } },
+        { id: "p-depot-up", kind: "facilityUpgrade", remainingTicks: 5, durationTicks: 10, effect: { type: "facilityLevelUp", facility: "fuelStorage" } },
       ],
     };
     const model = buildHomeDashboard(state);
-    expect(model.inProgress.some((r) => r.id === "p-fuel")).toBe(false); // the batch row is gone
-    for (const row of model.inProgress) expect(row.jumpTarget).not.toBe("fuelDepot");
-    for (const row of model.recentlyCompleted) expect(row.jumpTarget).not.toBe("fuelDepot");
-    for (const prompt of model.needsOrders) expect(prompt.jumpTarget).not.toBe("fuelDepot");
+    expect(model.inProgress.some((r) => r.id === "p-fuel")).toBe(false); // the legacy batch row is gone
+    expect(model.inProgress.find((r) => r.id === "p-depot-up")?.jumpTarget).toBe("fuelDepot");
   });
 });
 

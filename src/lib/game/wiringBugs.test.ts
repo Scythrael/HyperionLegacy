@@ -42,6 +42,9 @@ import { PATROLS } from "./model";
 import { dispatchCaptainOnPatrol, tick } from "./tick";
 import { advanceExpedition, claimExpedition } from "./expedition";
 import { canPromoteOfficer } from "./seniorStaff";
+import { FUEL_DEPOT_REACH_PER_RUNG } from "./model";
+import { fleetReachBonus, shipRangeLightYears, shipReachDef, shipReachesRoundTrip } from "./tick";
+import * as tickModule from "./tick";
 import { installMissingCombatBaselines } from "./tick";
 import { equippedFor } from "./equipment";
 import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
@@ -334,5 +337,36 @@ describe("B4: officer promotion counters are fed (OC-E10), starting at 0", () =>
     const o = { ...officerOf(s0), rank: "cadet" as const, missionsCompleted: 10, promotionCounters: { crewHours: 50 } };
     expect(canPromoteOfficer(o)).toBe(true);
     expect(canPromoteOfficer({ ...o, promotionCounters: { crewHours: 49.5 } })).toBe(false);
+  });
+});
+
+// ===== OC-C1 / B5: the Fuel Depot becomes the fleet reach track; the fuel stockpile and Buy Fuel are retired =====
+
+describe("OC-C1: every Fuel Depot level adds to the whole fleet's reach", () => {
+  it("fleetReachBonus sums the built rungs; no rung, no bonus", () => {
+    const rung = FUEL_DEPOT_REACH_PER_RUNG;
+    expect(fleetReachBonus(freshState())).toBe(0);
+    expect(fleetReachBonus(withFacilityLevel(freshState(), "fuelStorage", 3))).toBeCloseTo(3 * rung, 12);
+    const top = FACILITIES.fuelStorage.upgrades.length;
+    expect(fleetReachBonus(withFacilityLevel(freshState(), "fuelStorage", top))).toBeCloseTo(top * rung, 12);
+    for (const up of FACILITIES.fuelStorage.upgrades) expect(up.effect).toEqual({ fleetReachBonus: rung });
+  });
+
+  it("the range readout and the dispatch gate both grow by the bonus, for every ship", () => {
+    const base = freshState();
+    const built = withFacilityLevel(base, "fuelStorage", 4);
+    const bonus = fleetReachBonus(built);
+    expect(shipRangeLightYears(built, built.ships[0])).toBeCloseTo(shipRangeLightYears(base, base.ships[0]) * (1 + bonus), 9);
+    // A round trip just past the bare reach: refused bare, allowed with the Depot built.
+    const def = shipReachDef(base, base.ships[0]);
+    const legs = Math.floor((def.fuelCapacity * (1 + def.engineEfficiency)) / 2) + 1;
+    expect(shipReachesRoundTrip(base, base.ships[0], legs, legs)).toBe(false);
+    expect(shipReachesRoundTrip(built, built.ships[0], legs, legs)).toBe(true);
+  });
+
+  it("the fuel stockpile and Buy Fuel are gone", () => {
+    expect("fuel" in freshState()).toBe(false);
+    expect("buyFuel" in tickModule).toBe(false);
+    expect("fuelCap" in tickModule).toBe(false);
   });
 });

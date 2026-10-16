@@ -172,7 +172,6 @@ describe("⚠️ mission recall-on-cap, REQUIRED offline==live PARITY (recall fi
     const m = st.captains[0].mission as CaptainMissionState | null;
     return {
       inventory: Object.fromEntries(Object.keys(st.inventory).map((k) => [k, itemTotal(st.inventory, k).toString()])),
-      fuel: st.fuel.toString(),
       credits: st.credits.toString(),
       ships: st.ships.map((sh) => ({ id: sh.id, assignedCaptainId: sh.assignedCaptainId, typeKey: sh.typeKey })),
       mission: m

@@ -100,13 +100,8 @@ import {
   // imports the order types anymore.
   WAREHOUSE_T1_BASE_CAP,
   WAREHOUSE_T2_BASE_CAP,
-  FUEL_TANK_BASE_CAP,
   FUEL_CREDITS_PER_UNIT,
   REFUEL_PENALTY_TICKS,
-  FUEL_REFINE_INPUT,
-  FUEL_REFINE_OUTPUT,
-  FUEL_REFINE_DURATION_TICKS,
-  FUEL_DEPOT_BASE_PIPELINES,
   RESEARCH_FACILITY_KEY,
   FABRICATOR_FACILITY_KEY,
   SHIPYARD_FACILITY_KEY,
@@ -1344,8 +1339,6 @@ function completionYieldFor(
       // A refine output or a material fabricate output: one item, one amount, stored as a
       // Decimal STRING so the record carries full precision with no live Decimal in the save.
       return { ...empty, reward: "materials", items: [{ itemId: effect.itemId, amount: effect.amount.toString() }], subjectKey: effect.itemId };
-    case "addFuel":
-      return { ...empty, reward: "fuel", fuelAmount: effect.amount.toString() };
     case "unlockBlueprint":
       return { ...empty, reward: "blueprint", subjectKey: effect.key };
     case "addShip":
@@ -3852,9 +3845,8 @@ export function economyTick(
   // per captain inside the .map() below, Homeworld Talents are fleet-wide,
   // not per-captain.
   const fleetRareYield = fleetRareYieldMult(state);
-  // Mission Rework (Task 5): the SHARED fuel tank, threaded through the per-captain map
-  // below. fuelBudgetRemaining starts at the whole tank (state.fuel as a number, fuel
-  // is human-scale, see fuel.ts) and is DRAWN DOWN as each captain's auto-repeats spend
+  // Mission Rework (Task 5): the SHARED fuel budget, threaded through the per-captain map
+  // below. fuelBudgetRemaining once started at the whole tank and was DRAWN DOWN as each captain's auto-repeats spend
   // from it, so two captains completing a cycle in the SAME call cannot double-spend the
   // one tank (map callbacks run sequentially, so the decrement is visible to the next
   // captain). totalFuelSpent is the sum subtracted from the Decimal tank once, below.
@@ -3863,9 +3855,8 @@ export function economyTick(
   // 0.13.6 fuel-to-reach: fuel is no longer a depleting resource. Seeding the shared budget to
   // INFINITY makes every per-cycle "spend from the tank" branch always succeed, so no captain ever
   // auto-buys, hits the "truly broke" fuel-stop, or takes a refuel penalty; and the tank deduction
-  // below is dropped, so state.fuel never changes. The reach gate (canDispatch) is the only fuel
-  // constraint now. (The dead fuel-spend accounting + the state.fuel field itself are removed in the
-  // step-3 facility/migration pass; neutralizing here keeps this step small and parity-safe.)
+  // below is dropped. The reach gate (canDispatch) is the only fuel constraint now. (WR-4 removed the fuel stockpile
+  // itself, save v70; this unreachable budget plumbing waits on the fuel-economy cleanup call, S4-A02.)
   let fuelBudgetRemaining = Number.POSITIVE_INFINITY;
   let totalFuelSpent = 0;
   // Fuel Economy v2 (F3): the SHARED credit balance available for AUTO-BUYING fuel shortfalls,
@@ -4443,9 +4434,8 @@ export function economyTick(
     // 0.13.6 fuel-to-reach: totalCreditsSpentOnFuel is now always 0 (auto-buy is gone; the
     // Infinity fuel budget above means no captain ever auto-buys), so this is credits + earnings.
     credits: state.credits.plus(creditsDelta).minus(totalCreditsSpentOnFuel),
-    // 0.13.6 fuel-to-reach: the shared fuel tank is NO LONGER drained (refuel is instant + free).
-    // state.fuel rides through unchanged via ...state; the field itself is retired in the step-3
-    // migration. (The old `fuel: state.fuel.minus(totalFuelSpent)` deduction was removed here.)
+    // 0.13.6 fuel-to-reach: the shared fuel tank is NO LONGER drained (refuel is instant + free); WR-4
+    // removed the stockpile field itself (save v70).
     // Loot now lands in the keyed `inventory` (+ its `discovered` reveal set).
     // The old homePlanet.storage field is GONE (removed in Task 7, fully
     // replaced by `inventory`), so there is nothing for `...state` to carry
@@ -4545,18 +4535,8 @@ export function economyTick(
   // economyTick(_,1) for fabrication too, the SAME one-seam guarantee.
   const postFabricateLinesState = processFabricateLines(postRefineLinesState);
 
-  // Fuel Economy v2 (F2): run the Fuel Depot's auto-refine pipelines AFTER
-  // resolveProcesses (so a fuelRefineJob completing this tick frees its pipeline slot to
-  // refill same-tick) and after processRefineLines / processFabricateLines (independent --
-  // fuel batches count against fuelPipelineCount, refine jobs against refineSlotCount,
-  // fabricate jobs against fabricateSlotCount; all share activeProcesses but none gates the
-  // others). It reads the CURRENT tank (post mission-spend + post batch-deposits) and
-  // CURRENT ice (post mission-loot + post refine-line consumption), starts batches into
-  // free pipeline slots while the tank has room + ice, and is a same-reference no-op when
-  // the depot runs no pipeline. Living HERE inside economyTick is what makes it run
-  // identically live and offline (tick() steps economyTick(_,1) per tick), the one-seam
-  // parity guarantee.
-  const postFuelState = processFuelPipelines(postFabricateLinesState);
+  // (WR-4: the retired Fuel Depot pipeline pass that ran here is gone with the fuel stockpile.)
+  const postFuelState = postFabricateLinesState;
 
   // Combat 0.13.0 (Phase 11, design S13): auto-start ship REPAIRS AFTER resolveProcesses (a
   // repair completing this tick has already cleared its ship + freed its bay, so the next
@@ -4777,9 +4757,8 @@ export function tick(
 //                  the captain on the very next tick after burning a round trip's fuel
 //   fuelCapacity, the hull's tank is physically too small for the round trip (RANGE)
 //   fuelEmpty   , the shared fuel tank can't cover the round trip's cost (RESOURCE)
-// NOTE: there is deliberately NO `credits` reason. Dispatch itself spends FUEL, not
-// credits (credits are spent earlier, buying fuel via buyFuel). Adding a credit gate
-// here would be a ghost gate that never fires, see the report / design §4.
+// NOTE: there is deliberately NO `credits` reason: dispatch spends nothing (fuel is a reach stat since 0.13.6;
+// WR-4 retired Buy Fuel). Adding a credit gate here would be a ghost gate that never fires.
 export type DispatchBlockReason =
   | "noCaptain"
   | "busy"
@@ -4808,9 +4787,16 @@ export type DispatchBlockReason =
 // equals the pure equipment fold). The gate keeps its pre-0.13.6 FUEL-UNIT form (capacity >=
 // round-trip need) so eligibility stays byte-identical; the lightyear range is the same def through
 // rangeLightYears.
+// WR-4 (OC-C1): the Fuel Depot's fleet reach bonus scales every ship's capacity here, the ONE seam every gate and
+// range readout reads, so the gate and the number shown cannot disagree. No rung built = the plain fold.
 export function shipReachDef(state: GameState, ship: ShipInstance): ShipTypeDef {
   const stats = effectiveShipStats(state, ship);
-  return { ...SHIP_TYPES[ship.typeKey], fuelCapacity: stats.fuelCapacity, engineEfficiency: stats.engineEfficiency };
+  const reach = fleetReachBonus(state);
+  return {
+    ...SHIP_TYPES[ship.typeKey],
+    fuelCapacity: reach > 0 ? stats.fuelCapacity * (1 + reach) : stats.fuelCapacity,
+    engineEfficiency: stats.engineEfficiency,
+  };
 }
 
 // The reach GATE for a round trip given by its two transit legs (a mission's or a patrol's).
@@ -7836,173 +7822,23 @@ export function reconcileDiscovered(state: GameState): GameState {
 }
 
 // ============================================================================
-// Fuel tank cap + buy (Mission Rework Task 4, design §3).
+// The Fuel Depot's FLEET REACH (WR-4, OC-C1; user 2026-10-16 "Turn into range").
 //
-// fuelCap(state), the CURRENT global Fuel Tank capacity, a DERIVED value (never
-// stored), read off the fuel-storage facility's level exactly as tierCap reads a
-// warehouse tier's cap off its warehouse level. This is the PARALLEL of tierCap for
-// the single global fuel tank.
-//
-// Formula: FUEL_TANK_BASE_CAP doubled once per REACHED fuel-storage rung. Each rung
-// carries a { storageCapMult: 2 } effect (model.ts's buildFuelStorageUpgrades), so
-// multiplying that factor across the reached rungs (i < level) yields
-// base * 2^level, the same derive-on-read/reached-rungs idiom tierCap uses. The
-// doubling factor lives on the rung (the upgrade track is the single source of
-// truth), so fuelCap needs no edit if a future rung tunes a different factor.
-//
-// ⚠️ CRITICAL, NO SOFT-LOCK (design §3): unlike tierCap (which returns a fail-open
-// SENTINEL for a tier ABSENT from BASE_CAP, and treats a locked tier's cap as moot),
-// fuelCap ALWAYS returns a real, USABLE base cap, even at level 0 on a fresh save.
-// Missions are dispatchable from game start and need fuel, so the tank must hold
-// fuel BEFORE any upgrade. There is no "un-built tank" state: level 0 = a live
-// FUEL_TANK_BASE_CAP tank, and the loop below simply runs zero times (returns base).
-//
-// PURE: reads state + the static FACILITIES table + the FUEL_TANK_BASE_CAP constant,
-// mutates nothing.
+// The share of reach every ship gains from the built Fuel Depot rungs: the sum of each REACHED rung's
+// { fleetReachBonus } (the same reached-rungs idiom refineSlotCount uses). 0 with no rung built (every fresh save),
+// so shipReachDef is byte-identical there. It replaced the retired fuel tank (fuelCap), the Depot's refinery
+// helpers (fuelPipelineCount / fuelBatchOutput / fuelBatchInput) and Buy Fuel (the user, 2026-10-16 credit sinks
+// pass: "retire Buy Fuel"). PURE: reads state + the static FACILITIES table.
 // ============================================================================
-export function fuelCap(state: GameState): Decimal {
-  let cap = new Decimal(FUEL_TANK_BASE_CAP); // level-0 base: a real, usable tank (no soft-lock)
-  const facilityDef = FACILITIES["fuelStorage"];
-  // Absent key -> level 0 (grow-on-demand, the SAME `?? 0` posture facilityLevel and
-  // tierCap use). A fresh/seeded save has fuelStorage at level 0, so the loop runs
-  // zero times and the base cap is returned unchanged, the guaranteed usable base.
+export function fleetReachBonus(state: GameState): number {
   const level = state.facilities["fuelStorage"]?.level ?? 0;
-  if (facilityDef) {
-    const upgrades = facilityDef.upgrades;
-    // Multiply the base by each REACHED rung's storageCapMult (i < level), the SAME
-    // reached-rungs loop tierCap uses. The `i < upgrades.length` guard mirrors
-    // tierCap's: defensive against a hypothetical over-level read past the finite track.
-    // Fuel Economy v2 (F2): the fuelStorage track now also carries PROCESSING rungs
-    // (pipeline/yield/input) that have NO storageCapMult, so this loop simply skips them
-    //, the cap counts only the storage rungs, exactly as refineSlotCount counts only
-    // addRefineSlots rungs and ignores the refineSpeedMult rung on its own mixed track.
-    for (let i = 0; i < level && i < upgrades.length; i++) {
-      const effect = upgrades[i].effect;
-      if ("storageCapMult" in effect) {
-        cap = cap.times(effect.storageCapMult);
-      }
-    }
+  const upgrades = FACILITIES["fuelStorage"]?.upgrades ?? [];
+  let bonus = 0;
+  for (let i = 0; i < level && i < upgrades.length; i++) {
+    const effect = upgrades[i].effect;
+    if ("fleetReachBonus" in effect) bonus += effect.fleetReachBonus;
   }
-  return cap;
-}
-
-// ============================================================================
-// Fuel Depot pipeline derivations (Fuel Economy v2 F2, design §2).
-//
-// Three DERIVE-ON-READ helpers, each reading ONE fuelStorage-track effect property
-// across the reached rungs, the SAME reached-rungs idiom fuelCap / refineSlotCount
-// use. The upgrade track is the single source of truth (no cached counts on
-// FacilityState), so retuning a rung changes these with no bookkeeping / migration.
-//   - fuelPipelineCount : how many concurrent auto-refine pipelines the depot runs NOW.
-//   - fuelBatchOutput   : fuel produced per completed batch (base * yield rungs).
-//   - fuelBatchInput    : Deuterium Ice consumed per batch (base * input rungs; <1 = less).
-// ============================================================================
-
-// Concurrent pipelines the Fuel Depot runs right now = FUEL_DEPOT_BASE_PIPELINES (1 at
-// level 0) + the sum of every { addFuelPipelines } grant on the reached rungs.
-//
-// ⚠️ RETURNS 0 IF THERE IS NO fuelStorage FACILITY RECORD (state.facilities.fuelStorage
-// absent). Real states ALWAYS have it (freshState seeds level 0; F5 migrates it onto old
-// saves), so the base-1 pipeline is live in production from game start. The 0-branch is a
-// defensive guard for hand-built/partial test states that omit the depot record, those
-// run NO pipelines (nothing to refine ice with), which is the honest reading of "no Fuel
-// Depot". This is what keeps the refine-order tests (which construct a facilities map
-// WITHOUT fuelStorage) isolated from the fuel economy.
-export function fuelPipelineCount(state: GameState): number {
-  const facility = state.facilities["fuelStorage"];
-  if (!facility) return 0; // no Fuel Depot record -> no pipelines (defensive; see note)
-  const facilityDef = FACILITIES["fuelStorage"];
-  const level = facility.level;
-  let count = FUEL_DEPOT_BASE_PIPELINES; // base at level 0
-  if (facilityDef) {
-    const upgrades = facilityDef.upgrades;
-    for (let i = 0; i < level && i < upgrades.length; i++) {
-      const effect = upgrades[i].effect;
-      if ("addFuelPipelines" in effect) {
-        count += effect.addFuelPipelines;
-      }
-    }
-  }
-  return count;
-}
-
-// Fuel produced per completed batch = FUEL_REFINE_OUTPUT * product of every
-// { fuelYieldMult } on the reached rungs (an empty product = the base output). Decimal
-// (feeds the Decimal fuel tank).
-export function fuelBatchOutput(state: GameState): Decimal {
-  let output = new Decimal(FUEL_REFINE_OUTPUT);
-  const facilityDef = FACILITIES["fuelStorage"];
-  const level = state.facilities["fuelStorage"]?.level ?? 0;
-  if (facilityDef) {
-    const upgrades = facilityDef.upgrades;
-    for (let i = 0; i < level && i < upgrades.length; i++) {
-      const effect = upgrades[i].effect;
-      if ("fuelYieldMult" in effect) {
-        output = output.times(effect.fuelYieldMult);
-      }
-    }
-  }
-  return output;
-}
-
-// Deuterium Ice consumed per batch = FUEL_REFINE_INPUT * product of every
-// { fuelInputMult } on the reached rungs (each < 1 REDUCES ice; empty product = base).
-// Decimal (deducted atomically at batch start by startProcess, whose input map is
-// Record<string, Decimal>).
-export function fuelBatchInput(state: GameState): Decimal {
-  let input = new Decimal(FUEL_REFINE_INPUT);
-  const facilityDef = FACILITIES["fuelStorage"];
-  const level = state.facilities["fuelStorage"]?.level ?? 0;
-  if (facilityDef) {
-    const upgrades = facilityDef.upgrades;
-    for (let i = 0; i < level && i < upgrades.length; i++) {
-      const effect = upgrades[i].effect;
-      if ("fuelInputMult" in effect) {
-        input = input.times(effect.fuelInputMult);
-      }
-    }
-  }
-  return input;
-}
-
-// buyFuel(state, units), buy up to `units` fuel at FUEL_CREDITS_PER_UNIT credits
-// each, returning a NEW GameState (immutable-update style, like buyShip/craftRecipe).
-// A no-op returns the SAME state reference (the codebase's "no change on failure"
-// convention).
-//
-// Clamping (design §3, "buy into the tank up to its cap", affordability-guarded).
-// The amount actually bought is the MIN of three limits, so it can NEVER overfill
-// the tank NOR overspend the credit balance:
-//   1. `units` requested (floored at 0, a non-positive request buys nothing, so a
-//      negative `units` can't add credits / drain fuel).
-//   2. tank ROOM = fuelCap(state) - state.fuel (0 if already at/over cap).
-//   3. AFFORDABLE = state.credits / FUEL_CREDITS_PER_UNIT.
-// If that min is <= 0 (broke, or tank full, or non-positive request) it's a same-ref
-// no-op. Otherwise deduct buy * price from credits (>= 0 guaranteed since buy <=
-// affordable) and add `buy` to fuel (<= cap guaranteed since buy <= room). Both moves
-// are exact Decimal math, fuel and credits never go negative.
-//
-// NOTE: `buy` is not floored to a whole unit, the affordability clamp can yield a
-// fractional amount (spending the credit balance exactly). This is intentional: the
-// tank already holds fractional fuel (fuelNeeded is fractional, Task 3), so a single
-// exact-Decimal min is the cleanest rule and avoids leaving unspendable credit dust.
-// PURE apart from returning the new state; reads only state + the two constants.
-export function buyFuel(state: GameState, units: number): GameState {
-  const want = Decimal.max(0, new Decimal(units)); // non-positive request -> 0 (no exploit)
-  const room = Decimal.max(0, fuelCap(state).minus(state.fuel)); // remaining tank capacity
-  const affordable = state.credits.div(FUEL_CREDITS_PER_UNIT); // units the credits cover
-  // Clamp to the MIN of all three limits. break_infinity.js's Decimal.min is BINARY
-  // (two DecimalSource args only, decimal-smoke.test.ts documents this), so the
-  // three-way min is CHAINED, never a single 3-arg call (a silent-drop trap).
-  const buy = Decimal.min(Decimal.min(want, room), affordable); // fits cap AND affordable
-  if (buy.lte(0)) return state; // broke, tank full, or nothing requested -> same-ref no-op
-
-  const cost = buy.times(FUEL_CREDITS_PER_UNIT);
-  return {
-    ...state,
-    credits: state.credits.minus(cost), // >= 0: buy <= affordable => cost <= credits
-    fuel: state.fuel.plus(buy),         // <= cap: buy <= room => fuel + buy <= cap
-  };
+  return bonus;
 }
 
 // ============================================================================
@@ -9408,7 +9244,8 @@ export const QUEUE_ADAPTERS: Record<QueueFacilityKey, QueueAdapter> = {
   shipyard: shipyardQueueAdapter(),
   // ==========================================================================
   // ⚠️ THE FUEL DEPOT: A DELIBERATE, DOUBLE-BRAKED NO-OP. READ THIS BEFORE FILLING IT IN.
-  // (queue-engine extension, 2026-09-04. Investigated first, then NOT built, on purpose.)
+  // (queue-engine extension, 2026-09-04. Investigated first, then NOT built, on purpose. Since WR-4 the Depot is
+  // the fleet reach track and runs no jobs at all, so there is even less to queue; the history below stands.)
   //
   // THE FINDING. The Fuel Depot is the one production facility with NO PLAYER INTENT to
   // queue. processFuelPipelines (below) is ALWAYS-ON and AUTOMATIC: every single tick it
@@ -10517,372 +10354,8 @@ export function startFabricateJob(
 // production LINE engine (startLine/cancelLine + processFabricateLines) is the sole
 // crafting model now.
 
-// ============================================================================
-// Fuel Depot pipeline engine (Fuel Economy v2 F2, design §2).
-//
-// processFuelPipelines(state): the per-tick engine, called ONCE per economyTick (AFTER
-// resolveProcesses + the production-line engine, so a pipeline slot freed by a batch COMPLETING
-// this tick is immediately refillable this same tick, no idle gap). PURE: returns a
-// NEW state, or the SAME reference when no pipeline runs.
-//
-// UNLIKE the refine ORDER (a player-set standing instruction on refineOrder), the Fuel
-// Depot's pipelines are ALWAYS-ON / AUTOMATIC, there is no order object and no manual
-// start. Every tick the depot tries to fill its free pipeline slots with fuel-refine
-// batches while it has room + ice. So there is NO order-state / pausedReason to persist
-// (a paused pipeline is just "no batch started this tick"; F4's fuel chip derives the
-// production rate on read). The batches themselves ARE persisted, each is a
-// "fuelRefineJob" TimedProcess in activeProcesses (rides saves like any refine job).
-//
-// It mirrors processRefineOrder's structure/idiom, with fuel-tank semantics:
-//   - PIPELINE SLOTS = fuelPipelineCount - (fuelRefineJobs already in flight). Fills only
-//     up to the pipeline count, exactly what caps concurrency at fuelPipelineCount.
-//   - TANK FULL: fuel >= fuelCap -> stop (the fuel-tank analog of materialAtCap; the
-//     SAME auto-stop idea the mission / refine-order pauses use).
-//   - ICE OUT: Deuterium Ice (`deuteriumIce`) < the batch input -> stop.
-//   Both gates are checked BEFORE starting a batch (i.e. BEFORE startProcess consumes
-//   ice), so NO ice is ever stranded: ice is only deducted when a batch actually begins,
-//   and a batch only begins when there is tank room AND enough ice. A batch already in
-//   flight always deposits its full output on completion (may overshoot fuelCap by up to
-//   one batch, the same soft-cap overshoot the warehouse producers have).
-//
-// AUTO-RESUME is STRUCTURAL (no state): each tick re-reads fuel / ice fresh, so the tick
-// a block lifts (mission burns fuel below cap / more ice is mined) the depot starts
-// batches again, no explicit un-pause. Because it lives inside economyTick, it runs
-// identically live (App.svelte per bar) and offline (tick() steps economyTick(_,1) per
-// tick), the SAME one-seam guarantee the refine order + Task B3 auto-stop rely on, so
-// tick(bigSpan) == looping economyTick(_,1) for fuel + ice.
-//
-// Bounded work: at most fuelPipelineCount (<= a few) batches start per call, so the loop
-// is tightly bounded even across a 172,800-tick offline catch-up (once per free slot, not
-// once per tick), no Omega-14 unbounded-loop concern.
-//
-// ⚠️ RETIRED (0.13.9 hotfix): fuel-to-reach (0.13.6) made fuel a STAT (reach in lightyears,
-// instant free refuel), so nothing reads the tank any more, but this engine kept running
-// behind the hidden Fuel Depot: every tick it quietly turned a player's leftover Deuterium
-// Ice (now sellable at the Quartermaster) into fuel nobody uses. It now STARTS NOTHING. A
-// batch already in flight in a save still completes normally through resolveProcesses, so no
-// ice is stranded and nothing is lost. The same-reference no-op keeps offline == live parity
-// (this runs inside economyTick on both paths). The body below is dead code, deliberately
-// kept for 0.14.0's planned fuel-economy removal rather than deleted in a hotfix.
-export const FUEL_DEPOT_PIPELINES_RETIRED = true;
-export function processFuelPipelines(state: GameState): GameState {
-  if (FUEL_DEPOT_PIPELINES_RETIRED) return state;
-  const pipelines = fuelPipelineCount(state);
-  if (pipelines <= 0) return state; // no Fuel Depot / no pipelines -> same-reference no-op
-
-  const input = fuelBatchInput(state);   // ice consumed per batch (Decimal)
-  const output = fuelBatchOutput(state); // fuel produced per batch (Decimal)
-  const cap = fuelCap(state);            // current tank cap
-
-  let working = state; // threaded immutably as each startProcess returns fresh state
-  while (true) {
-    // A free pipeline slot must exist. All pipelines busy -> stop (not a "pause", the
-    // depot is working at capacity). SAME slot accounting startRefineJob's gate uses.
-    const inFlight = working.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
-    if (inFlight >= pipelines) break;
-
-    // TANK FULL -> stop. fuel does not rise within THIS call (batch deposits happen on
-    // future ticks via resolveProcesses), so this is invariant across the loop, but it is
-    // checked here for symmetry with the ice gate and to mirror processRefineOrder.
-    if (working.fuel.gte(cap)) break;
-
-    // ICE OUT -> stop. Checked BEFORE consuming (gate-before-deduct), so short ice never
-    // gets partially consumed / stranded. Absent key reads as 0 (grow-on-demand).
-    // Fuel-sourcing RESTRUCTURE (2026-07-15): the ice is now the dedicated `deuteriumIce`
-    // item (mined on localFuelRun), NOT `commonOre`, commonOre feeds only the material
-    // Refinery again. This is the ONLY input the Fuel Depot draws on.
-    // Quality-bucketed (Task 9a): ice on hand is the item TOTAL via itemTotal (absent
-    // key -> 0), the bucketed twin of the old scalar `working.inventory["deuteriumIce"] ?? 0`.
-    const iceOnHand = itemTotal(working.inventory, "deuteriumIce");
-    if (iceOnHand.lt(input)) break;
-
-    // Gates pass -> start ONE batch via the SHARED startProcess engine: it deducts the
-    // ice ATOMICALLY at start and pushes a "fuelRefineJob" TimedProcess whose completion
-    // effect { type: "addFuel" } deposits `output` fuel (resolveProcesses). Its own
-    // affordability gate re-checks the ice we just verified and cannot reject here; the
-    // defensive `!started` break guarantees loop termination regardless.
-    const { next, started } = startProcess(working, "fuelRefineJob", { deuteriumIce: input }, FUEL_REFINE_DURATION_TICKS, {
-      type: "addFuel",
-      amount: output,
-    });
-    if (!started) break;
-    working = next;
-  }
-  return working;
-}
-
-// ============================================================================
-// fuelFlowSummary, the DISPLAY-ONLY fuel-economy readout (Fuel net-display fix,
-// 2026-07-16).
-//
-// PURPOSE / THE BUG IT FIXES: the top-bar fuel chip and the Fuel Depot "REFINING"
-// panel used to subtract mission burn from the refinery's THEORETICAL MAX
-// throughput (a CEILING) UNCONDITIONALLY, so when the player was OUT of
-// Deuterium Ice (the refinery actually produces 0) the Net still read POSITIVE.
-// Reported symptom: "even when I'm out of deuterium ice, it's still showing a net
-// positive." This helper computes an EFFECTIVE production that is 0 exactly when
-// the real refinery makes 0, and derives the Net + sufficiency from that.
-//
-// PURE / READ-ONLY: mutates nothing, spends nothing, starts no process. It does
-// NOT touch the tick engine, processFuelPipelines (above) is unchanged and
-// still the sole authority on what the refinery DOES. This function only mirrors
-// that authority's GATES so the DISPLAY matches reality.
-//
-// GATE MIRROR (must stay in lockstep with processFuelPipelines' three stop
-// conditions above):
-//   - pipelines <= 0                       -> no depot / no pipelines -> makes 0
-//   - fuel >= fuelCap (tank full)          -> throttled to 0 (tank topped off)
-//   - iceOnHand < fuelBatchInput (ice out) -> makes 0 (nothing to refine)
-// iceOnHand reads the SAME `state.inventory["deuteriumIce"] ?? 0` (Decimal) the
-// engine reads, the dedicated fuel-ore item, not commonOre.
-//
-// BURN: the per-tick mission-fuel-burn sum was MOVED here from App.svelte (it
-// previously lived inline in the fuel reactive block). Moving it in pulls in ZERO
-// new imports, MISSIONS, SHIP_TYPES, fuelNeeded, requiredTicksForPhase,
-// effectiveMissionDef, shipDerivedStats are ALL already imported by this module
-// (the engine computes the same burn during ticks). This makes the summary fully
-// self-contained (testable from a GameState alone) and keeps burn as ONE source
-// of truth in the engine module, right next to the production it is compared to.
-// ============================================================================
-
-// One full mission round-trip's five phases, summed (on the SHIP-ADJUSTED def) by
-// missionCycleTiming, give the real cadence a mission burns its fuelNeeded over, so
-// burn/tick = fuelNeeded / cycleTicks. missionCycleTiming reads the SAME per-phase
-// lengths the tick engine advances on (a full hold's unload included), so this length
-// cannot drift from the engine's actual cycle.
-
-// Total ticks in ONE full round-trip cycle of `baseMission` when flown at `shipStats`,
-// summed over all five phases of the ship-adjusted def (effectiveMissionDef rescales
-// transit by the hull's speed). Guards a 0/negative sum at the call site.
-// FOLDED-STATS FIX (2026-08-27): takes the caller's ALREADY-FOLDED ShipDerivedStats (gear
-// applied) rather than re-deriving UNFOLDED stats from a ShipInstance. The tick engine
-// advances a mission on the EQUIPMENT-FOLDED transitSpeedMult (effectiveMissionDef with the
-// folded shipStats), so the cadence the burn is amortized over must be the folded one too, or
-// a geared hull's displayed burn/tick drifts from the burn the engine actually draws.
-// E-CREW 0.14.0 (Task 21 re-review): summed by missionCycleTiming, the SAME planned-cycle timing the dispatch
-// popup shows (a planned cycle fills its hold, so a packed-hold unload counts). This only feeds the DISPLAY
-// burn (fuelFlowSummary.burnPerTick); fuelRunwayProjection's measured-EMA two-phase math is untouched.
-function missionCycleTicks(baseMission: MissionDef, shipStats: ShipDerivedStats): number {
-  return missionCycleTiming(effectiveMissionDef(baseMission, shipStats)).total;
-}
-
-// The shape the fuel UI reads. See the fields' inline notes for each meaning.
-export interface FuelFlowSummary {
-  maxProductionPerTick: number; // CEILING: pipelines * fuelBatchOutput / duration (informational "Production (max)")
-  effectiveProductionPerTick: number; // hasIce ? maxProductionPerTick : 0 , THE FIX (0 when the refinery really makes 0)
-  iceInputPerTick: number; // Deuterium Ice consumed at full throughput: pipelines * fuelBatchInput / duration
-  burnPerTick: number; // per-tick mission-fuel-burn sum across every captain currently on a mission
-  netPerTick: number; // effectiveProductionPerTick - burnPerTick (the honest steady-state net)
-  hasIce: boolean; // pipelines > 0 && iceOnHand >= fuelBatchInput (a batch can actually start)
-  tankFull: boolean; // fuel >= fuelCap (refining throttled to 0 because the tank is topped off)
-  refiningActive: boolean; // hasIce && !tankFull (a batch is genuinely being refined right now)
-  sufficient: boolean; // netPerTick >= 0 || tankFull, topped-off tank counts as fine even when throttled
-}
-
-export function fuelFlowSummary(state: GameState): FuelFlowSummary {
-  const pipelines = fuelPipelineCount(state);
-  const batchInput = fuelBatchInput(state); // Decimal (ice per batch)
-
-  // CEILING production + its ice cost, the UNCHANGED formulas the old chip used.
-  // Guarded against a 0 duration exactly as the App.svelte block was.
-  const maxProductionPerTick =
-    FUEL_REFINE_DURATION_TICKS > 0 ? (pipelines * fuelBatchOutput(state).toNumber()) / FUEL_REFINE_DURATION_TICKS : 0;
-  const iceInputPerTick =
-    FUEL_REFINE_DURATION_TICKS > 0 ? (pipelines * batchInput.toNumber()) / FUEL_REFINE_DURATION_TICKS : 0;
-
-  // --- Gate mirror (see header). iceOnHand as Decimal, compared with .gte so a
-  // 49-ice reserve against a 50-ice batch reads as NO ice, exactly like the
-  // engine's `iceOnHand.lt(input)` stop. pipelines > 0 folds the "no depot" stop
-  // into hasIce (no pipelines -> nothing can refine -> not "has usable ice").
-  // Quality-bucketed (Task 9a): ice on hand is the item TOTAL via itemTotal (absent
-  // key -> 0), the bucketed twin of the old scalar `state.inventory["deuteriumIce"] ?? 0`.
-  const iceOnHand = itemTotal(state.inventory, "deuteriumIce");
-  const hasIce = pipelines > 0 && iceOnHand.gte(batchInput);
-  const tankFull = state.fuel.gte(fuelCap(state));
-  const refiningActive = hasIce && !tankFull;
-
-  // THE FIX: effective production is the ceiling ONLY when a batch can start.
-  // NOTE it is NOT zeroed on tankFull, a full tank is "topped off / fine", and
-  // sufficiency (below) treats tankFull as sufficient regardless of net sign.
-  const effectiveProductionPerTick = hasIce ? maxProductionPerTick : 0;
-
-  // BURN (moved from App.svelte, formula byte-identical): for every captain
-  // CURRENTLY on a mission, that mission's round-trip fuel cost / its cycle
-  // length. A captain with no assigned hull contributes 0 (can't fly, can't
-  // burn). fuelNeeded reads the BASE mission by its own convention (fuel.ts);
-  // the cycle length uses the ship-adjusted def so the rate is fuel per REAL tick.
-  const burnPerTick = state.captains.reduce((sum, captain) => {
-    if (captain.mission === null) return sum;
-    // Combat 0.13.0 (Phase 9b.5c): the fuel-runway burn estimate now knows BOTH arms.
-    // PATROL: a patrol burns its two transit legs' fuel over one route; amortize one round
-    // trip's fuel over the whole route length (transitOut + rollWindow + transitBack) for a
-    // per-real-tick rate, the direct twin of the extraction term below.
-    // FOLDED-STATS FIX (2026-08-27): price the round trip from the EQUIPMENT-FOLDED
-    // engineEfficiency the patrol tick loop actually burns from (economyTick's patrol arm builds
-    // fuelForRoundTrip with shipDerivedStats(patrolShip, equippedFor(...)).engineEfficiency), not
-    // the UNFOLDED SHIP_TYPES stat, so a geared hull's displayed burn matches the real spend. The
-    // route length is the fixed integer legs (patrols are NOT speed-scaled), so only the fuel cost
-    // folds. A hull-less patrol captain burns 0.
-    if (captain.mission.kind === "patrol") {
-      const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-      if (!ship) return sum;
-      const def = PATROLS[captain.mission.patrolKey];
-      const routeTicks = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
-      if (routeTicks <= 0) return sum;
-      // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted engineEfficiency the patrol arm burns
-      // (effectiveShipStats), so the top-bar burn estimate matches the real spend. No crew == pure fold.
-      const foldedEff = effectiveShipStats(state, ship).engineEfficiency;
-      return (
-        sum +
-        fuelForRoundTrip(def.transitOutTicks, def.transitBackTicks, {
-          ...SHIP_TYPES[ship.typeKey],
-          engineEfficiency: foldedEff,
-        }) /
-          routeTicks
-      );
-    }
-    // ANY OTHER non-extraction kind is SKIPPED (a future kind that burns fuel must be added
-    // EXPLICITLY here, like the patrol arm just above; this site is NOT a compile-time
-    // exhaustiveness checkpoint, only economyTick's switch(kind) is). Narrow-and-skip keeps
-    // the estimate from crashing on an unhandled kind.
-    if (captain.mission.kind !== "extraction") return sum;
-    const extractionMission = captain.mission;
-    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
-    if (!ship) return sum;
-    const baseMission = MISSIONS[extractionMission.missionKey];
-    // FOLDED-STATS FIX (2026-08-27): resolve the SAME equipment-folded stats the tick engine
-    // burns from (shipDerivedStats(ship, equippedFor(state, ship.id)), the exact seam economyTick
-    // uses). Both the per-cycle fuel COST (folded engineEfficiency, so an efficiency drive lowers
-    // it) AND the cycle LENGTH (folded transitSpeedMult) must be the folded figures, or a geared
-    // ship's top-bar burn/net reads "sufficient" while the engine actually drains the tank faster.
-    // Display-only: the EMA runway is measured separately and is unaffected.
-    // Crew 0.14.0 ("CREW GOES LIVE"): the SAME crew-boosted stats the extraction arm burns
-    // (effectiveShipStats), so both the per-cycle fuel COST and the cycle LENGTH match the engine.
-    // No crew == the pure equipment fold (byte-identical).
-    const folded = effectiveShipStats(state, ship);
-    const cycleTicks = missionCycleTicks(baseMission, folded);
-    if (cycleTicks <= 0) return sum;
-    return (
-      sum +
-      fuelNeeded(baseMission, { ...SHIP_TYPES[ship.typeKey], engineEfficiency: folded.engineEfficiency }) / cycleTicks
-    );
-  }, 0);
-
-  const netPerTick = effectiveProductionPerTick - burnPerTick;
-  // A topped-off tank is fine even though refining is throttled to 0, so it
-  // counts as sufficient regardless of the (possibly negative) net.
-  const sufficient = netPerTick >= 0 || tankFull;
-
-  return {
-    maxProductionPerTick,
-    effectiveProductionPerTick,
-    iceInputPerTick,
-    burnPerTick,
-    netPerTick,
-    hasIce,
-    tankFull,
-    refiningActive,
-    sufficient,
-  };
-}
-
-// ============================================================================
-// fuelRunwayProjection, "how long until the tank runs dry?" under a FULL-
-// SUSTAINABILITY model (Wave 2 fuel-runway readout, 2026-07-16).
-//
-// PURPOSE: give the player an honest countdown to fuel-empty that CREDITS the
-// Deuterium Ice their running missions keep mining. A naive "fuel / burn" ignores
-// the refinery topping the tank back up from mission-looted ice; this projects
-// the real two-phase trajectory instead.
-//
-// WHY MEASURED, NOT MODELLED: mission ice output is a stochastic loot roll (rarity
-// triads), so there is no clean closed form for "ice mined per tick". The LIVE
-// loop (App.svelte) therefore SAMPLES the actual per-tick fuel & ice deltas as an
-// EMA and passes them in as dFuelPerTick / dIcePerTick. This function is PURE math
-// over those measured rates, no Decimal, no state, no side effects, so the
-// entire decision matrix is unit-testable in isolation.
-//
-// THE TWO PHASES (only reached when ice is actually depleting):
-//   Phase 1, ice still on hand: fuel drifts at the measured dFuelPerTick until
-//              the ice stockpile hits zero (iceRunway ticks from now).
-//   Phase 2, ice gone: the refinery makes nothing, so the tank just burns down
-//              at the deterministic mission burn (burnPerTick) with no refill.
-// The fuel level entering phase 2 (fuelAtIceOut) is clamped to [0, fuelCap]
-// because measured drift can only carry it between empty and a full tank.
-//
-// sustainable:true  <=> the tank never empties (returns runwayTicks:null).
-// sustainable:false  => runwayTicks is a finite tick count >= 0, OR null when a
-//                       guard trips (non-finite input / computed value), the UI
-//                       renders null as "unknown".
-// ============================================================================
-export interface FuelRunwayProjection {
-  sustainable: boolean; // true => tank never empties (runwayTicks is null)
-  runwayTicks: number | null; // finite ticks-until-empty; null = self-sustaining OR unknown (see sustainable)
-}
-
-export function fuelRunwayProjection(input: {
-  fuel: number; // current fuel in the tank
-  fuelCap: number; // tank capacity (phase-1 fuel gain clamps here)
-  ice: number; // current Deuterium Ice on hand
-  dFuelPerTick: number; // MEASURED net fuel change / tick (EMA); may be + or -
-  dIcePerTick: number; // MEASURED net ice change / tick (EMA); may be + or -
-  burnPerTick: number; // deterministic mission fuel burn / tick, >= 0 (fuelFlowSummary.burnPerTick)
-}): FuelRunwayProjection {
-  const EPS = 1e-9; // treat |x| < EPS as "flat" so fp noise doesn't read as drain/growth
-  const { fuel, fuelCap, ice, dFuelPerTick, dIcePerTick, burnPerTick } = input;
-
-  // GUARD 1, any non-finite input (NaN / +-Infinity) makes the projection
-  // meaningless. Bail to "unknown" before any arithmetic can propagate it.
-  const inputs = [fuel, fuelCap, ice, dFuelPerTick, dIcePerTick, burnPerTick];
-  if (!inputs.every((n) => Number.isFinite(n))) {
-    return { sustainable: false, runwayTicks: null };
-  }
-
-  // finalize, the SINGLE exit for a computed countdown. GUARD 2: a non-finite or
-  // negative result is nonsensical (e.g. from pathological inputs the finiteness
-  // check above cannot catch), so it collapses to "unknown". Otherwise clamp >= 0
-  // so a rounding-noise "-0"/tiny-negative never surfaces.
-  const finalize = (ticks: number): FuelRunwayProjection => {
-    if (!Number.isFinite(ticks) || ticks < 0) {
-      return { sustainable: false, runwayTicks: null };
-    }
-    return { sustainable: false, runwayTicks: Math.max(0, ticks) };
-  };
-
-  // STEP 1, no burn: fuel is not being consumed at all, so there is nothing to
-  // count down. Self-sustaining by definition, whatever the measured deltas say.
-  if (burnPerTick <= EPS) {
-    return { sustainable: true, runwayTicks: null };
-  }
-
-  // STEP 2, ice is NOT depleting (stockpile flat or growing): the refinery can
-  // run indefinitely, so fuel's own measured trend decides the outcome.
-  if (dIcePerTick >= -EPS) {
-    // Fuel flat or rising -> the refinery keeps up forever. Self-sustaining.
-    if (dFuelPerTick >= -EPS) {
-      return { sustainable: true, runwayTicks: null };
-    }
-    // Fuel still net-negative even with unlimited ice -> burn outruns full
-    // refining; the tank drains at |dFuelPerTick| per tick.
-    return finalize(fuel / -dFuelPerTick);
-  }
-
-  // STEP 3, ice IS depleting (dIcePerTick < -EPS): two-phase projection.
-  const iceRunway = ice / -dIcePerTick; // ticks until the ice stockpile hits zero
-
-  // Fuel might die BEFORE the ice does. If fuel is also draining and its own
-  // runway is no longer than the ice runway, fuel-empty is the first wall.
-  if (dFuelPerTick < -EPS && fuel / -dFuelPerTick <= iceRunway) {
-    return finalize(fuel / -dFuelPerTick);
-  }
-
-  // Otherwise fuel survives to ice-out. Project the tank level at that moment
-  // (clamped to a real tank: never below empty, never above cap), then phase 2
-  // burns that remaining fuel down with no more refining.
-  const fuelAtIceOut = Math.min(Math.max(fuel + dFuelPerTick * iceRunway, 0), fuelCap);
-  const phase2 = fuelAtIceOut / burnPerTick; // burnPerTick > EPS guaranteed by STEP 1
-  return finalize(iceRunway + phase2);
-}
+// (WR-4, OC-C1: the retired Fuel Depot pipeline engine, its flow summary and the fuel runway projection are gone
+// with the fuel stockpile; the Depot is the fleet reach track, fleetReachBonus above.)
 
 // ----------------------------------------------------------------------------
 // resolveSalvageEffect (Crafting 0.13.3, Phase 2 Unit 2.3, design section 7.3 + 7.4)
@@ -11264,13 +10737,6 @@ export function resolveProcesses(
   let inventory = state.inventory;
   let discovered = state.discovered;
   let facilities = state.facilities;
-  // Fuel Economy v2 (F2): threaded so a completing fuelRefineJob (Fuel Depot pipeline
-  // batch) can deposit its output into the fuel TANK. Seeded from the incoming state's
-  // fuel, so a call that completes no fuel batch returns it value-identical (and the
-  // empty/no-completion early-out leaves it exactly === state.fuel). A single deposit
-  // may push fuel slightly PAST fuelCap, the SAME soft-cap overshoot addItem has vs.
-  // a warehouse cap; processFuelPipelines re-gates NEW batches at/over cap next tick.
-  let fuel = state.fuel;
   // Task 11: threaded so a completing refineJob can also bump its per-item
   // lifetime itemsRefined tally. Seeded from the incoming state, so a call that
   // completes no refine job returns the SAME lifetimeStats reference (value-
@@ -11458,21 +10924,6 @@ export function resolveProcesses(
           },
         };
       }
-    } else if (process.effect.type === "addFuel") {
-      // Fuel Economy v2 (F2): a completed Fuel Depot pipeline batch deposits its
-      // output into the fuel TANK (not inventory). CLAMPED at fuelCap: a batch legally
-      // STARTS while the tank is below cap (the pipeline's TANK-FULL gate, line 6244),
-      // so its full output could otherwise push the tank PAST the cap on completion
-      // (e.g. 496 + a 100 batch = 596 / 500). Decimal.min tops the tank up to EXACTLY
-      // the cap instead; the overshoot beyond it is discarded, the SAME overflow-discard
-      // addToInventory does at a warehouse cap, so fuel and inventory stay consistent
-      // (the older comment here calling this a "soft cap like addItem" predated addItem
-      // being fixed to clamp, so it was stale). This trims only the single top-up batch:
-      // the start gate already stops NEW batches at cap, and missions burn fuel so the
-      // tank drops and batches resume, so this can never softlock. No discovery / lifetime
-      // accrual (fuel is a currency, not a catalog item). Closed-form: fires exactly ONCE
-      // on the completion that drops the process, so one big resolve == many small ones.
-      fuel = Decimal.min(fuelCap(state), fuel.plus(process.effect.amount));
     } else if (process.effect.type === "unlockBlueprint") {
       // Research (Task R3): a completed research project UNLOCKS its blueprint by appending
       // the key to researchedBlueprints. IDEMPOTENT, guarded on `.includes` so a duplicate
@@ -11933,7 +11384,6 @@ export function resolveProcesses(
       discovered,
       facilities,
       lifetimeStats,
-      fuel,
       researchedBlueprints,
       // Shipyard (Task S3): the parked hull(s) minted by any completing shipBuild + the
       // advanced id source. Value-identical to state.ships / state.nextShipId when no ship

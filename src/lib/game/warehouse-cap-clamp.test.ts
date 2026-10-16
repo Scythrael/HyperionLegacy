@@ -147,7 +147,6 @@ describe("warehouse cap clamp, ⚠️ offline parity across a cap-crossing missi
     const makeState = (startCommonOre: Decimal) => {
       const s = freshState();
       s.captains[0].mission = missionCaptain("shortOreRun");
-      s.fuel = new Decimal(1_000_000);
       s.inventory = { ...s.inventory, commonOre: [startCommonOre] };
       return s;
     };

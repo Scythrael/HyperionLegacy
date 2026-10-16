@@ -117,6 +117,8 @@ import {
 import { getPlanetTypeById, groundSiteLabel } from "./game/expeditionContent";
 import { BLIND_LAUNCH_WARNING } from "./expeditionDispatchDisplay";
 import type { RegionTier } from "./game/model";
+// WR-4 (OC-C1): the Fuel Depot's per-level fleet reach, read from the engine constant (no stale number).
+import { FUEL_DEPOT_REACH_PER_RUNG } from "./game/model";
 
 // ===== Derived-text helpers (0.14.0 topics; see the header) =====
 
@@ -383,7 +385,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "fuel",
     title: "Fuel",
-    body: "Fuel is no longer something you mine, refine, or buy. Refueling is instant and free, so the only thing fuel decides is REACH: how far a ship can fly on one round trip, measured in lightyears (LY). Each hull has its own reach, set by its fuel capacity and engine efficiency, and an installed FTL Drive with Fuel Capacity or Fuel Efficiency stats extends it. Every mission and patrol has a round-trip distance in LY, and a ship can only be dispatched on a trip its reach covers. Mission and patrol cards show the trip distance, the dispatch windows show it next to the ship's range (installed gear included), and a trip beyond a ship's reach is flagged before you send it, with the reason. The Fuel Depot and the Local Deuterium Skim run are retired: nothing converts your Deuterium Ice any more, and any Deuterium Ice you still hold can be sold at the Quartermaster's Sell counter.",
+    body: `Fuel is no longer something you mine, refine, or buy. Refueling is instant and free, so the only thing fuel decides is REACH: how far a ship can fly on one round trip, measured in lightyears (LY). Each hull has its own reach, set by its fuel capacity and engine efficiency, and an installed FTL Drive with Fuel Capacity or Fuel Efficiency stats extends it. Every mission and patrol has a round-trip distance in LY, and a ship can only be dispatched on a trip its reach covers. Mission and patrol cards show the trip distance, the dispatch windows show it next to the ship's range (installed gear included), and a trip beyond a ship's reach is flagged before you send it, with the reason. The old fuel tank, Buy Fuel and the Local Deuterium Skim run are retired: nothing converts your Deuterium Ice any more, and any Deuterium Ice you still hold can be sold at the Quartermaster's Sell counter. The Fuel Depot, in Facilities, now extends REACH instead: every level it is upgraded adds ${Math.round(FUEL_DEPOT_REACH_PER_RUNG * 100)}% to the reach of every ship in the fleet, missions and patrols alike.`,
   },
   {
     id: "homeworld",

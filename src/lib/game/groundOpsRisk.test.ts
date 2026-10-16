@@ -202,9 +202,9 @@ describe("SQ-4 the gate: a flagged run without a risk profile resolves byte-iden
   // Captured from the code BEFORE SQ-4 (the same dispatches, which then carried no risk): five checkpoint hashes,
   // the phase at 2,000,000 s, and the claim's whole-state hash.
   const GOLDEN: Record<string, string[]> = {
-    one: ["b5e78ca2", "f4e8f63", "abd0d346", "da70427b", "8c895b1b", "activities", "968231a3"],
-    two: ["47be7059", "bc299cd3", "7b4b90d2", "36cce785", "f382e6f", "activities", "c14e50a0"],
-    strikeSurvey: ["40e32963", "e1a668e9", "b51cf928", "441f98f9", "dab2c781", "activities", "cd97dea2"],
+    one: ["b5e78ca2", "f4e8f63", "abd0d346", "da70427b", "8c895b1b", "activities", "475677a0"],
+    two: ["47be7059", "bc299cd3", "7b4b90d2", "36cce785", "f382e6f", "activities", "9287a767"],
+    strikeSurvey: ["40e32963", "e1a668e9", "b51cf928", "441f98f9", "dab2c781", "activities", "658a12f1"],
   };
   for (const [name, build] of Object.entries(CASES)) {
     it(`${name}: checkpoints and the claim match the pre-SQ-4 capture`, { timeout: 120_000 }, () => {

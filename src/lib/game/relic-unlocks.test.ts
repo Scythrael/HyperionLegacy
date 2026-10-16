@@ -472,7 +472,6 @@ describe("E4d Damage Control Suite: between-wave hull regen", () => {
     let s = installMissingCombatBaselines({
       ...withHull(freshState(), "destroyer"),
       nextPatrolSeed: seed,
-      fuel: new Decimal(100000),
       credits: new Decimal(100000),
     });
     if (suite !== "none") s = withEquipment(s, mint("specUtility", "damageControlSuite", "dcs-1", { fittedTo: suite === "fitted" ? "ship-1" : null, iLevel: 40, quality: 5, rarity: "radiant" }));

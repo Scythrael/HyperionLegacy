@@ -448,7 +448,6 @@ export function outcomeMetrics(
 ): Record<string, number> {
   const m: Record<string, number> = {};
   m["credits"] = r6(num(s.credits));
-  m["fuel"] = r6(num(s.fuel));
   for (const key of Object.keys(s.inventory).sort()) {
     const v = r6(num(itemTotal(s.inventory, key)));
     if (v !== 0) m[`item:${key}`] = v;

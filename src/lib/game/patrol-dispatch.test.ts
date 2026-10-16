@@ -161,7 +161,6 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
   it("seeds a correct PatrolMissionState and increments nextPatrolSeed (0.13.6: spends no fuel)", () => {
     const state = stateWithHull("destroyer");
     const seedBefore = state.nextPatrolSeed;
-    const fuelBefore = state.fuel;
     const result = dispatchCaptainOnPatrol(state, 1, PATROL_KEY, "aggressive", true);
 
     expect(result.success).toBe(true);
@@ -187,7 +186,6 @@ describe("dispatchCaptainOnPatrol action (Combat 0.13.0 §S14)", () => {
 
     // Counter advanced (never reused). 0.13.6 fuel-to-reach: dispatch spends NO fuel or credits.
     expect(result.next.nextPatrolSeed).toBe(seedBefore + 1);
-    expect(result.next.fuel.equals(fuelBefore)).toBe(true);
     expect(result.next.credits.equals(state.credits)).toBe(true);
   });
 

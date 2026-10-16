@@ -471,17 +471,17 @@ const FIXTURES: Record<string, Fixture> = {
 // whole-state hash, and for every run that rolls at its scan boundaries the hash of every boundary's chance and roll. Cross-check: riskAware is the AF-1 gate's
 // tierFourEnemy fixture (groundOpsAffixes.test.ts) and reproduces its capture exactly.
 const GOLDEN: Record<string, string[]> = {
-  legacy: ["2334d1e4", "7827d5f", "7827d5f", "7827d5f", "7827d5f", "@10000", "7a0f8e82", "complete", "401c4dfe", "411d91c7"],
-  legacyDevices: ["e370d698", "e35978c5", "e35978c5", "e35978c5", "e35978c5", "@10000", "8b50e55a", "complete", "511c2fbf", "4efebfef"],
-  preSq4: ["14e59e6b", "e9001ad8", "e9001ad8", "e9001ad8", "e9001ad8", "@8681", "aa0093f4", "@8595", "a74719e", "complete", "eae18dda"],
-  riskAware: ["5b204c68", "8ea32568", "b3a4fc92", "b3a4fc92", "b3a4fc92", "@10789", "a8fd81ea", "@17484", "dcef27b8", "complete", "8104073a", "aecdd3ab"],
-  affixCat1: ["a125b2d7", "d17642e1", "d17642e1", "d17642e1", "d17642e1", "@1151", "4a98f97f", "@551", "4a98f97f", "complete", "6a022578", "3f9ea2db"],
-  affixCat2: ["c487dfef", "7d56af0d", "4b46d650", "4b46d650", "4b46d650", "@1674", "452d89d2", "@954", "ce1329ee", "complete", "361f1665", "3f9ea2db"],
-  tierSeven: ["ab177aeb", "87da063c", "c7d06b78", "c7d06b78", "c7d06b78", "@7226", "1f30db1a", "@22304", "e38ce9f8", "complete", "254d0d67", "d3f9694f"],
-  ossirBleed: ["2088aced", "e3e14cee", "e3e14cee", "e3e14cee", "e3e14cee", "feeddd04", "@1676", "e847ac09", "@3344", "4ef57719", "complete", "74a3e7b4", "1540097"],
-  shroud: ["8533bf1f", "cfacc53e", "a0a3f20b", "8d8264ae", "8d8264ae", "@8790", "2e7a3257", "@9822", "8da7b81c", "complete", "e24c9b72", "deee4b83"],
-  lure: ["5e656376", "e269d354", "6d1cd4ad", "5cd7911d", "5cd7911d", "@8790", "a5358f8c", "@9822", "67a8757b", "complete", "10a12e23", "90bc745"],
-  bothDevices: ["54ad1d0f", "679a167c", "e42a0c25", "1c98490a", "1c98490a", "@8790", "bb522afb", "@9822", "653b6770", "complete", "64638539", "3d1708d1"],
+  legacy: ["2334d1e4", "7827d5f", "7827d5f", "7827d5f", "7827d5f", "@10000", "7a0f8e82", "complete", "248b166f", "411d91c7"],
+  legacyDevices: ["e370d698", "e35978c5", "e35978c5", "e35978c5", "e35978c5", "@10000", "8b50e55a", "complete", "173ba45c", "4efebfef"],
+  preSq4: ["14e59e6b", "e9001ad8", "e9001ad8", "e9001ad8", "e9001ad8", "@8681", "aa0093f4", "@8595", "a74719e", "complete", "1a2cddd"],
+  riskAware: ["5b204c68", "8ea32568", "b3a4fc92", "b3a4fc92", "b3a4fc92", "@10789", "a8fd81ea", "@17484", "dcef27b8", "complete", "2da25f", "aecdd3ab"],
+  affixCat1: ["a125b2d7", "d17642e1", "d17642e1", "d17642e1", "d17642e1", "@1151", "4a98f97f", "@551", "4a98f97f", "complete", "453305c1", "3f9ea2db"],
+  affixCat2: ["c487dfef", "7d56af0d", "4b46d650", "4b46d650", "4b46d650", "@1674", "452d89d2", "@954", "ce1329ee", "complete", "5fc49130", "3f9ea2db"],
+  tierSeven: ["ab177aeb", "87da063c", "c7d06b78", "c7d06b78", "c7d06b78", "@7226", "1f30db1a", "@22304", "e38ce9f8", "complete", "820ca0fa", "d3f9694f"],
+  ossirBleed: ["2088aced", "e3e14cee", "e3e14cee", "e3e14cee", "e3e14cee", "feeddd04", "@1676", "e847ac09", "@3344", "4ef57719", "complete", "5934e0e1", "1540097"],
+  shroud: ["8533bf1f", "cfacc53e", "a0a3f20b", "8d8264ae", "8d8264ae", "@8790", "2e7a3257", "@9822", "8da7b81c", "complete", "8f2b5981", "deee4b83"],
+  lure: ["5e656376", "e269d354", "6d1cd4ad", "5cd7911d", "5cd7911d", "@8790", "a5358f8c", "@9822", "67a8757b", "complete", "fcbf9b62", "90bc745"],
+  bothDevices: ["54ad1d0f", "679a167c", "e42a0c25", "1c98490a", "1c98490a", "@8790", "bb522afb", "@9822", "653b6770", "complete", "bf5cc252", "3d1708d1"],
   ossirBattle: ["90bfefdc"],
   threat: ["ffd7bbbb"],
 };

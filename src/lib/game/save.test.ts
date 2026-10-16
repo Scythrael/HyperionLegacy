@@ -3,7 +3,7 @@ import Decimal from "break_infinity.js";
 import LZString from "lz-string";
 import { migrate, serialize, deserialize, importRawSave, loadFromLocalStorage, SAVE_KEY, SAVE_VERSION, type SaveFile } from "./save";
 import { itemTotal } from "./inventory"; // Task 9a: read item TOTAL across quality buckets
-import { freshState, FUEL_REFINE_DURATION_TICKS, FUEL_TANK_BASE_CAP, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
+import { freshState, blueprintResearchable, shipDerivedStats, DEFAULT_EQUIPMENT_VARIETY, seedCombatStandardIssueForShip, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, type ShipTypeKey } from "./model";
 // Task 20 v27->v28: the Standard-Issue seed proves stat-neutrality by comparing a
 // migrated ship's derived stats WITH its seeded gear against the bare hull.
 import { equippedFor } from "./equipment";
@@ -12,7 +12,7 @@ import { equippedFor } from "./equipment";
 // field read), so it imports those tick.ts helpers directly. Fuel Economy v2 (F5) adds
 // economyTick to prove a CURRENT-version (v21) save's Fuel Depot still refines after a
 // round trip (the "no new migration needed" proof).
-import { canDispatch, missionUnlocked, buyFuel, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs, installMissingCombatBaselines } from "./tick";
+import { canDispatch, missionUnlocked, economyTick, canDispatchPatrol, dispatchCaptainOnPatrol, processShipRepairs, installMissingCombatBaselines } from "./tick";
 // Salvage Lanes (2026-09-04): the v41->v42 block proves a PRE-UPGRADE save still has a
 // working one-lane Salvage Bay after migrating, which needs the lane helper, the in-flight
 // definition, the adapter's own free-lane gate and the promotion gate, all read from the
@@ -81,7 +81,7 @@ const AUTO_SALVAGE_RULES_DEFAULT = {
 // "lands at the current version" check compares against the imported SAVE_VERSION, never a literal.
 describe("SAVE_VERSION", () => {
   it("is pinned to its expected value (the only literal pin in the suite)", () => {
-    expect(SAVE_VERSION).toBe(69);
+    expect(SAVE_VERSION).toBe(70); // WR-4: v70 (the shared 0.14.0 bump; save.ts lists what it contains)
   });
 });
 
@@ -2662,7 +2662,7 @@ describe("migrate, refine-order backfill (v19 -> v20)", () => {
 });
 
 describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
-  it("seeds fuel:FUEL_TANK_BASE_CAP (full tank), fuelStorage level 0, and missionControl level 1 on a genuine v20 save, leaving every other field untouched", () => {
+  it("seeds fuelStorage level 0 and missionControl level 1 on a genuine v20 save (its fuel seed is dropped again at v70, WR-4), leaving every other field untouched", () => {
     // A genuine v20 shape: every Phase-2 field present (all THREE facilities that
     // MIGRATIONS[17]/[18] seed, refinery + warehouseT1 + warehouseT2, plus the
     // refineOrder:null MIGRATIONS[19] seeds), but NO `fuel` field and NO fuelStorage/
@@ -2708,8 +2708,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     // NO fuel field, no ice, and maybe no credits, so seeding an EMPTY tank would soft-lock
     // a returning player just like a new one, the full-tank grant is the one-time bootstrap.
     // .equals(), not .toBe() (Decimal is an object, reference-compared by toBe).
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(FUEL_TANK_BASE_CAP)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     // fuelStorage seeded at level 0, the base tank's live starting state (cap
     // FUEL_TANK_BASE_CAP; usable immediately, no soft-lock).
     expect(migrated.facilities.fuelStorage).toEqual({ level: 0 });
@@ -2754,7 +2753,6 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     // starts FULL (FUEL_TANK_BASE_CAP), so canDispatch must return ok:true directly
     // (unlock + captain-level + cargo + fuel-range + fuel-resource gates all pass), the
     // returning-player half of the no-soft-lock guarantee, mirroring the fresh-game half. ---
-    expect(migrated.fuel.gte(50)).toBe(true); // full tank comfortably covers the shortOreRun round trip
     expect(canDispatch(migrated, 1, "shortOreRun")).toEqual({ ok: true });
   });
 
@@ -2778,8 +2776,8 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     const save: SaveFile = { version: 20, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
 
-    // fuel: same Decimal value freshState seeds (.equals(), both real Decimals).
-    expect(migrated.fuel.equals(fresh.fuel)).toBe(true);
+    // fuel: like freshState, no stockpile (WR-4: v70 drops the field the v20 step seeded).
+    expect("fuel" in migrated).toBe(false);
     // The two new facilities: byte-identical structural shape to freshState's.
     expect(migrated.facilities.fuelStorage).toEqual(fresh.facilities.fuelStorage);
     expect(migrated.facilities.missionControl).toEqual(fresh.facilities.missionControl);
@@ -2820,7 +2818,7 @@ describe("migrate, fuel + mission facilities backfill (v20 -> v21)", () => {
     };
     const save: SaveFile = { version: 20, created_at: 0, last_saved_at: 0, game_time_seconds: 0, state: legacyState };
     const migrated: any = migrate(save);
-    expect(migrated.fuel.equals(275)).toBe(true); // existing tank preserved, NOT reset to 0
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.facilities.fuelStorage).toEqual({ level: 4 }); // preserved, NOT reset to level 0
     expect(migrated.facilities.missionControl).toEqual({ level: 2 }); // preserved, NOT reset to level 1
   });
@@ -2902,8 +2900,7 @@ describe("migrate, research state backfill (v21 -> v22)", () => {
     expect(migrated.refineLines).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(500)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
     expect(migrated.gameTimeSeconds).toBe(12000);
@@ -3098,8 +3095,7 @@ describe("migrate, fabricator state backfill (v22 -> v23)", () => {
     expect(migrated.researchedBlueprints).toEqual([]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(500)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
     expect(migrated.gameTimeSeconds).toBe(12000);
@@ -3290,8 +3286,7 @@ describe("migrate, production-lines backfill + legacy-order drop (v23 -> v24)", 
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp"]);
     expect(migrated.nextProcessId).toBe(5);
     expect(migrated.credits.equals(5000)).toBe(true);
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(500)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(40)).toBe(true);
     expect(migrated.captains[0].level).toBe(6);
     expect(migrated.gameTimeSeconds).toBe(12000);
@@ -3476,8 +3471,7 @@ describe("migrate, shipyard facility backfill (v24 -> v25)", () => {
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
     expect(migrated.nextProcessId).toBe(9);
     expect(migrated.credits.equals(8000)).toBe(true);
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(800)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.lifetimeStats.missionsCompleted.shortOreRun.equals(70)).toBe(true);
     expect(migrated.captains[0].level).toBe(8);
     expect(migrated.gameTimeSeconds).toBe(15000);
@@ -3654,8 +3648,7 @@ describe("migrate, equipment GameState fields backfill (v26 -> v27)", () => {
     expect(migrated.nextCraftLineId).toBe(2);
     expect(migrated.researchedBlueprints).toEqual(["frameSegmentBp", "powerCouplingBp"]);
     expect(migrated.credits.equals(8000)).toBe(true);
-    expect(migrated.fuel instanceof Decimal).toBe(true);
-    expect(migrated.fuel.equals(800)).toBe(true);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.captains[0].level).toBe(8);
     expect(migrated.gameTimeSeconds).toBe(15000);
   });
@@ -4253,7 +4246,6 @@ describe("migrate, per-system durability carry-state backfill (v32 -> v33)", () 
     // save built from this (already carrying combat gear) is skipped, not double-seeded.
     return installMissingCombatBaselines({
       ...base,
-      fuel: new Decimal(100000),
       credits: new Decimal(100000),
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
     });
@@ -4903,7 +4895,6 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
     const preState: any = {
       ...base,
       credits: new Decimal(12345),
-      fuel: new Decimal(67),
       fleetAdminXp: new Decimal(890),
       inventory: { ...base.inventory, commonOre: [new Decimal(500)], titaniumIngot: [new Decimal(9)] },
       refineLines: [
@@ -4963,7 +4954,7 @@ describe("migrate, queued-order schema seed (v39 -> v40)", () => {
     const migrated: any = migrate(makeV39Save());
     // Currencies hydrate back to live Decimals at their stored magnitudes (unchanged).
     expect(migrated.credits.toNumber()).toBe(12345);
-    expect(migrated.fuel.toNumber()).toBe(67);
+    expect("fuel" in migrated).toBe(false); // WR-4 (OC-C1): v70 drops the retired fuel stockpile after the older steps ran
     expect(migrated.fleetAdminXp.toNumber()).toBe(890);
     // Inventory buckets, the configured line, and the in-flight job all ride through.
     expect(itemTotal(migrated.inventory, "commonOre").toNumber()).toBe(500);
@@ -5680,69 +5671,34 @@ describe("migrate, Salvage Bay level track (v41 -> v42): a pre-upgrade save keep
 // built from freshState(), which is now the CURRENT version (v23), so migrate() runs ZERO version
 // steps here (already-current, then hydrateDecimals) exactly as it did at v21, the fuel-v2
 // property this test locks in is unchanged by R6's/F6's additive research/fabricator seeds.
-describe("v21 save round-trips to a PLAYABLE state under current code (fuel-v2, no new migration)", () => {
-  it("hydrates + PLAYS at the CURRENT version: fuel present, Fuel Depot refines an in-flight batch, missions dispatch", () => {
-    // Build a realistic mid-play v21 state: a stocked Fuel Depot (Deuterium Ice on hand) so a
-    // fuelRefineJob is IN FLIGHT, plus credits to buy fuel and dispatch afterwards.
-    let s = freshState(); // freshState() is the current-version (v23) shape
-    // Soft-lock fix (2026-07-14): freshState now starts with a FULL tank (= cap). Assertion
-    // (b) below proves the Fuel Depot RAISES the tank, which needs headroom, so drain the
-    // tank to 0 here. This test's SUBJECT is depot-refines-after-round-trip, NOT the starting
-    // fuel level, the empty seed keeps that subject exercised (a full tank couldn't rise).
-    s.fuel = new Decimal(0);
-    // Fuel-sourcing RESTRUCTURE (2026-07-15): the depot refines the dedicated `deuteriumIce`
-    // item now (NOT commonOre), so seed the ice under its own key. A v21 save's Fuel Depot
-    // gets its ice by running the free localFuelRun, here we seed a stock directly.
-    // Quality-bucketed inventory (Task 9a): seed the ice into its quality-0 bucket.
+describe("WR-4 (OC-C1): a v69 save with a fuel stockpile and an in-flight Fuel Depot batch loads at v70 and plays", () => {
+  it("drops the stockpile and the batch (its fuel output no longer exists), keeps everything else, and missions dispatch", () => {
+    let s = freshState();
     s.inventory = { ...s.inventory, deuteriumIce: [new Decimal(1000)] };
     s.credits = new Decimal(1000);
-    // 0.13.9 hotfix: the depot's pipelines are RETIRED (processFuelPipelines starts nothing), so
-    // economyTick can no longer mint the batch this test round-trips. Plant it directly, in the
-    // exact shape startProcess minted for a pre-0.13.9 save; that is precisely the legacy case
-    // that still has to load and complete. (Previously: one economyTick started it.)
     s = {
       ...s,
       activeProcesses: [
-        {
-          id: `proc-${s.nextProcessId}`,
-          kind: "fuelRefineJob",
-          remainingTicks: FUEL_REFINE_DURATION_TICKS,
-          durationTicks: FUEL_REFINE_DURATION_TICKS,
-          effect: { type: "addFuel", amount: new Decimal(100) },
-        },
+        { id: `proc-${s.nextProcessId}`, kind: "fuelRefineJob", remainingTicks: 10, durationTicks: 10, effect: { type: "addItem", itemId: "deuteriumIce", amount: new Decimal(0) } },
+        { id: `proc-${s.nextProcessId + 1}`, kind: "refineJob", remainingTicks: 10, durationTicks: 12, effect: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) } },
       ],
-      nextProcessId: s.nextProcessId + 1,
+      nextProcessId: s.nextProcessId + 2,
     };
-    const inFlightBefore = s.activeProcesses.filter((p) => p.kind === "fuelRefineJob").length;
-    expect(inFlightBefore).toBeGreaterThan(0); // a real fuelRefineJob is now persisted in activeProcesses
-
-    // Round-trip at the CURRENT version. serialize() stamps SAVE_VERSION (26); deserialize() +
-    // migrate() run NO version steps (already 26), then hydrateDecimals().
-    const save = deserialize(serialize(s, 0)) as SaveFile;
-    expect(save).not.toBeNull();
-    expect(save!.version).toBe(SAVE_VERSION);
-    const restored = migrate(save as SaveFile);
-
-    // (a) FUEL PRESENT: hydrated back to a LIVE Decimal (not a JSON string / NaN), and the
-    // in-flight batch survived as a persisted fuelRefineJob.
-    expect(restored.fuel).toBeInstanceOf(Decimal);
-    expect(restored.activeProcesses.some((p) => p.kind === "fuelRefineJob")).toBe(true);
-
-    // (b) FUEL DEPOT REFINES: run the persisted batch to completion; the tank must RISE.
-    // This exercises resolveProcesses' `addFuel` deposit on a ROUND-TRIPPED process, proving
-    // the batch's Decimal `amount` deposits correctly even though hydrateDecimals only
-    // explicitly re-hydrates `addItem` amounts (break_infinity coerces the addFuel string on
-    // `.plus()`), so the depot genuinely refines Deuterium Ice -> fuel after a save/load.
-    const fuelBefore = restored.fuel;
+    const raw = JSON.parse(JSON.stringify(deserialize(serialize(s, 0)))) as any;
+    // The v69 shape: the stockpile and the batch's addFuel effect, as a pre-WR-4 save stored them.
+    raw.version = 69;
+    raw.state.fuel = "275";
+    raw.state.activeProcesses[0].effect = { type: "addFuel", amount: "100" };
+    const restored = migrate(raw as SaveFile);
+    expect("fuel" in restored).toBe(false);
+    expect(restored.activeProcesses.map((p) => p.kind)).toEqual(["refineJob"]); // the batch is gone, the refine job stays
+    expect(itemTotal(restored.inventory, "deuteriumIce").toNumber()).toBe(1000);
+    expect(restored.credits.toNumber()).toBe(1000);
+    expect(canDispatch(restored, 1, "shortOreRun")).toEqual({ ok: true });
+    // and it keeps playing
     let played = restored;
-    for (let i = 0; i < FUEL_REFINE_DURATION_TICKS + 2; i++) played = economyTick(played, 1, () => 0.5);
-    expect(played.fuel.gt(fuelBefore)).toBe(true); // non-vacuous: the depot produced fuel post-round-trip
-
-    // (c) MISSIONS DISPATCH: top up the tank (fuel is bought, never granted), then canDispatch
-    // must clear every gate (unlock + captain-level + cargo + fuel-range + fuel-resource).
-    const fueled = buyFuel(played, 100); // clamps to what 1000 credits affords at 20 cr/unit (50 units)
-    expect(fueled.fuel.gte(50)).toBe(true); // shortOreRun round trip needs 50 fuel
-    expect(canDispatch(fueled, 1, "shortOreRun")).toEqual({ ok: true });
+    for (let k = 0; k < 20; k++) played = economyTick(played, 1, () => 0.5);
+    expect(played.activeProcesses.some((p) => p.kind === "refineJob")).toBe(false);
   });
 });
 
@@ -5775,7 +5731,6 @@ describe("Phase 11 loss/repair loop round-trips at the current version with NO m
     // save built from this (already carrying combat gear) is skipped, not double-seeded.
     return installMissingCombatBaselines({
       ...base,
-      fuel: new Decimal(100000),
       credits: new Decimal(100000),
       ships: base.ships.map((s) => (s.id === "ship-1" ? { ...s, typeKey: "destroyer" as const } : s)),
     });

@@ -127,7 +127,6 @@ function patrolState(typeKey: ShipTypeKey, officers: SeniorStaffOfficer[] = []):
   const base = freshState();
   return installMissingCombatBaselines({
     ...base,
-    fuel: new Decimal(100000),
     credits: new Decimal(100000),
     ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey } : sh)),
     officers,
@@ -144,7 +143,6 @@ function missionState(key: MissionKey, officers: SeniorStaffOfficer[] = []): Gam
     cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
     recalled: false,
   };
-  s.fuel = new Decimal(1_000_000_000);
   s.credits = new Decimal(1_000_000);
   s.officers = officers;
   return s;
@@ -162,20 +160,20 @@ const patrolOf = (s: GameState): PatrolMissionState => s.captains[0].mission as 
 // NEUTRALITY: golden hashes captured from the code BEFORE Task 20 (no officer anywhere).
 // ============================================================================
 const GOLDEN: Record<string, string | string[]> = {
-  "mission:shortOreRun": "377ac1dd",
-  "mission:surveyMineralAnomaly": "572d2d10",
-  "mission:frontierSupplyRun": "dc6ad2e8",
+  "mission:shortOreRun": "f32eb08",
+  "mission:surveyMineralAnomaly": "43fdb4f",
+  "mission:frontierSupplyRun": "c8b32785",
   // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
   // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); each patrol's state and replays moved, its dispatch
   // record did not.
   "patrol:destroyer:dispatch": "2482ac0b",
-  "patrol:destroyer:state": "6cda387c",
+  "patrol:destroyer:state": "57dd4829",
   "patrol:destroyer:replays": ["6ca86c97", "76776b70", "19b7c316", "c8fe1f57", "ea748cb3", "ce4904ed", "a2f81e1", "3c3169d3"],
   "patrol:carrier:dispatch": "16e07798",
-  "patrol:carrier:state": "b7ad9b",
+  "patrol:carrier:state": "f1903d3c",
   "patrol:carrier:replays": ["9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7"],
   "patrol:battleship:dispatch": "80f668a3",
-  "patrol:battleship:state": "56112093",
+  "patrol:battleship:state": "6f0d2f1e",
   "patrol:battleship:replays": ["10a14de7", "4074234d", "16dfcddc", "a816e123", "c9dec81", "ef111092", "847f08c8", "535d66ee"],
   repair: "b439b3e9",
   expedition: [

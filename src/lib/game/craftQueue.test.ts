@@ -2471,7 +2471,7 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
     const fuelling: GameState = {
       ...freshState(),
       facilities: { ...freshState().facilities, fuelStorage: { level: 1 } },
-      fuel: new Decimal(0), // tank empty, so the pipelines have somewhere to put fuel
+      // tank empty, so the pipelines have somewhere to put fuel
       inventory: { ...freshState().inventory, deuteriumIce: [new Decimal(10_000)] },
     };
     const base = plantQueueEntry(fuelling, "fuelDepot", refineOrder());
@@ -2484,10 +2484,8 @@ describe("⚠️ the new facilities: offline == live parity (the hard invariant)
 
     // The entry is untouched, id and position intact, after three hundred ticks.
     expect(jumped.processQueue).toEqual(base.processQueue);
-    // 0.13.9 hotfix: the depot's pipelines are RETIRED, so a stocked depot with an empty tank
-    // refines NOTHING across the span: the tank and the Deuterium Ice are both untouched.
-    // (Previously these asserted the pipelines ran: fuel rose and ice fell.)
-    expect(jumped.fuel.eq(base.fuel)).toBe(true);
+    // 0.13.9 hotfix: the depot's pipelines are RETIRED (and WR-4 retired the fuel tank), so a stocked depot
+    // refines NOTHING across the span: the Deuterium Ice is untouched.
     expect(itemTotal(jumped.inventory, "deuteriumIce").eq(itemTotal(base.inventory, "deuteriumIce"))).toBe(true);
   });
 

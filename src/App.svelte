@@ -248,11 +248,6 @@
     // doStartShipBuild param, so SHIP_TYPES lookups (label/cargoCapacity/spec/buildRecipe)
     // and the canBuildShip/shipBuildDurationTicks calls are key-checked at compile time.
     type ShipTypeKey,
-    // Mission Rework (Task 8 UI): the buy-fuel price per unit, shown on the Fuel
-    // Storage facility's buy control so the credits cost of +10/+100/Fill reads
-    // straight off the SAME constant buyFuel (tick.ts) charges, price shown can
-    // never drift from price charged.
-    FUEL_CREDITS_PER_UNIT,
     // FUEL_REFINE_DURATION_TICKS import removed in the net-display fix (2026-07-16):
     // its only App.svelte use was the inline fuel-throughput math, which moved into
     // fuelFlowSummary (tick.ts). The helper reads the constant directly now, so
@@ -851,33 +846,11 @@
     // Facilities panels wire up. canDispatch(state, captainId, missionKey) is the
     // ONE source of truth for the Dispatch button's enabled/blocked+reason state;
     // missionUnlocked gates which missions the Operations list shows as available vs
-    // locked, and drives Mission Control's Overview; fuelCap(state) is the live tank
-    // cap the Fuel Storage gauge reads; buyFuel(state, units) backs its +10/+100/Fill
-    // buttons. All PURE (canDispatch/missionUnlocked/fuelCap) except buyFuel, which
-    // returns a new state (same-ref no-op convention on a failed/zero buy).
+    // locked, and drives Mission Control's Overview. Both PURE.
     canDispatch,
     missionUnlocked,
-    fuelCap,
-    buyFuel,
-    // Fuel Economy v2 (F4 UI): the three Fuel Depot pipeline derivations (all PURE,
-    // derive-on-read from the fuelStorage upgrade track). The fuel chip's PRODUCTION
-    // rate = fuelPipelineCount * fuelBatchOutput / FUEL_REFINE_DURATION_TICKS, and its
-    // ice-cost line = fuelPipelineCount * fuelBatchInput / FUEL_REFINE_DURATION_TICKS.
-    // Reading the SAME helpers the tick engine uses keeps the readout drift-proof.
-    fuelPipelineCount,
-    fuelBatchOutput,
-    fuelBatchInput,
-    // Fuel net-display fix (2026-07-16): the PURE, read-only fuel-economy summary.
-    // Mirrors processFuelPipelines' ice/tank/pipeline gates so the DISPLAYED net
-    // matches what the refinery actually does, effectiveProductionPerTick is 0
-    // when out of Deuterium Ice (fixing the "net positive while out of ice" bug).
-    // The per-tick mission-burn sum (formerly computed inline in the fuel reactive
-    // block below) now lives inside this helper: ONE source of truth in the engine.
-    fuelFlowSummary,
-    // Fuel-runway readout (Wave 2), PURE two-phase "ticks until fuel-empty"
-    // projection over the live-measured net fuel & ice rates (see the EMA in the
-    // poll loop). Full-sustainability model: credits mission-mined Deuterium Ice.
-    fuelRunwayProjection,
+    // WR-4 (OC-C1): the Fuel Depot's fleet reach bonus (its console and card read it; shipReachDef applies it).
+    fleetReachBonus,
     // Research (Task R5 UI), the three PURE research seams the Research Lab panel
     // wires up. researchSlotCount(state) => how many parallel research projects the
     // lab can run right now (derived from its upgrade level, parallels refineSlotCount);
@@ -3113,23 +3086,6 @@
   // moves continuously. What reduced motion objects to is sustained movement, not a gauge updating.
   let barCompletedFrame = false;
 
-  // Fuel-runway measurement (Wave 2, 2026-07-16), MEASURED, not modelled. Mission
-  // ice output is a stochastic loot roll, so instead of modelling it we sample the
-  // ACTUAL per-tick net fuel & ice deltas out of the live economy loop and smooth
-  // them with an EMA. fuelRunwayProjection(...) (tick.ts) then projects a runway
-  // from these rates. These are UI-local bookkeeping ONLY, they never feed back
-  // into the economy (the loop's read of them is strictly read-only); assigning
-  // them inside the poll callback is what re-triggers the `$: fuelRunway` reactive.
-  // EMA_ALPHA 0.1 -> ~10-sample smoothing horizon: responsive enough to track a
-  // player starting/stopping missions within seconds, damped enough that a single
-  // lucky/unlucky loot tick doesn't whipsaw the readout. WARMUP_SAMPLES 15 hides
-  // the readout ("measuring…") until the EMA has settled, so the very first noisy
-  // samples never render a wildly wrong countdown.
-  const RUNWAY_EMA_ALPHA = 0.1;
-  const RUNWAY_WARMUP_SAMPLES = 15;
-  let emaDFuelPerTick = 0,
-    emaDIcePerTick = 0,
-    runwaySamples = 0;
 
   function pushLog(msg: string) {
     logEntries = [msg, ...logEntries].slice(0, 8);
@@ -3462,13 +3418,6 @@
           // own header in tick.ts).
           const liveGameTimeSeconds = state.gameTimeSeconds;
 
-          // Fuel-runway measurement (Wave 2), READ-ONLY snapshot of the PRE-step
-          // fuel & ice, captured here while `state` is still the pre-economy value.
-          // These reads do NOT touch `state`/`stepped` or the economy; they only
-          // feed the UI-local EMA updated after the stepping completes below.
-          const preFuel = state.fuel.toNumber();
-          // Quality-bucketed (Task 9a): ice total across buckets via itemTotal (absent -> 0).
-          const preIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
 
           // ⚠️ STEP per whole tick, exactly like the offline tick() path, do NOT hand
           // economyTick one big multi-tick span. economyTick's auto-stop cap-check and
@@ -3505,22 +3454,6 @@
           // (top of the poll). Discard economyTick's bumps, keep its full economy result.
           state = { ...stepped, gameTimeSeconds: liveGameTimeSeconds };
 
-          // Fuel-runway EMA update (Wave 2), runs AFTER the economy is fully
-          // stepped, comparing the post-step fuel & ice (read off `stepped`) to the
-          // pre-step snapshot captured above. Per-tick instantaneous rate = total
-          // delta over this poll / ticksElapsed (so DEV fast-forward polls that
-          // batch multiple ticks still contribute a per-TICK rate, not a per-poll
-          // one). The first sample seeds the EMA directly; thereafter it blends.
-          // This is pure UI bookkeeping, it writes only these three locals and
-          // never mutates `state`/`stepped` or the economy.
-          const postIce = itemTotal(stepped.inventory, "deuteriumIce").toNumber();
-          const instDFuel = (stepped.fuel.toNumber() - preFuel) / ticksElapsed;
-          const instDIce = (postIce - preIce) / ticksElapsed;
-          emaDFuelPerTick =
-            runwaySamples === 0 ? instDFuel : RUNWAY_EMA_ALPHA * instDFuel + (1 - RUNWAY_EMA_ALPHA) * emaDFuelPerTick;
-          emaDIcePerTick =
-            runwaySamples === 0 ? instDIce : RUNWAY_EMA_ALPHA * instDIce + (1 - RUNWAY_EMA_ALPHA) * emaDIcePerTick;
-          runwaySamples++;
         }
 
         // Reset once for the whole fleet, not per-captain, there's only one
@@ -8769,23 +8702,6 @@
     }
   }
 
-  // Mission Rework (Task 8 UI): buy `units` of fuel into the shared tank via the
-  // backend buyFuel (which clamps the amount to the MIN of requested / tank room /
-  // affordable credits, so it can never overfill or overspend). buyFuel returns the
-  // SAME state reference on a zero/failed buy (broke or tank full), so an identity
-  // check bails without a spurious log/save, same "same-ref no-op" convention the
-  // other do* handlers use. `units` is a plain number (fuel is human-scale, not
-  // Decimal); the +10/+100 buttons pass a literal, Fill passes the live tank room.
-  function doBuyFuel(units: number) {
-    const next = buyFuel(state, units);
-    if (next === state) return; // no-op: broke, tank full, or nothing requested
-    // Capture the actual amount bought BEFORE reassigning state (buyFuel clamps, so
-    // the real delta can be < units); after `state = next` the two refs are equal.
-    const bought = next.fuel.minus(state.fuel);
-    state = next;
-    pushLog(`Purchased ${formatNumber(bought)} fuel.`);
-    doSave();
-  }
 
   // Mission Rework (Task 8 UI): maps a canDispatch DispatchBlockReason to a short,
   // player-facing message for the dispatch button's disabled title + the popup's
@@ -9593,12 +9509,9 @@
   $: unlockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && missionUnlocked(state, k));
   $: lockedMissionKeys = (Object.keys(MISSIONS) as MissionKey[]).filter((k) => k !== "localFuelRun" && !missionUnlocked(state, k));
 
-  // --- Fuel Storage facility ---
-  // The live tank cap (fuelCap derives it from the fuelStorage level) + the tank's
-  // headroom + fill % (reusing warehouseFillPct, the shared clamp helper). The buy
-  // gate opens only when the player can afford at least one unit AND the tank has
-  // room, buyFuel clamps partials, but this keeps the buttons honestly disabled
-  // when NOTHING can be bought (broke or full).
+  // --- Fuel Depot (WR-4, OC-C1: the FLEET REACH track) ---
+  // Its level, the next rung, the shared Build gate, the in-flight upgrade, and the fleet reach bonus the built
+  // rungs give (tick.ts fleetReachBonus, applied to every ship's range by shipReachDef).
   $: fuelStorageLevel = state.facilities.fuelStorage?.level ?? 0;
   $: fuelStorageMaxed = fuelStorageLevel >= FACILITIES.fuelStorage.upgrades.length;
   $: nextFuelStorageUpgrade = FACILITIES.fuelStorage.upgrades[fuelStorageLevel];
@@ -9609,10 +9522,7 @@
       p.effect.type === "facilityLevelUp" &&
       p.effect.facility === "fuelStorage"
   );
-  $: fuelCapValue = fuelCap(state);
-  $: fuelRoom = Decimal.max(0, fuelCapValue.minus(state.fuel));
-  $: fuelFillPct = warehouseFillPct(state.fuel, fuelCapValue);
-  $: canBuyFuel = state.credits.gte(FUEL_CREDITS_PER_UNIT) && fuelRoom.gt(0);
+  $: fleetReachPct = Math.round(fleetReachBonus(state) * 1000) / 10;
 
   // ---- Research (Task R5 UI) reactive derivations ----------------------------
   // All read live `state` + the SAME backend fns/tables the Research actions call
@@ -10128,78 +10038,6 @@
   // shared StartLineBlockReason. canFabricate is no longer called from the UI either (the
   // Overview's fabricable count derives from blueprintUnlocked + tier directly).
 
-  // ---- Fuel economy: production vs expenditure (Fuel Economy v2 F4, design §5;
-  // net-display fix 2026-07-16) ----
-  // Drives BOTH the top-bar fuel chip's tooltip AND the Fuel Depot Overview's refining-
-  // status readout, so the two can never disagree (single derivation, shown twice).
-  //
-  // The player's core question is "is my fuel self-sustaining?", answered by netting
-  // the Fuel Depot's refining PRODUCTION against the active missions' EXPENDITURE, both
-  // expressed as fuel/tick (a tick is state.tickDurationSeconds seconds; default 1).
-  //
-  // NET-DISPLAY FIX (2026-07-16): all of this now derives from fuelFlowSummary(state)
-  // (tick.ts), a PURE helper that mirrors processFuelPipelines' ice/tank/pipeline
-  // gates. It replaced an inline block that subtracted burn from the refinery's MAX
-  // (ceiling) throughput UNCONDITIONALLY, which showed a false NET POSITIVE while the
-  // player was OUT of Deuterium Ice (the refinery really makes 0 then). The burn sum
-  // that used to live inline here moved INTO the helper, ONE source of truth in the
-  // engine. Var names are preserved so the rest of the template is untouched.
-  $: fuelFlow = fuelFlowSummary(state);
-
-  // MAX refining throughput (the CEILING), concurrent pipelines * fuel-per-batch /
-  // batch-length-ticks. Still shown verbatim as the informational "Production (max)" /
-  // "Refining (max)" line: it is the cap, NOT the guaranteed inflow (the pipelines
-  // auto-throttle to nothing when the tank is full or Deuterium Ice runs out).
-  $: fuelProductionPerTick = fuelFlow.maxProductionPerTick;
-  // Deuterium Ice consumed at that full throughput (ice/tick), the input cost line.
-  $: fuelIceInputPerTick = fuelFlow.iceInputPerTick;
-  // EXPENDITURE (fuel/tick): steady-state mission burn, summed across active missions
-  // (the sum now lives inside fuelFlowSummary; this just surfaces it under its old name).
-  $: fuelExpenditurePerTick = fuelFlow.burnPerTick;
-
-  // FUEL RUNWAY (Wave 2), "how long until the tank runs dry?" under a full-
-  // sustainability model that credits mission-mined Deuterium Ice. The rates are
-  // MEASURED, not modelled: emaDFuelPerTick/emaDIcePerTick are smoothed samples of
-  // the live economy loop's actual per-tick deltas (updated in the poll callback,
-  // which is why touching them there re-runs this reactive). We hold the readout at
-  // null ("measuring…") until RUNWAY_WARMUP_SAMPLES have accrued so the first noisy
-  // samples never render a wildly wrong countdown. fuelRunwayProjection is pure and
-  // takes plain numbers, so we convert the Decimal fuel/cap/ice to numbers here.
-  $: fuelRunway =
-    runwaySamples < RUNWAY_WARMUP_SAMPLES
-      ? null
-      : fuelRunwayProjection({
-          fuel: state.fuel.toNumber(),
-          fuelCap: fuelCap(state).toNumber(),
-          ice: itemTotal(state.inventory, "deuteriumIce").toNumber(),
-          dFuelPerTick: emaDFuelPerTick,
-          dIcePerTick: emaDIcePerTick,
-          burnPerTick: fuelFlow.burnPerTick,
-        });
-
-  // NET (fuel/tick) now derives from EFFECTIVE production (0 when out of ice / no depot),
-  // so it reads NEGATIVE when the refinery is idle for lack of ice, THE FIX. hasIce /
-  // tankFull feed the chip's + panel's status lines; sufficient = net >= 0 || tankFull
-  // (a topped-off tank is fine even while throttled to 0).
-  $: fuelNetPerTick = fuelFlow.netPerTick;
-  $: fuelHasIce = fuelFlow.hasIce;
-  $: fuelTankFull = fuelFlow.tankFull;
-  $: fuelSufficient = fuelFlow.sufficient;
-
-  // Friendlier per-minute magnitudes. Ticks/minute = 60 / tickDurationSeconds (default
-  // cadence 1s -> 60). NOTE: the dev speed multiplier scales production and expenditure
-  // EQUALLY, so it never flips the sufficiency SIGN, only the displayed magnitude.
-  $: fuelTicksPerMinute = 60 / Math.max(1, state.tickDurationSeconds);
-  $: fuelProductionPerMinute = fuelProductionPerTick * fuelTicksPerMinute;
-  $: fuelExpenditurePerMinute = fuelExpenditurePerTick * fuelTicksPerMinute;
-  $: fuelIceInputPerMinute = fuelIceInputPerTick * fuelTicksPerMinute;
-  $: fuelNetPerMinute = fuelNetPerTick * fuelTicksPerMinute;
-  // Active-mission count for the tooltip's expenditure context ("across N missions").
-  $: fuelActiveMissionCount = state.captains.filter((c) => c.mission !== null).length;
-  // In-flight fuel refine batches (the Fuel Depot's pipelines), same kind-filter idiom
-  // as activeRefineJobs. Drives the Fuel Depot Overview's per-batch progress bars; when
-  // empty the depot is idle (tank full or Deuterium Ice out).
-  $: activeFuelRefineJobs = state.activeProcesses.filter((p) => p.kind === "fuelRefineJob");
 
   // ── FACILITY PANES (0.13.5 facilities redesign, approved refined-B mockup). Normalizes every
   //    facility into ONE pane shape so a single {#snippet facilityPane} renders them all: an id
@@ -10313,9 +10151,13 @@
       researchSlots === 0 ? "Not built"
         : activeResearchProjects.length === 0 ? `Idle · ${researchSlots} slot${researchSlots === 1 ? "" : "s"} free${cardQueuedSuffix(researchQueue)}` : null,
       facilityAttention.has("research")),
-    // 0.13.6 fuel-to-reach: the Fuel Depot dashboard card is hidden (fuel is no longer a refined
-    // resource). The facility + its console remain in the model (vestigial) for the content-patch
-    // cleanup, but there is no longer a nav path to it.
+    // WR-4 (OC-C1, "Turn into range"): the Fuel Depot is back as the FLEET REACH track (its card was hidden from
+    // 0.13.6, when fuel stopped being a refined resource, until its levels became a reach bonus).
+    { ...fpane("fuelStorage", "", FACILITY_LABELS.fuelStorage, `Level ${fuelStorageLevel}`,
+      null,
+      facilityUpgrade(fuelStorageUpgradeInFlight, FACILITY_LABELS.fuelStorage),
+      `Fleet reach +${fleetReachPct}%`,
+      facilityAttention.has("fuelStorage")), icon: "fuel" as IconName },
     fpane("shipyard", "🛠️", FACILITY_LABELS.shipyard, `Level ${shipyardLevel}`,
       facilityAction("Building", activeShipBuild ?? null),
       facilityUpgrade(shipyardUpgradeInFlight, FACILITY_LABELS.shipyard),
@@ -12874,161 +12716,20 @@
               </Panel>
             {/if}
           {:else if activeFoundryFacility === "fuelStorage"}
-            <!-- FUEL DEPOT (Mission Rework Task 8; reworked Fuel Economy v2 F4), the
-                 fuel tank + auto-refinery. Two sub-tabs: Overview (fuel/cap GAUGE +
-                 auto-REFINING status + a DEMOTED optional manual top-up) and Upgrades
-                 (the mixed storage/processing track). Since F2/F3 made refining +
-                 auto-buy automatic, the Overview now LEADS with the sufficiency readout
-                 and the manual buy is a secondary override, not the primary action. -->
-
+            <!-- FUEL DEPOT (WR-4, OC-C1, user 2026-10-16 "Turn into range"): the FLEET REACH track. Fuel is a reach
+                 stat since 0.13.6 (no tank, no refining, no buying); each Depot level adds to every ship's reach, read
+                 by the dispatch gates and every range readout (tick.ts shipReachDef). Two sub-tabs: Overview (the
+                 bonus) and Upgrades (the next rung, its cost, Build, the in-flight upgrade). -->
             {#if activeFuelStorageSubTab === "overview"}
               <Panel>
                 <div class="panel-title">FUEL DEPOT</div>
-                <div class="research-cost">Depot level: {fuelStorageLevel}</div>
-
-                <!-- Fuel gauge, current / cap with a horizontal fill bar (the shared
-                     research-bar fill idiom; fill % via warehouseFillPct, the same
-                     clamp helper the Warehouse tiles use). -->
-                <div class="research-cost" style="margin-top: 8px;">Fuel: {formatNumber(state.fuel)} / {formatNumber(fuelCapValue)} ({Math.round(fuelFillPct)}%)</div>
-                <div class="research-bar-track">
-                  <div class="research-bar-fill" style="width:{fuelFillPct}%"></div>
-                </div>
-              </Panel>
-
-              <!-- REFINING STATUS (Fuel Economy v2 F4), the auto-refinery readout. Same
-                   production/expenditure/net derivation the top-bar fuel chip uses (one
-                   source, shown twice), plus the live per-batch pipeline progress. This
-                   is now the PRIMARY Fuel Depot readout: it answers "is my fuel self-
-                   sustaining?" without the player touching anything. -->
-              <Panel>
-                <div class="panel-title">REFINING</div>
-                <div class="research-cost">Pipelines: {fuelPipelineCount(state)} · refining [Deuterium Ice] → fuel</div>
-                <div class="research-cost" style="color: var(--color-success);">Production (max): +{formatNumber(fuelProductionPerMinute)} fuel/min</div>
-                <div class="research-cost">Ice cost: {formatNumber(fuelIceInputPerMinute)} [Deuterium Ice]/min</div>
-                <div class="research-cost" style="color: var(--color-danger);">Missions ({fuelActiveMissionCount}): −{formatNumber(fuelExpenditurePerMinute)} fuel/min</div>
-                <div
-                  class="research-cost"
-                  style="margin-top: 4px; font-weight: 600; color: {fuelSufficient ? 'var(--color-success)' : 'var(--color-danger)'};"
-                >
-                  Net: {fuelNetPerMinute >= 0 ? "+" : "−"}{formatNumber(Math.abs(fuelNetPerMinute))} fuel/min --
-                  <!-- Root-reason order matches the top-bar chip's note: tank full ->
-                       out of ice (net-display fix) -> fuel-positive -> draining. -->
-                  {#if fuelTankFull}tank full (topped off){:else if !fuelHasIce}refinery idle: out of Deuterium Ice{:else if fuelSufficient}fuel-positive{:else}draining, auto-buying with credits{/if}
-                </div>
-
-                <!-- FUEL RUNWAY (Wave 2): measured full-sustainability countdown to
-                     fuel-empty (credits mission-mined Deuterium Ice). Mirrors the
-                     top-bar chip's runway line. null=warming up; sustainable=∞ (never
-                     drains); finite=time left (warning/danger); guarded-null="--". -->
-                {#if fuelRunway === null}
-                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: measuring…</div>
-                {:else if fuelRunway.sustainable}
-                  <div class="research-cost" style="margin-top: 4px; font-weight: 600; color: var(--color-success);">
-                    Fuel runway: ∞ self-sustaining
-                  </div>
-                {:else if fuelRunway.runwayTicks !== null}
-                  <div
-                    class="research-cost"
-                    style="margin-top: 4px; font-weight: 600; color: {fuelRunway.runwayTicks * state.tickDurationSeconds < 60 ? 'var(--color-danger)' : 'var(--color-warning)'};"
-                  >
-                    Fuel runway: {formatDuration(fuelRunway.runwayTicks, state.tickDurationSeconds)} left
-                  </div>
-                {:else}
-                  <div class="research-cost" style="margin-top: 4px;">Fuel runway: --</div>
-                {/if}
-
-                <!-- Live batch progress. Empty = depot idle: tank full, or Deuterium Ice
-                     ran out (mine more via Local Asteroid). Reuses the refinery job-card
-                     progress idiom (progress bar + ticks remaining). -->
-                {#if activeFuelRefineJobs.length > 0}
-                  <!-- 0.13.3 Unit 6.3 (presentation only): the bare label line takes the
-                       Home/Ships SECTION-HEADER idiom (icon + label + count pill + rule), the
-                       identical treatment Unit 6.1 gave "Active jobs:" on the Refinery and
-                       "In progress:" on the Fabricator, and Unit 6.2 gave "In progress:" on
-                       Research, so all four Foundry Overviews read as one surface. The label
-                       string "Refining now:" is unchanged, trailing colon and all (trimming it
-                       would be a string change, not a presentation change). The pill states
-                       running / pipelines rather than a bare count, because a lone number in
-                       that slot does not say what it is counting; BOTH numbers are already
-                       rendered by this same panel (activeFuelRefineJobs drives the bars just
-                       below, fuelPipelineCount is the "Pipelines:" line at the top), so nothing
-                       new is derived here. -->
-                  <div class="home-sec-hd" style="margin-top: 12px;">
-                    <span class="home-sec-h"><Icon name="fuel" size={12} /> Refining now:</span>
-                    <span class="home-sec-count">{activeFuelRefineJobs.length} / {fuelPipelineCount(state)}</span>
-                    <span class="home-sec-rule"></span>
-                  </div>
-                  {#each activeFuelRefineJobs as job (job.id)}
-                    {@const progress = job.durationTicks > 0 ? (job.durationTicks - job.remainingTicks) / job.durationTicks : 1}
-                    <div class="research-bar-track" style="margin-top: 4px;">
-                      <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>
-                    </div>
-                    <div class="research-readout">{remainingReadout(job.remainingTicks, job.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
-                  {/each}
-                {:else}
-                  <p class="research-status" style="margin-top: 8px;">
-                    Idle, {fuelRoom.lte(0) ? "tank full" : "no Deuterium Ice (mine more via Operations)"}.
-                  </p>
-                {/if}
-              </Panel>
-
-              <!-- MANUAL TOP-UP (Fuel Economy v2 F4), DEMOTED from the old primary
-                   "Buy Fuel". Auto-buy (F3) now covers mission shortfalls automatically,
-                   so this is an OPTIONAL override for topping the tank early; the note
-                   says so. Same canBuyFuel gate + buyFuel-clamped +10/+100/Fill controls
-                   as before (unchanged behavior), just reframed as secondary. -->
-              <Panel>
-                <div class="panel-title">MANUAL TOP-UP <span style="opacity: 0.6; font-weight: 400;">(optional)</span></div>
-                <p class="research-status" style="margin-bottom: 6px;">
-                  Missions auto-buy any fuel shortfall from credits, this is just an optional early top-up.
-                </p>
-                <div class="research-cost">Price: ◈ {FUEL_CREDITS_PER_UNIT} / unit · Credits: {formatNumber(state.credits)}</div>
-                {#if fuelRoom.lte(0)}
-                  <p class="research-status" style="color: var(--color-danger); margin-top: 6px;">
-                    Tank full, expand the tank (Upgrades) to buy more.
-                  </p>
-                {/if}
-
-                <!-- +10 / +100 / Fill. All share the canBuyFuel gate (affordable AND
-                     room); buyFuel clamps any partial, so a click never overspends or
-                     overfills. Fill passes the exact tank room -> buyFuel takes the min
-                     of room and affordable, topping the tank as far as credits allow. -->
-                <div class="dev-row" style="margin-top: 8px;">
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(10)}
-                  >
-                    +10 · ◈ {formatNumber(10 * FUEL_CREDITS_PER_UNIT)}
-                  </button>
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(100)}
-                  >
-                    +100 · ◈ {formatNumber(100 * FUEL_CREDITS_PER_UNIT)}
-                  </button>
-                  <button
-                    class="buy-btn"
-                    disabled={!canBuyFuel}
-                    title={!canBuyFuel ? (fuelRoom.lte(0) ? "Tank full" : "Not enough credits") : undefined}
-                    on:click={() => doBuyFuel(fuelRoom.toNumber())}
-                  >
-                    Fill
-                  </button>
-                </div>
+                <div class="research-cost">Depot level: {fuelStorageLevel} / {FACILITIES.fuelStorage.upgrades.length}</div>
+                <div class="research-name" style="margin-top: 8px;"><Icon name="fuel" size={12} /> Fleet reach +{fleetReachPct}%</div>
+                <p class="research-status">Every ship flies {fleetReachPct === 0 ? "on its own range" : `${fleetReachPct}% farther on a round trip`}. Each Depot level adds to the reach of the whole fleet: missions, patrols and every range readout use it.</p>
               </Panel>
             {/if}
 
             {#if activeFuelStorageSubTab === "upgrades"}
-              <!-- UPGRADES, the MIXED storage/processing track
-                   (FACILITIES.fuelStorage.upgrades): storage rungs expand the tank,
-                   processing rungs scale the refinery (pipelines/yield/input). Each
-                   next-rung type gets its own labeled current→next readout (below),
-                   material readiness, Build gated on the shared canBuildFacilityUpgrade,
-                   + in-flight progress. -->
               <Panel>
                 <div class="panel-title">FUEL DEPOT, Upgrades</div>
                 <div class="research-cost">Level: {fuelStorageLevel}</div>
@@ -13036,87 +12737,22 @@
                 {#if fuelStorageMaxed}
                   <p class="research-status">Fully upgraded.</p>
                 {:else}
-                  <!-- The Fuel Depot track is MIXED (Fuel Economy v2 F2): storage rungs
-                       ({ storageCapMult }, expand the tank) interleaved with three
-                       processing rungs ({ addFuelPipelines } / { fuelYieldMult } /
-                       { fuelInputMult }, scale the refinery). Each rung type gets its OWN
-                       label + current→next readout so the player knows what they're buying
-                      , unlike the old storage-only panel that mislabeled every rung
-                       "doubles capacity". The effect is a presence-tagged union, narrowed
-                       with `"key" in nextEff` (the SAME idiom fuelCap/fuelPipelineCount
-                       use). Build stays wired to the shared canBuildFacilityUpgrade /
-                       doStartFacilityUpgrade, only the DESCRIPTION branches.
-
-                       0.13.3 Unit 6.3, READ BEFORE EDITING: ALL FOUR BRANCHES BELOW ARE
-                       LOAD-BEARING AND MUST STAY EXPLICIT. They look redundant and are not.
-                       Each rung type has its OWN title, its OWN current→next readout, and its
-                       OWN Build button label further down:
-                         "storageCapMult"    -> Expand Tank      -> Build label "Expand Tank"
-                         "addFuelPipelines"  -> Add Pipeline     -> Build label "Add Pipeline"
-                         "fuelYieldMult"     -> Boost Yield      -> Build label "Boost Yield"
-                         "fuelInputMult"     -> Improve Intake   -> Build label "Improve Intake"
-                       Collapsing them into one generic "next upgrade" row is a REGRESSION, not
-                       a simplification: it is exactly the mislabel bug this branching fixed
-                       (every rung used to read "doubles capacity"). Unit 6.3 changed nothing
-                       here but the decorative glyph on each title; the four conditions, the
-                       four readouts and the four labels were byte-identical.
-
-                       0.13.3 Unit 7.0 CHANGED EXACTLY ONE STRING IN THIS BLOCK, with the
-                       user's approval, and this comment is updated to match. Branch 4's TITLE
-                       read "Efficient Intake" while its Build label read "Improve Intake", so
-                       the card disagreed with the button the player was about to press. Unit
-                       6.3 deliberately preserved that asymmetry rather than tidy it on a
-                       presentation pass, and flagged it; 6.5's holistic pass raised it, and
-                       the fix is to align the TITLE to the LABEL ("Improve Intake"), NOT the
-                       other way round, because the other three branches all use one identical
-                       verb-noun phrase for both, and "Improve Intake" is the verb-noun member
-                       of the pair. The four CONDITIONS, the four readouts, the four Build
-                       labels and the terminal "Build" fallback are untouched.
-
-                       The glyph is the SAME facility icon on all four, deliberately. Unit 6.1's
-                       precedent is a uniform facility glyph on card titles (every refine job
-                       card got <Icon refinery> regardless of what it was refining); handing
-                       each rung type a DIFFERENT semantic icon would be new design meaning
-                       invented by a presentation pass, and the four titles already carry the
-                       distinction in words. -->
                   {@const nextEff = nextFuelStorageUpgrade.effect}
-                  {#if "storageCapMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Expand Tank, storage ×{nextEff.storageCapMult}</div>
-                    <div class="research-cost">Current cap: {formatNumber(fuelCapValue)}</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next cap: {formatNumber(fuelCapValue.times(nextEff.storageCapMult))}</div>
-                  {:else if "addFuelPipelines" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Add Pipeline, +{nextEff.addFuelPipelines} concurrent refining line{nextEff.addFuelPipelines === 1 ? "" : "s"}</div>
-                    <div class="research-cost">Current pipelines: {fuelPipelineCount(state)}</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next pipelines: {fuelPipelineCount(state) + nextEff.addFuelPipelines}</div>
-                  {:else if "fuelYieldMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Boost Yield, fuel per batch ×{nextEff.fuelYieldMult}</div>
-                    <div class="research-cost">Current: {formatNumber(fuelBatchOutput(state))} fuel/batch</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchOutput(state).times(nextEff.fuelYieldMult))} fuel/batch</div>
-                  {:else if "fuelInputMult" in nextEff}
-                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Improve Intake, Deuterium Ice per batch ×{nextEff.fuelInputMult} (less ice)</div>
-                    <div class="research-cost">Current: {formatNumber(fuelBatchInput(state))} ice/batch</div>
-                    <div class="research-cost" style="color: var(--color-accent)">Next: {formatNumber(fuelBatchInput(state).times(nextEff.fuelInputMult))} ice/batch</div>
+                  {#if "fleetReachBonus" in nextEff}
+                    {@const nextPct = Math.round((fleetReachBonus(state) + nextEff.fleetReachBonus) * 1000) / 10}
+                    <div class="research-name" style="margin-top: 6px;"><Icon name="fuel" size={12} /> Extend Reach, +{Math.round(nextEff.fleetReachBonus * 1000) / 10}% fleet reach</div>
+                    <div class="research-cost">Current: +{fleetReachPct}%</div>
+                    <div class="research-cost" style="color: var(--color-accent)">Next: +{nextPct}%</div>
                   {/if}
                   <div class="research-cost">Duration: {durationReadout(nextFuelStorageUpgrade.durationTicks, showTickCounts, state.tickDurationSeconds)}</div>
 
                   {#each Object.keys(nextFuelStorageUpgrade.materials) as itemId}
                     {@const need = nextFuelStorageUpgrade.materials[itemId]}
-                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see
-                         the Refinery upgrade row for the full rationale. -->
+                    <!-- FREE (reservation-aware) have, consistent with the Build gate; see the Refinery upgrade row. -->
                     {@const stock = itemTotal(state.inventory, itemId)}
                     {@const have = freeItemForState(state, itemId)}
                     {@const reserved = stock.minus(have)}
                     {@const met = have.gte(need)}
-                    <!-- 0.13.3 Unit 6.3: the ✅/❌ pair becomes <Icon check> / <Icon warning>,
-                         the same swap Units 6.1 and 6.2 made on every readiness row of the
-                         Refinery, Fabricator and Research consoles. This is the Fuel Depot's
-                         ENTIRE share of the emoji migration (6.2 reconciled the remaining 7 as
-                         1 here + 4 on the Shipyard + 2 on Mission Control). The glyph is stroke
-                         SVG on currentColor, so it INHERITS this row's existing success/danger
-                         token instead of shipping a per-OS emoji palette. The condition is
-                         untouched; it moved from a JS ternary to a template block only because
-                         a component cannot be a ternary branch. Color, text and the
-                         reservation-aware "(N reserved)" annotation are unchanged. -->
                     <div class="research-cost" style="color: {met ? 'var(--color-success)' : 'var(--color-danger)'}">
                       {#if met}<Icon name="check" size={12} />{:else}<Icon name="warning" size={12} />{/if} [{ITEMS[itemId]?.label ?? itemId}]: {formatNumber(have)} / {formatNumber(need)}{#if reserved.gt(0)}{" "}({formatNumber(reserved)} reserved){/if}
                     </div>
@@ -13125,15 +12761,7 @@
                   {@render facilityUpgradeButton(
                     "fuelStorage",
                     fuelStorageUpgradeCheck,
-                    "storageCapMult" in nextEff
-                      ? "Expand Tank"
-                      : "addFuelPipelines" in nextEff
-                        ? "Add Pipeline"
-                        : "fuelYieldMult" in nextEff
-                          ? "Boost Yield"
-                          : "fuelInputMult" in nextEff
-                            ? "Improve Intake"
-                            : "Build",
+                    "Extend Reach",
                     () => doStartFacilityUpgrade("fuelStorage")
                   )}
                 {/if}
@@ -13142,10 +12770,6 @@
                   {@const progress = fuelStorageUpgradeInFlight.durationTicks > 0
                     ? (fuelStorageUpgradeInFlight.durationTicks - fuelStorageUpgradeInFlight.remainingTicks) / fuelStorageUpgradeInFlight.durationTicks
                     : 1}
-                  <!-- 0.13.3 Unit 6.3: decorative clock beside the unchanged in-flight label,
-                       matching the Refinery and Fabricator rows from Unit 6.1 and Research from
-                       Unit 6.2. The remainingReadout below (and its showTickCounts /
-                       state.tickDurationSeconds arguments) is untouched. -->
                   <div class="research-name" style="margin-top: 10px;"><Icon name="clock" size={12} /> Currently upgrading…</div>
                   <div class="research-bar-track">
                     <div class="research-bar-fill" style="width:{Math.min(100, progress * 100)}%"></div>

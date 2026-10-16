@@ -191,14 +191,14 @@ function atLevel(level: number, base: GameState): GameState {
 // fights, finished run, claim]. Cross-check: the stored flagged record IS the regular cand-0 dispatch, so its
 // timeline and claim equal fresh:regular:cand-0's (5a7a918b, 4502111d).
 const GOLDEN: Record<string, string[]> = {
-  "stored:flagged": ["5a7a918b", "5a4c98ee", "30cdaff5", "a1a964c6", "af11c93d", "4502111d"],
-  "stored:legacy": ["b6f6ef9", "cf4981df", "6219aff8", "98de1f81", "339278d", "db6b7980"],
-  "fresh:shakedown:cand-0": ["d989224b", "71bf5b40", "bcba23ec", "f76c2227", "ff015e8a", "e60db926", "8acab7a4"],
-  "fresh:shakedown:cand-1": ["fa307f8e", "740b05ec", "4149d5e3", "3eda30ac", "3fd36503", "b856dcf7", "a761be21"],
-  "fresh:shakedown:cand-2": ["7b93334b", "e759695a", "1406ac88", "8308ef01", "60e1864a", "3dd6eac3", "787561"],
-  "fresh:regular:cand-0": ["ffa69009", "5a7a918b", "5d234ce9", "9bb3228a", "676725c6", "52c3393d", "4502111d"],
-  "fresh:regular:cand-1": ["689ff5a4", "7aac9305", "a239956b", "c5e2e95e", "4fda7266", "f8c60fa", "34c307c4"],
-  "fresh:regular:cand-2": ["93b332c5", "f23b02ce", "a6f5bf49", "e0952b74", "ee5ca826", "e8b83c3e", "f49b93da"],
+  "stored:flagged": ["5a7a918b", "5a4c98ee", "30cdaff5", "a1a964c6", "af11c93d", "62735fe0"],
+  "stored:legacy": ["b6f6ef9", "cf4981df", "6219aff8", "98de1f81", "339278d", "a7a2e5a5"],
+  "fresh:shakedown:cand-0": ["d989224b", "71bf5b40", "bcba23ec", "f76c2227", "ff015e8a", "e60db926", "9bf89e99"],
+  "fresh:shakedown:cand-1": ["fa307f8e", "740b05ec", "4149d5e3", "3eda30ac", "3fd36503", "b856dcf7", "9d293fb2"],
+  "fresh:shakedown:cand-2": ["7b93334b", "e759695a", "1406ac88", "8308ef01", "60e1864a", "3dd6eac3", "9ec416ac"],
+  "fresh:regular:cand-0": ["ffa69009", "5a7a918b", "5d234ce9", "9bb3228a", "676725c6", "52c3393d", "62735fe0"],
+  "fresh:regular:cand-1": ["689ff5a4", "7aac9305", "a239956b", "c5e2e95e", "4fda7266", "f8c60fa", "86e5cdc7"],
+  "fresh:regular:cand-2": ["93b332c5", "f23b02ce", "a6f5bf49", "e0952b74", "ee5ca826", "e8b83c3e", "7f5f0fd3"],
   "display:candidates": [
     "L0:3d3c8b21", "62bcf2ed", "30626891", "4cf0ac35", "L1:8207442a", "27f0464d", "e0f76335", "cf6db03a", "L5:e7403ea0",
     "af03b8bf", "e7eb36d1", "7b34ec3a", "L8:7fb6e44e", "82735f", "3fc57679", "f5ddbd0a", "risk:6aeb78c",
@@ -218,12 +218,12 @@ const GOLDEN: Record<string, string[]> = {
     "boost:aurora:940c80c6", "boost:eir:be786422",
   ],
   "reach:expedition": [
-    "stock:generalFreighter:ceba94e5", "stock:prospectorHauler:1a0bf605", "stock:prospectorRunner:832d597b",
-    "stock:prospectorMiner:b2007d44", "stock:destroyer:34453ce5", "stock:battleship:49a34c2c", "stock:carrier:9c7d2e94",
-    "stock:orion:9f93003d", "stock:aurora:67b51c5c", "stock:eir:62613176", "boost:generalFreighter:a6b827e",
-    "boost:prospectorHauler:b5ba01e", "boost:prospectorRunner:6fb3f4a0", "boost:prospectorMiner:bf1bef63",
-    "boost:destroyer:e11718ba", "boost:battleship:5d5e59f1", "boost:carrier:48d00d69", "boost:orion:290a668a",
-    "boost:aurora:8b44c57b", "boost:eir:93229e89",
+    "stock:generalFreighter:5399eed2", "stock:prospectorHauler:6b03a676", "stock:prospectorRunner:2d91eac",
+    "stock:prospectorMiner:24858519", "stock:destroyer:dfedda10", "stock:battleship:d37e2885",
+    "stock:carrier:2750ad0b", "stock:orion:1ed04e20", "stock:aurora:b735b817", "stock:eir:44a75fd7",
+    "boost:generalFreighter:f3f44add", "boost:prospectorHauler:109a9039", "boost:prospectorRunner:cc903183",
+    "boost:prospectorMiner:185b8d7a", "boost:destroyer:a6b3809b", "boost:battleship:f1eb9ec4", "boost:carrier:5be68b6",
+    "boost:orion:1f1212bb", "boost:aurora:e174ea8c", "boost:eir:157e5624",
   ],
 };
 
@@ -370,7 +370,6 @@ function reachState(hull: ShipTypeKey, boost: boolean): GameState {
   const base = freshState();
   const s = installMissingCombatBaselines({
     ...base,
-    fuel: new Decimal(1_000_000_000),
     credits: new Decimal(1_000_000_000),
     captains: base.captains.map((c) => ({ ...c, level: 10 })),
     ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey: hull } : sh)),

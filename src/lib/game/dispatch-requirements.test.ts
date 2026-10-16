@@ -13,7 +13,7 @@
 // failure contract still hold now that dispatch routes through canDispatch.
 import { describe, it, expect } from "vitest";
 import Decimal from "break_infinity.js";
-import { SHIP_TYPES, MISSIONS, freshState, FUEL_TANK_BASE_CAP, type CaptainMissionState } from "./model";
+import { SHIP_TYPES, MISSIONS, freshState, type CaptainMissionState } from "./model";
 import { fuelNeeded } from "./fuel";
 import { canDispatch, dispatchCaptainOnMission } from "./tick";
 
@@ -33,8 +33,8 @@ describe("fresh-game bootstrap, NO soft-lock at game start (fuel-tank fix)", () 
   // was soft-locked at the very first dispatch, unable to bootstrap the fuel economy.
   // The fix seeds a FULL starting tank (FUEL_TANK_BASE_CAP) in freshState so the first
   // mission is dispatchable with ZERO player setup. These two pins are the guarantee.
-  it("a brand-new save starts with a FULL fuel tank (fuel == FUEL_TANK_BASE_CAP)", () => {
-    expect(freshState().fuel.eq(FUEL_TANK_BASE_CAP)).toBe(true);
+  it("a brand-new save carries no fuel stockpile at all (fuel is a reach stat; WR-4 retired the tank)", () => {
+    expect("fuel" in freshState()).toBe(false);
   });
 
   it("can immediately dispatch the first mission from a pristine freshState (no top-up, no credits)", () => {
@@ -48,14 +48,12 @@ describe("fresh-game bootstrap, NO soft-lock at game start (fuel-tank fix)", () 
 describe("canDispatch, happy path (all gates pass)", () => {
   it("returns { ok: true } for an unlocked, requirement-free, fuel-covered ore run", () => {
     const state = freshState();
-    state.fuel = new Decimal(FREIGHTER_SHORT_RUN_FUEL); // exactly enough for one round trip
     expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: true });
   });
 
   it("returns { ok: true } for a Salvage run once EVERY gate is satisfied", () => {
     const state = freshState(); // USER REVISION: Salvage is unlockLevel 1 -> already unlocked at the seed
     state.captains[0] = { ...state.captains[0], level: 5 }; // clear the captain-level capability gate
-    state.fuel = new Decimal(1_000_000); // clear the fuel-resource gate
     // Freighter cargo 90 >= salvage's requiresCargoCapacity, fuelCapacity 200 >= need.
     expect(canDispatch(state, 1, "salvageWreckage")).toEqual({ ok: true });
   });
@@ -69,7 +67,6 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
 
   it("busy, the captain is already on a mission", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000);
     // Make the captain busy the REAL way, dispatch them once, so the mission's cargo
     // is a valid LootTotals record (hand-building `{}` would not type-check).
     const busy = dispatchCaptainOnMission(state, 1, "shortOreRun").next;
@@ -84,13 +81,11 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
     // unlockLevel 1. captain/fuel/cargo all pass, but `locked` is ordered FIRST.
     const state = freshState();
     state.facilities = { ...state.facilities, missionControl: { level: 0 } }; // < shortOreRun's unlockLevel 1
-    state.fuel = new Decimal(1_000_000); // rule out fuel gates
     expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "locked" });
   });
 
   it("captainLevel, mission unlocked but the captain is below requiresCaptainLevel", () => {
     const state = freshState(); // Salvage unlocked at the level-1 seed (unlockLevel 1)
-    state.fuel = new Decimal(1_000_000); // rule out fuel gates
     // captain still level 1, below Salvage's requiresCaptainLevel (a kept CAPABILITY gate).
     expect(canDispatch(state, 1, "salvageWreckage")).toEqual({ ok: false, reason: "captainLevel" });
   });
@@ -98,14 +93,12 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
   it("cargo, captain level met but the ship's cargoCapacity is below requiresCargoCapacity", () => {
     const state = freshState(); // Salvage unlocked at the level-1 seed
     state.captains[0] = { ...state.captains[0], level: 5 }; // clear captain-level gate
-    state.fuel = new Decimal(1_000_000); // clear fuel gates
     state.ships = [{ id: "ship-1", typeKey: "prospectorRunner", assignedCaptainId: 1 }]; // Runner cargo 60 < 90
     expect(canDispatch(state, 1, "salvageWreckage")).toEqual({ ok: false, reason: "cargo" });
   });
 
   it("noShip, the captain has no assigned hull to price/carry the trip", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000);
     state.ships = []; // captain 1 now flies nothing
     expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "noShip" });
   });
@@ -117,28 +110,23 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
     // seed it far above its tier cap so materialAtCap fires. Fuel is left plentiful so this is
     // genuinely the materialAtCap gate (which is ordered BEFORE the fuel gates), not fuelEmpty.
     const state = freshState();
-    state.fuel = new Decimal(1_000_000);
     state.inventory = { ...state.inventory, commonOre: [new Decimal("1e50")] }; // >> tier-1 cap
     expect(canDispatch(state, 1, "shortOreRun")).toEqual({ ok: false, reason: "materialAtCap" });
   });
 
   it("materialAtCap block spends NO fuel (the round-trip burn the fix prevents)", () => {
     // The whole point of the gate: a capped-material dispatch must not spend fuel. Assert the
-    // same-ref no-op + reason + that the tank is untouched.
+    // same-ref no-op + reason.
     const state = freshState();
-    const startFuel = new Decimal(1_000_000);
-    state.fuel = startFuel;
     state.inventory = { ...state.inventory, commonOre: [new Decimal("1e50")] };
     const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(false);
     expect(reason).toBe("materialAtCap");
     expect(next).toBe(state); // same-ref no-op, nothing spent
-    expect(next.fuel.eq(startFuel)).toBe(true); // NOT one round trip poorer
   });
 
   it("fuelCapacity, the hull's tank is physically too small for one round trip (RANGE)", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // plenty in the shared tank -> isolate RANGE from RESOURCE
     const need = fuelNeeded(MISSIONS.shortOreRun, SHIP_TYPES.generalFreighter);
     const originalCap = SHIP_TYPES.generalFreighter.fuelCapacity;
     try {
@@ -156,14 +144,12 @@ describe("canDispatch, one reason per unmet condition (gate order)", () => {
 describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed; no fuel spend)", () => {
   it("on a CLEAN dispatch: success, no reason, and 0.13.6 spends NO fuel/credits (instant refuel)", () => {
     const state = freshState();
-    const startFuel = state.fuel;
     const startCredits = state.credits;
     const { next, success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(true);
     expect(reason).toBeUndefined();
     expect((next.captains[0].mission as CaptainMissionState)?.missionKey).toBe("shortOreRun");
     // Fuel-to-reach: dispatch no longer deducts fuel or auto-buys, so both ride through unchanged.
-    expect(next.fuel.eq(startFuel)).toBe(true);
     expect(next.credits.eq(startCredits)).toBe(true);
   });
 
@@ -185,7 +171,6 @@ describe("dispatchCaptainOnMission, consumes canDispatch (reason exposed; no fue
     // below the ore run's unlockLevel 1 to trigger the still-live `locked` code path.
     const state = freshState();
     state.facilities = { ...state.facilities, missionControl: { level: 0 } };
-    state.fuel = new Decimal(1_000_000);
     const { success, reason } = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(success).toBe(false);
     expect(reason).toBe("locked");

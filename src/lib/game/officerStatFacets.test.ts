@@ -200,7 +200,6 @@ function patrolState(typeKey: ShipTypeKey, officers: SeniorStaffOfficer[]): Game
     withCrew(
       {
         ...base,
-        fuel: new Decimal(100000),
         credits: new Decimal(100000),
         ships: base.ships.map((sh) => (sh.id === "ship-1" ? { ...sh, typeKey } : sh)),
       },
@@ -219,7 +218,6 @@ function missionState(key: MissionKey, officers: SeniorStaffOfficer[]): GameStat
     cargo: { commonOre: new Decimal(0), uncommonMaterial: new Decimal(0), rareMaterial: new Decimal(0) },
     recalled: false,
   };
-  s.fuel = new Decimal(1_000_000_000);
   s.credits = new Decimal(1_000_000);
   return s;
 }
@@ -280,13 +278,13 @@ function scenarioHashes(statsFor: (seat: SeniorStaffSeat) => OfficerStats | unde
 // ============================================================================
 const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
   sheet: "2f50663a",
-  "mission:shortOreRun": "7098a0e9",
-  "mission:surveyMineralAnomaly": "6d02fe9d",
-  "mission:frontierSupplyRun": "c6ce98bf",
+  "mission:shortOreRun": "a03f5846",
+  "mission:surveyMineralAnomaly": "2edcb33e",
+  "mission:frontierSupplyRun": "2900fc4a",
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); each patrol's state and
   // replays moved, its dispatch record did not.
   "patrol:destroyer:dispatch": "bf27b495",
-  "patrol:destroyer:state": "42a4830a",
+  "patrol:destroyer:state": "1089bb63",
   "patrol:destroyer:replays": [
     "ab09c8b2",
     "2287e0ba",
@@ -298,7 +296,7 @@ const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
     "ab90c9e1",
   ],
   "patrol:carrier:dispatch": "dc08627e",
-  "patrol:carrier:state": "4625eec3",
+  "patrol:carrier:state": "827dd70",
   "patrol:carrier:replays": [
     "b31bc8d9",
     "29f29ffc",
@@ -310,7 +308,7 @@ const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
     "db711cd4",
   ],
   "patrol:battleship:dispatch": "954429cf",
-  "patrol:battleship:state": "7dd8e522",
+  "patrol:battleship:state": "1ffb9437",
   "patrol:battleship:replays": [
     "ea1179d5",
     "5a0216df",
@@ -338,13 +336,13 @@ const GOLDEN_NEUTRAL: Record<string, string | string[]> = {
 // officer records differ from GOLDEN_NEUTRAL.
 const GOLDEN_STATLESS: Record<string, string | string[]> = {
   sheet: "2f50663a",
-  "mission:shortOreRun": "8eaf4ff7",
-  "mission:surveyMineralAnomaly": "f1a6fcc7",
-  "mission:frontierSupplyRun": "c17c4c89",
+  "mission:shortOreRun": "dad69d7c",
+  "mission:surveyMineralAnomaly": "5be79bc0",
+  "mission:frontierSupplyRun": "32117864",
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); each patrol's state and
   // replays moved, its dispatch record did not.
   "patrol:destroyer:dispatch": "bf27b495",
-  "patrol:destroyer:state": "1f10888c",
+  "patrol:destroyer:state": "14329de5",
   "patrol:destroyer:replays": [
     "ab09c8b2",
     "2287e0ba",
@@ -356,7 +354,7 @@ const GOLDEN_STATLESS: Record<string, string | string[]> = {
     "ab90c9e1",
   ],
   "patrol:carrier:dispatch": "dc08627e",
-  "patrol:carrier:state": "e2324c45",
+  "patrol:carrier:state": "6c72cf9a",
   "patrol:carrier:replays": [
     "b31bc8d9",
     "29f29ffc",
@@ -368,7 +366,7 @@ const GOLDEN_STATLESS: Record<string, string | string[]> = {
     "db711cd4",
   ],
   "patrol:battleship:dispatch": "954429cf",
-  "patrol:battleship:state": "bc800294",
+  "patrol:battleship:state": "8baadf89",
   "patrol:battleship:replays": [
     "ea1179d5",
     "5a0216df",

@@ -100,143 +100,143 @@ const GOLDEN: Record<string, unknown> = {
   // relaunches on it; the freighter and the runner lose Warband seed 1 later (tick 23, was 20; tick 20, was 16).
   // Every other win, loss and relaunch tick is as before.
   "patrol:generalFreighter": [
-    "crimsonReaverSweep:1:won:14", "894fdcae", "f603498f", "b2f38143", "d906373f", "9aaccaac", "second:won:14",
-    "78db202f", "5c5f200f", "crimsonReaverSweep:2:won:14", "78db202f", "d0a063cd", "b2f38143", "d906373f", "846bdabf",
-    "crimsonReaverWarband:1:lost:23", "4213eee4", "1a749a44", "701a58f1", "9e7bd12c", "4cb7057a",
-    "crimsonReaverWarband:2:lost:16", "36a28cca", "7d2f6f3d", "701a58f1", "9e7bd12c", "e85992e3",
+    "crimsonReaverSweep:1:won:14", "894fdcae", "f603498f", "b2f38143", "d906373f", "619f0aa1", "second:won:14",
+    "78db202f", "47bf5f7c", "crimsonReaverSweep:2:won:14", "78db202f", "d0a063cd", "b2f38143", "d906373f", "a247a79e",
+    "crimsonReaverWarband:1:lost:23", "4213eee4", "1a749a44", "701a58f1", "9e7bd12c", "c3731d85",
+    "crimsonReaverWarband:2:lost:16", "36a28cca", "7d2f6f3d", "701a58f1", "9e7bd12c", "fea4cc5a",
   ],
   "patrol:prospectorHauler": [
-    "crimsonReaverSweep:1:won:14", "26da28a9", "13a0e65f", "9d03d00b", "d906373f", "602748c4", "second:won:14",
-    "dffae6a0", "b6b1cf6f", "crimsonReaverSweep:2:won:14", "dffae6a0", "5b0c2091", "9d03d00b", "d906373f", "64782bdb",
-    "crimsonReaverWarband:1:won:22", "e98455fb", "6a4da60d", "9d03d00b", "cad0779e", "623023d1", "second:lost:16",
-    "5d562ccd", "310f0f68", "crimsonReaverWarband:2:lost:16", "5d562ccd", "2ba17e8d", "8539ed3f", "9e7bd12c",
-    "cd118af1",
+    "crimsonReaverSweep:1:won:14", "26da28a9", "13a0e65f", "9d03d00b", "d906373f", "44d412c5", "second:won:14",
+    "dffae6a0", "eb8605e0", "crimsonReaverSweep:2:won:14", "dffae6a0", "5b0c2091", "9d03d00b", "d906373f", "b3aefbee",
+    "crimsonReaverWarband:1:won:22", "e98455fb", "6a4da60d", "9d03d00b", "cad0779e", "7503e6ee", "second:lost:16",
+    "5d562ccd", "7c716451", "crimsonReaverWarband:2:lost:16", "5d562ccd", "2ba17e8d", "8539ed3f", "9e7bd12c",
+    "1ebf5a98",
   ],
   "patrol:prospectorRunner": [
-    "crimsonReaverSweep:1:lost:10", "7a2a52c9", "24b128ff", "e1360e3a", "b9abbd11", "364a5e8f",
-    "crimsonReaverSweep:2:won:14", "4be00ff0", "bcd29e6f", "c4afd62a", "d906373f", "48a753a7",
-    "crimsonReaverWarband:1:lost:20", "254c266f", "c001d6c9", "e1360e3a", "9e7bd12c", "7cc32db7",
-    "crimsonReaverWarband:2:lost:16", "814a58cd", "df452afd", "e1360e3a", "9e7bd12c", "f0588aad",
+    "crimsonReaverSweep:1:lost:10", "7a2a52c9", "24b128ff", "e1360e3a", "b9abbd11", "3458dee6",
+    "crimsonReaverSweep:2:won:14", "4be00ff0", "bcd29e6f", "c4afd62a", "d906373f", "8d243886",
+    "crimsonReaverWarband:1:lost:20", "254c266f", "c001d6c9", "e1360e3a", "9e7bd12c", "7542ef9a",
+    "crimsonReaverWarband:2:lost:16", "814a58cd", "df452afd", "e1360e3a", "9e7bd12c", "92dadd8",
   ],
   "patrol:prospectorMiner": [
-    "crimsonReaverSweep:1:lost:10", "2bf09384", "1f40a647", "4a78733f", "b9abbd11", "f24797ea",
-    "crimsonReaverSweep:2:won:14", "1b079aa1", "e5733243", "3e9366f7", "d906373f", "55528ada",
-    "crimsonReaverWarband:1:lost:20", "73831be6", "19ddf77d", "4a78733f", "9e7bd12c", "70e1e9de",
-    "crimsonReaverWarband:2:lost:16", "385f8ab0", "923a96dd", "4a78733f", "9e7bd12c", "b5dcc6bc",
+    "crimsonReaverSweep:1:lost:10", "2bf09384", "1f40a647", "4a78733f", "b9abbd11", "e7fd04bd",
+    "crimsonReaverSweep:2:won:14", "1b079aa1", "e5733243", "3e9366f7", "d906373f", "e66648bd",
+    "crimsonReaverWarband:1:lost:20", "73831be6", "19ddf77d", "4a78733f", "9e7bd12c", "445177ad",
+    "crimsonReaverWarband:2:lost:16", "385f8ab0", "923a96dd", "4a78733f", "9e7bd12c", "7fdd4323",
   ],
   "patrol:destroyer": [
-    "crimsonReaverSweep:1:won:14", "c614f4e", "92e2290b", "6ad9f46c", "d906373f", "4dbab70a", "second:won:14",
-    "612de50b", "a2584e79", "crimsonReaverSweep:2:won:14", "612de50b", "8a5edc7f", "6ad9f46c", "d906373f", "254c14f3",
-    "crimsonReaverWarband:1:won:22", "6993bb20", "d63f0205", "6ad9f46c", "cad0779e", "e616f487", "second:lost:16",
-    "ceb37f8a", "4accee1d", "crimsonReaverWarband:2:lost:16", "ceb37f8a", "dfb6b4dd", "44b4c6b5", "9e7bd12c",
-    "abe2906a",
+    "crimsonReaverSweep:1:won:14", "c614f4e", "92e2290b", "6ad9f46c", "d906373f", "d4055219", "second:won:14",
+    "612de50b", "a69e92e8", "crimsonReaverSweep:2:won:14", "612de50b", "8a5edc7f", "6ad9f46c", "d906373f", "63ce63c0",
+    "crimsonReaverWarband:1:won:22", "6993bb20", "d63f0205", "6ad9f46c", "cad0779e", "94a165d6", "second:lost:16",
+    "ceb37f8a", "7b09766a", "crimsonReaverWarband:2:lost:16", "ceb37f8a", "dfb6b4dd", "44b4c6b5", "9e7bd12c",
+    "c94abb2d",
   ],
   "patrol:battleship": [
-    "crimsonReaverSweep:1:won:14", "233cf766", "f450532b", "c6dba9cb", "d906373f", "e122bfe3", "second:won:14",
-    "292269d9", "721f2948", "crimsonReaverSweep:2:won:14", "292269d9", "14f63e6b", "c6dba9cb", "d906373f", "6a9b041a",
-    "crimsonReaverWarband:1:won:22", "518735a0", "2f3d1b47", "c6dba9cb", "cad0779e", "2cdaa522", "second:won:22",
-    "e41c4bc2", "8a1d5ed1", "crimsonReaverWarband:2:won:22", "e41c4bc2", "1f696f91", "c6dba9cb", "cad0779e",
-    "cc27c553",
+    "crimsonReaverSweep:1:won:14", "233cf766", "f450532b", "c6dba9cb", "d906373f", "6a6e81a4", "second:won:14",
+    "292269d9", "668e43f9", "crimsonReaverSweep:2:won:14", "292269d9", "14f63e6b", "c6dba9cb", "d906373f", "d36aa39d",
+    "crimsonReaverWarband:1:won:22", "518735a0", "2f3d1b47", "c6dba9cb", "cad0779e", "394499f3", "second:won:22",
+    "e41c4bc2", "3ebebf2", "crimsonReaverWarband:2:won:22", "e41c4bc2", "1f696f91", "c6dba9cb", "cad0779e",
+    "acde418a",
   ],
   "patrol:carrier": [
-    "crimsonReaverSweep:1:won:14", "d5718c2f", "2a9583d7", "ea909677", "d906373f", "8a22b163", "second:won:14",
-    "e9a099c5", "e6c360fc", "crimsonReaverSweep:2:won:14", "e9a099c5", "36e5dcc1", "ea909677", "d906373f", "c015e028",
-    "crimsonReaverWarband:1:won:22", "47f02015", "fe21761f", "ea909677", "cad0779e", "c743aab8", "second:lost:17",
-    "95fd3dd4", "b6aa627d", "crimsonReaverWarband:2:lost:17", "95fd3dd4", "5a573127", "73109288", "9e7bd12c",
-    "3972c48a",
+    "crimsonReaverSweep:1:won:14", "d5718c2f", "2a9583d7", "ea909677", "d906373f", "9554bb6e", "second:won:14",
+    "e9a099c5", "d5d094bf", "crimsonReaverSweep:2:won:14", "e9a099c5", "36e5dcc1", "ea909677", "d906373f", "89e39fc9",
+    "crimsonReaverWarband:1:won:22", "47f02015", "fe21761f", "ea909677", "cad0779e", "15006abb", "second:lost:17",
+    "95fd3dd4", "6b9aa894", "crimsonReaverWarband:2:lost:17", "95fd3dd4", "5a573127", "73109288", "9e7bd12c",
+    "950bcb53",
   ],
   "patrol:orion": [
-    "crimsonReaverSweep:1:won:14", "35ea9697", "34c59cd", "c75858d4", "d906373f", "588aace", "second:won:14",
-    "3e13cff2", "182ed205", "crimsonReaverSweep:2:won:14", "3e13cff2", "25efb35", "c75858d4", "d906373f", "167cccf3",
-    "crimsonReaverWarband:1:lost:20", "69062df5", "d2b7b6fd", "6619cb48", "9e7bd12c", "29712beb",
-    "crimsonReaverWarband:2:lost:16", "ba65b5fb", "c8a597ad", "6619cb48", "9e7bd12c", "57bd8e9",
+    "crimsonReaverSweep:1:won:14", "35ea9697", "34c59cd", "c75858d4", "d906373f", "9f06f3dd", "second:won:14",
+    "3e13cff2", "e43faea4", "crimsonReaverSweep:2:won:14", "3e13cff2", "25efb35", "c75858d4", "d906373f", "97d18578",
+    "crimsonReaverWarband:1:lost:20", "69062df5", "d2b7b6fd", "6619cb48", "9e7bd12c", "20b8680",
+    "crimsonReaverWarband:2:lost:16", "ba65b5fb", "c8a597ad", "6619cb48", "9e7bd12c", "b6b37c6e",
   ],
   "patrol:aurora": [
-    "crimsonReaverSweep:1:won:14", "6ac4f480", "22d0d86d", "62b89a6f", "d906373f", "43b51fe3", "second:won:14",
-    "14b5f02d", "3d65bc6a", "crimsonReaverSweep:2:won:14", "14b5f02d", "a77da1dd", "62b89a6f", "d906373f", "55b29fb4",
-    "crimsonReaverWarband:1:lost:20", "3c51a286", "db5eccb5", "def772e7", "9e7bd12c", "80f78478",
-    "crimsonReaverWarband:2:lost:16", "7e5bc7d4", "6d6203cd", "def772e7", "9e7bd12c", "34ca5c86",
+    "crimsonReaverSweep:1:won:14", "6ac4f480", "22d0d86d", "62b89a6f", "d906373f", "511447be", "second:won:14",
+    "14b5f02d", "5ab34d1d", "crimsonReaverSweep:2:won:14", "14b5f02d", "a77da1dd", "62b89a6f", "d906373f", "6a87fd45",
+    "crimsonReaverWarband:1:lost:20", "3c51a286", "db5eccb5", "def772e7", "9e7bd12c", "e97d0cbd",
+    "crimsonReaverWarband:2:lost:16", "7e5bc7d4", "6d6203cd", "def772e7", "9e7bd12c", "621942ab",
   ],
   "patrol:eir": [
-    "crimsonReaverSweep:1:won:14", "da45804", "c39acad", "ffdca63b", "d906373f", "3a103b0f", "second:won:14",
-    "e91372d5", "46c9d492", "crimsonReaverSweep:2:won:14", "e91372d5", "2de6f1ab", "ffdca63b", "d906373f", "fd32715e",
-    "crimsonReaverWarband:1:lost:20", "abe6f092", "734c54a5", "7ddb5b8d", "9e7bd12c", "88961f0c",
-    "crimsonReaverWarband:2:lost:16", "31fd4d70", "4286587d", "7ddb5b8d", "9e7bd12c", "d2484ab2",
+    "crimsonReaverSweep:1:won:14", "da45804", "c39acad", "ffdca63b", "d906373f", "ef5f54b8", "second:won:14",
+    "e91372d5", "8a6c62bb", "crimsonReaverSweep:2:won:14", "e91372d5", "2de6f1ab", "ffdca63b", "d906373f", "aa5a7369",
+    "crimsonReaverWarband:1:lost:20", "abe6f092", "734c54a5", "7ddb5b8d", "9e7bd12c", "d9543d0b",
+    "crimsonReaverWarband:2:lost:16", "31fd4d70", "4286587d", "7ddb5b8d", "9e7bd12c", "c7fc8fe9",
   ],
   "patrol:repeat": [
-    "generalFreighter:crimsonReaverSweep:relaunch@14:a8402136,relaunch@28:37ba0a7c",
-    "generalFreighter:crimsonReaverWarband:end@23:4cb7057a",
-    "prospectorHauler:crimsonReaverSweep:relaunch@14:762b9573,relaunch@28:ff68e883",
-    "prospectorHauler:crimsonReaverWarband:relaunch@22:6d698a6,end@38:56de09f1",
-    "prospectorRunner:crimsonReaverSweep:end@10:364a5e8f", "prospectorRunner:crimsonReaverWarband:end@20:7cc32db7",
-    "prospectorMiner:crimsonReaverSweep:end@10:f24797ea", "prospectorMiner:crimsonReaverWarband:end@20:70e1e9de",
-    "destroyer:crimsonReaverSweep:relaunch@14:76ca853a,relaunch@28:8e4df34e",
-    "destroyer:crimsonReaverWarband:relaunch@22:b9cc7a59,end@38:9d1b6e1a",
-    "battleship:crimsonReaverSweep:relaunch@14:28eb16cd,relaunch@28:dc924a07",
-    "battleship:crimsonReaverWarband:relaunch@22:df4228c8,end@39:d23d28b1",
-    "carrier:crimsonReaverSweep:relaunch@14:a2d4cbec,relaunch@28:7a2cc90f",
-    "carrier:crimsonReaverWarband:relaunch@22:7e5ede91,end@38:ec4655a5",
-    "orion:crimsonReaverSweep:relaunch@14:f23a6edb,relaunch@28:64157315", "orion:crimsonReaverWarband:end@20:29712beb",
-    "aurora:crimsonReaverSweep:relaunch@14:d90946bf,relaunch@28:a4e60bed",
-    "aurora:crimsonReaverWarband:end@20:80f78478", "eir:crimsonReaverSweep:relaunch@14:df1b0f2d,relaunch@28:9fc6059",
-    "eir:crimsonReaverWarband:end@20:88961f0c",
+    "generalFreighter:crimsonReaverSweep:relaunch@14:4bc91d37,relaunch@28:c1f5b4c5",
+    "generalFreighter:crimsonReaverWarband:end@23:c3731d85",
+    "prospectorHauler:crimsonReaverSweep:relaunch@14:d10962a,relaunch@28:ae3c32da",
+    "prospectorHauler:crimsonReaverWarband:relaunch@22:3a9daf11,end@38:51a2bb8e",
+    "prospectorRunner:crimsonReaverSweep:end@10:3458dee6", "prospectorRunner:crimsonReaverWarband:end@20:7542ef9a",
+    "prospectorMiner:crimsonReaverSweep:end@10:e7fd04bd", "prospectorMiner:crimsonReaverWarband:end@20:445177ad",
+    "destroyer:crimsonReaverSweep:relaunch@14:afcac89,relaunch@28:c96cc621",
+    "destroyer:crimsonReaverWarband:relaunch@22:f2452ff4,end@38:db558c17",
+    "battleship:crimsonReaverSweep:relaunch@14:82a0abce,relaunch@28:b23cf248",
+    "battleship:crimsonReaverWarband:relaunch@22:a2f451dd,end@39:4c6aa502",
+    "carrier:crimsonReaverSweep:relaunch@14:a3d137e9,relaunch@28:d833511a",
+    "carrier:crimsonReaverWarband:relaunch@22:86753956,end@38:5d7605b4",
+    "orion:crimsonReaverSweep:relaunch@14:89404b40,relaunch@28:f576fffe", "orion:crimsonReaverWarband:end@20:20b8680",
+    "aurora:crimsonReaverSweep:relaunch@14:b3307526,relaunch@28:ece65b0c",
+    "aurora:crimsonReaverWarband:end@20:e97d0cbd", "eir:crimsonReaverSweep:relaunch@14:d82c1ef6,relaunch@28:ceb5ece",
+    "eir:crimsonReaverWarband:end@20:d9543d0b",
   ],
   "gather:localFuelRun": [
-    "generalFreighter:99", "aa03a7cf", "5cb7d17c", "prospectorHauler:197", "aa03a7cf", "f95add53",
-    "prospectorRunner:67", "aa03a7cf", "adfb07fb", "prospectorMiner:99", "aa03a7cf", "b50c8005", "destroyer:34",
-    "aa03a7cf", "d4f4801b", "battleship:45", "aa03a7cf", "e3da3400", "carrier:29", "aa03a7cf", "205bb158", "orion:132",
-    "aa03a7cf", "13bc036", "aurora:110", "aa03a7cf", "b0b16d1d", "eir:241", "aa03a7cf", "3e08c03e",
+    "generalFreighter:99", "aa03a7cf", "50bfa0ed", "prospectorHauler:197", "aa03a7cf", "a7a3225c",
+    "prospectorRunner:67", "aa03a7cf", "fe04e14e", "prospectorMiner:99", "aa03a7cf", "43a424ee", "destroyer:34",
+    "aa03a7cf", "2b0067e0", "battleship:45", "aa03a7cf", "638ca733", "carrier:29", "aa03a7cf", "b3cae159", "orion:132",
+    "aa03a7cf", "4704ec57", "aurora:110", "aa03a7cf", "ed06bfca", "eir:241", "aa03a7cf", "98c4837",
   ],
   "gather:shortOreRun": [
-    "generalFreighter:149", "173ed900", "71f4e5f8", "prospectorHauler:261", "173ed900", "68634ae1",
-    "prospectorRunner:101", "173ed900", "5c6fcd51", "prospectorMiner:149", "173ed900", "c0252403", "destroyer:74",
-    "173ed900", "bafb9044", "battleship:117", "173ed900", "db61b049", "carrier:93", "173ed900", "f1ce2096", "orion:178",
-    "173ed900", "f1c59294", "aurora:150", "173ed900", "3ee58661", "eir:297", "173ed900", "119e8729",
+    "generalFreighter:149", "173ed900", "34d2f0c9", "prospectorHauler:261", "173ed900", "47784b6e",
+    "prospectorRunner:101", "173ed900", "5c76cf3c", "prospectorMiner:149", "173ed900", "4e000572", "destroyer:74",
+    "173ed900", "cda62423", "battleship:117", "173ed900", "60273ba6", "carrier:93", "173ed900", "e6687d4b", "orion:178",
+    "173ed900", "205dba59", "aurora:150", "173ed900", "d51c8898", "eir:297", "173ed900", "edc15768",
   ],
   // Re-pinned by WR-4 (OC-C2): the Lunar Mine's uncommon strike is Dense Ore (was Cobalt Ore). Only the item key moved:
   // naming denseOre back to cobaltOre in each delivered state reproduces the SF-0 capture exactly (b5a45464, a88a60b9,
   // 9c723e64, 6171239, 918723ae, da2d527c, e20c7223, 774e6e96, d0deecde, 263885a6); the delivery ticks did not move.
   "gather:longOreRun": [
-    "generalFreighter:239", "8e6386f4", "bcaa3a86", "prospectorHauler:373", "8e6386f4", "703b91b5",
-    "prospectorRunner:161", "8e6386f4", "fbb3099e", "prospectorMiner:239", "8e6386f4", "3a81b117", "destroyer:142",
-    "8e6386f4", "9ad9447a", "battleship:245", "8e6386f4", "817e097c", "carrier:205", "8e6386f4", "b5b79a13",
-    "orion:260", "8e6386f4", "bcd67224", "aurora:218", "8e6386f4", "741bbc86", "eir:397", "8e6386f4", "bb47cfbe",
+    "generalFreighter:239", "8e6386f4", "2b1de52d", "prospectorHauler:373", "8e6386f4", "45c25bc4",
+    "prospectorRunner:161", "8e6386f4", "b72ef111", "prospectorMiner:239", "8e6386f4", "86e4640", "destroyer:142",
+    "8e6386f4", "9085303d", "battleship:245", "8e6386f4", "64f3fe85", "carrier:205", "8e6386f4", "5228b070",
+    "orion:260", "8e6386f4", "d5be4397", "aurora:218", "8e6386f4", "4bab7207", "eir:397", "8e6386f4", "e63a927b",
   ],
   "gather:salvageWreckage": [
-    "generalFreighter:189", "35190dab", "435061d", "prospectorHauler:311", "35190dab", "6d57eaeb",
-    "prospectorRunner:refused:cargo", "prospectorMiner:189", "35190dab", "a124e0c2", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:214", "35190dab", "a2e97dea", "aurora:180", "35190dab",
-    "1e2c94c3", "eir:341", "35190dab", "14a9e885",
+    "generalFreighter:189", "35190dab", "94d14e2c", "prospectorHauler:311", "35190dab", "6b5d179c",
+    "prospectorRunner:refused:cargo", "prospectorMiner:189", "35190dab", "9751a7a5", "destroyer:refused:cargo",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:214", "35190dab", "9d52aef5", "aurora:180", "35190dab",
+    "bc231926", "eir:341", "35190dab", "e684ec02",
   ],
   "gather:forageFlora": [
-    "generalFreighter:209", "c1cb8da7", "41a1dba4", "prospectorHauler:335", "c1cb8da7", "cb7371e7",
-    "prospectorRunner:refused:cargo", "prospectorMiner:209", "c1cb8da7", "8a2c45d3", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:232", "c1cb8da7", "5f675192", "aurora:196", "c1cb8da7",
-    "53160c94", "eir:365", "c1cb8da7", "826b0915",
+    "generalFreighter:209", "c1cb8da7", "51cfb373", "prospectorHauler:335", "c1cb8da7", "463b2586",
+    "prospectorRunner:refused:cargo", "prospectorMiner:209", "c1cb8da7", "b1ad3402", "destroyer:refused:cargo",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:232", "c1cb8da7", "db6b94f7", "aurora:196", "c1cb8da7",
+    "77c7a097", "eir:365", "c1cb8da7", "bee0303a",
   ],
   "gather:surveyMineralAnomaly": [
-    "generalFreighter:269", "3779b356", "3b44c217", "prospectorHauler:411", "3779b356", "fa2a7fa6",
-    "prospectorRunner:refused:cargo", "prospectorMiner:269", "3779b356", "c282f8aa", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:288", "3779b356", "87d89698", "aurora:242", "3779b356",
-    "9c6bd709", "eir:431", "3779b356", "447c125b",
+    "generalFreighter:269", "3779b356", "d6a8e5be", "prospectorHauler:411", "3779b356", "8d407fb3",
+    "prospectorRunner:refused:cargo", "prospectorMiner:269", "3779b356", "b6a0946f", "destroyer:refused:cargo",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:288", "3779b356", "2f67c847", "aurora:242", "3779b356",
+    "870a2c68", "eir:431", "3779b356", "b1359274",
   ],
   "gather:surveyStellarPhenomena": [
-    "generalFreighter:289", "c883a6b9", "b4ea4745", "prospectorHauler:refused:fuelCapacity",
+    "generalFreighter:289", "c883a6b9", "74e4070", "prospectorHauler:refused:fuelCapacity",
     "prospectorRunner:refused:cargo", "prospectorMiner:refused:fuelCapacity", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:306", "c883a6b9", "b782dfdd", "aurora:258", "c883a6b9",
-    "d5b4f99c", "eir:453", "c883a6b9", "13309cf7",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:306", "c883a6b9", "9da9cf8", "aurora:258", "c883a6b9",
+    "17c98825", "eir:453", "c883a6b9", "fe834404",
   ],
   "gather:frontierSupplyRun": [
-    "generalFreighter:219", "dd5c4e0", "dcd6cce1", "prospectorHauler:347", "dd5c4e0", "1586b17c",
-    "prospectorRunner:refused:cargo", "prospectorMiner:219", "dd5c4e0", "edca7b36", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:242", "dd5c4e0", "f1b251c3", "aurora:204", "dd5c4e0",
-    "edd344bd", "eir:375", "dd5c4e0", "e0f2e1a2",
+    "generalFreighter:219", "dd5c4e0", "8a3458c2", "prospectorHauler:347", "dd5c4e0", "886db511",
+    "prospectorRunner:refused:cargo", "prospectorMiner:219", "dd5c4e0", "9d0c4883", "destroyer:refused:cargo",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:242", "dd5c4e0", "6fb67338", "aurora:204", "dd5c4e0",
+    "a092a694", "eir:375", "dd5c4e0", "135d4bd1",
   ],
   "gather:colonySupplyLift": [
-    "generalFreighter:279", "a3dde4a3", "b9356573", "prospectorHauler:423", "a3dde4a3", "c5ba079f",
+    "generalFreighter:279", "a3dde4a3", "e0b3d894", "prospectorHauler:423", "a3dde4a3", "d22dccfc",
     "prospectorRunner:refused:cargo", "prospectorMiner:refused:fuelCapacity", "destroyer:refused:cargo",
-    "battleship:refused:cargo", "carrier:refused:cargo", "orion:296", "a3dde4a3", "acd911d1", "aurora:250", "a3dde4a3",
-    "16929aa2", "eir:441", "a3dde4a3", "741ba1c0",
+    "battleship:refused:cargo", "carrier:refused:cargo", "orion:296", "a3dde4a3", "11d3ef3c", "aurora:250", "a3dde4a3",
+    "9fac7ed5", "eir:441", "a3dde4a3", "d979f329",
   ],
   "first:generalFreighter:d18": [
     "9e5223c9", "3a5a95d9", "unclaimed", "2115da58", "71f5cbed", "unclaimed", "fd592d55", "becf9484", "unclaimed",
@@ -254,7 +254,7 @@ const GOLDEN: Record<string, unknown> = {
     "facd5f14", "a2d97311", "unclaimed", "43b8770d", "2623ac1b", "unclaimed", "8769feca", "7cd794bc", "unclaimed",
   ],
   "first:generalFreighter:rank6": [
-    "1dadcf56", "7522a9e4", "unclaimed", "9def7063", "9d98dd39", "40bd9861", "1becdf14", "bc2880f", "unclaimed",
+    "1dadcf56", "7522a9e4", "unclaimed", "9def7063", "9d98dd39", "b8e22830", "1becdf14", "bc2880f", "unclaimed",
   ],
   "first:orion:d18": [
     "bf09aa6a", "64188ee0", "unclaimed", "ae4c51ff", "d5744d5b", "unclaimed", "72573038", "bd23b57f", "unclaimed",
@@ -272,7 +272,7 @@ const GOLDEN: Record<string, unknown> = {
     "8bda8e61", "d753750", "unclaimed", "f7abe8e8", "870bb909", "unclaimed", "a4a39ed5", "100f31d9", "unclaimed",
   ],
   "first:orion:rank6": [
-    "affcd813", "223525a2", "unclaimed", "860b3dae", "bf21bed5", "b6cb2433", "4470367", "c7b46c88", "unclaimed",
+    "affcd813", "223525a2", "unclaimed", "860b3dae", "bf21bed5", "6509401e", "4470367", "c7b46c88", "unclaimed",
   ],
   "first:aurora:d18": [
     "52536dde", "756ee33c", "unclaimed", "5a7ab11b", "5dd300cf", "unclaimed", "87d5ba4a", "dd32a3f9", "unclaimed",
@@ -290,7 +290,7 @@ const GOLDEN: Record<string, unknown> = {
     "86763a7b", "bfaa6416", "unclaimed", "74b53c5e", "5c417add", "unclaimed", "6e276961", "f8354d21", "unclaimed",
   ],
   "first:aurora:rank6": [
-    "7087672d", "99c4d0f6", "unclaimed", "cd047b4c", "1d9bc0c9", "d02d8fba", "df55fd0b", "daab71f8", "unclaimed",
+    "7087672d", "99c4d0f6", "unclaimed", "cd047b4c", "1d9bc0c9", "2fc8cafd", "df55fd0b", "daab71f8", "unclaimed",
   ],
   "first:eir:d18": [
     "642344c4", "5d9d444a", "unclaimed", "55785a59", "a4032671", "unclaimed", "1aac0526", "1fa77fb5", "unclaimed",
@@ -299,16 +299,16 @@ const GOLDEN: Record<string, unknown> = {
     "56a48f68", "2a5a989b", "unclaimed", "4940b499", "7a20ad31", "unclaimed", "61b6a912", "ee419ce7", "unclaimed",
   ],
   "first:eir:board10": [
-    "27a3b4f8", "84fb8de5", "unclaimed", "8a585031", "7c62a83b", "34383073", "7a333c16", "e61e1745", "unclaimed",
+    "27a3b4f8", "84fb8de5", "unclaimed", "8a585031", "7c62a83b", "b472a262", "7a333c16", "e61e1745", "unclaimed",
   ],
   "first:eir:rank1": [
-    "ab42177f", "e2f372fb", "unclaimed", "2b4146ce", "94ba26f6", "c5eb3f80", "be290397", "61f70297", "unclaimed",
+    "ab42177f", "e2f372fb", "unclaimed", "2b4146ce", "94ba26f6", "b9585e9d", "be290397", "61f70297", "unclaimed",
   ],
   "first:eir:rank3": [
-    "d3ded431", "b69720a", "bbf5b584", "4a025d0c", "8624329f", "7ef7b4be", "ff3ba6f5", "d5007501", "dcb515f6",
+    "d3ded431", "b69720a", "40699781", "4a025d0c", "8624329f", "96dc9127", "ff3ba6f5", "d5007501", "c3947657",
   ],
   "first:eir:rank6": [
-    "592b5c07", "c6e3826e", "unclaimed", "6b218f86", "e478219", "unclaimed", "2563a80b", "6a6f159f", "a7b92c9c",
+    "592b5c07", "c6e3826e", "unclaimed", "6b218f86", "e478219", "unclaimed", "2563a80b", "6a6f159f", "bca14487",
   ],
   "first:systems": [
     "Lyra's Wake: volcanic 0.65, barren 0.1", "Halcyon Drift: ocean 0.4, barren 0.1",
@@ -333,12 +333,12 @@ const GOLDEN: Record<string, unknown> = {
     "82a89aab", "9aa5f6d8", "unclaimed", "9a3a52be", "f635524d", "unclaimed", "caf42cf3", "768a8477", "unclaimed",
   ],
   "later:orion:rank6:2": [
-    "3ebe3031", "297bc2dd", "unclaimed", "ddabe588", "75f3ef6", "d1d4a03a", "24220565", "5a9637ba", "unclaimed",
+    "3ebe3031", "297bc2dd", "unclaimed", "ddabe588", "75f3ef6", "b593e13f", "24220565", "5a9637ba", "unclaimed",
   ],
   "later:orion:rank6:11": [
-    "9ea9cc93", "733b01d7", "unclaimed", "18972976", "a952bd2e", "6976cc8", "ebc0bc6f", "628cb48", "unclaimed",
+    "9ea9cc93", "733b01d7", "unclaimed", "18972976", "a952bd2e", "1095876b", "ebc0bc6f", "628cb48", "unclaimed",
   ],
-  "later:eir:real": ["bbf5b584", "d2d53bc8", "a076d1ec", "unclaimed"],
+  "later:eir:real": ["40699781", "d2d53bc8", "a076d1ec", "unclaimed"],
   "lines:later:eir:real": [
     "complete 11/11 lost:47 sent:0 stuck:none hull:0 setbacks:0 boarded:0 vault:2",
     "activities 7/8 lost:76 sent:502 stuck:geothermalChamber hull:14 setbacks:1 boarded:0 vault:3",
@@ -374,7 +374,7 @@ const GOLDEN: Record<string, unknown> = {
     "unknownSite:1:n=2/2/2/3:hp=187/187/187/248:a435ab2a",
   ],
   "old:v69": [
-    "46fc44f8", "patrol:won:14", "2150f1b6", "cfe43cca", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "75ab4c47",
+    "92c29f65", "patrol:won:14", "2150f1b6", "80ce239", "expedition:complete", "a4fc1f4f", "bbbd0b9e", "a830e43c",
   ],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first) moves the forecast wins.
   "patrol:forecast": [
@@ -581,7 +581,7 @@ describe("SF-0 golden 1: a new save's first-run predicates and the fresh recruit
 // ===== 2. patrols =====
 
 function patrolBase(hull: ShipTypeKey, seed: number): GameState {
-  return { ...onHull(hull), nextPatrolSeed: seed, fuel: new Decimal(100_000), credits: new Decimal(100_000) };
+  return { ...onHull(hull), nextPatrolSeed: seed, credits: new Decimal(100_000) };
 }
 
 const patrolOf = (s: GameState): PatrolMissionState | null => s.captains[0].mission as PatrolMissionState | null;
@@ -683,7 +683,6 @@ describe("SF-0 golden 2: patrols", () => {
       expect(big.captains).toEqual(end.captains);
       expect(big.ships).toEqual(end.ships);
       expect(big.nextPatrolSeed).toBe(end.nextPatrolSeed);
-      expect(big.fuel.toString()).toBe(end.fuel.toString());
       expect(big.credits.toString()).toBe(end.credits.toString());
     }
   });
@@ -699,7 +698,6 @@ function gatherBase(hull: ShipTypeKey): GameState {
   const b = onHull(hull);
   return {
     ...b,
-    fuel: new Decimal(1_000_000_000),
     credits: new Decimal(1_000_000_000),
     captains: b.captains.map((c) => ({ ...c, level: 10 })),
     facilities: { ...b.facilities, missionControl: { ...b.facilities.missionControl, level: MAX_UNLOCK } },
@@ -882,7 +880,6 @@ function oldSave(): GameState {
     nextExpeditionId: 3,
     expeditionSeed: advanceExpeditionSeed(advanceExpeditionSeed(EXPEDITION_DEFAULT_SEED)),
     nextPatrolSeed: 5,
-    fuel: new Decimal(100_000),
     credits: new Decimal(100_000),
     lifetimeStats: { ...crewed.lifetimeStats, missionsCompleted: { ...crewed.lifetimeStats.missionsCompleted, crimsonReaverSweep: new Decimal(1) } },
   };

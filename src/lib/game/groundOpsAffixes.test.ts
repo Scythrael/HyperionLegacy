@@ -110,10 +110,10 @@ describe("AF-1 the gate: a run without the affix flag resolves byte-identically 
   // (when the run completes).
   const GOLDEN: Record<string, string[]> = {
     tierOne: ["544053ed", "f772abab", "4c853d53", "ddb6273c", "247423db", "activities", "unclaimed"],
-    tierThree: ["7b3ef0b7", "7a377d69", "7a377d69", "7a377d69", "7a377d69", "complete", "7ba2c3e"],
-    tierFourEnemy: ["5b204c68", "8ea32568", "b3a4fc92", "b3a4fc92", "b3a4fc92", "complete", "8104073a"],
-    strikeSurveyTierFour: ["a4f963ee", "eddc089", "eddc089", "eddc089", "eddc089", "complete", "b86b42a4"],
-    tierSixWeak: ["9a6a5c6", "dc6efd05", "cf4230f1", "cf4230f1", "cf4230f1", "complete", "662c8e4d"],
+    tierThree: ["7b3ef0b7", "7a377d69", "7a377d69", "7a377d69", "7a377d69", "complete", "6fea8ae1"],
+    tierFourEnemy: ["5b204c68", "8ea32568", "b3a4fc92", "b3a4fc92", "b3a4fc92", "complete", "2da25f"],
+    strikeSurveyTierFour: ["a4f963ee", "eddc089", "eddc089", "eddc089", "eddc089", "complete", "7acaa969"],
+    tierSixWeak: ["9a6a5c6", "dc6efd05", "cf4230f1", "cf4230f1", "cf4230f1", "complete", "38ffe7d6"],
   };
   for (const [name, build] of Object.entries(CASES)) {
     it(`${name}: checkpoints and the claim match the pre-AF-1 capture`, { timeout: 120_000 }, () => {

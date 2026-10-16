@@ -120,7 +120,6 @@ describe("requiresMissionCompletions, RESERVED prereq mechanism stays enforced (
 describe("dispatchCaptainOnMission, belt-and-suspenders unlock guard (retained for future locked missions)", () => {
   it("all four missions dispatch at the fresh level-1 seed (capability gates cleared)", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // rule out the fuel gate, isolate the unlock gate
     // Salvage/Forage carry CAPABILITY gates (captain level 2/3) that are SEPARATE from the
     // unlock and deliberately kept, bump the captain past them so this test isolates the
     // UNLOCK behavior (that all four are unlockLevel 1). The Freighter's cargo 90 already
@@ -136,7 +135,6 @@ describe("dispatchCaptainOnMission, belt-and-suspenders unlock guard (retained f
 
   it("still BLOCKS a mission whose unlockLevel exceeds the facility level (guard mechanism intact)", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000);
     // Drop missionControl BELOW the ore runs' unlockLevel 1 -> they become locked, exercising
     // the exact missionUnlocked guard a FUTURE higher-unlockLevel mission (paired with a
     // re-added unlock rung) will hit. This proves the level-derived lock path still works

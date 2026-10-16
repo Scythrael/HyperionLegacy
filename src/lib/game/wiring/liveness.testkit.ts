@@ -212,7 +212,6 @@ const STATE_OUTCOME_KEYS: readonly (keyof GameState)[] = [
   "fleetAdminXp",
   "fleetAdminLevel",
   "credits",
-  "fuel",
   "lifetimeStats",
   "activeProcesses",
   "archive",
@@ -276,7 +275,7 @@ export function expeditionOutcome(e: Expedition): unknown {
 
 export function shipScaffold(typeKey?: ShipTypeKey): GameState {
   const base = freshState();
-  const s = { ...base, fuel: new Decimal(1_000_000_000), credits: new Decimal(1_000_000) };
+  const s = { ...base, credits: new Decimal(1_000_000) };
   return typeKey ? editShip(s, { typeKey }) : s;
 }
 

@@ -5,7 +5,7 @@
 import LZString from "lz-string";
 import Decimal from "break_infinity.js";
 import { QUALITY_TIERS } from "./inventory";
-import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, FUEL_TANK_BASE_CAP, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
+import { type GameState, type MissionPhase, freshCaptains, freshLifetimeStats, requiredTicksForPhase, MISSIONS, SHIP_TYPES, seedStandardIssueForShip, STANDARD_ISSUE_ILEVEL, SI_PLATING_HP, SI_EMITTER_CAP, SI_EMITTER_RECHARGE, isStandardIssueBaseline, AUTO_SALVAGE_RARITIES_NONE, AUTO_SALVAGE_GRACE_SECONDS_DEFAULT, SENIOR_STAFF_DEFAULT_SEED, SENIOR_STAFF_ROSTER_BASE, EXPEDITION_DEFAULT_SEED, DEFAULT_GAMBIT_PROGRAMS, RELIC_DEFAULT_SEED, awayRecruitSeedFrom } from "./model";
 // E-CREW (Task 2): the v64->v65 step backfills each officer's stats through the officer stat roll
 // (a neutral stub until Task 19, the real seeded roll since). Task 19's v65->v66 step re-rolls the
 // stub-era neutral lines through the same roll. One-way import: seniorStaff.ts is a pure leaf over
@@ -58,7 +58,14 @@ import {
   v68ShipGroundTeamsFromV67,
 } from "./groundTeams";
 
-export const SAVE_VERSION = 69;
+// SAVE v70 (0.14.0). WHAT v70 CONTAINS (one shared bump for the unreleased 0.14.0 schema; a later 0.14.0 slice that
+// needs a schema change APPENDS its own step to MIGRATIONS[69] below, documented beside this list, rather than
+// taking v71, while v70 has not reached staging; plan 2026-10-15 WR-4 carry note):
+//   1. WR-4 (OC-C1): drop the retired fuel STOCKPILE (`fuel`; fuel is a reach stat since 0.13.6 and nothing
+//      fills or spends it after Buy Fuel retired), and any in-flight Fuel Depot refine batch (`fuelRefineJob`,
+//      whose fuel output no longer exists). No refund (the tank held fuel nothing used; see the carry note).
+//   (reserved, not landed yet: G2-1 the stored homeworld; SF-1 the run counters.)
+export const SAVE_VERSION = 70;
 export const SAVE_KEY = "fleet_admiral_save";
 
 export interface SaveFile {
@@ -187,24 +194,15 @@ function hydrateDecimals(state: any): GameState {
     })),
     fleetAdminXp: toDecimal(state.fleetAdminXp),
     credits: toDecimal(state.credits),
-    // Fuel economy (Mission Rework Task 3): the fleet-wide fuel stockpile is
-    // Decimal-typed, so it round-trips through JSON as a plain string exactly like
-    // credits above and MUST be toDecimal()'d back or the first .plus()/.gte() a
-    // fuel reader (Task 4/5) does would throw. DEFENSIVE `?? new Decimal(0)`: unlike
-    // credits (present on every save since v0), `fuel` is brand-new this pass and the
-    // migration that seeds it onto existing saves is Task 9 (v20->v21). Until that
-    // lands, a pre-migration save reaching here has NO `fuel` field, toDecimal(undefined)
-    // would produce a NaN Decimal, so default the absent field to 0. Idempotent and
-    // harmless once Task 9's migration guarantees the field's presence.
-    fuel: toDecimal(state.fuel ?? new Decimal(0)),
+    // (WR-4: the fleet-wide fuel stockpile `fuel` is retired; MIGRATIONS[69] drops it, so nothing hydrates it.)
     // craftingXp (Equipment 0.11.0, Task 3 / v26->v27 hotfix): the Crafting Level XP
     // accumulator is Decimal-typed, so it round-trips through JSON as a plain string
-    // exactly like credits/fleetAdminXp/fuel above and MUST be toDecimal()'d back or
+    // exactly like credits/fleetAdminXp above and MUST be toDecimal()'d back or
     // applyCraftingXp's .plus()/.gte() (tick.ts) would throw/NaN on load. DEFENSIVE
     // `?? new Decimal(0)`: MIGRATIONS[26] (v26->v27) backfills this field onto older
     // saves, but default the absent field to 0 so a save that somehow reaches here
     // without it (a partially-migrated / hand-edited shape) hydrates to a live Decimal(0)
-    // rather than a NaN, mirroring the `fuel` guard above. THIS revive is now the SOLE
+    // rather than a NaN (the defensive `??` the retired `fuel` field had too). THIS revive is now the SOLE
     // guarantee applyCraftingXp (tick.ts) relies on: Task 20 RETIRED applyCraftingXp's
     // own interim coercion guard, so it reads state.craftingXp directly and depends on
     // this rule having produced a live Decimal. Idempotent: toDecimal no-ops on an
@@ -227,10 +225,10 @@ function hydrateDecimals(state: any): GameState {
     //
     // Task 8 / Fuel v2: a persisted mid-flight timed process (startProcess pushes them
     // into activeProcesses) can carry a Decimal on its effect's `amount`, an `addItem`
-    // refine-job output OR an `addFuel` fuel-refine batch (Fuel Depot pipelines), which
+    // refine-job output (and, before WR-4, an `addFuel` fuel-refine batch, which v70 drops), which
     // round-trips through JSON as a plain string exactly like every other Decimal here, so
     // it MUST be toDecimal()'d back or a resolver .plus()/.gt() on it would throw/NaN on
-    // load. Guarded on PRESENCE of an `amount` (both addItem and addFuel carry one; any
+    // load. Guarded on PRESENCE of an `amount` (addItem carries one; any
     // future amount-bearing effect is covered automatically, no per-type opt-in seam): a
     // `facilityLevelUp` effect (and the process's id/kind/remainingTicks/durationTicks
     // scalars) have NO `amount`, so they ride through untouched. Safe unguarded on
@@ -865,7 +863,7 @@ const MIGRATIONS: Record<number, Migration> = {
   // production-released migrations).
   20: (state: any): any => ({
     ...state,
-    fuel: state.fuel ?? FUEL_TANK_BASE_CAP,
+    fuel: state.fuel ?? 500, // FROZEN: the retired FUEL_TANK_BASE_CAP (500) when this step shipped; v70 drops the field
     facilities: {
       ...state.facilities,
       fuelStorage: state.facilities?.fuelStorage ?? { level: 0 },
@@ -2533,7 +2531,21 @@ const MIGRATIONS: Record<number, Migration> = {
   // salvaged hull left its people pointing at it (staging and dev saves: the crew is new in 0.14.0). See
   // repairOrphanedShipRefsV69.
   68: (state: any): any => repairOrphanedShipRefsV69(state),
+  // v69 -> v70 (0.14.0, the shared bump; see SAVE_VERSION above for everything v70 contains).
+  // 1. WR-4 (OC-C1): the retired fuel stockpile and any Fuel Depot refine batch still in flight.
+  69: (state: any): any => dropRetiredFuelV70(state),
 };
+
+// The v69 -> v70 WR-4 step: drop `fuel` and every `fuelRefineJob` process (its addFuel output names a field that no
+// longer exists; none can start since 0.13.9). FROZEN: reads only the raw save. Identity-shaped for a save without
+// either (only the fuel key leaves). Hardened: a non-array activeProcesses passes through untouched.
+export function dropRetiredFuelV70(state: any): any {
+  if (!state || typeof state !== "object") return state;
+  const { fuel: _retired, ...rest } = state;
+  void _retired;
+  if (!Array.isArray(rest.activeProcesses) || !rest.activeProcesses.some((p: any) => p && p.kind === "fuelRefineJob")) return rest;
+  return { ...rest, activeProcesses: rest.activeProcesses.filter((p: any) => !(p && p.kind === "fuelRefineJob")) };
+}
 
 // The v68 -> v69 step, exported so its hardening can be tested on raw shapes the full load cannot hydrate.
 // Every record naming a ship id that is NOT in state.ships is released the way salvage now releases people

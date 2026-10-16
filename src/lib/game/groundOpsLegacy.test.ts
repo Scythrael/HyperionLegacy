@@ -98,9 +98,9 @@ const CASES: Case[] = [
 
 // Captured from the code BEFORE GO-7b's engine edit: [checkpoint hashes..., claim hash].
 const GOLDEN: Record<string, string[]> = {
-  plain: ["51a6b54a", "57bbe196", "c235ae9c", "38999dd4", "b25f35f9", "326f7d57", "86496a51", "45a67548", "c43f17e5", "722785cd", "8d760705", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "ada018d0"],
-  pause: ["b168856d", "544e2a74", "8081cad5", "e0cdae45", "b80a82f6", "424800a7", "8e082be3", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "52fb7e6"],
-  wipes: ["b960f9fe", "b960f9fe", "b960f9fe", "6192307b", "85a08d3e", "2a7018a9", "aa28c3ca", "1cfeccbb", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "8d2ee3e9"],
+  plain: ["51a6b54a", "57bbe196", "c235ae9c", "38999dd4", "b25f35f9", "326f7d57", "86496a51", "45a67548", "c43f17e5", "722785cd", "8d760705", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "2f85a5ab", "13aaf50b"],
+  pause: ["b168856d", "544e2a74", "8081cad5", "e0cdae45", "b80a82f6", "424800a7", "8e082be3", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "c0a617ff", "6e11d267"],
+  wipes: ["b960f9fe", "b960f9fe", "b960f9fe", "6192307b", "85a08d3e", "2a7018a9", "aa28c3ca", "1cfeccbb", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "18d0f86e", "a9156c90"],
 };
 
 describe("legacy runs (no groundOps) stay byte-identical across the GO-7b switch (golden)", () => {

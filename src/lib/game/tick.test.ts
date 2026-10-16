@@ -227,7 +227,6 @@ describe("tickCaptainMission, closed-form requirement", () => {
     const makeS = () => {
       const s = freshState();
       s.captains[0].mission = missionCaptain("longOreRun");
-      s.fuel = new Decimal(1_000_000_000); // Task 5: fuel-rich so the auto-repeat never stops on empty (this test isolates XP accrual, not the fuel gate)
       return s;
     };
 
@@ -1225,7 +1224,6 @@ describe("tickCaptainMission, cycle completion, auto-repeat, and recall", () => 
   // remap survives the tick()-level fold into inventory, not just the captain delta).
   it("a full salvageWreckage cycle on a COMMON roll lands scrapAlloy in inventory", () => {
     const base = freshState();
-    base.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch + auto-repeats (fuel-rich, so mission behavior is unchanged)
     // USER REVISION 2026-07-14: salvageWreckage is now unlockLevel 1, so freshState's
     // level-1 missionControl seed already UNLOCKS it, no facility bump needed (the
     // unlock upgrade was deferred). This test is about LOOT DELIVERY, not the unlock
@@ -1616,7 +1614,6 @@ describe("economyTick / tick() equivalence, the Task A2 mechanical extraction is
     const makeState = () => {
       const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
       s.captains[0].mission = missionCaptain("shortOreRun");
-      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so both paths auto-repeat identically (equivalence isn't about the fuel gate)
       return s;
     };
 
@@ -2001,7 +1998,6 @@ describe("tick(), idle captains do nothing, mission captains route through tickC
     // (simulating a PRIOR delivery already sitting in inventory) to prove this tick's delta is ADDED
     // to existing totals, not overwriting them: expected result = {75, 21, 10}.
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats (this test asserts the repeat, not the fuel gate)
     state.inventory = {
       commonOre: [new Decimal(5)],
       uncommonMaterial: [new Decimal(1)],
@@ -2209,7 +2205,6 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
       // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
       // (which would ALSO consume commonOre -> fuel) are PAUSED (tank-full), isolating
       // this test to the trickle-vs-warehouse-cap gate alone.
-      s.fuel = new Decimal(10_000); // >> the level-0 tank cap (500) -> depot idle
       return s;
     };
 
@@ -2247,7 +2242,6 @@ describe("tick(), Homeworld/Captain Talent effects wired into extraction and pas
 describe("dispatchCaptainOnMission", () => {
   it("dispatches an idle captain, setting their initial mission state exactly", () => {
     const state = freshState(); // captains[0].mission is null (idle)
-    state.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch fuel gate (fuel-rich)
     const { next, success } = dispatchCaptainOnMission(state, 1, "shortOreRun");
 
     expect(success).toBe(true);
@@ -2268,7 +2262,6 @@ describe("dispatchCaptainOnMission", () => {
     // pre-Phase-4, same intent (prove dispatchCaptainOnMission only touches `mission`),
     // updated to the post-Task-2 CaptainState/GameState shape.
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // Task 5: fund the dispatch fuel gate so the dispatch actually happens (else this test is vacuous)
     state.captains[0].level = 4;
     state.captains[0].xp = new Decimal(250); // xp is Decimal, new Decimal(...), not a plain-number assignment
     state.captains[0].statPoints = 3;
@@ -2283,7 +2276,6 @@ describe("dispatchCaptainOnMission", () => {
 
   it("fails if the captain is already on a mission (same state reference, unchanged)", () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // Task 5: fund the FIRST dispatch (the second fails on the already-on-mission guard, not fuel)
     const { next: dispatched } = dispatchCaptainOnMission(state, 1, "shortOreRun");
 
     const { next, success } = dispatchCaptainOnMission(dispatched, 1, "longOreRun");
@@ -3150,7 +3142,7 @@ describe("resolveProcesses, per-kind XP routing (FA XP + crafting XP), character
   const effectForKind: Record<TimedProcessKind, ProcessEffect> = {
     refineJob: { type: "addItem", itemId: "titaniumIngot", amount: new Decimal(1) },
     facilityUpgrade: { type: "facilityLevelUp", facility: "refinery" },
-    fuelRefineJob: { type: "addFuel", amount: new Decimal(50) },
+    fuelRefineJob: { type: "addItem", itemId: "deuteriumIce", amount: new Decimal(0) }, // WR-4: a legacy log-only kind (no producer); the routing keys off the kind
     researchProject: { type: "unlockBlueprint", key: "someBlueprint" },
     // ⚠️ 0.13.3 Unit 3.2 FIXTURE CHANGE: was `itemId: "alloy"`, an item that does not
     // exist in ITEMS. That was harmless while the crafting award ignored the payload and
@@ -3259,7 +3251,9 @@ describe("resolveProcesses, FA XP on completed finite-source processes (0.12.1 u
   const addItem = (itemId: string, amount: number): ProcessEffect => ({ type: "addItem", itemId, amount: new Decimal(amount) });
   const addShip = (): ProcessEffect => ({ type: "addShip", typeKey: "prospectorMiner" });
   const levelUp = (facility: string): ProcessEffect => ({ type: "facilityLevelUp", facility });
-  const addFuel = (amount: number): ProcessEffect => ({ type: "addFuel", amount: new Decimal(amount) });
+  // WR-4: the fuel batch's addFuel effect is gone; a legacy fuelRefineJob carries a placeholder payload (the XP
+  // routing keys only off the kind).
+  const addFuel = (amount: number): ProcessEffect => ({ type: "addItem", itemId: "deuteriumIce", amount: new Decimal(amount * 0) });
   const unlock = (key: string): ProcessEffect => ({ type: "unlockBlueprint", key });
 
   it("a completed facilityUpgrade lumps FLEET_ADMIN_XP_PER_DURATION_TICK * durationTicks, once", () => {
@@ -3370,7 +3364,9 @@ describe("resolveProcesses, crafting XP on completed production jobs (Equipment 
   const addItem = (itemId: string, amount: number): ProcessEffect => ({ type: "addItem", itemId, amount: new Decimal(amount) });
   const addShip = (): ProcessEffect => ({ type: "addShip", typeKey: "prospectorMiner" });
   const levelUp = (facility: string): ProcessEffect => ({ type: "facilityLevelUp", facility });
-  const addFuel = (amount: number): ProcessEffect => ({ type: "addFuel", amount: new Decimal(amount) });
+  // WR-4: the fuel batch's addFuel effect is gone; a legacy fuelRefineJob carries a placeholder payload (the XP
+  // routing keys only off the kind).
+  const addFuel = (amount: number): ProcessEffect => ({ type: "addItem", itemId: "deuteriumIce", amount: new Decimal(amount * 0) });
   const unlock = (key: string): ProcessEffect => ({ type: "unlockBlueprint", key });
 
   // ⚠️ 0.13.3 Unit 3.2, VALUE CHANGE: a refine job is now WEIGHTED at a quarter of the
@@ -3733,7 +3729,6 @@ describe("resolveProcesses awards the WEIGHTED crafting XP, per completing kind 
         job("shipBuild", 300, { type: "addShip", typeKey: "prospectorMiner" }, "proc-4"),
         job("salvageJob", 60, { type: "salvageResolve", target: { kind: "material", itemId: HOUSING } }, "proc-5"),
         job("facilityUpgrade", 40, { type: "facilityLevelUp", facility: "refinery" }, "proc-6"),
-        job("fuelRefineJob", 80, { type: "addFuel", amount: new Decimal(50) }, "proc-7"),
       ],
       { inventory: { ...freshState().inventory, [HOUSING]: [new Decimal(3)] } },
     );
@@ -4336,7 +4331,6 @@ describe("Equipment fold, closed-form + both-path parity (Task 14)", () => {
   // (this proof is about the stat fold, not the fuel gate).
   const fittedState = () => {
     const s = freshState();
-    s.fuel = new Decimal(1_000_000);
     s.captains[0].mission = {
       kind: "extraction",
       missionKey: "shortOreRun",
@@ -4424,7 +4418,6 @@ describe("tick(), applies each captain's assigned-ship stats to their mission", 
   // (transit 1.0 / cargo 90 / yield 1.0 == effectiveMissionDef no-op).
   const stateOnShortOreRun = () => {
     const state = freshState();
-    state.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the Runner's auto-repeat isn't gated (these tests are about ship stats, not fuel)
     state.captains[0].mission = {
       kind: "extraction",
       missionKey: "shortOreRun",
@@ -4896,7 +4889,6 @@ describe("economyTick, mission auto-stop when the primary material is at cap (Ta
     // Fuel Economy v2 (F2): fill the fuel tank so the always-on Fuel Depot pipelines
     // (which would ALSO drain commonOre -> fuel) are PAUSED (tank-full), isolating this
     // test to the MISSION auto-stop-at-warehouse-cap behavior alone.
-    s.fuel = new Decimal(10_000); // >> the level-0 tank cap (500) -> depot idle
     return s;
   }
 
@@ -4990,7 +4982,6 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     const makeS = () => {
       const s = freshState();
       s.captains[0].mission = missionCaptain("shortOreRun");
-      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats identically on both paths (parity isn't about the fuel gate)
       return s;
     };
     // A CONSTANT rng makes loot bit-identical between the two paths even though the
@@ -5042,7 +5033,6 @@ describe("tick, per-tick stepping matches the single-call economy when no cap bi
     const makeS = () => {
       const s = freshState(); // 1 captain + generalFreighter -> 149-tick shortOreRun cycle; tickDurationSeconds 1
       s.captains[0].mission = missionCaptain("shortOreRun");
-      s.fuel = new Decimal(1_000_000); // Task 5: fuel-rich so the cycle auto-repeats identically on both paths (parity isn't about the fuel gate)
       return s;
     };
     const deltaSeconds = 149.7; // tickDurationSeconds 1 -> ticksElapsed 149.7 = 149 whole + 0.7 frac

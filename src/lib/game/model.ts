@@ -1399,10 +1399,11 @@ export function shipDisplayLabels(ships: readonly ShipInstance[]): Map<string, s
 // numbers, real balancing at the device-check stage.
 //   FUEL_PER_TICK        , fuel burned per round-trip transit tick.
 //                            the numerator scale in fuel.ts's fuelNeeded.
-//   FUEL_CREDITS_PER_UNIT, buy price of one fuel unit in credits (buyFuel + the F3
-//                            auto-buy-shortfall path both charge this).
-// Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values --
-// only the GameState.fuel STOCKPILE is Decimal (matches the other currency fields).
+//   FUEL_CREDITS_PER_UNIT, the price the F3 auto-buy-shortfall path charges per fuel unit. (WR-4: Buy Fuel,
+//                            the other spender, is retired, user 2026-10-16 credit sinks pass; the mission
+//                            auto-buy plumbing itself is unreachable since 0.13.6, its fuel budget is
+//                            infinite, and its removal waits on the fuel-economy cleanup call, S4-A02.)
+// Kept as plain numbers (not Decimal): fuel amounts are small, non-idle-scale values.
 //
 // ⚠️ FUEL ECONOMY v2 RETUNE (device feedback 2026-07-15) ⚠️ FUEL_PER_TICK was REVERTED
 // 0.1 -> 1 (back to the original v1 value). HISTORY: F3 first DROPPED it 1 -> 0.1 fearing a
@@ -1436,39 +1437,13 @@ export const FUEL_CREDITS_PER_UNIT = 20;
 // calls, the offline==live parity guarantee. FIRST-PASS TUNABLE (device-retuned).
 export const REFUEL_PENALTY_TICKS = 2;
 
-// FUEL_TANK_BASE_CAP, the global Fuel Tank's capacity at fuel-storage facility
-// level 0 (Mission Rework Task 4, design §3). PARALLELS WAREHOUSE_T1_BASE_CAP: it
-// is the base that fuelCap (tick.ts) doubles once per reached fuel-storage rung
-// (base * 2^level). ⚠️ CRITICAL no-soft-lock invariant: this base is a REAL,
-// usable capacity available from level 0 (a fresh save), NOT a locked/sentinel
-// stub, missions are dispatchable from game start and need fuel, so the tank
-// must hold fuel before any facility upgrade. tick.ts imports THIS constant
-// directly (single source of truth, no duplicated base number, unlike the
-// warehouse which mirrors its base in tick.ts's BASE_CAP for a separate formula).
-// FIRST-PASS TUNABLE, same launch-placeholder spirit as the constants above.
-export const FUEL_TANK_BASE_CAP = 500;
-
-// --- Fuel Depot refining constants (Fuel Economy v2 F2, design §2) ---------------
-// The Fuel Depot's pipelines continuously refine Deuterium Ice (`deuteriumIce`, its own
-// dedicated item as of the 2026-07-15 restructure) into fuel: each pipeline runs one BATCH
-// at a time, consume FUEL_REFINE_INPUT ice ->
-// produce FUEL_REFINE_OUTPUT fuel over FUEL_REFINE_DURATION_TICKS ticks, then
-// repeats automatically (processFuelPipelines, tick.ts). These are the LEVEL-0 base
-// values; Fuel Depot upgrades scale them (yield up, input down, see the fuelYield/
-// fuelInput helpers). ⚠️ ALL FIRST-PASS TUNABLE, same launch-placeholder spirit as
-// the constants above, real balancing at the device-check stage.
-//   FUEL_REFINE_INPUT  , Deuterium Ice consumed per batch (50 -> 100 to start).
-//   FUEL_REFINE_OUTPUT , fuel produced per batch.
-//   FUEL_REFINE_DURATION_TICKS, batch length; MIRRORS the material Refinery recipe's
-//                          10-tick common-tier duration (a deliberate parallel, tunable).
-//   FUEL_DEPOT_BASE_PIPELINES, concurrent pipelines at facility level 0 (design: "start 1").
-// Kept as plain numbers (INPUT is wrapped in a Decimal at the deduct site, since the
-// process engine's input map is Record<string, Decimal>); OUTPUT feeds the Decimal
-// fuel tank. Small human-scale values, same rationale as fuel.ts's plain-number math.
-export const FUEL_REFINE_INPUT = 50;
-export const FUEL_REFINE_OUTPUT = 100;
-export const FUEL_REFINE_DURATION_TICKS = 10;
-export const FUEL_DEPOT_BASE_PIPELINES = 1;
+// WR-4 (OC-C1, user 2026-10-16 "Turn into range": the Fuel Depot's storage levels become a fleet reach bonus).
+// The share of every ship's reach one built Fuel Depot rung adds; tick.ts fleetReachBonus sums it over the reached
+// rungs and shipReachDef applies it to every ship (the mission and patrol dispatch gates and every range readout
+// read that one seam). Linear per rung on a finite 9-rung track. [PROPOSAL] 5% per rung (45% at the top), the
+// user tunes it. The retired tank (FUEL_TANK_BASE_CAP) and refinery (FUEL_REFINE_*, FUEL_DEPOT_BASE_PIPELINES)
+// constants went with the fuel stockpile (save v70).
+export const FUEL_DEPOT_REACH_PER_RUNG = 0.05;
 
 // A concrete ship in the fleet, an instance of one SHIP_TYPES hull. Distinct
 // from ShipTypeDef (the shared, immutable stat template): a ShipInstance is the
@@ -3930,17 +3905,14 @@ export function extractionMissionOf(captain: CaptainState): CaptainMissionState 
 // so a new literal slots in without touching existing call sites (same convention
 // as ShipType/MissionTier above).
 //
-// Fuel Economy v2 (F2): "fuelRefineJob" is the Fuel Depot's pipeline batch, a
-// Deuterium-Ice -> fuel refine that deposits into the GameState.fuel TANK (not
-// inventory), distinct from a "refineJob" (which outputs an inventory item). It
-// reuses the SAME countdown/completion machinery; only its completion EFFECT differs
-// (addFuel, below). It is deliberately EXCLUDED from the resolver's Fleet-Admiral-XP
-// lump award (see resolveProcesses) so the new fuel economy does not perturb the
-// tuned FA-XP curve.
+// Fuel Economy v2 (F2): "fuelRefineJob" WAS the Fuel Depot's pipeline batch (Deuterium Ice -> fuel). The
+// pipelines were retired in 0.13.9 and the fuel stockpile with its addFuel effect in WR-4 (save v70 drops any
+// such process still in a save), so nothing starts one. The kind stays in the union ONLY so an old completed-
+// events log entry ("Refined ... Fuel Depot") still renders (IDENTITY, not an effect).
 // Research (Task R3, design §3): "researchProject" is a timed research project run by
 // the Research Lab, a countdown whose COMPLETION unlocks a blueprint (the unlockBlueprint
 // effect below) rather than adding an item / bumping a level. It reuses the SAME
-// countdown/completion machinery; only its completion effect differs. Like "fuelRefineJob"
+// countdown/completion machinery; only its completion effect differs. Like the retired "fuelRefineJob"
 // it is EXCLUDED from the resolver's Fleet-Admiral-XP lump award (see resolveProcesses) --
 // research is automated infra that must not perturb the tuned FA-XP curve.
 // Fabricator (Phase 4, Task F2): a "fabricateJob" crafts a researched blueprint's
@@ -3990,23 +3962,13 @@ export type TimedProcessKind = "refineJob" | "facilityUpgrade" | "fuelRefineJob"
 export type ProcessEffect =
   | { type: "addItem"; itemId: string; amount: Decimal }
   | { type: "facilityLevelUp"; facility: string }
-  // Fuel Economy v2 (F2): a Fuel Depot pipeline batch's completion deposits `amount`
-  // fuel into the GameState.fuel TANK (a Decimal currency), NOT into inventory. This
-  // is the ONE difference between a "fuelRefineJob" and an inventory "refineJob":
-  // both consume an atomic input at start (deduct-at-start, startProcess) and run a
-  // fixed countdown, but this effect targets the capped fuel tank instead of an item
-  // key. resolveProcesses adds it to state.fuel on completion, CLAMPED at fuelCap
-  // (a batch legally starts while the tank is below cap, so its full output could
-  // otherwise overshoot; Decimal.min tops the tank to EXACTLY the cap and discards the
-  // excess, the SAME overflow-discard addToInventory does at a warehouse cap).
-  | { type: "addFuel"; amount: Decimal }
   // Research (Task R3, design §3): a completed research project unlocks its blueprint by
   // adding `key` to state.researchedBlueprints (resolveProcesses, idempotent, no dup).
   // The discriminant "unlockBlueprint" and the `key: string` field are FIXED by design §3
   // and are the EXACT shape R1's blueprintResearchable already scans activeProcesses for
   // (its "not in progress" check reads `effect.type === "unlockBlueprint" && effect.key`
   // via a forward cast), keep them in lockstep or that scan silently goes stale.
-  // Carries NO Decimal (unlike addItem/addFuel's `amount`), so hydrateDecimals (save.ts)
+  // Carries NO Decimal (unlike addItem's `amount`), so hydrateDecimals (save.ts)
   // needs NO change: its `"amount" in effect` guard skips this effect, and it round-trips
   // through JSON as plain {type,key} strings.
   | { type: "unlockBlueprint"; key: string }
@@ -4206,19 +4168,12 @@ export type FacilityUpgradeEffect =
   // would imply a stat this facility does not have). Extensible union, same
   // property-presence narrowing convention as the members above.
   | { unlocksContent: true }
-  // --- Fuel Economy v2 (F2): Fuel Depot PROCESSING upgrades --------------------
-  // Three effects that improve the Fuel Depot's Deuterium-Ice -> fuel pipelines,
-  // SEPARATE from its { storageCapMult } tank-cap rungs (which stay). Each is derived
-  // on read by ITS OWN helper (tick.ts) summing/multiplying only its property across
-  // the reached fuelStorage rungs, the SAME derive-on-read/reached-rungs idiom
-  // refineSlotCount / fuelCap use, and the SAME "one track, heterogeneous rungs"
-  // pattern the Refinery already uses (addRefineSlots + refineSpeedMult on one track).
-  // Because narrowing is by PROPERTY PRESENCE, a rung carrying one of these is inert
-  // to fuelCap (no storageCapMult) and vice-versa, so cap rungs and processing rungs
-  // coexist on the one fuelStorage track without interfering. ⚠️ First-pass TUNABLE.
-  | { addFuelPipelines: number } // +N concurrent auto-refine pipelines (fuelPipelineCount sums)
-  | { fuelYieldMult: number }    // xM fuel produced per batch (fuelBatchOutput multiplies)
-  | { fuelInputMult: number }    // xM Deuterium Ice consumed per batch; M<1 = less ice (fuelBatchInput multiplies)
+  // --- WR-4 (OC-C1): the Fuel Depot's FLEET REACH rung -------------------------
+  // The share of every ship's reach the rung adds (FUEL_DEPOT_REACH_PER_RUNG). tick.ts fleetReachBonus SUMS it
+  // across the reached fuelStorage rungs (the same derive-on-read/reached-rungs idiom refineSlotCount uses) and
+  // shipReachDef applies it. It replaced the tank-cap ({ storageCapMult } on this track) and the three refinery
+  // effects (addFuelPipelines / fuelYieldMult / fuelInputMult) when the fuel stockpile was retired.
+  | { fleetReachBonus: number }
   // --- Research (Task R2, design §1): the Research Lab's SLOT grant ---------------
   // +N concurrent research projects this facility can run. researchSlotCount (tick.ts)
   // SUMS this across the reached rungs, the EXACT same derive-on-read/reached-rungs
@@ -4504,79 +4459,19 @@ function buildWarehouseT2Upgrades(): FacilityUpgradeDef[] {
   return upgrades;
 }
 
-// --- Fuel Depot facility (Fuel Economy v2 F2, design §2; was "Fuel Storage",
-//     Mission Rework Task 4) ------------------------------------------------------
-// The facility KEY stays `fuelStorage` (label-only rename to "Fuel Depot", NO save
-// migration for the key; F5 owns any migration). It now has TWO roles on ONE upgrade
-// track:
-//   1. STORAGE (unchanged mechanic): a base tank capacity (FUEL_TANK_BASE_CAP) doubled
-//      once per reached { storageCapMult: 2 } rung, DERIVED on read by fuelCap (tick.ts)
-//      exactly as tierCap derives a warehouse tier's cap. Available + USABLE from level 0
-//      (design §3 no-soft-lock: missions need fuel from game start).
-//   2. PROCESSING (new, F2): continuously refines Deuterium Ice -> fuel via `pipelineCount`
-//      concurrent auto-batches (processFuelPipelines, tick.ts). Upgrades add pipelines
-//      (+concurrency), raise yield (+fuel/batch), and cut input (-ice/batch).
-// It hangs on the SAME facility framework (startFacilityUpgrade / canBuildFacilityUpgrade /
-// resolveProcesses) with NO new upgrade machinery, each rung is a facilityUpgrade
-// TimedProcess that bumps facilities.fuelStorage.level; the derive-on-read helpers
-// (fuelCap / fuelPipelineCount / fuelBatchOutput / fuelBatchInput) each read ONLY their
-// own effect property across the reached rungs, so storage rungs and processing rungs
-// coexist on the one track (same pattern the Refinery's addRefineSlots+refineSpeedMult
-// track uses).
-//
-// ⚠️ TRACK SHAPE, REAL CONTENT ONLY (F2 "don't over-build; cap at real content"):
-// a SHORT explicit finite track, NOT the old ~20-rung generated cap tower. The FIRST
-// THREE rungs are pure { storageCapMult: 2 } cap doublings so fuelCap stays
-// base*2^level for levels 1-3 (fuel.test.ts PINS fuelCap at levels 1 and 3, keep them
-// pure storage). Then three PROCESSING rungs (+pipeline / +yield / -input), then a few
-// more storage rungs so the tank can keep growing. Cap tops out at base*2^6 = 32,000
-// fuel, ample at fuel's human scale. ⚠️ ALL numbers (costs, durations, effect
-// magnitudes) FIRST-PASS TUNABLE, real balance at the device-check stage.
-//
-// Cost SHAPE mirrors warehouseT1's: a storage rung costs 75% of the tank cap it is
-// about to double (tracked via a running `cap`); processing rungs get hand-authored
-// commonOre (Deuterium Ice) costs, thematically apt (mine ice to expand the ice plant).
+// --- Fuel Depot facility (WR-4, OC-C1: the FLEET REACH track; was the fuel tank + refinery) ----------------
+// The facility KEY stays `fuelStorage` (the label is "Fuel Depot"). Since fuel-to-reach (0.13.6) fuel is a RANGE
+// stat, not a stockpile; the user's OC-C1 answer (2026-10-16, "Turn into range") repurposes the Depot's levels
+// into a FLEET REACH bonus: every built rung adds FUEL_DEPOT_REACH_PER_RUNG to every ship's reach (tick.ts
+// fleetReachBonus + shipReachDef). The nine rungs keep the costs and durations the tank / refinery track had (so
+// a save keeps the levels it built and each still counts), each now the same reach rung. ⚠️ FIRST-PASS TUNABLE.
+const FUEL_DEPOT_RUNG_COSTS: readonly number[] = [375, 750, 1500, 2000, 3000, 3000, 3000, 6000, 12000]; // Titanium Ore
 function buildFuelDepotUpgrades(): FacilityUpgradeDef[] {
-  const upgrades: FacilityUpgradeDef[] = [];
-  let cap = new Decimal(FUEL_TANK_BASE_CAP); // running tank cap as storage rungs are added
-  let dur = 20; // escalating duration placeholder (20, 40, 60, ...), TUNABLE
-
-  // A storage rung: doubles the cap; cost = 75% of the cap BEFORE doubling. Exact
-  // Decimal math (base 500 is divisible by 4, and every double stays divisible by 4).
-  const storageRung = () => {
-    upgrades.push({
-      materials: { commonOre: cap.times(3).div(4) }, // 75% of current cap
-      durationTicks: dur,
-      effect: { storageCapMult: 2 },
-    });
-    cap = cap.times(2);
-    dur += 20;
-  };
-  // A processing rung: hand-authored commonOre cost; effect is one of the F2 pipeline
-  // effects. Does NOT touch `cap` (processing rungs do not double the tank).
-  const processingRung = (cost: number, effect: FacilityUpgradeEffect) => {
-    upgrades.push({ materials: { commonOre: new Decimal(cost) }, durationTicks: dur, effect });
-    dur += 20;
-  };
-
-  // Levels 1-3: pure storage doublings (cap 500 -> 1000 -> 2000 -> 4000). fuel.test.ts
-  // pins fuelCap at levels 1 (2x) and 3 (8x), so these THREE stay pure { storageCapMult }.
-  storageRung();
-  storageRung();
-  storageRung();
-
-  // Levels 4-6: the three PROCESSING upgrades (one of each F2 effect). Cap stays 4000
-  // across these (no storageCapMult). Costs/magnitudes TUNABLE first-pass.
-  processingRung(2000, { addFuelPipelines: 1 }); // level 4: 2 concurrent pipelines
-  processingRung(3000, { fuelYieldMult: 1.5 }); // level 5: fuel/batch 100 -> 150
-  processingRung(3000, { fuelInputMult: 0.7 }); // level 6: ice/batch 50 -> 35
-
-  // Levels 7-9: more storage headroom (cap 4000 -> 8000 -> 16000 -> 32000). Finite.
-  storageRung();
-  storageRung();
-  storageRung();
-
-  return upgrades;
+  return FUEL_DEPOT_RUNG_COSTS.map((cost, i) => ({
+    materials: { commonOre: new Decimal(cost) },
+    durationTicks: 20 * (i + 1), // 20, 40, ... 180 (TUNABLE)
+    effect: { fleetReachBonus: FUEL_DEPOT_REACH_PER_RUNG },
+  }));
 }
 
 // --- Mission-control facility (Mission Rework Task 6, design §2) ------------
@@ -4724,12 +4619,8 @@ export const FACILITIES: Record<string, FacilityDef> = {
     label: "Warehouse (Tier II)",
     upgrades: buildWarehouseT2Upgrades(),
   },
-  // Fuel Economy v2 F2: Fuel Depot (KEY still `fuelStorage`, label-only rename, NO
-  // key migration; was "Fuel Storage", Mission Rework Task 4). TWO roles on one track:
-  // fuel STORAGE (the cap, available + usable from level 0, no soft-lock) + fuel
-  // PROCESSING (continuous Deuterium-Ice -> fuel pipelines). See buildFuelDepotUpgrades
-  // above. fuelCap / fuelPipelineCount / fuelBatchOutput / fuelBatchInput (tick.ts) each
-  // derive their live value from this facility's level.
+  // The Fuel Depot (KEY `fuelStorage`): the FLEET REACH track since WR-4 (OC-C1). See buildFuelDepotUpgrades above;
+  // tick.ts fleetReachBonus derives the live bonus from this facility's level.
   fuelStorage: {
     label: "Fuel Depot",
     upgrades: buildFuelDepotUpgrades(),
@@ -7532,16 +7423,8 @@ export interface GameState {
   fleetAdminLevel: number; // starts at 1
   adminPoints: number; // unspent, spent via buyHomeworldTalent (tick.ts)
   credits: Decimal;
-  // --- Fuel economy (Mission Rework Task 3, design §3) ---
-  // The fleet-wide fuel STOCKPILE (the RESOURCE spent per dispatch), Decimal-typed
-  // to match the other currency fields (credits/fleetAdminXp), it round-trips
-  // through JSON as a string and MUST be re-hydrated on load (save.ts's
-  // hydrateDecimals). Its CAP derives from the fuel-storage facility level (Task 4);
-  // Task 5 spends it at dispatch. This pass only DEFINES + seeds it (freshState = 0):
-  // nothing consumes it yet. The v20->v21 save migration that seeds it onto existing
-  // saves is Task 9's job, hydrateDecimals defaults an absent field to 0 defensively
-  // until then, so a pre-migration save can't NaN/throw.
-  fuel: Decimal;
+  // (WR-4, OC-C1: the fleet-wide fuel STOCKPILE `fuel` is gone. Fuel is a reach stat since 0.13.6, nothing spent
+  // or filled it after Buy Fuel retired, and save v70 drops the field.)
   // --- Ships, Stats Foundation ---
   // The fleet's hulls, distinct from the captains flying them. A ShipInstance's
   // assignedCaptainId is the SINGLE SOURCE OF TRUTH for who flies it, the
@@ -8141,12 +8024,11 @@ export const ITEMS: Record<string, ItemDef> = {
     tier: 1,
     rarity: "common",
     // The guaranteed (and ONLY) drop of the localFuelRun mission, a common-tier ore.
-    unlockHint: "Skimmed from the Local Deuterium Skim run, refine it into fuel at the Fuel Depot.",
+    unlockHint: "Skimmed from the retired Local Deuterium Skim run; sell any you hold at the Quartermaster.",
     flavor: "Deuterium-laced water ice cracked from a local field. Cook it down at the Fuel Depot and it runs the FTL drives.",
     // DEPRECATED by fuel-to-reach (0.13.6): the skim run + the Fuel Depot that consumed this are
     // retired, so any stockpile is now dead stock. Sellable at the Quartermaster to recoup its old
-    // worth: the Fuel Depot refined 50 ice -> 100 fuel (FUEL_REFINE_INPUT / FUEL_REFINE_OUTPUT) and
-    // fuel was 20 cr/unit (FUEL_CREDITS_PER_UNIT), so 1 ice = 2 fuel = 40 cr. TUNABLE.
+    // worth: the Fuel Depot refined 50 ice -> 100 fuel and fuel was 20 cr/unit, so 1 ice = 2 fuel = 40 cr. TUNABLE.
     sellValue: 40,
   },
   // --- Refined / crafted goods (Refinery / Fabricator output) ---
@@ -12834,16 +12716,6 @@ export function freshState(): GameState {
     fleetAdminLevel: 1,
     adminPoints: 0,
     credits: new Decimal(0),
-    // Fuel economy (Task 3 / soft-lock fix 2026-07-14): a brand-new fleet starts with a
-    // FULL tank, exactly FUEL_TANK_BASE_CAP, the level-0 fuelCap. WHY the change from the
-    // original empty seed: a pristine save has 0 credits and 0 Deuterium Ice, so an empty
-    // tank meant canDispatch returned fuelEmpty for EVERY mission and the player was
-    // soft-locked at the very first dispatch, unable to run the first mission that would
-    // bootstrap the whole fuel economy (missions earn the credits/ice that buy/refine more
-    // fuel). A full starting tank is a one-time, non-exploitable bootstrap grant: it only
-    // ever seeds a NEW game (and, via the ?? in MIGRATIONS[20], a pre-fuel save that has no
-    // fuel field at all). Existing saves that ALREADY carry a fuel balance keep it.
-    fuel: new Decimal(FUEL_TANK_BASE_CAP),
     // Seed the invariant: the one starting captain (freshCaptains(1) -> id 1) gets
     // exactly one hull, the universal General Freighter. nextShipId starts at 2
     // because "ship-1" is already taken by this seeded hull.
@@ -12887,12 +12759,9 @@ export function freshState(): GameState {
     // unlock). A NEW game is thus consistent with tierCap's expectations. Existing
     // saves get these same seeds via the v18->v19 migration (Task B4, save.ts) --
     // NOT this function's job.
-    // Mission Rework Task 4 (additive seed): fuelStorage starts at level 0 = the
-    // base tank's starting state (cap FUEL_TANK_BASE_CAP; NOT "unbuilt", the tank
-    // is USABLE from the start, its level-0 cap is live so missions can be fueled
-    // immediately, no soft-lock). Existing saves get this seed via the v20->v21
-    // migration (Task 9, save.ts), NOT this function's job. fuelCap tolerates an
-    // absent key (?? 0) regardless, but seeding keeps the facility present for the UI.
+    // Mission Rework Task 4 (additive seed): fuelStorage starts at level 0 (the Fuel Depot, the fleet reach track
+    // since WR-4: no rung built = no bonus). Existing saves get this seed via the v20->v21 migration (save.ts).
+    // fleetReachBonus tolerates an absent key (?? 0) regardless; seeding keeps the facility present for the UI.
     // Mission Rework Task 6 (additive seed): missionControl starts at level 1, NOT
     // level 0. Level 0 is "not built"; seeding at level 1 means the facility is
     // ESTABLISHED from game start, so ALL FOUR missions (every one is unlockLevel 1 per

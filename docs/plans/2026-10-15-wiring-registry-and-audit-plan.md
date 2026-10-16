@@ -873,6 +873,68 @@ OC-C3; promotion counters per OC-E10 (B4).
 start at 0 at release [PROPOSAL, no backfill].
 **Tests:** a failing test per bug first; registry entries flipped to live.
 
+#### WR-4 carry note (built 2026-10-16; five commits: goldens, bugs and seams, B14, B4, OC-C1 + save v70)
+
+**Built** (tests: `wiringBugs.test.ts`, one block per item; goldens: `wiringGoldens.test.ts`, captured first):
+- B1 `requiresResearch` checks `blueprintUnlocked` (reason names the blueprint). No rung uses it: the seam stays on OC-C4.
+- B2 / OC-I3: `canDispatch` exempts transports from the ore-cap gate (the auto-stop already did).
+- B8: the four utility `*_MAX` caps and `Math.min` are gone; values identical (each cap sat at or above its curve's
+  asymptote). The bounded `plusToPercent` curve itself stays a balance-pass item (diminishing.ts header).
+- B14 / OC-I4: `resolveBattle` orders the cast by side (player first, OC-I4's proposal) then input order.
+- B19: roster and ship page read "On expedition" / "Repairing" (`shipRoster.ts shipUnderRepair`).
+- B20: the berth ETA and the softlock ceiling use the fleet's hold-scaled unload (`berths.ts worstUnloadTicks`); the
+  dispatch popup reads `tick.ts missionDropChances` (museum rare chance and survey crew rare find included).
+- B24 (part): tier talents say "common / uncommon / rare material ... on missions"; the trickle names its item; the
+  FTL Drive baseline blurb says range.
+- Retired: `ShipTypeDef.cost`, `awayTeams[].count` (fixture-only shorthand in `registerSyntheticHull`),
+  `shipLoadout.compareInstall`.
+- B4 / OC-E10: `crewHours` (the call's span for every officer whose ship is out on a run: a captain mission or patrol
+  in any phase, or an expedition not yet home), `shipsDestroyed` (patrol wave kills live; expedition ship battles won,
+  at the claim), `personnelAchievement` (objectives done, at the claim); `crewOverlay.foldOfficerPromotionCounters`;
+  start at 0. Checklist text: "Command N hours on runs", "The ship's squads complete 1 objective".
+- OC-C2: the Lunar Mine Contract's uncommon strike is Dense Ore; Cobalt Ore keeps its Survey Mineral Anomaly source.
+- OC-C3: `refineReclaimedAlloy`, `refinePurifiedBiomass`; Damage Control Suite +2 Reclaimed Alloy; Bio-Resonance Array
+  2 Purified Biomass in place of 12 Fibrous Biomass.
+- OC-C1 / B5: the Fuel Depot is the FLEET REACH track (`{ fleetReachBonus }` rungs, same nine costs and durations, so a
+  save keeps its levels; `tick.ts fleetReachBonus`, applied in `shipReachDef`, the one seam every gate and readout
+  reads); its card and console are back (Overview + Upgrades, "Extend Reach"); Home offers its upgrade. Retired: Buy
+  Fuel, the tank (`fuelCap`, `FUEL_TANK_BASE_CAP`), the refinery (`processFuelPipelines`, `FUEL_REFINE_*`,
+  `FUEL_DEPOT_BASE_PIPELINES`, the three processing effects, `addFuel`), the fuel flow summary and runway projection,
+  and `GameState.fuel`. Help's fuel topic says so and reads the per-level number from the constant.
+- **SAVE v70 (taken here):** `MIGRATIONS[69]` = `dropRetiredFuelV70` (drops `fuel` and any in-flight `fuelRefineJob`).
+  save.ts lists what v70 contains above `SAVE_VERSION`; **G2-1 (homeworld) and SF-1 (run counters) APPEND their steps to
+  `MIGRATIONS[69]` and the list while v70 has not reached staging** (no v71). `fuelRefineJob` stays a log-only kind so
+  old completed-events entries render.
+
+**[PROPOSAL] numbers (the user tunes):** Dense Ore on the Lunar Mine (not the survey), its 8% uncommon chance kept,
+Warehouse T2 rung costs unchanged (75% of the cap they double, the T1 shape); Scrap Alloy 10:1 and Fibrous Biomass 6:1,
+both 20 ticks (a duration must keep the speed rung's XP per tick exact); Damage Control Suite 2 Reclaimed Alloy;
+Bio-Resonance Array 2 Purified Biomass; Fuel Depot +5% fleet reach per level (linear, +45% at level 9).
+
+**Goldens moved (every move verified):** dispatch (transports launch, B2) and the Lunar Mine runs (Dense Ore; naming it
+back reproduces every old hash); every patrol state and replay (B14), plus the gated forecast bands and the 200-seed
+win table (the SF plan's section 2.5 E numbers are now stale: freshly measured in `firstRunsGoldens.test.ts` WINS);
+officer-bearing states (B4; with the fold disabled every old hash reproduces); every whole-state hash (the removed
+`fuel` key only: each new hash equals the old code's hash with `fuel` stripped, 197 pairs, and the two mixed-string
+pins reproduce with `fuel` re-inserted); the reach golden's Depot-top half (with the bonus zeroed it reproduces).
+Balance fixtures that leaned on the old turn order: the payoff benchmark enemy is 1800/900; the saturated Sweep's
+inferiority check is "never above the destroyer" (strict on the Warband); the registry drone duel's enemy does not
+recharge shields.
+
+**Registry:** live now: Warehouse T2 rungs 2 to 5, the nine Fuel Depot rungs (probe `fleetReach`), the transport
+`primaryMaterial` (notApplicable), the two new refine recipes (auto-registered). Removed audit rows (fixed): utility
+caps, sensorArrayId (identity), roster status, compareInstall, awayTeams count, the two refined items, B14, B4.
+`facility:audit:fuelPurchase` became `facility:audit:fuelAutoBuy` (pending S4-A02, below). PatrolDef.factionId is
+identity.
+
+**Not built (no user answer yet; never guessed):** OC-C4 framework seams (`requiresFacilityLevels`,
+`requiresMissionCompletions`, `MISSION_CONTROL_UNLOCK_COMPLETIONS`, gear gates, `equipStats`, `achievementBoost`,
+`ascension`, `equipmentSlots`, the objective hooks); B24's spec card text (OC-A42) and hull descriptions (OC-D13); the
+mission fuel-budget / credit auto-buy plumbing (`FUEL_CREDITS_PER_UNIT`, `REFUEL_PENALTY_TICKS`, `refuelDelayTicks`,
+unreachable since 0.13.6: S4-A02 "remove or keep" is open); the stale-comment sweep beyond the files touched. **Open
+question for the user:** v70 discards any fuel left in a tank with no refund (nothing used it); a refund at the old
+20 cr/unit is a one-line add to `dropRetiredFuelV70` if wanted.
+
 ### WR-5a / WR-5b / WR-5c: Captain secondary talents (prospector, tactician, explorer trees)
 
 **Files:** `model.ts` (effects gain magnitudes for capstones), the captain fold in `tick.ts` (missions), `crewOverlay.ts`

@@ -67,7 +67,6 @@ function fleetOf(n: number): GameState {
     ...base,
     captains,
     ships,
-    fuel: new Decimal(100000),
     credits: new Decimal(100000),
     shipStorageCapacity: Math.max(base.shipStorageCapacity, n),
     // The berth rungs cost structuralAssembly (the same component the docks track and hull

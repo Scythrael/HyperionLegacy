@@ -89,9 +89,9 @@ describe("pre-clearing runs resolve exactly as before (goldens captured BEFORE t
   // claim (when the run completes).
   const GOLDEN: Record<string, string[]> = {
     tierOne: ["1a2c133a", "d90c6896", "87a5a1db", "6066182d", "3bca6243", "activities", "unclaimed"],
-    tierThree: ["d00662f8", "ae1a27d0", "ae1a27d0", "ae1a27d0", "ae1a27d0", "complete", "7ba2c3e"],
-    tierFourEnemy: ["540ccc7b", "eafb3f06", "217cef30", "217cef30", "217cef30", "complete", "b2b7aac8"],
-    strikeSurveyTierFour: ["2dcedd6d", "e0f5ebfc", "e0f5ebfc", "e0f5ebfc", "e0f5ebfc", "complete", "b86b42a4"],
+    tierThree: ["d00662f8", "ae1a27d0", "ae1a27d0", "ae1a27d0", "ae1a27d0", "complete", "6fea8ae1"],
+    tierFourEnemy: ["540ccc7b", "eafb3f06", "217cef30", "217cef30", "217cef30", "complete", "c2e99db7"],
+    strikeSurveyTierFour: ["2dcedd6d", "e0f5ebfc", "e0f5ebfc", "e0f5ebfc", "e0f5ebfc", "complete", "7acaa969"],
   };
   for (const [name, build] of Object.entries(CASES)) {
     it(`${name}: checkpoints and the claim match the pre-clearing capture`, { timeout: 120_000 }, () => {

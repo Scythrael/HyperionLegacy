@@ -129,7 +129,7 @@ function sheetHashes(hull: ShipTypeKey, buckets: CrewBucket[]): string {
 // A captain mission dispatched for real, 200 s before the first transport window (captain level 10 so every mission
 // unlocks), run 700 economyTick seconds on a fixed rng.
 function missionRun(key: MissionKey): GameState {
-  const base: GameState = { ...freshState(), fuel: new Decimal(1_000_000_000), credits: new Decimal(1_000_000), gameTimeSeconds: TRANSPORT_WINDOW_SECONDS - 200 };
+  const base: GameState = { ...freshState(), credits: new Decimal(1_000_000), gameTimeSeconds: TRANSPORT_WINDOW_SECONDS - 200 };
   base.captains = base.captains.map((c) => ({ ...c, level: 10 }));
   const r = dispatchCaptainOnMission(base, 1, key);
   expect(r.success, key).toBe(true);
@@ -178,9 +178,9 @@ const asBeforeCp1 = (s: GameState): GameState => {
   return { ...s, crewPool: back(s.crewPool), ships: s.ships.map((sh) => (sh.complement ? { ...sh, complement: { ...sh.complement, buckets: back(sh.complement.buckets) } } : sh)) };
 };
 const CP0_MISSION: Record<string, string> = {
-  shortOreRun: "bbe0b1ce",
-  surveyMineralAnomaly: "73361e1f",
-  frontierSupplyRun: "120ce8f",
+  shortOreRun: "6c80bffd",
+  surveyMineralAnomaly: "988bc42",
+  frontierSupplyRun: "717a3120",
 };
 
 // ===== the goldens =====
@@ -215,17 +215,17 @@ const GOLDEN: Record<string, string | string[]> = {
   ],
   // Re-pinned by CP-1 (D14): one transport crewmember's exclusive buff changed name (see the mission test and
   // CP0_MISSION, which keeps the CP-0 capture and proves that is the only difference).
-  "mission:shortOreRun": "7f4e23aa",
-  "mission:surveyMineralAnomaly": "260d4713",
-  "mission:frontierSupplyRun": "fb6f6e23",
+  "mission:shortOreRun": "eb39cb91",
+  "mission:surveyMineralAnomaly": "e84193a6",
+  "mission:frontierSupplyRun": "f4b5648c",
   // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
   // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); the dispatch record (16e07798) is unchanged.
-  patrol: ["16e07798", "9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7", "4bab1991"],
-  repair: ["239", "b439b3e9", "93402d7"],
-  legacyA: ["5a2822aa", "fa468bf1", "b286ca8b"],
-  legacyB: ["e3b4593f", "b0220f60", "ff478a8b"],
-  groundOpsRepair: ["6138c3bd", "d8d37478", "a35c6796"],
-  groundOpsBay: ["527c9b42", "35454953", "1be4547a"],
+  patrol: ["16e07798", "9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7", "4c87428e"],
+  repair: ["239", "b439b3e9", "b3cea9b6"],
+  legacyA: ["5a2822aa", "fa468bf1", "18e2b328"],
+  legacyB: ["e3b4593f", "b0220f60", "3e73c380"],
+  groundOpsRepair: ["6138c3bd", "d8d37478", "69943b5"],
+  groundOpsBay: ["527c9b42", "35454953", "2ac60b53"],
   transport: [
     "a6c5a724", "8c62d32c", "18b4e861", "f2a93087", "438ceec5", "74c0cbc3", "c527137b", "16e1a68f", "2caf4feb", "b0eeec3",
     "9ec2a1c8", "d9f4bf44", "e54d2eae", "9dc57f26", "907b3f30", "270d1a6c", "459e9eff", "6afc6903", "7389e97c", "c6d1c90c",
@@ -282,7 +282,7 @@ describe("CP-0 pre-complement goldens", () => {
 
   it("patrol: a Repeat patrol on a carrier, relaunched, with the display replay", () => {
     const base = freshState();
-    const st = installMissingCombatBaselines({ ...base, fuel: new Decimal(100000), credits: new Decimal(100000), ships: base.ships.map((sh) => ({ ...sh, typeKey: "carrier" as ShipTypeKey })) });
+    const st = installMissingCombatBaselines({ ...base, credits: new Decimal(100000), ships: base.ships.map((sh) => ({ ...sh, typeKey: "carrier" as ShipTypeKey })) });
     const r = dispatchCaptainOnPatrol(st, 1, "crimsonReaverSweep", "balanced", true);
     expect(r.success).toBe(true);
     let s = r.next;

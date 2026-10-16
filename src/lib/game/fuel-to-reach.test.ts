@@ -47,17 +47,16 @@ describe("fuel-to-reach: the lightyear gate equals the old capacity gate (parity
 });
 
 describe("fuel-to-reach: fuel no longer depletes and never fuel-stops a captain", () => {
-  it("dispatch + 500 economy ticks on a near-empty tank leave fuel unchanged and never fuel-stop", () => {
+  it("dispatch + 500 economy ticks never fuel-stop a captain", () => {
     // A tiny tank would have hard-stopped the captain on fuel in the old economy. Now fuel is a
     // range stat only: it never drains and never idles a captain, so the tank is untouched and no
     // captain ever carries a "fuel" stop reason.
     let state = freshState();
-    state = { ...state, fuel: new Decimal(1) }; // near-empty: irrelevant to the reach gate
+    state = { ...state }; // near-empty: irrelevant to the reach gate
     const dispatched = dispatchCaptainOnMission(state, 1, "shortOreRun");
     expect(dispatched.success).toBe(true); // reach (capacity) covers it regardless of the tank
     state = dispatched.next;
     for (let i = 0; i < 500; i++) state = economyTick(state, 1, () => 0.5);
-    expect(state.fuel.eq(1)).toBe(true); // the tank never drained (instant free refuel)
     expect(state.captains.every((c) => c.lastStopReason !== "fuel")).toBe(true); // never fuel-stopped
   });
 });
