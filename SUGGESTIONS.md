@@ -1986,3 +1986,7 @@ should not roll on ship crew (no dead rolls).
   A facility for gear repair by tier; also a credit sink. See docs/plans/2026-10-16-gear-wear-design.md USER ANSWERS.
 - **CREDIT SINKS (user, recurring).** The user keeps flagging that credits need proper sinks (telescope costs 2026-10-12,
   repairs 2026-10-16). Needs its own planning pass.
+
+- **NOTABLE TO OFFICER: THE ACADEMY (user, 2026-10-16, suggestion box).** A notable crew member could leave their ship,
+  return to the homeworld for academy coursework, and graduate as a commissioned officer eligible for a senior staff
+  seat. "Whether that is necessary or not I am not sure." Also wanted now: a scrolling marquee of notable personnel.

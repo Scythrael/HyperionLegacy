@@ -639,3 +639,13 @@ the CP-6 core fix was dispatched the same day.
   by a diminishing curve.
 - **OC-4 Survey Aptitude:** "Faster scans (Recommended)".
 - **OC-6 over cap:** "Never evict (Recommended)".
+- **OC-11 auto-crew while out:** "Pause while out (Recommended)". **OC-7 transfers:** "Manual ships only
+  (Recommended)". **OC-10 crew pool:** "In Personnel Rosters (Recommended)".
+- **Notables (2026-10-16, verbatim):** "Let's keep it identity only. A scrolling marquee of notable personnel sounds
+  nice. Plus, who knows, perhaps we might find someone in there that we might want to eventually promote to senior
+  staff. I was considering that as an option as well. They'd have to leave the ship and return to the homeworld to go
+  through academy coursework, but then they'd become a proper commissioned officer and could be chosen for a senior
+  staff role. Whether that is necessary or not I am not sure. So this goes in the suggestion box haha. But the
+  identity only part is perfectly fine." So: notables are identity only (no stat edge). A scrolling MARQUEE of notable
+  personnel is wanted (UI; placement [PROPOSAL]). Academy promotion to senior staff goes to SUGGESTIONS.
+- **OC-9 send back:** "Stays named (Recommended)".
