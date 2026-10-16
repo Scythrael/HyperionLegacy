@@ -1184,3 +1184,7 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   combat over-budget penalty; Reactor Overdrive, Power Discipline and the Martian racial act on it.
 - **OC-E10 (promotion):** "Count the objectives (Recommended)": crewHours from the officer's ship hours out on any run,
   shipsDestroyed from patrol and ship-event kills, personnelAchievement from objectives completed by the ship's squads.
+- **OC-D12 (unfed combat inputs, 2026-10-16):** "Feed them all (Recommended)": antiDrone on Point Defense and EMP;
+  damageResist / disruptionResist lines on plating and emitters; particleTraceDetector from sensors; rapid charge,
+  in-combat replenish and smart reflect as drone pod lines; pirate hulls get armor and evasion; conditions persist
+  across the waves of one patrol; overchargedCapacitors and inhibit get sources and readers.

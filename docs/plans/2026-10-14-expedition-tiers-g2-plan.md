@@ -450,3 +450,9 @@ names in game text (the Wolf 359 nod stays original).
 
 - **G5 / OC-5 transit times:** "2h to 168h ladder (Recommended)": one way at the minimum class I 2 h, II 4 h, III 8 h,
   IV 12 h, V 24 h, VI 72 h, VII 168 h; halved per drive class above the minimum; 30 minute floor.
+- **G3 / OC-3 propulsion source:** "A combination of higher tier ships and better drive blueprints/stats/etc." Reading
+  [PROPOSAL detail]: a ship's drive class comes from BOTH its hull tier (higher tier hulls carry a better base class)
+  and its installed FTL drive (better drive blueprints and their rolled stats raise it); neither alone is the gate.
+- **G7 / OC-7 frontier sensors:** "Sensor gate per tier (Recommended)": I 0, II 10, III 20, IV 30, V 40, VI 55, VII 65.
+- **G2 / OC-2 existing saves:** "Random for everyone (Recommended)": each existing save gets its own random homeworld
+  at the v70 migration (display distances only).
