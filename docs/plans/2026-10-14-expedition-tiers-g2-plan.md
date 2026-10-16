@@ -477,3 +477,8 @@ names in game text (the Wolf 359 nod stays original).
   (Recommended)" in a Resume list until finished or abandoned; on resume "Pick up where you left off (Recommended)":
   finished scans stay done (skip to the next body), objectives keep progress, travel is paid again.
 - **G13 / OC-13 recall confirm:** "One confirm (Recommended)": shows the return time and that the system can be resumed.
+- **G17 bodies:** "Grows with tier (Recommended)": Tier I 1 to 3, deeper tiers up to 3 to 5.
+- **G19 Repeat:** "Not in 0.14.0 (Recommended)".
+- **G20 wording:** ""Class IV drive" (Recommended)": roman numerals, no "warp".
+- **G21 + G14 time:** "Tiers set the time (Recommended)": tiers are difficulty; distance shifts time only within a
+  tier; detour time is not distance flown on recall.
