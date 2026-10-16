@@ -439,3 +439,38 @@ Commit `docs(0.14.0): Field Kits help and close-out (Field Kits FK-10)`.
     only the medical bay; Combat Stim Inspired 2 rounds; Injury Kit shortens bay time.
   - **FK6 / open call 6 Cortex Shield:** "Yes, covers Concussion (Recommended)".
   - **FK8 / open call 8 Codebreaker:** "+6% to the roll (Recommended)": 53 to 79.5%.
+
+## USER ANSWERS, group 6 (2026-10-16) + a FIELD KITS RESHAPE (verbatim, authoritative)
+
+- **FK10 Saboteur:** "Own grenades only" (NOT squad-wide): only the Saboteur's own throws get +6%.
+- **FK12 kits in odds:** "Yes, count packs (Recommended)".
+- **FK13 condition numbers:** "Proposed numbers (Recommended)" (Blindness hit x0.25 for 2 to 3 rounds; Fracture power and
+  accuracy x0.8, worse at higher ranks; Hemorrhage 12/round x4; Neurotoxin 5/round + 25% turn loss x4; Concussion 35%
+  x3).
+- **FK11 limits, verbatim:** "This should be the case for everything. Each objective will start with a fresh set of
+  supplies for both things like this (first aid kits and so forth), and then the tools you bring have a set amount of
+  uses per battle and/or per objective. So, a lower level kit might contain 3 grenades, and you have to use them
+  sparingly because you only get 3 for the entire objective, and perhaps it's limited to 1 per battle as they deal AoE
+  damage. So perhaps an impact grenade explodes on contact, deals AoE damage and has a chance to inflict a debuff, as do
+  other grenade types. Different grenades carry different quantities. As well as a stat that can possibly roll on the
+  tool +1 carry capacity. So a plain grenade might have 4 to start, while specialized ones might have 2 to start. Also,
+  make sure this doesn't trip up gambits. IF a gambit line requires a grenade to be used, and you're out or you've used
+  one already in that battle, skip it. Also, there should be a way to save at least one for the final battle, because
+  most likely, the hardest battle awaits at the end. So if there's some sort of "boss" type enemy, if you go in there
+  without a grenade or without a charge of the item left over, it makes that battle harder, so you have to plan your
+  gambit around that too. So the gambit should include something that can help you differentiate. I wouldn't go by "if
+  on the x-th battle, then use a grenade", because that wouldn't work well dynamically. So we'd have to find a way to
+  make this work. Perhaps we can designate enemy types. Because that's 100% going to be a thing. Enemy types similar to
+  how other games do them. Weak, normal, strong, elite, boss, etc."
+
+Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
+- SUPPLIES REFRESH PER OBJECTIVE: each objective starts with a fresh set of consumable supplies (First Aid Kits etc.).
+- TOOL CHARGES: installed tools (grenades, devices) carry a set number of USES per objective, optionally capped per
+  battle (grenades: 1 per battle, AoE). Quantity varies by tool kind: a plain grenade about 4, specialized about 2; a
+  lower-level kit about 3. A new rollable tool stat line: "+1 carry capacity" (charges).
+- GRENADE TYPES (user-named example): the IMPACT GRENADE: explodes on contact, AoE damage, chance to inflict a debuff;
+  other grenade types similar with their own debuffs and quantities.
+- GAMBITS: a rule needing a charge you lack, or a per-battle use already spent, does not fire (skip to the next rule).
+  Gambits need a way to SAVE charges for the hardest fight; not "the x-th battle", but by ENEMY TYPE.
+- ENEMY TYPES / RANKS (user-named, "100% going to be a thing"): Weak, Normal, Strong, Elite, Boss, etc. The hardest
+  fight usually waits at the end (a boss). Follow-ups asked 2026-10-16.
