@@ -925,7 +925,9 @@ const DUEL_SEEDS = [11, 12345, 777];
 
 // One duel per seed between a destroyer frame carrying `weapons` / `drones` and an enemy destroyer frame (armed with
 // one autocannon when `enemyArmed`): the enemy's damage taken (hull + shield) and statuses on it, minus the player's
-// own damage taken. Summed over the seeds.
+// own damage taken. Summed over the seeds. The enemy's shields do not recharge (WR-4): since B14 the player side
+// acts first, and a light Attack squadron's damage was fully recharged by the time an armed enemy finished the duel,
+// so the end-of-fight reading could not see it.
 function duelScore(weapons: () => CombatWeapon[], drones: () => DroneSquadron[], enemyArmed: boolean): number {
   let total = 0;
   for (const seed of DUEL_SEEDS) {
@@ -933,7 +935,7 @@ function duelScore(weapons: () => CombatWeapon[], drones: () => DroneSquadron[],
     const e = shipToCombatant({
       id: "e",
       team: "enemy",
-      stats: SHIP_TYPES.destroyer,
+      stats: { ...SHIP_TYPES.destroyer, shieldRecharge: 0 },
       weaponLoadout: enemyArmed ? [makeWeaponInstance("autocannon", "e-w0")] : [],
       drones: [],
     });

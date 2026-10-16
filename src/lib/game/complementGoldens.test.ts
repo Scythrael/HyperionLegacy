@@ -218,7 +218,9 @@ const GOLDEN: Record<string, string | string[]> = {
   "mission:shortOreRun": "7f4e23aa",
   "mission:surveyMineralAnomaly": "260d4713",
   "mission:frontierSupplyRun": "fb6f6e23",
-  patrol: ["16e07798", "191a9ac", "d72d9f6f", "b72b1e1c", "781e812d", "ce13d938", "e81b2f7e", "84a4758d", "c3ac373e", "867aa1b6"],
+  // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
+  // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); the dispatch record (16e07798) is unchanged.
+  patrol: ["16e07798", "9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7", "4bab1991"],
   repair: ["239", "b439b3e9", "93402d7"],
   legacyA: ["5a2822aa", "fa468bf1", "b286ca8b"],
   legacyB: ["e3b4593f", "b0220f60", "ff478a8b"],

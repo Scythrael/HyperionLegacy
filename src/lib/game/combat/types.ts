@@ -203,8 +203,8 @@ export interface CombatWeapon {
 //   - power budget (reactor output vs loadout draw)                         [Phase 10]
 //   - stance + preferred range band, targeting policy                       [Phase 6]
 export interface Combatant {
-	// Unique id across BOTH teams. Also the deterministic sort key for turn
-	// order (see resolveBattle), so it must be stable and unique per battle.
+	// Unique id across BOTH teams, stable per battle (lookups and logs key on it). Turn order is by side, then
+	// input order (resolveBattle, WR-4 B14), never by the id's spelling.
 	id: string;
 	// Which side this combatant is on.
 	team: CombatTeam;

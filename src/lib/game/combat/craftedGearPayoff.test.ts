@@ -237,7 +237,7 @@ function benchmarkEnemy(): ReturnType<typeof shipToCombatant> {
 	return shipToCombatant({
 		id: "bench-enemy",
 		team: "enemy",
-		stats: { hullIntegrity: 1100, shieldCapacity: 550, shieldRecharge: 9 },
+		stats: { hullIntegrity: 1800, shieldCapacity: 900, shieldRecharge: 9 },
 		// ⚠️ RETUNED 0.13.5 (F5). Was hull 520 / shield 260, hand-tuned against a destroyer carrying
 		// its TWO signature guns. F5 fills every hardpoint, so the same destroyer now brings FOUR
 		// and beat this enemy 100% of the time, which collapses the whole point of this file: with
@@ -245,6 +245,9 @@ function benchmarkEnemy(): ReturnType<typeof shipToCombatant> {
 		// anything in, and the payoff assertion becomes unsatisfiable rather than merely false.
 		// Scaled so the free-gear floor is a real fight again (measured: 900/450 still read 100%,
 		// 1100/550 restores genuine headroom).
+		// ⚠️ RETUNED WR-4 (B14): turn order is by side, then input order, so the player now acts before this
+		// enemy (its id "bench-enemy" used to sort ahead of "ship-1"). Acting first, the Standard-Issue destroyer
+		// beat 1100/550 every time again; measured at 1800/900: Standard-Issue 80%, crafted 100%.
 		// A mixed two-gun enemy (kinetic finisher + fast workhorse) so the fight exercises
 		// both the shield and hull pools rather than a single damage channel.
 		weaponLoadout: [

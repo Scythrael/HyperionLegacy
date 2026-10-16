@@ -159,7 +159,9 @@ const GOLDEN: Record<string, string | string[]> = {
     "colonySupplyLift:fab12771",
   ],
   repair: ["239", "156", "13d55f21", "70d18e4"],
-  patrol: ["91429198", "d86bc792", "9a960200", "e790096d", "4bee8141", "56de2b8e", "b72edb6b", "c5d6c244", "29bcddb7", "95e5bb0d"],
+  // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); the dispatch record
+  // (91429198) is unchanged, every replay and the final state moved.
+  patrol: ["91429198", "5f21282d", "3402127c", "f524ed0a", "13cbd93d", "50366cbe", "f3e19edd", "1c64af86", "cc2a99b", "d0733b51"],
   rungs: "9928b877",
   utility: [
     "f3df2ef8", "3b01c657", "217dee49", "4f69bf08", "5bdee672", "8074aed9", "e1d54513", "a15fe684",

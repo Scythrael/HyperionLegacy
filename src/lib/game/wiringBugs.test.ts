@@ -37,6 +37,11 @@ import { expeditionCandidates, startExpedition } from "./expedition";
 import { withMinimumAwayTeam } from "./awayTeamTestFixtures";
 import { REQUISITION_CATALOGUE } from "./quartermaster";
 import { withFacilityLevel } from "./wiring/probes";
+import { installMissingCombatBaselines } from "./tick";
+import { equippedFor } from "./equipment";
+import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
+import { generateEnemyWave } from "./combat/enemyWave";
+import { resolveBattle } from "./combat/resolveBattle";
 
 function lcg(seed: number): () => number {
   let s = seed >>> 0;
@@ -225,5 +230,28 @@ describe("OC-C3: Reclaimed Alloy and Purified Biomass are refined and consumed",
     const consumers = (item: string) => Object.values(BLUEPRINTS).filter((b) => (b.recipe.inputs[item] ?? 0) > 0).map((b) => b.key);
     expect(consumers("reclaimedAlloy").length).toBeGreaterThan(0);
     expect(consumers("purifiedBiomass").length).toBeGreaterThan(0);
+  });
+});
+
+// ===== B14 / OC-I4: turn order by side, then input order =====
+
+describe("B14: a battle's turn order is by side, then input order, never by id spelling", () => {
+  const fight = (prefix: string) => {
+    const s = installMissingCombatBaselines({ ...freshState(), ships: freshState().ships.map((sh) => ({ ...sh, typeKey: "destroyer" as ShipTypeKey })) });
+    const player = shipToCombatant({ id: "ship-1", team: "player", stats: SHIP_TYPES.destroyer, hullType: combatHullTypeOf("destroyer")!, installedGear: equippedFor(s, "ship-1") });
+    const enemies = generateEnemyWave(0x5eed, { hullPool: ["raider", "marauder"], enemyCountMin: 2, enemyCountMax: 2, idPrefix: prefix });
+    const { outcome, finalCombatants } = resolveBattle({ combatants: [player, ...enemies] }, 0xbad5eed);
+    return {
+      order: finalCombatants.map((c) => c.team),
+      summary: JSON.stringify({ outcome, hulls: finalCombatants.map((c) => [c.team, c.hull, c.shield, c.alive]) }),
+    };
+  };
+
+  it("the same fight reads the same whichever way the enemy ids spell", () => {
+    expect(fight("aaa").summary).toBe(fight("zzz").summary);
+  });
+
+  it("the player side acts first (OC-I4: player, then enemies, each in input order)", () => {
+    expect(fight("aaa").order).toEqual(["player", "enemy", "enemy"]);
   });
 });

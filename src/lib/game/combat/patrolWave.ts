@@ -137,7 +137,7 @@ function applyCarriedSystemDurability(
 // into the JSON-safe carry-state the mission persists (and the display replay carries wave-to-
 // wave). Combat 0.13.0 (Phase 12b Unit B2). Reads the CURRENT durability off each weapon (in
 // loadout order), the reactor, and the ftl. Both the live tick loop and the replay call this on
-// the id-sorted finalCombatants player, so the wear they carry forward is derived from the SAME
+// the turn-ordered finalCombatants player, so the wear they carry forward is derived from the SAME
 // combat-stream state and stays byte-identical (parity). A combatant with no reactor/ftl (a bare
 // fixture) yields 0 for that slot; a real bridged player always carries both. PURE: reads only.
 export function capturePlayerSystemDurability(player: Combatant): PatrolSystemDurability {

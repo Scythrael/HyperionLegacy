@@ -223,7 +223,7 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
   RELICS: { id: "identity", label: "display", flavor: "display", setId: "identity", index: "identity", rarity: "effect" },
   PATROLS: {
     label: "display",
-    factionId: { seam: "WR-4, OC-I4 (an id prefix whose spelling orders turns, B14)" },
+    factionId: "identity", // the fought faction's id; since WR-4 (B14) only a combatant id prefix, never turn order
     hullPool: "effect",
     minWaves: "effect",
     maxWaves: "effect",

@@ -228,16 +228,15 @@ describe("resolveBattle finalCombatants (carry-state)", () => {
 			},
 		);
 
-	it("returns the same combatants (by id) that went in, in id-sorted order", () => {
+	it("returns the same combatants (by id) that went in, in turn order (by side, then input order)", () => {
 		const { finalCombatants } = resolveBattle(buildDecisive(), 7);
 		expect(Array.isArray(finalCombatants)).toBe(true);
 		// Same cast, keyed by id (order-independent set equality).
 		const ids = finalCombatants.map((c) => c.id).sort();
 		expect(ids).toEqual(["E1", "P1"]);
-		// ...and the array itself is ASCENDING-ID order (the sim sorts by id), which
-		// is the contract the Patrol loop relies on (look up BY ID, not by index).
-		const asReturned = finalCombatants.map((c) => c.id);
-		expect(asReturned).toEqual([...asReturned].sort());
+		// ...and the array itself is in TURN order: the player side first, then the enemies, each side in its input
+		// order (WR-4, B14: it used to be ascending id). The Patrol loop looks combatants up BY ID, never by index.
+		expect(finalCombatants.map((c) => c.team)).toEqual(["player", "enemy"]);
 	});
 
 	it("reflects POST-battle state: loser is dead, winner survives with hull", () => {

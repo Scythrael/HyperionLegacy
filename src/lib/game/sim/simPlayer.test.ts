@@ -79,7 +79,8 @@ describe("WR-2 safe first runs: the allAuto newcomer baseline, characterized tod
   it("seed 0: the gathering run delivers, the first Sweep is won, the first expedition (the shakedown) stalls", () => {
     const r = simulate(ALL_AUTO, { seed: 0 });
     expect(r.gather).toEqual({ mission: "shortOreRun", refusal: null, deliveries: 7, firstDeliverySeconds: 180, defeat: false });
-    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 236 });
+    // WR-4 (B14): the player side acts first now, so the Sweep ends with more shield left (279, was 236).
+    expect(r.patrol).toEqual({ patrol: "crimsonReaverSweep", refusal: null, won: true, endReason: "ordersComplete", repairSeconds: null, wavesWon: 2, wavesLost: 0, hullLeft: 340, shieldLeft: 279 });
     const first = r.expeditions[0];
     expect(first.shakedown).toBe(true);
     expect(first.candidate).toBe(0);

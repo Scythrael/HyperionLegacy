@@ -262,7 +262,7 @@ import {
 import type { CombatStance } from "./combat/positioning";
 // Combat 0.13.0 (Phase 9b.5c): the patrol TICK LOOP wiring. generateEnemyWave builds a
 // wave's enemy team from the patrol def; resolveBattle runs one wave's battle and returns
-// the id-sorted finalCombatants the loop reads the player's surviving hull/shield/drones
+// the turn-ordered finalCombatants the loop reads the player's surviving hull/shield/drones
 // off; replenishDrones is the between-wave (out-of-combat) drone recovery; DroneSquadron is
 // the carry-state squadron shape the deep-clone helper preserves.
 import { generateEnemyWave } from "./combat/enemyWave";
@@ -2992,7 +2992,7 @@ export function tickCaptainPatrol(
 
   const def = PATROLS[captain.mission.patrolKey];
   const shipDef = SHIP_TYPES[ship.typeKey];
-  const playerId = ship.id; // the player combatant's stable id across every wave (id-sorted lookup)
+  const playerId = ship.id; // the player combatant's stable id across every wave (the by-id lookup)
   const routeLength = def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks;
   // Combat 0.13.0 (Phase 11, design S13): the LIMP-HOME duration a defeat imposes = 2x the
   // return leg (movement is damaged, so the wreck crawls back at half speed). A pure
@@ -3189,8 +3189,8 @@ export function tickCaptainPatrol(
         deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
       );
 
-      // Read the player's POST-battle state BY ID (finalCombatants is id-SORTED, never
-      // input order). Carry hull/shield/drones forward (attrition; hull never regens).
+      // Read the player's POST-battle state BY ID (finalCombatants is in TURN order: by side,
+      // then input order). Carry hull/shield/drones forward (attrition; hull never regens).
       const p = finalCombatants.find((c) => c.id === playerId);
       if (p) {
         mission.playerHull = p.hull;

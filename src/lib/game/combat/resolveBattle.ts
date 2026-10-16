@@ -1642,10 +1642,14 @@ export function resolveBattle(
 	const working = cloneParticipants(participants);
 	const combatants = working.combatants;
 
-	// DETERMINISTIC TURN ORDER: sort the whole cast by id once. ids are unique +
-	// stable per battle, so this order is identical on every run and every
-	// device, which every deterministic roll downstream depends on.
-	combatants.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+	// DETERMINISTIC TURN ORDER: by SIDE, then by INPUT ORDER (WR-4, B14; user 2026-10-16 "Fix: by side, then
+	// order"; OC-I4: the player side first). It used to sort the whole cast by id, so the spelling of a patrol's
+	// faction id ("crimsonReavers-w0..." against "ship-1") decided who acted first. The input order is fixed by
+	// every caller (player, then the enemy wave in its generated order), so this order is identical on every run
+	// and every device, which every deterministic roll downstream depends on. Array.prototype.sort is stable, and
+	// the index map makes the tiebreak explicit anyway.
+	const inputIndex = new Map(combatants.map((c, i) => [c.id, i] as const));
+	combatants.sort((a, b) => (a.team === b.team ? inputIndex.get(a.id)! - inputIndex.get(b.id)! : a.team === "player" ? -1 : 1));
 
 	// START-HULL SNAPSHOT for the capReached OFFENSE GATE (see tiebreakByHullPercent).
 	// Captured HERE (after the deterministic clone + sort, but BEFORE the ambush
@@ -2469,7 +2473,7 @@ export function resolveBattle(
 	}
 
 	// Hand back the outcome, the log, AND the post-battle combatant array. The
-	// latter is `combatants` (=== working.combatants), the id-sorted PRIVATE clone
+	// latter is `combatants` (=== working.combatants), the turn-ordered PRIVATE clone
 	// the sim has been mutating all along: its members carry every ship's final
 	// hull/shield/drones/statusEffects/alive state. This is additive and does NOT
 	// reintroduce input mutation, because `combatants` is the clone from

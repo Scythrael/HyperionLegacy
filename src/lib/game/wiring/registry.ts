@@ -2532,7 +2532,6 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "expedition:audit:legacyFallbacks", system: "expedition", claim: "FIGHT_POINTS_DEFAULT / MIN, SURVEY_AMBUSH_CHANCE (old runs only)", status: pending("OC-G1") },
   // I. Missions, patrols, factions
   { id: "mission:audit:unusedFactions", system: "mission", claim: "voidJackals, ironVultures, ashenCorsairs and Faction.id (no patrol references them)", status: pending("WR-11, OC-I2") },
-  { id: "mission:audit:factionIdTurnOrder", system: "mission", claim: "The patrol faction id's spelling decides turn order (B14)", status: pending("WR-4, OC-I4") },
   // J. Salvage and item generation
   { id: "salvage:audit:rolledNarration", system: "salvage", claim: "SalvageRoll rolled: \"the UI narrates the drop\" (dropped)", status: pending("WR-11, OC-J2") },
   { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names (damagedWeaponSystem) unread", status: pending("WR-11, OC-J2") },

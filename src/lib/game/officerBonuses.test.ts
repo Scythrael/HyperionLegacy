@@ -165,15 +165,18 @@ const GOLDEN: Record<string, string | string[]> = {
   "mission:shortOreRun": "377ac1dd",
   "mission:surveyMineralAnomaly": "572d2d10",
   "mission:frontierSupplyRun": "dc6ad2e8",
+  // Re-pinned by WR-4 (B14): a battle's turn order is by side, then input order (the player side first), no longer
+  // by id ("crimsonReavers-w..." used to sort ahead of "ship-1"); each patrol's state and replays moved, its dispatch
+  // record did not.
   "patrol:destroyer:dispatch": "2482ac0b",
-  "patrol:destroyer:state": "525e4055",
-  "patrol:destroyer:replays": ["2ab61c4b", "77fd14ed", "a6476542", "86f52f8d", "1ef48354", "1ddfed90", "11dd3aea", "2957b1d"],
+  "patrol:destroyer:state": "6cda387c",
+  "patrol:destroyer:replays": ["6ca86c97", "76776b70", "19b7c316", "c8fe1f57", "ea748cb3", "ce4904ed", "a2f81e1", "3c3169d3"],
   "patrol:carrier:dispatch": "16e07798",
-  "patrol:carrier:state": "296be574",
-  "patrol:carrier:replays": ["191a9ac", "d72d9f6f", "b72b1e1c", "781e812d", "ce13d938", "e81b2f7e", "84a4758d", "c3ac373e"],
+  "patrol:carrier:state": "b7ad9b",
+  "patrol:carrier:replays": ["9e9d9838", "95126c89", "6f82e593", "349cbd04", "8c13b3c8", "c1af6ef3", "d7ae934c", "3ee0a8b7"],
   "patrol:battleship:dispatch": "80f668a3",
-  "patrol:battleship:state": "e62ccf9b",
-  "patrol:battleship:replays": ["acef9d22", "e15f9707", "361b1f27", "fc298a96", "debb1250", "53390385", "c8e4a196", "a25e8399"],
+  "patrol:battleship:state": "56112093",
+  "patrol:battleship:replays": ["10a14de7", "4074234d", "16dfcddc", "a816e123", "c9dec81", "ef111092", "847f08c8", "535d66ee"],
   repair: "b439b3e9",
   expedition: [
     "29c9f4b8/507ab2c1/a1bc9cbc",
