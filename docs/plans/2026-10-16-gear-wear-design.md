@@ -350,3 +350,9 @@ Expected to move, each moved hash explained in its commit:
   sink; confirm asked), and log a FUTURE Repair Station facility that repairs up to specific gear tiers.
 - **W3 combat:** "True condition" (NOT the 70% floor): gear fights at its real condition.
 - **W9 + W10:** "No wear on training; implants slow (Recommended)".
+- **Repair model (confirm):** "Free auto + paid rush (Recommended)": free automatic repair always; optional instant
+  repair for credits; nothing forces paying.
+- **W6:** "Separate, shown together (Recommended)": hull damage stays its own Shipyard system; one care summary shows both.
+- **W8:** "Home Shipyard card (Recommended)": a quiet line on the Home dashboard's Shipyard card.
+- **Credit sinks:** "Short pass now (Recommended)": inventory credit sources and sinks, propose healthy sinks for
+  approval (planning doc dispatched 2026-10-16).
