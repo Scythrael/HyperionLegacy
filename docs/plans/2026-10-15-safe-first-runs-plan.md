@@ -510,3 +510,13 @@ counts as a veteran). When G2-1 lands, `oldSave()` passes migrate the fixed entr
 - Meaning: the first run needs SF-2's every-site scale plus the backstop (as planned). At nominal Tier I (run 11+) the
   weakest crew stalls about 95% of the time. Raised with the user as a "Your call": how gentle Tier I must be after the
   first run, and for which crew.
+
+## USER ANSWER (2026-10-16): Tier I after the first run
+
+Verbatim: "Okay, so I think that this should go one of two ways. Either it should allow for a user to fully fill a team
+with any avaialble ground team, with any level of equipment. Or, we have to perform a slight upgrade to a new set of
+gear that can be crafted. I want to say the latter is the best choice."
+Reading: the user prefers option 2: after the guaranteed first run, ordinary Tier I expects a SLIGHT gear upgrade
+(a craftable set) rather than being comfortable for any full team in starting gear. OPEN (asked 2026-10-16): whether
+"a new set of gear" means existing Fabricator away-team gear at low item levels, or a NEW starter gear set (a new
+entity the user would name); and whether a full team is also expected.
