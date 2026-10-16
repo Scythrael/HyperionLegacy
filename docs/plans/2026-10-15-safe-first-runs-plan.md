@@ -588,3 +588,26 @@ Follow-up answers (user, 2026-10-16):
   must say why ("can't reach: needs an explorer's range and drive").
 - **Grant hook:** "Yes, add it now (Recommended)": one shared grant seam (items, credits, gear, a hull) with a log line,
   tested, unused until the tutorial / quests patch.
+
+## USER ANSWERS, group 3 (2026-10-16, verbatim where quoted)
+
+- **Shakedown:** "For now, we go with the regular planned duration, but set both the tutorial and normal length of the
+  trip to the same value. Then, when tutorial time comes, we adjust accordingly and set the tutorial time to something
+  like "5 seconds" when the story beats will basically explain some aspects of it while we "travel". Basically, the
+  lore will carry the tutorials. But if this system occurs, once we actually complete the tutorials, a secondary
+  version of the tutorial must be available for a player to repeat that just shows them how to use the system, but
+  doesn't include the "shorter trip" tutorial version because this will reward real actual loot (including guaranteed
+  drops so we can show how specific systems work. Like at least one or two general relics, and the very first
+  exceptional relic."
+  So in 0.14.0: retire the 30-minute shakedown as a special length: the first explorer expedition takes the regular
+  Tier I duration, via a separate TUTORIAL duration constant set EQUAL to the normal one (the tutorial patch later sets
+  it to about 5 seconds). Logged for the tutorial patch: story beats during travel; a repeatable practice version of
+  each tutorial after completion, with normal durations and no tutorial rewards; the real tutorial grants guaranteed
+  drops (one or two general relics and the very first exceptional relic).
+- **Non-explorer ground teams:** "1. But add in the wiring for a third team. Because remember, combat and prospecting
+  are getting their own more involved set of quests and gameplay, and having a set of teams for prospecting for those
+  will required. Also, security squads could have their own role as well. A special mission to infiltrate an enemy base
+  or a combatant's vessel." So: keep their teams (boarding defense now, short-range missions later) AND wire a third
+  team (follow-up asked: a third team TYPE such as the existing, inert Prospecting type, or a third team slot).
+  FUTURE (logged): prospecting quests with prospecting teams; Security infiltration missions (enemy base, enemy vessel).
+- **SF9:** "One in total (Recommended)". **SF10:** "Fewest waves, lightest raider (Recommended)": 2 waves of 1 Raider.

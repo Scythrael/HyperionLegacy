@@ -1973,3 +1973,11 @@ should not roll on ship crew (no dead rolls).
 - **TRANSIT HAZARDS AT HIGHER TIERS (user, 2026-10-16, future).** "As you go into higher tiers, you might have hazards
   in your way that can cause problems. You might have to pass through a massive electrical storm and going around
   would be too extensive to go around." En-route hazards on the way to farther systems (G2 follow-up content).
+
+- **TUTORIAL DESIGN NOTES (user, 2026-10-16; tutorial / quests patch).** Tutorial travel about 5 seconds with story beats
+  ("the lore will carry the tutorials"); after completion, a repeatable practice version of each tutorial with normal
+  durations and no tutorial rewards; the real tutorial grants guaranteed drops (one or two general relics and the very
+  first exceptional relic). 0.14.0 keeps a separate tutorial duration constant equal to the normal one.
+- **PROSPECTING TEAMS + SECURITY INFILTRATION (user, 2026-10-16, future).** Combat and prospecting get their own more
+  involved quests and gameplay; prospecting needs its own teams; Security squads get special missions to infiltrate an
+  enemy base or a combatant's vessel. 0.14.0 wires a third team (see the safe-first-runs plan, group 3).
