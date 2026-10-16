@@ -531,3 +531,10 @@ Follow-up answers (user, 2026-10-16):
   STANDARD_ISSUE_IMPLICIT_MAGNITUDE = 0; the Quartermaster already issues Standard-Issue MEMBER pieces at 0 points), so
   wearing it changes nothing. For the Quartermaster set to be the "slight upgrade", member Standard-Issue pieces would
   need small real stats.
+- **Standard-Issue stats (user, 2026-10-16, verbatim):** "Each piece of gear gets stats. Similar to ship systems.
+  Except with far fewer slots. Default is 3, unless the racial allows for 2 kit slots. Weapon provides offensive stats.
+  Armor provides defensive stats. Kit provides utility and potentially stats associated with that based on the role
+  the tool is designed for." So member Standard-Issue pieces get real stats (weapon offensive, armor defensive, kit
+  utility / role stats). CHECK vs code (asked 2026-10-16): today a member has Armor, Weapon, Tool and IMPLANT slots
+  (1 implant, 2 for the augment-affinity races Martian and Stheni, awayTeam.ts implantSlotsFor); the user's "default
+  is 3, unless the racial allows for 2 kit slots" may mean the implant racial, or a new 2-kit racial.
