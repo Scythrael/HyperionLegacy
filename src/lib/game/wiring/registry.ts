@@ -30,6 +30,7 @@ import {
   HOMEWORLD_TALENTS,
   ITEMS,
   LIVE_STAT_KEYS,
+  MASS_SPEED_DRAG,
   MEMBER_GROUND_STAT_KEYS,
   MEMBER_SLOT_TYPES,
   MISSIONS,
@@ -44,8 +45,12 @@ import {
   SI_EMITTER_CAP,
   SI_EMITTER_RECHARGE,
   SI_PLATING_HP,
+  SUBSPACE_TELESCOPE_FACILITY_KEY,
   SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
+  blueprintsUnlockedByRelic,
+  type AffixAlignment,
+  type AffixId,
   type AwayTeamType,
   type CaptainTalentBranch,
   type CaptainTalentKey,
@@ -67,7 +72,7 @@ import {
 } from "../model";
 import { diminishing } from "../diminishing";
 import { buyHomeworldTalent } from "../tick";
-import { hullDefenseComposition } from "../combat/bridge";
+import { combatHullTypeOf, hullDefenseComposition } from "../combat/bridge";
 import { SENIOR_STAFF_BONUSES, type SeniorStaffBonusDef } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, CREW_STAT_KEYS, HELD_CREW_BUFF_IDS, SECOND_LEVEL_EXCLUSIVE, type CrewBuffDef } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -102,6 +107,7 @@ import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R, DC_WAVE_REGEN_B, DC_WAVE_REGEN_R, PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R, PF_SCAN_SPEED_B, PF_SCAN_SPEED_R } from "../utilityGear";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
+import { AFFIX_DEFS, ESCALATION_ENEMIES_PER_LEVEL, HEIGHTENED_SENSES_KNEE, HEIGHTENED_SENSES_PER_LEVEL } from "../affixes";
 import {
   WIRING_SCIENCE_ID,
   WIRING_SECURITY_ID,
@@ -120,6 +126,8 @@ import {
   withHomeworld,
   withMuseum,
   WIRING_BUCKET_COUNT,
+  AFFIX_ALIGNED_HOOKS,
+  AFFIX_HOOK_KEYS,
   GAMBIT_ACTIONS,
   GAMBIT_SELECTORS,
   sourceOn,
@@ -163,11 +171,28 @@ export type Curve =
   | { kind: "chanceAbsolute" } // the probability fed to the roll rises by m
   | { kind: "gate" } // a refusal becomes an allowance (or a count rises by m)
   | { kind: "event"; metric: string } // a proc or outcome: direction only, with a minimum effect size m
-  // WR-1 additions (the plan's list did not cover two shapes the code has):
+  // WR-1 additions (the plan's list did not cover these shapes the code has):
   | { kind: "bonusRelative"; base: number } // an AMPLIFIER: the bonus part above `base` grows by (1 + m)
-  | { kind: "equals" }; // content data: the consumer reads the configured value verbatim, value(on) = m
+  | { kind: "equals" } // content data: the consumer reads the configured value verbatim, value(on) = m
+  // A gear EFFECT whose size is linear in the piece's points through a per-point factor its module keeps private:
+  // value(on) = value(off) + points x (value(unitOn) - value(off)), where unitOn wears the same piece at 1 point.
+  | { kind: "perPoint"; points: number; unitOn: Transform }
+  // The mass drag (model.ts shipDerivedStats): speed x 1 / (1 + drag x mass). The source takes m off a piece of
+  // mass `massOff` (the ship's only mass): value(on) = value(off) x (1 + drag x massOff) / (1 + drag x (massOff - m)).
+  | { kind: "massDrag"; drag: number; massOff: number };
 
 export type Direction = "up" | "down" | "none";
+
+// WR-1 review: how the sensitivity level checks that one claimed context does NOT move yet (a PARTIAL source's
+// missing context, or a wholly inert source's claimed one). Each field defaults to the entry's own; an override
+// reads the context's own consumer (probe) on a fixture that HAS the system the effect would act on (base), so the
+// check is real: its control (flatControl below) must move the same probe on the same fixture.
+export interface FlatCheck {
+  readonly probe?: ProbeId;
+  readonly base?: () => GameState;
+  readonly on?: Transform;
+  readonly off?: Transform;
+}
 
 export interface WiringEntry {
   readonly id: string; // "<system>:<catalog>:<key>" (the no-dead-stats ids keep their own prefixes)
@@ -189,6 +214,13 @@ export interface WiringEntry {
   // A catalog field that does not apply to this one def (a transport's loot fields): live, nothing to measure.
   readonly notApplicable?: string;
   readonly note?: string;
+  // The checks of the claimed contexts that do not move yet (status.contexts), by context (see FlatCheck).
+  readonly flatChecks?: Partial<Record<ContextId, FlatCheck>>;
+  // An equals entry configured 0 proves its reader is not a constant 0 through a WITNESS: another live entry on the
+  // same reader configured nonzero. Found automatically (same catalog, same field); named here when it is not.
+  readonly witness?: string;
+  // The no-dead-stats allow-list's reason for a liveness entry that is not live (kept verbatim at the move).
+  readonly reason?: string;
 }
 
 // Every catalog a magnitude may read (the registry entries read their numbers through this, so the Debug panel can
@@ -230,6 +262,7 @@ export const CATALOGS = {
   SALVAGE_LOOT_POOLS,
   POI_CATALOG,
   PLANET_TYPES,
+  AFFIX_DEFS,
 } as const;
 export type Catalogs = typeof CATALOGS;
 
@@ -243,8 +276,8 @@ export function invDiminishing(y: number, knee: number): number {
 }
 
 // The value a source of magnitude m should produce through `curve`, from the value without it. null for an event
-// curve (direction and minimum effect size only).
-export function curveExpected(curve: Curve, off: number, m: number): number | null {
+// curve (direction and minimum effect size only). `unit` is the perPoint curve's one-point reading.
+export function curveExpected(curve: Curve, off: number, m: number, unit?: number): number | null {
   switch (curve.kind) {
     case "linearRelative":
       return off * (1 + m);
@@ -260,6 +293,10 @@ export function curveExpected(curve: Curve, off: number, m: number): number | nu
       return curve.base + (off - curve.base) * (1 + m);
     case "equals":
       return m;
+    case "massDrag":
+      return (off * (1 + curve.drag * curve.massOff)) / (1 + curve.drag * (curve.massOff - m));
+    case "perPoint":
+      return unit === undefined ? null : off + curve.points * (unit - off);
     case "event":
       return null;
   }
@@ -383,17 +420,31 @@ const CREW_SEAMS: Readonly<Record<string, { probe: ProbeId; contexts: ContextId[
   [CREW_STAT_KEYS.fuelEfficiency]: { probe: "sheetEngineEff", contexts: ["sheet"], curve: { kind: "linearAbsolute" } },
 };
 
-// The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped.
-const CREW_PENDING_PROBES: Readonly<Record<string, ProbeId>> = {
-  [CREW_STAT_KEYS.hullRepairRate]: "repairTicks",
-  [CREW_STAT_KEYS.surveyAptitude]: "expScanRate",
-  [CREW_STAT_KEYS.awayTeamProtection]: "secHp",
-  [CREW_STAT_KEYS.droneHandling]: "combatDroneHp",
-  [CREW_STAT_KEYS.triage]: "secHeal",
-  [CREW_STAT_KEYS.missionTurnaround]: "missionUnloadTicks",
-  [CREW_STAT_KEYS.powerEfficiency]: "sheetPowerDraw",
-  [CREW_STAT_KEYS.crewOutputMult]: "missionOutputBonus",
-  [CREW_STAT_KEYS.preventCrewLoss]: "injuryCare",
+// The claimed consumer of each dead crew.* key, read so a pending key that starts moving fails until it is flipped:
+// the probe, the claimed context, and a fixture that HAS the system the key would act on (WR-1 review: an away team
+// for the squad keys, a medic for Triage, a carrier with drones for Deck Handling, a powered piece for Power
+// Discipline), so the flat check is real.
+interface DeadKeySeam {
+  probe: ProbeId;
+  context: ContextId;
+  base?: () => GameState;
+}
+const POWERED_PIECE_DRAW = 20; // a piece drawing real power, so a power-draw cut would show
+const withMedic: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
+const CREW_PENDING_PROBES: Readonly<Record<string, DeadKeySeam>> = {
+  [CREW_STAT_KEYS.hullRepairRate]: { probe: "repairTicks", context: "shipyard" },
+  [CREW_STAT_KEYS.surveyAptitude]: { probe: "expScanRate", context: "expedition:groundOps" },
+  [CREW_STAT_KEYS.awayTeamProtection]: { probe: "runSecHp", context: "ground", base: () => withAwayTeam(wiringBase()) },
+  [CREW_STAT_KEYS.droneHandling]: { probe: "combatDroneHp", context: "patrol", base: () => combatBase("carrier") },
+  [CREW_STAT_KEYS.triage]: { probe: "runSecHeal", context: "ground", base: () => withMedic(withAwayTeam(wiringBase())) },
+  [CREW_STAT_KEYS.missionTurnaround]: { probe: "missionUnloadTicks", context: "mission:extraction" },
+  [CREW_STAT_KEYS.powerEfficiency]: {
+    probe: "sheetPowerDraw",
+    context: "sheet",
+    base: () => installPiece(wiringBase(), { slotType: "cargoBay", powerDraw: POWERED_PIECE_DRAW }),
+  },
+  [CREW_STAT_KEYS.crewOutputMult]: { probe: "missionCycleOutput", context: "mission:extraction" },
+  [CREW_STAT_KEYS.preventCrewLoss]: { probe: "injuryCare", context: "medbay" },
 };
 
 const CREW_PENDING: Readonly<Record<string, string>> = {
@@ -421,7 +472,8 @@ function crewEntries(): WiringEntry[] {
     const held = HELD_CREW_BUFF_IDS.has(def.id);
     const owner = CREW_PENDING[def.statKey];
     const seam = CREW_SEAMS[def.statKey];
-    const probe = owner ? CREW_PENDING_PROBES[def.statKey] : seam?.probe;
+    const dead = owner ? CREW_PENDING_PROBES[def.statKey] : undefined;
+    const probe = owner ? dead?.probe : seam?.probe;
     return entry({
       id: `crew:${def.statKey}`,
       system: "crew",
@@ -435,7 +487,12 @@ function crewEntries(): WiringEntry[] {
       magnitude: () => def.magnitude * WIRING_BUCKET_COUNT,
       on: (s) => withBuckets(s, [bucketOf(profession, def.id)]),
       off: (s) => withBuckets(s, [bucketOf(profession, "wiring.none")]),
-      status: held ? { kind: "held", userRef: "D14 (design 2026-10-02): Craft Duplicate is held for homeworld staffing" } : owner ? pending(owner) : LIVE,
+      ...(dead?.base ? { base: dead.base } : {}),
+      status: held
+        ? { kind: "held", userRef: "D14 (design 2026-10-02): Craft Duplicate is held for homeworld staffing" }
+        : owner
+          ? pending(owner, dead ? [dead.context] : undefined)
+          : LIVE,
     });
   });
 }
@@ -455,7 +512,9 @@ function racialEntries(): WiringEntry[] {
     const rb = CREW_RACES[race].racialBonus;
     const status = RACIAL_PENDING[race] ?? LIVE;
     const seam = CREW_SEAMS[rb.statKey];
-    const probe = status.kind === "live" ? seam?.probe : CREW_PENDING_PROBES[rb.statKey];
+    const dead = status.kind === "live" ? undefined : CREW_PENDING_PROBES[rb.statKey];
+    const probe = status.kind === "live" ? seam?.probe : dead?.probe;
+    const claimed = dead && status.kind === "pending" ? pending(status.owner, [dead.context]) : dead && status.kind === "deferred" ? { ...status, contexts: [dead.context] } : status;
     return entry({
       id: `racial:${race}`,
       system: "crew",
@@ -468,7 +527,8 @@ function racialEntries(): WiringEntry[] {
       magnitude: (c) => c.CREW_RACES[race].racialBonus.seniorStaff,
       on: (s) => seatOfficer(s, "executive", [], { race }),
       off: identity,
-      status,
+      ...(dead?.base ? { base: dead.base } : {}),
+      status: claimed,
     });
   });
 }
@@ -627,7 +687,11 @@ function gearEntries(): WiringEntry[] {
               base: () => withAwayTeam(wiringBase()),
               on: (s) => withPair(wearPiece(s, wearer, slotType, v.key, { [key]: GEAR_TEST_POINTS })),
               off: (s) => withPair(wearPiece(s, wearer, slotType, v.key, {})),
-              status: owner ? pending(owner) : live ? LIVE : pending("WR-1 follow-up: no seam probe for this squad and line"),
+              status: owner
+                ? pending(owner, owner === SCIENCE_LINE_SWAP ? ["ground"] : undefined)
+                : live
+                  ? LIVE
+                  : pending("WR-1 follow-up: no seam probe for this squad and line"),
             }),
           );
         }
@@ -695,8 +759,14 @@ function traitEntry(t: AwayTraitDef): WiringEntry {
 function groundEffectEntries(): WiringEntry[] {
   const N = GEAR_TEST_POINTS;
   const base = () => withAwayTeam(wiringBase());
-  const medic = (s: GameState) => editMember(s, WIRING_SECURITY_ID, { traits: ["fieldMedic"] });
+  const medic = withMedic;
   const piece = (slot: string, variety: string, lines: Record<string, number>): Transform => (s) => wearPiece(s, WIRING_SECURITY_ID, slot, variety, lines);
+  // Neural Backup's configured revive chance (the implant variety's groundEffect), as the combatant's permille.
+  const reviveChance = (c: Catalogs) => {
+    const v = c.EQUIPMENT_SLOTS.implant.varieties.find((x) => x.key === "neuralBackup");
+    const g = v?.member?.groundEffect;
+    return g && g.kind === "revive" ? Math.round(g.chance * 1000) : 0;
+  };
   const fx = (kind: string, claim: string, e: Partial<EntryInput>): WiringEntry =>
     entry({ id: `away:groundEffect:${kind}`, system: "away", source: { catalog: "MEMBER_GROUND_EFFECTS", key: kind }, claim, base, ...e } as EntryInput);
   return [
@@ -705,8 +775,9 @@ function groundEffectEntries(): WiringEntry[] {
       contexts: ["ground"],
       on: piece("memberWeapon", "scattergun", { groundPower: N }),
       off: piece("memberWeapon", "pulseRifle", { groundPower: N }),
-      curve: { kind: "event", metric: "groupHit fraction" },
-      magnitude: () => 0.01,
+      // The splash is linear in the piece's points (gambit.ts GROUP_HIT_PER_POINT, module-private) below its cap.
+      curve: { kind: "perPoint", points: N, unitOn: piece("memberWeapon", "scattergun", { groundPower: 1 }) },
+      magnitude: () => N,
     }),
     fx("inflict", "Stun Grenade / Toxin Grenade / Shock Baton: a landed hit can afflict", {
       probe: "secInflictPermille",
@@ -723,16 +794,18 @@ function groundEffectEntries(): WiringEntry[] {
       base: () => medic(withAwayTeam(wiringBase())),
       on: piece("memberTool", "medKit", { groundHp: N }),
       off: piece("memberTool", "stunGrenade", { groundHp: N }),
-      curve: { kind: "event", metric: "heal amount" },
-      magnitude: () => 1,
+      // The heal grows linearly with the kit's points (gambit.ts HEAL_PER_GEAR_POINT, module-private) on the medic's base.
+      curve: { kind: "perPoint", points: N, unitOn: piece("memberTool", "medKit", { groundHp: 1 }) },
+      magnitude: () => N,
     }),
     fx("revive", "Neural Backup: once per battle, a downed ally may come back", {
       probe: "secRevivePermille",
       contexts: ["ground"],
       on: (s) => wearPiece(s, WIRING_SECURITY_ID, "implant", "neuralBackup", {}),
       off: (s) => wearPiece(s, WIRING_SECURITY_ID, "implant", "dermalWeave", {}),
-      curve: { kind: "event", metric: "revive permille" },
-      magnitude: () => 1,
+      curve: { kind: "linearAbsolute" },
+      magnitude: reviveChance,
+      tolerance: 0.5,
       note: "revives the FIRST downed ally, not the wearer (B13, WR-10 OC-F2)",
     }),
     fx("resistStatus", "Toxin Filters: resist poison (Cortex Shield: stun and fear, pending Field Kits)", {
@@ -830,7 +903,7 @@ const SECONDARY_PROBES: Partial<Record<SecondaryTalentKey, ProbeId>> = {
   surveySensors1: "sheetSensors",
   surveySensors2: "expScanRate",
   expeditionRelics2: "expActivityRelicFind",
-  commandCrew2: "missionOutputBonus",
+  commandCrew2: "missionCycleOutput",
 };
 
 function secondaryEntries(): WiringEntry[] {
@@ -851,7 +924,16 @@ function secondaryEntries(): WiringEntry[] {
         outOfScope: [{ context: "mission:extraction", reason: "missions have no load phase (D26 points Efficient Stowage at the Ground Ops reload)" }],
       });
     }
-    return entry({ ...common, probe: SECONDARY_PROBES[key], status: pending(`${owner} (section 5.A ${key})`) });
+    const probe = SECONDARY_PROBES[key];
+    // OC-A1: a relative multiplier on the NAMED existing value of the captain's own ship. The combat nodes are read
+    // with a Tactical officer's weapon and shield bonuses seated on a combat hull, so a multiplier on them shows.
+    const combatNode = key === "gunnery1" || key === "aegis1";
+    return entry({
+      ...common,
+      probe,
+      ...(combatNode ? { base: () => seatOfficer(combatBase(), "tactical", ["tac.weaponCommand", "tac.shieldCommand"]) } : {}),
+      status: pending(`${owner} (section 5.A ${key})`, probe ? [homeContextOf(probe)] : undefined),
+    });
   });
 }
 
@@ -1117,15 +1199,45 @@ function trackEntries(): WiringEntry[] {
       }),
     ),
   );
-  out.push(
-    entry({
-      id: "facility:SUBSPACE_TELESCOPE_LEVELS:reachTier",
-      system: "facility",
-      source: { catalog: "SUBSPACE_TELESCOPE_LEVELS", key: "reachTier" },
-      claim: "The telescope reaches farther regions",
-      status: pending("G2-2 (every candidate is Tier I)"),
-    }),
-  );
+  // The Subspace Telescope ladder, rung by rung: the reading reaches the rung's region tier and reads its detail.
+  // The reach is information on the card today; the candidate pool stays Tier I until G2-2 (the PARTIAL check
+  // reads the highest tier the candidates offer).
+  for (const row of SUBSPACE_TELESCOPE_LEVELS) {
+    const at = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level);
+    const below = (s: GameState) => withFacilityLevel(s, SUBSPACE_TELESCOPE_FACILITY_KEY, row.level - 1);
+    const value = (field: "reachTier" | "detail") => (c: Catalogs) => c.SUBSPACE_TELESCOPE_LEVELS.find((r) => r.level === row.level)![field];
+    out.push(
+      entry({
+        id: `facility:SUBSPACE_TELESCOPE_LEVELS:${row.level}:reachTier`,
+        system: "facility",
+        source: { catalog: "SUBSPACE_TELESCOPE_LEVELS", key: `${row.level}:reachTier` },
+        claim: `Telescope level ${row.level} reaches region tier ${row.reachTier}`,
+        probe: "telescopeReach",
+        contexts: ["facility"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: value("reachTier"),
+        on: at,
+        off: below,
+        status: pending("G2-2 (every candidate is Tier I)", ["expedition:groundOps"]),
+        flatChecks: { "expedition:groundOps": { probe: "candidateTopTier" } },
+      }),
+      entry({
+        id: `facility:SUBSPACE_TELESCOPE_LEVELS:${row.level}:detail`,
+        system: "facility",
+        source: { catalog: "SUBSPACE_TELESCOPE_LEVELS", key: `${row.level}:detail` },
+        claim: `Telescope level ${row.level} reads detail ${row.detail}`,
+        probe: "telescopeDetail",
+        contexts: ["expedition:groundOps"],
+        direction: "none",
+        curve: { kind: "equals" },
+        magnitude: value("detail"),
+        on: at,
+        off: below,
+        note: "detail is information only (by design)",
+      }),
+    );
+  }
   return out;
 }
 
@@ -1265,9 +1377,9 @@ const LINE_SEAMS: Readonly<Record<string, LineSeam | null>> = {
 const LINE_PENDING: Readonly<Record<string, { owner: string; probe?: ProbeId; contexts?: ContextId[] }>> = {
   powerOutput: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
   powerDrawReduction: { owner: "E-MOD + WR-7, OC-D1 (display only; promises a power budget)" },
-  materialQualityChance: { owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", probe: "extractionCommonPerTick" },
-  crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity" },
-  crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload" },
+  materialQualityChance: { owner: "WR-7, OC-D2 (rolls on every Prospecting Rig, read by nothing)", probe: "missionOreQuality", contexts: ["mission:extraction"] },
+  crewStations: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "quartersCapacity", contexts: ["sheet"] },
+  crewEfficiency: { owner: "WR-7, OC-D3 (the tooltip prints the rolled value; nothing reads it)", probe: "sheetUnload", contexts: ["sheet"] },
 };
 
 // Install a ship piece carrying `points` of `key` (on the right slot and line), on ship-1.
@@ -1332,16 +1444,20 @@ function shipLineEntries(): WiringEntry[] {
         probe: "sheetTransit",
         contexts: ["sheet"],
         direction: "up",
-        curve: { kind: "event", metric: "transit speed after the mass drag" },
-        magnitude: () => 1e-6,
-        // A piece with mass 30: the line (consumed at mint into piece.mass) lowers the drag.
-        on: (s) => installPiece(s, { slotType: "cargoBay", mass: 10 }),
-        off: (s) => installPiece(s, { slotType: "cargoBay", mass: 30 }),
+        // The line (consumed at mint into piece.mass) takes LINE_POINTS off a piece of mass MASS_PIECE, the bare
+        // hull's only mass: the speed factor's drag drops exactly by that much.
+        curve: { kind: "massDrag", drag: MASS_SPEED_DRAG, massOff: MASS_PIECE },
+        magnitude: () => LINE_POINTS,
+        base: bareHull,
+        on: (s) => installPiece(s, { slotType: "cargoBay", mass: MASS_PIECE - LINE_POINTS }),
+        off: (s) => installPiece(s, { slotType: "cargoBay", mass: MASS_PIECE }),
         note: "consumed at mint (itemgen.ts:425) into the piece's mass; measured as the lighter piece's speed",
       });
     }
     if (p) return entry({ ...common, probe: p.probe, status: pending(p.owner, p.contexts) });
     if (!seam) return entry({ ...common, status: pending("WR-1 follow-up: no seam probe for this ship line") });
+    // The patrol checks fly a combat hull (a freighter cannot patrol, so its patrol reading would be vacuous).
+    const patrolOnCombat: Partial<Record<ContextId, FlatCheck>> = { patrol: { base: () => combatBase() } };
     const partial: Readonly<Record<string, WiringStatus>> = {
       cargoCapacity: pending("WR-7, OC-D8 (expeditions and patrols do not read the hold)", ["expedition:groundOps", "patrol"]),
       transitSpeedMult: pending("G2-3 + WR-7, OC-D8 (patrol legs and expedition transit are fixed)", ["patrol", "expedition:groundOps"]),
@@ -1359,9 +1475,17 @@ function shipLineEntries(): WiringEntry[] {
       tolerance: seam.tolerance,
       ...(seam.base ? { base: seam.base } : {}),
       status: partial[key] ?? LIVE,
+      ...(claimsPatrol(partial[key]) ? { flatChecks: patrolOnCombat } : {}),
     });
   });
 }
+
+const MASS_PIECE = 30; // the massReduction fixture's piece mass (the bare hull carries no other mass)
+const claimsPatrol = (st: WiringStatus | undefined): boolean => (st?.kind === "pending" || st?.kind === "deferred") && (st.contexts ?? []).includes("patrol");
+const bareHull = (): GameState => {
+  const s = wiringBase();
+  return { ...s, equipment: s.equipment.filter((e) => e.fittedToShipId !== "ship-1") };
+};
 
 // Hull fields: each numeric ShipTypeDef field of each hull reaches its consumer verbatim (a bare hull's sheet,
 // its Standard Issue combat fold, its slot counts).
@@ -1391,6 +1515,7 @@ function hullEntries(): WiringEntry[] {
       ...e,
     } as EntryInput);
   for (const hull of Object.keys(SHIP_TYPES) as ShipTypeKey[]) {
+    const combat = combatHullTypeOf(hull) !== null; // only a combat hull can patrol, so only it claims the patrol
     for (const field of ["cargoCapacity", "transitSpeedMult", "extractionYieldMult", "fuelCapacity", "engineEfficiency"] as const) {
       out.push(
         hullEntry(hull, field, {
@@ -1404,12 +1529,24 @@ function hullEntries(): WiringEntry[] {
           },
           status:
             field === "cargoCapacity"
-              ? pending("WR-7, OC-D8 (missions only)", ["expedition:groundOps", "patrol"])
+              ? pending("WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
               : field === "transitSpeedMult"
-                ? pending("G2-3 + WR-7, OC-D8 (missions only)", ["expedition:groundOps", "patrol"])
+                ? pending("G2-3 + WR-7, OC-D8 (missions only)", combat ? ["expedition:groundOps", "patrol"] : ["expedition:groundOps"])
                 : field === "fuelCapacity" || field === "engineEfficiency"
                   ? pending("G2-4 (no expedition reach gate)", ["expedition:groundOps"])
                   : LIVE,
+          // A hull field reaches a run or a patrol only through the sheet stat it seeds: the flat checks raise that
+          // same stat with a gear line on the hull (patrols fly the hull with its combat baseline installed).
+          ...(field === "extractionYieldMult"
+            ? {}
+            : {
+                flatChecks: {
+                  "expedition:groundOps": { on: shipPiece(field, LINE_POINTS), off: identity },
+                  ...(combat && (field === "cargoCapacity" || field === "transitSpeedMult")
+                    ? { patrol: { base: () => combatBase(hull), on: shipPiece(field, LINE_POINTS), off: identity } }
+                    : {}),
+                },
+              }),
         }),
       );
     }
@@ -1488,6 +1625,24 @@ const DEAD_DIVISION_CONTEXTS: Readonly<Partial<Record<CrewProfession, ContextId[
   flightDeck: ["patrol"], // droneHandling
 };
 
+// A division wing's flat check: its division's complement carrying the division's dead key, read where the key
+// claims to act (the dead key's own consumer and fixture). The wing amplifies nothing there until the key is live.
+const DEAD_KEY_OF_DIVISION: Readonly<Partial<Record<CrewProfession, string>>> = {
+  security: "sec.awayTeam",
+  engineering: "eng.hullRepair",
+  science: "sci.survey",
+  medical: "med.triage",
+  flightDeck: "flight.droneHandling",
+};
+function divisionWingChecks(division: CrewProfession): Partial<Record<ContextId, FlatCheck>> {
+  const buffId = DEAD_KEY_OF_DIVISION[division];
+  const def = buffId ? [...Object.values(CREW_PROFESSION_BUFFS).flat()].find((d) => d.id === buffId) : undefined;
+  const dead = def ? CREW_PENDING_PROBES[def.statKey] : undefined;
+  if (!def || !dead) return {};
+  const fixture = dead.base ?? (() => wiringBase());
+  return { [dead.context]: { probe: dead.probe, base: () => withBuckets(fixture(), [bucketOf(division, def.id)]) } };
+}
+
 function moduleEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
   const scale = moduleEffectScale("standard", 0);
@@ -1513,6 +1668,7 @@ function moduleEntries(): WiringEntry[] {
           def.kind === "division" && def.division !== "operations"
             ? pending(`CP-2, CP-3, CP-4, E-MOD (the ${def.division} division's dead keys; its live keys move)`, DEAD_DIVISION_CONTEXTS[def.division!] ?? ["ground"])
             : LIVE,
+        ...(def.kind === "division" && def.division !== "operations" ? { flatChecks: divisionWingChecks(def.division!) } : {}),
         note:
           def.kind === "division" && def.division !== "operations"
             ? "measured on Operations, the OFF division (its own division boost is the same multiplier)"
@@ -1623,6 +1779,13 @@ const MUSEUM_PARTIAL: Readonly<Partial<Record<MuseumStat, WiringStatus>>> = {
   crewBonuses: pending("WR-9, OC-E8 (officer bonuses read through officerBonusTotal are not amplified)", ["ground"]),
 };
 
+// The museum's PARTIAL checks: transit on a patrol flies a combat hull; the crew amplifier is read on the officer
+// bonus it does not reach (Fleet Triage, frozen on the run as squadTriage).
+const MUSEUM_FLAT_CHECKS: Readonly<Partial<Record<MuseumStat, Partial<Record<ContextId, FlatCheck>>>>> = {
+  transitSpeed: { patrol: { base: () => combatBase() } },
+  crewBonuses: { ground: { probe: "expSquadTriage", base: () => seatOfficer(withAwayTeam(wiringBase()), "medical", ["med.fleetTriage"]) } },
+};
+
 // A museum record that sets ONLY `stat` (one set tier at level 1), and the stat's value in it. The set's per-copy
 // stat also rises with the copies; tiers whose stat is the per-copy stat count both (museumBonusesFromRecord).
 function museumGrantFor(stat: MuseumStat): Record<string, number> | null {
@@ -1657,9 +1820,13 @@ function museumEntries(): WiringEntry[] {
       on: (s) => withMuseum(s, grant ?? {}),
       off: (s) => withMuseum(s, {}),
       status: MUSEUM_PARTIAL[stat] ?? (seam && grant ? LIVE : pending("WR-1 follow-up: no grant or seam")),
+      ...(MUSEUM_FLAT_CHECKS[stat] ? { flatChecks: MUSEUM_FLAT_CHECKS[stat] } : {}),
     });
   });
 }
+
+// The relic identified (its first find), as state.relicDiscovered records it.
+const discovered = (relicId: string): Transform => (s) => ({ ...s, relicDiscovered: [...(s.relicDiscovered ?? []), relicId] });
 
 function relicEntries(): WiringEntry[] {
   const out: WiringEntry[] = [];
@@ -1707,6 +1874,8 @@ function relicEntries(): WiringEntry[] {
         on: (s) => withMuseum(s, { [r.id]: 1 }),
         off: (s) => withMuseum(s, {}),
         status: r.id === "precursorLens" ? pending("E-MOD (the first find unlocks a special module, deferred to E-MOD by decision)", ["craft"]) : LIVE,
+        // Its first find (the relic identified) unlocks nothing to make yet: no blueprint is gated on it.
+        ...(r.id === "precursorLens" ? { flatChecks: { craft: { probe: "researchableBlueprints", on: discovered(r.id), off: identity } } } : {}),
         note: "each copy in the Museum adds its set's per-copy share",
       }),
     );
@@ -1963,6 +2132,7 @@ function contentEntries(): WiringEntry[] {
         on: sourceOn,
         status: owner ? pending(owner) : LIVE,
         note: action === "hold" ? "Hold does nothing, as its label says" : undefined,
+        ...(action === "hold" ? { witness: "away:GAMBIT_ACTIONS:attack" } : {}),
       }),
     );
   }
@@ -2084,6 +2254,71 @@ function contentEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// expedition: the ground objective affixes (affixes.ts AFFIX_DEFS) and the alert escalation
+// ============================================================================
+
+// Every rank of every affix hook, read by the hook's own reader on an objective carrying that one instance (the
+// cover hook once per alignment it may roll: positive covers the squad, negative the enemy, neutral both).
+function affixEntries(): WiringEntry[] {
+  const out: WiringEntry[] = [];
+  for (const def of Object.values(AFFIX_DEFS)) {
+    for (const hook of AFFIX_HOOK_KEYS) {
+      const byRank = (def.hooks as Readonly<Record<string, readonly number[] | undefined>>)[hook];
+      if (!byRank) continue;
+      const cover = AFFIX_ALIGNED_HOOKS.has(hook);
+      byRank.forEach((_, i) => {
+        const rank = i + 1;
+        const alignments: readonly AffixAlignment[] = cover ? def.alignments : [def.alignments[0]];
+        for (const alignment of alignments) {
+          const key = `${def.id}:${rank}:${hook}${cover ? `:${alignment}` : ""}`;
+          out.push(
+            entry({
+              id: `expedition:AFFIX_DEFS:${key}`,
+              system: "expedition",
+              source: { catalog: "AFFIX_DEFS", key },
+              claim: `${def.name} rank ${rank}: ${hook}${cover ? ` (${alignment})` : ""}`,
+              probe: `content:affix:${def.id}:${rank}:${hook}:${alignment}`,
+              contexts: ["ground"],
+              direction: "none",
+              curve: { kind: "equals" },
+              magnitude: (c) => {
+                const v = (c.AFFIX_DEFS[def.id as AffixId].hooks as Readonly<Record<string, readonly number[]>>)[hook][i];
+                return cover && alignment === "neutral" ? 2 * Math.min(1, v) : v; // neutral: each side evades
+              },
+              on: sourceOn,
+            }),
+          );
+        }
+      });
+    }
+  }
+  out.push(
+    entry({
+      id: "expedition:AFFIX_ESCALATION:damageMult",
+      system: "expedition",
+      source: { catalog: "AFFIX_ESCALATION", key: "damageMult" },
+      claim: "Heightened Senses: an alerted objective's enemies deal stacking extra damage",
+      probe: "content:escalation:damageMult",
+      contexts: ["ground"],
+      curve: { kind: "diminishing", knee: HEIGHTENED_SENSES_KNEE, base: 1 },
+      magnitude: () => HEIGHTENED_SENSES_PER_LEVEL,
+      on: sourceOn,
+    }),
+    entry({
+      id: "expedition:AFFIX_ESCALATION:extraEnemies",
+      system: "expedition",
+      source: { catalog: "AFFIX_ESCALATION", key: "extraEnemies" },
+      claim: "Reinforcing alert: every fight there fields one more enemy per alert level",
+      probe: "content:escalation:extraEnemies",
+      contexts: ["ground"],
+      magnitude: () => ESCALATION_ENEMIES_PER_LEVEL,
+      on: sourceOn,
+    }),
+  );
+  return out;
+}
+
+// ============================================================================
 // crew scalars, the away team's crew strength, the medical bay
 // ============================================================================
 
@@ -2173,6 +2408,7 @@ function crewScalarEntries(): WiringEntry[] {
 }
 
 const CONDITION_PENDING = "FK-4 (no battle or task applies the condition yet)";
+const ossir: Transform = (s) => editMember(s, WIRING_SECURITY_ID, { race: "ossir" });
 const LIVE_CONDITIONS = new Set(["health", "poison", "downed"]);
 
 function medicalEntries(): WiringEntry[] {
@@ -2203,6 +2439,12 @@ function medicalEntries(): WiringEntry[] {
       tolerance: 1,
       on: sourceOn,
       status: pending("FK-4 (the battle half) + OC-G1 (the legacy claim ignores perks, injuries.ts:93)", ["expedition:legacy", "ground"]),
+      // An Ossir Security member (the race carries the perk) vs an Earth-born one: the legacy injury path's recovery
+      // time, and the member's battle resists (the in-battle half: injuries land less often).
+      flatChecks: {
+        "expedition:legacy": { probe: "legacyInjurySeconds", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
+        ground: { probe: "secResistSum", base: () => withAwayTeam(wiringBase()), on: ossir, off: identity },
+      },
     }),
   );
   return out;
@@ -2312,6 +2554,155 @@ function auditEntries(): WiringEntry[] {
 }
 
 // ============================================================================
+// The no-dead-stats allow-list's reasons (kept verbatim from PENDING_IN_RELEASE at the WR-1 move)
+// ============================================================================
+
+const OFFICER_DORMANT = "dormant by design until its system lands (crewOverlay.ts OFFICER_BONUSES_PENDING_IN_RELEASE)";
+const SCIENCE_NEVER_FIGHTS = "Science never fights (D2)";
+const SIDEARM_TOOL = "Science never fights (D2); the Sidearm becomes a tool";
+const ALLOW_LIST_REASONS: Readonly<Record<string, string>> = {
+  ...Object.fromEntries(Object.keys(OFFICER_BONUSES_PENDING_IN_RELEASE).map((k) => [`officer:${k}`, OFFICER_DORMANT])),
+  "officer:officer.crewRetention":
+    "Morale Anchor: wired as the squad's Fear resist (Task 20), but nothing inflicts Fear yet (enemy casters apply " +
+    "weakened or poison), so the resist never rolls. The Iron Will trait and Cortex Shield's fear half wait the same way.",
+  "crew:crew.powerEfficiency": "Power Discipline: power efficiency waits for the power budget (design 6.2)",
+  "crew:crew.droneHandling": "Deck Handling: carrier drone handling (Flight Deck pool)",
+  "crew:crew.hullRepairRate": "Damage Control: Shipyard repair rate (Engineering pool)",
+  "crew:crew.counterInfiltration": "Counter-Infiltration: resists enemy debuffs (Security pool)",
+  "crew:crew.awayTeamProtection": "Away-Team Protection: squad HP (Security pool)",
+  "crew:crew.surveyAptitude": "Survey Aptitude: scan speed (Science pool)",
+  "crew:crew.triage": "Triage: squad healing (Medical pool)",
+  "crew:crew.crewOutputMult": "Crew Output Multiplier: output mult (exclusive pool)",
+  "crew:crew.missionTurnaround": "Mission Turnaround: turnaround cut (exclusive pool)",
+  "crew:crew.preventCrewLoss": "Prevent a Crew Loss: shorter injuries (exclusive pool)",
+  "crew:crew.crewEffectiveness": "Crew Effectiveness (Medical): healthy crew work better",
+  "racial:martian": "racial crew.powerEfficiency waits for the power budget",
+  "racial:belter": "racial crew.droneHandling (Flight Deck pool key)",
+  "racial:outerColony": "racial crew.surveyAptitude (Science pool key)",
+  "racial:vael": "racial crew.surveyAptitude (Science pool key)",
+  "racial:stheni": "racial crew.hullRepairRate (Engineering pool key)",
+  "racial:earthBorn": "racial crew.crewEffectiveness (see crew:crew.crewEffectiveness)",
+  "racial:spacer": "racial crew.endurance: a complement build-up like Constitution (D23 curve)",
+  "gear:science:sidearm:groundPower": SIDEARM_TOOL,
+  "gear:science:sidearm:groundAccuracy": SIDEARM_TOOL,
+  "gear:science:sidearm:groundStatusChance": SIDEARM_TOOL,
+  "gear:science:fieldSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
+  "gear:science:fieldSuit:groundHp": SCIENCE_NEVER_FIGHTS,
+  "gear:science:hazardSuit:groundArmor": SCIENCE_NEVER_FIGHTS,
+  "gear:science:hazardSuit:groundHp": SCIENCE_NEVER_FIGHTS,
+  "gear:security:cortexShield:groundStatusResist": "its resist covers stun and fear, and no enemy inflicts either on the squad today",
+  "facet:pilot:cunning": "the Flight Deck has no over-delivery of its own yet (design section 7 names none)",
+};
+
+// ============================================================================
+// The flat checks' claimed contexts and controls (WR-1 review)
+// ============================================================================
+
+// The context a probe's consumer belongs to (a wholly inert entry is checked flat there).
+const PROBE_HOME_CONTEXT: Readonly<Partial<Record<string, ContextId>>> = {
+  sheetCargo: "sheet",
+  sheetYield: "sheet",
+  sheetEngineEff: "sheet",
+  sheetUnload: "sheet",
+  sheetSensors: "sheet",
+  sheetPowerDraw: "sheet",
+  missionExtractionTicks: "mission:extraction",
+  missionCycleOutput: "mission:extraction",
+  officerWeapons: "patrol",
+  officerShields: "patrol",
+  officerEvasion: "patrol",
+  repairTicks: "shipyard",
+  expScanRate: "expedition:groundOps",
+  expActivityRelicFind: "expedition:groundOps",
+};
+export function homeContextOf(probe: ProbeId): ContextId {
+  const c = PROBE_HOME_CONTEXT[probe];
+  if (!c) throw new Error(`wiring: no home context for probe ${probe}`);
+  return c;
+}
+
+// The probes whose claimed context reads a whole-context digest (probes.ts sheetAt).
+const DIGEST_PROBES = new Set<string>(["sheetCargo", "sheetTransit", "sheetFuelCapacity", "sheetEngineEff", "sheetSensors", "dcRepairReduction", "groundOpsRun", "patrolRun"]);
+
+const strongerOfficers: Transform = (s) => ({
+  ...s,
+  officers: s.officers.map((o) =>
+    o.assignedShipId === "ship-1" ? { ...o, bonuses: o.bonuses.map((b) => ({ ...b, magnitude: b.magnitude * 1.5 })) as typeof o.bonuses } : o,
+  ),
+});
+const halvedPowerDraw: Transform = (s) => ({ ...s, equipment: s.equipment.map((e) => (e.fittedToShipId === "ship-1" ? { ...e, powerDraw: e.powerDraw / 2 } : e)) });
+const museumOf = (stat: MuseumStat): Transform => (s) => withMuseum(s, museumGrantFor(stat) ?? {});
+const GATING_RELIC = RELICS.find((r) => r.id !== "precursorLens" && blueprintsUnlockedByRelic(r.id).length > 0)?.id ?? "";
+
+// The CONTROL of a flat check: a LIVE effect of the same shape, through the same probe, on the check's fixture.
+// The check is real only if the control moves the probe there (an away team present, drones aboard, power drawn,
+// a run that dispatches, a hull that patrols ...). null: no live effect can reach that consumer yet (the reason
+// is in FLAT_UNCONTROLLED).
+export function flatControl(probe: ProbeId, ctx: ContextId): Transform | null {
+  if (DIGEST_PROBES.has(probe) && ctx === "expedition:groundOps") return shipPiece("sensors", LINE_POINTS); // the run freezes sensorPower
+  if (DIGEST_PROBES.has(probe) && ctx === "patrol") return shipPiece("hullStrength", LINE_POINTS); // the cycle carries the hull pool
+  switch (probe) {
+    case "repairTicks":
+      return shipPiece("repairSpeed", LINE_POINTS);
+    case "expScanRate":
+      return museumOf("scanSpeed");
+    case "runSecHp":
+      return (s) => wearPiece(s, WIRING_SECURITY_ID, "memberArmor", "ballisticWeave", { groundHp: LINE_POINTS });
+    case "runSecHeal":
+      return (s) => seatOfficer(s, "medical", ["med.fleetTriage"]); // Fleet Triage strengthens a medic's heal
+    case "combatDroneHp":
+      return shipPiece("droneHp", LINE_POINTS);
+    case "missionUnloadTicks":
+    case "sheetUnload":
+      return (s) => seatOfficer(s, "operations", ["ops.unloadSurge"]);
+    case "sheetPowerDraw":
+      return halvedPowerDraw; // a power-draw cut shows only when something draws power
+    case "missionCycleOutput":
+      return (s) => seatOfficer(s, "executive", ["xo.commandOutput"]);
+    case "injuryCare":
+    case "legacyInjurySeconds":
+      return (s) => withBuckets(s, [bucketOf("medical", "med.reducedLosses")]);
+    case "sheetYield":
+      return shipPiece("extractionYieldMult", LINE_POINTS);
+    case "missionExtractionTicks":
+      return museumOf("extractionSpeed");
+    case "sheetCargo":
+      return shipPiece("cargoCapacity", LINE_POINTS);
+    case "sheetEngineEff":
+      return shipPiece("engineEfficiency", LINE_POINTS);
+    case "sheetSensors":
+      return shipPiece("sensors", LINE_POINTS);
+    case "officerWeapons":
+    case "officerShields":
+    case "expSquadTriage":
+      return strongerOfficers; // a relative multiplier on the seated officers' existing bonus shows
+    case "officerEvasion":
+      return (s) => seatOfficer(s, "pilot", ["pilot.evasion"]);
+    case "expActivityRelicFind":
+      return museumOf("relicFindChance");
+    case "quartersCapacity":
+      return (s) => installPiece(s, { slotType: "quarters", moduleVariant: "quartersEfficient" });
+    case "salvageTalentYield":
+      return museumOf("salvageYield"); // the museum's salvage yield does reach a teardown
+    case "researchableBlueprints":
+      return discovered(GATING_RELIC);
+    case "secResistSum":
+      return (s) => wearPiece(s, WIRING_SECURITY_ID, "implant", "toxinFilters", { groundStatusResist: LINE_POINTS });
+    default:
+      return null;
+  }
+}
+
+// The flat checks no live effect can control yet, and why ("<probe>@<context>").
+export const FLAT_UNCONTROLLED: Readonly<Record<string, string>> = {
+  "sciCombatPower@ground": "Science never fights (D2): nothing live reaches a Science member's battle stats",
+  "secInflictPermille@ground:noInflict": "an inflict piece is the only live source of on-hit statuses, and this context is the one without it",
+  "salvageTalentCeiling@salvage:topTier": "the pool's top tier is the clamp: nothing can raise the tier a top Fleet Admiral rolls",
+  "candidateTopTier@expedition:groundOps": "every candidate is Tier I until G2-2: nothing raises the offered region tier",
+  "missionOreQuality@mission:extraction": "nothing raises mined ore quality today (this line would be the first source)",
+};
+
+// ============================================================================
 // The registry
 // ============================================================================
 
@@ -2340,10 +2731,11 @@ function build(): readonly WiringEntry[] {
     ...relicEntries(),
     ...missionEntries(),
     ...contentEntries(),
+    ...affixEntries(),
     ...crewScalarEntries(),
     ...medicalEntries(),
     ...auditEntries(),
-  ];
+  ].map((e) => (ALLOW_LIST_REASONS[e.id] ? { ...e, reason: ALLOW_LIST_REASONS[e.id] } : e));
 }
 
 export const WIRING_REGISTRY: readonly WiringEntry[] = build();

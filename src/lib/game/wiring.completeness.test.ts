@@ -23,9 +23,11 @@ import { classifiedCatalogDefs, enumerateEffectSources, shipLineKeys } from "./w
 import { FIELD_ROLES, UNREAD_CONSTANTS } from "./wiring/fieldRoles";
 
 // Registry catalogs that are not catalog walks: the plan's audit rows, derived seams and missing fields.
-const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS", "SUBSPACE_TELESCOPE_LEVELS"]);
+const SUPPLEMENTARY_CATALOGS = new Set(["AUDIT", "AWAY_TEAM_STRENGTH", "CAPTAIN_PROGRESSION", "MEMBER_PERKS", "SHIP_SEAMS", "SHIP_TYPES.missing", "GAMBIT_PROGRAMS"]);
 
 const sources = enumerateEffectSources();
+// The display texts that promise a number today (the five Fleet Logistics queue labels, "+1 ..."): the scan must see them.
+const PROMISING_TEXTS_FLOOR = 4;
 const sourceKeys = new Set(sources.map((s) => `${s.catalog}|${s.key}`));
 
 // An entry belongs to an enumerated source when it names it, or a sub-part of it ("<key>:<part>").
@@ -74,20 +76,49 @@ describe("wiring completeness: every catalog field is classified", () => {
 
   it("the claim-text check: a display text that promises a number belongs to a tracked def", () => {
     const promises = /(\d+(\.\d+)?\s*%)|((^|[\s(])\+\d)/;
-    const tracked = (key: string) =>
-      WIRING_REGISTRY.some((e) => e.source.key === key || e.source.key.startsWith(`${key}:`) || e.source.key.endsWith(`:${key}`) || e.source.key.includes(`:${key}:`));
+    // The registry catalogs each classified catalog's defs are registered under.
+    const registeredUnder: Readonly<Record<string, readonly string[]>> = {
+      CREW_BUFFS: ["CREW_PROFESSION_BUFFS", "SECOND_LEVEL_EXCLUSIVE"],
+      FACILITY_UPGRADES: ["FACILITIES"],
+      EQUIPMENT_SLOTS: ["SHIP_GEAR_LINES", "EQUIPMENT_SLOTS.member"],
+      EQUIPMENT_VARIETIES: ["EQUIPMENT_SLOTS.member", "SHIP_GEAR_LINES"],
+    };
+    // A def is tracked when an entry of ITS catalog names it (its key, or a sub-part "<key>:<part>") and the entry's
+    // claim carries the def's own label: the promise is registered on the def that makes it, not on any key that
+    // happens to share the spelling.
+    const labelOf = (def: object): string | undefined => {
+      for (const f of ["label", "name", "title", "displayName"]) {
+        const v = (def as Record<string, unknown>)[f];
+        if (typeof v === "string" && v.length > 0) return v;
+      }
+      return undefined;
+    };
+    const tracked = (catalog: string, key: string, def: object) => {
+      const catalogs = registeredUnder[catalog] ?? [catalog];
+      const label = labelOf(def);
+      return WIRING_REGISTRY.some(
+        (e) =>
+          catalogs.includes(e.source.catalog) &&
+          (e.source.key === key || e.source.key.startsWith(`${key}:`)) &&
+          (label === undefined || e.claim.includes(label)),
+      );
+    };
     const hits: string[] = [];
+    let promising = 0;
     for (const [catalog, byKey] of Object.entries(defs)) {
       const roles = FIELD_ROLES[catalog];
       for (const [key, def] of Object.entries(byKey)) {
         for (const [f, role] of Object.entries(roles)) {
           if (role !== "display") continue;
           const v = (def as Record<string, unknown>)[f];
-          if (typeof v === "string" && promises.test(v) && !tracked(key)) hits.push(`${catalog}.${key}.${f}: "${v}"`);
+          if (typeof v !== "string" || !promises.test(v)) continue;
+          promising += 1;
+          if (!tracked(catalog, key, def)) hits.push(`${catalog}.${key}.${f}: "${v}"`);
         }
       }
     }
-    expect(hits, "display text that promises an effect, on a def the registry does not track").toEqual([]);
+    expect(promising, "the scan must see the texts that promise a number").toBeGreaterThan(PROMISING_TEXTS_FLOOR);
+    expect(hits, "display text that promises an effect, on a def the registry does not track (under its own catalog and label)").toEqual([]);
   });
 });
 
@@ -149,6 +180,14 @@ describe("wiring completeness: every entry is well formed", () => {
         expect(contexts.has(c), `${e.id}: ${c}`).toBe(true);
         expect(e.contexts.includes(c), `${e.id}: ${c} is both live and missing`).toBe(false);
       }
+    }
+  });
+  it("a non-live entry with a probe names the claimed contexts its flat check reads (never a catch-all context)", () => {
+    for (const e of WIRING_REGISTRY) {
+      if (e.status.kind !== "pending" && e.status.kind !== "deferred") continue;
+      const claimed = e.status.contexts ?? [];
+      if (e.probe !== undefined) expect(claimed.length, `${e.id}: a probe but no claimed context to check it flat at`).toBeGreaterThan(0);
+      for (const c of Object.keys(e.flatChecks ?? {})) expect(claimed.includes(c as never), `${e.id}: a flat check at ${c}, which it does not claim`).toBe(true);
     }
   });
   it("every magnitude reads a finite number from the catalogs", () => {

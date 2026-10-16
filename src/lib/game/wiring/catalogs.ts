@@ -26,9 +26,11 @@ import {
   SECONDARY_CAPTAIN_TALENTS,
   SHIP_DOCKS_RUNGS,
   SHIP_TYPES,
+  SUBSPACE_TELESCOPE_LEVELS,
   TRANSIT_BERTH_RUNGS,
   type MemberSlotType,
 } from "../model";
+import { AFFIX_DEFS, escalationAt } from "../affixes";
 import { SENIOR_STAFF_BONUSES } from "../seniorStaffBonuses";
 import { CREW_PROFESSION_BUFFS, SECOND_LEVEL_EXCLUSIVE } from "../crewBuffs";
 import { CREW_RACES } from "../crewRaces";
@@ -48,7 +50,7 @@ import { ROLE_TEMPLATE } from "../combat/drones";
 import { PIRATE_HULLS } from "../combat/enemyHulls";
 import { STATUS_EFFECT_DEFS } from "../combat/statusEffects";
 import { DRONE_POD_AFFIX_POOL, DRONE_POD_IMPLICIT_STAT, WEAPON_AFFIX_POOL, WEAPON_IMPLICIT_STAT } from "../itemgen";
-import { GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
+import { AFFIX_ALIGNED_HOOKS, AFFIX_HOOK_KEYS, GAMBIT_ACTIONS, GAMBIT_SELECTORS } from "./probes";
 import { FIELD_ROLES, effectFieldsOf } from "./fieldRoles";
 
 export interface EffectSource {
@@ -93,6 +95,7 @@ const FIELD_CATALOGS: Readonly<Record<string, Readonly<Record<string, object>>>>
   PLANET_TYPES: Object.fromEntries(PLANET_TYPES.map((p) => [p.id, p])),
   SENSOR_ARRAYS: Object.fromEntries(SENSOR_ARRAYS.map((a) => [a.id, a])),
   ITEMS,
+  SUBSPACE_TELESCOPE_LEVELS: Object.fromEntries(SUBSPACE_TELESCOPE_LEVELS.map((r) => [String(r.level), r])),
 };
 
 function fieldSources(catalog: string, defs: Readonly<Record<string, object>>): EffectSource[] {
@@ -164,6 +167,19 @@ export function enumerateEffectSources(): EffectSource[] {
   add("RELICS", RELICS.map((r) => r.id));
   // missions, expedition content, salvage
   add("PATROLS", Object.keys(PATROLS));
+  // the ground objective affixes: every rank of every hook (an alignment-dependent hook once per alignment the
+  // affix may roll), and the alert escalation's outputs
+  add(
+    "AFFIX_DEFS",
+    Object.values(AFFIX_DEFS).flatMap((def) =>
+      AFFIX_HOOK_KEYS.flatMap((hook) =>
+        ((def.hooks as Readonly<Record<string, readonly number[] | undefined>>)[hook] ?? []).flatMap((_, i) =>
+          AFFIX_ALIGNED_HOOKS.has(hook) ? def.alignments.map((a) => `${def.id}:${i + 1}:${hook}:${a}`) : [`${def.id}:${i + 1}:${hook}`],
+        ),
+      ),
+    ),
+  );
+  add("AFFIX_ESCALATION", Object.keys(escalationAt(1)));
   add("POI_CATALOG", POI_CATALOG.map((p) => p.id));
   add("SALVAGE_LOOT_POOLS", Object.keys(SALVAGE_LOOT_POOLS));
   // the data catalogs, field by field
@@ -201,6 +217,7 @@ export function classifiedCatalogDefs(): Record<string, Readonly<Record<string, 
     POI_CATALOG: keyed(POI_CATALOG, (d) => d.id),
     EQUIPMENT_SLOTS,
     EQUIPMENT_VARIETIES: Object.fromEntries(Object.entries(EQUIPMENT_SLOTS).flatMap(([k, s]) => s.varieties.map((v) => [`${k}:${v.key}`, v]))),
+    AFFIX_DEFS,
   };
   for (const name of Object.keys(all)) if (!(name in FIELD_ROLES)) throw new Error(`catalog ${name} has no FIELD_ROLES entry`);
   return all;

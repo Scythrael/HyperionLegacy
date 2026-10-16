@@ -65,6 +65,15 @@ describe("wiring registry parity with the no-dead-stats liveness level", () => {
     }
   });
 
+  it("every liveness entry that is not live keeps the allow-list's reason (its rationale, verbatim from the move)", () => {
+    for (const e of liveness) {
+      if (e.status.kind === "live" || e.status.kind === "held") continue;
+      expect(e.reason, `${e.id}: the old PENDING_IN_RELEASE reason is missing`).toBeDefined();
+      expect(e.reason!.length, e.id).toBeGreaterThan(10);
+    }
+    expect(liveness.find((e) => e.id === "officer:officer.crewRetention")?.reason).toContain("nothing inflicts Fear yet");
+  });
+
   it("the Spacer long-haul ramp is deferred past 0.14.0 on the user's word (capture 2026-10-15 T3)", () => {
     const spacer = liveness.find((e) => e.id === "racial:spacer")!;
     expect(spacer.status.kind).toBe("deferred");

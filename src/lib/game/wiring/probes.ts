@@ -13,16 +13,21 @@
 import Decimal from "break_infinity.js";
 import {
   BLUEPRINTS,
+  EQUIPMENT_SLOTS,
+  MEMBER_SLOT_TYPES,
   MISSIONS,
   PATROLS,
   REFINE_RECIPES,
   SALVAGE_LOOT_POOLS,
   SHIP_TYPES,
+  blueprintResearchable,
   effectiveMissionDef,
   equipmentStorageCap,
   groundTeamCount,
   freshState,
   rollQuality,
+  type AffixAlignment,
+  type AffixId,
   type AwayMember,
   type AwayTeamType,
   type CaptainMissionState,
@@ -40,6 +45,7 @@ import {
   type GambitTargetSelector,
   type GameState,
   type MissionKey,
+  type ObjectiveAffix,
   type OfficerStats,
   type SeniorStaffSeat,
   type ShipInstance,
@@ -57,6 +63,7 @@ import {
   captainBonusRollChanceMult,
   captainSpecBonusRollChance,
   craftingItemLevelBonus,
+  dispatchCaptainOnPatrol,
   economyTick,
   fabricateSlotCount,
   fleetRareYieldMult,
@@ -98,6 +105,7 @@ import {
   buildRosterCombatants,
   deriveAwayTeam,
   evaluateAndAct,
+  expeditionTeamCombatants,
   firstAidEffectiveness,
   gambitPresetPrograms,
   resolveGroundBattle,
@@ -110,14 +118,15 @@ import {
 import { fieldworkEffect, fieldworkHazardResist, fieldworkSpeedMult } from "../fieldwork";
 import { taskSecurityHazardResist } from "../groundTasks";
 import { snapshotMembers } from "../awayTeam";
-import { injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
-import { boardingRepelChance } from "../shipScanEvents";
+import { applyExpeditionInjuries, injuryRecoverySeconds, shipInjuryFactors } from "../injuries";
+import { boardingRepelChance, buildShipCombatant, snapshotShipEventProfile } from "../shipScanEvents";
 import { shipsWithMemberAutoSlotted } from "../groundTeamSlots";
 import { equippedFor } from "../equipment";
 import { effectiveShipStats, officerCombatMods, officerMissionOutputBonus, officerRepairSpeedBonus, shipCrewContribution } from "../crewOverlay";
 import { departmentFacet, seatFacet } from "../officerStats";
 import { RELICS, museumBonuses, type MuseumStat } from "../relics";
-import { salvageSalvagedMaterial, salvageTalentBonus, salvageYieldMult } from "../salvage";
+import { salvageSalvagedMaterial, salvageShip, salvageTalentBonus, salvageYieldMult } from "../salvage";
+import { alertResetSeconds, escalationAt, extraBattleChance, longRangeCover, maxExtraBattles } from "../affixes";
 import { sellItem } from "../quartermaster";
 import { retirementExpMultiplier } from "../captainRetirement";
 import { transitBerthCount } from "../berths";
@@ -442,6 +451,12 @@ function missionDefFor(s: GameState, missionKey: MissionKey) {
   return effectiveMissionDef(MISSIONS[missionKey], effectiveShipStats(s, shipOf(s)));
 }
 
+const BIG_HOLD = 100;
+function bigHoldMissionDef(s: GameState) {
+  const stats = effectiveShipStats(s, shipOf(s));
+  return effectiveMissionDef(MISSIONS.longOreRun, { ...stats, cargoCapacity: stats.cargoCapacity * BIG_HOLD });
+}
+
 // == ship combat ==
 
 export function playerCombatant(s: GameState): Combatant {
@@ -480,6 +495,141 @@ function qualityClimbThreshold(bonus: number): number {
   return lo;
 }
 
+// == whole-context consumers (WR-1 review: a claimed context a stat does not reach yet is read through the
+// context's OWN consumer, so the check proves the stat is absent there, and starts failing the day it arrives) ==
+
+// A stable 32-bit digest of plain data (FNV-1a over its JSON; Decimals as their strings).
+export function digestOf(v: unknown): number {
+  const text = JSON.stringify(v, (_k, x: unknown) => (x instanceof Decimal ? x.toString() : x)) ?? "";
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+// The state a run dispatches from (ship-1 must field its away team).
+function readyForRun(s: GameState): GameState {
+  return s.awayMembers.some((m) => m.assignedShipId === WIRING_SHIP_ID) ? s : withAwayTeam(s);
+}
+
+// EVERYTHING a Ground Ops run reads of the ship: the candidate list it picks from (ids, systems, regions, reach) and
+// the record frozen at dispatch. The whole timeline is a pure function of that record (advanceExpedition takes no
+// state), so a stat that reaches any part of a run moves this digest. -1 when the run cannot dispatch (the check's
+// control then fails, so a fixture that cannot fly never passes as "flat").
+export function groundOpsRunDigest(s: GameState): number {
+  const ready = readyForRun(s);
+  const candidates = expeditionCandidates(ready, WIRING_SHIP_ID).map((c) => [c.id, c.systemId, c.telescope.regionTier, c.telescope.inRange]);
+  try {
+    return digestOf({ candidates, run: dispatchRun(ready) });
+  } catch {
+    return -1;
+  }
+}
+
+// EVERYTHING one patrol cycle reads of the ship: dispatch captain 1 on the first patrol (a combat hull), fly one
+// whole cycle through the real economyTick, and digest the cycle (the mission record tick by tick, the purse, the
+// hold, the tank and the ship). -1 when the ship cannot patrol (a non-combat hull: the check's control then fails).
+export function patrolDigest(s: GameState): number {
+  const key = Object.keys(PATROLS)[0];
+  const r = dispatchCaptainOnPatrol(s, WIRING_CAPTAIN_ID, key, "balanced", false);
+  if (!r.success) return -1;
+  const def = PATROLS[key];
+  let after = r.next;
+  const trace: unknown[] = [captainOf(after).mission];
+  for (let t = 0; t < def.transitOutTicks + def.rollWindowTicks + def.transitBackTicks + 5; t++) {
+    after = economyTick(after, 1, () => 0.5);
+    trace.push(captainOf(after).mission); // tick by tick: the legs, every wave and the ship's pools between them
+  }
+  return digestOf({ trace, credits: after.credits, fuel: after.fuel, inventory: after.inventory, ship: shipOf(after) });
+}
+
+// The ship-side scan events' combatant: the battle profile frozen at dispatch, rebuilt as each event rebuilds it.
+function shipEventCombatant(s: GameState): Combatant | undefined {
+  const battle = snapshotShipEventProfile(s, shipOf(s)).battle;
+  return battle ? buildShipCombatant("wiring-event", battle, 0, 0) : undefined;
+}
+
+// The Security squad as a dispatched run fields it (the run's frozen officer care rides along).
+function runMember(s: GameState, memberId: string): GroundCombatant | undefined {
+  return expeditionTeamCombatants(dispatchRun(readyForRun(s)), "wiring").find((c) => c.memberId === memberId);
+}
+
+// The member's combatant with every inflict-capable piece taken off (the "no inflict piece" context).
+const INFLICT_VARIETIES = new Set(
+  MEMBER_SLOT_TYPES.flatMap((slot) => EQUIPMENT_SLOTS[slot].varieties.filter((v) => v.member?.groundEffect?.kind === "inflict").map((v) => v.key)),
+);
+function withoutInflictPieces(s: GameState): GameState {
+  return { ...s, equipment: s.equipment.filter((e) => !(e.fittedToMemberId && e.moduleVariant && INFLICT_VARIETIES.has(e.moduleVariant))) };
+}
+
+// A hull torn down at the Salvage Bay (a second hull, so the last-hull guard never refuses): what it gave back.
+function teardownRecovered(s: GameState): number {
+  const spare: ShipInstance = { ...shipOf(s), id: "wiring-teardown", assignedCaptainId: null };
+  const held = { ...s, ships: [...s.ships, spare] };
+  const r = salvageShip(held, spare.id, () => 0.5);
+  if (!r.ok) return -1;
+  const items = Object.keys(SHIP_TYPES[spare.typeKey].buildRecipe.components);
+  return items.reduce((a, k) => a + heldOf(r.next, k) - heldOf(held, k), 0) + Number(r.next.credits) - Number(held.credits);
+}
+
+// The loot tier one salvaged material gives a Fleet Admiral past every loot-tier threshold, the draw at the top.
+function topTierRolled(s: GameState): number {
+  const item = Object.keys(SALVAGE_LOOT_POOLS)[0];
+  const held = holding({ ...s, fleetAdminLevel: 99 }, item, new Decimal(1));
+  const r = salvageSalvagedMaterial(held, item, () => 0.999999);
+  return r.ok && r.rolled ? r.rolled.quality : -1; // a higher tier deposits at a higher quality rung
+}
+
+// One whole shortOreRun cycle (every draw common): the credits and Titanium Ore it delivered.
+function cycleOutput(s: GameState): number {
+  const { before, after } = oneCycle(s, "shortOreRun");
+  return Number(after.credits) - Number(before.credits) + heldOf(after, "commonOre") - heldOf(before, "commonOre");
+}
+
+// One whole shortOreRun cycle: the QUALITY of the ore it delivered (quality rung x units, summed).
+function cycleOreQuality(s: GameState): number {
+  const { before, after } = oneCycle(s, "shortOreRun");
+  const weighted = (g: GameState) => (g.inventory.commonOre ?? []).reduce((a, q, i) => a + i * Number(q), 0);
+  return weighted(after) - weighted(before);
+}
+
+// How many blueprints a top-level Research Lab can start (the relic-gated ones count once their relic is found).
+function researchableCount(s: GameState): number {
+  const ready = withFacilityLevel(s, "research", 9);
+  return Object.keys(BLUEPRINTS).filter((k) => blueprintResearchable(ready, k)).length;
+}
+
+// The legacy (pre-Ground Ops) injury path: a run whose Security member went down, brought home. Its recovery time.
+function legacyInjurySeconds(s: GameState): number {
+  const ready = readyForRun(s);
+  const run = dispatchRun(ready);
+  const legacy: Expedition = {
+    ...run,
+    groundOps: undefined,
+    risk: undefined,
+    scanEvents: [{ bodyIndex: 0, step: 1, kind: "encounter", outcome: "loss", downedMemberIds: [WIRING_SECURITY_ID] }],
+  };
+  return applyExpeditionInjuries(ready, legacy).injuries.find((i) => i.memberId === WIRING_SECURITY_ID)?.recoverySeconds ?? 0;
+}
+
+// == the ground objective affixes (affixes.ts readers) ==
+
+const AFFIX_READERS: Readonly<Record<string, (list: readonly ObjectiveAffix[], alignment: AffixAlignment) => number>> = {
+  extraBattleChanceByRank: (l) => extraBattleChance(l),
+  maxExtraBattlesByRank: (l) => maxExtraBattles(l),
+  alertResetSecondsByRank: (l) => alertResetSeconds(l),
+  // The side(s) the alignment covers: positive the squad, negative the enemy, neutral both (summed).
+  longRangeEvasionByRank: (l, a) => {
+    const c = longRangeCover(l);
+    return a === "positive" ? c.team : a === "negative" ? c.enemy : c.team + c.enemy;
+  },
+};
+export const AFFIX_HOOK_KEYS = Object.keys(AFFIX_READERS);
+// The hooks whose reading depends on the instance's alignment (one source per alignment the affix may roll).
+export const AFFIX_ALIGNED_HOOKS: ReadonlySet<string> = new Set(["longRangeEvasionByRank"]);
+
 // ============================================================================
 // The probes
 // ============================================================================
@@ -490,21 +640,27 @@ export interface ProbeDef {
 }
 
 const sheet = (s: GameState) => effectiveShipStats(s, shipOf(s));
+// A sheet stat read where its consumer reads it: the sheet itself, or (at a claimed context the stat does not reach
+// yet) that context's whole consumer, the Ground Ops run or the patrol cycle.
+const sheetAt = (read: (s: GameState) => number) => (s: GameState, ctx: ContextId) =>
+  ctx === "expedition:groundOps" ? groundOpsRunDigest(s) : ctx === "patrol" ? patrolDigest(s) : read(s);
 const sci = () => WIRING_SCIENCE_ID;
+// The research probe reads a long project, so one museum step moves it by many ticks (well above its rounding).
+const RESEARCH_PROBE_SCALE = 1000;
 const sec = () => WIRING_SECURITY_ID;
 
 export const PROBES = {
   // == the ship stat sheet ==
-  sheetCargo: { label: "effectiveShipStats.cargoCapacity", read: (s) => sheet(s).cargoCapacity },
-  sheetTransit: { label: "effectiveShipStats.transitSpeedMult", read: (s) => sheet(s).transitSpeedMult },
+  sheetCargo: { label: "effectiveShipStats.cargoCapacity (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).cargoCapacity) },
+  sheetTransit: { label: "effectiveShipStats.transitSpeedMult (Ground Ops / patrol: the run / cycle digest)", read: sheetAt((s) => sheet(s).transitSpeedMult) },
   sheetYield: { label: "effectiveShipStats.extractionYieldMult", read: (s) => sheet(s).extractionYieldMult },
   sheetUnload: {
     label: "unload speed: effectiveShipStats.unloadSpeedMult (missions) / groundOps.factors.offloadMult (Ground Ops)",
     read: (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).groundOps?.factors.offloadMult ?? 1 : sheet(s).unloadSpeedMult ?? 1),
   },
-  sheetEngineEff: { label: "effectiveShipStats.engineEfficiency", read: (s) => sheet(s).engineEfficiency },
-  sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity", read: (s) => sheet(s).fuelCapacity },
-  sheetSensors: { label: "effectiveShipStats.sensors", read: (s) => sheet(s).sensors },
+  sheetEngineEff: { label: "effectiveShipStats.engineEfficiency (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).engineEfficiency) },
+  sheetFuelCapacity: { label: "effectiveShipStats.fuelCapacity (Ground Ops: the run digest)", read: sheetAt((s) => sheet(s).fuelCapacity) },
+  sheetSensors: { label: "effectiveShipStats.sensors (patrol: the cycle digest)", read: sheetAt((s) => sheet(s).sensors) },
   sheetMass: { label: "effectiveShipStats.mass", read: (s) => sheet(s).mass },
   sheetPowerOutput: { label: "effectiveShipStats.powerOutput", read: (s) => sheet(s).powerOutput },
   sheetPowerDraw: { label: "effectiveShipStats.powerDraw", read: (s) => sheet(s).powerDraw },
@@ -513,12 +669,13 @@ export const PROBES = {
   sheetFullHoldIntegrity: { label: "effectiveShipStats.fullHoldUnloadIntegrity", read: (s) => sheet(s).fullHoldUnloadIntegrity ?? 0 },
   shipRange: { label: "shipRangeLightYears", read: (s) => shipRangeLightYears(s, shipOf(s)) },
   // == the mission def a ship flies (effectiveMissionDef) ==
-  missionUnloadTicks: { label: "effectiveMissionDef(longOreRun).unloadTicks", read: (s) => missionDefFor(s, "longOreRun").unloadTicks },
+  // The two tick-count probes read a 100x hold, so a small speed-up is not lost to the whole-tick rounding.
+  missionUnloadTicks: { label: "effectiveMissionDef(longOreRun).unloadTicks (a 100x hold)", read: (s) => bigHoldMissionDef(s).unloadTicks },
   missionTransitOutTicks: { label: "effectiveMissionDef(longOreRun).transitOutTicks", read: (s) => missionDefFor(s, "longOreRun").transitOutTicks },
   missionExtractionTicks: {
-    label: "effectiveMissionDef(longOreRun) extracting ticks",
+    label: "effectiveMissionDef(longOreRun) extracting ticks (a 100x hold)",
     read: (s) => {
-      const d = missionDefFor(s, "longOreRun");
+      const d = bigHoldMissionDef(s);
       return d.extractionTicksOverride ?? Math.ceil(d.cargoCapacity / d.extractionRatePerTick);
     },
   },
@@ -548,6 +705,8 @@ export const PROBES = {
     },
   },
   missionOutputBonus: { label: "officerMissionOutputBonus (economyTick delivery share)", read: (s) => officerMissionOutputBonus(s, shipOf(s)) },
+  missionCycleOutput: { label: "one whole shortOreRun cycle (economyTick): the credits and Titanium Ore delivered", read: (s) => cycleOutput(s) },
+  missionOreQuality: { label: "one whole shortOreRun cycle (economyTick): the quality of the ore delivered", read: (s) => cycleOreQuality(s) },
   rareFind: {
     label: "crew rare find: Expedition.crewRareFind (relic roll) / crew.rareFindChance read by survey rare odds (tick.ts:4148)",
     read: (s, ctx) => (ctx === "mission:survey" ? shipCrewContribution(s, shipOf(s))[CREW_STAT_KEYS.rareFindChance] ?? 0 : dispatchRun(s).crewRareFind ?? 0),
@@ -567,9 +726,18 @@ export const PROBES = {
     read: (s, ctx) => (ctx === "expedition:groundOps" ? dispatchRun(s).encounterEvasion ?? 0 : officerCombatMods(s, shipOf(s))?.evasion ?? 0),
   },
   officerHullMult: { label: "1 + officerCombatMods.hull", read: (s) => 1 + (officerCombatMods(s, shipOf(s))?.hull ?? 0) },
-  combatHullMax: { label: "shipToCombatant.hullMax", read: (s) => playerCombatant(s).hullMax },
-  combatShieldMax: { label: "shipToCombatant.shieldMax", read: (s) => playerCombatant(s).shieldMax },
-  combatShieldRecharge: { label: "shipToCombatant.shieldRecharge", read: (s) => playerCombatant(s).shieldRecharge },
+  combatHullMax: {
+    label: "hullMax: shipToCombatant (patrol) / the ship-event combatant from the profile frozen at dispatch (shipEvent)",
+    read: (s, ctx) => (ctx === "shipEvent" ? shipEventCombatant(s)?.hullMax ?? 0 : playerCombatant(s).hullMax),
+  },
+  combatShieldMax: {
+    label: "shieldMax: shipToCombatant (patrol) / the ship-event combatant (shipEvent)",
+    read: (s, ctx) => (ctx === "shipEvent" ? shipEventCombatant(s)?.shieldMax ?? 0 : playerCombatant(s).shieldMax),
+  },
+  combatShieldRecharge: {
+    label: "shieldRecharge: shipToCombatant (patrol) / the ship-event combatant (shipEvent)",
+    read: (s, ctx) => (ctx === "shipEvent" ? shipEventCombatant(s)?.shieldRecharge ?? 0 : playerCombatant(s).shieldRecharge),
+  },
   combatShieldCoherence: { label: "shipToCombatant.shieldCoherence", read: (s) => playerCombatant(s).shieldCoherence },
   combatAblativeArmor: { label: "shipToCombatant.ablativeArmor", read: (s) => playerCombatant(s).ablativeArmor },
   combatKineticDampening: { label: "shipToCombatant.kineticDampening", read: (s) => playerCombatant(s).kineticDampening },
@@ -619,8 +787,8 @@ export const PROBES = {
   equipmentStorage: { label: "equipmentStorageCap", read: (s) => equipmentStorageCap(s) },
   berths: { label: "transitBerthCount", read: (s) => transitBerthCount(s) },
   researchTicks: {
-    label: "a blueprint's research ticks through the museum research speed (tick.ts:7419)",
-    read: (s) => museumResearchDurationTicks(Object.values(BLUEPRINTS)[0].researchDurationTicks, museumBonuses(s).researchSpeed),
+    label: "a long project's research ticks through the museum research speed (tick.ts:7419; 1000x a blueprint's)",
+    read: (s) => museumResearchDurationTicks(Object.values(BLUEPRINTS)[0].researchDurationTicks * RESEARCH_PROBE_SCALE, museumBonuses(s).researchSpeed),
   },
   craftQualityClimb: { label: "rollQuality first-climb threshold at the museum crafting quality", read: (s) => qualityClimbThreshold(museumBonuses(s).craftingQuality) },
   // == fleet readers ==
@@ -631,10 +799,24 @@ export const PROBES = {
   queueDepthResearchLab: { label: "queueDepth(researchLab)", read: (s) => queueDepth(s, "researchLab") },
   queueDepthShipyard: { label: "queueDepth(shipyard)", read: (s) => queueDepth(s, "shipyard") },
   craftingIlevelBonus: { label: "craftingItemLevelBonus", read: (s) => craftingItemLevelBonus(s) },
-  salvageTalentYield: { label: "salvageTalentBonus.yieldBonus (recycle fraction)", read: (s) => salvageTalentBonus(s).yieldBonus },
-  salvageTalentCeiling: { label: "salvageTalentBonus.ceilingBonus", read: (s) => salvageTalentBonus(s).ceilingBonus },
+  salvageTalentYield: {
+    label: "salvageTalentBonus.yieldBonus (recycle fraction) / salvage:teardown: what a hull teardown gives back",
+    read: (s, ctx) => (ctx === "salvage:teardown" ? teardownRecovered(s) : salvageTalentBonus(s).yieldBonus),
+  },
+  salvageTalentCeiling: {
+    label: "salvageTalentBonus.ceilingBonus / salvage:topTier: the loot tier (its quality rung) a top Fleet Admiral rolls at the top draw",
+    read: (s, ctx) => (ctx === "salvage:topTier" ? topTierRolled(s) : salvageTalentBonus(s).ceilingBonus),
+  },
   salvageYield: { label: "salvageYieldMult", read: (s) => salvageYieldMult(s) },
   captainCount: { label: "captains (count)", read: (s) => s.captains.length },
+  researchableBlueprints: { label: "blueprints a top-level Research Lab can start (blueprintResearchable)", read: (s) => researchableCount(s) },
+  legacyInjurySeconds: { label: "applyExpeditionInjuries on a legacy run: the downed Security member's recovery", read: (s) => legacyInjurySeconds(s) },
+  candidateTopTier: {
+    label: "expeditionCandidates: the highest region tier offered",
+    read: (s) => Math.max(...expeditionCandidates(readyForRun(s), WIRING_SHIP_ID).map((c) => c.telescope.regionTier)),
+  },
+  groundOpsRun: { label: "the Ground Ops run digest (candidates, the dispatch record, the run played out)", read: (s) => groundOpsRunDigest(s) },
+  patrolRun: { label: "the patrol cycle digest (dispatch, one cycle through economyTick)", read: (s) => patrolDigest(s) },
   // == crew modules ==
   quartersCapacity: { label: "quartersCapacityBonus", read: (s) => quartersCapacityBonus(s, shipOf(s)) },
   // == expedition dispatch snapshot and its consumers ==
@@ -674,7 +856,10 @@ export const PROBES = {
   },
   pathfinderScan: { label: "pathfinderEffect.scanSpeed", read: (s) => pathfinderEffect(equippedFor(s, WIRING_SHIP_ID)).scanSpeed },
   pathfinderHazard: { label: "pathfinderEffect.hazardResist", read: (s) => pathfinderEffect(equippedFor(s, WIRING_SHIP_ID)).hazardResist },
-  dcRepairReduction: { label: "damageControlEffect.repairTimeReduction", read: (s) => damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).repairTimeReduction },
+  dcRepairReduction: {
+    label: "damageControlEffect.repairTimeReduction (Ground Ops: the run digest, its field repair included)",
+    read: sheetAt((s) => damageControlEffect(equippedFor(s, WIRING_SHIP_ID)).repairTimeReduction),
+  },
   // == injuries ==
   // == the Security squad (real roster builder) ==
   secHp: { label: "Security combatant hp", read: (s) => memberCombatant(s, sec())?.hp ?? 0 },
@@ -682,8 +867,8 @@ export const PROBES = {
   secArmor: { label: "Security combatant armor", read: (s) => memberCombatant(s, sec())?.armor ?? 0 },
   secAccuracy: { label: "Security combatant accuracy", read: (s) => memberCombatant(s, sec())?.accuracy ?? 0 },
   secInflictPermille: {
-    label: "Security combatant on-hit status permille (sum)",
-    read: (s) => (memberCombatant(s, sec())?.onHitStatuses ?? []).reduce((a, x) => a + x.permille, 0),
+    label: "Security combatant on-hit status permille (sum; ground:noInflict: with every inflict piece taken off)",
+    read: (s, ctx) => (memberCombatant(ctx === "ground:noInflict" ? withoutInflictPieces(s) : s, sec())?.onHitStatuses ?? []).reduce((a, x) => a + x.permille, 0),
   },
   secPoisonResist: { label: "Security combatant poison resist permille", read: (s) => memberCombatant(s, sec())?.resists?.poison ?? 0 },
   secGuardBelow: { label: "Security combatant guardBelow", read: (s) => memberCombatant(s, sec())?.guardBelow ?? 0 },
@@ -692,6 +877,12 @@ export const PROBES = {
   secHeal: { label: "Security combatant heal", read: (s) => memberCombatant(s, sec())?.heal ?? 0 },
   secGroupHit: { label: "Security combatant groupHit", read: (s) => memberCombatant(s, sec())?.groupHit ?? 0 },
   secRevivePermille: { label: "Security combatant revive permille", read: (s) => memberCombatant(s, sec())?.revive?.permille ?? 0 },
+  secResistSum: {
+    label: "Security combatant status resists (permille, summed)",
+    read: (s) => Object.values(memberCombatant(s, sec())?.resists ?? {}).reduce((a: number, x) => a + (x ?? 0), 0),
+  },
+  runSecHp: { label: "the dispatched run's Security combatant hp (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.hp ?? 0 },
+  runSecHeal: { label: "the dispatched run's Security combatant heal (expeditionTeamCombatants)", read: (s) => runMember(s, sec())?.heal ?? 0 },
   secTaskHazardResist: {
     label: "taskSecurityHazardResist",
     read: (s) => taskSecurityHazardResist({ roster: rosterOf(s) as Expedition["roster"] }, [{ securityIds: [sec()], scienceIds: [sci()], scienceShare: 1 }]),
@@ -1011,7 +1202,7 @@ function missionFieldValue(s: GameState, field: string, key: MissionKey): number
 
 // The content probe dispatcher.
 function readContent(id: string, s: GameState): number {
-  const [, family, a, b] = id.split(":");
+  const [, family, a, b, c, d] = id.split(":");
   const on = isOn(s);
   switch (family) {
     case "weapon":
@@ -1111,6 +1302,17 @@ function readContent(id: string, s: GameState): number {
       const after = economyTick(r.next, 1, () => 0.5);
       const job = after.activeProcesses.find((p) => p.kind === "refineJob");
       return job ? job.remainingTicks : -1;
+    }
+    case "affix": {
+      // An objective carrying one instance of affix `a` at rank `b` (alignment `d`), read by the hook `c`'s reader.
+      const alignment = (d ?? "negative") as AffixAlignment;
+      const list: ObjectiveAffix[] = on ? [{ id: a as AffixId, rank: Number(b), alignment }] : [];
+      return AFFIX_READERS[c](list, alignment);
+    }
+    case "escalation": {
+      // An objective one alert level up (on) vs calm: the escalation's `a` (extraEnemies or damageMult).
+      const e = escalationAt(on ? 1 : 0) as unknown as Record<string, number>;
+      return e[a];
     }
     default:
       throw new Error(`unknown content probe ${id}`);
