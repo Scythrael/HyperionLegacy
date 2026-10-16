@@ -707,6 +707,41 @@ completeness test replaces the vocabulary drift guard's blind spot).
 **Determinism / save:** none. **UI:** none.
 Commit `test(0.14.0): wiring registry and sensitivity tests for live effects (WR-1)`.
 
+#### WR-1 carry note (built 2026-10-15; tests and pure modules only, no engine change, goldens and parity untouched)
+
+**Built:** `src/lib/game/wiring/` `registry.ts` (the typed entries), `probes.ts` (seam probes + fixtures),
+`catalogs.ts` (programmatic source enumeration), `fieldRoles.ts` (every field of 31 catalog def types + the unread
+constant list), `liveness.testkit.ts` (the no-dead-stats probes, moved unchanged); tests `wiring.sensitivity.test.ts`,
+`wiring.completeness.test.ts`, `wiring.liveness.test.ts`; `no-dead-stats.test.ts` is now the thin liveness runner
+(same name, same release-gate command, plus the registry gate).
+
+**Size:** 1026 entries: 693 live, 58 PARTIAL (live contexts asserted, missing contexts carried by the status), 272
+pending, 3 deferred (Spacer ramp, patrol cloak `particleTraceDetector`, sensors in patrol combat: T3), 1 held (Craft
+Duplicate). By system: captain 60, fleetAdmiral 21, facility 171, ship 275, crew 102, away 165, expedition 52, relic 44,
+mission 128, salvage 8. Sensitivity: 781 live checks + 37 "pending still does nothing" checks, about 1 s in total
+(every test well under 50 ms); the liveness level is unchanged (about 23 s, longest test 1.3 s). The 149 no-dead-stats
+ids are registry ids (parity test), the 29 allow-list owners carried over verbatim, and `racial:spacer` is now
+`deferred` (T3), so it no longer blocks the release gate.
+
+**Deviations from section 3 (all additive):** two curve kinds the code needed, `bonusRelative` (amplifiers: crew
+modules, the museum crew bonus, crew rarity and rank) and `equals` (content data read verbatim: hull, mission, pirate,
+planet, array, recipe, blueprint, status fields); a probe takes `(state, context)` and a few switch on the context
+(one probe id per entry, as specified); content sources (weapons, drone roles, statuses, gambit actions) toggle through
+a WeakSet mark on the fixture (`sourceOn`), since a save does not own them; `notApplicable` marks a catalog field that
+does not apply to one def (8 rows); `audit` rows register the not-live items with no catalog key (seams, record fields,
+legacy-only constants, combat descriptors nothing feeds), each with its owner. No probe extraction was needed: every
+probe reads an exported function (the extraction thresholds bisect a constant-draw economyTick instead). Item 4 of
+3.3 (outcome liveness) holds for the 149 liveness entries only; WR-2's ablation covers the rest.
+
+**Audit rows found misclassified:** Precursor Lens (section 2.9, INERT): its copies feed the Precursor set's per-copy
+research speed and its set tiers like every relic; only the first-find module unlock waits for E-MOD, so it is PARTIAL.
+No row the audit calls LIVE failed its sensitivity check. Not in the audit (recorded `notApplicable`, a question for the
+user under T1): the two transports carry `lootTable`, `creditsPerCycle` 0 and loot chances 0 that nothing reads.
+
+**For WR-2 / WR-3:** the registry is engine-side and pure; `readProbe(entry.probe, entry.on(save), ctx)` vs
+`entry.off(save)` is the Debug panel's live contribution. Planet pool biases are measured by cancelling them with the
+array bias over 8 dispatches (an event check); the sim should re-measure them at scale.
+
 ### WR-2: The simulated player (headless, engine-only)
 
 **Files:** new `src/lib/game/sim/` (`simPlayer.ts`, `policies.ts`, `actions.ts`), tests.
