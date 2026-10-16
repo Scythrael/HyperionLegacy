@@ -6176,3 +6176,21 @@ describe("deserialize, whitespace tolerance (import robustness hardening)", () =
     expect(deserialize(null as unknown as string)).toBeNull();
   });
 });
+
+// HOTFIX 0.13.10: a save stamps how far the economy is PAID, not merely when it was written, so
+// the reload-time offline catch-up pays exactly the unpaid remainder (closing a hidden tab, or the
+// leftover under one bar cycle, then loses nothing). No schema change: the same last_saved_at.
+describe("serialize: last_saved_at can be stamped with the paid-through time", () => {
+  it("uses the given savedAtMs", () => {
+    const save = deserialize(serialize(freshState(), 1000, 1_700_000_123_456));
+    expect(save?.last_saved_at).toBe(1_700_000_123_456);
+    expect(save?.created_at).toBe(1000);
+  });
+
+  it("defaults to the current time when no stamp is given", () => {
+    const before = Date.now();
+    const save = deserialize(serialize(freshState(), 1000));
+    expect(save?.last_saved_at).toBeGreaterThanOrEqual(before);
+    expect(save?.last_saved_at).toBeLessThanOrEqual(Date.now());
+  });
+});

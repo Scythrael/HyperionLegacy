@@ -6,6 +6,10 @@ import {
   planPoll,
   runPollEconomy,
   LIVE_STEP_MAX_CYCLES,
+  paidThroughMs,
+  awayRecapSpan,
+  paidTicks,
+  blendRunwayEma,
   type LoopClock,
 } from "./loopClock";
 import { tick, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
@@ -285,5 +289,89 @@ describe("runPollEconomy: live play matches offline catch-up", () => {
     const live = runPollEconomy(s, plan, ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
     expect(withoutClock(live)).toEqual(withoutClock(tick(5 * 86_400, s, ZERO_RNG)));
     expect(live.captains[0].xp.equals(2)).toBe(true);
+  });
+});
+
+// ===========================================================================
+// HOTFIX 0.13.10 follow-ups: the save stamp, the away recap span, and the runway EMA weight.
+// ===========================================================================
+
+describe("paidThroughMs: what a save stamps as last_saved_at", () => {
+  it("is the current cycle start, so the unpaid leftover is recovered on reload", () => {
+    expect(paidThroughMs({ cycleStartMs: T0, lastPollMs: T0 + 400, paused: false }, T0 + 900)).toBe(T0);
+  });
+
+  it("never runs ahead of now", () => {
+    expect(paidThroughMs({ cycleStartMs: T0 + 5000, lastPollMs: T0, paused: false }, T0)).toBe(T0);
+  });
+
+  it("is now while paused, because a paused span is never owed", () => {
+    expect(paidThroughMs({ cycleStartMs: T0, lastPollMs: T0 + 9000, paused: true }, T0 + 9000)).toBe(T0 + 9000);
+  });
+
+  it("closing a throttled hidden tab loses nothing: live hour + reload catch-up equals tick(3600)", () => {
+    // Hidden from the start: 1 Hz for five minutes, then one poll a minute, the last at 59:00.
+    const times: number[] = [];
+    for (let t = 1000; t <= 300_000; t += 1000) times.push(T0 + t);
+    for (let t = 360_000; t <= 3_540_000; t += 60_000) times.push(T0 + t);
+    let state = missionState();
+    let clock = clockAt(T0);
+    for (const now of times) {
+      const r = planPoll(clock, now, state.tickDurationSeconds, 1);
+      clock = r.clock;
+      if (r.plan.kind === "advance" && r.plan.mode !== "none") {
+        state = runPollEconomy(state, r.plan, ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
+      }
+    }
+    // The tab is closed at 59:59 (beforeunload save, no poll ran since 59:00), reopened at 60:00.
+    const savedAt = paidThroughMs(clock, T0 + 3_599_000);
+    const reopenedAt = T0 + 3_600_000;
+    const reloaded = tick((reopenedAt - savedAt) / 1000, state, ZERO_RNG);
+    expect(withoutClock(reloaded)).toEqual(withoutClock(tick(3600, missionState(), ZERO_RNG)));
+
+    // Stamping the write time instead (the old behavior) drops the 59 unpaid seconds.
+    const oldStamp = tick((reopenedAt - (T0 + 3_599_000)) / 1000, state, ZERO_RNG);
+    expect(oldStamp.captains[0].xp.lt(reloaded.captains[0].xp)).toBe(true);
+  });
+});
+
+describe("awayRecapSpan: a recap never replaces one that is still open", () => {
+  const a = missionState();
+  const b = missionState();
+
+  it("with nothing open, the recap covers just this absence", () => {
+    expect(awayRecapSpan(null, b, 300, T0)).toEqual({ before: b, secondsAway: 300 });
+  });
+
+  it("with a recap open, the new one starts from the open recap's snapshot and spans both", () => {
+    // Opened at T0 for a 600 s absence; the player left it open, hid the tab, came back 900 s later.
+    const open = { before: a, secondsAway: 600, shownAtMs: T0 };
+    expect(awayRecapSpan(open, b, 300, T0 + 900_000)).toEqual({ before: a, secondsAway: 1500 });
+  });
+});
+
+describe("paidTicks / blendRunwayEma: the runway EMA weighs a catch-up by what it paid", () => {
+  it("a step pays cycles times ticks per cycle", () => {
+    const { plan } = planPoll(clockAt(T0), T0 + 2000, 1, 10);
+    if (plan.kind !== "advance") throw new Error("expected an advance plan");
+    expect(paidTicks(plan, missionState())).toBe(20);
+  });
+
+  it("a catch-up beyond the offline cap pays only the capped ticks", () => {
+    const s = missionState();
+    s.tickDurationSeconds = 86_400; // cap = 2 ticks
+    const { plan } = planPoll(clockAt(T0), T0 + 5 * 86_400 * 1000, s.tickDurationSeconds, 1);
+    if (plan.kind !== "advance") throw new Error("expected an advance plan");
+    expect(paidTicks(plan, s)).toBe(2);
+  });
+
+  it("weight 1 is the old blend exactly; the first sample seeds; a heavy weight converges", () => {
+    expect(blendRunwayEma(5, 1, 0, 1, 0.1)).toBe(1);
+    expect(blendRunwayEma(5, 1, 3, 1, 0.1)).toBe(0.1 * 1 + (1 - 0.1) * 5);
+    // 60 samples of the same rate pull the EMA almost all the way there, as 60 live polls would.
+    const once = blendRunwayEma(5, 1, 3, 60, 0.1);
+    let stepwise = 5;
+    for (let i = 0; i < 60; i++) stepwise = 0.1 * 1 + 0.9 * stepwise;
+    expect(once).toBeCloseTo(stepwise, 9);
   });
 });

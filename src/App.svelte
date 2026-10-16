@@ -875,7 +875,15 @@
   import { summarizeOfflineProgress, type OfflineSummary } from "./lib/game/offlineSummary";
   // HOTFIX 0.13.10: the live loop's clock (whole cycles from real time, leftover carried forward,
   // large gaps paid by the same catch-up a reload runs). See src/lib/game/loopClock.ts.
-  import { planPoll, runPollEconomy, type LoopClock } from "./lib/game/loopClock";
+  import {
+    planPoll,
+    runPollEconomy,
+    paidThroughMs,
+    awayRecapSpan,
+    paidTicks,
+    blendRunwayEma,
+    type LoopClock,
+  } from "./lib/game/loopClock";
   import { formatNumber, formatDuration, formatClock } from "./lib/game/format";
   import { deriveStatistics } from "./lib/game/statistics";
   import { saveToLocalStorage, loadFromLocalStorage, clearSave, downloadRawSave, downloadLiveSave, importRawSave, hasRawSave, exportRawSave } from "./lib/game/save";
@@ -1087,8 +1095,8 @@
   let corruptRawSave = "";
 
   // While-You-Were-Away offline summary (Combat 0.13.0, Phase 13, design Section 17).
-  // A PLAIN let (never a reactive `$:`), set imperatively ONCE in onMount on the
-  // successful-load + offline-advanced path. Holds the pure before/after diff of the
+  // A PLAIN let (never a reactive `$:`), set imperatively in onMount on the
+  // successful-load + offline-advanced path (and by welcomeBack, below). Holds the pure before/after diff of the
   // pre-tick and post-tick GameState snapshots (see offlineSummary.ts); null keeps the
   // modal closed. It is set at load and only cleared by the Continue button, so it
   // never re-triggers a render off `state` (no side-effecting reactive). Since HOTFIX
@@ -2813,9 +2821,14 @@
   // and, past AWAY_SUMMARY_MIN_SECONDS, the same "While you were away" summary a reload shows is
   // raised from the pure before/after diff. Loop bookkeeping only; no markup reads it.
   let awayFrom: { atMs: number; snapshot: GameState } | null = null;
-  // Longer than the reload floor (OFFLINE_SUMMARY_MIN_SECONDS) on purpose: flipping to another
-  // tab for a minute or two is ordinary, and a modal on every return would be noise.
-  const AWAY_SUMMARY_MIN_SECONDS = 180;
+  // Two minutes (user decision, 2026-10-16): "If the tab is idle in the background, or minimized,
+  // or something to that end, we want to make sure that progress is not lost." The progress is
+  // paid either way; this only gates the recap modal, so a quick tab flip raises nothing.
+  const AWAY_SUMMARY_MIN_SECONDS = 120;
+  // What the OPEN recap covers (its before snapshot, span and when it was shown), so a later
+  // recap extends it instead of replacing it (see awayRecapSpan). Set wherever offlineSummary is,
+  // cleared by dismissOfflineSummary. Loop bookkeeping only; no markup reads it.
+  let offlineSummaryBasis: { before: GameState; secondsAway: number; shownAtMs: number } | null = null;
 
   // Fleet-wide tick cycle (collapsed from a per-captain-id-keyed map during
   // the UI Redesign, Task 4, see docs/plans/2026-07-07-ui-redesign-plan.md
@@ -2892,7 +2905,11 @@
     // failure through the store ONLY when the persisted-state changes, so the
     // SavePersistWarning banner raises on the first failure and clears itself the
     // moment writes recover.
-    const persisted = saveToLocalStorage(state, createdAt);
+    //
+    // HOTFIX 0.13.10: stamp how far the economy is PAID (the loop's cycle start), not the write
+    // time. A hidden tab closed between throttled polls, and the leftover under one bar cycle, are
+    // then paid by the next load's offline catch-up instead of being lost. Now while paused.
+    const persisted = saveToLocalStorage(state, createdAt, paidThroughMs(loopClock, Date.now()));
     if (persisted !== lastSavePersisted) {
       lastSavePersisted = persisted;
       savePersistFailed.set(!persisted);
@@ -3062,7 +3079,10 @@
         // pop over a corrupt save or a fresh game.
         if (offlineSeconds >= OFFLINE_SUMMARY_MIN_SECONDS) {
           const summary = summarizeOfflineProgress(beforeSnapshot, state, offlineSeconds);
-          if (summary.hasContent) offlineSummary = summary;
+          if (summary.hasContent) {
+            offlineSummary = summary;
+            offlineSummaryBasis = { before: beforeSnapshot, secondsAway: offlineSeconds, shownAtMs: returnedAtMs };
+          }
         }
       }
     } else if (hasRawSave()) {
@@ -3177,18 +3197,20 @@
           const completionClockMs = Date.now();
           state = runPollEconomy(state, plan, Math.random, completionClockMs);
 
-          // Fuel-runway EMA update (Wave 2): per-tick instantaneous rate = total delta over this
-          // poll / ticksElapsed, so a poll that pays several ticks still contributes a per-TICK
-          // rate. The first sample seeds the EMA directly; thereafter it blends. Pure UI
+          // Fuel-runway EMA update (Wave 2): per-tick instantaneous rate = total delta over the
+          // ticks this poll actually PAID (a catch-up past the offline cap pays only the cap), so
+          // any poll contributes a per-TICK rate. Live play samples once per bar cycle, so a poll
+          // that pays several cycles weighs as that many samples (blendRunwayEma); one cycle is
+          // the old single blend exactly. The first sample seeds the EMA directly. Pure UI
           // bookkeeping: it writes only these three locals.
+          const paid = paidTicks(plan, beforeEconomy);
+          const sampleWeight = plan.cycles * (paid / ticksElapsed);
           const postIce = itemTotal(state.inventory, "deuteriumIce").toNumber();
-          const instDFuel = (state.fuel.toNumber() - preFuel) / ticksElapsed;
-          const instDIce = (postIce - preIce) / ticksElapsed;
-          emaDFuelPerTick =
-            runwaySamples === 0 ? instDFuel : RUNWAY_EMA_ALPHA * instDFuel + (1 - RUNWAY_EMA_ALPHA) * emaDFuelPerTick;
-          emaDIcePerTick =
-            runwaySamples === 0 ? instDIce : RUNWAY_EMA_ALPHA * instDIce + (1 - RUNWAY_EMA_ALPHA) * emaDIcePerTick;
-          runwaySamples++;
+          const instDFuel = (state.fuel.toNumber() - preFuel) / paid;
+          const instDIce = (postIce - preIce) / paid;
+          emaDFuelPerTick = blendRunwayEma(emaDFuelPerTick, instDFuel, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
+          emaDIcePerTick = blendRunwayEma(emaDIcePerTick, instDIce, runwaySamples, sampleWeight, RUNWAY_EMA_ALPHA);
+          runwaySamples += Math.max(1, Math.round(sampleWeight));
 
           // A large gap seen while the tab is VISIBLE (a sleep the browser never reported as
           // hidden) gets its recap here. A gap paid while hidden is recapped by the visibility
@@ -3209,12 +3231,20 @@
 
     // "Same as offline" recap for a return from a long absence (HOTFIX 0.13.10): the same log
     // line pattern and the same "While you were away" modal the reload path raises, built from
-    // the same pure before/after diff. Skipped for short absences, and while paused (nothing ran).
+    // the same pure before/after diff. Skipped for short absences, while paused (nothing ran) and
+    // while the corrupt-save recovery modal is up (never stacked over it). A recap still open from
+    // earlier is EXTENDED, never replaced: the new one starts from the open one's snapshot and
+    // spans both absences (awayRecapSpan), so no reported gains are lost.
     const welcomeBack = (before: GameState, secondsAway: number) => {
-      if (loopClock.paused || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
+      if (loopClock.paused || saveCorruptModalOpen || secondsAway < AWAY_SUMMARY_MIN_SECONDS) return;
       pushLog(`Welcome back. Advanced ${formatNumber(secondsAway)}s while away.`);
-      const summary = summarizeOfflineProgress(before, state, secondsAway);
-      if (summary.hasContent) offlineSummary = summary;
+      const nowMs = Date.now();
+      const span = awayRecapSpan(offlineSummary !== null ? offlineSummaryBasis : null, before, secondsAway, nowMs);
+      const summary = summarizeOfflineProgress(span.before, state, span.secondsAway);
+      if (summary.hasContent) {
+        offlineSummary = summary;
+        offlineSummaryBasis = { before: span.before, secondsAway: span.secondsAway, shownAtMs: nowMs };
+      }
     };
 
     tickHandle = setInterval(pollGameLoop, 100);
@@ -3232,6 +3262,9 @@
       if (away !== null) welcomeBack(away.snapshot, (Date.now() - away.atMs) / 1000);
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
+    // A tab opened in the background never fires a "hidden" change, so start the away clock here;
+    // the first time it is shown, the hidden stretch is recapped like any other.
+    if (document.hidden) awayFrom = { atMs: Date.now(), snapshot: state };
 
     // Autosave every 30s, tech spec §6.
     saveHandle = setInterval(doSave, 30000);
@@ -4177,6 +4210,7 @@
     // gate on hasContent, so pressing the button always shows what that duration produced (an
     // empty recap = nothing was running), giving clear QA feedback that the trigger fired.
     offlineSummary = summarizeOfflineProgress(before, state, secondsAway);
+    offlineSummaryBasis = { before, secondsAway, shownAtMs: Date.now() };
     pushLog(`[DEV] Simulated ${hours}h offline for the whole fleet.`);
   }
 
@@ -4631,6 +4665,7 @@
   // already ran + persisted at load). Clearing the field to null closes the modal.
   function dismissOfflineSummary() {
     offlineSummary = null;
+    offlineSummaryBasis = null;
   }
   // The current CaptainState for the open combat view, re-resolved from state each
   // render, or null when the view should auto-close via the {#if combatViewCaptain
@@ -18145,7 +18180,7 @@
          Section 17). Reuses the SAME shared .modal-backdrop + focusTrap idiom every
          other modal uses (Escape closes via dismissOfflineSummary, focus trapped +
          restored, aria-modal dialog). DISPLAY ONLY: it reads the pure before/after
-         diff (offlineSummary, set once in onMount) and mutates no game state, so
+         diff (offlineSummary, set on load and on a return from a long absence) and mutates no game state, so
          opening/closing is side-effect free. Each section renders ONLY when its part
          of the diff is non-empty, so the modal is never padded with empty rows.
          Copy is sentence case throughout (no ALL CAPS, no exclamation marks). -->

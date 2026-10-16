@@ -21,7 +21,7 @@
 // unit tested directly; see loopClock.test.ts.
 
 import type { GameState } from "./model";
-import { economyTick, tick } from "./tick";
+import { economyTick, offlineCapTicks, tick } from "./tick";
 
 // A poll that owes at most this many cycles is paid by stepping them live, the steady path. At
 // production speed one poll owes exactly one cycle, so the steady case is the old behavior
@@ -129,4 +129,44 @@ export function runPollEconomy(state: GameState, plan: AdvancePlan, rng: () => n
     }
   }
   return { ...next, gameTimeSeconds: state.gameTimeSeconds };
+}
+
+// The moment a save should stamp as last_saved_at: how far the economy is actually PAID. The
+// reload-time offline catch-up pays (reopen - last_saved_at), so stamping the paid-through time
+// instead of the write time means a hidden tab closed between throttled polls, or the leftover
+// under one bar cycle, is paid on the next load rather than lost. Never ahead of now. While
+// paused it is now: a paused span is never owed, exactly as before.
+export function paidThroughMs(clock: LoopClock, nowMs: number): number {
+  return clock.paused ? nowMs : Math.min(nowMs, clock.cycleStartMs);
+}
+
+// The span a return-from-away recap should cover. With no recap open it is just this absence.
+// With one still open (the player never pressed Continue), the new recap must not replace it, so
+// it starts from the OPEN recap's snapshot and spans everything since: the open recap's absence
+// plus the time since it was shown. The before/after diff then sums both sets of gains.
+export function awayRecapSpan(
+  open: { before: GameState; secondsAway: number; shownAtMs: number } | null,
+  before: GameState,
+  secondsAway: number,
+  nowMs: number
+): { before: GameState; secondsAway: number } {
+  if (open === null) return { before, secondsAway };
+  return { before: open.before, secondsAway: open.secondsAway + Math.max(0, nowMs - open.shownAtMs) / 1000 };
+}
+
+// Game ticks a planned poll actually pays: a catch-up beyond the offline cap pays only the cap.
+export function paidTicks(plan: AdvancePlan, state: GameState): number {
+  const raw = plan.cycles * plan.ticksPerCycle;
+  return plan.mode === "catchUp" ? Math.min(raw, offlineCapTicks(state)) : raw;
+}
+
+// The fuel-runway EMA blend, weighted. Live play takes one sample per bar cycle, so a poll that
+// pays several cycles counts as that many samples of its average rate: blending once with
+// 1 - (1 - alpha)^weight equals blending `weight` times with the same value. Weight 1 is the old
+// single-sample blend exactly (special-cased so the steady path stays bit-identical). The first
+// sample ever seeds the EMA directly.
+export function blendRunwayEma(prev: number, inst: number, samplesSoFar: number, weight: number, alpha: number): number {
+  if (samplesSoFar === 0) return inst;
+  const a = weight === 1 ? alpha : 1 - Math.pow(1 - alpha, weight);
+  return a * inst + (1 - a) * prev;
 }

@@ -2204,11 +2204,14 @@ export function migrate(save: SaveFile): GameState {
   return reconcileDiscovered(clampInventoryToCaps(hydrateDecimals(state)));
 }
 
-export function serialize(state: GameState, createdAt: number): string {
+// `savedAtMs` (HOTFIX 0.13.10) is what last_saved_at records. The live game passes how far its
+// economy is PAID (loopClock.paidThroughMs), so the reload catch-up pays exactly the unpaid rest;
+// it defaults to the write time for every other caller. Same field, no schema change.
+export function serialize(state: GameState, createdAt: number, savedAtMs: number = Date.now()): string {
   const payload: SaveFile = {
     version: SAVE_VERSION,
     created_at: createdAt,
-    last_saved_at: Date.now(),
+    last_saved_at: savedAtMs,
     game_time_seconds: state.gameTimeSeconds,
     state,
   };
@@ -2256,7 +2259,7 @@ export function deserialize(raw: string): SaveFile | null {
   }
 }
 
-export function saveToLocalStorage(state: GameState, createdAt: number): boolean {
+export function saveToLocalStorage(state: GameState, createdAt: number, savedAtMs: number = Date.now()): boolean {
   try {
     // safeSetItem returns false on a blocked/full store instead of throwing. The
     // outer try/catch is kept because serialize() (not the write) could still throw
@@ -2264,7 +2267,7 @@ export function saveToLocalStorage(state: GameState, createdAt: number): boolean
     // The return reflects the PRIMARY save write: a blocked store fails both writes
     // together, so keying the boolean off the main SAVE_KEY write preserves the old
     // "true only when the save persisted" contract.
-    const persisted = safeSetItem(SAVE_KEY, serialize(state, createdAt));
+    const persisted = safeSetItem(SAVE_KEY, serialize(state, createdAt, savedAtMs));
     safeSetItem(`${SAVE_KEY}_created_at`, String(createdAt));
     return persisted;
   } catch {
