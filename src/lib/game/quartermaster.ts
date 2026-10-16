@@ -207,7 +207,7 @@ export const REQUISITION_CATALOGUE: RequisitionCatalogue = {
   },
   ftlDrive: {
     fallbackLabel: "FTL Drive",
-    blurb: "Propulsion. The baseline keeps the slot filled without changing transit speed or fuel burn.",
+    blurb: "Propulsion. The baseline keeps the slot filled without changing transit speed or range.",
     mint: { kind: "economy" },
   },
   reactorCore: {

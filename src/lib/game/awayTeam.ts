@@ -5,8 +5,8 @@
 // Squads are typed (D2): Security fights, Science does fieldwork, Prospecting is WIRED ONLY (no ship fields
 // one). Squad SIZES come from SHIP_TYPES[typeKey].awayTeams[].size (design section 5.2), never from a
 // hard-coded per-type switch. Squads SQ-2: how MANY squads of each type a ship fields comes from ONE
-// authority, the hull's groundSquads (team count) plus the ship's team KINDS (groundComposition.ts); the
-// awayTeams[].count field is no longer read anywhere.
+// authority, the hull's groundSquads (team count) plus the ship's team KINDS (groundComposition.ts); the old
+// awayTeams[].count field was removed in WR-4.
 //
 // Every function is pure: it reads its inputs and returns fresh values, never mutating an input in place.
 // Task 12 adds the ROSTER SNAPSHOT (snapshotAwayRoster): startExpedition freezes the ship's ready members,

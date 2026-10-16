@@ -15,17 +15,19 @@ import { NEUTRAL_SHIP_EVENT_PROFILE } from "./groundOps";
 // shared SHIP_TYPES table, cloned from the General Freighter with the given `awayTeams` (undefined = a hull
 // with no away-team data). Returns the cleanup that removes the entry again; call it in afterEach so no other
 // test sees it. Squads SQ-1: the team count is `groundSquads` / 2 now (every real hull fields 2 teams), so
-// `groundSquads` defaults to 2 x the Security entry's `count` (0 without one): a pre-SQ-1 fixture written as
-// "count 3" still fields 3 teams, and its v67 shape (the count) matches its v68 shape.
+// `groundSquads` defaults to 2 x the Security entry's fixture `count` (0 without one): a pre-SQ-1 fixture written
+// as "count 3" still fields 3 teams, and its v67 shape (the count) matches its v68 shape. WR-4 retired the live
+// awayTeams[].count field, so `count` is a FIXTURE-ONLY shorthand here and never reaches the registered def.
+export type SyntheticAwayTeam = NonNullable<ShipTypeDef["awayTeams"]>[number] & { count?: number };
 export function registerSyntheticHull(
   key: ShipTypeKey,
-  awayTeams: ShipTypeDef["awayTeams"],
+  awayTeams: readonly SyntheticAwayTeam[] | undefined,
   groundSquads?: number,
 ): () => void {
   const table = SHIP_TYPES as Record<string, ShipTypeDef>;
   const def: ShipTypeDef = { ...SHIP_TYPES.generalFreighter };
   if (awayTeams === undefined) delete def.awayTeams;
-  else def.awayTeams = awayTeams;
+  else def.awayTeams = awayTeams.map(({ teamType, size }) => ({ teamType, size }));
   def.groundSquads = groundSquads ?? 2 * (awayTeams?.find((t) => t.teamType === "security")?.count ?? 0);
   table[key] = def;
   return () => {

@@ -186,11 +186,14 @@ const GOLDEN: Record<string, unknown> = {
     "173ed900", "bafb9044", "battleship:117", "173ed900", "db61b049", "carrier:93", "173ed900", "f1ce2096", "orion:178",
     "173ed900", "f1c59294", "aurora:150", "173ed900", "3ee58661", "eir:297", "173ed900", "119e8729",
   ],
+  // Re-pinned by WR-4 (OC-C2): the Lunar Mine's uncommon strike is Dense Ore (was Cobalt Ore). Only the item key moved:
+  // naming denseOre back to cobaltOre in each delivered state reproduces the SF-0 capture exactly (b5a45464, a88a60b9,
+  // 9c723e64, 6171239, 918723ae, da2d527c, e20c7223, 774e6e96, d0deecde, 263885a6); the delivery ticks did not move.
   "gather:longOreRun": [
-    "generalFreighter:239", "8e6386f4", "b5a45464", "prospectorHauler:373", "8e6386f4", "a88a60b9",
-    "prospectorRunner:161", "8e6386f4", "9c723e64", "prospectorMiner:239", "8e6386f4", "6171239", "destroyer:142",
-    "8e6386f4", "918723ae", "battleship:245", "8e6386f4", "da2d527c", "carrier:205", "8e6386f4", "e20c7223",
-    "orion:260", "8e6386f4", "774e6e96", "aurora:218", "8e6386f4", "d0deecde", "eir:397", "8e6386f4", "263885a6",
+    "generalFreighter:239", "8e6386f4", "bcaa3a86", "prospectorHauler:373", "8e6386f4", "703b91b5",
+    "prospectorRunner:161", "8e6386f4", "fbb3099e", "prospectorMiner:239", "8e6386f4", "3a81b117", "destroyer:142",
+    "8e6386f4", "9ad9447a", "battleship:245", "8e6386f4", "817e097c", "carrier:205", "8e6386f4", "b5b79a13",
+    "orion:260", "8e6386f4", "bcd67224", "aurora:218", "8e6386f4", "741bbc86", "eir:397", "8e6386f4", "bb47cfbe",
   ],
   "gather:salvageWreckage": [
     "generalFreighter:189", "35190dab", "435061d", "prospectorHauler:311", "35190dab", "6d57eaeb",

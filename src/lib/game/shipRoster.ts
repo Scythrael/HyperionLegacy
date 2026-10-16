@@ -63,7 +63,11 @@ export type ShipFilterKey = "all" | "needsOrders" | "byClass";
 //   idle      : a captain is aboard but has no mission (mission === null).
 //   gathering : the captain is on an extraction mission (mission.kind "extraction").
 //   patrol    : the captain is on a combat patrol (mission.kind "patrol").
-export type ShipStatus = "parked" | "idle" | "gathering" | "patrol";
+// WR-4 (B19): two activities that live OUTSIDE the captain's mission field, which the roster used to show as
+// "idle" or "parked":
+//   expedition: the ship is out on an expedition (an unclaimed state.expeditions record for it).
+//   repairing : a Shipyard repair is running on the ship (its shipRepair process).
+export type ShipStatus = "parked" | "idle" | "repairing" | "gathering" | "patrol" | "expedition";
 
 // One roster row: a compact, fully-derived snapshot of a single hull. Everything
 // the row markup renders is precomputed here so the row template does no rescanning
@@ -113,8 +117,10 @@ export interface BuildShipRosterOptions {
 const STATUS_SORT_RANK: Record<ShipStatus, number> = {
 	parked: 0,
 	idle: 1,
-	gathering: 2,
-	patrol: 3,
+	repairing: 2,
+	gathering: 3,
+	patrol: 4,
+	expedition: 5,
 };
 
 // ----------------------------------------------------------------------------
@@ -128,13 +134,17 @@ function deriveStatus(
 	state: GameState,
 	ship: ShipInstance,
 ): { captainName: string | null; status: ShipStatus } {
-	// No captain assigned => parked (the hull sits in dock with no one aboard).
-	if (ship.assignedCaptainId === null) {
-		return { captainName: null, status: "parked" };
+	const captain = ship.assignedCaptainId === null ? null : state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
+	// WR-4 (B19): an expedition or a Shipyard repair keeps the ship busy without touching the captain's mission
+	// field, so both are read off their own records first (an expedition until it is claimed).
+	if (state.expeditions.some((e) => e.shipId === ship.id)) {
+		return { captainName: captain?.label ?? null, status: "expedition" };
 	}
-	// A captain is assigned but may have vanished from state (a hand-edited save); a
-	// missing captain reads as parked, the same graceful fallback the card's ?? null uses.
-	const captain = state.captains.find((c) => c.id === ship.assignedCaptainId) ?? null;
+	if (shipUnderRepair(state, ship.id)) {
+		return { captainName: captain?.label ?? null, status: "repairing" };
+	}
+	// No captain assigned => parked (the hull sits in dock with no one aboard). A captain that vanished from state
+	// (a hand-edited save) reads as parked too, the same graceful fallback the card's ?? null uses.
 	if (captain === null) {
 		return { captainName: null, status: "parked" };
 	}
@@ -147,6 +157,12 @@ function deriveStatus(
 	// is exactly what every other mission consumer does.)
 	const status: ShipStatus = captain.mission.kind === "patrol" ? "patrol" : "gathering";
 	return { captainName: captain.label, status };
+}
+
+// Is a Shipyard repair running on this ship (its shipRepair process)? The same read expedition.ts's launch gate
+// makes. PURE.
+export function shipUnderRepair(state: GameState, shipId: string): boolean {
+	return state.activeProcesses.some((p) => p.kind === "shipRepair" && p.effect.type === "clearShipDamage" && p.effect.shipId === shipId);
 }
 
 // ----------------------------------------------------------------------------

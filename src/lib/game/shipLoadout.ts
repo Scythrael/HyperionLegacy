@@ -39,13 +39,10 @@
 // No em dashes / no "--" as punctuation (project rule): commas, periods, parens only.
 // ============================================================================
 
-import type { EquipmentInstance, GameState, ShipTypeDef } from "./model";
-import { SHIP_TYPES } from "./model";
-import { equippedFor } from "./equipment";
+import type { EquipmentInstance } from "./model";
 import { computeCombatReadout, type CombatReadout } from "./combatFit";
 import {
   shipToCombatant,
-  combatHullTypeOf,
   type CombatHullType,
   type CombatShipStats,
 } from "./combat/bridge";
@@ -168,95 +165,5 @@ export function readoutFor(
   return { rating, combat };
 }
 
-// ----------------------------------------------------------------------------
-// StatDelta: one labelled current -> candidate comparison row
-// ----------------------------------------------------------------------------
-// A single combat-readout stat the compare view can render as "current -> candidate
-// (+delta)". `delta` is candidate - current (positive == the candidate is higher on that
-// stat). All the combat stats here are "higher is better" (more hull / shield / recharge /
-// weapons), so the caller colors a positive delta green and a negative one red. Economy
-// stats (cargo / FTL / etc.) are NOT included here: they fold through shipDerivedStats,
-// not the combat readout, so the panel derives those rows directly from shipDerivedStats
-// over the hypothetical gear array (this helper owns only the combat side, which is the
-// load-bearing no-drift surface).
-export interface StatDelta {
-  key: string;
-  label: string;
-  current: number;
-  candidate: number;
-  delta: number;
-}
-
-// The combat-readout stats the compare surfaces, in display order. Each reads one numeric
-// field off a CombatReadout. Kept as data (Omega 9: rule-based, readable) so adding a row
-// is a one-line edit and the list is obviously exhaustive of what the compare shows.
-const COMBAT_STAT_ROWS: ReadonlyArray<{ key: string; label: string; read: (r: CombatReadout) => number }> = [
-  { key: "hullTotal", label: "Hull integrity", read: (r) => r.hullTotal },
-  { key: "shieldTotal", label: "Shield capacity", read: (r) => r.shieldTotal },
-  { key: "rechargeTotal", label: "Shield recharge", read: (r) => r.rechargeTotal },
-  { key: "ablativeArmor", label: "Ablative armor", read: (r) => r.ablativeArmor },
-  { key: "weaponsMounted", label: "Weapons mounted", read: (r) => r.mountedWeapons.length },
-  { key: "podsMounted", label: "Drone pods", read: (r) => r.mountedPods.length },
-];
-
-// ----------------------------------------------------------------------------
-// InstallComparison: the whole current-vs-candidate result
-// ----------------------------------------------------------------------------
-// current    : the LoadoutReadout for the ship as it is fitted now.
-// candidate  : the LoadoutReadout for the ship with the candidate installed.
-// netRating  : candidate.rating - current.rating (the headline "+68 BR" / "-22 BR").
-// statDeltas : one COMBAT_STAT_ROWS entry per combat stat, current -> candidate.
-export interface InstallComparison {
-  current: LoadoutReadout;
-  candidate: LoadoutReadout;
-  netRating: number;
-  statDeltas: StatDelta[];
-}
-
-// ----------------------------------------------------------------------------
-// compareInstall: the state-level convenience the flow can call with (state, ship, spare)
-// ----------------------------------------------------------------------------
-// Read the ship + its current gear off `state`, apply the hypothetical install, and return
-// the full current-vs-candidate comparison. A convenience over
-// applyHypotheticalInstall + readoutFor for a caller that has only the GameState (the panel
-// already holds the reactive gear / hull in scope and can call the finer fns directly, but
-// other consumers, and the tests, want a one-call entry point). Returns null when the ship
-// or its hull cannot be resolved (a stale id / corrupt typeKey), so the caller renders a
-// safe empty state instead of throwing. PURE (reads state, mutates nothing).
-export function compareInstall(
-  state: GameState,
-  shipId: string,
-  candidate: EquipmentInstance,
-  target: InstallTarget,
-): InstallComparison | null {
-  const ship = state.ships.find((s) => s.id === shipId) ?? null;
-  if (ship === null) return null;
-
-  const hullType = combatHullTypeOf(ship.typeKey);
-  const shipDef: ShipTypeDef | undefined = SHIP_TYPES[ship.typeKey];
-  // Both are needed to fold the combat readout + rating; a corrupt hull that resolves to
-  // neither degrades to null (no comparison) rather than crashing the flow.
-  if (hullType === null || shipDef === undefined) return null;
-
-  const hardpointCap = shipDef.weaponHardpoints;
-  const droneBayCap = shipDef.droneBays ?? 0;
-
-  const currentGear = equippedFor(state, shipId);
-  const candidateGear = applyHypotheticalInstall(currentGear, candidate, target);
-
-  const current = readoutFor(currentGear, shipDef, hullType, hardpointCap, droneBayCap);
-  const candidateReadout = readoutFor(candidateGear, shipDef, hullType, hardpointCap, droneBayCap);
-
-  const statDeltas: StatDelta[] = COMBAT_STAT_ROWS.map((row) => {
-    const cur = row.read(current.combat);
-    const cand = row.read(candidateReadout.combat);
-    return { key: row.key, label: row.label, current: cur, candidate: cand, delta: cand - cur };
-  });
-
-  return {
-    current,
-    candidate: candidateReadout,
-    netRating: candidateReadout.rating - current.rating,
-    statDeltas,
-  };
-}
+// WR-4: the state-level compareInstall convenience (and its StatDelta / InstallComparison shapes) had no caller
+// outside its own tests, so it was removed; the panel calls applyHypotheticalInstall + readoutFor directly.

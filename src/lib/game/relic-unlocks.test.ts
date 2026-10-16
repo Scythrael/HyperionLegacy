@@ -68,8 +68,10 @@ import {
   damageControlRepairTicks,
   damageControlWaveRegen,
   pathfinderEffect,
-  DC_REPAIR_SPEED_MAX,
-  DC_WAVE_REGEN_MAX,
+  DC_REPAIR_SPEED_B,
+  DC_REPAIR_SPEED_R,
+  DC_WAVE_REGEN_B,
+  DC_WAVE_REGEN_R,
 } from "./utilityGear";
 import { damageControlBeforeWave } from "./combat/patrolWave";
 import { resolvePatrolWaves, replayPatrol } from "./combat/patrolReplay";
@@ -415,15 +417,15 @@ describe("E4d Damage Control Suite: faster post-loss repair", () => {
     expect(damageControlEffect([mint("specUtility", "pathfinderSuite", "pf")])).toEqual({ repairTimeReduction: 0, waveHullRegenFraction: 0 });
   });
 
-  it("the suite's effect is positive, bounded by its caps, and grows with a richer roll", () => {
+  it("the suite's effect is positive, below its curve's asymptote (no hard cap, D23), and grows with a richer roll", () => {
     const weak = damageControlEffect([mint("specUtility", "damageControlSuite", "a", { iLevel: 10, quality: 0, rarity: "standard" })]);
     const strong = damageControlEffect([mint("specUtility", "damageControlSuite", "b", { iLevel: 40, quality: 5, rarity: "radiant" })]);
     expect(weak.repairTimeReduction).toBeGreaterThan(0);
     expect(weak.waveHullRegenFraction).toBeGreaterThan(0);
     expect(strong.repairTimeReduction).toBeGreaterThan(weak.repairTimeReduction);
     expect(strong.waveHullRegenFraction).toBeGreaterThan(weak.waveHullRegenFraction);
-    expect(strong.repairTimeReduction).toBeLessThanOrEqual(DC_REPAIR_SPEED_MAX);
-    expect(strong.waveHullRegenFraction).toBeLessThanOrEqual(DC_WAVE_REGEN_MAX);
+    expect(strong.repairTimeReduction).toBeLessThan(DC_REPAIR_SPEED_B / (1 - DC_REPAIR_SPEED_R));
+    expect(strong.waveHullRegenFraction).toBeLessThan(DC_WAVE_REGEN_B / (1 - DC_WAVE_REGEN_R));
   });
 
   it("damageControlRepairTicks: base unchanged at 0, ceil + >= 1 otherwise", () => {

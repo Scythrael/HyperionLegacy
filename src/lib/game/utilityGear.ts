@@ -28,7 +28,10 @@
 // ⚠️ ALL CURVE CONSTANTS BELOW ARE FIRST-PASS TUNABLE launch placeholders (the balance pass owns them),
 // the same posture as PERCENT_STAT_CURVES. The raw stat lines are budget POINTS (roughly 5..110 across the
 // iLevel / quality / rarity range); each effect converts its point sum through the shared diminishing
-// plusToPercent curve (B * (1 - r^plus) / (1 - r)) and then a hard cap, so no amount of stacking runs away.
+// plusToPercent curve (B * (1 - r^plus) / (1 - r)), so no amount of stacking runs away. WR-4 (B8, D23): the hard
+// caps that used to follow the curve (Math.min at 0.5 / 0.1 / 0.3 / 0.3) are gone. They could never bind (each
+// sat at or above its curve's asymptote), so every value is unchanged; the curve's own asymptote is a balance-pass
+// review item (diminishing.ts header), not a cap this file adds.
 // ============================================================================
 
 import { plusToPercent, type EquipmentInstance } from "./model";
@@ -38,28 +41,24 @@ export const DAMAGE_CONTROL_SUITE_KEY = "damageControlSuite";
 export const PATHFINDER_SUITE_KEY = "pathfinderSuite";
 
 // --- Damage Control Suite curves (FIRST-PASS TUNABLE) ------------------------------------------------
-// repairSpeed -> the FRACTION of a post-loss repair's duration removed. Asymptote B/(1-r) = 0.40, hard cap
-// 0.5. A typical first craft (~12 points) shaves ~18%; a top roll approaches the cap.
+// repairSpeed -> the FRACTION of a post-loss repair's duration removed. Asymptote B/(1-r) = 0.40. A typical
+// first craft (~12 points) shaves ~18%; a top roll approaches the asymptote.
 export const DC_REPAIR_SPEED_B = 0.02;
 export const DC_REPAIR_SPEED_R = 0.95;
-export const DC_REPAIR_SPEED_MAX = 0.5;
 // waveHullRegen -> the FRACTION of the (folded) max hull restored before each later wave. "LIGHT" by design:
-// asymptote 0.08, hard cap 0.1. A typical first craft (~12 points) restores ~3.7% of max hull per wave.
+// asymptote 0.08. A typical first craft (~12 points) restores ~3.7% of max hull per wave.
 export const DC_WAVE_REGEN_B = 0.004;
 export const DC_WAVE_REGEN_R = 0.95;
-export const DC_WAVE_REGEN_MAX = 0.1;
 
 // --- Pathfinder Suite curves (FIRST-PASS TUNABLE) -----------------------------------------------------
 // expeditionScanSpeed -> an additive scan-speed bonus fraction (the snapshot's scanSpeedBonus, x (1 + b)).
-// Asymptote 0.30, hard cap 0.3.
+// Asymptote 0.30.
 export const PF_SCAN_SPEED_B = 0.015;
 export const PF_SCAN_SPEED_R = 0.95;
-export const PF_SCAN_SPEED_MAX = 0.3;
 // hazardResist -> an additive hazard-resist fraction (the snapshot's hazardResist; relics.ts resistedHazard
-// curves the COMBINED museum + gear value toward MUSEUM_HAZARD_RESIST_MAX, never reaching it, since GO-5). Asymptote 0.30, cap 0.3.
+// curves the COMBINED museum + gear value toward MUSEUM_HAZARD_RESIST_MAX, never reaching it, since GO-5). Asymptote 0.30.
 export const PF_HAZARD_RESIST_B = 0.015;
 export const PF_HAZARD_RESIST_R = 0.95;
-export const PF_HAZARD_RESIST_MAX = 0.3;
 
 // Sum one stat line (implicit + rolled) across the installed pieces of ONE utility family. Pure.
 function familyStatPoints(pieces: readonly EquipmentInstance[] | undefined, variantKey: string, stat: string): number {
@@ -72,10 +71,10 @@ function familyStatPoints(pieces: readonly EquipmentInstance[] | undefined, vari
   return total;
 }
 
-// A point sum -> a capped fraction through the shared diminishing curve. 0 points -> exactly 0. Pure.
-function cappedCurve(points: number, B: number, r: number, max: number): number {
+// A point sum -> a fraction through the shared diminishing curve. 0 points -> exactly 0. Pure.
+function suiteCurve(points: number, B: number, r: number): number {
   if (!(points > 0)) return 0;
-  return Math.min(max, plusToPercent(points, B, r));
+  return plusToPercent(points, B, r);
 }
 
 // ============================================================================
@@ -83,26 +82,16 @@ function cappedCurve(points: number, B: number, r: number, max: number): number 
 // ============================================================================
 
 export interface DamageControlEffect {
-  repairTimeReduction: number; // fraction of a post-loss repair's duration removed, in [0, DC_REPAIR_SPEED_MAX]
-  waveHullRegenFraction: number; // fraction of max hull restored before each later wave, in [0, DC_WAVE_REGEN_MAX]
+  repairTimeReduction: number; // fraction of a post-loss repair's duration removed, in [0, the curve's asymptote)
+  waveHullRegenFraction: number; // fraction of max hull restored before each later wave, in [0, the curve's asymptote)
 }
 
 // The installed Damage Control Suite's effect, or exact zeros when none is installed (or the gear list is
 // absent, the tick's "no gear passed" sentinel). Pure.
 export function damageControlEffect(installedGear: readonly EquipmentInstance[] | undefined): DamageControlEffect {
   return {
-    repairTimeReduction: cappedCurve(
-      familyStatPoints(installedGear, DAMAGE_CONTROL_SUITE_KEY, "repairSpeed"),
-      DC_REPAIR_SPEED_B,
-      DC_REPAIR_SPEED_R,
-      DC_REPAIR_SPEED_MAX,
-    ),
-    waveHullRegenFraction: cappedCurve(
-      familyStatPoints(installedGear, DAMAGE_CONTROL_SUITE_KEY, "waveHullRegen"),
-      DC_WAVE_REGEN_B,
-      DC_WAVE_REGEN_R,
-      DC_WAVE_REGEN_MAX,
-    ),
+    repairTimeReduction: suiteCurve(familyStatPoints(installedGear, DAMAGE_CONTROL_SUITE_KEY, "repairSpeed"), DC_REPAIR_SPEED_B, DC_REPAIR_SPEED_R),
+    waveHullRegenFraction: suiteCurve(familyStatPoints(installedGear, DAMAGE_CONTROL_SUITE_KEY, "waveHullRegen"), DC_WAVE_REGEN_B, DC_WAVE_REGEN_R),
   };
 }
 
@@ -139,17 +128,7 @@ export interface PathfinderEffect {
 // line is NOT here: it folds through equipmentStatMods like any other sensor line.) Pure.
 export function pathfinderEffect(installedGear: readonly EquipmentInstance[] | undefined): PathfinderEffect {
   return {
-    scanSpeed: cappedCurve(
-      familyStatPoints(installedGear, PATHFINDER_SUITE_KEY, "expeditionScanSpeed"),
-      PF_SCAN_SPEED_B,
-      PF_SCAN_SPEED_R,
-      PF_SCAN_SPEED_MAX,
-    ),
-    hazardResist: cappedCurve(
-      familyStatPoints(installedGear, PATHFINDER_SUITE_KEY, "hazardResist"),
-      PF_HAZARD_RESIST_B,
-      PF_HAZARD_RESIST_R,
-      PF_HAZARD_RESIST_MAX,
-    ),
+    scanSpeed: suiteCurve(familyStatPoints(installedGear, PATHFINDER_SUITE_KEY, "expeditionScanSpeed"), PF_SCAN_SPEED_B, PF_SCAN_SPEED_R),
+    hazardResist: suiteCurve(familyStatPoints(installedGear, PATHFINDER_SUITE_KEY, "hazardResist"), PF_HAZARD_RESIST_B, PF_HAZARD_RESIST_R),
   };
 }

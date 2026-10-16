@@ -30,7 +30,6 @@ export const FIELD_ROLES: Readonly<Record<string, Readonly<Record<string, FieldR
     weaponHardpoints: "effect",
     droneBays: "effect",
     groundSquads: "effect",
-    cost: "effect",
     buildRecipe: "gate",
     requiresBlueprint: "gate",
     awayTeams: "gate",

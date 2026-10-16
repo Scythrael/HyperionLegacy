@@ -6891,7 +6891,7 @@ describe("the v66 -> v67 and v67 -> v68 steps are FROZEN (SQ-1 review: they neve
   };
   const teamsOf = (migrated: any): string => JSON.stringify(migrated.ships.map((s: any) => s.groundTeams));
 
-  it("retuning the live hulls (squad count, squad sizes, the awayTeams count) never reshapes an old save", () => {
+  it("retuning the live hulls (squad count, squad sizes) never reshapes an old save", () => {
     // the raw old saves are built BEFORE the hulls change (they are stored data, not live reads)
     const inputs = [[66, v66()], [67, v67()], [67, v67Malformed()]] as const;
     const run = (): string[] => inputs.map(([version, raw]) => teamsOf(migrateFrom(version, JSON.parse(JSON.stringify(raw)))));
@@ -6904,9 +6904,9 @@ describe("the v66 -> v67 and v67 -> v68 steps are FROZEN (SQ-1 review: they neve
           ...original[key],
           groundSquads: 6,
           awayTeams: [
-            { teamType: "security", size: 5, count: 4 },
-            { teamType: "science", size: 2, count: 4 },
-            { teamType: "prospecting", size: 3, count: 0 },
+            { teamType: "security", size: 5 },
+            { teamType: "science", size: 2 },
+            { teamType: "prospecting", size: 3 },
           ],
         };
       }

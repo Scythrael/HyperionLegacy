@@ -804,16 +804,20 @@ export function xpPerTick(missionKey: MissionKey, captain: CaptainState, state?:
 // check, so any FUTURE new member added to CaptainTalentEffect in model.ts
 // must have its switch branch added here by hand at the same time, not
 // discovered later by a build failure.
+// WR-4 (B24): the four tier effects lift a mission's common / uncommon / rare TIER on every non-transport mission
+// (each mission deposits its own material per tier, MissionDef.lootTable), so the text names the tier, never one
+// mission's material (it used to say "Titanium Ore yield" for a bonus that also lifts Ferrite, Scrap Alloy and the
+// rest).
 export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string {
   switch (effect.type) {
     case "commonYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.commonOre.label} yield`;
+      return `+${(effect.mult * 100).toFixed(1)}% common material yield on missions`;
     case "uncommonYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.uncommonMaterial.label} yield`;
+      return `+${(effect.mult * 100).toFixed(1)}% uncommon material yield on missions`;
     case "uncommonChanceMult":
-      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.uncommonMaterial.label} chance`;
+      return `+${(effect.mult * 100).toFixed(1)}% uncommon material chance on missions`;
     case "rareChanceMult":
-      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} chance`;
+      return `+${(effect.mult * 100).toFixed(1)}% rare material chance on missions`;
     case "bonusRollChance":
       return `+${(effect.chance * 100).toFixed(1)}% chance/tick for a bonus roll`;
     case "bonusRollChanceMult":
@@ -830,22 +834,17 @@ export function describeCaptainTalentEffect(effect: CaptainTalentEffect): string
 
 // Same pattern as describeCaptainTalentEffect above, for the Homeworld Talent
 // tree's effect union. (The `recipeBonusOutput` case was RETIRED in Phase 4,
-// Task F5 with the legacy RECIPES instant-craft it described.) passiveTrickle has
-// no display-label table anywhere in the codebase for HomePlanetMaterialKey, so
-// it surfaces the raw material key as-is (e.g. "commonOre"), matching how
-// this same codebase already displays raw LootMaterialKey/HomePlanetMaterialKey
-// strings elsewhere with no translation layer (see mission cargo readouts in
-// App.svelte). Introducing a new material-label map is out of scope for this
-// pure-conversion-function task, flagging it as a real Task 12 (tooltip UI)
-// candidate, not solving it here.
+// Task F5 with the legacy RECIPES instant-craft it described.) WR-4 (B24):
+// passiveTrickle names its material by the ITEMS label (it used to print the raw
+// key, "commonOre"); a key with no catalog entry falls back to the key.
 export function describeHomeworldTalentEffect(effect: HomeworldTalentEffect): string {
   switch (effect.type) {
     case "unlockCaptainSlot":
       return "Unlocks a new captain slot";
     case "rareYieldMult":
-      return `+${(effect.mult * 100).toFixed(1)}% ${ITEMS.rareMaterial.label} yield (fleet-wide)`;
+      return `+${(effect.mult * 100).toFixed(1)}% rare material yield on missions (fleet-wide)`;
     case "passiveTrickle":
-      return `+${effect.perTick}/tick passive ${effect.material}`;
+      return `+${effect.perTick}/tick passive ${ITEMS[effect.material]?.label ?? effect.material}`;
     // 0.11.0 Storage/Salvage (Task C4): the combined salvage talent. Surfaces
     // BOTH bumps in one tooltip line, the yield as a percentage-point add onto
     // the recycle recovery, the ceiling as a "+N tier" reach on the loot roll.
@@ -1668,6 +1667,29 @@ export const RESPEC_COST_CREDITS = 50; // launch placeholder, not balance-tested
 function museumRareChance(talentScaledChance: number, museumMult: number | undefined): number {
   const b = museumMult ?? 0;
   return Math.min(1, b === 0 ? talentScaledChance : talentScaledChance * (1 + b));
+}
+
+// E-CREW 0.14.0 (Task 20): Discovery Instinct's "rare drops on surveys". A SURVEY mission's rare-tier odds grow by
+// the ship's crew rare find (crew.rareFindChance: the Science officer's Discovery Instinct plus the Science
+// division's Keen Analysis, the SAME one read the expedition relic roll freezes at dispatch). 0 for a non-survey
+// mission or a ship without either source. Shared by economyTick and missionDropChances below. Pure.
+function surveyRareFindFor(state: GameState, ship: ShipInstance | undefined, missionKey: MissionKey): number {
+  return ship && MISSIONS[missionKey].missionType === "survey" ? shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0 : 0;
+}
+
+// WR-4 (B20): the per-tick uncommon and rare OCCURRENCE chances a captain's mission really rolls, the exact
+// rollExtractionTick formula with economyTick's own bonuses (the captain's talents, the survey crew rare find, the
+// museum rare-material chance). The dispatch popup reads this, so the chance it shows is the one the run rolls (it
+// used to leave out the museum and the survey crew terms). Pure.
+export function missionDropChances(state: GameState, captain: CaptainState, missionKey: MissionKey): { uncommon: number; rare: number } {
+  const def = MISSIONS[missionKey];
+  const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+  const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
+  const rareChanceMult = surveyRareFind === 0 ? captainRareChanceMult(captain) : captainRareChanceMult(captain) + surveyRareFind;
+  return {
+    uncommon: Math.min(1, def.uncommonChance * (1 + captainUncommonChanceMult(captain))),
+    rare: museumRareChance(def.rareChance * (1 + rareChanceMult), museumBonuses(state).rareMaterialChance),
+  };
 }
 
 function rollExtractionTick(
@@ -4143,10 +4165,7 @@ export function economyTick(
     // dispatch, so neither source is counted twice). Added to the captain's rareChanceMult, so the primary
     // AND the bonus roll read it, and the existing min(1, ...) bound still holds. Only the THRESHOLD moves:
     // the draw count per tick is unchanged. 0 for a non-survey mission or a ship without either source.
-    const surveyRareFind =
-      ship && MISSIONS[missionKey].missionType === "survey"
-        ? shipCrewContribution(state, ship)[CREW_STAT_KEYS.rareFindChance] ?? 0
-        : 0;
+    const surveyRareFind = surveyRareFindFor(state, ship, missionKey);
     const bonuses = {
       commonYieldMult: captainCommonYieldMult(captain),
       uncommonYieldMult: captainUncommonYieldMult(captain),
@@ -4873,7 +4892,10 @@ export function canDispatch(
   // the SAME materialAtCap(state, primaryMaterial) seam the auto-stop uses, so the dispatch gate
   // and the mid-run auto-stop agree exactly. BELOW cap (the universal case until 1M+ is
   // stockpiled) this is false and dispatch behavior is byte-identical to before.
-  if (materialAtCap(state, mission.primaryMaterial)) {
+  // WR-4 (B2, user OC-I3 "Let them launch"): a TRANSPORT never delivers its primaryMaterial (the deposit is
+  // suppressed; the field is loot-triad scaffolding, "inert for transport"), so a full warehouse never blocks a
+  // supply run. The mid-run auto-stop already exempted transports (economyTick's own missionType check).
+  if (mission.missionType !== "transport" && materialAtCap(state, mission.primaryMaterial)) {
     return { ok: false, reason: "materialAtCap" };
   }
 
@@ -5891,16 +5913,15 @@ export function canBuildFacilityUpgrade(
     }
   }
 
-  // Prerequisite gate: Research topics. EMPTY today (no research topics exist), so
-  // this loop never runs against real data, but it is honored if a future
-  // upgrade ever lists one, per "reserve the gate, no placeholder". No label table
-  // for research topics exists yet, so the raw id is surfaced as-is.
+  // Prerequisite gate: Research. EVERY listed BLUEPRINTS key must be researched (state.researchedBlueprints,
+  // the same blueprintUnlocked read the Research Lab and the Shipyard's hull gate use). No rung lists one today
+  // (a seam, plan OC-C4). WR-4 (B1): this used to refuse ANY listed topic without checking it, so a rung that
+  // used the gate could never be built. The reason names the first missing blueprint by its label.
   if (upgrade.requiresResearch) {
     for (const topicId of upgrade.requiresResearch) {
-      // No research-completion state exists on GameState yet, so ANY listed topic
-      // is by definition unmet. When Research lands, replace this with a real
-      // "is topic completed?" check against the then-existing state field.
-      return { ok: false, reason: `Requires research: ${topicId}` };
+      if (!blueprintUnlocked(state, topicId)) {
+        return { ok: false, reason: `Requires research: ${BLUEPRINTS[topicId]?.label ?? topicId}` };
+      }
     }
   }
 

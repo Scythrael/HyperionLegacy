@@ -186,11 +186,26 @@ export function berthEtaTicks(state: GameState, captainId: number): number | nul
   const berths = transitBerthCount(state);
   // How many full clearing rounds this captain must wait through.
   const rounds = Math.ceil((position - free) / Math.max(1, berths));
-  // The longest unload in the game, so the estimate is an upper bound rather than an average
-  // that under-promises for a slow mission. Derived from the table, never hardcoded, so a
-  // retuned mission moves this with it.
-  const worstUnload = Math.max(...Object.values(MISSIONS).map((m) => m.unloadTicks));
-  return rounds * worstUnload;
+  return rounds * worstUnloadTicks(state);
+}
+
+// The longest unload a berth occupant can take RIGHT NOW, so the estimate is an upper bound rather than an
+// average that under-promises for a slow unload. WR-4 (B20): an unload's real length is the SHIP's, not the
+// mission table's: effectiveMissionDef scales it by the hold (a big hold unloads longer) before any crew speed-up,
+// so the raw MISSIONS unloadTicks understated a big hold's wait. So: the table's longest unload, or any
+// extraction captain's own effective unload (its not-full-hold length, which is never shorter than its full-hold
+// one), whichever is longer. Derived from the table and the fleet, never hardcoded.
+function worstUnloadTicks(state: GameState): number {
+  let worst = Math.max(...Object.values(MISSIONS).map((m) => m.unloadTicks));
+  for (const captain of state.captains) {
+    const mission = captain.mission;
+    if (mission === null || mission.kind !== "extraction") continue;
+    const rawDef = MISSIONS[mission.missionKey as MissionKey];
+    const ship = state.ships.find((s) => s.assignedCaptainId === captain.id);
+    if (rawDef === undefined || ship === undefined) continue;
+    worst = Math.max(worst, effectiveMissionDef(rawDef, effectiveShipStats(state, ship)).unloadTicks);
+  }
+  return worst;
 }
 
 // The WORST-CASE wait, in ticks, that the current fleet can produce. This is the computable
@@ -203,8 +218,7 @@ export function berthEtaTicks(state: GameState, captainId: number): number | nul
 // unlock nodes are added, instead of silently going stale the way that 24 did.
 export function worstCaseBerthWaitTicks(state: GameState, concurrentReturns: number): number {
   const berths = transitBerthCount(state);
-  const worstUnload = Math.max(...Object.values(MISSIONS).map((m) => m.unloadTicks));
-  return Math.ceil(Math.max(0, concurrentReturns) / Math.max(1, berths)) * worstUnload;
+  return Math.ceil(Math.max(0, concurrentReturns) / Math.max(1, berths)) * worstUnloadTicks(state);
 }
 
 // ============================================================================

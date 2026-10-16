@@ -137,6 +137,9 @@ function atOreCap(): GameState {
 // ===== the goldens =====
 
 const GOLDEN: Record<string, string | string[]> = {
+  // Re-pinned by WR-4: B2 (OC-I3) lets both transports launch at the ore cap (their gate reads ok and their runs
+  // join the list); OC-C2 names the Lunar Mine's uncommon strike Dense Ore (pre-fix 5eb4c97d: naming denseOre back
+  // to cobaltOre reproduces it exactly). Every other entry is the pre-fix capture.
   dispatch: [
     "localFuelRun:ok",
     "shortOreRun:materialAtCap",
@@ -145,13 +148,15 @@ const GOLDEN: Record<string, string | string[]> = {
     "forageFlora:ok",
     "surveyMineralAnomaly:materialAtCap",
     "surveyStellarPhenomena:ok",
-    "frontierSupplyRun:materialAtCap",
-    "colonySupplyLift:materialAtCap",
+    "frontierSupplyRun:ok",
+    "colonySupplyLift:ok",
     "localFuelRun:c88abeea",
-    "longOreRun:5eb4c97d",
+    "longOreRun:692d08c7",
     "salvageWreckage:7946787",
     "forageFlora:dbd99d60",
     "surveyStellarPhenomena:ca585447",
+    "frontierSupplyRun:4b3a27f7",
+    "colonySupplyLift:fab12771",
   ],
   repair: ["239", "156", "13d55f21", "70d18e4"],
   patrol: ["91429198", "d86bc792", "9a960200", "e790096d", "4bee8141", "56de2b8e", "b72edb6b", "c5d6c244", "29bcddb7", "95e5bb0d"],
@@ -172,7 +177,8 @@ const GOLDEN: Record<string, string | string[]> = {
     "aurora:ce7afc85",
     "eir:7d4c0f43",
   ],
-  lunarMine: "e0bbc3d2",
+  // Re-pinned by WR-4 (OC-C2): Dense Ore for Cobalt Ore; pre-fix e0bbc3d2 (naming denseOre back reproduces it).
+  lunarMine: "8e6c6c4c",
   expedition: ["1fc7c9e6", "df67c9dd", "1f818423", "8a168c1b"],
 };
 

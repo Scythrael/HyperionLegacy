@@ -168,10 +168,11 @@ export interface ShipTypeDef {
   // non-zero only on a carrier (its built-in hangar bays, design S8); absent/0 on every other hull
   // (a destroyer/battleship carries no bays). Read by canFitEquipment (equipment.ts) as the pod cap.
   droneBays?: number;
-  cost: { credits: number } | null; // null = not purchasable
+  // (WR-4: the retired instant credit-buy `cost` field is gone; the user, 2026-10-16 credit sinks pass: "delete
+  // the unused ShipTypeDef.cost". Acquisition runs only through the Shipyard build below.)
   // Shipyard (Phase 5, Task S1, design §6): the BILL OF MATERIALS + credits + build
   // TIME to CONSTRUCT this hull at the Shipyard. Acquisition now runs through timed
-  // construction (the instant credit-buy `cost`/`buyShip` is retired in S4), so every
+  // construction (the instant credit-buy `buyShip` was retired in S4), so every
   // real hull carries one. Shape:
   //   components  , fabricated-component ITEM ids -> integer counts, RESERVED at build
   //                   start (the derived-allocation model, S2) and consumed on completion.
@@ -182,7 +183,7 @@ export interface ShipTypeDef {
   //   durationTicks-- base build length; the Shipyard's build-speed upgrades scale it (S3).
   // ⚠️ FIRST-PASS TUNABLE, these values are launch placeholders scaling roughly with the
   // hull (bigger cargo / faster = more components + credits + time), the SAME device-check
-  // placeholder spirit as `cost` and every other economy constant in this file. Retune at
+  // placeholder spirit as every other economy constant in this file. Retune at
   // the device checkpoint, NOT piecemeal.
   buildRecipe: { components: Record<string, number>; credits: number; durationTicks: number };
   description: string;
@@ -201,13 +202,12 @@ export interface ShipTypeDef {
   requiresBlueprint?: string;
   // E-CREW (D7, design section 5.2): the away squads this hull fields, one entry per squad type with
   // its `teamType` and the member count per squad (`size`, 3 or 4: model.ts groundSquadSize reads it).
-  // Every SHIP_TYPES entry lists a Security and a Science squad plus a wired-only Prospecting entry.
-  // `count` (how many squads of the type) is NO LONGER READ by anything since Squads SQ-2: how many squads a
-  // ship fields comes from ONE authority, `groundSquads` below (the team count) plus each ship's team KINDS
-  // (groundComposition.ts), and the v66 -> v67 migration reads its own frozen constants. The field stays in
-  // the data (design 2.2: Prospecting's count 0 still marks it wired only); awayTeam.test.ts pins that a
-  // retuned count changes nothing. OPTIONAL so a hull without the data simply fields no squads.
-  awayTeams?: { teamType: AwayTeamType; size: number; count: number }[];
+  // Every SHIP_TYPES entry lists a Security and a Science squad plus a Prospecting entry (no recruits yet).
+  // How many squads a ship fields comes from ONE authority, `groundSquads` below (the team count) plus each
+  // ship's team KINDS (groundComposition.ts); the v66 -> v67 migration reads its own frozen constants. (WR-4: the
+  // per-type `count` field, unread since Squads SQ-2, is gone.) OPTIONAL so a hull without the data simply fields
+  // no squads.
+  awayTeams?: { teamType: AwayTeamType; size: number }[];
   // Squads SQ-1 (0.14.0, design docs/plans/2026-10-12-squads-and-subspace-telescope-design.md section 2.2; user
   // 2026-10-12 "DOUBLE EVERY HULL"): how many ground SQUADS this hull fields, grouped into TEAMS of 2 squads
   // (groundTeamCount = groundSquads / 2). 4 on every hull today (2 teams); bigger hulls get more later. Must be
@@ -555,10 +555,13 @@ export const MISSIONS: Record<
     cargoCapacity: 90,
     uncommonChance: 0.08, // was lootTable weight 80/1000 (8%)
     rareChance: 0.02, // was lootTable weight 20/1000 (2%)
-    // REWIRED (design §1): the Lunar Mine now yields the Titanium/Cobalt/Osmium
-    // triad (fuel-v2 F1 renamed the `ferriteOre` label to "Titanium") instead of the
-    // ore keys. Its auto-stop still gates on the `ferriteOre` key (unchanged).
-    lootTable: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    // REWIRED (design §1): the Lunar Mine yields its own Ferrite / Dense Ore / Osmium triad, not the ore keys.
+    // Its auto-stop still gates on the `ferriteOre` key (unchanged).
+    // WR-4 (OC-C2, user 2026-10-16 "Add a Dense Ore source": "Dense Ore drops from a mining mission"): the mine's
+    // UNCOMMON strike is Dense Ore, the deep-seam tier-2 ore, so Warehouse T2 and its Dense Ore rungs are
+    // reachable. Cobalt Ore keeps its source on the Survey Mineral Anomaly (its uncommon tier). [PROPOSAL] the
+    // mission (the Lunar Mine, not the survey) and keeping the 8% uncommon chance: the user tunes both.
+    lootTable: { common: "ferriteOre", uncommon: "denseOre", rare: "osmiumOre" },
     primaryMaterial: "ferriteOre", // == lootTable.common (§3.4 auto-stop)
     tier: "I",
     fleetAdminXpPerTick: 1,
@@ -1059,16 +1062,15 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 1, equipmentSlots: 0,
     // ⚠️ TUNABLE / INERT (0.12.0 combat): range hull, tough frame, modest shields, one hardpoint.
     hullIntegrity: 500, shieldCapacity: 200, shieldRecharge: 5, weaponHardpoints: 2,
-    cost: { credits: 25 },
     // CHEAPEST hull to build (the starter/fallback): a small frame + coupling BOM, no
     // major assembly. ⚠️ FIRST-PASS TUNABLE (see ShipTypeDef.buildRecipe).
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 2 }, credits: 500, durationTicks: 300 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A no-frills hauler. Every captain's starter and emergency fallback.",
   },
@@ -1079,16 +1081,15 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 2, equipmentSlots: 0,
     // ⚠️ TUNABLE / INERT (0.12.0 combat): biggest hull, most integrity + shields, slow regen.
     hullIntegrity: 700, shieldCapacity: 250, shieldRecharge: 4, weaponHardpoints: 2,
-    cost: { credits: 150 },
     // MOST EXPENSIVE to build (double cargo): the biggest frame BOM + 2 major
     // assemblies + the longest build. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 8, powerCoupling: 5, structuralAssembly: 2 }, credits: 1400, durationTicks: 700 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "Doubles cargo at the cost of speed, big hauls, longer runs.",
   },
@@ -1099,16 +1100,15 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 2, equipmentSlots: 0,
     // ⚠️ TUNABLE / INERT (0.12.0 combat): fast + fragile, least integrity, quickest shield regen.
     hullIntegrity: 300, shieldCapacity: 150, shieldRecharge: 8, weaponHardpoints: 1,
-    cost: { credits: 150 },
     // MID build (fast but small hold): a lighter frame BOM than the extraction hulls +
     // 1 major assembly. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 4, powerCoupling: 4, structuralAssembly: 1 }, credits: 900, durationTicks: 450 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "Fast transit, small hold, rapid short cycles.",
   },
@@ -1119,16 +1119,15 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 2, equipmentSlots: 0,
     // ⚠️ TUNABLE / INERT (0.12.0 combat): mid extraction rig, balanced defensive profile.
     hullIntegrity: 450, shieldCapacity: 180, shieldRecharge: 6, weaponHardpoints: 1,
-    cost: { credits: 150 },
     // ABOVE-MID build (specialized extraction rig): a heavier BOM than the Runner +
     // 1 major assembly, below the Hauler. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 4, structuralAssembly: 1 }, credits: 1100, durationTicks: 550 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "Specialized extraction rig, more materials per tick.",
   },
@@ -1156,16 +1155,15 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // regen shields, but FEWER weapon hardpoints than the battleship (a raider, not a
     // gun platform). Default loadout = 2 fast weapons (see COMBAT_DEFAULT_LOADOUT).
     hullIntegrity: 600, shieldCapacity: 300, shieldRecharge: 10, weaponHardpoints: 4,
-    cost: { credits: 300 },
     // Combat hull BOM: heavier than the economy hulls (more assemblies), a mid-length
     // build. ⚠️ FIRST-PASS TUNABLE. (9b re-tunes alongside the research gate.)
     buildRecipe: { components: { frameSegment: 6, powerCoupling: 5, structuralAssembly: 2 }, credits: 2000, durationTicks: 600 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 4, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 4 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A fast strike hull. Quick shields, fewer guns, closes and hits hard.",
   },
@@ -1184,15 +1182,14 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // weapon hardpoints (a wall of guns), at the cost of SLOW movement + slow shield
     // regen. Default loadout = 3 heavy weapons (see COMBAT_DEFAULT_LOADOUT).
     hullIntegrity: 1400, shieldCapacity: 600, shieldRecharge: 6, weaponHardpoints: 6,
-    cost: { credits: 800 },
     // Heaviest BOM + longest build of any hull (a capital ship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 14, powerCoupling: 10, structuralAssembly: 5 }, credits: 5000, durationTicks: 1200 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 4, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 4 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A slow capital hull. The most armor, shields, and guns the fleet fields.",
   },
@@ -1213,15 +1210,14 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // guns. Default loadout = 1 weapon + an Attack squadron (see COMBAT_DEFAULT_LOADOUT;
     // the carrier's built-in bay count lives there too until the hangar-gear system).
     hullIntegrity: 1100, shieldCapacity: 500, shieldRecharge: 7, weaponHardpoints: 2, droneBays: 2,
-    cost: { credits: 800 },
     // Heavy BOM (a big hull), just under the battleship. ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 10, structuralAssembly: 4 }, credits: 4800, durationTicks: 1150 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 3 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 4, count: 1 },
-      { teamType: "science", size: 3, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 4 },
+      { teamType: "science", size: 3 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A drone platform. Few guns, but launches squadrons that fight for it.",
   },
@@ -1274,15 +1270,14 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 4, equipmentSlots: 0, // FIRST-PASS TUNABLE: 4 > any combat hull (battleship 3), the explorer identity
     // ⚠️ TUNABLE / LIVE (combat): the glass tank. Huge shields, frail hull, one token gun.
     hullIntegrity: 340, shieldCapacity: 800, shieldRecharge: 12, weaponHardpoints: 1, // FIRST-PASS TUNABLE
-    cost: { credits: 700 },
     // Capital-class BOM (between the destroyer and the battleship). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 10, powerCoupling: 8, structuralAssembly: 3 }, credits: 4200, durationTicks: 1000 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 4, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 4 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A long-range explorer. Enormous shields and reach, a frail hull, and almost no guns.",
   },
@@ -1296,15 +1291,14 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     moduleSlots: 5, equipmentSlots: 0, // FIRST-PASS TUNABLE: 5, the MOST in the fleet (survey/science identity)
     // ⚠️ TUNABLE / LIVE (combat): the frailest explorer (leanest combat), quick shields.
     hullIntegrity: 300, shieldCapacity: 720, shieldRecharge: 14, weaponHardpoints: 1, // FIRST-PASS TUNABLE
-    cost: { credits: 650 },
     // Capital-class BOM, a touch lighter than Orion (leaner combat frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 9, powerCoupling: 8, structuralAssembly: 3 }, credits: 3900, durationTicks: 950 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 3 Security, 4 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 3, count: 1 },
-      { teamType: "science", size: 4, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 3 },
+      { teamType: "science", size: 4 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A survey scout. The most module slots and the fastest cruise, at the cost of frame and hold.",
   },
@@ -1320,15 +1314,14 @@ export const SHIP_TYPES: Record<ShipTypeKey, ShipTypeDef> = {
     // ⚠️ TUNABLE / LIVE (combat): a touch tougher frame than the other explorers (a big transport)
     // but still frail vs its shields, modest recharge.
     hullIntegrity: 360, shieldCapacity: 700, shieldRecharge: 10, weaponHardpoints: 1, // FIRST-PASS TUNABLE
-    cost: { credits: 750 },
     // Heaviest explorer BOM (the biggest frame). ⚠️ FIRST-PASS TUNABLE.
     buildRecipe: { components: { frameSegment: 12, powerCoupling: 8, structuralAssembly: 4 }, credits: 4600, durationTicks: 1100 },
     // E-CREW away squads (design section 5.2, FIRST-PASS TUNABLE): 4 Security, 4 Science; Prospecting wired, never fielded.
     groundSquads: 4, // Squads SQ-1 (user 2026-10-12: DOUBLE EVERY HULL): 4 squads = 2 teams; bigger hulls get more later
     awayTeams: [
-      { teamType: "security", size: 4, count: 1 },
-      { teamType: "science", size: 4, count: 1 },
-      { teamType: "prospecting", size: 3, count: 0 },
+      { teamType: "security", size: 4 },
+      { teamType: "science", size: 4 },
+      { teamType: "prospecting", size: 3 },
     ],
     description: "A medical transport. The largest hold and crew the fleet fields, for supplies and evacuations.",
   },
@@ -4472,14 +4465,12 @@ function buildWarehouseT1Upgrades(): FacilityUpgradeDef[] {
   return upgrades;
 }
 
-// T2 is a STUB this phase (design §3.3): the warehouse UNLOCKS honestly, but its
-// first real upgrade is gated on a T2 material (denseOre) that NOTHING produces yet
-//, a real "future content" wall, not a fake tier. tierCap uses BASE_CAP[2] (a 1M
-// STUB placeholder; the real T2 base is TBD when T2 content lands).
+// T2 (design §3.3): the warehouse UNLOCKS for Titanium Ore, and its later rungs are priced in the T2 material
+// (denseOre), which the Lunar Mine Contract's uncommon strike produces since WR-4 (OC-C2). tierCap uses
+// BASE_CAP[2] (a 1M first-pass base, TBD with the balance pass).
 export const WAREHOUSE_T2_BASE_CAP = 1_000_000; // STUB, real T2 base TBD
 
-// T2 ships a MINIMAL track (stub, not real content): rung 0 = unlock, then a few
-// generated denseOre-gated rungs.
+// T2 ships a MINIMAL track: rung 0 = unlock, then a few generated denseOre-priced rungs.
 const WAREHOUSE_T2_RUNG_COUNT = 5;
 
 function warehouseT2CapAtLevel(level: number): Decimal {
@@ -4491,11 +4482,9 @@ function warehouseT2CapAtLevel(level: number): Decimal {
 //     of T1's default cap (design §3.3: "unlock = 100% of the previous tier's
 //     default cap"). TIMED like every rung; payable with T1's own ore, so the
 //     unlock itself is reachable today.
-//   - Rungs 1+ = the first REAL upgrades, priced in denseOre (the T2 ore) at 75% of
-//     the T2 cap at that level. Because denseOre is UNOBTAINABLE (produced by
-//     nothing this phase), these rungs are NATURALLY gated, canBuildFacilityUpgrade
-//     rejects them on the material check with no explicit requires* gate needed;
-//     the unobtainable input IS the wall.
+//   - Rungs 1+ = the cap upgrades, priced in denseOre (the T2 ore) at 75% of the T2 cap at
+//     that level, the same "pay most of the cap you are about to double" shape as T1. Dense
+//     Ore comes from the Lunar Mine Contract (WR-4, OC-C2).
 function buildWarehouseT2Upgrades(): FacilityUpgradeDef[] {
   const upgrades: FacilityUpgradeDef[] = [];
   // Rung 0: unlock, paid in commonOre (100% of T1's default 1M cap).
@@ -4504,7 +4493,7 @@ function buildWarehouseT2Upgrades(): FacilityUpgradeDef[] {
     durationTicks: 60, // TUNABLE placeholder (a T1-unlock-ballpark timed cost)
     effect: { storageCapMult: 2 },
   });
-  // Rungs 1..N-1: denseOre-gated real upgrades (unobtainable -> naturally walled).
+  // Rungs 1..N-1: the denseOre-priced cap upgrades.
   for (let i = 1; i < WAREHOUSE_T2_RUNG_COUNT; i++) {
     upgrades.push({
       materials: { denseOre: warehouseT2CapAtLevel(i).times(3).div(4) }, // 75% of T2 cap at level i
@@ -4728,9 +4717,9 @@ export const FACILITIES: Record<string, FacilityDef> = {
     label: "Warehouse (Tier I)",
     upgrades: buildWarehouseT1Upgrades(),
   },
-  // Phase 2, Task B2: Tier II Warehouse, a STUB. Level 0 = locked; rung 0 unlocks
-  // it for 1,000,000 commonOre, and the first real upgrade (rung 1) is walled behind
-  // the unobtainable T2 ore (denseOre). See buildWarehouseT2Upgrades above.
+  // Phase 2, Task B2: Tier II Warehouse. Level 0 = locked; rung 0 unlocks it for 1,000,000
+  // commonOre, and the later rungs cost the T2 ore (denseOre, from the Lunar Mine Contract
+  // since WR-4). See buildWarehouseT2Upgrades above.
   warehouseT2: {
     label: "Warehouse (Tier II)",
     upgrades: buildWarehouseT2Upgrades(),
@@ -6984,7 +6973,9 @@ export interface Expedition {
   captainId: number;
   targetSystemId: string; // banked sci-fi system id (design Part E)
   systemName: string; // display name
-  sensorArrayId: string | null; // the installed sensor array's variant id at dispatch (null = none fitted)
+  // The installed sensor array's variant id at dispatch (null = none installed). IDENTITY (WR-4): a record of what
+  // flew; nothing reads it for an effect (the resolved scanParams below carry the array's numbers).
+  sensorArrayId: string | null;
   scanParams: ExpeditionScanParams; // the array's resolved scan params, snapshotted at dispatch
   sensorPower: number; // effectiveShipStats(...).sensors snapshotted at dispatch (crew-inclusive)
   phase: ExpeditionPhase;
@@ -8006,6 +7997,21 @@ export const REFINE_RECIPES: Record<string, RefineRecipeDef> = {
     output: { itemId: "polysilicateWafer", amount: new Decimal(1) },
     durationTicks: 20,
   },
+  // WR-4 (OC-C3, user 2026-10-16 "Add Refinery recipes": "Scrap Alloy refines into Reclaimed Alloy and Fibrous
+  // Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes"). Both inputs are common
+  // mission staples (the Salvage and Forage runs, plus expedition hauls). [PROPOSAL] every number here (the user
+  // tunes them): Reclaimed Alloy is a RARE refined good, so 10:1; Purified Biomass is uncommon, so 6:1. Both run 20
+  // ticks, the Polysilicate Wafer's length (a duration must keep the speed rung's crafting XP per tick exact).
+  refineReclaimedAlloy: {
+    input: { scrapAlloy: new Decimal(10) },
+    output: { itemId: "reclaimedAlloy", amount: new Decimal(1) },
+    durationTicks: 20,
+  },
+  refinePurifiedBiomass: {
+    input: { fibrousBiomass: new Decimal(6) },
+    output: { itemId: "purifiedBiomass", amount: new Decimal(1) },
+    durationTicks: 20,
+  },
 };
 
 // Item taxonomy (Ship Production Economy epic, 2026-07-11 facility-framework
@@ -8157,20 +8163,16 @@ export const ITEMS: Record<string, ItemDef> = {
   // --- Tier 2 raw ore (Phase 2, Task B2), UNOBTAINABLE STUB -----------------
   // The first Tier-2 material, added ONLY to gate the T2 Warehouse's first real
   // upgrade (FACILITIES.warehouseT2, rung 1) behind honest "future content": NOTHING
-  // produces denseOre this phase (no mission, no refine/fabricate recipe references
-  // it), so it is genuinely unobtainable and renders as ❓ in the Warehouse catalog
-  //, exactly the point (design §3.3). It carries the FULL catalog metadata the
-  // standing-rule test (model.test.ts) requires; its unlockHint is deliberately a
-  // "no source yet" pointer, NOT an invented one. When T2 content lands, a real
-  // producer (a T2 mission / refine) is wired to it and the hint updated then.
+  // WR-4 (OC-C2): the Lunar Mine Contract's uncommon strike (MISSIONS.longOreRun), the producer the T2 warehouse
+  // waited on; it is the only tier-2 item, and Warehouse T2's later rungs are priced in it.
   denseOre: {
     label: "Dense Ore",
     category: "raw",
     subCategory: "oresMetals",
     tier: 2,
     rarity: "uncommon",
-    unlockHint: "Extracted from deep deposits, no mission reaches them yet.",
-    flavor: "Impossibly compacted rock from the deep seams. The fleet can't reach it, yet.",
+    unlockHint: "An uncommon strike on the Lunar Mine Contract; it stores in Warehouse (Tier II).",
+    flavor: "Impossibly compacted rock from the deep lunar seams, heavy enough to need its own warehouse tier.",
   },
   // --- Catalog scaffold (Phase 2 Warehouse), UNOBTAINABLE PLACEHOLDERS -------
   // The full material catalog the Warehouse renders as ❓ slots. Every entry below
@@ -8204,8 +8206,8 @@ export const ITEMS: Record<string, ItemDef> = {
     subCategory: "oresMetals",
     tier: 1,
     rarity: "uncommon",
-    unlockHint: "An uncommon strike on the Lunar Mine Contract.",
-    flavor: "A deep-blue seam prized by alloy smiths, an uncommon find on the moon.",
+    unlockHint: "An uncommon find on the Survey Mineral Anomaly.",
+    flavor: "A deep-blue seam prized by alloy smiths, an uncommon find in a mineral anomaly.",
   },
   osmiumOre: {
     label: "Osmium Ore",
@@ -8323,7 +8325,7 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "rare",
-    unlockHint: "Refined from salvage at the Refinery.",
+    unlockHint: "Refined from Scrap Alloy at the Refinery.",
     flavor: "Battlefield scrap re-smelted into something stronger than it ever was whole.",
   },
   purifiedBiomass: {
@@ -8331,7 +8333,7 @@ export const ITEMS: Record<string, ItemDef> = {
     category: "refined",
     tier: 1,
     rarity: "uncommon",
-    unlockHint: "Refined from foraged biomass at the Refinery.",
+    unlockHint: "Refined from Fibrous Biomass at the Refinery.",
     flavor: "Raw flora rendered down to a clean, stable feedstock, no volatility left.",
   },
 
@@ -9446,8 +9448,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
   // with the away-team member gear (E-CREW Task 7, neuralBackupBp below).
   //
   // RAW INPUTS, deliberately (judgment call, flagged): Anomalous Alloy is a `raw`-category salvage exotic and
-  // the forage organics are raw (no refine recipe produces an organic refined item yet, so purifiedBiomass
-  // would be a dead end). The "no raw ore in an equipment recipe" rule is the mining ladder's; these are
+  // two forage organics stay raw. (WR-4, OC-C3: Purified Biomass is refined now, so it replaced the raw Fibrous
+  // Biomass in the Bio-Resonance Array.) The "no raw ore in an equipment recipe" rule is the mining ladder's; these are
   // exploration/salvage payoffs the user specified by name, so model.test.ts carves discovery-gated blueprints
   // out of that rule. TIER 2 (the Research Lab's ceiling) because each sits behind a rare relic.
   // ⚠️ FIRST-PASS TUNABLE ⚠️ every tier / cost / duration / input amount.
@@ -9461,7 +9463,8 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     equipmentOutput: { slotType: "specUtility", varietyKey: "damageControlSuite" },
     requiresRelicDiscovery: "ancientDriveCoil",
     // Anomalous Alloy (its first real use) for the self-sealing hull patches, couplings for the pumps.
-    recipe: { inputs: { anomalousAlloy: 2, titaniumIngot: 3, powerCoupling: 2 } },
+    // WR-4 (OC-C3): Reclaimed Alloy, re-smelted battle scrap, for the patch frames. [PROPOSAL] 2.
+    recipe: { inputs: { anomalousAlloy: 2, titaniumIngot: 3, powerCoupling: 2, reclaimedAlloy: 2 } },
     flavor: "Self-sealing patch foam and a fast-response crew rig, built around an alloy that remembers its own shape.",
     unlockHint: "Identify an Ancient Drive Coil to unlock this research; crafted at the Fabricator.",
   },
@@ -9490,8 +9493,9 @@ export const BLUEPRINTS: Record<string, BlueprintDef> = {
     // (generateEquipment stamps the catalog id as moduleVariant for the sensor slot).
     equipmentOutput: { slotType: "sensor", varietyKey: "sensorBioResonance" },
     requiresRelicDiscovery: "leviathanScale",
-    // Organics: a grown resonance membrane, the rare spore cluster as its tuning core.
-    recipe: { inputs: { fibrousBiomass: 12, volatileResin: 6, exoticSporeCluster: 2, polysilicateWafer: 2 } },
+    // Organics: a grown resonance membrane, the rare spore cluster as its tuning core. WR-4 (OC-C3): the membrane
+    // is grown from Purified Biomass now (2, the refined form of the 12 raw Fibrous Biomass it used). [PROPOSAL] 2.
+    recipe: { inputs: { purifiedBiomass: 2, volatileResin: 6, exoticSporeCluster: 2, polysilicateWafer: 2 } },
     flavor: "A living membrane tuned to the hum of very old things. It sweeps slowly, and it listens for relics.",
     unlockHint: "Identify a Leviathan Scale to unlock this research; crafted at the Fabricator.",
   },

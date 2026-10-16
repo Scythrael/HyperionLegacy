@@ -127,7 +127,9 @@ describe("squad sizes (design section 5.2) and shipSquadSlots (Squads SQ-2: the 
     expect(shipSquadSlots({ typeKey: "noSuchHull" as ShipTypeKey }, "security")).toBe(0);
   });
 
-  it("ONE authority (SQ-1 review): the awayTeams[].count field is no longer read for any cap or team count", () => {
+  // WR-4 retired the live awayTeams[].count field; `count` survives only as the synthetic-hull fixture's shorthand
+  // (awayTeamTestFixtures.ts), so this pins that an explicit groundSquads wins over it and it reaches no cap.
+  it("ONE authority (SQ-1 review): groundSquads alone sets the team count (the fixture count reaches no cap)", () => {
     const key = "syntheticCountIgnored" as ShipTypeKey;
     const cleanup = registerSyntheticHull(key, [
       { teamType: "security", size: 3, count: 7 },

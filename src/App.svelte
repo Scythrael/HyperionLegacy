@@ -654,6 +654,8 @@
     // (navAttention below) can ask the SAME "does this hull need me" question the roster
     // rows use, over the whole fleet, without re-deriving damaged / empty-slot logic here.
     shipNeedsAttention,
+    // WR-4 (B19): the ship page's status line reads the running Shipyard repair the same way the roster does.
+    shipUnderRepair,
     type ShipSortKey,
     type ShipFilterKey,
     type ShipStatus,
@@ -837,8 +839,9 @@
     // per-tier drop-rate TEXT rows, which the drops icon row replaced. The live
     // economy computes those yield mults internally inside economyTick, so nothing
     // in App.svelte references them anymore.
-    captainUncommonChanceMult,
-    captainRareChanceMult,
+    // WR-4 (B20): the dispatch popup's drop chances (the engine's own formula, museum and survey crew terms
+    // included); it replaced the popup's local captainUncommonChanceMult / captainRareChanceMult math.
+    missionDropChances,
     captainBonusRollChance,
     captainBonusRollChanceMult,
     captainSpecBonusRollChance, // added so the live tick loop below can build the same 8-field `bonuses` object tick() does, enables the resourcefulness spec bonus-roll during LIVE play, not just offline catch-up
@@ -1860,8 +1863,10 @@
   const SHIP_STATUS_LABEL: Record<ShipStatus, string> = {
     parked: "Parked",
     idle: "Idle",
+    repairing: "Repairing",
     gathering: "Gathering",
     patrol: "On patrol",
+    expedition: "On expedition",
   };
 
   // The roster's sort + filter option lists, as data (label + key), so the control
@@ -16168,13 +16173,20 @@
              the Back control uses (returnFromShipPage, 0.13.3 Unit 0.1): the ships roster
              normally, or the originating captain when the board was opened from the captain
              page. Covers the panel's vanished-hull fallback + any future close affordance. -->
-        {@const shipStatusLabel = assignedCaptain === null
-          ? "Parked"
-          : assignedCaptain.mission === null
-            ? "Idle"
-            : assignedCaptain.mission.kind === "extraction"
-              ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
-              : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
+        <!-- WR-4 (B19): an expedition and a Shipyard repair are read off their own records first (shipRoster.ts
+             reads them the same way), so the page never calls a busy ship idle. -->
+        {@const shipExpedition = state.expeditions.find((e) => e.shipId === ship.id) ?? null}
+        {@const shipStatusLabel = shipExpedition !== null
+          ? `On expedition: ${shipExpedition.systemName}`
+          : shipUnderRepair(state, ship.id)
+            ? "Repairing"
+            : assignedCaptain === null
+              ? "Parked"
+              : assignedCaptain.mission === null
+                ? "Idle"
+                : assignedCaptain.mission.kind === "extraction"
+                  ? `On mission: ${MISSIONS[assignedCaptain.mission.missionKey].label}`
+                  : `On patrol: ${PATROLS[assignedCaptain.mission.patrolKey].label}`}
         <!-- 0.13.6: if an Armory loadout is checked out to this hull, its install screen is
              read-only (edited in the Armory). Resolve it once so the panel can lock + name it. -->
         {@const shipLoadout = state.loadouts.find((l) => l.checkedOutToShipId === ship.id) ?? null}
@@ -19399,10 +19411,11 @@
                the per-tick text rows the drops icon row replaced, 2026-07-15: the
                icon tooltip reports drop CHANCE + stored qty, not a per-tick yield,
                so those mults are no longer displayed anywhere here.) -->
-          {@const uncommonChanceMult = captainUncommonChanceMult(selectedCaptain)}
-          {@const rareChanceMult = captainRareChanceMult(selectedCaptain)}
-          {@const effectiveUncommonChance = Math.min(1, missionDef.uncommonChance * (1 + uncommonChanceMult))}
-          {@const effectiveRareChance = Math.min(1, missionDef.rareChance * (1 + rareChanceMult))}
+          <!-- WR-4 (B20): the chances come from the engine's own reader (tick.ts missionDropChances), so the
+               museum rare-material chance and the survey crew rare find are counted exactly as the run rolls them. -->
+          {@const dropChances = missionDropChances(state, selectedCaptain, missionPopupKey)}
+          {@const effectiveUncommonChance = dropChances.uncommon}
+          {@const effectiveRareChance = dropChances.rare}
           <!-- ⚠️ TIMING uses the SHIP-EFFECTIVE mission def, not the raw one (dispatch-preview fix
                2026-09-14, user). requiredTicksForPhase("extracting") is ceil(cargoCapacity /
                extractionRatePerTick), and the engine (+ the in-progress card) advance against the

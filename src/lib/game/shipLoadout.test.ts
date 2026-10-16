@@ -27,7 +27,6 @@ import { shipToCombatant } from "./combat/bridge";
 import {
   applyHypotheticalInstall,
   readoutFor,
-  compareInstall,
   type InstallTarget,
 } from "./shipLoadout";
 
@@ -240,58 +239,6 @@ describe("applyHypotheticalInstall shape", () => {
     const result = applyHypotheticalInstall([weapon], weapon, { kind: "hardpoint", index: 0 });
 
     expect(result.filter((p) => p.id === "wpn-1")).toHaveLength(1);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// net delta SIGN: a stronger candidate raises the rating, a weaker one lowers it.
-// ----------------------------------------------------------------------------
-describe("compareInstall net rating sign", () => {
-  // A destroyer already flying a mid emitter; swapping to a STRONGER emitter must net a
-  // POSITIVE rating delta, and swapping to a WEAKER one a NEGATIVE delta.
-  function stateWithEmitter(cap: number, recharge: number): GameState {
-    const emitter = makeEquip({
-      id: "emit-cur",
-      slotType: "shieldEmitters",
-      implicitStats: { shieldCapacity: cap, shieldRecharge: recharge },
-      fittedToShipId: "ship-1",
-    });
-    return withEquipment(withHull(freshState(), DESTROYER_KEY), emitter);
-  }
-
-  it("a STRONGER emitter yields a positive netRating", () => {
-    const state = stateWithEmitter(200, 8);
-    const stronger = makeEquip({
-      id: "emit-strong",
-      slotType: "shieldEmitters",
-      implicitStats: { shieldCapacity: 400, shieldRecharge: 16 },
-      fittedToShipId: null,
-    });
-    const cmp = compareInstall(state, "ship-1", stronger, { kind: "slot" });
-    expect(cmp).not.toBeNull();
-    expect(cmp!.netRating).toBeGreaterThan(0);
-    // The shield-capacity stat row also reads the increase.
-    const shieldRow = cmp!.statDeltas.find((d) => d.key === "shieldTotal");
-    expect(shieldRow!.delta).toBeGreaterThan(0);
-  });
-
-  it("a WEAKER emitter yields a negative netRating", () => {
-    const state = stateWithEmitter(400, 16);
-    const weaker = makeEquip({
-      id: "emit-weak",
-      slotType: "shieldEmitters",
-      implicitStats: { shieldCapacity: 150, shieldRecharge: 4 },
-      fittedToShipId: null,
-    });
-    const cmp = compareInstall(state, "ship-1", weaker, { kind: "slot" });
-    expect(cmp).not.toBeNull();
-    expect(cmp!.netRating).toBeLessThan(0);
-  });
-
-  it("returns null for an unknown ship id (safe empty state, no throw)", () => {
-    const state = withHull(freshState(), DESTROYER_KEY);
-    const candidate = makeEquip({ id: "x", slotType: "shieldEmitters" });
-    expect(compareInstall(state, "no-such-ship", candidate, { kind: "slot" })).toBeNull();
   });
 });
 

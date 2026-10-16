@@ -390,7 +390,7 @@ describe("MISSIONS, per-mission loot triads (Mission Rework Task 1)", () => {
     // localFuelRun tests further down).
     localFuelRun: { common: "deuteriumIce", uncommon: "uncommonMaterial", rare: "rareMaterial" },
     shortOreRun: { common: "commonOre", uncommon: "uncommonMaterial", rare: "rareMaterial" },
-    longOreRun: { common: "ferriteOre", uncommon: "cobaltOre", rare: "osmiumOre" },
+    longOreRun: { common: "ferriteOre", uncommon: "denseOre", rare: "osmiumOre" }, // WR-4 (OC-C2): Dense Ore
     salvageWreckage: { common: "scrapAlloy", uncommon: "salvagedCircuitry", rare: "intactReactorCore" },
     forageFlora: { common: "fibrousBiomass", uncommon: "volatileResin", rare: "exoticSporeCluster" },
     // Exploration 0.14.0 (E1a): the two survey triads. NEW combinations of EXISTING items
@@ -1192,7 +1192,7 @@ describe("SHIP_TYPES", () => {
     expect(SHIP_TYPES.prospectorMiner.extractionYieldMult).toBe(1.35);
     for (const key of ECONOMY_HULLS) {
       expect(SHIP_TYPES[key].tier).toBe(1);
-      expect(SHIP_TYPES[key].cost?.credits).toBeGreaterThan(0);
+      expect(SHIP_TYPES[key].buildRecipe.credits).toBeGreaterThan(0); // (WR-4: the retired credit-buy `cost` is gone)
     }
   });
 

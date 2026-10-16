@@ -1093,15 +1093,15 @@ function facilityRungEntries(): WiringEntry[] {
       else if ("refineSpeedMult" in eff)
         out.push(entry({ ...common, probe: "refineJobTicks", contexts: ["facility"], direction: "down", curve: { kind: "divisor" }, magnitude: (c) => num("refineSpeedMult")(c) - 1, tolerance: 1 }));
       else if ("storageCapMult" in eff) {
+        // WR-4 (OC-C2, B7): Warehouse T2's Dense Ore rungs are reachable (the Lunar Mine Contract mines Dense Ore).
         const tier = fkey === "warehouseT2" ? 2 : 1;
         out.push(
           entry({
             ...common,
-            probe: tier === 2 && i > 0 ? undefined : tier === 2 ? "tier2Cap" : "tier1Cap",
-            contexts: tier === 2 && i > 0 ? [] : ["facility"],
+            probe: tier === 2 ? "tier2Cap" : "tier1Cap",
+            contexts: ["facility"],
             curve: { kind: "linearRelative" },
             magnitude: (c) => num("storageCapMult")(c) - 1,
-            status: tier === 2 && i > 0 ? pending("WR-4, OC-C2 (Warehouse T2 rungs 2 to 5 cost Dense Ore, which has no source, B7)") : LIVE,
           }),
         );
       } else if ("addResearchSlots" in eff) out.push(entry({ ...common, probe: "researchSlots", contexts: ["research"], magnitude: num("addResearchSlots") }));
@@ -1499,7 +1499,6 @@ const HULL_FIELD_PROBES: Readonly<Record<string, ProbeId>> = {
 const HULL_FIELD_PENDING: Readonly<Record<string, string>> = {
   moduleSlots: "WR-7, OC-D4 (no reader; every hull has the same slot set)",
   equipmentSlots: "WR-7, OC-C4 (a forward bucket; 0 on every hull)",
-  cost: "WR-4 (retired S4: remove the field)",
 };
 
 function hullEntries(): WiringEntry[] {
@@ -1931,7 +1930,8 @@ function missionEntries(): WiringEntry[] {
         continue;
       }
       if (transport && field === "primaryMaterial") {
-        out.push(entry({ ...common, probe: undefined, contexts: [], claim: `${def.label}: "inert for transport"`, status: pending("WR-4, OC-I3 (canDispatch blocks transports at the ore cap, B2)") }));
+        // WR-4 (B2, OC-I3 "Let them launch"): neither the dispatch gate nor the auto-stop reads it for a transport.
+        out.push(entry({ ...common, probe: undefined, contexts: [], claim: `${def.label}: "inert for transport"`, notApplicable: "a transport delivers no loot, so a full warehouse never stops or blocks it (WR-4, B2)" }));
         continue;
       }
       const magnitude = (c: Catalogs): number => {
@@ -2461,12 +2461,10 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "captain:audit:gearGates", system: "captain", claim: "Gear gates minCaptainLevel / requiresTalent / captainSpec (no slot sets them)", status: pending("WR-4, OC-C4") },
   // C. Facilities, items, fuel
   { id: "facility:audit:fuelPurchase", system: "facility", claim: "FUEL_TANK_BASE_CAP, FUEL_REFINE_*, FUEL_CREDITS_PER_UNIT and buyFuel (credits spent on fuel nothing consumes, B5)", status: pending("WR-4, OC-C1") },
-  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate fails for ANY listed topic (B1)", status: pending("WR-4 (fix, no call)") },
+  { id: "facility:audit:requiresResearch", system: "facility", claim: "The requiresResearch rung gate (B1 fixed in WR-4: it checks the researched blueprint; no rung lists one yet)", status: pending("OC-C4") },
   { id: "facility:audit:requiresFacilityLevels", system: "facility", claim: "requiresFacilityLevels / requiresMissionCompletions rung gates (correct, no rung uses them)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:missionControlUnlock", system: "facility", claim: "MISSION_CONTROL_UNLOCK_COMPLETIONS 50 (only a commented-out rung)", status: pending("WR-4, OC-C4") },
   { id: "facility:audit:itemEquipStats", system: "facility", claim: "ItemDef.equipStats (no item fills it)", status: pending("WR-4, OC-C4") },
-  { id: "facility:audit:reclaimedAlloy", system: "facility", claim: "Reclaimed Alloy: \"Refined at the Refinery\" (no recipe makes or uses it, B6)", status: pending("WR-4, OC-C3") },
-  { id: "facility:audit:purifiedBiomass", system: "facility", claim: "Purified Biomass: \"Refined at the Refinery\" (no recipe makes or uses it, B6)", status: pending("WR-4, OC-C3") },
   { id: "facility:audit:precursorCircuit", system: "facility", claim: "Precursor Circuit: salvage drops it, nothing consumes it", status: pending("WR-10, OC-J3") },
   // D. Ship
   { id: "ship:audit:statRatios", system: "ship", claim: "Variety statRatios: an unlisted key keeps weight 1, so Hauler Hold rolls massReduction more than Prospector Hold (B11)", status: pending("WR-7, OC-D6") },
@@ -2474,13 +2472,8 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:slotPowerDraw", system: "ship", claim: "SLOT_BASE_PHYSICALS powerDraw (display only; promises a budget)", status: pending("E-MOD + WR-7, OC-D1") },
   { id: "ship:audit:slotDurability", system: "ship", claim: "SLOT_BASE_PHYSICALS durability for economy, defense, crew, sensor and member pieces (never read)", status: pending("WR-8, OC-D14") },
   { id: "ship:audit:reactorCoreNet", system: "ship", claim: "A crafted Reactor Core is net negative: no power budget, and its mass drags speed and fuel (B10)", status: pending("E-MOD + OC-D1") },
-  { id: "ship:audit:utilityCaps", system: "ship", claim: "DC_REPAIR_SPEED_MAX, DC_WAVE_REGEN_MAX, PF_SCAN_SPEED_MAX, PF_HAZARD_RESIST_MAX hard caps (never bind; against D23, B8)", status: pending("WR-4 (D23 rules; no call)") },
-  { id: "ship:audit:sensorArrayId", system: "ship", claim: "Expedition.sensorArrayId (written, never read)", status: pending("WR-4 (record only; classify as identity)") },
   { id: "ship:audit:arrayCharacter", system: "ship", claim: "ARRAY_CHARACTER: \"Focused: faster\" while its net rate is 0.78x; no Bio-Resonance line (B12)", status: pending("WR-7, OC-D11") },
-  { id: "ship:audit:compareInstall", system: "ship", claim: "shipLoadout.compareInstall (tests only)", status: pending("WR-4 (delete or use; no call)") },
-  { id: "ship:audit:shipRosterStatus", system: "ship", claim: "The ship roster shows a ship on an expedition as idle and has no repairing status (B19)", status: pending("WR-4 (text and status; no call)") },
   { id: "ship:audit:hullDescriptions", system: "ship", claim: "Hull descriptions (Aurora, Eir, Orion) claim what the engine does not do", status: pending("WR-7, OC-D13 (heavy cruiser wording: SF-6)") },
-  { id: "ship:audit:awayTeamsCount", system: "ship", claim: "ShipTypeDef.awayTeams[].count (retired SQ-2)", status: pending("WR-4 (remove the field; no call)") },
   { id: "ship:audit:combatPositions", system: "ship", claim: "Weapon and drone range, stance (incl. the patrol stance the player picks), BAND_*, enemy stance, speed and position: every ship spawns at 0 (B3)", status: pending("WR-8, OC-D9") },
   { id: "ship:audit:ftlSpeedPenalty", system: "ship", claim: "FTL_SPEED_PENALTY (depends on position)", status: pending("WR-8, OC-D9") },
   { id: "ship:audit:torpedoArmorPen", system: "ship", claim: "Torpedo armorPen (enemy armor is 0)", status: pending("WR-8, OC-D12") },
@@ -2543,7 +2536,7 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   // J. Salvage and item generation
   { id: "salvage:audit:rolledNarration", system: "salvage", claim: "SalvageRoll rolled: \"the UI narrates the drop\" (dropped)", status: pending("WR-11, OC-J2") },
   { id: "salvage:audit:lootTierNames", system: "salvage", claim: "Loot tier names (damagedWeaponSystem) unread", status: pending("WR-11, OC-J2") },
-  { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Scrap Alloy, Salvaged Circuitry, Precursor Circuit: \"it melts down fine\" (nothing uses them)", status: pending("WR-11, OC-J3") },
+  { id: "salvage:audit:deadEndDrops", system: "salvage", claim: "Salvaged Circuitry, Precursor Circuit: nothing uses them (Scrap Alloy refines into Reclaimed Alloy since WR-4, OC-C3)", status: pending("WR-11, OC-J3") },
   { id: "salvage:audit:achievementBoost", system: "salvage", claim: "achievementBoost (always 0)", status: pending("OC-C4") },
   { id: "salvage:audit:affixCountBranches", system: "salvage", claim: "affixCount derelict / luminous / constellar (unreachable rarities)", status: pending("WR-11, OC-J4") },
   { id: "salvage:audit:ascension", system: "salvage", claim: "ascension (always none)", status: pending("OC-C4") },
