@@ -1293,3 +1293,11 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
   none, so no production hotfix.)
 - **B14 turn order:** "Fix: by side, then order (Recommended)": patrol goldens re-recorded with explanation.
 - **Promotion backfill:** "Start at 0 (Recommended)".
+- **OC-G1 legacy expedition path:** "Delete it (Recommended)": remove the pre-Ground-Ops path and its legacy-only
+  effects; a dev save with an old in-flight run gets that run finished at load. (Production never had expeditions.)
+  NOTE: goldens that pin legacy runs (FK-3, G2-0, SF-0, CP-0 legacy fixtures) must be retired / re-pointed in the same
+  slice, with the reason in the commit.
+- **OC-D8 speed / cargo beyond missions:** "Speed counts everywhere (Recommended)": expedition travel and reach via the
+  G2 voyage engine and reach gate; patrol legs scale with transitSpeedMult; cargo stays missions-only, text says so.
+- **OC-E5 Fast Departure / Fast Return:** "Each its own leg (Recommended)".
+- **OC-D2 materialQualityChance:** "Chance to upgrade a unit (Recommended)": each delivered unit may climb one quality step.
