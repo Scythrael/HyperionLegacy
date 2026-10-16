@@ -654,3 +654,10 @@ the CP-6 core fix was dispatched the same day.
   classes II to VII, top modules). Shared with G2 (propulsion).
 - **OC-16 base sensors:** "Explorers lead (Recommended)": Aurora 35, Orion 25, Eir 15, warships 10, others 0.
 - **OC-13 hull bonuses:** "One catalog, by hull (Recommended)": eight lines at +5% to +10%.
+- **OC-25 sensor slot name:** "Slot = Sensor Suite (Recommended)"; arrays stay its variants.
+- **OC-22 Hall of Command (verbatim):** "I like 1. But perhaps we can add in some notables for that captain. Perhaps
+  specific achievements that captain achieved and when. Etc. Since Achievements should be coming pretty soon, that'll
+  link up properly with everything we're working on now anyway." So: in-game day stamps, a missions counter from now,
+  no entries for past retirements, PLUS each captain's entry lists notable moments: specific achievements earned and
+  when (links with the coming achievements system; build the per-captain record shape now so achievements plug in).
+- **OC-20 Science sensor amplification:** "Proposed numbers (Recommended)". **OC-21 stacking:** "Multiply (Recommended)".
