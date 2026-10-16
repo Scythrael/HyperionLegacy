@@ -1287,3 +1287,9 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-B2 / OC-B3 Fleet Admiral placeholder hubs:** "Give them real effects (Recommended)": Homeland Defense helps
   patrol combat; Citizenry helps crew recruitment; Works Directorate gives a Fabricator bonus and keeps gating Refinery.
 - **OC-C1 Fuel Depot:** "Turn into range (Recommended)": repurpose its storage levels into a fleet reach bonus.
+- **OC-C2 Warehouse T2:** "Add a Dense Ore source (Recommended)": Dense Ore drops from a mining mission or expedition
+  mineral sites, so T2 storage and its rungs are reachable.
+- **OC-I3 / B2 transports at ore cap:** "Let them launch (Recommended)". (Transport missions are 0.14.0-only; main has
+  none, so no production hotfix.)
+- **B14 turn order:** "Fix: by side, then order (Recommended)": patrol goldens re-recorded with explanation.
+- **Promotion backfill:** "Start at 0 (Recommended)".
