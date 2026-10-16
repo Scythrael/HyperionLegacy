@@ -339,3 +339,14 @@ Expected to move, each moved hash explained in its commit:
   (Recommended). (b) Shipyard console only. (c) Ship list chips only.
 - **OC-W9, safe first runs and tutorials.** (a) No wear (Recommended). (b) Wear normally.
 - **OC-W10, implants.** (a) Wear very slowly by time on the ground (Recommended). (b) Never wear.
+
+## USER ANSWERS (2026-10-16)
+
+- **W2 + W7 wear depth:** "Gentle (Recommended)": use wears gear to 60% at most; only battle goes lower; a fully worn
+  piece works at 75%; nothing breaks, uninstalls or blocks a run.
+- **W4 + W5 repair (verbatim):** "Unless we can find other proper sinks for credits, then we should probably have an
+  option for repairs that involve credits potentially. That or a repair station later that can repair up to specific
+  tiers of gear, etc." Reading: keep the free automatic repair over time, ADD an optional credit-cost repair (a credit
+  sink; confirm asked), and log a FUTURE Repair Station facility that repairs up to specific gear tiers.
+- **W3 combat:** "True condition" (NOT the 70% floor): gear fights at its real condition.
+- **W9 + W10:** "No wear on training; implants slow (Recommended)".

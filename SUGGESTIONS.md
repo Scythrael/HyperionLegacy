@@ -1981,3 +1981,8 @@ should not roll on ship crew (no dead rolls).
 - **PROSPECTING TEAMS + SECURITY INFILTRATION (user, 2026-10-16, future).** Combat and prospecting get their own more
   involved quests and gameplay; prospecting needs its own teams; Security squads get special missions to infiltrate an
   enemy base or a combatant's vessel. 0.14.0 wires a third team (see the safe-first-runs plan, group 3).
+
+- **REPAIR STATION (user, 2026-10-16, future).** "A repair station later that can repair up to specific tiers of gear."
+  A facility for gear repair by tier; also a credit sink. See docs/plans/2026-10-16-gear-wear-design.md USER ANSWERS.
+- **CREDIT SINKS (user, recurring).** The user keeps flagging that credits need proper sinks (telescope costs 2026-10-12,
+  repairs 2026-10-16). Needs its own planning pass.
