@@ -113,6 +113,29 @@ be NAMED as moved, never silently re-captured); (5) a loadout round trip with `c
 and `old:v69`, G2-0 golden 1 and every FK-3 hash must already be green.
 **Acceptance:** green on today's code. Commit `test(0.14.0): Field Kits revised goldens (FKR-0)`.
 
+**FKR-0 carry (2026-10-16, done):** committed as `test(0.14.0): pre-Field-Kits-revised golden hashes (FKR-0)`, tests
+only, hashes captured on engine `32d64ff` (the WR-4 review commit; nothing in it touches a fight, a roll or a claim).
+`fieldKitsGoldens.test.ts` now runs FK-3's three whole-run suites through one shared `wholeRunSuites` (FK-3's 35 hashes
+unchanged) and adds 20 default tests plus 12 gated ones. `withoutFieldKits` also strips `enemyRanks`, team `basics` /
+`charges` and the pending fight's `basicsUsed` / `chargesUsed` / `ranks`; the new state twin `withoutFieldKitsState`
+strips ship team `packs` / `topUp` and runs every expedition through `withoutFieldKits`; every claim hash (FK-3 and
+FKR-0) now hashes through it (identity today, asserted). Credits spent and kit stock are NOT in the twin: FKR-7 strips
+them in its own comparison. Pinned: (1) `stunGrenade` / `toxinGrenade` (hand runs, a frozen 60-point grenade on
+member-1) and `grenadesReal` (a real dispatch, one grenade per team) as whole runs with parity and event-boundary
+parity, plus each wearer's first battle (the only on-hit status in the squad, applied at least once); (2) the final
+fight of every graded objective on two bodies (Low, combat 1: Secure Landing Zone 1 Simple, Clear Hostiles 2 Standard,
+Derelict Outpost 3 Challenging, Enemy Colony 4 Dangerous, Enemy Fortification 5 Deadly; High, combat 3: Ancient Ruins
+Challenging, Buried Vault Dangerous, Derelict Outpost Deadly), every fight of a Deadly Enemy Fortification against a
+full rank 6 ship (the final one won against 6), and every reinforcement fight seen on `affixCat1` (4) and `affixCat2`
+(3, one escalated at alert 1 with 4 enemies), each re-resolved from the second before it to its stored record; the
+fielded enemy list hashed is `resolveTaskFightOnSeed`'s chain BEFORE ranks, so FKR-1 must leave it alone and move
+only the record and log on the stamped twin; (3) the odds per grade for one team at rank 3 and both teams at rank 6
+(Low `1:32 2:5 3:0 4:0 5:0` and `1:32 2:32 3:32 4:30 5:0`; High `3:20 4:0 5:0` and `3:32 4:32 5:32`); (4) Stun and
+Toxin Grenade inspects at seeds 2, 3, 27 (crafting level 20): `craftedRolls` MOVES AT FKR-5 and must be named there;
+(5) a loadout create, check-in, apply and save round trip with no `consumables` key. Gated (`FKR_SWEEP=1` or vitest
+mode "sweep"): the odds per grade at ranks 1, 3, 6, both sides, 256 samples, pinned as a table for FKR-1's tuning.
+Slowest default test about 0.42 s.
+
 #### FKR-1: ENEMY RANKS (engine; flag 1; it moves stamped fights)
 
 **Files:** new `src/lib/game/enemyRanks.ts` + `enemyRanks.test.ts`; `model.ts` (`EnemyRank`, `GroundCombatant.rank`,

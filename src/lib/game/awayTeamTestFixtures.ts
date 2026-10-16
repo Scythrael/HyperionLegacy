@@ -121,21 +121,24 @@ export function withoutAffixes(exp: Expedition): Expedition {
 // `kitsUsed` / `treated`. None of these exist at FK-3, so today the result deep-equals its input; it is typed
 // loosely (structural deletes of optional keys) so it compiles before and after the fields land. Every other key
 // keeps its order. Pure: shallow copies (the input is never touched).
+// Field Kits FKR-0 (REVISED SLICES R2, 2026-10-16): it also strips the revised fields, so every golden fixture is
+// the run WITHOUT both flags: `Expedition.enemyRanks` (flag 1, FKR-1), each team's `basics` (the objective's free
+// set left) and `charges` (tool charges left), and the pending fight's `basicsUsed` / `chargesUsed` / `ranks`.
+// Still identity today (asserted by the goldens).
 export function withoutFieldKits(exp: Expedition): Expedition {
   const rest = { ...exp } as Record<string, unknown>;
   delete rest.fieldKits;
+  delete rest.enemyRanks;
   const ops = exp.groundOps;
   if (ops) {
     rest.groundOps = {
       ...ops,
       teams: ops.teams.map((t) => {
         const team = { ...t } as Record<string, unknown>;
-        delete team.kits;
-        delete team.treatment;
+        for (const k of ["kits", "treatment", "basics", "charges"]) delete team[k];
         if (t.pendingFight) {
           const fight = { ...t.pendingFight } as Record<string, unknown>;
-          delete fight.kitsUsed;
-          delete fight.treated;
+          for (const k of ["kitsUsed", "treated", "basicsUsed", "chargesUsed", "ranks"]) delete fight[k];
           team.pendingFight = fight;
         }
         return team as unknown as typeof t;
@@ -143,6 +146,31 @@ export function withoutFieldKits(exp: Expedition): Expedition {
     };
   }
   return rest as unknown as Expedition;
+}
+
+// Field Kits FKR-0 (the FK-3 carry note's STATE TWIN): the whole state WITHOUT the revised Field Kits fields, so a
+// whole-state golden (a claim hash) keeps proving nothing else moved once FKR-7 writes state-side: every ship's
+// ground teams lose `packs` (the per-member pack preference) and `topUp` (the Quartermaster top-up toggle), and
+// every expedition goes through withoutFieldKits. Credits spent and kit stock are NOT stripped here: a fixture
+// that packs or buys must strip them in its own comparison (FKR-7). A ship without groundTeams is left as it is.
+// Identity today (asserted by the goldens). Pure: shallow copies.
+export function withoutFieldKitsState(state: GameState): GameState {
+  return {
+    ...state,
+    ships: state.ships.map((ship) => {
+      if (!Array.isArray(ship.groundTeams)) return ship;
+      return {
+        ...ship,
+        groundTeams: ship.groundTeams.map((t) => {
+          const team = { ...t } as Record<string, unknown>;
+          delete team.packs;
+          delete team.topUp;
+          return team as unknown as ShipGroundTeam;
+        }),
+      };
+    }),
+    expeditions: state.expeditions.map(withoutFieldKits),
+  };
 }
 
 // Objective affixes (AF-2): the run WITHOUT its affix CATALOG version, i.e. the affix-aware run the same dispatch

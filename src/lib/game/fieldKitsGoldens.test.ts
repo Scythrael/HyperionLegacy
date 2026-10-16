@@ -22,19 +22,27 @@
 // Plus: an Ossir member taking Bleed in a battle (enemies stamped with a Bleed on-hit), the threat odds of three
 // objectives, and offline == live parity on the same fixtures: one call == 997 s chunks == 1 s steps over a busy
 // stretch, and an EVENT-BOUNDARY chain (t - 1, t, t + 1 at every recorded step boundary, log line and ship leg).
+// FKR-0 (2026-10-16, REVISED SLICES) adds its own fixtures and captures at the bottom of this file (grenade wearers,
+// final and reinforcement fights, odds per difficulty grade, crafted grenade rolls, a loadout round trip), through the
+// same whole-run suites; the claim hashes now pass through the state twin withoutFieldKitsState (identity today).
 
 import { describe, expect, it } from "vitest";
+import Decimal from "break_infinity.js";
 import { freshState, type AwayMember, type BodyRiskGrades, type EquipmentInstance, type Expedition, type ExpeditionActivity, type ExpeditionBody, type GameState, type GroundStepRecord, type ShipGroundTeam } from "./model";
 import { advanceExpedition, claimExpedition, expeditionCandidates, scanEncounterChance, scanStepRoll, shipScanEventChance, squadEncounterBias, fieldDeviceEffectiveness, startExpedition } from "./expedition";
-import { generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
-import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks } from "./groundOps";
-import { rollReinforcements, type ObjectiveAffix } from "./affixes";
-import { taskFightSeed, taskFightTeam, type GroundFightTeam } from "./groundFight";
+import { bodyFloraGrade, generateRiskProfile, type ExpeditionRegion } from "./riskFactors";
+import { groundOpsAssignIdle, groundOpsBodyScanned, initGroundTasks, taskCover } from "./groundOps";
+import { alertLevelAt, rollReinforcements, type ObjectiveAffix } from "./affixes";
+import { resolveTaskFight, taskFightSeed, taskFightTeam, withEscalation, withFloraToxins, type GroundFightTeam } from "./groundFight";
 import { generateEncounter, resolveGroundBattle, type GambitLogEvent } from "./gambit";
 import { makeRng } from "./combat/rng";
 import { groundTaskClearOdds, groundThreatOddsKey } from "./groundThreat";
 import { shipEventsLive } from "./shipScanEvents";
-import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutGroundOps, withoutRisk } from "./awayTeamTestFixtures";
+import { resistedHazard } from "./relics";
+import { inspectBlank } from "./tick";
+import { applyGroundTeamLoadout, checkInGroundTeamLoadout, createGroundTeamLoadout } from "./armory";
+import { deserialize, migrate, serialize } from "./save";
+import { plainAwayMember, withSlottedAwayTeams, withoutAffixes, withoutFieldKits, withoutFieldKitsState, withoutGroundOps, withoutRisk } from "./awayTeamTestFixtures";
 
 // ===== shared helpers =====
 
@@ -104,7 +112,7 @@ function dispatch(state: GameState, region?: ExpeditionRegion): { next: GameStat
 }
 
 // One Ground team slotted (3 / 3) at `rank` and an empty pair: one team deploys. `over` edits a member.
-function oneTeam(rank = 1, over: Record<string, Partial<AwayMember>> = {}): GameState {
+function oneTeam(rank = 1, over: Record<string, Partial<AwayMember>> = {}, equipment: EquipmentInstance[] = []): GameState {
   const base = freshState();
   const m = (id: string, t: AwayMember["teamType"]): AwayMember => member(id, t, { rank: rank as AwayMember["rank"], ...(over[id] ?? {}) });
   const teams: ShipGroundTeam[] = [
@@ -115,6 +123,7 @@ function oneTeam(rank = 1, over: Record<string, Partial<AwayMember>> = {}): Game
     ...base,
     gameTimeSeconds: T0 - 50_000,
     awayMembers: [...SEC.slice(0, 3).map((id) => m(id, "security")), ...SCI.slice(0, 3).map((id) => m(id, "science"))],
+    ...(equipment.length > 0 ? { equipment: [...base.equipment, ...equipment] } : {}),
     nextAwayMemberId: 100,
     ships: base.ships.map((sh) => ({ ...sh, groundTeams: teams })),
   };
@@ -486,64 +495,74 @@ const GOLDEN: Record<string, string[]> = {
   threat: ["ffd7bbbb"],
 };
 
-describe("FK-3 pre-Field-Kits goldens: a run without the Field Kits flag resolves byte-identically", () => {
-  for (const [name, f] of Object.entries(FIXTURES)) {
-    it(`${name}: five checkpoints, the phase at 2,000,000 s and the claim match the pre-Field-Kits capture`, () => {
-      const { next, exp } = f.build();
-      expect(withoutFieldKits(exp)).toEqual(exp);
-      expect("fieldKits" in exp).toBe(false);
-      const hashes = [...CHECKPOINTS, ...(f.extraAt ?? [])].map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
-      // The mid-run checkpoints: their offsets are pinned too, then the state at each.
-      const mid = midRunPoints(exp);
-      if (exp.groundOps) expect(mid.length).toBeGreaterThan(0);
-      for (const t of mid) hashes.push(`@${t - T0}`, fnv(JSON.stringify(advanceExpedition(exp, t))));
-      const done = advanceExpedition(exp, FINAL);
-      f.check?.(done, exp);
-      hashes.push(done.phase);
-      const claimed = done.phase === "complete" ? claimExpedition({ ...next, expeditions: [done] }, done.id) : null;
-      if (claimed) expect(claimed.success).toBe(true);
-      hashes.push(claimed ? fnv(JSON.stringify(claimed.next)) : "unclaimed");
-      if (rollsBoundaries(exp)) hashes.push(fnv(JSON.stringify(boundaryReads(exp))));
-      expect(hashes).toEqual(GOLDEN[name]);
-    });
-  }
-});
+// The three whole-run suites, shared by FK-3 and FKR-0: the golden (five checkpoints, mid-run checkpoints, the phase
+// at 2,000,000 s, the claim through the state twin, the boundary reads), parity (one call == 997 s chunks == 1 s
+// steps) and event-boundary parity (t - 1, t, t + 1 of every recorded event == one call, plus 61 s chunks).
+function wholeRunSuites(tag: string, fixtures: Record<string, Fixture>, golden: Record<string, string[]>): void {
+  describe(`${tag} pre-Field-Kits goldens: a run without the Field Kits flag resolves byte-identically`, () => {
+    for (const [name, f] of Object.entries(fixtures)) {
+      it(`${name}: five checkpoints, the phase at 2,000,000 s and the claim match the pre-Field-Kits capture`, () => {
+        const { next, exp } = f.build();
+        expect(withoutFieldKits(exp)).toEqual(exp);
+        expect("fieldKits" in exp).toBe(false);
+        expect("enemyRanks" in exp).toBe(false);
+        const hashes = [...CHECKPOINTS, ...(f.extraAt ?? [])].map((t) => fnv(JSON.stringify(advanceExpedition(exp, t))));
+        // The mid-run checkpoints: their offsets are pinned too, then the state at each.
+        const mid = midRunPoints(exp);
+        if (exp.groundOps) expect(mid.length).toBeGreaterThan(0);
+        for (const t of mid) hashes.push(`@${t - T0}`, fnv(JSON.stringify(advanceExpedition(exp, t))));
+        const done = advanceExpedition(exp, FINAL);
+        f.check?.(done, exp);
+        hashes.push(done.phase);
+        const claimed = done.phase === "complete" ? claimExpedition({ ...next, expeditions: [done] }, done.id) : null;
+        if (claimed) expect(claimed.success).toBe(true);
+        // FKR-0: the claim hashes through the state twin (identity today; FKR-7's team packs / top-up come off).
+        if (claimed) expect(withoutFieldKitsState(claimed.next)).toEqual(claimed.next);
+        hashes.push(claimed ? fnv(JSON.stringify(withoutFieldKitsState(claimed.next))) : "unclaimed");
+        if (rollsBoundaries(exp)) hashes.push(fnv(JSON.stringify(boundaryReads(exp))));
+        expect(hashes).toEqual(golden[name]);
+      });
+    }
+  });
 
-describe("FK-3 parity: one call == 997 s chunks == 1 s steps on the same fixtures", () => {
-  for (const [name, f] of Object.entries(FIXTURES)) {
-    it(`${name}: one call == 997 s chunks == 1 s steps`, () => {
-      const { exp } = f.build();
-      const frozen = structuredClone(exp);
-      // 997 s chunks from dispatch to the last checkpoint.
-      const far = CHECKPOINTS[CHECKPOINTS.length - 1];
-      expect(chunked(exp, T0, far, 997)).toEqual(advanceExpedition(exp, far));
-      // 1 s steps over the busy stretch: a legacy run's first 60,000 s; a Ground Ops run's first hour of the window
-      // (a hand-built run's first 3 hours), from a one-call advance to the window's opening.
-      const [from, to] = liveWindow(exp, f.hand === true);
-      const start = from === T0 ? exp : advanceExpedition(exp, from);
-      expect(chunked(start, from, to, 1)).toEqual(advanceExpedition(exp, to));
-      expect(exp).toEqual(frozen);
-    });
-  }
-});
+  describe(`${tag} parity: one call == 997 s chunks == 1 s steps on the same fixtures`, () => {
+    for (const [name, f] of Object.entries(fixtures)) {
+      it(`${name}: one call == 997 s chunks == 1 s steps`, () => {
+        const { exp } = f.build();
+        const frozen = structuredClone(exp);
+        // 997 s chunks from dispatch to the last checkpoint.
+        const far = CHECKPOINTS[CHECKPOINTS.length - 1];
+        expect(chunked(exp, T0, far, 997)).toEqual(advanceExpedition(exp, far));
+        // 1 s steps over the busy stretch: a legacy run's first 60,000 s; a Ground Ops run's first hour of the window
+        // (a hand-built run's first 3 hours), from a one-call advance to the window's opening.
+        const [from, to] = liveWindow(exp, f.hand === true);
+        const start = from === T0 ? exp : advanceExpedition(exp, from);
+        expect(chunked(start, from, to, 1)).toEqual(advanceExpedition(exp, to));
+        expect(exp).toEqual(frozen);
+      });
+    }
+  });
 
-describe("FK-3 event-boundary parity: a chain stopping at t - 1, t and t + 1 of every recorded event == one call", () => {
-  for (const [name, f] of Object.entries(FIXTURES)) {
-    it(`${name}: the event-boundary chain (and a 61 s chunk pass) matches the one-call run`, () => {
-      const { exp } = f.build();
-      const far = CHECKPOINTS[CHECKPOINTS.length - 1];
-      const one = advanceExpedition(exp, far);
-      const times = eventTimes(exp, far);
-      if (exp.groundOps) expect(times.length).toBeGreaterThan(10);
-      let e = exp;
-      for (const t of times) for (const at of [t - 1, t, t + 1]) e = advanceExpedition(e, at);
-      expect(advanceExpedition(e, far)).toEqual(one);
-      // 61 s chunks over the first 60,000 s (a prime step that never lines up with the 6 s fight rounds).
-      const to = T0 + 60_000;
-      expect(chunked(exp, T0, to, 61)).toEqual(advanceExpedition(exp, to));
-    });
-  }
-});
+  describe(`${tag} event-boundary parity: a chain stopping at t - 1, t and t + 1 of every recorded event == one call`, () => {
+    for (const [name, f] of Object.entries(fixtures)) {
+      it(`${name}: the event-boundary chain (and a 61 s chunk pass) matches the one-call run`, () => {
+        const { exp } = f.build();
+        const far = CHECKPOINTS[CHECKPOINTS.length - 1];
+        const one = advanceExpedition(exp, far);
+        const times = eventTimes(exp, far);
+        if (exp.groundOps) expect(times.length).toBeGreaterThan(10);
+        let e = exp;
+        for (const t of times) for (const at of [t - 1, t, t + 1]) e = advanceExpedition(e, at);
+        expect(advanceExpedition(e, far)).toEqual(one);
+        // 61 s chunks over the first 60,000 s (a prime step that never lines up with the 6 s fight rounds).
+        const to = T0 + 60_000;
+        expect(chunked(exp, T0, to, 61)).toEqual(advanceExpedition(exp, to));
+      });
+    }
+  });
+}
+
+wholeRunSuites("FK-3", FIXTURES, GOLDEN);
 
 // ===== an Ossir member taking Bleed in a battle =====
 
@@ -582,4 +601,346 @@ describe("FK-3 the threat odds of three objectives", () => {
     const hash = fnv(JSON.stringify(reads));
     expect(hash).toBe(GOLDEN.threat[0]);
   });
+});
+
+// =====================================================================================================================
+// Field Kits FKR-0 (docs/plans/2026-10-14-field-kits-plan.md, REVISED SLICES R3 FKR-0): what FK-3 does not pin,
+// captured on the code BEFORE any revised Field Kits engine edit. Every fixture still goes through withoutFieldKits
+// (now also stripping enemyRanks, basics, charges, chargesUsed, basicsUsed, ranks; team packs / topUp through the state
+// twin withoutFieldKitsState), so a run WITHOUT both flags keeps these hashes through FKR-1..FKR-11:
+//   (1) a Stun Grenade and a Toxin Grenade wearer's fights: today's PASSIVE on-hit inflict (flagged runs replace it with
+//       thrown charges at FKR-5), as whole runs (checkpoints, claim, parity, event-boundary parity) and as one battle;
+//   (2) final fights (each graded objective's last fight point, and every fight of a Deadly Enemy Fortification) and
+//       the AF-1 Reinforcing reinforcement fights' enemy lists (FKR-1's rank targets): the fielded enemies, the record
+//       and the battle log;
+//   (3) the threat odds at each difficulty grade 1 to 5 (ordinary sites and the two hostile sites);
+//   (4) one crafted roll of each grenade variety at three seeds (MOVES AT FKR-5 ON PURPOSE: the new carry capacity
+//       line joins the grenade pools; the moved hashes must be NAMED in that commit, never silently re-captured);
+//   (5) a squad loadout round trip (create, check in, apply, save and load) with `consumables` absent.
+// The pure measurement table (the threat odds per grade at three crew ranks, 256 samples) runs only under the gate.
+// =====================================================================================================================
+
+// A crafted member Tool with a fixed status chance line (the grenade's implicit), worn by `wearer`. Frozen lines, so
+// (1) never moves when FKR-5 changes what a NEW craft rolls.
+const grenade = (id: string, variety: "stunGrenade" | "toxinGrenade", wearer: string, chance = 60): EquipmentInstance => ({
+  ...tool(id, variety, wearer),
+  implicitStats: { groundStatusChance: chance },
+});
+
+const wears = (exp: Expedition, memberId: string, variety: string): boolean =>
+  exp.roster!.security.find((m) => m.memberId === memberId)!.gear.some((g) => g.varietyKey === variety);
+
+const FKR0_FIXTURES: Record<string, Fixture> = {
+  stunGrenade: {
+    build: () =>
+      handRun({
+        state: oneTeam(2, {}, [grenade("equip-901", "stunGrenade", "member-1")]),
+        pois: ["derelictOutpost", "crashedShip"],
+        risk: { ...CALM, combat: 2 },
+        catalog: 2,
+      }),
+    check: (_done, exp) => expect(wears(exp, "member-1", "stunGrenade")).toBe(true),
+    hand: true,
+  },
+  toxinGrenade: {
+    build: () =>
+      handRun({
+        state: oneTeam(2, {}, [grenade("equip-901", "toxinGrenade", "member-1")]),
+        pois: ["derelictOutpost", "crashedShip"],
+        risk: { ...CALM, combat: 2 },
+        catalog: 2,
+      }),
+    check: (_done, exp) => expect(wears(exp, "member-1", "toxinGrenade")).toBe(true),
+    hand: true,
+  },
+  // A real dispatch with both grenades worn (one per team), on its real timeline.
+  grenadesReal: {
+    build: () => dispatch(crewed(0xaadc2, "gg", 3, [grenade("equip-901", "stunGrenade", "member-1"), grenade("equip-902", "toxinGrenade", "member-4")])),
+    check: (_done, exp) => {
+      expect(wears(exp, "member-1", "stunGrenade")).toBe(true);
+      expect(wears(exp, "member-4", "toxinGrenade")).toBe(true);
+    },
+  },
+};
+
+// Captured on the code BEFORE any revised Field Kits engine edit (FKR-0). Same layout as GOLDEN above; then (1) the
+// grenade battles, (2) the final and reinforcement fights, (3) the odds per grade, (4) the crafted rolls, (5) the
+// loadout round trip.
+const FKR0_GOLDEN: Record<string, string[]> = {
+  stunGrenade: ["23b745b8", "e496a2eb", "e496a2eb", "e496a2eb", "e496a2eb", "@1514", "746a81d4", "@3044", "298733d7", "complete", "26af29ef", "1540097"],
+  toxinGrenade: ["36e8c5b0", "a657d8ad", "a657d8ad", "a657d8ad", "a657d8ad", "@1514", "eeed641c", "@3044", "6aec40b9", "complete", "966d6b7", "1540097"],
+  grenadesReal: ["ea9b6c79", "9119989c", "b4cd8721", "e9ca8ede", "e9ca8ede", "@8790", "f57e3de7", "@9798", "2d4cd74b", "complete", "778fbcef", "f15f4531"],
+  stunBattle: ["77ced599"],
+  toxinBattle: ["b5431849"],
+  finalFightsLow: ["5b603dd6", "64e67d8c", "b9ba30cd", "137c0bf0", "27fa8282"],
+  finalFightsHigh: ["88e60d7f", "3edc464b", "9e2abb10"],
+  fortification: ["9fd37493", "584a456e", "e50202f", "aa59c248", "948c91b9", "final:win:6"],
+  reinforcementsCat1: ["cc440f12", "e6431f03", "cd636be5", "e76416cf"],
+  reinforcementsCat2: ["622e32b3", "1ec40759", "7284f62"],
+  oddsLow: ["one team rank 3: 1:32 2:5 3:0 4:0 5:0", "5959943d", "both teams rank 6: 1:32 2:32 3:32 4:30 5:0", "8204f781"],
+  oddsHigh: ["one team rank 3: 3:20 4:0 5:0", "365e1dd6", "both teams rank 6: 3:32 4:32 5:32", "d5333f73"],
+  // (4) MOVES AT FKR-5 (named): stunGrenade then toxinGrenade, each at the three INSPECT_SEEDS.
+  craftedRolls: ["d8050ca3", "c801541e", "c9723513", "e2e4cbb3", "7316c8c8", "d4611562"],
+  // created, checked in, applied (the round trip lands back on the created state).
+  loadout: ["6ed6a25a", "c1e66bb0", "6ed6a25a"],
+};
+
+wholeRunSuites("FKR-0", FKR0_FIXTURES, FKR0_GOLDEN);
+
+// ===== (1) the grenade wearer's battle =====
+
+const fightTeamsOf = (exp: Expedition, indices: number[] = [0]): GroundFightTeam[] =>
+  indices.map((i) => {
+    const t = exp.groundOps!.teams[i];
+    return { securityIds: t.securityIds, downedThisTask: t.downedThisTask, securityShare: exp.groundOps!.factors.securityShare[i] };
+  });
+
+describe("FKR-0 (1) a grenade wearer's fight: today's passive on-hit inflict", () => {
+  for (const [name, status, key] of [
+    ["stunGrenade", "stun", "stunBattle"],
+    ["toxinGrenade", "poison", "toxinBattle"],
+  ] as const) {
+    it(`${name}: the wearer strikes with ${status} on hit; the first fight's record, log and squad match the capture`, () => {
+      const { exp } = FKR0_FIXTURES[name].build();
+      const teams = fightTeamsOf(exp);
+      const task = tasksOf(exp)[0];
+      const squad = taskFightTeam(exp, teams, task);
+      const wearer = squad.find((c) => c.memberId === "member-1")!;
+      expect(wearer.onHitStatuses?.map((s) => s.id)).toEqual([status]);
+      expect(wearer.onHitStatuses![0].permille).toBeGreaterThan(0);
+      // Nobody else carries an on-hit status.
+      expect(squad.filter((c) => c.onHitStatuses !== undefined).length).toBe(1);
+      const log: GambitLogEvent[] = [];
+      const record = resolveTaskFight(exp, teams, exp.bodies[0], task, 0, undefined, log, alertLevelAt(task, T0), taskCover(task));
+      // The wearer's strikes put the status on a guard at least once (the passive roll FKR-5 replaces on flagged runs).
+      expect(log.some((ev) => ev.side === "team" && ev.memberId === "member-1" && ev.statusApplied === true)).toBe(true);
+      expect([fnv(JSON.stringify({ record, log, squad }))]).toEqual(FKR0_GOLDEN[key]);
+    });
+  }
+});
+
+// ===== (2) final fights and reinforcement fights (FKR-1's rank targets) =====
+
+// The enemies a task fight fields BEFORE FKR-1's ranks: resolveTaskFightOnSeed's exact chain (generateEncounter on
+// the resisted hazard, the flora toxins, the alert's escalation). FKR-1 ranks these AFTER, on stamped runs only.
+function fieldedEnemies(exp: Expedition, body: ExpeditionBody, task: ExpeditionActivity, seed: number, alert: number) {
+  return withEscalation(withFloraToxins(generateEncounter(seed, resistedHazard(body.hazard, exp.hazardResist ?? 0), task.poiId), bodyFloraGrade(body)), alert);
+}
+
+// One fight point of `task` (index k on body 0), fought fresh by `teams`: the fielded enemies, the record and the log.
+function pointFight(exp: Expedition, teams: GroundFightTeam[], k: number, point: number) {
+  const body = exp.bodies[0];
+  const task = { ...tasksOf(exp)[k], pointsCleared: point, fightCount: point };
+  const alert = alertLevelAt(task, T0);
+  const enemies = fieldedEnemies(exp, body, task, taskFightSeed(exp, k, point), alert);
+  const log: GambitLogEvent[] = [];
+  const record = resolveTaskFight(exp, teams, body, task, k, undefined, log, alert, taskCover(task));
+  return { k, point, poiId: task.poiId, grade: task.difficulty, enemies, record, log };
+}
+
+// The graded objectives: one body each (hazard 0.1, tier 1, affix catalog 2), every site stamped through the real path.
+// Low (combat 1): Secure Landing Zone 1 fight (Simple), Clear Hostiles 2 (Standard), Derelict Outpost 3 (Challenging),
+// Enemy Colony 4 (Dangerous), Enemy Fortification 5 (Deadly). High (combat 3): Ancient Ruins 3 (Challenging), Buried
+// Vault 4 (Dangerous), Derelict Outpost 5 (Deadly).
+const GRADE_RUNS = {
+  Low: { pois: ["secureLandingZone", "clearHostiles", "derelictOutpost", "enemyColony", "enemyFortification"], combat: 1, grades: [1, 2, 3, 4, 5], fights: [1, 2, 3, 4, 5] },
+  High: { pois: ["ancientRuins", "buriedVault", "derelictOutpost"], combat: 3, grades: [3, 4, 5], fights: [3, 4, 5] },
+} as const;
+
+// The side: "one" = one Ground team (3 / 3) at `rank` (FK-3's threat crew at rank 3); "both" = both Ground teams of a
+// fully slotted ship at `rank` (6 Security members fight as one side).
+type GradeSide = { kind: "one" | "both"; rank: number };
+const sideTeams = (side: GradeSide): number[] => (side.kind === "one" ? [0] : [0, 1]);
+
+function gradeRun(which: keyof typeof GRADE_RUNS, side: GradeSide = { kind: "one", rank: 3 }): Expedition {
+  const g = GRADE_RUNS[which];
+  const state = side.kind === "one" ? oneTeam(side.rank) : crewed(0x6ade5, "gg", side.rank);
+  const { exp } = handRun({ state, pois: [...g.pois], risk: { ...CALM, combat: g.combat }, catalog: 2 });
+  expect(tasksOf(exp).map((t) => t.difficulty)).toEqual([...g.grades]);
+  expect(tasksOf(exp).map((t) => t.fightPoints?.length)).toEqual([...g.fights]);
+  return exp;
+}
+
+describe("FKR-0 (2) final fights: each graded objective's last fight point", () => {
+  for (const which of ["Low", "High"] as const) {
+    it(`${which}: the final fight's enemies, record and log at every grade match the capture`, () => {
+      const exp = gradeRun(which);
+      const teams = fightTeamsOf(exp);
+      const finals = tasksOf(exp).map((t, k) => pointFight(exp, teams, k, t.fightPoints!.length - 1));
+      // Deadly objectives carry Reinforcing (required from Deadly, AF-1).
+      for (const [k, t] of tasksOf(exp).entries()) if (t.difficulty === 5) expect(t.affixes?.some((a) => a.id === "reinforcing"), `${k}`).toBe(true);
+      expect(finals.map((f) => fnv(JSON.stringify(f)))).toEqual(FKR0_GOLDEN[`finalFights${which}`]);
+    });
+  }
+
+  it("a Deadly Enemy Fortification: every fight point (the last named) against a full rank 6 side, as captured", () => {
+    const { exp } = handRun({ state: crewed(0xf0f7), pois: ["enemyFortification"], risk: { ...CALM, combat: 4 }, catalog: 2 });
+    const task = tasksOf(exp)[0];
+    expect(task.difficulty).toBe(5);
+    expect(task.fightPoints!.length).toBe(5);
+    const teams = fightTeamsOf(exp, [0, 1]);
+    const fights = [0, 1, 2, 3, 4].map((j) => pointFight(exp, teams, 0, j));
+    // The garrison's six roles (two Bruisers, two Strikers, a Caster, a Healer) on every point, plus any hazard extra.
+    for (const f of fights) expect(f.enemies.length).toBeGreaterThanOrEqual(6);
+    const final = fights[4];
+    expect([...fights.map((f) => fnv(JSON.stringify(f))), `final:${final.record.outcome}:${final.enemies.length}`]).toEqual(FKR0_GOLDEN.fortification);
+  });
+});
+
+describe("FKR-0 (2) AF-1 Reinforcing: every reinforcement fight's enemy list on the affix fixtures", () => {
+  for (const [name, key] of [
+    ["affixCat1", "reinforcementsCat1"],
+    ["affixCat2", "reinforcementsCat2"],
+  ] as const) {
+    it(`${name}: each reinforcement fight re-resolves from the moment before it to its stored record; enemies and log as captured`, () => {
+      const { exp } = FIXTURES[name].build();
+      const fights = seenHistory(exp).filter((r) => r.step === "fight" && r.reinforcement === true);
+      expect(fights.length).toBeGreaterThan(0);
+      const out = fights.map((r) => {
+        const at = r.startedAt;
+        const now = advanceExpedition(exp, at);
+        const pending = now.groundOps!.teams[r.teamIndex].pendingFight!;
+        expect(pending.reinforcement).toBe(true);
+        // The run the moment before: the crew's teams, carry and the task as the fight saw them.
+        const before = advanceExpedition(exp, at - 1);
+        const team = before.groundOps!.teams[r.teamIndex];
+        const k = tasksOf(before).findIndex((t) => t.id === r.taskId);
+        const task = tasksOf(before)[k];
+        expect(task.fightCount ?? 0).toBe(pending.fightNumber);
+        const alert = alertLevelAt(task, at);
+        const log: GambitLogEvent[] = [];
+        const record = resolveTaskFight(before, fightTeamsOf(before, [r.teamIndex]), before.bodies[0], task, k, team.carry, log, alert, taskCover(task));
+        expect({ ...record, reinforcement: true }).toEqual(pending);
+        const enemies = fieldedEnemies(before, before.bodies[0], task, taskFightSeed(before, k, pending.fightNumber), alert);
+        return { at: at - T0, alert, enemies, pending, log };
+      });
+      // affixCat2 holds an ESCALATED reinforcement fight (alert 1: an extra copied enemy, open call N5's target).
+      if (name === "affixCat2") expect(out.some((f) => f.alert > 0 && f.enemies.length > 3)).toBe(true);
+      expect(out.map((f) => fnv(JSON.stringify(f)))).toEqual(FKR0_GOLDEN[key]);
+    });
+  }
+});
+
+// ===== (3) the threat odds at each difficulty grade =====
+
+// Every graded objective's clear odds (and memo key) for `side` at `samples`, as the engine reads them (its alert and
+// cover). Pure.
+function gradeOdds(exp: Expedition, side: GradeSide, samples: number) {
+  const teams = fightTeamsOf(exp, sideTeams(side));
+  const body = exp.bodies[0];
+  return tasksOf(exp).map((task, k) => {
+    const alert = alertLevelAt(task, T0);
+    const odds = groundTaskClearOdds(exp, teams, body, task, k, samples, undefined, alert, taskCover(task));
+    return { grade: task.difficulty, odds, key: groundThreatOddsKey(exp, teams, body, task, k, samples, undefined, alert, taskCover(task)) };
+  });
+}
+
+// Two sides per body: FK-3's threat crew (one team at rank 3) and a full rank 6 ship (both teams as one side), so the
+// odds sit across the whole range (FKR-1's ranks must move them on the stamped twin only).
+const ODDS_SIDES: [string, GradeSide][] = [
+  ["one team rank 3", { kind: "one", rank: 3 }],
+  ["both teams rank 6", { kind: "both", rank: 6 }],
+];
+
+describe("FKR-0 (3) the threat odds at each difficulty grade 1 to 5", () => {
+  for (const which of ["Low", "High"] as const) {
+    it(`${which}: each graded objective's clear odds and memo key, for both sides, match the capture`, () => {
+      const out: string[] = [];
+      for (const [label, side] of ODDS_SIDES) {
+        const reads = gradeOdds(gradeRun(which, side), side, 32);
+        out.push(`${label}: ${reads.map((r) => `${r.grade}:${r.odds.wins}`).join(" ")}`, fnv(JSON.stringify(reads)));
+      }
+      expect(out).toEqual(FKR0_GOLDEN[`odds${which}`]);
+    });
+  }
+});
+
+// ===== (4) crafted grenade rolls (MOVES AT FKR-5, named) =====
+
+// Three seeds that roll different rarities (Stun: Standard, Radiant, Standard; Toxin: Standard, Augmented, Stellar),
+// at crafting level 20 so the lines carry real magnitudes.
+const INSPECT_SEEDS = [2, 3, 27];
+const INSPECT_CRAFTING_LEVEL = 20;
+
+describe("FKR-0 (4) one crafted roll of each grenade variety at three seeds (moves at FKR-5 on purpose)", () => {
+  it("inspecting a Stun Grenade and a Toxin Grenade blank at each seed mints the captured pieces", () => {
+    const pieces = (["stunGrenade", "toxinGrenade"] as const).flatMap((variety) =>
+      INSPECT_SEEDS.map((inspectSeed) => {
+        const bp = `${variety}Bp`;
+        const state: GameState = { ...freshState(), craftingLevel: INSPECT_CRAFTING_LEVEL, blanks: { [bp]: new Decimal(1) }, inspectSeed };
+        const next = inspectBlank(state, bp);
+        expect(next).not.toBe(state);
+        const piece = next.equipment[next.equipment.length - 1];
+        expect(piece.moduleVariant).toBe(variety);
+        return piece;
+      }),
+    );
+    expect(pieces.map((p) => fnv(JSON.stringify(p)))).toEqual(FKR0_GOLDEN.craftedRolls);
+  });
+});
+
+// ===== (5) a squad loadout round trip with consumables absent =====
+
+describe("FKR-0 (5) a squad loadout round trip with `consumables` absent", () => {
+  it("create, check in, apply, then save and load: no kit gains consumables; the states match the capture", () => {
+    const gear = [grenade("equip-901", "stunGrenade", "member-1"), grenade("equip-902", "toxinGrenade", "member-2")];
+    const state = oneTeam(2, {}, gear);
+    const created = createGroundTeamLoadout(state, "ship-1", 0, "Grenadiers");
+    if (!created.ok) throw new Error(`create refused: ${created.reason}`);
+    const checkedIn = checkInGroundTeamLoadout(created.next, created.loadoutId);
+    expect(checkedIn.ok).toBe(true);
+    const applied = applyGroundTeamLoadout(checkedIn.next, created.loadoutId, "ship-1", 0);
+    expect(applied.ok).toBe(true);
+    const stages = [created.next, checkedIn.next, applied.next];
+    for (const s of stages) {
+      expect(s.squadLoadouts.length).toBe(1);
+      for (const kit of [...s.squadLoadouts[0].security, ...s.squadLoadouts[0].science]) expect("consumables" in kit).toBe(false);
+    }
+    // Both grenades went back on their wearers.
+    expect(applied.next.equipment.filter((e) => e.fittedToMemberId === "member-1" || e.fittedToMemberId === "member-2").map((e) => e.id)).toEqual(["equip-901", "equip-902"]);
+    // Save and load keeps the loadout exactly (no consumables written).
+    const file = deserialize(serialize(applied.next, 0));
+    expect(file).not.toBeNull();
+    const loaded = migrate(file!);
+    expect(loaded.squadLoadouts).toEqual(applied.next.squadLoadouts);
+    expect(stages.map((s) => fnv(JSON.stringify(withoutFieldKitsState(s))))).toEqual(FKR0_GOLDEN.loadout);
+  });
+});
+
+// ===== the measurement table (gated) =====
+
+// The threat odds per grade at three crew ranks and both sides, 256 samples: a pure measurement table for FKR-1's rank
+// tuning (how far each grade's odds sit from 0 and from certain before ranks). Slow, so it runs only with FKR_SWEEP set
+// (or under vitest mode "sweep"); the default run pins the 32 sample reads above.
+const FKR_SWEEP: boolean = Boolean(import.meta.env.FKR_SWEEP) || import.meta.env.MODE === "sweep";
+
+const ODDS_TABLE: Record<string, string> = {
+  "Low one rank 1": "1:256 2:0 3:0 4:0 5:0",
+  "Low one rank 3": "1:256 2:38 3:1 4:0 5:0",
+  "Low one rank 6": "1:256 2:199 3:19 4:0 5:0",
+  "Low both rank 1": "1:256 2:256 3:256 4:0 5:0",
+  "Low both rank 3": "1:256 2:256 3:256 4:53 5:0",
+  "Low both rank 6": "1:256 2:256 3:256 4:243 5:0",
+  "High one rank 1": "3:9 4:0 5:0",
+  "High one rank 3": "3:184 4:0 5:0",
+  "High one rank 6": "3:254 4:0 5:0",
+  "High both rank 1": "3:256 4:201 5:253",
+  "High both rank 3": "3:256 4:255 5:256",
+  "High both rank 6": "3:256 4:256 5:256",
+};
+
+describe.runIf(FKR_SWEEP)("FKR-0 measurement (gated): the threat odds per grade, ranks 1, 3 and 6, both sides, 256 samples", () => {
+  for (const which of ["Low", "High"] as const) {
+    for (const kind of ["one", "both"] as const) {
+      for (const rank of [1, 3, 6]) {
+        const label = `${which} ${kind} rank ${rank}`;
+        it(label, () => {
+          const side: GradeSide = { kind, rank };
+          const row = gradeOdds(gradeRun(which, side), side, 256).map((r) => `${r.grade}:${r.odds.wins}`).join(" ");
+          console.log(`${label}: ${row}`);
+          expect(row).toBe(ODDS_TABLE[label]);
+        });
+      }
+    }
+  }
 });
