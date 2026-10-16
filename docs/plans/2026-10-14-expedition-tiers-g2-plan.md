@@ -461,3 +461,6 @@ names in game text (the Wolf 359 nod stays original).
   territory. Sector layout per homeworld is [PROPOSAL] for the G2 build.
 - **G16 / OC-16 tier rewards:** "Haul x1 to x3.3 now (Recommended)": I 1, II 1.25, III 1.5, IV 1.8, V 2.2, VI 2.7,
   VII 3.3; relic odds stay with Relics v2.
+- **G10 / OC-10 Wolf 359:** "Guaranteed early (Recommended)": guaranteed in the first Tier I list after the first run;
+  its nod is the user's to name later (OPEN).
+- **G9 / OC-9 banked names:** "Retire them (Recommended)": new candidates use real star names; in-flight runs keep theirs.

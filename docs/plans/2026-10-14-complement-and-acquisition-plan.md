@@ -633,3 +633,4 @@ the CP-6 core fix was dispatched the same day.
 - **OC-23 soft captain cap:** "From level 30 (Recommended)": past level 30 each level needs x1.08 more experience.
 - **OC-5 explorer caps (follow-up):** "Eir 900, Orion/Aurora 750 (Recommended)"; Eir's text becomes "the largest
   explorer crew"; the Andromeda (1,017, later hull tier) stays the largest in the fleet.
+- **OC-8 notable cap:** "50 fleet-wide (Recommended)".

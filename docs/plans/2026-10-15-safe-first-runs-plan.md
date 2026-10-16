@@ -545,3 +545,5 @@ Follow-up answers (user, 2026-10-16):
   Tier II, uncapped from Tier III; scans and the risk grade keep the real hazard.
 - **SF4 curve shape:** "Slow start (Recommended)": run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11.
 - **SF6 curve scope:** "Tier I only (Recommended)": Tier II and up start at full strength; the tier is the step.
+- **SF12 wording:** ""Training run" chip (Recommended)": a "Training run" chip on the first run of each type and the
+  log line "The guards fell back. Training run: no setback."
