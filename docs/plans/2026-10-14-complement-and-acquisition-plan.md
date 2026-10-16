@@ -649,3 +649,8 @@ the CP-6 core fix was dispatched the same day.
   identity only part is perfectly fine." So: notables are identity only (no stat edge). A scrolling MARQUEE of notable
   personnel is wanted (UI; placement [PROPOSAL]). Academy promotion to senior staff goes to SUGGESTIONS.
 - **OC-9 send back:** "Stays named (Recommended)".
+- **Notable marquee placement:** "Personnel bucket header (Recommended)": a slow, quiet ticker at the top of Personnel.
+- **OC-15 Lab tiers:** "Add tiers 3-7 now (Recommended)": the Research Lab gains levels 3 to 7 in 0.14.0 (drive
+  classes II to VII, top modules). Shared with G2 (propulsion).
+- **OC-16 base sensors:** "Explorers lead (Recommended)": Aurora 35, Orion 25, Eir 15, warships 10, others 0.
+- **OC-13 hull bonuses:** "One catalog, by hull (Recommended)": eight lines at +5% to +10%.
