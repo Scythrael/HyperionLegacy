@@ -311,3 +311,7 @@ large 0.14.0; if the release is tight, PS-3 is the slice that could wait without
 - **Fights:** "Never, retreat (Recommended)": like Survey teams; Security protects them.
 - **Team kinds:** "Type + two team kinds (Recommended)": the squad type plus two hidden team kinds (Security +
   Prospecting; 2 Prospecting); kind names still [PROPOSAL].
+- **Weapon slot:** "A cutting tool (Recommended)": a work implement adding YIELD, no damage (name [PROPOSAL]).
+- **Shared gear:** "Hazard gear + Steady (Recommended)".
+- **Later uses (multi):** prospecting quests, expedition mineral sites, AND ship mining missions (all three).
+- **QA access:** "Tests only" (NOT a Debug toggle): no in-game way to see them until the quests patch.
