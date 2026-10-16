@@ -541,3 +541,7 @@ Follow-up answers (user, 2026-10-16):
 - **Member slots (user, 2026-10-16):** "OOH. Yes. Sorry. That's what I mean. Implants X1/X2 depending on racial. Keep
   this as is." So slots stay Weapon, Armor, Tool (the "kit") + Implant x1 (x2 for Martian / Stheni). The free
   Standard-Issue set covers Weapon, Armor and Tool; implants stay a separate extra slot.
+- **SF7 hazard ceilings (2026-10-16):** "Cap by tier (Recommended)": enemies read hazard at most 0.1 at Tier I, 0.5 at
+  Tier II, uncapped from Tier III; scans and the risk grade keep the real hazard.
+- **SF4 curve shape:** "Slow start (Recommended)": run 2 at 35%, run 6 about 54%, run 9 about 80%, full from run 11.
+- **SF6 curve scope:** "Tier I only (Recommended)": Tier II and up start at full strength; the tier is the step.

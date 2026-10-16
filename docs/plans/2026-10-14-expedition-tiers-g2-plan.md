@@ -445,3 +445,8 @@ names in game text (the Wolf 359 nod stays original).
 6. "Annihilation Core" is my proposed name, not yet approved; its cells come from 15b, which builds after G2.
 7. Recall: the saga's "the trip back is just as long" matches after arrival; mid-transit, your 1:1 answer makes it
    shorter. No conflict, a refinement.
+
+## USER ANSWERS (2026-10-16)
+
+- **G5 / OC-5 transit times:** "2h to 168h ladder (Recommended)": one way at the minimum class I 2 h, II 4 h, III 8 h,
+  IV 12 h, V 24 h, VI 72 h, VII 168 h; halved per drive class above the minimum; 30 minute floor.
