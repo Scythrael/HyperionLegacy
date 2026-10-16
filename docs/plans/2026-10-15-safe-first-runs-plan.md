@@ -538,3 +538,6 @@ Follow-up answers (user, 2026-10-16):
   utility / role stats). CHECK vs code (asked 2026-10-16): today a member has Armor, Weapon, Tool and IMPLANT slots
   (1 implant, 2 for the augment-affinity races Martian and Stheni, awayTeam.ts implantSlotsFor); the user's "default
   is 3, unless the racial allows for 2 kit slots" may mean the implant racial, or a new 2-kit racial.
+- **Member slots (user, 2026-10-16):** "OOH. Yes. Sorry. That's what I mean. Implants X1/X2 depending on racial. Keep
+  this as is." So slots stay Weapon, Armor, Tool (the "kit") + Implant x1 (x2 for Martian / Stheni). The free
+  Standard-Issue set covers Weapon, Armor and Tool; implants stay a separate extra slot.
