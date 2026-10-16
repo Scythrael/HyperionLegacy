@@ -232,3 +232,11 @@ hard caps (prices rise on a curve instead).
   improve spotting RARER PLANET ASPECTS which change the scan and seed that planet's objectives (new mechanic; scope
   asked 2026-10-16).
 - **Field Kits purchase:** "Quartermaster sells + top-up (Recommended)".
+- **Overtime shape:** "+25% steps, rising cost (Recommended)": each purchase +25% of the normal rate, a few steps max,
+  each step costlier (diminishing; never doubling, never instant), priced by job size and tier. Shares ONE speed seam
+  with the tutorial time-skip hook.
+- **Rare planet aspects:** "Hook now, content later (Recommended)": 0.14.0 builds a planet-aspect slot a scan can reveal
+  and that can seed objectives (shared with the objective affix system); telescope cycles raise the spot chance; the
+  aspects themselves are designed with the user later.
+- **Cleanups (all):** retire Buy Fuel; delete the unused ShipTypeDef.cost; no crafting fees; log the Repair Station and
+  crew training as future ideas.
