@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
-    "test:sweep": "vitest run --mode sweep src/lib/game/firstRunsGoldens"
+    "test:sweep": "vitest run --mode sweep src/lib/game/firstRunsGoldens",
+    "test:sim": "vitest run --mode sim --reporter=verbose src/lib/game/sim"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
