@@ -842,3 +842,6 @@ Reading (this reshapes FK-1, FK-4, FK-5, FK-6, FK-8, FK-9):
   Dangerous, Deadly. The user's pick maps to: Challenging ends with an Elite; Dangerous and Deadly end with a Boss.
   Likewise "Hard or harder" for Caster Neurotoxin (N14) is still open. N1 as answered applies one multiplier to both
   HP and power (Weak 0.7, Normal 1, Strong 1.3, Elite 1.7, Boss 2.5), superseding the plan's split HP / power table.
+- **N3:** "Only final fights (Recommended)". **N4:** "Grenades only (Recommended)": Impact 4, Stun 2, Toxin 2, 1 throw
+  per battle, +1 carry line on grenades only; Med Kit, Shroud, Lure no charges. **N6:** "Group blast + Concussion
+  (Recommended)": the target's group at 1.5x the thrower's power, 30% Concussion. **N5:** "Normal (Recommended)".
