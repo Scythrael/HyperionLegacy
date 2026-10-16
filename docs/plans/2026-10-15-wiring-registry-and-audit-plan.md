@@ -1280,3 +1280,10 @@ is the first candidate to ask the user about a 0.14.x deferral, recorded as `def
 - **OC-C3 Reclaimed Alloy / Purified Biomass:** "Add Refinery recipes (Recommended)": Scrap Alloy refines into
   Reclaimed Alloy and Fibrous Biomass into Purified Biomass; each becomes an input to existing Fabricator recipes
   (exact inputs [PROPOSAL] in the build, user to tweak).
+- **Achievements foundation (2026-10-16):** "The event ledger now (Recommended)": 0.14.0 builds one notable-event ledger
+  (first relic set, first Tier II run, captain milestones) read by the future achievements system, the Hall of Command
+  and future chat (absorbs G4). Achievements themselves come with the tutorial / quests patch.
+- **OC-A3 capstone magnitudes:** "Proposed sizes (Recommended)" (the plan's node table, all tunable).
+- **OC-B2 / OC-B3 Fleet Admiral placeholder hubs:** "Give them real effects (Recommended)": Homeland Defense helps
+  patrol combat; Citizenry helps crew recruitment; Works Directorate gives a Fabricator bonus and keeps gating Refinery.
+- **OC-C1 Fuel Depot:** "Turn into range (Recommended)": repurpose its storage levels into a fleet reach bonus.
