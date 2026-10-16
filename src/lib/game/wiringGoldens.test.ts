@@ -160,8 +160,9 @@ const GOLDEN: Record<string, string | string[]> = {
   ],
   repair: ["239", "156", "13d55f21", "70d18e4"],
   // Re-pinned by WR-4 (B14): turn order by side, then input order (the player side first); the dispatch record
-  // (91429198) is unchanged, every replay and the final state moved.
-  patrol: ["91429198", "5f21282d", "3402127c", "f524ed0a", "13cbd93d", "50366cbe", "f3e19edd", "1c64af86", "cc2a99b", "d0733b51"],
+  // (91429198) is unchanged, every replay and the final state moved. The final state moved again with B4 (the
+  // tactical officer's promotion counters: crewHours and shipsDestroyed).
+  patrol: ["91429198", "5f21282d", "3402127c", "f524ed0a", "13cbd93d", "50366cbe", "f3e19edd", "1c64af86", "cc2a99b", "4d58a986"],
   rungs: "9928b877",
   utility: [
     "f3df2ef8", "3b01c657", "217dee49", "4f69bf08", "5bdee672", "8074aed9", "e1d54513", "a15fe684",
@@ -181,7 +182,9 @@ const GOLDEN: Record<string, string | string[]> = {
   ],
   // Re-pinned by WR-4 (OC-C2): Dense Ore for Cobalt Ore; pre-fix e0bbc3d2 (naming denseOre back reproduces it).
   lunarMine: "8e6c6c4c",
-  expedition: ["1fc7c9e6", "df67c9dd", "1f818423", "8a168c1b"],
+  // Re-pinned by WR-4 (B4, OC-E10): the seated officer's promotion counters (crewHours while out, then the claim's
+  // personnelAchievement); the dispatch record and the resolved run are unchanged.
+  expedition: ["1fc7c9e6", "1dae182b", "1f818423", "a991930"],
 };
 
 describe("WR-4 pre-fix goldens", () => {

@@ -379,7 +379,7 @@
                   <div class="sstaff-obj" class:met={row.met}>
                     <span class="sstaff-obj-check" aria-hidden="true">{row.met ? "✓" : "○"}</span>
                     <span class="sstaff-obj-label">{row.objective.label}</span>
-                    <span class="sstaff-obj-prog">{Math.min(row.current, row.objective.target)}/{row.objective.target}</span>
+                    <span class="sstaff-obj-prog">{Math.floor(Math.min(row.current, row.objective.target))}/{row.objective.target}</span>
                   </div>
                 {/each}
               </div>

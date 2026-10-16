@@ -2494,7 +2494,6 @@ const AUDIT_ROWS: readonly { id: string; system: WiringSystem; claim: string; st
   { id: "ship:audit:partialCombat", system: "ship", claim: "Ambush opener (expedition cloaked events only), precharge (Ground Ops only), enemy mitigation (players only), evasion (Evasive Command only), drone replenish (between waves only)", status: pending("WR-8, OC-D9 / OC-D12") },
   { id: "ship:audit:podDurability", system: "ship", claim: "DRONE_POD_BASE_DURABILITY (pods never wear) and QUALITY_DURABILITY_BONUS on non-weapons", status: pending("WR-8, OC-D14") },
   // E. Crew
-  { id: "crew:audit:promotion", system: "crew", claim: "Officer promotion: the promotion counters are never incremented, so no officer promotes (B4)", status: pending("WR-4, OC-E10") },
   { id: "crew:audit:notables", system: "crew", claim: "Notable crew: the read paths are live but nothing creates one", status: pending("CP-8") },
   { id: "crew:audit:enlisted", system: "crew", claim: "The crew rank enlisted flag (never read)", status: pending("WR-9, OC-E11") },
   { id: "crew:audit:thirdBuff", system: "crew", claim: "buffCountForRank 3 (only gates the exclusive pick)", status: pending("WR-9, OC-E12") },

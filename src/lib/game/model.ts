@@ -6322,8 +6322,8 @@ export type OfficerRank = "cadet" | "ensign" | "lieutenant" | "lieutenantCommand
 // The KIND of a Senior Staff promotion objective (Crew 0.14.0 C-1). A CLOSED union on purpose: adding
 // a new objective kind is a deliberate compile-time decision. It lives here beside OfficerRank /
 // SeniorStaffSeat so the persisted SeniorStaffOfficer.promotionCounters can key on it without a
-// circular import back into seniorStaff.ts (which owns the objective SETS + gating logic). Only
-// `missionsCompleted` is LIVE today (folded from mission cycles, crewOverlay.ts); the rest are dormant.
+// circular import back into seniorStaff.ts (which owns the objective SETS + gating logic). Every kind is
+// fed since WR-4 (B4; seniorStaff.ts officerPromotionCounter lists what feeds each).
 export type PromotionObjectiveKind =
   | "missionsCompleted"
   | "shipsDestroyed"
@@ -6349,10 +6349,11 @@ export interface SeniorStaffOfficer {
   bonuses: [OfficerBonus, OfficerBonus]; // exactly two rolled bonuses
   missionsCompleted: number; // LIVE promotion counter (folded from mission cycles, crewOverlay.ts)
   // Optional, ADDITIVE per-officer counters for the OTHER promotion objective kinds (shipsDestroyed /
-  // crewHours / personnelAchievement); missionsCompleted keeps its own dedicated field above. DORMANT:
-  // nothing increments these yet (a later wiring phase will), and officerPromotionCounter reads a
-  // missing entry as 0, so this needs NO SAVE_VERSION bump (an old save simply lacks it) -- the
-  // established optional-additive field convention (e.g. favorite / weaponType elsewhere).
+  // crewHours / personnelAchievement); missionsCompleted keeps its own dedicated field above. Fed since
+  // WR-4 (B4: crewOverlay.ts foldOfficerPromotionCounters), starting at 0 (user: no backfill);
+  // officerPromotionCounter reads a missing entry as 0, so this needs NO SAVE_VERSION bump (an old save
+  // simply lacks it), the established optional-additive field convention (e.g. favorite / weaponType).
+  // crewHours is fractional (hours, accrued per tick); the checklist shows it rounded down.
   promotionCounters?: Partial<Record<PromotionObjectiveKind, number>>;
   assignedShipId: string | null; // mirrors EquipmentInstance.fittedToShipId authority; null = unassigned
   // Crew 0.14.0 (Phase C-2): favoriting parity with NotableCrewMember (which already carries

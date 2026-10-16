@@ -57,6 +57,7 @@ import type {
   ExpeditionScanEvent,
   AwayRosterSnapshot,
   SnapshotMember,
+  PromotionObjectiveKind,
 } from "./model";
 import { memberVariety } from "./model";
 import { makeRng, type Rng } from "./combat/rng";
@@ -64,7 +65,7 @@ import { installedSensorArray, sensorArrayEffect, sensorArrayRelicFindBonus } fr
 // E4d: the relic-unlocked Pathfinder Suite's expedition effect (a pure leaf over the installed pieces).
 import { pathfinderEffect } from "./utilityGear";
 import { equippedFor } from "./equipment";
-import { effectiveShipStats, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
+import { effectiveShipStats, foldOfficerPromotionCounters, officerBonusTotal, shipCrewContribution } from "./crewOverlay";
 import { CREW_STAT_KEYS } from "./crewBuffs";
 import { fieldworkHazardResist, fieldworkSpeedMult } from "./fieldwork";
 import { ACTIVITY_SECONDS } from "./groundTasks";
@@ -2207,13 +2208,27 @@ export function claimExpedition(state: GameState, expeditionId: string): Expedit
   const { next: home, injuries } = exp.groundOps ? applyGroundOpsInjuries(deposited, exp) : applyExpeditionInjuries(deposited, exp);
   // Ground Ops GO-8 (user Q12): the light hull damage the ship's scan events left comes home with it (the Shipyard
   // repairs it); none on a run without ship events (the SAME state).
-  const next = applyShipEventDamage(home, exp);
+  const repaired = applyShipEventDamage(home, exp);
+  // WR-4 (B4, OC-E10): the run's promotion counters for the officers aboard the ship it flew: personnelAchievement
+  // from the objectives its squads completed, shipsDestroyed from the ship battles it won (each a one-enemy fight,
+  // shipScanEvents.ts). Counted at the claim, from the stored run (the crewHours of its time out accrue live, tick.ts).
+  const next = { ...repaired, officers: foldOfficerPromotionCounters(repaired.officers, expeditionPromotionIncrements(exp)) };
   return {
     next,
     success: true,
     findings: exp.findings,
     injuries,
   };
+}
+
+// WR-4 (B4): one claimed run's promotion counter increments, keyed by its ship. Pure.
+function expeditionPromotionIncrements(exp: Expedition): Map<string, Partial<Record<PromotionObjectiveKind, number>>> {
+  const objectives = exp.bodies.reduce((n, b) => n + b.activities.filter((a) => a.done).length, 0);
+  const shipWins = (exp.scanEvents ?? []).filter((e) => e.kind === "shipEvent" && e.outcome === "win").length;
+  const inc: Partial<Record<PromotionObjectiveKind, number>> = {};
+  if (objectives > 0) inc.personnelAchievement = objectives;
+  if (shipWins > 0) inc.shipsDestroyed = shipWins;
+  return new Map(Object.keys(inc).length > 0 ? [[exp.shipId, inc]] : []);
 }
 
 // ============================================================================

@@ -70,6 +70,7 @@ import {
   type ShipTypeKey,
   type ShipTypeDef,
   type ShipInstance,
+  type PromotionObjectiveKind,
   type CaptainState,
   type CaptainStopReason,
   type CaptainMissionState,
@@ -331,6 +332,7 @@ import {
   effectiveShipStats,
   resolveCrew,
   foldOfficerMissionCompletions,
+  foldOfficerPromotionCounters,
   officerCombatMods,
   officerCombatModsFromProfile,
   officerCombatProfile,
@@ -2894,6 +2896,9 @@ interface PatrolTickResult {
   // relaunch) rather than from this call's local `routesCompleted`, which counts only the
   // routes flown in THIS call and would under-report any run that spanned two calls.
   endRoutesCompleted: number;
+  // WR-4 (B4, OC-E10 "shipsDestroyed from patrol and ship-event kills"): the enemy ships this call's wave battles
+  // destroyed (won and lost waves alike), so economyTick credits the officers aboard. 0 on a no-op call.
+  enemiesDestroyed: number;
 }
 
 // tickCaptainPatrol: advance ONE captain's patrol by `ticksElapsed` route ticks. PURE
@@ -2982,6 +2987,7 @@ export function tickCaptainPatrol(
     endReason: null,
     endRoutesCompleted: 0,
     lifetimeStatsDelta: emptyMissionLifetimeStatsDelta(),
+    enemiesDestroyed: 0,
   };
   // Only the patrol arm advances here; idle / extraction / a sub-tick call is a no-op.
   if (!captain.mission || captain.mission.kind !== "patrol" || ticksElapsed <= 0) return noOp;
@@ -3067,6 +3073,9 @@ export function tickCaptainPatrol(
   // cyclesCompleted: a single offline call can complete MANY routes (repeat-dispatch relaunch),
   // so this counts each one and feeds the missionsCompleted lifetime tally below.
   let routesCompleted = 0;
+  // WR-4 (B4): enemy ships destroyed in this call's wave battles (each wave resolves exactly once, however the span
+  // is chunked, so this is closed-form like the loot).
+  let enemiesDestroyed = 0;
   // 0.13.4 Phase 2: the PER-RUN accumulator, seeded from the mission's persisted value so it
   // continues a run already in progress rather than restarting it. `?? 0` covers an in-flight
   // patrol from a pre-v45 save (the migration seeds new ones, but a mission object handed in
@@ -3189,6 +3198,8 @@ export function tickCaptainPatrol(
         deriveWaveSeed(mission.masterSeed, waveIndex, WAVE_BATTLE_SEED_SALT),
       );
 
+      // WR-4 (B4): every enemy this wave's battle destroyed counts toward the officers' shipsDestroyed.
+      enemiesDestroyed += finalCombatants.filter((c) => c.team === "enemy" && !c.alive).length;
       // Read the player's POST-battle state BY ID (finalCombatants is in TURN order: by side,
       // then input order). Carry hull/shield/drones forward (attrition; hull never regens).
       const p = finalCombatants.find((c) => c.id === playerId);
@@ -3502,6 +3513,7 @@ export function tickCaptainPatrol(
     // surviving mission (persisted above) and there is nothing to report yet, so 0 keeps the
     // field meaning "routes in the run that just finished" rather than "routes so far".
     endRoutesCompleted: endReason === null ? 0 : routesThisRun,
+    enemiesDestroyed,
   };
 }
 
@@ -3731,6 +3743,32 @@ export function addToInventory(
 // this is the sole reason to even call .map() below rather than filtering.
 // gameTimeSeconds and the keyed inventory are fleet-wide bookkeeping, each updated
 // exactly once per call (not once per captain).
+// WR-4 (B4, OC-E10): the ships out on a run right now: a captain aboard on a mission or patrol (any phase), or an
+// expedition for the ship that has not come home (phase "complete" = home, awaiting its claim). Pure.
+export function shipsOutOnRuns(state: GameState): Set<string> {
+  const out = new Set<string>();
+  for (const ship of state.ships) {
+    if (ship.assignedCaptainId === null) continue;
+    const captain = state.captains.find((c) => c.id === ship.assignedCaptainId);
+    if (captain && captain.mission !== null) out.add(ship.id);
+  }
+  for (const exp of state.expeditions) if (exp.phase !== "complete") out.add(exp.shipId);
+  return out;
+}
+
+// WR-4 (B4): one call's promotion counter increments per ship: crewHours for every ship out on a run (the call's
+// span in hours) and shipsDestroyed for every ship whose patrol destroyed an enemy. Pure.
+function runCounterIncrements(
+  shipsOnRuns: ReadonlySet<string>,
+  deltaSeconds: number,
+  shipKills: ReadonlyMap<string, number>,
+): Map<string, Partial<Record<PromotionObjectiveKind, number>>> {
+  const inc = new Map<string, Partial<Record<PromotionObjectiveKind, number>>>();
+  if (deltaSeconds > 0) for (const id of shipsOnRuns) inc.set(id, { crewHours: deltaSeconds / 3600 });
+  for (const [id, kills] of shipKills) inc.set(id, { ...(inc.get(id) ?? {}), shipsDestroyed: kills });
+  return inc;
+}
+
 export function economyTick(
   state: GameState,
   ticksElapsed: number,
@@ -3754,6 +3792,12 @@ export function economyTick(
   // gameTimeSeconds increment below, so this is behavior-equivalent to the old
   // inline `state.gameTimeSeconds + deltaSeconds`.
   const deltaSeconds = ticksElapsed * state.tickDurationSeconds;
+  // WR-4 (B4, OC-E10 "crewHours from the officer's ship hours out on any run"): the ships OUT on a run at the start
+  // of this call (a captain mission or patrol, or an expedition not yet home), read from the INCOMING state so the
+  // whole call's span counts once. tick() always steps whole ticks, so one call == many small calls exactly.
+  const shipsOnRuns = shipsOutOnRuns(state);
+  // WR-4 (B4): enemy ships each ship's patrol destroyed this call (officers' shipsDestroyed).
+  const shipKills = new Map<string, number>();
 
   // Crew 0.14.0 (Phase C-3b): the fleet-wide RETIREMENT captain-XP multiplier, computed ONCE from the
   // incoming state (a call-constant, like berthBudget) and passed into each captain's tickCaptainMission
@@ -4042,6 +4086,9 @@ export function economyTick(
           );
           if (routes > 0) {
             shipMissionCompletions.set(patrolShip.id, (shipMissionCompletions.get(patrolShip.id) ?? 0) + routes);
+          }
+          if (patrolResult.enemiesDestroyed > 0) {
+            shipKills.set(patrolShip.id, (shipKills.get(patrolShip.id) ?? 0) + patrolResult.enemiesDestroyed);
           }
         }
         return patrolResult.captain;
@@ -4380,7 +4427,12 @@ export function economyTick(
     // Crew 0.14.0 ("CREW GOES LIVE"): credit each assigned officer with the mission cycles/routes its
     // ship completed this call, feeding the promotion gates. A same-reference no-op when nothing
     // completed or no officer sits a completing ship, so a save with no officers is byte-identical.
-    officers: foldOfficerMissionCompletions(state.officers, shipMissionCompletions),
+    // WR-4 (B4, OC-E10): and with the other promotion counters (hours out on runs, patrol kills). Same-reference
+    // no-op when no officer sits a ship that was out or fought, so an officer-free save is byte-identical.
+    officers: foldOfficerPromotionCounters(
+      foldOfficerMissionCompletions(state.officers, shipMissionCompletions),
+      runCounterIncrements(shipsOnRuns, deltaSeconds, shipKills),
+    ),
     // Flat .plus(), unlike fleetAdminXpDelta (which resolves through
     // applyFleetAdminXp's level-up loop below), credits has no leveling
     // curve to resolve, so the accumulated creditsDelta is applied directly

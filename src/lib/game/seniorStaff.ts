@@ -130,27 +130,28 @@ export interface PromotionObjective {
 // promoted OUT of). Promoting is a CHECKLIST: EVERY objective in the set must be met (canPromoteOfficer).
 // The `missionsCompleted` rows PRESERVE the old single-gate thresholds (Cadet->Ensign @10,
 // Ensign->Lieutenant @30, Lieutenant->LtCommander @75, LtCommander->Commander @150) and the top rung
-// keeps its `personnelAchievement` requirement; the extra shipsDestroyed / crewHours rows are placeholder
-// flavor so the checklist has multiple rows like the mockup. "commander" is absent (top rank, no set).
+// keeps its `personnelAchievement` requirement. Every row is a live counter since WR-4 (see
+// officerPromotionCounter below for what feeds each); the targets stay first-pass. "commander" is absent
+// (top rank, no set).
 export const PROMOTION_OBJECTIVE_SETS: Partial<Record<OfficerRank, readonly PromotionObjective[]>> = {
   cadet: [
     { kind: "missionsCompleted", target: 10, label: "Complete 10 missions" },
-    { kind: "crewHours", target: 50, label: "Command 50 crew-hours" },
+    { kind: "crewHours", target: 50, label: "Command 50 hours on runs" },
   ],
   ensign: [
     { kind: "missionsCompleted", target: 30, label: "Complete 30 missions" },
     { kind: "shipsDestroyed", target: 5, label: "Destroy 5 hostile ships" },
-    { kind: "crewHours", target: 200, label: "Command 200 crew-hours" },
+    { kind: "crewHours", target: 200, label: "Command 200 hours on runs" },
   ],
   lieutenant: [
     { kind: "missionsCompleted", target: 75, label: "Complete 75 missions" },
     { kind: "shipsDestroyed", target: 20, label: "Destroy 20 hostile ships" },
-    { kind: "crewHours", target: 600, label: "Command 600 crew-hours" },
+    { kind: "crewHours", target: 600, label: "Command 600 hours on runs" },
   ],
   lieutenantCommander: [
     { kind: "missionsCompleted", target: 150, label: "Complete 150 missions" },
     { kind: "shipsDestroyed", target: 50, label: "Destroy 50 hostile ships" },
-    { kind: "personnelAchievement", target: 1, label: "Earn a Personnel commendation" },
+    { kind: "personnelAchievement", target: 1, label: "The ship's squads complete 1 objective" },
   ],
 };
 
@@ -179,15 +180,18 @@ export function officerPromotionObjectiveSet(officer: SeniorStaffOfficer): reado
   );
 }
 
-// An officer's CURRENT value for one objective kind. `missionsCompleted` is the ONE LIVE kind: it reads
-// the officer's real, folded counter (crewOverlay.foldOfficerMissionCompletions folds it from the
-// mission cycle counts). Every OTHER kind is DORMANT-STUBBED: it reads the optional additive per-officer
-// `promotionCounters` map, defaulting to 0. Incrementing those counters (shipsDestroyed / crewHours /
-// personnelAchievement) is a LATER WIRING PHASE, exactly as the old mission gate was dormant until the
-// mission-completion fold landed; we never fake an increment here. Pure.
+// An officer's CURRENT value for one objective kind. `missionsCompleted` reads the officer's own folded
+// counter (crewOverlay.foldOfficerMissionCompletions, from the mission cycles and patrol routes). The OTHER
+// kinds read the optional per-officer `promotionCounters` map (absent = 0), fed since WR-4 (B4; user OC-E10
+// "Count the objectives", counters start at 0 with no backfill) by crewOverlay.foldOfficerPromotionCounters:
+//   crewHours            : the hours the officer's ship spends out on any run (missions, patrols, expeditions),
+//                          accrued live by economyTick;
+//   shipsDestroyed       : the enemy ships its patrols destroy (economyTick) and the ship battles its expeditions
+//                          win (at the claim);
+//   personnelAchievement : the objectives the ship's squads complete on an expedition (at the claim). Pure.
 export function officerPromotionCounter(officer: SeniorStaffOfficer, kind: PromotionObjectiveKind): number {
-  if (kind === "missionsCompleted") return officer.missionsCompleted; // LIVE (folded)
-  return officer.promotionCounters?.[kind] ?? 0; // DORMANT until a later wiring phase increments it
+  if (kind === "missionsCompleted") return officer.missionsCompleted;
+  return officer.promotionCounters?.[kind] ?? 0;
 }
 
 // One checklist row's live progress: the objective, the officer's `current` value, and whether it is `met`.

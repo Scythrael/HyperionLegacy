@@ -11,6 +11,7 @@ import {
   REFINE_RECIPES,
   SHIP_TYPES,
   freshState,
+  type AwayMember,
   type CaptainMissionState,
   type GameState,
   type ShipTypeKey,
@@ -34,9 +35,13 @@ import { effectiveShipStats } from "./crewOverlay";
 import { effectiveMissionDef } from "./model";
 import { addItemQuality, itemTotal } from "./inventory";
 import { expeditionCandidates, startExpedition } from "./expedition";
-import { withMinimumAwayTeam } from "./awayTeamTestFixtures";
+import { plainAwayMember, withMinimumAwayTeam, withSlottedAwayTeams } from "./awayTeamTestFixtures";
 import { REQUISITION_CATALOGUE } from "./quartermaster";
-import { withFacilityLevel } from "./wiring/probes";
+import { seatOfficer, withFacilityLevel } from "./wiring/probes";
+import { PATROLS } from "./model";
+import { dispatchCaptainOnPatrol, tick } from "./tick";
+import { advanceExpedition, claimExpedition } from "./expedition";
+import { canPromoteOfficer } from "./seniorStaff";
 import { installMissingCombatBaselines } from "./tick";
 import { equippedFor } from "./equipment";
 import { combatHullTypeOf, shipToCombatant } from "./combat/bridge";
@@ -253,5 +258,81 @@ describe("B14: a battle's turn order is by side, then input order, never by id s
 
   it("the player side acts first (OC-I4: player, then enemies, each in input order)", () => {
     expect(fight("aaa").order).toEqual(["player", "enemy", "enemy"]);
+  });
+});
+
+// ===== B4 / OC-E10: the promotion counters count =====
+
+describe("B4: officer promotion counters are fed (OC-E10), starting at 0", () => {
+  const officerOf = (s: GameState) => s.officers.find((o) => o.assignedShipId === "ship-1")!;
+
+  it("crewHours: the officer's ship's hours out on a run (a mission)", () => {
+    const s0 = seatOfficer(rich(freshState()), "operations", ["ops.cargoExpand"]);
+    expect(officerOf(s0).promotionCounters?.crewHours ?? 0).toBe(0);
+    const r = dispatchCaptainOnMission(s0, 1, "shortOreRun");
+    let s = r.next;
+    const rng = lcg(3);
+    for (let i = 0; i < 3600; i++) s = economyTick(s, 1, rng);
+    expect(officerOf(s).promotionCounters?.crewHours ?? 0).toBeCloseTo(1, 9);
+    // An idle ship's officer gains nothing.
+    let idle = s0;
+    for (let i = 0; i < 600; i++) idle = economyTick(idle, 1, rng);
+    expect(officerOf(idle).promotionCounters?.crewHours ?? 0).toBe(0);
+  });
+
+  it("crewHours: offline equals live (one call, 997 s chunks, 1 s ticks)", () => {
+    const s0 = dispatchCaptainOnMission(seatOfficer(rich(freshState()), "operations", ["ops.cargoExpand"]), 1, "shortOreRun").next;
+    const one = tick(1994, s0, () => 0.5);
+    let chunked = s0;
+    for (let i = 0; i < 2; i++) chunked = tick(997, chunked, () => 0.5);
+    let live = s0;
+    for (let i = 0; i < 1994; i++) live = tick(1, live, () => 0.5);
+    expect(officerOf(one).promotionCounters).toEqual(officerOf(chunked).promotionCounters);
+    expect(officerOf(one).promotionCounters).toEqual(officerOf(live).promotionCounters);
+  });
+
+  it("shipsDestroyed: every enemy a patrol destroys", () => {
+    const s0 = seatOfficer(installMissingCombatBaselines(rich({ ...freshState(), ships: freshState().ships.map((sh) => ({ ...sh, typeKey: "destroyer" as ShipTypeKey })) })), "tactical", ["tac.weaponCommand"]);
+    const r = dispatchCaptainOnPatrol(s0, 1, "crimsonReaverSweep", "balanced", false);
+    expect(r.success).toBe(true);
+    let s = r.next;
+    let waves = 0;
+    for (let i = 0; i < 2000 && s.captains[0].mission !== null; i++) {
+      s = economyTick(s, 1, () => 0.5);
+      const m = s.captains[0].mission;
+      if (m && m.kind === "patrol") waves = m.wavesWon;
+    }
+    expect(waves).toBeGreaterThan(0);
+    // The Sweep fields one enemy per wave (PATROLS enemyCountMin == enemyCountMax == 1), every won wave a kill.
+    expect(PATROLS.crimsonReaverSweep.enemyCountMax).toBe(1);
+    expect(officerOf(s).promotionCounters?.shipsDestroyed).toBe(waves);
+  });
+
+  it("personnelAchievement and shipsDestroyed at an expedition's claim: objectives done and ship battles won", () => {
+    // The wiringGoldens expedition fixture (a squad that finishes its run).
+    const squad: AwayMember[] = [
+      { ...plainAwayMember("member-1", "security", "ship-1"), rank: 3 },
+      { ...plainAwayMember("member-2", "security", "ship-1"), rank: 2, traits: ["fieldMedic"] },
+      plainAwayMember("member-11", "science", "ship-1"),
+    ];
+    const s0 = seatOfficer(withSlottedAwayTeams({ ...freshState(), awayMembers: squad, nextAwayMemberId: 100, expeditionSeed: 0x1234 }), "science", ["sci.discovery"]);
+    const res = startExpedition(s0, "ship-1", 1, expeditionCandidates(s0, "ship-1")[0].id);
+    const done = advanceExpedition(res.expedition!, 2_000_000);
+    expect(done.phase).toBe("complete");
+    const claim = claimExpedition({ ...res.next, expeditions: [done], gameTimeSeconds: 2_000_000 }, done.id);
+    expect(claim.success).toBe(true);
+    const objectives = done.bodies.flatMap((b) => b.activities).filter((a) => a.done).length;
+    const shipWins = (done.scanEvents ?? []).filter((e) => e.kind === "shipEvent" && e.outcome === "win").length;
+    expect(objectives).toBeGreaterThan(0);
+    const counters = officerOf(claim.next).promotionCounters ?? {};
+    expect(counters.personnelAchievement ?? 0).toBe(objectives);
+    expect(counters.shipsDestroyed ?? 0).toBe(shipWins);
+  });
+
+  it("a cadet who meets every row of its checklist can promote", () => {
+    const s0 = seatOfficer(freshState(), "operations", ["ops.cargoExpand"]);
+    const o = { ...officerOf(s0), rank: "cadet" as const, missionsCompleted: 10, promotionCounters: { crewHours: 50 } };
+    expect(canPromoteOfficer(o)).toBe(true);
+    expect(canPromoteOfficer({ ...o, promotionCounters: { crewHours: 49.5 } })).toBe(false);
   });
 });

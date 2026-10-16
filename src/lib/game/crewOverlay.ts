@@ -27,7 +27,7 @@
 // and deterministic in (pool order, caps). See docs/plans/2026-09-22-crew-0.14.0-plan.md
 // ("Engine seams" 1/4/5).
 
-import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat } from "./model";
+import type { GameState, ShipInstance, ShipDerivedStats, SeniorStaffOfficer, CrewSignature, CrewBucket, OfficerCombatMods, SeniorStaffSeat, PromotionObjectiveKind } from "./model";
 import { shipDerivedStats } from "./model";
 import { equippedFor } from "./equipment";
 import { CREW_STAT_KEYS } from "./crewBuffs";
@@ -620,6 +620,34 @@ export function foldOfficerMissionCompletions(
     if (!inc) return o;
     changed = true;
     return { ...o, missionsCompleted: o.missionsCompleted + inc };
+  });
+  return changed ? next : officers;
+}
+
+// WR-4 (B4, OC-E10): add per-ship promotion counter increments (crewHours, shipsDestroyed, personnelAchievement)
+// to the optional promotionCounters of every officer assigned to that ship. The counters start at 0 (an absent map
+// or key reads 0) and nothing is backfilled (user: "Start at 0"). PURE: a fresh officers array, or the SAME
+// reference when no increment touches an assigned officer, so a save with no officers aboard is byte-identical.
+export function foldOfficerPromotionCounters(
+  officers: SeniorStaffOfficer[],
+  incByShip: ReadonlyMap<string, Partial<Record<PromotionObjectiveKind, number>>>,
+): SeniorStaffOfficer[] {
+  if (incByShip.size === 0) return officers;
+  let changed = false;
+  const next = officers.map((o) => {
+    if (o.assignedShipId === null) return o;
+    const inc = incByShip.get(o.assignedShipId);
+    if (!inc) return o;
+    const counters: Partial<Record<PromotionObjectiveKind, number>> = { ...(o.promotionCounters ?? {}) };
+    let touched = false;
+    for (const [kind, amount] of Object.entries(inc) as [PromotionObjectiveKind, number][]) {
+      if (!(amount > 0)) continue;
+      counters[kind] = (counters[kind] ?? 0) + amount;
+      touched = true;
+    }
+    if (!touched) return o;
+    changed = true;
+    return { ...o, promotionCounters: counters };
   });
   return changed ? next : officers;
 }
