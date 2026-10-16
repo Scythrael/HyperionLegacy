@@ -170,3 +170,12 @@ export function blendRunwayEma(prev: number, inst: number, samplesSoFar: number,
   const a = weight === 1 ? alpha : 1 - Math.pow(1 - alpha, weight);
   return a * inst + (1 - a) * prev;
 }
+
+// A fresh loop clock starting at `paidThroughMs`. After a reload this must be the moment the
+// offline catch-up paid THROUGH (its returnedAtMs), not the moment the loop happens to start: the
+// catch-up itself takes real time to compute, and starting later would leave those seconds
+// unpaid forever. Starting exactly there pays them once, on the first poll, and no earlier span
+// is ever paid twice. With no save to catch up, it is simply now.
+export function startLoopClock(paidThroughMs: number): LoopClock {
+  return { cycleStartMs: paidThroughMs, lastPollMs: paidThroughMs, paused: false };
+}

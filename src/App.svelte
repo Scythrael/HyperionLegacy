@@ -879,6 +879,7 @@
     planPoll,
     runPollEconomy,
     paidThroughMs,
+    startLoopClock,
     awayRecapSpan,
     paidTicks,
     blendRunwayEma,
@@ -3048,12 +3049,18 @@
     registerLiveSaveExporter(() => downloadLiveSave(state, createdAt));
 
     const loadedSave = loadFromLocalStorage();
+    // Where the economy is paid through once loading finishes (HOTFIX 0.13.10): the catch-up's
+    // end on a successful load, otherwise now. The loop clock starts HERE (see below).
+    let paidThroughAtLoadMs: number | null = null;
     if (loadedSave) {
       createdAt = loadedSave.createdAt;
       // Captured ONCE and reused for both the span and the catch-up's clock anchor, so the
       // two can never disagree by the few milliseconds two Date.now() calls would differ by.
       const returnedAtMs = Date.now();
       const offlineSeconds = Math.max(0, (returnedAtMs - loadedSave.lastSavedAt) / 1000);
+      // A span of 5 s or less is not caught up below, so the economy is then paid only through the
+      // save itself; the first poll pays that short span instead (never later than now).
+      paidThroughAtLoadMs = offlineSeconds > 5 ? returnedAtMs : Math.min(loadedSave.lastSavedAt, returnedAtMs);
       // ⚠️ INVARIANT: the offline advance is this ONE deterministic call. offline == live
       // hinges on it being byte-identical to the live loop, so we ONLY read state around it
       // (the pre-tick snapshot is loadedSave.state, the post-tick snapshot is `state`) and
@@ -3101,8 +3108,11 @@
     } else {
       pushLog("New save initialized.");
     }
-    const loopStartMs = Date.now();
-    loopClock = { cycleStartMs: loopStartMs, lastPollMs: loopStartMs, paused: false };
+    // ⚠️ HOTFIX 0.13.10: start from where the reload catch-up PAID THROUGH, not from now. The
+    // catch-up takes real time to compute; starting the clock after it would leave those seconds
+    // unpaid (and a save right after load would stamp past them). The first poll pays them, once.
+    const loopStartMs = paidThroughAtLoadMs ?? Date.now();
+    loopClock = startLoopClock(loopStartMs);
     cycle = { barCycleStart: loopStartMs, nowTick: loopStartMs };
 
     // Tick-bar loop, checks the ONE shared fleet-wide cycle's progress every

@@ -10,6 +10,7 @@ import {
   awayRecapSpan,
   paidTicks,
   blendRunwayEma,
+  startLoopClock,
   type LoopClock,
 } from "./loopClock";
 import { tick, UNKNOWN_COMPLETION_TIME_MS } from "./tick";
@@ -373,5 +374,27 @@ describe("paidTicks / blendRunwayEma: the runway EMA weighs a catch-up by what i
     let stepwise = 5;
     for (let i = 0; i < 60; i++) stepwise = 0.1 * 1 + 0.9 * stepwise;
     expect(once).toBeCloseTo(stepwise, 9);
+  });
+});
+
+describe("startLoopClock: the loop starts where the reload catch-up paid through", () => {
+  it("a catch-up that takes 5 s of wall time pays those 5 s exactly once by the next poll", () => {
+    // Saved at T0, reopened (returnedAtMs) an hour later; the catch-up itself takes 5 s to run.
+    const returnedAtMs = T0 + 3_600_000;
+    const caughtUp = tick(3600, missionState(), ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
+    let clock = startLoopClock(returnedAtMs);
+    expect(clock).toEqual({ cycleStartMs: returnedAtMs, lastPollMs: returnedAtMs, paused: false });
+
+    // First poll lands when the catch-up finishes, 5 s later.
+    const r = planPoll(clock, returnedAtMs + 5000, 1, 1);
+    clock = r.clock;
+    if (r.plan.kind !== "advance") throw new Error("expected an advance plan");
+    expect(r.plan.cycles).toBe(5);
+    expect(r.plan.realElapsedSeconds).toBe(5);
+    const live = runPollEconomy(caughtUp, r.plan, ZERO_RNG, UNKNOWN_COMPLETION_TIME_MS);
+    expect(withoutClock(live)).toEqual(withoutClock(tick(3605, missionState(), ZERO_RNG)));
+
+    // And a save right after stamps exactly what is paid, so nothing is paid twice on a reload.
+    expect(paidThroughMs(clock, returnedAtMs + 5000)).toBe(returnedAtMs + 5000);
   });
 });
